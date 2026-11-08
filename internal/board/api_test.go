@@ -3,6 +3,7 @@ package board_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"html"
 	"io"
@@ -39,7 +40,7 @@ func apiSeed(t *testing.T, fx *fixture) {
 		return task
 	}
 	start := func(taskID int64, harness, model, effort string, end, reason string) state.Attempt {
-		a, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: harness, Model: model, Effort: effort, Argv: []string{"/bin/" + harness, "x"}}, "")
+		a, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: harness, Model: model, Effort: effort, Argv: []string{"/bin/" + harness, "x"}}, filepath.Join(t.TempDir(), "worktrees"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,6 +168,9 @@ func TestAPIGolden(t *testing.T) {
 				t.Fatalf("GET %s: %v", c.path, err)
 			}
 			out.WriteByte('\n')
+			if strings.Contains(out.String(), `"worktree":`) || strings.Contains(out.String(), `"launch":`) {
+				t.Fatalf("GET %s returns a host path field:\n%s", c.path, out.String())
+			}
 			file := filepath.Join("testdata", "api", c.name+".json")
 			if os.Getenv("UPDATE_GOLDEN") != "" {
 				if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -188,7 +192,7 @@ func TestAPIGolden(t *testing.T) {
 	}
 }
 
-func TestAPICursorFollowsTheEventSequence(t *testing.T) {
+func TestAPICursorFollowsTheData(t *testing.T) {
 	clock := frozen
 	fx := apiFixture(t, func() time.Time { return clock })
 	h := fx.handler()
@@ -223,11 +227,74 @@ func TestAPICursorFollowsTheEventSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if next.Cursor == env.Cursor {
-		t.Fatal("the cursor did not move with the event sequence")
+		t.Fatal("the cursor did not move with the data")
 	}
 	body := testAPIError(t, request(h, "GET", "/api/v1/status?since=not-a-cursor", nil, true), http.StatusBadRequest, "bad_cursor")
 	if strings.Contains(body.Message, "/") {
 		t.Fatalf("cursor error names a path: %q", body.Message)
+	}
+}
+
+func TestACursorMovesWhenOnlyATranscriptLineArrives(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, before := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+	claudeLog(t, fx, []string{
+		rec("user", ago(20), "status?", 0),
+		rec("assistant", ago(19), "All good.", 0),
+		rec("assistant", ago(1), "A line that arrives without an event.", 0),
+	})
+	rec := request(h, "GET", "/api/v1/timeline?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a new transcript line left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	var next struct {
+		Cursor string          `json:"cursor"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the transcript")
+	}
+	var after board.APITimeline
+	if err := json.Unmarshal(next.Data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Entries) <= len(before.Entries) {
+		t.Fatalf("%d entries before, %d after", len(before.Entries), len(after.Entries))
+	}
+}
+
+func TestACursorMovesWhenOnlyThePaneChanges(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, before := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if before.AgentState != "working" {
+		t.Fatalf("agent state = %q, want working", before.AgentState)
+	}
+	fx.status = "idle"
+	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a pane change left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	var next struct {
+		Cursor string          `json:"cursor"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the pane")
+	}
+	var after board.APIStatus
+	if err := json.Unmarshal(next.Data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.AgentState != "ready" {
+		t.Fatalf("agent state = %q, want ready", after.AgentState)
 	}
 }
 
@@ -243,6 +310,16 @@ func TestAPIAuthContract(t *testing.T) {
 	testAPIError(t, request(h, "GET", "/api/v1/status?token="+token, nil, false), http.StatusUnauthorized, "unauthorized")
 	testAPIError(t, request(h, "POST", "/api/v1/status", url.Values{"csrf": {token}}, true), http.StatusMethodNotAllowed, "method_not_allowed")
 	testAPIError(t, request(h, "GET", "/api/v1/nope", nil, true), http.StatusNotFound, "not_found")
+	foreign := base64.RawURLEncoding.EncodeToString([]byte("f00000000e0bb\x00" + strconv.FormatUint(42, 16)))
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(foreign), nil, true), http.StatusBadRequest, "bad_cursor")
+	head := request(h, "HEAD", "/api/v1/status", nil, true)
+	if head.Code != http.StatusOK || head.Header().Get("X-Hand-Cursor") == "" {
+		t.Fatalf("HEAD /api/v1/status = %d, cursor %q", head.Code, head.Header().Get("X-Hand-Cursor"))
+	}
+	head = request(h, "HEAD", "/api/v1/status?since="+url.QueryEscape(head.Header().Get("X-Hand-Cursor")), nil, true)
+	if head.Code != http.StatusNotModified {
+		t.Fatalf("HEAD with the current cursor = %d", head.Code)
+	}
 
 	forwarded := httptest.NewRequest("GET", "/api/v1/status", nil)
 	forwarded.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
@@ -274,41 +351,171 @@ func TestAPIUnknownRefs(t *testing.T) {
 	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
 	testAPIError(t, request(h, "GET", "/api/v1/task/t999?since="+url.QueryEscape(env.Cursor), nil, true), http.StatusNotFound, "not_found")
 	testAPIError(t, request(h, "GET", "/api/v1/timeline?before=soon", nil, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, request(h, "GET", "/api/v1/timeline?before=-5", nil, true), http.StatusBadRequest, "bad_request")
+}
+
+var apiScreenLeaks = []string{"last_screen", "SECRET-SCREEN-TEXT", "Do you want to proceed?", "Trust this folder?", "Esc to cancel", "Tab to amend"}
+
+var apiFieldLeaks = []string{"last_screen", token}
+
+var apiScreenKinds = map[string]bool{
+	"attempt.blocked":    true,
+	"attempt.limited":    true,
+	"supervisor.blocked": true,
+	"supervisor.limited": true,
+}
+
+func scanAPIBody(t *testing.T, path, body string) {
+	t.Helper()
+	for _, secret := range apiFieldLeaks {
+		if strings.Contains(body, secret) {
+			t.Fatalf("GET %s returns %q:\n%s", path, secret, body)
+		}
+	}
+}
+
+func scanScreenText(t *testing.T, what, detail string) {
+	t.Helper()
+	for _, secret := range apiScreenLeaks {
+		if strings.Contains(detail, secret) {
+			t.Fatalf("%s carries screen text %q: %q", what, secret, detail)
+		}
+	}
+}
+
+func checkFileRefs(t *testing.T, what string, ds []board.APIDeliverable) {
+	t.Helper()
+	for _, d := range ds {
+		if d.Kind != "file" {
+			continue
+		}
+		if strings.ContainsAny(d.Ref, `/\`) || strings.Contains(d.Ref, ":") {
+			t.Fatalf("%s file deliverable names a path: %q", what, d.Ref)
+		}
+	}
+}
+
+func apiRaw(t *testing.T, h http.Handler, path string) string {
+	t.Helper()
+	rec := request(h, "GET", path, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d:\n%s", path, rec.Code, rec.Body.String())
+	}
+	scanAPIBody(t, path, rec.Body.String())
+	return rec.Body.String()
 }
 
 func TestAPINeverReturnsScreenText(t *testing.T) {
-	fx := apiFixture(t, func() time.Time { return frozen })
-	fx.panes = map[string]string{"2": "blocked"}
-	fx.hint = "Esc to cancel · Tab to amend"
-	fx.screen = "SECRET-SCREEN-TEXT\nDo you want to proceed?\n❯ 1. Yes\n  2. No"
-	h := fx.handler()
-	for _, c := range []string{
-		"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks",
-		"/api/v1/task/t1", "/api/v1/attempt/a1", "/api/v1/decision/d1", "/api/v1/report/r1",
-	} {
-		rec := request(h, "GET", c, nil, true)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET %s = %d:\n%s", c, rec.Code, rec.Body.String())
+	t.Run("fixture", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		fx.panes = map[string]string{"2": "blocked"}
+		fx.status = "blocked"
+		fx.hint = "Esc to cancel · Tab to amend"
+		fx.screen = permission
+		ctx := context.Background()
+		if err := fx.st.NoteAttempt(ctx, 1, "blocked", harness.ClaudeTitle(permission)); err != nil {
+			t.Fatal(err)
 		}
-		for _, secret := range []string{"last_screen", "SECRET-SCREEN-TEXT", "Do you want to proceed?", "Trust this folder?", token} {
-			if strings.Contains(rec.Body.String(), secret) {
-				t.Fatalf("GET %s returns %q:\n%s", c, secret, rec.Body.String())
+		if err := fx.st.NoteAttempt(ctx, 1, "limited", "You've hit your limit · resets 3pm"); err != nil {
+			t.Fatal(err)
+		}
+		h := fx.handler()
+		for _, c := range []string{
+			"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks",
+			"/api/v1/task/t1", "/api/v1/attempt/a1", "/api/v1/decision/d1", "/api/v1/report/r1",
+		} {
+			rec := request(h, "GET", c, nil, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d:\n%s", c, rec.Code, rec.Body.String())
+			}
+			scanAPIBody(t, c, rec.Body.String())
+			scanScreenText(t, c, rec.Body.String())
+		}
+		_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
+		blocked := 0
+		for _, item := range status.Needs.Items {
+			if item.Kind != "blocked" && item.Kind != "worker" && item.Kind != "limited" {
+				continue
+			}
+			blocked++
+			if item.Title != "" {
+				t.Fatalf("%s item carries screen text: %+v", item.Kind, item)
+			}
+		}
+		if blocked == 0 {
+			t.Fatal("the fixture has no blocked item")
+		}
+	})
+	for _, sc := range scenes() {
+		t.Run(sc.name, func(t *testing.T) {
+			fx, h := sceneHandler(t, sc)
+			if !fx.options.Controls {
+				return
+			}
+			apiRaw(t, h, "/api/v1/status")
+			apiRaw(t, h, "/api/v1/timeline")
+			apiRaw(t, h, "/api/v1/tasks")
+			_, tasks := apiInto[board.APITasks](t, h, "/api/v1/tasks")
+			for _, g := range tasks.Groups {
+				for _, row := range g.Tasks {
+					apiRaw(t, h, "/api/v1/task/"+row.Ref)
+					_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+row.Ref)
+					checkFileRefs(t, "task "+row.Ref, detail.Delivered)
+					for _, e := range detail.Events {
+						scanScreenText(t, "/api/v1/task/"+row.Ref+" events", e.Detail)
+						if apiScreenKinds[e.Kind] && e.Detail != "" {
+							t.Fatalf("%s event carries screen text: %q", e.Kind, e.Detail)
+						}
+					}
+					for _, a := range detail.Attempts {
+						body := apiRaw(t, h, "/api/v1/attempt/"+a.Ref)
+						if strings.Contains(body, `"worktree":`) || strings.Contains(body, `"launch":`) || strings.Contains(body, "/w/") {
+							t.Fatalf("GET /api/v1/attempt/%s returns a host path:\n%s", a.Ref, body)
+						}
+						_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/"+a.Ref)
+						checkFileRefs(t, "attempt "+a.Ref, attempt.Delivered)
+						for _, e := range attempt.Events {
+							scanScreenText(t, "/api/v1/attempt/"+a.Ref+" events", e.Detail)
+							if apiScreenKinds[e.Kind] && e.Detail != "" {
+								t.Fatalf("%s event carries screen text: %q", e.Kind, e.Detail)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAPIComposedTextLosesHostPaths(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	if _, _, err := fx.st.Deliver(ctx, 1, "/very/long/path/reports/t1/design.md"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.EndAttempt(ctx, 1, state.AttemptStopped, "launch did not finish at /very/long/path/worktrees/t1-a1"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/t1")
+	var delivered bool
+	for _, e := range detail.Events {
+		if strings.Contains(e.Detail, "/very/long") {
+			t.Fatalf("%s event names a host path: %q", e.Kind, e.Detail)
+		}
+		if e.Kind == "task.delivered" {
+			delivered = true
+			if e.Detail != "design.md" {
+				t.Fatalf("delivered event detail = %q, want the file name", e.Detail)
 			}
 		}
 	}
-	_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
-	blocked := 0
-	for _, item := range status.Needs.Items {
-		if item.Kind != "blocked" && item.Kind != "worker" && item.Kind != "limited" {
-			continue
-		}
-		blocked++
-		if item.Title != "" || item.Note != "" {
-			t.Fatalf("%s item carries screen text: %+v", item.Kind, item)
-		}
+	if !delivered {
+		t.Fatal("the fixture has no delivered event")
 	}
-	if blocked == 0 {
-		t.Fatal("the fixture has no blocked item")
+	_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/a1")
+	if strings.Contains(attempt.Attempt.Reason, "/very/long") || !strings.Contains(attempt.Attempt.Reason, "t1-a1") {
+		t.Fatalf("attempt reason = %q", attempt.Attempt.Reason)
 	}
 }
 
@@ -343,26 +550,31 @@ func TestAPIThroughTheFleetPrefix(t *testing.T) {
 	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
 }
 
-func TestWebAndAPIAgree(t *testing.T) {
+func sceneHandler(t *testing.T, sc scene) (*fixture, http.Handler) {
+	t.Helper()
 	codex := t.TempDir()
 	_ = os.WriteFile(filepath.Join(codex, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},{"slug":"gpt-6","supported_reasoning_levels":[{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]}]}`), 0o644)
 	policy, _ := json.Marshal(harness.StarterPolicy)
+	fx := newFixture(t)
+	fx.st = openNow(t, sc.id)
+	fx.options.Harness.CodexHome = codex
+	fx.options.Home = sceneHome(t, sc.id)
+	fx.options.Base = ""
+	fx.options.Tick = 2 * time.Second
+	fx.options.Now = func() time.Time { return frozen }
+	fx.options.Controls = sc.name != "network"
+	_ = os.WriteFile(filepath.Join(fx.options.Home, harness.PolicyFile), policy, 0o644)
+	sc.build(t, fx)
+	if _, err := fx.st.RenameFleet(context.Background(), sc.name); err != nil {
+		t.Fatal(err)
+	}
+	return fx, fx.handler()
+}
+
+func TestWebAndAPIAgree(t *testing.T) {
 	for _, sc := range scenes() {
 		t.Run(sc.name, func(t *testing.T) {
-			fx := newFixture(t)
-			fx.st = openNow(t, sc.id)
-			fx.options.Harness.CodexHome = codex
-			fx.options.Home = sceneHome(t, sc.id)
-			fx.options.Base = ""
-			fx.options.Tick = 2 * time.Second
-			fx.options.Now = func() time.Time { return frozen }
-			fx.options.Controls = sc.name != "network"
-			_ = os.WriteFile(filepath.Join(fx.options.Home, harness.PolicyFile), policy, 0o644)
-			sc.build(t, fx)
-			if _, err := fx.st.RenameFleet(context.Background(), sc.name); err != nil {
-				t.Fatal(err)
-			}
-			h := fx.handler()
+			fx, h := sceneHandler(t, sc)
 			if !fx.options.Controls {
 				testAPIError(t, request(h, "GET", "/api/v1/status", nil, true), http.StatusForbidden, "forbidden")
 				return
@@ -443,10 +655,15 @@ func TestWebAndAPIAgree(t *testing.T) {
 			if sup != strings.Count(page, `class="card from-sup"`) || you != strings.Count(page, `class="card from-you"`) {
 				t.Fatalf("timeline HTML sup=%d you=%d, API sup=%d you=%d", strings.Count(page, `class="card from-sup"`), strings.Count(page, `class="card from-you"`), sup, you)
 			}
+			if (timeline.Working != nil) != strings.Contains(page, `class="working"`) {
+				t.Fatalf("timeline working = %v, HTML = %v", timeline.Working != nil, strings.Contains(page, `class="working"`))
+			}
 
-			for i, row := range taskRows {
-				if i == 2 {
-					break
+			for _, row := range taskRows {
+				if row.Status == state.StatusDone || row.Status == state.StatusAbandoned {
+					if row.FinishedAt == "" {
+						t.Fatalf("task %s is %s but its row has no finished_at", row.Ref, row.Status)
+					}
 				}
 				detailPage := get(t, h, "/task/"+row.Ref)
 				_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+row.Ref)
@@ -459,8 +676,32 @@ func TestWebAndAPIAgree(t *testing.T) {
 				if got, want := strings.Count(detailPage, `class="row wrap decision"`), len(detail.Decisions); got != want {
 					t.Fatalf("task %s has %d decisions in HTML, %d in API", row.Ref, got, want)
 				}
+				if (detail.Plan != nil) != strings.Contains(detailPage, `data-role="plan"`) {
+					t.Fatalf("task %s plan = %v, HTML = %v", row.Ref, detail.Plan != nil, strings.Contains(detailPage, `data-role="plan"`))
+				}
+				if (detail.Waits != nil) != strings.Contains(detailPage, "Waits until") {
+					t.Fatalf("task %s waits = %v, HTML = %v", row.Ref, detail.Waits != nil, strings.Contains(detailPage, "Waits until"))
+				}
+				for _, d := range detail.Delivered {
+					if !strings.Contains(detailPage, html.EscapeString(d.Ref)) {
+						t.Fatalf("task %s deliverable %q is not in its page", row.Ref, d.Ref)
+					}
+				}
 				if got, want := strings.Count(detailPage, `class="row check"`), len(detail.Attempts); got != want {
 					t.Fatalf("task %s has %d attempts in HTML, %d in API", row.Ref, got, want)
+				}
+				if got, want := strings.Count(detailPage, `<li class="event">`), len(detail.Events); got != want {
+					t.Fatalf("task %s has %d events in HTML, %d in API", row.Ref, got, want)
+				}
+				for _, e := range detail.Events {
+					if !strings.Contains(detailPage, `datetime="`+e.At+`"`) || !strings.Contains(detailPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
+						t.Fatalf("task %s event %d is not in its page", row.Ref, e.Seq)
+					}
+				}
+				for _, a := range detail.Attempts {
+					if a.Ref == row.Ref || !strings.Contains(detailPage, `/attempt/`+a.Ref) {
+						t.Fatalf("task %s attempt row names %s", row.Ref, a.Ref)
+					}
 				}
 			}
 
@@ -476,7 +717,11 @@ func TestWebAndAPIAgree(t *testing.T) {
 				if got, want := strings.Count(attemptPage, `class="card report"`), len(attempt.Reports); got != want {
 					t.Fatalf("attempt %s has %d reports in HTML, %d in API", row.Attempt.Ref, got, want)
 				}
-				break
+				for _, e := range attempt.Events {
+					if !strings.Contains(attemptPage, `datetime="`+e.At+`"`) || !strings.Contains(attemptPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
+						t.Fatalf("attempt %s event %d is not in its page", row.Attempt.Ref, e.Seq)
+					}
+				}
 			}
 
 			for _, item := range status.Needs.Items {
@@ -488,7 +733,6 @@ func TestWebAndAPIAgree(t *testing.T) {
 				if !strings.Contains(decisionPage, html.EscapeString(decision.Decision.Headline)) || !strings.Contains(decisionPage, decision.Decision.Status) || !strings.Contains(decisionPage, html.EscapeString(decision.Task.Title)) {
 					t.Fatalf("decision %s disagrees with its page", item.Decision)
 				}
-				break
 			}
 			for _, item := range status.Needs.Items {
 				if item.Report == "" {
@@ -499,7 +743,6 @@ func TestWebAndAPIAgree(t *testing.T) {
 				if !strings.Contains(reportPage, `id="`+item.Report+`"`) || !strings.Contains(reportPage, html.EscapeString(report.Task.Title)) {
 					t.Fatalf("report %s disagrees with its task page", item.Report)
 				}
-				break
 			}
 		})
 	}

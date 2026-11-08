@@ -16,7 +16,7 @@ A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`
 
 A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
 
-v1 has no mutation. `POST`, `PUT`, `PATCH` and `DELETE` get `405` with `method_not_allowed`. A later mutation will need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie.
+v1 has no mutation. `POST`, `PUT`, `PATCH` and `DELETE` get `405` with `method_not_allowed` once the request carries a valid session; without one they get the `401` above first. A later mutation will need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie.
 
 ## Envelope
 
@@ -44,11 +44,11 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. It encodes the fleet and the event sequence the board had read when it built the response; it is not a timestamp.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. It encodes the fleet and a fingerprint of that response's `data`, including the facts the board reads outside its database (the harness transcript and the pane), so it is not a timestamp and not just an event sequence.
 
 - No `?since=`: always `200` with the full data.
-- `?since=` equal to what the board has now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first; it costs one query.
-- `?since=` from before an event: `200` with the new data and a new cursor.
+- `?since=` equal to the fingerprint the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first; the board rebuilds the page's data to fingerprint it, so a poll costs a read, not a body.
+- `?since=` from before any change to that data: `200` with the new data and a new cursor.
 - A cursor this board did not issue (another fleet, a typo, a truncated value): `400` with `bad_cursor`.
 
 Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of reading the envelope.
@@ -61,7 +61,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/task/{tN}` | `TaskDetail`: task, plan, delivered, waits, open and all decisions, unread and recent reports, attempts, events | `/task/tN` |
-| `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, launch, duration, reports, events, delivered, transcript | `/attempt/aN` |
+| `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, model_note, duration, reports, events, delivered, transcript | `/attempt/aN` |
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
 | `GET /api/v1/report/{rN}` | `ReportDetail`: report, task | the report's card on `/task/tN` |
 
@@ -69,7 +69,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 
 `/api/v1/tasks` is the fleet page's list (active and inbox tasks plus the five most recent finished ones), not the searchable Tasks page; `all=1` shows the finished tasks too. The archive and its search are not in v1.
 
-`before` must be a message number; anything else is `400` with `bad_request`.
+`before` must be a non-negative message number; a word, a negative value or any other form is `400` with `bad_request`.
 
 ### `Status.data`
 
@@ -98,7 +98,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 }
 ```
 
-`supervisor` is absent when no supervisor exists. `needs.items` follows the page's order and carries the same `kind`, `ref`, `word` and `tone` (`blocked`, `worker`, `failure`, `limited`, `nosup`, `stalled`, `resume`, `decision`, `report`, `quiet`, `long`, `kept`, `artifacts`). `cleared` and `summary` appear when the page shows "All clear". For a `blocked`, `worker` or `limited` item, `title` and `note` are absent because they come from a terminal screen; use `ref`, `kind` and the attempt or supervisor detail instead.
+`supervisor` is absent when no supervisor exists. `needs.items` follows the page's order and carries the same `kind`, `ref`, `word` and `tone` (`blocked`, `worker`, `failure`, `limited`, `nosup`, `stalled`, `resume`, `decision`, `report`, `quiet`, `long`, `kept`, `artifacts`). `cleared` and `summary` appear when the page shows "All clear". For a `blocked`, `worker` or `limited` item, and for a `quiet` item whose detail is a harness API error, `title` is absent because it comes from a terminal screen; use `ref`, `kind` and the attempt or supervisor detail instead.
 
 ### `Timeline.data`
 
@@ -110,9 +110,11 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 
 ### Detail data
 
-`TaskDetail` has `task`, `pill`, `plan`, `delivered`, `waits`, `open_decisions`, `decisions`, `unread`, `reports`, `more_reports`, `attempts`, `events`, `more_events`. `AttemptDetail` has `attempt`, `task`, `state`, `brief`, `launch`, `model_note`, `duration`, `reports`, `events`, `delivered`, and `transcript` (`shown`, `more`, `note`, `model`, `answered`, `turns`; a turn is `role`, `text`, `at`, `queued`). `DecisionDetail` has `decision`, `task`, `body` (the prose below its options) and `options` (`key`, `label`, `note`, `value`, `recommended`, `other`, `long`). `ReportDetail` has `report` and `task`.
+`TaskDetail` has `task`, `pill`, `plan`, `delivered`, `waits`, `open_decisions`, `decisions`, `unread`, `reports`, `more_reports`, `attempts`, `events`, `more_events`. A `TaskDetail`'s `attempts` rows are attempt objects with an extra `state` (`running`, `failing`, `passing`, `idle`), and each row's `ref` is the attempt. `AttemptDetail` has `attempt`, `task`, `state`, `brief`, `model_note`, `duration`, `reports`, `events`, `delivered`, and `transcript` (`shown`, `more`, `note`, `model`, `answered`, `turns`; a turn is `role`, `text`, `at`, `queued`). `DecisionDetail` has `decision`, `task`, `body` (the prose below its options) and `options` (`key`, `label`, `note`, `value`, `recommended`, `other`, `long`). `ReportDetail` has `report` and `task`.
 
 Every ref in a detail is the same `tN`, `aN`, `rN`, `dN`, `sN` the pages and the CLI use. Attempt and report objects carry the full `body` and `question` as written; the board does not render Markdown in the API.
+
+The API never returns a host path. An attempt carries its `branch` but not its worktree or launch command; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's failure `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
 
 ## Errors
 
@@ -129,7 +131,7 @@ Every error is this shape, not an envelope:
 | `401` | `unauthorized` | no valid board session |
 | `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, or v1 on a network-address board |
 | `404` | `not_found` | an unknown route or ref |
-| `405` | `method_not_allowed` | anything but `GET` or `HEAD` |
+| `405` | `method_not_allowed` | with a valid session, anything but `GET` or `HEAD` |
 | `409` | `conflict` | a state conflict while reading |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |

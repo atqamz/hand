@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"hash/fnv"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -83,7 +84,6 @@ type APINeed struct {
 	CreatedAt string `json:"created_at,omitempty"`
 	Excerpt   string `json:"excerpt,omitempty"`
 	Cut       bool   `json:"cut,omitempty"`
-	Note      string `json:"note,omitempty"`
 }
 
 type APINeeds struct {
@@ -176,7 +176,6 @@ type APIAttempt struct {
 	Status    string `json:"status"`
 	Reason    string `json:"reason,omitempty"`
 	Branch    string `json:"branch,omitempty"`
-	Worktree  string `json:"worktree,omitempty"`
 	Continues string `json:"continues,omitempty"`
 	Approve   string `json:"approve,omitempty"`
 	Access    string `json:"access,omitempty"`
@@ -197,6 +196,11 @@ type APITaskRow struct {
 	Delivered  *APIDeliverable `json:"delivered,omitempty"`
 	Waits      *APIWaits       `json:"waits,omitempty"`
 	FinishedAt string          `json:"finished_at,omitempty"`
+}
+
+type APIAttemptRow struct {
+	APIAttempt
+	State string `json:"state"`
 }
 
 type APITaskGroup struct {
@@ -274,7 +278,7 @@ type APITaskDetail struct {
 	Unread        []APIReport      `json:"unread"`
 	Reports       []APIReport      `json:"reports"`
 	MoreReports   bool             `json:"more_reports"`
-	Attempts      []APITaskRow     `json:"attempts"`
+	Attempts      []APIAttemptRow  `json:"attempts"`
 	Events        []APIEvent       `json:"events"`
 	MoreEvents    bool             `json:"more_events"`
 }
@@ -300,7 +304,6 @@ type APIAttemptDetail struct {
 	Task        APITask          `json:"task"`
 	State       string           `json:"state"`
 	Brief       string           `json:"brief,omitempty"`
-	Launch      string           `json:"launch,omitempty"`
 	ModelNote   string           `json:"model_note,omitempty"`
 	Duration    string           `json:"duration"`
 	Reports     []APIReport      `json:"reports"`
@@ -357,7 +360,7 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -366,16 +369,18 @@ func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx, q := r.Context(), r.URL.Query()
-	if _, err := strconv.Atoi(q.Get("before")); q.Get("before") != "" && err != nil {
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "before must be a message number")
-		return
+	if s := q.Get("before"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n < 0 {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", "before must be a message number")
+			return
+		}
 	}
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -384,12 +389,12 @@ func (b *Board) apiTimeline(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -398,7 +403,7 @@ func (b *Board) apiTasks(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
@@ -412,7 +417,7 @@ func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -421,7 +426,7 @@ func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiAttempt(w http.ResponseWriter, r *http.Request) {
@@ -435,7 +440,7 @@ func (b *Board) apiAttempt(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -444,7 +449,7 @@ func (b *Board) apiAttempt(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiDecision(w http.ResponseWriter, r *http.Request) {
@@ -458,7 +463,7 @@ func (b *Board) apiDecision(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -467,7 +472,7 @@ func (b *Board) apiDecision(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
@@ -481,7 +486,7 @@ func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, seq, ok := b.apiSince(w, r)
+	f, since, ok := b.apiSince(w, r)
 	if !ok {
 		return
 	}
@@ -490,53 +495,53 @@ func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, seq, data)
+	b.apiOK(w, f, since, data)
 }
 
 func (b *Board) apiUnknown(w http.ResponseWriter, r *http.Request) {
 	b.apiFail(w, http.StatusNotFound, "not_found", "there is no such API route")
 }
 
-func (b *Board) apiSince(w http.ResponseWriter, r *http.Request) (state.Fleet, int64, bool) {
+func (b *Board) apiSince(w http.ResponseWriter, r *http.Request) (state.Fleet, string, bool) {
 	f, err := b.st.Fleet(r.Context())
 	if err != nil {
 		b.apiFailErr(w, err)
-		return state.Fleet{}, 0, false
-	}
-	seq, err := b.st.LastEventSeq(r.Context())
-	if err != nil {
-		b.apiFailErr(w, err)
-		return state.Fleet{}, 0, false
+		return state.Fleet{}, "", false
 	}
 	since := strings.TrimSpace(r.URL.Query().Get("since"))
 	if since == "" {
-		return f, seq, true
+		return f, "", true
 	}
-	n, ok := apiDecodeCursor(f.ID, since)
-	if !ok {
+	if !apiDecodeCursor(f.ID, since) {
 		b.apiFail(w, http.StatusBadRequest, "bad_cursor", "the change cursor is not one this board issued")
-		return state.Fleet{}, 0, false
+		return state.Fleet{}, "", false
 	}
-	if n == seq {
-		w.Header().Set("X-Hand-Cursor", apiEncodeCursor(f.ID, seq))
-		w.WriteHeader(http.StatusNotModified)
-		return state.Fleet{}, 0, false
-	}
-	return f, seq, true
+	return f, since, true
 }
 
-func (b *Board) apiOK(w http.ResponseWriter, f state.Fleet, seq int64, data any) {
-	cursor := apiEncodeCursor(f.ID, seq)
+func (b *Board) apiOK(w http.ResponseWriter, f state.Fleet, since string, data any) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	sum := fnv.New64a()
+	_, _ = sum.Write(raw)
+	cursor := apiEncodeCursor(f.ID, sum.Sum64())
+	w.Header().Set("X-Hand-Cursor", cursor)
+	if since != "" && since == cursor {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Hand-Cursor", cursor)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(APIEnvelope{
 		Version:     apiVersion,
 		Fleet:       APIFleet{ID: f.ID, Name: f.Name},
 		Cursor:      cursor,
 		GeneratedAt: b.now().UTC().Format(time.RFC3339Nano),
-		Data:        data,
+		Data:        json.RawMessage(raw),
 	})
 }
 
@@ -574,21 +579,21 @@ func apiCode(status int) string {
 	return "internal"
 }
 
-func apiEncodeCursor(fleet string, seq int64) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(fleet + "\x00" + strconv.FormatInt(seq, 10)))
+func apiEncodeCursor(fleet string, sum uint64) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fleet + "\x00" + strconv.FormatUint(sum, 16)))
 }
 
-func apiDecodeCursor(fleet, cursor string) (int64, bool) {
+func apiDecodeCursor(fleet, cursor string) bool {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return 0, false
+		return false
 	}
 	id, text, ok := strings.Cut(string(raw), "\x00")
 	if !ok || id != fleet {
-		return 0, false
+		return false
 	}
-	seq, err := strconv.ParseInt(text, 10, 64)
-	return seq, err == nil && seq >= 0
+	_, err = strconv.ParseUint(text, 16, 64)
+	return err == nil
 }
 
 func (b *Board) apiStatusData(ctx context.Context) (APIStatus, error) {
@@ -694,7 +699,7 @@ func (b *Board) apiTaskData(ctx context.Context, id int64) (APITaskDetail, error
 		Decisions:     make([]APIDecision, 0, len(v.Decisions)),
 		Unread:        make([]APIReport, 0, len(v.Unread)),
 		Reports:       make([]APIReport, 0, len(v.Reports)),
-		Attempts:      make([]APITaskRow, 0, len(v.Attempts)),
+		Attempts:      make([]APIAttemptRow, 0, len(v.Attempts)),
 		Events:        make([]APIEvent, 0, len(v.Events)),
 		MoreReports:   v.MoreReports,
 		MoreEvents:    v.MoreEvents,
@@ -723,7 +728,7 @@ func (b *Board) apiTaskData(ctx context.Context, id int64) (APITaskDetail, error
 		out.Reports = append(out.Reports, apiReport(r))
 	}
 	for _, c := range v.Attempts {
-		out.Attempts = append(out.Attempts, apiRow(c))
+		out.Attempts = append(out.Attempts, apiAttemptRow(c))
 	}
 	for _, e := range v.Events {
 		out.Events = append(out.Events, apiEvent(e))
@@ -741,7 +746,6 @@ func (b *Board) apiAttemptData(ctx context.Context, id int64) (APIAttemptDetail,
 		Task:        apiTask(v.Task),
 		State:       v.State,
 		Brief:       v.Brief,
-		Launch:      v.Launch,
 		ModelNote:   v.ModelNote,
 		Duration:    v.Duration,
 		Reports:     make([]APIReport, 0, len(v.Reports)),
@@ -840,7 +844,9 @@ func apiNeed(w waiting) APINeed {
 	switch w.Kind {
 	case "blocked", "worker", "limited":
 	default:
-		out.Title, out.Note = w.Title, w.Note
+		if !strings.HasPrefix(w.Title, "api error: ") {
+			out.Title = w.Title
+		}
 	}
 	if w.Task.ID != 0 {
 		out.Task = state.TaskRef(w.Task.ID)
@@ -893,7 +899,7 @@ func apiRow(c check) APITaskRow {
 		Status:     c.Task.Status,
 		State:      c.State,
 		Agent:      c.Agent,
-		FinishedAt: c.At,
+		FinishedAt: c.FinishedAt,
 	}
 	if c.Attempt != nil {
 		a := apiAttempt(*c.Attempt)
@@ -906,6 +912,14 @@ func apiRow(c check) APITaskRow {
 	if c.Waits != nil {
 		w := apiWaits(*c.Waits)
 		out.Waits = &w
+	}
+	return out
+}
+
+func apiAttemptRow(c check) APIAttemptRow {
+	out := APIAttemptRow{State: c.State}
+	if c.Attempt != nil {
+		out.APIAttempt = apiAttempt(*c.Attempt)
 	}
 	return out
 }
@@ -931,9 +945,8 @@ func apiAttempt(a state.Attempt) APIAttempt {
 		Model:     a.Model,
 		Effort:    a.Effort,
 		Status:    a.Status,
-		Reason:    a.Reason,
+		Reason:    Scrub(a.Reason),
 		Branch:    a.Branch,
-		Worktree:  a.Worktree,
 		Approve:   a.Approve,
 		Access:    a.Access,
 		CreatedAt: a.CreatedAt,
@@ -976,8 +989,18 @@ func apiReport(r state.Report) APIReport {
 	}
 }
 
+var screenKinds = map[string]bool{
+	"attempt.blocked":    true,
+	"attempt.limited":    true,
+	"supervisor.blocked": true,
+	"supervisor.limited": true,
+}
+
 func apiEvent(e state.Event) APIEvent {
-	out := APIEvent{Seq: e.Seq, At: e.At, Kind: e.Kind, Detail: e.Detail}
+	out := APIEvent{Seq: e.Seq, At: e.At, Kind: e.Kind}
+	if !screenKinds[e.Kind] && !strings.Contains(e.Detail, "api error: ") {
+		out.Detail = Scrub(e.Detail)
+	}
 	if e.TaskID != 0 {
 		out.Task = state.TaskRef(e.TaskID)
 	}
@@ -989,6 +1012,9 @@ func apiPlan(p state.Plan) APIPlan {
 }
 
 func apiDeliverable(d Deliverable) APIDeliverable {
+	if d.Kind == "file" {
+		d.Ref = base(d.Ref)
+	}
 	return APIDeliverable{Ref: d.Ref, Kind: d.Kind, Href: d.Href}
 }
 
