@@ -167,7 +167,7 @@ func readBoardToken(path string) (string, error) {
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("board.token cannot be read: %w", err)
+		return "", fmt.Errorf("board.token cannot be read: %w; open it once with `hand open` in that fleet", err)
 	}
 	token := strings.TrimSpace(string(b))
 	if len(token) != 48 {

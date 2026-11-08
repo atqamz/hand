@@ -294,7 +294,7 @@ func TestATokenlessFleetIsNamedInTheError(t *testing.T) {
 	app := desktop.New(func() (desktop.ReadModel, error) { return c, nil })
 	app.Boot()
 	tt := newTester(app)
-	mustText(t, tt, fleetID, "no board.token", "hand open")
+	mustText(t, tt, "fleet "+fleetID+": no board.token", "hand open")
 	mustNotText(t, tt, "no fleets are registered")
 }
 
@@ -315,6 +315,35 @@ func TestALocalTokenMustBeAToken(t *testing.T) {
 	}
 	if _, err := c.Token(fleetID); err == nil || !strings.Contains(err.Error(), "not a board token") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAnUnreadableTokenStaysListedWithTheFix(t *testing.T) {
+	root := t.TempDir()
+	home, _ := writeLocal(t, root)
+	token := filepath.Join(home, "board.token")
+	if err := os.Remove(token); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(token, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c, err := desktop.NewLocal(func(key string) string {
+		if key == "SECONDHAND_HOME" {
+			return root
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fleets := c.Fleets(); len(fleets) != 1 || fleets[0].ID != fleetID {
+		t.Fatalf("fleets = %+v", fleets)
+	}
+	if _, err := c.Token(fleetID); err == nil ||
+		!strings.Contains(err.Error(), "board.token cannot be read") ||
+		!strings.Contains(err.Error(), "hand open") {
+		t.Fatalf("token error = %v", err)
 	}
 }
 
