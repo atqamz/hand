@@ -902,11 +902,16 @@ func apiWakeText(text string) string {
 			}
 			continue
 		}
-		_, rest, _ := strings.Cut(line, " ")
-		ref, detail, has := strings.Cut(rest, ": ")
-		drop = screenKinds[kind] || (has && strings.Contains(detail, "api error: "))
-		if drop && has {
-			out = append(out, kind+" "+ref)
+		rest := strings.TrimLeft(strings.TrimPrefix(line, kind), " \t")
+		end := strings.IndexAny(rest, " \t:")
+		if end < 0 {
+			end = len(rest)
+		}
+		ref := rest[:end]
+		detail := strings.TrimLeft(rest[end:], " \t:")
+		drop = screenKinds[kind] || strings.Contains(detail, "api error: ")
+		if drop {
+			out = append(out, strings.TrimSpace(kind+" "+ref))
 		} else {
 			out = append(out, line)
 		}

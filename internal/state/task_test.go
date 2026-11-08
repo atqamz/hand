@@ -281,17 +281,30 @@ func TestSearchTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(all) != 4 {
+		t.Fatalf("done tasks = %+v", all)
+	}
+	wantFinished := map[string]string{
+		"t1": "2026-10-01T12:00:00Z",
+		"t2": "2026-10-02T12:00:00Z",
+		"t3": "2026-10-03T12:00:00Z",
+		"t4": "2026-10-04T12:00:00Z",
+	}
 	for _, task := range all {
-		if task.FinishedAt == "" {
-			t.Errorf("%s finished time is empty", TaskRef(task.ID))
+		want, ok := wantFinished[TaskRef(task.ID)]
+		if !ok {
+			t.Fatalf("unexpected done task %s", TaskRef(task.ID))
 		}
-	}
-	now, err := s.Task(ctx, all[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if now.FinishedAt != all[0].FinishedAt {
-		t.Errorf("Task finished at = %q, Tasks = %q", now.FinishedAt, all[0].FinishedAt)
+		if task.FinishedAt != want {
+			t.Errorf("%s finished at = %q, want %q", TaskRef(task.ID), task.FinishedAt, want)
+		}
+		one, err := s.Task(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if one.FinishedAt != want {
+			t.Errorf("Task(%s) finished at = %q, want %q", TaskRef(task.ID), one.FinishedAt, want)
+		}
 	}
 	openTasks, err := s.Tasks(ctx, []string{StatusInbox}, 10)
 	if err != nil {

@@ -351,6 +351,10 @@ func TestAPIAuthContract(t *testing.T) {
 	fleet, _, _ := strings.Cut(string(raw), "\x00")
 	forged := base64.RawURLEncoding.EncodeToString([]byte(fleet+"\x0000")) + "." + tag
 	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(forged), nil, true), http.StatusBadRequest, "bad_cursor")
+	_, sum, _ := strings.Cut(string(raw), "\x00")
+	n, _ := strconv.ParseUint(sum, 16, 64)
+	tampered := base64.RawURLEncoding.EncodeToString([]byte(fleet+"\x00"+strconv.FormatUint(n+1, 16))) + "." + tag
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(tampered), nil, true), http.StatusBadRequest, "bad_cursor")
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	last := strings.IndexByte(alphabet, tag[len(tag)-1])
 	if last < 0 || last+1 >= len(alphabet) {
@@ -387,6 +391,47 @@ func TestAPIAuthContract(t *testing.T) {
 
 	network := board.New(fx.st, token, board.Options{Now: func() time.Time { return frozen }})
 	testAPIError(t, request(network, "GET", "/api/v1/status", nil, true), http.StatusForbidden, "forbidden")
+}
+
+func TestAPITaskFinishedAtIsPerTask(t *testing.T) {
+	clock := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddProject(ctx, "hand", handRepo, ""); err != nil {
+		t.Fatal(err)
+	}
+	want := make(map[string]string)
+	var ids []int64
+	for i := range 4 {
+		task, err := st.AddTask(ctx, "hand", fmt.Sprintf("Done %d", i+1), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(24 * time.Hour)
+		if _, err := st.Transition(ctx, task.ID, state.StatusDone); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, task.ID)
+		want[state.TaskRef(task.ID)] = clock.UTC().Format(time.RFC3339Nano)
+	}
+	h := board.New(st, token, board.Options{Controls: true})
+	for _, id := range ids {
+		ref := state.TaskRef(id)
+		_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+ref)
+		if got, want := detail.Task.FinishedAt, want[ref]; got != want {
+			t.Errorf("task %s finished_at = %q, want %q", ref, got, want)
+		}
+	}
 }
 
 func TestAPIUnknownRefs(t *testing.T) {
@@ -451,8 +496,10 @@ func apiRaw(t *testing.T, h http.Handler, path string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d:\n%s", path, rec.Code, rec.Body.String())
 	}
-	scanAPIBody(t, path, rec.Body.String())
-	return rec.Body.String()
+	body := rec.Body.String()
+	scanAPIBody(t, path, body)
+	scanScreenText(t, "GET "+path, body)
+	return body
 }
 
 func TestAPINeverReturnsScreenText(t *testing.T) {
