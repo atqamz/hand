@@ -66,10 +66,8 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"base":  base,
 	"tint":  tint,
 	"view":  view,
-	"rep": func(root map[string]any, r state.Report) map[string]any {
-		return map[string]any{"R": root, "Rep": r}
-	},
-	"pick": pick,
+	"rep":   rep,
+	"pick":  pick,
 }).ParseFS(files, "templates/*.html"))
 
 const (
@@ -649,74 +647,6 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 	return c, nil
 }
 
-func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values, f facts) error {
-	all := q.Get("all") == "1"
-	groups := []string{state.StatusActive, state.StatusInbox}
-	if all {
-		groups = append(groups, state.StatusDone, state.StatusAbandoned)
-	}
-	var tasks []state.Task
-	for _, status := range groups {
-		if len(tasks) >= maxCards {
-			break
-		}
-		part, err := b.st.Tasks(ctx, []string{status}, maxCards-len(tasks))
-		if err != nil {
-			return err
-		}
-		tasks = append(tasks, part...)
-	}
-	shown := len(tasks)
-	if !all {
-		recent, _, err := b.st.SearchTasks(ctx, state.TaskQuery{Statuses: finished, Limit: railFinished})
-		if err != nil {
-			return err
-		}
-		tasks = append(tasks, recent...)
-	}
-	delivered, err := b.deliverables(ctx, tasks)
-	if err != nil {
-		return err
-	}
-	f.delivered = delivered
-	checks := make([]check, 0, len(tasks))
-	for _, t := range tasks {
-		checks = append(checks, f.check(t))
-	}
-	counts, err := b.st.CountTasks(ctx)
-	if err != nil {
-		return err
-	}
-	total := counts[state.StatusActive] + counts[state.StatusInbox]
-	if all {
-		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
-	}
-	var sections []taskGroup
-	for _, status := range groups {
-		g := taskGroup{Name: strings.ToUpper(status[:1]) + status[1:], Count: counts[status]}
-		for _, c := range checks[:shown] {
-			if c.Task.Status == status {
-				g.Checks = append(g.Checks, c)
-			}
-		}
-		if len(g.Checks) > 0 {
-			sections = append(sections, g)
-		}
-	}
-	if recent := checks[shown:]; len(recent) > 0 {
-		sections = append(sections, taskGroup{Name: "Finished", Count: counts[state.StatusDone] + counts[state.StatusAbandoned], Checks: recent})
-	}
-	data["Groups"], data["All"], data["Hidden"] = sections, all, total-shown
-	data["FinishedCount"] = counts[state.StatusDone] + counts[state.StatusAbandoned]
-	return nil
-}
-
-type taskGroup struct {
-	Name   string
-	Count  int
-	Checks []check
-}
-
 func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, err := pathID(r, "t")
@@ -729,53 +659,14 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	c, err := b.card(ctx, t, 50)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	reports, err := b.st.Reports(ctx, state.ReportFilter{TaskID: id}, historyLimit+1)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	unread, err := b.st.Reports(ctx, state.ReportFilter{TaskID: id, Unacked: true}, maxCards)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	moreReports := len(reports) > historyLimit
-	if moreReports {
-		reports = reports[1:]
-	}
-	slices.Reverse(reports)
-	events, err := b.st.TaskEvents(ctx, id, historyLimit+1)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	moreEvents := len(events) > historyLimit
-	if moreEvents {
-		events = events[1:]
-	}
-	slices.Reverse(events)
-	done, err := b.st.DoneReportAttempts(ctx)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	rows := make([]check, 0, len(c.Attempts))
-	for _, a := range c.Attempts {
-		rows = append(rows, check{Task: t, Attempt: &a, State: attemptState(a, done)})
-	}
-	decisions, err := b.st.Decisions(ctx, id, historyLimit)
+	v, err := b.buildTask(ctx, t)
 	if err != nil {
 		b.failErr(w, err)
 		return
 	}
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Page": "task", "Fleets": b.fleets(ctx), "Card": c, "Token": b.csrf(ctx), "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
-		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
+		"Title": state.TaskRef(id), "Page": "task", "Fleets": b.fleets(ctx), "Detail": v,
+		"StripData": b.stripData(ctx), "Token": b.csrf(ctx), "Titles": b.refTitle(ctx),
 	})
 }
 
@@ -790,17 +681,15 @@ func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) decisionPage(w http.ResponseWriter, r *http.Request, id int64, status int, notice string) {
 	ctx := r.Context()
-	d, err := b.st.Decision(ctx, id)
+	v, err := b.buildDecision(ctx, id)
 	if err != nil {
 		b.failErr(w, err)
 		return
 	}
-	t, err := b.st.Task(ctx, d.TaskID)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	b.render(w, status, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Decision": d, "Task": t, "Token": b.csrf(ctx), "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx), "Notice": notice})
+	b.render(w, status, "decision.html", map[string]any{
+		"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Detail": v,
+		"StripData": b.stripData(ctx), "Token": b.csrf(ctx), "Titles": b.refTitle(ctx), "Notice": notice,
+	})
 }
 
 func (b *Board) rejected(w http.ResponseWriter, r *http.Request, id int64, status int, msg, notice string) {

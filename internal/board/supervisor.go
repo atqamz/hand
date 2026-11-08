@@ -1,7 +1,6 @@
 package board
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -328,25 +327,32 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 	if device != "" {
 		data["Session"] = device
 	}
-	if err := b.timelineData(ctx, data, q, sv); err != nil {
+	tl, err := b.buildTimeline(ctx, q, sv, c, true)
+	if err != nil {
 		return nil, err
 	}
+	data["Timeline"] = tl
 	status := b.buildStatus(ctx, sv)
 	status.Worst, status.WorstText, status.WorstWord, status.WorstCount, status.Waiting = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount, needs.Waiting
 	data["Status"] = status
-	if err := b.tasksData(ctx, data, q, f); err != nil {
+	tv, err := b.buildTasks(ctx, q, f, c, true)
+	if err != nil {
 		return nil, err
 	}
+	data["Tasks"] = tv
 	return data, nil
 }
 
 func (b *Board) history(w http.ResponseWriter, r *http.Request) {
-	data := map[string]any{"Title": "conversation", "Page": "log", "Fleets": b.fleets(r.Context())}
-	if err := b.timelineData(r.Context(), data, r.URL.Query(), supervisorView{}); err != nil {
+	ctx := r.Context()
+	c := viewContext{Controls: b.o.Controls, Base: b.o.Base, Titles: b.refTitle(ctx), Local: b.local()}
+	tl, err := b.buildTimeline(ctx, r.URL.Query(), supervisorView{}, c, false)
+	if err != nil {
 		b.failErr(w, err)
 		return
 	}
-	data["StripData"] = b.stripData(r.Context())
+	data := map[string]any{"Title": "conversation", "Page": "log", "Fleets": b.fleets(ctx), "Timeline": tl}
+	data["StripData"] = b.stripData(ctx)
 	b.render(w, http.StatusOK, "log.html", data)
 }
 
@@ -775,115 +781,6 @@ func noneStartable(ps []profile) string {
 		text = strings.TrimSpace(text + " " + strings.Join(left, ". ") + ".")
 	}
 	return text
-}
-
-func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values, sv supervisorView) error {
-	sup, ok, err := b.st.LatestSupervisor(ctx)
-	if err != nil {
-		return err
-	}
-	entries, note, sups, err := b.sessions(ctx)
-	if err != nil {
-		return err
-	}
-	if note != "" {
-		data["Note"] = note
-	}
-	if ok && sup.Status == state.AttemptRunning && sv.Agent == "working" && sv.Stale == "" {
-		w, err := b.working(ctx, sup)
-		if err != nil {
-			return err
-		}
-		for i := len(entries) - 1; i >= 0; i-- {
-			if entries[i].Role == "supervisor" {
-				w.Last, w.LastLabel = entries[i].At, elapsed(b.now().Sub(parse(entries[i].At)))
-				break
-			}
-		}
-		data["Working"] = w
-	}
-	pending, err := b.st.PendingSupervisorInputs(ctx)
-	if err != nil {
-		return err
-	}
-	delivered, err := b.st.DeliveredSupervisorInputs(ctx, deliveredLookback)
-	if err != nil {
-		return err
-	}
-	sent := map[string][]state.SupervisorInput{}
-	for _, in := range delivered {
-		sent[strings.TrimSpace(in.Body)] = append(sent[strings.TrimSpace(in.Body)], in)
-	}
-	paired := map[int]state.SupervisorInput{}
-	for i := len(entries) - 1; i >= 0; i-- {
-		if k := strings.TrimSpace(entries[i].Text); entries[i].Role == "operator" && len(sent[k]) > 0 {
-			paired[i], sent[k] = sent[k][0], sent[k][1:]
-		}
-	}
-	models := map[string]string{}
-	for _, s := range sups {
-		models[state.SupervisorRef(s.ID)] = strings.TrimSpace(cmp.Or(s.Model, s.Harness) + " " + s.Effort)
-	}
-	all := make([]chatItem, 0, len(entries)+len(pending))
-	no := 0
-	for i, e := range entries {
-		if e.Role == "hand" && launched.MatchString(e.Text) {
-			continue
-		}
-		no++
-		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
-		if in, ok := paired[i]; ok {
-			d.Input, d.Delivered, d.Delivery = in.ID, in.DeliveredAt, "delivered"
-			if in.Typed {
-				d.Delivery = "typed anyway"
-			}
-		}
-		all = append(all, d)
-	}
-	lines, err := b.lifecycle(ctx)
-	if err != nil {
-		return err
-	}
-	all = append(all, lines...)
-	slices.SortStableFunc(all, func(x, y chatItem) int { return parse(x.At).Compare(parse(y.At)) })
-	last := ""
-	for i := range all {
-		if all[i].Role == "supervisor" {
-			if all[i].Ref != last {
-				all[i].Model = models[all[i].Ref]
-			}
-			last = all[i].Ref
-		}
-	}
-	all = groupWakes(all)
-	for _, in := range pending {
-		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}, Input: in.ID, Delivery: "queued"})
-	}
-	for i := range all {
-		if all[i].Role == "operator" {
-			all[i].Text, all[i].Shots = shots(all[i].Text, b.o.Home, b.o.Base)
-		}
-	}
-	end := len(all)
-	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
-		end = n
-	}
-	start := max(0, end-pageSize)
-	page := slices.Clone(all[start:end])
-	slices.Reverse(page)
-	under := false
-	for i := len(page) - 2; i >= 0; i-- {
-		if day := parse(page[i].At).UTC(); day.Format(time.DateOnly) != parse(page[i+1].At).UTC().Format(time.DateOnly) {
-			page[i].Day = day.Format("Mon 2 Jan") + " UTC"
-			under = true
-		}
-		page[i].Clock = under
-		for j := range page[i].Wakes {
-			page[i].Wakes[j].Clock = under
-		}
-	}
-	data["Entries"], data["Older"] = page, start
-	return nil
 }
 
 var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)

@@ -273,14 +273,27 @@ func TestBoardIrohRestartsAnExitedSidecarAndSaysWhy(t *testing.T) {
 
 func TestBoardIrohReportsAStateWriteFailure(t *testing.T) {
 	fx := newIrohFixture(t, map[string]string{"delay": "2s"})
-	path := filepath.Join(fx.root, "board.iroh")
 	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
 	within(t, "the starting state", func() bool { return fx.state() == "starting" })
-	if err := os.Remove(path); err != nil {
+	fi, err := os.Stat(fx.root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(path, 0o755); err != nil {
+	if err := os.Chmod(fx.root, 0o500); err != nil {
 		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(fx.root, fi.Mode().Perm()); err != nil {
+			t.Errorf("restore %s: %v", fx.root, err)
+		}
+	})
+	// Write bits stop the board's next write without racing the file itself;
+	// root ignores them, so skip where a probe write still succeeds.
+	if probe, err := os.CreateTemp(fx.root, ".write-probe-"); err == nil {
+		name := probe.Name()
+		_ = probe.Close()
+		_ = os.Remove(name)
+		t.Skip("this test needs directory permissions to deny the board's writes")
 	}
 	time.Sleep(3 * time.Second)
 	fleetPage(t, base, fx.h)

@@ -1,6 +1,6 @@
-{{define "task.html"}}{{template "head" .}}{{template "top" .}}<main class="thread" data-region="task">
+{{define "task.html"}}{{template "head" .}}{{template "top" .}}{{with .Detail}}<main class="thread" data-region="task">
 <header class="thread-head">
-<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
+<p class="crumbs">{{if $.Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{$.Base}}/">{{$.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
 <h2 class="thread-title">{{.Card.Task.Title}}</h2>
 <p class="slug"><span class="badge status" data-state="{{.Pill}}" data-tone="{{tone .Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}{{with .Card.Waits}}<span>Waits until {{until .Due}}{{with .Note}}: {{.}}{{end}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time></p>
 </header>
@@ -35,6 +35,6 @@
 </aside>
 </div>
 </main>
-{{template "foot"}}{{end}}
+{{end}}{{template "foot"}}{{end}}
 
 {{define "report-card"}}{{with .Rep}}<article class="card report" id="{{report .ID}}" data-status="{{.Status}}" data-tone="{{tone .Status}}"><header class="slug"><span class="who">{{report .ID}}</span><span class="report-title">{{inline (shown .Summary)}}</span><span class="report-meta"><span class="meta">from <a class="ref" href="{{$.R.Base}}/attempt/{{attempt .AttemptID}}">{{attempt .AttemptID}}</a></span><span class="badge" data-status="{{.Status}}" data-tone="{{tone .Status}}">{{.Status}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></span><span class="act">{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.R.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.R.Token}}"><button>Mark read</button></form>{{end}}</span></header>{{with rest .Body}}<div class="copy md">{{md (shown .) $.R.Local}}</div>{{end}}</article>{{end}}{{end}}
