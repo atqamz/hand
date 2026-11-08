@@ -222,13 +222,18 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 	if a.ActionErr == "" {
 		return
 	}
-	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
-		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The action did not go through").FontSize(15).Bold().TextColor(p.fail)
+	title, bg, tone := "The action did not go through", p.failBG, p.fail
+	if a.ActionWarn {
+		title, bg, tone = "The action went through", p.waitBG, p.wait
+	}
+	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(bg).
+		Border(1, tone).Children(func() {
+		ui.Text(c, title).FontSize(15).Bold().TextColor(tone)
 		ui.Text(c, a.ActionErr).FontSize(13)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-action"), "Dismiss").Clicked() {
 				a.ActionErr = ""
+				a.ActionWarn = false
 			}
 			if ui.Button(c.Key("retry-action"), "Refresh").Clicked() {
 				a.Retry()
@@ -440,7 +445,7 @@ func (a *App) composer(c *ui.Context, p palette) {
 			ui.Text(c, "Enter sends · Shift+Enter starts a new line.").FontSize(12).
 				TextColor(p.neutral).Grow(1)
 			if ui.Button(c.Key("composer:clear"), "Clear").
-				Disabled(a.Busy || a.Draft == "").Clicked() {
+				Disabled(a.Busy || (a.Draft == "" && a.DraftErr == "")).Clicked() {
 				a.ClearDraft()
 			}
 			label := "Send"

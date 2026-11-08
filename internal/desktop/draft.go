@@ -138,13 +138,20 @@ func (d Drafts) remove(path string) error {
 // writes inline, as Boot reads.
 type draftWriter struct {
 	drafts Drafts
-	report func(fleet, text string, err error)
+	report func(fleet string, err error)
 	inline bool
 	mu     sync.Mutex
 	next   map[string]string
+	failed map[string]draftFailure
 	wake   chan struct{}
 	clears chan draftClear
 	flush  chan chan struct{}
+}
+
+// draftFailure is the text a save refused, kept so a fleet switch can show it.
+type draftFailure struct {
+	text string
+	err  error
 }
 
 type draftClear struct {
@@ -154,12 +161,13 @@ type draftClear struct {
 	reply chan error
 }
 
-func newDraftWriter(d Drafts, report func(fleet, text string, err error), inline bool) *draftWriter {
+func newDraftWriter(d Drafts, report func(fleet string, err error), inline bool) *draftWriter {
 	w := &draftWriter{
 		drafts: d,
 		report: report,
 		inline: inline,
 		next:   map[string]string{},
+		failed: map[string]draftFailure{},
 		wake:   make(chan struct{}, 1),
 		clears: make(chan draftClear),
 		flush:  make(chan chan struct{}),
@@ -172,7 +180,9 @@ func newDraftWriter(d Drafts, report func(fleet, text string, err error), inline
 
 func (w *draftWriter) Save(fleet, text string) {
 	if w.inline {
-		w.report(fleet, text, w.drafts.Save(fleet, text))
+		err := w.drafts.Save(fleet, text)
+		w.record(fleet, text, err)
+		w.report(fleet, err)
 		return
 	}
 	w.mu.Lock()
@@ -186,16 +196,24 @@ func (w *draftWriter) Save(fleet, text string) {
 
 func (w *draftWriter) Clear(fleet string) error {
 	if w.inline {
-		return w.drafts.Clear(fleet)
+		return w.done(fleet, w.drafts.Clear(fleet))
 	}
 	return w.request(draftClear{fleet: fleet, reply: make(chan error, 1)}, true)
 }
 
 func (w *draftWriter) ClearIf(fleet, text string) error {
 	if w.inline {
-		return w.drafts.ClearIf(fleet, text)
+		return w.done(fleet, w.drafts.ClearIf(fleet, text))
 	}
 	return w.request(draftClear{fleet: fleet, text: text, only: true, reply: make(chan error, 1)}, false)
+}
+
+// unsaved reports the text a save refused, as a fleet switch reads it.
+func (w *draftWriter) unsaved(fleet string) (draftFailure, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	u, ok := w.failed[fleet]
+	return u, ok
 }
 
 func (w *draftWriter) Flush() {
@@ -246,13 +264,34 @@ func (w *draftWriter) writeOne() bool {
 	if !ok {
 		return false
 	}
-	w.report(fleet, text, w.drafts.Save(fleet, text))
+	err := w.drafts.Save(fleet, text)
+	w.record(fleet, text, err)
+	w.report(fleet, err)
 	return true
 }
 
 func (w *draftWriter) clear(op draftClear) error {
 	if op.only {
-		return w.drafts.ClearIf(op.fleet, op.text)
+		return w.done(op.fleet, w.drafts.ClearIf(op.fleet, op.text))
 	}
-	return w.drafts.Clear(op.fleet)
+	return w.done(op.fleet, w.drafts.Clear(op.fleet))
+}
+
+func (w *draftWriter) done(fleet string, err error) error {
+	if err == nil {
+		w.mu.Lock()
+		delete(w.failed, fleet)
+		w.mu.Unlock()
+	}
+	return err
+}
+
+func (w *draftWriter) record(fleet, text string, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err != nil {
+		w.failed[fleet] = draftFailure{text: text, err: err}
+		return
+	}
+	delete(w.failed, fleet)
 }

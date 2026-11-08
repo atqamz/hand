@@ -33,7 +33,9 @@ func main() {
 		app.Post = win.Update
 		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
 	})
-	if err := mygo.App.Run(); err != nil {
+	err := mygo.App.Run()
+	app.FlushDrafts()
+	if err != nil {
 		log.Fatal(err)
 	}
 }
