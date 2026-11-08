@@ -55,13 +55,8 @@ func (b *Board) version(ctx context.Context) (version, error) {
 	if ok {
 		v.sup, v.status, v.session = sup.ID, sup.Status, sup.Session
 		if sup.Status == state.AttemptRunning {
-			live := map[string]any{}
-			b.live(ctx, sup, live)
-			v.agent, _ = live["Agent"].(string)
-			v.hint, _ = live["Hint"].(string)
-			v.limited, _ = live["Limited"].(string)
-			v.stale, _ = live["Stale"].(string)
-			v.revision, _ = live["Revision"].(int64)
+			live := b.pane(ctx, sup)
+			v.agent, v.hint, v.limited, v.stale, v.revision = live.Agent, live.Hint, live.Limited, live.Stale, live.Revision
 		}
 	}
 	entries, note := b.conversation(ctx, sup, ok)
@@ -91,13 +86,19 @@ func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, e
 	if err != nil {
 		return nil, err
 	}
-	data["Base"] = b.o.Base
-	data["Titles"] = b.refTitle(ctx)
-	data["Local"] = b.local()
 	out := make(map[string]string, len(regionNames))
 	for _, name := range regionNames {
+		var dot any = data
+		switch name {
+		case "status":
+			dot = data["Status"]
+		case "console":
+			dot = data["Console"]
+		case "queue":
+			dot = data["Needs"]
+		}
 		var buf bytes.Buffer
-		if err := pages.ExecuteTemplate(&buf, "region-"+name, data); err != nil {
+		if err := pages.ExecuteTemplate(&buf, "region-"+name, dot); err != nil {
 			return nil, err
 		}
 		out[name] = buf.String()

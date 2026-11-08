@@ -65,15 +65,11 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"hm":    hm,
 	"base":  base,
 	"tint":  tint,
-	"view": func(root map[string]any, w waiting, open bool) map[string]any {
-		return map[string]any{"R": root, "W": w, "Open": open}
-	},
+	"view":  view,
 	"rep": func(root map[string]any, r state.Report) map[string]any {
 		return map[string]any{"R": root, "Rep": r}
 	},
-	"pick": func(root map[string]any, d state.Decision, needs bool) map[string]any {
-		return map[string]any{"R": root, "D": d, "Needs": needs}
-	},
+	"pick": pick,
 }).ParseFS(files, "templates/*.html"))
 
 const (
@@ -652,7 +648,7 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 	return c, nil
 }
 
-func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values) error {
+func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values, f facts) error {
 	all := q.Get("all") == "1"
 	groups := []string{state.StatusActive, state.StatusInbox}
 	if all {
@@ -677,7 +673,6 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 		}
 		tasks = append(tasks, recent...)
 	}
-	f, _ := data["facts"].(facts)
 	delivered, err := b.deliverables(ctx, tasks)
 	if err != nil {
 		return err
