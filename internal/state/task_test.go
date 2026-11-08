@@ -277,6 +277,48 @@ func TestSearchTasks(t *testing.T) {
 	if tasks[0].FinishedAt != "2026-10-04T12:00:00Z" {
 		t.Errorf("finished at = %q", tasks[0].FinishedAt)
 	}
+	all, err := s.Tasks(ctx, done, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("done tasks = %+v", all)
+	}
+	wantFinished := map[string]string{
+		"t1": "2026-10-01T12:00:00Z",
+		"t2": "2026-10-02T12:00:00Z",
+		"t3": "2026-10-03T12:00:00Z",
+		"t4": "2026-10-04T12:00:00Z",
+	}
+	for _, task := range all {
+		want, ok := wantFinished[TaskRef(task.ID)]
+		if !ok {
+			t.Fatalf("unexpected done task %s", TaskRef(task.ID))
+		}
+		if task.FinishedAt != want {
+			t.Errorf("%s finished at = %q, want %q", TaskRef(task.ID), task.FinishedAt, want)
+		}
+		one, err := s.Task(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if one.FinishedAt != want {
+			t.Errorf("Task(%s) finished at = %q, want %q", TaskRef(task.ID), one.FinishedAt, want)
+		}
+	}
+	openTasks, err := s.Tasks(ctx, []string{StatusInbox}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(openTasks) != 1 {
+		t.Fatalf("open tasks = %+v", openTasks)
+	}
+	if openTasks[0].FinishedAt != "" {
+		t.Errorf("open task finished at = %q", openTasks[0].FinishedAt)
+	}
+	if found, _, err := s.SearchTasks(ctx, TaskQuery{Q: "Fix inbox", Limit: 1}); err != nil || len(found) != 1 || found[0].FinishedAt != "" {
+		t.Errorf("search open task = %+v, %v", found, err)
+	}
 	for _, q := range []TaskQuery{{Limit: 0}, {Limit: 1, Statuses: []string{"later"}}, {Limit: 1, Since: "yesterday"}, {Limit: 1, Until: "2026-13-01"}} {
 		if _, _, err := s.SearchTasks(ctx, q); !errors.Is(err, ErrInvalid) {
 			t.Errorf("SearchTasks(%+v) err = %v, want ErrInvalid", q, err)

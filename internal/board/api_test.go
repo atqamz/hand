@@ -1,0 +1,1042 @@
+package board_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/state"
+)
+
+func apiSeed(t *testing.T, fx *fixture) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := fx.st.AddProject(ctx, "hand", handRepo, ""); err != nil {
+		t.Fatal(err)
+	}
+	active := func(title string) state.Task {
+		task, err := fx.st.AddTask(ctx, "hand", title, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task, err = fx.st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+	start := func(taskID int64, harness, model, effort string, end, reason string) state.Attempt {
+		a, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: harness, Model: model, Effort: effort, Argv: []string{"/bin/" + harness, "x"}}, filepath.Join(t.TempDir(), "worktrees"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if end == state.AttemptFailed {
+			if a, err = fx.st.EndAttempt(ctx, a.ID, end, reason); err != nil {
+				t.Fatal(err)
+			}
+			return a
+		}
+		if a, err = fx.st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "3", PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		if end != state.AttemptRunning {
+			if a, err = fx.st.EndAttempt(ctx, a.ID, end, reason); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return a
+	}
+	one := active("Fix login")
+	if _, err := fx.st.SetPlan(ctx, one.ID, "1. reproduce\n2. fix the cookie\n3. add a regression test"); err != nil {
+		t.Fatal(err)
+	}
+	a1 := start(one.ID, "claude", "sonnet", "low", state.AttemptRunning, "")
+	if _, err := fx.st.AddReport(ctx, a1.ID, state.ReportDone, "Cookie fixed\nPR: https://github.com/example/hand/pull/42\n\nAll tests pass."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Ask(ctx, one.ID, "Keep the old cookie name?\n\n1. Yes, keep it\n2. No, rename it"); err != nil {
+		t.Fatal(err)
+	}
+	two := active("Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump")
+	start(two.ID, "codex", "gpt-6-luna", "low", state.AttemptFailed, "launch did not finish: the worktree already exists at a path that is not ours")
+	three := active("Docs")
+	a3 := start(three.ID, "claude", "sonnet", "low", state.AttemptRunning, "")
+	if _, err := fx.st.AddReport(ctx, a3.ID, state.ReportProgress, "Halfway there"); err != nil {
+		t.Fatal(err)
+	}
+	for _, title := range []string{"Write docs", "Add dark mode toggle", "Rename the cookie"} {
+		if _, err := fx.st.AddTask(ctx, "hand", title, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func apiFixture(t *testing.T, now func() time.Time) *fixture {
+	t.Helper()
+	fx := newFixture(t)
+	fx.st = openNow(t, "f00000000e0aa")
+	fx.options.Now = now
+	fx.options.Controls = true
+	fx.options.Base = ""
+	if _, err := fx.st.RenameFleet(context.Background(), "golden"); err != nil {
+		t.Fatal(err)
+	}
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	apiSeed(t, fx)
+	claudeLog(t, fx, []string{
+		rec("user", ago(20), "status?", 0),
+		rec("assistant", ago(19), "All good.", 0),
+	})
+	return fx
+}
+
+func apiInto[T any](t *testing.T, h http.Handler, path string) (board.APIEnvelope, T) {
+	t.Helper()
+	rec := request(h, "GET", path, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d:\n%s", path, rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Version     int             `json:"version"`
+		Fleet       board.APIFleet  `json:"fleet"`
+		Cursor      string          `json:"cursor"`
+		GeneratedAt string          `json:"generated_at"`
+		Data        json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("GET %s is not the envelope: %v:\n%s", path, err, rec.Body.String())
+	}
+	var data T
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		t.Fatalf("GET %s data: %v:\n%s", path, err, env.Data)
+	}
+	return board.APIEnvelope{Version: env.Version, Fleet: env.Fleet, Cursor: env.Cursor, GeneratedAt: env.GeneratedAt, Data: data}, data
+}
+
+func testAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) board.APIError {
+	t.Helper()
+	if rec.Code != status {
+		t.Fatalf("status = %d, want %d:\n%s", rec.Code, status, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("content type = %q", ct)
+	}
+	var body board.APIErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("error is not JSON: %v:\n%s", err, rec.Body.String())
+	}
+	if body.Error.Status != status || body.Error.Code != code || body.Error.Message == "" {
+		t.Fatalf("error = %+v, want %d %s", body.Error, status, code)
+	}
+	return body.Error
+}
+
+func TestAPIGolden(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	for _, c := range []struct{ name, path string }{
+		{"status", "/api/v1/status"},
+		{"timeline", "/api/v1/timeline"},
+		{"tasks", "/api/v1/tasks"},
+		{"task", "/api/v1/task/t1"},
+		{"attempt-running", "/api/v1/attempt/a1"},
+		{"attempt-failed", "/api/v1/attempt/a2"},
+		{"decision", "/api/v1/decision/d1"},
+		{"report", "/api/v1/report/r1"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rec := request(h, "GET", c.path, nil, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d:\n%s", c.path, rec.Code, rec.Body.String())
+			}
+			var out bytes.Buffer
+			if err := json.Indent(&out, rec.Body.Bytes(), "", "  "); err != nil {
+				t.Fatalf("GET %s: %v", c.path, err)
+			}
+			out.WriteByte('\n')
+			if strings.Contains(out.String(), `"worktree":`) || strings.Contains(out.String(), `"launch":`) {
+				t.Fatalf("GET %s returns a host path field:\n%s", c.path, out.String())
+			}
+			file := filepath.Join("testdata", "api", c.name+".json")
+			if os.Getenv("UPDATE_GOLDEN") != "" {
+				if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			want, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("%v (run with UPDATE_GOLDEN=1 to write it)", err)
+			}
+			if out.String() != string(want) {
+				t.Fatalf("GET %s does not match %s:\n%s", c.path, file, out.String())
+			}
+		})
+	}
+}
+
+func TestAPICursorFollowsTheData(t *testing.T) {
+	clock := frozen
+	fx := apiFixture(t, func() time.Time { return clock })
+	h := fx.handler()
+	firstEnv, first := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	clock = frozen.Add(time.Hour)
+	env, second := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if first.Needs.Waiting != second.Needs.Waiting {
+		t.Fatalf("the fixture changed under the cursor: %d then %d", first.Needs.Waiting, second.Needs.Waiting)
+	}
+	if env.Cursor == "" || env.GeneratedAt != frozen.Add(time.Hour).Format(time.RFC3339) {
+		t.Fatalf("envelope = %+v", env)
+	}
+	if env.Cursor != firstEnv.Cursor {
+		t.Fatal("the cursor depends on the clock")
+	}
+	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 {
+		t.Fatalf("same cursor = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("X-Hand-Cursor"); got != env.Cursor {
+		t.Fatalf("X-Hand-Cursor = %q, want %q", got, env.Cursor)
+	}
+	if _, err := fx.st.AddTask(context.Background(), "hand", "After the cursor", ""); err != nil {
+		t.Fatal(err)
+	}
+	rec = request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("old cursor after an event = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	var next board.APIEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the data")
+	}
+	body := testAPIError(t, request(h, "GET", "/api/v1/status?since=not-a-cursor", nil, true), http.StatusBadRequest, "bad_cursor")
+	if strings.Contains(body.Message, "/") {
+		t.Fatalf("cursor error names a path: %q", body.Message)
+	}
+}
+
+func TestACursorMovesWhenTheFleetIsRenamed(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if _, err := fx.st.RenameFleet(context.Background(), "renamed"); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a fleet rename left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	var next struct {
+		Fleet  board.APIFleet  `json:"fleet"`
+		Cursor string          `json:"cursor"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the fleet name")
+	}
+	if next.Fleet.Name != "renamed" {
+		t.Fatalf("fleet name = %q", next.Fleet.Name)
+	}
+}
+
+func TestACursorMovesWhenOnlyATranscriptLineArrives(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, before := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+	claudeLog(t, fx, []string{
+		rec("user", ago(20), "status?", 0),
+		rec("assistant", ago(19), "All good.", 0),
+		rec("assistant", ago(1), "A line that arrives without an event.", 0),
+	})
+	rec := request(h, "GET", "/api/v1/timeline?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a new transcript line left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	var next struct {
+		Cursor string          `json:"cursor"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the transcript")
+	}
+	var after board.APITimeline
+	if err := json.Unmarshal(next.Data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Entries) <= len(before.Entries) {
+		t.Fatalf("%d entries before, %d after", len(before.Entries), len(after.Entries))
+	}
+}
+
+func TestACursorMovesWhenOnlyThePaneChanges(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, before := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if before.AgentState != "working" {
+		t.Fatalf("agent state = %q, want working", before.AgentState)
+	}
+	fx.status = "idle"
+	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a pane change left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	var next struct {
+		Cursor string          `json:"cursor"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the pane")
+	}
+	var after board.APIStatus
+	if err := json.Unmarshal(next.Data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.AgentState != "ready" {
+		t.Fatalf("agent state = %q, want ready", after.AgentState)
+	}
+}
+
+func TestAPIAuthContract(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	testAPIError(t, request(h, "GET", "/api/v1/status", nil, false), http.StatusUnauthorized, "unauthorized")
+	wrong := httptest.NewRequest("GET", "/api/v1/status", nil)
+	wrong.AddCookie(&http.Cookie{Name: "hand_board", Value: "wrong"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, wrong)
+	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
+	testAPIError(t, request(h, "GET", "/api/v1/status?token="+token, nil, false), http.StatusUnauthorized, "unauthorized")
+	method := request(h, "POST", "/api/v1/status", url.Values{"csrf": {token}}, true)
+	testAPIError(t, method, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := method.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("405 Allow = %q", got)
+	}
+	testAPIError(t, request(h, "GET", "/api/v1/nope", nil, true), http.StatusNotFound, "not_found")
+	foreign := base64.RawURLEncoding.EncodeToString([]byte("f00000000e0bb\x00" + strconv.FormatUint(42, 16)))
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(foreign), nil, true), http.StatusBadRequest, "bad_cursor")
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	encoded, tag, _ := strings.Cut(env.Cursor, ".")
+	raw, _ := base64.RawURLEncoding.DecodeString(encoded)
+	fleet, _, _ := strings.Cut(string(raw), "\x00")
+	forged := base64.RawURLEncoding.EncodeToString([]byte(fleet+"\x0000")) + "." + tag
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(forged), nil, true), http.StatusBadRequest, "bad_cursor")
+	_, sum, _ := strings.Cut(string(raw), "\x00")
+	n, _ := strconv.ParseUint(sum, 16, 64)
+	tampered := base64.RawURLEncoding.EncodeToString([]byte(fleet+"\x00"+strconv.FormatUint(n+1, 16))) + "." + tag
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(tampered), nil, true), http.StatusBadRequest, "bad_cursor")
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	last := strings.IndexByte(alphabet, tag[len(tag)-1])
+	if last < 0 || last+1 >= len(alphabet) {
+		t.Fatalf("the tag ends in %q; cannot make a noncanonical variant", tag[len(tag)-1])
+	}
+	variant := tag[:len(tag)-1] + string(alphabet[last+1])
+	loose := encoded + "." + variant
+	if got, err := base64.RawURLEncoding.DecodeString(variant); err != nil || base64.RawURLEncoding.EncodeToString(got) == variant {
+		t.Fatalf("the variant is not a noncanonical tag: %q", variant)
+	}
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(loose), nil, true), http.StatusBadRequest, "bad_cursor")
+	head := request(h, "HEAD", "/api/v1/status", nil, true)
+	if head.Code != http.StatusOK || head.Header().Get("X-Hand-Cursor") == "" {
+		t.Fatalf("HEAD /api/v1/status = %d, cursor %q", head.Code, head.Header().Get("X-Hand-Cursor"))
+	}
+	head = request(h, "HEAD", "/api/v1/status?since="+url.QueryEscape(head.Header().Get("X-Hand-Cursor")), nil, true)
+	if head.Code != http.StatusNotModified {
+		t.Fatalf("HEAD with the current cursor = %d", head.Code)
+	}
+
+	forwarded := httptest.NewRequest("GET", "/api/v1/status", nil)
+	forwarded.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	forwarded.Header.Set("X-Forwarded-For", "203.0.113.9")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, forwarded)
+	testAPIError(t, rec, http.StatusForbidden, "forbidden")
+
+	funneled := httptest.NewRequest("GET", "/api/v1/status", nil)
+	funneled.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	funneled.Header.Set("Tailscale-Funnel-Request", "1")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, funneled)
+	testAPIError(t, rec, http.StatusForbidden, "forbidden")
+
+	network := board.New(fx.st, token, board.Options{Now: func() time.Time { return frozen }})
+	testAPIError(t, request(network, "GET", "/api/v1/status", nil, true), http.StatusForbidden, "forbidden")
+}
+
+func TestAPITaskFinishedAtIsPerTask(t *testing.T) {
+	clock := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddProject(ctx, "hand", handRepo, ""); err != nil {
+		t.Fatal(err)
+	}
+	want := make(map[string]string)
+	var ids []int64
+	for i := range 4 {
+		task, err := st.AddTask(ctx, "hand", fmt.Sprintf("Done %d", i+1), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(24 * time.Hour)
+		if _, err := st.Transition(ctx, task.ID, state.StatusDone); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, task.ID)
+		want[state.TaskRef(task.ID)] = clock.UTC().Format(time.RFC3339Nano)
+	}
+	h := board.New(st, token, board.Options{Controls: true})
+	for _, id := range ids {
+		ref := state.TaskRef(id)
+		_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+ref)
+		if got, want := detail.Task.FinishedAt, want[ref]; got != want {
+			t.Errorf("task %s finished_at = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+func TestAPIUnknownRefs(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	for _, path := range []string{"/api/v1/task/t999", "/api/v1/attempt/a999", "/api/v1/decision/d999", "/api/v1/report/r999", "/api/v1/task/x1"} {
+		body := testAPIError(t, request(h, "GET", path, nil, true), http.StatusNotFound, "not_found")
+		if strings.Contains(body.Message, "/") || strings.Contains(body.Message, "\\") {
+			t.Fatalf("%s error names a path: %q", path, body.Message)
+		}
+	}
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	testAPIError(t, request(h, "GET", "/api/v1/task/t999?since="+url.QueryEscape(env.Cursor), nil, true), http.StatusNotFound, "not_found")
+	testAPIError(t, request(h, "GET", "/api/v1/timeline?before=soon", nil, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, request(h, "GET", "/api/v1/timeline?before=-5", nil, true), http.StatusBadRequest, "bad_request")
+}
+
+var apiScreenLeaks = []string{"last_screen", "SECRET-SCREEN-TEXT", "Do you want to proceed?", "Trust this folder?", "Esc to cancel", "Tab to amend"}
+
+var apiFieldLeaks = []string{"last_screen", token}
+
+var apiScreenKinds = map[string]bool{
+	"attempt.blocked":    true,
+	"attempt.limited":    true,
+	"supervisor.blocked": true,
+	"supervisor.limited": true,
+}
+
+func scanAPIBody(t *testing.T, path, body string) {
+	t.Helper()
+	for _, secret := range apiFieldLeaks {
+		if strings.Contains(body, secret) {
+			t.Fatalf("GET %s returns %q:\n%s", path, secret, body)
+		}
+	}
+}
+
+func scanScreenText(t *testing.T, what, detail string) {
+	t.Helper()
+	for _, secret := range apiScreenLeaks {
+		if strings.Contains(detail, secret) {
+			t.Fatalf("%s carries screen text %q: %q", what, secret, detail)
+		}
+	}
+}
+
+func checkFileRefs(t *testing.T, what string, ds []board.APIDeliverable) {
+	t.Helper()
+	for _, d := range ds {
+		if d.Kind != "file" {
+			continue
+		}
+		if strings.ContainsAny(d.Ref, `/\`) || strings.Contains(d.Ref, ":") {
+			t.Fatalf("%s file deliverable names a path: %q", what, d.Ref)
+		}
+	}
+}
+
+func apiRaw(t *testing.T, h http.Handler, path string) string {
+	t.Helper()
+	rec := request(h, "GET", path, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d:\n%s", path, rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	scanAPIBody(t, path, body)
+	scanScreenText(t, "GET "+path, body)
+	return body
+}
+
+func TestAPINeverReturnsScreenText(t *testing.T) {
+	t.Run("fixture", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		fx.panes = map[string]string{"2": "blocked"}
+		fx.status = "blocked"
+		fx.hint = "Esc to cancel · Tab to amend"
+		fx.screen = permission
+		ctx := context.Background()
+		if err := fx.st.NoteAttempt(ctx, 1, "blocked", harness.ClaudeTitle(permission)); err != nil {
+			t.Fatal(err)
+		}
+		if err := fx.st.NoteAttempt(ctx, 1, "limited", "You've hit your limit · resets 3pm"); err != nil {
+			t.Fatal(err)
+		}
+		if err := fx.st.NoteSupervisor(ctx, 1, "blocked", `copilot does not have model "SECRET-SCREEN-TEXT" and runs on auto instead; check the screen`); err != nil {
+			t.Fatal(err)
+		}
+		claudeLog(t, fx, []string{
+			rec("user", ago(20), "status?", 0),
+			rec("assistant", ago(19), "All good.", 0),
+			rec("user", ago(2), "Please investigate api error: timeout", 0),
+			rec("user", ago(1), "[hand v1 wake]\nattempt.limited a1: SECRET-SCREEN-TEXT; leaked-after-semicolon", 0),
+		})
+		h := fx.handler()
+		for _, c := range []string{
+			"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks",
+			"/api/v1/task/t1", "/api/v1/attempt/a1", "/api/v1/decision/d1", "/api/v1/report/r1",
+		} {
+			rec := request(h, "GET", c, nil, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d:\n%s", c, rec.Code, rec.Body.String())
+			}
+			scanAPIBody(t, c, rec.Body.String())
+			scanScreenText(t, c, rec.Body.String())
+		}
+		_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
+		blocked := 0
+		for _, item := range status.Needs.Items {
+			if item.Kind != "blocked" && item.Kind != "worker" && item.Kind != "limited" {
+				continue
+			}
+			blocked++
+			if item.Title != "" {
+				t.Fatalf("%s item carries screen text: %+v", item.Kind, item)
+			}
+		}
+		if blocked == 0 {
+			t.Fatal("the fixture has no blocked item")
+		}
+		_, timeline := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+		var conversation bool
+		for _, e := range timeline.Entries {
+			if e.Role == "operator" && strings.Contains(e.Text, "api error: timeout") {
+				conversation = true
+			}
+		}
+		if !conversation {
+			t.Fatal("the timeline dropped conversation text that names an API error")
+		}
+		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-after-semicolon") {
+			t.Fatalf("the timeline kept a screen detail after a semicolon:\n%s", raw)
+		}
+	})
+	for _, sc := range scenes() {
+		t.Run(sc.name, func(t *testing.T) {
+			fx, h := sceneHandler(t, sc)
+			if !fx.options.Controls {
+				return
+			}
+			apiRaw(t, h, "/api/v1/status")
+			apiRaw(t, h, "/api/v1/timeline")
+			apiRaw(t, h, "/api/v1/tasks")
+			_, tasks := apiInto[board.APITasks](t, h, "/api/v1/tasks")
+			for _, g := range tasks.Groups {
+				for _, row := range g.Tasks {
+					apiRaw(t, h, "/api/v1/task/"+row.Ref)
+					_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+row.Ref)
+					checkFileRefs(t, "task "+row.Ref, detail.Delivered)
+					for _, e := range detail.Events {
+						scanScreenText(t, "/api/v1/task/"+row.Ref+" events", e.Detail)
+						if apiScreenKinds[e.Kind] && e.Detail != "" {
+							t.Fatalf("%s event carries screen text: %q", e.Kind, e.Detail)
+						}
+					}
+					for _, a := range detail.Attempts {
+						body := apiRaw(t, h, "/api/v1/attempt/"+a.Ref)
+						if strings.Contains(body, `"worktree":`) || strings.Contains(body, `"launch":`) || strings.Contains(body, "/w/") {
+							t.Fatalf("GET /api/v1/attempt/%s returns a host path:\n%s", a.Ref, body)
+						}
+						_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/"+a.Ref)
+						checkFileRefs(t, "attempt "+a.Ref, attempt.Delivered)
+						for _, e := range attempt.Events {
+							scanScreenText(t, "/api/v1/attempt/"+a.Ref+" events", e.Detail)
+							if apiScreenKinds[e.Kind] && e.Detail != "" {
+								t.Fatalf("%s event carries screen text: %q", e.Kind, e.Detail)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAPIComposedTextLosesHostPaths(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	if _, _, err := fx.st.Deliver(ctx, 1, "/very/long/path/reports/t1/design.md"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.EndAttempt(ctx, 1, state.AttemptStopped, "launch did not finish at /very/long/path/worktrees/t1-a1"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/t1")
+	var delivered bool
+	for _, e := range detail.Events {
+		if strings.Contains(e.Detail, "/very/long") {
+			t.Fatalf("%s event names a host path: %q", e.Kind, e.Detail)
+		}
+		if e.Kind == "task.delivered" {
+			delivered = true
+			if e.Detail != "design.md" {
+				t.Fatalf("delivered event detail = %q, want the file name", e.Detail)
+			}
+		}
+	}
+	if !delivered {
+		t.Fatal("the fixture has no delivered event")
+	}
+	_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/a1")
+	if strings.Contains(attempt.Attempt.Reason, "/very/long") || !strings.Contains(attempt.Attempt.Reason, "t1-a1") {
+		t.Fatalf("attempt reason = %q", attempt.Attempt.Reason)
+	}
+	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptInterrupted, "launch failed at /very/long/path/supervisor.log"); err != nil {
+		t.Fatal(err)
+	}
+	_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if status.Supervisor == nil {
+		t.Fatal("the status has no supervisor")
+	}
+	if strings.Contains(status.Supervisor.Reason, "/very/long") || !strings.Contains(status.Supervisor.Reason, "supervisor.log") {
+		t.Fatalf("supervisor reason = %q", status.Supervisor.Reason)
+	}
+	if body := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(body, "/very/long") {
+		t.Fatalf("the timeline names a supervisor end path:\n%s", body)
+	}
+}
+
+func TestAPIThroughTheFleetPrefix(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	id := "f00000000e0aa"
+	fx.options.Base = "/" + id
+	h := fx.handler()
+	home := t.TempDir()
+	host := board.NewHost(board.HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return home, nil },
+		Open: func(string, string) (http.Handler, io.Closer, error) {
+			return h, closer(func() error { return nil }), nil
+		},
+		List: func() ([]board.FleetLink, error) { return []board.FleetLink{{ID: id, Name: "golden"}}, nil },
+	})
+	req := httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
+	rec := httptest.NewRecorder()
+	host.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /%s/api/v1/status = %d:\n%s", id, rec.Code, rec.Body.String())
+	}
+	var env board.APIEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Version != 1 || env.Fleet.ID != id || env.Cursor == "" {
+		t.Fatalf("envelope = %+v, %v", env, err)
+	}
+	req = httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	rec = httptest.NewRecorder()
+	host.ServeHTTP(rec, req)
+	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
+}
+
+func TestAPIThroughTheFleetPrefixReportsOpenFailuresAsJSON(t *testing.T) {
+	id := "f00000000e0aa"
+	home := t.TempDir()
+	links := func() ([]board.FleetLink, error) { return []board.FleetLink{{ID: id, Name: "golden"}}, nil }
+	host := board.NewHost(board.HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return home, nil },
+		Open: func(string, string) (http.Handler, io.Closer, error) {
+			return nil, nil, errors.New("cannot open /very/long/path/hand.db")
+		},
+		List:  links,
+		Valid: func(string, string) bool { return true },
+	})
+	anon := httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	rec := httptest.NewRecorder()
+	host.ServeHTTP(rec, anon)
+	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
+	req := httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
+	rec = httptest.NewRecorder()
+	host.ServeHTTP(rec, req)
+	body := testAPIError(t, rec, http.StatusInternalServerError, "internal")
+	if strings.Contains(body.Message, "/very/long") {
+		t.Fatalf("open failure names a path: %q", body.Message)
+	}
+	missing := board.NewHost(board.HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return home, nil },
+		Open: func(string, string) (http.Handler, io.Closer, error) {
+			return nil, nil, state.ErrNotFound
+		},
+		List:  links,
+		Valid: func(string, string) bool { return true },
+	})
+	req = httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
+	rec = httptest.NewRecorder()
+	missing.ServeHTTP(rec, req)
+	testAPIError(t, rec, http.StatusNotFound, "not_found")
+}
+
+func sceneHandler(t *testing.T, sc scene) (*fixture, http.Handler) {
+	t.Helper()
+	codex := t.TempDir()
+	_ = os.WriteFile(filepath.Join(codex, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},{"slug":"gpt-6","supported_reasoning_levels":[{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]}]}`), 0o644)
+	policy, _ := json.Marshal(harness.StarterPolicy)
+	fx := newFixture(t)
+	fx.st = openNow(t, sc.id)
+	fx.options.Harness.CodexHome = codex
+	fx.options.Home = sceneHome(t, sc.id)
+	fx.options.Base = ""
+	fx.options.Tick = 2 * time.Second
+	fx.options.Now = func() time.Time { return frozen }
+	fx.options.Controls = sc.name != "network"
+	_ = os.WriteFile(filepath.Join(fx.options.Home, harness.PolicyFile), policy, 0o644)
+	sc.build(t, fx)
+	if _, err := fx.st.RenameFleet(context.Background(), sc.name); err != nil {
+		t.Fatal(err)
+	}
+	return fx, fx.handler()
+}
+
+func TestWebAndAPIAgree(t *testing.T) {
+	for _, sc := range scenes() {
+		t.Run(sc.name, func(t *testing.T) {
+			fx, h := sceneHandler(t, sc)
+			if !fx.options.Controls {
+				testAPIError(t, request(h, "GET", "/api/v1/status", nil, true), http.StatusForbidden, "forbidden")
+				return
+			}
+			agreeWebAndAPI(t, h)
+		})
+	}
+	t.Run("two attempts", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		ctx := context.Background()
+		if _, err := fx.st.EndAttempt(ctx, 1, state.AttemptStopped, "superseded"); err != nil {
+			t.Fatal(err)
+		}
+		extra, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: 1, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, filepath.Join(t.TempDir(), "worktrees"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fx.st.AttemptRunning(ctx, extra.ID, state.Terminal{ServerGeneration: "gen-2", TerminalID: "t2", PaneID: "4", PID: 2, StartMarker: "2"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fx.st.EndAttempt(ctx, extra.ID, state.AttemptInterrupted, "launch failed at /very/long/path/worktrees"); err != nil {
+			t.Fatal(err)
+		}
+		agreeWebAndAPI(t, fx.handler())
+	})
+	t.Run("history limits", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		ctx := context.Background()
+		unread, err := fx.st.Reports(ctx, state.ReportFilter{TaskID: 1, Unacked: true}, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range unread {
+			if _, err := fx.st.AckReport(ctx, r.ID, "operator"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := range 51 {
+			r, err := fx.st.AddReport(ctx, 1, state.ReportProgress, fmt.Sprintf("progress %d", i))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fx.st.AckReport(ctx, r.ID, "operator"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		h := fx.handler()
+		_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/t1")
+		if !detail.MoreReports || !detail.MoreEvents {
+			t.Fatalf("history limits = reports %v, events %v", detail.MoreReports, detail.MoreEvents)
+		}
+		_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/a1")
+		if !attempt.MoreReports || !attempt.MoreEvents {
+			t.Fatalf("attempt history limits = reports %v, events %v", attempt.MoreReports, attempt.MoreEvents)
+		}
+		agreeWebAndAPI(t, h)
+	})
+}
+
+func deliveredItems(page string) int {
+	i := strings.Index(page, "<h3>Delivered</h3>")
+	if i < 0 {
+		return 0
+	}
+	j := strings.Index(page[i:], "</ul>")
+	if j < 0 {
+		return -1
+	}
+	return strings.Count(page[i:i+j], "<li>")
+}
+
+func transcriptItems(page string) int {
+	i := strings.Index(page, "<h3>Transcript</h3>")
+	if i < 0 {
+		return 0
+	}
+	j := strings.Index(page[i:], "<h3>Timeline</h3>")
+	if j < 0 {
+		return -1
+	}
+	return strings.Count(page[i:i+j], `<li class="event">`)
+}
+
+func agreeWebAndAPI(t *testing.T, h http.Handler) {
+	t.Helper()
+	page := get(t, h, "/")
+	_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	m := regexp.MustCompile(`<div class="status-line" data-agent="([^"]*)" data-hint="([^"]*)"[^>]*>`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("the status line is missing")
+	}
+	if html.UnescapeString(m[1]) != status.AgentState || html.UnescapeString(m[2]) != status.ComposerHint {
+		t.Fatalf("status line = %q/%q, API = %q/%q", m[1], m[2], status.AgentState, status.ComposerHint)
+	}
+	waiting := regexp.MustCompile(`data-waiting="(\d+)"`).FindStringSubmatch(page)
+	if waiting == nil || waiting[1] != strconv.Itoa(status.Needs.Waiting) {
+		t.Fatalf("waiting = %v, API = %d", waiting, status.Needs.Waiting)
+	}
+	worst := regexp.MustCompile(`class="badge needs-count" href="#needs" data-worst="([^"]*)"`).FindStringSubmatch(page)
+	if status.Needs.Worst == "" && worst != nil {
+		t.Fatalf("HTML worst = %q, API has none", worst[1])
+	}
+	if status.Needs.Worst != "" && (worst == nil || worst[1] != status.Needs.Worst) {
+		t.Fatalf("worst = %v, API = %q", worst, status.Needs.Worst)
+	}
+	blocks := strings.Split(page, `<details class="wait"`)[1:]
+	if len(blocks) != len(status.Needs.Items) {
+		t.Fatalf("%d waits in HTML, %d in API", len(blocks), len(status.Needs.Items))
+	}
+	for i, item := range status.Needs.Items {
+		kind := regexp.MustCompile(`^ data-kind="([^"]*)"`).FindStringSubmatch(blocks[i])
+		word := regexp.MustCompile(`class="badge code" data-tone="([^"]*)">([^<]+)<`).FindStringSubmatch(blocks[i])
+		if kind == nil || kind[1] != item.Kind || word == nil || word[1] != item.Tone || word[2] != item.Word {
+			t.Fatalf("wait %d = %v/%v, API = %q/%q/%q", i, kind, word, item.Kind, item.Tone, item.Word)
+		}
+	}
+
+	_, tasks := apiInto[board.APITasks](t, h, "/api/v1/tasks")
+	rows := 0
+	for _, g := range tasks.Groups {
+		rows += len(g.Tasks)
+	}
+	if rows != strings.Count(page, `class="row check task-row"`) {
+		t.Fatalf("%d task rows in HTML, %d in API", strings.Count(page, `class="row check task-row"`), rows)
+	}
+	groups := regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`).FindAllStringSubmatch(page, -1)
+	if len(groups) != len(tasks.Groups) {
+		t.Fatalf("%d task groups in HTML, %d in API", len(groups), len(tasks.Groups))
+	}
+	for i, g := range tasks.Groups {
+		if groups[i][1] != g.Name || groups[i][2] != strconv.Itoa(g.Count) {
+			t.Fatalf("group %d = %v, API = %q/%d", i, groups[i], g.Name, g.Count)
+		}
+	}
+	var taskRows []board.APITaskRow
+	var attemptCases []struct{ task, ref string }
+	for _, g := range tasks.Groups {
+		taskRows = append(taskRows, g.Tasks...)
+		for _, row := range g.Tasks {
+			if !strings.Contains(page, `data-state="`+row.State+`"`) || !strings.Contains(page, "/task/"+row.Ref) || !strings.Contains(page, html.EscapeString(row.Title)) {
+				t.Fatalf("task %s is not in the page as the API says", row.Ref)
+			}
+		}
+	}
+
+	_, all := apiInto[board.APITasks](t, h, "/api/v1/tasks?all=1")
+	for _, g := range all.Groups {
+		for _, row := range g.Tasks {
+			if (row.Status == state.StatusDone || row.Status == state.StatusAbandoned) && row.FinishedAt == "" {
+				t.Fatalf("task %s is %s but its all=1 row has no finished_at", row.Ref, row.Status)
+			}
+		}
+	}
+
+	_, timeline := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+	sup, you := 0, 0
+	for _, e := range timeline.Entries {
+		switch e.Role {
+		case "supervisor":
+			sup++
+			if e.Ref != "" && !strings.Contains(page, ">"+html.EscapeString(e.Ref)+"<") {
+				t.Fatalf("supervisor entry %s is not in the page", e.Ref)
+			}
+		case "hand", "wakes":
+		default:
+			you++
+		}
+	}
+	if sup != strings.Count(page, `class="card from-sup"`) || you != strings.Count(page, `class="card from-you"`) {
+		t.Fatalf("timeline HTML sup=%d you=%d, API sup=%d you=%d", strings.Count(page, `class="card from-sup"`), strings.Count(page, `class="card from-you"`), sup, you)
+	}
+	if (timeline.Working != nil) != strings.Contains(page, `class="working"`) {
+		t.Fatalf("timeline working = %v, HTML = %v", timeline.Working != nil, strings.Contains(page, `class="working"`))
+	}
+
+	for _, row := range taskRows {
+		if row.Status == state.StatusDone || row.Status == state.StatusAbandoned {
+			if row.FinishedAt == "" {
+				t.Fatalf("task %s is %s but its row has no finished_at", row.Ref, row.Status)
+			}
+		}
+		detailPage := get(t, h, "/task/"+row.Ref)
+		_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+row.Ref)
+		if detail.Task.Ref != row.Ref || !strings.Contains(detailPage, html.EscapeString(detail.Task.Title)) || !strings.Contains(detailPage, detail.Task.Status) {
+			t.Fatalf("task %s detail disagrees with its page", row.Ref)
+		}
+		if got, want := strings.Count(detailPage, `class="card report"`), len(detail.Reports); got != want {
+			t.Fatalf("task %s has %d reports in HTML, %d in API", row.Ref, got, want)
+		}
+		if got, want := strings.Count(detailPage, `class="row wrap decision"`), len(detail.Decisions); got != want {
+			t.Fatalf("task %s has %d decisions in HTML, %d in API", row.Ref, got, want)
+		}
+		if (detail.Plan != nil) != strings.Contains(detailPage, `data-role="plan"`) {
+			t.Fatalf("task %s plan = %v, HTML = %v", row.Ref, detail.Plan != nil, strings.Contains(detailPage, `data-role="plan"`))
+		}
+		if (detail.Waits != nil) != strings.Contains(detailPage, "Waits until") {
+			t.Fatalf("task %s waits = %v, HTML = %v", row.Ref, detail.Waits != nil, strings.Contains(detailPage, "Waits until"))
+		}
+		if detail.Waits != nil && detail.Waits.Note != "" && !strings.Contains(detailPage, html.EscapeString(detail.Waits.Note)) {
+			t.Fatalf("task %s waits note is not in its page", row.Ref)
+		}
+		for _, d := range detail.Delivered {
+			if !strings.Contains(detailPage, html.EscapeString(d.Ref)) {
+				t.Fatalf("task %s deliverable %q is not in its page", row.Ref, d.Ref)
+			}
+		}
+		if got := deliveredItems(detailPage); got != len(detail.Delivered) {
+			t.Fatalf("task %s has %d deliverables in HTML, %d in API", row.Ref, got, len(detail.Delivered))
+		}
+		if got := strings.Count(detailPage, `data-tone="neutral">REPORT`); got != len(detail.Unread) {
+			t.Fatalf("task %s has %d unread reports in HTML, %d in API", row.Ref, got, len(detail.Unread))
+		}
+		if detail.MoreReports != strings.Contains(detailPage, "Older reports are not shown") {
+			t.Fatalf("task %s more_reports = %v", row.Ref, detail.MoreReports)
+		}
+		if detail.MoreEvents != strings.Contains(detailPage, "Only the latest 50 events are shown.") {
+			t.Fatalf("task %s more_events = %v", row.Ref, detail.MoreEvents)
+		}
+		if got, want := strings.Count(detailPage, `class="row check"`), len(detail.Attempts); got != want {
+			t.Fatalf("task %s has %d attempts in HTML, %d in API", row.Ref, got, want)
+		}
+		if got, want := strings.Count(detailPage, `<li class="event">`), len(detail.Events); got != want {
+			t.Fatalf("task %s has %d events in HTML, %d in API", row.Ref, got, want)
+		}
+		for _, e := range detail.Events {
+			if !strings.Contains(detailPage, `datetime="`+e.At+`"`) || !strings.Contains(detailPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
+				t.Fatalf("task %s event %d is not in its page", row.Ref, e.Seq)
+			}
+		}
+		for _, a := range detail.Attempts {
+			if a.Ref == row.Ref || !strings.Contains(detailPage, `/attempt/`+a.Ref) {
+				t.Fatalf("task %s attempt row names %s", row.Ref, a.Ref)
+			}
+			attemptCases = append(attemptCases, struct{ task, ref string }{row.Ref, a.Ref})
+		}
+	}
+
+	for _, row := range attemptCases {
+		attemptPage := get(t, h, "/attempt/"+row.ref)
+		_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/"+row.ref)
+		if attempt.Attempt.Ref != row.ref || attempt.Task.Ref != row.task || !strings.Contains(attemptPage, attempt.Attempt.Status) || !strings.Contains(attemptPage, html.EscapeString(attempt.Task.Title)) {
+			t.Fatalf("attempt %s disagrees with its page", row.ref)
+		}
+		if got, want := strings.Count(attemptPage, `class="card report"`), len(attempt.Reports); got != want {
+			t.Fatalf("attempt %s has %d reports in HTML, %d in API", row.ref, got, want)
+		}
+		if got := deliveredItems(attemptPage); got != len(attempt.Delivered) {
+			t.Fatalf("attempt %s has %d deliverables in HTML, %d in API", row.ref, got, len(attempt.Delivered))
+		}
+		if attempt.MoreReports != strings.Contains(attemptPage, "Older reports are not shown") {
+			t.Fatalf("attempt %s more_reports = %v", row.ref, attempt.MoreReports)
+		}
+		if attempt.MoreEvents != strings.Contains(attemptPage, "Only the latest 50 events are shown.") {
+			t.Fatalf("attempt %s more_events = %v", row.ref, attempt.MoreEvents)
+		}
+		if attempt.Transcript.Shown != strings.Contains(attemptPage, "<h3>Transcript</h3>") {
+			t.Fatalf("attempt %s transcript shown = %v", row.ref, attempt.Transcript.Shown)
+		}
+		if attempt.Transcript.More != strings.Contains(attemptPage, "Only the latest 50 entries are shown.") {
+			t.Fatalf("attempt %s transcript more = %v", row.ref, attempt.Transcript.More)
+		}
+		if got := transcriptItems(attemptPage); got != len(attempt.Transcript.Turns) {
+			t.Fatalf("attempt %s has %d transcript turns in HTML, %d in API", row.ref, got, len(attempt.Transcript.Turns))
+		}
+		for _, e := range attempt.Events {
+			if !strings.Contains(attemptPage, `datetime="`+e.At+`"`) || !strings.Contains(attemptPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
+				t.Fatalf("attempt %s event %d is not in its page", row.ref, e.Seq)
+			}
+		}
+	}
+
+	for _, item := range status.Needs.Items {
+		if item.Decision == "" {
+			continue
+		}
+		decisionPage := get(t, h, "/decision/"+item.Decision)
+		_, decision := apiInto[board.APIDecisionDetail](t, h, "/api/v1/decision/"+item.Decision)
+		if !strings.Contains(decisionPage, html.EscapeString(decision.Decision.Headline)) || !strings.Contains(decisionPage, decision.Decision.Status) || !strings.Contains(decisionPage, html.EscapeString(decision.Task.Title)) {
+			t.Fatalf("decision %s disagrees with its page", item.Decision)
+		}
+	}
+	for _, item := range status.Needs.Items {
+		if item.Report == "" {
+			continue
+		}
+		_, report := apiInto[board.APIReportDetail](t, h, "/api/v1/report/"+item.Report)
+		reportPage := get(t, h, "/task/"+report.Report.Task)
+		if !strings.Contains(reportPage, `id="`+item.Report+`"`) || !strings.Contains(reportPage, html.EscapeString(report.Task.Title)) {
+			t.Fatalf("report %s disagrees with its task page", item.Report)
+		}
+	}
+}

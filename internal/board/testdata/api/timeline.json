@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQAxMjM2OTllM2VkNjEyNDcw.gQQh8lrolQrjV3o3_gN-FA",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "live": true,
+    "older": 0,
+    "working": {
+      "ref": "s1",
+      "since": "2026-11-01T04:40:00Z",
+      "on": "since the turn began",
+      "last": "2026-11-01T04:41:00Z"
+    },
+    "entries": [
+      {
+        "role": "supervisor",
+        "at": "2026-11-01T04:41:00Z",
+        "text": "All good.",
+        "no": 2,
+        "ref": "s1",
+        "model": "sonnet low"
+      },
+      {
+        "role": "hand",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "s1 started · claude sonnet low",
+        "ref": "s1"
+      },
+      {
+        "role": "operator",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "status?",
+        "no": 1,
+        "ref": "s1"
+      }
+    ]
+  }
+}
+

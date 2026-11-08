@@ -397,17 +397,17 @@ func when(stamp string) string {
 }
 
 type check struct {
-	Task      state.Task
-	State     string
-	Agent     string
-	Attempt   *state.Attempt
-	At        string
-	Delivered *Deliverable
-	Waits     *state.Timer
+	Task       state.Task
+	State      string
+	Agent      string
+	Attempt    *state.Attempt
+	FinishedAt string
+	Delivered  *Deliverable
+	Waits      *state.Timer
 }
 
 func (f facts) check(t state.Task) check {
-	c := check{Task: t, State: "idle"}
+	c := check{Task: t, State: "idle", FinishedAt: t.FinishedAt}
 	if d, ok := f.delivered[t.ID]; ok {
 		c.Delivered = &d
 	}

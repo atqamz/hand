@@ -100,6 +100,15 @@ async function board(box, srv, made) {
   equal((await laptop.get('/')).status, 200, 'the fleet list answers on loopback');
   matches((await laptop.get('/')).text, new RegExp(`href="/${id}/"`), 'the fleet list links the fleet');
 
+  const api = await laptop.get(`/${id}/api/v1/status`);
+  equal(api.status, 200, '/api/v1/status answers with the board session');
+  matches(api.headers.get('content-type') ?? '', /application\/json/, '/api/v1 returns JSON');
+  const envelope = JSON.parse(api.text);
+  equal([envelope.version, envelope.fleet.id], [1, id], 'the API envelope names v1 and the fleet');
+  check(Boolean(envelope.cursor) && envelope.cursor === api.headers.get('x-hand-cursor'), 'the API response carries the same cursor header');
+  equal((await laptop.get(`/${id}/api/v1/status?since=${encodeURIComponent(envelope.cursor)}`)).status, 304, 'the same cursor is not modified');
+  equal((await new Client(origin).get(`/${id}/api/v1/status`)).status, 401, '/api/v1 refuses a request without a session');
+
   const events = await laptop.get(`/${id}/events?page=supervisor`, { stream: true, timeout: 40_000 });
   equal(events.status, 200, '/events answers 200');
   matches(events.headers.get('content-type') ?? '', /text\/event-stream/, '/events streams');

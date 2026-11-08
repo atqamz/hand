@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQBmYTkzMGJmZWNmZDZjNmU3.Ukg1snA7eCxDjQXhNfvcyg",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "all": false,
+    "hidden": 0,
+    "finished_count": 0,
+    "groups": [
+      {
+        "name": "Active",
+        "count": 3,
+        "tasks": [
+          {
+            "ref": "t1",
+            "title": "Fix login",
+            "project": "hand",
+            "status": "active",
+            "state": "waiting",
+            "attempt": {
+              "ref": "a1",
+              "task": "t1",
+              "harness": "claude",
+              "model": "sonnet",
+              "effort": "low",
+              "status": "running",
+              "branch": "hand/f00000000e0aa/t1-a1",
+              "approve": "never",
+              "access": "open",
+              "created_at": "2026-11-01T04:40:00Z"
+            },
+            "delivered": {
+              "ref": "https://github.com/example/hand/pull/42",
+              "kind": "PR"
+            }
+          },
+          {
+            "ref": "t2",
+            "title": "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump",
+            "project": "hand",
+            "status": "active",
+            "state": "failing",
+            "attempt": {
+              "ref": "a2",
+              "task": "t2",
+              "harness": "codex",
+              "model": "gpt-6-luna",
+              "effort": "low",
+              "status": "failed",
+              "reason": "launch did not finish: the worktree already exists at a path that is not ours",
+              "branch": "hand/f00000000e0aa/t2-a2",
+              "approve": "never",
+              "access": "open",
+              "created_at": "2026-11-01T04:40:00Z",
+              "ended_at": "2026-11-01T04:40:00Z"
+            }
+          },
+          {
+            "ref": "t3",
+            "title": "Docs",
+            "project": "hand",
+            "status": "active",
+            "state": "waiting",
+            "attempt": {
+              "ref": "a3",
+              "task": "t3",
+              "harness": "claude",
+              "model": "sonnet",
+              "effort": "low",
+              "status": "running",
+              "branch": "hand/f00000000e0aa/t3-a3",
+              "approve": "never",
+              "access": "open",
+              "created_at": "2026-11-01T04:40:00Z"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Inbox",
+        "count": 3,
+        "tasks": [
+          {
+            "ref": "t4",
+            "title": "Write docs",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle"
+          },
+          {
+            "ref": "t5",
+            "title": "Add dark mode toggle",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle"
+          },
+          {
+            "ref": "t6",
+            "title": "Rename the cookie",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle"
+          }
+        ]
+      }
+    ]
+  }
+}
+

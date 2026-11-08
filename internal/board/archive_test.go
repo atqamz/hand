@@ -66,6 +66,16 @@ func titles(body string) []string {
 	return out
 }
 
+func TestTheTaskRailDatesAFinishedTaskInUTC(t *testing.T) {
+	a := newArchive(t)
+	a.finish(t, "hand", "Fix login", state.StatusDone, time.Date(2026, 10, 6, 23, 0, 0, 0, time.UTC))
+	rail := region(get(t, a.handler(), "/"), "tasks")
+	contains(t, "task rail", rail, `<time class="when" datetime="2026-10-06T23:00:00Z">Oct 6 23:00 UTC</time>`)
+	if strings.Contains(rail, `data-clock`) {
+		t.Fatalf("the task rail leaves its finish time to script: %s", rail)
+	}
+}
+
 func TestArchiveGroupsFinishedTasksByDay(t *testing.T) {
 	a := newArchive(t)
 	day := func(d, h int) time.Time { return time.Date(2026, 10, d, h, 0, 0, 0, time.UTC) }

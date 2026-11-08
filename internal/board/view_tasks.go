@@ -152,8 +152,11 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 	}
 	for _, t := range tasks {
 		c := f.check(t)
-		c.At = t.FinishedAt
-		label := parse(t.FinishedAt).UTC().Format("Mon 2 Jan") + " UTC"
+		at := t.FinishedAt
+		if at == "" {
+			at = t.UpdatedAt
+		}
+		label := parse(at).UTC().Format("Mon 2 Jan") + " UTC"
 		if n := len(out.Groups); n == 0 || out.Groups[n-1].Name != label {
 			out.Groups = append(out.Groups, taskGroup{Name: label})
 		}

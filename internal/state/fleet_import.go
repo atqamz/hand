@@ -385,7 +385,7 @@ func importProjects(ctx context.Context, q importQueryer) ([]Project, error) {
 }
 
 func importTasks(ctx context.Context, q importQueryer) ([]Task, error) {
-	rows, err := q.QueryContext(ctx, taskSelect+` ORDER BY id`)
+	rows, err := q.QueryContext(ctx, taskSelect+` ORDER BY t.id`)
 	if err != nil {
 		return nil, err
 	}
