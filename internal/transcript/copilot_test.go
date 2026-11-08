@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func copilotHome(t *testing.T, body string) (string, string) {
@@ -171,36 +169,14 @@ func TestCopilotReadsALargeFileWithoutLoadingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	size := int64(len(fixture)) + int64(len(filler))*chunks
-	runtime.GC()
-	var base runtime.MemStats
-	runtime.ReadMemStats(&base)
-	peak := base.HeapInuse
-	stop, done := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-stop:
-				return
-			case <-time.After(5 * time.Millisecond):
-				runtime.GC()
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				peak = max(peak, m.HeapInuse)
-			}
-		}
-	}()
+	counts := countReads(t)
 	r := &Reader{Paths: Paths{Copilot: home}}
 	got, err := r.Read(context.Background(), "copilot", sessionUUID, "/f")
-	close(stop)
-	<-done
 	if err != nil || len(got) != 2 {
 		t.Fatalf("entries = %+v, %v", got, err)
 	}
 	if off := r.logs["copilot:"+sessionUUID].offsets[path]; off != size {
 		t.Fatalf("offset = %d, want %d", off, size)
 	}
-	if grown := int64(peak) - int64(base.HeapInuse); grown > size/2 {
-		t.Fatalf("heap grew %d bytes over %d reading %d", grown, base.HeapInuse, size)
-	}
+	counts.check(t, size)
 }

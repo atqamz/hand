@@ -152,8 +152,17 @@ func (r *Reader) Status(harness, id string) Status {
 	return Status{}
 }
 
+type openedFile interface {
+	io.Reader
+	io.Seeker
+	io.Closer
+	Stat() (fs.FileInfo, error)
+}
+
+var openFile = func(name string) (openedFile, error) { return os.Open(name) }
+
 func (s *session) follow(path string, line func([]byte)) error {
-	f, err := os.Open(path)
+	f, err := openFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrNoSession
 	}
