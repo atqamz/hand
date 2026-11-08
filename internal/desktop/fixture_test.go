@@ -211,7 +211,7 @@ func (f *fixture) dropNeed(id, ref string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	st := f.status[id]
-	kept := st.Needs.Items[:0]
+	kept := make([]desktop.Need, 0, len(st.Needs.Items))
 	for _, need := range st.Needs.Items {
 		if need.Ref == ref || need.Report == ref || need.Decision == ref {
 			continue

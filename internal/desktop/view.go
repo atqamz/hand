@@ -226,9 +226,14 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 		Border(1, p.fail).Children(func() {
 		ui.Text(c, "The action did not go through").FontSize(15).Bold().TextColor(p.fail)
 		ui.Text(c, a.ActionErr).FontSize(13)
-		if ui.Button(c.Key("dismiss-action"), "Dismiss").Clicked() {
-			a.ActionErr = ""
-		}
+		ui.Row(c).Gap(8).Children(func() {
+			if ui.Button(c.Key("dismiss-action"), "Dismiss").Clicked() {
+				a.ActionErr = ""
+			}
+			if ui.Button(c.Key("retry-action"), "Refresh").Clicked() {
+				a.Retry()
+			}
+		})
 	})
 }
 
@@ -627,6 +632,12 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 		}
 	}
 	open := d.Decision.Status == "open"
+	other := false
+	for _, o := range d.Options {
+		if a.AnswerChoice == o.Value && o.Other {
+			other = true
+		}
+	}
 	if len(d.Options) > 0 {
 		a.section(c, p, "Options")
 		ui.Column(c).Gap(6).Children(func() {
@@ -667,8 +678,14 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 		if len(d.Options) > 0 {
 			placeholder = "Add a note (optional)"
 		}
+		if other {
+			placeholder = "Write your answer (required)"
+		}
 		ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
 			Disabled(a.Busy)
+		if other && strings.TrimSpace(a.AnswerNote) == "" {
+			ui.Text(c, "That option needs a note.").FontSize(12).TextColor(p.fail)
+		}
 		ui.Row(c).Gap(8).Children(func() {
 			label := "Send answer"
 			if a.Busy {

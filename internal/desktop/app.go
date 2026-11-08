@@ -171,6 +171,7 @@ func (a *App) install(f found, keep bool) {
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
+	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
 
@@ -205,6 +206,7 @@ func (a *App) Back() {
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref = step.Screen, step.Ref
+	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
 
@@ -258,40 +260,70 @@ func (a *App) Answer() {
 	post := a.Post
 	model, fleet, ref := a.Model, a.Fleet.ID, a.Ref
 	a.Busy = true
-	apply := func(d DecisionDetail, st Status, serr, err error) {
+	detail := func(d DecisionDetail) {
 		if id != a.loadID {
 			return
 		}
 		a.Busy = false
-		if err != nil {
-			a.ActionErr = friendly(err)
+		a.Decision = d
+	}
+	status := func(st Status) {
+		if id != a.loadID {
 			return
 		}
-		a.Decision = d
-		if serr == nil {
-			a.Status = st
-		}
+		a.Status = st
 	}
-	fetch := func() (DecisionDetail, Status, error, error) {
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.ActionErr = friendly(err)
+	}
+	stale := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.ActionErr = "the answer was saved, but the fleet status could not be read: " + friendly(err)
+	}
+	fetch := func() {
 		d, err := model.AnswerDecision(ctx, fleet, ref, choice, note)
 		if err != nil {
 			cancel()
-			return d, Status{}, nil, err
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			detail(d)
+		} else {
+			post(func() { detail(d) })
 		}
 		st, serr := model.Status(ctx, fleet)
 		cancel()
-		return d, st, serr, nil
+		if serr != nil {
+			if post == nil {
+				stale(serr)
+			} else {
+				post(func() { stale(serr) })
+			}
+			return
+		}
+		if post == nil {
+			status(st)
+		} else {
+			post(func() { status(st) })
+		}
 	}
 	if post == nil {
-		d, st, serr, err := fetch()
-		apply(d, st, serr, err)
+		fetch()
 		return
 	}
 	post(func() {})
-	go func() {
-		d, st, serr, err := fetch()
-		post(func() { apply(d, st, serr, err) })
-	}()
+	go fetch()
 }
 
 func (a *App) Ack(ref string) {
@@ -303,42 +335,72 @@ func (a *App) Ack(ref string) {
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
-	apply := func(r ReportDetail, st Status, serr, err error) {
+	report := func(r ReportDetail) {
 		if id != a.loadID {
 			return
 		}
 		a.Busy = false
-		if err != nil {
-			a.ActionErr = friendly(err)
-			return
-		}
 		if screen == ReportScreen {
 			a.Report = r
 		}
-		if serr == nil {
-			a.Status = st
-		}
 	}
-	fetch := func() (ReportDetail, Status, error, error) {
+	status := func(st Status) {
+		if id != a.loadID {
+			return
+		}
+		a.Status = st
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.ActionErr = friendly(err)
+	}
+	stale := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.ActionErr = "the report was acknowledged, but the fleet status could not be read: " + friendly(err)
+	}
+	fetch := func() {
 		r, err := model.AckReport(ctx, fleet, ref)
 		if err != nil {
 			cancel()
-			return r, Status{}, nil, err
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			report(r)
+		} else {
+			post(func() { report(r) })
 		}
 		st, serr := model.Status(ctx, fleet)
 		cancel()
-		return r, st, serr, nil
+		if serr != nil {
+			if post == nil {
+				stale(serr)
+			} else {
+				post(func() { stale(serr) })
+			}
+			return
+		}
+		if post == nil {
+			status(st)
+		} else {
+			post(func() { status(st) })
+		}
 	}
 	if post == nil {
-		r, st, serr, err := fetch()
-		apply(r, st, serr, err)
+		fetch()
 		return
 	}
 	post(func() {})
-	go func() {
-		r, st, serr, err := fetch()
-		post(func() { apply(r, st, serr, err) })
-	}()
+	go fetch()
 }
 
 func (a *App) Reload() {
@@ -498,6 +560,9 @@ func friendly(err error) string {
 		case 401:
 			return "the board did not accept this fleet's token; open the fleet once with `hand open`"
 		case 403:
+			if api.Code == "csrf_required" {
+				return api.Message
+			}
 			return "the board's API answers only on its loopback address"
 		}
 		return api.Message

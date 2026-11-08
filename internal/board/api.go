@@ -1,6 +1,7 @@
 package board
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -363,11 +364,20 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodPost:
 	default:
-		w.Header().Set("Allow", "GET, HEAD, POST")
+		w.Header().Set("Allow", apiAllow(r))
 		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API takes GET and HEAD, and POST on a decision's answer and a report's ack")
 		return
 	}
 	b.mux.ServeHTTP(w, r)
+}
+
+func apiAllow(r *http.Request) string {
+	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
+	if strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
+		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
+		return "POST"
+	}
+	return "GET, HEAD"
 }
 
 func (b *Board) apiSession(w http.ResponseWriter, r *http.Request) {
@@ -402,9 +412,19 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object under 64 KiB")
+		return
+	}
 	var in apiAnswerBody
-	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with choice and note")
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with choice and note")
 		return
 	}
 	choice, note := strings.TrimSpace(in.Choice), strings.TrimSpace(in.Note)

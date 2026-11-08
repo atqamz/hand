@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus two actions in v1: answering an open decision and acknowledging a report. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token. The session endpoint returns the session's CSRF form token, which a mutation sends as `X-Hand-CSRF`.
+The API is the read model plus two actions in v1: answering an open decision and acknowledging a report. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -18,7 +18,7 @@ A local client proves the service at the recorded port is the board before it se
 
 A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
 
-The two actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the two action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with `Allow: GET, HEAD, POST`.
+The two actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the two action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
 
 ## Envelope
 
@@ -135,7 +135,7 @@ Both carry the cookie and `X-Hand-CSRF`, and both answer one envelope with the u
 {"choice": "1. Yes, keep it", "note": "the docs keep the old name"}
 ```
 
-`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)`.
+`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. Send one JSON object under 64 KiB: a second object or trailing text is refused before the board changes anything. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)`.
 
 - `400 bad_request`: an empty answer, an `other` option with no note, or a body that is not a JSON object.
 - `404 not_found`: an unknown ref.

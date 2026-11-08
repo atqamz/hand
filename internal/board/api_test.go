@@ -172,6 +172,21 @@ func apiPost(t *testing.T, h http.Handler, path string, body any, csrf string, c
 	return rec
 }
 
+func apiPostRaw(t *testing.T, h http.Handler, path, body, csrf string, cookie bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if csrf != "" {
+		req.Header.Set("X-Hand-CSRF", csrf)
+	}
+	if cookie {
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
 func apiBody[T any](t *testing.T, rec *httptest.ResponseRecorder) (board.APIEnvelope, T) {
 	t.Helper()
 	if rec.Code != http.StatusOK {
@@ -289,12 +304,18 @@ func TestAPIAnswerRefusals(t *testing.T) {
 	testAPIError(t, apiPost(t, h, "/api/v1/decision/d999/answer", body, token, true), http.StatusNotFound, "not_found")
 	testAPIError(t, apiPost(t, h, path, map[string]string{"choice": " ", "note": " "}, token, true), http.StatusBadRequest, "bad_request")
 
-	bad := httptest.NewRequest("POST", path, strings.NewReader("{"))
-	bad.Header.Set("X-Hand-CSRF", token)
-	bad.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, bad)
-	testAPIError(t, rec, http.StatusBadRequest, "bad_request")
+	for _, raw := range []string{
+		"{",
+		`{"choice":"1. Yes, keep it"} {}`,
+		`{"choice":"1. Yes, keep it"} trailing`,
+		`{"choice":"1. Yes, keep it","note":"` + strings.Repeat("x", 70<<10) + `"}`,
+	} {
+		testAPIError(t, apiPostRaw(t, h, path, raw, token, true), http.StatusBadRequest, "bad_request")
+	}
+	_, still := apiInto[board.APIDecisionDetail](t, h, "/api/v1/decision/d1")
+	if still.Decision.Status != "open" {
+		t.Fatalf("a refused body changed the decision: %s", still.Decision.Status)
+	}
 
 	d, err := fx.st.Ask(context.Background(), 1, "Which name?\n\n1. Yes\n2. Other — write it")
 	if err != nil {
@@ -321,11 +342,19 @@ func TestAPIAnswerRefusals(t *testing.T) {
 	}
 	put := httptest.NewRequest("PUT", "/api/v1/status", nil)
 	put.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, put)
 	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
-	if got := rec.Header().Get("Allow"); got != "GET, HEAD, POST" {
-		t.Fatalf("PUT Allow = %q", got)
+	if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("PUT /api/v1/status Allow = %q", got)
+	}
+	putAction := httptest.NewRequest("PUT", path, nil)
+	putAction.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, putAction)
+	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("PUT %s Allow = %q", path, got)
 	}
 }
 

@@ -806,3 +806,88 @@ func TestRefreshUpdatesTheWindowTitle(t *testing.T) {
 	}
 	mustText(t, tt, "renamed")
 }
+
+func TestACSRFRefusalShowsTheBoardMessage(t *testing.T) {
+	f := goldenFixture(t)
+	f.action = &desktop.APIError{Status: 403, Code: "csrf_required",
+		Message: "the X-Hand-CSRF header is missing or wrong; read the session's token first"}
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	mustText(t, tt, "the X-Hand-CSRF header is missing or wrong")
+	mustNotText(t, tt, "the board's API answers only on its loopback address")
+}
+
+func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	click(t, tt, "Send answer")
+	mustText(t, tt, "answered", "Answer", "1. Yes, keep it",
+		"the answer was saved, but the fleet status could not be read", "the board is restarting")
+	if app.Busy {
+		t.Fatal("the window is still busy after the answer was saved")
+	}
+	mustText(t, tt, "Refresh")
+}
+
+func TestAnOtherOptionAsksForItsNote(t *testing.T) {
+	f := goldenFixture(t)
+	d := f.decision[fleetID]
+	d.Options = append(d.Options, desktop.Option{Key: "3", Label: "Other", Value: "3. Other", Other: true})
+	f.decision[fleetID] = d
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Other")
+	mustText(t, tt, "That option needs a note.")
+	click(t, tt, "Note")
+	tt.Type("my own answer")
+	mustNotText(t, tt, "That option needs a note.")
+}
+
+func TestBackClearsTheAnswerDraft(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Note")
+	tt.Type("first draft")
+	if app.AnswerNote != "first draft" {
+		t.Fatalf("draft = %q", app.AnswerNote)
+	}
+	click(t, tt, "Open task")
+	click(t, tt, "Keep the old cookie name?")
+	if app.AnswerNote != "" {
+		t.Fatalf("opening a decision kept the draft %q", app.AnswerNote)
+	}
+	click(t, tt, "Note")
+	tt.Type("second draft")
+	click(t, tt, "Back")
+	click(t, tt, "Back")
+	if app.AnswerNote != "" {
+		t.Fatalf("Back kept the second decision's draft %q", app.AnswerNote)
+	}
+}
+
+func TestAnAckLeavesTheOtherFleetsNeedsAlone(t *testing.T) {
+	f := goldenFixture(t)
+	before := len(f.status[secondID].Needs.Items)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Cookie fixed")
+	click(t, tt, "Ack")
+	if got := len(f.status[secondID].Needs.Items); got != before {
+		t.Fatalf("the second fleet lost a need: %d, want %d", got, before)
+	}
+}
