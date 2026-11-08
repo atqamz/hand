@@ -61,7 +61,7 @@ func numberedAsk(p prompt, screen string) *askCard {
 	var clean []int
 	for i, raw := range lines {
 		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
-		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || hintLine.MatchString(t) || askHint.MatchString(t) {
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || (!numbered.MatchString(t) && (hintLine.MatchString(t) || askHint.MatchString(t))) {
 			continue
 		}
 		clean = append(clean, i)
@@ -94,7 +94,7 @@ func circleAsk(screen string) *askCard {
 	var clean []int
 	for i, raw := range lines {
 		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
-		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) {
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || (!circleOption.MatchString(t) && (hintLine.MatchString(t) || askHint.MatchString(t))) {
 			continue
 		}
 		clean = append(clean, i)
@@ -149,7 +149,7 @@ func askQuestion(lines []string, stop int) string {
 	var body []string
 	for _, raw := range lines[:stop] {
 		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
-		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || dialogFooter.MatchString(t) {
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || (!strings.HasSuffix(t, "?") && dialogFooter.MatchString(t)) {
 			continue
 		}
 		body = append(body, t)
@@ -182,8 +182,8 @@ func dialogAsk(screen string) *askCard {
 	var clean []int
 	for i, raw := range lines {
 		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
-		opt := numbered.MatchString(t) || circleOption.MatchString(t)
-		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || (!opt && dialogFooter.MatchString(t)) {
+		keep := numbered.MatchString(t) || circleOption.MatchString(t) || strings.HasSuffix(t, "?")
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || (!keep && (hintLine.MatchString(t) || askHint.MatchString(t) || dialogFooter.MatchString(t))) {
 			continue
 		}
 		clean = append(clean, i)
@@ -334,6 +334,7 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 	data["Timeline"] = tl
 	status := b.buildStatus(ctx, sv)
 	status.Worst, status.WorstText, status.WorstWord, status.WorstCount, status.Waiting = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount, needs.Waiting
+	status.NeedsHref = "#needs"
 	data["Status"] = status
 	tv, err := b.buildTasks(ctx, q, f, c, true)
 	if err != nil {
@@ -418,6 +419,7 @@ func (b *Board) supervisorScreenData(ctx context.Context, q url.Values) (map[str
 	}
 	status := b.buildStatus(ctx, sv)
 	status.Worst, status.WorstText, status.WorstWord, status.WorstCount, status.Waiting = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount, needs.Waiting
+	status.NeedsHref = c.Base + "/#needs"
 	screen, err := b.buildScreen(ctx, sv, c)
 	if err != nil {
 		return nil, err
@@ -425,7 +427,7 @@ func (b *Board) supervisorScreenData(ctx context.Context, q url.Values) (map[str
 	data := map[string]any{
 		"Title": "supervisor", "Page": "supervisor", "Controls": c.Controls, "Token": c.Token,
 		"Live": true, "Base": c.Base, "Titles": c.Titles, "Local": c.Local, "Multi": c.Multi,
-		"Status": status, "Screen": screen,
+		"Status": status, "Screen": screen, "Needs": needs,
 	}
 	if s, ok := ctx.Value(sessionKey{}).(session); ok && s.Device != nil {
 		data["Session"] = "phone"

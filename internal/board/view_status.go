@@ -174,6 +174,7 @@ type statusView struct {
 	WorstText   string
 	WorstWord   string
 	WorstCount  int
+	NeedsHref   string
 }
 
 func (b *Board) readGauge(ctx context.Context) (gaugeView, int) {

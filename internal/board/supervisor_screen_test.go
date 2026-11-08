@@ -183,6 +183,9 @@ func TestTheSupervisorPageCarriesTheLiveStatusStrip(t *testing.T) {
 		`<p id="link" class="link-state" role="status" hidden></p>`,
 		`href="/supervisor"`,
 		`data-waiting="1"`)
+	contains(t, "screen rail", railOf(t, body),
+		`<span class="badge" data-needs data-waiting="1" data-worst="blocked" data-tone="fail">1</span>`)
+	contains(t, "screen status", region(body, "status"), `class="badge needs-count" href="/#needs"`, `<span class="n">1</span> blocked`)
 	lacks(t, "supervisor page", body, `class="skip"`, `data-region="queue"`)
 }
 
@@ -308,4 +311,33 @@ func TestTheFourOptionAskScreenIsNotAnAskCard(t *testing.T) {
 	body := get(t, fx.handler(), "/supervisor")
 	lacks(t, "four options", body, `data-ask`, `name="key" value="4"`, "Cleanup</button>")
 	contains(t, "four options", body, `data-screen-keys`, "Delete the build folder?")
+}
+
+func TestAnAskOptionKeepsHintWordsInItsLabel(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Pick one"
+	fx.screen = "Which approach?\n❯ ◉ Fast ↑/↓\n  ◯ Correct\nselect · n note · ↑/↓ move · esc cancel"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ask := askBlock(get(t, fx.handler(), "/supervisor"))
+	if ask == "" {
+		t.Fatal("the dialog has no ask card")
+	}
+	contains(t, "hint words in an option", ask,
+		`<button name="keys" value="enter">Fast ↑/↓</button>`,
+		`<button name="keys" value="down enter">Correct</button>`)
+}
+
+func TestAQuestionThatReadsLikeAFooterKeepsItsCard(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "idle", ""
+	fx.screen = "Which files should I select?\n1. a.go\n2. b.go\nEnter to select · Esc to cancel"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ask := askBlock(get(t, fx.handler(), "/supervisor"))
+	if ask == "" {
+		t.Fatal("the dialog has no ask card")
+	}
+	contains(t, "footer-like question", ask,
+		"Which files should I select?",
+		`<button name="key" value="1">a.go</button>`,
+		`<button name="key" value="2">b.go</button>`)
 }

@@ -18,7 +18,7 @@
 {{end}}
 
 {{define "nav"}}<ul class="nav-pages">
-<li><a href="{{.Base}}/"{{if eq .Page "fleet"}} aria-current="page"{{end}}>{{template "icon-board"}}<span class="label">Board</span>{{if eq .Page "fleet"}}<span class="badge" data-needs data-waiting="{{.Needs.Waiting}}" data-worst="{{.Needs.Worst}}" data-tone="{{tone .Needs.Worst}}"{{if not .Needs.Waiting}} hidden{{end}}>{{.Needs.Waiting}}</span>{{end}}</a></li>
+<li><a href="{{.Base}}/"{{if eq .Page "fleet"}} aria-current="page"{{end}}>{{template "icon-board"}}<span class="label">Board</span>{{if or (eq .Page "fleet") (eq .Page "supervisor")}}<span class="badge" data-needs data-waiting="{{.Needs.Waiting}}" data-worst="{{.Needs.Worst}}" data-tone="{{tone .Needs.Worst}}"{{if not .Needs.Waiting}} hidden{{end}}>{{.Needs.Waiting}}</span>{{end}}</a></li>
 <li><a href="{{.Base}}/tasks"{{if or (eq .Page "tasks") (eq .Page "task") (eq .Page "attempt")}} aria-current="page"{{end}}>{{template "icon-tasks"}}<span class="label">Tasks</span></a></li>
 <li><a href="{{.Base}}/supervisor/log"{{if eq .Page "log"}} aria-current="page"{{end}}>{{template "icon-chat"}}<span class="label">Conversation</span>{{if eq .Page "fleet"}}<span class="dot" data-agent-dot{{if ne .Status.AgentState "working"}} hidden{{end}}></span>{{end}}</a></li>
 <li><a href="{{.Base}}/supervisor"{{if eq .Page "supervisor"}} aria-current="page"{{end}}>{{template "icon-screen"}}<span class="label">Screen</span></a></li>
