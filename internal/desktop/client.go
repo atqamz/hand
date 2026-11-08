@@ -258,7 +258,7 @@ func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Enve
 		return Envelope{}, err
 	}
 	req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet, Value: token})
-	res, err := c.http().Do(req)
+	res, err := c.client().Do(req)
 	if err != nil {
 		return Envelope{}, fmt.Errorf("the board at %s did not answer: %v", c.Base, err)
 	}
@@ -292,13 +292,13 @@ func (c *HTTPClient) prove(ctx context.Context, fleet, token string) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.http().Do(req)
+	res, err := c.client().Do(req)
 	if err != nil {
 		return c.noBoard(fleet)
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 256))
-	if err != nil || res.StatusCode != http.StatusOK {
+	if err != nil || res.StatusCode != http.StatusOK || res.Request.URL.String() != u {
 		return c.noBoard(fleet)
 	}
 	mac := hmac.New(sha256.New, []byte(token))
@@ -318,6 +318,14 @@ func (c *HTTPClient) http() *http.Client {
 		return c.HTTP
 	}
 	return http.DefaultClient
+}
+
+// client never follows a redirect: the proof and the cookie belong to the
+// one address the fleet recorded, not to whatever answers there.
+func (c *HTTPClient) client() *http.Client {
+	client := *c.http()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &client
 }
 
 func remoteError(res *http.Response) error {

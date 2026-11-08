@@ -241,6 +241,59 @@ func TestTheClientWithholdsTheTokenFromAnotherService(t *testing.T) {
 	}
 }
 
+func TestTheClientRefusesAProofRedirect(t *testing.T) {
+	var cookies int
+	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("hand_board_" + fleetID); err == nil {
+			cookies++
+		}
+		if strings.HasSuffix(r.URL.Path, "/proof") {
+			proof(w, r)
+		}
+	}))
+	defer board.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("hand_board_" + fleetID); err == nil {
+			cookies++
+		}
+		http.Redirect(w, r, board.URL+r.URL.Path+"?"+r.URL.RawQuery, http.StatusFound)
+	}))
+	defer srv.Close()
+	c := goldenClient(t, srv.URL)
+	_, err := c.Status(context.Background(), fleetID)
+	if err == nil || !strings.Contains(err.Error(), "no board for fleet") {
+		t.Fatalf("error = %v", err)
+	}
+	if cookies != 0 {
+		t.Fatalf("the token went to a redirect target or the service at the recorded port")
+	}
+}
+
+func TestTheClientRefusesAnAPIRedirect(t *testing.T) {
+	var cookies int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("hand_board_" + fleetID); err == nil {
+			cookies++
+		}
+	}))
+	defer target.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/proof") {
+			proof(w, r)
+			return
+		}
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer srv.Close()
+	c := goldenClient(t, srv.URL)
+	if _, err := c.Status(context.Background(), fleetID); err == nil {
+		t.Fatal("the client followed the API redirect")
+	}
+	if cookies != 0 {
+		t.Fatalf("the token followed an API redirect")
+	}
+}
+
 func TestHTTPClientReportsARejectedSession(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/proof") {
