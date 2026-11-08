@@ -4,13 +4,13 @@
 
 ## Platform
 
-web
+web and native desktop (Linux in v1)
 
 ## Users
 
 Hand has one user: the operator who built it for personal use. They run a few fleets side by side, for example work, personal and research. Each fleet is a folder with its own supervisor agent and its own workers.
 
-The board is the one thing they open; a terminal is optional. They use it as much on a desktop as on a phone, which reaches it through `ssh -L` or `tailscale serve`. Neither device is secondary.
+The board is the one thing they open; a terminal is optional. They use it as much on a desktop as on a phone, which reaches it through `ssh -L` or `tailscale serve`. Neither device is secondary. The native window is the second local client: it opens on the same fleet, reads the same state and never becomes a second owner of it.
 
 ## Product Purpose
 
@@ -51,7 +51,8 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - the decision page;
   - the conversation page;
   - error pages;
-  - a read-only JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, and task, attempt, decision and report detail, with an opaque change cursor.
+  - a read-only JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, and task, attempt, decision and report detail, with an opaque change cursor;
+  - the native desktop window (`hand-desktop`), read-only in v1: a fleet switch, the status, Needs, the timeline, the tasks list and the task, attempt, decision and report detail, read through the JSON API over loopback. It is a client of the board, never a second owner of state: it writes nothing, and closing it stops neither the board nor a watcher.
 - **What needs the operator:**
   - open decisions;
   - blocked supervisor screens;
@@ -68,6 +69,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 ## Capabilities and Constraints
 
 - **Server:** Go standard library (`net/http`, `html/template`), in one binary with few dependencies.
+- **Desktop:** MyGo v0.7.4, pinned and cgo-free, draws the window from Go with no webview; it is a separate binary and reads the board over loopback like any local client.
 - **JavaScript:** allowed since 2026-09-28, as small first-party code with no framework and no build step, embedded in the binary. The CSP allows `script-src 'self'`. Live updates use Server-Sent Events from the Go server.
 - **Security:**
   - the board token is exchanged for an `HttpOnly`, `SameSite=Strict` cookie named for one fleet, which only that fleet accepts;
