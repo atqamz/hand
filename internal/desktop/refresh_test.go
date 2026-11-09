@@ -80,14 +80,15 @@ type boardRequest struct {
 }
 
 type fakeBoard struct {
-	mu       sync.Mutex
-	status   desktop.Status
-	timeline desktop.Timeline
-	version  map[string]int
-	issued   map[string]string
-	requests []boardRequest
-	fail     bool
-	reject   bool
+	mu           sync.Mutex
+	status       desktop.Status
+	timeline     desktop.Timeline
+	version      map[string]int
+	issued       map[string]string
+	requests     []boardRequest
+	fail         bool
+	failTimeline bool
+	reject       bool
 
 	block        chan struct{}
 	blockEntered chan struct{}
@@ -122,6 +123,12 @@ func (b *fakeBoard) setFail(fail bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.fail = fail
+}
+
+func (b *fakeBoard) setFailTimeline(fail bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failTimeline = fail
 }
 
 func (b *fakeBoard) setReject(reject bool) {
@@ -179,7 +186,7 @@ func (b *fakeBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"status": 400, "code": "bad_cursor", "message": "bad cursor"}})
 		return
 	}
-	if b.fail && rest == "/api/v1/status" {
+	if (b.fail && rest == "/api/v1/status") || (b.failTimeline && rest == "/api/v1/timeline") {
 		b.mu.Unlock()
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"status": 500, "code": "internal", "message": "the status store failed"}})
@@ -322,12 +329,91 @@ func TestRefreshClearsAForegroundReadError(t *testing.T) {
 	}
 }
 
+func TestRefreshClearsAnErrorOnlyForTheHalfItRefreshed(t *testing.T) {
+	t.Run("screen", func(t *testing.T) {
+		b := newFakeBoard()
+		app, clock := newBoardApp(t, b)
+		app.Show(desktop.TimelineScreen)
+		b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
+		app.StartRefresh()
+		clock.Advance(desktop.FocusedRefresh)
+
+		b.setFailTimeline(true)
+		app.Refresh()
+		if app.Err == "" {
+			t.Fatal("a failed timeline read left no error")
+		}
+		if len(app.Timeline.Entries) != 0 {
+			t.Fatalf("timeline = %+v, want the failed read's zero value", app.Timeline.Entries)
+		}
+		b.setFailTimeline(false)
+		b.setStatus(func(st *desktop.Status) { st.Line = "still moving" })
+		clock.Advance(desktop.FocusedRefresh)
+		if app.Err == "" {
+			t.Fatal("a fresh status cleared the timeline's error")
+		}
+
+		b.setTimeline(func(tl *desktop.Timeline) {
+			tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "recovered", No: 2}}, tl.Entries...)
+		})
+		clock.Advance(desktop.FocusedRefresh)
+		if app.Err != "" {
+			t.Fatalf("error = %q after the timeline recovered", app.Err)
+		}
+		if len(app.Timeline.Entries) == 0 || app.Timeline.Entries[0].Text != "recovered" {
+			t.Fatalf("timeline = %+v", app.Timeline.Entries)
+		}
+	})
+
+	t.Run("status", func(t *testing.T) {
+		b := newFakeBoard()
+		app, clock := newBoardApp(t, b)
+		app.Show(desktop.TimelineScreen)
+		b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
+		b.setTimeline(func(tl *desktop.Timeline) {
+			tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "first again", No: 2}}, tl.Entries...)
+		})
+		app.StartRefresh()
+		clock.Advance(desktop.FocusedRefresh)
+
+		b.setFail(true)
+		app.Refresh()
+		if app.Err == "" {
+			t.Fatal("a failed status read left no error")
+		}
+		if app.Status.Pill != "" {
+			t.Fatalf("status = %+v, want the failed read's zero value", app.Status)
+		}
+		b.setFail(false)
+		b.setTimeline(func(tl *desktop.Timeline) {
+			tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "newer", No: 3}}, tl.Entries...)
+		})
+		clock.Advance(desktop.FocusedRefresh)
+		if app.Err == "" {
+			t.Fatal("a fresh timeline cleared the status's error")
+		}
+		if app.Status.Pill != "" {
+			t.Fatal("the poll refilled a status it had not refreshed")
+		}
+
+		b.setStatus(func(st *desktop.Status) { st.Pill = "recovered" })
+		clock.Advance(desktop.FocusedRefresh)
+		if app.Err != "" {
+			t.Fatalf("error = %q after the status recovered", app.Err)
+		}
+		if app.Status.Pill != "recovered" {
+			t.Fatalf("status = %+v", app.Status)
+		}
+	})
+}
+
 func TestRefreshRecoversFromABadCursor(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
 	app.Show(desktop.TimelineScreen)
 	b.setReject(true)
 	b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
+	start := b.mark()
 	app.StartRefresh()
 	clock.Advance(desktop.FocusedRefresh)
 	if app.Status.Pill != "waiting" {
@@ -335,6 +421,15 @@ func TestRefreshRecoversFromABadCursor(t *testing.T) {
 	}
 	if app.Stale != "" {
 		t.Fatalf("stale = %q after the retry succeeded", app.Stale)
+	}
+	seen := b.seen(start)
+	if len(seen) != 4 {
+		t.Fatalf("poll made %d requests, want a retry of each half: %+v", len(seen), seen)
+	}
+	for i, want := range []bool{true, false, true, false} {
+		if got := seen[i].since != ""; got != want {
+			t.Fatalf("request %d sent since %q, want the full read after bad_cursor: %+v", i, seen[i].since, seen)
+		}
 	}
 }
 
@@ -374,6 +469,79 @@ func TestRefreshBacksOffOnErrors(t *testing.T) {
 	}
 }
 
+func TestRefreshBacksOffUpToTheCap(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	b.setFail(true)
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	for _, want := range []time.Duration{4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second} {
+		if got := clock.delay(); got != want {
+			t.Fatalf("backoff = %v, want %v", got, want)
+		}
+		clock.Advance(want)
+	}
+}
+
+func TestAManualRefreshClearsTheStaleNote(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	app.Show(desktop.TimelineScreen)
+	b.setFail(true)
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	clock.Advance(2 * desktop.FocusedRefresh)
+	if app.Stale == "" {
+		t.Fatal("the failed polls left no stale note")
+	}
+
+	b.setFail(false)
+	app.Refresh()
+	if app.Stale != "" {
+		t.Fatalf("stale = %q after a successful manual refresh", app.Stale)
+	}
+	if got := clock.delay(); got != desktop.FocusedRefresh {
+		t.Fatalf("interval after the manual refresh = %v, want %v", got, desktop.FocusedRefresh)
+	}
+}
+
+func TestRefreshPausesWithoutAFleet(t *testing.T) {
+	f := &fixture{}
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = t.TempDir()
+	clock := newFakeClock()
+	app.Clock = clock
+	app.Boot()
+	app.StartRefresh()
+	if fired := clock.Advance(time.Minute); fired != 0 {
+		t.Fatalf("fired %d ticks with no fleet", fired)
+	}
+	if got := clock.delay(); got != 0 {
+		t.Fatalf("armed a tick in %v with no fleet", got)
+	}
+	if got := f.count("poll:" + fleetID); got != 0 {
+		t.Fatalf("polled %d times with no fleet", got)
+	}
+}
+
+func TestAPollThatOutrunsItsTimeoutLeavesTheStaleNote(t *testing.T) {
+	f := goldenFixture(t)
+	f.pollBlock = make(chan struct{})
+	app := newApp(t, f)
+	app.PollTimeout = 20 * time.Millisecond
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Stale != "the board did not answer in time" {
+		t.Fatalf("stale = %q after the tick timed out", app.Stale)
+	}
+	close(f.pollBlock)
+	if got := clock.delay(); got != 2*desktop.FocusedRefresh {
+		t.Fatalf("backoff after the timeout = %v, want %v", got, 2*desktop.FocusedRefresh)
+	}
+}
+
 func TestFleetSwitchCancelsTheOldLoop(t *testing.T) {
 	f := goldenFixture(t)
 	f.pollBlock = make(chan struct{})
@@ -409,6 +577,37 @@ func TestFleetSwitchCancelsTheOldLoop(t *testing.T) {
 	pumpUntil(t, posted, func() bool { return f.count("poll:"+secondID) > 0 })
 	if got := f.count("poll:" + secondID); got == 0 {
 		t.Fatal("the selected fleet was not polled")
+	}
+}
+
+func TestCloseCancelsAPollInFlight(t *testing.T) {
+	f := goldenFixture(t)
+	f.pollBlock = make(chan struct{})
+	f.pollEntered = make(chan struct{}, 1)
+	f.pollExited = make(chan struct{}, 1)
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	runPosted(t, posted)
+	select {
+	case <-f.pollEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the poll never started")
+	}
+
+	app.Close()
+	select {
+	case <-f.pollExited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close left the poll running")
+	}
+	settle(t, posted)
+	if fired := clock.Advance(time.Minute); fired != 0 {
+		t.Fatalf("fired %d ticks after Close", fired)
 	}
 }
 
@@ -456,6 +655,49 @@ func TestRefreshDropsAScreenTheOperatorLeft(t *testing.T) {
 	}
 }
 
+func TestRefreshDropsAPollOlderThanTheLastRead(t *testing.T) {
+	f := goldenFixture(t)
+	f.pollBlock = make(chan struct{})
+	f.pollEntered = make(chan struct{}, 1)
+	f.pollDone = make(chan struct{}, 1)
+	app := newApp(t, f)
+	app.Clock = newFakeClock()
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.Show(desktop.TimelineScreen)
+	settle(t, posted)
+	app.StartRefresh()
+	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
+	runPosted(t, posted)
+	select {
+	case <-f.pollEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the poll never started")
+	}
+
+	app.Retry()
+	settle(t, posted)
+	reloaded := app.Timeline
+	if len(reloaded.Entries) == 0 {
+		t.Fatal("the retry read no timeline")
+	}
+	f.mu.Lock()
+	tl := f.timeline[fleetID]
+	tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "newer than the poll", No: 8}}, tl.Entries...)
+	f.timeline[fleetID] = tl
+	f.mu.Unlock()
+	close(f.pollBlock)
+	select {
+	case <-f.pollDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the released poll never returned")
+	}
+	settle(t, posted)
+	if !reflect.DeepEqual(app.Timeline, reloaded) {
+		t.Fatalf("a poll older than the last read replaced the screen: %+v", app.Timeline)
+	}
+}
+
 func TestRearmDropsAQueuedTick(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
@@ -493,6 +735,24 @@ func TestPollWaitsWhileAnActionRuns(t *testing.T) {
 	app.Busy = false
 	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
 	pumpUntil(t, posted, func() bool { return f.count("poll:"+fleetID) > 0 })
+}
+
+func TestPollWaitsWhileTheScreenLoads(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.Loading = true
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("poll:" + fleetID); got != 0 {
+		t.Fatalf("a poll overlapped a load: %d polls", got)
+	}
+	app.Loading = false
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("poll:" + fleetID); got != 1 {
+		t.Fatalf("polls after the load = %d, want 1", got)
+	}
 }
 
 func TestRefreshKeepsTimelineHistory(t *testing.T) {

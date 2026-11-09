@@ -86,14 +86,16 @@ type App struct {
 
 	Err string
 	// Stale is the last auto-refresh failure; empty when the board answers.
-	Stale  string
-	retry  string
-	writer *draftWriter
-	loadID int
-	cancel context.CancelFunc
-	stop   context.CancelFunc
-	gen    int
-	back   []backStep
+	Stale     string
+	errStatus bool
+	errScreen bool
+	retry     string
+	writer    *draftWriter
+	loadID    int
+	cancel    context.CancelFunc
+	stop      context.CancelFunc
+	gen       int
+	back      []backStep
 
 	polling    bool
 	closed     bool
@@ -165,7 +167,7 @@ func (a *App) Refresh() {
 	}
 	a.gen++
 	gen := a.gen
-	a.Err = ""
+	a.setErr("")
 	a.Loading = true
 	post(func() {})
 	go func() {
@@ -188,7 +190,7 @@ func (a *App) OpenFleet(ref string) {
 			return
 		}
 	}
-	a.Err = fmt.Sprintf("no registered fleet is named %q", ref)
+	a.setErr(fmt.Sprintf("no registered fleet is named %q", ref))
 }
 
 func (a *App) hasFleet(id string) bool {
@@ -233,7 +235,7 @@ func (a *App) SelectFleet(id string) {
 }
 
 func (a *App) install(f found, keep bool) {
-	a.Err = f.Err
+	a.setErr(f.Err)
 	if f.Model == nil {
 		a.resetPoll()
 		a.Model, a.Fleets = nil, nil
@@ -244,7 +246,7 @@ func (a *App) install(f found, keep bool) {
 	case len(a.Fleets) == 0:
 		a.resetPoll()
 		a.Fleet = Fleet{}
-		a.Err = "no fleets are registered; run `hand init` in a folder to make one"
+		a.setErr("no fleets are registered; run `hand init` in a folder to make one")
 	case a.hasFleet(a.Fleet.ID) && keep:
 		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
 		if a.OnFleet != nil {
@@ -320,7 +322,7 @@ func (a *App) Older() {
 			return
 		}
 		if err != nil {
-			a.Err = friendly(err)
+			a.Err, a.errStatus, a.errScreen = friendly(err), false, true
 			return
 		}
 		merged := a.Timeline
@@ -770,7 +772,7 @@ func (a *App) Reload() {
 		return
 	}
 	id, ctx, cancel := a.nextLoad()
-	a.Err = ""
+	a.setErr("")
 	post := a.Post
 	if post == nil {
 		a.Loading = false
@@ -958,16 +960,16 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		return
 	}
 	a.Stale, a.pollFails = "", 0
-	fresh := false
+	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
-		a.Status, a.pollStatus, fresh = p.Status, p.StatusCursor, true
+		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
 	}
 	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
 		a.setScreen(screen, key, &p)
-		fresh = true
+		screenFresh = true
 	}
-	if fresh {
-		a.Err = ""
+	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
+		a.setErr("")
 	}
 	a.armPoll()
 }
@@ -1085,7 +1087,10 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 }
 
 func (a *App) apply(l loaded) {
-	a.Err = l.Err
+	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
+	if l.Err == "" {
+		a.Stale, a.pollFails = "", 0
+	}
 	if !l.StatusOK {
 		a.Status = Status{}
 		return
@@ -1107,7 +1112,14 @@ func (a *App) apply(l loaded) {
 	}
 }
 
+func (a *App) setErr(msg string) {
+	a.Err, a.errStatus, a.errScreen = msg, false, false
+}
+
 func friendly(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "the board did not answer in time"
+	}
 	var api *APIError
 	if errors.As(err, &api) {
 		switch api.Status {
