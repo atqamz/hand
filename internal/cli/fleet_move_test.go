@@ -11,9 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/fsx"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -1230,5 +1232,52 @@ func copyMoveTree(t *testing.T, src, dst string) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFleetMoveRecordsTheOldHomeWhenTheRecordIsMissing(t *testing.T) {
+	h, home, _ := initMoveFleet(t)
+	if err := os.Remove(filepath.Join(home, "fleet.home")); err != nil {
+		t.Fatal(err)
+	}
+	dest := moveCanonicalDest(t, filepath.Join(t.TempDir(), "moved"))
+	if out := h.ok("fleet", "move", "--yes", dest); !strings.Contains(out, "move: moved") {
+		t.Fatalf("move = %q", out)
+	}
+	rec, err := fleet.ReadHomes(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Current != dest || !slices.Equal(rec.Homes, []string{home, dest}) {
+		t.Fatalf("record = %+v, want the old home %s and the new one %s", rec, home, dest)
+	}
+}
+
+func TestFleetMoveRewriteOnlyKeepsTheOldHomeWhenTheRecordIsMissing(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	copied := moveCanonicalDest(t, filepath.Join(t.TempDir(), "copied"))
+	if err := os.Rename(home, copied); err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.EvalSymlinks(h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index", id), []byte(copied+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(copied, "fleet.home")); err != nil {
+		t.Fatal(err)
+	}
+	h.home, h.cwd = copied, copied
+	if out := h.ok("fleet", "move", "--rewrite-only", "--yes", "--from", home); !strings.Contains(out, "move: rewritten") {
+		t.Fatalf("rewrite = %q", out)
+	}
+	rec, err := fleet.ReadHomes(copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Current != copied || !slices.Equal(rec.Homes, []string{home, copied}) {
+		t.Fatalf("record = %+v, want the old home %s and the new one %s", rec, home, copied)
 	}
 }

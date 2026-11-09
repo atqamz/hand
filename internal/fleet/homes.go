@@ -4,16 +4,18 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 
-	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/flock"
 )
 
-const HomeFile = "fleet.home"
+const (
+	HomeFile = "fleet.home"
+	homeLock = ".fleet.home.lock"
+)
 
 type HomesRecord struct {
 	Homes   []string `json:"homes"`
@@ -30,8 +32,8 @@ func ReadHomes(home string) (HomesRecord, error) {
 		return HomesRecord{}, err
 	}
 	var rec HomesRecord
-	if err := json.Unmarshal(b, &rec); err != nil {
-		return HomesRecord{}, fmt.Errorf("%w: %s is not a fleet home record: %v", state.ErrInvalid, path, err)
+	if err := json.Unmarshal(b, &rec); err != nil || rec.Current == "" {
+		return HomesRecord{}, nil
 	}
 	return rec, nil
 }
@@ -40,6 +42,11 @@ func WriteHomes(home, current string) error {
 	if current == "" {
 		current = home
 	}
+	unlock, err := lockHomes(home)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	rec, err := ReadHomes(home)
 	if err != nil {
 		return err
@@ -67,13 +74,45 @@ func WriteHomes(home, current string) error {
 		return err
 	}
 	tmp := filepath.Join(home, "."+HomeFile+"."+rand.Text())
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		_ = os.Remove(tmp)
+	if err := writeTemp(tmp, append(b, '\n')); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, filepath.Join(home, HomeFile)); err != nil {
-		_ = os.Remove(tmp)
+	return renameSynced(tmp, filepath.Join(home, HomeFile))
+}
+
+func lockHomes(home string) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(home, homeLock), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := flock.Lock(f, true); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() { _ = flock.Release(f) }, nil
+}
+
+func writeTemp(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
 		return err
 	}
-	return nil
+	_, werr := f.Write(data)
+	if werr == nil {
+		werr = f.Sync()
+	}
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(path)
+	}
+	return werr
+}
+
+func renameSynced(tmp, dst string) error {
+	if err := os.Rename(tmp, dst); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(dst))
 }

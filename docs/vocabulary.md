@@ -148,6 +148,7 @@ A fleet home holds:
 - `reports/` and `shots/`: the documents and screenshots workers leave for the operator (see Retention);
 - `scratch/`: each attempt's scratch folder, `scratch/tN-aM` (see Scratch);
 - `board.token`, made the first time the board serves the fleet;
+- `fleet.home`: the homes the fleet has lived at, with `.fleet.home.lock` beside it, which serialises its writes;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
 
 ### Move

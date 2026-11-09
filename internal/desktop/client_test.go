@@ -800,3 +800,31 @@ func TestHTTPClientReportsACSRFRefusal(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestAStaleIndexEntryDoesNotHideTheLegacyBookmark(t *testing.T) {
+	root := t.TempDir()
+	home, _ := writeLocal(t, root)
+	legacy := filepath.Join(root, "fleets")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, fleetID), []byte(home+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index", fleetID), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := desktop.NewLocal(func(key string) string {
+		if key == "SECONDHAND_HOME" {
+			return root
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleets := c.Fleets()
+	if len(fleets) != 1 || fleets[0].ID != fleetID {
+		t.Fatalf("fleets = %+v, want the legacy entry", fleets)
+	}
+}

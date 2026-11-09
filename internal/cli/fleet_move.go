@@ -144,6 +144,13 @@ func cmdFleetMove(r *runner, args []string) error {
 		}
 		return r.printMoveDryRun(f, rep, *rewriteOnly, wt)
 	}
+	if rec, err := fleet.ReadHomes(home); err != nil {
+		return err
+	} else if rec.Current == "" {
+		if err := fleet.WriteHomes(home, from); err != nil {
+			return err
+		}
+	}
 	backup := moveBackup(home, r.env.Now().UTC())
 	if err := st.Backup(ctx, backup); err != nil {
 		return err
@@ -152,6 +159,9 @@ func cmdFleetMove(r *runner, args []string) error {
 		rep, err := st.RewriteHome(ctx, from, dest)
 		if err != nil {
 			return fmt.Errorf("%w; the database was not changed, the pre-move copy is %s", err, backup)
+		}
+		if err := fleet.WriteHomes(home, home); err != nil {
+			return fmt.Errorf("%w: the database at %s now names %s, but the fleet record could not be updated: %v; the pre-move copy is %s", state.ErrConflict, home, dest, err, backup)
 		}
 		return r.printMoveRewritten(f, root, rep, backup)
 	}
@@ -202,6 +212,13 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 		return r.print(&d)
 	}
 	ctx := r.ctx()
+	if rec, err := fleet.ReadHomes(home); err != nil {
+		return err
+	} else if rec.Current == "" {
+		if err := fleet.WriteHomes(home, from); err != nil {
+			return err
+		}
+	}
 	if samePlace(home, to) {
 		if haveDest && !samePlace(dest, to) {
 			return fmt.Errorf("%w: the move from %s to %s is pending and this folder is already %s; run `hand fleet move --yes %s` here to finish it first, then start the move to %s", state.ErrConflict, from, to, to, to, dest)

@@ -15,29 +15,46 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
     let path = dir.join(FILE);
     match read(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) if e.kind() == io::ErrorKind::InvalidData => return read_after_race(&path),
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => match read_after_race(&path)? {
+            Some(key) => return Ok(key),
+            None => {
+                let _ = fs::remove_file(&path);
+            }
+        },
         found => return found,
     }
+    match create(&path) {
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => match read_after_race(&path)? {
+            Some(key) => Ok(key),
+            None => {
+                let _ = fs::remove_file(&path);
+                create(&path)
+            }
+        },
+        found => found,
+    }
+}
+
+fn create(path: &Path) -> io::Result<SecretKey> {
     let key = SecretKey::generate();
-    match create_private(&path) {
+    match create_private(path) {
         Ok(mut f) => {
             if let Err(e) = f.write_all(&key.to_bytes()).and_then(|()| f.sync_all()) {
                 drop(f);
-                let _ = fs::remove_file(&path);
+                let _ = fs::remove_file(path);
                 return Err(e);
             }
             Ok(key)
         }
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read_after_race(&path),
         Err(e) => Err(e),
     }
 }
 
-fn read_after_race(path: &Path) -> io::Result<SecretKey> {
+fn read_after_race(path: &Path) -> io::Result<Option<SecretKey>> {
     let mut last = None;
     for _ in 0..100 {
         match read(path) {
-            Ok(key) => return Ok(key),
+            Ok(key) => return Ok(Some(key)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -52,12 +69,15 @@ fn read_after_race(path: &Path) -> io::Result<SecretKey> {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    Err(last.unwrap_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("{} did not become a key", path.display()),
-        )
-    }))
+    match fs::metadata(path) {
+        Ok(meta) if meta.len() < 32 => Ok(None),
+        _ => Err(last.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} did not become a key", path.display()),
+            )
+        })),
+    }
 }
 
 fn sweep(dir: &Path) {
@@ -183,10 +203,19 @@ mod tests {
     #[test]
     fn refuses_a_file_of_the_wrong_size() {
         let dir = TempDir::new();
-        dir.file(FILE, "short");
+        dir.file(FILE, &"x".repeat(40));
         let error = load_or_create(dir.path()).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(!error.to_string().contains("short\n"));
+        assert!(!error.to_string().contains(&"x".repeat(40)));
+    }
+
+    #[test]
+    fn replaces_a_partial_key_left_by_a_crash() {
+        let dir = TempDir::new();
+        let path = dir.file(FILE, "short");
+        let key = load_or_create(dir.path()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), key.to_bytes());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[cfg(unix)]

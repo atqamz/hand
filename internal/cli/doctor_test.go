@@ -432,3 +432,34 @@ func TestDoctorReportsAStaleWatchUnit(t *testing.T) {
 		})
 	}
 }
+
+func TestDoctorFailsACopyWhoseRecordNamesALiveHome(t *testing.T) {
+	fx := newDoctorFixture(t)
+	cp := t.TempDir()
+	for _, name := range []string{"hand.db", "board.token"} {
+		if b, err := os.ReadFile(filepath.Join(fx.h.home, name)); err == nil {
+			if err := os.WriteFile(filepath.Join(cp, name), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	record := `{"homes":["` + fx.h.home + `"],"current":"` + fx.h.home + `"}` + "\n"
+	if err := os.WriteFile(filepath.Join(cp, fleet.HomeFile), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.EvalSymlinks(fx.h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index", fx.id), []byte(cp+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.home, fx.h.cwd = cp, cp
+	out, errOut, code := fx.h.run("doctor")
+	if code != 1 {
+		t.Fatalf("doctor = %d: %q %q", code, out, errOut)
+	}
+	if row := checkRows(t, out)["fleet"]; row[0] != "fail" || !strings.Contains(row[1], "copy") {
+		t.Fatalf("fleet = %q in %q", row, out)
+	}
+}

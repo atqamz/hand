@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -585,4 +586,27 @@ func TestTheComposerLayoutKeepsTheHintReadable(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css, ".composer-foot .hint{flex:1;min-width:0;line-height:18px}", "@container (max-width:519px){[data-send-key]{display:none}}", ".attach:has(input:focus-visible)")
 	lacks(t, "board.css", css, ".attach:focus-within", ".shots:first-child", "minmax(10em,1fr)")
+}
+
+func TestConcurrentUploadsKeepEveryFile(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.Now = func() time.Time { return time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local) }
+	const uploads = 8
+	responses := make([]*http.Response, uploads)
+	var wg sync.WaitGroup
+	for i := range responses {
+		wg.Go(func() { responses[i] = upload(fx.handler(), "a.png", pngBytes, token) })
+	}
+	wg.Wait()
+	names := make(map[string]bool, uploads)
+	for _, res := range responses {
+		_, name, _ := saved(t, res)
+		names[name] = true
+	}
+	if len(names) != uploads {
+		t.Fatalf("names = %v, want %d distinct", names, uploads)
+	}
+	if got := inboxFiles(t, fx.options.Home); len(got) != uploads {
+		t.Fatalf("inbox = %v, want %d files", got, uploads)
+	}
 }

@@ -64,6 +64,9 @@ func Check(root, id, home string) error {
 	case err != nil:
 		return err
 	case target == home:
+		if err := refuseRecordCopy(home, id); err != nil {
+			return err
+		}
 		unlock, err := lockIndex(root)
 		if err != nil {
 			return err
@@ -92,6 +95,9 @@ func Register(root, id, home string) (string, error) {
 	case err != nil:
 		return "", err
 	case target == home:
+		if err := refuseRecordCopy(home, id); err != nil {
+			return "", err
+		}
 		unlock, err := lockIndex(root)
 		if err != nil {
 			return "", err
@@ -111,11 +117,11 @@ func Moved(root, id, home string) (string, error) {
 	target, err := readLink(root, id)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return "", nil
+		return "", refuseRecordCopy(home, id)
 	case err != nil:
 		return "", err
 	case target == home || sameDir(target, home):
-		return "", nil
+		return "", refuseRecordCopy(home, id)
 	}
 	if err := refuseCopy(target, id); err != nil {
 		return "", err
@@ -187,6 +193,9 @@ func bookmarkIDs(root string) ([]string, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
+		if errors.Is(err, syscall.ENOTDIR) {
+			return nil, fmt.Errorf("%w: %s is not a directory; move it aside, then run `hand fleet list` again", state.ErrInvalid, dir)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -256,6 +265,9 @@ func List(root string) ([]Entry, error) {
 			rec, rerr = ReadHomes(target)
 		}
 		unlock()
+		if errors.Is(lerr, fs.ErrNotExist) {
+			continue
+		}
 		if lerr != nil {
 			out = append(out, Entry{ID: id, State: "unreadable: " + lerr.Error()})
 			continue
@@ -288,7 +300,13 @@ func lockIndex(root string) (func(), error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	lock, err := os.OpenFile(filepath.Join(root, "index.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	path := filepath.Join(root, "index.lock")
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if errors.Is(err, fs.ErrPermission) {
+		if lock, err = os.OpenFile(path, os.O_RDONLY, 0); errors.Is(err, fs.ErrNotExist) {
+			return func() {}, nil
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -361,8 +379,7 @@ func stage(root, id, home string) (string, error) {
 		return "", err
 	}
 	tmp := filepath.Join(dir, "."+id+"."+rand.Text())
-	if err := os.WriteFile(tmp, []byte(home+"\n"), 0o600); err != nil {
-		_ = os.Remove(tmp)
+	if err := writeTemp(tmp, []byte(home+"\n")); err != nil {
 		return "", err
 	}
 	return tmp, nil
@@ -380,12 +397,15 @@ func claim(root, id, home string) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	if err := refuseRecordCopy(home, id); err != nil {
+		return err
+	}
 	tmp, err := stage(root, id, home)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
-	if err := os.Rename(tmp, bookmark(root, id)); err != nil {
+	if err := renameSynced(tmp, bookmark(root, id)); err != nil {
 		return err
 	}
 	return WriteHomes(home, home)
@@ -398,11 +418,14 @@ func point(root, id, home string) error {
 	}
 	defer unlock()
 	migrate(root)
+	if err := refuseRecordCopy(home, id); err != nil {
+		return err
+	}
 	tmp, err := stage(root, id, home)
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, bookmark(root, id)); err != nil {
+	if err := renameSynced(tmp, bookmark(root, id)); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
@@ -425,6 +448,24 @@ func refuseCopy(other, id string) error {
 	}
 	if ok && f.ID == id {
 		return fmt.Errorf("%w: fleet %s is also at %s, so one of the two homes is a copy; delete one of them", state.ErrConflict, id, other)
+	}
+	return nil
+}
+
+func refuseRecordCopy(home, id string) error {
+	rec, err := ReadHomes(home)
+	if err != nil {
+		return err
+	}
+	if rec.Current == "" || sameDir(rec.Current, home) {
+		return nil
+	}
+	f, ok, err := at(rec.Current)
+	if err != nil {
+		return err
+	}
+	if ok && f.ID == id {
+		return fmt.Errorf("%w: fleet %s's record names %s as its current home, and that folder still holds it, so %s is a copy; delete one of them", state.ErrConflict, id, rec.Current, home)
 	}
 	return nil
 }

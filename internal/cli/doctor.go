@@ -368,6 +368,7 @@ func (r *runner) doctorWatchUnits(ctx context.Context, c *checks, root string) {
 
 var modesEnforced = probeModes
 
+// probeModes reads the permission bits a new file reports. A share that reports 0600 without enforcing it (CIFS noperm, some exFAT fmask layouts) passes, so this is a hint, not a proof.
 func probeModes(dir string) (bool, error) {
 	f, err := os.CreateTemp(dir, ".modes-*")
 	if err != nil {

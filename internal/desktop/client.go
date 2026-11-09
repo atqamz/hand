@@ -156,7 +156,6 @@ func localFleets(root string) ([]Fleet, map[string]string, error) {
 			if !fleetIDShape.MatchString(id) || seen[id] {
 				continue
 			}
-			seen[id] = true
 			home, err := fleetHome(dir, id)
 			if err != nil {
 				continue
@@ -164,6 +163,7 @@ func localFleets(root string) ([]Fleet, map[string]string, error) {
 			if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
 				continue
 			}
+			seen[id] = true
 			token := filepath.Join(home, "board.token")
 			tokens[id] = token
 			fleets = append(fleets, Fleet{ID: id, Name: id})
