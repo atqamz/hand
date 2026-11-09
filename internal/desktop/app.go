@@ -946,20 +946,11 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		if errors.Is(err, context.Canceled) {
 			return
 		}
-		if a.Fleet.ID == fleet {
-			if p.StatusFresh {
-				a.Status, a.pollStatus = p.Status, p.StatusCursor
-			}
-			if a.Screen == screen && a.Ref == ref && p.ScreenFresh {
-				a.setScreen(screen, key, &p)
-			}
-		}
 		a.Stale = friendly(err)
 		a.pollFails++
-		a.armPoll()
-		return
+	} else {
+		a.Stale, a.pollFails = "", 0
 	}
-	a.Stale, a.pollFails = "", 0
 	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true

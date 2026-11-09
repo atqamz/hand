@@ -407,6 +407,39 @@ func TestRefreshClearsAnErrorOnlyForTheHalfItRefreshed(t *testing.T) {
 	})
 }
 
+func TestAPartialPollClearsTheErrorOfTheHalfItAnswered(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	app.Show(desktop.TimelineScreen)
+
+	b.setFail(true)
+	app.Retry()
+	if app.Err == "" {
+		t.Fatal("the failed status read left no error")
+	}
+
+	b.setFail(false)
+	b.setStatus(func(st *desktop.Status) { st.Line = "moving" })
+	b.setFailTimeline(true)
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Stale == "" {
+		t.Fatal("the failed timeline read left no stale note")
+	}
+
+	b.setFailTimeline(false)
+	clock.Advance(2 * desktop.FocusedRefresh)
+	if app.Err != "" {
+		t.Fatalf("error = %q after the status recovered, then a clean poll", app.Err)
+	}
+	if app.Stale != "" {
+		t.Fatalf("stale = %q after a clean poll", app.Stale)
+	}
+	if app.Status.Line != "moving" {
+		t.Fatalf("status = %+v, want the answered half's data", app.Status)
+	}
+}
+
 func TestRefreshRecoversFromABadCursor(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
