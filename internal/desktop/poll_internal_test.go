@@ -1,6 +1,25 @@
 package desktop
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestATimelineThatShrankDropsTheHeldPage(t *testing.T) {
+	have := Timeline{
+		Older:   40,
+		Entries: []Entry{{No: 41, Text: "held"}, {No: 42, Text: "newest"}},
+	}
+	next := Timeline{
+		Older:   20,
+		Entries: []Entry{{No: 42, Text: "newest"}, {No: 43, Text: "added"}},
+	}
+	got := mergeTimeline(have, next)
+	want := Timeline{Older: 20, Entries: []Entry{{No: 42, Text: "newest"}, {No: 43, Text: "added"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("a shrunken timeline kept the held page: %+v", got)
+	}
+}
 
 func TestAPollForAnotherRefLeavesTheOpenTaskAlone(t *testing.T) {
 	a := &App{

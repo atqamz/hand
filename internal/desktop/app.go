@@ -984,7 +984,9 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 }
 
 func mergeTimeline(have, next Timeline) Timeline {
-	if next.Older == 0 || have.Older == next.Older || have.Older > next.Older {
+	// A boundary that moved back means the board re-indexed or lost entries, so
+	// the held page no longer covers a range Older can address; the fresh page wins.
+	if have.Older >= next.Older {
 		return next
 	}
 	seen := map[string]bool{}
