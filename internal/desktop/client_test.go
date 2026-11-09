@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
 )
@@ -816,6 +817,31 @@ func TestPollDoesNotRememberAnAnswerTheWindowDiscarded(t *testing.T) {
 	}
 	if !second.StatusFresh || second.Status.Pill != "changed" {
 		t.Fatalf("the second poll sent the discarded answer's cursor: %+v", second)
+	}
+}
+
+func TestPollKeepsTheDeadlineInItsError(t *testing.T) {
+	b := newFakeBoard()
+	b.mu.Lock()
+	b.block, b.blockEntered, b.blockPath = make(chan struct{}), make(chan struct{}, 1), "/api/v1/status"
+	b.mu.Unlock()
+	srv := httptest.NewServer(b)
+	t.Cleanup(srv.Close)
+	c := &desktop.HTTPClient{
+		Base:  srv.URL,
+		Known: []desktop.Fleet{{ID: fleetID, Name: "fake"}},
+		Token: func(string) (string, error) { return testToken, nil },
+		HTTP:  srv.Client(),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	b.mu.Lock()
+	block := b.block
+	b.mu.Unlock()
+	close(block)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a timed-out poll lost its deadline: %v", err)
 	}
 }
 

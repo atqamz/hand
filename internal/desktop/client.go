@@ -579,7 +579,7 @@ func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, method, path st
 	}
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %v", c.Base, err)
+		return nil, fmt.Errorf("the board at %s did not answer: %w", c.Base, err)
 	}
 	return res, nil
 }
