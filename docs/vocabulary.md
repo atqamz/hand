@@ -305,7 +305,7 @@ Whatever a worker or the supervisor delivered: a PR or merge request on any forg
 
 The terminal runtime Hand runs every agent in ([RizRiyz/luvus](https://github.com/RizRiyz/luvus)). Hand speaks UHP 1.x to it over a Unix socket (on Windows a named pipe, whose address `luvus session list --json` reports and whose server must run as the same user) and uses only exact-argv terminals, agent status, fenced input and events. Hand keeps its own state and worktrees, and never uses Luvus's task ledger or worktree commands.
 
-Each fleet has its own Luvus session, `secondhand-<fleet id>`. In a systemd user session, Hand starts that session's server in a transient scope (`systemd-run --user --scope`), so restarting the watcher or the board never stops an agent. Without a user session, or when `systemd-run` fails, Hand starts the server directly.
+Each fleet has its own Luvus session, `secondhand-<fleet id>`. In a systemd user session, Hand starts that session's server in a transient scope (`systemd-run --user --scope`), so restarting the watcher or the board never stops an agent. Without a user session, or when `systemd-run` fails, Hand starts the server directly. Inside a Hand fleet, omp runs with `PI_NOTIFICATIONS=0`, because the fleet's server is started with it and every pane inherits that environment; a server that was already running keeps its old environment until `hand update` restarts it (a Luvus switch), or you stop it yourself and let the next `hand` command start it.
 
 ### Luvus pin
 
