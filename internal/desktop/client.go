@@ -140,7 +140,10 @@ func localBoard(root string) (string, error) {
 }
 
 func localFleets(root string) ([]Fleet, map[string]string, error) {
-	dir := filepath.Join(root, "fleets")
+	dir := filepath.Join(root, "index")
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		dir = filepath.Join(root, "fleets")
+	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil

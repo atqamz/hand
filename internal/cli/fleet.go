@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"path/filepath"
-
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -34,6 +32,6 @@ func cmdFleetList(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	d.Rows("fleets", []string{"id", "name", "home", "state"}, rows)
-	d.Help("Forget a missing or moved fleet by deleting its link in " + filepath.Join(root, "fleets") + "; an unreadable fleet is not dead, its row names the cause")
+	d.Help("Forget a missing or moved fleet by deleting its bookmark in " + fleet.IndexDir(root) + "; an unreadable fleet is not dead, its row names the cause")
 	return r.print(&d)
 }

@@ -23,6 +23,7 @@ A fleet folder looks like this:
 ├── .claude/ .agents/ .grok/ .pi/
 │                      the secondhand skill, for Claude Code, Codex, Grok and Pi
 ├── hand.db            the fleet's state
+├── fleet.home         the homes this fleet has lived at
 ├── routing.json       routing profiles
 ├── memory/
 │   ├── operator.md    your standing preferences
@@ -36,7 +37,7 @@ A fleet folder looks like this:
 
 ## Import another fleet
 
-`hand fleet import SRC INTO DST` merges one fleet into another as an archive, not as a rewrite. `SRC` and `DST` are fleet IDs or names registered under `~/.secondhand/fleets`. `--dry-run` prints the manifest and writes no row, file or marker; SQLite may still create `hand.db-shm` and `-wal` beside a database it opens, so a read-only mount can refuse the dry run. A ref shaped like a fleet ID is read as an ID only, and an unregistered one is an error; a name resolves through the registry, which opens every registered fleet. It refuses the same fleet, either fleet with a live supervisor or a `launching`/`running` attempt, a schema that is not the current one, and a source already imported (the `imported-into` marker in the source home, or a `fleet.imported` event in the destination). An import lock is held on both the source home and the destination home from the preflight through the file phase, and the marker and event are checked again inside the database transaction, so concurrent invocations import once, whether they name one destination or two, and the others exit with a conflict.
+`hand fleet import SRC INTO DST` merges one fleet into another as an archive, not as a rewrite. `SRC` and `DST` are fleet IDs or names registered under `~/.secondhand/index`. `--dry-run` prints the manifest and writes no row, file or marker; SQLite may still create `hand.db-shm` and `-wal` beside a database it opens, so a read-only mount can refuse the dry run. A ref shaped like a fleet ID is read as an ID only, and an unregistered one is an error; a name resolves through the registry, which opens every registered fleet. It refuses the same fleet, either fleet with a live supervisor or a `launching`/`running` attempt, a schema that is not the current one, and a source already imported (the `imported-into` marker in the source home, or a `fleet.imported` event in the destination). An import lock is held on both the source home and the destination home from the preflight through the file phase, and the marker and event are checked again inside the database transaction, so concurrent invocations import once, whether they name one destination or two, and the others exit with a conflict.
 
 The import:
 
@@ -50,11 +51,12 @@ The database is one transaction. The manifest's database part (counts, offset an
 
 A dry run cannot tell whether a destination is writable: it reports a missing file as copied without opening it, so a destination content directory that refuses writes still shows `copied` and exits 0, and the real run then fails part of the file phase after the commit. Before the real run, check that every content directory the destination already has (`memory/`, `deliverables/`, `plans/`, `inbox/`, `reports/`, `briefs/`) accepts a file write and a removal. The offset is the destination's highest task ID at the moment of the real run, not the one the dry run printed: a destination that gained tasks since then shifts the tasks further, and the hash moves with it, so recompute the offset then, and run the dry run twice immediately before the real run.
 
-Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleets/` holds a file per fleet ID that names its folder, and `worktrees/` holds every worker worktree, outside every fleet:
+Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `index/` holds a bookmark per fleet ID that names its folder, and `worktrees/` holds every worker worktree, outside every fleet. A bookmark is written to a temporary file and renamed into place, so the registry works on a filesystem without hard links, such as exFAT:
 
 ```text
 ~/.secondhand/
-├── fleets/<fleet id>                  file naming the fleet folder
+├── index/<fleet id>                   file naming the fleet folder
+├── index.lock                         serialises the first bookmark of a fleet
 ├── worktrees/<fleet id>/tN-aM/        one worktree per attempt
 ├── luvus/                             pinned Luvus copies and pin.json
 ├── iroh/                              the hand-iroh endpoint's key, hand-iroh.key
@@ -63,5 +65,7 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleet
 ├── board.generation.lock              serialises writes to board.generation
 └── board.addr                         where the running board listens
 ```
+
+Each fleet home also records itself in `fleet.home`, a JSON object such as `{"homes":["/old/a","/new"],"current":"/new"}`: `current` is the home the fleet is in, and `homes` keeps every earlier one, so a moved folder and a copy of it can be told apart. The first command in a fleet writes the record, `hand init` updates it, and a move appends the old home.
 
 Each attempt works on the branch `hand/<fleet id>/tN-aM` in the project's repository. `hand attempt clean aN` removes the worktree, the attempt's `scratch/tN-aM` folder and a Claude worker's scratch directory, and keeps the branch. The scratch folder moves with the fleet home, but worktrees and the peer secret stay outside it until the layout change; it is outside `reports/` and `shots/`, so the artifact counts and the database backups never include it. The watcher does the same by itself, 7 days after an attempt ended, when its tree is clean, its commits are pushed and no ignored file looks like config (other ignored files, such as build caches, go with the worktree: a path a worker wants to keep must be outside it); otherwise the Board shows a Needs item with the reason. `hand orient` and the Board warn when `reports/` and `shots/` pass 20 GB or hold files older than 30 days, and `hand gc --older-than 30d` lists them and deletes only with `--yes`. The `retention` object in `routing.json` sets the limits ([Retention](vocabulary.md#retention)).

@@ -206,7 +206,7 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 		"integrity_check: ok",
 		"rows: ok",
 		"home: " + toon.Value(dest),
-		"registry: " + toon.Value(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id)),
+		"registry: " + toon.Value(filepath.Join(h.vars["SECONDHAND_HOME"], "index", id)),
 		"Run `hand init` in " + dest,
 	} {
 		if !strings.Contains(out, want) {
@@ -239,7 +239,7 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 	if _, err := os.Stat(home); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("old home still there: %v", err)
 	}
-	link, err := os.ReadFile(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id))
+	link, err := os.ReadFile(filepath.Join(h.vars["SECONDHAND_HOME"], "index", id))
 	if err != nil || strings.TrimSpace(string(link)) != dest {
 		t.Fatalf("registry = %q, %v", link, err)
 	}
@@ -687,7 +687,7 @@ func TestFleetMoveRefusesBadDestinationsAndMissingFlags(t *testing.T) {
 func TestFleetMoveRefusesAFleetMissingFromTheRegistry(t *testing.T) {
 	h, home, id := initMoveFleet(t)
 	seedMoveFleet(t, home, id)
-	if err := os.Remove(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id)); err != nil {
+	if err := os.Remove(filepath.Join(h.vars["SECONDHAND_HOME"], "index", id)); err != nil {
 		t.Fatal(err)
 	}
 	_, errOut, code := h.run("fleet", "move", "--yes", filepath.Join(t.TempDir(), "moved"))
@@ -938,7 +938,7 @@ func TestFleetMoveResumesAPendingMove(t *testing.T) {
 	if _, err := os.Stat(home); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("old home still there: %v", err)
 	}
-	link, err := os.ReadFile(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id))
+	link, err := os.ReadFile(filepath.Join(h.vars["SECONDHAND_HOME"], "index", id))
 	if err != nil || strings.TrimSpace(string(link)) != dest {
 		t.Fatalf("registry = %q, %v", link, err)
 	}
@@ -993,7 +993,7 @@ func TestFleetMoveFinishesAfterTheFolderMoved(t *testing.T) {
 	if !strings.Contains(out, "move: finished") || !strings.Contains(out, "verification: 0") {
 		t.Fatalf("finish = %q", out)
 	}
-	link, err := os.ReadFile(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id))
+	link, err := os.ReadFile(filepath.Join(h.vars["SECONDHAND_HOME"], "index", id))
 	if err != nil || strings.TrimSpace(string(link)) != dest {
 		t.Fatalf("registry = %q, %v", link, err)
 	}

@@ -209,6 +209,16 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	} else {
 		c.add("fleet", "ok", "")
 	}
+	if runtime.GOOS != "windows" {
+		switch enforced, err := modesEnforced(r.home); {
+		case err != nil:
+			c.add("modes", "warn", "could not test whether this filesystem enforces file modes: "+err.Error())
+		case !enforced:
+			c.add("modes", "warn", "this filesystem does not enforce file modes, so board.token and hand.db are readable by anyone who can mount it; encrypt the volume")
+		default:
+			c.add("modes", "ok", "")
+		}
+	}
 	doctorProjects(ctx, st, c)
 	_, live, lerr := st.LiveSupervisor(ctx)
 	if p, err := harness.LoadPolicy(r.home); err != nil {
@@ -354,4 +364,22 @@ func (r *runner) doctorWatchUnits(ctx context.Context, c *checks, root string) {
 		}
 		c.add("watch unit", "warn", why+"; "+fix)
 	}
+}
+
+func modesEnforced(dir string) (bool, error) {
+	f, err := os.CreateTemp(dir, ".modes-*")
+	if err != nil {
+		return false, err
+	}
+	name := f.Name()
+	_ = f.Close()
+	defer os.Remove(name)
+	if err := chmod(name, 0o600); err != nil {
+		return false, nil
+	}
+	info, err := os.Stat(name)
+	if err != nil {
+		return false, err
+	}
+	return info.Mode().Perm()&0o077 == 0, nil
 }

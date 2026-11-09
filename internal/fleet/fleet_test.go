@@ -3,8 +3,10 @@ package fleet_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -143,8 +145,8 @@ func TestConcurrentFirstChecksAllSucceed(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if des, err := os.ReadDir(filepath.Join(root, "fleets")); err != nil || len(des) != 1 {
-		t.Fatalf("fleets dir = %v, %v; want one link and no temp files", des, err)
+	if des, err := os.ReadDir(filepath.Join(root, "index")); err != nil || len(des) != 1 {
+		t.Fatalf("index dir = %v, %v; want one bookmark and no temp files", des, err)
 	}
 }
 
@@ -224,10 +226,10 @@ func TestPointerFileClaimExclusive(t *testing.T) {
 
 func TestAnEmptyPointerFileIsInvalid(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "index"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "fleets", "f000000000000"), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "index", "f000000000000"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fleet.Home(root, "f000000000000"); !errors.Is(err, state.ErrInvalid) {
@@ -266,7 +268,7 @@ func TestALeftoverSymlinkNamesItsPathAndTheFixAndSparesTheOtherFleets(t *testing
 		t.Fatal(err)
 	}
 	stale := "f000000000001"
-	path := filepath.Join(root, "fleets", stale)
+	path := filepath.Join(root, "index", stale)
 	if err := os.Symlink(old, path); err != nil {
 		t.Skipf("no symlinks here: %v", err)
 	}
@@ -297,10 +299,10 @@ func TestALeftoverSymlinkNamesItsPathAndTheFixAndSparesTheOtherFleets(t *testing
 func TestADanglingSymlinkIsInvalidNotMissing(t *testing.T) {
 	root, dir := t.TempDir(), t.TempDir()
 	f := home(t, dir, "alpha")
-	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "index"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "fleets", f.ID)
+	path := filepath.Join(root, "index", f.ID)
 	if err := os.Symlink(filepath.Join(root, "gone"), path); err != nil {
 		t.Skipf("no symlinks here: %v", err)
 	}
@@ -317,11 +319,80 @@ func TestADanglingSymlinkIsInvalidNotMissing(t *testing.T) {
 
 func TestAPlainFolderInPlaceOfTheLinkIsNotCalledASymlink(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "fleets", "f000000000002")
+	path := filepath.Join(root, "index", "f000000000002")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fleet.Home(root, "f000000000002"); err == nil || strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("home = %v", err)
+	}
+}
+
+func TestCheckRecordsTheFleetHome(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := fleet.Check(root, f.ID, dir); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := fleet.ReadHomes(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Current != dir || !slices.Equal(rec.Homes, []string{dir}) {
+		t.Fatalf("record = %+v, want current %s", rec, dir)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, fleet.HomeFile)); err != nil || !strings.Contains(string(b), `"current":`) {
+		t.Fatalf("record file = %q, %v", b, err)
+	}
+}
+
+func TestAMoveKeepsEveryEarlierHomeInTheRecord(t *testing.T) {
+	root, parent := t.TempDir(), t.TempDir()
+	old := filepath.Join(parent, "old")
+	if err := os.Mkdir(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := home(t, old, "alpha")
+	if err := fleet.Check(root, f.ID, old); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(parent, "moved")
+	if err := os.Rename(old, moved); err != nil {
+		t.Fatal(err)
+	}
+	prev, err := fleet.Register(root, f.ID, moved)
+	if err != nil || prev != old {
+		t.Fatalf("register = %q, %v; want it to report %s", prev, err, old)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != moved {
+		t.Fatalf("bookmark = %q, %v", got, err)
+	}
+	rec, err := fleet.ReadHomes(moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Current != moved || !slices.Equal(rec.Homes, []string{old, moved}) {
+		t.Fatalf("record = %+v, want both homes and current %s", rec, moved)
+	}
+}
+
+func TestLegacyFleetsDirIsMigratedIntoTheIndex(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	legacy := filepath.Join(root, "fleets")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, f.ID), []byte(dir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != dir {
+		t.Fatalf("home = %q, %v", got, err)
+	}
+	if des, err := os.ReadDir(fleet.IndexDir(root)); err != nil || len(des) != 1 || des[0].Name() != f.ID {
+		t.Fatalf("index = %v, %v", des, err)
+	}
+	if _, err := os.Stat(legacy); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("legacy dir still there: %v", err)
 	}
 }

@@ -18,40 +18,42 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
         found => return found,
     }
     let key = SecretKey::generate();
-    let temp = dir.join(format!("{FILE}.{}.tmp", key.public().fmt_short()));
-    let written = create_private(&temp).and_then(|mut f| {
-        f.write_all(&key.to_bytes())?;
-        f.sync_all()
-    });
-    let linked = written.and_then(|()| link(&temp, &path));
-    let _ = fs::remove_file(&temp);
-    match linked {
-        Ok(()) => Ok(key),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read(&path).map_err(|e| {
-            if e.kind() == io::ErrorKind::NotFound {
-                io::Error::new(
+    match create_private(&path) {
+        Ok(mut f) => {
+            f.write_all(&key.to_bytes())?;
+            f.sync_all()?;
+            Ok(key)
+        }
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read_after_race(&path),
+        Err(e) => Err(e),
+    }
+}
+
+fn read_after_race(path: &Path) -> io::Result<SecretKey> {
+    let mut last = None;
+    for _ in 0..100 {
+        match read(path) {
+            Ok(key) => return Ok(key),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!(
                         "{} is a link to a file that does not exist; delete the link to make a new key",
                         path.display()
                     ),
-                )
-            } else {
-                e
+                ));
             }
-        }),
-        Err(e) => Err(e),
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => last = Some(e),
+            Err(e) => return Err(e),
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
-}
-
-fn link(temp: &Path, path: &Path) -> io::Result<()> {
-    fs::hard_link(temp, path).map_err(|e| match e.kind() {
-        io::ErrorKind::AlreadyExists => e,
-        kind => io::Error::new(
-            kind,
-            format!("{e}; the key folder must be on a filesystem that supports hard links"),
-        ),
-    })
+    Err(last.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{} did not become a key", path.display()),
+        )
+    }))
 }
 
 fn sweep(dir: &Path) {
@@ -257,15 +259,5 @@ mod tests {
             "{error}"
         );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn a_link_that_cannot_be_made_says_what_the_folder_needs() {
-        let dir = TempDir::new();
-        let error = link(&dir.path().join("absent"), &dir.path().join("target")).unwrap_err();
-        assert!(error.to_string().contains("supports hard links"), "{error}");
-        let existing = dir.file("existing", "");
-        let error = link(&existing, &existing).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
     }
 }

@@ -78,31 +78,29 @@ func saveImage(dir string, now time.Time, original string, body io.Reader) (stri
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(dir, ".upload-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	_, err = tmp.Write(data)
-	if err == nil {
-		err = tmp.Sync()
-	}
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return "", err
-	}
 	stamp := now.Format("20060102-150405")
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("%s-%d-%s", stamp, n, safe)
-		err := os.Link(tmp.Name(), filepath.Join(dir, name))
-		if err == nil {
-			return name, nil
+		path := filepath.Join(dir, name)
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
 		}
-		if !errors.Is(err, fs.ErrExist) {
+		if err != nil {
 			return "", err
 		}
+		_, werr := f.Write(data)
+		if werr == nil {
+			werr = f.Sync()
+		}
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			_ = os.Remove(path)
+			return "", werr
+		}
+		return name, nil
 	}
 }
 

@@ -136,6 +136,9 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}
+	if runtime.GOOS != "windows" {
+		want = append(want, "modes")
+	}
 	for _, check := range want {
 		if rows[check] != [2]string{"ok", `""`} {
 			t.Fatalf("%s = %q in %q", check, rows[check], out)
@@ -246,7 +249,7 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		}},
 		{"broken database", "schema", "fail", "", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "hand.db"), "not a database") }},
 		{"not registered", "fleet", "fail", "run `hand init` here", 1, func(fx *doctorFixture) {
-			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "fleets", fx.id))
+			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "index", fx.id))
 		}},
 		{"bad routing.json", "routing.json", "fail", "routing.json", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "routing.json"), "{") }},
 		{"no claude", "profile default", "fail", "claude not found on PATH; install claude, or add its folder to PATH", 1, func(fx *doctorFixture) { fx.remove(exe(fx.tools, "claude")) }},
@@ -332,7 +335,7 @@ func TestDoctorReadsTheOmpCacheFromTheFleetHomeWhateverTheWorkingDirectory(t *te
 
 func TestDoctorRepairsNothing(t *testing.T) {
 	fx := newDoctorFixture(t)
-	link := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "fleets", fx.id)
+	link := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "index", fx.id)
 	fx.remove(link)
 	fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"))
 	if _, _, code := fx.h.run("doctor"); code != 1 {

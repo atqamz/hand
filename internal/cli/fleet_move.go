@@ -175,7 +175,7 @@ func cmdFleetMove(r *runner, args []string) error {
 		return fmt.Errorf("%w: the folder moved to %s, but the worktrees under %s could not be read: %v; fix them and run `hand fleet move --yes %s` there to finish", state.ErrConflict, dest, fleet.Worktrees(root, f.ID), err, dest)
 	}
 	if _, err := fleet.Register(root, f.ID, dest); err != nil {
-		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish, or `hand init` there", state.ErrConflict, dest, filepath.Join(root, "fleets", f.ID), home, err, dest, dest)
+		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish, or `hand init` there", state.ErrConflict, dest, filepath.Join(fleet.IndexDir(root), f.ID), home, err, dest, dest)
 	}
 	seq, hits, err := confirmMove(r, ctx, dest, from, dest)
 	if err != nil {
@@ -211,7 +211,7 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 			return fmt.Errorf("%w: the folder is at %s, but the worktrees under %s could not be read: %v", state.ErrConflict, to, fleet.Worktrees(root, f.ID), err)
 		}
 		if _, err := fleet.Register(root, f.ID, to); err != nil {
-			return fmt.Errorf("%w: the folder is at %s, but %s still names %s: %v; run `hand init` in %s", state.ErrConflict, to, filepath.Join(root, "fleets", f.ID), home, err, to)
+			return fmt.Errorf("%w: the folder is at %s, but %s still names %s: %v; run `hand init` in %s", state.ErrConflict, to, filepath.Join(fleet.IndexDir(root), f.ID), home, err, to)
 		}
 		seq, err := st.ConfirmMove(ctx, from, to)
 		if err != nil {
@@ -262,7 +262,7 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 		return fmt.Errorf("%w: the folder moved to %s, but the worktrees under %s could not be read: %v; fix them and run `hand fleet move --yes %s` there again", state.ErrConflict, to, fleet.Worktrees(root, f.ID), err, to)
 	}
 	if _, err := fleet.Register(root, f.ID, to); err != nil {
-		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish", state.ErrConflict, to, filepath.Join(root, "fleets", f.ID), home, err, to, to)
+		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish", state.ErrConflict, to, filepath.Join(fleet.IndexDir(root), f.ID), home, err, to, to)
 	}
 	seq, hits, err := confirmMove(r, ctx, to, from, to)
 	if err != nil {
@@ -335,7 +335,7 @@ func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport
 	d.Field("rows", "ok")
 	d.Field("backup", filepath.Join(rep.To, filepath.Base(backup)))
 	d.Field("home", rep.To)
-	d.Field("registry", filepath.Join(root, "fleets", f.ID))
+	d.Field("registry", filepath.Join(fleet.IndexDir(root), f.ID))
 	help := []string{"Run `hand init` in " + rep.To + " to repair worktrees of projects that were inside the old home and now live there, and to refresh the skills"}
 	d.Help(help...)
 	if err := r.print(&d); err != nil {
@@ -360,7 +360,7 @@ func (r *runner) printMoveRewritten(f state.Fleet, root string, rep state.MoveRe
 	d.Field("kept", fmt.Sprintf("event e%d (fleet.moved) names the old home as history", rep.EventSeq))
 	d.Field("backup", backup)
 	d.Field("home", rep.To)
-	d.Field("registry", filepath.Join(root, "fleets", f.ID))
+	d.Field("registry", filepath.Join(fleet.IndexDir(root), f.ID))
 	help := []string{"The recorded paths now name " + rep.To + "; run `hand init` there to repair worktrees of projects inside it and to refresh the skills"}
 	d.Help(help...)
 	return r.print(&d)
@@ -377,7 +377,7 @@ func (r *runner) printMoveFinished(f state.Fleet, root, home, from, to string, s
 	moveWorktreeFields(&d, wt)
 	d.Field("kept", fmt.Sprintf("event e%d (fleet.moved) names the old home as history", seq))
 	d.Field("home", home)
-	d.Field("registry", filepath.Join(root, "fleets", f.ID))
+	d.Field("registry", filepath.Join(fleet.IndexDir(root), f.ID))
 	d.Help("The move is complete; run `hand init` in " + to + " to repair worktrees and refresh the skills")
 	if err := r.print(&d); err != nil {
 		return err
@@ -396,7 +396,7 @@ func (r *runner) printMoveResumed(f state.Fleet, root, home, from, to string, se
 	moveWorktreeFields(&d, wt)
 	d.Field("kept", fmt.Sprintf("event e%d (fleet.moved) names the old home as history", seq))
 	d.Field("home", to)
-	d.Field("registry", filepath.Join(root, "fleets", f.ID))
+	d.Field("registry", filepath.Join(fleet.IndexDir(root), f.ID))
 	d.Help("The move is complete; run `hand init` in " + to + " to repair worktrees and refresh the skills")
 	if err := r.print(&d); err != nil {
 		return err

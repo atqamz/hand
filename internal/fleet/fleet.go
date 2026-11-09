@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -44,6 +45,10 @@ func WatchUnit(id string) string { return "secondhand-watch-" + id }
 
 func Worktrees(root, id string) string { return filepath.Join(root, "worktrees", id) }
 
+func IndexDir(root string) string { return filepath.Join(root, "index") }
+
+func IDs(root string) ([]string, error) { return registeredIDs(root) }
+
 func Scratch(home string) string { return filepath.Join(home, "scratch") }
 
 func Check(root, id, home string) error {
@@ -59,7 +64,7 @@ func Check(root, id, home string) error {
 	case err != nil:
 		return err
 	case target == home:
-		return nil
+		return WriteHomes(home, home)
 	case sameDir(target, home):
 		return point(root, id, home)
 	}
@@ -82,7 +87,7 @@ func Register(root, id, home string) (string, error) {
 	case err != nil:
 		return "", err
 	case target == home:
-		return "", nil
+		return "", WriteHomes(home, home)
 	case sameDir(target, home):
 		return "", point(root, id, home)
 	}
@@ -166,15 +171,25 @@ func Resolve(root, ref string) (Entry, error) {
 }
 
 func registeredIDs(root string) ([]string, error) {
-	des, err := os.ReadDir(filepath.Join(root, "fleets"))
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(des))
-	for _, de := range des {
-		if state.FleetID.MatchString(de.Name()) {
-			ids = append(ids, de.Name())
+	migrate(root)
+	seen := map[string]bool{}
+	for _, dir := range []string{IndexDir(root), filepath.Join(root, "fleets")} {
+		des, err := os.ReadDir(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+		for _, de := range des {
+			if state.FleetID.MatchString(de.Name()) {
+				seen[de.Name()] = true
+			}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
 	}
 	slices.Sort(ids)
 	return ids, nil
@@ -199,7 +214,8 @@ func resolveID(root, id string) (Entry, bool, error) {
 }
 
 func List(root string) ([]Entry, error) {
-	des, err := os.ReadDir(filepath.Join(root, "fleets"))
+	migrate(root)
+	des, err := os.ReadDir(IndexDir(root))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -223,6 +239,11 @@ func List(root string) ([]Entry, error) {
 			e.State = "unreadable: " + err.Error()
 		case ok && f.ID == e.ID:
 			e.Name, e.State = f.Name, "ok"
+			if rec, err := ReadHomes(target); err != nil {
+				e.State = "unreadable: " + err.Error()
+			} else if rec.Current != "" && !sameDir(rec.Current, target) {
+				e.State = "moved"
+			}
 		case ok:
 			e.State = "moved"
 		}
@@ -231,24 +252,59 @@ func List(root string) ([]Entry, error) {
 	return out, nil
 }
 
-func link(root, id string) string { return filepath.Join(root, "fleets", id) }
+func bookmark(root, id string) string { return filepath.Join(IndexDir(root), id) }
+
+func legacyBookmark(root, id string) string { return filepath.Join(root, "fleets", id) }
+
+func migrate(root string) {
+	legacy := filepath.Join(root, "fleets")
+	des, err := os.ReadDir(legacy)
+	if err != nil {
+		return
+	}
+	dir := IndexDir(root)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	for _, de := range des {
+		if !state.FleetID.MatchString(de.Name()) {
+			continue
+		}
+		dst := filepath.Join(dir, de.Name())
+		if _, err := os.Lstat(dst); err == nil {
+			continue
+		}
+		_ = os.Rename(filepath.Join(legacy, de.Name()), dst)
+	}
+	if rest, err := os.ReadDir(legacy); err == nil && len(rest) == 0 {
+		_ = os.Remove(legacy)
+	}
+}
 
 func readLink(root, id string) (string, error) {
-	b, err := os.ReadFile(link(root, id))
+	migrate(root)
+	path := bookmark(root, id)
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if _, lstatErr := os.Lstat(path); errors.Is(lstatErr, fs.ErrNotExist) {
+			path = legacyBookmark(root, id)
+			b, err = os.ReadFile(path)
+		}
+	}
 	target := strings.TrimSpace(string(b))
 	if err == nil && target == "" {
-		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, link(root, id))
+		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, path)
 	}
 	if err != nil {
-		if info, lstatErr := os.Lstat(link(root, id)); lstatErr == nil && info.Mode()&fs.ModeSymlink != 0 {
-			err = fmt.Errorf("%w: %s is a symlink left by Hand before 0.10, which this hand does not read; delete it and run `hand init` in the fleet's folder", state.ErrInvalid, link(root, id))
+		if info, lstatErr := os.Lstat(path); lstatErr == nil && info.Mode()&fs.ModeSymlink != 0 {
+			err = fmt.Errorf("%w: %s is a symlink left by Hand before 0.10, which this hand does not read; delete it and run `hand init` in the fleet's folder", state.ErrInvalid, path)
 		}
 	}
 	return target, err
 }
 
 func stage(root, id, home string) (string, error) {
-	dir := filepath.Join(root, "fleets")
+	dir := IndexDir(root)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -261,12 +317,30 @@ func stage(root, id, home string) (string, error) {
 }
 
 func claim(root, id, home string) error {
+	migrate(root)
+	lock, err := os.OpenFile(filepath.Join(root, "index.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := flock.Lock(lock, true); err != nil {
+		_ = lock.Close()
+		return err
+	}
+	defer flock.Release(lock)
+	if _, err := os.Stat(bookmark(root, id)); err == nil {
+		return fs.ErrExist
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	tmp, err := stage(root, id, home)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
-	return os.Link(tmp, link(root, id))
+	if err := os.Rename(tmp, bookmark(root, id)); err != nil {
+		return err
+	}
+	return WriteHomes(home, home)
 }
 
 func point(root, id, home string) error {
@@ -274,11 +348,11 @@ func point(root, id, home string) error {
 	if err != nil {
 		return err
 	}
-	err = os.Rename(tmp, link(root, id))
-	if err != nil {
+	if err := os.Rename(tmp, bookmark(root, id)); err != nil {
 		_ = os.Remove(tmp)
+		return err
 	}
-	return err
+	return WriteHomes(home, home)
 }
 
 func sameDir(a, b string) bool {

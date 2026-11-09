@@ -339,7 +339,7 @@ func writeLocal(t *testing.T, root string) (string, string) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "index"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "hand.db"), nil, 0o644); err != nil {
@@ -348,7 +348,7 @@ func writeLocal(t *testing.T, root string) (string, string) {
 	if err := os.WriteFile(filepath.Join(home, "board.token"), []byte(testToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "fleets", fleetID), []byte(home+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "index", fleetID), []byte(home+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "board.addr"), []byte("127.0.0.1:7777\n"), 0o644); err != nil {

@@ -62,7 +62,7 @@ func stallTick(t *testing.T, fx *attemptFixture) {
 func noStall(t *testing.T, fx *attemptFixture) {
 	t.Helper()
 	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	ids, err := os.ReadDir(filepath.Join(root, "index"))
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("fleets = %v, %v", ids, err)
 	}

@@ -113,16 +113,12 @@ func registeredHome(given, home, key, dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("attempt _exec: %w", err)
 	}
-	links, err := os.ReadDir(filepath.Join(root, "fleets"))
+	ids, err := fleet.IDs(root)
 	if err != nil {
 		return "", scratchShapeUsage(dir)
 	}
 	claimed := 0
-	for _, entry := range links {
-		id := entry.Name()
-		if !state.FleetID.MatchString(id) {
-			continue
-		}
+	for _, id := range ids {
 		recorded, err := fleet.Home(root, id)
 		if err != nil {
 			continue
