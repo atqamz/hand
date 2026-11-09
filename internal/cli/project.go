@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -210,16 +211,22 @@ func cmdProjectNotes(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	b, err := os.ReadFile(projectNotePath(r.home, p.Name))
-	if errors.Is(err, fs.ErrNotExist) {
-		_, err = fmt.Fprint(r.env.Stdout, "no notes\n")
+	file, err := projectNotePath(r.home, p.Name)
+	if err != nil {
 		return err
+	}
+	b, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		var d toon.Doc
+		d.Field("notes", "no notes")
+		return r.print(&d)
 	}
 	if err != nil {
 		return err
 	}
-	_, err = r.env.Stdout.Write(b)
-	return err
+	var d toon.Doc
+	d.Text("notes", string(b))
+	return r.print(&d)
 }
 
 func projectByName(ctx context.Context, st *state.Store, name string) (state.Project, error) {
@@ -241,23 +248,37 @@ func projectByName(ctx context.Context, st *state.Store, name string) (state.Pro
 	return state.Project{}, fmt.Errorf("%w: project %s; known projects: %s", state.ErrNotFound, name, strings.Join(names, ", "))
 }
 
-func projectNotePath(home, project string) string {
-	return filepath.Join(home, "notes", project+".md")
+func projectNotePath(home, project string) (string, error) {
+	if project == "" || project == "." || project == ".." || strings.ContainsAny(project, `/\`) {
+		return "", fmt.Errorf("%w: project %q is not a plain note name", state.ErrInvalid, project)
+	}
+	return filepath.Join(home, "notes", project+".md"), nil
 }
 
 func appendProjectNote(home, project string, now time.Time, text string) (string, error) {
+	file, err := projectNotePath(home, project)
+	if err != nil {
+		return "", err
+	}
 	dir := filepath.Join(home, "notes")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	file := projectNotePath(home, project)
 	f, err := os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return "", err
 	}
+	ok, err := flock.Lock(f, true)
+	if err != nil || !ok {
+		_ = f.Close()
+		if err == nil {
+			err = fmt.Errorf("project note: could not lock %s", filepath.Base(file))
+		}
+		return "", err
+	}
 	info, err := f.Stat()
 	if err != nil {
-		_ = f.Close()
+		_ = flock.Release(f)
 		return "", err
 	}
 	var b strings.Builder
@@ -268,10 +289,10 @@ func appendProjectNote(home, project string, now time.Time, text string) (string
 	b.WriteString(strings.TrimRight(text, "\r\n"))
 	b.WriteString("\n\n")
 	if _, err := f.WriteString(b.String()); err != nil {
-		_ = f.Close()
+		_ = flock.Release(f)
 		return "", err
 	}
-	if err := f.Close(); err != nil {
+	if err := flock.Release(f); err != nil {
 		return "", err
 	}
 	return file, nil

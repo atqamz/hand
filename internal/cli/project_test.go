@@ -90,8 +90,17 @@ func TestProjectNotesPrintsTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out := h.ok("project", "notes", "app"); out != string(b) {
-		t.Fatalf("notes = %q, want %q", out, b)
+	var want strings.Builder
+	want.WriteString("notes: |\n")
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		if line == "" {
+			want.WriteString("\n")
+			continue
+		}
+		want.WriteString("  " + line + "\n")
+	}
+	if out := h.ok("project", "notes", "app"); out != want.String() {
+		t.Fatalf("notes = %q, want %q", out, want.String())
 	}
 }
 
@@ -99,8 +108,8 @@ func TestProjectNotesSaysNoNotesForAKnownProjectWithoutAFile(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
-	if out := h.ok("project", "notes", "app"); out != "no notes\n" {
-		t.Fatalf("notes = %q, want no notes", out)
+	if out := h.ok("project", "notes", "app"); out != "notes: no notes\n" {
+		t.Fatalf("notes = %q, want notes: no notes", out)
 	}
 }
 
