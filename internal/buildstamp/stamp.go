@@ -2,6 +2,12 @@ package buildstamp
 
 import "runtime/debug"
 
+const Unknown = "unknown"
+
+func Known(id string) bool {
+	return id != "" && id != Unknown
+}
+
 func Commit(stamped string) string {
 	id := stamped
 	if info, ok := debug.ReadBuildInfo(); ok && id == "" {
@@ -12,7 +18,7 @@ func Commit(stamped string) string {
 		}
 	}
 	if id == "" {
-		return "unknown"
+		return Unknown
 	}
 	return id[:min(12, len(id))]
 }

@@ -203,13 +203,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Desktop = "would install"
 		}
 	case current:
-		if desktopBin, rep.Desktop, err = o.fetchDesktop(ctx, tmp, rep.To); err != nil {
-			return rep, err
-		}
-		if desktopBin != "" {
-			if err := swap(desktopBin, desktopNext); err != nil {
-				return rep, err
+		bin, status, err := o.fetchDesktop(ctx, tmp, rep.To)
+		if err != nil {
+			rep.Desktop = "failed: " + err.Error()
+			rep.fail(fmt.Sprintf("hand-desktop was not replaced (%v); the rest of the update finished", err))
+		} else {
+			if bin != "" {
+				if err := swap(bin, desktopNext); err != nil {
+					return rep, err
+				}
 			}
+			rep.Desktop = status
 		}
 	}
 	if current && !repin {

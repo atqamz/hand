@@ -326,3 +326,29 @@ func TestRunSaysWhenThePlatformHasNoDesktop(t *testing.T) {
 		t.Fatalf("render:\n%s", out)
 	}
 }
+
+func TestRunFinishesTheStaleFleetCycleWhenTheDesktopCannotBeVerified(t *testing.T) {
+	skipUnlessDesktop(t)
+	f := newCycle(t)
+	f.current()
+	f.stale()
+	f.serverRuns(t)
+	for name, body := range fakeDesktop(t, "0.9.0", "ffffffffffff") {
+		f.srv.set(name, body)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatalf("Run = %+v, %v", rep, err)
+	}
+	if !rep.Failed || !strings.HasPrefix(rep.Desktop, "failed: ") || !strings.Contains(rep.Desktop, "0.9.0 ffffffffffff") {
+		t.Fatalf("report = %+v", rep)
+	}
+	if !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "hand-desktop was not replaced") }) {
+		t.Fatalf("help = %q", rep.Help)
+	}
+	if got := alphaLuvus(t, rep); got != "switched" {
+		t.Fatalf("the stale fleet was not switched: %q in %+v", got, rep.Fleets)
+	}
+	absent(t, f.desktop())
+	f.unchanged(t)
+}
