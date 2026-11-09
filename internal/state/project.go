@@ -14,6 +14,19 @@ import (
 
 var projectName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
+var deviceNames = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+	"com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
+
+// ValidProjectName is the one project-name rule: the regex and not a Windows device.
+func ValidProjectName(name string) bool {
+	return projectName.MatchString(name) && !deviceNames[name]
+}
+
 type Project struct {
 	Name      string
 	Repo      string
@@ -22,8 +35,8 @@ type Project struct {
 }
 
 func (s *Store) AddProject(ctx context.Context, name, repo, settings string) (Project, error) {
-	if !projectName.MatchString(name) {
-		return Project{}, fmt.Errorf("%w: project name %q must match %s", ErrInvalid, name, projectName)
+	if !ValidProjectName(name) {
+		return Project{}, fmt.Errorf("%w: project name %q must match %s and not name a Windows device", ErrInvalid, name, projectName)
 	}
 	if !filepath.IsAbs(repo) {
 		return Project{}, fmt.Errorf("%w: repo %q must be an absolute path", ErrInvalid, repo)

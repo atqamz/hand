@@ -23,7 +23,7 @@ func seedProject(t *testing.T, s *Store) {
 func TestAddProjectValidatesNameRepoAndDuplicates(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
-	for _, tc := range []struct{ name, repo string }{{"Hand", "/r"}, {"-x", "/r"}, {"ok", "relative/path"}} {
+	for _, tc := range []struct{ name, repo string }{{"Hand", "/r"}, {"-x", "/r"}, {"con", "/r"}, {"lpt1", "/r"}, {"ok", "relative/path"}} {
 		if _, err := s.AddProject(ctx, tc.name, tc.repo, ""); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("AddProject(%q, %q) err = %v, want ErrInvalid", tc.name, tc.repo, err)
 		}

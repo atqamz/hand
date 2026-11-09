@@ -202,9 +202,13 @@ The instructions `hand init` installs for the supervisor. The `secondhand` skill
 
 ### Project
 
-A short name (lowercase letters, digits and hyphens) for a git repository at an absolute path on this machine: `hand project add api /home/you/src/api`. Hand does not clone or copy the repository. It adds worker worktrees and branches to that repository with `git worktree add`. Every task belongs to one project.
+A short name (1–64 lowercase letters, digits and hyphens, starting with a letter or digit, and never a Windows device name such as `con` or `lpt1`) for a git repository at an absolute path on this machine: `hand project add api /home/you/src/api`. Hand does not clone or copy the repository. It adds worker worktrees and branches to that repository with `git worktree add`. Every task belongs to one project.
 
 A project's **grants** are the command prefixes the operator approved for always on an `ask` attempt's permission screen (see [Approval](#approval)). `hand project grants NAME` lists them as `id`, `harness`, `pattern` and `created_at`, and `--remove ID` drops one. A grant has no ref.
+
+### Project note
+
+A dated paragraph in `notes/NAME.md` under the fleet home: `hand project note NAME TEXT` appends one, and `hand project notes NAME` prints the file, or `no notes` when it does not exist. A new file starts with `# NAME — notes`; an entry is a blank line, `## YYYY-MM-DD`, a blank line, `TEXT` without its trailing newlines, and a blank line. `NAME` follows the Project rule, so the file is always a plain file. `hand fleet move` carries `notes/` with the fleet.
 
 ### Project git settings
 

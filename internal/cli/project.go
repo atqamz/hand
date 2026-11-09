@@ -2,11 +2,19 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/gitcfg"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -15,6 +23,8 @@ var projectCommands = map[string]handler{
 	"list":   cmdProjectList,
 	"trust":  cmdProjectTrust,
 	"grants": cmdProjectGrants,
+	"note":   cmdProjectNote,
+	"notes":  cmdProjectNotes,
 }
 
 func init() {
@@ -150,6 +160,142 @@ func cmdProjectGrants(r *runner, args []string) error {
 		d.Help("Remove one: `hand project grants --remove ID " + p.Name + "`")
 	}
 	return r.print(&d)
+}
+
+func cmdProjectNote(r *runner, args []string) error {
+	pos, err := parse(flags("project note"), args, 2)
+	if err != nil {
+		return err
+	}
+	text := pos[1]
+	if strings.TrimSpace(text) == "" {
+		return usageError{"project note: the note is empty"}
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := r.ctx()
+	p, err := projectByName(ctx, st, pos[0])
+	if err != nil {
+		return err
+	}
+	now := r.env.Now()
+	file, err := appendProjectNote(r.home, p.Name, now, text)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(r.home, file)
+	if err != nil {
+		rel = filepath.Join("notes", p.Name+".md")
+	}
+	var d toon.Doc
+	d.Field("project", p.Name)
+	d.Field("date", now.Format("2006-01-02"))
+	d.Field("file", filepath.ToSlash(rel))
+	return r.print(&d)
+}
+
+func cmdProjectNotes(r *runner, args []string) error {
+	pos, err := parse(flags("project notes"), args, 1)
+	if err != nil {
+		return err
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	p, err := projectByName(r.ctx(), st, pos[0])
+	if err != nil {
+		return err
+	}
+	file, err := projectNotePath(r.home, p.Name)
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		var d toon.Doc
+		d.Field("notes", "no notes")
+		return r.print(&d)
+	}
+	if err != nil {
+		return err
+	}
+	var d toon.Doc
+	d.Text("notes", string(b))
+	return r.print(&d)
+}
+
+func projectByName(ctx context.Context, st *state.Store, name string) (state.Project, error) {
+	p, err := st.Project(ctx, name)
+	if !errors.Is(err, state.ErrNotFound) {
+		return p, err
+	}
+	ps, err := st.Projects(ctx)
+	if err != nil {
+		return state.Project{}, err
+	}
+	names := make([]string, 0, len(ps))
+	for _, known := range ps {
+		names = append(names, known.Name)
+	}
+	if len(names) == 0 {
+		return state.Project{}, fmt.Errorf("%w: project %s; no projects are registered", state.ErrNotFound, name)
+	}
+	return state.Project{}, fmt.Errorf("%w: project %s; known projects: %s", state.ErrNotFound, name, strings.Join(names, ", "))
+}
+
+func projectNotePath(home, project string) (string, error) {
+	if !state.ValidProjectName(project) {
+		return "", fmt.Errorf("%w: project %q is not a plain note name", state.ErrInvalid, project)
+	}
+	return filepath.Join(home, "notes", project+".md"), nil
+}
+
+func appendProjectNote(home, project string, now time.Time, text string) (string, error) {
+	file, err := projectNotePath(home, project)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, "notes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return "", err
+	}
+	ok, err := flock.Lock(f, true)
+	if err != nil || !ok {
+		_ = f.Close()
+		if err == nil {
+			err = fmt.Errorf("project note: could not lock %s", filepath.Base(file))
+		}
+		return "", err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = flock.Release(f)
+		return "", err
+	}
+	var b strings.Builder
+	if info.Size() == 0 {
+		b.WriteString("# " + project + " — notes\n")
+	}
+	b.WriteString("\n## " + now.Format("2006-01-02") + "\n\n")
+	b.WriteString(strings.TrimRight(text, "\r\n"))
+	b.WriteString("\n\n")
+	if _, err := f.WriteString(b.String()); err != nil {
+		_ = flock.Release(f)
+		return "", err
+	}
+	if err := flock.Release(f); err != nil {
+		return "", err
+	}
+	return file, nil
 }
 
 func printable(s string) string {
