@@ -249,7 +249,7 @@ func projectByName(ctx context.Context, st *state.Store, name string) (state.Pro
 }
 
 func projectNotePath(home, project string) (string, error) {
-	if project == "" || project == "." || project == ".." || strings.ContainsAny(project, `/\`) {
+	if !state.ValidProjectName(project) {
 		return "", fmt.Errorf("%w: project %q is not a plain note name", state.ErrInvalid, project)
 	}
 	return filepath.Join(home, "notes", project+".md"), nil

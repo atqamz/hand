@@ -288,6 +288,32 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 	}
 }
 
+func TestFleetMoveCarriesProjectNotes(t *testing.T) {
+	h, home, _ := initMoveFleet(t)
+	h.ok("project", "add", "app", t.TempDir())
+	h.ok("project", "note", "app", "the host is cv.example")
+	before, err := os.ReadFile(filepath.Join(home, "notes", "app.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "moved")
+	h.ok("fleet", "move", "--yes", dest)
+	h.home = dest
+	after, err := os.ReadFile(filepath.Join(dest, "notes", "app.md"))
+	if err != nil {
+		t.Fatalf("notes file missing after the move: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("notes file changed in the move:\nbefore %q\nafter %q", before, after)
+	}
+	if _, err := os.Stat(filepath.Join(home, "notes", "app.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the old notes file survived: %v", err)
+	}
+	if out := h.ok("project", "notes", "app"); !strings.Contains(out, "the host is cv.example") {
+		t.Fatalf("notes = %q", out)
+	}
+}
+
 func TestFleetMoveFollowsTheFolderName(t *testing.T) {
 	h, home, id := initMoveFleet(t)
 	seedMoveFleet(t, home, id)
