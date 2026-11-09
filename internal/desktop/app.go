@@ -21,12 +21,38 @@ const (
 	ReportScreen
 )
 
+// The auto-refresh intervals: short while the window has keyboard focus,
+// long while it does not. A failed tick backs off to at most maxRefreshBackoff.
+const (
+	FocusedRefresh    = 2 * time.Second
+	UnfocusedRefresh  = 15 * time.Second
+	maxRefreshBackoff = 60 * time.Second
+)
+
+// Clock schedules the auto-refresh tick; nil uses the wall clock.
+type Clock interface {
+	After(d time.Duration, fn func()) (stop func())
+}
+
+type wallClock struct{}
+
+func (wallClock) After(d time.Duration, fn func()) (stop func()) {
+	t := time.AfterFunc(d, fn)
+	return func() { t.Stop() }
+}
+
 type App struct {
 	Connect func() (ReadModel, error)
 	Model   ReadModel
 	Context context.Context
 	// NameTimeout limits each fleet's name lookup; zero means two seconds.
 	NameTimeout time.Duration
+	// Clock schedules the auto-refresh tick; nil uses the wall clock.
+	Clock Clock
+	// Unfocused asks for the long refresh interval; SetFocused sets it.
+	Unfocused bool
+	// PollTimeout bounds each auto-refresh tick; zero means five seconds.
+	PollTimeout time.Duration
 	// Post runs fetched state on the window's thread and repaints it. Nil
 	// reads inline, as the tests and Boot do.
 	Post    func(func())
@@ -58,14 +84,31 @@ type App struct {
 	Decision DecisionDetail
 	Report   ReportDetail
 
-	Err    string
-	retry  string
-	writer *draftWriter
-	loadID int
-	cancel context.CancelFunc
-	stop   context.CancelFunc
-	gen    int
-	back   []backStep
+	Err string
+	// Stale is the last auto-refresh failure; empty when the board answers.
+	Stale     string
+	errStatus bool
+	errScreen bool
+	retry     string
+	writer    *draftWriter
+	loadID    int
+	cancel    context.CancelFunc
+	stop      context.CancelFunc
+	gen       int
+	back      []backStep
+
+	polling    bool
+	closed     bool
+	pollGen    int
+	tickGen    int
+	pollTimer  func()
+	pollCancel context.CancelFunc
+	pollBusy   bool
+	pollFails  int
+
+	pollStatus       string
+	pollScreenFor    string
+	pollScreenCursor string
 }
 
 type backStep struct {
@@ -87,6 +130,30 @@ func (a *App) Boot() {
 	a.install(discover(a.Connect, a.Context, a.nameTimeout()), false)
 }
 
+// StartRefresh starts the per-fleet auto-refresh loop; the window calls it
+// once Post is set. It does nothing until a fleet is selected.
+func (a *App) StartRefresh() {
+	a.polling, a.closed = true, false
+	a.armPoll()
+}
+
+// Close stops the auto-refresh loop and cancels a poll in flight.
+func (a *App) Close() {
+	a.polling, a.closed = false, true
+	a.resetPoll()
+}
+
+// SetFocused switches the loop between the focused and unfocused intervals.
+func (a *App) SetFocused(focused bool) {
+	if a.Unfocused == !focused {
+		return
+	}
+	a.Unfocused = !focused
+	if !a.pollBusy {
+		a.armPoll()
+	}
+}
+
 func (a *App) Refresh() {
 	a.invalidate()
 	dctx, stop := context.WithCancel(a.Context)
@@ -100,7 +167,7 @@ func (a *App) Refresh() {
 	}
 	a.gen++
 	gen := a.gen
-	a.Err = ""
+	a.setErr("")
 	a.Loading = true
 	post(func() {})
 	go func() {
@@ -123,7 +190,7 @@ func (a *App) OpenFleet(ref string) {
 			return
 		}
 	}
-	a.Err = fmt.Sprintf("no registered fleet is named %q", ref)
+	a.setErr(fmt.Sprintf("no registered fleet is named %q", ref))
 }
 
 func (a *App) hasFleet(id string) bool {
@@ -141,6 +208,7 @@ func (a *App) fleetByID(id string) (Fleet, bool) {
 }
 
 func (a *App) SelectFleet(id string) {
+	a.resetPoll()
 	if f, ok := a.fleetByID(id); ok {
 		a.Fleet = f
 	}
@@ -163,25 +231,29 @@ func (a *App) SelectFleet(id string) {
 		a.OnFleet(a.Fleet)
 	}
 	a.Reload()
+	a.armPoll()
 }
 
 func (a *App) install(f found, keep bool) {
-	a.Err = f.Err
+	a.setErr(f.Err)
 	if f.Model == nil {
+		a.resetPoll()
 		a.Model, a.Fleets = nil, nil
 		return
 	}
 	a.Model, a.Fleets = f.Model, f.Fleets
 	switch {
 	case len(a.Fleets) == 0:
+		a.resetPoll()
 		a.Fleet = Fleet{}
-		a.Err = "no fleets are registered; run `hand init` in a folder to make one"
+		a.setErr("no fleets are registered; run `hand init` in a folder to make one")
 	case a.hasFleet(a.Fleet.ID) && keep:
 		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
 		if a.OnFleet != nil {
 			a.OnFleet(a.Fleet)
 		}
 		a.Reload()
+		a.armPoll()
 	case a.hasFleet(a.Fleet.ID):
 		a.SelectFleet(a.Fleet.ID)
 	default:
@@ -250,7 +322,7 @@ func (a *App) Older() {
 			return
 		}
 		if err != nil {
-			a.Err = friendly(err)
+			a.Err, a.errStatus, a.errScreen = friendly(err), false, true
 			return
 		}
 		merged := a.Timeline
@@ -700,7 +772,7 @@ func (a *App) Reload() {
 		return
 	}
 	id, ctx, cancel := a.nextLoad()
-	a.Err = ""
+	a.setErr("")
 	post := a.Post
 	if post == nil {
 		a.Loading = false
@@ -749,6 +821,189 @@ func (a *App) invalidate() {
 		a.stop = nil
 	}
 	a.loadID++
+}
+
+func (a *App) clock() Clock {
+	if a.Clock != nil {
+		return a.Clock
+	}
+	return wallClock{}
+}
+
+func (a *App) pollTimeout() time.Duration {
+	if a.PollTimeout > 0 {
+		return a.PollTimeout
+	}
+	return 5 * time.Second
+}
+
+func (a *App) pollDelay() time.Duration {
+	d := FocusedRefresh
+	if a.Unfocused {
+		d = UnfocusedRefresh
+	}
+	for i := 0; i < a.pollFails && d < maxRefreshBackoff; i++ {
+		d *= 2
+	}
+	if d > maxRefreshBackoff {
+		d = maxRefreshBackoff
+	}
+	return d
+}
+
+// resetPoll cancels the armed tick and the request in flight, and forgets
+// the backoff; the next loop starts clean for the fleet just selected.
+func (a *App) resetPoll() {
+	a.pollGen++
+	a.tickGen++
+	if a.pollTimer != nil {
+		a.pollTimer()
+		a.pollTimer = nil
+	}
+	if a.pollCancel != nil {
+		a.pollCancel()
+		a.pollCancel = nil
+	}
+	a.pollBusy = false
+	a.pollFails = 0
+	a.pollStatus, a.pollScreenFor, a.pollScreenCursor = "", "", ""
+	a.Stale = ""
+}
+
+func (a *App) armPoll() {
+	a.tickGen++
+	if a.pollTimer != nil {
+		a.pollTimer()
+		a.pollTimer = nil
+	}
+	if !a.polling || a.closed || a.pollBusy || a.Model == nil || a.Fleet.ID == "" || (a.Clock == nil && a.Post == nil) {
+		return
+	}
+	gen, tick := a.pollGen, a.tickGen
+	a.pollTimer = a.clock().After(a.pollDelay(), func() { a.pollAt(gen, tick) })
+}
+
+func (a *App) pollAt(gen, tick int) {
+	if post := a.Post; post != nil {
+		post(func() { a.pollOnce(gen, tick) })
+		return
+	}
+	a.pollOnce(gen, tick)
+}
+
+func (a *App) pollOnce(gen, tick int) {
+	if gen != a.pollGen || tick != a.tickGen || a.closed || a.pollBusy || a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	if a.Busy || a.Loading {
+		a.armPoll()
+		return
+	}
+	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
+	load := a.loadID
+	key := pollScreenID(screen, ref)
+	since := PollCursors{Status: a.pollStatus}
+	if a.pollScreenFor == key {
+		since.Screen = a.pollScreenCursor
+	}
+	ctx := a.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, a.pollTimeout())
+	a.pollCancel, a.pollBusy = cancel, true
+	post := a.Post
+	fetch := func() {
+		p, err := model.Poll(ctx, fleet, screen, ref, since)
+		cancel()
+		if post == nil {
+			a.polled(gen, load, fleet, screen, ref, key, p, err)
+			return
+		}
+		post(func() { a.polled(gen, load, fleet, screen, ref, key, p, err) })
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	go fetch()
+}
+
+func pollScreenID(screen Screen, ref string) string {
+	return fmt.Sprintf("%d/%s", screen, ref)
+}
+
+func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string, p Poll, err error) {
+	if gen != a.pollGen || a.closed {
+		return
+	}
+	a.pollBusy, a.pollCancel = false, nil
+	if load != a.loadID {
+		a.armPoll()
+		return
+	}
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		a.Stale = friendly(err)
+		a.pollFails++
+	} else {
+		a.Stale, a.pollFails = "", 0
+	}
+	statusFresh, screenFresh := false, false
+	if a.Fleet.ID == fleet && p.StatusFresh {
+		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
+	}
+	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
+		a.setScreen(screen, key, &p)
+		screenFresh = true
+	}
+	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
+		a.setErr("")
+	}
+	a.armPoll()
+}
+
+func (a *App) setScreen(screen Screen, key string, p *Poll) {
+	switch screen {
+	case TimelineScreen:
+		a.Timeline = mergeTimeline(a.Timeline, p.Timeline)
+	case TasksScreen:
+		a.Tasks = p.Tasks
+	case TaskScreen:
+		a.Task = p.Task
+	case AttemptScreen:
+		a.Attempt = p.Attempt
+	case DecisionScreen:
+		a.Decision = p.Decision
+	case ReportScreen:
+		a.Report = p.Report
+	}
+	a.pollScreenFor, a.pollScreenCursor = key, p.ScreenCursor
+}
+
+func mergeTimeline(have, next Timeline) Timeline {
+	// A boundary that moved back means the board re-indexed or lost entries, so
+	// the held page no longer covers a range Older can address; the fresh page wins.
+	if have.Older >= next.Older {
+		return next
+	}
+	seen := map[string]bool{}
+	for _, entry := range next.Entries {
+		seen[entryKey(entry)] = true
+	}
+	for _, entry := range have.Entries {
+		if !seen[entryKey(entry)] {
+			next.Entries = append(next.Entries, entry)
+		}
+	}
+	next.Older = have.Older
+	return next
+}
+
+func entryKey(e Entry) string {
+	return fmt.Sprintf("%d/%s/%s/%s", e.No, e.Role, e.At, e.Text)
 }
 
 func (a *App) nameTimeout() time.Duration {
@@ -825,7 +1080,10 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 }
 
 func (a *App) apply(l loaded) {
-	a.Err = l.Err
+	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
+	if l.Err == "" {
+		a.Stale, a.pollFails = "", 0
+	}
 	if !l.StatusOK {
 		a.Status = Status{}
 		return
@@ -847,7 +1105,14 @@ func (a *App) apply(l loaded) {
 	}
 }
 
+func (a *App) setErr(msg string) {
+	a.Err, a.errStatus, a.errScreen = msg, false, false
+}
+
 func friendly(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "the board did not answer in time"
+	}
 	var api *APIError
 	if errors.As(err, &api) {
 		switch api.Status {

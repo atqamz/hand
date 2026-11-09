@@ -19,8 +19,9 @@ related_targets:
   - Tasks: the grouped task list, and each task's detail;
   - the detail of a task, an attempt, a decision and a report, opened in place with Back;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and the fixed key toolbar while it is blocked;
-  - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses.
-- **Not in v1:** any other write (attachments, because the API sends text only; a model switch, because the API has no route for it), the document viewer, phone pairing, the archive's search, and live updates: a screen reads when it opens or refreshes.
+  - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
+  - auto-refresh: the selected fleet's status and the open screen's data poll while the window is open (see Refresh).
+- **Not in v1:** any other write (attachments, because the API sends text only; a model switch, because the API has no route for it), the document viewer, phone pairing, the archive's search, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
 - **Mode:** Operate.
 
 ## Audience, job and constraints
@@ -99,3 +100,14 @@ The window shows the fixed key toolbar only while the board reports the supervis
 **The Same Palette Rule.** Every colour, size and tone comes from the board's own values through `paletteFor` and `boardTheme`; a new state takes the existing ramp, never a new colour.
 
 **The Closing Changes Nothing Rule.** The window is a process of its own: its close and its crash leave the board, the watcher and every fleet as they were.
+
+## Refresh
+
+The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks only for the status and the open screen's data (the timeline, the tasks list, or the opened task, attempt, decision or report), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
+
+| Window state | Interval |
+|---|---|
+| focused | 2 s |
+| unfocused | 15 s |
+
+The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` beside Refresh (the error is in its tooltip), and backs off, doubling up to 60 s and resetting on the next answer. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; a manual Refresh re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.

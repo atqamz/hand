@@ -13,9 +13,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
 )
@@ -787,6 +789,147 @@ func TestHTTPClientReportsAControlThatOutranItsStatus(t *testing.T) {
 	m.mu.Unlock()
 	if !strings.Contains(body, `"ref":"s1"`) {
 		t.Fatalf("interrupt body = %q", body)
+	}
+}
+
+func TestPollDoesNotRememberAnAnswerTheWindowDiscarded(t *testing.T) {
+	b := newFakeBoard()
+	srv := httptest.NewServer(b)
+	t.Cleanup(srv.Close)
+	c := &desktop.HTTPClient{
+		Base:  srv.URL,
+		Known: []desktop.Fleet{{ID: fleetID, Name: "fake"}},
+		Token: func(string) (string, error) { return testToken, nil },
+		HTTP:  srv.Client(),
+	}
+	ctx := context.Background()
+	if _, err := c.Status(ctx, fleetID); err != nil {
+		t.Fatal(err)
+	}
+	b.setStatus(func(st *desktop.Status) { st.Pill = "changed" })
+	first, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	if err != nil || !first.StatusFresh || first.Status.Pill != "changed" {
+		t.Fatalf("first poll = %+v, %v", first, err)
+	}
+	second, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.StatusFresh || second.Status.Pill != "changed" {
+		t.Fatalf("the second poll sent the discarded answer's cursor: %+v", second)
+	}
+}
+
+func TestPollKeepsTheDeadlineInItsError(t *testing.T) {
+	b := newFakeBoard()
+	b.mu.Lock()
+	b.block, b.blockEntered, b.blockPath = make(chan struct{}), make(chan struct{}, 1), "/api/v1/status"
+	b.mu.Unlock()
+	srv := httptest.NewServer(b)
+	t.Cleanup(srv.Close)
+	c := &desktop.HTTPClient{
+		Base:  srv.URL,
+		Known: []desktop.Fleet{{ID: fleetID, Name: "fake"}},
+		Token: func(string) (string, error) { return testToken, nil },
+		HTTP:  srv.Client(),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	b.mu.Lock()
+	block := b.block
+	b.mu.Unlock()
+	close(block)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a timed-out poll lost its deadline: %v", err)
+	}
+}
+
+func TestPollReadsOnlyTheOpenScreensData(t *testing.T) {
+	type pollCase struct {
+		screen desktop.Screen
+		ref    string
+		path   string
+		data   string
+		seen   func(desktop.Poll) bool
+	}
+	cases := []pollCase{
+		{screen: desktop.StatusScreen},
+		{screen: desktop.NeedsScreen},
+		{screen: desktop.TimelineScreen, path: "/api/v1/timeline", data: `{"entries":[{"text":"tl"}]}`,
+			seen: func(p desktop.Poll) bool {
+				return p.ScreenFresh && len(p.Timeline.Entries) == 1 && p.Timeline.Entries[0].Text == "tl"
+			}},
+		{screen: desktop.TasksScreen, path: "/api/v1/tasks?all=1", data: `{"finished_count":7}`,
+			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Tasks.FinishedCount == 7 }},
+		{screen: desktop.TaskScreen, ref: "t1", path: "/api/v1/task/t1", data: `{"task":{"ref":"t1"}}`,
+			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Task.Task.Ref == "t1" }},
+		{screen: desktop.AttemptScreen, ref: "a1", path: "/api/v1/attempt/a1", data: `{"attempt":{"ref":"a1"}}`,
+			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Attempt.Attempt.Ref == "a1" }},
+		{screen: desktop.DecisionScreen, ref: "d1", path: "/api/v1/decision/d1", data: `{"decision":{"ref":"d1"}}`,
+			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Decision.Decision.Ref == "d1" }},
+		{screen: desktop.ReportScreen, ref: "r1", path: "/api/v1/report/r1", data: `{"report":{"ref":"r1"}}`,
+			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Report.Report.Ref == "r1" }},
+	}
+	data := map[string]string{}
+	for _, tc := range cases {
+		if tc.path != "" {
+			data[tc.path] = tc.data
+		}
+	}
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prefix := "/" + fleetID
+		if r.URL.Path == prefix+"/proof" {
+			proof(w, r)
+			return
+		}
+		if c, err := r.Cookie("hand_board_" + fleetID); err != nil || c.Value != testToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		rest := strings.TrimPrefix(r.URL.RequestURI(), prefix)
+		got = append(got, rest)
+		body, ok := data[rest]
+		if !ok {
+			body = "{}"
+		}
+		io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"fake"},"cursor":"`+rest+
+			`","generated_at":"2026-11-09T12:00:00Z","data":`+body+`}`)
+	}))
+	t.Cleanup(srv.Close)
+	c := &desktop.HTTPClient{
+		Base:  srv.URL,
+		Known: []desktop.Fleet{{ID: fleetID, Name: "fake"}},
+		Token: func(string) (string, error) { return testToken, nil },
+		HTTP:  srv.Client(),
+	}
+	ctx := context.Background()
+	for _, tc := range cases {
+		got = nil
+		p, err := c.Poll(ctx, fleetID, tc.screen, tc.ref, desktop.PollCursors{})
+		if err != nil {
+			t.Fatalf("poll screen %d: %v", tc.screen, err)
+		}
+		if !p.StatusFresh {
+			t.Fatalf("poll screen %d sent no status", tc.screen)
+		}
+		want := []string{"/api/v1/status"}
+		if tc.path != "" {
+			want = append(want, tc.path)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("poll screen %d read %v, want %v", tc.screen, got, want)
+		}
+		if tc.seen == nil {
+			if p.ScreenFresh {
+				t.Fatalf("poll screen %d read a screen it has", tc.screen)
+			}
+			continue
+		}
+		if !tc.seen(p) {
+			t.Fatalf("poll screen %d decoded the wrong data: %+v", tc.screen, p)
+		}
 	}
 }
 

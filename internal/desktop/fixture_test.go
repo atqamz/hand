@@ -51,6 +51,11 @@ type fixture struct {
 	nameIn        chan struct{}
 	block         chan struct{}
 	entered       chan struct{}
+	pollBlock     chan struct{}
+	pollEntered   chan struct{}
+	pollExited    chan struct{}
+	pollDone      chan struct{}
+	pollErr       error
 	mu            sync.Mutex
 	calls         map[string]int
 }
@@ -169,6 +174,50 @@ func (f *fixture) Report(ctx context.Context, id, ref string) (desktop.ReportDet
 		return desktop.ReportDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: report " + ref}
 	}
 	return d, nil
+}
+
+func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, ref string, since desktop.PollCursors) (desktop.Poll, error) {
+	f.note("poll:" + id)
+	if f.pollBlock != nil {
+		if f.pollEntered != nil {
+			f.pollEntered <- struct{}{}
+		}
+		select {
+		case <-f.pollBlock:
+			if f.pollDone != nil {
+				f.pollDone <- struct{}{}
+			}
+		case <-ctx.Done():
+			if f.pollExited != nil {
+				f.pollExited <- struct{}{}
+			}
+			return desktop.Poll{}, ctx.Err()
+		}
+	}
+	if f.pollErr != nil {
+		return desktop.Poll{}, f.pollErr
+	}
+	if f.fail != nil {
+		return desktop.Poll{}, f.fail
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := desktop.Poll{StatusFresh: true, Status: f.status[id]}
+	switch screen {
+	case desktop.TimelineScreen:
+		p.ScreenFresh, p.Timeline = true, f.timeline[id]
+	case desktop.TasksScreen:
+		p.ScreenFresh, p.Tasks = true, f.tasks[id]
+	case desktop.TaskScreen:
+		p.ScreenFresh, p.Task = true, f.task[id]
+	case desktop.AttemptScreen:
+		p.ScreenFresh, p.Attempt = true, f.attempt[id]
+	case desktop.DecisionScreen:
+		p.ScreenFresh, p.Decision = true, f.decision[id]
+	case desktop.ReportScreen:
+		p.ScreenFresh, p.Report = true, f.report[id]
+	}
+	return p, nil
 }
 
 func (f *fixture) stallAction() {

@@ -6,6 +6,8 @@ Hand is a personal supervisor layer for agents. You talk to one supervisor agent
 
 <img src="docs/images/board-phone.png" width="260" alt="The same Board at phone width: the Needs tab with the decision's three choices, a note field and a Send answer button, and the worker's report below.">
 
+A native window, `hand-desktop` on Linux, can read the same fleet beside the browser: it refreshes the selected fleet's status and open screen every 2 seconds while focused and every 15 seconds while not, sending the API's change cursor so an unchanged board answers `304`, and it keeps the composer's draft across a refresh.
+
 ## Platform support
 
 Hand is built for one operator, who runs it every day on Linux. macOS (Apple silicon) and native Windows (amd64) are supported best effort, with no timeline for fixes: CI runs the tests on both, one real Mac has run a fleet with a stand-in `claude`, and no real Windows machine has run one yet, so they rely on your reports. [`docs/platforms.md`](docs/platforms.md) says how each part is verified.
