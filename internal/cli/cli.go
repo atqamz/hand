@@ -8,13 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/buildstamp"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
@@ -242,16 +242,5 @@ func (r *runner) getwd() (string, error) {
 }
 
 func commit() string {
-	id := Commit
-	if info, ok := debug.ReadBuildInfo(); ok && id == "" {
-		for _, kv := range info.Settings {
-			if kv.Key == "vcs.revision" {
-				id = kv.Value
-			}
-		}
-	}
-	if id == "" {
-		return "unknown"
-	}
-	return id[:min(12, len(id))]
+	return buildstamp.Commit(Commit)
 }

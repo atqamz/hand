@@ -224,6 +224,7 @@ async function afterwards(box, s) {
   } else {
     equal(checks.find((r) => r.check === 'iroh')?.state, 'info', `${name}: hand doctor: iroh is information only while the Board runs without --iroh`);
   }
+  check(['ok', 'info'].includes(checks.find((r) => r.check === 'desktop')?.state), `${name}: hand doctor: the desktop row is ok or information only`);
   const orient = await ok(await box.hand(['orient']), `${name}: hand orient`);
   check(Buffer.byteLength(orient.out) < 6000, `${name}: hand orient stays under its byte budget`);
 

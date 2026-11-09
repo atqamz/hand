@@ -35,6 +35,12 @@ func TestMain(m *testing.M) {
 	}, "sidecar": func([]string) int {
 		fmt.Println("hand-iroh " + fakebin.Params()["version"] + " iroh 1.4.1")
 		return 0
+	}, "desktop": func(args []string) int {
+		if len(args) != 1 || args[0] != "--version" {
+			return 2
+		}
+		fmt.Println("hand-desktop " + fakebin.Params()["version"] + " " + fakebin.Params()["commit"])
+		return 0
 	}, "luvus": func(args []string) int {
 		if len(args) > 1 && args[0] == "session" && args[1] == "list" {
 			b, _ := json.Marshal(map[string]any{"sessions": []map[string]any{{"name": os.Getenv("HAND_SESSION"), "session_dir": os.Getenv("HAND_SESSION_DIR"), "endpoint": map[string]string{"address": "x"}}}})

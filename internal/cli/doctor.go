@@ -79,6 +79,7 @@ func cmdDoctor(r *runner, args []string) error {
 	} else {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
 		r.doctorIroh(ctx, &d, &c, root, path)
+		r.doctorDesktop(ctx, &d, &c, path)
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
 		r.doctorWatchUnits(ctx, &c, root)
 	}

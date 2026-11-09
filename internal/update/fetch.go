@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/desktopasset"
 )
 
 type Build struct {
@@ -100,9 +102,27 @@ func FetchIroh(ctx context.Context, base, channel, goos, arch, dir string) (stri
 	return bin, extract(filepath.Join(dir, stem+ext), "hand-iroh"+exe, bin)
 }
 
+func FetchDesktop(ctx context.Context, base, channel, goos, arch, dir string) (string, error) {
+	stem := desktopasset.Name + "-" + goos + "-" + arch
+	ext, exe := packaging(goos)
+	if err := fetchChecked(ctx, releaseURL(base, channel), dir, stem+ext, stem+".sha256"); err != nil {
+		return "", err
+	}
+	bin := filepath.Join(dir, desktopasset.Name+exe)
+	return bin, extract(filepath.Join(dir, stem+ext), desktopasset.Name+exe, bin)
+}
+
+func probeDesktop(ctx context.Context, base, channel, goos, arch string) (bool, error) {
+	return probeAsset(ctx, base, channel, desktopasset.Name, goos, arch)
+}
+
 func probeIroh(ctx context.Context, base, channel, goos, arch string) (bool, error) {
+	return probeAsset(ctx, base, channel, "hand-iroh", goos, arch)
+}
+
+func probeAsset(ctx context.Context, base, channel, name, goos, arch string) (bool, error) {
 	ext, _ := packaging(goos)
-	url := releaseURL(base, channel) + "/hand-iroh-" + goos + "-" + arch + ext
+	url := releaseURL(base, channel) + "/" + name + "-" + goos + "-" + arch + ext
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return false, err

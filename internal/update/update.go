@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
@@ -49,6 +50,7 @@ type Report struct {
 	From, To       Build
 	PinFrom, PinTo string
 	Iroh           string
+	Desktop        string
 	Backups        []string
 	Units          []UnitResult
 	Fleets         []FleetResult
@@ -64,6 +66,11 @@ func Target(exe string) (string, error) {
 func sidecarPath(target, goos string) string {
 	_, exe := packaging(goos)
 	return filepath.Join(filepath.Dir(target), sidecar.Name+exe)
+}
+
+func desktopPath(target, goos string) string {
+	_, exe := packaging(goos)
+	return filepath.Join(filepath.Dir(target), desktopasset.Name+exe)
 }
 
 func lockFile(root string) (*os.File, bool, error) {
@@ -174,6 +181,37 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			}
 		}
 	}
+	desktopNext := desktopPath(o.Target, o.OS)
+	desktopOn := desktopasset.Supported(o.OS, o.Arch)
+	desktopStale := false
+	if desktopOn {
+		gotVersion, gotCommit, err := desktopasset.BinaryVersion(ctx, desktopNext)
+		desktopStale = err != nil || gotVersion != rep.To.Version || gotCommit != rep.To.Commit
+	}
+	var desktopBin string
+	switch {
+	case !desktopOn:
+		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
+	case !desktopStale:
+	case o.Check:
+		exists, err := probeDesktop(ctx, o.HandBase, o.Channel, o.OS, o.Arch)
+		if err != nil {
+			return rep, err
+		}
+		rep.Desktop = "none in this release"
+		if exists {
+			rep.Desktop = "would install"
+		}
+	case current:
+		if desktopBin, rep.Desktop, err = o.fetchDesktop(ctx, tmp, rep.To); err != nil {
+			return rep, err
+		}
+		if desktopBin != "" {
+			if err := swap(desktopBin, desktopNext); err != nil {
+				return rep, err
+			}
+		}
+	}
 	if current && !repin {
 		var stale []fleet.Entry
 		if !o.KeepLuvus {
@@ -200,6 +238,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.cycle(ctx, o, fleets, true, server)
 		rep.Status = "checked"
 		return rep, nil
+	}
+	if !current && desktopOn && desktopStale {
+		if desktopBin, rep.Desktop, err = o.fetchDesktop(ctx, tmp, rep.To); err != nil {
+			return rep, err
+		}
 	}
 	if !current && rep.To.Iroh != "" {
 		if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
@@ -232,6 +275,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, fmt.Errorf("update: cannot write %s: %w", journalPath(o.Root), err)
 	}
 	if !current {
+		if desktopBin != "" {
+			if err := swap(desktopBin, desktopNext); err != nil {
+				_ = os.Remove(journalPath(o.Root))
+				return rep, err
+			}
+		}
 		if irohBin != "" {
 			if err := swap(irohBin, irohNext); err != nil {
 				_ = os.Remove(journalPath(o.Root))
@@ -260,6 +309,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	rep.clearJournal(o)
 	rep.Status = "updated"
 	return rep, nil
+}
+
+func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string, string, error) {
+	bin, err := FetchDesktop(ctx, o.HandBase, o.Channel, o.OS, o.Arch, dir)
+	if errors.Is(err, ErrMissing) {
+		return "", "none in this release", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	got, err := desktopasset.Verify(ctx, bin, to.Version, to.Commit)
+	if err != nil {
+		if errors.Is(err, desktopasset.ErrNotDesktop) {
+			return "", "", fmt.Errorf("update: the downloaded hand-desktop does not run: %w", err)
+		}
+		return "", "", fmt.Errorf("update: the downloaded hand-desktop is %s, but the downloaded hand is %s %s", got, to.Version, to.Commit)
+	}
+	return bin, got + " installed", nil
 }
 
 func (o Options) fetchIroh(ctx context.Context, dir string, to Build) (string, string, error) {
@@ -767,6 +834,9 @@ func Render(r Report) *toon.Doc {
 	}
 	if r.Iroh != "" {
 		d.Field("iroh", r.Iroh)
+	}
+	if r.Desktop != "" {
+		d.Field("desktop", r.Desktop)
 	}
 	d.List("backups", r.Backups)
 	units := [][]string{}
