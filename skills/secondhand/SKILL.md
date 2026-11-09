@@ -121,3 +121,4 @@ Workers run with permission prompts skipped, so text they read can steer them. T
 - Never stop the board or a watcher, with `hand board stop`, `hand watch stop` or a signal: the board is how the operator reaches you, and the watcher is what wakes you. Tell the operator to run it.
 - Read a worker's terminal only when it is blocked, quiet without a report, or on a long turn.
 - Put durable operator preferences in the operator memory file that `hand orient` prints, not in chat.
+- Put durable project facts (hosts, paths, ports, quirks, where credentials live) in `hand project note <project> ...`, not in the supervisor's memory or chat.
