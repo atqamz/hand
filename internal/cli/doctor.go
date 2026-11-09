@@ -366,7 +366,9 @@ func (r *runner) doctorWatchUnits(ctx context.Context, c *checks, root string) {
 	}
 }
 
-func modesEnforced(dir string) (bool, error) {
+var modesEnforced = probeModes
+
+func probeModes(dir string) (bool, error) {
 	f, err := os.CreateTemp(dir, ".modes-*")
 	if err != nil {
 		return false, err
@@ -374,9 +376,6 @@ func modesEnforced(dir string) (bool, error) {
 	name := f.Name()
 	_ = f.Close()
 	defer os.Remove(name)
-	if err := chmod(name, 0o600); err != nil {
-		return false, nil
-	}
 	info, err := os.Stat(name)
 	if err != nil {
 		return false, err

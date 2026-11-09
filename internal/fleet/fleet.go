@@ -180,13 +180,7 @@ func Resolve(root, ref string) (Entry, error) {
 	return Entry{}, fmt.Errorf("%w: %q names more than one fleet: %s; use the fleet id", state.ErrConflict, ref, strings.Join(names, ", "))
 }
 
-func registeredIDs(root string) ([]string, error) {
-	unlock, err := lockIndex(root)
-	if err != nil {
-		return nil, err
-	}
-	defer unlock()
-	migrate(root)
+func bookmarkIDs(root string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, dir := range []string{IndexDir(root), filepath.Join(root, "fleets")} {
 		des, err := os.ReadDir(dir)
@@ -208,6 +202,16 @@ func registeredIDs(root string) ([]string, error) {
 	}
 	slices.Sort(ids)
 	return ids, nil
+}
+
+func registeredIDs(root string) ([]string, error) {
+	unlock, err := lockIndex(root)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	migrate(root)
+	return bookmarkIDs(root)
 }
 
 func resolveID(root, id string) (Entry, bool, error) {
@@ -234,33 +238,37 @@ func List(root string) ([]Entry, error) {
 		return nil, err
 	}
 	migrate(root)
-	des, err := os.ReadDir(IndexDir(root))
+	ids, err := bookmarkIDs(root)
 	unlock()
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
 	var out []Entry
-	for _, de := range des {
-		if !state.FleetID.MatchString(de.Name()) {
-			continue
-		}
-		target, err := readLink(root, de.Name())
+	for _, id := range ids {
+		unlock, err := lockIndex(root)
 		if err != nil {
-			out = append(out, Entry{ID: de.Name(), State: "unreadable: " + err.Error()})
+			return nil, err
+		}
+		target, lerr := readLinkLocked(root, id)
+		var rec HomesRecord
+		var rerr error
+		if lerr == nil {
+			rec, rerr = ReadHomes(target)
+		}
+		unlock()
+		if lerr != nil {
+			out = append(out, Entry{ID: id, State: "unreadable: " + lerr.Error()})
 			continue
 		}
-		e := Entry{ID: de.Name(), Home: target, State: "missing"}
+		e := Entry{ID: id, Home: target, State: "missing"}
 		f, ok, err := at(target)
 		switch {
 		case err != nil:
 			e.State = "unreadable: " + err.Error()
 		case ok && f.ID == e.ID:
 			e.Name, e.State = f.Name, "ok"
-			if rec, err := readHomesLocked(root, target); err != nil {
-				e.State = "unreadable: " + err.Error()
+			if rerr != nil {
+				e.State = "unreadable: " + rerr.Error()
 			} else if rec.Current != "" && !sameDir(rec.Current, target) {
 				e.State = "moved"
 			}
@@ -322,6 +330,10 @@ func readLink(root, id string) (string, error) {
 		return "", err
 	}
 	defer unlock()
+	return readLinkLocked(root, id)
+}
+
+func readLinkLocked(root, id string) (string, error) {
 	migrate(root)
 	path := bookmark(root, id)
 	b, err := os.ReadFile(path)

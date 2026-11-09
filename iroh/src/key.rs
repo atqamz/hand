@@ -21,8 +21,11 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
     let key = SecretKey::generate();
     match create_private(&path) {
         Ok(mut f) => {
-            f.write_all(&key.to_bytes())?;
-            f.sync_all()?;
+            if let Err(e) = f.write_all(&key.to_bytes()).and_then(|()| f.sync_all()) {
+                drop(f);
+                let _ = fs::remove_file(&path);
+                return Err(e);
+            }
             Ok(key)
         }
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read_after_race(&path),
@@ -64,13 +67,17 @@ fn sweep(dir: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        let ours = name.starts_with(&format!("{FILE}.")) && name.ends_with(".tmp");
-        let age = entry
-            .metadata()
-            .and_then(|m| m.modified())
+        let Ok(meta) = entry.metadata() else { continue };
+        let stale = meta
+            .modified()
             .ok()
-            .and_then(|modified| modified.elapsed().ok());
-        if ours && age.is_some_and(|age| age > STALE_TEMP) {
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > STALE_TEMP);
+        if !stale {
+            continue;
+        }
+        let ours = name.starts_with(&format!("{FILE}.")) && name.ends_with(".tmp");
+        if ours || (name == FILE && meta.len() != 32) {
             let _ = fs::remove_file(entry.path());
         }
     }

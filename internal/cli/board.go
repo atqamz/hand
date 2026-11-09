@@ -486,7 +486,11 @@ func readSecret(path, what string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_ = chmod(path, 0o600)
+	if err := chmod(path, 0o600); err != nil {
+		if enforced, perr := modesEnforced(filepath.Dir(path)); perr != nil || enforced {
+			return "", err
+		}
+	}
 	token := string(bytes.TrimSpace(b))
 	if _, err := hex.DecodeString(token); err != nil || len(token) != 48 {
 		return "", fmt.Errorf("%w: %s is not a %s; delete it to make a new one", state.ErrInvalid, path, what)

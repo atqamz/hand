@@ -36,15 +36,6 @@ func ReadHomes(home string) (HomesRecord, error) {
 	return rec, nil
 }
 
-func readHomesLocked(root, home string) (HomesRecord, error) {
-	unlock, err := lockIndex(root)
-	if err != nil {
-		return HomesRecord{}, err
-	}
-	defer unlock()
-	return ReadHomes(home)
-}
-
 func WriteHomes(home, current string) error {
 	if current == "" {
 		current = home
@@ -52,6 +43,9 @@ func WriteHomes(home, current string) error {
 	rec, err := ReadHomes(home)
 	if err != nil {
 		return err
+	}
+	if rec.Current != "" && rec.Current != current && sameDir(rec.Current, current) {
+		current = rec.Current
 	}
 	if rec.Current == current && slices.Contains(rec.Homes, current) {
 		return nil

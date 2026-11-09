@@ -843,7 +843,11 @@ func makePrivate(fleetDir string) error {
 		return nil
 	}
 	for _, dir := range []string{fleetDir, filepath.Dir(fleetDir)} {
-		_ = os.Chmod(dir, 0o700)
+		if err := os.Chmod(dir, 0o700); err != nil {
+			if enforced, perr := modesEnforced(dir); perr != nil || enforced {
+				return err
+			}
+		}
 	}
 	return nil
 }
