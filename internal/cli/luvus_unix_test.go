@@ -17,7 +17,7 @@ func TestTheServerStartsFromThePin(t *testing.T) {
 	for name, script := range map[string]string{
 		"systemd-run": "#!/bin/sh\necho \"$*\" >> " + calls + "\necho 'Failed to start transient service unit' >&2\nexit 1\n",
 		"systemctl":   "#!/bin/sh\nexit 0\n",
-		"luvus":       "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus 0.14.3'; exit 0; fi\necho \"LUVUS-SPAWNED-DIRECTLY $*\" >> " + calls + "\nexit 1\n",
+		"luvus":       "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus 0.14.3'; exit 0; fi\necho \"PI_NOTIFICATIONS=$PI_NOTIFICATIONS\" >> " + calls + "\necho \"LUVUS-SPAWNED-DIRECTLY $*\" >> " + calls + "\nexit 1\n",
 	} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
@@ -32,11 +32,15 @@ func TestTheServerStartsFromThePin(t *testing.T) {
 	}
 	h.vars["PATH"], h.vars["XDG_RUNTIME_DIR"] = bin, run
 	h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "absent.sock")
+	h.vars["PI_NOTIFICATIONS"] = "off"
 	pinned := pinnedPath(t, h.ok("luvus", "pin"))
 	id := regexp.MustCompile(`\((f[0-9a-f]{12})\)`).FindStringSubmatch(h.ok("orient"))[1]
 	h.run("attempt", "list")
 	got, _ := os.ReadFile(calls)
 	if !strings.Contains(string(got), pinned+" --session secondhand-"+id+" server start") || strings.Contains(string(got), filepath.Join(bin, "luvus")) {
 		t.Fatalf("calls = %q", got)
+	}
+	if !strings.Contains(string(got), "PI_NOTIFICATIONS=0\n") || strings.Contains(string(got), "PI_NOTIFICATIONS=off") {
+		t.Fatalf("calls = %q, want the server's environment to hold PI_NOTIFICATIONS=0", got)
 	}
 }

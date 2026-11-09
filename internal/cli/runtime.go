@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -18,6 +19,25 @@ import (
 )
 
 const launchGrace = 2 * time.Minute
+
+func fleetEnv(environ []string) []string {
+	out := make([]string, 0, len(environ)+1)
+	found := false
+	for _, kv := range environ {
+		if name, _, _ := strings.Cut(kv, "="); name == "PI_NOTIFICATIONS" || runtime.GOOS == "windows" && strings.EqualFold(name, "PI_NOTIFICATIONS") {
+			if !found {
+				out = append(out, "PI_NOTIFICATIONS=0")
+				found = true
+			}
+			continue
+		}
+		out = append(out, kv)
+	}
+	if !found {
+		out = append(out, "PI_NOTIFICATIONS=0")
+	}
+	return out
+}
 
 func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, error) {
 	if r.fleet.ID == "" {
@@ -34,7 +54,7 @@ func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, e
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		return luvus.StartServer(ctx, bin, session, dir, r.env.Environ())
+		return luvus.StartServer(ctx, bin, session, dir, fleetEnv(r.env.Environ()))
 	})
 	return c, caps, runtimeErr(err)
 }
