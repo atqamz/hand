@@ -153,6 +153,7 @@ async function update(box, s) {
 
   to.srv.requests.splice(0);
   const known = running.board && running.watcher && from.schema < schema;
+  s.known = known;
   const res = await box.hand(['update'], { cwd: box.dir, env: { HAND_INSTALL_BASE: to.srv.base }, timeout: 300_000 });
   if (known) await fails(res, `${name}: hand update exits non-zero`, 1);
   else await ok(res, `${name}: hand update`);
@@ -232,7 +233,7 @@ async function afterwards(box, s) {
   const link = await startBoard(box);
   const marker = box.read('board.pid') ?? '';
   matches(marker, new RegExp(`^\\d+ \\S+ ${escape(bin)}\\s*$`), `${name}: board.pid names the updated binary`);
-  if (running.board) equal(Number(marker.split(' ')[0]) !== running.boardPid, true, `${name}: the Board is a new process`);
+  if (running.board && !s.known) equal(Number(marker.split(' ')[0]) !== running.boardPid, true, `${name}: the Board is a new process`);
   const laptop = new Client(link.origin);
   await laptop.get(`${link.pathname}${link.search}`);
   const page = await laptop.get(`/${id}/`);
