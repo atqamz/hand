@@ -109,8 +109,7 @@ func TestFetchDesktopSaysWhenTheReleaseHasNone(t *testing.T) {
 		t.Fatalf("an absent asset gave %v, want ErrMissing", err)
 	}
 	files := fakeDesktop(t, "0.9.0", "0123456789ab")
-	_, sums := hostDesktop()
-	delete(files, sums)
+	delete(files, desktopName("linux", "amd64")+".sha256")
 	srv = release(t, files)
 	if _, err := FetchDesktop(context.Background(), srv.URL, "edge", "linux", "amd64", t.TempDir()); err == nil || errors.Is(err, ErrMissing) {
 		t.Fatalf("an archive without its checksum gave %v, want a real error", err)
