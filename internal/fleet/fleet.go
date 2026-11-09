@@ -193,10 +193,10 @@ func bookmarkIDs(root string) ([]string, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		if errors.Is(err, syscall.ENOTDIR) {
-			return nil, fmt.Errorf("%w: %s is not a directory; move it aside, then run `hand fleet list` again", state.ErrInvalid, dir)
-		}
 		if err != nil {
+			if info, serr := os.Stat(dir); serr == nil && !info.IsDir() {
+				return nil, fmt.Errorf("%w: %s is not a directory; move it aside, then run `hand fleet list` again", state.ErrInvalid, dir)
+			}
 			return nil, err
 		}
 		for _, de := range des {

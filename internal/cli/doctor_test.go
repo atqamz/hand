@@ -443,8 +443,11 @@ func TestDoctorFailsACopyWhoseRecordNamesALiveHome(t *testing.T) {
 			}
 		}
 	}
-	record := `{"homes":["` + fx.h.home + `"],"current":"` + fx.h.home + `"}` + "\n"
-	if err := os.WriteFile(filepath.Join(cp, fleet.HomeFile), []byte(record), 0o600); err != nil {
+	record, err := json.Marshal(fleet.HomesRecord{Homes: []string{fx.h.home}, Current: fx.h.home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cp, fleet.HomeFile), append(record, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	root, err := filepath.EvalSymlinks(fx.h.vars["SECONDHAND_HOME"])
