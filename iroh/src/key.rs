@@ -15,6 +15,7 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
     let path = dir.join(FILE);
     match read(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => return read_after_race(&path),
         found => return found,
     }
     let key = SecretKey::generate();
