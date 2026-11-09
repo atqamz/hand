@@ -159,10 +159,10 @@ func TestABlockedSupervisorShowsTheKeys(t *testing.T) {
 		t.Fatalf("key calls = %d", f.count("keys:enter"))
 	}
 	f.mu.Lock()
-	keys, revision, digest, after := append([]string(nil), f.keys...), f.keyRevision, f.keyDigest, f.keyAfter
+	keys, revision, digest, after, ref := append([]string(nil), f.keys...), f.keyRevision, f.keyDigest, f.keyAfter, f.keyRef
 	f.mu.Unlock()
-	if len(keys) != 1 || keys[0] != "enter" || revision != 6 || digest != "0123456789abcdef0123456789abcdef" || after != 2 {
-		t.Fatalf("pressed %q at revision %d digest %q after %d", keys, revision, digest, after)
+	if len(keys) != 1 || keys[0] != "enter" || revision != 6 || digest != "0123456789abcdef0123456789abcdef" || after != 2 || ref != "s1" {
+		t.Fatalf("pressed %q at revision %d digest %q after %d for %q", keys, revision, digest, after, ref)
 	}
 	click(t, tt, "Force")
 	if f.count("control:force") != 1 {

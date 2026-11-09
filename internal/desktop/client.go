@@ -36,7 +36,7 @@ type ReadModel interface {
 	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
-	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64) (Control, error)
+	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -313,7 +313,7 @@ func (c *HTTPClient) Supervise(ctx context.Context, fleet, action, ref string) (
 		return Control{}, fmt.Errorf("%q is not a supervisor control", action)
 	}
 	var body any
-	if action == "stop" || action == "interrupt" {
+	if action == "stop" || action == "interrupt" || action == "force" {
 		if ref == "" {
 			return Control{}, fmt.Errorf("%s needs the supervisor the status showed", action)
 		}
@@ -329,11 +329,12 @@ type keysRequest struct {
 	Revision int64    `json:"revision"`
 	Digest   string   `json:"digest"`
 	After    int64    `json:"after"`
+	Ref      string   `json:"ref"`
 }
 
-func (c *HTTPClient) PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64) (Control, error) {
+func (c *HTTPClient) PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error) {
 	var out controlReply
-	_, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after}, &out)
+	_, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after, Ref: ref}, &out)
 	return out.control(), err
 }
 

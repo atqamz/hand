@@ -41,6 +41,7 @@ type fixture struct {
 	controlRef    string
 	keyStatus     *desktop.Status
 	keyStale      bool
+	keyRef        string
 	keys          []string
 	keyRevision   int64
 	keyDigest     string
@@ -255,10 +256,10 @@ func (f *fixture) Supervise(ctx context.Context, id, action, ref string) (deskto
 	return desktop.Control{Status: st, Stale: stale}, nil
 }
 
-func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revision int64, digest string, after int64) (desktop.Control, error) {
+func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revision int64, digest string, after int64, ref string) (desktop.Control, error) {
 	f.note("keys:" + strings.Join(keys, " "))
 	f.mu.Lock()
-	f.keys, f.keyRevision, f.keyDigest, f.keyAfter = append([]string(nil), keys...), revision, digest, after
+	f.keys, f.keyRevision, f.keyDigest, f.keyAfter, f.keyRef = append([]string(nil), keys...), revision, digest, after, ref
 	f.mu.Unlock()
 	f.stallAction()
 	if f.action != nil {

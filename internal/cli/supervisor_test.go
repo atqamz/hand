@@ -881,6 +881,56 @@ func TestStopAndInterruptRefuseAnotherSupervisor(t *testing.T) {
 	has(t, "stop", h.ok("supervisor", "stop", "--expect", "s1"), "supervisor: s1", "status: stopped")
 }
 
+func TestKeysAndForceRefuseAnotherSupervisor(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	before := rt.keysSent()
+	if _, errOut, code := h.run("supervisor", "keys", "--revision", "0", "--expect", "s2", "enter"); code != 3 || !strings.Contains(errOut, "s2 is on screen, but s1 is running now; refresh and try again") {
+		t.Fatalf("keys --expect s2: code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); !slices.Equal(got, before) {
+		t.Fatalf("a refused key press sent %q", got[len(before):])
+	}
+	if _, errOut, code := h.run("supervisor", "force", "--expect", "s2"); code != 3 || !strings.Contains(errOut, "s2 is on screen") {
+		t.Fatalf("force --expect s2: code=%d stderr=%q", code, errOut)
+	}
+	has(t, "keys", h.ok("supervisor", "keys", "--revision", "0", "--expect", "s1", "enter"), "supervisor: s1", "keys: enter")
+	has(t, "force", h.ok("supervisor", "force", "--expect", "s1"), "delivered normally")
+}
+
+func TestInterruptDoesNotWaitForADelivery(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	if err := os.MkdirAll(filepath.Join(h.home, "locks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(h.home, "locks", "supervisor.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if ok, err := flock.Lock(f, false); !ok || err != nil {
+		t.Fatalf("held the delivery lock: %v, %v", ok, err)
+	}
+	defer flock.Release(f)
+	done := make(chan string, 1)
+	go func() {
+		out, _, _ := h.run("supervisor", "interrupt", "--expect", "s1")
+		done <- out
+	}()
+	select {
+	case out := <-done:
+		if !strings.Contains(out, "keys: esc") {
+			t.Fatalf("interrupt = %q", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("interrupt waited for the delivery lock")
+	}
+	if got := rt.keysSent(); !slices.Contains(got, "esc") {
+		t.Fatalf("keys sent = %q", got)
+	}
+}
+
 func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)

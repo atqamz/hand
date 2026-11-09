@@ -556,7 +556,7 @@ func TestAPISupervisorControls(t *testing.T) {
 		{"resume", nil, []string{"supervisor", "resume"}},
 		{"stop", map[string]string{"ref": "s1"}, []string{"supervisor", "stop", "--expect", "s1"}},
 		{"interrupt", map[string]string{"ref": "s1"}, []string{"supervisor", "interrupt", "--expect", "s1"}},
-		{"force", nil, []string{"supervisor", "force"}},
+		{"force", map[string]string{"ref": "s1"}, []string{"supervisor", "force", "--expect", "s1"}},
 	} {
 		rec := apiPost(t, h, "/api/v1/supervisor/"+c.action, c.body, token, true)
 		env, got := apiBody[board.APIStatus](t, rec)
@@ -583,7 +583,7 @@ func TestAPISupervisorControlIsAcceptedWhenTheStatusCannotBeRead(t *testing.T) {
 		name, path, body string
 	}{
 		{"interrupt", "/api/v1/supervisor/interrupt", `{"ref":"s1"}`},
-		{"keys", "/api/v1/supervisor/keys", `{"keys":["enter"],"revision":7,"digest":"0123456789abcdef0123456789abcdef","after":0}`},
+		{"keys", "/api/v1/supervisor/keys", `{"keys":["enter"],"revision":7,"digest":"0123456789abcdef0123456789abcdef","after":0,"ref":"s1"}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fx := apiFixture(t, func() time.Time { return frozen })
@@ -614,7 +614,7 @@ func TestAPISupervisorControlRefusals(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
 	body := func(action string) any {
-		if action == "stop" || action == "interrupt" {
+		if action == "stop" || action == "interrupt" || action == "force" {
 			return map[string]string{"ref": "s1"}
 		}
 		return nil
@@ -631,7 +631,7 @@ func TestAPISupervisorControlRefusals(t *testing.T) {
 			t.Fatalf("%s = %d:\n%s", action, got.Code, got.Body.String())
 		}
 	}
-	for _, action := range []string{"stop", "interrupt"} {
+	for _, action := range []string{"stop", "interrupt", "force"} {
 		path := "/api/v1/supervisor/" + action
 		before := len(fx.called())
 		for _, bad := range []any{
@@ -703,13 +703,13 @@ func TestAPISupervisorKeys(t *testing.T) {
 	if keys.Revision != 7 || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(keys.Digest) || keys.Pressed != 0 {
 		t.Fatalf("keys = %+v", keys)
 	}
-	body := map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed}
+	body := map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed, "ref": "s1"}
 	rec := apiPost(t, h, "/api/v1/supervisor/keys", body, token, true)
 	env, got := apiBody[board.APIStatus](t, rec)
 	if env.Cursor == "" || got.Supervisor == nil || !got.Supervisor.Blocked {
 		t.Fatalf("keys status = %+v", got.Supervisor)
 	}
-	want := []string{"supervisor", "keys", "--revision", "7", "--screen", keys.Digest, "--after", "0", "down", "enter"}
+	want := []string{"supervisor", "keys", "--revision", "7", "--screen", keys.Digest, "--after", "0", "--expect", "s1", "down", "enter"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("control called %q, want %q", args, want)
 	}
@@ -721,13 +721,15 @@ func TestAPISupervisorKeys(t *testing.T) {
 	}
 
 	for _, bad := range []map[string]any{
-		{"keys": []string{}, "revision": 7, "digest": keys.Digest, "after": 0},
-		{"keys": []string{"space"}, "revision": 7, "digest": keys.Digest, "after": 0},
-		{"keys": []string{"enter"}, "digest": keys.Digest, "after": 0},
-		{"keys": []string{"enter"}, "revision": -1, "digest": keys.Digest, "after": 0},
-		{"keys": []string{"enter"}, "revision": 7, "after": 0},
-		{"keys": []string{"enter"}, "revision": 7, "digest": "short", "after": 0},
-		{"keys": []string{"enter"}, "revision": 7, "digest": keys.Digest},
+		{"keys": []string{}, "revision": 7, "digest": keys.Digest, "after": 0, "ref": "s1"},
+		{"keys": []string{"space"}, "revision": 7, "digest": keys.Digest, "after": 0, "ref": "s1"},
+		{"keys": []string{"enter"}, "digest": keys.Digest, "after": 0, "ref": "s1"},
+		{"keys": []string{"enter"}, "revision": -1, "digest": keys.Digest, "after": 0, "ref": "s1"},
+		{"keys": []string{"enter"}, "revision": 7, "after": 0, "ref": "s1"},
+		{"keys": []string{"enter"}, "revision": 7, "digest": "short", "after": 0, "ref": "s1"},
+		{"keys": []string{"enter"}, "revision": 7, "digest": keys.Digest, "ref": "s1"},
+		{"keys": []string{"enter"}, "revision": 7, "digest": keys.Digest, "after": 0},
+		{"keys": []string{"enter"}, "revision": 7, "digest": keys.Digest, "after": 0, "ref": "s0"},
 	} {
 		testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", bad, token, true), http.StatusBadRequest, "bad_request")
 	}
@@ -759,7 +761,7 @@ func TestAPISupervisorGoldens(t *testing.T) {
 	}{
 		{"status-blocked", "/api/v1/status", nil},
 		{"supervisor-started", "/api/v1/supervisor/start", nil},
-		{"supervisor-keys", "/api/v1/supervisor/keys", map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed}},
+		{"supervisor-keys", "/api/v1/supervisor/keys", map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed, "ref": "s1"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var rec *httptest.ResponseRecorder

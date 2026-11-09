@@ -426,6 +426,7 @@ type apiKeysBody struct {
 	Revision *int64   `json:"revision"`
 	Digest   string   `json:"digest"`
 	After    *int64   `json:"after"`
+	Ref      string   `json:"ref"`
 }
 
 type apiControlBody struct {
@@ -564,7 +565,7 @@ func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string
 		return
 	}
 	args := []string{"supervisor", action}
-	if action == "stop" || action == "interrupt" {
+	if action == "stop" || action == "interrupt" || action == "force" {
 		ref, ok := b.apiControlRef(w, r)
 		if !ok {
 			return
@@ -641,15 +642,15 @@ func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
 	var in apiKeysBody
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest and after")
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest, after and ref")
 		return
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest and after")
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest, after and ref")
 		return
 	}
-	if len(in.Keys) == 0 || in.Revision == nil || *in.Revision < 0 || in.After == nil || *in.After < 0 || !digest.MatchString(in.Digest) {
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest and after")
+	if len(in.Keys) == 0 || in.Revision == nil || *in.Revision < 0 || in.After == nil || *in.After < 0 || !digest.MatchString(in.Digest) || !supervisorRef.MatchString(in.Ref) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest, after and ref")
 		return
 	}
 	for _, k := range in.Keys {
@@ -658,7 +659,7 @@ func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	args := []string{"supervisor", "keys", "--revision", strconv.FormatInt(*in.Revision, 10), "--screen", in.Digest, "--after", strconv.FormatInt(*in.After, 10)}
+	args := []string{"supervisor", "keys", "--revision", strconv.FormatInt(*in.Revision, 10), "--screen", in.Digest, "--after", strconv.FormatInt(*in.After, 10), "--expect", in.Ref}
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
 		b.apiFailErr(w, err)

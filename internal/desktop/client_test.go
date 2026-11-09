@@ -741,7 +741,7 @@ func TestHTTPClientPostsSupervisorControls(t *testing.T) {
 		t.Fatalf("control = %+v", ctl)
 	}
 	digest := "0123456789abcdef0123456789abcdef"
-	ctl, err = c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, digest, 2)
+	ctl, err = c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, digest, 2, "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +758,7 @@ func TestHTTPClientPostsSupervisorControls(t *testing.T) {
 		t.Fatalf("CSRF headers = %v", csrf)
 	}
 	if !strings.Contains(body, `"keys":["down","enter"]`) || !strings.Contains(body, `"revision":6`) ||
-		!strings.Contains(body, `"digest":"`+digest+`"`) || !strings.Contains(body, `"after":2`) {
+		!strings.Contains(body, `"digest":"`+digest+`"`) || !strings.Contains(body, `"after":2`) || !strings.Contains(body, `"ref":"s1"`) {
 		t.Fatalf("keys body = %q", body)
 	}
 	if _, err := c.Supervise(ctx, fleetID, "nope", ""); err == nil {

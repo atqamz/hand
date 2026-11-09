@@ -64,6 +64,6 @@ func Force(ctx context.Context, env Env, home string) error {
 	if err != nil {
 		return err
 	}
-	_, _, err = r.force(ctx, st, c, caps)
+	_, _, err = r.force(ctx, st, c, caps, "")
 	return err
 }

@@ -549,10 +549,10 @@ func (a *App) Press(key string) {
 	if sup == nil || !sup.Blocked || sup.Keys == nil || !supervisorKey(key) {
 		return
 	}
-	keys := *sup.Keys
+	keys, ref := *sup.Keys, sup.Ref
 	model, fleet := a.Model, a.Fleet.ID
 	a.runControl("key:"+key, func(ctx context.Context) (Control, error) {
-		return model.PressKeys(ctx, fleet, []string{key}, keys.Revision, keys.Digest, keys.Pressed)
+		return model.PressKeys(ctx, fleet, []string{key}, keys.Revision, keys.Digest, keys.Pressed, ref)
 	})
 }
 

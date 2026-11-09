@@ -451,7 +451,7 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	if w.limited != 0 && w.limitCleared(ctx, c) {
 		w.limited = 0
 	}
-	why, err := w.r.deliver(ctx, w.st, c, caps, false)
+	why, err := w.r.deliver(ctx, w.st, c, caps, false, "")
 	w.flushWarns()
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())

@@ -538,7 +538,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		if _, err := st.SetSupervisorSwitch(ctx, sup.ID, spec.Model, spec.Effort); err != nil {
 			return err
 		}
-		why, err := r.deliver(ctx, st, c, caps, true)
+		why, err := r.deliver(ctx, st, c, caps, true, "")
 		if err != nil {
 			return err
 		}
@@ -916,6 +916,7 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 	revision := fs.Int64("revision", -1, "content revision printed by `hand supervisor show`")
 	screen := fs.String("screen", "", "digest of the screen the keys answer; lets a press survive a countdown tick")
 	after := fs.Int64("after", -1, "seq of the last key press the screen showed; refuses when someone pressed since")
+	expect := fs.String("expect", "", "the supervisor the operator saw; refuse when another one is running")
 	if err := fs.Parse(args); err != nil {
 		return helpOr(fs, err, usageError{fmt.Sprintf("supervisor keys: %v", err)})
 	}
@@ -931,6 +932,9 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
+			return err
+		}
+		if err := supervisorOnScreen(sup, *expect); err != nil {
 			return err
 		}
 		if err := pressedSince(ctx, st, state.SupervisorRef(sup.ID), *after); err != nil {
@@ -1107,7 +1111,7 @@ func cmdSupervisorSend(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		why, err := r.deliver(ctx, st, c, caps, true)
+		why, err := r.deliver(ctx, st, c, caps, true, "")
 		if err != nil {
 			return err
 		}
@@ -1142,7 +1146,7 @@ func detached(ctx context.Context, fn func(context.Context) error) error {
 	return fn(ctx)
 }
 
-func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, wait bool) (string, error) {
+func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, wait bool, expect string) (string, error) {
 	unlock, ok, err := r.supervisorLock(wait)
 	if err != nil {
 		return "", err
@@ -1157,6 +1161,9 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	}
 	if !ok || sup.Status != state.AttemptRunning {
 		return "no live supervisor", nil
+	}
+	if err := supervisorOnScreen(sup, expect); err != nil {
+		return "", err
 	}
 	ref := state.SupervisorRef(sup.ID)
 	if sup.ServerGeneration != caps.ServerGeneration {
@@ -1391,11 +1398,13 @@ func taskTitles(ctx context.Context, st *state.Store) func(int64) string {
 }
 
 func cmdSupervisorForce(r *runner, args []string) error {
-	if _, err := parse(flags("supervisor force"), args, 0); err != nil {
+	fs := flags("supervisor force")
+	expect := fs.String("expect", "", "the supervisor the operator saw; refuse when another one is running")
+	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
-		n, why, err := r.force(ctx, st, c, caps)
+		n, why, err := r.force(ctx, st, c, caps, *expect)
 		if err != nil {
 			return err
 		}
@@ -1408,7 +1417,7 @@ func cmdSupervisorForce(r *runner, args []string) error {
 	})
 }
 
-func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) (int, string, error) {
+func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, expect string) (int, string, error) {
 	unlock, _, err := r.supervisorLock(true)
 	if err != nil {
 		return 0, "", err
@@ -1421,6 +1430,9 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 	}()
 	sup, err := runningSupervisor(ctx, st)
 	if err != nil {
+		return 0, "", err
+	}
+	if err := supervisorOnScreen(sup, expect); err != nil {
 		return 0, "", err
 	}
 	if sup.ServerGeneration != caps.ServerGeneration {
@@ -1436,7 +1448,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 	if ag.Status != "blocked" {
 		unlock()
 		locked = false
-		why, err := r.deliver(ctx, st, c, caps, true)
+		why, err := r.deliver(ctx, st, c, caps, true, expect)
 		if why == "" {
 			why = "the supervisor is " + ag.Status + ", so Hand delivered normally"
 		}
@@ -1551,11 +1563,14 @@ func cmdSupervisorInterrupt(r *runner, args []string) error {
 		return err
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
-		unlock, _, err := r.supervisorLock(true)
+		// A delivery may hold the lock; Escape must not wait behind it.
+		unlock, locked, err := r.supervisorLock(false)
 		if err != nil {
 			return err
 		}
-		defer unlock()
+		if locked {
+			defer unlock()
+		}
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
 			return err
