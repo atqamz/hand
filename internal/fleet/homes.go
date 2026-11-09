@@ -36,6 +36,15 @@ func ReadHomes(home string) (HomesRecord, error) {
 	return rec, nil
 }
 
+func readHomesLocked(root, home string) (HomesRecord, error) {
+	unlock, err := lockIndex(root)
+	if err != nil {
+		return HomesRecord{}, err
+	}
+	defer unlock()
+	return ReadHomes(home)
+}
+
 func WriteHomes(home, current string) error {
 	if current == "" {
 		current = home

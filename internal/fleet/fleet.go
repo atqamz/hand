@@ -64,6 +64,11 @@ func Check(root, id, home string) error {
 	case err != nil:
 		return err
 	case target == home:
+		unlock, err := lockIndex(root)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		return WriteHomes(home, home)
 	case sameDir(target, home):
 		return point(root, id, home)
@@ -87,6 +92,11 @@ func Register(root, id, home string) (string, error) {
 	case err != nil:
 		return "", err
 	case target == home:
+		unlock, err := lockIndex(root)
+		if err != nil {
+			return "", err
+		}
+		defer unlock()
 		return "", WriteHomes(home, home)
 	case sameDir(target, home):
 		return "", point(root, id, home)
@@ -171,6 +181,11 @@ func Resolve(root, ref string) (Entry, error) {
 }
 
 func registeredIDs(root string) ([]string, error) {
+	unlock, err := lockIndex(root)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	migrate(root)
 	seen := map[string]bool{}
 	for _, dir := range []string{IndexDir(root), filepath.Join(root, "fleets")} {
@@ -214,8 +229,13 @@ func resolveID(root, id string) (Entry, bool, error) {
 }
 
 func List(root string) ([]Entry, error) {
+	unlock, err := lockIndex(root)
+	if err != nil {
+		return nil, err
+	}
 	migrate(root)
 	des, err := os.ReadDir(IndexDir(root))
+	unlock()
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -239,7 +259,7 @@ func List(root string) ([]Entry, error) {
 			e.State = "unreadable: " + err.Error()
 		case ok && f.ID == e.ID:
 			e.Name, e.State = f.Name, "ok"
-			if rec, err := ReadHomes(target); err != nil {
+			if rec, err := readHomesLocked(root, target); err != nil {
 				e.State = "unreadable: " + err.Error()
 			} else if rec.Current != "" && !sameDir(rec.Current, target) {
 				e.State = "moved"
@@ -255,6 +275,21 @@ func List(root string) ([]Entry, error) {
 func bookmark(root, id string) string { return filepath.Join(IndexDir(root), id) }
 
 func legacyBookmark(root, id string) string { return filepath.Join(root, "fleets", id) }
+
+func lockIndex(root string) (func(), error) {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(filepath.Join(root, "index.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := flock.Lock(lock, true); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return func() { _ = flock.Release(lock) }, nil
+}
 
 func migrate(root string) {
 	legacy := filepath.Join(root, "fleets")
@@ -282,6 +317,11 @@ func migrate(root string) {
 }
 
 func readLink(root, id string) (string, error) {
+	unlock, err := lockIndex(root)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	migrate(root)
 	path := bookmark(root, id)
 	b, err := os.ReadFile(path)
@@ -317,16 +357,12 @@ func stage(root, id, home string) (string, error) {
 }
 
 func claim(root, id, home string) error {
-	migrate(root)
-	lock, err := os.OpenFile(filepath.Join(root, "index.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	unlock, err := lockIndex(root)
 	if err != nil {
 		return err
 	}
-	if _, err := flock.Lock(lock, true); err != nil {
-		_ = lock.Close()
-		return err
-	}
-	defer flock.Release(lock)
+	defer unlock()
+	migrate(root)
 	if _, err := os.Stat(bookmark(root, id)); err == nil {
 		return fs.ErrExist
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -344,6 +380,12 @@ func claim(root, id, home string) error {
 }
 
 func point(root, id, home string) error {
+	unlock, err := lockIndex(root)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	migrate(root)
 	tmp, err := stage(root, id, home)
 	if err != nil {
 		return err
