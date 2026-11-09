@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,22 @@ type ReadModel interface {
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
 	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
+	Poll(ctx context.Context, fleet string, screen Screen, ref string) (Poll, error)
+}
+
+// Poll is one auto-refresh tick: the status and the open screen's data, each
+// read only when its change cursor moved. A false Fresh field means the board
+// answered 304, so the field is empty and the screen keeps what it has.
+type Poll struct {
+	StatusFresh bool
+	Status      Status
+	ScreenFresh bool
+	Timeline    Timeline
+	Tasks       Tasks
+	Task        TaskDetail
+	Attempt     AttemptDetail
+	Decision    DecisionDetail
+	Report      ReportDetail
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -69,6 +86,9 @@ type HTTPClient struct {
 	Known []Fleet
 	Token func(fleet string) (string, error)
 	HTTP  *http.Client
+
+	mu      sync.Mutex
+	cursors map[string]string
 }
 
 func (c *HTTPClient) Fleets() []Fleet {
@@ -261,6 +281,131 @@ func (c *HTTPClient) Report(ctx context.Context, fleet, ref string) (ReportDetai
 	return out, err
 }
 
+// Poll asks only for the status and the open screen's data, sending the last
+// cursor each read returned. The proof runs once for both requests.
+func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string) (Poll, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return Poll{}, err
+	}
+	var p Poll
+	if p.StatusFresh, err = c.pollAs(ctx, fleet, token, "/status", &p.Status); err != nil {
+		return Poll{}, err
+	}
+	path, ok := pollPath(screen, ref)
+	if !ok {
+		return p, nil
+	}
+	p.ScreenFresh, err = c.pollAs(ctx, fleet, token, path, pollData(screen, &p))
+	return p, err
+}
+
+func pollPath(screen Screen, ref string) (string, bool) {
+	switch screen {
+	case TimelineScreen:
+		return "/timeline", true
+	case TasksScreen:
+		return "/tasks?all=1", true
+	case TaskScreen:
+		return "/task/" + url.PathEscape(ref), true
+	case AttemptScreen:
+		return "/attempt/" + url.PathEscape(ref), true
+	case DecisionScreen:
+		return "/decision/" + url.PathEscape(ref), true
+	case ReportScreen:
+		return "/report/" + url.PathEscape(ref), true
+	}
+	return "", false
+}
+
+func pollData(screen Screen, p *Poll) any {
+	switch screen {
+	case TimelineScreen:
+		return &p.Timeline
+	case TasksScreen:
+		return &p.Tasks
+	case TaskScreen:
+		return &p.Task
+	case AttemptScreen:
+		return &p.Attempt
+	case DecisionScreen:
+		return &p.Decision
+	}
+	return &p.Report
+}
+
+func (c *HTTPClient) pollAs(ctx context.Context, fleet, token, path string, out any) (bool, error) {
+	fresh, err := c.pollSince(ctx, fleet, token, path, c.cursor(fleet, path), out)
+	var api *APIError
+	if errors.As(err, &api) && api.Code == "bad_cursor" {
+		c.forget(fleet, path)
+		return c.pollSince(ctx, fleet, token, path, "", out)
+	}
+	return fresh, err
+}
+
+func (c *HTTPClient) pollSince(ctx context.Context, fleet, token, path, since string, out any) (bool, error) {
+	res, err := c.do(ctx, fleet, token, "", http.MethodGet, withSince(path, since), nil)
+	if err != nil {
+		return false, err
+	}
+	defer res.Body.Close()
+	switch res.StatusCode {
+	case http.StatusNotModified:
+		if cur := res.Header.Get("X-Hand-Cursor"); cur != "" {
+			c.remember(fleet, path, cur)
+		}
+		return false, nil
+	case http.StatusOK:
+		env, err := c.decode(res, fleet, path, out)
+		if err != nil {
+			return false, err
+		}
+		c.remember(fleet, path, env.Cursor)
+		return true, nil
+	}
+	return false, remoteError(res)
+}
+
+func withSince(path, since string) string {
+	if since == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "since=" + url.QueryEscape(since)
+}
+
+func cursorKey(fleet, path string) string {
+	return fleet + "\x00" + path
+}
+
+func (c *HTTPClient) cursor(fleet, path string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cursors[cursorKey(fleet, path)]
+}
+
+func (c *HTTPClient) remember(fleet, path, cursor string) {
+	if cursor == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cursors == nil {
+		c.cursors = map[string]string{}
+	}
+	c.cursors[cursorKey(fleet, path)] = cursor
+}
+
+func (c *HTTPClient) forget(fleet, path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.cursors, cursorKey(fleet, path))
+}
+
 type answerRequest struct {
 	Choice string `json:"choice"`
 	Note   string `json:"note"`
@@ -352,7 +497,12 @@ func (c *HTTPClient) getAs(ctx context.Context, fleet, token, path string, out a
 		return Envelope{}, err
 	}
 	defer res.Body.Close()
-	return c.decode(res, fleet, path, out)
+	env, err := c.decode(res, fleet, path, out)
+	if err != nil {
+		return Envelope{}, err
+	}
+	c.remember(fleet, path, env.Cursor)
+	return env, nil
 }
 
 func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any) (Envelope, error) {

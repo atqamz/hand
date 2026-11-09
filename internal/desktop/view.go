@@ -162,6 +162,9 @@ func (a *App) masthead(c *ui.Context, p palette) {
 		if ui.Button(c.Key("refresh"), "Refresh").Clicked() && a.Fleet.ID != "" {
 			a.Refresh()
 		}
+		if a.Stale != "" {
+			ui.Text(c, "Stale · retrying").FontSize(12).TextColor(p.wait).Tooltip(a.Stale)
+		}
 	})
 }
 

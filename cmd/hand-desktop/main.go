@@ -38,6 +38,10 @@ func main() {
 		})
 		app.Post = win.Update
 		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
+		win.OnFocus(func() { app.SetFocused(true) })
+		win.OnBlur(func() { app.SetFocused(false) })
+		win.OnClosed(func() { app.Close() })
+		app.StartRefresh()
 	})
 	err := mygo.App.Run()
 	app.FlushDrafts()
