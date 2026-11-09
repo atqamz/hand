@@ -35,6 +35,15 @@ type ReadModel interface {
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error)
 	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
+	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
+	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
+}
+
+// Control is a supervisor control's answer. Stale is true when the board ran
+// the action but could not read the status back, so the screen must refresh.
+type Control struct {
+	Status Status
+	Stale  bool
 }
 
 // Sent is a message the board accepted. Fresh is false when the board queued
@@ -282,6 +291,51 @@ func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string) (Sent,
 	var out messageReply
 	_, err := c.post(ctx, fleet, "/message", messageRequest{Text: text}, &out)
 	return Sent{Timeline: out.Timeline, Fresh: !out.Accepted}, err
+}
+
+var supervisorActions = map[string]bool{"start": true, "resume": true, "stop": true, "interrupt": true, "force": true}
+
+type controlRequest struct {
+	Ref string `json:"ref"`
+}
+
+type controlReply struct {
+	Status
+	Accepted bool `json:"accepted"`
+}
+
+func (r controlReply) control() Control {
+	return Control{Status: r.Status, Stale: r.Accepted}
+}
+
+func (c *HTTPClient) Supervise(ctx context.Context, fleet, action, ref string) (Control, error) {
+	if !supervisorActions[action] {
+		return Control{}, fmt.Errorf("%q is not a supervisor control", action)
+	}
+	var body any
+	if action == "stop" || action == "interrupt" || action == "force" {
+		if ref == "" {
+			return Control{}, fmt.Errorf("%s needs the supervisor the status showed", action)
+		}
+		body = controlRequest{Ref: ref}
+	}
+	var out controlReply
+	_, err := c.post(ctx, fleet, "/supervisor/"+action, body, &out)
+	return out.control(), err
+}
+
+type keysRequest struct {
+	Keys     []string `json:"keys"`
+	Revision int64    `json:"revision"`
+	Digest   string   `json:"digest"`
+	After    int64    `json:"after"`
+	Ref      string   `json:"ref"`
+}
+
+func (c *HTTPClient) PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error) {
+	var out controlReply
+	_, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after, Ref: ref}, &out)
+	return out.control(), err
 }
 
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {

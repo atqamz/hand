@@ -36,6 +36,16 @@ type fixture struct {
 	choice        string
 	answerNote    string
 	sentText      string
+	controlStatus *desktop.Status
+	controlStale  bool
+	controlRef    string
+	keyStatus     *desktop.Status
+	keyStale      bool
+	keyRef        string
+	keys          []string
+	keyRevision   int64
+	keyDigest     string
+	keyAfter      int64
 	stale         bool
 	stall         string
 	nameIn        chan struct{}
@@ -83,6 +93,7 @@ func (f *fixture) Name(ctx context.Context, id string) (string, error) {
 }
 
 func (f *fixture) Status(ctx context.Context, id string) (desktop.Status, error) {
+	f.note("status:" + id)
 	if f.block != nil {
 		if f.entered != nil {
 			f.entered <- struct{}{}
@@ -222,6 +233,48 @@ func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Sen
 	tl.Entries = append([]desktop.Entry{{Role: "operator", Text: text, At: "2026-11-01T05:00:00Z", Queued: true}}, tl.Entries...)
 	f.timeline[id] = tl
 	return desktop.Sent{Timeline: tl, Fresh: !f.stale}, nil
+}
+
+func (f *fixture) Supervise(ctx context.Context, id, action, ref string) (desktop.Control, error) {
+	f.note("control:" + action)
+	f.mu.Lock()
+	f.controlRef = ref
+	f.mu.Unlock()
+	f.stallAction()
+	if f.action != nil {
+		return desktop.Control{}, f.action
+	}
+	f.mu.Lock()
+	if f.controlStatus != nil {
+		st := *f.controlStatus
+		f.status[id] = st
+		f.mu.Unlock()
+		return desktop.Control{Status: st}, nil
+	}
+	st, stale := f.status[id], f.controlStale
+	f.mu.Unlock()
+	return desktop.Control{Status: st, Stale: stale}, nil
+}
+
+func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revision int64, digest string, after int64, ref string) (desktop.Control, error) {
+	f.note("keys:" + strings.Join(keys, " "))
+	f.mu.Lock()
+	f.keys, f.keyRevision, f.keyDigest, f.keyAfter, f.keyRef = append([]string(nil), keys...), revision, digest, after, ref
+	f.mu.Unlock()
+	f.stallAction()
+	if f.action != nil {
+		return desktop.Control{}, f.action
+	}
+	f.mu.Lock()
+	if f.keyStatus != nil {
+		st := *f.keyStatus
+		f.status[id] = st
+		f.mu.Unlock()
+		return desktop.Control{Status: st}, nil
+	}
+	st, stale := f.status[id], f.keyStale
+	f.mu.Unlock()
+	return desktop.Control{Status: st, Stale: stale}, nil
 }
 
 func (f *fixture) dropNeed(id, ref string) {

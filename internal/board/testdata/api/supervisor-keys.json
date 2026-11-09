@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQBkMjk0OGVmOTIzNzg0NTZj.Aa3IRpwSfP3pUXU8ftuxQA",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "supervisor": {
+      "ref": "s1",
+      "harness": "claude",
+      "model": "sonnet",
+      "effort": "low",
+      "status": "running",
+      "live": true,
+      "pending": 0,
+      "resumable": false,
+      "blocked": true,
+      "keys": {
+        "revision": 7,
+        "digest": "f8c722e0710879ae811b2fe7ad0c8ba0",
+        "pressed": 0
+      }
+    },
+    "agent_state": "blocked",
+    "composer_hint": "s1 is waiting on a screen in Needs; your message waits too.",
+    "pill": "failing",
+    "line": "blocked",
+    "gauge": {
+      "text": "",
+      "level": "",
+      "pct": 0
+    },
+    "compactions": 0,
+    "needs": {
+      "waiting": 5,
+      "more": 0,
+      "worst": "blocked",
+      "worst_word": "blocked",
+      "worst_count": 1,
+      "items": [
+        {
+          "kind": "blocked",
+          "ref": "s1",
+          "word": "BLOCKED",
+          "tone": "fail"
+        },
+        {
+          "kind": "failure",
+          "ref": "a2",
+          "title": "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump",
+          "word": "FAILED",
+          "tone": "fail",
+          "task": "t2",
+          "attempt": "a2"
+        },
+        {
+          "kind": "decision",
+          "ref": "d1",
+          "title": "Keep the old cookie name?",
+          "word": "DECISION",
+          "tone": "wait",
+          "task": "t1",
+          "decision": "d1",
+          "headline": "Keep the old cookie name?",
+          "status": "open",
+          "created_at": "2026-11-01T04:40:00Z"
+        },
+        {
+          "kind": "report",
+          "ref": "r1",
+          "title": "Cookie fixed",
+          "word": "REPORT",
+          "tone": "neutral",
+          "task": "t1",
+          "report": "r1",
+          "attempt": "a1",
+          "status": "done",
+          "created_at": "2026-11-01T04:40:00Z",
+          "excerpt": "PR: https://github.com/example/hand/pull/42\n\nAll tests pass."
+        },
+        {
+          "kind": "report",
+          "ref": "r2",
+          "title": "Halfway there",
+          "word": "REPORT",
+          "tone": "neutral",
+          "task": "t3",
+          "report": "r2",
+          "attempt": "a3",
+          "status": "progress",
+          "created_at": "2026-11-01T04:40:00Z"
+        }
+      ]
+    },
+    "tasks": {
+      "active": 3,
+      "inbox": 3,
+      "done": 0,
+      "abandoned": 0
+    },
+    "projects": 1
+  }
+}
+

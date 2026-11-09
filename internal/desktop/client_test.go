@@ -562,8 +562,12 @@ type mutations struct {
 	mu       sync.Mutex
 	badCSRF  bool
 	accepted bool
-	body     string
-	csrf     []string
+	// controlAccepted answers a supervisor control with the accepted envelope
+	// the board sends when it ran the action but could not read the status.
+	controlAccepted bool
+	body            string
+	csrf            []string
+	paths           []string
 }
 
 func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
@@ -602,6 +606,7 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		}
 		m.mu.Lock()
 		m.csrf = append(m.csrf, r.Header.Get("X-Hand-CSRF"))
+		m.paths = append(m.paths, r.Method+" "+rest)
 		m.mu.Unlock()
 		if r.Header.Get("X-Hand-CSRF") != testToken {
 			w.WriteHeader(http.StatusForbidden)
@@ -616,6 +621,9 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 			name = "report-acked"
 		case "/api/v1/message":
 			name = "message-sent"
+		case "/api/v1/supervisor/start", "/api/v1/supervisor/resume", "/api/v1/supervisor/stop",
+			"/api/v1/supervisor/interrupt", "/api/v1/supervisor/force", "/api/v1/supervisor/keys":
+			name = "status"
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, `{"error":{"status":404,"code":"not_found","message":"not found"}}`)
@@ -627,9 +635,9 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		}
 		m.mu.Lock()
 		m.body = string(b)
-		accepted := m.accepted
+		accepted, control := m.accepted, m.controlAccepted
 		m.mu.Unlock()
-		if name == "message-sent" && accepted {
+		if (name == "message-sent" && accepted) || (name == "status" && control) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","data":{"accepted":true}}`)
 			return
@@ -718,6 +726,67 @@ func TestHTTPClientReportsAnAcceptedMessageWithoutATimeline(t *testing.T) {
 	m.mu.Unlock()
 	if !strings.Contains(body, `"text":"hello from the desktop"`) {
 		t.Fatalf("request body = %q", body)
+	}
+}
+
+func TestHTTPClientPostsSupervisorControls(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+	ctl, err := c.Supervise(ctx, fleetID, "stop", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctl.Stale || ctl.Status.Supervisor == nil || ctl.Status.Supervisor.Ref != "s1" {
+		t.Fatalf("control = %+v", ctl)
+	}
+	digest := "0123456789abcdef0123456789abcdef"
+	ctl, err = c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, digest, 2, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctl.Stale || ctl.Status.Supervisor == nil {
+		t.Fatalf("control = %+v", ctl)
+	}
+	m.mu.Lock()
+	body, csrf, paths := m.body, append([]string(nil), m.csrf...), append([]string(nil), m.paths...)
+	m.mu.Unlock()
+	if len(paths) != 2 || paths[0] != "POST /api/v1/supervisor/stop" || paths[1] != "POST /api/v1/supervisor/keys" {
+		t.Fatalf("requests = %v", paths)
+	}
+	if len(csrf) != 2 || csrf[0] != testToken || csrf[1] != testToken {
+		t.Fatalf("CSRF headers = %v", csrf)
+	}
+	if !strings.Contains(body, `"keys":["down","enter"]`) || !strings.Contains(body, `"revision":6`) ||
+		!strings.Contains(body, `"digest":"`+digest+`"`) || !strings.Contains(body, `"after":2`) || !strings.Contains(body, `"ref":"s1"`) {
+		t.Fatalf("keys body = %q", body)
+	}
+	if _, err := c.Supervise(ctx, fleetID, "nope", ""); err == nil {
+		t.Fatal("an unknown control was sent")
+	}
+	if _, err := c.Supervise(ctx, fleetID, "stop", ""); err == nil {
+		t.Fatal("stop without the displayed supervisor was sent")
+	}
+}
+
+func TestHTTPClientReportsAControlThatOutranItsStatus(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.mu.Lock()
+	m.controlAccepted = true
+	m.mu.Unlock()
+	c := goldenClient(t, srv.URL)
+	ctl, err := c.Supervise(context.Background(), fleetID, "interrupt", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ctl.Stale || ctl.Status.Supervisor != nil {
+		t.Fatalf("control = %+v", ctl)
+	}
+	m.mu.Lock()
+	body := m.body
+	m.mu.Unlock()
+	if !strings.Contains(body, `"ref":"s1"`) {
+		t.Fatalf("interrupt body = %q", body)
 	}
 }
 
