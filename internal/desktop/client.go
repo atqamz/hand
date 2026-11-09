@@ -38,22 +38,32 @@ type ReadModel interface {
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
 	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
-	Poll(ctx context.Context, fleet string, screen Screen, ref string) (Poll, error)
+	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
+}
+
+// PollCursors are the last cursors the window accepted for the status and its
+// open screen; a window sends them back and commits only what it applies.
+type PollCursors struct {
+	Status string
+	Screen string
 }
 
 // Poll is one auto-refresh tick: the status and the open screen's data, each
 // read only when its change cursor moved. A false Fresh field means the board
-// answered 304, so the field is empty and the screen keeps what it has.
+// answered 304, so the field is empty and the screen keeps what it has. The
+// cursor fields are the ones the tick's 200 answers issued.
 type Poll struct {
-	StatusFresh bool
-	Status      Status
-	ScreenFresh bool
-	Timeline    Timeline
-	Tasks       Tasks
-	Task        TaskDetail
-	Attempt     AttemptDetail
-	Decision    DecisionDetail
-	Report      ReportDetail
+	StatusFresh  bool
+	Status       Status
+	StatusCursor string
+	ScreenFresh  bool
+	ScreenCursor string
+	Timeline     Timeline
+	Tasks        Tasks
+	Task         TaskDetail
+	Attempt      AttemptDetail
+	Decision     DecisionDetail
+	Report       ReportDetail
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -283,20 +293,29 @@ func (c *HTTPClient) Report(ctx context.Context, fleet, ref string) (ReportDetai
 
 // Poll asks only for the status and the open screen's data, sending the last
 // cursor each read returned. The proof runs once for both requests.
-func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string) (Poll, error) {
+func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error) {
 	token, err := c.prepare(ctx, fleet)
 	if err != nil {
 		return Poll{}, err
 	}
 	var p Poll
-	if p.StatusFresh, err = c.pollAs(ctx, fleet, token, "/status", &p.Status); err != nil {
+	statusSince := since.Status
+	if statusSince == "" {
+		statusSince = c.cursor(fleet, "/status")
+	}
+	p.StatusFresh, p.StatusCursor, err = c.pollAs(ctx, fleet, token, "/status", statusSince, &p.Status)
+	if err != nil {
 		return Poll{}, err
 	}
 	path, ok := pollPath(screen, ref)
 	if !ok {
 		return p, nil
 	}
-	p.ScreenFresh, err = c.pollAs(ctx, fleet, token, path, pollData(screen, &p))
+	screenSince := since.Screen
+	if screenSince == "" {
+		screenSince = c.cursor(fleet, path)
+	}
+	p.ScreenFresh, p.ScreenCursor, err = c.pollAs(ctx, fleet, token, path, screenSince, pollData(screen, &p))
 	return p, err
 }
 
@@ -334,37 +353,33 @@ func pollData(screen Screen, p *Poll) any {
 	return &p.Report
 }
 
-func (c *HTTPClient) pollAs(ctx context.Context, fleet, token, path string, out any) (bool, error) {
-	fresh, err := c.pollSince(ctx, fleet, token, path, c.cursor(fleet, path), out)
+func (c *HTTPClient) pollAs(ctx context.Context, fleet, token, path, since string, out any) (bool, string, error) {
+	fresh, cursor, err := c.pollSince(ctx, fleet, token, path, since, out)
 	var api *APIError
 	if errors.As(err, &api) && api.Code == "bad_cursor" {
 		c.forget(fleet, path)
 		return c.pollSince(ctx, fleet, token, path, "", out)
 	}
-	return fresh, err
+	return fresh, cursor, err
 }
 
-func (c *HTTPClient) pollSince(ctx context.Context, fleet, token, path, since string, out any) (bool, error) {
+func (c *HTTPClient) pollSince(ctx context.Context, fleet, token, path, since string, out any) (bool, string, error) {
 	res, err := c.do(ctx, fleet, token, "", http.MethodGet, withSince(path, since), nil)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	defer res.Body.Close()
 	switch res.StatusCode {
 	case http.StatusNotModified:
-		if cur := res.Header.Get("X-Hand-Cursor"); cur != "" {
-			c.remember(fleet, path, cur)
-		}
-		return false, nil
+		return false, "", nil
 	case http.StatusOK:
 		env, err := c.decode(res, fleet, path, out)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
-		c.remember(fleet, path, env.Cursor)
-		return true, nil
+		return true, env.Cursor, nil
 	}
-	return false, remoteError(res)
+	return false, "", remoteError(res)
 }
 
 func withSince(path, since string) string {

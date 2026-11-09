@@ -302,6 +302,26 @@ func TestRefreshIntervalFollowsFocus(t *testing.T) {
 	}
 }
 
+func TestRefreshClearsAForegroundReadError(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	b.setFail(true)
+	b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
+	app.Refresh()
+	if app.Err == "" {
+		t.Fatal("the failed refresh left no error")
+	}
+	b.setFail(false)
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Err != "" {
+		t.Fatalf("error = %q after the poll recovered", app.Err)
+	}
+	if app.Status.Pill != "waiting" {
+		t.Fatalf("status = %+v", app.Status)
+	}
+}
+
 func TestRefreshRecoversFromABadCursor(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
@@ -433,6 +453,81 @@ func TestRefreshDropsAScreenTheOperatorLeft(t *testing.T) {
 	}
 	if len(app.Timeline.Entries) > 0 && app.Timeline.Entries[0].Text == "while away" {
 		t.Fatal("a poll of the old screen changed the timeline")
+	}
+}
+
+func TestRearmDropsAQueuedTick(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	app.SetFocused(false)
+	runPosted(t, posted)
+	if got := f.count("poll:" + fleetID); got != 0 {
+		t.Fatalf("the tick queued before the rearm ran: %d polls", got)
+	}
+	if got := clock.delay(); got != desktop.UnfocusedRefresh {
+		t.Fatalf("rearmed interval = %v, want %v", got, desktop.UnfocusedRefresh)
+	}
+	clock.Advance(desktop.UnfocusedRefresh)
+	pumpUntil(t, posted, func() bool { return f.count("poll:"+fleetID) > 0 })
+}
+
+func TestPollWaitsWhileAnActionRuns(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	app.Clock = newFakeClock()
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	app.Busy = true
+	app.StartRefresh()
+	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
+	runPosted(t, posted)
+	if got := f.count("poll:" + fleetID); got != 0 {
+		t.Fatalf("a poll overlapped an action: %d polls", got)
+	}
+	app.Busy = false
+	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
+	pumpUntil(t, posted, func() bool { return f.count("poll:"+fleetID) > 0 })
+}
+
+func TestRefreshKeepsTimelineHistory(t *testing.T) {
+	f := goldenFixture(t)
+	tl := f.timeline[fleetID]
+	tl.Older = 42
+	f.timeline[fleetID] = tl
+	f.older = map[string]desktop.Timeline{fleetID: {
+		Entries: []desktop.Entry{{Role: "operator", Text: "the earlier message", At: "2026-10-31T04:40:00Z"}},
+	}}
+	app := newApp(t, f)
+	app.Show(desktop.TimelineScreen)
+	app.Older()
+	f.mu.Lock()
+	tl = f.timeline[fleetID]
+	tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "newer", No: 2}}, tl.Entries...)
+	f.timeline[fleetID] = tl
+	f.mu.Unlock()
+	app.Clock = newFakeClock()
+	app.StartRefresh()
+	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
+	if len(app.Timeline.Entries) == 0 || app.Timeline.Entries[0].Text != "newer" {
+		t.Fatalf("the refresh did not apply: %+v", app.Timeline.Entries)
+	}
+	found := false
+	for _, entry := range app.Timeline.Entries {
+		if entry.Text == "the earlier message" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the refresh dropped the loaded history: %+v", app.Timeline.Entries)
+	}
+	if app.Timeline.Older != 0 {
+		t.Fatalf("pagination boundary = %d, want the loaded end", app.Timeline.Older)
 	}
 }
 

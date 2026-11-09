@@ -176,7 +176,7 @@ func (f *fixture) Report(ctx context.Context, id, ref string) (desktop.ReportDet
 	return d, nil
 }
 
-func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, ref string) (desktop.Poll, error) {
+func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, ref string, since desktop.PollCursors) (desktop.Poll, error) {
 	f.note("poll:" + id)
 	if f.pollBlock != nil {
 		if f.pollEntered != nil {
