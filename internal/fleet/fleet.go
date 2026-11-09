@@ -189,14 +189,14 @@ func Resolve(root, ref string) (Entry, error) {
 func bookmarkIDs(root string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, dir := range []string{IndexDir(root), filepath.Join(root, "fleets")} {
+		if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+			return nil, fmt.Errorf("%w: %s is not a directory; move it aside, then run `hand fleet list` again", state.ErrInvalid, dir)
+		}
 		des, err := os.ReadDir(dir)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			if info, serr := os.Stat(dir); serr == nil && !info.IsDir() {
-				return nil, fmt.Errorf("%w: %s is not a directory; move it aside, then run `hand fleet list` again", state.ErrInvalid, dir)
-			}
 			return nil, err
 		}
 		for _, de := range des {
