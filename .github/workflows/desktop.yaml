@@ -1,0 +1,82 @@
+name: Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - internal/desktop/**
+      - internal/desktopasset/**
+      - cmd/hand-desktop/**
+      - internal/cli/cli.go
+      - internal/buildstamp/**
+      - .github/desktop/**
+      - .github/scripts/build-desktop.sh
+      - .github/workflows/desktop.yaml
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  smoke:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos
+            os: macos-latest
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test the window headless
+        run: go test ./internal/desktop
+      - name: Build cgo-free and check the stamp it reports
+        run: sh .github/desktop/smoke.sh
+
+  assets:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build the release assets
+        run: |
+          set -eu
+          version=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
+          test -n "$version"
+          out=$RUNNER_TEMP/desktop
+          sh .github/scripts/build-desktop.sh "$version" stable "$GITHUB_SHA" "$out"
+          cd "$out"
+          for sum in hand-desktop-*.sha256; do sha256sum -c "$sum"; done
+          for archive in hand-desktop-*.tar.gz; do tar -tzf "$archive"; done
+          ls -l

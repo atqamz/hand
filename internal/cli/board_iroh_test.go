@@ -29,6 +29,19 @@ var appLinkRe = regexp.MustCompile(`handboard://[^"<\s]+`)
 
 func redactAppPage(page string) string { return appLinkRe.ReplaceAllString(page, "handboard://…") }
 
+func desktopMain(args []string) int {
+	p := fakebin.Params()
+	if len(args) == 1 && args[0] == "--version" {
+		if p["raw"] != "" {
+			fmt.Println(p["raw"])
+			return 0
+		}
+		fmt.Println("hand-desktop " + p["version"] + " " + p["commit"])
+		return 0
+	}
+	return 2
+}
+
 func sidecarMain(args []string) int {
 	p := fakebin.Params()
 	if len(args) == 1 && args[0] == "--version" {

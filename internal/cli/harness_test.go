@@ -33,7 +33,7 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"sidecar": sidecarMain, "args": fakebin.RecordArgs, "env": envMain, "fake": fakeMain, "click": clickMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"sidecar": sidecarMain, "desktop": desktopMain, "args": fakebin.RecordArgs, "env": envMain, "fake": fakeMain, "click": clickMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}

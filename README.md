@@ -40,6 +40,8 @@ Then run `hand init` in a folder of its own, then `hand open`: init pins Luvus, 
 
 `hand update` moves to a newer release. `hand doctor` checks your setup and prints a fix for each problem.
 
+On Linux amd64 and arm64, `hand update` also installs `hand-desktop` next to `hand`: start it while a board runs for the native window. It needs a display and no cgo, and `hand doctor` has a `desktop` row for it. macOS and Windows use the board in a browser.
+
 For the rolling `edge` build of `main`, or a pinned release such as `v0.13.0`, set `HAND_INSTALL_VERSION` first: `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_VERSION=edge sh -c "$s"`, or `$env:HAND_INSTALL_VERSION = 'edge'` before the PowerShell line. Releases after v0.11.0 and the edge build also get a build attestation, best effort: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` checks who built a download.
 
 [`docs/install.md`](docs/install.md) has every install option and building from source; [Requirements](docs/install.md#requirements) has the rest. [`docs/update.md`](docs/update.md) says what `hand update` does and how to restore a backup.
@@ -106,7 +108,7 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 
 ## Development
 
-Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) before changing anything. [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to send a change and asks for a sign-off on each commit. The dependencies are `modernc.org/sqlite`, `golang.org/x/sys` for macOS process start times, and `github.com/egoist/mygo` for the desktop window. Before committing, run:
+Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) before changing anything. [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to send a change and asks for a sign-off on each commit. The dependencies are `modernc.org/sqlite`, `golang.org/x/sys` for macOS process start times, and `github.com/egoist/mygo` for the `cmd/hand-desktop` window, which `.github/desktop/smoke.sh` builds with the release stamps and checks with `--version`. Before committing, run:
 
 ```sh
 gofmt -l .

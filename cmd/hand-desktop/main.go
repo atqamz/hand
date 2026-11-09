@@ -8,17 +8,23 @@ import (
 	"runtime"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "print the version and commit, then exit")
+	fleet := flag.String("fleet", "", "fleet id or name to open")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(desktopasset.Stamp())
+		return
+	}
 	if runtime.GOOS != "linux" {
 		fmt.Fprintln(os.Stderr, "hand-desktop runs on Linux for now; the Board still works in a browser on this system.")
 		os.Exit(2)
 	}
-	fleet := flag.String("fleet", "", "fleet id or name to open")
-	flag.Parse()
 	app := desktop.New(func() (desktop.ReadModel, error) { return desktop.NewLocal(os.Getenv) })
 	app.DraftDir = desktop.DraftDir(os.Getenv)
 	app.Boot()
