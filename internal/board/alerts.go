@@ -42,7 +42,12 @@ type alertFeed struct {
 }
 
 func (b *Board) alertFeed(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		b.failNeutral(w, http.StatusForbidden, "The alert feed is not served to requests from other sites.")
+		return
+	}
 	ctx := r.Context()
+	stamp := r.Method == http.MethodGet
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
 		b.failErr(w, err)
@@ -76,9 +81,11 @@ func (b *Board) alertFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	feed.Cursor = after
-	if err := b.st.AckAlerts(ctx, after); err != nil {
-		b.failErr(w, err)
-		return
+	if stamp {
+		if err := b.st.AckAlerts(ctx, after); err != nil {
+			b.failErr(w, err)
+			return
+		}
 	}
 	wait, _ := strconv.Atoi(q.Get("wait"))
 	deadline := time.NewTimer(min(time.Duration(min(max(wait, 0), 3600))*time.Second, alertWaitMax))
@@ -95,9 +102,15 @@ func (b *Board) alertFeed(w http.ResponseWriter, r *http.Request) {
 			feed.More = len(rows) > alertBatch
 			rows = rows[:min(len(rows), alertBatch)]
 			feed.Cursor = rows[len(rows)-1].Seq
-			if err := b.st.FetchedAlerts(ctx, rows[0].Seq, feed.Cursor); err != nil {
-				b.failErr(w, err)
+			if !b.stillSignedIn(ctx) {
+				b.failNeutral(w, http.StatusForbidden, sessionFaults(phoneGone, true))
 				return
+			}
+			if stamp {
+				if err := b.st.FetchedAlerts(ctx, rows[0].Seq, feed.Cursor); err != nil {
+					b.failErr(w, err)
+					return
+				}
 			}
 			for _, a := range rows {
 				feed.Alerts = append(feed.Alerts, alertItem{Seq: a.Seq, At: a.At.UTC().Format(time.RFC3339), Kind: a.Kind, Ref: a.Ref, Text: a.Text, Link: a.Link})

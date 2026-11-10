@@ -3,6 +3,8 @@ package board_test
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -221,6 +223,48 @@ func TestTheNextPollAcknowledgesWhatTheLastOneFetched(t *testing.T) {
 	}
 }
 
+func TestOnlyAGetFromTheAppStampsTheReceipts(t *testing.T) {
+	p := alertHost(t, "alpha")
+	f := p.fleets[0]
+	raise(t, f, 2)
+	stamped := func() (fetched, acked int) {
+		rows, err := f.st.Alerts(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range rows {
+			if !a.FetchedAt.IsZero() {
+				fetched++
+			}
+			if !a.AckedAt.IsZero() {
+				acked++
+			}
+		}
+		return
+	}
+	if rec := p.send("HEAD", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.laptop(f)}, nil); rec.Code != http.StatusOK {
+		t.Fatalf("HEAD = %d", rec.Code)
+	}
+	if fetched, acked := stamped(); fetched != 0 || acked != 0 {
+		t.Fatalf("a HEAD stamped %d fetched, %d acked", fetched, acked)
+	}
+	rec := p.send("GET", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.laptop(f)}, map[string]string{"Sec-Fetch-Site": "cross-site"})
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), `"alerts"`) {
+		t.Fatalf("a cross-site GET = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if fetched, acked := stamped(); fetched != 0 || acked != 0 {
+		t.Fatalf("a cross-site GET stamped %d fetched, %d acked", fetched, acked)
+	}
+	for _, site := range []string{"same-origin", "same-site", "none", ""} {
+		if rec := p.send("GET", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.laptop(f)}, map[string]string{"Sec-Fetch-Site": site}); rec.Code != http.StatusOK {
+			t.Fatalf("Sec-Fetch-Site %q = %d", site, rec.Code)
+		}
+	}
+	if fetched, _ := stamped(); fetched != 2 {
+		t.Fatalf("a GET stamped %d fetched", fetched)
+	}
+}
+
 func TestARevokedPhoneIsRefusedWhileItsPollIsHeld(t *testing.T) {
 	p := alertHost(t, "alpha")
 	f := p.fleets[0]
@@ -301,6 +345,42 @@ func TestAPairedPeerGetsTheFeedWithALengthAndNoSecret(t *testing.T) {
 		if strings.Contains(rep.Body, secret) {
 			t.Fatalf("the feed holds %q:\n%s", secret, rep.Body)
 		}
+	}
+}
+
+func TestAFeedPollWhoseSendSideEndsIsRefusedNotAnswered(t *testing.T) {
+	p := newPhoneHost(t, true, "alpha")
+	p.tick = 10 * time.Millisecond
+	p.restart()
+	r := servePeerRig(t, p)
+	f := r.fleets[0]
+	phone := r.mustPair(r.as(peerA), f)
+	raise(t, f, 1)
+	c := r.as(peerA)
+	req, err := http.NewRequest("GET", "http://localhost/"+f.id+"/alerts/feed?after=0&wait=25", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Connection", "close")
+	req.AddCookie(phone)
+	_ = c.conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.WriteString(c.conn, c.line); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.Write(c.conn); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.ReadResponse(c.br, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusForbidden || strings.Contains(string(body), `"alerts"`) {
+		t.Fatalf("a poll that ended its send side = %d:\n%s", res.StatusCode, body)
 	}
 }
 
