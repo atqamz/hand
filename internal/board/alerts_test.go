@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -471,23 +471,20 @@ func TestAFeedPollWhosePeerResetsTheConnectionIsCanceled(t *testing.T) {
 	f := r.fleets[0]
 	c := r.as(peerA)
 	phone := r.mustPair(c, f)
-	before := runtime.NumGoroutine()
 	d := r.as(peerA)
 	req := "GET /" + f.id + "/alerts/feed?after=0&wait=25 HTTP/1.1\r\nHost: localhost\r\nCookie: " + phone.Name + "=" + phone.Value + "\r\n\r\n"
 	if _, err := io.WriteString(d.conn, d.line+req); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
-	if n := runtime.NumGoroutine(); n <= before {
-		t.Fatalf("the poll is not held: goroutines %d, before %d", n, before)
+	_ = d.conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	var timeout net.Error
+	if _, err := d.br.Peek(1); !errors.As(err, &timeout) || !timeout.Timeout() {
+		t.Fatalf("the poll is not held: %v", err)
 	}
 	_ = d.conn.(*net.TCPConn).SetLinger(0)
 	_ = d.conn.Close()
-	for end := time.Now().Add(3 * time.Second); runtime.NumGoroutine() > before && time.Now().Before(end); {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if n := runtime.NumGoroutine(); n > before {
-		t.Fatalf("a reset connection left its poll held: goroutines %d, before %d", n, before)
+	if err := r.drained(); err != nil {
+		t.Fatalf("a reset connection left its poll held: %v", err)
 	}
 }
 
@@ -495,7 +492,6 @@ func TestAnEventStreamIsEndedByItsPeersPlainClose(t *testing.T) {
 	r := servePeerRig(t, alertHost(t, "alpha"))
 	f := r.fleets[0]
 	phone := r.mustPair(r.as(peerA), f)
-	before := runtime.NumGoroutine()
 	d := r.as(peerA)
 	req := "GET /" + f.id + "/events?page= HTTP/1.1\r\nHost: localhost\r\nCookie: " + phone.Name + "=" + phone.Value + "\r\n\r\n"
 	if _, err := io.WriteString(d.conn, d.line+req); err != nil {
@@ -509,14 +505,11 @@ func TestAnEventStreamIsEndedByItsPeersPlainClose(t *testing.T) {
 	sc := bufio.NewScanner(res.Body)
 	for sc.Scan() && !strings.HasPrefix(sc.Text(), "event: ") {
 	}
-	if n := runtime.NumGoroutine(); n <= before {
-		t.Fatalf("the stream is not held: goroutines %d, before %d", n, before)
+	if sc.Err() != nil {
+		t.Fatalf("the stream is not held: %v", sc.Err())
 	}
 	_ = d.conn.Close()
-	for end := time.Now().Add(time.Second); runtime.NumGoroutine() > before && time.Now().Before(end); {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if n := runtime.NumGoroutine(); n > before {
-		t.Fatalf("a closed connection left its event stream running: goroutines %d, before %d", n, before)
+	if err := r.drained(); err != nil {
+		t.Fatalf("a closed connection left its event stream running: %v", err)
 	}
 }

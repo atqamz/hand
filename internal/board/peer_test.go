@@ -30,6 +30,13 @@ var (
 type peerRig struct {
 	*phoneHost
 	addr string
+	peer *board.Peer
+}
+
+func (r *peerRig) drained() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return r.peer.Shutdown(ctx)
 }
 
 func newPeerRig(t *testing.T, names ...string) *peerRig {
@@ -51,7 +58,7 @@ func servePeerRig(t *testing.T, p *phoneHost) *peerRig {
 		defer cancel()
 		_ = peer.Shutdown(ctx)
 	})
-	return &peerRig{phoneHost: p, addr: ln.Addr().String()}
+	return &peerRig{phoneHost: p, addr: ln.Addr().String(), peer: peer}
 }
 
 type peerClient struct {
