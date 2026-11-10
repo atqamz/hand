@@ -76,7 +76,7 @@ func TestFleetAdoptRewritesACopyOnItsFirstCommand(t *testing.T) {
 			t.Fatalf("%s.%s still names the old home in %d cells", table.name, table.column, n)
 		}
 	}
-	if out := h.ok("task", "show", "t1"); !strings.Contains(out, copied+"/a") {
+	if out := h.ok("task", "show", "t1"); !strings.Contains(out, moveFieldPath(copied)+"/a") {
 		t.Fatalf("task show = %q", out)
 	}
 	if out := h.ok("report", "show", "r1"); !strings.Contains(field(out, "body"), "Delivered: "+copied+"/reports/t1/x.md") {
@@ -85,7 +85,7 @@ func TestFleetAdoptRewritesACopyOnItsFirstCommand(t *testing.T) {
 	if out := h.ok("open", "--print", "--delivered", "t1"); !strings.HasPrefix(field(out, "path"), copied) {
 		t.Fatalf("open --delivered = %q", out)
 	}
-	if got := adoptCount(t, copied, `SELECT count(*) FROM event WHERE kind = 'fleet.adopted' AND detail LIKE ?`, "%"+old+"%"); got != 1 {
+	if got := adoptCount(t, copied, `SELECT count(*) FROM event WHERE kind = 'fleet.adopted' AND detail LIKE ?`, "%"+moveFieldPath(old)+"%"); got != 1 {
 		t.Fatalf("fleet.adopted events naming the old home = %d, want 1", got)
 	}
 	if got := adoptCount(t, copied, `SELECT count(*) FROM pragma_foreign_key_check`); got != 0 {
@@ -99,7 +99,7 @@ func TestFleetAdoptRewritesACopyOnItsFirstCommand(t *testing.T) {
 	if err != nil || rec.Current != copied {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}
-	if list := h.ok("fleet", "list"); !strings.Contains(list, copied) || !strings.Contains(list, ",ok") {
+	if list := h.ok("fleet", "list"); !strings.Contains(list, moveFieldPath(copied)) || !strings.Contains(list, ",ok") {
 		t.Fatalf("fleet list = %q", list)
 	}
 	events := adoptCount(t, copied, `SELECT count(*) FROM event`)
