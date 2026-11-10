@@ -748,7 +748,7 @@ func TestTasksScreenAndDetail(t *testing.T) {
 	click(t, tt, "Tasks")
 	mustText(t, tt, "Tasks", "Fix login", "Write docs", "Active", "Inbox")
 	click(t, tt, "Fix login")
-	mustText(t, tt, "Fix login", "reproduce", "Plan · p1", "Cookie fixed",
+	mustText(t, tt, "Fix login", "1.", "reproduce", "Plan · p1", "Cookie fixed",
 		"Keep the old cookie name?", "a1")
 	click(t, tt, "Back")
 	mustText(t, tt, "Write docs")
@@ -785,7 +785,7 @@ func TestAnswerDecision(t *testing.T) {
 	if f.choice != "1. Yes, keep it" || f.answerNote != "" {
 		t.Fatalf("sent choice %q note %q", f.choice, f.answerNote)
 	}
-	mustText(t, tt, "answered", "Answer", "Yes, keep it")
+	mustText(t, tt, "answered", "Answer", "1.", "Yes, keep it")
 	mustNotText(t, tt, "Send answer")
 }
 
@@ -802,7 +802,7 @@ func TestAnswerDecisionWithANote(t *testing.T) {
 	if f.choice != "2. No, rename it" || f.answerNote != "the old name is in the docs" {
 		t.Fatalf("sent choice %q note %q", f.choice, f.answerNote)
 	}
-	mustText(t, tt, "answered", "No, rename it", "the old name is in the docs")
+	mustText(t, tt, "answered", "2.", "No, rename it", "the old name is in the docs")
 }
 
 func TestAFailedAnswerKeepsTheScreen(t *testing.T) {
@@ -1475,7 +1475,7 @@ func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
 	click(t, tt, "Send answer")
-	mustText(t, tt, "answered", "Answer", "Yes, keep it",
+	mustText(t, tt, "answered", "Answer", "1.", "Yes, keep it",
 		"the answer was saved, but the fleet status could not be read", "the board is restarting")
 	if app.Busy {
 		t.Fatal("the window is still busy after the answer was saved")

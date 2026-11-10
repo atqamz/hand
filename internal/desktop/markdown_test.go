@@ -67,6 +67,17 @@ func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 		{"file", "file:///etc/passwd", ""},
 		{"mailto", "mailto:a@example.com", ""},
 		{"relative", "reports/t1/a.md", ""},
+		{"backslash traversal", "/" + fleetID + "/doc/..\\x", ""},
+		{"unc", "\\\\host\\x", ""},
+		{"encoded nul", "/" + fleetID + "/a%00", boardBase + "/" + fleetID + "/a%00"},
+		{"upper http", "HTTP://x", "HTTP://x"},
+		{"mixed javascript", "JaVaScRiPt:x", ""},
+		{"one slash http", "http:/x", ""},
+		{"data", "data:text/html,x", ""},
+		{"encoded dots", "/" + fleetID + "/doc/%2e%2e/x", ""},
+		{"encoded slash after dots", "/" + fleetID + "/doc/..%2fx", ""},
+		{"encoded slash after id", "/" + fleetID + "%2Fx", ""},
+		{"long", "https://example.com/" + strings.Repeat("a", 20000), "https://example.com/" + strings.Repeat("a", 20000)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +126,7 @@ func TestEveryMarkdownBearingTextRendersTables(t *testing.T) {
 	f.task[fleetID] = td
 	ad := f.attempt[fleetID]
 	ad.Brief = "Brief" + table
+	ad.Transcript = desktop.Transcript{Shown: true, Turns: []desktop.Turn{{Role: "worker", At: "2026-10-31T04:41:00Z", Text: "Turn" + table}}}
 	f.attempt[fleetID] = ad
 	dd := f.decision[fleetID]
 	dd.Decision.Question = dd.Decision.Headline + "\n\nQuestion" + table

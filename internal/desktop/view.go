@@ -1188,7 +1188,7 @@ func (a *App) linkTarget(dest string) string {
 		}
 	case "":
 		board, ok := a.Model.(boardAddress)
-		if !ok || a.Fleet.ID == "" || u.Host != "" || !strings.HasPrefix(u.Path, "/"+a.Fleet.ID+"/") && u.Path != "/"+a.Fleet.ID {
+		if !ok || a.Fleet.ID == "" || u.Host != "" || !strings.HasPrefix(u.EscapedPath(), "/"+a.Fleet.ID+"/") && u.EscapedPath() != "/"+a.Fleet.ID {
 			return ""
 		}
 		if slices.Contains(strings.Split(u.Path, "/"), "..") {
