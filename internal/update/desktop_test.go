@@ -13,6 +13,7 @@ import (
 
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/launcher"
 )
 
 func desktopName(goos, arch string) string { return desktopasset.Name + "-" + goos + "-" + arch }
@@ -351,4 +352,51 @@ func TestRunFinishesTheStaleFleetCycleWhenTheDesktopCannotBeVerified(t *testing.
 	}
 	absent(t, f.desktop())
 	f.unchanged(t)
+}
+
+func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
+	skipUnlessDesktop(t)
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	entry := filepath.Join(f.data, "applications", "hand-desktop.desktop")
+	pic := filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
+	f.o.Check = true
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	absent(t, entry)
+	f.o.Check = false
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || len(rep.Help) != 0 {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if b, err := os.ReadFile(entry); err != nil || !strings.Contains(string(b), "Exec="+f.desktop()+"\n") {
+		t.Fatalf("entry = %q, %v", b, err)
+	}
+	if _, err := os.Stat(pic); err != nil {
+		t.Fatal(err)
+	}
+	f.o.From = currentBuild()
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/old\nX-Hand-Managed=true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(entry); !strings.Contains(string(b), "Exec="+f.desktop()+"\n") {
+		t.Fatalf("a current hand did not refresh the entry: %q", b)
+	}
+}
+
+func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
+	skipUnlessDesktop(t)
+	f := newFetch(t)
+	if _, err := launcher.Sync(f.o.Getenv, f.desktop()); err != nil {
+		t.Fatal(err)
+	}
+	f.o.From = currentBuild()
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	absent(t, filepath.Join(f.data, "applications", "hand-desktop.desktop"))
+	absent(t, filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png"))
 }

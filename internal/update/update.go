@@ -16,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
+	"github.com/atqamz/hand/internal/launcher"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/sidecar"
@@ -259,6 +260,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if len(stale) > 0 && !o.Check {
 			rep.clearJournal(o)
 		}
+		o.launcher(&rep, desktopOn, desktopNext)
 		switch {
 		case o.Check && len(stale) > 0:
 			rep.Status = "checked"
@@ -350,8 +352,28 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}
 	rep.clearJournal(o)
+	o.launcher(&rep, desktopOn, desktopNext)
 	rep.Status = "updated"
 	return rep, nil
+}
+
+func (o Options) launcher(rep *Report, on bool, bin string) {
+	if o.Check || !on {
+		return
+	}
+	var skipped string
+	var err error
+	if fi, serr := os.Stat(bin); serr == nil && fi.Mode().IsRegular() {
+		skipped, err = launcher.Sync(o.Getenv, bin)
+	} else {
+		skipped, err = launcher.Remove(o.Getenv)
+	}
+	if err != nil {
+		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
+	}
+	if skipped != "" {
+		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (no X-Hand-Managed=true line); it was left alone", skipped))
+	}
 }
 
 func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string, string, error) {

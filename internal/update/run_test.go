@@ -21,7 +21,7 @@ import (
 )
 
 type fixture struct {
-	root, target, calls          string
+	root, target, calls, data    string
 	sessionDir, version          string
 	old                          string
 	alpha, alphaID, goneID, gone string
@@ -80,7 +80,8 @@ func newFetch(t *testing.T) *fixture {
 	maps.Copy(files, fakeLuvus(t, "0.14.4"))
 	f.srv = release(t, files)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
-	env := []string{"HAND_CALLS=" + f.calls}
+	f.data = t.TempDir()
+	env := []string{"HAND_CALLS=" + f.calls, "XDG_DATA_HOME=" + f.data}
 	goos, arch := hostTarget()
 	f.o = Options{
 		Target:    f.target,

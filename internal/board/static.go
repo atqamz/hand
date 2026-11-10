@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/atqamz/hand/internal/brand"
 )
 
 //go:embed static
@@ -32,19 +34,23 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	bodies := map[string][]byte{"icon-512.png": brand.Icon512}
 	for _, e := range entries {
 		body, err := staticFiles.ReadFile("static/" + e.Name())
 		if err != nil {
 			panic(err)
 		}
-		if e.Name() == "sw.js" {
+		bodies[e.Name()] = body
+	}
+	for name, body := range bodies {
+		if name == "sw.js" {
 			workerSource = body
 			continue
 		}
 		sum := sha256.Sum256(body)
-		ext := path.Ext(e.Name())
-		hashed := strings.TrimSuffix(e.Name(), ext) + "." + hex.EncodeToString(sum[:])[:12] + ext
-		assetNames[e.Name()] = hashed
+		ext := path.Ext(name)
+		hashed := strings.TrimSuffix(name, ext) + "." + hex.EncodeToString(sum[:])[:12] + ext
+		assetNames[name] = hashed
 		assetFiles[hashed] = staticAsset{name: hashed, body: body, ctype: assetTypes[ext]}
 	}
 }
