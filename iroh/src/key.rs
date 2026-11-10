@@ -97,7 +97,7 @@ fn sweep(dir: &Path) {
             continue;
         }
         let ours = name.starts_with(&format!("{FILE}.")) && name.ends_with(".tmp");
-        if ours || (name == FILE && meta.len() != 32) {
+        if ours || (name == FILE && meta.len() < 32) {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -216,6 +216,22 @@ mod tests {
         let key = load_or_create(dir.path()).unwrap();
         assert_eq!(fs::read(&path).unwrap(), key.to_bytes());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn an_old_file_longer_than_a_key_is_kept() {
+        let dir = TempDir::new();
+        let path = dir.file(FILE, &"x".repeat(40));
+        let old = SystemTime::now() - Duration::from_secs(120);
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let error = load_or_create(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).unwrap(), "x".repeat(40).as_bytes());
     }
 
     #[cfg(unix)]

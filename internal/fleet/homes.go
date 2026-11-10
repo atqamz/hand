@@ -112,6 +112,7 @@ func writeTemp(path string, data []byte) error {
 
 func renameSynced(tmp, dst string) error {
 	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	return syncDir(filepath.Dir(dst))

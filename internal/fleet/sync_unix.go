@@ -2,7 +2,11 @@
 
 package fleet
 
-import "os"
+import (
+	"errors"
+	"os"
+	"syscall"
+)
 
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
@@ -10,5 +14,8 @@ func syncDir(dir string) error {
 		return err
 	}
 	defer d.Close()
-	return d.Sync()
+	if err := d.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.ENOTSUP) {
+		return err
+	}
+	return nil
 }

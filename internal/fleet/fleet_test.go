@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -599,5 +600,109 @@ func TestANonDirectoryIndexNamesItsFix(t *testing.T) {
 	}
 	if _, err := fleet.List(root); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "not a directory") {
 		t.Fatalf("list = %v, want a named fix", err)
+	}
+}
+
+func TestRegisterKeepsTheOldHomeWhenTheRecordIsMissing(t *testing.T) {
+	root, parent := t.TempDir(), t.TempDir()
+	old := filepath.Join(parent, "old")
+	if err := os.Mkdir(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := home(t, old, "alpha")
+	if err := os.MkdirAll(fleet.IndexDir(root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fleet.IndexDir(root), f.ID), []byte(old+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(parent, "moved")
+	if err := os.Rename(old, moved); err != nil {
+		t.Fatal(err)
+	}
+	if prev, err := fleet.Register(root, f.ID, moved); err != nil || prev != old {
+		t.Fatalf("register = %q, %v; want it to report %s", prev, err, old)
+	}
+	rec, err := fleet.ReadHomes(moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Current != moved || !slices.Equal(rec.Homes, []string{old, moved}) {
+		t.Fatalf("record = %+v, want both homes and current %s", rec, moved)
+	}
+}
+
+func TestMovedRefusesACopyWhenTheBookmarkIsMissing(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := fleet.Check(root, f.ID, dir); err != nil {
+		t.Fatal(err)
+	}
+	cp := t.TempDir()
+	copyFleet(t, dir, cp)
+	if err := os.Remove(filepath.Join(fleet.IndexDir(root), f.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if from, err := fleet.Moved(root, f.ID, cp); !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), "copy") || from != "" {
+		t.Fatalf("moved = %q, %v; want a copy refusal", from, err)
+	}
+	if from, err := fleet.Moved(root, f.ID, dir); err != nil || from != "" {
+		t.Fatalf("moved of the live home = %q, %v", from, err)
+	}
+}
+
+func TestRegisterRefusesACopyWhoseRecordNamesALiveHome(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := fleet.Check(root, f.ID, dir); err != nil {
+		t.Fatal(err)
+	}
+	cp := t.TempDir()
+	copyFleet(t, dir, cp)
+	gone := filepath.Join(t.TempDir(), "gone")
+	mark := filepath.Join(fleet.IndexDir(root), f.ID)
+	if err := os.WriteFile(mark, []byte(gone+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.Register(root, f.ID, cp); !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), "copy") {
+		t.Fatalf("register of a copy = %v, want a copy refusal", err)
+	}
+	if b, err := os.ReadFile(mark); err != nil || strings.TrimSpace(string(b)) != gone {
+		t.Fatalf("bookmark = %q, %v; want it untouched", b, err)
+	}
+}
+
+func TestAFailedRenameLeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, ".tmp")
+	if err := os.WriteFile(tmp, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "dst")
+	if err := os.Mkdir(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "keep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.RenameSynced(tmp, dst); err == nil {
+		t.Fatal("renaming a file over a folder succeeded")
+	}
+	if _, err := os.Stat(tmp); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("temp file left behind: %v", err)
+	}
+}
+
+func TestAReadOnlyMountCountsAsDenied(t *testing.T) {
+	for _, err := range []error{
+		&fs.PathError{Op: "open", Path: "x", Err: syscall.EROFS},
+		&fs.PathError{Op: "open", Path: "x", Err: syscall.EACCES},
+	} {
+		if !fleet.Denied(err) {
+			t.Fatalf("%v is not treated as a refusal to write", err)
+		}
+	}
+	if fleet.Denied(&fs.PathError{Op: "open", Path: "x", Err: syscall.ENOSPC}) || fleet.Denied(nil) {
+		t.Fatal("a full disk or no error counts as a refusal to write")
 	}
 }

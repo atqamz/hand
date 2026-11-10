@@ -67,7 +67,7 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `index
 └── board.addr                         where the running board listens
 ```
 
-Each fleet home also records itself in `fleet.home`, a JSON object such as `{"homes":["/old/a","/new"],"current":"/new"}`: `current` is the home the fleet is in, and `homes` keeps every earlier one, so a moved folder and a copy of it can be told apart. The first command in a fleet writes the record, `hand init` updates it, `hand fleet move` writes it before the move or `--rewrite-only` when it is missing, and a move appends the old home. An empty or torn record is replaced on the next write rather than refused, and `.fleet.home.lock` beside it serialises writes from commands that use different `SECONDHAND_HOME` roots.
+Each fleet home also records itself in `fleet.home`, a JSON object such as `{"homes":["/old/a","/new"],"current":"/new"}`: `current` is the home the fleet is in, and `homes` keeps every earlier one, so a moved folder and a copy of it can be told apart. The first command in a fleet writes the record, `hand init` updates it (a fleet with no record yet that moved by a plain rename keeps the bookmark's old home in `homes`), `hand fleet move` writes it before the move or `--rewrite-only` when it is missing, and a move appends the old home. An empty or torn record is replaced on the next write rather than refused, and `.fleet.home.lock` beside it serialises writes from commands that use different `SECONDHAND_HOME` roots.
 
 `hand doctor`'s `modes` row reads the permission bits of a file it creates, so a network share that reports 0600 without enforcing it (a CIFS `noperm` mount) can pass it. A fleet belongs on a local disk, not on a network share.
 

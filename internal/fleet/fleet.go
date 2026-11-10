@@ -74,7 +74,7 @@ func Check(root, id, home string) error {
 		defer unlock()
 		return WriteHomes(home, home)
 	case sameDir(target, home):
-		return point(root, id, home)
+		return point(root, id, home, "")
 	}
 	if err := refuseCopy(target, id); err != nil {
 		return err
@@ -105,12 +105,12 @@ func Register(root, id, home string) (string, error) {
 		defer unlock()
 		return "", WriteHomes(home, home)
 	case sameDir(target, home):
-		return "", point(root, id, home)
+		return "", point(root, id, home, "")
 	}
 	if err := refuseCopy(target, id); err != nil {
 		return "", err
 	}
-	return target, point(root, id, home)
+	return target, point(root, id, home, target)
 }
 
 func Moved(root, id, home string) (string, error) {
@@ -302,7 +302,7 @@ func lockIndex(root string) (func(), error) {
 	}
 	path := filepath.Join(root, "index.lock")
 	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if errors.Is(err, fs.ErrPermission) {
+	if denied(err) {
 		if lock, err = os.OpenFile(path, os.O_RDONLY, 0); errors.Is(err, fs.ErrNotExist) {
 			return func() {}, nil
 		}
@@ -315,6 +315,10 @@ func lockIndex(root string) (func(), error) {
 		return nil, err
 	}
 	return func() { _ = flock.Release(lock) }, nil
+}
+
+func denied(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS)
 }
 
 func migrate(root string) {
@@ -411,7 +415,7 @@ func claim(root, id, home string) error {
 	return WriteHomes(home, home)
 }
 
-func point(root, id, home string) error {
+func point(root, id, home, old string) error {
 	unlock, err := lockIndex(root)
 	if err != nil {
 		return err
@@ -421,12 +425,18 @@ func point(root, id, home string) error {
 	if err := refuseRecordCopy(home, id); err != nil {
 		return err
 	}
+	if rec, err := ReadHomes(home); err != nil {
+		return err
+	} else if rec.Current == "" && old != "" {
+		if err := WriteHomes(home, old); err != nil {
+			return err
+		}
+	}
 	tmp, err := stage(root, id, home)
 	if err != nil {
 		return err
 	}
 	if err := renameSynced(tmp, bookmark(root, id)); err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
 	return WriteHomes(home, home)
