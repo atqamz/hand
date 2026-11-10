@@ -106,6 +106,7 @@ type App struct {
 	pollBusy   bool
 	pollFails  int
 
+	pollFresh        bool
 	pollStatus       string
 	pollScreenFor    string
 	pollScreenCursor string
@@ -866,6 +867,7 @@ func (a *App) resetPoll() {
 	}
 	a.pollBusy = false
 	a.pollFails = 0
+	a.pollFresh = false
 	a.pollStatus, a.pollScreenFor, a.pollScreenCursor = "", "", ""
 	a.Stale = ""
 }
@@ -902,9 +904,12 @@ func (a *App) pollOnce(gen, tick int) {
 	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
 	load := a.loadID
 	key := pollScreenID(screen, ref)
-	since := PollCursors{Status: a.pollStatus}
-	if a.pollScreenFor == key {
-		since.Screen = a.pollScreenCursor
+	since := PollCursors{Fresh: a.pollFresh}
+	if !a.pollFresh {
+		since.Status = a.pollStatus
+		if a.pollScreenFor == key {
+			since.Screen = a.pollScreenCursor
+		}
 	}
 	ctx := a.Context
 	if ctx == nil {
@@ -949,7 +954,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.Stale = friendly(err)
 		a.pollFails++
 	} else {
-		a.Stale, a.pollFails = "", 0
+		a.Stale, a.pollFails, a.pollFresh = "", 0, false
 	}
 	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
@@ -1082,10 +1087,11 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 func (a *App) apply(l loaded) {
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
 	if l.Err == "" {
-		a.Stale, a.pollFails = "", 0
+		a.Stale, a.pollFails, a.pollFresh = "", 0, false
+	} else {
+		a.Stale, a.pollFresh = l.Err, true
 	}
 	if !l.StatusOK {
-		a.Status = Status{}
 		return
 	}
 	a.Status = l.Status

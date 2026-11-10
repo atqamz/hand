@@ -46,6 +46,7 @@ type ReadModel interface {
 type PollCursors struct {
 	Status string
 	Screen string
+	Fresh  bool
 }
 
 // Poll is one auto-refresh tick: the status and the open screen's data, each
@@ -303,7 +304,7 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 	}
 	var p Poll
 	statusSince := since.Status
-	if statusSince == "" {
+	if statusSince == "" && !since.Fresh {
 		statusSince = c.cursor(fleet, "/status")
 	}
 	p.StatusFresh, p.StatusCursor, err = c.pollAs(ctx, fleet, token, "/status", statusSince, &p.Status)
@@ -315,7 +316,7 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 		return p, nil
 	}
 	screenSince := since.Screen
-	if screenSince == "" {
+	if screenSince == "" && !since.Fresh {
 		screenSince = c.cursor(fleet, path)
 	}
 	p.ScreenFresh, p.ScreenCursor, err = c.pollAs(ctx, fleet, token, path, screenSince, pollData(screen, &p))
