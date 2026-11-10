@@ -73,6 +73,7 @@ type fakeRuntime struct {
 	validateFail bool
 	needScan     bool
 	scans        int
+	explains     int
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -259,6 +260,7 @@ func (rt *fakeRuntime) explain(params json.RawMessage) (any, error) {
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	rt.explains++
 	if rt.explainFail != "" {
 		return nil, fakeuhp.Fail{Code: rt.explainFail, Message: "explain failed"}
 	}
@@ -559,4 +561,10 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 func (fx *attemptFixture) start() string {
 	fx.h.t.Helper()
 	return fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+}
+
+func (rt *fakeRuntime) explained() int {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.explains
 }

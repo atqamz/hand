@@ -165,6 +165,7 @@ func TestWatchIgnoresThreeOnePollFlickers(t *testing.T) {
 	fx.start()
 	stop := startWatch(t, fx)
 	defer stop()
+	eventually(t, func() bool { return fx.rt.explained() > 0 })
 	for range 3 {
 		fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
@@ -311,7 +312,7 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 	write(`["no-such-notifier"]`)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 	publishBlocked(fx, "2", "claude")
-	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	eventually(t, func() bool { return len(alertRows(t, fx)) == 2 })
 	out, _ := stop()
 	if !strings.Contains(out, "notify: ") {
 		t.Fatalf("watch out = %q", out)

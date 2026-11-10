@@ -233,9 +233,12 @@ func TestWatchFreesAClickSlotWhenAClickEnds(t *testing.T) {
 	waitGone(t, "released click", func() bool { return !processRunning(pid) })
 	eventually(t, func() bool {
 		fx.h.ok("decision", "ask", "t1", "After the release?")
-		time.Sleep(100 * time.Millisecond)
-		lines := readLines(notifyLog)
-		return len(lines) > 9 && strings.Contains(lines[len(lines)-1], "--action=default=Open")
+		for _, line := range readLines(notifyLog)[9:] {
+			if strings.Contains(line, "--action=default=Open") {
+				return true
+			}
+		}
+		return false
 	})
 }
 

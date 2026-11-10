@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/cli"
 )
 
 func runBoard(t *testing.T, h *harness, addr ...string) string {
@@ -37,12 +40,39 @@ func addrFile(h *harness) string { return filepath.Join(h.vars["SECONDHAND_HOME"
 
 func startBoard(t *testing.T, h *harness, host string, extra ...string) (string, func() string) {
 	t.Helper()
+	base, stop, _ := startBoardLive(t, h, host, extra...)
+	return base, stop
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func startBoardLive(t *testing.T, h *harness, host string, extra ...string) (string, func() string, func() string) {
+	t.Helper()
 	_ = os.Remove(addrFile(h))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan string, 1)
+	var out bytes.Buffer
+	var errOut syncBuffer
 	go func() {
-		out, errOut, _ := h.runCtx(ctx, append([]string{"board", "--addr", host + ":0"}, extra...)...)
-		done <- out + errOut
+		env := h.env(&out, &errOut)
+		env.Context = ctx
+		cli.Run(append([]string{"board", "--addr", host + ":0"}, extra...), env)
+		done <- out.String() + errOut.String()
 	}()
 	var addr string
 	eventually(t, func() bool {
@@ -52,7 +82,7 @@ func startBoard(t *testing.T, h *harness, host string, extra ...string) (string,
 	})
 	stop := sync.OnceValue(func() string { cancel(); return <-done })
 	t.Cleanup(func() { stop() })
-	return "http://" + addr, stop
+	return "http://" + addr, stop, errOut.String
 }
 
 func fleetPage(t *testing.T, base string, h *harness) (string, string) {
