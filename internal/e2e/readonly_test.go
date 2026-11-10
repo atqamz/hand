@@ -147,7 +147,11 @@ func TestClaudeMCP(t *testing.T) {
 		}
 	}
 	out := sb.ok(append([]string{"attempt", "start", "--mcp", "mcp.json"}, append(flags, "t2")...)...)
-	if show := sb.ok("attempt", "show", field(out, "attempt")); field(show, "mcp") != filepath.Join(sb.fleet, "mcp.json") {
+	wantMCP, err := filepath.EvalSymlinks(filepath.Join(sb.fleet, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if show := sb.ok("attempt", "show", field(out, "attempt")); field(show, "mcp") != wantMCP {
 		t.Errorf("attempt show = %q, want the --mcp file", show)
 	}
 	sb.until("the second worker's report", 90*time.Second, func() bool { return len(sb.reports()) > 1 })
