@@ -126,6 +126,9 @@ func (r *runner) claim(st *state.Store) error {
 			return err
 		}
 	}
+	if err := r.checkHost(st); err != nil {
+		return err
+	}
 	if r.noAdopt {
 		if olds, due, err := adoptOlds(r.root, f, r.home, nil); err != nil {
 			return err
@@ -139,9 +142,6 @@ func (r *runner) claim(st *state.Store) error {
 		if from, to, pending, perr := st.PendingMove(r.ctx()); perr == nil && pending && samePlace(r.home, to) {
 			return fmt.Errorf("%w; a move from %s to %s is pending: run `hand fleet move --yes %s` here to finish it", err, from, to, to)
 		}
-		return err
-	}
-	if err := r.checkHost(st); err != nil {
 		return err
 	}
 	r.fleet = f
@@ -255,6 +255,9 @@ func cmdInit(r *runner, args []string) error {
 			return err
 		}
 		defer st.Close()
+		if err := r.checkHost(st); err != nil {
+			return err
+		}
 		switch f, err = st.Fleet(ctx); {
 		case err == nil:
 			have = true

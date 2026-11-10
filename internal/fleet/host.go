@@ -67,11 +67,12 @@ func RemoveHost(home string) error {
 	return nil
 }
 
+func (m HostMarker) SameBoot(self HostMarker) bool {
+	return m.Boot != "" && self.Boot != "" && boot.Same(m.Boot, self.Boot)
+}
+
 func (m HostMarker) SameMachine(self HostMarker) bool {
-	if m.Boot != "" && m.Boot == self.Boot {
-		return true
-	}
-	return strings.EqualFold(m.Host, self.Host) && boot.Same(m.Boot, self.Boot)
+	return m.SameBoot(self) || strings.EqualFold(m.Host, self.Host) && boot.Same(m.Boot, self.Boot)
 }
 
 func (m HostMarker) Age(now time.Time) time.Duration { return now.Sub(m.At) }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/boot"
 	"github.com/atqamz/hand/internal/fleet"
 )
 
@@ -111,5 +112,18 @@ func TestHostMarkerThatCannotBeReadCountsAsAbsent(t *testing.T) {
 		if _, found, err := fleet.ReadHost(home); err != nil || found {
 			t.Fatalf("%q: found=%v err=%v", text, found, err)
 		}
+	}
+}
+
+func TestSameMachineToleratesWindowsTickDrift(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	a := fleet.HostMarker{Host: "pc", Boot: boot.FromTicks(now, 600_000)}
+	b := fleet.HostMarker{Host: "pc-renamed", Boot: boot.FromTicks(now.Add(3*time.Second), 600_000)}
+	if !a.SameMachine(b) || !a.SameBoot(b) {
+		t.Fatal("a 3 s drift of the Windows boot id read as another machine")
+	}
+	far := fleet.HostMarker{Host: "pc-renamed", Boot: boot.FromTicks(now.Add(time.Hour), 600_000)}
+	if a.SameMachine(far) {
+		t.Fatal("a Windows boot an hour apart read as the same machine")
 	}
 }

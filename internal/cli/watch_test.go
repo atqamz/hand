@@ -784,22 +784,25 @@ func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 
 func wantPID(t *testing.T, path string) {
 	t.Helper()
-	var f []string
+	var lines []string
 	eventually(t, func() bool {
 		b, err := os.ReadFile(path)
-		f = strings.SplitN(strings.TrimSuffix(string(b), "\n"), " ", 3)
-		return err == nil && len(f) == 3
+		lines = strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+		return err == nil && len(strings.SplitN(lines[0], " ", 3)) == 3
 	})
+	f := strings.SplitN(lines[0], " ", 3)
 	m, err := luvus.ProcStartMarker(os.Getpid())
 	exe, xerr := os.Executable()
 	if xerr == nil {
 		exe, xerr = update.Target(exe)
 	}
-	if id := boot.ID(); id != "" {
-		m += "@" + id
-	}
 	if err != nil || xerr != nil || f[0] != strconv.Itoa(os.Getpid()) || f[1] != m || f[2] != exe {
-		t.Fatalf("%s = %q, want %d %s %s (%v, %v)", path, f, os.Getpid(), m, exe, err, xerr)
+		t.Fatalf("%s = %q, want %d %s %s (%v, %v)", path, lines, os.Getpid(), m, exe, err, xerr)
+	}
+	if id := boot.Stable(); id != "" && (len(lines) != 2 || !strings.HasPrefix(lines[1], "boot "+id+" ")) {
+		t.Fatalf("%s = %q, want a second line naming boot %s", path, lines, id)
+	} else if id == "" && len(lines) != 1 {
+		t.Fatalf("%s = %q, want one line", path, lines)
 	}
 }
 

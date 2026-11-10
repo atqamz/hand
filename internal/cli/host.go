@@ -36,8 +36,12 @@ func hostLabel(m fleet.HostMarker) string {
 
 func (r *runner) checkHost(st *state.Store) error {
 	m, found, err := fleet.ReadHost(r.home)
-	if err != nil || !found {
-		return err
+	if err != nil {
+		fmt.Fprintf(r.env.Stderr, "warning: cannot read %s: %v; treating it as absent; `hand fleet unlock` removes it\n", filepath.Join(r.home, fleet.HostFile), err)
+		return nil
+	}
+	if !found {
+		return nil
 	}
 	self := r.selfHost()
 	switch fleet.JudgeHost(m, found, self, self.At, r.watchHeld) {
@@ -82,7 +86,7 @@ func (r *runner) beatHost() error {
 	if err != nil {
 		return err
 	}
-	if found && !strings.EqualFold(m.Host, self.Host) && (m.Boot == "" || m.Boot != self.Boot) {
+	if found && !strings.EqualFold(m.Host, self.Host) && (m.Boot == "" || !m.SameBoot(self)) {
 		return fmt.Errorf("%w: host %s holds it now", errHostLost, hostLabel(m))
 	}
 	return fleet.WriteHost(r.home, self)
@@ -137,8 +141,10 @@ func cmdFleetUnlock(r *runner, args []string) error {
 	var d toon.Doc
 	d.Field("home", home)
 	m, found, err := fleet.ReadHost(home)
-	if err != nil {
-		return err
+	unreadable := err != nil
+	if unreadable {
+		fmt.Fprintf(r.env.Stderr, "warning: cannot read %s: %v; removing it\n", filepath.Join(home, fleet.HostFile), err)
+		found = true
 	}
 	if !found {
 		d.Field("unlock", "free")
@@ -158,6 +164,9 @@ func cmdFleetUnlock(r *runner, args []string) error {
 	}
 	defer st.Close()
 	detail := fmt.Sprintf("unlocked a marker of host %s boot %s pid %d, last beat %s", m.Host, m.Boot, m.PID, m.At.UTC().Format(time.RFC3339))
+	if unreadable {
+		detail = "unlocked a marker that could not be read"
+	}
 	if err := st.HostHandover(r.ctx(), "fleet.unlocked", detail, "", nil); err != nil {
 		return err
 	}
@@ -165,9 +174,11 @@ func cmdFleetUnlock(r *runner, args []string) error {
 		return err
 	}
 	d.Field("unlock", "cleared")
-	d.Field("host", m.Host)
-	d.Field("pid", strconv.Itoa(m.PID))
-	d.Field("last_beat", m.At.UTC().Format(time.RFC3339))
+	if !unreadable {
+		d.Field("host", m.Host)
+		d.Field("pid", strconv.Itoa(m.PID))
+		d.Field("last_beat", m.At.UTC().Format(time.RFC3339))
+	}
 	d.Help("Attempts that ran on that host stay as they were; the watcher ends the ones whose terminal is gone")
 	return r.print(&d)
 }

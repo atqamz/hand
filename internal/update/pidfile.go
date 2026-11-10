@@ -23,10 +23,11 @@ func WritePID(path string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if id := boot.ID(); id != "" {
-		marker += "@" + id
-	}
 	line := fmt.Sprintf("%d %s %s\n", pid, marker, exe)
+	if id := boot.Stable(); id != "" {
+		host, _ := os.Hostname()
+		line += fmt.Sprintf("boot %s %s\n", id, host)
+	}
 	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
 		return nil, err
 	}
@@ -40,6 +41,7 @@ func WritePID(path string) (func(), error) {
 type pidEntry struct {
 	pid         int
 	marker, exe string
+	host        string
 	foreign     bool
 }
 
@@ -48,7 +50,8 @@ func livePID(path string) (pidEntry, bool) {
 	if err != nil {
 		return pidEntry{}, false
 	}
-	f := strings.SplitN(strings.TrimSuffix(string(b), "\n"), " ", 3)
+	first, rest, _ := strings.Cut(string(b), "\n")
+	f := strings.SplitN(first, " ", 3)
 	if len(f) < 2 {
 		return pidEntry{}, false
 	}
@@ -56,22 +59,26 @@ func livePID(path string) (pidEntry, bool) {
 	if err != nil || pid <= 0 {
 		return pidEntry{}, false
 	}
-	start, recorded, _ := strings.Cut(f[1], "@")
-	e := pidEntry{pid: pid, marker: start}
+	e := pidEntry{pid: pid, marker: f[1]}
 	if len(f) == 3 {
 		e.exe = f[2]
 	}
-	if recorded != "" && !boot.Same(recorded, boot.ID()) {
-		e.foreign = true
-		return e, false
+	if tag := strings.Fields(rest); len(tag) >= 2 && tag[0] == "boot" {
+		if len(tag) > 2 {
+			e.host = tag[2]
+		}
+		if !boot.Same(tag[1], boot.Stable()) {
+			e.foreign = true
+			return e, false
+		}
 	}
 	m, err := luvus.ProcStartMarker(pid)
-	return e, err == nil && m == start
+	return e, err == nil && m == f[1]
 }
 
-func Foreign(path string) bool {
+func Foreign(path string) (host string, foreign bool) {
 	e, _ := livePID(path)
-	return e.foreign
+	return e.host, e.foreign
 }
 
 func LivePID(path string) (pid int, marker, exe string, live bool) {

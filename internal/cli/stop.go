@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -25,6 +26,9 @@ func stopPIDFile(name, path string) (string, bool, error) {
 	case pid == 0:
 		return notRunning, false, nil
 	case !live:
+		if host, foreign := update.Foreign(path); foreign && host != "" && !sameHost(host) {
+			return notRunning, false, nil
+		}
 		if err := removeIfSame(path, recorded); err != nil {
 			return "", false, err
 		}
@@ -49,6 +53,11 @@ func stopPIDFile(name, path string) (string, bool, error) {
 	return stoppedNow, false, nil
 }
 
+func sameHost(name string) bool {
+	self, _ := hostIdentity()
+	return strings.EqualFold(name, self)
+}
+
 func removeIfSame(path string, recorded []byte) error {
 	if now, err := os.ReadFile(path); err != nil || !bytes.Equal(now, recorded) {
 		return nil
@@ -60,7 +69,7 @@ func removeIfSame(path string, recorded []byte) error {
 }
 
 func (r *runner) stopReport(name, path string, help ...string) error {
-	foreign := update.Foreign(path)
+	host, foreign := update.Foreign(path)
 	got, stale, err := stopPIDFile(name, path)
 	if err != nil {
 		return err
@@ -68,6 +77,8 @@ func (r *runner) stopReport(name, path string, help ...string) error {
 	var d toon.Doc
 	d.Field(name, got)
 	switch {
+	case foreign && !stale && got == notRunning:
+		d.Help("Left " + filepath.Base(path) + ": it names a process of host " + host + ", which this command never signals; stop it there")
 	case stale && foreign:
 		d.Help("Removed " + filepath.Base(path) + ": it names a process of another host or boot, which this command never signals")
 	case stale:

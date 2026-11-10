@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/boot"
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
@@ -155,10 +159,13 @@ func TestHostMarkerStaleFromAnotherHostIsTakenOver(t *testing.T) {
 	if got := eventCount(t, home, "fleet.took_over"); got != 1 {
 		t.Fatalf("fleet.took_over events = %d", got)
 	}
-	if got := eventCount(t, home, "attempt.interrupted"); got != 2 {
+	if got := eventCount(t, home, "attempt.interrupted"); got != 1 {
 		t.Fatalf("attempt.interrupted events = %d", got)
 	}
-	for id, want := range map[int64]string{dead: "interrupted", launching: "interrupted", alive: "running"} {
+	if got := eventCount(t, home, "attempt.failed"); got != 1 {
+		t.Fatalf("attempt.failed events = %d", got)
+	}
+	for id, want := range map[int64]string{dead: "interrupted", launching: "failed", alive: "running"} {
 		if got := attemptStatus(t, home, id); got != want {
 			t.Fatalf("attempt %d is %s, want %s", id, got, want)
 		}
@@ -425,26 +432,56 @@ func TestWatchClearsItsMarkerOnAStop(t *testing.T) {
 	}
 }
 
+func writeBootedPID(t *testing.T, path string, pid int, marker, id, host string) {
+	t.Helper()
+	line := strconv.Itoa(pid) + " " + marker + " " + selfExe(t) + "\nboot " + id + " " + host + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStopNeverSignalsAPidFromAnotherBoot(t *testing.T) {
+	if boot.Stable() == "" {
+		t.Skip("this system writes no boot id into pid files")
+	}
 	h, _, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")
 	marker, err := luvus.ProcStartMarker(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, other := range []string{"00000000-0000-4000-8000-000000000000", "ticks:1700000000"} {
-		path := filepath.Join(h.home, "watch.pid")
-		writePID(t, path, os.Getpid(), marker+"@"+other, selfExe(t))
-		if _, _, _, live := update.LivePID(path); live {
-			t.Fatalf("boot %s: a pid of another boot reads as live", other)
-		}
-		out, _, code := h.run("watch", "stop")
-		if code != 0 || !strings.Contains(out, "watcher: not running") || !strings.Contains(out, "another host or boot") {
-			t.Fatalf("boot %s: code=%d out=%q", other, code, out)
-		}
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("boot %s: the stale pid file stayed: %v", other, err)
-		}
+	path := filepath.Join(h.home, "watch.pid")
+	writeBootedPID(t, path, os.Getpid(), marker, "00000000-0000-4000-8000-000000000000", "desk")
+	if _, _, _, live := update.LivePID(path); live {
+		t.Fatal("a pid of another boot reads as live")
+	}
+	out, _, code := h.run("watch", "stop")
+	if code != 0 || !strings.Contains(out, "watcher: not running") || !strings.Contains(out, "another host or boot") {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the stale pid file of an earlier boot stayed: %v", err)
+	}
+}
+
+func TestStopLeavesThePidFileOfAnotherHost(t *testing.T) {
+	if boot.Stable() == "" {
+		t.Skip("this system writes no boot id into pid files")
+	}
+	h, _, _ := initMoveFleet(t)
+	asHost(t, "desk", "boot-b")
+	marker, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(h.home, "watch.pid")
+	writeBootedPID(t, path, os.Getpid(), marker, "00000000-0000-4000-8000-000000000000", "laptop")
+	out, _, code := h.run("watch", "stop")
+	if code != 0 || !strings.Contains(out, "watcher: not running") || !strings.Contains(out, "host laptop") {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("another host's pid file was removed: %v", err)
 	}
 }
 
@@ -459,4 +496,105 @@ func TestHostFileHoldsPlainJSON(t *testing.T) {
 		t.Fatalf("fleet.host = %v, %v", m, err)
 	}
 
+}
+
+func backupNames(t *testing.T, home string) []string {
+	t.Helper()
+	entries, _ := os.ReadDir(filepath.Join(home, "backups"))
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestRefusedOpenOfACopyChangesNothing(t *testing.T) {
+	h, old, copied := adoptCopy(t)
+	if err := os.RemoveAll(old); err != nil {
+		t.Fatal(err)
+	}
+	asHost(t, "desk", "boot-b")
+	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	events, backups, marker := eventCount(t, copied, ""), backupNames(t, copied), markerBytes(t, h)
+	_, errOut, code := h.run("orient")
+	if code != 3 || !strings.Contains(errOut, "open on host laptop") || strings.Contains(errOut, "adopted") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := recordedHome(t, copied); got != old {
+		t.Fatalf("a refused open rewrote the recorded home to %q", got)
+	}
+	if got := eventCount(t, copied, ""); got != events {
+		t.Fatalf("a refused open wrote %d events", got-events)
+	}
+	if got := backupNames(t, copied); !slices.Equal(got, backups) {
+		t.Fatalf("backups %q, were %q", got, backups)
+	}
+	if !bytes.Equal(markerBytes(t, h), marker) {
+		t.Fatal("a refused open rewrote the marker")
+	}
+}
+
+func TestSupervisorStopOfAnUnadoptedCopyJudgesTheHost(t *testing.T) {
+	h, old, copied := adoptCopy(t)
+	asHost(t, "desk", "boot-b")
+	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	for _, args := range [][]string{{"supervisor", "stop"}, {"supervisor", "interrupt"}} {
+		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "open on host laptop") {
+			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	if got := recordedHome(t, copied); got != old {
+		t.Fatalf("a refused command changed the database: %q", got)
+	}
+}
+
+func TestUnreadableHostMarkerWarnsAndUnlockRemovesIt(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("file modes are not enforced here")
+	}
+	h, home, _ := initMoveFleet(t)
+	asHost(t, "desk", "boot-b")
+	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	path := filepath.Join(h.home, fleet.HostFile)
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("orient"); code != 0 || !strings.Contains(errOut, "cannot read") || !strings.Contains(errOut, "treating it as absent") {
+		t.Fatalf("orient: code=%d stderr=%q", code, errOut)
+	}
+	if out := h.ok("fleet", "unlock"); !strings.Contains(out, "unlock: cleared") {
+		t.Fatalf("unlock = %q", out)
+	}
+	if markerBytes(t, h) != nil || eventCount(t, home, "fleet.unlocked") != 1 {
+		t.Fatal("unlock left the unreadable marker or wrote no event")
+	}
+}
+
+func TestInitRefusesAFleetAnotherHostHasOpen(t *testing.T) {
+	h, home, _ := initMoveFleet(t)
+	asHost(t, "desk", "boot-b")
+	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	before, events := markerBytes(t, h), eventCount(t, home, "")
+	if _, errOut, code := h.run("init"); code != 3 || !strings.Contains(errOut, "open on host laptop") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if !bytes.Equal(markerBytes(t, h), before) || eventCount(t, home, "") != events {
+		t.Fatal("a refused init changed the fleet")
+	}
+}
+
+func TestBeatHostToleratesWindowsTickDriftAfterARename(t *testing.T) {
+	h, _, _ := initMoveFleet(t)
+	env := h.env(&bytes.Buffer{}, &bytes.Buffer{})
+	asHost(t, "pc", "ticks:1799999000")
+	if err := cli.BeatHost(env, h.home); err != nil {
+		t.Fatal(err)
+	}
+	asHost(t, "pc-renamed", "ticks:1799999003")
+	if err := cli.BeatHost(env, h.home); err != nil {
+		t.Fatalf("a renamed host with drifted ticks lost its own marker: %v", err)
+	}
+	if _, errOut, code := h.run("orient"); code != 0 {
+		t.Fatalf("orient: code=%d stderr=%q", code, errOut)
+	}
 }

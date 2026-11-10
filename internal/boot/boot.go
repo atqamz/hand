@@ -14,6 +14,14 @@ const (
 	maxUptimeMillis = 1 << 40
 )
 
+func Stable() string {
+	id := ID()
+	if strings.HasPrefix(id, ticksPrefix) {
+		return ""
+	}
+	return id
+}
+
 func FromFile(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
