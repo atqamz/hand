@@ -710,7 +710,7 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 		}
 	}
 	addSpellings(from, to)
-	if flipped := flipDrive(from); flipped != "" {
+	if flipped := flipDrive(from); flipped != "" && !foldHome() {
 		addSpellings(flipped, to)
 	}
 	if alias, ok := homeAlias(from, home); ok {

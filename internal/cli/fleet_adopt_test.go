@@ -3,6 +3,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -204,8 +205,10 @@ func TestFleetAdoptIgnoresABoardThatDoesNotServeTheFleet(t *testing.T) {
 
 func fleetIDOf(t *testing.T, home string) string {
 	t.Helper()
+	db := openMoveDB(t, home)
+	defer db.Close()
 	var id string
-	if err := openMoveDB(t, home).QueryRow(`SELECT id FROM fleet`).Scan(&id); err != nil {
+	if err := db.QueryRow(`SELECT id FROM fleet`).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -262,6 +265,9 @@ func renameFleetHome(t *testing.T, h *harness, name string) (old, dest string) {
 }
 
 func TestSupervisorStopWorksWhereAnAdoptionRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a running supervisor holds its folder open")
+	}
 	h, _ := newMovedSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	old, dest := renameFleetHome(t, h, "fleet-personal")
@@ -284,6 +290,9 @@ func TestSupervisorStopWorksWhereAnAdoptionRefuses(t *testing.T) {
 }
 
 func TestSupervisorInterruptWorksWhereAnAdoptionRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a running supervisor holds its folder open")
+	}
 	h, _ := newMovedSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	old, dest := renameFleetHome(t, h, "fleet-personal")
