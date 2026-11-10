@@ -105,25 +105,22 @@ func DocPage(home, rel string) (string, error) {
 	return docURL("", path.Clean(rel)), nil
 }
 
-func DocHref(home, base, p string) string {
+func homeRel(home, p string) (string, bool) {
 	if slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
-		return ""
+		return "", false
 	}
 	if rest, ok := strings.CutPrefix(p, "~/"); ok {
 		user, err := os.UserHomeDir()
 		if err != nil {
-			return ""
+			return "", false
 		}
 		p = filepath.Join(user, rest)
 	}
 	if !filepath.IsAbs(p) && !strings.HasPrefix(p, "/") {
-		if _, _, _, err := Resolve(home, p); err != nil {
-			return ""
-		}
-		return docURL(base, path.Clean(p))
+		return path.Clean(p), true
 	}
 	if strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") {
-		return ""
+		return "", false
 	}
 	homes := []string{home}
 	if real, err := filepath.EvalSymlinks(home); err == nil {
@@ -131,13 +128,21 @@ func DocHref(home, base, p string) string {
 	}
 	for _, h := range homes {
 		if rel, err := filepath.Rel(h, p); err == nil && filepath.IsLocal(rel) {
-			if _, _, _, err := Resolve(home, filepath.ToSlash(rel)); err == nil {
-				return docURL(base, filepath.ToSlash(rel))
-			}
-			return ""
+			return filepath.ToSlash(rel), true
 		}
 	}
-	return ""
+	return "", false
+}
+
+func DocHref(home, base, p string) string {
+	rel, ok := homeRel(home, p)
+	if !ok {
+		return ""
+	}
+	if _, _, _, err := Resolve(home, rel); err != nil {
+		return ""
+	}
+	return docURL(base, rel)
 }
 
 func (b *Board) local() func(string) string {
@@ -155,7 +160,7 @@ func (b *Board) local() func(string) string {
 func (b *Board) linked(ds []Deliverable) []Deliverable {
 	for i, d := range ds {
 		if d.Kind == "file" {
-			b.links.add(d.Ref)
+			b.links.add(b.o.Home, d.Ref, false)
 			ds[i].Href = DocHref(b.o.Home, b.o.Base, d.Ref)
 		}
 	}
@@ -164,38 +169,37 @@ func (b *Board) linked(ds []Deliverable) []Deliverable {
 
 type linkSet struct {
 	mu    sync.Mutex
-	paths map[string]struct{}
+	paths map[string]bool
 }
 
-func (l *linkSet) add(p string) {
+func (l *linkSet) add(home, p string, sized bool) {
+	rel, ok := homeRel(home, p)
+	if !ok {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.paths == nil {
-		l.paths = map[string]struct{}{}
+		l.paths = map[string]bool{}
 	}
-	l.paths[p] = struct{}{}
+	l.paths[rel] = l.paths[rel] || sized
 }
 
 func (b *Board) linkDigest() uint64 {
 	b.links.mu.Lock()
-	paths := slices.Collect(maps.Keys(b.links.paths))
+	paths := maps.Clone(b.links.paths)
 	b.links.mu.Unlock()
 	var sum uint64
-	for _, p := range paths {
-		full := p
-		if rest, ok := strings.CutPrefix(p, "~/"); ok {
-			if user, err := os.UserHomeDir(); err == nil {
-				full = filepath.Join(user, rest)
-			}
-		} else if !filepath.IsAbs(p) {
-			full = filepath.Join(b.o.Home, p)
-		}
+	for rel, sized := range paths {
 		h := fnv.New64a()
-		fi, err := os.Stat(full)
-		if err != nil {
-			_, _ = fmt.Fprintf(h, "%s\x00missing", p)
-		} else {
-			_, _ = fmt.Fprintf(h, "%s\x00%d\x00%d\x00%d", p, fi.Size(), fi.ModTime().UnixNano(), fi.Mode())
+		fi, err := os.Stat(filepath.Join(b.o.Home, filepath.FromSlash(rel)))
+		switch {
+		case err != nil:
+			_, _ = fmt.Fprintf(h, "%s\x00missing", rel)
+		case sized:
+			_, _ = fmt.Fprintf(h, "%s\x00%d\x00%d", rel, fi.Mode().Type(), fi.Size())
+		default:
+			_, _ = fmt.Fprintf(h, "%s\x00%d", rel, fi.Mode().Type())
 		}
 		sum += h.Sum64()
 	}

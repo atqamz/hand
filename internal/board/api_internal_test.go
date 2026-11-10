@@ -38,3 +38,10 @@ func TestAStalledNeedLeavesOutTheIdleTime(t *testing.T) {
 		t.Fatalf("title = %q, want %q", got, want)
 	}
 }
+
+func TestAPanicWhileReadingTheVersionIsAnError(t *testing.T) {
+	b := &Board{}
+	if _, err := b.sharedVersion(context.Background(), false); err == nil {
+		t.Fatal("a version read without a store did not fail")
+	}
+}

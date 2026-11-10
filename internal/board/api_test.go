@@ -2124,9 +2124,75 @@ func TestAWriteDoesNotWaitForASlowVersion(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a message waited for a slow version read")
 	}
-	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
-		t.Fatalf("poll after a message = %d, want 200", rec.Code)
-	}
 	close(release)
 	<-slow
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("poll after a message and a late version read = %d, want 200", rec.Code)
+	}
+}
+
+func TestAnUnauthenticatedWriteKeepsTheSharedVersion(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	before := fx.explained()
+	for _, rec := range []*httptest.ResponseRecorder{
+		apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, token, false),
+		apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, "", true),
+	} {
+		if rec.Code < 400 {
+			t.Fatalf("a request without a session or token = %d", rec.Code)
+		}
+	}
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusNotModified || fx.explained() != before {
+		t.Fatalf("poll after refused writes = %d with %d pane reads", rec.Code, fx.explained()-before)
+	}
+}
+
+func TestACursorDoesNotSurviveARestart(t *testing.T) {
+	now := frozen
+	fx := apiFixture(t, func() time.Time { return now })
+	env, _ := apiInto[json.RawMessage](t, fx.handler(), "/api/v1/status")
+	now = now.Add(time.Second)
+	if rec := pollCursor(t, fx.handler(), "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a cursor from an earlier board = %d, want 200", rec.Code)
+	}
+}
+
+func TestAFileOutsideTheFleetNeverMovesACursor(t *testing.T) {
+	ctx := context.Background()
+	fx := apiFixture(t, func() time.Time { return frozen })
+	outside := filepath.Join(t.TempDir(), "build.log")
+	inside := filepath.Join(fx.options.Home, "reports", "out.md")
+	for _, f := range []string{outside, inside} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("a"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live, err := fx.st.LiveAttempts(ctx)
+	if err != nil || len(live) == 0 {
+		t.Fatalf("live attempts = %d, %v", len(live), err)
+	}
+	r, err := fx.st.AddReport(ctx, live[0].ID, state.ReportDone, "Done\nDelivered: "+outside+"\nDelivered: "+inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	path := "/api/v1/report/" + state.ReportRef(r.ID)
+	apiInto[json.RawMessage](t, h, path)
+	nextTick()
+	env, _ := apiInto[json.RawMessage](t, h, path)
+	for _, f := range []string{outside, inside} {
+		if err := os.WriteFile(f, []byte("a much longer file than before"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nextTick()
+	if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusNotModified {
+		t.Fatalf("a delivered file that only grew moved the cursor (%d)", rec.Code)
+	}
 }

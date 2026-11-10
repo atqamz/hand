@@ -182,6 +182,7 @@ type Board struct {
 	links     linkSet
 	versions  [2]sharedVersion
 	computed  atomic.Int64
+	boot      int64
 }
 
 type card struct {
@@ -202,6 +203,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 		o.Beat = 15 * time.Second
 	}
 	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), phones: phones{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
+	b.boot = b.now().UnixNano()
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor", b.supervisorPage)
 	b.mux.HandleFunc("GET /supervisor/log", b.history)
@@ -260,7 +262,13 @@ func New(st *state.Store, token string, o Options) http.Handler {
 
 func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		defer b.dropVersions()
+		sw := &writeStatus{ResponseWriter: w}
+		w = sw
+		defer func() {
+			if sw.authed && sw.code >= 200 && sw.code < 400 {
+				b.dropVersions()
+			}
+		}()
 	}
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
@@ -317,6 +325,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
+	markAuthed(w)
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, maxPost)
 		err := r.ParseForm()
@@ -334,6 +343,43 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.mux.ServeHTTP(&pageErrors{ResponseWriter: w, b: b}, r)
+}
+
+type writeStatus struct {
+	http.ResponseWriter
+	code   int
+	authed bool
+}
+
+func (w *writeStatus) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *writeStatus) Write(p []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *writeStatus) Flush() {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *writeStatus) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func markAuthed(w http.ResponseWriter) {
+	if sw, ok := w.(*writeStatus); ok {
+		sw.authed = true
+	}
 }
 
 type pageErrors struct {

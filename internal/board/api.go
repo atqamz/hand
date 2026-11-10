@@ -389,6 +389,7 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
+	markAuthed(w)
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodPost:
 	default:

@@ -42,6 +42,7 @@ type version struct {
 	alerts      int64
 	models      int64
 	links       uint64
+	boot        int64
 	old         string
 }
 
@@ -90,7 +91,7 @@ func (b *Board) sharedVersion(ctx context.Context, screen bool) (version, error)
 func (b *Board) computeVersion(s *sharedVersion, c *versionCall, gen uint64, screen bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), versionBudget)
 	defer cancel()
-	v, err := b.version(ctx, screen)
+	v, err := b.safeVersion(ctx, screen)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.call == c {
@@ -106,6 +107,15 @@ func (b *Board) computeVersion(s *sharedVersion, c *versionCall, gen uint64, scr
 	close(c.done)
 }
 
+func (b *Board) safeVersion(ctx context.Context, screen bool) (v version, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("reading the board version: %v", r)
+		}
+	}()
+	return b.version(ctx, screen)
+}
+
 func (b *Board) dropVersions() {
 	for i := range b.versions {
 		s := &b.versions[i]
@@ -117,7 +127,7 @@ func (b *Board) dropVersions() {
 }
 
 func (b *Board) version(ctx context.Context, screen bool) (version, error) {
-	v := version{models: b.refresh.done.Load()}
+	v := version{models: b.refresh.done.Load(), boot: b.boot}
 	var err error
 	if v.seq, err = b.st.LastEventSeq(ctx); err != nil {
 		return v, err
