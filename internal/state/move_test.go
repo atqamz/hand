@@ -1008,3 +1008,31 @@ func TestMoveHitsWithNoPatternFindsNothing(t *testing.T) {
 		t.Fatalf("hits = %v, %v", hits, err)
 	}
 }
+
+func TestAdoptFromASlashFormWindowsHomeToAWindowsTargetKeepsTheBackslashSpelling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows home is native here")
+	}
+	parent := t.TempDir()
+	s := adoptStore(t, parent, `C:\Users\me\fleet`)
+	for name, body := range map[string]string{
+		"p1": `C:\Users\me\fleet\reports\x.md`,
+		"p2": `c:/Users/me/fleet/y`,
+	} {
+		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES (?, ?, '2026-09-26T00:00:00Z', '{}')`, name, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Adopt(context.Background(), []string{`C:/Users/me/fleet`}, `D:/new`); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"p1": `D:\new\reports\x.md`,
+		"p2": `D:/new/y`,
+	}
+	for name, w := range want {
+		if got := cell(t, s, `SELECT repo FROM project WHERE name = '`+name+`'`); got != w {
+			t.Errorf("%s = %q, want %q", name, got, w)
+		}
+	}
+}

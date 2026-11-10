@@ -807,3 +807,87 @@ func TestRefuseCopiesReadsAClosedDatabaseInAReadOnlyFolder(t *testing.T) {
 		t.Fatalf("another fleet's id refused: %v", err)
 	}
 }
+
+func TestRefuseCopiesTreatsAFileWhereTheParentShouldBeAsNotHere(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(file, "fleet")
+	if err := fleet.RefuseCopies("f0123456789ab", []string{old}); err != nil {
+		t.Fatalf("RefuseCopies: %v", err)
+	}
+	root, copied := t.TempDir(), t.TempDir()
+	f := home(t, copied, "alpha")
+	if err := os.MkdirAll(fleet.IndexDir(root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fleet.IndexDir(root), f.ID), []byte(old+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if prev, err := fleet.Register(root, f.ID, copied); err != nil || prev != old {
+		t.Fatalf("register = %q, %v; want it to report %s", prev, err, old)
+	}
+}
+
+func TestRegisterReadsAnotherFleetsClosedDatabaseInAReadOnlyOldHome(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs a folder the user cannot write")
+	}
+	root, parent := t.TempDir(), t.TempDir()
+	old := filepath.Join(parent, "old")
+	if err := os.Mkdir(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home(t, old, "beta")
+	if err := os.Chmod(old, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(old, 0o755) })
+	copied := filepath.Join(parent, "new")
+	if err := os.Mkdir(copied, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := home(t, copied, "alpha")
+	if err := fleet.WriteHomes(copied, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(fleet.IndexDir(root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fleet.IndexDir(root), f.ID), []byte(old+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if prev, err := fleet.Register(root, f.ID, copied); err != nil || prev != old {
+		t.Fatalf("register = %q, %v; want it to report %s", prev, err, old)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != copied {
+		t.Fatalf("home = %q, %v; want %s", got, err, copied)
+	}
+}
+
+func TestListCallsAnUnenterableHomeUnreadableNotMissing(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs a folder the user cannot enter")
+	}
+	root := t.TempDir()
+	locked := filepath.Join(t.TempDir(), "locked")
+	target := filepath.Join(locked, "fleet")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if err := os.MkdirAll(fleet.IndexDir(root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fleet.IndexDir(root), "f0123456789ab"), []byte(target+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fleet.List(root)
+	if err != nil || len(entries) != 1 || !strings.HasPrefix(entries[0].State, "unreadable") {
+		t.Fatalf("list = %+v, %v; want one unreadable entry", entries, err)
+	}
+}

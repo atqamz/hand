@@ -146,18 +146,22 @@ func RefuseCopies(id string, homes []string) error {
 }
 
 func copyID(db string) (string, error) {
+	f, _, err := readFleet(db)
+	return f.ID, err
+}
+
+func readFleet(db string) (state.Fleet, bool, error) {
 	st, err := state.OpenRead(db)
 	if err != nil {
 		var again error
 		if st, again = state.OpenReadImmutable(db); again != nil {
-			return "", err
+			return state.Fleet{}, false, err
 		}
 	}
 	defer st.Close()
 	f, err := st.Fleet(context.Background())
-	switch {
-	case errors.Is(err, state.ErrNotFound), err != nil && strings.Contains(err.Error(), "no such table"):
-		return "", nil
+	if errors.Is(err, state.ErrNotFound) || err != nil && strings.Contains(err.Error(), "no such table") {
+		return state.Fleet{}, false, nil
 	}
-	return f.ID, err
+	return f, err == nil, err
 }

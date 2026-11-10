@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/state"
@@ -453,6 +451,9 @@ func sameDir(a, b string) bool {
 
 func refuseCopy(other, id string) error {
 	f, ok, err := at(other)
+	if absent(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -471,6 +472,9 @@ func refuseRecordCopy(home, id string) error {
 		return nil
 	}
 	f, ok, err := at(rec.Current)
+	if absent(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -486,19 +490,10 @@ func absent(err error) bool {
 
 func at(home string) (state.Fleet, bool, error) {
 	db := filepath.Join(home, "hand.db")
-	if _, err := os.Stat(db); absent(err) {
+	if _, err := os.Stat(db); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return state.Fleet{}, false, nil
 	} else if err != nil {
 		return state.Fleet{}, false, err
 	}
-	st, err := state.Open(db, time.Now)
-	if err != nil {
-		return state.Fleet{}, false, err
-	}
-	defer st.Close()
-	f, err := st.Fleet(context.Background())
-	if errors.Is(err, state.ErrNotFound) {
-		return state.Fleet{}, false, nil
-	}
-	return f, err == nil, err
+	return readFleet(db)
 }
