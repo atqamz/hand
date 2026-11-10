@@ -135,6 +135,19 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "" {
 		t.Fatalf("a row without hand-desktop: %q", row)
 	}
+	stale := filepath.Join(data, "applications", "hand-desktop.desktop")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("[Desktop Entry]\nX-Hand-Managed=true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "warn" || !strings.Contains(row[1], "left over") {
+		t.Fatalf("stale = %q", row)
+	}
+	if err := os.Remove(stale); err != nil {
+		t.Fatal(err)
+	}
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "warn" || !strings.Contains(row[1], "is missing") {
 		t.Fatalf("missing = %q", row)
@@ -143,17 +156,26 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/elsewhere\n"), 0o644); err != nil {
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/elsewhere\nX-Hand-Managed=true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "warn" || !strings.Contains(row[1], "does not point at") {
 		t.Fatalf("elsewhere = %q", row)
 	}
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "warn" || !strings.Contains(row[1], "not Hand's launcher entry") {
+		t.Fatalf("foreign = %q", row)
+	}
+	if err := os.Remove(entry); err != nil {
+		t.Fatal(err)
+	}
 	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := launcher.Sync(func(k string) string { return fx.h.vars[k] }, bin); err != nil {
+	if _, err := launcher.Sync(func(k string) string { return fx.h.vars[k] }, bin); err != nil {
 		t.Fatal(err)
 	}
 	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "ok" {

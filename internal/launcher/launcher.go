@@ -2,7 +2,6 @@ package launcher
 
 import (
 	"bytes"
-	_ "embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktopasset"
 )
 
-//go:embed hand.png
-var icon []byte
+const marker = "X-Hand-Managed=true\n"
 
 type State string
 
@@ -24,6 +23,7 @@ const (
 	OK        State = "ok"
 	Missing   State = "missing"
 	Elsewhere State = "elsewhere"
+	Foreign   State = "foreign"
 )
 
 func dataHome(getenv func(string) string) (string, error) {
@@ -43,7 +43,7 @@ func paths(getenv func(string) string) (apps, entry, pic string, err error) {
 		return "", "", "", err
 	}
 	apps = filepath.Join(data, "applications")
-	return apps, filepath.Join(apps, desktopasset.Name+".desktop"), filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand.png"), nil
+	return apps, filepath.Join(apps, desktopasset.Name+".desktop"), filepath.Join(data, "icons", "hicolor", "512x512", "apps", desktopasset.Name+".png"), nil
 }
 
 func quote(path string) string {
@@ -54,14 +54,17 @@ func quote(path string) string {
 	return `"` + strings.ReplaceAll(r.Replace(path), "%", "%%") + `"`
 }
 
+func escape(s string) string { return strings.ReplaceAll(s, `\`, `\\`) }
+
 func content(bin string) []byte {
 	return []byte("[Desktop Entry]\n" +
 		"Type=Application\n" +
 		"Name=Hand\n" +
 		"Comment=Supervisor window for your agent fleets\n" +
-		"Exec=" + strings.ReplaceAll(quote(bin), `\`, `\\`) + "\n" +
-		"TryExec=" + bin + "\n" +
-		"Icon=hand\n" +
+		"Exec=" + escape(quote(bin)) + "\n" +
+		"TryExec=" + escape(bin) + "\n" +
+		"Icon=" + desktopasset.Name + "\n" +
+		marker +
 		"Terminal=false\n" +
 		"Categories=Development;\n" +
 		"StartupWMClass=" + desktopasset.Name + "\n")
@@ -109,45 +112,54 @@ func refresh(apps string) {
 	}
 }
 
-func Sync(getenv func(string) string, bin string) error {
-	if !filepath.IsAbs(bin) {
-		return fmt.Errorf("launcher: %q is not an absolute path", bin)
+func managed(entry string) (owned, exists bool) {
+	b, err := os.ReadFile(entry)
+	return err == nil && bytes.Contains(b, []byte("\n"+marker)), err == nil
+}
+
+func Sync(getenv func(string) string, bin string) (skipped string, err error) {
+	if !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\n\r") {
+		return "", fmt.Errorf("launcher: %q is not a usable absolute path", bin)
 	}
 	apps, entry, pic, err := paths(getenv)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err := put(pic, icon); err != nil {
-		return fmt.Errorf("launcher: cannot write %s: %w", pic, err)
+	if owned, exists := managed(entry); exists && !owned {
+		return entry, nil
+	}
+	if _, err := put(pic, brand.Icon512); err != nil {
+		return "", fmt.Errorf("launcher: cannot write %s: %w", pic, err)
 	}
 	changed, err := put(entry, content(bin))
 	if err != nil {
-		return fmt.Errorf("launcher: cannot write %s: %w", entry, err)
+		return "", fmt.Errorf("launcher: cannot write %s: %w", entry, err)
 	}
 	if changed {
 		refresh(apps)
 	}
-	return nil
+	return "", nil
 }
 
-func Remove(getenv func(string) string) error {
+func Remove(getenv func(string) string) (skipped string, err error) {
 	apps, entry, pic, err := paths(getenv)
 	if err != nil {
-		return err
+		return "", err
 	}
-	removed := false
+	owned, exists := managed(entry)
+	if !exists {
+		return "", nil
+	}
+	if !owned {
+		return entry, nil
+	}
 	for _, p := range []string{entry, pic} {
-		switch err := os.Remove(p); {
-		case err == nil:
-			removed = true
-		case !errors.Is(err, fs.ErrNotExist):
-			return fmt.Errorf("launcher: cannot remove %s: %w", p, err)
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("launcher: cannot remove %s: %w", p, err)
 		}
 	}
-	if removed {
-		refresh(apps)
-	}
-	return nil
+	refresh(apps)
+	return "", nil
 }
 
 func Check(getenv func(string) string, bin string) (State, string) {
@@ -155,10 +167,14 @@ func Check(getenv func(string) string, bin string) (State, string) {
 	if err != nil {
 		return Missing, entry
 	}
-	have, err := os.ReadFile(entry)
-	if err != nil {
+	owned, exists := managed(entry)
+	switch {
+	case !exists:
 		return Missing, entry
+	case !owned:
+		return Foreign, entry
 	}
+	have, _ := os.ReadFile(entry)
 	if !bytes.Equal(have, content(bin)) {
 		return Elsewhere, entry
 	}

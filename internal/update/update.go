@@ -322,14 +322,18 @@ func (o Options) launcher(rep *Report, on bool, bin string) {
 	if o.Check || !on {
 		return
 	}
+	var skipped string
 	var err error
 	if fi, serr := os.Stat(bin); serr == nil && fi.Mode().IsRegular() {
-		err = launcher.Sync(o.Getenv, bin)
+		skipped, err = launcher.Sync(o.Getenv, bin)
 	} else {
-		err = launcher.Remove(o.Getenv)
+		skipped, err = launcher.Remove(o.Getenv)
 	}
 	if err != nil {
 		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
+	}
+	if skipped != "" {
+		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (no X-Hand-Managed=true line); it was left alone", skipped))
 	}
 }
 

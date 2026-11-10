@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/brand"
 )
 
 func env(t *testing.T) (func(string) string, string) {
@@ -28,18 +30,18 @@ func env(t *testing.T) (func(string) string, string) {
 func TestSyncWritesRewritesAndSkips(t *testing.T) {
 	getenv, data := env(t)
 	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
-	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand.png")
+	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
 	bin := filepath.Join(t.TempDir(), "hand-desktop")
-	if err := Sync(getenv, bin); err != nil {
+	if _, err := Sync(getenv, bin); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(entry)
-	for _, want := range []string{"Type=Application\n", "Name=Hand\n", "Exec=" + bin + "\n", "TryExec=" + bin + "\n", "Icon=hand\n", "Terminal=false\n", "Categories=Development;\n", "StartupWMClass=hand-desktop\n"} {
+	for _, want := range []string{"Type=Application\n", "Name=Hand\n", "Exec=" + bin + "\n", "TryExec=" + bin + "\n", "Icon=hand-desktop\n", "X-Hand-Managed=true\n", "Terminal=false\n", "Categories=Development;\n", "StartupWMClass=hand-desktop\n"} {
 		if !strings.Contains(string(got), want) {
 			t.Fatalf("entry lacks %q:\n%s", want, got)
 		}
 	}
-	if b, _ := os.ReadFile(pic); !bytes.Equal(b, icon) {
+	if b, _ := os.ReadFile(pic); !bytes.Equal(b, brand.Icon512) {
 		t.Fatal("icon not written")
 	}
 	old := time.Now().Add(-time.Hour).Round(time.Second)
@@ -48,7 +50,7 @@ func TestSyncWritesRewritesAndSkips(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := Sync(getenv, bin); err != nil {
+	if _, err := Sync(getenv, bin); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{entry, pic} {
@@ -57,7 +59,7 @@ func TestSyncWritesRewritesAndSkips(t *testing.T) {
 		}
 	}
 	other := filepath.Join(t.TempDir(), "hand-desktop")
-	if err := Sync(getenv, other); err != nil {
+	if _, err := Sync(getenv, other); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(entry); !strings.Contains(string(got), "Exec="+other+"\n") {
@@ -70,7 +72,7 @@ func TestSyncWritesRewritesAndSkips(t *testing.T) {
 
 func TestSyncQuotesAPathWithSpaces(t *testing.T) {
 	getenv, data := env(t)
-	if err := Sync(getenv, "/home/a b/bin/hand-desktop"); err != nil {
+	if _, err := Sync(getenv, "/home/a b/bin/hand-desktop"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(data, "applications", "hand-desktop.desktop"))
@@ -81,16 +83,16 @@ func TestSyncQuotesAPathWithSpaces(t *testing.T) {
 
 func TestRemoveDeletesBothAndIsIdempotent(t *testing.T) {
 	getenv, data := env(t)
-	if err := Remove(getenv); err != nil {
+	if _, err := Remove(getenv); err != nil {
 		t.Fatal(err)
 	}
-	if err := Sync(getenv, "/x/hand-desktop"); err != nil {
+	if _, err := Sync(getenv, "/x/hand-desktop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Remove(getenv); err != nil {
+	if _, err := Remove(getenv); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{filepath.Join(data, "applications", "hand-desktop.desktop"), filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand.png")} {
+	for _, p := range []string{filepath.Join(data, "applications", "hand-desktop.desktop"), filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")} {
 		if _, err := os.Stat(p); err == nil {
 			t.Fatalf("%s still there", p)
 		}
@@ -103,7 +105,7 @@ func TestCheck(t *testing.T) {
 	if s, _ := Check(getenv, bin); s != Missing {
 		t.Fatalf("fresh = %s", s)
 	}
-	if err := Sync(getenv, bin); err != nil {
+	if _, err := Sync(getenv, bin); err != nil {
 		t.Fatal(err)
 	}
 	if s, _ := Check(getenv, bin); s != OK {
@@ -112,7 +114,7 @@ func TestCheck(t *testing.T) {
 	if s, _ := Check(getenv, "/y/hand-desktop"); s != Elsewhere {
 		t.Fatalf("moved = %s", s)
 	}
-	if err := os.Remove(filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand.png")); err != nil {
+	if err := os.Remove(filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")); err != nil {
 		t.Fatal(err)
 	}
 	if s, _ := Check(getenv, bin); s != Missing {
@@ -122,14 +124,67 @@ func TestCheck(t *testing.T) {
 
 func TestNeedsAnAbsoluteHome(t *testing.T) {
 	env(t)
-	if err := Sync(func(string) string { return "" }, "/x/hand-desktop"); err == nil {
+	if _, err := Sync(func(string) string { return "" }, "/x/hand-desktop"); err == nil {
 		t.Fatal("no home accepted")
 	}
 }
 
-func TestIconIsTheBoardsIcon(t *testing.T) {
-	b, err := os.ReadFile("../board/static/icon-512.png")
-	if err != nil || !bytes.Equal(b, icon) {
-		t.Fatalf("launcher icon differs from the Board's icon-512.png: %v", err)
+func TestForeignEntryAndIconSurvive(t *testing.T) {
+	getenv, data := env(t)
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
+	for p, b := range map[string]string{entry: "[Desktop Entry]\nExec=/mine\n", pic: "mine"} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s, err := Sync(getenv, "/x/hand-desktop"); err != nil || s != entry {
+		t.Fatalf("Sync = %q, %v", s, err)
+	}
+	if s, err := Remove(getenv); err != nil || s != entry {
+		t.Fatalf("Remove = %q, %v", s, err)
+	}
+	if b, _ := os.ReadFile(entry); string(b) != "[Desktop Entry]\nExec=/mine\n" {
+		t.Fatalf("entry changed: %q", b)
+	}
+	if b, _ := os.ReadFile(pic); string(b) != "mine" {
+		t.Fatalf("icon changed: %q", b)
+	}
+	if s, _ := Check(getenv, "/x/hand-desktop"); s != Foreign {
+		t.Fatalf("check = %s", s)
+	}
+}
+
+func TestRemoveLeavesAForeignIconWithoutAnEntry(t *testing.T) {
+	getenv, data := env(t)
+	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
+	if err := os.MkdirAll(filepath.Dir(pic), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pic, []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Remove(getenv); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(pic); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPathEscapingAndNewlines(t *testing.T) {
+	getenv, data := env(t)
+	if _, err := Sync(getenv, "/a\nb/hand-desktop"); err == nil {
+		t.Fatal("newline accepted")
+	}
+	if _, err := Sync(getenv, `/a\b/hand-desktop`); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(data, "applications", "hand-desktop.desktop"))
+	if !strings.Contains(string(got), `TryExec=/a\\b/hand-desktop`+"\n") {
+		t.Fatalf("entry:\n%s", got)
 	}
 }

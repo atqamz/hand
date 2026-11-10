@@ -18,6 +18,9 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 	}
 	bin, err := desktopasset.Locate(selfPath(), path)
 	if err != nil {
+		if state, where := launcher.Check(r.env.Getenv, ""); state == launcher.Elsewhere {
+			c.add("desktop entry", "warn", where+" is left over and hand-desktop is not installed; run `hand update` to remove it")
+		}
 		c.add("desktop", "info", "not installed; run `hand update` to put hand-desktop next to hand")
 		return
 	}
@@ -26,6 +29,8 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		c.add("desktop entry", "ok", "")
 	case launcher.Missing:
 		c.add("desktop entry", "warn", where+" is missing; run `hand update` to write the launcher entry")
+	case launcher.Foreign:
+		c.add("desktop entry", "warn", where+" is not Hand's launcher entry (no X-Hand-Managed=true line); hand update leaves it alone")
 	default:
 		c.add("desktop entry", "warn", where+" does not point at "+bin+"; run `hand update` to rewrite it")
 	}

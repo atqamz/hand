@@ -358,7 +358,7 @@ func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
 	skipUnlessDesktop(t)
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	entry := filepath.Join(f.data, "applications", "hand-desktop.desktop")
-	pic := filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand.png")
+	pic := filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
 	f.o.Check = true
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
@@ -376,7 +376,7 @@ func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.o.From = currentBuild()
-	if err := os.WriteFile(entry, []byte("stale"), 0o644); err != nil {
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/old\nX-Hand-Managed=true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Run(context.Background(), f.o); err != nil {
@@ -390,7 +390,7 @@ func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
 func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
 	skipUnlessDesktop(t)
 	f := newFetch(t)
-	if err := launcher.Sync(f.o.Getenv, f.desktop()); err != nil {
+	if _, err := launcher.Sync(f.o.Getenv, f.desktop()); err != nil {
 		t.Fatal(err)
 	}
 	f.o.From = currentBuild()
@@ -398,5 +398,5 @@ func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
 		t.Fatal(err)
 	}
 	absent(t, filepath.Join(f.data, "applications", "hand-desktop.desktop"))
-	absent(t, filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand.png"))
+	absent(t, filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png"))
 }
