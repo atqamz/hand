@@ -3,22 +3,43 @@ package transcript
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var claudeInjected = regexp.MustCompile(`^<(task-notification|command-[a-z-]+|local-command-[a-z-]+|system-reminder|bash-[a-z-]+)>`)
 
+var (
+	globFiles = filepath.Glob
+	globFirst = time.Second
+	globCap   = time.Minute
+)
+
 func (r *Reader) claude(s *session, id string) error {
-	paths, err := filepath.Glob(filepath.Join(r.Paths.Claude, "projects", "*", id+".jsonl"))
+	if s.file != "" {
+		err := s.follow(s.file, s.claudeLine)
+		if !errors.Is(err, ErrNoSession) {
+			return err
+		}
+		*s = session{offsets: map[string]int64{}}
+	} else if time.Now().Before(s.retryAt) {
+		return ErrNoSession
+	}
+	paths, err := globFiles(filepath.Join(r.Paths.Claude, "projects", "*", id+".jsonl"))
 	if err != nil {
 		return err
 	}
 	if len(paths) == 0 {
+		s.wait = min(max(s.wait*2, globFirst), globCap)
+		s.retryAt = time.Now().Add(s.wait)
 		return ErrNoSession
 	}
-	return s.follow(paths[0], s.claudeLine)
+	s.retryAt, s.wait = time.Time{}, 0
+	s.file = paths[0]
+	return s.follow(s.file, s.claudeLine)
 }
 
 func (s *session) claudeLine(line []byte) {
