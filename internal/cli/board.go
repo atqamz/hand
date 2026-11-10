@@ -242,6 +242,9 @@ func boardHome(root, id string) (string, error) {
 }
 
 func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status, closePeer func(string)) (http.Handler, io.Closer, error) {
+	if err := r.pinRefusal(home); err != nil {
+		return nil, nil, err
+	}
 	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
 	if err != nil {
 		return nil, nil, err
@@ -249,6 +252,9 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 	f, err := st.Fleet(r.ctx())
 	if err == nil && f.ID != id {
 		err = fmt.Errorf("%w: %s holds fleet %s, not %s", state.ErrNotFound, home, f.ID, id)
+	}
+	if err == nil {
+		r.writePin(home)
 	}
 	henv := harness.EnvOf(r.env.Getenv)
 	henv.Dir = home

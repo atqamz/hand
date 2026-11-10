@@ -1,6 +1,11 @@
 package cli
 
-import "context"
+import (
+	"context"
+
+	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/state"
+)
 
 var (
 	WakeDigest       = wakeDigest
@@ -80,3 +85,15 @@ var (
 func BeatHost(env Env, home string) error { return (&runner{env: env, home: home}).beatHost() }
 
 func ReleaseHost(env Env, home string) { (&runner{env: env, home: home}).releaseHost() }
+
+func WritePin(env Env, home string) { (&runner{env: env, home: home}).writePin(home) }
+
+func TakeOver(env Env, home string, stale fleet.HostMarker) error {
+	r := &runner{env: env, home: home}
+	st, err := state.Open(r.dbPath(), env.Now)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return r.takeOver(st, stale, r.selfHost())
+}

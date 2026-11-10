@@ -175,8 +175,10 @@ func cmdFleetAdopt(r *runner, args []string) error {
 	var st *state.Store
 	if *check {
 		st, err = state.OpenRead(db)
-	} else {
-		st, err = state.Open(db, r.env.Now)
+	} else if err = r.pinRefusal(home); err == nil {
+		if st, err = state.Open(db, r.env.Now); err == nil {
+			r.writePin(home)
+		}
 	}
 	if err != nil {
 		return err

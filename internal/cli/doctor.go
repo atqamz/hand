@@ -217,6 +217,10 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add("fleet", level, err.Error()+"; the fleet checks were skipped")
 		return
 	}
+	r.doctorVersion(c)
+	if p, found, _ := fleet.ReadVersion(r.home); found && newerPin(p) {
+		return
+	}
 	st, err := state.Open(r.dbPath(), r.env.Now)
 	if err != nil {
 		c.add("schema", "fail", err.Error())

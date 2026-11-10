@@ -14,8 +14,9 @@ const (
 	maxUptimeMillis = 1 << 40
 )
 
-func Stable() string {
-	id := ID()
+func Stable() string { return stable(ID()) }
+
+func stable(id string) string {
 	if strings.HasPrefix(id, ticksPrefix) {
 		return ""
 	}
