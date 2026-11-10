@@ -85,7 +85,7 @@ func TestInitWritesThePin(t *testing.T) {
 func TestPinOfANewerVersionRefusesAndNamesTheUpdateCommand(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	putPin(t, home, "99.0.0", state.SchemaVersion)
-	refuses(t, h, "99.0.0", cli.Version, "`hand update", "nothing was changed", "restore a backup of hand.db", filepath.Join(home, fleet.VersionFile))
+	refuses(t, h, "99.0.0", cli.Version, "`hand update", "nothing was changed", "stop the supervisor and board, delete "+filepath.Join(home, fleet.VersionFile), "only if this hand then refuses the schema")
 }
 
 func TestPinOfANewerSchemaRefusesAndNamesTheUpdateCommand(t *testing.T) {

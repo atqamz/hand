@@ -83,7 +83,10 @@ func (r *runner) takeOver(st *state.Store, from, self fleet.HostMarker) error {
 	if err := st.HostHandover(ctx, "fleet.took_over", detail, reason, gone); err != nil {
 		return err
 	}
-	if cur, found, err := fleet.ReadHost(r.home); err == nil && found && sameMarker(cur, from) {
+	switch cur, found, err := fleet.ReadHost(r.home); {
+	case err != nil:
+		fmt.Fprintf(r.env.Stderr, "warning: cannot read %s: %v; leaving it, so the next command takes over again\n", filepath.Join(r.home, fleet.HostFile), err)
+	case found && sameMarker(cur, from):
 		if err := fleet.RemoveHost(r.home); err != nil {
 			return err
 		}

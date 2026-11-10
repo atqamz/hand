@@ -30,9 +30,12 @@ func refuseOlderTarget(to Build, fleets []fleet.Entry) error {
 	if len(newer) == 0 {
 		return nil
 	}
-	hint := "Run `hand update --channel edge` to get the newer hand."
+	return fmt.Errorf("%w: update: this update would install %s %s (schema %d), older than the hand that last opened %s; nothing was changed. %s To go back on purpose, stop the supervisor and board first, delete the fleet's hand.version (and restore a backup of its hand.db from backups/ only if the older hand refuses the schema), then run `hand update --channel %s`; see docs/update.md", state.ErrInvalid, to.Channel, to.Version, to.Schema, strings.Join(newer, ", "), newerHint(to), to.Channel)
+}
+
+func newerHint(to Build) string {
 	if to.Channel == "edge" {
-		hint = "No release of this channel is that new yet."
+		return "No release of this channel is that new yet."
 	}
-	return fmt.Errorf("%w: update: this update would install %s %s (schema %d), older than the hand that last opened %s; nothing was changed. %s To go back on purpose, restore a backup of hand.db from the fleet's backups/ and delete its hand.version, then run `hand update` again; see docs/update.md", state.ErrInvalid, to.Channel, to.Version, to.Schema, strings.Join(newer, ", "), hint)
+	return "Run `hand update --channel edge` to get the newer hand."
 }

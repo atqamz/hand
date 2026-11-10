@@ -350,6 +350,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if e.State != "ok" {
 			continue
 		}
+		if p, found, err := fleet.ReadVersion(e.Home); err == nil && found && PinNewer(p, rep.To.Version, rep.To.Schema) {
+			rep.Fleets[i].Init = "skipped: pinned to a newer hand"
+			rep.Help = append(rep.Help, fmt.Sprintf("`hand init` was not run in %s: its hand.version names hand %s (schema %d), newer than %s %s; %s", e.Home, p.Version, p.Schema, rep.To.Channel, rep.To.Version, newerHint(rep.To)))
+			rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
+			continue
+		}
 		if err := child(ctx, o, e.Home, "init"); err != nil {
 			rep.Fleets[i].Init = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there; if hand.version there names a newer hand, run `hand update --channel edge` first", e.Home, err))

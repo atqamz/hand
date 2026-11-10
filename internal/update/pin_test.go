@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,7 +56,7 @@ func TestRunRefusesATargetOlderThanAFleetsPin(t *testing.T) {
 		home := pinned(t, f, "alpha", "0.10.0")
 		f.o.Check = check
 		_, err := Run(context.Background(), f.o)
-		if err == nil || !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "0.10.0") || !strings.Contains(err.Error(), "delete its hand.version") || !strings.Contains(err.Error(), home) {
+		if err == nil || !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "0.10.0") || !strings.Contains(err.Error(), "stop the supervisor and board first") || !strings.Contains(err.Error(), "delete the fleet's hand.version") || !strings.Contains(err.Error(), "only if the older hand refuses the schema") || !strings.Contains(err.Error(), "`hand update --channel edge`") || !strings.Contains(err.Error(), home) {
 			t.Fatalf("check=%v: err = %v", check, err)
 		}
 		f.unchanged(t)
@@ -94,7 +95,7 @@ func TestRunHintFollowsTheTargetsChannel(t *testing.T) {
 	f := newFetch(t)
 	pinned(t, f, "alpha", "0.10.0")
 	_, err := Run(context.Background(), f.o)
-	if err == nil || !strings.Contains(err.Error(), "No release of this channel is that new yet.") || strings.Contains(err.Error(), "--channel edge") {
+	if err == nil || !strings.Contains(err.Error(), "No release of this channel is that new yet.") || strings.Contains(err.Error(), "Run `hand update --channel edge`") {
 		t.Fatalf("edge target: err = %v", err)
 	}
 	g := newFetch(t)
@@ -126,3 +127,40 @@ func TestRunIgnoresAnOlderOrUnreadablePin(t *testing.T) {
 }
 
 func writeFile(path, body string) error { return os.WriteFile(path, []byte(body), 0o600) }
+
+func TestRunSkipsInitInAFleetPinnedNewerAfterALuvusRepin(t *testing.T) {
+	f := newCycle(t)
+	f.current()
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	f.mu.Lock()
+	f.version = "0.14.3"
+	f.mu.Unlock()
+	f.o.Start = func(context.Context, string) error {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.version = "0.14.4"
+		return nil
+	}
+	f.serverRuns(t)
+	if err := fleet.WriteVersion(f.alpha, fleet.VersionPin{Version: "0.10.0", Schema: state.SchemaVersion}); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || alphaLuvus(t, rep) != "switched" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	var init string
+	for _, fr := range rep.Fleets {
+		if fr.Name == "alpha" {
+			init = fr.Init
+		}
+	}
+	if init != "skipped: pinned to a newer hand" {
+		t.Fatalf("alpha init = %q", init)
+	}
+	if !slices.ContainsFunc(rep.Help, func(h string) bool {
+		return strings.Contains(h, f.alpha) && strings.Contains(h, "hand 0.10.0") && strings.Contains(h, "No release of this channel is that new yet.")
+	}) {
+		t.Fatalf("help = %q", rep.Help)
+	}
+}
