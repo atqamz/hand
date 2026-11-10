@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -83,6 +84,13 @@ func skillsHarness(t *testing.T) *harness {
 	return h
 }
 
+func toonCell(s string) string {
+	if strings.ContainsAny(s, "\\") {
+		return strconv.Quote(s)
+	}
+	return s
+}
+
 func skillPath(base, root, name string) string {
 	return filepath.Join(base, root, "skills", name, "SKILL.md")
 }
@@ -139,7 +147,7 @@ func TestSkillsAddByPathCopiesMarksListsAndRemoves(t *testing.T) {
 		t.Fatalf("state = %+v", e)
 	}
 	list := h.ok("skills", "list")
-	for _, want := range []string{"secondhand,hand init,\"\",fleet,no", "secondhand-cleanup,hand init,\"\",fleet,no", "notes," + src + ",\"\",fleet,yes"} {
+	for _, want := range []string{"secondhand,hand init,\"\",fleet,no", "secondhand-cleanup,hand init,\"\",fleet,no", "notes," + toonCell(src) + ",\"\",fleet,yes"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("list missing %q:\n%s", want, list)
 		}
@@ -303,7 +311,7 @@ func TestSkillsUserScopeUsesHomeAndTouchesNoFleet(t *testing.T) {
 	if e := skillState(t, h.vars["HOME"])["notes"]; e.Scope != "user" {
 		t.Fatalf("state = %+v", e)
 	}
-	if list := h.ok("skills", "list", "--user"); !strings.Contains(list, "notes,"+src+",\"\",user,yes") || strings.Contains(list, "secondhand") {
+	if list := h.ok("skills", "list", "--user"); !strings.Contains(list, "notes,"+toonCell(src)+",\"\",user,yes") || strings.Contains(list, "secondhand") {
 		t.Fatalf("list = %q", list)
 	}
 	if list := h.ok("skills", "list"); strings.Contains(list, "notes") {
