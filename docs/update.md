@@ -71,7 +71,7 @@ This build migrates `hand.db` only from schema 16, the one Hand 0.13.0 writes. I
 
 ## Workers start without MCP servers
 
-A Claude worker no longer loads the MCP servers of your own Claude config or of a repository's `.mcp.json`: it starts with `--strict-mcp-config` and none. This is a break, with no switch to go back. If your workers rely on a browser or another MCP server, put the servers in `mcp.json` in the fleet home and add `"mcp": "mcp.json"` to those profiles in `routing.json` (see [MCP](vocabulary.md#mcp)); `hand doctor` fails a profile whose file is missing.
+A Claude worker no longer loads the MCP servers of your own Claude config or of a repository's `.mcp.json`: it starts with `--strict-mcp-config` and none. This is a break, with no switch to go back. If your workers rely on a browser or another MCP server, put the servers in `mcp.json` in the fleet home and start those workers with `hand attempt start --mcp mcp.json` (see [MCP](vocabulary.md#mcp)); `hand attempt start` refuses a file that is missing. A profile's `"mcp": "mcp.json"` in `routing.json` still works, and `hand doctor` fails a profile whose file is missing.
 
 ## Options
 

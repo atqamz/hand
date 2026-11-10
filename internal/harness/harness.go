@@ -317,7 +317,7 @@ func CheckMCP(harness, mcp string) error {
 	case mcp == "":
 		return nil
 	case harness != "claude":
-		return fmt.Errorf("%w: mcp is only available for claude, not %s: Hand knows no strict MCP mode for it, so a profile cannot name an MCP file", state.ErrInvalid, harness)
+		return fmt.Errorf("%w: mcp is only available for claude, not %s: Hand knows no strict MCP mode for it", state.ErrInvalid, harness)
 	}
 	return nil
 }

@@ -326,6 +326,20 @@ func (pr Profile) MCPFile(home string) (string, error) {
 	return path, nil
 }
 
+func MCPPath(home, file string) (string, error) {
+	if file == "" {
+		return "", nil
+	}
+	if !filepath.IsLocal(file) {
+		return "", fmt.Errorf("%w: --mcp %q must be a path inside the fleet home, like \"mcp.json\"", state.ErrInvalid, file)
+	}
+	path := filepath.Join(home, file)
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: mcp file %s is not a file; create it or fix --mcp", state.ErrInvalid, path)
+	}
+	return path, nil
+}
+
 func (p Policy) Names() []string {
 	names := make([]string, 0, len(p.Profiles))
 	for name := range p.Profiles {

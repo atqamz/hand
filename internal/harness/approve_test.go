@@ -532,3 +532,29 @@ func TestAForgedRuleRowDoesNotCutTheDialog(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPPathNamesTheFileInsideTheFleetHome(t *testing.T) {
+	home := t.TempDir()
+	if path, err := MCPPath(home, ""); path != "" || err != nil {
+		t.Fatalf("no mcp = %q, %v", path, err)
+	}
+	for _, bad := range []string{"../mcp.json", "/etc/mcp.json", "a/../../mcp.json"} {
+		if _, err := MCPPath(home, bad); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "inside the fleet home") {
+			t.Fatalf("mcp %q err = %v", bad, err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(home, "dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"mcp.json", "dir"} {
+		if _, err := MCPPath(home, bad); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), filepath.Join(home, bad)) {
+			t.Fatalf("%s err = %v", bad, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := MCPPath(home, "mcp.json"); path != filepath.Join(home, "mcp.json") || err != nil {
+		t.Fatalf("file = %q, %v", path, err)
+	}
+}
