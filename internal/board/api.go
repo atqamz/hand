@@ -217,6 +217,8 @@ type APITaskRow struct {
 	Delivered  *APIDeliverable `json:"delivered,omitempty"`
 	Waits      *APIWaits       `json:"waits,omitempty"`
 	FinishedAt string          `json:"finished_at,omitempty"`
+	Parent     string          `json:"parent,omitempty"`
+	Children   int             `json:"children,omitempty"`
 }
 
 type APIAttemptRow struct {
@@ -246,6 +248,7 @@ type APITask struct {
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
 	FinishedAt string `json:"finished_at,omitempty"`
+	Parent     string `json:"parent,omitempty"`
 }
 
 type APIPlan struct {
@@ -302,6 +305,7 @@ type APITaskDetail struct {
 	Attempts      []APIAttemptRow  `json:"attempts"`
 	Events        []APIEvent       `json:"events"`
 	MoreEvents    bool             `json:"more_events"`
+	Children      []APITaskRow     `json:"children,omitempty"`
 }
 
 type APITurn struct {
@@ -1134,6 +1138,9 @@ func (b *Board) apiTaskData(ctx context.Context, id int64) (APITaskDetail, error
 	for _, c := range v.Attempts {
 		out.Attempts = append(out.Attempts, apiAttemptRow(c))
 	}
+	for _, c := range v.Children {
+		out.Children = append(out.Children, apiRow(c))
+	}
 	for _, e := range v.Events {
 		out.Events = append(out.Events, apiEvent(e))
 	}
@@ -1354,6 +1361,8 @@ func apiRow(c check) APITaskRow {
 		State:      c.State,
 		Agent:      c.Agent,
 		FinishedAt: c.FinishedAt,
+		Parent:     parentRef(c.Task),
+		Children:   c.Subs,
 	}
 	if c.Attempt != nil {
 		a := apiAttempt(*c.Attempt)
@@ -1378,8 +1387,16 @@ func apiAttemptRow(c check) APIAttemptRow {
 	return out
 }
 
+func parentRef(t state.Task) string {
+	if t.ParentID == 0 {
+		return ""
+	}
+	return state.TaskRef(t.ParentID)
+}
+
 func apiTask(t state.Task) APITask {
 	return APITask{
+		Parent:     parentRef(t),
 		Ref:        state.TaskRef(t.ID),
 		Title:      t.Title,
 		Goal:       t.Goal,

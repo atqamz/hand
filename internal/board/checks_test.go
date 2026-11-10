@@ -10,7 +10,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var checkRow = regexp.MustCompile(`<li class="row check task-row" data-state="([a-z]+)" data-tone="[a-z]+">([\s\S]*?)</li>`)
+var checkRow = regexp.MustCompile(`<li class="row check task-row[^"]*" data-state="([a-z]+)" data-tone="[a-z]+">([\s\S]*?)</li>`)
 
 func checks(body string) map[string]string {
 	out := map[string]string{}

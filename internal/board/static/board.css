@@ -191,6 +191,12 @@ pre.screen::-webkit-scrollbar-thumb{background:var(--screen-thumb);border-radius
 .task-row .check-title{color:var(--fg)}
 .task-row .check-title::after{content:"";position:absolute;inset:0}
 .task-row :is(.ref,.badge,a.file){position:relative;z-index:1}
+.task-row a.rel{position:relative;z-index:1}
+.task-row:is(.depth-1,.depth-2,.depth-3){padding-left:calc(var(--space-4) + var(--indent) * var(--space-20))}
+.depth-1{--indent:1}
+.depth-2{--indent:2}
+.depth-3{--indent:3}
+.depth-mark{font-family:var(--mono)}
 .check-sub{display:flex;align-items:baseline;gap:var(--space-8);min-width:0}
 .check-sub .meta{min-width:0}
 .check-sub .waits{overflow:hidden;text-overflow:ellipsis}
@@ -546,6 +552,7 @@ dialog.viewer[open] .text-bar{top:-12px}
 a.badge{position:relative}
 a.badge::before{content:"";position:absolute;inset:-12px 0}
 a.file{padding-block:13px;margin-block:-13px}
+a.rel{padding-block:13px;margin-block:-13px}
 .delivered a.url{display:flex;align-items:center;min-height:var(--control)}}
 @media (prefers-reduced-motion:reduce){.code>.copy{transition:none}.split::before,.split::after{transition:none}.rail,.rail .label{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.misread>summary::before{transition:none}.pill .icon{animation:none}.pulse{animation:none}.timeline>[data-new]{animation:none}.latest{transition:none}}
 .thread,.list{max-width:880px;margin:0 auto;padding:var(--space-20) var(--space-16) 48px;display:flex;flex-direction:column;gap:var(--space-14)}
@@ -649,6 +656,7 @@ body:not([data-page=fleet]):has(main>.task-grid) .masthead-inner{padding-inline:
 .delivered li{display:grid;justify-items:start;gap:var(--space-2);min-width:0}
 .delivered .url{max-width:100%;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;overflow-wrap:anywhere}
 a.file,.delivered a.url{color:var(--accent)}
+a.rel{color:var(--accent)}
 .facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-4) var(--space-12);margin:0;font-size:12px;line-height:18px}
 .facts dt{color:var(--muted)}
 .facts dd{margin:0;min-width:0;overflow-wrap:anywhere}

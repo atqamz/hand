@@ -385,7 +385,12 @@ type check struct {
 	FinishedAt string
 	Delivered  *Deliverable
 	Waits      *state.Timer
+	Depth      int
+	Under      int64
+	Subs       int
 }
+
+func (c check) Indent() int { return min(c.Depth, 3) }
 
 func (f facts) check(t state.Task) check {
 	c := check{Task: t, State: "idle", FinishedAt: t.FinishedAt}

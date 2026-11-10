@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"net/url"
 	"slices"
@@ -69,6 +70,20 @@ func (b *Board) buildTasks(ctx context.Context, q url.Values, f facts, c viewCon
 	if v.All {
 		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
 	}
+	subs, err := b.st.ChildCounts(ctx)
+	if err != nil {
+		return v, err
+	}
+	known := map[int64]bool{}
+	exists := func(id int64) bool {
+		ok, seen := known[id]
+		if !seen {
+			_, err := b.st.Task(ctx, id)
+			ok = !errors.Is(err, state.ErrNotFound)
+			known[id] = ok
+		}
+		return ok
+	}
 	for _, status := range groups {
 		g := taskGroup{Name: strings.ToUpper(status[:1]) + status[1:], Count: counts[status]}
 		for _, c := range checks[:shown] {
@@ -77,14 +92,58 @@ func (b *Board) buildTasks(ctx context.Context, q url.Values, f facts, c viewCon
 			}
 		}
 		if len(g.Checks) > 0 {
+			g.Checks = nest(g.Checks, subs, exists)
 			v.Groups = append(v.Groups, g)
 		}
 	}
 	if recent := checks[shown:]; len(recent) > 0 {
-		v.Groups = append(v.Groups, taskGroup{Name: "Finished", Count: counts[state.StatusDone] + counts[state.StatusAbandoned], Checks: recent})
+		v.Groups = append(v.Groups, taskGroup{Name: "Finished", Count: counts[state.StatusDone] + counts[state.StatusAbandoned], Checks: nest(recent, subs, exists)})
 	}
 	v.Hidden, v.FinishedCount = total-shown, counts[state.StatusDone]+counts[state.StatusAbandoned]
 	return v, nil
+}
+
+func nest(checks []check, subs map[int64]int, exists func(int64) bool) []check {
+	shown := make(map[int64]bool, len(checks))
+	for _, c := range checks {
+		shown[c.Task.ID] = true
+	}
+	kids := map[int64][]check{}
+	var roots []check
+	for _, c := range checks {
+		c.Subs = subs[c.Task.ID]
+		p := c.Task.ParentID
+		if shown[p] && p != c.Task.ID {
+			kids[p] = append(kids[p], c)
+			continue
+		}
+		if p != 0 && exists(p) {
+			c.Under = p
+		}
+		roots = append(roots, c)
+	}
+	out := make([]check, 0, len(checks))
+	seen := make(map[int64]bool, len(checks))
+	var walk func(c check, depth int)
+	walk = func(c check, depth int) {
+		if seen[c.Task.ID] {
+			return
+		}
+		seen[c.Task.ID] = true
+		c.Depth = depth
+		out = append(out, c)
+		for _, k := range kids[c.Task.ID] {
+			walk(k, depth+1)
+		}
+	}
+	for _, c := range roots {
+		walk(c, 0)
+	}
+	for _, c := range checks {
+		c.Subs = subs[c.Task.ID]
+		walk(c, 0)
+	}
+	return out
 }
 
 type archiveView struct {

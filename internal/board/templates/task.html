@@ -2,7 +2,7 @@
 <header class="thread-head">
 <p class="crumbs">{{if $.Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{$.Base}}/">{{$.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
 <h2 class="thread-title">{{.Card.Task.Title}}</h2>
-<p class="slug"><span class="badge status" data-state="{{.Pill}}" data-tone="{{tone .Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}{{with .Card.Waits}}<span>Waits until {{until .Due}}{{with .Note}}: {{.}}{{end}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time></p>
+<p class="slug"><span class="badge status" data-state="{{.Pill}}" data-tone="{{tone .Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Task.ParentID}}<span>Sub-task of <a class="ref" href="{{$.Base}}/task/{{task .}}">{{task .}}</a></span>{{end}}{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}{{with .Card.Waits}}<span>Waits until {{until .Due}}{{with .Note}}: {{.}}{{end}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time></p>
 </header>
 <hr class="rule">
 {{if or .Card.Decisions .Unread}}<section class="needs-here" aria-label="Waiting on this task">
@@ -28,6 +28,8 @@
 <aside class="task-side">
 {{with .Card.Delivered}}<h3>Delivered</h3>
 <ul class="delivered">{{range .}}<li>{{template "deliverable" .}}{{if .Href}}<a class="url" href="{{.Href}}" tabindex="-1" target="_blank" rel="noopener">{{.Ref}}</a>{{else}}<span class="url">{{.Ref}}</span>{{end}}</li>{{end}}</ul>
+{{end}}{{with .Children}}<h3>Sub-tasks</h3>
+<ol class="checks">{{range .}}<li class="row check sub" data-state="{{.State}}" data-tone="{{tone .State}}">{{template "check-icon" .State}}<a class="ref" href="{{$.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a><a class="check-title" title="{{.Task.Title}}" href="{{$.Base}}/task/{{task .Task.ID}}">{{.Task.Title}}</a><span class="meta">{{.Task.Status}}</span></li>{{end}}</ol>
 {{end}}<h3>Attempts</h3>
 {{with .Attempts}}<ol class="checks attempts">{{range .}}<li class="row check" data-state="{{.State}}" data-tone="{{tone .State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<a class="ref" href="{{$.Base}}/attempt/{{attempt .Attempt.ID}}">{{attempt .Attempt.ID}}</a> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}{{with .Attempt.Continues}} · continues {{attempt .}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
 {{else}}<p class="quiet">No attempts yet.</p>

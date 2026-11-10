@@ -88,14 +88,15 @@ The install phase changes your user `PATH` in the registry and puts it back when
 
 ## What CI checks on the Board's layout
 
-[`render-check.yaml`](../../.github/workflows/render-check.yaml) renders the Board's fixture scenes in Chromium on `ubuntu-latest`, `macos-latest` and `windows-latest`, for every pull request that touches `internal/board` and on demand. The scenes come from `TestRenderScenes` in `internal/board/scenes_test.go`: 24 pages (seventeen fleet pages from an empty fleet to a busy one with decisions, documents, an `ask` worker's permission prompt, a kept worktree with old files, the Screen page, the Phone page, the Alerts page, the nav menu open, the document viewer dialog, the document page, the supervisor log, a task, a decision and an attempt), served from fleets in temporary folders with a frozen clock, a fixed fleet id and a fixed home path under the system temporary folder, so run one check at a time on a machine. The test does nothing unless `SCENES_ADDR` is set, so `go test ./...` skips it. `.github/render/check.mjs` builds that test, starts it, and renders each scene at 1440, 1024 and 390 px (390 is a phone: touch and a mobile viewport), light and dark, with reduced motion, `Asia/Jakarta` as the time zone and the browser's clock set to the same frozen instant as the server's.
+[`render-check.yaml`](../../.github/workflows/render-check.yaml) renders the Board's fixture scenes in Chromium on `ubuntu-latest`, `macos-latest` and `windows-latest`, for every pull request that touches `internal/board` and on demand. The scenes come from `TestRenderScenes` in `internal/board/scenes_test.go`: 25 pages (eighteen fleet pages from an empty fleet to a busy one with decisions, nested tasks, documents, an `ask` worker's permission prompt, a kept worktree with old files, the Screen page, the Phone page, the Alerts page, the nav menu open, the document viewer dialog, the document page, the supervisor log, a task, a decision and an attempt), served from fleets in temporary folders with a frozen clock, a fixed fleet id and a fixed home path under the system temporary folder, so run one check at a time on a machine. The test does nothing unless `SCENES_ADDR` is set, so `go test ./...` skips it. `.github/render/check.mjs` builds that test, starts it, and renders each scene at 1440, 1024 and 390 px (390 is a phone: touch and a mobile viewport), light and dark, with reduced motion, `Asia/Jakarta` as the time zone and the browser's clock set to the same frozen instant as the server's.
 
-For each of the 140 states it fails when there is:
+For each of the 146 states it fails when there is:
 - horizontal overflow of the page;
 - a menu or dialog that leaves the viewport;
 - a button, summary, select or input under 44 px high on a touch viewport;
 - text under a contrast ratio of 4.5;
 - a conversation whose day dividers do not fall where the card times, in the browser's time zone, change day (the `log` scene has to show at least one divider);
+- in the `nested-tasks` scene, a child card that is not indented past its parent;
 - a hairline rule directly above an element with its own top border;
 - a CSP violation, a console error, a page error or an HTTP status of 400 or more.
 
