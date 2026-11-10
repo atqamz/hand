@@ -18,6 +18,8 @@ import (
 
 const MaxSkillBytes = 32 << 20
 
+var Rename = fsx.Rename
+
 var SkillName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 const (
@@ -285,7 +287,7 @@ func (s Skills) Install(name, staged string, beforeSwap func() error) error {
 	restore := func(from int) {
 		for j := from; j < n; j++ {
 			if old[j] != "" {
-				_ = fsx.Rename(old[j], dst[j])
+				_ = Rename(old[j], dst[j])
 			}
 		}
 	}
@@ -294,15 +296,18 @@ func (s Skills) Install(name, staged string, beforeSwap func() error) error {
 			continue
 		}
 		old[i] = fresh[i] + ".old"
-		if err := fsx.Rename(dst[i], old[i]); err != nil {
+		if err := Rename(dst[i], old[i]); err != nil {
 			old[i] = ""
 			restore(0)
 			return err
 		}
 	}
 	for i := range dst {
-		if err := fsx.Rename(fresh[i], dst[i]); err != nil {
-			restore(i)
+		if err := Rename(fresh[i], dst[i]); err != nil {
+			for j := range i {
+				_ = os.RemoveAll(dst[j])
+			}
+			restore(0)
 			return err
 		}
 		fresh[i] = ""

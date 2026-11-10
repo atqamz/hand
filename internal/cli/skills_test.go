@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/fsx"
 )
 
 func skillFiles(name, text string) map[string]string {
@@ -417,44 +419,97 @@ func TestSkillsRefuseANameThatLeavesTheSkillsFolder(t *testing.T) {
 }
 
 func TestSkillsUpdateThatFailsLeavesEveryRootOldAndARerunCompletes(t *testing.T) {
-	skipUnlessPermsHold(t)
+	cases := []struct {
+		name   string
+		next   bool
+		break_ func(t *testing.T, h *harness)
+	}{
+		{"staging", false, func(t *testing.T, h *harness) {
+			skipUnlessPermsHold(t)
+			locked := filepath.Join(h.home, ".pi", "skills")
+			if err := os.Chmod(locked, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+		}},
+		{"move aside", true, failRename(t, func(from, to string) bool {
+			return strings.HasSuffix(from, filepath.Join(".grok", "skills", "foo"))
+		})},
+		{"swap in", true, failRename(t, func(from, to string) bool {
+			return strings.HasSuffix(to, filepath.Join(".pi", "skills", "foo")) && !strings.HasSuffix(from, ".old")
+		})},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := skillsHarness(t)
+			src := filepath.Join(t.TempDir(), "foo")
+			writeFiles(t, src, skillFiles("foo", "one"))
+			h.ok("skills", "add", src)
+			before := skillState(t, h.home)["foo"]
+			writeFiles(t, src, skillFiles("foo", "two"))
+			c.break_(t, h)
+			if _, _, code := h.run("skills", "update", "foo"); code == 0 {
+				t.Fatal("update succeeded")
+			}
+			fleet.Rename = fsxRename
+			for _, root := range fleet.SkillRoots {
+				if got := readSkill(t, skillPath(h.home, root, "foo")); !strings.Contains(got, "\none\n") {
+					t.Fatalf("%s is half-new: %q", root, got)
+				}
+				entries, err := os.ReadDir(filepath.Join(h.home, root, "skills"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, e := range entries {
+					if strings.HasPrefix(e.Name(), ".hand-foo-") {
+						t.Fatalf("%s left %s behind", root, e.Name())
+					}
+				}
+			}
+			after := skillState(t, h.home)["foo"]
+			if c.next && (after.Next == "" || after.Next == before.Sum || after.Sum != before.Sum) {
+				t.Fatalf("state before the swap = %+v, was %+v", after, before)
+			}
+			if !c.next && after != before {
+				t.Fatalf("state = %+v, was %+v", after, before)
+			}
+			if err := os.Chmod(filepath.Join(h.home, ".pi", "skills"), 0o755); err != nil && runtime.GOOS != "windows" {
+				t.Fatal(err)
+			}
+			if out := h.ok("skills", "update", "foo"); !strings.Contains(out, "foo,updated") {
+				t.Fatalf("rerun = %q", out)
+			}
+			for _, root := range fleet.SkillRoots {
+				if got := readSkill(t, skillPath(h.home, root, "foo")); !strings.Contains(got, "\ntwo\n") {
+					t.Fatalf("%s: %q", root, got)
+				}
+			}
+			if e := skillState(t, h.home)["foo"]; e.Next != "" {
+				t.Fatalf("state = %+v", e)
+			}
+		})
+	}
+}
+
+func fsxRename(from, to string) error { return fsx.Rename(from, to) }
+
+func failRename(t *testing.T, hit func(from, to string) bool) func(*testing.T, *harness) {
+	return func(t *testing.T, h *harness) {
+		t.Cleanup(func() { fleet.Rename = fsxRename })
+		fleet.Rename = func(from, to string) error {
+			if hit(from, to) {
+				return errors.New("injected rename failure")
+			}
+			return fsx.Rename(from, to)
+		}
+	}
+}
+
+func TestSkillsListSkipsDotFolders(t *testing.T) {
 	h := skillsHarness(t)
-	src := filepath.Join(t.TempDir(), "foo")
-	writeFiles(t, src, skillFiles("foo", "one"))
-	h.ok("skills", "add", src)
-	writeFiles(t, src, skillFiles("foo", "two"))
-	locked := filepath.Join(h.home, ".pi", "skills")
-	if err := os.Chmod(locked, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-	if _, _, code := h.run("skills", "update", "foo"); code == 0 {
-		t.Fatal("update into an unwritable root succeeded")
-	}
-	for _, root := range fleet.SkillRoots {
-		if got := readSkill(t, skillPath(h.home, root, "foo")); !strings.Contains(got, "\none\n") {
-			t.Fatalf("%s is half-new: %q", root, got)
-		}
-	}
-	if err := os.Chmod(locked, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if out := h.ok("skills", "update", "foo"); !strings.Contains(out, "foo,updated") {
-		t.Fatalf("rerun = %q", out)
-	}
-	for _, root := range fleet.SkillRoots {
-		if got := readSkill(t, skillPath(h.home, root, "foo")); !strings.Contains(got, "\ntwo\n") {
-			t.Fatalf("%s: %q", root, got)
-		}
-	}
-	entries, err := os.ReadDir(filepath.Join(h.home, ".claude", "skills"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".hand-foo-") {
-			t.Fatalf("left %s behind", e.Name())
-		}
+	writeFiles(t, filepath.Join(h.home, ".agents", "skills", ".hand-foo-123.old"), skillFiles("foo", "one"))
+	if out := h.ok("skills", "list"); strings.Contains(out, ".hand-foo") {
+		t.Fatalf("list = %q", out)
 	}
 }
 
@@ -500,9 +555,12 @@ func fleetSum(t *testing.T, dir string) string {
 
 func TestSkillsMarkerCountsOnlyInTheFrontmatter(t *testing.T) {
 	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "quote")
+	writeFiles(t, src, skillFiles("quote", "one"))
+	h.ok("skills", "add", src)
 	quote := filepath.Join(h.home, ".agents", "skills", "quote")
 	writeFiles(t, quote, map[string]string{"SKILL.md": "---\nname: quote\n---\n\nmetadata:\n  managed-by: hand-skills\n"})
-	if out, _, code := h.run("skills", "remove", "quote"); code != 3 || !strings.Contains(out, "quote,refused") {
+	if out, _, code := h.run("skills", "remove", "quote"); code != 3 || !strings.Contains(out, "is not marked as managed") {
 		t.Fatalf("remove: code=%d out=%q", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(quote, "SKILL.md")); err != nil {

@@ -134,6 +134,9 @@ func cmdSkillsList(r *runner, args []string) error {
 		return err
 	}
 	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(s.Dir(fleet.SkillRoots[1], e.Name()), "SKILL.md")); err == nil {
 			names[e.Name()] = true
 		}

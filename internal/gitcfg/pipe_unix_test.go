@@ -29,3 +29,13 @@ func TestRunNeverPromptsForCredentials(t *testing.T) {
 		t.Fatalf("out=%q err=%v", out, err)
 	}
 }
+
+func TestRunMakesSSHFailInsteadOfPrompting(t *testing.T) {
+	for _, c := range []struct{ set, want string }{{"", "ssh -o BatchMode=yes"}, {"ssh -i key", "ssh -i key"}} {
+		t.Setenv("GIT_SSH_COMMAND", c.set)
+		out, err := Run(context.Background(), t.TempDir(), "-c", "alias.e=!echo $GIT_SSH_COMMAND", "e")
+		if err != nil || strings.TrimSpace(out) != c.want {
+			t.Fatalf("set %q: out=%q err=%v", c.set, out, err)
+		}
+	}
+}

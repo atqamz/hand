@@ -316,5 +316,9 @@ func runEnv(ctx context.Context, dir string, env []string, args ...string) (stri
 }
 
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
-	return runEnv(ctx, dir, []string{"GIT_TERMINAL_PROMPT=0"}, args...)
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
+	if os.Getenv("GIT_SSH_COMMAND") == "" {
+		env = append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+	}
+	return runEnv(ctx, dir, env, args...)
 }
