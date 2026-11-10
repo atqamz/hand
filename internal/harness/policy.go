@@ -20,6 +20,8 @@ import (
 
 const PolicyFile = "routing.json"
 
+const DefaultRolloverTokens = 300000
+
 type Policy struct {
 	Removed    json.RawMessage `json:"profiles,omitempty"`
 	Notify     []string        `json:"notify,omitzero"`
@@ -27,7 +29,8 @@ type Policy struct {
 	Inbox      Inbox           `json:"inbox,omitzero"`
 	Retention  Retention       `json:"retention,omitzero"`
 	Supervisor struct {
-		Autoresume bool `json:"autoresume"`
+		Autoresume     bool  `json:"autoresume"`
+		RolloverTokens int64 `json:"rollover_tokens"`
 	} `json:"supervisor,omitzero"`
 }
 
@@ -194,6 +197,7 @@ func LoadPolicy(home string) (Policy, error) {
 		return Policy{}, err
 	}
 	p := Policy{Stall: DefaultStall, Retention: DefaultRetention}
+	p.Supervisor.RolloverTokens = DefaultRolloverTokens
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
@@ -201,6 +205,9 @@ func LoadPolicy(home string) (Policy, error) {
 	}
 	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
 		return Policy{}, fmt.Errorf("%w: %s holds data after the policy", state.ErrInvalid, path)
+	}
+	if p.Supervisor.RolloverTokens < 0 {
+		return Policy{}, fmt.Errorf("%w: %s: supervisor.rollover_tokens is %d; give a token count, or 0 to turn the rollover off", state.ErrInvalid, path, p.Supervisor.RolloverTokens)
 	}
 	if p.Removed != nil {
 		return Policy{}, fmt.Errorf("%w: %s: \"profiles\" was removed; delete the key and start workers with --harness, --model and --effort (see docs/update.md)", state.ErrInvalid, path)

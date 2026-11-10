@@ -1187,7 +1187,7 @@ func TestShortCutForBytesKeepsDecisionsAndSaysWhatItDropped(t *testing.T) {
 		}
 	}
 	b := DefaultBudget
-	b.ShortBytes = 700
+	b.ShortBytes = 600
 	doc, err := Short(ctx, st, 0, "", true, true, b)
 	if err != nil {
 		t.Fatal(err)
@@ -1237,5 +1237,106 @@ func TestShortPutsWakeEventsBeforePlainOnesAndDropsThemLast(t *testing.T) {
 	out = doc.String()
 	if !strings.Contains(out, "attempt.blocked,t1") || strings.Contains(out, "task.added") || len(out) >= b.ShortBytes {
 		t.Fatalf("short (%d bytes) =\n%s", len(out), out)
+	}
+}
+
+func TestShortKeepsATasklessStallAndTimerOverPlainRows(t *testing.T) {
+	home := t.TempDir()
+	if err := memory.Init(home); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	st, err := state.Open(filepath.Join(home, "hand.db"), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: time.Minute, Note: "check PR 909"}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	if err := st.NoteSupervisor(ctx, sup.ID, "stalled", "t1 is active"); err != nil {
+		t.Fatal(err)
+	}
+	if fired, err := st.FireTimers(ctx); err != nil || len(fired) != 1 {
+		t.Fatalf("fired = %v, %v", fired, err)
+	}
+	for i := 0; i < 30; i++ {
+		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+	}
+	b := DefaultBudget
+	b.ShortBytes = 560
+	doc, err := Short(ctx, st, 0, "", true, true, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, ",supervisor.stalled,\"\"\n") || !strings.Contains(out, ",timer.fired,\"\"\n") || strings.Contains(out, "task.added") || len(out) >= b.ShortBytes {
+		t.Fatalf("short (%d bytes) =\n%s", len(out), out)
+	}
+}
+
+func TestShortKeepsABlockedAttemptWhoseTaskIsBeyondTheTaskCap(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	first, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, first.ID, state.StatusActive)
+	a := runningAttempt(t, st, first.ID)
+	if err := st.NoteAttempt(ctx, a.ID, "blocked", "needs input"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 16; i++ {
+		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	}
+	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if strings.Contains(out, "  t1,hand,Fix login,") || !strings.Contains(out, ",attempt.blocked,t1\n") || !strings.Contains(out, "changed_more: 15 of 17 shown") || !strings.Contains(out, "more: rows were cut; run `hand orient`") {
+		t.Fatalf("short =\n%s", out)
+	}
+}
+
+func TestShortSaysMoreOnlyWhenTasksQueuesOrWakesWereCut(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	for i := 0; i < 25; i++ {
+		_, _ = st.SetPlan(ctx, task.ID, "plan "+strconv.Itoa(i))
+	}
+	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "events_more: 20 of ") || strings.Contains(out, "\nmore:") {
+		t.Fatalf("short =\n%s", out)
+	}
+	a := runningAttempt(t, st, task.ID)
+	for i := 0; i < 25; i++ {
+		if err := st.NoteAttempt(ctx, a.ID, "quiet", "no output "+strconv.Itoa(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc, err = Short(ctx, st, 0, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "\nmore: rows were cut; run `hand orient`") {
+		t.Fatalf("short =\n%s", out)
 	}
 }

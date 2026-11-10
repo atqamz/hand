@@ -247,32 +247,35 @@ func (s *Store) TouchedAfter(ctx context.Context, after int64, limit int) ([]int
 	return ids, total, rows.Err()
 }
 
-func (s *Store) NewestEventsAfter(ctx context.Context, after int64, first []string, limit int) ([]Event, int, error) {
+var WakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.limited", "attempt.long", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered", "supervisor.stalled", "timer.fired"}
+
+func (s *Store) NewestEventsAfter(ctx context.Context, after int64, first []string, limit int) ([]Event, int, int, error) {
 	if limit < 1 {
-		return nil, 0, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+		return nil, 0, 0, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
 	}
-	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM event WHERE seq > ?`, after).Scan(&total); err != nil {
-		return nil, 0, err
-	}
+	in := `kind IN (` + strings.TrimSuffix(strings.Repeat("?,", len(first)), ",") + `)`
 	args := []any{after}
 	for _, k := range first {
 		args = append(args, k)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? ORDER BY +kind IN (`+strings.TrimSuffix(strings.Repeat("?,", len(first)), ",")+`) DESC, seq DESC LIMIT ?`, append(args, limit)...)
+	var total, firstTotal int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), COALESCE(sum(`+in+`), 0) FROM event WHERE seq > ?`, append(args[1:], after)...).Scan(&total, &firstTotal); err != nil {
+		return nil, 0, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? ORDER BY +`+in+` DESC, seq DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 	var events []Event
 	for rows.Next() {
 		var e Event
 		if err := rows.Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail); err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 		events = append(events, e)
 	}
-	return events, total, rows.Err()
+	return events, total, firstTotal, rows.Err()
 }
 
 func (s *Store) EventsAfter(ctx context.Context, after int64, kinds []string, limit int) ([]Event, error) {

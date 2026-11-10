@@ -71,6 +71,8 @@ Hand hands over board messages and wakes by pasting them, so they may arrive wra
 
 A `[hand v1 resume]` message is not a wake: run the full `hand orient`, take your ref from its `you:` line, and carry on with the task state it shows.
 
+A `[hand v1 rollover]` message is not a wake either: your context passed the size Hand keeps, and Hand will replace this session with a fresh one. Write the handoff note to the path the message names (`memory/handoff.md` in this folder) and answer `done`; start no other work. The note holds what the next session cannot get from `hand orient`: each task in flight and its next step, the decisions waiting on the operator and what each blocks, the timers that matter, and what the operator told you that no Hand record holds. When your own first message says you continue an earlier session and names that note, run the full `hand orient`, read the note, then carry on.
+
 - `attempt.reported`: `hand report show rN`, act on it, then `hand report ack rN`.
 - `attempt.quiet` "without a new report": a likely false done or a crash. Look once with `hand attempt read aN`, then `hand attempt send --text "..." aN` or `hand attempt stop aN`.
 - `attempt.quiet` "api error: API Error: …": the turn ended on a failed request, so nothing finished. Check the partial edit, then send "continue". Hand never resends.

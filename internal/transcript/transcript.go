@@ -74,9 +74,10 @@ type session struct {
 }
 
 const (
-	wakeHeader = "[hand v1 wake]"
-	noteLimit  = 200
-	substance  = 240
+	wakeHeader     = "[hand v1 wake]"
+	rolloverHeader = "[hand v1 rollover]"
+	noteLimit      = 200
+	substance      = 240
 )
 
 var (
@@ -281,6 +282,8 @@ func classify(text string) (Entry, bool) {
 	switch {
 	case strings.TrimSpace(lines[0]) == wakeHeader:
 		return Entry{Role: "hand", Text: clip("wake: " + strings.Join(lines[1:], "; "))}, true
+	case strings.HasPrefix(t, rolloverHeader):
+		return Entry{Role: "hand", Text: "asked for a handoff note"}, true
 	case strings.HasPrefix(t, "[Request interrupted"):
 		return Entry{Role: "hand", Text: "interrupted"}, true
 	}

@@ -46,6 +46,7 @@ func TestClassifyShowsHandsOwnInputsAsOneLine(t *testing.T) {
 		{digest, Entry{Role: "hand", Text: "wake: attempt.reported a1: r1 done; attempt.quiet a1: turn ended; decision.answered d1: yes"}},
 		{"You are supervisor s3 of the Hand fleet demo. Follow AGENTS.md: run `hand orient` now.", Entry{Role: "hand", Text: "supervisor s3 started"}},
 		{"[Request interrupted by user]", Entry{Role: "hand", Text: "interrupted"}},
+		{"[hand v1 rollover] Your context holds 350k tokens. Write your handoff note.", Entry{Role: "hand", Text: "asked for a handoff note"}},
 		{" hello ", Entry{Role: "operator", Text: "hello"}},
 	}
 	for _, c := range cases {

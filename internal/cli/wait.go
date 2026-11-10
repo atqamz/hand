@@ -11,15 +11,13 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.limited", "attempt.long", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered", "supervisor.stalled", "timer.fired"}
-
 const (
 	waitPoll  = 250 * time.Millisecond
 	wakeBatch = 50
 )
 
 func wakeEvents(ctx context.Context, st *state.Store, after int64) ([]state.Event, error) {
-	events, err := st.WakeEventsAfter(ctx, after, wakeKinds, wakeBatch)
+	events, err := st.WakeEventsAfter(ctx, after, state.WakeKinds, wakeBatch)
 	if err != nil || len(events) == wakeBatch || slices.ContainsFunc(events, wakes) {
 		return events, err
 	}

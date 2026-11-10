@@ -62,6 +62,10 @@ type watcher struct {
 	reaped  atomic.Value
 
 	rest           rest
+	still          stillness
+	rollBusy       atomic.Bool
+	rollFailed     atomic.Int64
+	supContext     atomic.Value
 	policyWarned   bool
 	inboxWarned    bool
 	modelsBusy     atomic.Bool
@@ -272,6 +276,9 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 			if err == nil {
 				err = w.stall(sctx, c, caps)
+			}
+			if err == nil {
+				w.rollover(sctx, c, caps)
 			}
 			if err == nil {
 				w.snapshot(sctx)

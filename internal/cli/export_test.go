@@ -37,6 +37,9 @@ var (
 	ExitWait         = &exitWait
 	KillGrace        = &killGrace
 	ImportWrite      = &importWriteFile
+	RolloverWait     = &rolloverWait
+	RolloverPoll     = &rolloverPoll
+	RolloverStill    = &rolloverStill
 )
 
 func Control(env Env, home string) func(context.Context, ...string) (string, error) {
