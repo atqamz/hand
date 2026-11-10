@@ -396,14 +396,21 @@ func TestWatchHoldsTheMarkerAndStopsWhenAnotherHostTakesOver(t *testing.T) {
 	}
 	fx.h.advance(time.Minute)
 	eventually(t, func() bool { return read().At.Equal(fx.h.clock()) })
-	putMarker(t, fx.h, "laptop", "boot-x", 0)
-	select {
-	case code := <-done:
-		if code != 3 || !strings.Contains(errOut, "took this fleet over") {
-			t.Fatalf("code=%d stderr=%q", code, errOut)
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	deadline := time.After(5 * time.Second)
+	for finished := false; !finished; {
+		select {
+		case code := <-done:
+			if code != 3 || !strings.Contains(errOut, "took this fleet over") {
+				t.Fatalf("code=%d stderr=%q", code, errOut)
+			}
+			finished = true
+		case <-tick.C:
+			putMarker(t, fx.h, "laptop", "boot-x", 0)
+		case <-deadline:
+			t.Fatal("the watcher kept running after another host took the fleet")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the watcher kept running after another host took the fleet")
 	}
 	if read().Host != "laptop" {
 		t.Fatalf("the watcher touched the new owner's marker: %+v", read())
