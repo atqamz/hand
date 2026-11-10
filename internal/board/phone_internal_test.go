@@ -151,4 +151,12 @@ func TestOnlyAProxyHeaderOrAPeerMakesARequestForwarded(t *testing.T) {
 			t.Errorf("%s: forwarded = %v, want %v", c.header, got, c.want)
 		}
 	}
+	r := httptest.NewRequest("GET", "/", nil)
+	if forwarded(r) {
+		t.Error("plain request: forwarded")
+	}
+	r = r.WithContext(context.WithValue(r.Context(), peerKey{}, &peerConn{}))
+	if !forwarded(r) {
+		t.Error("peer request: not forwarded")
+	}
 }
