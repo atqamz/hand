@@ -12,7 +12,10 @@ import (
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/toon"
 )
+
+func esc(s string) string { return strings.ReplaceAll(s, `\`, `\\`) }
 
 func seedOldLayout(t *testing.T, h *harness, id string) luvus.Pin {
 	t.Helper()
@@ -39,7 +42,9 @@ func TestInitMakesTheNewLayoutInsideTheFleet(t *testing.T) {
 	root := h.vars["SECONDHAND_HOME"]
 	out := h.ok("init")
 	store := fleet.LuvusStore(h.home)
-	has(t, "init", out, "luvus: pinned 0.14.3 ("+store)
+	if !strings.HasPrefix(field(out, "luvus"), "pinned 0.14.3 ("+store) {
+		t.Fatalf("init = %q", out)
+	}
 	for _, dir := range []string{fleet.Backups(h.home), fleet.ModelsCache(h.home), store} {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			t.Fatalf("%s: %v", dir, err)
@@ -69,7 +74,7 @@ func TestInitOnAnOldLayoutCopiesAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := h.ok("init")
-	has(t, "second init", out, "migrated[2]:", "luvus 0.14.3 copied to "+fleet.LuvusStore(h.home), "backups: 2 files copied to "+fleet.Backups(h.home), "luvus: 0.14.3 (pinned)")
+	has(t, "second init", out, "migrated[2]:", "luvus 0.14.3 copied to "+esc(fleet.LuvusStore(h.home)), "backups: 2 files copied to "+esc(fleet.Backups(h.home)), "luvus: 0.14.3 (pinned)")
 	if after, err := os.ReadFile(old.Path); err != nil || string(after) != string(before) {
 		t.Fatalf("the machine copy changed: %v", err)
 	}
@@ -127,7 +132,7 @@ func TestAFleetMovedToAnotherMountKeepsItsPin(t *testing.T) {
 		t.Fatalf("pin after the move = %+v %v %v", pin, ok, err)
 	}
 	has(t, "init in the new place", h.ok("init"), "luvus: 0.14.3 (pinned)")
-	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 "+pin.Path)
+	has(t, "show", h.ok("luvus", "show"), "pin: "+toon.Value("0.14.3 "+pin.Path))
 }
 
 func TestDoctorShowsWhatIsMachineLocalAndWhatIsLeftOver(t *testing.T) {
@@ -142,10 +147,10 @@ func TestDoctorShowsWhatIsMachineLocalAndWhatIsLeftOver(t *testing.T) {
 	if row := rows["luvus pin"]; row[0] != "warn" || !strings.Contains(row[1], "still the machine copy") {
 		t.Fatalf("luvus pin before the migration = %q", row)
 	}
-	if row := rows["machine-local"]; row[0] != "info" || !strings.Contains(row[1], root) || !strings.Contains(row[1], "worktrees/") || !strings.Contains(row[1], "luvus/"+runtime.GOOS+"-"+runtime.GOARCH) {
+	if row := rows["machine-local"]; row[0] != "info" || !strings.Contains(row[1], esc(root)) || !strings.Contains(row[1], "worktrees/") || !strings.Contains(row[1], "luvus/"+runtime.GOOS+"-"+runtime.GOARCH) {
 		t.Fatalf("machine-local = %q", row)
 	}
-	if row := rows["restore points"]; row[0] != "info" || !strings.Contains(row[1], "2 hand.db backups, newest "+fleet.OldBackups(root, id)) {
+	if row := rows["restore points"]; row[0] != "info" || !strings.Contains(row[1], "2 hand.db backups, newest "+esc(fleet.OldBackups(root, id))) {
 		t.Fatalf("restore points = %q", row)
 	}
 
