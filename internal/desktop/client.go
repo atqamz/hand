@@ -101,6 +101,8 @@ type HTTPClient struct {
 	cursors map[string]string
 }
 
+func (c *HTTPClient) BoardBase() string { return c.Base }
+
 func (c *HTTPClient) Fleets() []Fleet {
 	return append([]Fleet(nil), c.Known...)
 }

@@ -2,11 +2,14 @@ package desktop
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 type palette struct {
@@ -170,7 +173,7 @@ func (a *App) masthead(c *ui.Context, p palette) {
 
 func (a *App) body(c *ui.Context, p palette) {
 	ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
-		ui.Column(c).Gap(16).Children(func() {
+		ui.Column(c).Gap(16).Selectable().Children(func() {
 			switch {
 			case a.Err != "":
 				a.errorCard(c, p)
@@ -467,7 +470,7 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 				ui.Text(c, wake.Text).FontSize(12).TextColor(p.neutral)
 			}
 			if e.Text != "" {
-				ui.Text(c, e.Text).FontSize(15)
+				a.markdown(c, e.Text)
 			}
 		})
 	}
@@ -689,7 +692,7 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 						ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
 					}
 				})
-				ui.Text(c, turn.Text).FontSize(14)
+				a.markdown(c, turn.Text)
 			})
 		}
 		if at.Transcript.More {
@@ -727,7 +730,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 	})
 	if d.Decision.Question != "" && d.Decision.Question != d.Decision.Headline {
 		if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
-			ui.Text(c, body).FontSize(15)
+			a.markdown(c, body)
 		}
 	}
 	open := d.Decision.Status == "open"
@@ -828,7 +831,7 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 			a.OpenRef(r.Task.Ref)
 		}
 	})
-	ui.Text(c, r.Report.Body).FontSize(15)
+	a.markdown(c, r.Report.Body)
 	if r.Report.AckedAt != "" {
 		ui.Textf(c, "Acknowledged %s", stamp(r.Report.AckedAt)).FontSize(12).TextColor(p.neutral)
 	}
@@ -859,7 +862,7 @@ func section(c *ui.Context, p palette, title string) {
 func (a *App) paragraph(c *ui.Context, p palette, title, body string) {
 	ui.Column(c).Gap(6).Children(func() {
 		section(c, p, title)
-		ui.Text(c, body).FontSize(14)
+		a.markdown(c, body)
 	})
 }
 
@@ -1156,4 +1159,42 @@ func stamp(at string) string {
 		}
 	}
 	return t.Local().Format("Jan 2 15:04")
+}
+
+func (a *App) markdown(c *ui.Context, src string) {
+	a.md.ShareSelection = true
+	a.md.OnLink = func(dest string) {
+		if target := a.linkTarget(dest); target != "" {
+			c.OpenURL(target)
+		}
+	}
+	markdown.View(c, src, &a.md)
+}
+
+type boardAddress interface{ BoardBase() string }
+
+func (a *App) linkTarget(dest string) string {
+	if strings.ContainsAny(dest, "\\\x00") || strings.HasPrefix(dest, "//") {
+		return ""
+	}
+	u, err := url.Parse(dest)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		if u.Host != "" && ui.SafeToOpen(dest) {
+			return dest
+		}
+	case "":
+		board, ok := a.Model.(boardAddress)
+		if !ok || a.Fleet.ID == "" || u.Host != "" || !strings.HasPrefix(u.Path, "/"+a.Fleet.ID+"/") && u.Path != "/"+a.Fleet.ID {
+			return ""
+		}
+		if slices.Contains(strings.Split(u.Path, "/"), "..") {
+			return ""
+		}
+		return board.BoardBase() + dest
+	}
+	return ""
 }
