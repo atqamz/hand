@@ -247,7 +247,7 @@ async function afterwards(box, s) {
   const bin = path.join(box.bin, `hand${exe}`);
   const link = await startBoard(box);
   const marker = box.read('board.pid') ?? '';
-  matches(marker, new RegExp(`^\\d+ \\S+ ${escape(bin)}\\s*$`), `${name}: board.pid names the updated binary`);
+  matches(marker, new RegExp(`^\\d+ \\S+ ${escape(bin)}\\s*$`, 'm'), `${name}: board.pid names the updated binary`);
   if (running.board && !s.known) equal(Number(marker.split(' ')[0]) !== running.boardPid, true, `${name}: the Board is a new process`);
   const laptop = new Client(link.origin);
   await laptop.get(`${link.pathname}${link.search}`);
@@ -256,7 +256,7 @@ async function afterwards(box, s) {
   matches(page.text, /Add a CSV export/, `${name}: the Board shows the migrated tasks`);
   if (running.watcher) {
     const now = fs.readFileSync(path.join(box.fleet, 'watch.pid'), 'utf8');
-    matches(now, new RegExp(`^\\d+ \\S+ ${escape(bin)}\\s*$`), `${name}: watch.pid names the updated binary`);
+    matches(now, new RegExp(`^\\d+ \\S+ ${escape(bin)}\\s*$`, 'm'), `${name}: watch.pid names the updated binary`);
     equal(Number(now.split(' ')[0]) !== running.watcherPid, true, `${name}: the watcher is a new process`);
   }
 

@@ -240,7 +240,7 @@ async function board(box, srv, made) {
   equal(doctor.find((c) => c.check === 'board')?.state, 'ok', 'hand doctor: the board answers');
 
   const pid = box.read('board.pid');
-  matches(pid ?? '', new RegExp(`^\\d+ \\S+ ${path.join(box.bin, `hand${exe}`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`), 'board.pid names the installed hand');
+  matches(pid ?? '', new RegExp(`^\\d+ \\S+ ${path.join(box.bin, `hand${exe}`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm'), 'board.pid names the installed hand');
   equal(toon((await ok(await box.hand(['watch', 'stop']), 'hand watch stop')).out).fields.watcher, 'not running', 'no watcher runs without a supervisor');
   equal(toon((await ok(await box.hand(['board', 'stop']), 'hand board stop')).out).fields.board, 'stopped', 'hand board stop stops the board');
   check(box.read('board.pid') === null, 'board.pid is gone');
