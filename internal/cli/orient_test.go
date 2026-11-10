@@ -24,6 +24,9 @@ func TestOrientSinceListsOnlyWhatChanged(t *testing.T) {
 	if !strings.Contains(out, "since: "+cursor+"\n") || !strings.Contains(out, "events[1]{seq,kind,task}:") || !strings.Contains(out, "task.added,t2") || strings.Contains(out, "Fix login") || strings.Contains(out, "help[") {
 		t.Fatalf("orient --since = %q", out)
 	}
+	if _, errOut, code := h.run("orient", "--since", "-5"); code == 0 || !strings.Contains(errOut, "run `hand orient`") {
+		t.Fatalf("orient --since -5 = %q, exit %d", errOut, code)
+	}
 	if _, errOut, code := h.run("orient", "--since", "99999"); code == 0 || !strings.Contains(errOut, "run `hand orient`") {
 		t.Fatalf("orient --since 99999 = %q, exit %d", errOut, code)
 	}

@@ -34,7 +34,7 @@ A fleet folder looks like this:
 └── board.token        the board's token for this fleet
 ```
 
-`hand init` rewrites `AGENTS.md`, `CLAUDE.md` and the skills every time, so put your own preferences in `memory/operator.md` instead. `hand orient` shows the supervisor up to 4000 bytes of that file on every turn.
+`hand init` rewrites `AGENTS.md`, `CLAUDE.md` and the skills every time, so put your own preferences in `memory/operator.md` instead. `hand orient` shows the supervisor up to 4000 bytes of that file at the start of a session and after a resume.
 
 ## Import another fleet
 

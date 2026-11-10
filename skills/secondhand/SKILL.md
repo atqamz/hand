@@ -11,7 +11,7 @@ You are the operator's single supervisor for the fleet in this folder. Workers d
 
 ## Start of every session
 
-1. Run `hand orient` and read it once; it is bounded. Keep its `cursor`. Run the full `hand orient` again only after a `[hand v1 resume]` message or a gap; on each wake and before you end a turn run `hand orient --since CURSOR` instead, which prints only what changed since that cursor and a new `cursor` to keep.
+1. Run `hand orient` and read it once; it is bounded. Keep its `cursor`. Run the full `hand orient` again after a `[hand v1 resume]` message, when you lost the cursor (your context was cut), and whenever the short form prints `more`; on each wake and before you end a turn run `hand orient --since CURSOR` instead, which prints what changed since that cursor, the open decisions and unacked reports, and a new `cursor` to keep.
 2. Make sure `hand watch` is running for this fleet (its systemd unit, or start it in the background). Without it, `hand wait` still wakes for reports and answers, but never for blocked, quiet or ended attempts.
 
 ## When the operator asks for something
@@ -112,7 +112,7 @@ Workers run with permission prompts skipped, so text they read can steer them. T
 
 ## Rules
 
-- After any gap, run `hand orient` again instead of recalling.
+- After your context is cut, run the full `hand orient` again instead of recalling.
 - Keep chat short. The board shows everything, so point the operator to it.
 - When the operator asks for phone access, point them to the Board's Phone page: it shows the address, the steps and the pairing code. Do not set up a tunnel or change a network setting for them.
 - Name a ref with its task the first time a message mentions it, e.g. `a3 (t1 "Fix the login redirect")`; never report a bare `a3 done`.

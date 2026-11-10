@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 
 	"github.com/atqamz/hand/internal/orient"
 )
@@ -16,6 +17,8 @@ func cmdOrient(r *runner, args []string) error {
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "since" })
 	st, err := r.store()
 	if err != nil {
 		return err
@@ -30,7 +33,7 @@ func cmdOrient(r *runner, args []string) error {
 		return err
 	}
 	pane := r.env.Getenv("LUVUS_PANE_ID")
-	if *since >= 0 {
+	if given {
 		doc, err := orient.Short(context.Background(), st, *since, pane, watch, managed, orient.DefaultBudget)
 		if err != nil {
 			return err

@@ -942,8 +942,8 @@ func TestShortListsExactlyWhatChangedSinceTheCursor(t *testing.T) {
 		"changed[1]{id,project,title,status,plan,attempt,report,open_decisions}:\n" +
 		"  t1,hand,Fix login,active,p1,none,none,1\n" +
 		"events[2]{seq,kind,task}:\n" +
-		"  " + strconv.FormatInt(since+1, 10) + ",plan.set,t1\n" +
-		"  " + strconv.FormatInt(cursor, 10) + ",decision.asked,t1\n"
+		"  " + strconv.FormatInt(cursor, 10) + ",decision.asked,t1\n" +
+		"  " + strconv.FormatInt(since+1, 10) + ",plan.set,t1\n"
 	if got := doc.String(); got != want {
 		t.Fatalf("short =\n%s\nwant\n%s", got, want)
 	}
@@ -957,9 +957,7 @@ func TestShortOfAnUnchangedFleetIsTiny(t *testing.T) {
 	ctx := context.Background()
 	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	for i := 0; i < 12; i++ {
-		a, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
-		_, _ = st.Transition(ctx, a.ID, state.StatusActive)
-		_, _ = st.Ask(ctx, a.ID, "Question?")
+		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
 	}
 	cursor, _ := st.LastEventSeq(ctx)
 	full, err := Build(ctx, st, home, "", true, true, DefaultBudget)
@@ -970,7 +968,7 @@ func TestShortOfAnUnchangedFleetIsTiny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "since: " + strconv.FormatInt(cursor, 10) + "\ncursor: " + strconv.FormatInt(cursor, 10) + "\ntasks: inbox=0 active=12 done=0 abandoned=0\n"
+	want := "since: " + strconv.FormatInt(cursor, 10) + "\ncursor: " + strconv.FormatInt(cursor, 10) + "\ntasks: inbox=12 active=0 done=0 abandoned=0\n"
 	if got := doc.String(); got != want {
 		t.Fatalf("short =\n%s\nwant\n%s", got, want)
 	}
@@ -1027,7 +1025,217 @@ func TestShortCutsALongRunOfEventsAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := doc.String()
-	if !strings.Contains(out, "more: events were cut; run `hand orient`") || len(out) >= DefaultBudget.ShortBytes {
+	if !strings.Contains(out, "events_more: 20 of 32 shown; run `hand orient`\nmore: rows were cut; run `hand orient`") || !strings.Contains(out, "changed_more: 15 of 30 shown; run `hand orient`") || !strings.Contains(out, "events[20]") || strings.Contains(out, ",task.added,t1\n") || len(out) >= DefaultBudget.ShortBytes {
+		t.Fatalf("short (%d bytes) =\n%s", len(out), out)
+	}
+}
+
+func runningAttempt(t *testing.T, st *state.Store, taskID int64) state.Attempt {
+	t.Helper()
+	ctx := context.Background()
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func TestShortFromAFarBehindCursorStillListsTheReportAndTheDecision(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	var first state.Task
+	for i := 0; i < 40; i++ {
+		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		if i == 0 {
+			first = task
+		}
+	}
+	_, _ = st.Transition(ctx, first.ID, state.StatusActive)
+	a := runningAttempt(t, st, first.ID)
+	if _, err := st.AddReport(ctx, a.ID, state.ReportDone, "Fixed it"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Ask(ctx, first.ID, "Keep cookie name?"); err != nil {
+		t.Fatal(err)
+	}
+	cursor, _ := st.LastEventSeq(ctx)
+	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	for _, want := range []string{
+		"open_decisions[1]{id,task,question}:\n  d1,t1,Keep cookie name?\n",
+		"unacked_reports[1]{id,attempt,status,summary}:\n  r1,a1,done,Fixed it\n",
+		"  t1,hand,Task 0,active,none,a1 running,r1 done,1\n",
+		"  " + strconv.FormatInt(cursor, 10) + ",decision.asked,t1\n",
+		"more: rows were cut; run `hand orient`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("short lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, ",task.added,t1\n") || strings.Contains(out, "\n  2,task.added,t2\n") {
+		t.Fatalf("short shows the oldest events:\n%s", out)
+	}
+}
+
+func TestShortListsOpenDecisionsAndUnackedReportsFromBeforeTheCursor(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	b, _ := st.AddTask(ctx, "hand", "Write docs", "")
+	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+	_, _ = st.Transition(ctx, b.ID, state.StatusActive)
+	if _, err := st.Ask(ctx, a.ID, "Keep cookie name?"); err != nil {
+		t.Fatal(err)
+	}
+	seen := runningAttempt(t, st, a.ID)
+	acked, err := st.AddReport(ctx, seen.ID, state.ReportDone, "Acked work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AckReport(ctx, acked.ID, "supervisor"); err != nil {
+		t.Fatal(err)
+	}
+	other := runningAttempt(t, st, b.ID)
+	if _, err := st.AddReport(ctx, other.ID, state.ReportProgress, "Halfway"); err != nil {
+		t.Fatal(err)
+	}
+	cursor, _ := st.LastEventSeq(ctx)
+	doc, err := Short(ctx, st, cursor, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "since: " + strconv.FormatInt(cursor, 10) + "\ncursor: " + strconv.FormatInt(cursor, 10) + "\ntasks: inbox=0 active=2 done=0 abandoned=0\n" +
+		"open_decisions[1]{id,task,question}:\n  d1,t1,Keep cookie name?\n" +
+		"unacked_reports[1]{id,attempt,status,summary}:\n  r2,a2,progress,Halfway\n"
+	if got := doc.String(); got != want {
+		t.Fatalf("short =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestShortSaysWhenTheQueuesAreCut(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	for i := 0; i < 17; i++ {
+		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		if _, err := st.Ask(ctx, task.ID, "Question?"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := DefaultBudget
+	b.ShortBytes = 1 << 20
+	cursor, _ := st.LastEventSeq(ctx)
+	doc, err := Short(ctx, st, cursor, "", true, true, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "open_decisions[15]{id,task,question}:") || !strings.Contains(out, "open_decisions_more: 15 of 17 shown; run `hand decision list --limit 500`\nmore: rows were cut; run `hand orient`") {
+		t.Fatalf("short =\n%s", out)
+	}
+}
+
+func TestShortCapsTheUnwatchedAndChangedTasks(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	for i := 0; i < 20; i++ {
+		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	}
+	b := DefaultBudget
+	b.ShortBytes = 1 << 20
+	doc, err := Short(ctx, st, 0, "", true, true, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	for _, want := range []string{
+		"unwatched[15]:\n",
+		"unwatched_more: 15 of 20 shown; run `hand task list --status active --limit 500`\nunwatched_idle: ",
+		"changed[15]{",
+		"changed_more: 15 of 20 shown; run `hand orient`\n",
+		"  t20,hand,Task 19,active,",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("short lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "  t5,hand,Task 4,") || strings.Contains(out, "  - t5\n") == false {
+		t.Fatalf("short =\n%s", out)
+	}
+}
+
+func TestShortCutForBytesKeepsDecisionsAndSaysWhatItDropped(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	for i := 0; i < 8; i++ {
+		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		if _, err := st.Ask(ctx, task.ID, "Question?"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := DefaultBudget
+	b.ShortBytes = 700
+	doc, err := Short(ctx, st, 0, "", true, true, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if len(out) >= b.ShortBytes {
+		t.Fatalf("short is %d bytes:\n%s", len(out), out)
+	}
+	for _, want := range []string{"open_decisions[8]{", "events_more: ", "changed_more: ", "more: rows were cut; run `hand orient`"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("short lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "events[") {
+		t.Fatalf("events survived the cut:\n%s", out)
+	}
+}
+
+func TestShortPutsWakeEventsBeforePlainOnesAndDropsThemLast(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	a := runningAttempt(t, st, task.ID)
+	if err := st.NoteAttempt(ctx, a.ID, "blocked", "needs input"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+	}
+	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	blocked, _, _ := st.LatestEvent(ctx, "attempt.blocked")
+	if !strings.Contains(out, "events[20]{seq,kind,task}:\n  "+strconv.FormatInt(blocked.Seq, 10)+",attempt.blocked,t1\n  ") {
+		t.Fatalf("short =\n%s", out)
+	}
+	b := DefaultBudget
+	b.ShortBytes = 480
+	doc, err = Short(ctx, st, 0, "", true, true, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = doc.String()
+	if !strings.Contains(out, "attempt.blocked,t1") || strings.Contains(out, "task.added") || len(out) >= b.ShortBytes {
 		t.Fatalf("short (%d bytes) =\n%s", len(out), out)
 	}
 }
