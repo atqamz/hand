@@ -3,10 +3,13 @@ package board_test
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -439,5 +442,50 @@ func TestTheVectorExchangesAreWhatTheBoardAnswers(t *testing.T) {
 		if rec.Code != x.Status || !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: %d\n%s\nwant\n%s", x.Name, rec.Code, rec.Body.String(), fix(string(x.Body)))
 		}
+	}
+}
+
+func TestAFeedPollWhoseSendSideEndedIsHeldAndAnsweredNormally(t *testing.T) {
+	r := servePeerRig(t, alertHost(t, "alpha"))
+	f := r.fleets[0]
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	c.half = true
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = f.st.RecordAlert(context.Background(), "attempt.failed", "a9", "a9 failed: boom", "handboard://open/"+f.id+"/attempt/a9")
+	}()
+	start := time.Now()
+	rep := c.do("GET", "/"+f.id+"/alerts/feed?after=0&wait=25", nil, map[string]string{"Connection": "close"}, phone)
+	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, `"a9"`) {
+		t.Fatalf("held poll after a half-close = %d:\n%s", rep.Code, rep.Body)
+	}
+	if time.Since(start) < 250*time.Millisecond {
+		t.Fatalf("the poll was not held: answered after %v", time.Since(start))
+	}
+}
+
+func TestAFeedPollWhosePeerResetsTheConnectionIsCanceled(t *testing.T) {
+	r := servePeerRig(t, alertHost(t, "alpha"))
+	f := r.fleets[0]
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	before := runtime.NumGoroutine()
+	d := r.as(peerA)
+	req := "GET /" + f.id + "/alerts/feed?after=0&wait=25 HTTP/1.1\r\nHost: localhost\r\nCookie: " + phone.Name + "=" + phone.Value + "\r\n\r\n"
+	if _, err := io.WriteString(d.conn, d.line+req); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := runtime.NumGoroutine(); n <= before {
+		t.Fatalf("the poll is not held: goroutines %d, before %d", n, before)
+	}
+	_ = d.conn.(*net.TCPConn).SetLinger(0)
+	_ = d.conn.Close()
+	for end := time.Now().Add(3 * time.Second); runtime.NumGoroutine() > before && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > before {
+		t.Fatalf("a reset connection left its poll held: goroutines %d, before %d", n, before)
 	}
 }
