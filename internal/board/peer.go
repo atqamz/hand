@@ -49,9 +49,13 @@ type peerConn struct {
 	paired   atomic.Bool
 	gone     chan struct{}
 	goneOnce sync.Once
+	eof      chan struct{}
+	eofOnce  sync.Once
 }
 
 func (c *peerConn) drop() { c.goneOnce.Do(func() { close(c.gone) }) }
+
+func (c *peerConn) ended() { c.eofOnce.Do(func() { close(c.eof) }) }
 
 func peerOf(r *http.Request) *peerConn {
 	c, _ := r.Context().Value(peerKey{}).(*peerConn)
@@ -78,6 +82,9 @@ func (c *peerConn) Read(p []byte) (int, error) {
 		return 0, c.err
 	}
 	n, err := c.br.Read(p)
+	if err == io.EOF {
+		c.ended()
+	}
 	var timeout net.Error
 	if err != nil && err != io.EOF && !(errors.As(err, &timeout) && timeout.Timeout()) {
 		c.drop()
@@ -133,7 +140,7 @@ func (l peerListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &peerConn{Conn: c, peer: l.peer, br: bufio.NewReaderSize(c, prefaceMax), secret: l.secret, gone: make(chan struct{})}, nil
+	return &peerConn{Conn: c, peer: l.peer, br: bufio.NewReaderSize(c, prefaceMax), secret: l.secret, gone: make(chan struct{}), eof: make(chan struct{})}, nil
 }
 
 type Peer struct {
@@ -212,9 +219,15 @@ func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := peerOf(r)
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
+	var eof <-chan struct{}
+	if fleetRest(r.URL.Path) == "events" {
+		eof = c.eof
+	}
 	go func() {
 		select {
 		case <-c.gone:
+			cancel()
+		case <-eof:
 			cancel()
 		case <-ctx.Done():
 		}

@@ -40,10 +40,10 @@ If the sidecar cannot connect to the Board, or cannot do it within the idle time
 
 | Event | What the sidecar does | What the app must do |
 |---|---|---|
-| The app ends its send side (the web view half-closed) | Shuts down the write half of the Board connection and keeps copying the answer; the Board answers the request as it would with the send side open, a held request such as a long poll included | Keep reading until the stream ends |
+| The app ends its send side (the web view half-closed) | Shuts down the write half of the Board connection and keeps copying the answer; the Board answers the request as it would with the send side open, a held request such as a long poll included. The `/events` stream is the exception: it has no answer to wait for, so the Board ends it | Keep reading until the stream ends |
 | The Board closes its write half | Ends its send side after the last byte | Deliver every byte, then shut down the write half of the web view's socket |
 | The Board closes the connection while the app is still sending | Delivers the answer, then stops the app's send side with code 5 | Stop sending without an error if an answer arrived; the web view sees a normal response |
-| The web view closes its socket at once | Nothing: the app resets its send side with any code, and the sidecar closes the Board connection. The Board cancels the request when that close is a reset or a read error; a close that looks like a half-close lets the request finish and ends the connection at the answer | Reset the stream, and do not retry it |
+| The web view closes its socket at once | Nothing: the app resets its send side with any code, and the sidecar closes the Board connection. The Board cancels the request when that close is a reset or a read error, and cancels an `/events` stream on any close, plain or half; any other request that sees a close that looks like a half-close finishes and ends the connection at the answer | Reset the stream, and do not retry it |
 
 ### Close and reset codes
 

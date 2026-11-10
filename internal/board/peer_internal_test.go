@@ -264,7 +264,12 @@ func servePeerProbe(t *testing.T, read func(r *http.Request)) string {
 		t.Fatal(err)
 	}
 	go func() { _ = p.Serve(ln) }()
-	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = p.Shutdown(ctx)
+		_ = p.srv.Close()
+	})
 	return ln.Addr().String()
 }
 
@@ -299,8 +304,7 @@ func TestARequestHeldPastItsPeersHalfCloseIsAnsweredNormally(t *testing.T) {
 	}
 }
 
-func TestARequestIsCanceledAndLeaksNothingWhenItsPeerResetsTheConnection(t *testing.T) {
-	before := runtime.NumGoroutine()
+func TestARequestIsCanceledWhenItsPeerResetsTheConnection(t *testing.T) {
 	canceled := make(chan struct{})
 	addr := servePeerProbe(t, func(r *http.Request) {
 		<-r.Context().Done()
@@ -321,10 +325,37 @@ func TestARequestIsCanceledAndLeaksNothingWhenItsPeerResetsTheConnection(t *test
 	case <-time.After(3 * time.Second):
 		t.Fatal("a reset connection left its request running")
 	}
-	for end := time.Now().Add(3 * time.Second); runtime.NumGoroutine() > before+3 && time.Now().Before(end); {
+}
+
+func TestSequentialRequestsOnOneConnectionLeaveNoGoroutineBehind(t *testing.T) {
+	addr := servePeerProbe(t, func(*http.Request) {})
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	br := bufio.NewReader(conn)
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	get := func() {
+		if _, err := io.WriteString(conn, "GET /f0123456789ab/pair HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.ReadResponse(br, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, res.Body)
+		_ = res.Body.Close()
+	}
+	get()
+	start := runtime.NumGoroutine()
+	for range 20 {
+		get()
+	}
+	for end := time.Now().Add(3 * time.Second); runtime.NumGoroutine() > start && time.Now().Before(end); {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if n := runtime.NumGoroutine(); n > before+3 {
-		t.Fatalf("goroutines %d, before %d", n, before)
+	if n := runtime.NumGoroutine(); n > start {
+		t.Fatalf("goroutines %d after 20 requests, %d after the first", n, start)
 	}
 }

@@ -1,6 +1,7 @@
 package board_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -487,5 +488,35 @@ func TestAFeedPollWhosePeerResetsTheConnectionIsCanceled(t *testing.T) {
 	}
 	if n := runtime.NumGoroutine(); n > before {
 		t.Fatalf("a reset connection left its poll held: goroutines %d, before %d", n, before)
+	}
+}
+
+func TestAnEventStreamIsEndedByItsPeersPlainClose(t *testing.T) {
+	r := servePeerRig(t, alertHost(t, "alpha"))
+	f := r.fleets[0]
+	phone := r.mustPair(r.as(peerA), f)
+	before := runtime.NumGoroutine()
+	d := r.as(peerA)
+	req := "GET /" + f.id + "/events?page= HTTP/1.1\r\nHost: localhost\r\nCookie: " + phone.Name + "=" + phone.Value + "\r\n\r\n"
+	if _, err := io.WriteString(d.conn, d.line+req); err != nil {
+		t.Fatal(err)
+	}
+	_ = d.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	res, err := http.ReadResponse(d.br, nil)
+	if err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("events = %v, %v", res, err)
+	}
+	sc := bufio.NewScanner(res.Body)
+	for sc.Scan() && !strings.HasPrefix(sc.Text(), "event: ") {
+	}
+	if n := runtime.NumGoroutine(); n <= before {
+		t.Fatalf("the stream is not held: goroutines %d, before %d", n, before)
+	}
+	_ = d.conn.Close()
+	for end := time.Now().Add(time.Second); runtime.NumGoroutine() > before && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > before {
+		t.Fatalf("a closed connection left its event stream running: goroutines %d, before %d", n, before)
 	}
 }
