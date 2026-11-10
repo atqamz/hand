@@ -141,6 +141,9 @@ func (r *runner) claim(st *state.Store) error {
 		}
 		return err
 	}
+	if err := r.checkHost(st); err != nil {
+		return err
+	}
 	r.fleet = f
 	r.migrateLayout()
 	return nil

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/boot"
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/flock"
@@ -793,6 +794,9 @@ func wantPID(t *testing.T, path string) {
 	exe, xerr := os.Executable()
 	if xerr == nil {
 		exe, xerr = update.Target(exe)
+	}
+	if id := boot.ID(); id != "" {
+		m += "@" + id
 	}
 	if err != nil || xerr != nil || f[0] != strconv.Itoa(os.Getpid()) || f[1] != m || f[2] != exe {
 		t.Fatalf("%s = %q, want %d %s %s (%v, %v)", path, f, os.Getpid(), m, exe, err, xerr)

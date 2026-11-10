@@ -25,6 +25,7 @@ A fleet folder looks like this:
 ├── hand.db            the fleet's state
 ├── fleet.home         the homes this fleet has lived at
 ├── .fleet.home.lock   serialises writes to fleet.home
+├── fleet.host         which host has the fleet open; only while a watcher runs
 ├── routing.json       fleet settings
 ├── memory/
 │   ├── operator.md    your standing preferences
@@ -121,4 +122,27 @@ Limits:
 
 - exFAT and FAT have no POSIX modes, no hard links and no symlinks. Hand ignores a refused `chmod`, and `hand doctor`'s `modes` row warns that `board.token` and `hand.db` are readable by anyone who can mount the disk. Repositories under `projects/` lose their executable bits and cannot hold two paths that differ only in case. ext4, btrfs and APFS volumes work and enforce modes, but only on systems that read them.
 - Encryption belongs to the volume: LUKS on Linux, FileVault or an encrypted APFS volume on macOS, BitLocker on Windows, or VeraCrypt to read one volume on all three. A lost unencrypted disk is a lost `board.token`, report history and every path in `hand.db`.
-- One machine at a time. Do not put a fleet on a network share (SQLite's WAL needs coherent shared memory), do not open it on two machines at once, and close the watcher, board and supervisor before unplugging. Hand does not yet detect a second host.
+- One machine at a time. Do not put a fleet on a network share (SQLite's WAL needs coherent shared memory), do not open it on two machines at once, and close the watcher, board and supervisor before unplugging. [Hand detects a second host](#which-host-has-the-fleet-open) only through the marker below, which a disk cannot update once it is unplugged.
+
+### Which host has the fleet open
+
+The watcher writes `fleet.host` in the fleet folder when it starts and rewrites it every 15 seconds: the host name, the boot id of the running system, the watcher's pid and the time. The file is written to a temporary name and renamed, so it works on exFAT. A clean stop removes it. A fleet with no watcher has no marker, and `hand doctor`, `hand fleet list` and `hand fleet adopt --check` never write it.
+
+The boot id is `/proc/sys/kernel/random/boot_id` on Linux, `kern.bootsessionuuid` on macOS, and on Windows `ticks:<unix second of the boot>`, computed from `GetTickCount64`; two Windows ids are the same boot when they are within 5 seconds.
+
+Every `hand` command that opens the fleet reads the marker and decides:
+
+- **This machine**: the boot id is the same (whatever the host name, which a laptop's network can change), or the host name is the same and the boot id is too. Nothing happens, however old the marker is. A busy watcher that misses beats, a clock that jumps and a laptop that suspends all end here, so the three fleets of one machine are never locked out and no attempt is interrupted.
+- **This host, an earlier boot** (a reboot or a crash): the old watcher is gone, unless a process holds `watch.lock`, which means a watcher is running now and the boot id read differently (a clock change under the Windows form). With the lock free, the command takes over.
+- **Another host, last beat 90 seconds ago or less**: the command refuses, naming the host, its watcher's pid and the beat, and `hand fleet unlock`, and writes nothing. A marker dated in the future (the other clock runs ahead) counts as fresh.
+- **Another host, older than 90 seconds**: the command takes over.
+
+Taking over removes the marker and, in one transaction, writes a `fleet.took_over` event and marks the live attempts interrupted (`attempt.interrupted`, reason `the fleet moved to host X`), except an attempt whose process still runs on this machine. The command says so on stderr. `hand supervisor stop` and `hand supervisor interrupt` refuse like the rest but never take over. The worktrees and processes of those attempts stay on the host that made them.
+
+`hand fleet unlock` clears the marker, writes a `fleet.unlocked` event and leaves the attempts as they are. It refuses while this machine's watcher holds `watch.lock`: run `hand watch stop` first.
+
+After a suspend or a clock jump on the same machine, nothing changes: the next beat, at most 15 seconds after the process runs again, rewrites the marker, and no command in between refuses. On another host, a suspended laptop stops beating, so after 90 seconds its fleet may be taken over; when it wakes, its watcher reads a marker that names another host at its next beat, stops with exit code 3 (`another host took this fleet over`) and leaves the new owner's marker alone. The staleness limit compares the other host's clock with this one's: if the other clock runs more than 90 seconds behind, a live fleet reads as stale, so keep the clocks of the hosts you use within a minute (any network time sync does) and close the watcher before you unplug.
+
+`hand doctor` has two rows, shown only when they apply: `open on another host` (`fail`: a marker from another host within 90 seconds) and `unclean close` (`warn`: an older marker from another host, or one of this host whose watcher is not running, a crash or a reboot).
+
+The pid files carry the boot too: `watch.pid` and `board.pid` hold `<pid> <start time>@<boot id> <binary>`. `hand watch stop`, `hand board stop` and `hand update` signal a process only when its start time, binary and boot id match this machine's, so a pid recorded on another host or before a reboot is never signalled and is removed as stale. A file from an older build has no boot id and is checked by start time and binary as before.

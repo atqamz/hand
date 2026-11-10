@@ -60,13 +60,17 @@ func removeIfSame(path string, recorded []byte) error {
 }
 
 func (r *runner) stopReport(name, path string, help ...string) error {
+	foreign := update.Foreign(path)
 	got, stale, err := stopPIDFile(name, path)
 	if err != nil {
 		return err
 	}
 	var d toon.Doc
 	d.Field(name, got)
-	if stale {
+	switch {
+	case stale && foreign:
+		d.Help("Removed " + filepath.Base(path) + ": it names a process of another host or boot, which this command never signals")
+	case stale:
 		d.Help("Removed " + filepath.Base(path) + ": it named a process that is gone")
 	}
 	if got == stoppedNow {
