@@ -74,7 +74,7 @@ func TestInitOnAnOldLayoutCopiesAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := h.ok("init")
-	has(t, "second init", out, "migrated[2]:", "luvus 0.14.3 copied to "+esc(fleet.LuvusStore(h.home)), "backups: 2 files copied to "+esc(fleet.Backups(h.home)), "luvus: 0.14.3 (pinned)")
+	has(t, "second init", out, "migrated[2]:", "luvus 0.14.3 copied to "+fleet.LuvusStore(h.home), "backups: 2 files copied to "+fleet.Backups(h.home), "luvus: 0.14.3 (pinned)")
 	if after, err := os.ReadFile(old.Path); err != nil || string(after) != string(before) {
 		t.Fatalf("the machine copy changed: %v", err)
 	}
