@@ -110,7 +110,8 @@ func TestAddTaskUnderRecordsTheParentAndRefusesAMissingOne(t *testing.T) {
 
 func TestATaskMayChildUnderADoneOrAbandonedParentInAnotherProject(t *testing.T) {
 	s, ctx := seedTree(t)
-	if _, err := s.AddProject(ctx, "other", "/home/me/other", ""); err != nil {
+	otherRepo, _ := filepath.Abs("/home/me/other")
+	if _, err := s.AddProject(ctx, "other", otherRepo, ""); err != nil {
 		t.Fatal(err)
 	}
 	addTasks(t, s, 2)
