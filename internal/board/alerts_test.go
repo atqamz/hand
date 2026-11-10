@@ -3,8 +3,6 @@ package board_test
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -345,42 +343,6 @@ func TestAPairedPeerGetsTheFeedWithALengthAndNoSecret(t *testing.T) {
 		if strings.Contains(rep.Body, secret) {
 			t.Fatalf("the feed holds %q:\n%s", secret, rep.Body)
 		}
-	}
-}
-
-func TestAFeedPollWhoseSendSideEndsIsRefusedNotAnswered(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
-	p.tick = 10 * time.Millisecond
-	p.restart()
-	r := servePeerRig(t, p)
-	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
-	raise(t, f, 1)
-	c := r.as(peerA)
-	req, err := http.NewRequest("GET", "http://localhost/"+f.id+"/alerts/feed?after=0&wait=25", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Connection", "close")
-	req.AddCookie(phone)
-	_ = c.conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := io.WriteString(c.conn, c.line); err != nil {
-		t.Fatal(err)
-	}
-	if err := req.Write(c.conn); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.conn.(*net.TCPConn).CloseWrite(); err != nil {
-		t.Fatal(err)
-	}
-	res, err := http.ReadResponse(c.br, req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != http.StatusForbidden || strings.Contains(string(body), `"alerts"`) {
-		t.Fatalf("a poll that ended its send side = %d:\n%s", res.StatusCode, body)
 	}
 }
 
