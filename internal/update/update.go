@@ -145,12 +145,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err != nil {
 		return rep, err
 	}
-	for _, e := range fleets {
-		if e.State != "ok" {
-			continue
-		}
-		if p, found, err := fleet.ReadVersion(e.Home); err == nil && found && PinNewer(p, rep.To.Version, rep.To.Schema) {
-			return rep, fmt.Errorf("%w: update: %s was last opened by hand %s (schema %d), newer than the %s %s (schema %d) this update would install; nothing was changed. Run `hand update --channel edge`", state.ErrInvalid, e.Name, p.Version, p.Schema, rep.To.Channel, rep.To.Version, rep.To.Schema)
+	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
+	if !current {
+		if err := refuseOlderTarget(rep.To, fleets); err != nil {
+			return rep, err
 		}
 	}
 	pins := map[string]fleetPin{}
@@ -189,7 +187,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	rep.retireWatchUnits(ctx, o, fleets)
 	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pins[e.ID].pin, pins[e.ID].pinned) }
-	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
 	irohNext := sidecarPath(o.Target, o.OS)
 	irohStale := false
 	if current && rep.To.Iroh != "" {

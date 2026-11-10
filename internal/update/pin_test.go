@@ -40,22 +40,72 @@ func TestPinNewer(t *testing.T) {
 	}
 }
 
+func pinned(t *testing.T, f *fixture, name, version string) string {
+	t.Helper()
+	_, home := newFleet(t, f.root, name)
+	if err := fleet.WriteVersion(home, fleet.VersionPin{Version: version, Schema: state.SchemaVersion}); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
 func TestRunRefusesATargetOlderThanAFleetsPin(t *testing.T) {
 	for _, check := range []bool{false, true} {
 		f := newFetch(t)
-		_, home := newFleet(t, f.root, "alpha")
-		if err := fleet.WriteVersion(home, fleet.VersionPin{Version: "0.10.0", Schema: state.SchemaVersion}); err != nil {
-			t.Fatal(err)
-		}
+		home := pinned(t, f, "alpha", "0.10.0")
 		f.o.Check = check
 		_, err := Run(context.Background(), f.o)
-		if err == nil || !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "0.10.0") || !strings.Contains(err.Error(), "`hand update --channel edge`") {
+		if err == nil || !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "0.10.0") || !strings.Contains(err.Error(), "delete its hand.version") || !strings.Contains(err.Error(), home) {
 			t.Fatalf("check=%v: err = %v", check, err)
 		}
 		f.unchanged(t)
 		if got := f.log(t, changes...); len(got) != 0 {
 			t.Fatalf("check=%v: calls = %q", check, got)
 		}
+	}
+}
+
+func TestRunNamesEveryFleetThatRefuses(t *testing.T) {
+	f := newFetch(t)
+	pinned(t, f, "alpha", "0.10.0")
+	pinned(t, f, "beta", "0.8.0")
+	pinned(t, f, "gamma", "0.11.0")
+	_, err := Run(context.Background(), f.o)
+	if err == nil || !strings.Contains(err.Error(), "alpha (hand 0.10.0") || !strings.Contains(err.Error(), "gamma (hand 0.11.0") || strings.Contains(err.Error(), "beta") {
+		t.Fatalf("err = %v", err)
+	}
+	f.unchanged(t)
+}
+
+func TestRunNeverRefusesACurrentBuildForAPin(t *testing.T) {
+	for _, check := range []bool{false, true} {
+		f := newFetch(t)
+		f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: state.SchemaVersion, Luvus: "0.14.4"}
+		pinned(t, f, "alpha", "0.10.0")
+		f.o.Check = check
+		rep, err := Run(context.Background(), f.o)
+		if err != nil || rep.Status != "up to date" && rep.Status != "checked" {
+			t.Fatalf("check=%v: report = %+v, %v", check, rep, err)
+		}
+	}
+}
+
+func TestRunHintFollowsTheTargetsChannel(t *testing.T) {
+	f := newFetch(t)
+	pinned(t, f, "alpha", "0.10.0")
+	_, err := Run(context.Background(), f.o)
+	if err == nil || !strings.Contains(err.Error(), "No release of this channel is that new yet.") || strings.Contains(err.Error(), "--channel edge") {
+		t.Fatalf("edge target: err = %v", err)
+	}
+	g := newFetch(t)
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "22", "0.14.4") {
+		g.srv.set(name, body)
+	}
+	g.o.Channel = "stable"
+	pinned(t, g, "alpha", "0.10.0")
+	_, err = Run(context.Background(), g.o)
+	if err == nil || !strings.Contains(err.Error(), "Run `hand update --channel edge` to get the newer hand.") {
+		t.Fatalf("stable target: err = %v", err)
 	}
 }
 

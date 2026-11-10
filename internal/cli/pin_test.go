@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func TestInitWritesThePin(t *testing.T) {
 func TestPinOfANewerVersionRefusesAndNamesTheUpdateCommand(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	putPin(t, home, "99.0.0", state.SchemaVersion)
-	refuses(t, h, "99.0.0", cli.Version, "`hand update", "nothing was changed")
+	refuses(t, h, "99.0.0", cli.Version, "`hand update", "nothing was changed", "restore a backup of hand.db", filepath.Join(home, fleet.VersionFile))
 }
 
 func TestPinOfANewerSchemaRefusesAndNamesTheUpdateCommand(t *testing.T) {
@@ -378,5 +379,27 @@ func TestFleetAdoptAndMoveRepinAnOlderFleet(t *testing.T) {
 	h.ok("fleet", "move", "--yes", dest)
 	if p := readPin(t, dest); p.Version != cli.Version {
 		t.Fatalf("move left the pin at %+v", p)
+	}
+}
+
+func TestTakeOverWarnsAndWentOnWhenTheMarkerCannotBeReread(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("file modes are not enforced here")
+	}
+	h, home, _ := initMoveFleet(t)
+	var errOut bytes.Buffer
+	env := h.env(&bytes.Buffer{}, &errOut)
+	asHost(t, "desk", "boot-b")
+	stale := fleet.HostMarker{Host: "laptop", Boot: "boot-x", PID: 31337, At: h.clock().Add(-time.Hour)}
+	if err := fleet.WriteHost(home, stale); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, fleet.HostFile)
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	events := eventCount(t, home, "")
+	if err := cli.TakeOver(env, home, stale); err != nil || !strings.Contains(errOut.String(), "cannot read") || eventCount(t, home, "") != events {
+		t.Fatalf("err=%v stderr=%q events=%d", err, errOut.String(), eventCount(t, home, "")-events)
 	}
 }

@@ -88,7 +88,7 @@ func waitIdle(t *testing.T, h *harness, session, bin string) {
 func TestLiveSwitchResumesTheSupervisor(t *testing.T) {
 	h, session, bin := liveFleet(t)
 	before := serverPID(t, h, session, bin)
-	h.vars["HAND_INSTALL_BASE"] = handRelease(t, "0.14.0", "edge", "0123456789ab", luvus.Tested)
+	h.vars["HAND_INSTALL_BASE"] = handRelease(t, "0.9.0", "edge", "0123456789ab", luvus.Tested)
 	channel, commit := cli.Channel, cli.Commit
 	cli.Channel, cli.Commit = "edge", "0123456789ab"
 	var waited time.Duration

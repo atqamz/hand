@@ -43,7 +43,7 @@ func (r *runner) pinRefusal(home string) error {
 	if !found || !newerPin(p) {
 		return nil
 	}
-	return fmt.Errorf("%w: this fleet was last opened by %s, newer than this hand, %s; nothing was changed. Run `%s` to get the newer hand, then try again", state.ErrInvalid, handLabel(p), handLabel(selfPin()), updateCommand())
+	return fmt.Errorf("%w: this fleet was last opened by %s, newer than this hand, %s; nothing was changed. Run `%s` to get the newer hand, then try again. To go back to this hand on purpose, restore a backup of hand.db from %s and delete %s", state.ErrInvalid, handLabel(p), handLabel(selfPin()), updateCommand(), filepath.Join(home, "backups"), filepath.Join(home, fleet.VersionFile))
 }
 
 func (r *runner) preflight() (*fleet.HostMarker, error) {

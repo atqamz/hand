@@ -57,10 +57,10 @@ func (r *runner) judgeHost() (*fleet.HostMarker, error) {
 
 func (r *runner) takeOver(st *state.Store, from, self fleet.HostMarker) error {
 	cur, found, err := fleet.ReadHost(r.home)
-	if err != nil || !found {
-		return err
+	if err == nil && !found {
+		return nil
 	}
-	if cur.Host != from.Host || cur.Boot != from.Boot || cur.PID != from.PID || !cur.At.Equal(from.At) {
+	if err != nil || !sameMarker(cur, from) {
 		again, err := r.judgeHost()
 		if err != nil || again == nil {
 			return err
@@ -83,8 +83,10 @@ func (r *runner) takeOver(st *state.Store, from, self fleet.HostMarker) error {
 	if err := st.HostHandover(ctx, "fleet.took_over", detail, reason, gone); err != nil {
 		return err
 	}
-	if err := fleet.RemoveHost(r.home); err != nil {
-		return err
+	if cur, found, err := fleet.ReadHost(r.home); err == nil && found && sameMarker(cur, from) {
+		if err := fleet.RemoveHost(r.home); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(r.env.Stderr, "hand: took over from host %s: %d live attempts marked interrupted\n", from.Host, len(gone))
 	return nil
@@ -217,4 +219,8 @@ func (r *runner) doctorHost(c *checks) {
 			c.add("unclean close", "warn", fmt.Sprintf("this host's watcher (pid %d) ended without clearing %s; `hand watch` overwrites it", m.PID, fleet.HostFile))
 		}
 	}
+}
+
+func sameMarker(a, b fleet.HostMarker) bool {
+	return a.Host == b.Host && a.Boot == b.Boot && a.PID == b.PID && a.At.Equal(b.At)
 }
