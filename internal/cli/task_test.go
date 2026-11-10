@@ -378,3 +378,111 @@ func TestTaskDeliverBackfillsNewestFirst(t *testing.T) {
 		t.Fatalf("details = %q", details)
 	}
 }
+
+func TestTaskAddParentAndParentCommand(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Epic")
+	out := h.ok("task", "add", "--parent", "t1", "hand", "Part")
+	if !strings.Contains(out, "task: t2") || !strings.Contains(out, "parent: t1") {
+		t.Fatalf("task add --parent = %q", out)
+	}
+	if _, errOut, code := h.run("task", "add", "--parent", "t999", "hand", "Lost"); code != 3 || !strings.Contains(errOut, "t999") {
+		t.Fatalf("missing parent: code=%d stderr=%q", code, errOut)
+	}
+	h.ok("task", "add", "hand", "Loose")
+	if out := h.ok("task", "parent", "t3", "--parent", "t2"); !strings.Contains(out, "task: t3") || !strings.Contains(out, "parent: t2") {
+		t.Fatalf("task parent = %q", out)
+	}
+	if out := h.ok("task", "parent", "t3", "--root"); !strings.Contains(out, "parent: none") {
+		t.Fatalf("task parent --root = %q", out)
+	}
+	_, errOut, code := h.run("task", "parent", "t1", "--parent", "t2")
+	if code != 3 || !strings.Contains(errOut, "task t1 cannot sit under t2: t2 is already below it (t2 > t1)") {
+		t.Fatalf("cycle: code=%d stderr=%q", code, errOut)
+	}
+	for _, args := range [][]string{{"task", "parent", "t1"}, {"task", "parent", "t1", "--root", "--parent", "t2"}, {"task", "parent", "--root"}} {
+		if _, errOut, code := h.run(args...); code != 2 {
+			t.Fatalf("%v: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+}
+
+func TestTaskListNestsChildrenUnderTheirParent(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "A")
+	h.ok("task", "add", "hand", "B")
+	h.ok("task", "add", "--parent", "t1", "hand", "A child")
+	h.ok("task", "add", "--parent", "t3", "hand", "A grandchild")
+	h.ok("task", "add", "--parent", "t2", "hand", "B child")
+	h.ok("task", "add", "--parent", "t1", "hand", "A second child")
+	tree := h.ok("task", "list")
+	want := "tasks[6]{id,project,status,title,parent}:\n  t1,hand,inbox,A,\"\"\n  t3,hand,inbox,A child,t1\n  t4,hand,inbox,A grandchild,t3\n  t6,hand,inbox,A second child,t1\n  t2,hand,inbox,B,\"\"\n  t5,hand,inbox,B child,t2\n"
+	if !strings.Contains(tree, want) {
+		t.Fatalf("task list = %q, want it to contain %q", tree, want)
+	}
+	flat := h.ok("task", "list", "--flat")
+	for _, bad := range []string{"parent", ",t1\n"} {
+		if strings.Contains(flat, bad) {
+			t.Fatalf("--flat has %q: %q", bad, flat)
+		}
+	}
+	if !strings.Contains(flat, "tasks[6]{id,project,status,title}:\n  t6,hand,inbox,A second child\n  t5,") {
+		t.Fatalf("--flat = %q", flat)
+	}
+}
+
+func TestTaskListHasNoParentColumnWhenNothingIsNested(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "A")
+	h.ok("task", "add", "hand", "B")
+	if out := h.ok("task", "list"); !strings.Contains(out, "tasks[2]{id,project,status,title}:") || out != h.ok("task", "list", "--flat") {
+		t.Fatalf("task list = %q", out)
+	}
+}
+
+func TestTaskListShowsAnOrphanAsARootWithItsParentRef(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Parent")
+	h.ok("task", "add", "--parent", "t1", "hand", "Child")
+	h.ok("task", "add", "--parent", "t2", "hand", "Grandchild")
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "t1")
+	out := h.ok("task", "list")
+	if !strings.Contains(out, "tasks[2]{id,project,status,title,parent}:\n  t2,hand,inbox,Child,t1\n  t3,hand,inbox,Grandchild,t2\n") {
+		t.Fatalf("task list = %q", out)
+	}
+	out = h.ok("task", "list", "--limit", "1")
+	if !strings.Contains(out, "t3,hand,inbox,Grandchild,t2") {
+		t.Fatalf("a --limit cut dropped the parent ref: %q", out)
+	}
+}
+
+func TestTaskShowPrintsParentAndChildren(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Epic")
+	h.ok("task", "add", "--parent", "t1", "hand", "Part")
+	root := h.ok("task", "show", "t1")
+	if !strings.Contains(root, "parent: none") || !strings.Contains(root, "children[1]{id,status,title}:\n  t2,inbox,Part\n") {
+		t.Fatalf("root show = %q", root)
+	}
+	child := h.ok("task", "show", "t2")
+	if !strings.Contains(child, "parent: t1") || strings.Contains(child, "children") {
+		t.Fatalf("child show = %q", child)
+	}
+}
+
+func TestTaskDoneWarnsAboutOpenSubTasksAndStillSucceeds(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Epic")
+	h.ok("task", "add", "--parent", "t1", "hand", "Part")
+	h.ok("task", "start", "t1")
+	out := h.ok("task", "done", "t1")
+	if !strings.Contains(out, "status: done") || !strings.Contains(out, "t1 has 1 open sub-task(s)") {
+		t.Fatalf("task done = %q", out)
+	}
+	h.ok("task", "add", "hand", "Solo")
+	h.ok("task", "start", "t3")
+	if out := h.ok("task", "done", "t3"); strings.Contains(out, "warn") {
+		t.Fatalf("task done without children warned: %q", out)
+	}
+}

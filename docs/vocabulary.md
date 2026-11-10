@@ -181,6 +181,8 @@ Hand removes what it can prove safe, and only warns about the rest. The knobs ar
 
 Backward compatibility is not kept for this: the `attempt.kept` column is schema 17, and a `hand` older than this refuses a database migrated to it and a `routing.json` that holds `retention`; going back needs a restored backup (see [Restore a backup](update.md#restore-a-backup)).
 
+The same holds for `task.parent_id`, which is schema 20: a `hand` older than this refuses a database migrated to it (`newer than this hand (19)`), and going back needs a restored backup.
+
 ### Shared folder
 
 `~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `index/<fleet id>` is a bookmark that holds the path of that fleet's home, written by a temporary file and a rename so it works on a filesystem without hard links, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, `board.generation` holds the running board's `PID MARKER` for the supervisor work it owns, `board.peer` holds the [peer preface](#peer-preface) secret, `board.iroh` holds the board's [`--iroh`](#phone-access-over-iroh) setting and the sidecar's last state, `iroh/` holds the sidecar's endpoint key, `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER BINARY`. `update.lock` is the lock a `hand update` holds, `update.log` the last automatic update's output, and `board.update-every` the board's `--update-every` for the board `hand update` restarts. A fleet home also holds `watch.pid` for its running watcher. `hand update`, `hand board stop` and `hand watch stop` stop the processes these files name, only while the recorded start time and binary still match.
@@ -231,6 +233,8 @@ Before every git command it runs for a project, Hand reads the same settings the
 | `abandoned` | dropped; refused while an attempt is live | `hand task abandon` |
 
 An `inbox` task can become `active` or `abandoned`, and an `active` task can become `done` or `abandoned`. `done` and `abandoned` are final, and reaching either withdraws the task's open decisions.
+
+A task may sit under a **parent** task and is then a **sub-task** of it. `hand task add --parent tN` creates one, `hand task parent tN --parent tM` moves one and `hand task parent tN --root` makes it a root again; each change records `task.parented` (detail `tM` or `root`; `task.added` carries `tM` for a child) in the same transaction. Nesting has no depth limit and no rule beyond one: a task cannot sit under itself or under one of its own descendants (`conflict`, exit 3, naming the chain). It cascades nothing. A parent may be done or abandoned while its children are open, a child may be in another project, and a done or abandoned task may still be re-parented or parent a follow-up. `hand task done` and `hand task abandon` on a parent with open children print a `warn` and finish the task. `hand task list` places each child after its parent, with a `parent` column that appears only when a row has one; a child whose parent is not in the listing (filtered out or cut by `--limit`) is listed as a root and keeps its `parent` ref; `--flat` prints the plain table. `hand task show` prints `parent` and a `children` table, and `hand orient` orders its `active` and `inbox` rows the same way. `wait`, wakes, timers, plans, decisions and reports stay per task.
 
 ### Plan and plan revision
 

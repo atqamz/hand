@@ -346,7 +346,11 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 		if t.ID+p.result.Offset > p.result.NewTaskMax {
 			p.result.NewTaskMax = t.ID + p.result.Offset
 		}
-		p.tasks = append(p.tasks, Task{ID: t.ID + p.result.Offset, Project: project, Title: title, Goal: goal, Status: t.Status, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt})
+		var parent int64
+		if t.ParentID != 0 {
+			parent = t.ParentID + p.result.Offset
+		}
+		p.tasks = append(p.tasks, Task{ID: t.ID + p.result.Offset, Project: project, Title: title, Goal: goal, Status: t.Status, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, ParentID: parent})
 		p.result.Refs = append(p.result.Refs, refs...)
 		p.result.Refs = append(p.result.Refs, grefs...)
 		p.result.Left = append(p.result.Left, left...)
@@ -562,6 +566,14 @@ func insertImport(ctx context.Context, tx *sql.Tx, at string, o ImportOptions, p
 	}
 	for _, t := range p.tasks {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, t.ID, t.Project, t.Title, t.Goal, t.Status, t.CreatedAt, t.UpdatedAt); err != nil {
+			return err
+		}
+	}
+	for _, t := range p.tasks {
+		if t.ParentID == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE task SET parent_id = ? WHERE id = ?`, t.ParentID, t.ID); err != nil {
 			return err
 		}
 	}

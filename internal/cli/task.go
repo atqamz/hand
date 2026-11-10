@@ -22,6 +22,7 @@ var taskCommands = map[string]handler{
 	"done":    transitionCommand("done", state.StatusDone),
 	"abandon": transitionCommand("abandon", state.StatusAbandoned),
 	"deliver": cmdTaskDeliver,
+	"parent":  cmdTaskParent,
 }
 
 func init() {
@@ -31,23 +32,82 @@ func init() {
 func cmdTaskAdd(r *runner, args []string) error {
 	fs := flags("task add")
 	goal := fs.String("goal", "", "what done looks like")
+	parent := fs.String("parent", "", "task this one belongs under")
 	pos, err := parse(fs, args, 2)
 	if err != nil {
 		return err
+	}
+	var parentID int64
+	if *parent != "" {
+		if parentID, err = parseID("t", *parent); err != nil {
+			return err
+		}
 	}
 	st, err := r.store()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	t, err := st.AddTask(context.Background(), pos[0], pos[1], *goal)
+	t, err := st.AddTaskUnder(context.Background(), parentID, pos[0], pos[1], *goal)
 	if err != nil {
 		return err
 	}
 	var d toon.Doc
 	d.Field("task", state.TaskRef(t.ID))
 	d.Field("status", t.Status)
+	if t.ParentID != 0 {
+		d.Field("parent", state.TaskRef(t.ParentID))
+	}
 	d.Help("Start it when work begins: `hand task start " + state.TaskRef(t.ID) + "`")
+	return r.print(&d)
+}
+
+func cmdTaskParent(r *runner, args []string) error {
+	fs := flags("task parent")
+	parent := fs.String("parent", "", "task this one belongs under")
+	root := fs.Bool("root", false, "make it a root task")
+	if err := fs.Parse(args); err != nil {
+		return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
+	}
+	pos := fs.Args()
+	if len(pos) > 0 {
+		if err := fs.Parse(pos[1:]); err != nil {
+			return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
+		}
+		pos = append(pos[:1:1], fs.Args()...)
+	}
+	if len(pos) != 1 {
+		return usageError{fmt.Sprintf("%s: want 1 argument(s) after flags, got %d", fs.Name(), len(pos))}
+	}
+	if (*parent == "") == !*root {
+		return usageError{"task parent: give exactly one of --parent tM or --root"}
+	}
+	id, err := parseID("t", pos[0])
+	if err != nil {
+		return err
+	}
+	var parentID int64
+	if !*root {
+		if parentID, err = parseID("t", *parent); err != nil {
+			return err
+		}
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	t, err := st.SetParent(context.Background(), id, parentID)
+	if err != nil {
+		return err
+	}
+	var d toon.Doc
+	d.Field("task", state.TaskRef(t.ID))
+	if t.ParentID == 0 {
+		d.Field("parent", "none")
+	} else {
+		d.Field("parent", state.TaskRef(t.ParentID))
+	}
 	return r.print(&d)
 }
 
@@ -71,6 +131,11 @@ func cmdTaskShow(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	taskFields(&d, t)
+	if t.ParentID != 0 {
+		d.Field("parent", state.TaskRef(t.ParentID))
+	} else {
+		d.Field("parent", "none")
+	}
 	p, ok, err := st.CurrentPlan(context.Background(), id)
 	if err != nil {
 		return err
@@ -138,6 +203,17 @@ func cmdTaskShow(r *runner, args []string) error {
 		answered = answered || dec.Status == state.DecisionAnswered
 	}
 	d.Rows("decisions", []string{"id", "status", "question"}, rows)
+	kids, err := st.Children(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if len(kids) > 0 {
+		kidRows := make([][]string, 0, len(kids))
+		for _, k := range kids {
+			kidRows = append(kidRows, []string{state.TaskRef(k.ID), k.Status, k.Title})
+		}
+		d.Rows("children", []string{"id", "status", "title"}, kidRows)
+	}
 	if answered {
 		d.Help("Read an answer: `hand decision show dN`")
 	}
@@ -159,6 +235,7 @@ func cmdTaskList(r *runner, args []string) error {
 	since := fs.String("since", "", "on or after this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	until := fs.String("until", "", "on or before this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	limit := fs.Int("limit", 50, "maximum rows")
+	flat := fs.Bool("flat", false, "one table, newest first, children not placed under their parent")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -181,10 +258,17 @@ func cmdTaskList(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	nested := !*flat && state.Nested(tasks)
+	if nested {
+		tasks = state.Tree(tasks)
+	}
 	dated := want == nil || slices.Contains(want, state.StatusDone) || slices.Contains(want, state.StatusAbandoned)
 	header := []string{"id", "project", "status", "title"}
 	if dated {
 		header = append(header, "finished")
+	}
+	if nested {
+		header = append(header, "parent")
 	}
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
@@ -196,6 +280,9 @@ func cmdTaskList(r *runner, args []string) error {
 			}
 			row = append(row, day)
 		}
+		if nested {
+			row = append(row, parentRef(t))
+		}
 		rows = append(rows, row)
 	}
 	var d toon.Doc
@@ -204,6 +291,13 @@ func cmdTaskList(r *runner, args []string) error {
 		d.Help("More may exist: rerun with `--limit " + strconv.Itoa(*limit*2) + "`")
 	}
 	return r.print(&d)
+}
+
+func parentRef(t state.Task) string {
+	if t.ParentID == 0 {
+		return ""
+	}
+	return state.TaskRef(t.ParentID)
 }
 
 func transitionCommand(name, to string) handler {
@@ -251,6 +345,15 @@ func transitionCommand(name, to string) handler {
 		var d toon.Doc
 		d.Field("task", state.TaskRef(t.ID))
 		d.Field("status", t.Status)
+		if to == state.StatusDone || to == state.StatusAbandoned {
+			open, err := st.OpenChildCount(context.Background(), id)
+			if err != nil {
+				return err
+			}
+			if open > 0 {
+				d.Field("warn", fmt.Sprintf("%s has %d open sub-task(s); they stay as they are: `hand task list`", state.TaskRef(t.ID), open))
+			}
+		}
 		if len(delivered) > 0 {
 			d.List("delivered", delivered)
 		}

@@ -27,10 +27,18 @@ async function cli(box, srv) {
   equal(projects.map((p) => p.name ?? p.project), ['alpha', 'beta'], 'both projects are listed');
   const tasks = toon((await ok(await box.hand(['task', 'list', '--status', 'all']), 'hand task list')).out).tables.tasks;
   equal(tasks.map((t) => [t.id, t.title]).sort(), [['t1', 'Fix the login redirect'], ['t2', 'Add a CSV export'], ['t3', 'Update the README']], 'the three tasks are listed');
+  await ok(await box.hand(['task', 'add', '--parent', 't1', 'alpha', 'Fix the login redirect on Safari']), 'hand task add --parent t1');
+  const nested = toon((await ok(await box.hand(['task', 'list', '--status', 'all']), 'hand task list after nesting')).out).tables.tasks;
+  equal(nested.map((t) => [t.id, t.parent]), [['t1', ''], ['t4', 't1'], ['t2', ''], ['t3', '']], 'hand task list puts a child under its parent');
+  const flat = toon((await ok(await box.hand(['task', 'list', '--flat', '--status', 'all']), 'hand task list --flat')).out).tables.tasks;
+  check(flat.every((t) => t.parent === undefined), 'hand task list --flat has no parent column');
+  const shownParent = toon((await ok(await box.hand(['task', 'show', 't1']), 'hand task show t1')).out);
+  equal([shownParent.fields.parent, shownParent.tables.children.map((c) => c.id)], ['none', ['t4']], 'hand task show lists the children');
+  equal(toon((await ok(await box.hand(['task', 'show', 't4']), 'hand task show t4')).out).fields.parent, 't1', 'hand task show names the parent');
 
   const orient = await ok(await box.hand(['orient']), 'hand orient');
   check(Buffer.byteLength(orient.out) < 6000, `hand orient stays under its byte budget (${Buffer.byteLength(orient.out)} bytes)`);
-  matches(orient.out, /^tasks: inbox=2 active=1 done=0 abandoned=0$/m, 'hand orient counts the tasks');
+  matches(orient.out, /^tasks: inbox=3 active=1 done=0 abandoned=0$/m, 'hand orient counts the tasks');
   matches(orient.out, /^fleet: fleet \(/m, 'hand orient names the fleet');
 
   const route = await ok(await box.hand(['route', 'list']), 'hand route list exits 0 with no harness installed');

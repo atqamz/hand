@@ -96,6 +96,10 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if err != nil {
 		return nil, err
 	}
+	activeNested := state.Nested(active)
+	if activeNested {
+		active = state.Tree(active)
+	}
 	activeRows := make([][]string, 0, len(active))
 	for _, t := range active {
 		plan := "none"
@@ -140,7 +144,11 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 				report = state.ReportRef(rep.ID) + " " + rep.Status
 			}
 		}
-		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes), plan, attempt, report, strconv.Itoa(n)})
+		row := []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes), plan, attempt, report, strconv.Itoa(n)}
+		if activeNested {
+			row = append(row, parentCell(t))
+		}
+		activeRows = append(activeRows, row)
 	}
 
 	decisions, err := st.OpenDecisions(ctx, 0, b.Decisions)
@@ -175,9 +183,17 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if err != nil {
 		return nil, err
 	}
+	inboxNested := state.Nested(inbox)
+	if inboxNested {
+		inbox = state.Tree(inbox)
+	}
 	inboxRows := make([][]string, 0, len(inbox))
 	for _, t := range inbox {
-		inboxRows = append(inboxRows, []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes)})
+		row := []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes)}
+		if inboxNested {
+			row = append(row, parentCell(t))
+		}
+		inboxRows = append(inboxRows, row)
 	}
 
 	events, err := st.RecentEvents(ctx, b.Events)
@@ -228,11 +244,19 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 	memLines := lines(mem)
 
+	activeFields := []string{"id", "project", "title", "plan", "attempt", "report", "open_decisions"}
+	if activeNested {
+		activeFields = append(activeFields, "parent")
+	}
+	inboxFields := []string{"id", "project", "title"}
+	if inboxNested {
+		inboxFields = append(inboxFields, "parent")
+	}
 	sections := []*section{
-		{"active", []string{"id", "project", "title", "plan", "attempt", "report", "open_decisions"}, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
+		{"active", activeFields, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
 		{"open_decisions", []string{"id", "task", "question"}, decisionRows, openTotal, "hand decision list --limit 500"},
 		{"unacked_reports", []string{"id", "attempt", "status", "summary"}, reportRows, unacked, "hand report list --unacked --limit 500"},
-		{"inbox", []string{"id", "project", "title"}, inboxRows, counts[state.StatusInbox], "hand task list --status inbox --limit 500"},
+		{"inbox", inboxFields, inboxRows, counts[state.StatusInbox], "hand task list --status inbox --limit 500"},
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
@@ -290,6 +314,13 @@ func artifactWarning(home string) (string, string) {
 	}
 	text := retention.Warning(files, time.Now(), p.Retention.WarnSize, p.Retention.WarnDays)
 	return text, retention.GcCommand(p.Retention.WarnDays)
+}
+
+func parentCell(t state.Task) string {
+	if t.ParentID == 0 {
+		return ""
+	}
+	return state.TaskRef(t.ParentID)
 }
 
 func dropLast(sections []*section) bool {
