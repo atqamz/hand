@@ -20,7 +20,7 @@ func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE legacy (x INTEGER); PRAGMA user_version = 21`); err != nil {
+	if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE legacy (x INTEGER); PRAGMA user_version = %d`, SchemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -30,7 +30,7 @@ func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(path, clock); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "schema 21") {
+	if _, err := Open(path, clock); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), fmt.Sprintf("schema %d", SchemaVersion+1)) {
 		t.Fatalf("open = %v", err)
 	}
 	after, err := os.ReadFile(path)
