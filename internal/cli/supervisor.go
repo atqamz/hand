@@ -329,7 +329,7 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	if row.Harness == "opencode" && row.Effort == "default" {
 		row.Effort = ""
 	}
-	r.noteLost = ""
+	r.setNoteLost("")
 	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: row.Harness, Model: row.Model, Effort: row.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
 	if err != nil && !errors.Is(err, errLaunchUnknown) {
 		err = revert(err)
@@ -357,9 +357,10 @@ func (r *runner) checkNote(ctx context.Context, st *state.Store, sup state.Super
 	case !read:
 		r.warn("could not check that opencode took the resume note")
 	case !taken:
-		r.noteLost = state.NoteLost + ": is " + cmp.Or(spec.Model, "the default model") + " available? " + r.lostNoteAction(last, spec)
-		r.warn(r.noteLost)
-		if err := detached(ctx, func(ctx context.Context) error { return st.NoteSupervisor(ctx, sup.ID, "blocked", r.noteLost) }); err != nil {
+		lost := state.NoteLost + ": is " + cmp.Or(spec.Model, "the default model") + " available? " + r.lostNoteAction(last, spec)
+		r.setNoteLost(lost)
+		r.warn(lost)
+		if err := detached(ctx, func(ctx context.Context) error { return st.NoteSupervisor(ctx, sup.ID, "blocked", lost) }); err != nil {
 			r.warn("could not record the hold: " + err.Error())
 		}
 	}
@@ -538,13 +539,13 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		d.Field("supervisor", state.SupervisorRef(now.ID))
 		if now.ID != sup.ID {
-			lost := r.noteLost
+			lost := r.lostNote()
 			if lost == "" && strings.HasPrefix(why, state.NoteLost) {
 				lost = why
 			}
 			if lost != "" {
 				d.Field("switch", "applied, but "+lost)
-				r.warns = slices.DeleteFunc(r.warns, func(w string) bool { return w == lost })
+				r.dropWarn(lost)
 			} else {
 				d.Field("switch", "applied")
 			}
@@ -624,6 +625,24 @@ func (r *runner) warn(w string) {
 	if r.env.Warned != nil {
 		r.env.Warned(w)
 	}
+}
+
+func (r *runner) setNoteLost(w string) {
+	r.warnMu.Lock()
+	r.noteLost = w
+	r.warnMu.Unlock()
+}
+
+func (r *runner) lostNote() string {
+	r.warnMu.Lock()
+	defer r.warnMu.Unlock()
+	return r.noteLost
+}
+
+func (r *runner) dropWarn(w string) {
+	r.warnMu.Lock()
+	r.warns = slices.DeleteFunc(r.warns, func(x string) bool { return x == w })
+	r.warnMu.Unlock()
 }
 
 func (r *runner) fieldWarn(d *toon.Doc) {

@@ -55,11 +55,11 @@ The watcher reads the context size from the supervisor's transcript, the number 
 
 The note is the only thing the fresh session knows beyond `hand orient`, so the supervisor's answer matters. Hand fails safe: it never leaves you without a supervisor and never asks twice.
 
-- Hand checks that the harness binary exists before it asks. If it does not, or the request for the note still fails after three tries, or no note comes within 5 minutes, nothing is stopped: the supervisor keeps running, an alert says so once (`supervisor.rollover`), and Hand does not ask that supervisor again until the watcher restarts. `hand supervisor start` begins a fresh session by hand.
-- A message or wake that arrives during the exchange does not stop it: a message goes to the old session, and whatever is still waiting when Hand replaces it, the wake cursor included, reaches the fresh session.
-- A `hand supervisor switch` asked during the exchange ends the rollover without an alert and without stopping anything; the switch goes on as usual.
-- If Hand cannot replace the session while the old one is live (a stale board generation, a stop that fails), nothing was stopped: one alert, no second ask.
-- If the fresh session cannot start after the old one was stopped, Hand resumes the old session and does not ask again; if that fails too, `hand supervisor resume` continues it.
+- Hand checks that the harness binary exists and that this watcher still belongs to the current board generation before it asks. If either fails, or the request for the note still fails after three tries, or no note comes within 5 minutes, nothing is stopped: the supervisor keeps running, an alert says so once (`supervisor.rollover`), and Hand does not ask that supervisor again until the watcher restarts. `hand supervisor start` begins a fresh session by hand.
+- A message or wake that arrives during the exchange waits: while Hand holds the supervisor lock nothing is delivered to the old session, and what waits, the wake cursor included, reaches the fresh session.
+- A `hand supervisor switch` asked during the exchange ends the rollover without an alert and without stopping anything; the switch goes on as usual. One asked while Hand stops the old session starts the fresh session on the switched model and effort.
+- If Hand cannot replace the session while the old one is live (a stop that fails), nothing was stopped: one alert, no second ask.
+- If the fresh session cannot start after the old one was stopped, Hand resumes the old session and does not ask again; if that fails too, `hand supervisor resume` continues it. If Luvus gave no answer to the launch, the fresh session may still start: the alert says so, and `hand supervisor resume` works once Hand has failed the launch (2 minutes after it began).
 
 Hand holds the supervisor lock for the whole exchange, up to 5 minutes plus the launch of the fresh session. A Board Stop, Send or Switch, and `hand supervisor stop`, `send` and `switch`, wait that long; `hand supervisor interrupt` does not wait, so Esc still works.
 

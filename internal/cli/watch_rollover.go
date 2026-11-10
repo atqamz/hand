@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -67,9 +69,7 @@ func (w *watcher) rollover(ctx context.Context, c luvus.Client, caps luvus.Capab
 	go func() {
 		defer w.pending.Done()
 		defer w.rollBusy.Store(false)
-		if w.rolled(ctx, c, sup, read.tokens, p.Supervisor.RolloverTokens) {
-			w.deliver(ctx, c, caps)
-		}
+		w.rolled(ctx, c, sup, read.tokens, p.Supervisor.RolloverTokens)
 	}()
 }
 
@@ -162,6 +162,11 @@ func (w *watcher) rolled(ctx context.Context, c luvus.Client, sup state.Supervis
 	if _, err := harnessBin(r, lastSpec(sup)); err != nil {
 		return fail("Hand cannot start a fresh session: " + err.Error())
 	}
+	if current, err := r.checkGeneration(ctx, w.st, sup); err != nil {
+		return fail("Hand could not check its board generation: " + err.Error())
+	} else if !current {
+		return fail(strings.TrimPrefix(r.staleGeneration(sup).Error(), "conflict: "))
+	}
 	path := handoffPath(r.home)
 	before := readHandoff(path)
 	ask := fmt.Sprintf("%s Your context holds %s tokens, over the %s Hand keeps. Hand will end this session and start a fresh one. Write your handoff note to %s now: the tasks in flight and the next step for each, the decisions waiting on the operator, the timers that matter, and anything not in Hand's state. Keep it short. Then answer `done` and start no other work.", rolloverHeader, tokens(used), tokens(limit), path)
@@ -243,14 +248,23 @@ func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervi
 	}
 	_ = r.findSession(ctx, w.st, &sup)
 	ref := state.SupervisorRef(sup.ID)
-	if _, err := w.st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, who.note("rolled over at "+tokens(used)+" tokens")); err != nil {
+	ended, err := w.st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, who.note("rolled over at "+tokens(used)+" tokens"))
+	if err != nil {
 		return state.Supervisor{}, true, err
+	}
+	sup.SwitchModel, sup.SwitchEffort = ended.SwitchModel, ended.SwitchEffort
+	spec := lastSpec(sup)
+	if sup.Switching() {
+		spec.Model, spec.Effort = sup.SwitchModel, sup.SwitchEffort
 	}
 	cmd := r.env.command()
 	note := "You continue " + ref + ", which Hand ended at " + tokens(used) + " tokens of context: run the full `" + cmd + " orient`, then read `" + handoffPath(r.home) + "`, the handoff note " + ref + " wrote for you."
-	next, err := r.startSupervisor(ctx, w.st, c, lastSpec(sup), note, sup.WakeCursor)
+	next, err := r.startSupervisor(ctx, w.st, c, spec, note, sup.WakeCursor)
+	if errors.Is(err, errLaunchUnknown) {
+		return next, true, fmt.Errorf("%w; %s may still start, and Hand fails it %s after it started if it does not: then continue %s with `%s supervisor resume`", err, state.SupervisorRef(next.ID), launchGrace, ref, cmd)
+	}
 	if err != nil {
-		back, rerr := r.relaunch(ctx, w.st, c, sup, lastSpec(sup))
+		back, rerr := r.relaunch(ctx, w.st, c, sup, spec)
 		if rerr != nil {
 			return next, true, fmt.Errorf("%w; resuming %s failed too: %v; continue it with `%s supervisor resume`", err, ref, rerr, cmd)
 		}

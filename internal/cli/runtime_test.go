@@ -77,6 +77,7 @@ type fakeRuntime struct {
 	createFail   string
 	createFails  int
 	onCreate     func(createCall)
+	onClose      func()
 	promptFail   string
 	promptFails  int
 }
@@ -179,6 +180,9 @@ func (rt *fakeRuntime) create(params json.RawMessage) (any, error) {
 		refused = rt.createFail
 	}
 	rt.mu.Unlock()
+	if refused == "drop" {
+		return nil, fakeuhp.Drop
+	}
 	if refused != "" {
 		return nil, fakeuhp.Fail{Code: refused, Message: "create refused"}
 	}
@@ -243,6 +247,12 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 		killGroup(term.cmd)
 	}
 	<-term.done
+	rt.mu.Lock()
+	hook := rt.onClose
+	rt.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	rt.mu.Lock()
 	fail := rt.closeFail
 	if fail == "" {

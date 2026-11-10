@@ -964,11 +964,11 @@ func baseURL(raw string) (*url.URL, bool) {
 
 func (w *watcher) flushWarns() {
 	w.r.warnMu.Lock()
-	warns := w.r.warns
+	warns, lost := w.r.warns, w.r.noteLost
 	w.r.warns = nil
 	w.r.warnMu.Unlock()
 	for _, x := range warns {
-		if x != w.r.noteLost {
+		if x != lost {
 			w.say(x)
 		}
 	}

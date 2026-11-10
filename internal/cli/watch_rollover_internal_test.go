@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"io"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,4 +46,31 @@ func TestRolloverIsDueOnlyOutsideTheCooldownAndAfterNoFailure(t *testing.T) {
 	if w.rolloverDue(ctx, sup) {
 		t.Fatal("a supervisor that wrote no note is due again")
 	}
+}
+
+func TestWarningsAndTheLostNoteSurviveConcurrentUse(t *testing.T) {
+	r := &runner{env: Env{Stdout: io.Discard}}
+	w := &watcher{r: r}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := range 300 {
+			r.warn(string(rune('a' + i%26)))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range 300 {
+			r.setNoteLost(string(rune('a' + i%26)))
+			_ = r.lostNote()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 300 {
+			w.flushWarns()
+		}
+	}()
+	wg.Wait()
 }

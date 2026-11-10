@@ -334,7 +334,7 @@ func (fx *rolloverFixture) duringAsk(act func(rt *fakeRuntime, st *state.Store))
 func (fx *rolloverFixture) alertedOnce(t *testing.T, want ...string) {
 	t.Helper()
 	eventually(t, func() bool { return len(rolloverAlerts(fx.notify)) >= 1 })
-	fx.idle(t)
+	time.Sleep(300 * time.Millisecond)
 	alerts := rolloverAlerts(fx.notify)
 	if len(alerts) != 1 {
 		t.Fatalf("alerts = %q", alerts)
@@ -443,10 +443,10 @@ func TestRolloverKeepsTheSupervisorWhenTheBoardGenerationIsStale(t *testing.T) {
 	startWatch(t, fx.attemptFixture, "--every", "30ms")
 	fx.idle(t)
 	fx.h.advance(10 * time.Minute)
-	fx.alertedOnce(t, "s1 holds 350k tokens", "nothing was stopped", "will not ask it again")
+	fx.alertedOnce(t, "s1 holds 350k tokens", "board generation live 2", "started under dead 1", "nothing was closed", "will not ask it again")
 	fx.h.advance(2 * time.Hour)
 	fx.idle(t)
-	if n, sups := fx.asked(), fx.supervisors(t); n != 1 || len(sups) != 1 || !sups[0].Live() || len(rolloverAlerts(fx.notify)) != 1 {
+	if n, sups := fx.asked(), fx.supervisors(t); n != 0 || fx.askTries() != 0 || len(sups) != 1 || !sups[0].Live() || len(rolloverAlerts(fx.notify)) != 1 {
 		t.Fatalf("asked %d times, supervisors = %+v", n, sups)
 	}
 }
@@ -513,7 +513,88 @@ func TestRolloverRetriesAnAskThatFailsTwice(t *testing.T) {
 	fx.idle(t)
 	fx.h.advance(10 * time.Minute)
 	eventually(t, func() bool { return len(fx.rolledOver(t)) == 1 })
-	if n := len(rolloverAlerts(fx.notify)); n != 0 {
-		t.Fatalf("alerts = %d", n)
+	if n, tries := len(rolloverAlerts(fx.notify)), fx.askTries(); n != 0 || tries != 3 {
+		t.Fatalf("alerts = %d, ask tries = %d", n, tries)
 	}
+}
+
+func TestRolloverStartsTheFreshSessionOnASwitchSetWhileItStopsTheOldOne(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	st := openStore(t, fx.h)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.onClose = func() {
+			_, _ = st.SetSupervisorSwitch(context.Background(), 1, "opus", "high")
+		}
+	})
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	eventually(t, func() bool { return len(fx.rolledOver(t)) == 1 })
+	sups := fx.supervisors(t)
+	if len(sups) != 2 || sups[1].Model != "opus" || sups[1].Effort != "high" {
+		t.Fatalf("supervisors = %+v", sups)
+	}
+}
+
+func TestRolloverFinishesWhenTheWatcherIsStoppedAfterTheOldSessionWasClosed(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	stopped := make(chan struct{})
+	var stop func() (string, int)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.onClose = func() {
+			go func() {
+				stop()
+				close(stopped)
+			}()
+			time.Sleep(200 * time.Millisecond)
+		}
+	})
+	stop = startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	select {
+	case <-stopped:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the watcher did not stop")
+	}
+	sups := fx.supervisors(t)
+	if len(sups) != 2 || sups[0].Status != state.AttemptStopped || !sups[1].Live() || len(fx.rolledOver(t)) != 1 {
+		t.Fatalf("supervisors = %+v", sups)
+	}
+}
+
+func TestRolloverAlertsOnceWhenTheOldSessionCannotBeResumedEither(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.duringAsk(func(rt *fakeRuntime, _ *state.Store) { rt.createFail, rt.createFails = "create_refused", 2 })
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.alertedOnce(t, "s1 wrote its handoff note", "the fresh session did not start", "resuming s1 failed too", "`hand supervisor resume`")
+	fx.h.advance(2 * time.Hour)
+	time.Sleep(300 * time.Millisecond)
+	sups := fx.supervisors(t)
+	if len(sups) != 3 || sups[0].Status != state.AttemptStopped || sups[1].Status != state.AttemptFailed || sups[2].Status != state.AttemptFailed || fx.asked() != 1 {
+		t.Fatalf("asked %d times, supervisors = %+v", fx.asked(), sups)
+	}
+}
+
+func TestRolloverTellsWhenTheFreshSessionMayStillStart(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.duringAsk(func(rt *fakeRuntime, _ *state.Store) { rt.createFail, rt.createFails = "drop", 1 })
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.alertedOnce(t, "s1 wrote its handoff note", "s2 may still start", "then continue s1 with `hand supervisor resume`")
+	fx.h.advance(3 * time.Minute)
+	eventually(t, func() bool {
+		sups := fx.supervisors(t)
+		return len(sups) == 2 && sups[1].Status == state.AttemptFailed
+	})
+	has(t, "resume", fx.h.ok("supervisor", "resume"), "supervisor: s3", "status: running")
 }
