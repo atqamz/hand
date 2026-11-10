@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,8 +27,11 @@ func ReadVersion(home string) (VersionPin, bool, error) {
 		return VersionPin{}, false, err
 	}
 	var p VersionPin
-	if json.Unmarshal(b, &p) != nil || p.Version == "" {
-		return VersionPin{}, false, nil
+	if err := json.Unmarshal(b, &p); err != nil {
+		return VersionPin{}, false, fmt.Errorf("%s is not a version pin: %w", VersionFile, err)
+	}
+	if p.Version == "" {
+		return VersionPin{}, false, fmt.Errorf("%s names no version", VersionFile)
 	}
 	return p, true, nil
 }

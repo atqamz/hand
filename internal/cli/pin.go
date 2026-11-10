@@ -21,20 +21,23 @@ func handLabel(p fleet.VersionPin) string {
 }
 
 func updateCommand() string {
-	if Channel == "source" {
+	switch Channel {
+	case "source":
 		return "hand update --channel stable"
+	case "edge":
+		return "hand update"
 	}
-	return "hand update"
+	return "hand update --channel edge"
 }
 
 func newerPin(p fleet.VersionPin) bool {
-	return update.Newer(p.Version, Version) || p.Schema > state.SchemaVersion
+	return update.PinNewer(p, Version, state.SchemaVersion)
 }
 
-func (r *runner) pinRefusal() error {
-	p, found, err := fleet.ReadVersion(r.home)
+func (r *runner) pinRefusal(home string) error {
+	p, found, err := fleet.ReadVersion(home)
 	if err != nil {
-		fmt.Fprintf(r.env.Stderr, "warning: cannot read %s: %v; treating it as absent\n", filepath.Join(r.home, fleet.VersionFile), err)
+		fmt.Fprintf(r.env.Stderr, "warning: cannot use %s: %v; leaving it as it is; delete it to let the next open write a new one\n", filepath.Join(home, fleet.VersionFile), err)
 		return nil
 	}
 	if !found || !newerPin(p) {
@@ -44,19 +47,19 @@ func (r *runner) pinRefusal() error {
 }
 
 func (r *runner) preflight() (*fleet.HostMarker, error) {
-	if err := r.pinRefusal(); err != nil {
+	if err := r.pinRefusal(r.home); err != nil {
 		return nil, err
 	}
 	return r.judgeHost()
 }
 
-func (r *runner) writePin() {
+func (r *runner) writePin(home string) {
 	self := selfPin()
-	if p, found, _ := fleet.ReadVersion(r.home); found && p == self {
+	if p, found, err := fleet.ReadVersion(home); err != nil || found && (p == self || newerPin(p)) {
 		return
 	}
-	if err := fleet.WriteVersion(r.home, self); err != nil {
-		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v\n", filepath.Join(r.home, fleet.VersionFile), err)
+	if err := fleet.WriteVersion(home, self); err != nil {
+		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v\n", filepath.Join(home, fleet.VersionFile), err)
 	}
 }
 
@@ -64,13 +67,13 @@ func (r *runner) doctorVersion(c *checks) {
 	p, found, err := fleet.ReadVersion(r.home)
 	switch {
 	case err != nil:
-		c.add("hand.version", "warn", err.Error())
+		c.add("hand.version", "warn", err.Error()+"; delete it to let the next open write a new one")
 	case !found:
-		c.add("hand.version", "info", "no pin yet; the next hand command that opens this fleet writes "+fleet.VersionFile)
+		c.add("hand.version", "info", "no pin yet; opening this fleet with this hand writes "+fleet.VersionFile)
 	case newerPin(p):
 		c.add("hand.version", "fail", fmt.Sprintf("this fleet was last opened by %s, newer than this hand, %s; run `%s`", handLabel(p), handLabel(selfPin()), updateCommand()))
 	case p != selfPin():
-		c.add("hand.version", "info", fmt.Sprintf("this fleet was last opened by %s; the next hand command that opens it migrates it and pins %s", handLabel(p), handLabel(selfPin())))
+		c.add("hand.version", "info", fmt.Sprintf("this fleet was last opened by %s; opening it with this hand migrates it and pins %s", handLabel(p), handLabel(selfPin())))
 	default:
 		c.add("hand.version", "ok", "")
 	}

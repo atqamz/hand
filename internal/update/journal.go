@@ -147,7 +147,7 @@ func (r *Report) repair(ctx context.Context, o Options, j journal) {
 	}
 	for _, home := range j.Init {
 		if err := child(ctx, o, home, "init"); err != nil {
-			r.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there", home, err))
+			r.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there; if hand.version there names a newer hand, run `hand update --channel edge` first", home, err))
 		}
 	}
 }

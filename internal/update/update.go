@@ -145,6 +145,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err != nil {
 		return rep, err
 	}
+	for _, e := range fleets {
+		if e.State != "ok" {
+			continue
+		}
+		if p, found, err := fleet.ReadVersion(e.Home); err == nil && found && PinNewer(p, rep.To.Version, rep.To.Schema) {
+			return rep, fmt.Errorf("%w: update: %s was last opened by hand %s (schema %d), newer than the %s %s (schema %d) this update would install; nothing was changed. Run `hand update --channel edge`", state.ErrInvalid, e.Name, p.Version, p.Schema, rep.To.Channel, rep.To.Version, rep.To.Schema)
+		}
+	}
 	pins := map[string]fleetPin{}
 	rep.pinned, rep.broken = map[string]string{}, map[string]string{}
 	rep.PinFrom = "none"
@@ -347,7 +355,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 		if err := child(ctx, o, e.Home, "init"); err != nil {
 			rep.Fleets[i].Init = "failed: " + err.Error()
-			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there", e.Home, err))
+			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there; if hand.version there names a newer hand, run `hand update --channel edge` first", e.Home, err))
 		}
 		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}

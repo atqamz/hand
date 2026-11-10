@@ -56,6 +56,17 @@ func (r *runner) judgeHost() (*fleet.HostMarker, error) {
 }
 
 func (r *runner) takeOver(st *state.Store, from, self fleet.HostMarker) error {
+	cur, found, err := fleet.ReadHost(r.home)
+	if err != nil || !found {
+		return err
+	}
+	if cur.Host != from.Host || cur.Boot != from.Boot || cur.PID != from.PID || !cur.At.Equal(from.At) {
+		again, err := r.judgeHost()
+		if err != nil || again == nil {
+			return err
+		}
+		from = *again
+	}
 	ctx := r.ctx()
 	live, err := st.LiveAttempts(ctx)
 	if err != nil {

@@ -151,7 +151,7 @@ func (r *runner) claim(st *state.Store, takeOver *fleet.HostMarker) error {
 		return err
 	}
 	r.fleet = f
-	r.writePin()
+	r.writePin(r.home)
 	r.migrateLayout()
 	return nil
 }
@@ -328,7 +328,7 @@ func cmdInit(r *runner, args []string) error {
 	if _, err := fleet.Register(root, f.ID, r.home); err != nil {
 		return err
 	}
-	r.writePin()
+	r.writePin(r.home)
 	var d toon.Doc
 	d.Field("home", r.home)
 	d.Field("fleet", f.Name)

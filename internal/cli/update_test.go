@@ -86,9 +86,9 @@ func handRelease(t *testing.T, version, channel, commit, luvusVersion string) st
 func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
-	h.vars["HAND_INSTALL_BASE"] = handRelease(t, "0.9.0", "edge", "0123456789ab", "0.14.4")
+	h.vars["HAND_INSTALL_BASE"] = handRelease(t, "0.14.0", "edge", "0123456789ab", "0.14.4")
 	out, errOut, code := h.run("update", "--channel", "edge", "--check")
-	if code != 0 || !strings.Contains(out, "status: checked\n") || !strings.Contains(out, "to: 0.9.0 edge 0123456789ab\n") || !strings.Contains(out, "luvus: none -> 0.14.4\n") {
+	if code != 0 || !strings.Contains(out, "status: checked\n") || !strings.Contains(out, "to: 0.14.0 edge 0123456789ab\n") || !strings.Contains(out, "luvus: none -> 0.14.4\n") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 }
