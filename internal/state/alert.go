@@ -73,7 +73,7 @@ func (s *Store) AlertsAfter(ctx context.Context, after int64, limit int) ([]Aler
 }
 
 func (s *Store) Alerts(ctx context.Context) ([]Alert, error) {
-	return s.alerts(ctx, `ORDER BY seq DESC`)
+	return s.alerts(ctx, `WHERE at >= ? ORDER BY seq DESC`, s.now().UTC().Add(-AlertKeep).Format(time.RFC3339Nano))
 }
 
 func (s *Store) alerts(ctx context.Context, tail string, args ...any) ([]Alert, error) {

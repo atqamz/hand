@@ -166,6 +166,29 @@ func TestAlertsAreKeptSevenDaysAndTheSequenceNeverRepeats(t *testing.T) {
 	}
 }
 
+func TestAlertsListsOnlyTheLastSevenDaysWithoutANewInsert(t *testing.T) {
+	s, now := alertStore(t)
+	ctx := context.Background()
+	for range 2 {
+		if err := s.RecordAlert(ctx, "attempt.failed", "a1", "old", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	*now = now.Add(AlertKeep - time.Minute)
+	if err := s.RecordAlert(ctx, "attempt.failed", "a1", "fresh", ""); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(2 * time.Minute)
+	all, err := s.Alerts(ctx)
+	if err != nil || len(all) != 1 || all[0].Text != "fresh" {
+		t.Fatalf("alerts = %+v, %v", all, err)
+	}
+	var stored int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM alert`).Scan(&stored); err != nil || stored != 3 {
+		t.Fatalf("stored = %d, %v", stored, err)
+	}
+}
+
 func TestLatestAlertSeqIsZeroWithNoAlerts(t *testing.T) {
 	s, _ := alertStore(t)
 	if seq, err := s.LatestAlertSeq(context.Background()); err != nil || seq != 0 {
