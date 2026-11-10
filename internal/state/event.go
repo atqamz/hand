@@ -223,6 +223,58 @@ func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {
 	return seq, err
 }
 
+func (s *Store) TouchedAfter(ctx context.Context, after int64, limit int) ([]int64, int, error) {
+	if limit < 1 {
+		return nil, 0, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(DISTINCT task_id) FROM event WHERE seq > ?`, after).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT task_id FROM event WHERE seq > ? AND task_id IS NOT NULL GROUP BY task_id ORDER BY max(seq) DESC LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, total, rows.Err()
+}
+
+func (s *Store) NewestEventsAfter(ctx context.Context, after int64, first []string, limit int) ([]Event, int, error) {
+	if limit < 1 {
+		return nil, 0, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM event WHERE seq > ?`, after).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args := []any{after}
+	for _, k := range first {
+		args = append(args, k)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? ORDER BY +kind IN (`+strings.TrimSuffix(strings.Repeat("?,", len(first)), ",")+`) DESC, seq DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail); err != nil {
+			return nil, 0, err
+		}
+		events = append(events, e)
+	}
+	return events, total, rows.Err()
+}
+
 func (s *Store) EventsAfter(ctx context.Context, after int64, kinds []string, limit int) ([]Event, error) {
 	return s.eventsAfter(ctx, ``, after, kinds, limit)
 }
