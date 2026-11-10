@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -178,9 +179,17 @@ func TestBoardFactsAreGroupedQueries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	latest, err := s.LatestAttempts(ctx)
+	latest, err := s.LatestAttemptsBriefless(ctx)
 	if err != nil || len(latest) != 2 || latest[tasks[0].ID].ID != second.ID || latest[tasks[1].ID].ID != third.ID {
 		t.Fatalf("latest = %v, %v", latest, err)
+	}
+	full, err := s.Attempt(ctx, third.ID)
+	if err != nil || len(full.Argv) == 0 || latest[tasks[1].ID].Argv != nil {
+		t.Fatalf("argv: full %v, latest %v, %v", full.Argv, latest[tasks[1].ID].Argv, err)
+	}
+	full.Argv = nil
+	if !reflect.DeepEqual(full, latest[tasks[1].ID]) {
+		t.Fatalf("latest = %+v, want %+v", latest[tasks[1].ID], full)
 	}
 	done, err := s.DoneReportAttempts(ctx)
 	if err != nil || !done[first.ID] || done[third.ID] {
