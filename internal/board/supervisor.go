@@ -826,19 +826,20 @@ func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []sta
 			continue
 		}
 		seen[key] = true
-		entries, n := b.conversation(ctx, s, true)
-		if s.Session == latest.Session && s.Harness == latest.Harness {
+		isLatest := s.Session == latest.Session && s.Harness == latest.Harness
+		entries, n := b.conversation(ctx, s, true, !isLatest)
+		if isLatest {
 			note = n
 		}
 		all = append(all, entries...)
 	}
 	if latest.Session == "" {
-		_, note = b.conversation(ctx, latest, true)
+		_, note = b.conversation(ctx, latest, true, false)
 	}
 	return all, note, sups, nil
 }
 
-func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
+func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok, ended bool) ([]transcript.Entry, string) {
 	switch {
 	case !ok:
 		return nil, "No supervisor"
@@ -853,7 +854,11 @@ func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool)
 		}
 		dir = harness.OmpAgent(getenv, b.o.Home)
 	}
-	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, dir)
+	read := b.o.Transcript.Read
+	if ended {
+		read = b.o.Transcript.ReadEnded
+	}
+	entries, err := read(ctx, sup.Harness, sup.Session, dir)
 	if err != nil {
 		return nil, Scrub(err.Error())
 	}

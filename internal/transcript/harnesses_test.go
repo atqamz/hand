@@ -23,6 +23,18 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 		fakebin.Append(p["count"], "run")
+		if d, err := time.ParseDuration(p["sleep"]); err == nil {
+			time.Sleep(d)
+		}
+		if p["touch"] != "" {
+			b, _ := os.ReadFile(p["count"])
+			at := time.Now().Add(time.Duration(strings.Count(string(b), "run")) * time.Minute)
+			f, err := os.OpenFile(p["touch"], os.O_CREATE|os.O_WRONLY, 0o644)
+			if err == nil {
+				f.Close()
+				_ = os.Chtimes(p["touch"], at, at)
+			}
+		}
 		fmt.Println(p["export"])
 		return 0
 	}})
@@ -216,6 +228,87 @@ func TestOpencodeReexportsOnlyWhenItsDatabaseChanges(t *testing.T) {
 	}
 	if n := runs(t, count); n != 2 {
 		t.Fatalf("exports = %d, want 2 after the database changed", n)
+	}
+}
+
+func touchingOpencode(t *testing.T, count, data, sleep string) string {
+	t.Helper()
+	return fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"count": count, "export": opencodeExport, "touch": filepath.Join(data, "opencode.db-wal"), "sleep": sleep})
+}
+
+func TestOpencodeExportsAnEndedSessionOnce(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	data := t.TempDir()
+	r := &Reader{Paths: Paths{Opencode: touchingOpencode(t, count, data, ""), OpencodeData: data}}
+	ctx, dir := context.Background(), t.TempDir()
+	ids := []string{"ses_1", "ses_2", "ses_3"}
+	for range 4 {
+		for _, id := range ids {
+			if _, err := r.ReadEnded(ctx, "opencode", id, dir); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if n := runs(t, count); n != len(ids) {
+		t.Fatalf("exports = %d, want %d: one per ended session", n, len(ids))
+	}
+}
+
+func TestOpencodeReadsASessionOnceItEnds(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	data := t.TempDir()
+	r := &Reader{Paths: Paths{Opencode: touchingOpencode(t, count, data, ""), OpencodeData: data}}
+	ctx, dir := context.Background(), t.TempDir()
+	if _, err := r.Read(ctx, "opencode", "ses_1", dir); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if _, err := r.ReadEnded(ctx, "opencode", "ses_1", dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := runs(t, count); n != 2 {
+		t.Fatalf("exports = %d, want 2: the live read, then one after it ended", n)
+	}
+}
+
+func TestOpencodeCachesTheLiveSessionAfterItsOwnExport(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	data := t.TempDir()
+	r := &Reader{Paths: Paths{Opencode: touchingOpencode(t, count, data, ""), OpencodeData: data}}
+	ctx, dir := context.Background(), t.TempDir()
+	for range 4 {
+		if _, err := r.Read(ctx, "opencode", "ses_1", dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := runs(t, count); n != 1 {
+		t.Fatalf("exports = %d, want 1 while nothing else writes the database", n)
+	}
+}
+
+func TestOpencodeExportDoesNotBlockStatusOrOtherSessions(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	data := t.TempDir()
+	r := &Reader{Paths: Paths{Opencode: touchingOpencode(t, count, data, "2s"), OpencodeData: data}}
+	ctx, dir := context.Background(), t.TempDir()
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Read(ctx, "opencode", "ses_1", dir)
+		done <- err
+	}()
+	for runs(t, count) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.Status("opencode", "ses_1")
+	r.Forget("opencode", "ses_9")
+	select {
+	case <-done:
+		t.Fatal("the export ended before Status returned")
+	default:
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 
