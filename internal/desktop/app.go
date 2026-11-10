@@ -904,9 +904,12 @@ func (a *App) pollOnce(gen, tick int) {
 	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
 	load := a.loadID
 	key := pollScreenID(screen, ref)
-	since := PollCursors{Status: a.pollStatus, Fresh: a.pollFresh}
-	if a.pollScreenFor == key {
-		since.Screen = a.pollScreenCursor
+	since := PollCursors{Fresh: a.pollFresh}
+	if !a.pollFresh {
+		since.Status = a.pollStatus
+		if a.pollScreenFor == key {
+			since.Screen = a.pollScreenCursor
+		}
 	}
 	ctx := a.Context
 	if ctx == nil {
@@ -961,7 +964,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.setScreen(screen, key, &p)
 		screenFresh = true
 	}
-	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh || err == nil) && (!a.errScreen || screenFresh) {
+	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
 		a.setErr("")
 	}
 	a.armPoll()
