@@ -554,7 +554,69 @@ func TestMCPPathNamesTheFileInsideTheFleetHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if path, err := MCPPath(home, "mcp.json"); path != filepath.Join(home, "mcp.json") || err != nil {
+	want, err := filepath.EvalSymlinks(filepath.Join(home, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := MCPPath(home, "mcp.json"); path != want || err != nil {
 		t.Fatalf("file = %q, %v", path, err)
+	}
+}
+
+func TestMCPPathFollowsSymlinksOnlyInsideTheFleetHome(t *testing.T) {
+	home, outside := t.TempDir(), t.TempDir()
+	write := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := func(target, name string) {
+		t.Helper()
+		if err := os.Symlink(target, filepath.Join(home, name)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	write(filepath.Join(outside, "evil.json"))
+	write(filepath.Join(outside, "worktrees", "t1-a1", "mcp.json"))
+	write(filepath.Join(home, "scratch", "a1", "x.json"))
+	write(filepath.Join(home, "configs", "good.json"))
+	link(filepath.Join(outside, "evil.json"), "file.json")
+	link(outside, "dirlink")
+	link(filepath.Join(outside, "worktrees", "t1-a1"), "worktree")
+	link(filepath.Join(home, "scratch", "a1", "x.json"), "scratch.json")
+	link(filepath.Join(home, "scratch"), "scratchdir")
+	link(filepath.Join(home, "configs", "good.json"), "good.json")
+	link(filepath.Join(home, "configs"), "configs-link")
+	for file, want := range map[string]string{
+		"file.json":            "outside the fleet home",
+		"dirlink/evil.json":    "outside the fleet home",
+		"worktree/mcp.json":    "outside the fleet home",
+		"scratch/a1/x.json":    "scratch/",
+		"scratch.json":         "scratch/",
+		"scratchdir/a1/x.json": "scratch/",
+	} {
+		if _, err := MCPPath(home, file); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s err = %v, want %q", file, err, want)
+		}
+		if _, err := (Profile{MCP: file}).MCPFile(home); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("profile %s err = %v, want %q", file, err, want)
+		}
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realHome, "configs", "good.json")
+	for _, file := range []string{"good.json", "configs-link/good.json", "configs/good.json"} {
+		if path, err := MCPPath(home, file); path != want || err != nil {
+			t.Fatalf("%s = %q, %v", file, path, err)
+		}
+		if path, err := (Profile{MCP: file}).MCPFile(home); path != want || err != nil {
+			t.Fatalf("profile %s = %q, %v", file, path, err)
+		}
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -316,28 +317,41 @@ func checkMCP(name string, pr Profile) error {
 }
 
 func (pr Profile) MCPFile(home string) (string, error) {
-	if pr.MCP == "" {
-		return "", nil
-	}
-	path := filepath.Join(home, pr.MCP)
-	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%w: mcp file %s is not a file; create it or fix the profile's mcp", state.ErrInvalid, path)
-	}
-	return path, nil
+	return resolveMCP(home, pr.MCP, "the profile's mcp")
 }
 
 func MCPPath(home, file string) (string, error) {
+	return resolveMCP(home, file, "--mcp")
+}
+
+func resolveMCP(home, file, name string) (string, error) {
 	if file == "" {
 		return "", nil
 	}
 	if !filepath.IsLocal(file) {
-		return "", fmt.Errorf("%w: --mcp %q must be a path inside the fleet home, like \"mcp.json\"", state.ErrInvalid, file)
+		return "", fmt.Errorf("%w: %s %q must be a path inside the fleet home, like \"mcp.json\"", state.ErrInvalid, name, file)
 	}
 	path := filepath.Join(home, file)
-	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%w: mcp file %s is not a file; create it or fix --mcp", state.ErrInvalid, path)
+	notFile := fmt.Errorf("%w: mcp file %s is not a file; create it or fix %s", state.ErrInvalid, path, name)
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	return path, nil
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", notFile
+	}
+	rel, err := filepath.Rel(realHome, real)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("%w: mcp file %s resolves to %s, outside the fleet home", state.ErrInvalid, path, real)
+	}
+	if inScratch, err := filepath.Rel(fleet.Scratch(realHome), real); err == nil && filepath.IsLocal(inScratch) {
+		return "", fmt.Errorf("%w: mcp file %s resolves into scratch/, which workers write; keep the file elsewhere in the fleet home", state.ErrInvalid, path)
+	}
+	if info, err := os.Stat(real); err != nil || !info.Mode().IsRegular() {
+		return "", notFile
+	}
+	return real, nil
 }
 
 func (p Policy) Names() []string {

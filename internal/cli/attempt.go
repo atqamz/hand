@@ -75,6 +75,10 @@ func cmdAttemptStart(r *runner, args []string) error {
 		return err
 	}
 	spec := routed.Spec
+	bin, err := harnessBin(r, spec)
+	if err != nil {
+		return err
+	}
 	var mcp string
 	if *mcpFile != "" {
 		if routed.MCP != "" {
@@ -83,17 +87,13 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if routed.Access == state.AccessReadonly {
 			return fmt.Errorf("%w: a read-only profile starts without MCP servers; leave --mcp out", state.ErrInvalid)
 		}
-		if err := harness.CheckMCP(spec.Harness, *mcpFile); err != nil {
-			return err
+		if spec.Harness != "claude" {
+			return fmt.Errorf("%w: attempt start: --mcp is only available for claude, not %s: Hand knows no strict MCP mode for it", state.ErrInvalid, spec.Harness)
 		}
 		mcp, err = harness.MCPPath(r.home, *mcpFile)
 	} else {
 		mcp, err = routed.MCPFile(r.home)
 	}
-	if err != nil {
-		return err
-	}
-	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return err
 	}
