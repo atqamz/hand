@@ -307,3 +307,7 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 	}
 	return string(out), nil
 }
+
+func Run(ctx context.Context, dir string, args ...string) (string, error) {
+	return run(ctx, dir, args...)
+}

@@ -210,6 +210,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add("fleet", "ok", "")
 	}
 	doctorProjects(ctx, st, c)
+	r.doctorSkills(c)
 	_, live, lerr := st.LiveSupervisor(ctx)
 	if p, err := harness.LoadPolicy(r.home); err != nil {
 		c.add(harness.PolicyFile, "fail", err.Error())
