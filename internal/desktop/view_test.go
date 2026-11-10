@@ -1,6 +1,8 @@
 package desktop_test
 
 import (
+	"context"
+	"errors"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -1483,9 +1485,10 @@ func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
 	f := goldenFixture(t)
 	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
 	app.Boot()
-	f.stall = fleetID
-	f.nameIn = make(chan struct{}, 2)
-	app.NameTimeout = 40 * time.Millisecond
+	f.stall, f.stallOnce = fleetID, true
+	f.nameIn = make(chan struct{}, 1)
+	f.nameOut = make(chan error, 1)
+	app.NameTimeout = time.Hour
 	base := f.count("name:" + secondID)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -1498,9 +1501,12 @@ func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
 	}
 	click(t, tt, "Refresh")
 	select {
-	case <-f.nameIn:
+	case err := <-f.nameOut:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("the earlier discovery ended with %v, want context.Canceled", err)
+		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("the second discovery never started")
+		t.Fatal("the earlier discovery was never canceled")
 	}
 	for i := 0; i < 6; i++ {
 		waitPost(t, posted)()

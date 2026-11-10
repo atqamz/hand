@@ -153,7 +153,7 @@ func TestAttemptStartMarksAModelThatLeftTheList(t *testing.T) {
 	fx := newAttemptFixture(t)
 	dir := listers(t, fx.h, "")
 	fx.h.ok("models", "--refresh")
-	fakebin.Install(t, dir, "codex", "lister", map[string]string{"stdout": codexLater, "version": "codex 9.9"})
+	fakebin.Install(t, dir, "codex", "lister", map[string]string{"stdout": codexLater, "version": "codex 9.9", "hold": "300s"})
 	fakebin.Install(t, dir, "claude", "lister", map[string]string{"stdout": strings.ReplaceAll(claudeAnswer, `,{"value":"acme-opus","displayName":"Acme","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]}`, ""), "version": "claude 9.9"})
 	fx.h.ok("models", "--refresh", "codex")
 	fx.h.ok("models", "--refresh", "claude")

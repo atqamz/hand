@@ -44,6 +44,13 @@ func TestMain(m *testing.M) {
 	if os.Getenv("FAKE_HAND_SLEEP") != "" {
 		time.Sleep(8 * time.Second)
 	}
+	if gate := os.Getenv("FAKE_HAND_GATE"); gate != "" {
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(gate); err == nil {
+				break
+			}
+		}
+	}
 	if os.Getenv("FAKE_HAND_BG") != "" {
 		c := exec.Command(os.Args[0])
 		c.Env = append(os.Environ(), "FAKE_HAND_SLEEPER=1")
@@ -250,6 +257,9 @@ func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
 			app.SelectFleet(secondID)
 		}
 		waitPost(t, posted)()
+		for !switched && app.OpenBusy {
+			waitPost(t, posted)()
+		}
 		restore()
 		if d := time.Since(start); d > 5*time.Second {
 			t.Fatalf("switched=%v: the run took %v", switched, d)
@@ -265,15 +275,29 @@ func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
 
 func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
 	hand := installFakeHand(t)
-	t.Setenv("FAKE_HAND_SLEEP", "1")
-	defer desktop.SetOpenTimeout(300 * time.Millisecond)()
+	gate := filepath.Join(t.TempDir(), "gate")
+	t.Setenv("FAKE_HAND_GATE", gate)
 	app := homedApp(t, hand.home)
 	tt := newTester(app)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
 	click(t, tt, "Open in browser")
+	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("hand never started")
+		}
+	}
 	tt.Frame()
 	tt.Click("Open in browser")
+	if !app.OpenBusy {
+		t.Fatal("the window is not busy while hand runs")
+	}
+	if got := hand.calls(t); len(got) != 2 {
+		t.Fatalf("hand ran %q, want one call while busy", got)
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for app.OpenBusy {
 		waitPost(t, posted)()
 	}

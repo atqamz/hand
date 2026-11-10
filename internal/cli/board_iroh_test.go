@@ -257,8 +257,8 @@ func TestBoardIrohWithNoSidecarStillServesAndSaysWhyItIsOff(t *testing.T) {
 
 func TestBoardIrohRefusesASidecarOfAnotherVersion(t *testing.T) {
 	fx := newIrohFixture(t, map[string]string{"version": "9.9.9"})
-	_, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
-	within(t, "failed", func() bool { return strings.HasPrefix(fx.state(), "failed ") })
+	_, stop, stderr := startBoardLive(t, fx.h, "127.0.0.1", "--iroh")
+	within(t, "failed", func() bool { return strings.Contains(stderr(), "board: iroh: failed:") })
 	if got := fx.state(); !strings.Contains(got, "is 9.9.9, but this hand needs "+sidecar.Version) {
 		t.Fatalf("board.iroh = %q", got)
 	}

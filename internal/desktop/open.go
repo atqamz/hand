@@ -52,8 +52,9 @@ func (a *App) runOpen(args ...string) {
 		return
 	}
 	argv := append([]string{"--home", home, "open"}, args...)
+	timeout := openTimeout
 	run := func() string {
-		ctx, cancel := context.WithTimeout(a.Context, openTimeout)
+		ctx, cancel := context.WithTimeout(a.Context, timeout)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, bin, argv...)
 		cmd.Dir = home
