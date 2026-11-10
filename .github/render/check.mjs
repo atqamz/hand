@@ -26,6 +26,7 @@ const scenes = [
   ['stopped', fleet('005')],
   ['many-tasks', fleet('007')],
   ['read-only', fleet('008')],
+  ['nested-tasks', fleet('018'), ['?nav.tabs a[data-tab="tasks"]']],
   ['long-task', fleet('00e')],
   ['deliverables', fleet('00f')],
   ['busy', fleet('010')],
@@ -110,7 +111,14 @@ function measure() {
     if (!next || !visible(next) || parseFloat(getComputedStyle(next).borderTopWidth) === 0) return [];
     return next.getBoundingClientRect().top - hr.getBoundingClientRect().bottom < 24 ? [String(next.className || next.tagName).slice(0, 24)] : [];
   });
+  const indent = {};
+  for (const row of document.querySelectorAll('.task-row')) {
+    if (!row.getClientRects().length) continue;
+    const d = +(/depth-(\d)/.exec(row.className)?.[1] ?? 0);
+    indent[d] = Math.min(indent[d] ?? Infinity, Math.round(row.querySelector('.ref').getBoundingClientRect().left));
+  }
   return {
+    indent,
     doubled,
     overflow: document.documentElement.scrollWidth - innerWidth,
     dividers: document.querySelectorAll('.timeline > .day').length,
@@ -238,6 +246,9 @@ function problem(r) {
   if (r.file.startsWith('log-') && !r.dividers) found.push('no day dividers');
   for (const z of r.zone) found.push(`day dividers and card times differ in zone: ${z}`);
   if (r.lowCount) found.push(`${r.lowCount} texts under contrast 4.5, first ${JSON.stringify(r.low.slice(0, 3))}`);
+  if (r.file.startsWith('nested-tasks-')) {
+    for (const d of [1, 2]) if (!(r.indent[d] > r.indent[d - 1])) found.push(`depth-${d} cards are not indented past depth-${d - 1}: ${JSON.stringify(r.indent)}`);
+  }
   for (const d of r.doubled) found.push(`double hairline: a rule, then ${d} with its own top border`);
   for (const c of r.csp) found.push(`CSP violation: ${c}`);
   for (const e of r.errors) found.push(`console error: ${e}`);

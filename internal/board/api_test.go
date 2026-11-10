@@ -223,37 +223,60 @@ func TestAPIGolden(t *testing.T) {
 		{"decision", "/api/v1/decision/d1"},
 		{"report", "/api/v1/report/r1"},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			rec := request(h, "GET", c.path, nil, true)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("GET %s = %d:\n%s", c.path, rec.Code, rec.Body.String())
-			}
-			var out bytes.Buffer
-			if err := json.Indent(&out, rec.Body.Bytes(), "", "  "); err != nil {
-				t.Fatalf("GET %s: %v", c.path, err)
-			}
-			out.WriteByte('\n')
-			if strings.Contains(out.String(), `"worktree":`) || strings.Contains(out.String(), `"launch":`) {
-				t.Fatalf("GET %s returns a host path field:\n%s", c.path, out.String())
-			}
-			file := filepath.Join("testdata", "api", c.name+".json")
-			if os.Getenv("UPDATE_GOLDEN") != "" {
-				if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
-			want, err := os.ReadFile(file)
-			if err != nil {
-				t.Fatalf("%v (run with UPDATE_GOLDEN=1 to write it)", err)
-			}
-			if out.String() != string(want) {
-				t.Fatalf("GET %s does not match %s:\n%s", c.path, file, out.String())
-			}
-		})
+		t.Run(c.name, func(t *testing.T) { checkAPIGolden(t, h, c.name, c.path) })
+	}
+}
+
+func TestAPINestedGolden(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	kid, err := fx.st.AddTaskUnder(ctx, 1, "hand", "Cover the cookie rename with a regression test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.AddTaskUnder(ctx, kid.ID, "hand", "Run it on Safari", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	for _, c := range []struct{ name, path string }{
+		{"tasks-nested", "/api/v1/tasks"},
+		{"task-parent", "/api/v1/task/t1"},
+		{"task-child", "/api/v1/task/t7"},
+	} {
+		t.Run(c.name, func(t *testing.T) { checkAPIGolden(t, h, c.name, c.path) })
+	}
+}
+
+func checkAPIGolden(t *testing.T, h http.Handler, name, path string) {
+	t.Helper()
+	rec := request(h, "GET", path, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d:\n%s", path, rec.Code, rec.Body.String())
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, rec.Body.Bytes(), "", "  "); err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	out.WriteByte('\n')
+	if strings.Contains(out.String(), `"worktree":`) || strings.Contains(out.String(), `"launch":`) {
+		t.Fatalf("GET %s returns a host path field:\n%s", path, out.String())
+	}
+	file := filepath.Join("testdata", "api", name+".json")
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("%v (run with UPDATE_GOLDEN=1 to write it)", err)
+	}
+	if out.String() != string(want) {
+		t.Fatalf("GET %s does not match %s:\n%s", path, file, out.String())
 	}
 }
 
@@ -1520,8 +1543,8 @@ func agreeWebAndAPI(t *testing.T, h http.Handler) {
 	for _, g := range tasks.Groups {
 		rows += len(g.Tasks)
 	}
-	if rows != strings.Count(page, `class="row check task-row"`) {
-		t.Fatalf("%d task rows in HTML, %d in API", strings.Count(page, `class="row check task-row"`), rows)
+	if rows != strings.Count(page, `class="row check task-row`) {
+		t.Fatalf("%d task rows in HTML, %d in API", strings.Count(page, `class="row check task-row`), rows)
 	}
 	groups := regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`).FindAllStringSubmatch(page, -1)
 	if len(groups) != len(tasks.Groups) {
@@ -1615,6 +1638,9 @@ func agreeWebAndAPI(t *testing.T, h http.Handler) {
 		}
 		if detail.MoreEvents != strings.Contains(detailPage, "Only the latest 50 events are shown.") {
 			t.Fatalf("task %s more_events = %v", row.Ref, detail.MoreEvents)
+		}
+		if got, want := strings.Count(detailPage, `class="row check sub"`), len(detail.Children); got != want {
+			t.Fatalf("task %s has %d sub-tasks in HTML, %d in API", row.Ref, got, want)
 		}
 		if got, want := strings.Count(detailPage, `class="row check"`), len(detail.Attempts); got != want {
 			t.Fatalf("task %s has %d attempts in HTML, %d in API", row.Ref, got, want)

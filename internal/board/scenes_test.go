@@ -312,7 +312,7 @@ func scenes() []scene {
 			}
 		}
 	}
-	return []scene{
+	list := []scene{
 		{"f00000000e001", "empty", func(t *testing.T, fx *fixture) {}},
 		{"f00000000e002", "ready", supervised("idle", "", 510000, nil)},
 		{"f00000000e003", "working", supervised("working", "", 850000, func(t *testing.T, fx *fixture) {
@@ -486,6 +486,25 @@ func scenes() []scene {
 			_, _ = fx.st.Ask(ctx, refused.ID, "Which of these can the Board open?\n\nEach line names a path; only the ones the Board may serve become links.\n\n- a file outside the fleet: "+outside+"/notes.md\n- a link in reports/ that leads out: "+home+"/reports/t287/escape/id_ed25519\n- a link in reports/ to Hand's database: "+home+"/reports/t287/db-link\n- a project clone: "+home+"/projects/app/README.md\n- a dot folder: "+home+"/.secret/token\n- a 3 MiB log: "+home+"/reports/t287/huge.log\n- a binary file named .md: "+home+"/reports/t287/binary.md\n- a name with a space and an accent: `"+home+"/reports/t287/résumé notes.md`\n- a key in the home folder: `~/.ssh/id_ed25519`\n\n1. Only the ones inside the fleet folder (recommended)\n2. All of them")
 			claudeLog(t, fx, append(chatLines(t, fx, 420000)[:23], rec("user", ago(30), "is the t287 design ready?", 0), rec("assistant", ago(29), "Yes. a3 finished it: `"+home+"/reports/t287/design.md`. It covers the nightly job, the manifest and the risks; d1 asks you to approve it. The screenshots for t288 are in "+home+"/shots/t288/ and the old notes are at "+home+"/reports/t286/notes.md.", 420000)))
 		}},
+		{"f00000000e018", "nested-tasks", func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			fx.status = "idle"
+			fx.supervisor(t, state.AttemptRunning, "gen-1")
+			export := active(t, fx.st, "Ship the nightly export pipeline")
+			attempt(t, fx.st, export.ID, state.AttemptRunning, "")
+			job, _ := fx.st.AddTaskUnder(ctx, export.ID, "hand", "Write the nightly job", "")
+			_, _ = fx.st.Transition(ctx, job.ID, state.StatusActive)
+			retry, _ := fx.st.AddTaskUnder(ctx, job.ID, "hand", "Retry the upload when the bucket is busy", "")
+			_, _ = fx.st.Transition(ctx, retry.ID, state.StatusActive)
+			attempt(t, fx.st, retry.ID, state.AttemptFailed, "launch did not finish: the worktree already exists at a path that is not ours")
+			login := active(t, fx.st, "Fix login")
+			_, _ = fx.st.Ask(ctx, login.ID, "Keep the old cookie name?\n\n1. Yes, keep it\n2. No, rename it")
+			_, _ = fx.st.AddTask(ctx, "hand", "Add dark mode toggle", "")
+			release := active(t, fx.st, "Release 0.13")
+			_, _ = fx.st.Transition(ctx, release.ID, state.StatusDone)
+			notes, _ := fx.st.AddTaskUnder(ctx, release.ID, "hand", "Write the release notes", "")
+			_, _ = fx.st.Transition(ctx, notes.ID, state.StatusActive)
+		}},
 		{"f00000000e015", "phone", func(t *testing.T, fx *fixture) {
 			fx.options.Iroh = func() sidecar.Status {
 				return sidecar.Status{State: sidecar.Ready, ID: strings.Repeat("0123456789abcdef", 4), Relay: "https://relay.example/"}
@@ -584,6 +603,14 @@ func scenes() []scene {
 			}
 		}},
 	}
+	ids := map[string]string{}
+	for _, sc := range list {
+		if prev, dup := ids[sc.id]; dup {
+			panic("scene id " + sc.id + " used by " + prev + " and " + sc.name)
+		}
+		ids[sc.id] = sc.name
+	}
+	return list
 }
 
 func TestRenderScenes(t *testing.T) {

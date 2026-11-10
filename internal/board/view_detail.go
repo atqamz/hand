@@ -12,6 +12,7 @@ type taskView struct {
 	Card        card
 	Pill        string
 	Attempts    []check
+	Children    []check
 	Decisions   []state.Decision
 	Unread      []state.Report
 	Reports     []state.Report
@@ -62,6 +63,23 @@ func (b *Board) buildTask(ctx context.Context, t state.Task) (taskView, error) {
 	v.Decisions, err = b.st.Decisions(ctx, t.ID, historyLimit)
 	if err != nil {
 		return taskView{}, err
+	}
+	kids, err := b.st.Children(ctx, t.ID)
+	if err != nil || len(kids) == 0 {
+		return v, err
+	}
+	f, err := b.facts(ctx)
+	if err != nil {
+		return taskView{}, err
+	}
+	subs, err := b.st.ChildCounts(ctx)
+	if err != nil {
+		return taskView{}, err
+	}
+	for _, k := range kids {
+		c := f.check(k)
+		c.Subs = subs[k.ID]
+		v.Children = append(v.Children, c)
 	}
 	return v, nil
 }
