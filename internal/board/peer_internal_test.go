@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -251,5 +253,109 @@ func TestAPeerRequestProvesNoFleetByALaptopCookie(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), peerKey{}, &peerConn{}))
 	if h.tokenProves(current, other, req) || len(h.tokenFleets(current, req)) != 1 {
 		t.Fatal("a peer connection proved a fleet with a laptop cookie")
+	}
+}
+
+func servePeerProbe(t *testing.T, read func(r *http.Request)) string {
+	t.Helper()
+	p := NewPeer(probeHost(read), "secret")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = p.Serve(ln) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = p.Shutdown(ctx)
+		_ = p.srv.Close()
+	})
+	return ln.Addr().String()
+}
+
+func TestARequestHeldPastItsPeersHalfCloseIsAnsweredNormally(t *testing.T) {
+	var canceled atomic.Bool
+	addr := servePeerProbe(t, func(r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			canceled.Store(true)
+		case <-time.After(500 * time.Millisecond):
+		}
+	})
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET /f0123456789ab/pair HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	res, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if b, _ := io.ReadAll(res.Body); string(b) != "ok" || canceled.Load() {
+		t.Fatalf("body %q, canceled %v", b, canceled.Load())
+	}
+}
+
+func TestARequestIsCanceledWhenItsPeerResetsTheConnection(t *testing.T) {
+	canceled := make(chan struct{})
+	addr := servePeerProbe(t, func(r *http.Request) {
+		<-r.Context().Done()
+		close(canceled)
+	})
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(conn, "GET /f0123456789ab/pair HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	_ = conn.(*net.TCPConn).SetLinger(0)
+	_ = conn.Close()
+	select {
+	case <-canceled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a reset connection left its request running")
+	}
+}
+
+func TestSequentialRequestsOnOneConnectionLeaveNoGoroutineBehind(t *testing.T) {
+	addr := servePeerProbe(t, func(*http.Request) {})
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	br := bufio.NewReader(conn)
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	get := func() {
+		if _, err := io.WriteString(conn, "GET /f0123456789ab/pair HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.ReadResponse(br, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, res.Body)
+		_ = res.Body.Close()
+	}
+	get()
+	start := runtime.NumGoroutine()
+	for range 20 {
+		get()
+	}
+	for end := time.Now().Add(3 * time.Second); runtime.NumGoroutine() > start && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > start {
+		t.Fatalf("goroutines %d after 20 requests, %d after the first", n, start)
 	}
 }
