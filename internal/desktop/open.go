@@ -18,22 +18,22 @@ var openTimeout = 30 * time.Second
 func (a *App) OpenInBrowser() {
 	switch a.Screen {
 	case TaskScreen, AttemptScreen, DecisionScreen, ReportScreen:
-		a.openRef(a.Ref)
+		a.runOpen(a.Ref)
 	default:
-		a.openRef("")
+		a.runOpen()
 	}
 }
 
 func (a *App) OpenBoardPath(dest string) {
-	ref, ok := boardRef(a.Fleet.ID, dest)
+	args, ok := boardOpenArgs(a.Fleet.ID, dest)
 	if !ok {
-		a.OpenErr = "this Board page has no ref that `hand open` takes; open it from the Board's fleet page"
+		a.OpenErr = "this Board page is not one `hand open` takes; open it from the Board's fleet page"
 		return
 	}
-	a.openRef(ref)
+	a.runOpen(args...)
 }
 
-func (a *App) openRef(ref string) {
+func (a *App) runOpen(args ...string) {
 	if a.OpenBusy {
 		return
 	}
@@ -51,10 +51,7 @@ func (a *App) openRef(ref string) {
 		a.OpenErr = "`hand` was not found next to hand-desktop or on PATH; install it or add it to PATH"
 		return
 	}
-	argv := []string{"--home", home, "open"}
-	if ref != "" {
-		argv = append(argv, ref)
-	}
+	argv := append([]string{"--home", home, "open"}, args...)
 	run := func() string {
 		ctx, cancel := context.WithTimeout(a.Context, openTimeout)
 		defer cancel()
@@ -117,28 +114,31 @@ func failureLine(out []byte, err error) string {
 
 var boardKinds = map[string]byte{"task": 't', "decision": 'd', "report": 'r', "attempt": 'a'}
 
-func boardRef(fleet, dest string) (string, bool) {
+func boardOpenArgs(fleet, dest string) ([]string, bool) {
 	u, err := url.Parse(dest)
 	if err != nil || fleet == "" {
-		return "", false
+		return nil, false
 	}
 	rest, ok := strings.CutPrefix(u.Path, "/"+fleet)
 	if !ok || rest != "" && rest[0] != '/' {
-		return "", false
+		return nil, false
 	}
 	rest = strings.Trim(rest, "/")
 	if rest == "" {
-		return "", true
+		return nil, true
 	}
 	kind, ref, ok := strings.Cut(rest, "/")
+	if kind == "doc" && ok && strings.Trim(ref, "/") != "" {
+		return []string{"--doc", ref}, true
+	}
 	prefix, known := boardKinds[kind]
 	if !ok || !known || len(ref) < 2 || ref[0] != prefix {
-		return "", false
+		return nil, false
 	}
 	for _, r := range ref[1:] {
 		if r < '0' || r > '9' {
-			return "", false
+			return nil, false
 		}
 	}
-	return ref, true
+	return []string{ref}, true
 }

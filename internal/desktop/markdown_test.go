@@ -105,7 +105,10 @@ func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
 		{"/" + fleetID + "/task/t1", []string{"open", "t1"}},
 		{"/" + fleetID + "/decision/d1#x", []string{"open", "d1"}},
 		{"/" + fleetID + "/", []string{"open"}},
-		{"/" + fleetID + "/doc/reports/t1/a.md", nil},
+		{"/" + fleetID + "/doc/reports/t1/a.md", []string{"open", "--doc", "reports/t1/a.md"}},
+		{"/" + fleetID + "/doc/reports/t1/my%20notes%231.md?x=1#top", []string{"open", "--doc", "reports/t1/my notes#1.md"}},
+		{"/" + fleetID + "/doc/", nil},
+		{"/" + fleetID + "/doc", nil},
 	} {
 		t.Run(tc.dest, func(t *testing.T) {
 			hand := installFakeHand(t)

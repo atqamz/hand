@@ -94,6 +94,13 @@ func docURL(base, rel string) string {
 	return base + "/doc/" + (&url.URL{Path: rel}).EscapedPath()
 }
 
+func DocPage(home, rel string) (string, error) {
+	if _, _, _, err := Resolve(home, rel); err != nil {
+		return "", err
+	}
+	return docURL("", path.Clean(rel)), nil
+}
+
 func DocHref(home, base, p string) string {
 	if slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
 		return ""

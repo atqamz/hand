@@ -399,3 +399,20 @@ func TestTheViewerDialogIsStyled(t *testing.T) {
 		t.Fatalf("the phone rules are not in the first max-width:599px block (%d, %d, %d)", phone, rule, end)
 	}
 }
+
+func TestAReportsAPIDetailCarriesItsDeliveredFileHref(t *testing.T) {
+	st := open(t)
+	home := fleetFolder(t, map[string]string{"reports/t1/my design.md": design})
+	task := active(t, st, "Export")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportProgress, "Delivered: "+home+"/reports/t1/my design.md\nDelivered: https://example.com/doc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportProgress, "no delivery"); err != nil {
+		t.Fatal(err)
+	}
+	h := board.New(st, token, board.Options{Home: home, Controls: true})
+	got := get(t, h, "/api/v1/report/r1")
+	contains(t, "report r1", got, `"delivered":[{"ref":"my design.md","kind":"file","href":"/doc/reports/t1/my%20design.md"},{"ref":"https://example.com/doc","kind":"link"}]`)
+	contains(t, "report r2", get(t, h, "/api/v1/report/r2"), `"delivered":[]`)
+}

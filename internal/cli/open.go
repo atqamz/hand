@@ -25,7 +25,7 @@ import (
 
 var launchWait = 2 * time.Second
 
-const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--delivered]"
+const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
 
 func init() {
 	commands["open"] = cmdOpen
@@ -37,6 +37,7 @@ func cmdOpen(r *runner, args []string) error {
 	}
 	set := flags("open")
 	delivered := set.Bool("delivered", false, "open the task's newest deliverable instead of its board page")
+	doc := set.String("doc", "", "open a document of the fleet folder in the board's viewer, as in `hand open --doc reports/t1/design.md`")
 	printed := set.Bool("print", false, "print the link instead of opening it; a board link holds the fleet's token")
 	if err := set.Parse(args); err != nil {
 		return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
@@ -52,6 +53,9 @@ func cmdOpen(r *runner, args []string) error {
 		return usageError{openUsage}
 	}
 	ref := strings.Join(rest, "")
+	if *doc != "" && (ref != "" || *delivered) {
+		return usageError{"open: --doc takes a path alone; " + openUsage}
+	}
 	st, err := r.store()
 	if err != nil {
 		return err
@@ -59,7 +63,14 @@ func cmdOpen(r *runner, args []string) error {
 	defer st.Close()
 	ctx := r.ctx()
 	var path, frag string
-	if *delivered {
+	if *doc != "" {
+		if path, err = board.DocPage(r.home, *doc); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("%w: %s", state.ErrNotFound, *doc)
+			}
+			return usageError{fmt.Sprintf("open: --doc %s: %v", *doc, err)}
+		}
+	} else if *delivered {
 		d, err := newestDeliverable(ctx, st, ref)
 		if err != nil {
 			return err
@@ -102,7 +113,7 @@ func cmdOpen(r *runner, args []string) error {
 	page := "http://" + addr + "/" + r.fleet.ID + path
 	if *printed {
 		app := ""
-		if !*delivered {
+		if !*delivered && *doc == "" {
 			app = appLink(r.fleet.ID, path, frag)
 		}
 		return r.printLink(page+"?token="+token+frag, app, "The link holds the fleet's token; paste it only into your own browser")

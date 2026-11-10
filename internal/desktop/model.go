@@ -321,6 +321,7 @@ type DecisionDetail struct {
 }
 
 type ReportDetail struct {
-	Report Report `json:"report"`
-	Task   Task   `json:"task"`
+	Report    Report        `json:"report"`
+	Task      Task          `json:"task"`
+	Delivered []Deliverable `json:"delivered"`
 }

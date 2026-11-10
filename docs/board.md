@@ -34,8 +34,11 @@ It never shows dot files and dot folders, the files at the top of the fleet fold
 | `hand open dN` | the decision |
 | `hand open rN`, `hand open aN` | the report or attempt, on its task's page |
 | `hand open tN --delivered` | the task's newest deliverable: a PR, a document, or a file or folder, in the document viewer when it is inside the fleet folder |
+| `hand open --doc PATH` | the file or folder `PATH` of the fleet folder, in the document viewer; it takes no ref and not `--delivered` |
 
 `--delivered` opens a file or folder inside the fleet folder in the document viewer when the viewer serves it, through the same login link as the other pages, and `--print` prints that link.
+
+`--doc` serves the same paths as `/<fleet id>/doc/<path>` and refuses the rest the way the viewer does: a path with `..`, an absolute or backslash path, a dot path, a link that leaves the fleet folder, a file at the folder's top level, and `luvus/`, `locks/`, `projects/`, `backups/` and `cache/` exit 2 with the viewer's reason, and a missing file exits 3, all before the board starts. `--print` prints the login link.
 
 `--delivered` never opens any other file itself, because the path is text from a worker's report or `hand task done --deliverable` and the OS opener runs programs: for a path outside the fleet folder, gone or refused, it opens the folder that holds the file, or the folder itself, and it opens a URL only when its scheme is `http` or `https`; `--print` prints that path or URL as it is. It never opens a UNC path (`\\host\share\...`), because Windows would connect to the host it names and could leak credentials: it exits with an error that prints the path, and when the newest deliverable is a UNC path it does not fall back to an older one.
 

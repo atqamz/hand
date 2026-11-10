@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -186,18 +187,20 @@ func TestABoardLinkGoesThroughHandOpen(t *testing.T) {
 	hand := installFakeHand(t)
 	app := homedApp(t, hand.home)
 	for dest, argv := range map[string][]string{
-		"/" + fleetID + "/":                 {"open"},
-		"/" + fleetID:                       {"open"},
-		"/" + fleetID + "/task/t12":         {"open", "t12"},
-		"/" + fleetID + "/decision/d3#x":    {"open", "d3"},
-		"/" + fleetID + "/report/r7":        {"open", "r7"},
-		"/" + fleetID + "/attempt/a2?tab=1": {"open", "a2"},
+		"/" + fleetID + "/":                    {"open"},
+		"/" + fleetID:                          {"open"},
+		"/" + fleetID + "/task/t12":            {"open", "t12"},
+		"/" + fleetID + "/decision/d3#x":       {"open", "d3"},
+		"/" + fleetID + "/report/r7":           {"open", "r7"},
+		"/" + fleetID + "/attempt/a2?tab=1":    {"open", "a2"},
+		"/" + fleetID + "/doc/reports/t1/x.md": {"open", "--doc", "reports/t1/x.md"},
 	} {
 		app.OpenBoardPath(dest)
 		hand.want(t, argv...)
 	}
 	for _, dest := range []string{
-		"/" + fleetID + "/doc/notes.md",
+		"/" + fleetID + "/doc/",
+		"/" + fleetID + "/docs/a.md",
 		"/" + fleetID + "/task/d3",
 		"/" + fleetID + "/task/t1/x",
 		"/" + fleetID + "x/task/t1",
@@ -286,5 +289,80 @@ func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
 	}
 	if got := hand.calls(t); len(got) != 4 {
 		t.Fatalf("hand ran %q, want a second call once idle", got)
+	}
+}
+
+func deliveredApp(t *testing.T, home string, ds ...desktop.Deliverable) *desktop.App {
+	t.Helper()
+	f := goldenFixture(t)
+	f.fleets[0].Home = home
+	td := f.task[fleetID]
+	td.Delivered = ds
+	f.task[fleetID] = td
+	at := f.attempt[fleetID]
+	at.Delivered = ds
+	f.attempt[fleetID] = at
+	rd := f.report[fleetID]
+	rd.Delivered = ds
+	f.report[fleetID] = rd
+	return newApp(t, f)
+}
+
+func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
+	hand := installFakeHand(t)
+	docHref := "/" + fleetID + "/doc/reports/t1/my%20design.md"
+	ds := []desktop.Deliverable{
+		{Ref: "https://github.com/atqamz/hand/pull/7", Kind: "PR"},
+		{Ref: "https://docs.example.com/q3", Kind: "link"},
+		{Ref: "my design.md", Kind: "file", Href: docHref},
+		{Ref: "outside.pdf", Kind: "file"},
+		{Ref: "javascript:alert(1)", Kind: "link"},
+		{Ref: "file:///etc/passwd", Kind: "link"},
+		{Ref: "evil.md", Kind: "file", Href: "/" + secondID + "/doc/evil.md"},
+		{Ref: "up.md", Kind: "file", Href: "/" + fleetID + "/doc/../../etc/passwd"},
+	}
+	for _, screen := range []struct {
+		name string
+		open func(*desktop.App)
+	}{
+		{"task", func(a *desktop.App) { a.OpenRef("t1") }},
+		{"attempt", func(a *desktop.App) { a.OpenRef("a1") }},
+		{"report", func(a *desktop.App) { a.OpenRef("r1") }},
+	} {
+		t.Run(screen.name, func(t *testing.T) {
+			app := deliveredApp(t, hand.home, ds...)
+			tt := newTester(app)
+			screen.open(app)
+			tt.Frame()
+			mustText(t, tt, "Delivered", "PR", "outside.pdf", "my design.md")
+
+			click(t, tt, "https://github.com/atqamz/hand/pull/7")
+			click(t, tt, "https://docs.example.com/q3")
+			want := []string{"https://github.com/atqamz/hand/pull/7", "https://docs.example.com/q3"}
+			if got := tt.OpenedURLs(); !slices.Equal(got, want) {
+				t.Fatalf("opened %q, want %q", got, want)
+			}
+			if got := hand.calls(t); len(got) != 0 {
+				t.Fatalf("hand ran for a link: %q", got)
+			}
+
+			click(t, tt, "my design.md")
+			hand.want(t, "open", "--doc", "reports/t1/my design.md")
+			if got := tt.OpenedURLs(); len(got) != len(want) {
+				t.Fatalf("a fleet file reached the browser directly: %q", got)
+			}
+
+			for _, plain := range []string{"outside.pdf", "javascript:alert(1)", "file:///etc/passwd", "evil.md", "up.md"} {
+				if err := tt.Click(plain); err == nil {
+					tt.Frame()
+				}
+			}
+			if got := tt.OpenedURLs(); len(got) != len(want) {
+				t.Fatalf("an item that should not open reached the browser: %q", got)
+			}
+			if got := hand.calls(t); len(got) != 0 {
+				t.Fatalf("an item that should not open ran hand: %q", got)
+			}
+		})
 	}
 }

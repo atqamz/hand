@@ -1084,6 +1084,15 @@ func TestScenes(t *testing.T) {
 	errFleet := goldenFixture(t)
 	errApp := newApp(t, errFleet)
 	blocked := blockedFixture(t)
+	delivered := goldenFixture(t)
+	td := delivered.task[fleetID]
+	td.Delivered = []desktop.Deliverable{
+		{Ref: "https://github.com/example/hand/pull/42", Kind: "PR"},
+		{Ref: "https://docs.example.com/q3-review", Kind: "link"},
+		{Ref: "design.md", Kind: "file", Href: "/" + fleetID + "/doc/reports/t1/design.md"},
+		{Ref: "export.csv", Kind: "file"},
+	}
+	delivered.task[fleetID] = td
 	scenes := []scene{
 		{"01-fleet-switch", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "second")
@@ -1131,6 +1140,10 @@ func TestScenes(t *testing.T) {
 		{"14-open-error", homedApp(t, "/very/long/path/to/a-fleet"), func(t *testing.T, tt *ui.Tester) {
 			t.Setenv("PATH", t.TempDir())
 			click(t, tt, "Open in browser")
+		}},
+		{"15-delivered", newApp(t, delivered), func(t *testing.T, tt *ui.Tester) {
+			click(t, tt, "Tasks")
+			click(t, tt, "Fix login")
 		}},
 	}
 	for _, sc := range scenes {
