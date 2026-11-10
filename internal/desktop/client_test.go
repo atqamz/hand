@@ -361,7 +361,7 @@ func writeLocal(t *testing.T, root string) (string, string) {
 
 func TestNewLocalFindsTheBoardAndTokens(t *testing.T) {
 	root := t.TempDir()
-	writeLocal(t, root)
+	home, _ := writeLocal(t, root)
 	c, err := desktop.NewLocal(func(key string) string {
 		if key == "SECONDHAND_HOME" {
 			return root
@@ -375,7 +375,7 @@ func TestNewLocalFindsTheBoardAndTokens(t *testing.T) {
 		t.Fatalf("base = %q", c.Base)
 	}
 	fleets := c.Fleets()
-	if len(fleets) != 1 || fleets[0].ID != fleetID || fleets[0].Name != fleetID {
+	if len(fleets) != 1 || fleets[0].ID != fleetID || fleets[0].Name != fleetID || fleets[0].Home != home {
 		t.Fatalf("fleets = %+v", fleets)
 	}
 	token, err := c.Token(fleetID)

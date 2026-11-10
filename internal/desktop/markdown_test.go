@@ -8,21 +8,21 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-const boardBase = "http://127.0.0.1:7777"
-
-type boarded struct{ *fixture }
-
-func (boarded) BoardBase() string { return boardBase }
-
 const reportBody = "Result:\n\n| Check | Outcome |\n|---|---|\n| lint | green |\n| tests | green |\n\n```go\nfmt.Println(\"hi\")\n```\n\n- [x] shipped\n- [ ] announced\n\n"
 
 func reportApp(t *testing.T, body string) (*desktop.App, *ui.Tester) {
 	t.Helper()
+	return reportAppAt(t, body, "")
+}
+
+func reportAppAt(t *testing.T, body, home string) (*desktop.App, *ui.Tester) {
+	t.Helper()
 	f := goldenFixture(t)
+	f.fleets[0].Home = home
 	rd := f.report[fleetID]
 	rd.Report.Body = body
 	f.report[fleetID] = rd
-	app := desktop.New(func() (desktop.ReadModel, error) { return boarded{f}, nil })
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	tt := newTester(app)
@@ -58,7 +58,7 @@ func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 	}{
 		{"https", "https://github.com/atqamz/hand/pull/1", "https://github.com/atqamz/hand/pull/1"},
 		{"http", "http://example.com/a", "http://example.com/a"},
-		{"fleet path", "/" + fleetID + "/doc/reports/t1/a.md", boardBase + "/" + fleetID + "/doc/reports/t1/a.md"},
+		{"fleet path", "/" + fleetID + "/doc/reports/t1/a.md", ""},
 		{"other fleet path", "/" + secondID + "/doc/a.md", ""},
 		{"board root", "/", ""},
 		{"traversal", "/" + fleetID + "/doc/../../etc/passwd", ""},
@@ -69,7 +69,7 @@ func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 		{"relative", "reports/t1/a.md", ""},
 		{"backslash traversal", "/" + fleetID + "/doc/..\\x", ""},
 		{"unc", "\\\\host\\x", ""},
-		{"encoded nul", "/" + fleetID + "/a%00", boardBase + "/" + fleetID + "/a%00"},
+		{"encoded nul", "/" + fleetID + "/a%00", ""},
 		{"upper http", "HTTP://x", "HTTP://x"},
 		{"mixed javascript", "JaVaScRiPt:x", ""},
 		{"one slash http", "http:/x", ""},
@@ -93,6 +93,34 @@ func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 			if len(got) != 1 || got[0] != tc.want {
 				t.Fatalf("opened %q, want %q", got, tc.want)
 			}
+		})
+	}
+}
+
+func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
+	for _, tc := range []struct {
+		dest string
+		argv []string
+	}{
+		{"/" + fleetID + "/task/t1", []string{"open", "t1"}},
+		{"/" + fleetID + "/decision/d1#x", []string{"open", "d1"}},
+		{"/" + fleetID + "/", []string{"open"}},
+		{"/" + fleetID + "/doc/reports/t1/a.md", nil},
+	} {
+		t.Run(tc.dest, func(t *testing.T) {
+			hand := installFakeHand(t)
+			app, tt := reportAppAt(t, "Open [the link]("+tc.dest+") now", hand.home)
+			click(t, tt, "the link")
+			if got := tt.OpenedURLs(); len(got) != 0 {
+				t.Fatalf("opened %q in the browser directly", got)
+			}
+			if tc.argv == nil {
+				if app.OpenErr == "" || len(hand.calls(t)) != 0 {
+					t.Fatalf("err %q calls %q", app.OpenErr, hand.calls(t))
+				}
+				return
+			}
+			hand.want(t, tc.argv...)
 		})
 	}
 }

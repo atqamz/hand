@@ -162,6 +162,9 @@ func (a *App) masthead(c *ui.Context, p palette) {
 				gauge(c, p, a.Status.Gauge)
 			}
 		}
+		if a.Model != nil && a.Fleet.ID != "" && ui.Button(c.Key("open-browser"), "Open in browser").Disabled(a.OpenBusy).Clicked() {
+			a.OpenInBrowser()
+		}
 		if ui.Button(c.Key("refresh"), "Refresh").Clicked() && a.Fleet.ID != "" {
 			a.Refresh()
 		}
@@ -174,6 +177,7 @@ func (a *App) masthead(c *ui.Context, p palette) {
 func (a *App) body(c *ui.Context, p palette) {
 	ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 		ui.Column(c).Gap(16).Selectable().Children(func() {
+			a.openCard(c, p)
 			switch {
 			case a.Err != "":
 				a.errorCard(c, p)
@@ -213,6 +217,22 @@ func (a *App) errorCard(c *ui.Context, p palette) {
 		if ui.Button(c.Key("retry"), "Retry").Width(100).Clicked() {
 			a.Retry()
 		}
+	})
+}
+
+func (a *App) openCard(c *ui.Context, p palette) {
+	if a.OpenErr == "" {
+		return
+	}
+	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
+		Border(1, p.fail).Children(func() {
+		ui.Text(c, "The browser did not open").FontSize(15).Bold().TextColor(p.fail)
+		ui.Text(c, a.OpenErr).FontSize(13)
+		ui.Row(c).Gap(8).Children(func() {
+			if ui.Button(c.Key("dismiss-open"), "Dismiss").Clicked() {
+				a.OpenErr = ""
+			}
+		})
 	})
 }
 
@@ -1164,37 +1184,38 @@ func stamp(at string) string {
 func (a *App) markdown(c *ui.Context, src string) {
 	a.md.ShareSelection = true
 	a.md.OnLink = func(dest string) {
-		if target := a.linkTarget(dest); target != "" {
+		target, board := a.linkTarget(dest)
+		switch {
+		case board:
+			a.OpenBoardPath(target)
+		case target != "":
 			c.OpenURL(target)
 		}
 	}
 	markdown.View(c, src, &a.md)
 }
 
-type boardAddress interface{ BoardBase() string }
-
-func (a *App) linkTarget(dest string) string {
+func (a *App) linkTarget(dest string) (string, bool) {
 	if strings.ContainsAny(dest, "\\\x00") || strings.HasPrefix(dest, "//") {
-		return ""
+		return "", false
 	}
 	u, err := url.Parse(dest)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
 		if u.Host != "" && ui.SafeToOpen(dest) {
-			return dest
+			return dest, false
 		}
 	case "":
-		board, ok := a.Model.(boardAddress)
-		if !ok || a.Fleet.ID == "" || u.Host != "" || !strings.HasPrefix(u.EscapedPath(), "/"+a.Fleet.ID+"/") && u.EscapedPath() != "/"+a.Fleet.ID {
-			return ""
+		if a.Fleet.ID == "" || u.Host != "" || !strings.HasPrefix(u.EscapedPath(), "/"+a.Fleet.ID+"/") && u.EscapedPath() != "/"+a.Fleet.ID {
+			return "", false
 		}
 		if slices.Contains(strings.Split(u.Path, "/"), "..") {
-			return ""
+			return "", false
 		}
-		return board.BoardBase() + dest
+		return dest, true
 	}
-	return ""
+	return "", false
 }

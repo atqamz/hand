@@ -5,6 +5,7 @@ import "encoding/json"
 type Fleet struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Home string `json:"-"`
 }
 
 type Envelope struct {

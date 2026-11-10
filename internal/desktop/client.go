@@ -102,8 +102,6 @@ type HTTPClient struct {
 	cursors map[string]string
 }
 
-func (c *HTTPClient) BoardBase() string { return c.Base }
-
 func (c *HTTPClient) Fleets() []Fleet {
 	return append([]Fleet(nil), c.Known...)
 }
@@ -199,7 +197,7 @@ func localFleets(root string) ([]Fleet, map[string]string, error) {
 			seen[id] = true
 			token := filepath.Join(home, "board.token")
 			tokens[id] = token
-			fleets = append(fleets, Fleet{ID: id, Name: id})
+			fleets = append(fleets, Fleet{ID: id, Name: id, Home: home})
 		}
 	}
 	sort.Slice(fleets, func(i, j int) bool { return fleets[i].ID < fleets[j].ID })

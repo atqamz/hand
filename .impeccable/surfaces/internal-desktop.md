@@ -50,7 +50,7 @@ OWN-WORLD: The Board's palette with both themes: white ground, `#f6f7f9` panel, 
 
 STORY: The operator opens the window and knows whether anything is paged: the masthead names the fleet and the supervisor's state, the rail counts Needs and Tasks. On Status they start, resume, stop or interrupt the supervisor; when it is blocked, Force and the fixed key toolbar appear, and each press carries the screen's revision, digest and last pressed sequence. They click Needs, read the toned rows, click the decision, choose an option, add a note and send the answer; a report a step away gets Ack. On the Timeline they type a message and press Enter to send it, or Shift+Enter for a new line; a half-typed draft waits there after a fleet switch or a closed window. Back returns. They close the window; nothing else about the fleet changes.
 
-FIRST VIEWPORT: At 1100×760: the rail at the left with the Hand mark, the fleets, then Status, Needs with its count and Tasks with its count; the masthead with the fleet name, the state pill, the supervisor's harness and model, the context gauge and Refresh; the content pane with the screen's title and its rows.
+FIRST VIEWPORT: At 1100×760: the rail at the left with the Hand mark, the fleets, then Status, Needs with its count and Tasks with its count; the masthead with the fleet name, the state pill, the supervisor's harness and model, the context gauge, Open in browser and Refresh; the content pane with the screen's title and its rows.
 
 FORM: It takes these raises:
 - from the Board: the severity ramp, the pale tone fills, the word-plus-shape rule and the flat resting surface;
@@ -59,7 +59,7 @@ FORM: It takes these raises:
 
 Signature moment: one click from a Needs row to its decision, then Open task to the task, then Back twice; the list is where it was. The only traces are the message, the answer, the acknowledgement and the supervisor action the Board records.
 
-FINISH: unreviewed and undocumented is unfinished; v1 ends with the tester scenes, the thirteen screenshots and this brief.
+FINISH: unreviewed and undocumented is unfinished; v1 ends with the tester scenes, the fourteen screenshots and this brief.
 
 ## Screens and scenes
 
@@ -80,6 +80,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `11-composer.png` | a typed message in the composer, with Send and Clear |
 | `12-composer-error.png` | a failed send, its error and the text it kept |
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
+| `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
 
 ## Auth decision
 
@@ -91,7 +92,7 @@ The window shows the fixed key toolbar only while the board reports the supervis
 
 ## Rules
 
-**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons on Status, and its key toolbar is fixed keys, with no fields. Every other click only changes which screen is shown. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
+**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons on Status, and its key toolbar is fixed keys, with no fields. Every other click only changes which screen is shown, except the masthead's Open in browser, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
 
 **The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file, and does not import the CLI, the board service or the state store.
 

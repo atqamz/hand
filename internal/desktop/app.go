@@ -73,6 +73,8 @@ type App struct {
 	AnswerNote   string
 	ActionErr    string
 	ActionWarn   bool
+	OpenErr      string
+	OpenBusy     bool
 
 	Draft    string
 	DraftDir string
@@ -219,7 +221,8 @@ func (a *App) SelectFleet(id string) {
 	a.Screen, a.Ref, a.back = StatusScreen, "", nil
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
-	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn = "", "", "", false
+	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
+	a.OpenBusy = false
 	a.DraftErr, a.retry, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()
@@ -812,6 +815,7 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	a.BusyAction = ""
 	a.ActionErr = ""
 	a.ActionWarn = false
+	a.OpenErr = ""
 	return a.loadID, ctx, cancel
 }
 
