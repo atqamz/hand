@@ -340,8 +340,12 @@ func TestClaudeFileIsGlobbedOnce(t *testing.T) {
 	if err := os.Rename(path, filepath.Join(moved, sessionUUID+".jsonl")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Read(ctx, "claude", sessionUUID, "/f"); err != nil {
+	got, err := r.Read(ctx, "claude", sessionUUID, "/f")
+	if err != nil {
 		t.Fatalf("moved file not found: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("entries after move = %d, want 1", len(got))
 	}
 	if *globs != 2 {
 		t.Fatalf("globs = %d, want 2", *globs)
@@ -350,6 +354,8 @@ func TestClaudeFileIsGlobbedOnce(t *testing.T) {
 
 func TestClaudeGoneSessionIsNotGlobbedWithinFloor(t *testing.T) {
 	globs := countGlobs(t)
+	globFirst = 50 * time.Millisecond
+	t.Cleanup(func() { globFirst = time.Second })
 	r := &Reader{Paths: Paths{Claude: t.TempDir()}}
 	ctx := context.Background()
 	for range 5 {
@@ -360,8 +366,7 @@ func TestClaudeGoneSessionIsNotGlobbedWithinFloor(t *testing.T) {
 	if *globs != 1 {
 		t.Fatalf("globs = %d, want 1", *globs)
 	}
-	goneFloor = 0
-	t.Cleanup(func() { goneFloor = 15 * time.Second })
+	time.Sleep(60 * time.Millisecond)
 	r.Read(ctx, "claude", sessionUUID, "/f")
 	if *globs != 2 {
 		t.Fatalf("globs after floor = %d, want 2", *globs)

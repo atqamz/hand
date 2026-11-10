@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/harness"
@@ -372,16 +373,19 @@ func userRecord(text string) string {
 }
 
 func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
-	empty := newFixture(t)
-	empty.supervisor(t, state.AttemptRunning, "gen-1")
-	contains(t, "no session file", get(t, empty.handler(), "/supervisor/log"), "waiting for the session…")
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	h := fx.handler()
+	contains(t, "no session file", get(t, h, "/supervisor/log"), "waiting for the session…")
 	claudeLog(t, fx, []string{
 		userRecord("hello <b>there</b>"),
 		`{"type":"assistant","timestamp":"2026-09-28T01:00:01Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Hi, operator."}]}}`,
 	})
+	for start := time.Now(); !strings.Contains(get(t, h, "/supervisor/log"), "Hi, operator."); time.Sleep(50 * time.Millisecond) {
+		if time.Since(start) > 3*time.Second {
+			t.Fatal("conversation did not appear within 3s of the session file")
+		}
+	}
 	ctx := context.Background()
 	for _, body := range []string{"first queued", "second queued"} {
 		if _, err := fx.st.AddSupervisorInput(ctx, body); err != nil {

@@ -14,17 +14,19 @@ var claudeInjected = regexp.MustCompile(`^<(task-notification|command-[a-z-]+|lo
 
 var (
 	globFiles = filepath.Glob
-	goneFloor = 15 * time.Second
+	globFirst = time.Second
+	globCap   = time.Minute
 )
 
 func (r *Reader) claude(s *session, id string) error {
+	moved := false
 	if s.file != "" {
 		err := s.follow(s.file, s.claudeLine)
 		if !errors.Is(err, ErrNoSession) {
 			return err
 		}
-		s.file = ""
-	} else if !s.goneAt.IsZero() && time.Since(s.goneAt) < goneFloor {
+		s.file, moved = "", true
+	} else if time.Now().Before(s.retryAt) {
 		return ErrNoSession
 	}
 	paths, err := globFiles(filepath.Join(r.Paths.Claude, "projects", "*", id+".jsonl"))
@@ -32,10 +34,14 @@ func (r *Reader) claude(s *session, id string) error {
 		return err
 	}
 	if len(paths) == 0 {
-		s.goneAt = time.Now()
+		s.wait = min(max(s.wait*2, globFirst), globCap)
+		s.retryAt = time.Now().Add(s.wait)
 		return ErrNoSession
 	}
-	s.goneAt = time.Time{}
+	s.retryAt, s.wait = time.Time{}, 0
+	if moved {
+		*s = session{offsets: map[string]int64{}}
+	}
 	s.file = paths[0]
 	return s.follow(s.file, s.claudeLine)
 }

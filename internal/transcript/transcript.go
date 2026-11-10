@@ -64,7 +64,8 @@ type session struct {
 	exported time.Time
 	stamp    time.Time
 	file     string
-	goneAt   time.Time
+	retryAt  time.Time
+	wait     time.Duration
 	status   Status
 }
 
