@@ -21,7 +21,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-var Version = "0.13.0"
+var Version = "0.14.0"
 
 var Channel = "source"
 
