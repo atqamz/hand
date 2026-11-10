@@ -454,8 +454,12 @@ export function seedLuvus(box, wanted) {
 }
 
 export function saveLuvus(box) {
-  if (fs.existsSync(path.join(luvusCache, 'pin.json')) || !fs.existsSync(path.join(box.root, 'luvus', 'pin.json'))) return;
-  fs.cpSync(path.join(box.root, 'luvus'), luvusCache, { recursive: true });
+  if (fs.existsSync(path.join(luvusCache, 'pin.json'))) return;
+  for (const store of [path.join(box.fleet, 'luvus', `${goos}-${goarch}`), path.join(box.root, 'luvus')]) {
+    if (!fs.existsSync(path.join(store, 'pin.json'))) continue;
+    fs.cpSync(store, luvusCache, { recursive: true });
+    return;
+  }
 }
 
 export async function cleaned(dir, probe) {

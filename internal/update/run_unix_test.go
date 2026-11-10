@@ -365,7 +365,7 @@ func TestRunPrunesOnlyAfterTheSwap(t *testing.T) {
 	f := newCycle(t)
 	old := []string{"20200101T000000", "20200102T000000"}
 	for _, st := range old {
-		for _, p := range []string{filepath.Join(f.root, "backups", "hand."+st), filepath.Join(f.root, "backups", f.alphaID, "hand.db."+st)} {
+		for _, p := range []string{filepath.Join(f.root, "backups", "hand."+st), filepath.Join(f.alpha, "backups", "hand.db."+st)} {
 			if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -377,7 +377,7 @@ func TestRunPrunesOnlyAfterTheSwap(t *testing.T) {
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
 	}
-	if got := names(t, filepath.Join(f.root, "backups", f.alphaID)); !slices.Equal(got, []string{"hand.db.20200102T000000", "hand.db.20261002T010203"}) {
+	if got := names(t, filepath.Join(f.alpha, "backups")); !slices.Equal(got, []string{"hand.db.20200102T000000", "hand.db.20261002T010203"}) {
 		t.Fatalf("fleet backups = %q", got)
 	}
 }

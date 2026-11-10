@@ -47,7 +47,7 @@ func TestLiveInitDownloadsTheTestedLuvus(t *testing.T) {
 	if !strings.HasPrefix(field(out, "luvus"), "downloaded and pinned "+luvus.Tested+" (") {
 		t.Fatalf("init = %q", out)
 	}
-	pin, ok, err := luvus.LoadPin(h.vars["SECONDHAND_HOME"])
+	pin, ok, err := luvus.LoadPin(fleet.LuvusStore(h.home))
 	if err != nil || !ok {
 		t.Fatalf("pin = %+v, %v, %v", pin, ok, err)
 	}

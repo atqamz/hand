@@ -158,8 +158,8 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if row := rows["desktop"]; row[0] != "info" || !(strings.Contains(row[1], "not installed") || strings.Contains(row[1], "unsupported on ")) {
 		t.Fatalf("desktop = %q in %q", row, out)
 	}
-	if len(rows) != len(want)+12 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+12, out)
+	if len(rows) != len(want)+14 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+14, out)
 	}
 }
 
@@ -241,10 +241,10 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 			fx.write(pinned, "tampered\n")
 		}},
 		{"no pin", "luvus pin", "warn", "pin it with `hand luvus pin`", 0, func(fx *doctorFixture) {
-			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "luvus", "pin.json"))
+			fx.remove(filepath.Join(fleet.LuvusStore(fx.h.home), "pin.json"))
 		}},
 		{"no luvus at all", "luvus pin", "fail", "no Luvus is pinned or on PATH", 1, func(fx *doctorFixture) {
-			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "luvus", "pin.json"))
+			fx.remove(filepath.Join(fleet.LuvusStore(fx.h.home), "pin.json"))
 			fx.remove(exe(fx.tools, "luvus"))
 		}},
 		{"broken database", "schema", "fail", "", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "hand.db"), "not a database") }},
@@ -361,7 +361,7 @@ func TestDoctorOutsideAFleet(t *testing.T) {
 			t.Fatalf("%s checked outside a fleet: %q", check, out)
 		}
 	}
-	if rows["luvus pin"][0] != "ok" || rows["git"][0] != "ok" {
+	if rows["luvus pin"][0] != "info" || !strings.Contains(rows["luvus pin"][1], "belongs to a fleet") || rows["git"][0] != "ok" {
 		t.Fatalf("rows = %q", rows)
 	}
 	fx.h.vars["HAND_HOME"] = t.TempDir()

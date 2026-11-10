@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -133,7 +133,34 @@ func (r *runner) claim(st *state.Store) error {
 		return err
 	}
 	r.fleet = f
+	r.migrateLayout()
 	return nil
+}
+
+func (r *runner) migrateLayout() {
+	if r.migrated {
+		return
+	}
+	r.migrated = true
+	now := r.env.Now()
+	failed := filepath.Join(r.home, "cache", ".migration-failed")
+	fi, statErr := os.Stat(failed)
+	if statErr == nil && now.Sub(fi.ModTime()) < 24*time.Hour {
+		return
+	}
+	lines, err := fleet.Migrate(r.ctx(), r.root, r.fleet.ID, r.home, r.env.Environ(), now)
+	for _, line := range lines {
+		fmt.Fprintln(r.env.Stderr, "hand: migrated "+line)
+	}
+	switch {
+	case err != nil:
+		fmt.Fprintln(r.env.Stderr, "hand: layout migration: "+err.Error()+"; the next try is tomorrow, or run `hand init`")
+		if os.MkdirAll(filepath.Dir(failed), 0o700) == nil && os.WriteFile(failed, nil, 0o600) == nil {
+			_ = os.Chtimes(failed, now, now)
+		}
+	case statErr == nil:
+		_ = os.Remove(failed)
+	}
 }
 
 var errHomeMoved = errors.New("this fleet's home moved or was copied")
@@ -287,26 +314,44 @@ func cmdInit(r *runner, args []string) error {
 	for _, name := range skipped {
 		help = append(help, "Worktrees of project "+name+" were not repaired because its git settings changed; read them, run `hand project trust "+name+"`, then run `hand init` again")
 	}
-	switch pin, had, err := luvus.LoadPin(root); {
+	migrated, merr := fleet.Migrate(ctx, root, f.ID, r.home, r.env.Environ(), r.env.Now())
+	r.migrated = true
+	store := fleet.LuvusStore(r.home)
+	for _, dir := range []string{fleet.Backups(r.home), fleet.ModelsCache(r.home)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	if merr != nil {
+		help = append(help, "Part of the layout migration failed: "+merr.Error())
+	}
+	switch pin, had, err := fleet.LoadPin(root, r.home); {
 	case err != nil:
 		help = append(help, "The Luvus pin is unusable: "+err.Error())
 	case had:
-		d.Field("luvus", pin.Version+" (pinned)")
+		label := pin.Version + " (pinned)"
+		if !within(pin.Path, store) {
+			label = pin.Version + " (pinned, machine copy " + pin.Path + ")"
+		}
+		d.Field("luvus", label)
 	default:
 		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
 		if err != nil {
-			if pin, err = r.fetchLuvus(root); err != nil {
+			if pin, err = r.fetchLuvus(store); err != nil {
 				help = append(help, "Install Luvus, then pin it: `hand luvus pin` (download failed: "+err.Error()+")")
 				break
 			}
 			d.Field("luvus", "downloaded and pinned "+pin.Version+" ("+pin.Path+")")
 			break
 		}
-		if pin, err = r.pinLuvus(root, bin); err != nil {
+		if pin, err = r.pinLuvus(store, bin); err != nil {
 			help = append(help, "Luvus was not pinned ("+err.Error()+"); pin it with `hand luvus pin`")
 			break
 		}
 		d.Field("luvus", "pinned "+pin.Version+" ("+pin.Path+")")
+	}
+	if len(migrated) > 0 {
+		d.List("migrated", migrated)
 	}
 	if movedFrom != "" {
 		help = append(help, "This home moved; the board follows the fleet by itself; remove any watch unit that names the old path (README, Autostart)")

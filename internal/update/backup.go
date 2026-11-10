@@ -2,7 +2,9 @@ package update
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,7 +28,7 @@ func Backup(ctx context.Context, root, target string, fleets []fleet.Entry, now 
 		if e.State != "ok" {
 			continue
 		}
-		dir := filepath.Join(root, "backups", e.ID)
+		dir := fleet.Backups(e.Home)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return out, err
 		}
@@ -52,7 +54,7 @@ func Prune(root string, fleets []fleet.Entry) error {
 		if e.State != "ok" {
 			continue
 		}
-		if err := prune(filepath.Join(root, "backups", e.ID), "hand.db."); err != nil {
+		if err := prune(fleet.Backups(e.Home), "hand.db."); err != nil {
 			return err
 		}
 	}
@@ -62,7 +64,7 @@ func Prune(root string, fleets []fleet.Entry) error {
 func taken(root string, fleets []fleet.Entry, stamp string) bool {
 	paths := []string{filepath.Join(root, "backups", "hand."+stamp)}
 	for _, e := range fleets {
-		paths = append(paths, filepath.Join(root, "backups", e.ID, "hand.db."+stamp))
+		paths = append(paths, filepath.Join(fleet.Backups(e.Home), "hand.db."+stamp))
 	}
 	for _, p := range paths {
 		if _, err := os.Lstat(p); err == nil {
@@ -83,6 +85,9 @@ func backupStore(ctx context.Context, home, path string, now time.Time) error {
 
 func prune(dir, prefix string) error {
 	des, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

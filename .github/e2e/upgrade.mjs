@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { initialize } from './fixture.mjs';
-import { asset, Box, candidate, check, cleaned, Client, commit, distDir, equal, exe, fails, install, irohAsset, irohVersion, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, soft, startBoard, stopAll, stub, sums, tmpRoot, toon, version, win } from './lib.mjs';
+import { asset, Box, candidate, check, cleaned, Client, commit, distDir, equal, exe, fails, goarch, goos, install, irohAsset, irohVersion, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, soft, startBoard, stopAll, stub, sums, tmpRoot, toon, version, win } from './lib.mjs';
 
 const previous = 'v0.13.0';
 const previousSchema = 16;
@@ -174,7 +174,8 @@ async function update(box, s) {
   equal(made.length, 2, `${name}: it lists two backups`);
   const dbBackup = made.find((p) => path.basename(p).startsWith('hand.db.'));
   const binBackup = made.find((p) => /^hand\.\d/.test(path.basename(p)));
-  check(Boolean(dbBackup) && fs.existsSync(dbBackup) && dbBackup.includes(path.join('backups', s.id)), `${name}: the hand.db backup exists under backups/<fleet id>`);
+  const inFleet = Boolean(dbBackup) && path.basename(path.dirname(dbBackup)) === 'backups' && path.basename(path.dirname(path.dirname(dbBackup))) === path.basename(box.fleet);
+  check(Boolean(dbBackup) && fs.existsSync(dbBackup) && (s.repair ? dbBackup.includes(path.join('backups', s.id)) : inFleet), `${name}: the hand.db backup exists under ${s.repair ? 'backups/<fleet id> of the machine, where 0.13.0 makes it' : "the fleet's backups folder"}`);
   check(Boolean(binBackup) && fs.existsSync(binBackup) && path.dirname(binBackup) === backups, `${name}: the old-binary backup exists under backups`);
   equal(userVersion(dbBackup), from.schema, `${name}: the hand.db backup keeps schema ${from.schema}`);
   equal(sha256(binBackup), from.sha, `${name}: the binary backup is the old binary`);
@@ -213,12 +214,17 @@ async function update(box, s) {
 async function afterwards(box, s) {
   const { name, to, running, id } = s;
   if (s.sidecar) await waitFor(`${name}: the sidecar is ready after the update`, () => /^ready [0-9a-f]{64} \S+$/m.test(box.read('board.iroh') ?? ''));
+  const store = path.join(box.fleet, 'luvus', `${goos}-${goarch}`);
+  const pinned = JSON.parse(fs.readFileSync(path.join(store, 'pin.json'), 'utf8'));
+  check(!path.isAbsolute(pinned.path) && fs.existsSync(path.join(store, pinned.path)), `${name}: the fleet holds its own Luvus copy and pin.json names it relative to its folder`);
+  check(fs.existsSync(path.join(box.fleet, 'cache', 'models')) && fs.readdirSync(path.join(box.fleet, 'backups')).some((n) => n.startsWith('hand.db.')), `${name}: the fleet holds the update's hand.db backup and a cache folder`);
   const doctor = await box.hand(['doctor']);
   await ok(doctor, `${name}: hand doctor exits 0 with no harness installed`);
   const checks = toon(doctor.out).tables.checks;
   equal(checks.filter((c) => c.state === 'fail'), [], `${name}: hand doctor fails nothing`);
   equal(checks.filter((c) => c.state === 'warn' && profiles.includes(c.check)).map((c) => c.check).sort(), [...profiles].sort(), `${name}: hand doctor warns for the five profiles`);
   for (const c of ['schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
+  for (const c of ['machine-local', 'restore points']) equal(checks.find((r) => r.check === c)?.state, 'info', `${name}: hand doctor: ${c} is information`);
   if (!win) check(['ok', 'warn'].includes(checks.find((r) => r.check === 'modes')?.state), `${name}: hand doctor: the mode check reports a state`);
   if (s.sidecar) {
     equal(checks.find((r) => r.check === 'iroh')?.state, 'ok', `${name}: hand doctor: iroh is ok while the running sidecar is ready`);

@@ -156,10 +156,13 @@ func (r *runner) probe(ctx context.Context, bin string, args ...string) (string,
 }
 
 func (r *runner) doctorPin(ctx context.Context, d *toon.Doc, c *checks, root, path string) (luvus.Pin, bool) {
-	pin, had, err := luvus.LoadPin(root)
+	pin, had, err := fleet.LoadPin(root, r.home)
 	switch {
 	case err != nil:
 		c.add("luvus pin", "fail", err.Error())
+		return pin, false
+	case !had && r.home == "":
+		c.add("luvus pin", "info", "a Luvus pin belongs to a fleet; run `hand doctor` inside one to check it")
 		return pin, false
 	case !had:
 		if _, err := harness.LookPath("luvus", path); err != nil {
@@ -174,10 +177,33 @@ func (r *runner) doctorPin(ctx context.Context, d *toon.Doc, c *checks, root, pa
 		c.add("luvus pin", "fail", err.Error())
 	} else if _, err := luvus.BinaryVersion(ctx, pin.Path, r.env.Environ()); err != nil {
 		c.add("luvus pin", "fail", err.Error()+"; re-pin with `hand luvus pin`")
+	} else if r.home != "" && !within(pin.Path, fleet.LuvusStore(r.home)) {
+		c.add("luvus pin", "warn", "the pin is still the machine copy "+pin.Path+"; any hand command in this fleet, or `hand init`, copies it into "+fleet.LuvusStore(r.home))
 	} else {
 		c.add("luvus pin", "ok", "")
 	}
 	return pin, true
+}
+
+func (r *runner) doctorLayout(c *checks, root, id string) {
+	c.add("machine-local", "info", fmt.Sprintf("this machine keeps worktrees/, index/, board.* and iroh/ (the Board's pid, address, peer secret and phone key), models/ (keeps the fleets from each refreshing the same lists) and backups/hand.* (old hand binaries) in %s; the fleet keeps luvus/%s-%s, backups/ and cache/models", root, runtime.GOOS, runtime.GOARCH))
+	points := fleet.RestorePoints(root, id, r.home)
+	if len(points) == 0 {
+		c.add("restore points", "info", "no hand.db backup yet; `hand update` and the watcher make them")
+	} else {
+		c.add("restore points", "info", fmt.Sprintf("%d hand.db backups, newest %s", len(points), points[0]))
+	}
+	var old []string
+	_, own, _ := luvus.LoadFleetPin(fleet.LuvusStore(r.home))
+	if _, err := os.Stat(filepath.Join(fleet.OldLuvusStore(root), "pin.json")); err == nil && own {
+		old = append(old, "luvus/ (a running Luvus server may still run from it)")
+	}
+	if des, err := os.ReadDir(fleet.OldBackups(root, id)); err == nil && len(des) > 0 {
+		old = append(old, "backups/"+id+"/")
+	}
+	if len(old) > 0 {
+		c.add("old machine copies", "info", "the machine still holds "+strings.Join(old, " and ")+" in "+root+"; Hand copies them into the fleet and never deletes them, so delete them yourself once no Luvus server runs from the machine copy and you no longer need the older restore points")
+	}
 }
 
 func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root string, pin luvus.Pin, pinned bool, installed int) {
@@ -220,6 +246,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 			c.add("modes", "ok", "")
 		}
 	}
+	r.doctorLayout(c, root, f.ID)
 	doctorProjects(ctx, st, c)
 	_, live, lerr := st.LiveSupervisor(ctx)
 	if p, err := harness.LoadPolicy(r.home); err != nil {

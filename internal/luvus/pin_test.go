@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func TestKeepCopiesAndPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := sum(t, bin)
-	want := luvus.Pin{Path: filepath.Join(root, "luvus", "0.14.3-"+hash[:8], filepath.Base(bin)), SHA256: hash, Version: "0.14.3", Source: bin, PinnedAt: "2026-10-01T09:30:00Z"}
+	want := luvus.Pin{Path: filepath.Join(root, "0.14.3-"+hash[:8], filepath.Base(bin)), SHA256: hash, Version: "0.14.3", Source: bin, PinnedAt: "2026-10-01T09:30:00Z"}
 	if pin != want {
 		t.Fatalf("pin = %+v, want %+v", pin, want)
 	}
@@ -75,7 +76,57 @@ func TestKeepCopiesAndPins(t *testing.T) {
 	if v, err := luvus.BinaryVersion(context.Background(), pin.Path, nil); err != nil || v != "0.14.3" {
 		t.Fatalf("the pinned copy runs as %q, %v", v, err)
 	}
+	want.Source = ""
 	if got, ok, err := luvus.LoadPin(root); err != nil || !ok || got != want {
+		t.Fatalf("LoadPin = %+v %v %v", got, ok, err)
+	}
+}
+
+func TestPinFileHoldsARelativePathThatSurvivesAMove(t *testing.T) {
+	parent := t.TempDir()
+	store := filepath.Join(parent, "fleet", "luvus", "linux-amd64")
+	pin, err := luvus.Keep(context.Background(), store, fakeLuvus(t, "0.14.3", ""), nil, pinnedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(store, "pin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), parent) || strings.Contains(string(raw), `"source"`) {
+		t.Fatalf("pin.json names an absolute path:\n%s", raw)
+	}
+	moved := filepath.Join(parent, "elsewhere")
+	if err := os.Rename(filepath.Join(parent, "fleet"), moved); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := luvus.LoadPin(filepath.Join(moved, "luvus", "linux-amd64"))
+	if err != nil || !ok || got.Path != filepath.Join(moved, "luvus", "linux-amd64", filepath.Base(filepath.Dir(pin.Path)), filepath.Base(pin.Path)) {
+		t.Fatalf("LoadPin after the move = %+v %v %v", got, ok, err)
+	}
+	if err := got.Verify(); err != nil {
+		t.Fatalf("the moved copy fails Verify: %v", err)
+	}
+}
+
+func TestAPinFileCannotLeadOutsideItsFolder(t *testing.T) {
+	store := t.TempDir()
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte(`{"path":"../../etc/luvus","sha256":"x","version":"0.14.3"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadPin(store); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "outside its folder") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAnAbsolutePinFromTheOldLayoutStillLoads(t *testing.T) {
+	store, bin := t.TempDir(), fakeLuvus(t, "0.14.3", "")
+	raw := `{"path":` + strconv.Quote(bin) + `,"sha256":"` + sum(t, bin) + `","version":"0.14.3","source":"/usr/bin/luvus"}`
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := luvus.LoadPin(store)
+	if err != nil || !ok || got.Path != bin || got.Verify() != nil {
 		t.Fatalf("LoadPin = %+v %v %v", got, ok, err)
 	}
 }
@@ -94,7 +145,7 @@ func TestKeepReusesTheSameBuild(t *testing.T) {
 		t.Fatalf("second = %+v, first = %+v", second, first)
 	}
 	dir := filepath.Base(filepath.Dir(first.Path))
-	if got := names(t, filepath.Join(root, "luvus")); !slices.Equal(got, []string{dir, "pin.json"}) {
+	if got := names(t, root); !slices.Equal(got, []string{dir, "pin.json"}) {
 		t.Fatalf("store = %q", got)
 	}
 	if got := names(t, filepath.Dir(first.Path)); !slices.Equal(got, []string{filepath.Base(bin)}) {
@@ -177,17 +228,14 @@ func TestKeepReadsTheVersionOfTheCopy(t *testing.T) {
 
 func TestAnUnreadablePinSaysHowToRecover(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "luvus"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "luvus", "pin.json"), []byte("{"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "pin.json"), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := luvus.LoadPin(root); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "re-pin with `hand luvus pin`") {
 		t.Fatalf("err = %v", err)
 	}
 	dirRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dirRoot, "luvus", "pin.json"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dirRoot, "pin.json"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := luvus.LoadPin(dirRoot); !errors.Is(err, luvus.ErrPinChanged) {
@@ -219,5 +267,37 @@ func TestMatch(t *testing.T) {
 		if server, match := luvus.Match(pin, c.pinned, c.version, c.err); server != c.server || match != c.match {
 			t.Fatalf("%+v: got %q %q", c, server, match)
 		}
+	}
+}
+
+func TestAFleetPinRefusesAnAbsolutePath(t *testing.T) {
+	store, bin := t.TempDir(), fakeLuvus(t, "0.14.3", "")
+	raw := `{"path":` + strconv.Quote(bin) + `,"sha256":"` + sum(t, bin) + `","version":"0.14.3"}`
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadFleetPin(store); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok, err := luvus.LoadPin(store); err != nil || !ok {
+		t.Fatalf("the machine pin must keep absolute paths: %v %v", ok, err)
+	}
+}
+
+func TestAFleetPinRefusesASymlinkLeadingOutside(t *testing.T) {
+	store, outside := t.TempDir(), fakeLuvus(t, "0.14.3", "")
+	link := filepath.Join(store, "0.14.3-link")
+	if err := os.Symlink(filepath.Dir(outside), link); err != nil {
+		t.Skipf("no symlinks: %v", err)
+	}
+	raw := `{"path":"0.14.3-link/` + filepath.Base(outside) + `","sha256":"` + sum(t, outside) + `","version":"0.14.3"}`
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadFleetPin(store); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "outside its folder") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok, err := luvus.LoadPin(store); err != nil || !ok {
+		t.Fatalf("LoadPin is lexical: %v %v", ok, err)
 	}
 }

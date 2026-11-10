@@ -19,8 +19,8 @@ type Spec struct {
 }
 
 type Env struct {
-	CodexHome, Path, Dir string
-	Getenv               func(string) string
+	CodexHome, Path, Dir, Cache string
+	Getenv                      func(string) string
 }
 
 func EnvOf(getenv func(string) string) Env {

@@ -515,7 +515,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		default:
 			spec.Model, spec.Effort = cmp.Or(*model, spec.Model), cmp.Or(*effort, spec.Effort)
 		}
-		warn, err := harness.Check(spec, harness.EnvOf(r.env.Getenv))
+		warn, err := harness.Check(spec, r.harnessEnv())
 		if err != nil {
 			return err
 		}
@@ -523,7 +523,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			if err := r.opencodeListed(spec.Model); err != nil {
 				return err
 			}
-			warn, _ = harness.Check(spec, harness.EnvOf(r.env.Getenv))
+			warn, _ = harness.Check(spec, r.harnessEnv())
 		}
 		r.warn(warn)
 		if harness.Resolves(spec.Model, sup.Model) && (spec.Effort == sup.Effort || spec.Effort == "default" && sup.Effort == "") {
@@ -646,7 +646,7 @@ func harnessBin(r *runner, spec harness.Spec) (string, error) {
 }
 
 func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
-	env := harness.EnvOf(r.env.Getenv)
+	env := r.harnessEnv()
 	warn, err := harness.Check(spec, env)
 	if err != nil {
 		return "", "", err

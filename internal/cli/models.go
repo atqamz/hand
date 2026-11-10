@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -59,12 +60,20 @@ func cmdModels(r *runner, args []string) error {
 	return r.print(&d)
 }
 
+func (r *runner) harnessEnv() harness.Env {
+	env := harness.EnvOf(r.env.Getenv)
+	if r.home != "" {
+		env.Cache = fleet.ModelsCache(r.home)
+	}
+	return env
+}
+
 func (r *runner) modelOptions() (harness.Env, harness.Options) {
 	dir := r.home
 	if dir == "" {
 		dir, _ = r.getwd()
 	}
-	env := harness.EnvOf(r.env.Getenv)
+	env := r.harnessEnv()
 	env.Dir = dir
 	return env, harness.Options{Environ: r.env.Environ(), Dir: dir, Now: r.env.Now}
 }

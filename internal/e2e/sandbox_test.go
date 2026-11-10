@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/e2e/mockllm"
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -254,7 +255,7 @@ func (sb *sandbox) turn(n int) (mockllm.Request, bool) {
 var refPattern = regexp.MustCompile(`^[a-z]\d+$`)
 
 func (sb *sandbox) luvusCLI(args ...string) string {
-	pin, ok, err := luvus.LoadPin(sb.shm)
+	pin, ok, err := fleet.LoadPin(sb.shm, sb.fleet)
 	if err != nil || !ok {
 		return "no pinned luvus\n"
 	}
@@ -345,7 +346,7 @@ func (sb *sandbox) cleanup() {
 	}
 	if sb.id != "" {
 		sb.handIn(sb.fleet, time.Minute, "watch", "stop")
-		if pin, ok, err := luvus.LoadPin(sb.shm); err == nil && ok {
+		if pin, ok, err := fleet.LoadPin(sb.shm, sb.fleet); err == nil && ok {
 			stop := exec.Command(pin.Path, "--session", "secondhand-"+sb.id, "server", "stop")
 			stop.Env = luvus.Scrub(sb.environ())
 			_ = stop.Run()

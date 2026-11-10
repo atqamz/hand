@@ -67,7 +67,7 @@ func noStall(t *testing.T, fx *attemptFixture) {
 		t.Fatalf("fleets = %v, %v", ids, err)
 	}
 	fx.h.advance(24 * time.Hour)
-	snapshot := filepath.Join(root, "backups", ids[0].Name(), "hand-"+fx.h.clock().UTC().Format("20060102")+".db")
+	snapshot := filepath.Join(fx.h.home, "backups", "hand-"+fx.h.clock().UTC().Format("20060102")+".db")
 	eventually(t, func() bool { _, err := os.Stat(snapshot); return err == nil })
 	if n := stalls(fx); n != 0 {
 		t.Fatalf("supervisor.stalled recorded %d times", n)

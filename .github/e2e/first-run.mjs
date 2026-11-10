@@ -143,7 +143,7 @@ async function board(box, srv, made) {
   matches((await laptop.get(`/${id}/doc/docs/export-notes.md?raw`)).text, /^# Export notes/, 'the raw file is served too');
   matches(textOf((await laptop.get(`/${id}/doc/docs/nested/log.txt`)).text), /line one/, 'the viewer shows a text file');
   const token = fs.readFileSync(path.join(box.fleet, 'board.token'), 'utf8').trim();
-  for (const refused of ['hand.db', 'board.token', 'AGENTS.md', 'luvus/note.txt', 'locks/note.txt', 'projects/note.txt', '.claude']) {
+  for (const refused of ['hand.db', 'board.token', 'AGENTS.md', 'luvus/note.txt', 'locks/note.txt', 'projects/note.txt', 'backups/note.txt', 'cache/note.txt', '.claude']) {
     const res = await laptop.get(`/${id}/doc/${refused}`);
     check(res.status === 403 && /does not show Hand&#39;s own files/.test(res.text) && !res.text.includes('SQLite format') && !res.text.includes(token) && !res.text.includes('inside '), `the viewer refuses ${refused} with the reason`);
   }
