@@ -1255,17 +1255,33 @@ func apiSupervisor(v supervisorView, pressed int64) *APISupervisor {
 	return out
 }
 
+var askSecret = regexp.MustCompile(`(?i)\b(bearer|basic)\s+\S{6,}|\b(sk|pk|ghp|gho|ghs|xox[bap]|AKIA)[-_][A-Za-z0-9_-]{8,}|\b(api[_-]?key|token|secret|passw(or)?d|pwd|authorization)\b\s*[:=]|[A-Za-z0-9+/_-]{32,}`)
+
+const (
+	askQuestionMax = 200
+	askLabelMax    = 60
+	askOptionsMax  = 8
+)
+
+func askClip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
 func apiAsk(card *askCard) *APIAsk {
-	if card == nil {
+	if card == nil || !strings.HasSuffix(card.Question, "?") || len(card.Options) > askOptionsMax || askSecret.MatchString(card.Question) {
 		return nil
 	}
-	out := &APIAsk{Question: Scrub(card.Question), Options: make([]APIAskOption, 0, len(card.Options))}
+	out := &APIAsk{Question: askClip(Scrub(card.Question), askQuestionMax), Options: make([]APIAskOption, 0, len(card.Options))}
 	for _, o := range card.Options {
 		keys := strings.Fields(o.Value)
-		if len(keys) == 0 || slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains(state.SupervisorKeys, k) }) {
+		if len(keys) == 0 || askSecret.MatchString(o.Label) || slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains(state.SupervisorKeys, k) }) {
 			return nil
 		}
-		out.Options = append(out.Options, APIAskOption{Label: Scrub(o.Label), Keys: keys})
+		out.Options = append(out.Options, APIAskOption{Label: askClip(Scrub(o.Label), askLabelMax), Keys: keys})
 	}
 	return out
 }

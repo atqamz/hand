@@ -781,6 +781,10 @@ func TestAPIBlockedAsk(t *testing.T) {
 		{"circle", "blocked", "Which flavor?\n❯ ◉ Vanilla\n  ◯ Mint\n\n↑/↓ select · enter to confirm · esc cancel", &board.APIAsk{Question: "Which flavor?", Options: []board.APIAskOption{
 			{Label: "Vanilla", Keys: []string{"enter"}}, {Label: "Mint", Keys: []string{"down", "enter"}},
 		}}},
+		{"command line", "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No", nil},
+		{"token question", "blocked", "Send Bearer sk-abcdef123456 to host?\n❯ 1. Yes\n  2. No", nil},
+		{"token label", "blocked", "Proceed?\n❯ 1. Use password=hunter22\n  2. No", nil},
+		{"too many options", "blocked", "Pick?\n❯ 1. a\n  2. b\n  3. c\n  4. d\n  5. e\n  6. f\n  7. g\n  8. h\n  9. i", nil},
 		{"unparsed", "blocked", "Something is wrong\nPress any key to continue", nil},
 		{"unsendable key", "blocked", "Pick one?\n❯ 1. a\n  2. b\n  3. c\n  4. d", nil},
 		{"not blocked", "idle", permission, nil},
@@ -1268,6 +1272,14 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		}
 		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-after-semicolon") {
 			t.Fatalf("the timeline kept a screen detail after a semicolon:\n%s", raw)
+		}
+	})
+	t.Run("dialog without a question", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		fx.status, fx.screen = "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No"
+		raw := apiRaw(t, fx.handler(), "/api/v1/status")
+		if strings.Contains(raw, "id_rsa") || strings.Contains(raw, `"ask"`) {
+			t.Fatalf("status carries a screen line:\n%s", raw)
 		}
 	})
 	for _, sc := range scenes() {

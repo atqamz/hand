@@ -382,7 +382,7 @@ func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
 func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 	ui.Column(c).Gap(8).Padding(12).Radius(8).Background(p.card).Border(1, p.line).Children(func() {
 		ui.Text(c, sup.Ask.Question).FontSize(14).Bold()
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Column(c).Gap(8).Children(func() {
 			for _, option := range sup.Ask.Options {
 				name := "key:" + strings.Join(option.Keys, " ")
 				label := option.Label
