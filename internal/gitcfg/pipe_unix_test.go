@@ -31,11 +31,24 @@ func TestRunNeverPromptsForCredentials(t *testing.T) {
 }
 
 func TestRunMakesSSHFailInsteadOfPrompting(t *testing.T) {
-	for _, c := range []struct{ set, want string }{{"", "ssh -o BatchMode=yes"}, {"ssh -i key", "ssh -i key"}} {
-		t.Setenv("GIT_SSH_COMMAND", c.set)
-		out, err := Run(context.Background(), t.TempDir(), "-c", "alias.e=!echo $GIT_SSH_COMMAND", "e")
-		if err != nil || strings.TrimSpace(out) != c.want {
-			t.Fatalf("set %q: out=%q err=%v", c.set, out, err)
-		}
+	conf := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(conf, []byte("[core]\n\tsshCommand = ssh -i key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, command, ssh, global, want string }{
+		{"plain", "", "", os.DevNull, "ssh -o BatchMode=yes"},
+		{"configured", "", "", conf, "ssh -i key -o BatchMode=yes"},
+		{"command set", "ssh -p 1", "", conf, "ssh -p 1"},
+		{"GIT_SSH set", "", "/bin/ssh", conf, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("GIT_CONFIG_GLOBAL", c.global)
+			t.Setenv("GIT_SSH_COMMAND", c.command)
+			t.Setenv("GIT_SSH", c.ssh)
+			out, err := Run(context.Background(), t.TempDir(), "-c", "alias.e=!echo $GIT_SSH_COMMAND", "e")
+			if err != nil || strings.TrimSpace(out) != c.want {
+				t.Fatalf("out=%q err=%v", out, err)
+			}
+		})
 	}
 }

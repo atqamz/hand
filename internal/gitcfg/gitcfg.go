@@ -317,8 +317,12 @@ func runEnv(ctx context.Context, dir string, env []string, args ...string) (stri
 
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	env := []string{"GIT_TERMINAL_PROMPT=0"}
-	if os.Getenv("GIT_SSH_COMMAND") == "" {
-		env = append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+	if os.Getenv("GIT_SSH_COMMAND") == "" && os.Getenv("GIT_SSH") == "" {
+		ssh := "ssh"
+		if out, err := run(ctx, dir, "config", "--get", "core.sshCommand"); err == nil && strings.TrimSpace(out) != "" {
+			ssh = strings.TrimSpace(out)
+		}
+		env = append(env, "GIT_SSH_COMMAND="+ssh+" -o BatchMode=yes")
 	}
 	return runEnv(ctx, dir, env, args...)
 }
