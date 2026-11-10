@@ -329,7 +329,7 @@ func TestRefreshClearsAForegroundReadError(t *testing.T) {
 	}
 }
 
-func TestRefreshClearsAnErrorOnlyForTheHalfItRefreshed(t *testing.T) {
+func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *testing.T) {
 	t.Run("screen", func(t *testing.T) {
 		b := newFakeBoard()
 		app, clock := newBoardApp(t, b)
@@ -346,22 +346,21 @@ func TestRefreshClearsAnErrorOnlyForTheHalfItRefreshed(t *testing.T) {
 		if len(app.Timeline.Entries) != 0 {
 			t.Fatalf("timeline = %+v, want the failed read's zero value", app.Timeline.Entries)
 		}
-		b.setFailTimeline(false)
 		b.setStatus(func(st *desktop.Status) { st.Line = "still moving" })
 		clock.Advance(desktop.FocusedRefresh)
 		if app.Err == "" {
-			t.Fatal("a fresh status cleared the timeline's error")
+			t.Fatal("a poll that still failed on the timeline cleared the error")
 		}
 
-		b.setTimeline(func(tl *desktop.Timeline) {
-			tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "recovered", No: 2}}, tl.Entries...)
-		})
-		clock.Advance(desktop.FocusedRefresh)
-		if app.Err != "" {
-			t.Fatalf("error = %q after the timeline recovered", app.Err)
+		b.setFailTimeline(false)
+		for i := 0; i < 8; i++ {
+			clock.Advance(desktop.FocusedRefresh)
 		}
-		if len(app.Timeline.Entries) == 0 || app.Timeline.Entries[0].Text != "recovered" {
-			t.Fatalf("timeline = %+v", app.Timeline.Entries)
+		if app.Err != "" {
+			t.Fatalf("error = %q after the timeline answered", app.Err)
+		}
+		if len(app.Timeline.Entries) == 0 {
+			t.Fatal("the timeline was not fetched after the error")
 		}
 	})
 
@@ -370,9 +369,6 @@ func TestRefreshClearsAnErrorOnlyForTheHalfItRefreshed(t *testing.T) {
 		app, clock := newBoardApp(t, b)
 		app.Show(desktop.TimelineScreen)
 		b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
-		b.setTimeline(func(tl *desktop.Timeline) {
-			tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "first again", No: 2}}, tl.Entries...)
-		})
 		app.StartRefresh()
 		clock.Advance(desktop.FocusedRefresh)
 
@@ -381,27 +377,19 @@ func TestRefreshClearsAnErrorOnlyForTheHalfItRefreshed(t *testing.T) {
 		if app.Err == "" {
 			t.Fatal("a failed status read left no error")
 		}
-		if app.Status.Pill != "" {
-			t.Fatalf("status = %+v, want the failed read's zero value", app.Status)
-		}
-		b.setFail(false)
-		b.setTimeline(func(tl *desktop.Timeline) {
-			tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "newer", No: 3}}, tl.Entries...)
-		})
 		clock.Advance(desktop.FocusedRefresh)
 		if app.Err == "" {
-			t.Fatal("a fresh timeline cleared the status's error")
-		}
-		if app.Status.Pill != "" {
-			t.Fatal("the poll refilled a status it had not refreshed")
+			t.Fatal("a poll the board failed cleared the error")
 		}
 
-		b.setStatus(func(st *desktop.Status) { st.Pill = "recovered" })
-		clock.Advance(desktop.FocusedRefresh)
-		if app.Err != "" {
-			t.Fatalf("error = %q after the status recovered", app.Err)
+		b.setFail(false)
+		for i := 0; i < 8; i++ {
+			clock.Advance(desktop.FocusedRefresh)
 		}
-		if app.Status.Pill != "recovered" {
+		if app.Err != "" {
+			t.Fatalf("error = %q after the board answered", app.Err)
+		}
+		if app.Status.Pill != "waiting" {
 			t.Fatalf("status = %+v", app.Status)
 		}
 	})
@@ -917,4 +905,34 @@ func pumpUntil(t *testing.T, posted <-chan func(), until func() bool) {
 		}
 	}
 	settle(t, posted)
+}
+
+func TestRefreshKeepsTheLastStatusAndClearsAFailedReadOnTheNextAnsweredPoll(t *testing.T) {
+	b := newFakeBoard()
+	b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
+	app, clock := newBoardApp(t, b)
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Status.Pill != "waiting" {
+		t.Fatalf("status = %+v before the failure", app.Status)
+	}
+	b.setFail(true)
+	app.Show(desktop.NeedsScreen)
+	if app.Err == "" {
+		t.Fatal("the failed read left no error")
+	}
+	if app.Status.Pill != "waiting" {
+		t.Fatalf("the failed read wiped the status: %+v", app.Status)
+	}
+	if app.Stale == "" {
+		t.Fatal("the failed read left no stale mark")
+	}
+	b.setFail(false)
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Err != "" || app.Stale != "" {
+		t.Fatalf("after one answered poll: Err=%q Stale=%q", app.Err, app.Stale)
+	}
+	if app.Status.Pill != "waiting" {
+		t.Fatalf("status = %+v after recovery", app.Status)
+	}
 }
