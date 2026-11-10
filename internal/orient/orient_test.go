@@ -849,3 +849,67 @@ func TestOrientWarnsAboutOldAndLargeReportsAndShots(t *testing.T) {
 		t.Fatalf("retention off:\n%s", out)
 	}
 }
+
+func TestOrientNestsActiveAndInboxRowsAndAddsAParentColumnOnlyWhenNested(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Alpha", "")
+	b, _ := st.AddTask(ctx, "hand", "Beta", "")
+	plain, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	if err != nil || strings.Contains(plain.String(), "parent") {
+		t.Fatalf("unnested orient mentions parent: %v\n%s", err, plain)
+	}
+	a1, _ := st.AddTaskUnder(ctx, a.ID, "hand", "Alpha one", "")
+	for _, id := range []int64{a.ID, b.ID, a1.ID} {
+		_, _ = st.Transition(ctx, id, state.StatusActive)
+	}
+	_, _ = st.AddTaskUnder(ctx, a.ID, "hand", "Inbox child", "")
+	_, _ = st.AddTaskUnder(ctx, b.ID, "hand", "Inbox sibling", "")
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	for _, want := range []string{
+		"open_decisions,parent}:\n  t1,hand,Alpha,",
+		"\n  t3,hand,Alpha one,",
+		",0,t1\n  t2,hand,Beta,",
+		"inbox[2]{id,project,title,parent}:\n  t4,hand,Inbox child,t1\n  t5,hand,Inbox sibling,t2\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "t1,hand,Alpha,") > strings.Index(out, "t3,hand,Alpha one,") || strings.Index(out, "t3,hand,Alpha one,") > strings.Index(out, "t2,hand,Beta,") {
+		t.Fatalf("active rows are not depth first:\n%s", out)
+	}
+}
+
+func TestOrientStaysWithinBudgetForANestedFleet(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	var parent int64
+	for i := range 40 {
+		task, err := st.AddTaskUnder(ctx, parent, "hand", strings.Repeat("x", 150)+string(rune('a'+i%26)), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		if i%3 != 0 {
+			parent = task.ID
+		}
+	}
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if len(out) >= DefaultBudget.Bytes {
+		t.Fatalf("orient is %d bytes, want < %d", len(out), DefaultBudget.Bytes)
+	}
+	if !strings.Contains(out, ",parent}:") {
+		t.Fatalf("nested active rows lost the parent column:\n%s", out)
+	}
+}
