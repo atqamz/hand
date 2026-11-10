@@ -3,7 +3,10 @@ package board
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -113,5 +116,22 @@ func TestACodeKeepsItsOwnCopyOfTheFleetSet(t *testing.T) {
 	got[1] = "f0000000000ee"
 	if again, _ := a.redeem("100.64.0.1", code, until.Add(-time.Minute)); again != pairUsed {
 		t.Fatalf("second redeem = %v", again)
+	}
+}
+
+func TestADeviceWithATailnetLoginIsNeverSignedInAgain(t *testing.T) {
+	ctx := context.Background()
+	b, st, id := pairBoard(t, strings.Repeat("1", 32))
+	secret := strings.Repeat("a", 64)
+	d, err := st.AddDevice(ctx, "Pixel", "operator@example.com", b.secretHash(secret), "0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: phoneCookieName(id, false), Value: strconv.FormatInt(d.ID, 10) + "." + secret})
+	req.Header.Set("X-Forwarded-For", "100.64.0.7")
+	req.Header.Set("Tailscale-User-Login", "operator@example.com")
+	if _, fault := b.session(req); fault != phoneOther {
+		t.Fatalf("fault = %v, want phoneOther", fault)
 	}
 }

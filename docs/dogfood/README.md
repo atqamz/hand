@@ -61,7 +61,7 @@ On each OS it runs:
 
 What stays manual, and is checked by the guides in this folder:
 - a real harness: its login, its trust screens, a worker that reports, a supervisor that wakes;
-- a real phone and a real tunnel (Tailscale, `ssh -L`, Cloudflare): CI sends the proxy headers itself;
+- a real phone and a real tunnel (`ssh -L`, Cloudflare): CI sends the proxy headers itself;
 - the browser a person uses, its extensions, and `hand open` opening it;
 - desktop notifications, autostart at a real login, Gatekeeper, SmartScreen and Defender prompts;
 - a systemd user session: CI runs the plain path, where Hand starts the board, the watcher and Luvus as detached processes;
@@ -84,7 +84,7 @@ node .github/e2e/install.mjs
 node .github/e2e/first-run.mjs
 ```
 
-The install phase changes your user `PATH` in the registry and puts it back when it ends. `smoke.mjs` needs Playwright: `npm install playwright@1.63.0` in `$E2E_TMP/pw` (`$Env:E2E_TMP\pw` in PowerShell), then `npx playwright install chromium` there. `upgrade.mjs` needs `gh`. The phases refuse to run when a harness is on `PATH`; set `E2E_PATH` to a `PATH` without one (`E2E_PATH=... node ...` in `sh`, `$Env:E2E_PATH = ...` in PowerShell). A Board already on port 7777 makes `hand open` fail, so set `E2E_BOARD_ADDR=127.0.0.1:17777`. A `tailscale` on `PATH` that serves the Board changes the link `hand open --print` prints, so leave it off `E2E_PATH` too.
+The install phase changes your user `PATH` in the registry and puts it back when it ends. `smoke.mjs` needs Playwright: `npm install playwright@1.63.0` in `$E2E_TMP/pw` (`$Env:E2E_TMP\pw` in PowerShell), then `npx playwright install chromium` there. `upgrade.mjs` needs `gh`. The phases refuse to run when a harness is on `PATH`; set `E2E_PATH` to a `PATH` without one (`E2E_PATH=... node ...` in `sh`, `$Env:E2E_PATH = ...` in PowerShell). A Board already on port 7777 makes `hand open` fail, so set `E2E_BOARD_ADDR=127.0.0.1:17777`.
 
 ## What CI checks on the Board's layout
 

@@ -54,7 +54,6 @@ type runner struct {
 	addrs      sync.Map
 	exits      *exitLog
 	screens    *screenLog
-	phone      phoneCache
 	warns      []string
 	noteLost   string
 	caller     string

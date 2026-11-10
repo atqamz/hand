@@ -166,7 +166,6 @@ type Options struct {
 	Now        func() time.Time
 	Harness    harness.Env
 	Models     harness.Options
-	Phone      func(context.Context) PhoneLink
 	Iroh       func() sidecar.Status
 	ClosePeer  func(string)
 }

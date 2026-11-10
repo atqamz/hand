@@ -149,9 +149,9 @@ func cmdBoard(r *runner, args []string) error {
 	if side != nil {
 		d.Field("iroh", sidecar.Starting)
 	}
-	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"
+	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone with the Hand app, or through ssh -L"
 	if !loopback {
-		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L or tailscale serve")
+		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L")
 		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
 	help := []string{"Open a fleet's page with `hand open` from inside the fleet; keep its link private, since the token is the only thing guarding that fleet", control}
@@ -262,7 +262,6 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Transcript: transcripts,
 		Home:       home,
 		Base:       "/" + id,
-		Phone:      func(ctx context.Context) board.PhoneLink { return r.phoneLink(ctx, local) },
 		Iroh:       iroh,
 		ClosePeer:  closePeer,
 	}}

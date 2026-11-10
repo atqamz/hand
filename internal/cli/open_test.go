@@ -312,7 +312,7 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
 			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, page)
 		}
-		if got := fx.h.ok("open", "--print", task, "--delivered"); got != strings.Replace(loginOut, "/task/t1?", c.path+"?", 1) {
+		if got := fx.h.ok("open", "--print", task, "--delivered"); got != strings.Replace(withoutApp(loginOut), "/task/t1?", c.path+"?", 1) {
 			t.Fatalf("open --print %s --delivered = %q, want the login link of %q", task, got, loginOut)
 		}
 		res, err := client.Get(opened[len(opened)-1])
@@ -507,4 +507,14 @@ func notifierName() string {
 		return "osascript"
 	}
 	return "notify-send"
+}
+
+func withoutApp(out string) string {
+	var kept []string
+	for _, l := range strings.SplitAfter(out, "\n") {
+		if !strings.HasPrefix(l, "app:") {
+			kept = append(kept, l)
+		}
+	}
+	return strings.Join(kept, "")
 }

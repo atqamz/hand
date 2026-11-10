@@ -10,7 +10,7 @@ web and native desktop (Linux in v1)
 
 Hand has one user: the operator who built it for personal use. They run a few fleets side by side, for example work, personal and research. Each fleet is a folder with its own supervisor agent and its own workers.
 
-The board is the one thing they open; a terminal is optional. They use it as much on a desktop as on a phone, which reaches it through `ssh -L` or `tailscale serve`. Neither device is secondary. The native window is the second local client: it opens on the same fleet, reads the same state and never becomes a second owner of it.
+The board is the one thing they open; a terminal is optional. They use it as much on a desktop as on a phone, which reaches it through the Hand app or `ssh -L`. Neither device is secondary. The native window is the second local client: it opens on the same fleet, reads the same state and never becomes a second owner of it.
 
 ## Product Purpose
 

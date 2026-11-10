@@ -865,7 +865,7 @@ func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string,
 	p, err := harness.LoadPolicy(w.r.home)
 	if err == nil && len(p.Notify) > 0 {
 		url, _ := w.boardURL(ctx, ref)
-		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + url}
+		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + url, "HAND_NOTIFY_APP_URL=" + w.appURL(ctx, ref)}
 	}
 	if _, serr := os.Stat(filepath.Join(w.r.home, harness.PolicyFile)); err != nil && serr == nil && w.warned.CompareAndSwap(false, true) {
 		w.say(harness.PolicyFile + " unreadable, using the desktop notifier: " + err.Error())
@@ -884,11 +884,6 @@ func (w *watcher) boardURL(ctx context.Context, ref string) (string, bool) {
 		return "", false
 	}
 	base, openable := boardBase("http://" + host)
-	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
-		if b, ok := phoneBase(phone); ok {
-			base = b
-		}
-	}
 	if base == nil {
 		return "", false
 	}
@@ -900,6 +895,14 @@ func (w *watcher) boardURL(ctx context.Context, ref string) (string, bool) {
 	u.Path = "/" + w.r.fleet.ID + path
 	u.Fragment = strings.TrimPrefix(fragment, "#")
 	return u.String(), openable
+}
+
+func (w *watcher) appURL(ctx context.Context, ref string) string {
+	path, fragment, err := boardPage(ctx, w.st, ref)
+	if err != nil {
+		return ""
+	}
+	return appLink(w.r.fleet.ID, path, fragment)
 }
 
 func boardBase(raw string) (*url.URL, bool) {
@@ -921,53 +924,12 @@ func boardBase(raw string) (*url.URL, bool) {
 	return u, true
 }
 
-func phoneBase(raw string) (*url.URL, bool) {
-	u, ok := baseURL(raw)
-	if !ok {
-		return nil, false
-	}
-	host, port := strings.ToLower(u.Hostname()), u.Port()
-	if host == "localhost" {
-		if port == "" {
-			return nil, false
-		}
-		return u, true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if !ip.IsLoopback() || port == "" {
-			return nil, false
-		}
-		return u, true
-	}
-	if !dnsName(host) {
-		return nil, false
-	}
-	return u, true
-}
-
 func baseURL(raw string) (*url.URL, bool) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return nil, false
 	}
 	return u, u.Hostname() != ""
-}
-
-func dnsName(host string) bool {
-	if len(host) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(host, ".") {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		for _, r := range label {
-			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 func (w *watcher) flushWarns() {

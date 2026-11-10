@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
@@ -295,10 +294,8 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	}
 	if err != nil {
 		c.add("board", "warn", err.Error())
-		c.add("phone", "info", "the board is not running, so its phone address is not checked")
 	} else {
 		c.add("board", "ok", "")
-		r.doctorPhone(ctx, d, c, addr)
 	}
 	held, err := r.watchHeld()
 	if err == nil {
@@ -337,23 +334,6 @@ func doctorProjects(ctx context.Context, st *state.Store, c *checks) {
 		default:
 			c.add(check, "ok", "")
 		}
-	}
-}
-
-func (r *runner) doctorPhone(ctx context.Context, d *toon.Doc, c *checks, addr string) {
-	link := r.phoneLink(ctx, addr)
-	switch {
-	case !link.Tailscale:
-		c.add("phone", "info", "no tailscale answered; it is optional: install Tailscale to reach the board from a phone, or use another tunnel and type its address on the board's Phone page")
-	case link.Funnel:
-		c.add("phone", "fail", "tailscale funnel is on for this board, so the internet can reach it and the board refuses those requests; run `tailscale funnel reset`")
-	case link.URL != "":
-		d.Field("phone", link.URL)
-		c.add("phone", "ok", "")
-	case link.Problem == board.ServeAbsent:
-		c.add("phone", "info", "tailscale serve does not proxy the board yet; open Phone in the board for the steps, or run `tailscale serve --bg "+link.Port+"`")
-	default:
-		c.add("phone", "warn", link.Problem+"; run `tailscale serve --bg "+link.Port+"`")
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -131,7 +130,7 @@ func (b *Board) secretHash(secret string) string { return b.mac("device:" + secr
 func (b *Board) deviceCSRF(secret string) string { return b.mac("csrf:" + secret)[:32] }
 
 func forwarded(r *http.Request) bool {
-	return peerOf(r) != nil || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("Tailscale-User-Login") != ""
+	return peerOf(r) != nil || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != ""
 }
 
 func viaFunnel(r *http.Request) bool { return r.Header.Get("Tailscale-Funnel-Request") != "" }
@@ -159,19 +158,11 @@ func setPhoneCookie(w http.ResponseWriter, r *http.Request, id string, device in
 	http.SetCookie(w, &http.Cookie{Name: phoneCookieName(id, secure(r)), Value: strconv.FormatInt(device, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
 }
 
-func tailnetLogin(r *http.Request) string {
+func deviceLogin(r *http.Request) string {
 	if c := peerOf(r); c != nil {
 		return c.login()
 	}
-	v := r.Header.Get("Tailscale-User-Login")
-	if d, err := new(mime.WordDecoder).DecodeHeader(v); err == nil {
-		v = d
-	}
-	login := state.CleanLogin(v)
-	if strings.HasPrefix(login, "iroh:") {
-		return ""
-	}
-	return login
+	return ""
 }
 
 func remote(r *http.Request) string {
@@ -228,7 +219,7 @@ func (b *Board) phoneIdentify(r *http.Request) (session, sessionFault) {
 	if b.lapsed(d) {
 		return session{}, phoneGone
 	}
-	if d.Login != "" && subtle.ConstantTimeCompare([]byte(d.Login), []byte(tailnetLogin(r))) != 1 {
+	if d.Login != "" && subtle.ConstantTimeCompare([]byte(d.Login), []byte(deviceLogin(r))) != 1 {
 		return session{}, phoneOther
 	}
 	return session{Device: &d, CSRF: b.deviceCSRF(secret), hash: hash}, signedIn
@@ -380,7 +371,7 @@ func (b *Board) redeem(addr, typed string, now time.Time) (pairResult, []string)
 func cleanBase(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Trim(u.Path, "/") != "" {
-		return "", errors.New("type the address your phone opens, like https://laptop.tailnet.example")
+		return "", errors.New("type the address your phone opens, like https://laptop.example")
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
@@ -467,11 +458,6 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 			}
 		}
 		data["AppPaired"] = joined(named)
-		link := PhoneLink{}
-		if b.o.Phone != nil {
-			link = b.o.Phone(ctx)
-		}
-		data["Link"], data["Address"] = link, link.Ready()
 		if b.o.Iroh != nil {
 			data["Iroh"] = irohView(b.o.Iroh())
 		}
@@ -632,7 +618,7 @@ var pairFailure = map[pairResult]struct {
 
 func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg, name string) {
 	w.Header().Set("Cache-Control", "no-store")
-	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r), "Peer": peerOf(r) != nil, "Neutral": true})
+	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": deviceLogin(r), "Neutral": true})
 }
 
 func (b *Board) pairFleet(ctx context.Context, rd *Redeemed, id string) (Paired, error) {
@@ -678,7 +664,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 		b.pairPage(w, r, f.status, f.text, name)
 		return
 	}
-	rd := &Redeemed{fleets: set, done: map[string]bool{}, secret: randomText(32), name: name, login: tailnetLogin(r), label: randomText(state.PhoneLabelLen / 2)}
+	rd := &Redeemed{fleets: set, done: map[string]bool{}, secret: randomText(32), name: name, login: deviceLogin(r), label: randomText(state.PhoneLabelLen / 2)}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), pairWait)
 	defer cancel()
 	var paired []Paired

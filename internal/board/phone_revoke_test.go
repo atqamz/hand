@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var operator = serving("operator@example.com")
+var operator = serving()
 
 func (p *phoneHost) phoneWith(name string, home railFleet, with ...railFleet) map[string]*http.Cookie {
 	p.t.Helper()
@@ -152,7 +152,7 @@ func TestAPhoneIsListedOnceWithTheFleetsTheLaptopIsSignedInTo(t *testing.T) {
 				contains(t, "the breakdown", body, `aria-label="Revoke Pixel in `+f.name+`"`, `name="fleet" value="`+f.id+`"`)
 			}
 			if len(c.want) > 0 {
-				contains(t, "the group", body, `<span class="dev-note">operator@example.com · paired `)
+				contains(t, "the group", body, `<span class="dev-note">paired `)
 				for _, n := range names {
 					contains(t, "the breakdown", body, `<span>`+n)
 				}
@@ -259,11 +259,11 @@ func TestRevokingEverywhereRevokesEveryFleetTheLaptopIsSignedInTo(t *testing.T) 
 		{"three fleets", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1, 2}, nil},
 		{"the laptop is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, []int{2}},
 		{"a fleet the laptop holds a token for and the phone is not in", []int{0, 1}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
-		{"one fleet is down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1}, nil, nil, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back, and also remove the phone from your tailnet if it is lost.", []int{0, 2}, []int{1}},
-		{"one fleet's store fails", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, []int{2}, http.StatusOK, "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back, and also remove the phone from your tailnet if it is lost.", []int{0, 1}, []int{2}},
-		{"one fleet cannot revoke", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, []int{1}, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back, and also remove the phone from your tailnet if it is lost.", []int{0, 2}, []int{1}},
-		{"two fleets are down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Revoked in alpha. beta and gamma could not be reached: their records of this phone, if they have any, are still active. Press Revoke everywhere again when they are back, and also remove the phone from your tailnet if it is lost.", []int{0}, []int{1, 2}},
-		{"every fleet that holds it is down", []int{1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Nothing was revoked. beta and gamma could not be reached: their records of this phone, if they have any, are still active. Press Revoke everywhere again when they are back, and also remove the phone from your tailnet if it is lost.", nil, []int{1, 2}},
+		{"one fleet is down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1}, nil, nil, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
+		{"one fleet's store fails", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, []int{2}, http.StatusOK, "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 1}, []int{2}},
+		{"one fleet cannot revoke", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, []int{1}, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
+		{"two fleets are down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Revoked in alpha. beta and gamma could not be reached: their records of this phone, if they have any, are still active. Press Revoke everywhere again when they are back.", []int{0}, []int{1, 2}},
+		{"every fleet that holds it is down", []int{1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Nothing was revoked. beta and gamma could not be reached: their records of this phone, if they have any, are still active. Press Revoke everywhere again when they are back.", nil, []int{1, 2}},
 		{"a fleet was removed", []int{0, 1, 2}, []int{0, 1, 2}, nil, []int{2}, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
 	}
 	for _, c := range cases {
@@ -437,7 +437,7 @@ func TestRevokingInAFleetThatIsDownSaysSoAndOffersTheSamePress(t *testing.T) {
 		t.Fatalf("revoke in a fleet that is down = %d", rec.Code)
 	}
 	contains(t, "the result", rec.Body.String(),
-		"Nothing was revoked. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke again when it is back, and also remove the phone from your tailnet if it is lost.",
+		"Nothing was revoked. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke again when it is back.",
 		`action="/`+a.id+`/connect/revoke/in"`, `name="fleet" value="`+b.id+`"`, `name="phone" value="`+label+`"`, "<button>Revoke</button>")
 	if len(p.devicesOf(a)) != 1 || len(p.revoked(a)) != 0 {
 		t.Fatal("a revoke in beta touched alpha")

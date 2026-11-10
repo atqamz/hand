@@ -17,7 +17,7 @@ var (
 	buildLine = regexp.MustCompile(`^const BUILD = "[0-9a-f]{12}";\n`)
 )
 
-func proxiedHTS() map[string]string { return serving("operator@example.com") }
+func proxiedHTS() map[string]string { return serving() }
 
 func installHost(t *testing.T) (*phoneHost, railFleet) {
 	t.Helper()

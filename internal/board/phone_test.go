@@ -24,7 +24,7 @@ var (
 	codeRe   = regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`)
 	csrfRe   = regexp.MustCompile(`name="csrf" value="([0-9a-f]+)"`)
 	laptop   = &http.Cookie{Name: "hand_board", Value: token}
-	viaServe = map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https", "Tailscale-User-Login": "operator@example.com"}
+	viaServe = map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"}
 )
 
 type phoneRig struct {
@@ -87,7 +87,7 @@ func (p *phoneRig) code() string {
 
 func (p *phoneRig) tryPair(code, from string) *httptest.ResponseRecorder {
 	p.t.Helper()
-	h := map[string]string{"X-Forwarded-For": from, "X-Forwarded-Proto": "https", "Tailscale-User-Login": "operator@example.com"}
+	h := map[string]string{"X-Forwarded-For": from, "X-Forwarded-Proto": "https"}
 	return p.do("POST", "/pair", url.Values{"code": {code}, "name": {"Pixel"}}, nil, h)
 }
 
@@ -469,37 +469,25 @@ func TestAForgedOrBorrowedCookieOpensNothing(t *testing.T) {
 	}
 }
 
-func TestACookieWorksOnlyForTheLoginItWasPairedFor(t *testing.T) {
+func TestATailscaleLoginHeaderIsNotAnIdentity(t *testing.T) {
 	p := newPhoneRig(t)
-	phone := p.pair()
-	other := map[string]string{"X-Forwarded-For": "100.64.0.9", "X-Forwarded-Proto": "https", "Tailscale-User-Login": "someone@example.com"}
-	rec := p.do("GET", "/", nil, phone, other)
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "another connection") {
-		t.Fatalf("phone cookie under another login = %d", rec.Code)
+	named := map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https", "Tailscale-User-Login": "operator@example.com"}
+	rec := p.do("POST", "/pair", url.Values{"code": {p.code()}, "name": {"Pixel"}}, nil, named)
+	phone := phoneCookieOf(rec)
+	if phone == nil {
+		t.Fatalf("pairing with the header = %d", rec.Code)
 	}
-	missing := map[string]string{"X-Forwarded-Proto": "https"}
-	if rec := p.do("GET", "/", nil, phone, missing); rec.Code != http.StatusForbidden {
-		t.Fatalf("phone cookie with no login at all = %d", rec.Code)
+	devices, err := p.fx.st.Devices(context.Background())
+	if err != nil || len(devices) != 1 || devices[0].Login != "" {
+		t.Fatalf("devices = %+v, %v", devices, err)
 	}
-	if rec := p.do("GET", "/", nil, phone, viaServe); rec.Code != http.StatusOK {
-		t.Fatalf("phone cookie under its own login = %d", rec.Code)
+	for name, headers := range map[string]map[string]string{"with the header": named, "without it": viaServe} {
+		if rec := p.do("GET", "/", nil, phone, headers); rec.Code != http.StatusOK {
+			t.Fatalf("the phone %s = %d", name, rec.Code)
+		}
 	}
-	spaced := map[string]string{"X-Forwarded-Proto": "https", "Tailscale-User-Login": "Op  Er@example.com"}
-	rec = p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, spaced)
-	if c := phoneCookieOf(rec); c == nil || p.do("GET", "/", nil, c, spaced).Code != http.StatusOK {
-		t.Fatalf("a login the store tidies could not come back: %d", rec.Code)
-	}
-	encoded := map[string]string{"X-Forwarded-Proto": "https", "Tailscale-User-Login": "=?utf-8?q?op=C3=A9rateur@example.com?="}
-	rec = p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, encoded)
-	bound := phoneCookieOf(rec)
-	if bound == nil {
-		t.Fatalf("pairing with an encoded login = %d", rec.Code)
-	}
-	if rec := p.do("GET", "/", nil, bound, encoded); rec.Code != http.StatusOK {
-		t.Fatalf("the encoded login again = %d", rec.Code)
-	}
-	if list := p.do("GET", "/connect", nil, laptop, nil).Body.String(); !strings.Contains(list, "opérateur@example.com") {
-		t.Fatalf("the list does not show the decoded login:\n%s", list)
+	if body := p.do("GET", "/connect", nil, laptop, nil).Body.String(); strings.Contains(body, "operator@example.com") {
+		t.Fatalf("the Phone page names the header's login:\n%s", body)
 	}
 }
 
@@ -537,7 +525,7 @@ func TestRevokingAPhoneSignsItOutAtOnce(t *testing.T) {
 		t.Fatalf("before the revoke = %d", rec.Code)
 	}
 	list := p.do("GET", "/connect", nil, laptop, nil)
-	contains(t, "list", list.Body.String(), "Pixel", `value="`+p.deviceID(phone)+`"`, `aria-label="Revoke Pixel"`, "operator@example.com")
+	contains(t, "list", list.Body.String(), "Pixel", `value="`+p.deviceID(phone)+`"`, `aria-label="Revoke Pixel"`)
 	rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, laptop, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/connect" {
 		t.Fatalf("revoke = %d %q", rec.Code, rec.Header().Get("Location"))
@@ -605,7 +593,7 @@ func TestAPhoneSignsItselfOutAndNobodyElse(t *testing.T) {
 	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, phone, viaServe).Body.String())[1]
 	page := p.do("GET", "/connect", nil, phone, viaServe).Body.String()
 	contains(t, "This phone", page, "This phone", "Paired as <b>Pixel</b>", "It stays signed in for 90 days from pairing, or until it is revoked.", "Sign out this phone", `action="/connect/revoke"`)
-	lacks(t, "This phone", page, "Paired phones", "Show pairing code", `name="base"`, "operator@example.com", `value="`+p.deviceID(other)+`"`)
+	lacks(t, "This phone", page, "Paired phones", "Show pairing code", `name="base"`, `value="`+p.deviceID(other)+`"`)
 	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(other)}}, phone, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("a phone revoked another phone = %d", rec.Code)
 	}
@@ -669,14 +657,14 @@ func TestThePairedPhonesAndTheirEventsHoldNoSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range all {
-		for _, leak := range []string{secret, own, token, code, "operator@example.com", "100.64.0.7"} {
+		for _, leak := range []string{secret, own, token, code, "100.64.0.7"} {
 			if strings.Contains(e.Detail, leak) {
 				t.Fatalf("event %s %q holds %q", e.Kind, e.Detail, leak)
 			}
 		}
 	}
 	devices, _ := p.fx.st.Devices(context.Background())
-	if len(devices) != 1 || devices[0].Login != "operator@example.com" {
+	if len(devices) != 1 || devices[0].Login != "" {
 		t.Fatalf("devices = %+v", devices)
 	}
 	if _, ok, _ := p.fx.st.DeviceWithSecret(context.Background(), devices[0].ID, secret); ok {
@@ -726,8 +714,8 @@ func TestThePhonePageIsOnTheRailAndDoesNotKeepTheCode(t *testing.T) {
 	code := p.code()
 	page := p.do("GET", "/connect", nil, laptop, nil)
 	body := page.Body.String()
-	contains(t, "Phone page", body, `<a href="/connect" aria-current="page">`, `<span class="label">Phone</span>`, "Connect your phone", "Show pairing code", `name="base"`, `data-address`, "No phone is paired.", "Network", "tailscale serve")
-	lacks(t, "Phone page", body, code, `style=`, "Desk", `data-region=`, "Tailscale detection")
+	contains(t, "Phone page", body, `<a href="/connect" aria-current="page">`, `<span class="label">Phone</span>`, "Connect your phone", "Show pairing code", `name="base"`, `data-address`, "No phone is paired.", "Network", "SSH tunnel")
+	lacks(t, "Phone page", body, code, `style=`, "Desk", `data-region=`, "Tailscale", "tailnet")
 	if page.Header().Get("Cache-Control") == "" && strings.Contains(body, code) {
 		t.Fatal("a page with a code is cacheable")
 	}
@@ -848,7 +836,7 @@ func TestTheFleetListStaysHiddenFromAProxy(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "alpha") || !strings.Contains(rec.Body.String(), "bravo") {
 		t.Fatalf("a direct loopback request lost the list:\n%s", rec.Body.String())
 	}
-	for _, header := range []map[string]string{{"X-Forwarded-For": "100.64.0.7"}, {"Forwarded": "for=100.64.0.7"}, {"Tailscale-User-Login": "operator@example.com"}} {
+	for _, header := range []map[string]string{{"X-Forwarded-For": "100.64.0.7"}, {"Forwarded": "for=100.64.0.7"}} {
 		req := httptest.NewRequest("GET", "/", nil)
 		for k, v := range header {
 			req.Header.Set(k, v)

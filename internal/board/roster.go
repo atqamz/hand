@@ -173,7 +173,7 @@ func revokeText(done, failed []string, again string) string {
 		sb.WriteString(joined(failed) + " could not be reached: their records of this phone, if they have any, are still active. ")
 		back = "they are back"
 	}
-	sb.WriteString("Press " + again + " again when " + back + ", and also remove the phone from your tailnet if it is lost.")
+	sb.WriteString("Press " + again + " again when " + back + ".")
 	return sb.String()
 }
 

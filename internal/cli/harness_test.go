@@ -315,7 +315,7 @@ func idleMain([]string) int {
 }
 
 func notifyEnvMain(args []string) int {
-	line := strings.Join(append(args, os.Getenv("HAND_NOTIFY_KIND"), os.Getenv("HAND_NOTIFY_REF"), os.Getenv("HAND_NOTIFY_TEXT"), os.Getenv("HAND_NOTIFY_URL")), "|")
+	line := strings.Join(append(args, os.Getenv("HAND_NOTIFY_KIND"), os.Getenv("HAND_NOTIFY_REF"), os.Getenv("HAND_NOTIFY_TEXT"), os.Getenv("HAND_NOTIFY_URL"), os.Getenv("HAND_NOTIFY_APP_URL")), "|")
 	fakebin.Append(fakebin.Params()["log"], line)
 	return 0
 }

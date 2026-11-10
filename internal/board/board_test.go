@@ -126,7 +126,6 @@ func TestLoginCookieLifetime(t *testing.T) {
 		{"keep other value", board.Options{Controls: true}, "&keep=0", nil, 0},
 		{"keep and x-forwarded-for", board.Options{Controls: true}, "&keep=1", map[string]string{"X-Forwarded-For": "100.64.0.2"}, 0},
 		{"keep and forwarded", board.Options{Controls: true}, "&keep=1", map[string]string{"Forwarded": "for=100.64.0.2"}, 0},
-		{"keep and tailscale login", board.Options{Controls: true}, "&keep=1", map[string]string{"Tailscale-User-Login": "a@example.com"}, 0},
 		{"keep on network address", board.Options{}, "&keep=1", nil, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
