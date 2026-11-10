@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -18,8 +17,6 @@ import (
 )
 
 const skillsRepo = "https://github.com/atqamz/hand-skills.git"
-
-var skillName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 var skillsCommands = map[string]handler{
 	"list":   cmdSkillsList,
@@ -75,7 +72,7 @@ func parseSkillSource(arg string) (string, fleet.Managed, error) {
 		name, e.Source, e.Path = arg, skillsRepo, path.Join("skills", arg)
 	}
 	name = strings.TrimSuffix(name, ".git")
-	if !skillName.MatchString(name) {
+	if !fleet.SkillName.MatchString(name) {
 		return "", e, fmt.Errorf("%w: %q is not a skill name", state.ErrInvalid, name)
 	}
 	return name, e, nil
@@ -174,6 +171,11 @@ func cmdSkillsAdd(r *runner, args []string) error {
 		return err
 	}
 	e.Scope = s.Scope
+	unlock, err := s.Lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	managed, err := s.Load()
 	if err != nil {
 		return err
@@ -189,6 +191,7 @@ func cmdSkillsAdd(r *runner, args []string) error {
 	}
 	managed[name] = e
 	if err := s.Save(managed); err != nil {
+		_ = s.Remove(name)
 		return err
 	}
 	var d toon.Doc
@@ -208,7 +211,7 @@ func (r *runner) installSkill(s fleet.Skills, name string, e *fleet.Managed) err
 	}
 	defer os.RemoveAll(staged)
 	e.Commit, e.Sum = commit, sum
-	return s.Install(name, staged)
+	return s.Install(name, staged, nil)
 }
 
 func (r *runner) eachSkill(cmd string, args []string, fn func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error)) error {
@@ -216,6 +219,16 @@ func (r *runner) eachSkill(cmd string, args []string, fn func(s fleet.Skills, ma
 	if err != nil {
 		return err
 	}
+	for _, name := range rest {
+		if !fleet.SkillName.MatchString(name) {
+			return fmt.Errorf("%w: %q is not a skill name", state.ErrInvalid, name)
+		}
+	}
+	unlock, err := s.Lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	managed, err := s.Load()
 	if err != nil {
 		return err
@@ -262,6 +275,8 @@ func refuseUnlessClean(s fleet.Skills, name string, e fleet.Managed, ok bool) (s
 		return kind, fmt.Errorf("%s changed locally in %s since the copy; Hand does not overwrite or delete it; move your edits away or delete its folders by hand", name, root)
 	case !ok && kind == "missing":
 		return kind, fmt.Errorf("%s is not a skill Hand manages in this scope", name)
+	case !ok:
+		return kind, fmt.Errorf("%s is marked as managed by hand skills but has no recorded copy in this scope; Hand does not delete a folder it cannot compare; delete its folders by hand", name)
 	}
 	return kind, nil
 }
@@ -293,10 +308,16 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 		if !moved && kind == "" {
 			return "current", e.Commit, nil
 		}
-		if err := s.Install(name, staged); err != nil {
+		record := func() error {
+			pending := e
+			pending.Next = sum
+			managed[name] = pending
+			return s.Save(managed)
+		}
+		if err := s.Install(name, staged, record); err != nil {
 			return "", "", err
 		}
-		e.Commit, e.Sum = commit, sum
+		e.Commit, e.Sum, e.Next = commit, sum, ""
 		managed[name] = e
 		return map[bool]string{true: "updated", false: "restored"}[moved], commit, nil
 	})
@@ -317,7 +338,10 @@ func cmdSkillsRemove(r *runner, args []string) error {
 }
 
 func (r *runner) doctorSkills(c *checks) {
-	scopes := []fleet.Skills{{Base: r.home, Scope: "fleet"}}
+	var scopes []fleet.Skills
+	if r.home != "" {
+		scopes = append(scopes, fleet.Skills{Base: r.home, Scope: "fleet"})
+	}
 	if home := r.env.Getenv("HOME"); home != "" {
 		scopes = append(scopes, fleet.Skills{Base: home, Scope: "user"})
 	}

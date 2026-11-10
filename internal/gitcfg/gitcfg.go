@@ -296,8 +296,15 @@ func Toplevel(ctx context.Context, dir string) (string, error) {
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
+	return runEnv(ctx, dir, nil, args...)
+}
+
+func runEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}, args...)...)
 	cmd.WaitDelay = time.Second
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	proc.NoWindow(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -309,5 +316,5 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
-	return run(ctx, dir, args...)
+	return runEnv(ctx, dir, []string{"GIT_TERMINAL_PROMPT=0"}, args...)
 }

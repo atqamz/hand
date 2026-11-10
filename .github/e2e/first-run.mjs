@@ -58,6 +58,7 @@ async function cli(box, srv) {
   equal(toon(doctor.out).fields.server, 'not running', 'hand doctor: the Luvus server is not running yet');
   equal(state('iroh'), 'info', 'hand doctor: iroh is information only while the Board runs without --iroh');
   matches(toon(doctor.out).fields.iroh ?? '', new RegExp(`^${irohVersion.replace(/\./g, '\\.')} `), 'hand doctor: the installed sidecar and its version are listed');
+  equal(state('skills'), 'ok', 'hand doctor: skills is ok with no managed skill');
   check(['ok', 'info'].includes(state('desktop')), 'hand doctor: the desktop row is ok or information only');
   return made;
 }

@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -376,5 +378,238 @@ func TestDoctorRowForManagedSkills(t *testing.T) {
 	}
 	if row := checkRows(t, h.ok("doctor"))["skills"]; row[0] != "warn" || !strings.Contains(row[1], "fleet notes source missing") {
 		t.Fatalf("source missing = %q", row)
+	}
+}
+
+func skipUnlessPermsHold(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("directory permissions do not stop this user")
+	}
+}
+
+func TestSkillsRefuseANameThatLeavesTheSkillsFolder(t *testing.T) {
+	h := skillsHarness(t)
+	home := h.vars["HOME"]
+	src := filepath.Join(t.TempDir(), "bar")
+	writeFiles(t, src, skillFiles("bar", "one"))
+	h.ok("skills", "add", "--user", src)
+	decoy := filepath.Join(home, ".claude", "decoy")
+	writeFiles(t, decoy, map[string]string{"SKILL.md": "---\nname: decoy\nmetadata:\n  managed-by: hand-skills\n---\n"})
+	for _, cmd := range []string{"remove", "update"} {
+		if _, errOut, code := h.run("skills", cmd, "--user", "../decoy"); code != 2 || !strings.Contains(errOut, "not a skill name") {
+			t.Fatalf("%s: code=%d stderr=%q", cmd, code, errOut)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(decoy, "SKILL.md")); err != nil {
+		t.Fatalf("a folder outside skills/ was touched: %v", err)
+	}
+	state := filepath.Join(home, ".agents", "skills", ".hand-skills.json")
+	if err := os.WriteFile(state, []byte(`{"../decoy":{"source":"x","scope":"user","sum":"x"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("skills", "remove", "--user"); code == 0 || !strings.Contains(errOut, "not a skill name") {
+		t.Fatalf("state key: code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(decoy, "SKILL.md")); err != nil {
+		t.Fatalf("a state key walked out: %v", err)
+	}
+}
+
+func TestSkillsUpdateThatFailsLeavesEveryRootOldAndARerunCompletes(t *testing.T) {
+	skipUnlessPermsHold(t)
+	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "foo")
+	writeFiles(t, src, skillFiles("foo", "one"))
+	h.ok("skills", "add", src)
+	writeFiles(t, src, skillFiles("foo", "two"))
+	locked := filepath.Join(h.home, ".pi", "skills")
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, _, code := h.run("skills", "update", "foo"); code == 0 {
+		t.Fatal("update into an unwritable root succeeded")
+	}
+	for _, root := range fleet.SkillRoots {
+		if got := readSkill(t, skillPath(h.home, root, "foo")); !strings.Contains(got, "\none\n") {
+			t.Fatalf("%s is half-new: %q", root, got)
+		}
+	}
+	if err := os.Chmod(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.ok("skills", "update", "foo"); !strings.Contains(out, "foo,updated") {
+		t.Fatalf("rerun = %q", out)
+	}
+	for _, root := range fleet.SkillRoots {
+		if got := readSkill(t, skillPath(h.home, root, "foo")); !strings.Contains(got, "\ntwo\n") {
+			t.Fatalf("%s: %q", root, got)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(h.home, ".claude", "skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".hand-foo-") {
+			t.Fatalf("left %s behind", e.Name())
+		}
+	}
+}
+
+func TestSkillsRerunFinishesAnInterruptedSwap(t *testing.T) {
+	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "foo")
+	writeFiles(t, src, skillFiles("foo", "one"))
+	h.ok("skills", "add", src)
+	old := readSkill(t, skillPath(h.home, ".pi", "foo"))
+	writeFiles(t, src, skillFiles("foo", "two"))
+	h.ok("skills", "update", "foo")
+	newSum := skillState(t, h.home)["foo"].Sum
+	if err := os.WriteFile(skillPath(h.home, ".pi", "foo"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := skillState(t, h.home)
+	oldSum := state["foo"]
+	oldSum.Sum, oldSum.Next = fleetSum(t, filepath.Dir(skillPath(h.home, ".pi", "foo"))), newSum
+	state["foo"] = oldSum
+	b, _ := json.Marshal(state)
+	if err := os.WriteFile(filepath.Join(h.home, ".agents", "skills", ".hand-skills.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.ok("skills", "update", "foo"); !strings.Contains(out, "foo,updated") {
+		t.Fatalf("rerun = %q", out)
+	}
+	if got := readSkill(t, skillPath(h.home, ".pi", "foo")); !strings.Contains(got, "\ntwo\n") {
+		t.Fatalf("pi = %q", got)
+	}
+	if e := skillState(t, h.home)["foo"]; e.Sum != newSum || e.Next != "" {
+		t.Fatalf("state = %+v", e)
+	}
+}
+
+func fleetSum(t *testing.T, dir string) string {
+	t.Helper()
+	sum, err := fleet.Sum(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sum
+}
+
+func TestSkillsMarkerCountsOnlyInTheFrontmatter(t *testing.T) {
+	h := skillsHarness(t)
+	quote := filepath.Join(h.home, ".agents", "skills", "quote")
+	writeFiles(t, quote, map[string]string{"SKILL.md": "---\nname: quote\n---\n\nmetadata:\n  managed-by: hand-skills\n"})
+	if out, _, code := h.run("skills", "remove", "quote"); code != 3 || !strings.Contains(out, "quote,refused") {
+		t.Fatalf("remove: code=%d out=%q", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(quote, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSkillsRemoveRefusesAMarkedFolderWithNoRecord(t *testing.T) {
+	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "notes")
+	writeFiles(t, src, skillFiles("notes", "one"))
+	h.ok("skills", "add", src)
+	if err := os.WriteFile(filepath.Join(h.home, ".agents", "skills", ".hand-skills.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, code := h.run("skills", "remove", "notes"); code != 3 || !strings.Contains(out, "no recorded copy") {
+		t.Fatalf("remove: code=%d out=%q", code, out)
+	}
+	for _, root := range fleet.SkillRoots {
+		if _, err := os.Stat(skillPath(h.home, root, "notes")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestSkillsAcceptCRLFFrontmatter(t *testing.T) {
+	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "crlf")
+	writeFiles(t, src, map[string]string{"SKILL.md": "---\r\nname: crlf\r\ndescription: x\r\n---\r\n\r\nbody\r\n"})
+	if out := h.ok("skills", "add", src); !strings.Contains(out, "crlf,added") {
+		t.Fatalf("add = %q", out)
+	}
+	got := readSkill(t, skillPath(h.home, ".claude", "crlf"))
+	if !strings.HasPrefix(got, "---\nname: crlf\ndescription: x\nmetadata:\n  managed-by: hand-skills\n---\n") {
+		t.Fatalf("got %q", got)
+	}
+	if out := h.ok("skills", "remove", "crlf"); !strings.Contains(out, "crlf,removed") {
+		t.Fatalf("remove = %q", out)
+	}
+}
+
+func TestSkillsMarkerFollowsTheMetadataIndent(t *testing.T) {
+	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "wide")
+	writeFiles(t, src, map[string]string{"SKILL.md": "---\nname: wide\nmetadata:\n    version: 1\n---\n"})
+	h.ok("skills", "add", src)
+	if got := readSkill(t, skillPath(h.home, ".claude", "wide")); got != "---\nname: wide\nmetadata:\n    managed-by: hand-skills\n    version: 1\n---\n" {
+		t.Fatalf("got %q", got)
+	}
+	h.ok("skills", "remove", "wide")
+}
+
+func TestSkillsRefuseATreeOverTheCap(t *testing.T) {
+	h := skillsHarness(t)
+	src := filepath.Join(t.TempDir(), "big")
+	writeFiles(t, src, skillFiles("big", "one"))
+	f, err := os.Create(filepath.Join(src, "blob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(fleet.MaxSkillBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if _, errOut, code := h.run("skills", "add", src); code == 0 || !strings.Contains(errOut, "32 MiB") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Dir(skillPath(h.home, ".claude", "big"))); !os.IsNotExist(err) {
+		t.Fatalf("left a folder: %v", err)
+	}
+}
+
+func TestSkillsConcurrentAddsKeepEveryRecord(t *testing.T) {
+	h := skillsHarness(t)
+	names := []string{"a1", "a2", "a3", "a4", "a5", "a6"}
+	var wg sync.WaitGroup
+	for _, name := range names {
+		src := filepath.Join(t.TempDir(), name)
+		writeFiles(t, src, skillFiles(name, "one"))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.ok("skills", "add", src)
+		}()
+	}
+	wg.Wait()
+	if got := skillState(t, h.home); len(got) != len(names) {
+		t.Fatalf("state records %d of %d skills", len(got), len(names))
+	}
+}
+
+func TestDoctorShowsTheSkillsRowOutsideAFleet(t *testing.T) {
+	fx := newDoctorFixture(t)
+	h := fx.h
+	src := filepath.Join(t.TempDir(), "notes")
+	writeFiles(t, src, skillFiles("notes", "one"))
+	h.ok("skills", "add", "--user", src)
+	h.vars["HAND_HOME"] = ""
+	out, _, _ := h.run("doctor")
+	if row := checkRows(t, out)["skills"]; row != [2]string{"ok", `""`} {
+		t.Fatalf("skills row = %q in %q", row, out)
+	}
+	if err := os.WriteFile(skillPath(h.vars["HOME"], ".claude", "notes"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = h.run("doctor")
+	if row := checkRows(t, out)["skills"]; row[0] != "warn" || !strings.Contains(row[1], "user notes") {
+		t.Fatalf("drifted user skill = %q", row)
 	}
 }

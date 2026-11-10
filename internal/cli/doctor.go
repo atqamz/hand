@@ -83,6 +83,7 @@ func cmdDoctor(r *runner, args []string) error {
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
 		r.doctorWatchUnits(ctx, &c, root)
 	}
+	r.doctorSkills(&c)
 	d.Rows("checks", []string{"check", "state", "fix"}, c.rows)
 	d.Help(c.help...)
 	if err := r.print(&d); err != nil {
@@ -210,7 +211,6 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add("fleet", "ok", "")
 	}
 	doctorProjects(ctx, st, c)
-	r.doctorSkills(c)
 	_, live, lerr := st.LiveSupervisor(ctx)
 	if p, err := harness.LoadPolicy(r.home); err != nil {
 		c.add(harness.PolicyFile, "fail", err.Error())
