@@ -96,17 +96,31 @@ type Attempt struct {
 
 func (a Attempt) Live() bool { return a.Status == AttemptLaunching || a.Status == AttemptRunning }
 
-const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, kept FROM attempt`
+const attemptColumns = `id, task_id, harness, model, effort, %sworktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, kept FROM attempt`
+
+var (
+	attemptSelect    = `SELECT ` + fmt.Sprintf(attemptColumns, "argv, ")
+	attemptBriefless = `SELECT ` + fmt.Sprintf(attemptColumns, "")
+)
 
 func scanAttempt(row scanner) (Attempt, error) {
-	var a Attempt
 	var argv string
-	err := row.Scan(&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort, &argv, &a.Worktree, &a.Branch, &a.Status,
-		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Kept)
+	a, err := scanAttemptFields(row, &argv)
 	if err != nil {
 		return a, err
 	}
 	return a, json.Unmarshal([]byte(argv), &a.Argv)
+}
+
+func scanAttemptFields(row scanner, argv *string) (Attempt, error) {
+	var a Attempt
+	dest := []any{&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort}
+	if argv != nil {
+		dest = append(dest, argv)
+	}
+	dest = append(dest, &a.Worktree, &a.Branch, &a.Status,
+		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Kept)
+	return a, row.Scan(dest...)
 }
 
 func getAttempt(tx *sql.Tx, id int64) (Attempt, error) {
@@ -389,9 +403,21 @@ func (s *Store) Attempts(ctx context.Context, taskID int64, limit int) ([]Attemp
 	return s.queryAttempts(ctx, `SELECT * FROM (`+q+` ORDER BY id DESC LIMIT ?) ORDER BY id`, args...)
 }
 
-func (s *Store) LatestAttempts(ctx context.Context) (map[int64]Attempt, error) {
-	attempts, err := s.queryAttempts(ctx, attemptSelect+` WHERE id IN (SELECT MAX(id) FROM attempt GROUP BY task_id)`)
+func (s *Store) LatestAttemptsBriefless(ctx context.Context) (map[int64]Attempt, error) {
+	rows, err := s.db.QueryContext(ctx, attemptBriefless+` WHERE id IN (SELECT MAX(id) FROM attempt GROUP BY task_id)`)
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var attempts []Attempt
+	for rows.Next() {
+		a, err := scanAttemptFields(rows, nil)
+		if err != nil {
+			return nil, err
+		}
+		attempts = append(attempts, a)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	out := make(map[int64]Attempt, len(attempts))

@@ -271,7 +271,7 @@ type facts struct {
 func (b *Board) facts(ctx context.Context) (facts, error) {
 	var f facts
 	var err error
-	if f.latest, err = b.st.LatestAttempts(ctx); err != nil {
+	if f.latest, err = b.st.LatestAttemptsBriefless(ctx); err != nil {
 		return f, err
 	}
 	if f.signals, err = b.signals(ctx, slices.Collect(maps.Values(f.latest))); err != nil {
