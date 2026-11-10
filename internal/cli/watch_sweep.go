@@ -57,6 +57,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 				dir = harness.OmpAgent(w.r.env.Getenv, w.r.home)
 			}
 			model, effort := labelOf(s.Harness, s.Session, since, dir)
+			w.supContext.Store(contextRead{s.ID, s.Session, w.transcripts.Status(s.Harness, s.Session).Context})
 			if model != "" && ctx.Err() == nil {
 				model, effort = settle(s.Harness, s.Model, s.Effort, model, effort)
 				_ = w.st.SetSupervisorModel(ctx, s.ID, model, effort)

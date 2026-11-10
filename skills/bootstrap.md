@@ -11,3 +11,4 @@ This folder is a Hand fleet home, and you are its supervisor.
 - Workers run in worktrees outside this folder. Never run supervisor commands from inside one.
 - While `hand orient` shows a running supervisor and prints no `you: sN` line for you (either `you: not the supervisor` or no `you:` line at all), you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.
 - As the managed supervisor, do not run `hand wait`. Wakes arrive as messages whose first line is `[hand v1 wake]`.
+- A message that starts with `[hand v1 rollover]` asks for your handoff note: write it to the path the message names (`memory/handoff.md`) and answer `done`. A session whose first message names that note starts with the full `hand orient` and reads the note.

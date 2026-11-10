@@ -292,8 +292,6 @@ func taskCells(ctx context.Context, st *state.Store, t state.Task, signals map[i
 	return c, nil
 }
 
-var shortWake = []string{"attempt.blocked", "attempt.limited", "attempt.quiet", "supervisor.stalled", "timer.fired"}
-
 func Short(ctx context.Context, st *state.Store, since int64, pane string, watch, managed bool, b Budget) (*toon.Doc, error) {
 	cursor, err := st.LastEventSeq(ctx)
 	if err != nil {
@@ -306,7 +304,7 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 	if err != nil {
 		return nil, err
 	}
-	events, eventsTotal, err := st.NewestEventsAfter(ctx, since, shortWake, b.Changes)
+	events, eventsTotal, wakeTotal, err := st.NewestEventsAfter(ctx, since, state.WakeKinds, b.Changes)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +315,7 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 		if e.TaskID != 0 {
 			task = state.TaskRef(e.TaskID)
 		}
-		if slices.Contains(shortWake, e.Kind) {
+		if slices.Contains(state.WakeKinds, e.Kind) {
 			wakes++
 		}
 		eventRows = append(eventRows, []string{strconv.FormatInt(e.Seq, 10), e.Kind, task})
@@ -374,7 +372,7 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 		{"events", []string{"seq", "kind", "task"}, eventRows, eventsTotal, "hand orient"},
 	}
 	for {
-		d := renderShort(since, cursor, you, watch, counts, unwatched, unwatchedTotal, sections)
+		d := renderShort(since, cursor, you, watch, counts, unwatched, unwatchedTotal, sections, wakeTotal)
 		if len(d.String()) < b.ShortBytes {
 			return d, nil
 		}
@@ -386,7 +384,7 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 	}
 }
 
-func renderShort(since, cursor int64, you string, watch bool, counts map[string]int, unwatched state.Unwatched, unwatchedTotal int, sections []*section) *toon.Doc {
+func renderShort(since, cursor int64, you string, watch bool, counts map[string]int, unwatched state.Unwatched, unwatchedTotal int, sections []*section, wakeTotal int) *toon.Doc {
 	var d toon.Doc
 	d.Field("since", strconv.FormatInt(since, 10))
 	d.Field("cursor", strconv.FormatInt(cursor, 10))
@@ -416,9 +414,16 @@ func renderShort(since, cursor int64, you string, watch bool, counts map[string]
 		}
 		if len(s.rows) < s.total {
 			d.Field(s.name+"_more", fmt.Sprintf("%d of %d shown; run `%s`", len(s.rows), s.total, s.cmd))
-			cut = true
+			cut = cut || s.name != "events"
 		}
 	}
+	kept := 0
+	for _, r := range sections[len(sections)-1].rows {
+		if slices.Contains(state.WakeKinds, r[1]) {
+			kept++
+		}
+	}
+	cut = cut || kept < wakeTotal
 	if cut {
 		d.Field("more", "rows were cut; run `hand orient`")
 	}

@@ -43,6 +43,28 @@ You can still open an agent in the fleet folder by hand (`cd ~/fleets/demo && cl
 
 The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor resume`, to continue the same session with its history. It spends no tokens until you write or a wake arrives. A session whose first Hand row predates `hand fleet move` is the exception: its history lives in the harness's own store under the old folder, so **Resume** starts a fresh session from `hand orient` instead, records `supervisor.fresh`, `hand supervisor show` prints `fresh:` with the move, and the earlier conversation is not carried over. **New session** starts fresh from `hand orient`. To resume automatically when `hand watch` starts, add `"supervisor": {"autoresume": true}` to `routing.json`.
 
+## When the context grows
+
+A session's context grows with every turn, and each turn reads all of it again. For a claude or omp supervisor Hand starts a fresh session when the context passes `supervisor.rollover_tokens` in `routing.json` (300000 by default; `0` turns it off, and another harness is never rolled over):
+
+```json
+"supervisor": {"rollover_tokens": 300000}
+```
+
+The watcher reads the context size from the supervisor's transcript, the number the Board's gauge shows. Once it is over the limit and the supervisor is quiet (idle with its screen unchanged for 30 seconds, no message or wake waiting, no usage-limit line, no model switch pending and no `hand update` running), Hand sends one message that starts with `[hand v1 rollover]` and asks for a handoff note in `memory/handoff.md`: the tasks in flight and their next step, the decisions waiting, the timers that matter and anything Hand's state does not hold. When the file is written and the turn has ended, Hand stops the session and starts a new one on the same harness, model and effort. Its first message tells it to run the full `hand orient` and read the note, and it takes over the old session's wake cursor, so a wake not yet delivered still arrives. Hand records `supervisor.rolled_over` with the old and new session ids and the token count, and starts no second rollover within an hour.
+
+The note is the only thing the fresh session knows beyond `hand orient`, so the supervisor's answer matters. Hand fails safe: it never leaves you without a supervisor and never asks twice.
+
+- Hand checks that the harness binary exists and that this watcher still belongs to the current board generation before it asks. If either fails, or the request for the note still fails after three tries, or no note comes within 5 minutes, nothing is stopped: the supervisor keeps running, an alert says so once (`supervisor.rollover`), and Hand does not ask that supervisor again until the watcher restarts. `hand supervisor start` begins a fresh session by hand.
+- A message or wake that arrives during the exchange waits: while Hand holds the supervisor lock nothing is delivered to the old session, and what waits, the wake cursor included, reaches the fresh session.
+- A `hand supervisor switch` asked during the exchange ends the rollover without an alert and without stopping anything; the switch goes on as usual. One asked while Hand stops the old session starts the fresh session on the switched model and effort.
+- If Hand cannot replace the session while the old one is live (a stop that fails), nothing was stopped: one alert, no second ask.
+- If the fresh session cannot start after the old one was stopped, Hand resumes the old session and does not ask again; if that fails too, `hand supervisor resume` continues it. If Luvus gave no answer to the launch, the fresh session may still start: the alert says so, and `hand supervisor resume` works once Hand has failed the launch (2 minutes after it began).
+
+Hand holds the supervisor lock for the whole exchange, up to 5 minutes plus the launch of the fresh session. A Board Stop, Send or Switch, and `hand supervisor stop`, `send` and `switch`, wait that long; `hand supervisor interrupt` does not wait, so Esc still works.
+
+A limit below what a fresh session holds on its own (50000, say) rolls over every hour: the one-hour cooldown is the only guard. A negative value makes `routing.json` fail to load, like the other invalid keys.
+
 ## When the supervisor idles
 
 The supervisor acts only on a message. While a task is active, no attempt runs, no decision is open and no timer is armed that is due within 6 hours while the managed supervisor runs, no event will ever come for it, and its work is unwatched. A task with an armed `waits` timer (see [Timers](#timers)) is the exception: it is left out for as long as the timer is armed. The watcher then wakes the supervisor with `supervisor.stalled` once it has been idle for 20 minutes, again 40 minutes later, then every 60 minutes while nothing changes. The wake names the tasks and the idle time. Any event other than the stall wake and its delivery starts the count again, and the next wake comes no sooner than `after` (20 minutes by default) after the supervisor last worked. Hand never sends it to a supervisor that is stopped, blocked, at a usage limit or switching models. After the first one, the Board's Needs shows "Supervisor idle for 1h12m with 3 active tasks and no running attempt" until the work is watched again, and the alert goes out once, on the first due stall wake at or after 60 minutes of idle time. `hand orient` lists the tasks as `unwatched`. Change the delays in `routing.json` (each from `1m` to `24h`), or turn the wake off with `"stall": "off"`:

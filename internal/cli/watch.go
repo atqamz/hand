@@ -62,6 +62,10 @@ type watcher struct {
 	reaped  atomic.Value
 
 	rest           rest
+	still          stillness
+	rollBusy       atomic.Bool
+	rollFailed     atomic.Int64
+	supContext     atomic.Value
 	policyWarned   bool
 	inboxWarned    bool
 	modelsBusy     atomic.Bool
@@ -272,6 +276,9 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 			if err == nil {
 				err = w.stall(sctx, c, caps)
+			}
+			if err == nil {
+				w.rollover(sctx, c, caps)
 			}
 			if err == nil {
 				w.snapshot(sctx)
@@ -956,12 +963,15 @@ func baseURL(raw string) (*url.URL, bool) {
 }
 
 func (w *watcher) flushWarns() {
-	for _, x := range w.r.warns {
-		if x != w.r.noteLost {
+	w.r.warnMu.Lock()
+	warns, lost := w.r.warns, w.r.noteLost
+	w.r.warns = nil
+	w.r.warnMu.Unlock()
+	for _, x := range warns {
+		if x != lost {
 			w.say(x)
 		}
 	}
-	w.r.warns = nil
 }
 
 func (w *watcher) say(text string) {

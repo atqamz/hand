@@ -227,3 +227,21 @@ func TestPolicyRejectsTheRemovedApproveTimeout(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestPolicyReadsTheRolloverLimit(t *testing.T) {
+	for body, want := range map[string]int64{
+		`{}`:                                      DefaultRolloverTokens,
+		`{"supervisor":{"autoresume":true}}`:      DefaultRolloverTokens,
+		`{"supervisor":{"rollover_tokens":0}}`:    0,
+		`{"supervisor":{"rollover_tokens":1000}}`: 1000,
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Supervisor.RolloverTokens != want {
+			t.Fatalf("policy %s: rollover_tokens = %d, %v; want %d", body, p.Supervisor.RolloverTokens, err, want)
+		}
+	}
+	for _, body := range []string{`{"supervisor":{"rollover_tokens":-1}}`, `{"supervisor":{"rollover_tokens":"300k"}}`} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) {
+			t.Fatalf("policy %s err = %v", body, err)
+		}
+	}
+}
