@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -600,14 +601,7 @@ func (a *App) taskScreen(c *ui.Context, p palette) {
 	if t.Plan != nil {
 		a.paragraph(c, p, fmt.Sprintf("Plan · %s", t.Plan.Ref), t.Plan.Body)
 	}
-	if len(t.Delivered) > 0 {
-		a.section(c, p, "Delivered")
-		ui.Column(c).Gap(2).Children(func() {
-			for _, d := range t.Delivered {
-				row(c, p, d.Kind, d.Ref)
-			}
-		})
-	}
+	a.delivered(c, p, t.Delivered)
 	if len(t.OpenDecisions) > 0 {
 		a.section(c, p, "Open decisions")
 		ui.Column(c).Gap(0).Children(func() {
@@ -679,14 +673,7 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 	if at.ModelNote != "" {
 		a.paragraph(c, p, "Model", at.ModelNote)
 	}
-	if len(at.Delivered) > 0 {
-		a.section(c, p, "Delivered")
-		ui.Column(c).Gap(2).Children(func() {
-			for _, d := range at.Delivered {
-				row(c, p, d.Kind, d.Ref)
-			}
-		})
-	}
+	a.delivered(c, p, at.Delivered)
 	if len(at.Reports) > 0 {
 		a.section(c, p, "Reports")
 		ui.Column(c).Gap(0).Children(func() {
@@ -851,6 +838,7 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 			a.OpenRef(r.Task.Ref)
 		}
 	})
+	a.delivered(c, p, r.Delivered)
 	a.markdown(c, r.Report.Body)
 	if r.Report.AckedAt != "" {
 		ui.Textf(c, "Acknowledged %s", stamp(r.Report.AckedAt)).FontSize(12).TextColor(p.neutral)
@@ -953,11 +941,50 @@ func (a *App) eventRow(c *ui.Context, p palette, e Event) {
 	})
 }
 
-func row(c *ui.Context, p palette, kind, ref string) {
-	ui.Row(c).Gap(8).Children(func() {
-		ui.Badge(c, kind).Background(p.accentBG).TextColor(p.accent)
-		ui.Text(c, ref).Font("monospace").FontSize(12)
+func (a *App) delivered(c *ui.Context, p palette, ds []Deliverable) {
+	if len(ds) == 0 {
+		return
+	}
+	a.section(c, p, "Delivered")
+	ui.Column(c).Gap(2).Children(func() {
+		for i, d := range ds {
+			a.deliveredRow(c, p, i, d)
+		}
 	})
+}
+
+func (a *App) deliveredRow(c *ui.Context, p palette, i int, d Deliverable) {
+	dest, board := a.deliveredTarget(d)
+	if dest == "" {
+		ui.Row(c).Gap(8).Children(func() {
+			ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
+			ui.Text(c, d.Ref).Font("monospace").FontSize(12)
+		})
+		return
+	}
+	el := ui.ButtonBase(c.Key("delivered:"+strconv.Itoa(i))).Gap(8).Padding(2, 0).Cursor(ui.CursorPointer)
+	el.Children(func() {
+		ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
+		ui.Text(c, d.Ref).Font("monospace").FontSize(12).TextColor(p.accent)
+		ui.Spacer(c)
+	})
+	if el.Clicked() {
+		if board {
+			a.OpenBoardPath(dest)
+		} else {
+			c.OpenURL(dest)
+		}
+	}
+}
+
+func (a *App) deliveredTarget(d Deliverable) (string, bool) {
+	switch {
+	case d.Href != "":
+		return a.linkTarget(d.Href)
+	case d.Kind != "file":
+		return a.linkTarget(d.Ref)
+	}
+	return "", false
 }
 
 func statusPill(c *ui.Context, p palette, word string) {

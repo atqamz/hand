@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQBkNTY4MTVlYTk3OTRlYzc0.x_6lBpnXrwYEKTCnt3_6yw",
+  "cursor": "ZjAwMDAwMDAwZTBhYQA5MmY3MzI3YzA4NGQzNzc0.nyfidCzYomx_CdF0N39E0g",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "report": {
@@ -25,7 +25,13 @@
       "status": "active",
       "created_at": "2026-11-01T04:40:00Z",
       "updated_at": "2026-11-01T04:40:00Z"
-    }
+    },
+    "delivered": [
+      {
+        "ref": "https://github.com/example/hand/pull/42",
+        "kind": "PR"
+      }
+    ]
   }
 }
 

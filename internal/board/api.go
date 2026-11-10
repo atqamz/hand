@@ -353,8 +353,9 @@ type APIDecisionDetail struct {
 }
 
 type APIReportDetail struct {
-	Report APIReport `json:"report"`
-	Task   APITask   `json:"task"`
+	Report    APIReport        `json:"report"`
+	Task      APITask          `json:"task"`
+	Delivered []APIDeliverable `json:"delivered"`
 }
 
 func apiPath(path string) bool {
@@ -1197,7 +1198,11 @@ func (b *Board) apiReportData(ctx context.Context, id int64) (APIReportDetail, e
 	if err != nil {
 		return APIReportDetail{}, err
 	}
-	return APIReportDetail{Report: apiReport(r), Task: apiTask(t)}, nil
+	out := APIReportDetail{Report: apiReport(r), Task: apiTask(t), Delivered: []APIDeliverable{}}
+	for _, d := range b.linked(Deliverables(r.Body)) {
+		out.Delivered = append(out.Delivered, apiDeliverable(d))
+	}
+	return out, nil
 }
 
 func apiSupervisor(v supervisorView, pressed int64) *APISupervisor {

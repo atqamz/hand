@@ -327,6 +327,106 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 	}
 }
 
+func TestOpenDocOpensTheViewerForAFleetPath(t *testing.T) {
+	fx := newOpenFixture(t)
+	dir := filepath.Join(fx.home(t), "reports", "t8")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"notes.md", "my notes.md", "a#1%.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	loginOut := fx.h.ok("open", "--print", "t1")
+	for i, c := range []struct{ arg, name, path string }{
+		{"reports/t8/notes.md", "notes.md", "/doc/reports/t8/notes.md"},
+		{"reports//t8/my notes.md", "my notes.md", "/doc/reports/t8/my%20notes.md"},
+		{"reports/t8/a#1%.md", "a#1%.md", "/doc/reports/t8/a%231%25.md"},
+		{"reports/t8", "t8", "/doc/reports/t8"},
+	} {
+		out := fx.h.ok("open", "--doc", c.arg)
+		opened := fx.opened(t, i+1)
+		page := fx.base + "/" + fx.id + c.path
+		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
+			t.Fatalf("open --doc %q = %q, printed %q, want %q", c.arg, got, out, page)
+		}
+		if got := fx.h.ok("open", "--print", "--doc", c.arg); got != strings.Replace(withoutApp(loginOut), "/task/t1?", c.path+"?", 1) {
+			t.Fatalf("open --print --doc %q = %q", c.arg, got)
+		}
+		res, err := client.Get(opened[len(opened)-1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if want := "<title>" + c.name + " · "; res.StatusCode != http.StatusOK || res.Request.URL.String() != page || !strings.Contains(string(body), want) {
+			t.Fatalf("GET %s landed on %s: %d, want %s with %q", c.path, res.Request.URL, res.StatusCode, page, want)
+		}
+	}
+}
+
+func TestOpenDocRefusesWhatTheViewerRefuses(t *testing.T) {
+	fx := newOpenFixture(t)
+	home := fx.home(t)
+	for _, d := range []string{"reports/t8", "reports/.secret", "luvus", "locks", "projects/app", "backups", "cache/models", "Projects/app", "LUVUS"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := filepath.Join(fx.dir, "notes.md")
+	for p, body := range map[string]string{
+		"reports/t8/ok.md": "ok", "reports/.secret/key": "k", "reports/t8/.draft.md": "d", ".env": "e",
+		"luvus/server.pid": "1", "locks/t1.lock": "1", "projects/app/README.md": "r", "Projects/app/README.md": "r",
+		"LUVUS/x": "x", "backups/hand.db.1": "b", "cache/models/codex.json": "{}", "AGENTS.md": "a", "board.token": "t",
+	} {
+		if err := os.WriteFile(filepath.Join(home, p), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(outside, []byte("# out\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refused := []string{
+		"../" + filepath.Base(fx.dir) + "/notes.md", "reports/../../x", "reports/t8/../../../x", "..",
+		outside, "/reports/t8/ok.md", filepath.Join(home, "reports", "t8", "ok.md"), `\\evil\share\x`, `reports\t8\ok.md`, "C:\\x",
+		"reports/.secret/key", "reports/t8/.draft.md", ".env", ".", "./.env",
+		"", "luvus", "luvus/server.pid", "locks/t1.lock", "projects", "projects/app/README.md", "Projects/app/README.md",
+		"LUVUS/x", "backups", "backups/hand.db.1", "cache/models/codex.json", "hand.db", "AGENTS.md", "board.token",
+	}
+	if err := os.Symlink(outside, filepath.Join(home, "reports", "t8", "out.md")); err == nil {
+		refused = append(refused, "reports/t8/out.md")
+	}
+	if err := os.Symlink(fx.dir, filepath.Join(home, "reports", "outdir")); err == nil {
+		refused = append(refused, "reports/outdir", "reports/outdir/notes.md")
+	}
+	for _, arg := range refused {
+		out, errOut, code := fx.h.run("open", "--doc", arg)
+		if code != 2 || out != "" || !strings.Contains(errOut, "--doc") {
+			t.Fatalf("open --doc %q: code=%d out=%q stderr=%q, want exit 2", arg, code, out, errOut)
+		}
+		if out, _, code := fx.h.run("open", "--print", "--doc", arg); code != 2 || out != "" {
+			t.Fatalf("open --print --doc %q: code=%d out=%q", arg, code, out)
+		}
+	}
+	if _, errOut, code := fx.h.run("open", "--doc", "reports/t8/gone.md"); code != 3 || !strings.Contains(errOut, "gone.md") {
+		t.Fatalf("a missing file: code=%d stderr=%q", code, errOut)
+	}
+	for _, args := range [][]string{{"--doc", "reports/t8/ok.md", "t1"}, {"t1", "--doc", "reports/t8/ok.md"}, {"--doc", "reports/t8/ok.md", "--delivered"}} {
+		if _, _, code := fx.h.run(append([]string{"open"}, args...)...); code != 2 {
+			t.Fatalf("open %q: code=%d, want 2", args, code)
+		}
+	}
+	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
+		t.Fatalf("a refused --doc launched something: %v", err)
+	}
+}
+
 func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 	fx := newOpenFixture(t)
 	home := fx.home(t)

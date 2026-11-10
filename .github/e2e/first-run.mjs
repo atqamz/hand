@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture } from './fixture.mjs';
-import { Box, candidate, check, Client, commit, distDir, equal, exe, irohVersion, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
+import { Box, candidate, check, Client, commit, distDir, equal, exe, fails, irohVersion, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
 
 const missing = (h) => `${h} not found on PATH`;
 
@@ -149,6 +149,14 @@ async function board(box, srv, made) {
   const encoded = await laptop.raw(`/${id}/doc/docs/%2e%2e/hand.db`);
   check(encoded.status !== 200 && !encoded.text.includes('SQLite format'), `the viewer does not serve hand.db through an encoded .. segment (${encoded.status})`);
   equal((await new Client(origin).get(`/${id}/doc/docs/export-notes.md`)).status, 403, 'the viewer refuses a request without a session');
+
+  const docLink = new URL(toon((await box.hand(['open', '--print', '--doc', 'docs/export-notes.md'])).out).fields.url);
+  equal(docLink.pathname, `/${id}/doc/docs/export-notes.md`, 'hand open --print --doc links the document viewer');
+  const docLogin = await new Client(origin).get(`${docLink.pathname}${docLink.search}`);
+  equal([docLogin.status, docLogin.location], [303, `/${id}/doc/docs/export-notes.md`], 'the --doc login link lands on the document');
+  for (const refused of ['../hand.db', '/etc/hosts', 'hand.db', 'luvus/note.txt', 'locks/note.txt', 'projects/note.txt', 'backups/note.txt', 'cache/note.txt', '.claude']) {
+    await fails(await box.hand(['open', '--print', '--doc', refused]), `hand open --doc refuses ${refused}`, 2);
+  }
 
   const funnel = await new Client(origin, { 'Tailscale-Funnel-Request': '?1' }).get(`/${id}/`);
   equal(funnel.status, 403, 'a Tailscale Funnel request is refused');

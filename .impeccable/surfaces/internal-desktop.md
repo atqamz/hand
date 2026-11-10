@@ -81,6 +81,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `12-composer-error.png` | a failed send, its error and the text it kept |
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
+| `15-delivered.png` | a task's Delivered list: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
 
 ## Auth decision
 
