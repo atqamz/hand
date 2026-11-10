@@ -396,7 +396,7 @@ func TestOpenDocRefusesWhatTheViewerRefuses(t *testing.T) {
 		"../" + filepath.Base(fx.dir) + "/notes.md", "reports/../../x", "reports/t8/../../../x", "..",
 		outside, "/reports/t8/ok.md", filepath.Join(home, "reports", "t8", "ok.md"), `\\evil\share\x`, `reports\t8\ok.md`, "C:\\x",
 		"reports/.secret/key", "reports/t8/.draft.md", ".env", ".", "./.env",
-		"luvus", "luvus/server.pid", "locks/t1.lock", "projects", "projects/app/README.md", "Projects/app/README.md",
+		"", "luvus", "luvus/server.pid", "locks/t1.lock", "projects", "projects/app/README.md", "Projects/app/README.md",
 		"LUVUS/x", "backups", "backups/hand.db.1", "cache/models/codex.json", "hand.db", "AGENTS.md", "board.token",
 	}
 	if err := os.Symlink(outside, filepath.Join(home, "reports", "t8", "out.md")); err == nil {

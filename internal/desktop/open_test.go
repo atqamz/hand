@@ -366,3 +366,26 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 		})
 	}
 }
+
+func TestSameNamedDeliveredFilesOpenTheirOwnDocument(t *testing.T) {
+	hand := installFakeHand(t)
+	ds := []desktop.Deliverable{
+		{Ref: "design.md", Kind: "file", Href: "/" + fleetID + "/doc/reports/t1/design.md"},
+		{Ref: "design.md", Kind: "file", Href: "/" + fleetID + "/doc/reports/t2/design.md"},
+	}
+	app := deliveredApp(t, hand.home, ds...)
+	tt := newTester(app)
+	app.OpenRef("t1")
+	tt.Frame()
+	first, ok := tt.Find("design.md")
+	if !ok {
+		t.Fatal("design.md not on screen")
+	}
+	tt.ClickAt(first.X+1, first.Y+first.H/2)
+	hand.want(t, "open", "--doc", "reports/t1/design.md")
+	for dy := first.H; dy < first.H*4 && len(hand.calls(t)) == 0; dy++ {
+		tt.ClickAt(first.X+1, first.Y+first.H/2+dy)
+		time.Sleep(20 * time.Millisecond)
+	}
+	hand.want(t, "open", "--doc", "reports/t2/design.md")
+}

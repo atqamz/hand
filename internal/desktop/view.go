@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -946,13 +947,13 @@ func (a *App) delivered(c *ui.Context, p palette, ds []Deliverable) {
 	}
 	a.section(c, p, "Delivered")
 	ui.Column(c).Gap(2).Children(func() {
-		for _, d := range ds {
-			a.deliveredRow(c, p, d)
+		for i, d := range ds {
+			a.deliveredRow(c, p, i, d)
 		}
 	})
 }
 
-func (a *App) deliveredRow(c *ui.Context, p palette, d Deliverable) {
+func (a *App) deliveredRow(c *ui.Context, p palette, i int, d Deliverable) {
 	dest, board := a.deliveredTarget(d)
 	if dest == "" {
 		ui.Row(c).Gap(8).Children(func() {
@@ -961,7 +962,7 @@ func (a *App) deliveredRow(c *ui.Context, p palette, d Deliverable) {
 		})
 		return
 	}
-	el := ui.ButtonBase(c.Key("delivered:"+d.Ref)).Gap(8).Padding(2, 0).Cursor(ui.CursorPointer)
+	el := ui.ButtonBase(c.Key("delivered:"+strconv.Itoa(i))).Gap(8).Padding(2, 0).Cursor(ui.CursorPointer)
 	el.Children(func() {
 		ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
 		ui.Text(c, d.Ref).Font("monospace").FontSize(12).TextColor(p.accent)

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -53,7 +54,9 @@ func cmdOpen(r *runner, args []string) error {
 		return usageError{openUsage}
 	}
 	ref := strings.Join(rest, "")
-	if *doc != "" && (ref != "" || *delivered) {
+	docSet := false
+	set.Visit(func(f *flag.Flag) { docSet = docSet || f.Name == "doc" })
+	if docSet && (ref != "" || *delivered) {
 		return usageError{"open: --doc takes a path alone; " + openUsage}
 	}
 	st, err := r.store()
@@ -63,7 +66,7 @@ func cmdOpen(r *runner, args []string) error {
 	defer st.Close()
 	ctx := r.ctx()
 	var path, frag string
-	if *doc != "" {
+	if docSet {
 		if path, err = board.DocPage(r.home, *doc); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return fmt.Errorf("%w: %s", state.ErrNotFound, *doc)
