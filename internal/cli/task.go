@@ -235,7 +235,7 @@ func cmdTaskList(r *runner, args []string) error {
 	since := fs.String("since", "", "on or after this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	until := fs.String("until", "", "on or before this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	limit := fs.Int("limit", 50, "maximum rows")
-	flat := fs.Bool("flat", false, "one table in id order, children not placed under their parent")
+	flat := fs.Bool("flat", false, "one table, newest first, children not placed under their parent")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}

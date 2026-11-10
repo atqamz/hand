@@ -388,10 +388,10 @@ func (s *Store) SetParent(ctx context.Context, id, parent int64) (Task, error) {
 		if parent != 0 {
 			up, detail = parent, TaskRef(parent)
 		}
-		if _, err := tx.Exec(`UPDATE task SET parent_id = ?, updated_at = ? WHERE id = ?`, up, now, id); err != nil {
+		if _, err := tx.Exec(`UPDATE task SET parent_id = ? WHERE id = ?`, up, id); err != nil {
 			return err
 		}
-		out.ParentID, out.UpdatedAt = parent, now
+		out.ParentID = parent
 		return emit(tx, now, "task.parented", id, detail)
 	})
 	return out, err

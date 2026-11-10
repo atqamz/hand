@@ -292,3 +292,27 @@ func TestImportFleetOffsetsParentIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestSetParentKeepsUpdatedAtAndTheListOrder(t *testing.T) {
+	s, ctx := seedTree(t)
+	addTasks(t, s, 3)
+	s.now = func() time.Time { return time.Now().Add(time.Hour) }
+	before, err := s.Tasks(ctx, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.SetParent(ctx, 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Tasks(ctx, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.EqualFunc(before, after, func(a, b Task) bool { return a.ID == b.ID && a.UpdatedAt == b.UpdatedAt }) {
+		t.Fatalf("list changed: before %+v, after %+v", before, after)
+	}
+	if got.UpdatedAt != before[len(before)-1].UpdatedAt {
+		t.Fatalf("returned updated_at = %q, want %q", got.UpdatedAt, before[len(before)-1].UpdatedAt)
+	}
+}
