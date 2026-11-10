@@ -82,14 +82,11 @@ hash -r; command -v hand; hand version
 cd $D/repo && git init -q -b main && git config user.name dogfood && git config user.email dogfood@example.invalid && git config commit.gpgsign false && echo hello > README.md && git add README.md && git commit -q -m init
 ```
 
-**6.** Make the fleet, register the repository, and take the backup of `hand.db`. A profile named `cheap` uses the cheapest model and effort; change `haiku` if `hand route list` shows it as not valid for you:
+**6.** Make the fleet, register the repository, and take the backup of `hand.db`. The workers below start with the cheapest model and effort, `--harness claude --model haiku --effort low`; change `haiku` if `hand models claude` does not list it for you:
 
 ```sh
 cd $D/fleet && hand init && hand project add demo $D/repo && cp hand.db $D/hand.db.backup
-cat > routing.json <<'EOF'
-{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}
-EOF
-hand route list | head -3
+hand models claude | head -3
 FID=$(ls $SECONDHAND_HOME/index)
 echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') SD=$LUVUS_HOME/sessions/secondhand-$FID" >> $D/env.sh
 . $D/env.sh; hand fleet list
@@ -99,7 +96,7 @@ Expected:
 - the install prints `installed hand version: 0.11.0 to /tmp/hand-dogfood.XXXXXX/bin/hand` (the version can be newer), and `command -v hand` prints that path;
 - `hand init` prints `created: true` and a `luvus: pinned 0.14.3 (...)` line (the version is the tested one; on arm64 the download is the `aarch64-unknown-linux-musl` build);
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
-- `hand route list` shows `cheap,claude,haiku,low,yes`;
+- `hand models claude` shows a `claude,haiku` row;
 - after `. $D/env.sh`, `echo "${XDG_RUNTIME_DIR:-unset}"` prints `unset`.
 
 Evidence: `{ uname -m; hand version; hand fleet list; hand luvus show; } 2>&1 | ev L0`.
@@ -119,7 +116,7 @@ Steps:
 
 ```sh
 . $D/env.sh; cd $D/fleet
-hand supervisor start --profile cheap
+hand supervisor start --harness claude --model haiku --effort low
 sleep 30
 hand supervisor show
 hand orient | sed -n 1,5p
@@ -165,7 +162,7 @@ EOF
 T=$(hand task add --goal "Add hello.txt" demo "dogfood hello" | sed -n 's/^task: //p')
 hand task start $T
 CUR=$(hand orient | sed -n 's/^cursor: //p')
-hand attempt start --profile cheap --prompt-file $D/brief.md $T | tee $D/l2-start.txt
+hand attempt start --harness claude --model haiku --effort low --prompt-file $D/brief.md $T | tee $D/l2-start.txt
 A=$(sed -n 's/^attempt: //p' $D/l2-start.txt)
 echo "export T=$T A=$A CUR=$CUR" >> $D/vars.sh
 ```
@@ -240,7 +237,7 @@ If it fails: file the output above and the end of `$SECONDHAND_HOME/board.log`.
 - **Proves:** the watcher starts a killed Luvus server again row, with a real harness instead of a fake one, and without the scope that a user manager gives the server.
 - **Run:** agent.
 - **Real sessions:** 0: it resumes the supervisor's session, which spends nothing until a message arrives.
-- **Preconditions:** a supervisor runs (`hand supervisor start --profile cheap` if none does), and the watcher runs (`hand orient` prints `watch: running`).
+- **Preconditions:** a supervisor runs (`hand supervisor start --harness claude --model haiku --effort low` if none does), and the watcher runs (`hand orient` prints `watch: running`).
 
 Steps:
 
@@ -282,7 +279,7 @@ If it fails: file the output above, and `tail -30 $D/fleet/watch.log`. If no new
 - **Proves:** the `hand attach` row, over a real terminal and not the CI's fake.
 - **Run:** needs human. The owner uses a real terminal (an SSH session with a tty); the agent cannot attach.
 - **Real sessions:** 0 (a resume).
-- **Preconditions:** `L0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --profile cheap`.
+- **Preconditions:** `L0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --harness claude --model haiku --effort low`.
 
 Steps:
 

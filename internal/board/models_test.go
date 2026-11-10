@@ -184,15 +184,9 @@ func TestOpencodeRowsOfferTheVariantsOfEachModel(t *testing.T) {
 	contains(t, "opencode switch row", row, `<select name="effort" aria-label="opencode effort"><option value="">default</option><option value="fast">fast</option>`)
 }
 
-func TestProfilesNameAnOpencodeModelAndVariant(t *testing.T) {
+func TestTheOpencodeStartFormPostsAModelAndVariant(t *testing.T) {
 	r := newModelRig(t)
 	r.all(t)
-	policy := `{"profiles":{"default":{"harness":"opencode","model":"acme/acme-coder-1","effort":"deep"},"gone":{"harness":"opencode","model":"acme/acme-coder-9"}}}`
-	if err := os.WriteFile(filepath.Join(r.fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	console := r.console(t)
-	contains(t, "start strip", console, `<option value="default" selected>default · opencode acme/acme-coder-1 deep</option>`, `<option value="gone">gone · opencode acme/acme-coder-9 · opencode model acme/acme-coder-9 is not in `)
 	post(r.fx.handler(), "/supervisor/start", url.Values{"harness": {"opencode"}, "other": {"acme/acme-coder-1"}, "effort": {"deep"}})
 	if got := strings.Join(r.fx.called()[0], " "); got != "supervisor start --harness opencode --model acme/acme-coder-1 --effort deep" {
 		t.Fatalf("ran %q", got)
@@ -340,67 +334,6 @@ func TestANewCacheReachesTheNextRender(t *testing.T) {
 	contains(t, "after", row, `<option value="opus" data-efforts="low">Opus 5.5 · opus</option>`)
 }
 
-func TestAProfileWhoseModelLeftAFreshListIsUnavailable(t *testing.T) {
-	r := newModelRig(t)
-	r.install(t, "agy", "agy", map[string]string{"models": "gem-1\tGem 1\ngem-2\tGem 2\n"})
-	r.refresh(t, "agy")
-	r.install(t, "agy", "agy", map[string]string{"models": "gem-2\tGem 2\n"})
-	r.refresh(t, "agy")
-	r.install(t, "claude", "printer", map[string]string{"out": claudeFixture})
-	r.refresh(t, "claude")
-	policy := `{"profiles":{"default":{"harness":"agy","model":"gem-1"},"live":{"harness":"agy","model":"gem-2"},"odd":{"harness":"claude","model":"acme-gw","effort":"high"},"plain":{"harness":"claude","model":"opus","effort":"high"}}}`
-	if err := os.WriteFile(filepath.Join(r.fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	console := r.console(t)
-	contains(t, "start strip", console,
-		`<option value="default" disabled>default · agy gem-1 · model gem-1 is no longer listed by agy</option>`,
-		`<option value="live" selected>live · agy gem-2</option>`,
-		`<option value="plain">plain · claude opus high</option>`)
-	if !strings.Contains(console, `<option value="odd">odd · claude acme-gw high · claude model acme-gw is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code&#39;s model list`) {
-		t.Fatalf("the unverified profile shows no warning:\n%s", console)
-	}
-	lacks(t, "start strip", console, `<option value="odd" disabled`, `<option value="plain" disabled`, "restart the board")
-	post(r.fx.handler(), "/supervisor/start", url.Values{"profile": {"live"}})
-	if got := strings.Join(r.fx.called()[0], " "); got != "supervisor start --profile live" {
-		t.Fatalf("ran %q", got)
-	}
-	r.fx.status = "idle"
-	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
-	menu := r.console(t)
-	contains(t, "switch menu", menu[strings.Index(menu, `id="model-menu"`):], `<option value="odd">odd · claude acme-gw high · claude model acme-gw`)
-}
-
-func TestAProfileOnAClaudeListThatLostItsModelStaysStartable(t *testing.T) {
-	r := newModelRig(t)
-	r.install(t, "claude", "printer", map[string]string{"out": claudeFixture})
-	r.refresh(t, "claude")
-	r.install(t, "claude", "printer", map[string]string{"out": claudeReply(claudeModel("opus", "Opus 5.5", "low"))})
-	r.refresh(t, "claude")
-	policy := `{"profiles":{"default":{"harness":"claude","model":"acme-opus","effort":"high"}}}`
-	if err := os.WriteFile(filepath.Join(r.fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	console := r.console(t)
-	contains(t, "start strip", console, `<option value="default" selected>default · claude acme-opus high · model acme-opus is no longer listed by claude`)
-	lacks(t, "start strip", console, `<option value="default" disabled`)
-}
-
-func TestNoProfileCanStartWhenEveryModelLeft(t *testing.T) {
-	r := newModelRig(t)
-	r.install(t, "agy", "agy", map[string]string{"models": "gem-1\tGem 1\n"})
-	r.refresh(t, "agy")
-	r.install(t, "agy", "agy", map[string]string{"models": "gem-2\tGem 2\n"})
-	r.refresh(t, "agy")
-	policy := `{"profiles":{"default":{"harness":"agy","model":"gem-1"}}}`
-	if err := os.WriteFile(filepath.Join(r.fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	console := r.console(t)
-	contains(t, "start strip", console, `<button class="primary" disabled>Start</button>`, `<p class="gone">model gem-1 is no longer listed by agy.</p>`)
-	lacks(t, "start strip", console, " selected>")
-}
-
 func TestTheBoardNeverRunsAHarnessToReadTheModelLists(t *testing.T) {
 	r := newModelRig(t)
 	r.all(t)
@@ -409,10 +342,6 @@ func TestTheBoardNeverRunsAHarnessToReadTheModelLists(t *testing.T) {
 		r.install(t, name, "forbidden", map[string]string{"log": log})
 	}
 	r.cache(t, "agy", func(m map[string]any) { m["gone"] = []string{"gone-1"} })
-	policy := `{"profiles":{"default":{"harness":"agy","model":"gone-1"},"odd":{"harness":"claude","model":"acme-gw","effort":"high"}}}`
-	if err := os.WriteFile(filepath.Join(r.fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	r.fx.status = "idle"
 	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
 	h := r.fx.handler()

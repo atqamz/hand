@@ -10,9 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -22,31 +20,18 @@ import (
 
 const PolicyFile = "routing.json"
 
-type Profile struct {
-	Spec
-	MCP string `json:"mcp,omitempty"`
-}
-
 type Policy struct {
-	Profiles   map[string]Profile `json:"profiles"`
-	Notify     []string           `json:"notify,omitzero"`
-	Stall      Stall              `json:"stall,omitzero"`
-	Inbox      Inbox              `json:"inbox,omitzero"`
-	Retention  Retention          `json:"retention,omitzero"`
+	Removed    json.RawMessage `json:"profiles,omitempty"`
+	Notify     []string        `json:"notify,omitzero"`
+	Stall      Stall           `json:"stall,omitzero"`
+	Inbox      Inbox           `json:"inbox,omitzero"`
+	Retention  Retention       `json:"retention,omitzero"`
 	Supervisor struct {
 		Autoresume bool `json:"autoresume"`
 	} `json:"supervisor,omitzero"`
 }
 
-var StarterPolicy = Policy{Profiles: map[string]Profile{
-	"quick":   {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "low"}},
-	"default": {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "medium"}},
-	"high":    {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "high"}},
-	"deep":    {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "xhigh"}},
-	"max":     {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "max"}},
-}}
-
-var profileName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+var StarterPolicy = Policy{}
 
 type Stall struct {
 	Off          bool
@@ -199,17 +184,6 @@ func (r *Retention) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (p Policy) Harnesses() []string {
-	var names []string
-	for _, pr := range p.Profiles {
-		if slices.Contains(state.Harnesses, pr.Harness) {
-			names = append(names, pr.Harness)
-		}
-	}
-	slices.Sort(names)
-	return slices.Compact(names)
-}
-
 func LoadPolicy(home string) (Policy, error) {
 	path := filepath.Join(home, PolicyFile)
 	b, err := os.ReadFile(path)
@@ -228,47 +202,21 @@ func LoadPolicy(home string) (Policy, error) {
 	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
 		return Policy{}, fmt.Errorf("%w: %s holds data after the policy", state.ErrInvalid, path)
 	}
-	if len(p.Profiles) == 0 {
-		return Policy{}, fmt.Errorf("%w: %s defines no profiles", state.ErrInvalid, path)
-	}
-	for name := range p.Profiles {
-		if !profileName.MatchString(name) {
-			return Policy{}, fmt.Errorf("%w: %s: profile name %q must match %s", state.ErrInvalid, path, name, profileName)
-		}
-		if err := checkMCP(name, p.Profiles[name]); err != nil {
-			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
-		}
+	if p.Removed != nil {
+		return Policy{}, fmt.Errorf("%w: %s: \"profiles\" was removed; delete the key and start workers with --harness, --model and --effort (see docs/update.md)", state.ErrInvalid, path)
 	}
 	return p, nil
 }
 
-func checkMCP(name string, pr Profile) error {
-	if err := CheckMCP(pr.Harness, pr.MCP); err != nil {
-		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
-	}
-	if pr.MCP != "" && !filepath.IsLocal(pr.MCP) {
-		return fmt.Errorf("profile %q: mcp %q must be a path inside the fleet home, like \"mcp.json\"", name, pr.MCP)
-	}
-	return nil
-}
-
-func (pr Profile) MCPFile(home string) (string, error) {
-	return resolveMCP(home, pr.MCP, "the profile's mcp")
-}
-
 func MCPPath(home, file string) (string, error) {
-	return resolveMCP(home, file, "--mcp")
-}
-
-func resolveMCP(home, file, name string) (string, error) {
 	if file == "" {
 		return "", nil
 	}
 	if !filepath.IsLocal(file) {
-		return "", fmt.Errorf("%w: %s %q must be a path inside the fleet home, like \"mcp.json\"", state.ErrInvalid, name, file)
+		return "", fmt.Errorf("%w: --mcp %q must be a path inside the fleet home, like \"mcp.json\"", state.ErrInvalid, file)
 	}
 	path := filepath.Join(home, file)
-	notFile := fmt.Errorf("%w: mcp file %s is not a file; create it or fix %s", state.ErrInvalid, path, name)
+	notFile := fmt.Errorf("%w: mcp file %s is not a file; create it or fix --mcp", state.ErrInvalid, path)
 	realHome, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
@@ -303,23 +251,6 @@ func underDir(path, dir string) bool {
 			return false
 		}
 	}
-}
-
-func (p Policy) Names() []string {
-	names := make([]string, 0, len(p.Profiles))
-	for name := range p.Profiles {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
-}
-
-func (p Policy) Profile(name string) (Profile, error) {
-	s, ok := p.Profiles[name]
-	if !ok {
-		return Profile{}, fmt.Errorf("%w: unknown profile %q; known: %s", state.ErrInvalid, name, strings.Join(p.Names(), ", "))
-	}
-	return s, nil
 }
 
 func WriteStarterPolicy(home string) (bool, error) {

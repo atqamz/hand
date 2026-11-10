@@ -192,7 +192,7 @@ func dropSessionID(t *testing.T, argv []string) []string {
 	return slices.Delete(slices.Clone(argv), i, i+2)
 }
 
-func TestArgvOfADefaultProfileKeepsTheSkipFlag(t *testing.T) {
+func TestArgvKeepsTheSkipFlag(t *testing.T) {
 	got, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "/w", "")
 	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "fix it"}) {
 		t.Fatalf("argv = %q, %v", got, err)
@@ -225,7 +225,7 @@ func TestMCPIsRefusedForOtherHarnessesAndOutsideTheFleetHome(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"../mcp.json", "/etc/mcp.json", "a/../../mcp.json"} {
-		if err := checkMCP("x", Profile{Spec: Spec{"claude", "sonnet", "low"}, MCP: bad}); err == nil || !strings.Contains(err.Error(), "inside the fleet home") {
+		if _, err := MCPPath(t.TempDir(), bad); err == nil || !strings.Contains(err.Error(), "inside the fleet home") {
 			t.Fatalf("mcp %q err = %v", bad, err)
 		}
 	}
@@ -233,11 +233,10 @@ func TestMCPIsRefusedForOtherHarnessesAndOutsideTheFleetHome(t *testing.T) {
 
 func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
 	home := t.TempDir()
-	pr := Profile{Spec: Spec{"claude", "sonnet", "low"}, MCP: "mcp.json"}
-	if path, err := (Profile{}).MCPFile(home); path != "" || err != nil {
+	if path, err := MCPPath(home, ""); path != "" || err != nil {
 		t.Fatalf("no mcp = %q, %v", path, err)
 	}
-	if _, err := pr.MCPFile(home); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), filepath.Join(home, "mcp.json")) {
+	if _, err := MCPPath(home, "mcp.json"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), filepath.Join(home, "mcp.json")) {
 		t.Fatalf("missing file err = %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
@@ -247,7 +246,7 @@ func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path, err := pr.MCPFile(home); path != want || err != nil {
+	if path, err := MCPPath(home, "mcp.json"); path != want || err != nil {
 		t.Fatalf("file = %q, %v", path, err)
 	}
 }
@@ -405,9 +404,6 @@ func TestMCPPathFollowsSymlinksOnlyInsideTheFleetHome(t *testing.T) {
 		if _, err := MCPPath(home, file); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s err = %v, want %q", file, err, want)
 		}
-		if _, err := (Profile{MCP: file}).MCPFile(home); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
-			t.Fatalf("profile %s err = %v, want %q", file, err, want)
-		}
 	}
 	realHome, err := filepath.EvalSymlinks(home)
 	if err != nil {
@@ -417,9 +413,6 @@ func TestMCPPathFollowsSymlinksOnlyInsideTheFleetHome(t *testing.T) {
 	for _, file := range []string{"good.json", "configs-link/good.json", "configs/good.json"} {
 		if path, err := MCPPath(home, file); path != want || err != nil {
 			t.Fatalf("%s = %q, %v", file, path, err)
-		}
-		if path, err := (Profile{MCP: file}).MCPFile(home); path != want || err != nil {
-			t.Fatalf("profile %s = %q, %v", file, path, err)
 		}
 	}
 }

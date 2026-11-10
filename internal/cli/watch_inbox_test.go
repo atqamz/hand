@@ -20,7 +20,7 @@ func inboxWatcher(t *testing.T, inbox string) (*watcher, *bytes.Buffer, *inboxCl
 	t.Helper()
 	clock := &inboxClock{time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
 	home := t.TempDir()
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}` + inbox + `}`
+	policy := `{` + strings.TrimPrefix(inbox, ",") + `}`
 	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}

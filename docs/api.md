@@ -188,7 +188,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after either 
 
 `POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` run the same path as the console button they mirror and answer the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read.
 
-- **start** runs `supervisor start` with no profile, copying the last supervisor's harness, model and effort, like the console's "same as sN". There must be an earlier supervisor to copy: with none, the answer is `409 conflict`, and while one is live it is `409 conflict` too. Start a first supervisor from the CLI, which can choose the harness.
+- **start** runs `supervisor start` with no flags, copying the last supervisor's harness, model and effort, like the console's "same as sN". There must be an earlier supervisor to copy: with none, the answer is `409 conflict`, and while one is live it is `409 conflict` too. Start a first supervisor from the CLI, which can choose the harness.
 - **resume** continues the last session under a new `sN`; it follows the CLI's rules, so a running supervisor or nothing to resume is a conflict or a not-found.
 - **stop**, **interrupt** and **force** take one JSON object, the ref the client's `Status` showed: `{"ref": "s1"}`. The board runs `supervisor stop --expect s1`, `supervisor interrupt --expect s1` or `supervisor force --expect s1`, so a control binds to the supervisor on screen and is `409 conflict` when another one runs by then, rather than stopping, interrupting or typing into the replacement.
 - **stop** and **interrupt** need a running supervisor; anything else is `409 conflict`.

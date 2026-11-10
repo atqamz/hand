@@ -334,7 +334,7 @@ func TestResumingAHeldSupervisorOnTheSameModelHoldsTheMessagesAgain(t *testing.T
 
 func TestAnAutoresumeOnTheModelThatDidNotAnswerHoldsTheMessagesAgain(t *testing.T) {
 	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,6 @@
 package e2e_test
 
 import (
-	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,16 +24,11 @@ func runSupervisor(t *testing.T, k kit, wake bool) {
 	sb.startMock(mockllm.Step{Shell: orient}, mockllm.Step{Text: "Oriented."}, mockllm.Step{Shell: orient}, mockllm.Step{Text: "Wake handled."})
 	k.seed(sb, sb.mock.URL)
 	sb.init()
-	routing, err := json.Marshal(map[string]any{"profiles": map[string]any{"e2e": map[string]string{"harness": k.name, "model": k.model, "effort": k.effort}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sb.write(filepath.Join(sb.fleet, "routing.json"), string(routing))
 	sb.ok("project", "add", "app", sb.repo("app"))
 	sb.ok("task", "add", "--goal", "Pick a colour", "app", "Colour")
 	sb.ok("task", "start", "t1")
 
-	start := sb.ok("supervisor", "start", "--profile", "e2e")
+	start := sb.ok("supervisor", "start", "--harness", k.name, "--model", k.model, "--effort", k.effort)
 	if field(start, "status") != "running" {
 		t.Fatalf("supervisor start:\n%s", start)
 	}

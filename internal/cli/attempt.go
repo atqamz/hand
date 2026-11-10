@@ -30,6 +30,7 @@ var attemptCommands = map[string]handler{
 	"start": cmdAttemptStart,
 	"list":  cmdAttemptList,
 	"show":  cmdAttemptShow,
+	"track": cmdAttemptTrack,
 }
 
 func init() {
@@ -44,7 +45,6 @@ func cmdAttemptStart(r *runner, args []string) error {
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
 	base := fs.String("base", "", "git ref the worktree starts from (default origin/main, fetched first)")
 	cont := fs.String("continue", "", "ended, cleaned attempt whose branch the worktree checks out")
-	profile := fs.String("profile", "", "routing profile from routing.json")
 	mcpFile := fs.String("mcp", "", "claude only: an MCP config inside the fleet home, started with --strict-mcp-config")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
@@ -70,29 +70,25 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	routed, err := r.routed("attempt start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
-	if err != nil {
+	if *name == "" {
+		return usageError{"attempt start: give --harness, --model and --effort (see hand models)"}
+	}
+	if err := r.needHome(); err != nil {
 		return err
 	}
-	spec := routed.Spec
+	spec := harness.Spec{Harness: *name, Model: *model, Effort: *effort}
 	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return err
 	}
 	var mcp string
 	if *mcpFile != "" {
-		if routed.MCP != "" {
-			return usageError{"attempt start: give --mcp or a profile with mcp, not both"}
-		}
 		if spec.Harness != "claude" {
 			return fmt.Errorf("%w: attempt start: --mcp is only available for claude, not %s: Hand knows no strict MCP mode for it", state.ErrInvalid, spec.Harness)
 		}
-		mcp, err = harness.MCPPath(r.home, *mcpFile)
-	} else {
-		mcp, err = routed.MCPFile(r.home)
-	}
-	if err != nil {
-		return err
+		if mcp, err = harness.MCPPath(r.home, *mcpFile); err != nil {
+			return err
+		}
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -187,31 +183,6 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Help(help...)
 		return r.print(&d)
 	})
-}
-
-func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.Profile, error) {
-	if profile == "" {
-		return harness.Profile{Spec: spec}, nil
-	}
-	if spec != (harness.Spec{}) {
-		return harness.Profile{Spec: spec}, usageError{cmd + ": give either --profile or --harness/--model/--effort"}
-	}
-	if err := r.needHome(); err != nil {
-		return harness.Profile{Spec: spec}, err
-	}
-	p, err := harness.LoadPolicy(r.home)
-	if err != nil {
-		return harness.Profile{Spec: spec}, err
-	}
-	return p.Profile(profile)
-}
-
-func (r *runner) routedSupervisor(cmd string, spec harness.Spec, profile string) (harness.Spec, error) {
-	p, err := r.routed(cmd, spec, profile)
-	if err == nil && p.MCP != "" {
-		err = fmt.Errorf("%w: profile %q names an MCP file, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
-	}
-	return p.Spec, err
 }
 
 const (
@@ -510,7 +481,6 @@ type trustScreen struct {
 	noCursor  string
 	toYes     string
 	folder    string
-	footer    string
 	repoNote  string
 	wraps     bool
 	boxed     bool
@@ -528,7 +498,6 @@ var trustScreens = map[string][]trustScreen{
 		noCursor:  "❯ No, exit",
 		toYes:     "down",
 		folder:    "Accessing workspace:",
-		footer:    "Enter to confirm · Esc to cancel",
 	}},
 	"codex": {{
 		question:  "Trust this folder?",

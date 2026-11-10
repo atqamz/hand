@@ -2,13 +2,19 @@ package cli
 
 import (
 	"context"
+	"os"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/state"
 )
 
+func (r *runner) homeExists() bool {
+	_, err := os.Stat(r.home)
+	return err == nil
+}
+
 func (w *watcher) refreshModels(ctx context.Context) {
-	p, err := harness.LoadPolicy(w.r.home)
-	if err != nil {
+	if !w.r.homeExists() {
 		return
 	}
 	if !w.modelsBusy.CompareAndSwap(false, true) {
@@ -22,8 +28,8 @@ func (w *watcher) refreshModels(ctx context.Context) {
 		if w.modelsSaid == nil {
 			w.modelsSaid = map[string]string{}
 		}
-		for _, name := range p.Harnesses() {
-			if ctx.Err() != nil || !harness.StatusOf(name, env, opts.Now()).Due {
+		for _, name := range state.Harnesses {
+			if ctx.Err() != nil || !w.r.homeExists() || !harness.StatusOf(name, env, opts.Now()).Due {
 				continue
 			}
 			l, err := harness.Refresh(ctx, name, env, opts)

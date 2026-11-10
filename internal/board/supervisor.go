@@ -588,6 +588,7 @@ func elapsed(d time.Duration) string {
 type modelView struct {
 	Name, Text, Efforts string
 	Unverified          bool
+	Selected            bool
 }
 
 type modelGroup struct {
@@ -600,6 +601,9 @@ type harnessChoice struct {
 	Groups  []modelGroup
 	Efforts []string
 	Note    string
+	Missing string
+	Model   string
+	Effort  string
 }
 
 func (b *Board) choices(except string) []harnessChoice {
@@ -616,6 +620,13 @@ var modelSources = []harness.Source{harness.SourceBuiltin, harness.SourceDiscove
 
 func (b *Board) picker(name string) harnessChoice {
 	c := harnessChoice{Name: name}
+	var batch *harness.BatchFileError
+	switch _, err := harness.Find(name, b.o.Harness); {
+	case errors.As(err, &batch):
+		c.Missing = name + " " + batchReason
+	case err != nil:
+		c.Missing = name + " not found on the board's PATH"
+	}
 	models, err := harness.Detected(name, b.o.Harness)
 	if err == nil && len(models) == 0 {
 		return c
@@ -677,115 +688,19 @@ func listedAge(d time.Duration) string {
 
 const batchReason = "found only as a batch file"
 
-type profile struct{ Name, Label, Missing, Gone, Warn string }
-
-func (b *Board) profiles() []profile { return b.profilesFor("") }
-
-func (b *Board) profilesFor(name string) []profile {
-	p, err := harness.LoadPolicy(b.o.Home)
-	if err != nil {
-		return nil
-	}
-	missing := map[string]string{}
-	type listing struct {
-		st harness.Status
-		ok bool
-	}
-	listed := map[string]listing{}
-	now := b.now()
-	var out []profile
-	for _, n := range p.Names() {
-		s := p.Profiles[n].Spec
-		if (name != "" && s.Harness != name) || p.Profiles[n].MCP != "" || harness.CheckSupervisor(s) != nil {
+func prefill(choices []harnessChoice, last state.Supervisor) {
+	for i := range choices {
+		c := &choices[i]
+		if c.Name != last.Harness {
 			continue
 		}
-		reason, seen := missing[s.Harness]
-		if !seen {
-			var batch *harness.BatchFileError
-			switch _, err := harness.Find(s.Harness, b.o.Harness); {
-			case errors.As(err, &batch):
-				reason = s.Harness + " " + batchReason
-			case err != nil:
-				reason = s.Harness + " not found on the board's PATH"
-			}
-			missing[s.Harness] = reason
-		}
-		p := profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " "), Missing: reason}
-		if reason == "" {
-			l, seen := listed[s.Harness]
-			if !seen {
-				_, err := harness.Detected(s.Harness, b.o.Harness)
-				l = listing{harness.StatusOf(s.Harness, b.o.Harness, now), err == nil}
-				listed[s.Harness] = l
-			}
-			if why, hard := l.st.Vanished(s); hard {
-				p.Gone = why
-			} else if warn, err := harness.Check(s, b.o.Harness); err == nil && l.ok {
-				p.Warn = warn
+		c.Model, c.Effort = last.Model, last.Effort
+		for g := range c.Groups {
+			for m := range c.Groups[g].Models {
+				c.Groups[g].Models[m].Selected = c.Groups[g].Models[m].Name == last.Model
 			}
 		}
-		out = append(out, p)
 	}
-	return out
-}
-
-func (p profile) Off() bool { return p.Missing != "" || p.Gone != "" }
-
-func chosenProfile(ps []profile) string {
-	first := ""
-	for _, p := range ps {
-		if p.Off() {
-			continue
-		}
-		if p.Name == "default" {
-			return p.Name
-		}
-		if first == "" {
-			first = p.Name
-		}
-	}
-	if !slices.ContainsFunc(ps, func(p profile) bool { return p.Name == "default" }) {
-		return ""
-	}
-	return first
-}
-
-func noneStartable(ps []profile) string {
-	if len(ps) == 0 || slices.ContainsFunc(ps, func(p profile) bool { return !p.Off() }) {
-		return ""
-	}
-	var gone, batch, left []string
-	for _, p := range ps {
-		if p.Missing == "" {
-			if !slices.Contains(left, p.Gone) {
-				left = append(left, p.Gone)
-			}
-			continue
-		}
-		h, _, _ := strings.Cut(p.Missing, " ")
-		list := &gone
-		if strings.HasSuffix(p.Missing, batchReason) {
-			list = &batch
-		}
-		if !slices.Contains(*list, h) {
-			*list = append(*list, h)
-		}
-	}
-	var parts []string
-	if len(gone) > 0 {
-		parts = append(parts, strings.Join(gone, ", ")+" not found on the board's PATH. Install the harness or add its folder to PATH")
-	}
-	if len(batch) > 0 {
-		parts = append(parts, strings.Join(batch, ", ")+" "+batchReason+", which Hand does not start. Install the standalone harness or add the folder of its .exe to PATH")
-	}
-	text := ""
-	if len(parts) > 0 {
-		text = strings.Join(parts, ". ") + ", then restart the board: `hand board stop`, then `hand board`, or restart its unit."
-	}
-	if len(left) > 0 {
-		text = strings.TrimSpace(text + " " + strings.Join(left, ". ") + ".")
-	}
-	return text
 }
 
 var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)
@@ -1019,9 +934,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := []string{"supervisor", "start"}
-	if p := r.PostFormValue("profile"); p != "" {
-		args = append(args, "--profile", p)
-	} else if h := r.PostFormValue("harness"); h != "" {
+	if h := r.PostFormValue("harness"); h != "" {
 		args = append(args, "--harness", h)
 		args = append(args, modelEffortArgs(r)...)
 	}
@@ -1107,8 +1020,6 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.PostFormValue("cancel") == "1":
 		args = append(args, "--cancel")
-	case r.PostFormValue("profile") != "":
-		args = append(args, "--profile", r.PostFormValue("profile"))
 	default:
 		if v := strings.TrimSpace(r.PostFormValue("harness")); v != "" {
 			args = append(args, "--harness", v)
@@ -1116,7 +1027,7 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		args = append(args, modelEffortArgs(r)...)
 	}
 	if len(args) == 2 {
-		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
+		b.fail(w, http.StatusBadRequest, "give a model or effort")
 		return
 	}
 	warn, err := b.o.Control(r.Context(), args...)

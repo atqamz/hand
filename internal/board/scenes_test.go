@@ -496,7 +496,7 @@ func scenes() []scene {
 			if err := fx.st.KeepAttempt(ctx, a.ID, "it has uncommitted changes"); err != nil {
 				t.Fatal(err)
 			}
-			policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"retention":{"warn_size":"1MB","warn_days":"30d"}}`
+			policy := `{"retention":{"warn_size":"1MB","warn_days":"30d"}}`
 			if err := os.WriteFile(filepath.Join(fx.options.Home, harness.PolicyFile), []byte(policy), 0o644); err != nil {
 				t.Fatal(err)
 			}

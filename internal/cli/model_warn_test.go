@@ -2,8 +2,6 @@ package cli_test
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -112,30 +110,4 @@ func TestAttemptStartWarnsWithoutACodexCache(t *testing.T) {
 	fx.h.vars["HOME"] = t.TempDir()
 	out := fx.h.ok("attempt", "start", "--harness", "codex", "--model", "acme-coder-1", "--effort", "high", "--prompt-file", fx.brief, "t1")
 	has(t, "start", out, `warn: "codex model acme-coder-1 could not be checked`)
-}
-
-func TestRouteListKeepsValidYesAndAddsTheWarning(t *testing.T) {
-	h, _ := newSupervisorFixture(t)
-	policy := `{"profiles":{"alias":{"harness":"claude","model":"sonnet","effort":"high"},"gateway":{"harness":"claude","model":"acme-opus","effort":"high"},"bedrock":{"harness":"claude","model":"us.anthropic.claude-opus-5-5-v1:0","effort":"high"},"codex-custom":{"harness":"codex","model":"acme-coder-1","effort":"high"},"agy-x":{"harness":"agy","model":"gemini-9"},"cp-auto":{"harness":"copilot","model":"auto"},"cp-listed":{"harness":"copilot","model":"gpt-6-luna","effort":"high"},"cp-unlisted":{"harness":"copilot","model":"acme-coder-1"},"cp-auto-effort":{"harness":"copilot","model":"auto","effort":"high"},"oc-plain":{"harness":"opencode"},"oc-model":{"harness":"opencode","model":"acme/acme-coder-1"},"oc-deep":{"harness":"opencode","model":"local/m2","effort":"deep"},"oc-hash":{"harness":"opencode","model":"local/m2#deep"},"spaced":{"harness":"claude","model":"my model","effort":"high"}}}`
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	list := h.ok("route", "list")
-	has(t, "route list", list,
-		`alias,claude,sonnet,high,yes,""`,
-		`gateway,claude,acme-opus,high,yes,"claude model acme-opus is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list; starting anyway"`,
-		`bedrock,claude,"us.anthropic.claude-opus-5-5-v1:0",high,yes,"claude model us.anthropic.claude-opus-5-5-v1:0 is not an alias`,
-		`codex-custom,codex,acme-coder-1,high,yes,"codex model acme-coder-1 could not be checked: codex debug models --bundled printed output it does not recognise, and models_cache.json is unusable; starting anyway"`,
-		"agy-x,agy,gemini-9,\"\",yes,agy model gemini-9 is not in `agy models`; starting anyway",
-		`cp-auto,copilot,auto,"",yes,""`,
-		`cp-listed,copilot,gpt-6-luna,high,yes,""`,
-		"cp-unlisted,copilot,acme-coder-1,\"\",yes,copilot model acme-coder-1 is not in `copilot help config`; starting anyway",
-		`cp-auto-effort,copilot,auto,high,yes,copilot model auto takes no effort; starting anyway`,
-		"copilot,gpt-6-luna,none minimal low medium high xhigh max",
-		`oc-plain,opencode,"","",yes,""`,
-		`oc-model,opencode,acme/acme-coder-1,"",yes,"opencode model acme/acme-coder-1 could not be checked: `,
-		`oc-deep,opencode,local/m2,deep,yes,"opencode model local/m2 could not be checked: `,
-		`oc-hash,opencode,local/m2#deep,"","invalid: opencode model \"local/m2#deep\" must be provider/id`,
-		`spaced,claude,my model,high,"invalid: claude model \"my model\" must be`,
-	)
 }

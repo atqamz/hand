@@ -16,7 +16,7 @@ func stallFleet(t *testing.T, stall string) (*attemptFixture, string) {
 	fx := newAttemptFixture(t)
 	log := filepath.Join(t.TempDir(), "notify.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify"]` + stall + `}`
+	policy := `{"notify":["hand-notify"]` + stall + `}`
 	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}

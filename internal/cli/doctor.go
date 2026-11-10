@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +63,10 @@ func cmdDoctor(r *runner, args []string) error {
 		c.add("harness "+name, "ok", "")
 		c.add("models "+name, "info", r.modelSummary(name))
 	}
+	if installed == 0 {
+		c.add("harness", "warn", "install one of "+strings.Join(state.Harnesses[:len(state.Harnesses)-1], ", ")+" or "+state.Harnesses[len(state.Harnesses)-1]+", or add its folder to PATH")
+		c.help = append(c.help, "The board searches the PATH it started with: restart it after you install a harness or change PATH")
+	}
 	if runtime.GOOS == "linux" {
 		if _, ok := luvus.UserManager(r.env.Environ()); ok {
 			c.add("systemd", "ok", "")
@@ -79,7 +82,7 @@ func cmdDoctor(r *runner, args []string) error {
 	} else {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
 		r.doctorIroh(ctx, &d, &c, root, path)
-		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
+		r.doctorFleet(ctx, &d, &c, root, pin, pinned)
 		r.doctorWatchUnits(ctx, &c, root)
 	}
 	r.doctorSkills(&c)
@@ -205,7 +208,7 @@ func (r *runner) doctorLayout(c *checks, root, id string) {
 	}
 }
 
-func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root string, pin luvus.Pin, pinned bool, installed int) {
+func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root string, pin luvus.Pin, pinned bool) {
 	if err := r.needHome(); err != nil {
 		level := "fail"
 		if r.home == "" && r.homeErr == nil {
@@ -248,32 +251,10 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	r.doctorLayout(c, root, f.ID)
 	doctorProjects(ctx, st, c)
 	_, live, lerr := st.LiveSupervisor(ctx)
-	if p, err := harness.LoadPolicy(r.home); err != nil {
+	if _, err := harness.LoadPolicy(r.home); err != nil {
 		c.add(harness.PolicyFile, "fail", err.Error())
 	} else {
 		c.add(harness.PolicyFile, "ok", "")
-		idle := installed == 0 && lerr == nil && !live && maps.Equal(p.Profiles, harness.StarterPolicy.Profiles)
-		missing := false
-		for _, name := range p.Names() {
-			_, mcpErr := p.Profiles[name].MCPFile(r.home)
-			switch _, warn, err := checkedBin(r, p.Profiles[name].Spec); {
-			case mcpErr != nil:
-				c.add("profile "+name, "fail", strings.TrimPrefix(mcpErr.Error(), state.ErrInvalid.Error()+": "))
-			case err != nil && idle:
-				c.add("profile "+name, "warn", err.Error())
-				missing = true
-			case err != nil:
-				c.add("profile "+name, "fail", err.Error())
-				missing = true
-			case warn != "":
-				c.add("profile "+name, "warn", warn)
-			default:
-				c.add("profile "+name, "ok", "")
-			}
-		}
-		if missing {
-			c.help = append(c.help, "The board searches the PATH it started with: restart it after you install a harness or change PATH")
-		}
 	}
 	version, err := r.client(fleet.Session(f.ID)).Version(ctx)
 	server, match := luvus.Match(pin, pinned, version, err)

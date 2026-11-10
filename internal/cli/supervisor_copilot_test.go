@@ -2,21 +2,14 @@ package cli_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestCopilotIsRefusedAsASupervisor(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
-	policy := `{"profiles":{"cp":{"harness":"copilot","model":"auto"},"default":{"harness":"claude","model":"sonnet","effort":"low"}}}`
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	for _, args := range [][]string{
 		{"supervisor", "start", "--harness", "copilot", "--model", "auto"},
-		{"supervisor", "start", "--profile", "cp"},
 	} {
 		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
@@ -25,7 +18,6 @@ func TestCopilotIsRefusedAsASupervisor(t *testing.T) {
 	startClaudeSupervisor(h)
 	for _, args := range [][]string{
 		{"supervisor", "switch", "--harness", "copilot", "--model", "auto"},
-		{"supervisor", "switch", "--profile", "cp"},
 	} {
 		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "copilot starts workers only") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)

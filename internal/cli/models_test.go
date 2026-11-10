@@ -3,7 +3,6 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -134,7 +133,7 @@ func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
 	listers(t, h, "")
 	h.ok("init")
 	out := h.ok("models", "--refresh")
-	for _, text := range []string{out, h.ok("models"), h.ok("route", "list")} {
+	for _, text := range []string{out, h.ok("models")} {
 		if strings.Contains(text, invented) {
 			t.Fatalf("output holds the secret: %q", text)
 		}
@@ -150,56 +149,17 @@ func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
 	}
 }
 
-func TestRouteListRefreshesOnlyWhatIsMissing(t *testing.T) {
-	h := newHarness(t)
-	log := filepath.Join(t.TempDir(), "log")
-	listers(t, h, log)
-	h.ok("init")
-	policy := `{"profiles":{"c":{"harness":"claude","model":"sonnet","effort":"low"},"x":{"harness":"codex","model":"gpt-6-luna","effort":"low"},"a":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	first := h.ok("route", "list")
-	has(t, "route list", first, "agy,gemini-3.8-flash-low,\"\"", "codex,gpt-6-luna,low medium", "claude,acme-opus,low medium high xhigh max", "opencode,\"\",\"unavailable: invalid: no model list yet")
-	ran := func() []string {
-		b, _ := os.ReadFile(log)
-		lines := strings.Fields(string(b))
-		slices.Sort(lines)
-		return lines
-	}
-	if got := ran(); len(got) == 0 {
-		t.Fatal("route list did not list the harnesses with no cache")
-	}
-	if err := os.Remove(log); err != nil {
-		t.Fatal(err)
-	}
-	h.advance(24 * time.Hour)
-	h.ok("route", "list")
-	if got := ran(); len(got) != 0 {
-		t.Fatalf("route list refreshed a stale cache: %q", got)
-	}
-}
-
-func TestRouteListMarksAModelThatLeftTheList(t *testing.T) {
-	h := newHarness(t)
-	dir := listers(t, h, "")
-	h.ok("init")
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"gone-codex":{"harness":"codex","model":"gpt-6-luna","effort":"low"},"gone-claude":{"harness":"claude","model":"acme-opus","effort":"low"},"here":{"harness":"codex","model":"gpt-5.6-sol","effort":"low"}}}`
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	h.ok("models", "--refresh")
+func TestAttemptStartMarksAModelThatLeftTheList(t *testing.T) {
+	fx := newAttemptFixture(t)
+	dir := listers(t, fx.h, "")
+	fx.h.ok("models", "--refresh")
 	fakebin.Install(t, dir, "codex", "lister", map[string]string{"stdout": codexLater, "version": "codex 9.9"})
 	fakebin.Install(t, dir, "claude", "lister", map[string]string{"stdout": strings.ReplaceAll(claudeAnswer, `,{"value":"acme-opus","displayName":"Acme","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]}`, ""), "version": "claude 9.9"})
-	h.ok("models", "--refresh", "codex")
-	h.ok("models", "--refresh", "claude")
-	list := h.ok("route", "list")
-	has(t, "route list", list,
-		`gone-codex,codex,gpt-6-luna,low,no,model gpt-6-luna is no longer listed by codex`,
-		`gone-claude,claude,acme-opus,low,yes,model acme-opus is no longer listed by claude; starting anyway`,
-		`here,codex,gpt-5.6-sol,low,yes,""`)
-	h.advance(7 * time.Hour)
-	has(t, "stale route list", h.ok("route", "list"), `gone-codex,codex,gpt-6-luna,low,yes,model gpt-6-luna is no longer listed by codex; starting anyway`)
+	fx.h.ok("models", "--refresh", "codex")
+	fx.h.ok("models", "--refresh", "claude")
+	has(t, "codex start", fx.h.ok("attempt", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low", "--prompt-file", fx.brief, "t1"), "model gpt-6-luna is no longer listed by codex")
+	fx.h.ok("attempt", "stop", "a1")
+	has(t, "claude start", fx.h.ok("attempt", "start", "--harness", "claude", "--model", "acme-opus", "--effort", "low", "--prompt-file", fx.brief, "t1"), "model acme-opus is no longer listed by claude; starting anyway")
 }
 
 func TestNoRequestPathRunsAHarness(t *testing.T) {
@@ -208,7 +168,7 @@ func TestNoRequestPathRunsAHarness(t *testing.T) {
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
 		fakebin.Install(t, h.vars["PATH"], name, "lister", map[string]string{"log": log, "stdout": "gemini-3.8-flash-low\tG\n", "hold": "300s"})
 	}
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"gem":{"harness":"agy","model":"gemini-9"},"cx":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-9")
@@ -252,7 +212,7 @@ func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
 			}
 		}
 	}
-	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stop := startWatch(t, fx, "--every", "50ms")

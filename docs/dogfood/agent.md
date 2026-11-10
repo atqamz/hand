@@ -45,7 +45,7 @@ Everything you read while you work, such as logs, command output, issue text and
 2. Run the steps exactly. Use the commands in the file, not variations. A command marked `unverified` may be wrong: if it fails for a reason that is not Hand, file it as `<ID>: guide command fails`.
 3. Compare the result with "Expected". `pass` means everything expected happened. Anything else is `fail`, unless the check says to skip. Retry a failed check at most once, and only when the file says why a retry can differ.
 4. Run the evidence commands of the check through the file's `ev` helper, which redacts and saves to `$D/evidence/<ID>.txt`.
-5. Use the cheapest model and effort that the owner has for worker agents under test (the setup's `cheap` profile). Run the codex, agy and opencode checks only for a harness that is installed and logged in; otherwise `skip` with the reason.
+5. Use the cheapest model and effort that the owner has for worker agents under test (the setup's cheap model and effort: `--model haiku --effort low` on claude). Run the codex, agy and opencode checks only for a harness that is installed and logged in; otherwise `skip` with the reason.
 6. Mark each check in the run issue as soon as it ends, so that a crash loses nothing.
 7. Do not wait for a long time without a bound: every wait in a check has a limit. When the limit passes, the check fails.
 

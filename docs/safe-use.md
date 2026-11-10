@@ -4,7 +4,7 @@ Hand runs its agents with their permission prompts skipped, as your own OS user,
 
 ## What runs without asking
 
-Every worker and the supervisor start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option.
+Every worker and the supervisor start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model` and `--effort`, and no permission option.
 
 | Harness | Flags Hand passes (worker; the supervisor passes the same) |
 |---|---|
