@@ -63,7 +63,15 @@ type moveWriter interface {
 }
 
 func OpenRead(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?mode=ro&_pragma=busy_timeout(10000)")
+	return openRead(path, "mode=ro")
+}
+
+func OpenReadImmutable(path string) (*Store, error) {
+	return openRead(path, "mode=ro&immutable=1")
+}
+
+func openRead(path, mode string) (*Store, error) {
+	db, err := sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?"+mode+"&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, err
 	}

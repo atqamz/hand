@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/state"
@@ -128,17 +127,17 @@ func RefuseCopies(id string, homes []string) error {
 		db := filepath.Join(home, "hand.db")
 		info, err := os.Stat(db)
 		switch {
-		case errors.Is(err, fs.ErrNotExist), errors.Is(err, fs.ErrPermission), errors.Is(err, syscall.ENOTDIR):
+		case absent(err):
 			continue
 		case err != nil:
-			return fmt.Errorf("cannot look for a copy at %s: %v; if it is not this fleet's, remove it from %s", home, err, HomeFile)
+			return fmt.Errorf("cannot look for a copy at %s: %v; fix that folder's access, or move the fleet", home, err)
 		case !info.Mode().IsRegular():
 			continue
 		}
 		other, err := copyID(db)
 		switch {
 		case err != nil:
-			return fmt.Errorf("cannot read %s to tell whether it is a copy of fleet %s: %v; move or delete that file, or remove %s from %s", db, id, err, home, HomeFile)
+			return fmt.Errorf("cannot read %s to tell whether it is a copy of fleet %s: %v; move or delete that file", db, id, err)
 		case other == id:
 			return fmt.Errorf("fleet %s is also at %s, so one of the two homes is a copy; delete one of them", id, home)
 		}
@@ -149,7 +148,10 @@ func RefuseCopies(id string, homes []string) error {
 func copyID(db string) (string, error) {
 	st, err := state.OpenRead(db)
 	if err != nil {
-		return "", err
+		var again error
+		if st, again = state.OpenReadImmutable(db); again != nil {
+			return "", err
+		}
 	}
 	defer st.Close()
 	f, err := st.Fleet(context.Background())

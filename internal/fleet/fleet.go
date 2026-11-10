@@ -480,9 +480,13 @@ func refuseRecordCopy(home, id string) error {
 	return nil
 }
 
+func absent(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR)
+}
+
 func at(home string) (state.Fleet, bool, error) {
 	db := filepath.Join(home, "hand.db")
-	if _, err := os.Stat(db); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+	if _, err := os.Stat(db); absent(err) {
 		return state.Fleet{}, false, nil
 	} else if err != nil {
 		return state.Fleet{}, false, err

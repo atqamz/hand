@@ -750,3 +750,60 @@ func TestRefuseCopiesTreatsAnUnreadableFolderAsNotHere(t *testing.T) {
 		t.Fatalf("an old home under a closed folder refused: %v", err)
 	}
 }
+
+func TestRegisterTreatsAnUnenterableOldHomeAsNotHere(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs a folder the user cannot enter")
+	}
+	root, parent := t.TempDir(), t.TempDir()
+	locked := filepath.Join(parent, "locked")
+	old := filepath.Join(locked, "fleet")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	copied := filepath.Join(parent, "copy")
+	if err := os.Mkdir(copied, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := home(t, copied, "alpha")
+	if err := os.MkdirAll(fleet.IndexDir(root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fleet.IndexDir(root), f.ID), []byte(old+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if prev, err := fleet.Register(root, f.ID, copied); err != nil || prev != old {
+		t.Fatalf("register = %q, %v; want it to report %s", prev, err, old)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != copied {
+		t.Fatalf("home = %q, %v; want %s", got, err, copied)
+	}
+}
+
+func TestRefuseCopiesReadsAClosedDatabaseInAReadOnlyFolder(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs a folder the user cannot write")
+	}
+	dir := t.TempDir()
+	f := home(t, dir, "alpha")
+	for _, name := range []string{"hand.db-wal", "hand.db-shm"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			t.Fatalf("%s left behind by the close; the fixture is not a closed database", name)
+		}
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	err := fleet.RefuseCopies(f.ID, []string{dir})
+	if err == nil || !strings.Contains(err.Error(), "fleet "+f.ID+" is also at "+dir) {
+		t.Fatalf("a copy in a read-only folder: %v", err)
+	}
+	if err := fleet.RefuseCopies("f0123456789ab", []string{dir}); err != nil {
+		t.Fatalf("another fleet's id refused: %v", err)
+	}
+}
