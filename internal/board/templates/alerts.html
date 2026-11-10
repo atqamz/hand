@@ -1,0 +1,20 @@
+{{define "alerts.html"}}{{template "head" .}}{{template "top" .}}<main class="thread doc">
+<header class="thread-head">
+<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / alerts</p>
+<h2 class="thread-title">Alerts</h2>
+</header>
+<p class="meta">The last 7 days, as the Hand app reads them. Delay is the time from raised to acknowledged. Over 1 minute counts as slow.</p>
+<ul class="net alert-stats">
+<li><span class="badge">{{.Stats.Total}}</span><span>alerts</span></li>
+<li><span class="badge" data-tone="{{if .Stats.Unacked}}wait{{else}}pass{{end}}">{{.Stats.Unacked}}</span><span>not acknowledged</span></li>
+<li><span class="badge" data-tone="{{if .Stats.Slow}}wait{{else}}pass{{end}}">{{.Stats.Slow}}</span><span>slow</span></li>
+{{if .Stats.P50}}<li><span class="badge">{{.Stats.P50}}</span><span>median delay</span></li>
+<li><span class="badge">{{.Stats.P95}}</span><span>95th percentile delay</span></li>
+<li><span class="badge">{{.Stats.Max}}</span><span>longest delay</span></li>
+{{end}}</ul>
+{{if .Rows}}<div class="doc-table md"><div class="table"><table>
+<thead><tr><th>Raised</th><th>Kind</th><th>Ref</th><th>Text</th><th>Fetched</th><th>Acknowledged</th><th>Delay</th></tr></thead>
+<tbody>{{range .Rows}}<tr><td>{{.At}}</td><td>{{.Kind}}</td><td>{{.Ref}}</td><td>{{.Text}}</td><td>{{.Fetched}}</td><td>{{.Acked}}</td><td>{{if .Slow}}<span class="badge" data-tone="wait">{{.Delay}}</span>{{else}}{{.Delay}}{{end}}</td></tr>
+{{end}}</tbody></table></div></div>{{else}}<p class="quiet">No alerts in the last 7 days.</p>
+{{end}}</main>
+{{template "foot"}}{{end}}

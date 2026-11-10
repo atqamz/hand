@@ -214,6 +214,29 @@ type vectors struct {
 		Prefix   string   `json:"prefix"`
 		Reasons  []string `json:"reasons"`
 	} `json:"link"`
+	Alerts struct {
+		Route          string   `json:"route"`
+		WaitSecondsMax int      `json:"wait_seconds_max"`
+		BatchMax       int      `json:"batch_max"`
+		WindowHours    int      `json:"window_hours"`
+		KeepDays       int      `json:"keep_days"`
+		TextMaxRunes   int      `json:"text_max_runes"`
+		ResponseFields []string `json:"response_fields"`
+		AlertFields    []string `json:"alert_fields"`
+		Kinds          []string `json:"kinds"`
+		Exchanges      []struct {
+			Name  string `json:"name"`
+			Given []struct {
+				Kind string `json:"kind"`
+				Ref  string `json:"ref"`
+				Text string `json:"text"`
+				Link string `json:"link"`
+			} `json:"given"`
+			Request string          `json:"request"`
+			Status  int             `json:"status"`
+			Body    json.RawMessage `json:"body"`
+		} `json:"exchanges"`
+	} `json:"alerts"`
 	Valid []struct {
 		Name      string `json:"name"`
 		Link      string `json:"link"`
@@ -516,4 +539,133 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	if board, ref := match(t, emit, cond), match(t, "internal/companion/companion_test.go", cond); board != ref {
 		t.Errorf("escape alphabet: the board has %q, the parser has %q", board, ref)
 	}
+}
+
+func TestTheAlertFeedNumbersAreTheOnesInTheCode(t *testing.T) {
+	v := load(t).Alerts
+	const feed, store = "internal/board/alerts.go", "internal/state/alert.go"
+	ints := []struct {
+		name      string
+		got       int
+		file, re  string
+		multiples int
+	}{
+		{"wait seconds", v.WaitSecondsMax, feed, `alertWaitMax = (\d+) \* time\.Second`, 1},
+		{"batch", v.BatchMax, feed, `alertBatch\s+= (\d+)\n`, 1},
+		{"window hours", v.WindowHours, store, `AlertWindow\s+= (\d+) \* time\.Hour`, 1},
+		{"keep days", v.KeepDays, store, `AlertKeep\s+= (\d+) \* 24 \* time\.Hour`, 1},
+		{"text runes", v.TextMaxRunes, store, `MaxAlertText = (\d+)\n`, 1},
+	}
+	for _, c := range ints {
+		if want := number(t, c.file, c.re, c.multiples); c.got != want {
+			t.Errorf("%s: the file says %d, the code says %d", c.name, c.got, want)
+		}
+	}
+	if want := "GET /<fleet id>/alerts/feed?after=<seq>&wait=<seconds>"; v.Route != want {
+		t.Errorf("route = %q", v.Route)
+	}
+	if want := match(t, "internal/board/board.go", `HandleFunc\("GET (/alerts/feed)"`); !strings.Contains(v.Route, want) {
+		t.Errorf("the Board serves %q, the file says %q", want, v.Route)
+	}
+}
+
+func TestEveryAlertKindIsOneTheWatcherCanSend(t *testing.T) {
+	v := load(t).Alerts
+	var code strings.Builder
+	for _, dir := range []string{"internal/cli", "internal/state"} {
+		entries, err := os.ReadDir(filepath.Join("..", "..", dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if name := e.Name(); strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+				code.Write(read(t, dir+"/"+name))
+			}
+		}
+	}
+	statuses := match(t, "internal/state/schema.sql", `status IN \(([^)]*)\)\),\s+server_generation`)
+	ended := map[string]bool{"exited": true, "stopped": true, "interrupted": true, "failed": true}
+	seen := map[string]bool{}
+	for _, kind := range v.Kinds {
+		if seen[kind] || kind == "attempt.idle" {
+			t.Errorf("kind %q repeats or never alerts", kind)
+		}
+		seen[kind] = true
+		status, isAttempt := strings.CutPrefix(kind, "attempt.")
+		switch {
+		case strings.Contains(code.String(), `"`+kind+`"`):
+		case isAttempt && ended[status] && strings.Contains(statuses, "'"+status+"'"):
+		default:
+			t.Errorf("no code sends the kind %q", kind)
+		}
+	}
+	for _, want := range []string{"supervisor.blocked", "supervisor.limited", "supervisor.stalled", "decision.asked"} {
+		if !seen[want] {
+			t.Errorf("the file lacks the kind %q", want)
+		}
+	}
+	doc := string(read(t, "docs/alerts.md"))
+	for _, kind := range v.Kinds {
+		if !strings.Contains(doc, "`"+kind+"`") {
+			t.Errorf("docs/alerts.md does not name the kind %q", kind)
+		}
+	}
+}
+
+func TestTheAlertVectorsAreWellFormed(t *testing.T) {
+	v := load(t).Alerts
+	if len(v.Exchanges) < 5 {
+		t.Fatalf("%d exchanges", len(v.Exchanges))
+	}
+	for _, x := range v.Exchanges {
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(x.Body, &body); err != nil || x.Status != 200 {
+			t.Fatalf("%s: %v", x.Name, err)
+		}
+		if got := keysOf(body); !slices.Equal(got, sorted(v.ResponseFields)) {
+			t.Errorf("%s: fields %v, want %v", x.Name, got, v.ResponseFields)
+		}
+		var alerts []map[string]any
+		if err := json.Unmarshal(body["alerts"], &alerts); err != nil || alerts == nil {
+			t.Fatalf("%s: alerts = %s, %v", x.Name, body["alerts"], err)
+		}
+		last := 0.0
+		for _, a := range alerts {
+			if got := keysOf(a); !slices.Equal(got, sorted(v.AlertFields)) {
+				t.Errorf("%s: alert fields %v, want %v", x.Name, got, v.AlertFields)
+			}
+			if seq, _ := a["seq"].(float64); seq <= last {
+				t.Errorf("%s: seq %v after %v", x.Name, seq, last)
+			} else {
+				last = seq
+			}
+			if !slices.Contains(v.Kinds, a["kind"].(string)) || !opens(a["link"].(string)) || len([]rune(a["text"].(string))) > v.TextMaxRunes {
+				t.Errorf("%s: alert %v", x.Name, a)
+			}
+		}
+		for _, g := range x.Given {
+			if !slices.Contains(v.Kinds, g.Kind) || !opens(g.Link) || len([]rune(g.Text)) > v.TextMaxRunes {
+				t.Errorf("%s: given %+v", x.Name, g)
+			}
+		}
+	}
+}
+
+func opens(link string) bool {
+	_, ok := parseOpen(link)
+	return ok
+}
+
+func keysOf[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return sorted(out)
+}
+
+func sorted(s []string) []string {
+	out := slices.Clone(s)
+	slices.Sort(out)
+	return out
 }

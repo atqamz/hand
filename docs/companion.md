@@ -2,9 +2,10 @@
 
 The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your laptop and shows the Board in a web view. It lives outside this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests copy it.
 
-**Status.** Two kinds of statement share this page, and each says which it is:
+**Status.** Three kinds of statement share this page, and each says which it is:
 
 - **Today** describes code in `main`: the [peer listener](phone.md#the-peer-listener), the [`hand-iroh` sidecar](phone.md#the-hand-iroh-sidecar), the Phone page's "Pair the Hand app" link, and what revoking does to a live connection. A test in `internal/companion` reads the numbers of this page from the vectors file and checks them against that code, so a change to one without the other fails CI.
+- **The alert feed** is [its own section](#the-alert-feed), also in `main`.
 - **Step 3** describes what pairing over iroh still has to build: telling the sidecar which IDs are paired, so it can keep connection slots for them.
 
 The words *must*, *must not* and *may* bind the app or the Board as the sentence says. The contract is OS-neutral, but only Android is in scope: [iOS is deferred](#ios-is-deferred).
@@ -194,6 +195,56 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 
 - The sidecar may be told which IDs are paired, to keep connection slots for them. When that exists, a connection to a key that is not paired may close with a new code. The app already treats an unassigned code as a lost connection with the message above.
 
+## The alert feed
+
+**Today**, from schema 22. The app reads the alerts the watcher raises from the Board, over the connection it already holds, instead of from a push service. The route is on the fleet's prefix, so a phone reads only the fleets whose `hand_phone_<fleet id>` cookie the web view holds. [`companion-vectors.json`](companion-vectors.json) holds the numbers, the link grammar and five exchanges under the key `alerts`; `go test ./internal/board` runs every exchange against the Board's handler, and `go test ./internal/companion` reads the numbers back out of the code.
+
+### The request
+
+```
+GET /<fleet id>/alerts/feed?after=<seq>&wait=<seconds>
+```
+
+The app sends it as any other request through the sidecar: `Host: localhost`, the cookie `hand_phone_<fleet id>`, and `Connection: close`, so the answer ends at the end of its body. The answer always has a `Content-Length`, never chunked encoding, so the app reads the headers, then that many bytes, then stops. It is a GET: nothing in it is a form, so it carries no CSRF token.
+
+- `after` is the `cursor` of the last answer the app acted on. Leave it out on a first call.
+- `wait` is how many seconds the Board may hold the request when nothing is new. The Board holds it at most 25 seconds, whatever the app asks, because the sidecar resets a stream that moves no byte for 60 seconds ([Caps the app must respect](#caps-the-app-must-respect)). A missing, negative or unreadable `wait` is 0: the answer is immediate. A held request takes one of the connection's 12 streams for as long as it is held, so an app that polls several fleets holds one stream for each. The Board checks for new alerts once a second, so an alert reaches a held request within about a second.
+
+### The answer
+
+`200`, `application/json; charset=utf-8`, `Cache-Control: no-store`, always under 64 KiB:
+
+```json
+{"version":1,"fleet":{"id":"f0123456789ab","name":"hand"},"cursor":57,"more":false,
+ "alerts":[{"seq":57,"at":"2026-10-22T12:00:00Z","kind":"decision.asked","ref":"d3",
+  "text":"t3 decision: Keep the old cookie name?","link":"handboard://open/f0123456789ab/decision/d3"}]}
+```
+
+| Field | Meaning |
+|---|---|
+| `version` | `1` for this contract |
+| `fleet` | the fleet's `id` and `name` |
+| `cursor` | the number to send as `after` next: the last `seq` in `alerts`, or `after` itself when there are none |
+| `more` | `true` when more than 50 alerts were waiting: ask again at once, without `wait` |
+| `alerts` | at most 50, oldest first, each with `seq` (a number that only grows and is never reused), `at` (UTC, to the second), `kind`, `ref`, `text` and `link` |
+
+- **No `after`, or one the Board has not reached.** `cursor` is the latest `seq` and `alerts` is empty, at once, without holding. A first call therefore never replays history, and a database that was recreated (its latest `seq` below the app's cursor) tells the app to start again from the answer's `cursor`.
+- **Which alerts.** Those of the last 24 hours that come after `after`. The Board keeps 7 days of alerts and answers only the last 24 hours, so a phone that was off for two days is not buried, and a cursor older than the window simply skips what has aged out.
+- **Empty.** An answer with `alerts: []` at the end of the wait is the heartbeat. Send the next request at once.
+- **`kind`.** One of the kinds in [Alerts on your phone](alerts.md), as `kinds` in the vectors lists. The set can grow inside this version: treat a kind you do not know as an ordinary alert, never as an error.
+- **`ref`.** `tN`, `dN`, `aN` or `supervisor`.
+- **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as the ntfy recipe already sends.
+- **`link`.** A `handboard://open/<fleet id>/<page>` link for the app's own open-link entry point: `<page>` is `task/tN`, `decision/dN`, `attempt/aN`, or empty for the fleet's root (`supervisor` alerts). The numbers have 1 to 9 digits and no leading zero. The app must check the link with its own parser, and that its fleet is the one it polled, before it opens anything; a link that fails the check is no link, and the alert is still shown. The `open` vectors are the grammar. The link holds no secret.
+- **Nothing else.** No token, cookie, pairing code, endpoint ID or path is in any field.
+
+### Receipts
+
+The Board records two times per alert, for the reliability trial: `fetched_at`, when the alert is written to an answer, and `acked_at`, when the next request arrives with `after` at or above its `seq`. That next request is the acknowledgment: the app sends `after` only after it has posted its notifications, which makes delivery at-least-once, and a repeat is harmless when the app tags a notification by `<fleet id>/<ref>`. The receipts are per fleet, not per phone. Each request also counts as the phone being seen on the Phone page. The Board lists the week, with the delay from raised to acknowledged, at `/<fleet id>/alerts`.
+
+### Refusals
+
+The route answers as every other Board page does. An unpaired phone, a cookie of another fleet and a cookie of another endpoint ID get `403`. A phone revoked while its request is held gets `403` with the `X-Hand-Error` of ["no longer paired"](#errors-and-what-the-user-should-see) at the next check, within about a second, and the app stops polling that fleet. A `429` or a `5xx`, a reset with code 3, 4 or 5, or no answer within 35 seconds is a failed poll: the app backs off as it does for any lost connection and tries again.
+
 ## Errors and what the user should see
 
 The app's own screens say the left column. A page the Board serves appears in the web view as it is, and the app does not read or rewrite it.
@@ -239,7 +290,7 @@ The app copies the file into its own tests and runs its parser over every vector
 
 The contract has one whole-number version, in the link as `v` and on the wire as the ALPN: version 1 is `v=1` and `hand-board`. The link, the ALPN and the rules on this page change together.
 
-- **A change that needs no new version.** A new optional link key (old apps ignore it), a new close or reset code (an old app treats an unassigned code as a lost connection), a new vector, a clearer sentence. Add them here and in the vectors file in one change. A vector is never changed or removed inside a version.
+- **A change that needs no new version.** A new optional link key (old apps ignore it), a new route such as the alert feed, a new close or reset code (an old app treats an unassigned code as a lost connection), a new vector, a clearer sentence. Add them here and in the vectors file in one change. A vector is never changed or removed inside a version.
 - **A change that needs a new version.** Any change to the meaning, spelling or limits of a key that exists, to the code's alphabet or length, to what a stream carries, or to what the app must do for the link to work. It becomes version 2 with the ALPN `hand-board/2`, a vectors file with `"contract": 2`, and a new section here.
 - **Old apps keep working.** The sidecar serves the ALPNs of every version a Hand release lists as supported, and a version is dropped only in a release whose notes say so. The Board emits links of the lowest version still supported, so an old app can still pair. An app accepts every link version up to the one it was built for.
 - **An old app meets a newer link.** It rejects it as `version_unsupported` and tells the user to update, because check 8 runs before any other field is read.

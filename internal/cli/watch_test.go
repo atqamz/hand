@@ -47,6 +47,23 @@ func publishBlocked(fx *attemptFixture, pane, agent string) {
 	}
 }
 
+func alertRows(t *testing.T, fx *attemptFixture) []state.Alert {
+	t.Helper()
+	rows, err := openStore(t, fx.h).Alerts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Reverse(rows)
+	return rows
+}
+
+func wantAlert(t *testing.T, got state.Alert, kind, ref, text, link string, task int64) {
+	t.Helper()
+	if got.Kind != kind || got.Ref != ref || got.Text != text || got.Link != link || got.TaskID != task || !got.FetchedAt.IsZero() || !got.AckedAt.IsZero() {
+		t.Fatalf("alert = %+v, want %s %s %q %q task %d unfetched", got, kind, ref, text, link, task)
+	}
+}
+
 func fakeNotify(t *testing.T, fx *attemptFixture) string {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "notify.log")
@@ -256,6 +273,11 @@ func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
 	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
 		t.Fatalf("notify ran more than once: %q", b)
 	}
+	rows := alertRows(t, fx)
+	if len(rows) != 1 {
+		t.Fatalf("alerts = %+v", rows)
+	}
+	wantAlert(t, rows[0], "decision.asked", "d1", "t1 decision: Keep the old cookie name?", "handboard://open/"+fleetID(t, fx.h)+"/decision/d1", 1)
 	if b, _ := os.ReadFile(desktop); len(b) != 0 {
 		t.Fatalf("desktop notifier ran: %q", b)
 	}
@@ -294,6 +316,23 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 	if !strings.Contains(out, "notify: ") {
 		t.Fatalf("watch out = %q", out)
 	}
+	rows := alertRows(t, fx)
+	if len(rows) != 2 || rows[0].Kind != "attempt.quiet" || rows[1].Kind != "attempt.blocked" || rows[1].Ref != "a1" || !strings.Contains(rows[1].Text, "Do you want to proceed?") {
+		t.Fatalf("a missing notify command stopped the feed: %+v", rows)
+	}
+}
+
+func TestWatchRecordsNoAlertWithNotifyOff(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--notify=false")
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	time.Sleep(200 * time.Millisecond)
+	if rows := alertRows(t, fx); len(rows) != 0 {
+		t.Fatalf("alerts = %+v", rows)
+	}
 }
 
 func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
@@ -323,6 +362,11 @@ func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
 	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 || strings.Contains(string(b), "attempt.idle") {
 		t.Fatalf("an idle turn notified: %q", b)
 	}
+	rows := alertRows(t, fx)
+	if len(rows) != 1 {
+		t.Fatalf("alerts = %+v", rows)
+	}
+	wantAlert(t, rows[0], "attempt.quiet", "a1", "a1 quiet: turn ended without a new report", "handboard://open/"+fleetID(t, fx.h)+"/attempt/a1", 1)
 }
 
 func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *testing.T) {

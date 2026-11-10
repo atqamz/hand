@@ -223,6 +223,8 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /decision/{id}/answer", b.answer)
 	b.mux.HandleFunc("POST /report/{id}/ack", b.ack)
 	b.mux.HandleFunc("GET /connect", b.connect)
+	b.mux.HandleFunc("GET /alerts", b.alertsPage)
+	b.mux.HandleFunc("GET /alerts/feed", b.alertFeed)
 	b.mux.HandleFunc("POST /connect/code", b.connectCode)
 	b.mux.HandleFunc("POST /connect/app", b.connectApp)
 	b.mux.HandleFunc("POST /connect/revoke", b.connectRevoke)

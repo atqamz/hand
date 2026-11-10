@@ -970,6 +970,51 @@ mod tests {
         assert!(connection.close_reason().is_none());
     }
 
+    async fn held_board(hold: Duration, answer: &'static [u8]) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let (reader, mut writer) = stream.into_split();
+                    let mut reader = BufReader::new(reader);
+                    let mut line = String::new();
+                    reader.read_line(&mut line).await.unwrap();
+                    loop {
+                        line.clear();
+                        reader.read_line(&mut line).await.unwrap();
+                        if line == "\r\n" {
+                            break;
+                        }
+                    }
+                    sleep(hold).await;
+                    writer.write_all(answer).await.unwrap();
+                    writer.shutdown().await.ok();
+                });
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn an_alert_poll_held_for_its_longest_wait_is_answered_under_the_default_idle_time() {
+        const ANSWER: &[u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        let board = held_board(Duration::from_secs(25), ANSWER).await;
+        let sidecar = sidecar(board, 4, Duration::from_secs(60)).await;
+        let client = dialer().await;
+        let connection = client.connect(sidecar.addr.clone(), ALPN).await.unwrap();
+
+        let began = Instant::now();
+        let request = b"GET /f0123456789ab/alerts/feed?after=1&wait=25 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+        let reply = timeout(Duration::from_secs(40), ask(&connection, request))
+            .await
+            .unwrap();
+        assert!(began.elapsed() >= Duration::from_secs(25));
+        assert_eq!(reply, ANSWER);
+        assert!(connection.close_reason().is_none());
+    }
+
     #[tokio::test]
     async fn a_connection_may_hold_only_so_many_streams_at_once() {
         let board = board().await;

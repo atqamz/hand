@@ -119,6 +119,11 @@ func TestStallWakesTheIdleSupervisorThenBacksOff(t *testing.T) {
 	if !strings.Contains(out, `observed: "s1 stalled: t1 is active, no attempt is running, idle 20m"`) {
 		t.Fatalf("watch out = %q", out)
 	}
+	rows := alertRows(t, fx)
+	if len(rows) != 1 {
+		t.Fatalf("alerts = %+v", rows)
+	}
+	wantAlert(t, rows[0], "supervisor.stalled", "supervisor", "s1 stalled: t1 is active, no attempt is running, idle 1h", "handboard://open/"+fleetID(t, fx.h)+"/", 0)
 }
 
 func TestAnyOtherEventStartsANewStallEpisode(t *testing.T) {

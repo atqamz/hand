@@ -836,6 +836,9 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	if !w.notify || kind == "attempt.idle" {
 		return
 	}
+	if err := w.st.RecordAlert(ctx, kind, ref, text, w.appURL(ctx, ref)); err != nil {
+		w.say("alert feed: " + err.Error())
+	}
 	name, args, extra := w.notifier(ctx, kind, ref, text)
 	bin, err := harness.LookPath(name, w.r.env.Getenv("PATH"))
 	if err != nil {

@@ -26,6 +26,8 @@ import (
 
 var frozen = time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC)
 
+var sceneShift time.Duration
+
 type scene struct {
 	id, name string
 	build    func(t *testing.T, fx *fixture)
@@ -83,7 +85,7 @@ func sceneHome(t *testing.T, id string) string {
 
 func openNow(t *testing.T, id string) *state.Store {
 	path := filepath.Join(t.TempDir(), "hand.db")
-	st, err := state.Open(path, func() time.Time { return frozen.Add(-20 * time.Minute) })
+	st, err := state.Open(path, func() time.Time { return frozen.Add(-20*time.Minute + sceneShift) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,6 +490,42 @@ func scenes() []scene {
 			fx.options.Iroh = func() sidecar.Status {
 				return sidecar.Status{State: sidecar.Ready, ID: strings.Repeat("0123456789abcdef", 4), Relay: "https://relay.example/"}
 			}
+		}},
+		{"f00000000e017", "alerts", func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			at := func(d time.Duration) { sceneShift = d }
+			defer at(0)
+			must := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			link := func(page string) string { return "handboard://open/f00000000e017/" + page }
+			at(-160 * time.Minute)
+			must(fx.st.RecordAlert(ctx, "decision.asked", "d1", "t1 decision: Keep the old cookie name?", link("decision/d1")))
+			at(-160*time.Minute + 2*time.Second)
+			must(fx.st.FetchedAlerts(ctx, 1, 1))
+			at(-160*time.Minute + 5*time.Second)
+			must(fx.st.AckAlerts(ctx, 1))
+			at(-120 * time.Minute)
+			must(fx.st.RecordAlert(ctx, "attempt.blocked", "a1", "a1 blocked: Do you want to proceed?", link("attempt/a1")))
+			at(-120*time.Minute + time.Second)
+			must(fx.st.FetchedAlerts(ctx, 2, 2))
+			at(-118*time.Minute - 30*time.Second)
+			must(fx.st.AckAlerts(ctx, 2))
+			at(-60 * time.Minute)
+			must(fx.st.RecordAlert(ctx, "attempt.failed", "a2", "a2 failed: exit status 1", link("attempt/a2")))
+			at(-60*time.Minute + time.Second)
+			must(fx.st.FetchedAlerts(ctx, 3, 3))
+			at(-60*time.Minute + 4*time.Second)
+			must(fx.st.AckAlerts(ctx, 3))
+			at(-30 * time.Minute)
+			must(fx.st.RecordAlert(ctx, "supervisor.stalled", "supervisor", "s1 stalled: t1 is active, no attempt is running, idle 20m", link("")))
+			at(-30*time.Minute + time.Second)
+			must(fx.st.FetchedAlerts(ctx, 4, 4))
+			at(-10 * time.Minute)
+			must(fx.st.RecordAlert(ctx, "attempt.limited", "a1", "a1 limited: usage limit reached, resets at 3pm", link("attempt/a1")))
 		}},
 		{"f00000000e014", "cleanup", supervised("idle", "", 100000, func(t *testing.T, fx *fixture) {
 			ctx := context.Background()
