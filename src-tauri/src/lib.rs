@@ -101,9 +101,8 @@ async fn intake_intent(
         return Ok(None);
     };
     let companion = state.companion()?;
-    state.launch.store(false, Ordering::Relaxed);
     if is_open_link(&link) {
-        return match companion.open_link(&link).await {
+        let result = match companion.open_link(&link).await {
             Ok(url) => Ok(Some(Intake::Open { url })),
             Err(OpenLinkError::Pending) => Ok(pending_offer(&companion)),
             Err(OpenLinkError::Rejected) => match companion.open_board().await {
@@ -113,12 +112,18 @@ async fn intake_intent(
                     retry: false,
                 }),
             },
+            Err(OpenLinkError::Failed(ConfirmError::Open(
+                OpenError::Unreachable | OpenError::Lost,
+            ))) => Err(unreachable_failure(&companion)),
             Err(error) => Err(Failure {
                 message: error.message().to_owned(),
                 retry: false,
             }),
         };
+        settle_launch(&state.launch, &result);
+        return result;
     }
+    state.launch.store(false, Ordering::Relaxed);
     match companion.offer_link(&link) {
         Ok(offer) => Ok(Some(Intake::Offer(OfferView {
             laptop: offer.laptop,
@@ -126,6 +131,19 @@ async fn intake_intent(
         }))),
         Err(OfferError::Pending) => Ok(pending_offer(&companion)),
         Err(error) => Err(Failure::rejected(error)),
+    }
+}
+
+fn unreachable_failure(companion: &Companion) -> Failure {
+    Failure {
+        message: companion.cant_reach(),
+        retry: true,
+    }
+}
+
+fn settle_launch<T, E>(launch: &AtomicBool, result: &Result<Option<T>, E>) {
+    if matches!(result, Ok(Some(_))) {
+        launch.store(false, Ordering::Relaxed);
     }
 }
 
@@ -189,14 +207,21 @@ fn camera_failure() -> Failure {
 
 #[tauri::command]
 async fn open_board(state: tauri::State<'_, AppState>) -> Result<Option<String>, Failure> {
-    if !state.launch.swap(false, Ordering::Relaxed) {
+    if !state.launch.load(Ordering::Relaxed) {
         return Ok(None);
     }
-    state
-        .companion()?
-        .open_board()
-        .await
-        .map_err(|error| failure(error, &state.lost))
+    let companion = state.companion()?;
+    let result = companion.open_board().await;
+    settle_launch(&state.launch, &result);
+    result.map_err(|error| match error {
+        ConfirmError::Open(OpenError::Unreachable | OpenError::Lost) => {
+            unreachable_failure(&companion)
+        }
+        error => Failure {
+            message: error.message().to_owned(),
+            retry: error.retry(),
+        },
+    })
 }
 
 #[tauri::command]
@@ -481,6 +506,22 @@ mod tests {
         assert_eq!(json["laptop"], "4d92…6ed6");
         assert_eq!(json["notice"], PAIRING_PENDING);
         assert!(json.get("url").is_none());
+    }
+
+    #[test]
+    fn the_launch_gate_closes_only_when_the_board_opens() {
+        let launch = AtomicBool::new(true);
+        let failed: Result<Option<String>, ConfirmError> =
+            Err(ConfirmError::Open(OpenError::Unreachable));
+        settle_launch(&launch, &failed);
+        assert!(launch.load(Ordering::Relaxed));
+        settle_launch(&launch, &Ok::<Option<String>, ConfirmError>(None));
+        assert!(launch.load(Ordering::Relaxed));
+        settle_launch(
+            &launch,
+            &Ok::<Option<String>, ConfirmError>(Some("http://localhost:1/".to_owned())),
+        );
+        assert!(!launch.load(Ordering::Relaxed));
     }
 
     #[test]

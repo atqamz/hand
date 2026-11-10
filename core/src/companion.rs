@@ -17,6 +17,7 @@ use url::Url;
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
 use crate::key::{self, KeyCipher};
 use crate::link::LINK_REJECTED;
+use crate::link::short_id;
 use crate::open::{NOT_PAIRED, OPEN_REJECTED, parse_open};
 use crate::pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 use crate::proxy::{self, Proxy, Signal};
@@ -108,7 +109,15 @@ impl Companion {
         };
         let target = parse_target(&active, None).map_err(ConfirmError::Target)?;
         self.dialer.set_target(Some(target)).await;
+        self.dialer.attempt().await?;
         Ok(Some(proxy_url(self.port, "/")))
+    }
+
+    pub fn cant_reach(&self) -> String {
+        match self.pairing.lock().unwrap().active() {
+            Some(active) => format!("Can't reach {}.", short_id(active)),
+            None => "Can't reach your laptop.".to_owned(),
+        }
     }
 
     pub fn cancel_pairing(&self) {
@@ -385,23 +394,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_relaunch_with_a_saved_laptop_opens_the_board() {
+    async fn a_relaunch_with_an_unreachable_laptop_fails_and_keeps_the_laptop() {
         let dir = TempDir::new();
-        let laptop = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
-        std::fs::write(dir.path().join("laptop"), format!("{laptop}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        assert_eq!(
-            companion.open_board().await.unwrap(),
-            Some(format!("http://localhost:{}/", companion.port()))
-        );
+        let error = companion.open_board().await.unwrap_err();
+        assert!(matches!(error, ConfirmError::Open(_)), "{error:?}");
         assert_eq!(
             companion
                 .dialer
                 .target()
                 .await
                 .map(|target| target.id.to_string()),
-            Some(laptop.to_owned())
+            Some(LAPTOP.to_owned())
         );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{LAPTOP}\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn the_unreachable_message_names_the_saved_laptop() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        assert_eq!(companion.cant_reach(), "Can't reach your laptop.");
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        assert_eq!(companion.cant_reach(), "Can't reach 4d92…6ed6.");
     }
 
     const OPEN: &str = "handboard://open/f0123456789ab/task/t3#r5";

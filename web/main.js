@@ -1,4 +1,5 @@
 const invoke = window.__TAURI__.core.invoke;
+const intro = document.getElementById("intro");
 const paste = document.getElementById("paste");
 const input = document.getElementById("link");
 const scan = document.getElementById("scan");
@@ -6,11 +7,17 @@ const confirm = document.getElementById("confirm");
 const laptop = document.getElementById("laptop");
 const yes = document.getElementById("yes");
 const no = document.getElementById("no");
+const unreachable = document.getElementById("unreachable");
+const unreachableMessage = document.getElementById("unreachable-message");
+const retry = document.getElementById("retry");
+const again = document.getElementById("again");
 const status = document.getElementById("status");
 const error = document.getElementById("error");
 
 let timer = null;
 let backoff = 1000;
+let dialing = false;
+let saved = null;
 
 function message(failure) {
   if (typeof failure === "string") return failure;
@@ -31,6 +38,8 @@ function reset() {
   status.textContent = "";
   error.textContent = "";
   confirm.hidden = true;
+  unreachable.hidden = true;
+  intro.hidden = false;
   paste.hidden = false;
   laptop.textContent = "";
   yes.disabled = false;
@@ -43,7 +52,9 @@ function offer(view) {
   error.textContent = "";
   status.textContent = view.notice || "";
   laptop.textContent = view.laptop;
+  intro.hidden = true;
   paste.hidden = true;
+  unreachable.hidden = true;
   confirm.hidden = false;
   yes.disabled = false;
   no.disabled = false;
@@ -103,7 +114,9 @@ no.addEventListener("click", async () => {
     await invoke("cancel_pairing");
   } catch (failure) {
     failed(failure);
+    return;
   }
+  if (saved) unreach(saved);
 });
 
 async function pair() {
@@ -124,6 +137,64 @@ async function pair() {
   }
 }
 
+function foreground() {
+  return document.visibilityState !== "hidden";
+}
+
+function unreach(failure) {
+  clearTimer();
+  saved = failure;
+  intro.hidden = true;
+  paste.hidden = true;
+  confirm.hidden = true;
+  status.textContent = "";
+  error.textContent = "";
+  unreachable.hidden = false;
+  unreachableMessage.textContent = message(failure);
+  retry.disabled = false;
+  if (failure && failure.retry && foreground()) {
+    timer = setTimeout(openBoard, backoff);
+    backoff = Math.min(backoff * 2, 30000);
+  }
+}
+
+async function openBoard() {
+  clearTimer();
+  if (dialing) return;
+  dialing = true;
+  retry.disabled = true;
+  error.textContent = "";
+  status.textContent = "Connecting…";
+  try {
+    const board = await invoke("open_board");
+    if (board) {
+      window.location.href = board;
+      return;
+    }
+    saved = null;
+    reset();
+  } catch (failure) {
+    unreach(failure);
+  } finally {
+    dialing = false;
+  }
+}
+
+retry.addEventListener("click", () => {
+  backoff = 1000;
+  openBoard();
+});
+again.addEventListener("click", reset);
+document.addEventListener("visibilitychange", () => {
+  if (unreachable.hidden) return;
+  if (foreground()) {
+    backoff = 1000;
+    openBoard();
+  } else {
+    clearTimer();
+  }
+});
+
 async function intake() {
   try {
     const view = await invoke("intake_intent");
@@ -135,11 +206,16 @@ async function intake() {
       offer(view);
       return;
     }
-    const board = await invoke("open_board");
-    if (board) window.location.href = board;
   } catch (failure) {
+    if (failure && failure.retry) {
+      unreach(failure);
+      return;
+    }
+    reset();
     failed(failure);
+    return;
   }
+  openBoard();
 }
 
 const query = new URLSearchParams(window.location.search);

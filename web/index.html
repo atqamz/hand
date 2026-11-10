@@ -8,9 +8,11 @@
   </head>
   <body>
     <main>
-      <h1>Pair this phone with Hand</h1>
-      <p>On your laptop, open the Board, choose Phone, and show a pairing link. Paste it here.</p>
-      <form id="paste">
+      <div id="intro" hidden>
+        <h1>Pair this phone with Hand</h1>
+        <p>On your laptop, open the Board, choose Phone, and show a pairing link. Paste it here.</p>
+      </div>
+      <form id="paste" hidden>
         <label for="link">Pairing link</label>
         <input id="link" name="link" autocomplete="off" spellcheck="false" autocapitalize="off" required>
         <div class="row">
@@ -22,6 +24,13 @@
         <p>Pair with the laptop <strong id="laptop"></strong>?</p>
         <button id="yes" type="button">Pair this laptop</button>
         <button id="no" type="button">Cancel</button>
+      </section>
+      <section id="unreachable" hidden>
+        <p id="unreachable-message" role="status"></p>
+        <div class="row">
+          <button id="retry" type="button">Retry</button>
+          <button id="again" type="button">Pair again</button>
+        </div>
       </section>
       <p id="status" class="quiet"></p>
       <p id="error" class="error"></p>

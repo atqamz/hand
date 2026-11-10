@@ -21,13 +21,17 @@ pub struct Link {
     pub relay: Option<String>,
 }
 
+pub(crate) fn short_id(endpoint_id: &str) -> String {
+    format!(
+        "{}…{}",
+        &endpoint_id[..4],
+        &endpoint_id[endpoint_id.len() - 4..]
+    )
+}
+
 impl Link {
     pub fn confirmation(&self) -> String {
-        format!(
-            "{}…{}",
-            &self.endpoint_id[..4],
-            &self.endpoint_id[self.endpoint_id.len() - 4..]
-        )
+        short_id(&self.endpoint_id)
     }
 
     pub fn open_path(&self) -> String {
