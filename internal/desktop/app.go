@@ -222,6 +222,7 @@ func (a *App) SelectFleet(id string) {
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
+	a.OpenBusy = false
 	a.DraftErr, a.retry, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()

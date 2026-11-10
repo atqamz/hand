@@ -23,7 +23,13 @@ func TestMain(m *testing.M) {
 		os.Exit(3)
 	}
 	if os.Getenv("FAKE_HAND_SLEEPER") != "" {
-		time.Sleep(8 * time.Second)
+		stop := os.Getenv("FAKE_HAND_STOP")
+		for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(stop); err == nil {
+				break
+			}
+		}
+		os.WriteFile(stop+".gone", nil, 0o600)
 		os.Exit(0)
 	}
 	wd, _ := os.Getwd()
@@ -207,6 +213,17 @@ func TestABoardLinkGoesThroughHandOpen(t *testing.T) {
 func TestAHandThatLeavesADescendantOnThePipeStillReturns(t *testing.T) {
 	hand := installFakeHand(t)
 	t.Setenv("FAKE_HAND_BG", "1")
+	stop := filepath.Join(t.TempDir(), "stop")
+	t.Setenv("FAKE_HAND_STOP", stop)
+	defer func() {
+		os.WriteFile(stop, nil, 0o600)
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(stop + ".gone"); err == nil {
+				time.Sleep(200 * time.Millisecond)
+				return
+			}
+		}
+	}()
 	app := homedApp(t, hand.home)
 	start := time.Now()
 	app.OpenInBrowser()
@@ -229,9 +246,7 @@ func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
 		if switched {
 			app.SelectFleet(secondID)
 		}
-		for app.OpenBusy {
-			waitPost(t, posted)()
-		}
+		waitPost(t, posted)()
 		restore()
 		if d := time.Since(start); d > 5*time.Second {
 			t.Fatalf("switched=%v: the run took %v", switched, d)

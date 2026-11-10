@@ -65,6 +65,9 @@ func (a *App) openRef(ref string) {
 		if err == nil {
 			return ""
 		}
+		if ctx.Err() != nil {
+			return "`hand open` timed out"
+		}
 		return "`hand open` failed: " + failureLine(out, err)
 	}
 	if a.Post == nil {
@@ -75,8 +78,11 @@ func (a *App) openRef(ref string) {
 	go func() {
 		msg := run()
 		a.Post(func() {
+			if a.Fleet.ID != fleet {
+				return
+			}
 			a.OpenBusy = false
-			if msg != "" && a.Fleet.ID == fleet {
+			if msg != "" {
 				a.OpenErr = msg
 			}
 		})
