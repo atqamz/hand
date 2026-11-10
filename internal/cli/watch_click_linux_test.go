@@ -379,7 +379,6 @@ func TestWatchFallsBackWhenTheBoardIsOnANetworkAddress(t *testing.T) {
 	fx := newAttemptFixture(t)
 	writeBoardAddr(t, fx, "192.168.1.5:7777\n")
 	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
-	installTailscale(t, fx.h.vars["PATH"], map[string]string{"serve": serveFor("192.168.1.5:7777", "/")})
 	fx.start()
 	stop := startWatch(t, fx)
 	defer stop()

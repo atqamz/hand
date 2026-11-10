@@ -1,55 +1,39 @@
-# Reach the board from a phone without Tailscale
+# Reach the board from a phone
 
-The board listens on `127.0.0.1:7777`, so a phone cannot open it. The shortest way in is `tailscale serve`: see [Pair a phone](board.md#pair-a-phone). It gives an HTTPS address that only your tailnet reaches, and Hand finds the address by itself. This page is for a phone and a laptop that do not use Tailscale. It covers four paths, what each costs and what each exposes.
+The board listens on `127.0.0.1:7777`, so a phone cannot open it. The way in is the Hand app: an Android app that dials your laptop over [iroh](https://docs.iroh.computer/), with no address to type, no account and no public name. The app, the [peer listener](#the-peer-listener) and the [`hand-iroh` sidecar](#the-hand-iroh-sidecar) are all of it, and the app's contract is [The Android Companion contract](companion.md). Hand's iOS Companion comes later.
 
-Hand sets up none of them and changes no setting. The Phone page, `/<fleet id>/connect`, only takes the address your phone opens and turns it into a pairing link and QR code. Never publish the board with `tailscale funnel`, a quick tunnel or any proxy that has no access control of its own: see [Safe use](safe-use.md).
+Any other phone, browser or second computer needs a tunnel you set up yourself: see [Other paths](#other-paths). Hand sets up none of them and changes no setting. Never publish the board with a quick tunnel, Tailscale Funnel or any proxy that has no access control of its own: see [Safe use](safe-use.md).
 
-| Path | Chat, files and supervisor control | HTTPS | Pairing and revoke | Alert links open on the phone | Setup | Who can reach the board |
-|---|---|---|---|---|---|---|
-| [`tailscale serve`](board.md#pair-a-phone) | yes | yes | yes | yes, by itself | Admin console once, one command, the app | Your tailnet's devices, as its access rules allow |
-| [SSH tunnel](#ssh-tunnel) | yes | no: plain HTTP on the phone's own loopback | yes | only while the tunnel is up | An SSH server, an SSH app | Whoever can log in over SSH |
-| [Cloudflare Tunnel with Access](#cloudflare-tunnel-with-access) | yes | yes | yes | after you rewrite the link | A domain on Cloudflare, `cloudflared`, an Access policy | Whoever the Access policy admits. Cloudflare can read the traffic |
-| [WireGuard, behind a TLS proxy](#wireguard) | yes | yes, with a private CA on the phone | yes | after you rewrite the link | WireGuard, a proxy, a CA | Every WireGuard peer |
-| [WireGuard, read-only](#wireguard) | no, decisions only | no: plain HTTP inside the tunnel | yes, read-only | no: the board listens on a network address | WireGuard | Every WireGuard peer |
-| [A LAN address](#a-lan-address) | no, decisions only | no: plain HTTP | yes, read-only, over plain HTTP | no: the board listens on a network address | None | Everyone on the network, who can also sniff the token |
+**Pair the app.** Start the board with `--iroh` ([Turn it on](#the-hand-iroh-sidecar)), open the Phone page, `/<fleet id>/connect`, on the laptop and choose **Pair the Hand app**. Scan the QR code in the app or open the link on the phone. The code lasts 5 minutes and works once. **Revoke** and **Revoke everywhere** on the Phone page sign the phone out and close its live connections ([Revoke a phone everywhere](board.md#revoke-a-phone-everywhere)).
 
-A path that reaches the board over HTTPS through a proxy that sends `X-Forwarded-Proto: https` and `X-Forwarded-For` (`tailscale serve`, a Cloudflare Tunnel, a TLS proxy in front of WireGuard) lets the phone install the Board as an app and shows an offline page when the laptop does not answer: see [Install the Board as an app](board.md#install-the-board-as-an-app). An SSH tunnel, a LAN address and WireGuard over plain HTTP do not get it, because their pages are not secure and carry no proxy header.
+**A phone you paired through Tailscale.** Hand no longer runs `tailscale`, looks for `tailscale serve` or trusts the `Tailscale-User-Login` header, so such a phone cannot sign in again. Its row stays on the Phone page until its 90 days end. Revoke it there, then pair the app.
 
-"Chat, files and supervisor control" are the composer, attachments and the supervisor's Start, Resume, Stop, model and key controls. The board offers them only while it listens on a loopback address. On any other address they are off, and answering decisions and marking reports read still work.
+## Alerts that open the app
 
-## What to type in the Phone page
+Hand never sends an alert itself: the `notify` command in `routing.json` does ([Alerts on your phone](alerts.md)). Hand puts two links in its environment:
 
-Open `/<fleet id>/connect` on the laptop, type the address the phone opens in **Address the phone opens**, and choose **Show pairing code**. The address is `http://` or `https://`, a host, an optional port, and no path: the page refuses `https://example.test/board`. The pairing link is `ADDRESS/<fleet id>/pair#CODE`, and the QR code holds it. The page warns when the address is plain HTTP on a network, because the code and the phone's session then cross it unencrypted unless the tunnel encrypts them. It gives no warning for `localhost` or a loopback address such as `127.0.0.1`. When the board runs with `--iroh`, the page also offers **Pair the Hand app**, which shows the `handboard://` link as a QR code and as text for the Companion app and needs no tunnel ([the contract](companion.md)). Revoke and Sign out work the same on every path.
+- `HAND_NOTIFY_APP_URL` is `handboard://open/<fleet id>/<page>`, the link the Hand app opens ([The open link](companion.md#the-open-link)): `task/t3`, `decision/d3`, `attempt/a7`, `task/t3#r5` for a report, or the fleet page. It holds no token, no code and no endpoint ID, so it is safe to send through a service such as ntfy.sh, and it is set whether or not the board runs with `--iroh`.
+- `HAND_NOTIFY_URL` is the page on the laptop, `http://127.0.0.1:7777/<fleet id>/...`, from the address the board wrote to `board.addr`. It is empty when the board listens on a network address. A phone cannot open it.
 
-The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet id>`: one code can pair several fleets ([Several fleets on one phone](board.md#several-fleets-on-one-phone)), and **Revoke everywhere** on the laptop's Phone page signs the phone out of every fleet that browser is signed in to ([Revoke a phone everywhere](board.md#revoke-a-phone-everywhere)). When the request carries `X-Forwarded-Proto: https`, the cookie is `__Host-hand_phone_<fleet id>` and has `Secure`.
+With ntfy, put the app link in the `Click` header and fall back to the laptop's page: `Click: ${HAND_NOTIFY_APP_URL:-$HAND_NOTIFY_URL}`, as the command in [Alerts on your phone](alerts.md) does. Tapping the alert opens the item in the app, which is already paired. If the app cannot reach the laptop, it says so; tap the alert again once the laptop is back. `hand open --print REF` prints the same link as `app`, beside the `url` that holds the fleet's token.
 
-## Alerts that open on the phone
-
-Tapping an alert opens the item in the phone's browser with the phone's session, because the phone's cookie is `SameSite=Lax`: a browser sends it when a link from another app opens a page. Lax allows only that page load and withholds the cookie on a form posted from another site, and the form token every change needs, the tailnet login check and the 90-day life of the session still protect the board. A phone paired before this change keeps its `Strict` cookie until it is paired again.
-
-`HAND_NOTIFY_URL` is `http://127.0.0.1:7777/<fleet id>/...`, from the address the board wrote to `board.addr`. When the board listens on `0.0.0.0`, that address is still `127.0.0.1`. A board on another network address has no URL. Only `tailscale serve` changes it by itself: it gives a network board the tailnet address instead. For a path with its own HTTPS name, rewrite the link in the command in `routing.json` ([Alerts on your phone](alerts.md)). With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
-
-```json
-"notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: https://board.example.com${HAND_NOTIFY_URL#http://127.0.0.1:7777}\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
-```
-
-The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given here, and the link stays the local one. `${HAND_NOTIFY_URL#http://127.0.0.1:7777}` removes the local prefix and keeps `/<fleet id>/decision/d3`. A board on another port needs that port in the prefix.
+ntfy documents a custom scheme in `Click` as "the responsible app may open". If your phone does not open the app from the tap, send the link as a button instead: `-H "Actions: view, Open in Hand, $HAND_NOTIFY_APP_URL"`.
 
 ## The peer listener
 
-**What it is.** `hand board --peer-addr 127.0.0.1:7778` opens a second loopback listener that serves the same board. A raw forward to the board's own address (`ssh -L`, Wispers, `dumbpipe`) arrives from `127.0.0.1` with whatever headers the phone sent, so the board takes it for the laptop: it lists every fleet at `/`, prints errors in full and shares one pairing rate limit. Point such a forward at the peer listener instead, and the board counts every request as remote, like one behind `tailscale serve`, whatever headers it carries.
+**What it is.** `hand board --peer-addr 127.0.0.1:7778` opens a second loopback listener that serves the same board. A raw forward to the board's own address (`ssh -L`, Wispers, `dumbpipe`) arrives from `127.0.0.1` with whatever headers the phone sent, so the board takes it for the laptop: it lists every fleet at `/`, prints errors in full and shares one pairing rate limit. Point such a forward at the peer listener instead, and the board counts every request as remote, whatever headers it carries.
 
 **What a peer reaches.**
 
 - Before pairing, only `/<fleet id>/pair` and the files it loads. A connection that asks for more than 32 requests or 64 KiB before it shows a paired phone's cookie is closed, and so is one whose request body stalls for 10 seconds. A connection with no request for 30 seconds is closed, paired or not.
-- After pairing, the whole board, with supervisor controls, as a paired phone behind `tailscale serve` does, except `/<fleet id>/proof`, which `hand open` uses on the board's own address. A connection that sends a revoked phone's cookie is capped again. Neither a fleet's token nor its laptop cookie opens anything on this listener, whichever fleet a phone's cookie names, so a tunnel that holds only a token cannot use the board.
-- A request that Tailscale marks as Funnel traffic is refused, as on the board's own address.
+- After pairing, the whole board, with supervisor controls, except `/<fleet id>/proof`, which `hand open` uses on the board's own address. A connection that sends a revoked phone's cookie is capped again. Neither a fleet's token nor its laptop cookie opens anything on this listener, whichever fleet a phone's cookie names, so a tunnel that holds only a token cannot use the board.
+- A request that carries `Tailscale-Funnel-Request`, the header Tailscale adds to Funnel traffic, is refused, as on the board's own address.
 
 A phone's own **Sign out this phone** writes the signed-out page and flushes it before the board closes its connections, so the app reads the acknowledgement instead of a reset.
 
-**What a peer cannot do.** It cannot make the board believe a proxy header: `X-Forwarded-*`, `Forwarded` and `Tailscale-*` are dropped, so a phone cannot claim another login, mark itself HTTPS or pick its own rate-limit key. A connection with no [preface](vocabulary.md#peer-preface) shares one rate limit with every other such connection (five wrong codes make a minute's wait for all of them), and the pairing code's ten-wrong-tries cancel stays global.
+**What a peer cannot do.** It cannot make the board believe a proxy header: `X-Forwarded-*`, `Forwarded` and `Tailscale-*` are dropped, so a phone cannot claim a login, mark itself HTTPS or pick its own rate-limit key. A connection with no [preface](vocabulary.md#peer-preface) shares one rate limit with every other such connection (five wrong codes make a minute's wait for all of them), and the pairing code's ten-wrong-tries cancel stays global.
 
-**Identity.** A connection that opens with the [peer preface](vocabulary.md#peer-preface) and the secret in `board.peer` has an identity, `iroh:<peer ID>`. A phone paired over it is bound to that ID: its cookie works only from the same ID, and a stolen cookie or a stolen ID alone opens nothing. A device paired over a connection with no preface carries no login, and its cookie works from any connection. The board never reads an `iroh:` login from the `Tailscale-User-Login` header, so no header can claim an identity. Only a program that can read `board.peer` (mode 0600, in the operator's `~/.secondhand`) can claim an identity; the board closes any other connection that claims one.
+**Identity.** A connection that opens with the [peer preface](vocabulary.md#peer-preface) and the secret in `board.peer` has an identity, `iroh:<peer ID>`. A phone paired over it is bound to that ID: its cookie works only from the same ID, and a stolen cookie or a stolen ID alone opens nothing. A device paired over a connection with no preface carries no login, and its cookie works from any connection. The board reads no identity from any header, `Tailscale-User-Login` included, so no header can claim one. Only a program that can read `board.peer` (mode 0600, in the operator's `~/.secondhand`) can claim an identity; the board closes any other connection that claims one.
 
 **What it does not protect against.** Any process of your own user can read `board.peer`, the fleet's `board.token` and `hand.db`, so it can do anything a peer can. On a machine with other users, any of them can connect to the loopback port; without the secret they are anonymous remote, and still need a pairing code that shows only on your laptop. The listener takes loopback addresses only, and only beside a loopback `--addr`, because the preface carries the secret in the clear. A board that `hand open` or `hand update` restarts starts on the default address without it, as it does without any other flag but `--update-every`: put `--peer-addr` in the unit's `ExecStart=`, the plist or the shortcut, as [Update on a timer](update.md#update-on-a-timer) shows for `--update-every`.
 
@@ -124,122 +108,53 @@ What this does not defend is availability. A stranger who moves one byte on ever
 
 **Known limits.** On Windows the sidecar neither sets nor checks permissions on the key file or its folder, so choose a folder only you can open. It handles Ctrl-C, not a console close or a shutdown, and has no `SIGTERM`: closing its input stops it on every system. The build pulls in `paste` 1.0.15 through iroh's `netwatch`: RUSTSEC-2024-0436, "unmaintained", informational. An OSV query of `iroh/Cargo.lock` on 2026-11-05 found no vulnerability advisory on the other crates.
 
-## SSH tunnel
 
-**What it is.** The phone is an SSH client. It forwards a port on the phone to the board's port on the laptop, and the phone's browser opens `http://127.0.0.1:7777` on the phone itself. The board stays on loopback, so chat, files and supervisor control work.
+## Other paths
 
-**Set up once.**
+These need setup that Hand does not do. A phone that uses them opens the Board in its browser and pairs on the Board's pair page; the Phone page's **Address the phone opens** field takes the address and turns it into a pairing link and QR code. It is `http://` or `https://`, a host, an optional port and no path. The page warns when the address is plain HTTP on a network.
 
-1. Run an SSH server on the laptop that the phone can reach: on your home network, or from outside through a router port forward or another VPN. A port forward puts the SSH port on the internet: allow keys only.
-2. Install an SSH app on the phone that can forward a local port, and give it a key.
-3. Open the tunnel from the phone, here as the OpenSSH command line (the app's setting has the same three parts, a local port, the host `127.0.0.1` and the port `7777`):
+| Path | Chat, files and supervisor control | HTTPS | Alert links | Who can reach the board |
+|---|---|---|---|---|
+| [SSH tunnel](#ssh-tunnel) | yes | no: plain HTTP on the phone's own loopback | `http://127.0.0.1:7777/...` while the tunnel is up | Whoever can log in over SSH |
+| [Cloudflare Tunnel with Access](#cloudflare-tunnel-with-access) | yes | yes | after you rewrite the link | Whoever the Access policy admits. Cloudflare can read the traffic |
+| [WireGuard, behind a TLS proxy](#wireguard-and-a-lan-address) | yes | yes, with a private CA on the phone | after you rewrite the link | Every WireGuard peer |
+| [WireGuard or a LAN address, read-only](#wireguard-and-a-lan-address) | no, decisions only | no: plain HTTP | none: the board listens on a network address | Every peer, or everyone on the network, who can also read the token |
 
-   ```sh
-   ssh -N -L 7777:127.0.0.1:7777 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 USER@LAPTOP
-   ```
+"Chat, files and supervisor control" are the composer, attachments and the supervisor's Start, Resume, Stop, model and key controls. The board offers them only while it listens on a loopback address. On any other address they are off, and answering decisions and marking reports read still work.
 
-   `-L` forwards the phone's port 7777 to `127.0.0.1:7777` as the laptop sees it. `-N` runs no remote command. `ExitOnForwardFailure=yes` ends the session when the phone cannot bind the port. `ServerAliveInterval=30` sends a keep-alive every 30 seconds; the default is none.
+The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet id>`; behind a proxy that sends `X-Forwarded-Proto: https` it is `__Host-hand_phone_<fleet id>` and has `Secure`. A proxy that sends `X-Forwarded-For` hides the fleet list at `/` from a request that holds no valid phone session. To open an alert link through a path with its own HTTPS name, rewrite the link in the `notify` command. With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
 
-**On the Phone page.** Type `http://127.0.0.1:7777`, the forward's port on the phone, then show the code. The QR opens only while the tunnel is up, so start the tunnel first.
-
-**Cost and what goes wrong.**
-
-- The tunnel lives as long as the SSH app does. When the phone suspends or kills the app, the tunnel is gone, and a page that is open shows "Connection lost" ([the board's connection band](board.md)). How long a given app keeps the tunnel up in the background was not verified here.
-- The alert link is `http://127.0.0.1:7777/...`. It opens on the phone while the tunnel is up with the same port, and fails otherwise.
-- Not HTTPS. Browsers treat a loopback address as a secure context ([MDN](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts), [W3C](https://w3c.github.io/webappsec-secure-contexts/#is-origin-trustworthy)), so the Clipboard API is available there, subject to the browser's own rules, such as permission or a user action. The board falls back to `execCommand` when a write fails. That is the specification: no phone browser was tried, and Safari on an iPhone is not verified here. A forward that a phone browser reaches by another name, such as the phone's LAN address, is not loopback and is not a secure context.
-- SSH encrypts the traffic between the phone and the laptop, so plain HTTP on the phone is not sniffable on the network.
-
-**Security.** The board stays on loopback and opens no new port. The SSH server is the new door: its login is the first fence, and the board's token or a pairing is the second. Anyone who can log in to that account over SSH can also forward to the board, which the token still guards.
-
-## Cloudflare Tunnel with Access
-
-**What it is.** `cloudflared` on the laptop keeps an outbound connection to Cloudflare, and Cloudflare serves a hostname on your domain that reaches `http://localhost:7777` through it. Cloudflare Access sits in front and asks the visitor to log in before anything reaches the board. Chat, files and supervisor control work, because the board sees a loopback connection.
-
-**The Access policy is mandatory.** Without it, anyone on the internet who finds the hostname reaches the board's login page and its unauthenticated routes, and one token guards agents that run with their permission prompts skipped. Cloudflare says so: if no Access application is in place, "the published application will be available to anyone on the Internet", and "All Access applications are deny by default -- a user must match an Allow policy before they are granted access" ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)). So make the Access application first, then publish the hostname.
-
-**Set up once.** You need a domain on Cloudflare ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)). The steps are in the Cloudflare dashboard, so there are no commands to copy here.
-
-1. **Access application first.** Zero Trust, Access controls, Applications, **Create new application**, **Self-hosted and private**, **Add public hostname**. Pick the domain and the subdomain you will use, for example `board.example.com`. Under **Access policies**, add an Allow policy that admits only you, with the identity providers you use, then **Create**. The policy rules are on [Cloudflare's policy page](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/policy-management/), which was not read here.
-2. **Tunnel.** Networking, Tunnels, **Create a tunnel**, a name, **Create Tunnel**. Pick your operating system, copy the install command the dashboard shows, and run it on the laptop. Wait until the tunnel connects. Whether that command keeps `cloudflared` running after a reboot is not stated on the page read here: check that the tunnel is `Healthy` after one. The laptop must reach Cloudflare on port 7844 outbound.
-3. **Route.** Open the tunnel, **Routes**, **Add route**, **Published application**. Enter the same subdomain and domain. For **Service URL**, enter `http://localhost:7777`, then **Add route**.
-4. **Check it from outside.** In a browser that is not signed in to Access, open `https://board.example.com/`. It must show Access's login, never the board's pages. Do not go on until it does.
-
-**On the Phone page.** Type `https://board.example.com`, with no path.
-
-**What the board sees.** `cloudflared` connects to the board from the laptop, so the board sees loopback. Cloudflare adds `X-Forwarded-For` and `X-Forwarded-Proto` ([Cloudflare](https://developers.cloudflare.com/fundamentals/reference/http-headers/)), and Access adds a `Cf-Access-Jwt-Assertion` header ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)). They were not captured at the board here. The board then:
-
-- shows no fleet list at `/` to a request with no valid phone session, because it carries `X-Forwarded-For`; a paired phone sees only the fleets it is paired with ([Several fleets on one phone](board.md#several-fleets-on-one-phone));
-- sets the `__Host-` and `Secure` phone cookie when `X-Forwarded-Proto` is `https`;
-- uses no `Cf-` header and does not check the Access token. Any process on the laptop can send those headers to `127.0.0.1`, so the board never lets them in. The pairing code, the phone's session or the fleet's token is still needed behind Access.
-
-The board refuses Funnel traffic by its `Tailscale-Funnel-Request` header. It has no such check for Cloudflare: it cannot tell a Cloudflare request from a local one, so the Access policy is the only fence in front of the board's own login.
-
-**Cost and what goes wrong.**
-
-- A domain, a Cloudflare account, and a service to keep running.
-- Cloudflare serves the hostname, so its edge holds the TLS keys and can read the chat, decisions and files. Not verified here against Cloudflare's documentation.
-- **Never use a quick tunnel.** Cloudflare says that quick tunnels have no uptime guarantee and "do not support Server-Sent Events (SSE)" ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)), which the board uses for its live updates. The only access control that page offers is an emailed one-time PIN (`--allowed-mail`), not an Access policy.
-- Whether a named tunnel passes the board's event stream without buffering is not verified here. If it does not, the page shows "Connection lost".
-- The alert link needs the rewrite above, with `https://board.example.com`.
-
-**Security.** The hostname is public: scanners find it. The Access policy decides who gets past it, and it is the first fence. Behind it, the pairing code or the token is all that stands between a person Access admits and typing into agents that skip their permission prompts. Keep it to your own identity, check it from outside after every change, and read [Safe use](safe-use.md).
-
-## WireGuard
-
-**What it is.** The laptop and the phone are two peers of a WireGuard network. The phone reaches the laptop by its WireGuard address, here `10.8.0.1`. Your choice is how the board listens on that address.
-
-- **Behind a TLS proxy.** The board stays on loopback, and a proxy on the laptop listens on the WireGuard address with TLS and forwards to `http://127.0.0.1:7777`. The phone keeps chat, files and supervisor control, and gets HTTPS, if it trusts the proxy's certificate. You build and run the proxy and a private certificate authority, and install its root on the phone. Pick this only if you already run such a proxy.
-- **Read-only.** The board listens on the WireGuard address itself with `--addr`. That is a network address, so the board turns the supervisor controls off: the login token, or a phone's pairing code and session cookie, crosses plain HTTP there, and supervisor control means typing into an agent that has its permission prompts skipped. WireGuard encrypts the hop, but the board cannot know that, so the rule stays. Decisions and read marks still work.
-
-**Set up once.** The laptop needs a WireGuard endpoint the phone can reach: a UDP port forward on your router, or a server with a public address in between. Neither was run here.
-
-1. On the laptop and on the phone, make a key pair ([WireGuard quick start](https://www.wireguard.com/quickstart/)):
-
-   ```sh
-   umask 077
-   wg genkey | tee privatekey | wg pubkey > publickey
-   ```
-
-2. Write the laptop's `/etc/wireguard/wg0.conf` and the phone's configuration with `Address`, `PrivateKey`, the laptop's `ListenPort`, and for each side a `[Peer]` with the other's `PublicKey`, `AllowedIPs` and, on the phone, the laptop's `Endpoint`. A `PersistentKeepalive` of 25 seconds on the phone is the interval the quick start calls sensible behind NAT. `wg-quick up wg0` brings the interface up ([wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html)). The exact file is in the quick start and the manual page, and was not run here.
-3. On the phone, install the official WireGuard app ([Android](https://play.google.com/store/apps/details?id=com.wireguard.android), [iOS](https://itunes.apple.com/us/app/wireguard/id1441195209?ls=1&mt=8), from [wireguard.com/install](https://www.wireguard.com/install/)) and add the tunnel. How the app takes the configuration is not verified here.
-4. Start the board for the mode you chose:
-   - **Read-only:** `hand board --addr 10.8.0.1:7777`. The WireGuard address must already exist when it starts: with no such address, the board exits with `listen tcp 10.8.0.1:7777: bind: cannot assign requested address`. Never use `0.0.0.0` for this, which also opens the board to every other network the laptop is on. The autostart unit starts `hand board --addr 127.0.0.1:7777`; change `--addr` in it ([Autostart](autostart.md)), and start the unit after the WireGuard interface.
-   - **TLS proxy:** keep `127.0.0.1:7777`. Configure the proxy to listen on `10.8.0.1:443` only, to forward to `http://127.0.0.1:7777`, to send `X-Forwarded-For` and `X-Forwarded-Proto: https`, and to pass the event stream through without buffering. A proxy that buffers responses stalls the live updates. How to turn buffering off depends on the proxy and is not covered here. Without `X-Forwarded-For`, `/` lists the fleet names to every peer.
-
-**On the Phone page.**
-
-- **Read-only:** `http://10.8.0.1:7777`. The page shows its plain-HTTP warning, which WireGuard answers.
-- **TLS proxy:** `https://NAME`, the name the certificate covers.
-
-**Cost and what goes wrong.**
-
-- Of the four paths, this one has the most to run. Read-only is the short version, and gives up the composer, attachments and supervisor control.
-- Read-only is plain HTTP, not HTTPS. The copy buttons use the Clipboard API where the browser allows it, and fall back to `execCommand`.
-- In read-only mode the alert link is empty: the board listens on the WireGuard address, and Hand links only a loopback board or a ready `tailscale serve`. The phone opens the board directly while WireGuard is up.
-- Every peer can open the board's login page. Do not add a peer you do not trust.
-
-**Security.** Every WireGuard peer reaches the board's port. The token or a pairing still guards every page, and in read-only mode a session can answer decisions, which steer the supervisor. A proxy that sends `X-Forwarded-For` hides the fleet list from a request that holds no valid phone session. Do not bind `0.0.0.0`.
-
-## A LAN address
-
-**What it is.** The board listens on a network address, and a phone on the same network opens it directly.
-
-**Set up once.** Start the board with `--addr`:
-
-```sh
-hand board --addr 192.168.1.20:7777
+```json
+"notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: https://board.example.com/${HAND_NOTIFY_URL#http://*/}\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
-Use the laptop's address on that network. `0.0.0.0:7777` also works and listens on every interface: Docker, a VPN and a public WiFi included. A DHCP address changes, so the phone's link breaks when it does. The board prints this warning: "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L or tailscale serve". Make it permanent by changing `--addr` in the autostart unit ([Autostart](autostart.md)).
+The recipe needs `sh`, so it is for Linux and macOS.
 
-**On the Phone page.** Type `http://192.168.1.20:7777`. The page warns that the address is plain HTTP on a network.
+### SSH tunnel
 
-**What it is for.** Reading Needs, reports and logs from the sofa at home, and answering a decision. It is read-only by design: the composer is off, and the page says "Read-only: this board listens on a network address. Message the supervisor from a board on loopback." A paired phone is read-only too.
+The phone is an SSH client that forwards a port on the phone to the board's port on the laptop, and the phone's browser opens `http://127.0.0.1:7777` on the phone itself. The board stays on loopback. On the laptop, run an SSH server the phone can reach and allow keys only. On the phone, install an SSH app that forwards a local port and open the tunnel, here as the OpenSSH command line:
 
-**Cost and what goes wrong.**
+```sh
+ssh -N -L 7777:127.0.0.1:7777 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 USER@LAPTOP
+```
 
-- Plain HTTP. Anyone on the network who can see the traffic can take the token, the pairing code or a phone's session cookie, and the document viewer reads the fleet folder's files with the token. A decision they answer goes to the supervisor. On a shared or public network, do not use this path.
-- `/` shows no fleet list on a network address. The alert link is `http://127.0.0.1:7777/...` when you listen on `0.0.0.0`, which a phone cannot open; on a named LAN address it is empty. Run `tailscale serve` for a link the phone opens.
-- Not HTTPS. The copy buttons use the Clipboard API where the browser allows it, and fall back to `execCommand`.
+On the Phone page type `http://127.0.0.1:7777`, with the tunnel already up. The tunnel lives as long as the SSH app does; when the phone suspends the app, an open page shows "Connection lost". SSH encrypts the hop, so plain HTTP on the phone is not sniffable. The SSH server is the new door: its login is the first fence, and the board's token or a pairing is the second. To point a raw forward such as this at the board with the right limits, use the [peer listener](#the-peer-listener).
 
-**Security.** Everyone on the network reaches the board's port. Use it at home on a network you trust, or not at all.
+### Cloudflare Tunnel with Access
+
+`cloudflared` on the laptop keeps an outbound connection to Cloudflare, and Cloudflare serves a hostname on your domain that reaches `http://localhost:7777`. Cloudflare Access sits in front and asks the visitor to log in first.
+
+**The Access policy is mandatory.** Without it, anyone on the internet who finds the hostname reaches the board's login page, and one token guards agents that run with their permission prompts skipped. Cloudflare says so: if no Access application is in place, "the published application will be available to anyone on the Internet" ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)). Make the Access application first, with an Allow policy that admits only you, then publish the hostname. Check it from a browser that is not signed in to Access: it must show Access's login, never the board's pages.
+
+Then create the tunnel and a published-application route to `http://localhost:7777` in the Cloudflare dashboard, and type `https://board.example.com`, with no path, on the Phone page. The board sees a loopback connection with `X-Forwarded-For` and `X-Forwarded-Proto` added. It uses no `Cf-` header and does not check the Access token, because any process on the laptop could send them. The board cannot tell a Cloudflare request from a local one, so the Access policy is the only fence in front of the board's own login.
+
+**Never use a quick tunnel.** Cloudflare says quick tunnels have no uptime guarantee and "do not support Server-Sent Events (SSE)" ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)), which the board uses for live updates, and they offer no Access policy. Cloudflare's edge holds the TLS keys and can read the chat, decisions and files. The hostname is public and scanners find it: keep the policy to your own identity and check it from outside after every change.
+
+### WireGuard and a LAN address
+
+The laptop and the phone are two peers of a WireGuard network, or on one network. There are two ways to listen:
+
+- **Behind a TLS proxy.** The board stays on loopback. A proxy on the laptop listens on the WireGuard address with TLS, forwards to `http://127.0.0.1:7777`, sends `X-Forwarded-For` and `X-Forwarded-Proto: https`, and passes the event stream through without buffering. You run the proxy and a private certificate authority whose root the phone trusts. Type `https://NAME` on the Phone page.
+- **Read-only.** Start the board with `--addr` on the WireGuard or LAN address, for example `hand board --addr 10.8.0.1:7777`. That is a network address, so the board turns the supervisor controls off: the token, or a pairing code and a session cookie, crosses plain HTTP, and supervisor control means typing into an agent that skips its permission prompts. WireGuard encrypts the hop, but the board cannot know that. Decisions and read marks still work. The board prints "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L". Never use `0.0.0.0`, which also opens the board to every other network the laptop is on. Change `--addr` in the autostart unit to make it permanent ([Autostart](autostart.md)), and start it after the WireGuard interface exists.
+
+On a LAN address with no encryption, anyone who can see the traffic can take the token, the pairing code or a phone's session cookie, and the document viewer reads the fleet folder's files with the token. On a shared or public network, do not use it. Every WireGuard peer reaches the board's port: do not add a peer you do not trust.

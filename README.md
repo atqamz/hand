@@ -100,7 +100,7 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 - [Autostart](docs/autostart.md): how the watcher and the board keep running, and how to start the board at login.
 - [The board](docs/board.md): the fleet page, `hand open` and reaching the board from a phone.
 - [JSON API](docs/api.md): the board's `/api/v1` views and its actions (a message, a decision's answer, a report's ack and the supervisor controls), the keys guards, the change cursor, and the auth, CSRF and error contract.
-- [Reach the board from a phone without Tailscale](docs/phone.md): an SSH tunnel, Cloudflare Tunnel with Access, WireGuard and a LAN address, with what each exposes.
+- [Reach the board from a phone](docs/phone.md): the Hand app over iroh, and an SSH tunnel, Cloudflare Tunnel with Access, WireGuard and a LAN address, with what each exposes.
 - [The supervisor](docs/supervisor.md): its harness flags, trust screens, attachments, reboots, idle wakes and timers.
 - [Alerts on your phone](docs/alerts.md): send every alert to your own command.
 - [Clean the inbox](docs/inbox.md): prune old attachments.

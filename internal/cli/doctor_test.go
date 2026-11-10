@@ -144,8 +144,8 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 			t.Fatalf("%s = %q in %q", check, rows[check], out)
 		}
 	}
-	if got := rows["phone"][0]; got != "info" {
-		t.Fatalf("phone = %q with no tailscale in %q", rows["phone"], out)
+	if row, ok := rows["phone"]; ok {
+		t.Fatalf("phone row = %q in %q", row, out)
 	}
 	for _, name := range state.Harnesses {
 		if row := rows["models "+name]; row[0] != "info" || !strings.Contains(row[1], "no list yet; run `hand models --refresh "+name+"`") {
@@ -158,8 +158,8 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if row := rows["desktop"]; row[0] != "info" || !(strings.Contains(row[1], "not installed") || strings.Contains(row[1], "unsupported on ")) {
 		t.Fatalf("desktop = %q in %q", row, out)
 	}
-	if len(rows) != len(want)+14 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+14, out)
+	if len(rows) != len(want)+13 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+13, out)
 	}
 }
 

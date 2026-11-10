@@ -594,5 +594,261 @@
       "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F&r=https%3A%2F%2Frelay.example.test%2F",
       "reject": "duplicate_key"
     }
-  ]
+  ],
+  "open": {
+    "prefix": "handboard://open/",
+    "valid": [
+      {
+        "name": "a task",
+        "link": "handboard://open/f0123456789ab/task/t3",
+        "canonical": true,
+        "parsed": {
+          "fleet": "f0123456789ab",
+          "page": "task/t3",
+          "report": null,
+          "path": "/f0123456789ab/task/t3"
+        }
+      },
+      {
+        "name": "a decision",
+        "link": "handboard://open/f0123456789ab/decision/d3",
+        "canonical": true,
+        "parsed": {
+          "fleet": "f0123456789ab",
+          "page": "decision/d3",
+          "report": null,
+          "path": "/f0123456789ab/decision/d3"
+        }
+      },
+      {
+        "name": "an attempt",
+        "link": "handboard://open/f0123456789ab/attempt/a7",
+        "canonical": true,
+        "parsed": {
+          "fleet": "f0123456789ab",
+          "page": "attempt/a7",
+          "report": null,
+          "path": "/f0123456789ab/attempt/a7"
+        }
+      },
+      {
+        "name": "a report, on its task",
+        "link": "handboard://open/f0123456789ab/task/t3#r5",
+        "canonical": true,
+        "parsed": {
+          "fleet": "f0123456789ab",
+          "page": "task/t3",
+          "report": "r5",
+          "path": "/f0123456789ab/task/t3#r5"
+        }
+      },
+      {
+        "name": "the fleet page",
+        "link": "handboard://open/f0123456789ab/",
+        "canonical": true,
+        "parsed": {
+          "fleet": "f0123456789ab",
+          "page": "",
+          "report": null,
+          "path": "/f0123456789ab/"
+        }
+      },
+      {
+        "name": "the largest number",
+        "link": "handboard://open/f0123456789ab/task/t999999999",
+        "canonical": true,
+        "parsed": {
+          "fleet": "f0123456789ab",
+          "page": "task/t999999999",
+          "report": null,
+          "path": "/f0123456789ab/task/t999999999"
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "link": ""
+      },
+      {
+        "link": "handboard://open"
+      },
+      {
+        "link": "handboard://open/"
+      },
+      {
+        "link": "handboard://open/f0123456789ab"
+      },
+      {
+        "link": "handboard://c/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P"
+      },
+      {
+        "link": "HANDBOARD://open/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://OPEN/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://opener/f0123456789ab/task/t3"
+      },
+      {
+        "link": "http://localhost:1/f0123456789ab/task/t3"
+      },
+      {
+        "link": " handboard://open/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3 "
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3\n"
+      },
+      {
+        "link": "handboard://open/f0123456789abc/task/t3"
+      },
+      {
+        "link": "handboard://open/F0123456789AB/task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789a/task/t3"
+      },
+      {
+        "link": "handboard://open/g0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab//task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3/"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3/extra"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t0"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t03"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t1234567890"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/T3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/d3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/decision/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/attempt/d3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/Task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/report/r1"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/pair"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/../task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/.."
+      },
+      {
+        "link": "handboard://open/f0123456789ab/%74ask/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task%2Ft3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task%2ft3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/%2e%2e"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3?x=1"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/?x=1"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#r"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#r0"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#r1234567890"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#R5"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#t5"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#r5#r6"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3#r5?x"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/decision/d3#r1"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/attempt/a7#r1"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/#r1"
+      },
+      {
+        "link": "handboard://user@open/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://open:80/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://open@evil.test/f0123456789ab/task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab@evil.test/task/t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t\uff13"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3\u0000"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task\\t3"
+      },
+      {
+        "link": "handboard://open/f0123456789ab/task/t3;x"
+      }
+    ]
+  }
 }

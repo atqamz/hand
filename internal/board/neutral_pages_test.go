@@ -31,7 +31,7 @@ func wholeResponse(rec *httptest.ResponseRecorder) string {
 }
 
 func neutralRequests(prefix string, f railFleet, forged string, cookies map[string]*http.Cookie) []unauthenticated {
-	op := serving("operator@example.com")
+	op := serving()
 	funnel := map[string]string{"Tailscale-Funnel-Request": "?1", "X-Forwarded-For": "203.0.113.9"}
 	return []unauthenticated{
 		{"pair form", "GET", prefix + "/pair", nil, nil, nil, 200},
@@ -48,7 +48,6 @@ func neutralRequests(prefix string, f railFleet, forged string, cookies map[stri
 		{"a wrong token link", "GET", prefix + "/?token=wrong", nil, nil, nil, 403},
 		{"a revoked phone", "GET", prefix + "/", nil, []*http.Cookie{cookies["revoked"]}, op, 403},
 		{"a lapsed phone", "GET", prefix + "/", nil, []*http.Cookie{cookies["lapsed"]}, op, 403},
-		{"a phone for another login", "GET", prefix + "/", nil, []*http.Cookie{cookies["live"]}, serving("other@example.com"), 403},
 		{"a phone reaching the board another way", "GET", prefix + "/", nil, []*http.Cookie{cookies["live"]}, nil, 403},
 		{"a forged phone cookie", "GET", prefix + "/", nil, []*http.Cookie{{Name: "__Host-hand_phone" + strings.ReplaceAll(prefix, "/", "_"), Value: forged}}, op, 403},
 		{"funnel", "GET", prefix + "/", nil, []*http.Cookie{cookies["live"]}, funnel, 403},
@@ -59,7 +58,7 @@ func neutralRequests(prefix string, f railFleet, forged string, cookies map[stri
 func TestNoPageWithoutASessionNamesTheFleet(t *testing.T) {
 	p := newPhoneHost(t, true, nameMarker, "bravo")
 	f := p.fleets[0]
-	op := serving("operator@example.com")
+	op := serving()
 	old := p.pair(f, op)
 	p.advance(91 * 24 * time.Hour)
 	live, gone := p.pair(f, op), p.pair(f, op)

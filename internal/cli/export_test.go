@@ -25,8 +25,8 @@ var (
 	UpdateHooks      = &updateHooks
 	UnitOS           = &unitOS
 	BoardHint        = boardHint
-	PhoneProbe       = &phoneProbe
 	RemoveIfSame     = removeIfSame
+	AppLink          = appLink
 	AcceptTrust      = acceptTrust
 	PollEvery        = &pollEvery
 	SettleWait       = &settleWait

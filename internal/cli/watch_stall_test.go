@@ -3,6 +3,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -112,7 +113,7 @@ func TestStallWakesTheIdleSupervisorThenBacksOff(t *testing.T) {
 		t.Fatalf("stalls = %d, want 4", n)
 	}
 	alerts := stallAlerts(log)
-	if len(alerts) != 1 || alerts[0] != "supervisor.stalled|supervisor|s1 stalled: t1 is active, no attempt is running, idle 1h|" {
+	if len(alerts) != 1 || !regexp.MustCompile(`^supervisor\.stalled\|supervisor\|s1 stalled: t1 is active, no attempt is running, idle 1h\|\|handboard://open/f[0-9a-f]{12}/$`).MatchString(alerts[0]) {
 		t.Fatalf("alerts = %q", alerts)
 	}
 	if !strings.Contains(out, `observed: "s1 stalled: t1 is active, no attempt is running, idle 20m"`) {

@@ -74,7 +74,7 @@ func cmdOpen(r *runner, args []string) error {
 					out.Field("path", d.Ref)
 					return r.print(&out)
 				}
-				return r.printLink(d.Ref, "")
+				return r.printLink(d.Ref, "", "")
 			}
 			if strings.HasPrefix(d.Ref, `\\`) {
 				return fmt.Errorf("%w: UNC paths are not opened, because Windows would connect to the host they name: %s", state.ErrConflict, d.Ref)
@@ -101,10 +101,11 @@ func cmdOpen(r *runner, args []string) error {
 	}
 	page := "http://" + addr + "/" + r.fleet.ID + path
 	if *printed {
-		if phone := r.phoneLink(ctx, addr).Ready(); phone != "" {
-			page = phone + "/" + r.fleet.ID + path
+		app := ""
+		if !*delivered {
+			app = appLink(r.fleet.ID, path, frag)
 		}
-		return r.printLink(page+"?token="+token+frag, "The link holds the fleet's token; paste it only into your own browser")
+		return r.printLink(page+"?token="+token+frag, app, "The link holds the fleet's token; paste it only into your own browser")
 	}
 	return r.launch(page+"?token="+token+"&keep=1"+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
 }
@@ -255,9 +256,16 @@ func (r *runner) launch(url, shown, yourself string) error {
 	return r.print(&d)
 }
 
-func (r *runner) printLink(link, help string) error {
+func appLink(fleet, path, frag string) string {
+	return "handboard://open/" + fleet + path + frag
+}
+
+func (r *runner) printLink(link, app, help string) error {
 	var d toon.Doc
 	d.Field("url", link)
+	if app != "" {
+		d.Field("app", app)
+	}
 	if help != "" {
 		d.Help(help)
 	}

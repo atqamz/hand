@@ -203,7 +203,6 @@ func TestAProxiedRequestCannotTellABrokenFleetFromAMissingOne(t *testing.T) {
 	for _, header := range []map[string]string{
 		{"X-Forwarded-For": "203.0.113.9"},
 		{"Forwarded": "for=203.0.113.9"},
-		{"Tailscale-User-Login": "someone@example.com"},
 		{"Tailscale-Funnel-Request": "?1", "X-Forwarded-For": "203.0.113.9"},
 	} {
 		for _, loopback := range []bool{true, false} {

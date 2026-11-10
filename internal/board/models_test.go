@@ -443,7 +443,7 @@ func TestTheRefreshRowIsInTheOverflowMenuForTheLaptopOnly(t *testing.T) {
 	phone := p.pair()
 	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, phone, viaServe).Body.String())[1]
 	lacks(t, "phone", region(p.do("GET", "/", nil, phone, viaServe).Body.String(), "console"), "/models/refresh", "Refresh models")
-	rec := p.do("POST", "/models/refresh", url.Values{"csrf": {own}, "harness": {"agy"}}, phone, map[string]string{"X-Hand-Fetch": "1", "X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https", "Tailscale-User-Login": "operator@example.com"})
+	rec := p.do("POST", "/models/refresh", url.Values{"csrf": {own}, "harness": {"agy"}}, phone, map[string]string{"X-Hand-Fetch": "1", "X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"})
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("a phone's refresh = %d", rec.Code)
 	}

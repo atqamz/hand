@@ -190,8 +190,8 @@ func (p *phoneHost) send(method, path string, form url.Values, cookies []*http.C
 	return rec
 }
 
-func serving(login string) map[string]string {
-	return map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https", "Tailscale-User-Login": login}
+func serving() map[string]string {
+	return map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"}
 }
 
 func (p *phoneHost) laptop(f railFleet) *http.Cookie {

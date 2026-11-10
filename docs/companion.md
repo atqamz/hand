@@ -154,6 +154,28 @@ The fragment keeps the code out of the request: the Board's pair page reads it w
 - It adds no header and removes none. The Board drops every proxy header itself, and reads the identity from the connection.
 - Any app on the phone can reach the port while the proxy runs. It gets what an unpaired phone gets, the pair page, unless it also holds the web view's cookie. The proxy therefore must not be on the LAN, and the cookie must stay in the web view.
 
+## The open link
+
+An alert can open an item in the app. The link is `handboard://open/<fleet id>/<page>[#<report ref>]`, and Hand puts it in `HAND_NOTIFY_APP_URL` for the `notify` command ([Alerts that open the app](phone.md#alerts-that-open-the-app)) and prints it as `app` with `hand open --print`. `<page>` is the Board's own path for the item.
+
+| Item | Link |
+|---|---|
+| task | `handboard://open/f0123456789ab/task/t3` |
+| decision | `handboard://open/f0123456789ab/decision/d3` |
+| attempt | `handboard://open/f0123456789ab/attempt/a7` |
+| report | `handboard://open/f0123456789ab/task/t3#r5` |
+| supervisor, fleet page | `handboard://open/f0123456789ab/` |
+
+**Grammar.** The scheme `handboard` and the host `open`, so it never collides with the pairing link, whose host is `c`. Then the fleet, which matches `^f[0-9a-f]{12}$`; then `/` and nothing, `task/tN`, `decision/dN` or `attempt/aN`, with N one to nine digits and no leading zero; then optionally `#rN`, only after `task/tN`, with the same rule for N. Everything is lowercase ASCII. No query, userinfo, port, percent escape or trailing slash is valid. Any other text is not an open link, and the parser gives no reason: it rejects.
+
+**What it holds.** No token, no pairing code and no endpoint ID, because an alert service reads it and the app has one laptop per install. It names the fleet and an item, nothing more.
+
+**What the app does.** The app must treat it as a request to show one read page through the proxy it already has, never as a pairing. It must not clear cookies, change the laptop, replace a pending pairing or pair a phone. With a laptop paired, it dials, sets up the loopback proxy and loads `http://localhost:PORT/<fleet id>/<page>` (with `#rN` kept as the fragment). With no laptop it shows "Pair this phone with your laptop first." and drops the link. When the laptop is unreachable it shows the unreachable screen, and tapping the alert again retries. A phone that is not paired for the fleet gets the Board's own refusal. A hostile link from another app can open one read page of an already paired laptop, and a change on the Board needs a POST with the form token, so the link grants nothing.
+
+**Vectors.** [`companion-vectors.json`](companion-vectors.json) holds 6 valid and 61 invalid open links under the key `open`. Valid entries carry the parsed `fleet`, `page`, `report` and the `path` to open, and every one is a link Hand emits (`canonical`); an emitter must reproduce its `link` from `fleet`, `page` and `report`. Invalid entries carry only the `link`; they are the app's main reject table, and the reference parser's anchored fleet check also rejects the app's extra right-length fleet cases, which only `internal/companion/companion_test.go` (the reference parser test) holds, not the vectors file. `go test ./internal/companion` runs the reference parser over both lists, and `go test ./internal/cli` checks that Hand's emitter reproduces every valid link. The app runs its parser over them as written.
+
+**Versions.** A new link with a new host needs no new version: an old app has no filter for the host `open`, so it never receives the link. The vectors are new entries, and no earlier vector changes.
+
 ## What the Board does with a paired phone
 
 ### Today

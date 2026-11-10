@@ -243,11 +243,14 @@ func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
 		return got != ""
 	})
 	fields := strings.Split(strings.TrimSpace(got), "|")
-	if len(fields) != 6 || strings.Join(fields[:5], "|") != "--title|a b; $(x)|decision.asked|d1|t1 decision: Keep the old cookie name?" {
+	if len(fields) != 7 || strings.Join(fields[:5], "|") != "--title|a b; $(x)|decision.asked|d1|t1 decision: Keep the old cookie name?" {
 		t.Fatalf("notify call = %q", got)
 	}
 	if !strings.HasPrefix(fields[5], "http://127.0.0.1:7777/") || !strings.HasSuffix(fields[5], "/decision/d1") {
 		t.Fatalf("board url = %q", fields[5])
+	}
+	if !regexp.MustCompile(`^handboard://open/f[0-9a-f]{12}/decision/d1$`).MatchString(fields[6]) {
+		t.Fatalf("app url = %q", fields[6])
 	}
 	time.Sleep(200 * time.Millisecond)
 	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
@@ -280,7 +283,7 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 		return strings.Contains(string(b), "attempt.quiet|a1|")
 	})
 	b, _ := os.ReadFile(log)
-	if !strings.HasSuffix(strings.TrimSpace(string(b)), "/attempt/a1") {
+	if !regexp.MustCompile(`\|http://127\.0\.0\.1:7777/f[0-9a-f]{12}/attempt/a1\|handboard://open/f[0-9a-f]{12}/attempt/a1$`).MatchString(strings.TrimSpace(string(b))) {
 		t.Fatalf("notify call = %q", b)
 	}
 	write(`["no-such-notifier"]`)

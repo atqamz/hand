@@ -225,7 +225,7 @@ func TestACookieOnlyWorksFromThePeerItWasPairedFor(t *testing.T) {
 func TestAForgedIrohLoginHeaderPairsWithNoLogin(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha")
 	f := p.fleets[0]
-	p.pair(f, serving("iroh:"+peerA))
+	p.pair(f, serving())
 	if devices := p.devicesOf(f); len(devices) != 1 || devices[0].Login != "" {
 		t.Fatalf("a header login of iroh:ID was recorded as %+v", devices)
 	}

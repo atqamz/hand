@@ -77,6 +77,7 @@ async function board(box, srv, made) {
   const id = toon(made.init.out).fields.id;
   const origin = link.origin;
   equal(link.pathname, `/${id}/`, 'the login link points at the fleet page');
+  equal(toon((await box.hand(['open', '--print'])).out).fields.app, `handboard://open/${id}/`, 'hand open --print prints the app link, which holds no token');
   matches(link.searchParams.get('token') ?? '', /^[0-9a-f]{48}$/, 'the login link carries the fleet token');
   const addr = box.read('board.addr').trim();
   equal(`http://${addr}`, origin, 'board.addr names the address the link uses');

@@ -225,6 +225,71 @@ type vectors struct {
 		Link   string `json:"link"`
 		Reject string `json:"reject"`
 	} `json:"invalid"`
+	Open struct {
+		Prefix string `json:"prefix"`
+		Valid  []struct {
+			Name      string     `json:"name"`
+			Link      string     `json:"link"`
+			Canonical bool       `json:"canonical"`
+			Parsed    openParsed `json:"parsed"`
+		} `json:"valid"`
+		Invalid []struct {
+			Link string `json:"link"`
+		} `json:"invalid"`
+	} `json:"open"`
+}
+
+type openParsed struct {
+	Fleet  string  `json:"fleet"`
+	Page   string  `json:"page"`
+	Report *string `json:"report"`
+	Path   string  `json:"path"`
+}
+
+func numbered(text string, letter byte) bool {
+	digits, ok := strings.CutPrefix(text, string(letter))
+	if !ok || len(digits) < 1 || len(digits) > 9 || digits[0] == '0' {
+		return false
+	}
+	return strings.Trim(digits, "0123456789") == ""
+}
+
+func validPage(page string) bool {
+	kind, id, found := strings.Cut(page, "/")
+	switch {
+	case !found:
+		return page == ""
+	case kind == "task":
+		return numbered(id, 't')
+	case kind == "decision":
+		return numbered(id, 'd')
+	case kind == "attempt":
+		return numbered(id, 'a')
+	}
+	return false
+}
+
+func parseOpen(link string) (openParsed, bool) {
+	rest, ok := strings.CutPrefix(link, "handboard://open/")
+	if !ok {
+		return openParsed{}, false
+	}
+	var report *string
+	if head, tail, found := strings.Cut(rest, "#"); found {
+		rest, report = head, &tail
+	}
+	fleet, page, ok := strings.Cut(rest, "/")
+	if !ok || !state.FleetID.MatchString(fleet) || !validPage(page) {
+		return openParsed{}, false
+	}
+	p := openParsed{Fleet: fleet, Page: page, Path: "/" + fleet + "/" + page}
+	if report != nil {
+		if !strings.HasPrefix(page, "task/") || !numbered(*report, 'r') {
+			return openParsed{}, false
+		}
+		p.Report, p.Path = report, p.Path+"#"+*report
+	}
+	return p, true
 }
 
 func read(t *testing.T, rel string) []byte {
@@ -308,6 +373,40 @@ func TestEveryVectorParsesAsItsFileSays(t *testing.T) {
 	}
 }
 
+func TestEveryOpenVectorParsesAsItsFileSays(t *testing.T) {
+	v := load(t)
+	if v.Open.Prefix != "handboard://open/" || len(v.Open.Valid) < 6 || len(v.Open.Invalid) < 60 {
+		t.Fatalf("open vectors: prefix %q, %d valid, %d invalid", v.Open.Prefix, len(v.Open.Valid), len(v.Open.Invalid))
+	}
+	seen := map[string]bool{}
+	for _, c := range v.Open.Valid {
+		if seen[c.Link] {
+			t.Errorf("%q repeats", c.Link)
+		}
+		seen[c.Link] = true
+		got, ok := parseOpen(c.Link)
+		if !ok || got.Fleet != c.Parsed.Fleet || got.Page != c.Parsed.Page || got.Path != c.Parsed.Path || (got.Report == nil) != (c.Parsed.Report == nil) || got.Report != nil && *got.Report != *c.Parsed.Report {
+			t.Errorf("%s: got %+v, %v; want %+v", c.Name, got, ok, c.Parsed)
+		}
+		if !c.Canonical {
+			t.Errorf("%s: every open link Hand emits is canonical", c.Name)
+		}
+	}
+	for _, c := range v.Open.Invalid {
+		if seen[c.Link] {
+			t.Errorf("%q repeats", c.Link)
+		}
+		seen[c.Link] = true
+		if got, ok := parseOpen(c.Link); ok {
+			t.Errorf("%q parsed as %+v", c.Link, got)
+		}
+	}
+	doc := string(read(t, "docs/companion.md"))
+	if count := fmt.Sprintf("%d valid and %d invalid open links", len(v.Open.Valid), len(v.Open.Invalid)); !strings.Contains(doc, count) {
+		t.Errorf("docs/companion.md does not say %q", count)
+	}
+}
+
 func sameParsed(a, b parsed) bool {
 	if (a.Relay == nil) != (b.Relay == nil) || a.Relay != nil && *a.Relay != *b.Relay {
 		return false
@@ -332,6 +431,14 @@ func number(t *testing.T, file, pattern string, times int) int {
 		t.Fatal(err)
 	}
 	return n * times
+}
+
+func TestAFleetOfTheRightLengthAndHeadIsRejectedForItsTail(t *testing.T) {
+	for _, fleet := range []string{"f0123456789xy", "f01234567g9ab", "f0123456789aB", "f012345678%2e", "f012345678\n9a", "f012345678\r\na", "f0123456789\u007fa", "f0123456789é"} {
+		if got, ok := parseOpen("handboard://open/" + fleet + "/task/t3"); ok {
+			t.Errorf("%q parses as %+v", fleet, got)
+		}
+	}
 }
 
 func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
