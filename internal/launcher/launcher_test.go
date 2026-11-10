@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,9 @@ import (
 
 func env(t *testing.T) (func(string) string, string) {
 	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("the launcher entry is Linux only")
+	}
 	data := t.TempDir()
 	t.Setenv("PATH", t.TempDir())
 	return func(k string) string {
@@ -117,6 +121,7 @@ func TestCheck(t *testing.T) {
 }
 
 func TestNeedsAnAbsoluteHome(t *testing.T) {
+	env(t)
 	if err := Sync(func(string) string { return "" }, "/x/hand-desktop"); err == nil {
 		t.Fatal("no home accepted")
 	}
