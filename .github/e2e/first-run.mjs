@@ -185,6 +185,12 @@ async function board(box, srv, made) {
   equal(home.status, 200, 'the paired phone opens the fleet page');
   matches(home.text, /rel="manifest"/, 'behind the proxy headers the page offers the install manifest');
   matches(home.text, /data-worker/, 'behind the proxy headers the page registers its worker');
+  const feed = await phone.get(`/${id}/alerts/feed?wait=0`);
+  equal(feed.status, 200, 'the paired phone reads the alert feed');
+  matches(feed.headers.get('content-type') ?? '', /^application\/json/, 'the feed is JSON');
+  check(feed.headers.get('content-length') === String(Buffer.byteLength(feed.text)), 'the feed has a Content-Length');
+  const feedBody = JSON.parse(feed.text);
+  equal([feedBody.version, feedBody.fleet.id, Array.isArray(feedBody.alerts), typeof feedBody.cursor], [1, id, true, 'number'], 'the feed names its version and fleet');
   const rail = await phone.get('/');
   equal(rail.status, 200, 'the paired phone opens the fleet list');
   matches(rail.text, new RegExp(`href="/${id}/"`), 'the rail lists the fleet the phone is paired with');
@@ -206,6 +212,9 @@ async function board(box, srv, made) {
   const worker = (await new Client(origin, proxy).get('/sw.js')).text;
   matches(worker, /^const BUILD = "[0-9a-f]{12}";/, 'the worker carries a build hash');
 
+  const alerts = await laptop.get(`/${id}/alerts`);
+  equal(alerts.status, 200, 'the laptop opens the Alerts page');
+  matches(textOf(alerts.text), /Alerts The last 7 days/, 'the Alerts page says what it lists');
   const listed = await laptop.get(`/${id}/connect`);
   matches(textOf(listed.text), /E2E phone/, 'the laptop lists the paired phone');
   const phoneId = listed.text.match(/action="[^"]*\/connect\/revoke"><input type="hidden" name="csrf" value="[^"]*"><input type="hidden" name="id" value="(\d+)"/)?.[1];
@@ -216,6 +225,7 @@ async function board(box, srv, made) {
   equal(gone.status, 403, 'the revoked phone is refused at once');
   matches(textOf(gone.text), /no longer paired/, 'the refusal says the phone is no longer paired');
   check(!gone.text.includes('Fix the login redirect'), 'the refusal shows nothing of the fleet');
+  equal((await phone.get(`/${id}/alerts/feed?wait=0`)).status, 403, 'the revoked phone is refused the alert feed');
   equal((await laptop.get(`/${id}/`)).status, 200, 'the laptop stays signed in after the revoke');
 
   const doctor = toon((await box.hand(['doctor'])).out).tables.checks;

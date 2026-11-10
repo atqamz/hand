@@ -185,6 +185,8 @@ The same holds for `task.parent_id`, which is schema 20: a `hand` older than thi
 
 The same holds for the `attempt_status` index, which is schema 21 (`newer than this hand (20)`).
 
+The same holds for the `alert` table, which is schema 22: a `hand` older than this refuses a database migrated to it (`newer than this hand (21)`), and going back needs a restored backup.
+
 ### Shared folder
 
 `~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `index/<fleet id>` is a bookmark that holds the path of that fleet's home, written by a temporary file and a rename so it works on a filesystem without hard links, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the Luvus copies that servers started before the fleet kept its own, `backups/hand.<stamp>` holds the old binaries, `models/` is the machine-wide freshness gate of the [model list](#model-list), `board.addr` records where the running board listens, `board.generation` holds the running board's `PID MARKER` for the supervisor work it owns, `board.peer` holds the [peer preface](#peer-preface) secret, `board.iroh` holds the board's [`--iroh`](#phone-access-over-iroh) setting and the sidecar's last state, `iroh/` holds the sidecar's endpoint key (one per board, and a board serves every fleet, so it stays here), `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER BINARY`. `update.lock` is the lock a `hand update` holds, `update.log` the last automatic update's output, and `board.update-every` the board's `--update-every` for the board `hand update` restarts. A fleet home also holds `watch.pid` for its running watcher. `hand update`, `hand board stop` and `hand watch stop` stop the processes these files name, only while the recorded start time and binary still match.
@@ -357,6 +359,7 @@ Only `claude` supports it. `hand attempt start --mcp` refuses any other harness 
 - prunes the inbox folder once a UTC day when `routing.json` sets `inbox.keep`, as `hand inbox prune --older-than KEEP` does, and writes the day to `inbox/.trash/.pruned` so a restart that day does not prune again; it logs only the files that failed, which wait for the next day's run; while `routing.json` is invalid it says so once and does not prune;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), when a decision is asked while it runs, and once per stall episode, on the first stall wake at or after 60 minutes idle;
+- records each alert it sends in the `alert` table, the [alert feed](#alert-feed), at the same place in the code and under the same conditions;
 - sends each alert through the `notify` command in `routing.json` (an argv; `HAND_NOTIFY_KIND`, `HAND_NOTIFY_REF`, `HAND_NOTIFY_TEXT`, `HAND_NOTIFY_URL` (the page on the laptop) and `HAND_NOTIFY_APP_URL` (the [open link](#open-link)) in its environment), else through `notify-send` (on macOS, `osascript`; on Windows, none), unless `--notify=false`. On Linux the `notify-send` notification offers **Open**, which opens the item's address with the OS opener; Hand waits up to 10 minutes for the click, keeps at most 8 waiting at once, and sends a plain notification when `notify-send` lacks `--action` and `--wait` (checked once with `notify-send --help`), when the click command fails without printing the action, or when `board.addr` is not a board address (a loopback host with an explicit port; no login, query or fragment).
 
 The running board keeps it alive. `hand unit board` prints the board's systemd user unit on Linux, and exits 2 on macOS and Windows.
@@ -365,7 +368,7 @@ The running board keeps it alive. `hand unit board` prints the board's systemd u
 
 ### Event and cursor
 
-Every state change is one transaction that also appends an event with a sequence number, a kind such as `task.active` or `attempt.reported`, a task and a detail. A cursor is the sequence number of the last event seen. `hand orient` prints the current one.
+Every state change is one transaction that also appends an event with a sequence number, a kind such as `task.active` or `attempt.reported`, a task and a detail. The one exception is an `alert` row, written without an event because the change it announces has its own. A cursor is the sequence number of the last event seen. `hand orient` prints the current one.
 
 ### Wake
 
@@ -520,6 +523,10 @@ What the Phone page shows, as a QR code and as text, to pair the Companion app: 
 ### Open link
 
 What an alert sends to open an item in the Hand app: `handboard://open/<fleet id>/<page>`, with `<page>` empty for the fleet page, `task/tN`, `decision/dN` or `attempt/aN`, and `#rN` after `task/tN` for a report. Hand puts it in `HAND_NOTIFY_APP_URL` and prints it as `app` with `hand open --print`. It holds no token, code or endpoint ID. The host `open` keeps it apart from the [companion link](#companion-link), whose host is `c`. The grammar and its test vectors are in [`companion.md`](companion.md#the-open-link).
+
+### Alert feed
+
+The `alert` table of `hand.db` and the route that serves it to the Hand app: `GET /<fleet id>/alerts/feed?after=SEQ&wait=25` on the [peer listener](#peer-listener), held for at most 25 seconds. The watcher writes a row (`seq`, `at`, `kind`, `ref`, `task_id`, `text`, `link`) for every alert it sends to `notify`, so the feed is exactly what `notify` gets, and Hand keeps 7 days. It is not the event log: its rows are not events, appear on no task page and in no API response, and an alert is written without an event of its own because the change it announces already has one. Each row also has `fetched_at`, when the Board wrote it to an answer, and `acked_at`, when the next request arrived with `after` at or past its `seq`; `/<fleet id>/alerts` lists them with the delay between raising and acknowledging. See [`alerts.md`](alerts.md) and the [contract](companion.md#the-alert-feed).
 
 ### Board app
 

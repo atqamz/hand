@@ -57,6 +57,218 @@
       "relay"
     ]
   },
+  "alerts": {
+    "route": "GET /<fleet id>/alerts/feed?after=<seq>&wait=<seconds>",
+    "wait_seconds_max": 25,
+    "batch_max": 50,
+    "window_hours": 24,
+    "keep_days": 7,
+    "text_max_runes": 200,
+    "response_fields": [
+      "version",
+      "fleet",
+      "cursor",
+      "more",
+      "alerts"
+    ],
+    "alert_fields": [
+      "seq",
+      "at",
+      "kind",
+      "ref",
+      "text",
+      "link"
+    ],
+    "kinds": [
+      "decision.asked",
+      "attempt.blocked",
+      "attempt.quiet",
+      "attempt.limited",
+      "attempt.exited",
+      "attempt.stopped",
+      "attempt.failed",
+      "attempt.interrupted",
+      "attempt.long",
+      "supervisor.blocked",
+      "supervisor.limited",
+      "supervisor.stalled"
+    ],
+    "exchanges": [
+      {
+        "name": "the first poll gets the cursor, never the history",
+        "given": [
+          {
+            "kind": "decision.asked",
+            "ref": "d3",
+            "text": "t3 decision: Keep the old cookie name?",
+            "link": "handboard://open/f0123456789ab/decision/d3"
+          },
+          {
+            "kind": "attempt.blocked",
+            "ref": "a7",
+            "text": "a7 blocked: Do you want to proceed?",
+            "link": "handboard://open/f0123456789ab/attempt/a7"
+          },
+          {
+            "kind": "supervisor.stalled",
+            "ref": "supervisor",
+            "text": "s1 stalled: t1 is active, no attempt is running, idle 20m",
+            "link": "handboard://open/f0123456789ab/"
+          }
+        ],
+        "request": "?wait=25",
+        "status": 200,
+        "body": {
+          "version": 1,
+          "fleet": {
+            "id": "f0123456789ab",
+            "name": "hand"
+          },
+          "cursor": 3,
+          "more": false,
+          "alerts": []
+        }
+      },
+      {
+        "name": "a poll after the cursor gets what came later",
+        "given": [
+          {
+            "kind": "decision.asked",
+            "ref": "d3",
+            "text": "t3 decision: Keep the old cookie name?",
+            "link": "handboard://open/f0123456789ab/decision/d3"
+          },
+          {
+            "kind": "attempt.blocked",
+            "ref": "a7",
+            "text": "a7 blocked: Do you want to proceed?",
+            "link": "handboard://open/f0123456789ab/attempt/a7"
+          },
+          {
+            "kind": "supervisor.stalled",
+            "ref": "supervisor",
+            "text": "s1 stalled: t1 is active, no attempt is running, idle 20m",
+            "link": "handboard://open/f0123456789ab/"
+          }
+        ],
+        "request": "?after=1&wait=25",
+        "status": 200,
+        "body": {
+          "version": 1,
+          "fleet": {
+            "id": "f0123456789ab",
+            "name": "hand"
+          },
+          "cursor": 3,
+          "more": false,
+          "alerts": [
+            {
+              "seq": 2,
+              "at": "2026-10-22T12:00:00Z",
+              "kind": "attempt.blocked",
+              "ref": "a7",
+              "text": "a7 blocked: Do you want to proceed?",
+              "link": "handboard://open/f0123456789ab/attempt/a7"
+            },
+            {
+              "seq": 3,
+              "at": "2026-10-22T12:00:00Z",
+              "kind": "supervisor.stalled",
+              "ref": "supervisor",
+              "text": "s1 stalled: t1 is active, no attempt is running, idle 20m",
+              "link": "handboard://open/f0123456789ab/"
+            }
+          ]
+        }
+      },
+      {
+        "name": "a poll at the latest cursor with wait 0 is the empty heartbeat",
+        "given": [
+          {
+            "kind": "decision.asked",
+            "ref": "d3",
+            "text": "t3 decision: Keep the old cookie name?",
+            "link": "handboard://open/f0123456789ab/decision/d3"
+          },
+          {
+            "kind": "attempt.blocked",
+            "ref": "a7",
+            "text": "a7 blocked: Do you want to proceed?",
+            "link": "handboard://open/f0123456789ab/attempt/a7"
+          },
+          {
+            "kind": "supervisor.stalled",
+            "ref": "supervisor",
+            "text": "s1 stalled: t1 is active, no attempt is running, idle 20m",
+            "link": "handboard://open/f0123456789ab/"
+          }
+        ],
+        "request": "?after=3&wait=0",
+        "status": 200,
+        "body": {
+          "version": 1,
+          "fleet": {
+            "id": "f0123456789ab",
+            "name": "hand"
+          },
+          "cursor": 3,
+          "more": false,
+          "alerts": []
+        }
+      },
+      {
+        "name": "a cursor above the latest is answered like a first poll",
+        "given": [
+          {
+            "kind": "decision.asked",
+            "ref": "d3",
+            "text": "t3 decision: Keep the old cookie name?",
+            "link": "handboard://open/f0123456789ab/decision/d3"
+          },
+          {
+            "kind": "attempt.blocked",
+            "ref": "a7",
+            "text": "a7 blocked: Do you want to proceed?",
+            "link": "handboard://open/f0123456789ab/attempt/a7"
+          },
+          {
+            "kind": "supervisor.stalled",
+            "ref": "supervisor",
+            "text": "s1 stalled: t1 is active, no attempt is running, idle 20m",
+            "link": "handboard://open/f0123456789ab/"
+          }
+        ],
+        "request": "?after=9&wait=25",
+        "status": 200,
+        "body": {
+          "version": 1,
+          "fleet": {
+            "id": "f0123456789ab",
+            "name": "hand"
+          },
+          "cursor": 3,
+          "more": false,
+          "alerts": []
+        }
+      },
+      {
+        "name": "a poll with nothing raised yet",
+        "given": [],
+        "request": "?wait=0",
+        "status": 200,
+        "body": {
+          "version": 1,
+          "fleet": {
+            "id": "f0123456789ab",
+            "name": "hand"
+          },
+          "cursor": 0,
+          "more": false,
+          "alerts": []
+        }
+      }
+    ]
+  },
   "valid": [
     {
       "name": "minimal, no relay",

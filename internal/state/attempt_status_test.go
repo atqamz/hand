@@ -32,7 +32,7 @@ func TestAVersion20DatabaseOnDiskMigratesToTwentyOneAndLiveAttemptsUseTheStatusI
 			t.Fatal(err)
 		}
 		var v, idx int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 21 {
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 			t.Fatalf("user_version = %d, %v", v, err)
 		}
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'attempt_status'`).Scan(&idx); err != nil || idx != 1 {

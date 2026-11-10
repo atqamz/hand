@@ -35,6 +35,7 @@ const scenes = [
   ['cleanup', fleet('014')],
   ['screen', `${fleet('016')}supervisor`],
   ['phone', `${fleet('015')}connect`],
+  ['alerts', `${fleet('017')}alerts`],
   ['menu', fleet('010'), ['details.nav-menu > summary'], 600],
   ['dialog', fleet('012'), ['?nav.tabs a[data-tab="tasks"]', '[data-region="tasks"] a[href*="/task/"]']],
   ['document', `${fleet('012')}doc/reports/t287/design.md`],
