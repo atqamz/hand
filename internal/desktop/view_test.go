@@ -1128,6 +1128,10 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Send")
 		}},
 		{"13-supervisor-controls", newApp(t, blocked), nil},
+		{"14-open-error", homedApp(t, "/very/long/path/to/a-fleet"), func(t *testing.T, tt *ui.Tester) {
+			t.Setenv("PATH", t.TempDir())
+			click(t, tt, "Open in browser")
+		}},
 	}
 	for _, sc := range scenes {
 		t.Run(sc.name, func(t *testing.T) {
