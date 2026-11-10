@@ -363,8 +363,14 @@ func claudeLog(t *testing.T, fx *fixture, lines []string) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(f.Name(), filepath.Join(dir, claudeSession+".jsonl")); err != nil {
-		t.Fatal(err)
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		err := os.Rename(f.Name(), filepath.Join(dir, claudeSession+".jsonl"))
+		if err == nil {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatal(err)
+		}
 	}
 }
 
