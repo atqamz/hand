@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -46,7 +47,11 @@ type peerConn struct {
 	read     atomic.Int64
 	requests atomic.Int64
 	paired   atomic.Bool
+	gone     chan struct{}
+	goneOnce sync.Once
 }
+
+func (c *peerConn) drop() { c.goneOnce.Do(func() { close(c.gone) }) }
 
 func peerOf(r *http.Request) *peerConn {
 	c, _ := r.Context().Value(peerKey{}).(*peerConn)
@@ -73,6 +78,10 @@ func (c *peerConn) Read(p []byte) (int, error) {
 		return 0, c.err
 	}
 	n, err := c.br.Read(p)
+	var timeout net.Error
+	if err != nil && err != io.EOF && !(errors.As(err, &timeout) && timeout.Timeout()) {
+		c.drop()
+	}
 	if c.read.Add(int64(n)) > peerBytes && !c.paired.Load() {
 		_ = c.Close()
 		return 0, silentClose
@@ -82,6 +91,7 @@ func (c *peerConn) Read(p []byte) (int, error) {
 
 func (c *peerConn) Close() error {
 	c.closed.Store(true)
+	c.drop()
 	if c.peer != nil {
 		c.peer.untrack(c)
 	}
@@ -123,7 +133,7 @@ func (l peerListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &peerConn{Conn: c, peer: l.peer, br: bufio.NewReaderSize(c, prefaceMax), secret: l.secret}, nil
+	return &peerConn{Conn: c, peer: l.peer, br: bufio.NewReaderSize(c, prefaceMax), secret: l.secret, gone: make(chan struct{})}, nil
 }
 
 type Peer struct {
@@ -200,6 +210,16 @@ func carriesPhoneCookie(r *http.Request) bool {
 func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	harden(w)
 	c := peerOf(r)
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	defer cancel()
+	go func() {
+		select {
+		case <-c.gone:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	r = r.WithContext(ctx)
 	funnel := viaFunnel(r)
 	for k := range r.Header {
 		if k == "Forwarded" || strings.HasPrefix(k, "X-Forwarded-") || strings.HasPrefix(k, "Tailscale-") {

@@ -59,6 +59,7 @@ type peerClient struct {
 	conn net.Conn
 	br   *bufio.Reader
 	line string
+	half bool
 }
 
 func (r *peerRig) dial(preface string) *peerClient {
@@ -114,6 +115,11 @@ func (c *peerClient) send(method, path string, form url.Values, headers map[stri
 	}
 	if err := req.Write(c.conn); err != nil {
 		return peerReply{}, err
+	}
+	if c.half {
+		if err := c.conn.(*net.TCPConn).CloseWrite(); err != nil {
+			return peerReply{}, err
+		}
 	}
 	res, err := http.ReadResponse(c.br, req)
 	if err != nil {
@@ -199,6 +205,18 @@ func TestAPairedPeerReachesTheWholeBoardWithControls(t *testing.T) {
 	}
 	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); !composeRe.MatchString(rep.Body) {
 		t.Fatalf("the supervisor composer is off for a paired peer:\n%s", rep.Body)
+	}
+}
+
+func TestAPairedPeerThatEndsItsSendSideStillGetsTheAnswer(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	phone := r.mustPair(r.as(peerA), f)
+	c := r.as(peerA)
+	c.half = true
+	rep := c.do("GET", "/"+f.id+"/connect", nil, nil, phone)
+	if rep.Code != http.StatusOK {
+		t.Fatalf("/connect after a half-close = %d:\n%s", rep.Code, rep.Body)
 	}
 }
 
