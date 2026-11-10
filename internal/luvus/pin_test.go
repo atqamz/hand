@@ -269,3 +269,35 @@ func TestMatch(t *testing.T) {
 		}
 	}
 }
+
+func TestAFleetPinRefusesAnAbsolutePath(t *testing.T) {
+	store, bin := t.TempDir(), fakeLuvus(t, "0.14.3", "")
+	raw := `{"path":` + strconv.Quote(bin) + `,"sha256":"` + sum(t, bin) + `","version":"0.14.3"}`
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadFleetPin(store); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok, err := luvus.LoadPin(store); err != nil || !ok {
+		t.Fatalf("the machine pin must keep absolute paths: %v %v", ok, err)
+	}
+}
+
+func TestAFleetPinRefusesASymlinkLeadingOutside(t *testing.T) {
+	store, outside := t.TempDir(), fakeLuvus(t, "0.14.3", "")
+	link := filepath.Join(store, "0.14.3-link")
+	if err := os.Symlink(filepath.Dir(outside), link); err != nil {
+		t.Skipf("no symlinks: %v", err)
+	}
+	raw := `{"path":"0.14.3-link/` + filepath.Base(outside) + `","sha256":"` + sum(t, outside) + `","version":"0.14.3"}`
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadFleetPin(store); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "outside its folder") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok, err := luvus.LoadPin(store); err != nil || !ok {
+		t.Fatalf("LoadPin is lexical: %v %v", ok, err)
+	}
+}

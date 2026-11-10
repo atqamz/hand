@@ -36,7 +36,11 @@ var versionLine = regexp.MustCompile(`^luvus (\d+\.\d+\.\d+)$`)
 
 func pinFile(store string) string { return filepath.Join(store, "pin.json") }
 
-func LoadPin(store string) (Pin, bool, error) {
+func LoadPin(store string) (Pin, bool, error) { return loadPin(store, false) }
+
+func LoadFleetPin(store string) (Pin, bool, error) { return loadPin(store, true) }
+
+func loadPin(store string, inside bool) (Pin, bool, error) {
 	b, err := os.ReadFile(pinFile(store))
 	if errors.Is(err, os.ErrNotExist) {
 		return Pin{}, false, nil
@@ -48,6 +52,9 @@ func LoadPin(store string) (Pin, bool, error) {
 	if err != nil {
 		return Pin{}, false, fmt.Errorf("%w: cannot read %s (%v); re-pin with `hand luvus pin`", ErrPinChanged, pinFile(store), err)
 	}
+	if inside && filepath.IsAbs(p.Path) {
+		return Pin{}, false, fmt.Errorf("%w: %s names the absolute path %q; a fleet's pin stays inside its folder; re-pin with `hand luvus pin`", ErrPinChanged, pinFile(store), p.Path)
+	}
 	if !filepath.IsAbs(p.Path) {
 		rel := filepath.FromSlash(p.Path)
 		if !filepath.IsLocal(rel) {
@@ -55,7 +62,30 @@ func LoadPin(store string) (Pin, bool, error) {
 		}
 		p.Path = filepath.Join(store, rel)
 	}
+	if inside {
+		if err := resolvesInside(store, p.Path); err != nil {
+			return Pin{}, false, fmt.Errorf("%w: %s: %v; re-pin with `hand luvus pin`", ErrPinChanged, pinFile(store), err)
+		}
+	}
 	return p, true, nil
+}
+
+func resolvesInside(store, path string) error {
+	real, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	base, err := filepath.EvalSymlinks(store)
+	if err != nil {
+		return err
+	}
+	if rel, err := filepath.Rel(base, real); err != nil || !filepath.IsLocal(rel) {
+		return fmt.Errorf("%s resolves to %s, outside its folder", path, real)
+	}
+	return nil
 }
 
 func BinaryVersion(ctx context.Context, bin string, env []string) (string, error) {

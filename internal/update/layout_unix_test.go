@@ -105,3 +105,85 @@ func TestEachFleetGetsItsOwnNewerPin(t *testing.T) {
 		t.Fatalf("the machine pin changed: %+v", old)
 	}
 }
+
+func fleetNamed(t *testing.T, rep Report, name string) FleetResult {
+	t.Helper()
+	for _, fr := range rep.Fleets {
+		if fr.Name == name {
+			return fr
+		}
+	}
+	t.Fatalf("no %s in %+v", name, rep.Fleets)
+	return FleetResult{}
+}
+
+func TestCheckPlansTheSwitchPerFleetFromItsOwnPin(t *testing.T) {
+	f := newCycle(t)
+	f.current()
+	_, beta := newFleet(t, f.root, "beta")
+	keepLuvusIn(t, fleet.LuvusStore(f.alpha), "0.14.3")
+	keepLuvusIn(t, fleet.LuvusStore(beta), "0.14.4")
+	f.mu.Lock()
+	f.version = "0.14.4"
+	f.mu.Unlock()
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fleetNamed(t, rep, "beta").Luvus; got != "kept" {
+		t.Fatalf("beta already holds the release's Luvus; report says %q", got)
+	}
+}
+
+func TestOneFleetsBadPinDoesNotStopTheOthers(t *testing.T) {
+	f := newFetch(t)
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	_, a := newFleet(t, f.root, "alpha")
+	_, b := newFleet(t, f.root, "beta")
+	store := fleet.LuvusStore(a)
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "pin.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Failed || !strings.HasPrefix(fleetNamed(t, rep, "alpha").Luvus, "failed: ") {
+		t.Fatalf("report = %+v", rep)
+	}
+	if pin, ok, err := luvus.LoadPin(fleet.LuvusStore(b)); err != nil || !ok || pin.Version != "0.14.4" {
+		t.Fatalf("beta pin = %+v %v %v", pin, ok, err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(store, "pin.json")); string(raw) != "not json" {
+		t.Fatalf("alpha's pin.json was rewritten: %q", raw)
+	}
+}
+
+func TestAPinThatCannotBeKeptForOneFleetDoesNotStopTheOthers(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permissions")
+	}
+	f := newFetch(t)
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	_, a := newFleet(t, f.root, "alpha")
+	_, b := newFleet(t, f.root, "beta")
+	locked := filepath.Join(a, "luvus")
+	if err := os.Mkdir(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Failed || !strings.HasPrefix(fleetNamed(t, rep, "alpha").Luvus, "failed: ") {
+		t.Fatalf("report = %+v", rep)
+	}
+	if pin, ok, err := luvus.LoadPin(fleet.LuvusStore(b)); err != nil || !ok || pin.Version != "0.14.4" {
+		t.Fatalf("beta pin = %+v %v %v", pin, ok, err)
+	}
+}

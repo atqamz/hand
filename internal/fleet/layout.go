@@ -21,6 +21,8 @@ func LuvusStore(home string) string {
 	return filepath.Join(home, "luvus", runtime.GOOS+"-"+runtime.GOARCH)
 }
 
+const backupsMarker = ".migrated"
+
 func Backups(home string) string { return filepath.Join(home, "backups") }
 
 func ModelsCache(home string) string { return filepath.Join(home, "cache", "models") }
@@ -33,7 +35,7 @@ func OldModels(root string) string { return filepath.Join(root, "models") }
 
 func LoadPin(root, home string) (luvus.Pin, bool, error) {
 	if home != "" {
-		pin, ok, err := luvus.LoadPin(LuvusStore(home))
+		pin, ok, err := luvus.LoadFleetPin(LuvusStore(home))
 		if ok || err != nil {
 			return pin, ok, err
 		}
@@ -53,14 +55,14 @@ func Migrate(ctx context.Context, root, id, home string, env []string, now time.
 		}
 	}
 	note(migratePin(ctx, root, home, env, now))
-	note(migrateFiles("backups", OldBackups(root, id), Backups(home), nil))
+	note(migrateBackups(root, id, home))
 	note(migrateFiles("models", OldModels(root), ModelsCache(home), func(name string) bool { return strings.HasSuffix(name, ".json") }))
 	return lines, errors.Join(errs...)
 }
 
 func migratePin(ctx context.Context, root, home string, env []string, now time.Time) (string, error) {
 	store := LuvusStore(home)
-	if _, ok, err := luvus.LoadPin(store); ok || err != nil {
+	if _, ok, err := luvus.LoadFleetPin(store); ok || err != nil {
 		return "", nil
 	}
 	old, ok, err := luvus.LoadPin(OldLuvusStore(root))
@@ -75,6 +77,24 @@ func migratePin(ctx context.Context, root, home string, env []string, now time.T
 		return "", fmt.Errorf("the machine's Luvus pin was not copied into the fleet (%w); the machine copy stays in use", err)
 	}
 	return fmt.Sprintf("luvus %s copied to %s; a running server keeps %s until it restarts", pin.Version, store, old.Path), nil
+}
+
+func migrateBackups(root, id, home string) (string, error) {
+	marker := filepath.Join(Backups(home), backupsMarker)
+	if _, err := os.Lstat(marker); err == nil {
+		return "", nil
+	}
+	if _, err := os.Stat(OldBackups(root, id)); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	line, err := migrateFiles("backups", OldBackups(root, id), Backups(home), nil)
+	if err != nil {
+		return line, err
+	}
+	if err := os.MkdirAll(Backups(home), 0o700); err != nil {
+		return line, err
+	}
+	return line, os.WriteFile(marker, nil, 0o600)
 }
 
 func migrateFiles(label, from, to string, keep func(string) bool) (string, error) {
@@ -126,6 +146,12 @@ func copyInto(src, dir, name string) error {
 		err = cerr
 	}
 	if err == nil {
+		var fi os.FileInfo
+		if fi, err = in.Stat(); err == nil {
+			err = os.Chtimes(tmp.Name(), fi.ModTime(), fi.ModTime())
+		}
+	}
+	if err == nil {
 		err = fsx.Rename(tmp.Name(), filepath.Join(dir, name))
 	}
 	if err != nil {
@@ -151,7 +177,7 @@ func RestorePoints(root, id, home string) []string {
 			}
 			if fi, err := de.Info(); err == nil && fi.Mode().IsRegular() && !seen[name] {
 				seen[name] = true
-				found = append(found, restorePoint{filepath.Join(dir, name), fi.ModTime()})
+				found = append(found, restorePoint{filepath.Join(dir, name), stampOf(name, fi.ModTime())})
 			}
 		}
 	}
@@ -161,4 +187,19 @@ func RestorePoints(root, id, home string) []string {
 		out[i] = f.path
 	}
 	return out
+}
+
+func stampOf(name string, fallback time.Time) time.Time {
+	stamp, ok := strings.CutPrefix(name, "hand.db.")
+	if !ok {
+		stamp = strings.TrimSuffix(strings.TrimPrefix(name, "hand-"), ".db")
+	}
+	for _, layout := range []string{"20060102T150405", "20060102"} {
+		if len(stamp) == len(layout) {
+			if at, err := time.Parse(layout, stamp); err == nil {
+				return at
+			}
+		}
+	}
+	return fallback
 }

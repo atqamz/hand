@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -142,12 +142,24 @@ func (r *runner) migrateLayout() {
 		return
 	}
 	r.migrated = true
-	lines, err := fleet.Migrate(r.ctx(), r.root, r.fleet.ID, r.home, r.env.Environ(), r.env.Now())
+	now := r.env.Now()
+	failed := filepath.Join(r.home, "cache", ".migration-failed")
+	fi, statErr := os.Stat(failed)
+	if statErr == nil && now.Sub(fi.ModTime()) < 24*time.Hour {
+		return
+	}
+	lines, err := fleet.Migrate(r.ctx(), r.root, r.fleet.ID, r.home, r.env.Environ(), now)
 	for _, line := range lines {
 		fmt.Fprintln(r.env.Stderr, "hand: migrated "+line)
 	}
-	if err != nil {
-		fmt.Fprintln(r.env.Stderr, "hand: layout migration: "+err.Error())
+	switch {
+	case err != nil:
+		fmt.Fprintln(r.env.Stderr, "hand: layout migration: "+err.Error()+"; the next try is tomorrow, or run `hand init`")
+		if os.MkdirAll(filepath.Dir(failed), 0o700) == nil && os.WriteFile(failed, nil, 0o600) == nil {
+			_ = os.Chtimes(failed, now, now)
+		}
+	case statErr == nil:
+		_ = os.Remove(failed)
 	}
 }
 
@@ -303,11 +315,15 @@ func cmdInit(r *runner, args []string) error {
 	if merr != nil {
 		help = append(help, "Part of the layout migration failed: "+merr.Error())
 	}
-	switch pin, had, err := luvus.LoadPin(store); {
+	switch pin, had, err := fleet.LoadPin(root, r.home); {
 	case err != nil:
 		help = append(help, "The Luvus pin is unusable: "+err.Error())
 	case had:
-		d.Field("luvus", pin.Version+" (pinned)")
+		label := pin.Version + " (pinned)"
+		if !within(pin.Path, store) {
+			label = pin.Version + " (pinned, machine copy " + pin.Path + ")"
+		}
+		d.Field("luvus", label)
 	default:
 		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
 		if err != nil {

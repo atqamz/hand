@@ -119,7 +119,7 @@ func TestMigrateCopiesTheOldLayoutIntoTheFleetAndLeavesTheMachineSideAlone(t *te
 	if got := readAll(t, filepath.Join(fleet.Backups(o.home), "hand-20261102.db")); got != "daily snapshot" {
 		t.Fatalf("snapshot = %q", got)
 	}
-	if got := names(t, fleet.Backups(o.home)); !slices.Equal(got, []string{"hand-20261102.db", "hand.db.20261101T010203"}) {
+	if got := names(t, fleet.Backups(o.home)); !slices.Equal(got, []string{".migrated", "hand-20261102.db", "hand.db.20261101T010203"}) {
 		t.Fatalf("fleet backups = %q (a .tmp leftover must not travel)", got)
 	}
 	if got := names(t, fleet.ModelsCache(o.home)); !slices.Equal(got, []string{"codex.json"}) {
@@ -172,15 +172,21 @@ func TestMigrateIsIdempotentAndNeverOverwritesTheFleet(t *testing.T) {
 	}
 }
 
-func TestMigrateBringsOnlyWhatIsMissing(t *testing.T) {
+func TestMigrateBringsOnlyWhatIsMissingUntilItCompletedOnce(t *testing.T) {
 	o := fixtureOldLayout(t)
-	if _, err := o.migrate(t); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(fleet.OldBackups(o.root, o.id), "hand-20261104.db"), "written by an old watcher after the first run")
+	mine := filepath.Join(fleet.Backups(o.home), "hand-20261102.db")
+	writeFile(t, mine, "the fleet's own")
 	lines, err := o.migrate(t)
-	if err != nil || len(lines) != 1 || !strings.HasPrefix(lines[0], "backups: 1 files copied") {
+	if err != nil || len(lines) != 3 || !strings.HasPrefix(lines[1], "backups: 1 files copied") {
 		t.Fatalf("Migrate = %q, %v", lines, err)
+	}
+	late := filepath.Join(fleet.OldBackups(o.root, o.id), "hand-20261104.db")
+	writeFile(t, late, "written by a rolled-back hand after the first run")
+	if lines, err = o.migrate(t); err != nil || len(lines) != 0 {
+		t.Fatalf("second Migrate = %q, %v", lines, err)
+	}
+	if got := fleet.RestorePoints(o.root, o.id, o.home); !slices.Contains(got, late) {
+		t.Fatalf("RestorePoints = %q lacks the machine-side backup", got)
 	}
 }
 
@@ -285,5 +291,68 @@ func TestRestorePointsFindOldAndNewBackupsNewestFirst(t *testing.T) {
 	}
 	if bytes.Contains([]byte(strings.Join(fleet.RestorePoints(o.root, o.id, o.home), "\n")), []byte("hand.20261101")) {
 		t.Fatal("the hand binary backup is not a database restore point")
+	}
+}
+
+func TestMigrateCopiesBackupsOnceSoAPrunedOneStaysGone(t *testing.T) {
+	o := fixtureOldLayout(t)
+	newest := filepath.Join(fleet.Backups(o.home), "hand.db.20261110T000000")
+	if _, err := o.migrate(t); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, newest, "after the update")
+	for _, name := range []string{"hand.db.20261101T010203", "hand-20261102.db"} {
+		if err := os.Remove(filepath.Join(fleet.Backups(o.home), name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lines, err := o.migrate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "backups:") {
+			t.Fatalf("the pruned backups were copied again: %q", lines)
+		}
+	}
+	got := fleet.RestorePoints(o.root, o.id, o.home)
+	if len(got) == 0 || got[0] != newest {
+		t.Fatalf("RestorePoints = %q, newest should be %s", got, newest)
+	}
+	if _, err := os.Lstat(filepath.Join(fleet.Backups(o.home), "hand-20261102.db")); err == nil {
+		t.Fatal("a pruned snapshot came back")
+	}
+}
+
+func TestMigrateKeepsTheModTimeOfACopiedFile(t *testing.T) {
+	o := fixtureOldLayout(t)
+	src := filepath.Join(fleet.OldBackups(o.root, o.id), "hand.db.20261101T010203")
+	at := layoutNow.Add(-240 * time.Hour)
+	if err := os.Chtimes(src, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.migrate(t); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(fleet.Backups(o.home), "hand.db.20261101T010203"))
+	if err != nil || !fi.ModTime().Equal(at) {
+		t.Fatalf("copied mtime = %v, %v; want %v", fi.ModTime(), err, at)
+	}
+}
+
+func TestRestorePointsSortByTheStampInTheNameNotTheModTime(t *testing.T) {
+	o := fixtureOldLayout(t)
+	dir := fleet.Backups(o.home)
+	older, newer := filepath.Join(dir, "hand.db.20261105T000000"), filepath.Join(dir, "hand-20261108.db")
+	writeFile(t, older, "a")
+	writeFile(t, newer, "b")
+	if err := os.Chtimes(newer, layoutNow.Add(-48*time.Hour), layoutNow.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(older, layoutNow, layoutNow); err != nil {
+		t.Fatal(err)
+	}
+	if got := fleet.RestorePoints(o.root, o.id, o.home); len(got) < 2 || got[0] != newer || got[1] != older {
+		t.Fatalf("RestorePoints = %q", got)
 	}
 }

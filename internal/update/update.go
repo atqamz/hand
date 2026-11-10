@@ -63,6 +63,8 @@ type Report struct {
 	Help           []string
 	Failed         bool
 	journal        journal
+	pinned         map[string]string
+	broken         map[string]string
 }
 
 func Target(exe string) (string, error) {
@@ -143,6 +145,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, err
 	}
 	pins := map[string]fleetPin{}
+	rep.pinned, rep.broken = map[string]string{}, map[string]string{}
 	rep.PinFrom = "none"
 	repin := false
 	for _, e := range fleets {
@@ -160,9 +163,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 		pin, pinned, err := fleet.LoadPin(o.Root, e.Home)
 		if err != nil {
-			return rep, err
+			rep.broken[e.ID] = err.Error()
+			rep.fail(fmt.Sprintf("the Luvus pin of %s is unusable (%v); its Luvus stays as it is, the other fleets went on", e.Name, err))
+			continue
 		}
 		pins[e.ID] = fleetPin{pin, pinned}
+		rep.pinned[e.ID] = pin.Version
 		if pinned && rep.PinFrom == "none" {
 			rep.PinFrom = pin.Version
 		}
@@ -283,14 +289,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 		hold()
 		for _, e := range fleets {
-			if e.State != "ok" || !Newer(rep.To.Luvus, pins[e.ID].pin.Version) {
+			if e.State != "ok" || rep.broken[e.ID] != "" || !Newer(rep.To.Luvus, pins[e.ID].pin.Version) {
 				continue
 			}
 			pin, err := luvus.Keep(ctx, fleet.LuvusStore(e.Home), bin, o.Env, o.Now())
 			if err != nil {
-				return rep, err
+				rep.broken[e.ID] = err.Error()
+				rep.fail(fmt.Sprintf("Luvus %s was not pinned for %s (%v); its Luvus stays as it is, the other fleets went on", rep.To.Luvus, e.Name, err))
+				continue
 			}
 			pins[e.ID] = fleetPin{pin, true}
+			rep.pinned[e.ID] = pin.Version
 			rep.PinTo = pin.Version
 		}
 	}
@@ -407,8 +416,13 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 			continue
 		}
 		homes = append(homes, e.Home)
+		if why := r.broken[e.ID]; why != "" {
+			fr.Luvus = "failed: " + why
+			r.Fleets = append(r.Fleets, fr)
+			continue
+		}
 		sv := server(e)
-		switchable := sv == "no" || o.Check && r.PinFrom != r.PinTo && sv != "not running" && sv != "unknown"
+		switchable := sv == "no" || o.Check && Newer(r.To.Luvus, r.pinned[e.ID]) && sv != "not running" && sv != "unknown"
 		why := ""
 		if switchable && !o.KeepLuvus {
 			why = o.ready(ctx, e, r.PinTo)

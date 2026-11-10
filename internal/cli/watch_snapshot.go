@@ -24,7 +24,10 @@ func (w *watcher) snapshot(ctx context.Context) {
 	}
 	dir := fleet.Backups(w.r.home)
 	path := filepath.Join(dir, "hand-"+day+".db")
-	err := os.MkdirAll(dir, 0o700)
+	err := os.Mkdir(dir, 0o700)
+	if errors.Is(err, os.ErrExist) {
+		err = nil
+	}
 	if _, statErr := os.Lstat(path); err == nil && statErr != nil {
 		tmp := path + ".tmp"
 		_ = os.Remove(tmp)

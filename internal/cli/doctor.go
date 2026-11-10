@@ -193,7 +193,7 @@ func (r *runner) doctorLayout(c *checks, root, id string) {
 		c.add("restore points", "info", fmt.Sprintf("%d hand.db backups, newest %s", len(points), points[0]))
 	}
 	var old []string
-	_, own, _ := luvus.LoadPin(fleet.LuvusStore(r.home))
+	_, own, _ := luvus.LoadFleetPin(fleet.LuvusStore(r.home))
 	if _, err := os.Stat(filepath.Join(fleet.OldLuvusStore(root), "pin.json")); err == nil && own {
 		old = append(old, "luvus/ (a running Luvus server may still run from it)")
 	}

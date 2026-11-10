@@ -52,6 +52,11 @@ func lookup(env []string) func(string) string {
 
 func keepLuvus(t *testing.T, root, version string) luvus.Pin {
 	t.Helper()
+	return keepLuvusIn(t, fleet.OldLuvusStore(root), version)
+}
+
+func keepLuvusIn(t *testing.T, store, version string) luvus.Pin {
+	t.Helper()
 	bin := filepath.Join(t.TempDir(), "luvus")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
@@ -59,7 +64,7 @@ func keepLuvus(t *testing.T, root, version string) luvus.Pin {
 	if err := os.WriteFile(bin, fakebin.Embed(t, "luvus", map[string]string{"version": version}), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pin, err := luvus.Keep(context.Background(), fleet.OldLuvusStore(root), bin, os.Environ(), time.Now())
+	pin, err := luvus.Keep(context.Background(), store, bin, os.Environ(), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

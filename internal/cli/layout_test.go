@@ -177,3 +177,45 @@ func TestDoctorShowsWhatIsMachineLocalAndWhatIsLeftOver(t *testing.T) {
 		t.Fatalf("rows = %q", names)
 	}
 }
+
+func TestInitPinsNothingNewWhenTheMachinePinCouldNotBeCopied(t *testing.T) {
+	h := newHarness(t)
+	noLuvusOnPath(h, t)
+	id := field(h.ok("init"), "id")
+	old := seedOldLayout(t, h, id)
+	if err := os.Remove(old.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old.Path, []byte("not what was pinned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pinnable(t, h, "0.14.9")
+	out := h.ok("init")
+	has(t, "init", out, "Part of the layout migration failed", `luvus: "0.14.3 (pinned, machine copy `)
+	if _, ok, _ := luvus.LoadPin(fleet.LuvusStore(h.home)); ok {
+		t.Fatal("init pinned a Luvus into the fleet over a machine pin it could not copy")
+	}
+}
+
+func TestAFailingMigrationSpeaksOncePerDayNotOnEveryCommand(t *testing.T) {
+	h := newHarness(t)
+	noLuvusOnPath(h, t)
+	id := field(h.ok("init"), "id")
+	old := seedOldLayout(t, h, id)
+	if err := os.Remove(old.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old.Path, []byte("not what was pinned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, _ := h.run("orient"); !strings.Contains(errOut, "layout migration") {
+		t.Fatalf("first command stderr = %q", errOut)
+	}
+	if _, errOut, _ := h.run("orient"); strings.Contains(errOut, "layout migration") {
+		t.Fatalf("second command repeated the failure: %q", errOut)
+	}
+	h.advance(25 * time.Hour)
+	if _, errOut, _ := h.run("orient"); !strings.Contains(errOut, "layout migration") {
+		t.Fatalf("a day later stderr = %q", errOut)
+	}
+}
