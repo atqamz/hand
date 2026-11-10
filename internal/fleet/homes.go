@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/atqamz/hand/internal/flock"
@@ -123,13 +125,37 @@ func renameSynced(tmp, dst string) error {
 
 func RefuseCopies(id string, homes []string) error {
 	for _, home := range homes {
-		info, err := os.Stat(filepath.Join(home, "hand.db"))
+		db := filepath.Join(home, "hand.db")
+		info, err := os.Stat(db)
 		switch {
-		case err == nil && info.Mode().IsRegular():
-			return fmt.Errorf("%w: fleet %s is also at %s, so one of the two homes is a copy; delete one of them", state.ErrConflict, id, home)
-		case err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
-			return err
+		case errors.Is(err, fs.ErrNotExist), errors.Is(err, fs.ErrPermission), errors.Is(err, syscall.ENOTDIR):
+			continue
+		case err != nil:
+			return fmt.Errorf("cannot look for a copy at %s: %v; if it is not this fleet's, remove it from %s", home, err, HomeFile)
+		case !info.Mode().IsRegular():
+			continue
+		}
+		other, err := copyID(db)
+		switch {
+		case err != nil:
+			return fmt.Errorf("cannot read %s to tell whether it is a copy of fleet %s: %v; move or delete that file, or remove %s from %s", db, id, err, home, HomeFile)
+		case other == id:
+			return fmt.Errorf("fleet %s is also at %s, so one of the two homes is a copy; delete one of them", id, home)
 		}
 	}
 	return nil
+}
+
+func copyID(db string) (string, error) {
+	st, err := state.OpenRead(db)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	f, err := st.Fleet(context.Background())
+	switch {
+	case errors.Is(err, state.ErrNotFound), err != nil && strings.Contains(err.Error(), "no such table"):
+		return "", nil
+	}
+	return f.ID, err
 }

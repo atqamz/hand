@@ -126,7 +126,13 @@ func (r *runner) claim(st *state.Store) error {
 			return err
 		}
 	}
-	if f, err = r.adoptOnOpen(st, f); err != nil {
+	if r.noAdopt {
+		if olds, due, err := adoptOlds(r.root, f, r.home, nil); err != nil {
+			return err
+		} else if due {
+			return r.claimUnadopted(f, olds)
+		}
+	} else if f, err = r.adoptOnOpen(st, f); err != nil {
 		return err
 	}
 	if err := fleet.Check(r.root, f.ID, r.home); err != nil {

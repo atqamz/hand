@@ -61,6 +61,7 @@ type runner struct {
 	genMu      sync.Mutex
 	refused    string
 	migrated   bool
+	noAdopt    bool
 }
 
 type usageError struct{ msg string }

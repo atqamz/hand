@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -704,5 +705,48 @@ func TestAReadOnlyMountCountsAsDenied(t *testing.T) {
 	}
 	if fleet.Denied(&fs.PathError{Op: "open", Path: "x", Err: syscall.ENOSPC}) || fleet.Denied(nil) {
 		t.Fatal("a full disk or no error counts as a refusal to write")
+	}
+}
+
+func TestRefuseCopiesRefusesOnlyTheSameFleet(t *testing.T) {
+	same, other, plain, empty, gone := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "gone")
+	f := home(t, same, "alpha")
+	g := home(t, other, "beta")
+	if err := os.WriteFile(filepath.Join(plain, "hand.db"), []byte("not a database at all, just text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(empty, "hand.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.RefuseCopies(f.ID, []string{other, empty, gone}); err != nil {
+		t.Fatalf("another fleet, an empty file and a missing folder refused: %v", err)
+	}
+	err := fleet.RefuseCopies(f.ID, []string{other, same})
+	if err == nil || !strings.Contains(err.Error(), "fleet "+f.ID+" is also at "+same) || errors.Is(err, state.ErrConflict) {
+		t.Fatalf("a copy of the same fleet: %v", err)
+	}
+	if err := fleet.RefuseCopies(g.ID, []string{same}); err != nil {
+		t.Fatalf("the first fleet refused the second: %v", err)
+	}
+	err = fleet.RefuseCopies(f.ID, []string{plain})
+	if err == nil || !strings.Contains(err.Error(), "cannot read "+filepath.Join(plain, "hand.db")) {
+		t.Fatalf("an unreadable database: %v", err)
+	}
+}
+
+func TestRefuseCopiesTreatsAnUnreadableFolderAsNotHere(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs a folder the user cannot enter")
+	}
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.MkdirAll(filepath.Join(locked, "fleet"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if err := fleet.RefuseCopies("f0123456789ab", []string{filepath.Join(locked, "fleet")}); err != nil {
+		t.Fatalf("an old home under a closed folder refused: %v", err)
 	}
 }

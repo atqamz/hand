@@ -22,8 +22,10 @@ var (
 	systemdRunWait   = 10 * time.Second
 )
 
-func (r *runner) watchHeld() (bool, error) {
-	f, err := os.OpenFile(filepath.Join(r.home, "watch.lock"), os.O_RDWR, 0)
+func (r *runner) watchHeld() (bool, error) { return watchLocked(r.home) }
+
+func watchLocked(home string) (bool, error) {
+	f, err := os.OpenFile(filepath.Join(home, "watch.lock"), os.O_RDWR, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

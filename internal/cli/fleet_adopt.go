@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,34 +33,46 @@ func adoptOlds(root string, f state.Fleet, home string, extra []string) (olds []
 			olds = append(olds, c)
 		}
 	}
-	return olds, due, nil
+	return olds, due && len(olds) > 0, nil
 }
 
-func adoptBlockers(ctx context.Context, st *state.Store, home, root string) ([]string, error) {
+func (r *runner) adoptBlockers(ctx context.Context, st *state.Store, f state.Fleet, home string, olds []string) ([]string, error) {
 	var blockers []string
 	if sup, ok, err := st.LiveSupervisor(ctx); err != nil {
 		return nil, err
 	} else if ok && sup.PID > 0 && rootAlive(sup.PID, sup.StartMarker) {
 		blockers = append(blockers, fmt.Sprintf("supervisor %s is running (pid %d); run `hand supervisor stop`", state.SupervisorRef(sup.ID), sup.PID))
 	}
-	if pid, _, _, live := update.LivePID(filepath.Join(home, "watch.pid")); live {
+	held, err := watchLocked(home)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		pid, _, _, _ := update.LivePID(filepath.Join(home, "watch.pid"))
 		blockers = append(blockers, fmt.Sprintf("the watcher is running (pid %d); run `hand watch stop`", pid))
 	}
-	if pid, _, _, live := update.LivePID(filepath.Join(root, "board.pid")); live {
-		blockers = append(blockers, fmt.Sprintf("the board is running (pid %d); run `hand board stop`", pid))
+	if registered, _ := fleet.Home(r.root, f.ID); registered != "" {
+		if pid, _, _, live := update.LivePID(filepath.Join(r.root, "board.pid")); live {
+			blockers = append(blockers, fmt.Sprintf("the board is running (pid %d) and serves this fleet; run `hand board stop`", pid))
+		}
+	}
+	for _, old := range olds {
+		if rel, err := filepath.Rel(old, home); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			blockers = append(blockers, fmt.Sprintf("the new home %s is inside the old home %s, so the rewritten paths would still name the old one; move the fleet out of %s first", home, old, old))
+		}
 	}
 	return blockers, nil
 }
 
-func adoptRefusal(ctx context.Context, st *state.Store, f state.Fleet, root, home string, olds []string) ([]string, error) {
+func (r *runner) adoptRefusal(ctx context.Context, st *state.Store, f state.Fleet, home string, olds []string) ([]string, error) {
 	if err := fleet.RefuseCopies(f.ID, olds); err != nil {
 		return []string{err.Error()}, nil
 	}
-	return adoptBlockers(ctx, st, home, root)
+	return r.adoptBlockers(ctx, st, f, home, olds)
 }
 
-func (r *runner) adopt(ctx context.Context, st *state.Store, f state.Fleet, root, home string, olds []string) (state.MoveReport, string, error) {
-	blocked, err := adoptRefusal(ctx, st, f, root, home, olds)
+func (r *runner) adopt(ctx context.Context, st *state.Store, f state.Fleet, home string, olds []string) (state.MoveReport, string, error) {
+	blocked, err := r.adoptRefusal(ctx, st, f, home, olds)
 	if err != nil {
 		return state.MoveReport{}, "", err
 	}
@@ -73,17 +88,29 @@ func (r *runner) adopt(ctx context.Context, st *state.Store, f state.Fleet, root
 		return state.MoveReport{}, "", err
 	}
 	rep, err := st.Adopt(ctx, olds, home)
-	if err != nil {
-		return rep, backup, fmt.Errorf("%w; the database was not changed, the pre-adopt copy is %s", err, backup)
-	}
-	if _, err := fleet.Register(root, f.ID, home); err != nil {
-		return rep, backup, fmt.Errorf("%w: the database at %s now names %s, but the fleet record could not be updated: %v; run `hand fleet adopt` here again", state.ErrConflict, home, home, err)
-	}
-	if rep.EventSeq == 0 {
+	if err != nil || rep.EventSeq == 0 {
 		_ = os.Remove(backup)
 		backup = ""
 	}
+	if err != nil {
+		return rep, "", err
+	}
+	if _, err := fleet.Register(r.root, f.ID, home); err != nil {
+		return rep, backup, fmt.Errorf("%w: the database at %s now names %s, but the fleet record could not be updated: %v; run `hand fleet adopt` here again", state.ErrConflict, home, home, err)
+	}
 	return rep, backup, nil
+}
+
+func foreignPath(p string) bool {
+	return runtime.GOOS != "windows" && (strings.HasPrefix(p, `\\`) || len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') && driveLetter(p[0]))
+}
+
+func (r *runner) claimUnadopted(f state.Fleet, olds []string) error {
+	if err := fleet.RefuseCopies(f.ID, olds); err != nil {
+		return fmt.Errorf("%w: %v", state.ErrConflict, err)
+	}
+	r.fleet = f
+	return nil
 }
 
 func (r *runner) adoptOnOpen(st *state.Store, f state.Fleet) (state.Fleet, error) {
@@ -95,7 +122,7 @@ func (r *runner) adoptOnOpen(st *state.Store, f state.Fleet) (state.Fleet, error
 	if err != nil || !due {
 		return f, err
 	}
-	rep, _, err := r.adopt(ctx, st, f, r.root, r.home, olds)
+	rep, _, err := r.adopt(ctx, st, f, r.home, olds)
 	if err != nil {
 		return f, err
 	}
@@ -110,6 +137,10 @@ func cmdFleetAdopt(r *runner, args []string) error {
 	check := set.Bool("check", false, "count what would be rewritten and change nothing")
 	var extra []string
 	set.Func("from", "an old home to rewrite to this folder, in addition to the recorded ones; repeatable", func(v string) error {
+		if foreignPath(v) {
+			extra = append(extra, v)
+			return nil
+		}
 		p, err := canonical(v)
 		extra = append(extra, p)
 		return err
@@ -128,13 +159,16 @@ func cmdFleetAdopt(r *runner, args []string) error {
 		return fmt.Errorf("%w: not inside a fleet home; cd into one or pass --home DIR", state.ErrNotFound)
 	}
 	db := filepath.Join(home, "hand.db")
-	if _, err := os.Stat(db); err != nil {
+	if _, err := os.Stat(db); errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%w: no hand home at %s; run `hand init`", state.ErrNotFound, home)
+	} else if err != nil {
+		return err
 	}
 	root, err := fleet.Root(r.env.Getenv)
 	if err != nil {
 		return err
 	}
+	r.root = root
 	var st *state.Store
 	if *check {
 		st, err = state.OpenRead(db)
@@ -149,6 +183,11 @@ func cmdFleetAdopt(r *runner, args []string) error {
 	f, err := st.Fleet(ctx)
 	if err != nil {
 		return err
+	}
+	if from, to, pending, err := st.PendingMove(ctx); err != nil {
+		return err
+	} else if pending {
+		return fmt.Errorf("%w: a move from %s to %s is pending; run `hand fleet move --yes %s` to finish it, then adopt", state.ErrConflict, from, to, to)
 	}
 	olds, due, err := adoptOlds(root, f, home, extra)
 	if err != nil {
@@ -169,7 +208,7 @@ func cmdFleetAdopt(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		blocked, err := adoptRefusal(ctx, st, f, root, home, olds)
+		blocked, err := r.adoptRefusal(ctx, st, f, home, olds)
 		if err != nil {
 			return err
 		}
@@ -188,7 +227,7 @@ func cmdFleetAdopt(r *runner, args []string) error {
 		d.Help(help...)
 		return r.print(&d)
 	}
-	rep, backup, err := r.adopt(ctx, st, f, root, home, olds)
+	rep, backup, err := r.adopt(ctx, st, f, home, olds)
 	if err != nil {
 		return err
 	}

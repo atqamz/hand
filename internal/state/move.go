@@ -103,7 +103,29 @@ func (s *Store) PlanAdopt(ctx context.Context, froms []string, to string) (MoveR
 	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
 	rep.Hits = pass.Hits
 	rep.AfterAbsolute = len(rep.Hits)
+	if err == nil && len(rep.Hits) == 0 {
+		err = s.rehearseAdopt(ctx, froms, to)
+	}
 	return rep, err
+}
+
+func (s *Store) rehearseAdopt(ctx context.Context, froms []string, to string) error {
+	dir, err := os.MkdirTemp("", "hand-adopt-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "hand.db")
+	if err := s.Backup(ctx, path); err != nil {
+		return err
+	}
+	c, err := Open(path, s.now)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_, err = c.Adopt(ctx, froms, to)
+	return err
 }
 
 func (s *Store) Adopt(ctx context.Context, froms []string, to string) (MoveReport, error) {
@@ -276,6 +298,17 @@ func moveSplit(detail string) (string, string, bool) {
 	return v.From, v.To, true
 }
 
+func adoptSplit(detail string) (string, string, bool) {
+	var v struct {
+		From []string `json:"from"`
+		To   string   `json:"to"`
+	}
+	if err := json.Unmarshal([]byte(detail), &v); err != nil || len(v.From) == 0 || v.To == "" {
+		return "", "", false
+	}
+	return strings.Join(v.From, ", "), v.To, true
+}
+
 func (s *Store) PendingMove(ctx context.Context) (from, to string, ok bool, err error) {
 	return pendingMove(ctx, s.db)
 }
@@ -315,26 +348,29 @@ func pendingMove(ctx context.Context, q moveQueryer) (from, to string, ok bool, 
 }
 
 func (s *Store) MovedSince(ctx context.Context, at time.Time) (from, to string, moved bool, err error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT at, detail FROM event WHERE kind = 'fleet.moved' ORDER BY seq`)
+	rows, err := s.db.QueryContext(ctx, `SELECT at, kind, detail FROM event WHERE kind IN ('fleet.moved', 'fleet.adopted') ORDER BY seq`)
 	if err != nil {
 		return "", "", false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var stamp, detail string
-		if err := rows.Scan(&stamp, &detail); err != nil {
+		var stamp, kind, detail string
+		if err := rows.Scan(&stamp, &kind, &detail); err != nil {
 			return "", "", false, err
 		}
 		when, err := time.Parse(time.RFC3339Nano, stamp)
 		if err != nil {
-			return "", "", false, fmt.Errorf("%w: event fleet.moved does not name a time: %q", ErrInvalid, stamp)
+			return "", "", false, fmt.Errorf("%w: event %s does not name a time: %q", ErrInvalid, kind, stamp)
 		}
 		if !when.After(at) {
 			continue
 		}
 		from, to, moved = moveSplit(detail)
+		if kind == "fleet.adopted" {
+			from, to, moved = adoptSplit(detail)
+		}
 		if !moved {
-			return "", "", false, fmt.Errorf("%w: event fleet.moved does not name a move: %q", ErrInvalid, detail)
+			return "", "", false, fmt.Errorf("%w: event %s does not name a move: %q", ErrInvalid, kind, detail)
 		}
 		return from, to, true, nil
 	}
@@ -470,7 +506,7 @@ func moveScan(ctx context.Context, q moveWriter, froms []string, to, home string
 				if out != r.value {
 					if apply {
 						if _, err := q.ExecContext(ctx, `UPDATE `+quoteIdent(c.table)+` SET `+quoteIdent(c.column)+` = ? WHERE rowid = ?`, out, r.rowid); err != nil {
-							return pass, err
+							return pass, fmt.Errorf("%w: rewriting %s.%s of %s to name %s failed: %v; edit that cell by hand so the rewritten value fits, then run again; nothing changed", ErrConflict, c.table, c.column, r.ref, to, err)
 						}
 					}
 					pass.Cells = append(pass.Cells, MoveCell{Table: c.table, Column: c.column, Ref: r.ref, Absolute: absolute, Tilde: tilde})
@@ -511,11 +547,14 @@ func moveBatchRows(ctx context.Context, q moveQueryer, query string, args ...any
 }
 
 func moveHits(ctx context.Context, q moveQueryer, froms []string, to, home string, strict bool) ([]MoveCell, error) {
+	patterns := moveHitAll(froms, to, home, strict)
+	if len(patterns) == 0 {
+		return nil, nil
+	}
 	cols, err := moveColumns(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	patterns := moveHitAll(froms, to, home, strict)
 	fold := foldHome()
 	var hits []MoveCell
 	for _, c := range cols {
@@ -588,8 +627,8 @@ func moveHistory(table string) string {
 }
 
 type movePattern struct {
-	text, target string
-	tilde        bool
+	text, target, sep string
+	tilde             bool
 }
 
 func moveHitAll(froms []string, to, home string, strict bool) []string {
@@ -615,7 +654,7 @@ func moveHitPatterns(from, to, home string, strict bool) []string {
 
 func movePatterns(from, to, home string, tilde bool) []movePattern {
 	var ps []movePattern
-	add := func(text, target string, tilde bool) {
+	add := func(text, target string, tilde bool, sep ...string) {
 		if text == "" || text == target {
 			return
 		}
@@ -624,15 +663,26 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 				return
 			}
 		}
-		ps = append(ps, movePattern{text: text, target: target, tilde: tilde})
+		p := movePattern{text: text, target: target, tilde: tilde}
+		if len(sep) > 0 {
+			p.sep = sep[0]
+		}
+		ps = append(ps, p)
 	}
 	var addSpellings func(path, target string)
 	addSpellings = func(path, target string) {
-		add(path, target, false)
-		if escaped := escapeBackslashes(path); escaped != path {
-			add(escaped, escapeBackslashes(target), false)
+		cross := windowsPath(path) && !windowsPath(target)
+		sep := func(s string) string {
+			if cross {
+				return s
+			}
+			return ""
 		}
-		slash, slashTarget := filepath.ToSlash(path), filepath.ToSlash(target)
+		add(path, target, false, sep(`\`))
+		if escaped := escapeBackslashes(path); escaped != path {
+			add(escaped, escapeBackslashes(target), false, sep(`\\`))
+		}
+		slash, slashTarget := toSlash(path), toSlash(target)
 		if slash != path {
 			add(slash, slashTarget, false)
 			if escaped := escapeBackslashes(slash); escaped != slash {
@@ -652,10 +702,17 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 		add("file://"+path, "file://"+target, false)
 		if slash != path {
 			add("file://"+slash, "file://"+slashTarget, false)
-			add("file:///"+slash, "file:///"+slashTarget, false)
+			fileTarget := "file:///" + slashTarget
+			if strings.HasPrefix(slashTarget, "/") {
+				fileTarget = "file://" + slashTarget
+			}
+			add("file:///"+slash, fileTarget, false)
 		}
 	}
 	addSpellings(from, to)
+	if flipped := flipDrive(from); flipped != "" {
+		addSpellings(flipped, to)
+	}
 	if alias, ok := homeAlias(from, home); ok {
 		addSpellings(alias, to)
 	}
@@ -674,6 +731,33 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 		}
 	}
 	return ps
+}
+
+func windowsPath(p string) bool {
+	if strings.HasPrefix(p, `\\`) {
+		return true
+	}
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') && (p[0] >= 'a' && p[0] <= 'z' || p[0] >= 'A' && p[0] <= 'Z')
+}
+
+func toSlash(p string) string {
+	if foldHome() || windowsPath(p) {
+		return strings.ReplaceAll(p, `\`, "/")
+	}
+	return p
+}
+
+func flipDrive(p string) string {
+	if !windowsPath(p) || p[1] != ':' {
+		return ""
+	}
+	c := p[0]
+	if c >= 'a' && c <= 'z' {
+		c -= 'a' - 'A'
+	} else {
+		c += 'a' - 'A'
+	}
+	return string(c) + p[1:]
 }
 
 func slashEscaped(target, escape string) string {
@@ -703,7 +787,7 @@ func rewriteHome(s, from, to, home string) (string, int, int) {
 			target = escapeBackslashes(target)
 		}
 		var n int
-		out, n = replacePathFold(out, p.text, target, fold)
+		out, n = replacePathSep(out, p.text, target, fold, p.sep)
 		if p.tilde {
 			tilde += n
 		} else {
@@ -725,6 +809,10 @@ func replacePath(s, from, to string) (string, int) {
 }
 
 func replacePathFold(s, from, to string, fold bool) (string, int) {
+	return replacePathSep(s, from, to, fold, "")
+}
+
+func replacePathSep(s, from, to string, fold bool, sep string) (string, int) {
 	if s == "" || from == "" {
 		return s, 0
 	}
@@ -745,12 +833,31 @@ func replacePathFold(s, from, to string, fold bool) (string, int) {
 		if (j == 0 || !moveLead(s[j-1])) && pathEnd(s, end) {
 			b.WriteString(s[last:j])
 			b.WriteString(to)
+			if sep != "" {
+				end = slashTail(&b, s, end, sep)
+			}
 			last, n = end, n+1
 		}
 		i = end
 	}
 	b.WriteString(s[last:])
 	return b.String(), n
+}
+
+func slashTail(b *strings.Builder, s string, i int, sep string) int {
+	for i < len(s) {
+		switch {
+		case strings.HasPrefix(s[i:], sep):
+			b.WriteByte('/')
+			i += len(sep)
+		case moveName(s[i]) || s[i] == '/':
+			b.WriteByte(s[i])
+			i++
+		default:
+			return i
+		}
+	}
+	return i
 }
 
 func countHits(s string, patterns []string, fold bool) int {
