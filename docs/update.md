@@ -4,9 +4,11 @@
 
 To update an installed Hand, run `hand update` from anywhere. It does the following:
 - downloads the newest build of the channel the running `hand` came from, and checks it;
-- backs up every fleet's `hand.db` and the old binary under `~/.secondhand/backups/`;
+- backs up every fleet's `hand.db` to `backups/` in the fleet folder, and the old binary to `~/.secondhand/backups/`;
 - replaces the binary, then stops each fleet's watcher and the board by the process IDs they record (`watch.pid` in the fleet folder, `board.pid` in `~/.secondhand`) and starts them again as `hand supervisor start` and `hand open` do, on every OS;
 - runs `hand init` in every fleet.
+
+The first `hand update` or fleet command of a version that keeps a fleet's own `luvus/<os>-<arch>/`, `backups/` and `cache/models/` copies the old machine-side files into the fleet and prints a `migrated` list. It copies, it never moves or removes: a Luvus server that runs from `~/.secondhand/luvus/` keeps running from that binary, because the fleet's pin names the same version and `hand update` switches a server only when the version differs. `hand doctor` lists the old copies under `old machine copies`; delete them yourself once no Luvus server runs from the machine copy and you no longer need the older restore points.
 
 It also fetches the `hand-iroh` sidecar of that release, when the new `hand` names one (the `iroh:` line of `hand version`) and the release carries it, and puts it next to `hand`: see [The hand-iroh sidecar](phone.md#the-hand-iroh-sidecar). The asset and its `.sha256` are checked, and the sidecar must report the version the new `hand` needs; if any check fails, nothing is replaced and the update stops before it touches `hand`, a fleet or a process. A release without the asset (0.13.0 and earlier, and `edge`) is not an error: the report says `iroh: none in this release` and an installed sidecar stays. The sidecar is placed before `hand` is, so a failure to place it leaves the old `hand` in place, and the board's restart at the end starts the new sidecar with the new board. If placing `hand` itself then fails, the old `hand` stays with the new sidecar: `hand doctor` warns about the mismatch, and the next `hand update` replaces both. An update that finds `hand` already current does not replace the hand, but it still installs the sidecar when it is missing or is not the version that hand needs, and the release carries that version: this is how an update run by 0.13.0, which installs the new `hand` without a sidecar, is repaired by the new hand's next update. `hand update --check` reports `iroh: would install` for that, or `iroh: none in this release` when the release carries no sidecar, and changes nothing. On Windows the running sidecar is renamed to `hand-iroh.exe.old` as `hand.exe` is, and the next `hand` run removes it.
 
@@ -57,7 +59,7 @@ To restore a backup:
      ```
 2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
 3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
-4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
+4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both in `backups/` in the fleet folder. Backups made before the fleet kept its own (an older `hand`, or the daily snapshot of a watcher that has not restarted yet) are in `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it): Hand copies them into the fleet and leaves the originals, and `hand doctor` prints the newest restore point of either place in its `restore points` row;
 5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem (Hand backs up `hand`, not the sidecar: an older `hand` that pins another sidecar version shows `hand-iroh` as failed in `hand doctor` until you install the matching one); an older `hand` refuses a database that a newer one migrated (`newer than this hand`), so step 4 is not optional with it;
 6. run `hand open` to start the board again, then start or resume the supervisor from the fleet's page.
 

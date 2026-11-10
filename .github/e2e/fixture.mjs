@@ -23,7 +23,7 @@ export async function fixture(box) {
   fs.mkdirSync(path.join(docs, 'nested'), { recursive: true });
   fs.writeFileSync(path.join(docs, 'export-notes.md'), '# Export notes\n\nThe export writes **one row per task**.\n\n| column | meaning |\n|---|---|\n| id | task ref |\n| title | task title |\n');
   fs.writeFileSync(path.join(docs, 'nested', 'log.txt'), 'line one\nline two\n');
-  for (const hidden of ['luvus', 'locks', 'projects']) {
+  for (const hidden of ['luvus', 'locks', 'projects', 'backups', 'cache']) {
     fs.mkdirSync(path.join(box.fleet, hidden), { recursive: true });
     fs.writeFileSync(path.join(box.fleet, hidden, 'note.txt'), `inside ${hidden}\n`);
   }

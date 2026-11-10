@@ -170,7 +170,7 @@ func TestTheViewerListsAFolder(t *testing.T) {
 }
 
 var policy = map[string]string{
-	"hidden":  "the Board does not show Hand's own files, dot files, luvus/, locks/ or projects/",
+	"hidden":  "the Board does not show Hand's own files, dot files, backups/, cache/, luvus/, locks/ or projects/",
 	"outside": "this path leads outside the fleet folder, so the Board does not show it",
 	"kind":    "the Board shows files and folders only",
 }
@@ -188,11 +188,11 @@ func refused(t *testing.T, h http.Handler, path, words string) {
 
 func TestHandsOwnFilesAreRefused(t *testing.T) {
 	files := map[string]string{"reports/t1/design.md": design}
-	for _, rel := range []string{"hand.db", "hand.db-wal", "board.token", "AGENTS.md", "HAND.DB", "watch.pid", "luvus/server.pid", "locks/t1.lock", "projects/app/README.md", "Projects/app/README.md", "LUVUS/x", "Locks/y", ".git/config", ".env", "reports/.secret/key", "reports/t1/.draft.md"} {
+	for _, rel := range []string{"hand.db", "hand.db-wal", "board.token", "AGENTS.md", "HAND.DB", "watch.pid", "luvus/server.pid", "locks/t1.lock", "projects/app/README.md", "Projects/app/README.md", "LUVUS/x", "Locks/y", "backups/hand.db.20261101T010203", "cache/models/codex.json", "Backups/hand-20261102.db", ".git/config", ".env", "reports/.secret/key", "reports/t1/.draft.md"} {
 		files[rel] = secret
 	}
 	h, _ := viewer(t, files)
-	for _, path := range []string{"/doc/hand.db", "/doc/hand.db-wal", "/doc/board.token", "/doc/AGENTS.md", "/doc/HAND.DB", "/doc/watch.pid", "/doc/luvus", "/doc/luvus/server.pid", "/doc/locks/t1.lock", "/doc/projects", "/doc/projects/app/README.md", "/doc/Projects/app/README.md", "/doc/LUVUS/x", "/doc/Locks/y", "/doc/.git/config", "/doc/.env", "/doc/reports/.secret/key", "/doc/reports/t1/.draft.md", "/doc/"} {
+	for _, path := range []string{"/doc/hand.db", "/doc/hand.db-wal", "/doc/board.token", "/doc/AGENTS.md", "/doc/HAND.DB", "/doc/watch.pid", "/doc/luvus", "/doc/luvus/server.pid", "/doc/locks/t1.lock", "/doc/projects", "/doc/projects/app/README.md", "/doc/Projects/app/README.md", "/doc/LUVUS/x", "/doc/Locks/y", "/doc/backups", "/doc/backups/hand.db.20261101T010203", "/doc/cache/models/codex.json", "/doc/Backups/hand-20261102.db", "/doc/.git/config", "/doc/.env", "/doc/reports/.secret/key", "/doc/reports/t1/.draft.md", "/doc/"} {
 		refused(t, h, path, policy["hidden"])
 	}
 	get(t, h, "/doc/reports")

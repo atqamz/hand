@@ -59,7 +59,9 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `index
 ├── index/<fleet id>                   file naming the fleet folder
 ├── index.lock                         serialises bookmark and record writes
 ├── worktrees/<fleet id>/tN-aM/        one worktree per attempt
-├── luvus/                             pinned Luvus copies and pin.json
+├── luvus/                             Luvus copies of an older hand, read until the fleet has its own
+├── models/                            the model lists' freshness gate, shared by every fleet
+├── backups/hand.<stamp>               the old hand binaries that `hand update` keeps
 ├── iroh/                              the hand-iroh endpoint's key, hand-iroh.key
 ├── board.iroh                         the board's --iroh setting and the sidecar's last state
 ├── board.generation                   the running board's PID and start marker
@@ -67,8 +69,20 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `index
 └── board.addr                         where the running board listens
 ```
 
+What belongs to the fleet lives in its folder, so the folder can move to another mount or machine:
+
+```text
+<fleet home>/
+├── luvus/<os>-<arch>/pin.json         the pin, with a path relative to this folder
+├── luvus/<os>-<arch>/<version>-<sha8>/luvus   the pinned copy that runs
+├── backups/                           hand.db.<stamp> from `hand update`, hand-YYYYMMDD.db from the watcher
+└── cache/models/                      the model lists this fleet last read
+```
+
+The machine keeps worktrees, the index, the pid and address files, the Board's peer secret and iroh key, and the old `hand` binaries, because they name this machine's processes or paths, or belong to a Board that serves every fleet on it. `hand doctor` prints that list in its `machine-local` row. The first command in a fleet, `hand init` and `hand update` copy a pre-existing `luvus/`, `backups/<fleet id>/` and `models/` of `~/.secondhand` into the fleet, print what they copied, and leave the originals: a Luvus server that already runs from the machine copy keeps its binary until Hand's own quiet switch restarts it, and an older `hand` that you roll back to still finds its backups there. The pinned copy runs from the fleet's disk. exFAT and FAT have no execute bit, and Linux and macOS show every file there as executable unless the volume is mounted `noexec`, so Hand ignores a `chmod` that the filesystem refuses and trusts the check it makes anyway: it runs `luvus --version` on the copy before it pins it. A `noexec` volume fails that check, the machine pin of an older `hand` stays in use if there is one, and the fix is to mount the volume with `exec`.
+
 Each fleet home also records itself in `fleet.home`, a JSON object such as `{"homes":["/old/a","/new"],"current":"/new"}`: `current` is the home the fleet is in, and `homes` keeps every earlier one, so a moved folder and a copy of it can be told apart. The first command in a fleet writes the record, `hand init` updates it (a fleet with no record yet that moved by a plain rename keeps the bookmark's old home in `homes`), `hand fleet move` writes it before the move or `--rewrite-only` when it is missing, and a move appends the old home. An empty or torn record is replaced on the next write rather than refused, and `.fleet.home.lock` beside it serialises writes from commands that use different `SECONDHAND_HOME` roots.
 
 `hand doctor`'s `modes` row reads the permission bits of a file it creates, so a network share that reports 0600 without enforcing it (a CIFS `noperm` mount) can pass it. A fleet belongs on a local disk, not on a network share.
 
-Each attempt works on the branch `hand/<fleet id>/tN-aM` in the project's repository. `hand attempt clean aN` removes the worktree, the attempt's `scratch/tN-aM` folder and a Claude worker's scratch directory, and keeps the branch. The scratch folder moves with the fleet home, but worktrees and the peer secret stay outside it until the layout change; it is outside `reports/` and `shots/`, so the artifact counts and the database backups never include it. The watcher does the same by itself, 7 days after an attempt ended, when its tree is clean, its commits are pushed and no ignored file looks like config (other ignored files, such as build caches, go with the worktree: a path a worker wants to keep must be outside it); otherwise the Board shows a Needs item with the reason. `hand orient` and the Board warn when `reports/` and `shots/` pass 20 GB or hold files older than 30 days, and `hand gc --older-than 30d` lists them and deletes only with `--yes`. The `retention` object in `routing.json` sets the limits ([Retention](vocabulary.md#retention)).
+Each attempt works on the branch `hand/<fleet id>/tN-aM` in the project's repository. `hand attempt clean aN` removes the worktree, the attempt's `scratch/tN-aM` folder and a Claude worker's scratch directory, and keeps the branch. The scratch folder moves with the fleet home, but worktrees and the peer secret stay on the machine; it is outside `reports/` and `shots/`, so the artifact counts and the database backups never include it. The watcher does the same by itself, 7 days after an attempt ended, when its tree is clean, its commits are pushed and no ignored file looks like config (other ignored files, such as build caches, go with the worktree: a path a worker wants to keep must be outside it); otherwise the Board shows a Needs item with the reason. `hand orient` and the Board warn when `reports/` and `shots/` pass 20 GB or hold files older than 30 days, and `hand gc --older-than 30d` lists them and deletes only with `--yes`. The `retention` object in `routing.json` sets the limits ([Retention](vocabulary.md#retention)).

@@ -23,7 +23,7 @@ The viewer only reads:
 
 The previews load the file from `?raw`, which sets the headers by type, always with `nosniff` and a `sandbox` CSP that has no `allow-scripts` and no `allow-same-origin`: HTML (`text/html`, with `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, inline styles only, no images), SVG (`image/svg+xml`), PDF (`application/pdf`, `SAMEORIGIN`), media and images (their sniffed type), any other text as `text/plain` (so `.js`, `.md` and a `.png` that is not a PNG show as text) and anything else as an attachment. The page itself allows `media-src 'self'` and `frame-src 'self'` and nothing else new. PDF was checked in Chromium only.
 
-It never shows dot files and dot folders, the files at the top of the fleet folder (`hand.db`, `board.token`, `AGENTS.md` and the rest of Hand's own), `luvus/`, `locks/`, `projects/`, a FIFO or device, or a path whose real path, after symlinks, leaves the fleet folder, and it says which rule refused the path. It works on a network address too, so the fleet's token also reads the fleet folder's files: keep the board on loopback and reach it through a tunnel.
+It never shows dot files and dot folders, the files at the top of the fleet folder (`hand.db`, `board.token`, `AGENTS.md` and the rest of Hand's own), `backups/`, `cache/`, `luvus/`, `locks/`, `projects/`, a FIFO or device, or a path whose real path, after symlinks, leaves the fleet folder, and it says which rule refused the path. It works on a network address too, so the fleet's token also reads the fleet folder's files: keep the board on loopback and reach it through a tunnel.
 
 `hand open` opens a page in your browser, from inside a fleet:
 

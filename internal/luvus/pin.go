@@ -26,7 +26,7 @@ type Pin struct {
 	Path     string `json:"path"`
 	SHA256   string `json:"sha256"`
 	Version  string `json:"version"`
-	Source   string `json:"source"`
+	Source   string `json:"-"`
 	PinnedAt string `json:"pinned_at"`
 }
 
@@ -34,10 +34,10 @@ const Tested = "0.14.3"
 
 var versionLine = regexp.MustCompile(`^luvus (\d+\.\d+\.\d+)$`)
 
-func pinFile(root string) string { return filepath.Join(root, "luvus", "pin.json") }
+func pinFile(store string) string { return filepath.Join(store, "pin.json") }
 
-func LoadPin(root string) (Pin, bool, error) {
-	b, err := os.ReadFile(pinFile(root))
+func LoadPin(store string) (Pin, bool, error) {
+	b, err := os.ReadFile(pinFile(store))
 	if errors.Is(err, os.ErrNotExist) {
 		return Pin{}, false, nil
 	}
@@ -46,7 +46,14 @@ func LoadPin(root string) (Pin, bool, error) {
 		err = json.Unmarshal(b, &p)
 	}
 	if err != nil {
-		return Pin{}, false, fmt.Errorf("%w: cannot read %s (%v); re-pin with `hand luvus pin`", ErrPinChanged, pinFile(root), err)
+		return Pin{}, false, fmt.Errorf("%w: cannot read %s (%v); re-pin with `hand luvus pin`", ErrPinChanged, pinFile(store), err)
+	}
+	if !filepath.IsAbs(p.Path) {
+		rel := filepath.FromSlash(p.Path)
+		if !filepath.IsLocal(rel) {
+			return Pin{}, false, fmt.Errorf("%w: %s names %q, which is outside its folder; re-pin with `hand luvus pin`", ErrPinChanged, pinFile(store), p.Path)
+		}
+		p.Path = filepath.Join(store, rel)
 	}
 	return p, true, nil
 }
@@ -66,15 +73,14 @@ func BinaryVersion(ctx context.Context, bin string, env []string) (string, error
 	return m[1], nil
 }
 
-func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (Pin, error) {
+func Keep(ctx context.Context, store, bin string, env []string, now time.Time) (Pin, error) {
 	if fi, err := os.Stat(bin); err != nil || !executable(fi) {
 		return Pin{}, fmt.Errorf("%w: %s is not an executable file", ErrNotLuvus, bin)
 	}
-	store := filepath.Join(root, "luvus")
 	if err := os.MkdirAll(store, 0o755); err != nil {
 		return Pin{}, err
 	}
-	if err := syncDir(root); err != nil {
+	if err := syncDir(filepath.Dir(store)); err != nil {
 		return Pin{}, err
 	}
 	ext := exeExt(bin)
@@ -125,9 +131,7 @@ func copyHashed(dir, src, ext string) (string, string, error) {
 	if err == nil {
 		err = out.Sync()
 	}
-	if err == nil {
-		err = out.Chmod(0o555)
-	}
+	_ = out.Chmod(0o555)
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -152,6 +156,11 @@ func fileSum(path string) (string, error) {
 }
 
 func writePin(store string, p Pin) error {
+	rel, err := filepath.Rel(store, p.Path)
+	if err != nil {
+		return err
+	}
+	p.Path = filepath.ToSlash(rel)
 	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err

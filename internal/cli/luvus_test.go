@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -51,12 +52,12 @@ func pinnedPath(t *testing.T, out string) string {
 
 func TestLuvusPinCopiesTheBinaryOnPath(t *testing.T) {
 	h := newHarness(t)
-	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
+	h.ok("init")
 	script := pinnable(t, h, "0.14.3")
 	out := h.ok("luvus", "pin")
 	has(t, "first pin", out, "version: 0.14.3", "source: "+toon.Value(script), "previous: none")
 	first := pinnedPath(t, out)
-	if !strings.HasPrefix(first, filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-")) {
+	if !strings.HasPrefix(first, filepath.Join(fleet.LuvusStore(h.home), "0.14.3-")) {
 		t.Fatalf("first pin path = %s", first)
 	}
 	other := fakeLuvusAt(t, t.TempDir(), "0.14.4")
@@ -65,10 +66,10 @@ func TestLuvusPinCopiesTheBinaryOnPath(t *testing.T) {
 
 func TestLuvusPinRefusals(t *testing.T) {
 	h := newHarness(t)
-	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
+	h.ok("init")
 	pinnable(t, h, "0.14.3")
 	current := pinnedPath(t, h.ok("luvus", "pin"))
-	pinFile := filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")
+	pinFile := filepath.Join(fleet.LuvusStore(h.home), "pin.json")
 	before, err := os.ReadFile(pinFile)
 	if err != nil {
 		t.Fatal(err)
@@ -144,10 +145,10 @@ func TestTheServerRefusesAChangedPin(t *testing.T) {
 func TestInitPinsTheLuvusOnPath(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
-	if out := h.ok("init"); !strings.HasPrefix(field(out, "luvus"), "pinned 0.14.3 ("+filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-")) {
+	if out := h.ok("init"); !strings.HasPrefix(field(out, "luvus"), "pinned 0.14.3 ("+filepath.Join(fleet.LuvusStore(h.home), "0.14.3-")) {
 		t.Fatalf("first init = %q", out)
 	}
-	pinFile := filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")
+	pinFile := filepath.Join(fleet.LuvusStore(h.home), "pin.json")
 	before, err := os.ReadFile(pinFile)
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +172,7 @@ func TestInitWithoutLuvusStillSucceeds(t *testing.T) {
 	broken.vars["PATH"] = t.TempDir()
 	embedAt(t, broken.vars["PATH"], "luvus", map[string]string{"exit": "1"})
 	has(t, "broken luvus", broken.ok("init"), "Luvus was not pinned (")
-	if names, _ := os.ReadDir(filepath.Join(broken.vars["SECONDHAND_HOME"], "luvus")); slices.ContainsFunc(names, func(e os.DirEntry) bool { return e.Name() == "pin.json" }) {
+	if names, _ := os.ReadDir(fleet.LuvusStore(broken.home)); slices.ContainsFunc(names, func(e os.DirEntry) bool { return e.Name() == "pin.json" }) {
 		t.Fatal("a broken luvus was pinned")
 	}
 }
@@ -200,8 +201,7 @@ func TestLuvusPinInAMovedFleetLeavesThePinAlone(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
 	h.ok("init")
-	pinFile := filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")
-	before, err := os.ReadFile(pinFile)
+	before, err := os.ReadFile(filepath.Join(fleet.LuvusStore(h.home), "pin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +210,7 @@ func TestLuvusPinInAMovedFleetLeavesThePinAlone(t *testing.T) {
 	if err := os.Rename(old, h.home); err != nil {
 		t.Fatal(err)
 	}
+	pinFile := filepath.Join(fleet.LuvusStore(h.home), "pin.json")
 	if _, errOut, code := h.run("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")); code != 3 || !strings.Contains(errOut, "moved here from") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
@@ -228,10 +229,10 @@ func TestLuvusShowReportsABadHome(t *testing.T) {
 func TestAnUnreadablePinCanBeReplaced(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
-	if err := os.MkdirAll(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus"), 0o755); err != nil {
+	if err := os.MkdirAll(fleet.LuvusStore(h.home), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json"), []byte("{"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(fleet.LuvusStore(h.home), "pin.json"), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h.tty = true
@@ -255,10 +256,10 @@ func TestLuvusShowOutsideAFleet(t *testing.T) {
 func TestLuvusShowRefusesAnUnreadablePin(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
-	if err := os.MkdirAll(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus"), 0o755); err != nil {
+	if err := os.MkdirAll(fleet.LuvusStore(h.home), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json"), []byte("{"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(fleet.LuvusStore(h.home), "pin.json"), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := h.run("luvus", "show"); code != 3 || !strings.Contains(errOut, "re-pin with") {

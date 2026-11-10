@@ -21,9 +21,9 @@ func snapshotWatcher(t *testing.T) (*watcher, *bytes.Buffer, string) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	var out bytes.Buffer
-	root := t.TempDir()
-	r := &runner{env: Env{Now: now, Stdout: &out}, root: root, fleet: state.Fleet{ID: "f"}}
-	return &watcher{r: r, st: st}, &out, filepath.Join(root, "backups", "f")
+	home := t.TempDir()
+	r := &runner{env: Env{Now: now, Stdout: &out}, root: t.TempDir(), home: home, fleet: state.Fleet{ID: "f"}}
+	return &watcher{r: r, st: st}, &out, filepath.Join(home, "backups")
 }
 
 func TestSnapshotCancelledIsNotAFailureAndIsRetried(t *testing.T) {

@@ -133,7 +133,22 @@ func (r *runner) claim(st *state.Store) error {
 		return err
 	}
 	r.fleet = f
+	r.migrateLayout()
 	return nil
+}
+
+func (r *runner) migrateLayout() {
+	if r.migrated {
+		return
+	}
+	r.migrated = true
+	lines, err := fleet.Migrate(r.ctx(), r.root, r.fleet.ID, r.home, r.env.Environ(), r.env.Now())
+	for _, line := range lines {
+		fmt.Fprintln(r.env.Stderr, "hand: migrated "+line)
+	}
+	if err != nil {
+		fmt.Fprintln(r.env.Stderr, "hand: layout migration: "+err.Error())
+	}
 }
 
 var errHomeMoved = errors.New("this fleet's home moved or was copied")
@@ -277,7 +292,18 @@ func cmdInit(r *runner, args []string) error {
 	for _, name := range skipped {
 		help = append(help, "Worktrees of project "+name+" were not repaired because its git settings changed; read them, run `hand project trust "+name+"`, then run `hand init` again")
 	}
-	switch pin, had, err := luvus.LoadPin(root); {
+	migrated, merr := fleet.Migrate(ctx, root, f.ID, r.home, r.env.Environ(), r.env.Now())
+	r.migrated = true
+	store := fleet.LuvusStore(r.home)
+	for _, dir := range []string{fleet.Backups(r.home), fleet.ModelsCache(r.home)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	if merr != nil {
+		help = append(help, "Part of the layout migration failed: "+merr.Error())
+	}
+	switch pin, had, err := luvus.LoadPin(store); {
 	case err != nil:
 		help = append(help, "The Luvus pin is unusable: "+err.Error())
 	case had:
@@ -285,18 +311,21 @@ func cmdInit(r *runner, args []string) error {
 	default:
 		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
 		if err != nil {
-			if pin, err = r.fetchLuvus(root); err != nil {
+			if pin, err = r.fetchLuvus(store); err != nil {
 				help = append(help, "Install Luvus, then pin it: `hand luvus pin` (download failed: "+err.Error()+")")
 				break
 			}
 			d.Field("luvus", "downloaded and pinned "+pin.Version+" ("+pin.Path+")")
 			break
 		}
-		if pin, err = r.pinLuvus(root, bin); err != nil {
+		if pin, err = r.pinLuvus(store, bin); err != nil {
 			help = append(help, "Luvus was not pinned ("+err.Error()+"); pin it with `hand luvus pin`")
 			break
 		}
 		d.Field("luvus", "pinned "+pin.Version+" ("+pin.Path+")")
+	}
+	if len(migrated) > 0 {
+		d.List("migrated", migrated)
 	}
 	if movedFrom != "" {
 		help = append(help, "This home moved; the board follows the fleet by itself; remove any watch unit that names the old path (README, Autostart)")

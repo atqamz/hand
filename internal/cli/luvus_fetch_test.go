@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/fleet"
 )
 
 type luvusRelease struct {
@@ -102,15 +103,15 @@ func TestInitDownloadsTheTestedLuvusWhenNoneIsOnPath(t *testing.T) {
 	h := newHarness(t)
 	noLuvusOnPath(h, t)
 	rel := serveLuvus(t, h, false)
-	root := h.vars["SECONDHAND_HOME"]
 	out := h.ok("init")
-	if !strings.HasPrefix(field(out, "luvus"), "downloaded and pinned 0.14.3 ("+filepath.Join(root, "luvus", "0.14.3-")) {
+	store := fleet.LuvusStore(h.home)
+	if !strings.HasPrefix(field(out, "luvus"), "downloaded and pinned 0.14.3 ("+filepath.Join(store, "0.14.3-")) {
 		t.Fatalf("init = %q", out)
 	}
 	if strings.Count(out, "Install Luvus") != 0 || len(rel.requests()) != 2 {
 		t.Fatalf("init = %q, asked %q", out, rel.requests())
 	}
-	if left, _ := filepath.Glob(filepath.Join(root, "luvus", ".fetch-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(store, ".fetch-*")); len(left) != 0 {
 		t.Fatalf("left %q", left)
 	}
 	if out := h.ok("luvus", "show"); !strings.HasPrefix(field(out, "pin"), "0.14.3 ") {
@@ -123,10 +124,10 @@ func TestInitRefusesADownloadWithABadChecksum(t *testing.T) {
 	noLuvusOnPath(h, t)
 	serveLuvus(t, h, true)
 	has(t, "init", h.ok("init"), "Install Luvus, then pin it: `hand luvus pin` (download failed: checksum mismatch for luvus-v0.14.3-")
-	if _, err := os.Stat(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(fleet.LuvusStore(h.home), "pin.json")); err == nil {
 		t.Fatal("an unverified luvus was pinned")
 	}
-	if left, _ := filepath.Glob(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "*", "luvus*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(fleet.LuvusStore(h.home), "*", "luvus*")); len(left) != 0 {
 		t.Fatalf("kept %q", left)
 	}
 }
@@ -162,13 +163,13 @@ func TestInitAndPinDoNotDownloadWhenPinned(t *testing.T) {
 
 func TestLuvusPinDownloadsWhenNoneIsOnPathOrPinned(t *testing.T) {
 	h := newHarness(t)
-	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
 	noLuvusOnPath(h, t)
 	serveLuvus(t, h, true)
+	h.ok("init")
 	if _, errOut, code := h.run("luvus", "pin"); code != 2 || !strings.Contains(errOut, "luvus not found on PATH (download failed: checksum mismatch for luvus-v0.14.3-") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
-	if _, err := os.Stat(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(fleet.LuvusStore(h.home), "pin.json")); err == nil {
 		t.Fatal("an unverified luvus was pinned")
 	}
 	serveLuvus(t, h, false)

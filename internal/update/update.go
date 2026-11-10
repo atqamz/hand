@@ -41,6 +41,11 @@ type Options struct {
 	Sleep                               func(ctx context.Context, d time.Duration) error
 }
 
+type fleetPin struct {
+	pin    luvus.Pin
+	pinned bool
+}
+
 type UnitResult struct{ Name, Action, Result string }
 
 type FleetResult struct{ Name, Init, Luvus string }
@@ -52,6 +57,7 @@ type Report struct {
 	Iroh           string
 	Desktop        string
 	Backups        []string
+	Migrated       []string
 	Units          []UnitResult
 	Fleets         []FleetResult
 	Help           []string
@@ -132,25 +138,42 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if rep.To.Channel != o.Channel {
 		return rep, fmt.Errorf("update: the download is a %s build, not %s", rep.To.Channel, o.Channel)
 	}
-	pin, pinned, err := luvus.LoadPin(o.Root)
-	if err != nil {
-		return rep, err
-	}
-	rep.PinFrom = "none"
-	if pinned {
-		rep.PinFrom = pin.Version
-	}
-	rep.PinTo = rep.PinFrom
-	repin := Newer(rep.To.Luvus, pin.Version)
-	if repin {
-		rep.PinTo = rep.To.Luvus
-	}
 	fleets, err := fleet.List(o.Root)
 	if err != nil {
 		return rep, err
 	}
+	pins := map[string]fleetPin{}
+	rep.PinFrom = "none"
+	repin := false
+	for _, e := range fleets {
+		if e.State != "ok" {
+			continue
+		}
+		if !o.Check {
+			lines, err := fleet.Migrate(ctx, o.Root, e.ID, e.Home, o.Env, o.Now())
+			for _, line := range lines {
+				rep.Migrated = append(rep.Migrated, e.Name+": "+line)
+			}
+			if err != nil {
+				rep.Help = append(rep.Help, fmt.Sprintf("the layout migration of %s was not complete (%v); the next hand command in it tries again", e.Name, err))
+			}
+		}
+		pin, pinned, err := fleet.LoadPin(o.Root, e.Home)
+		if err != nil {
+			return rep, err
+		}
+		pins[e.ID] = fleetPin{pin, pinned}
+		if pinned && rep.PinFrom == "none" {
+			rep.PinFrom = pin.Version
+		}
+		repin = repin || Newer(rep.To.Luvus, pin.Version)
+	}
+	rep.PinTo = rep.PinFrom
+	if repin {
+		rep.PinTo = rep.To.Luvus
+	}
 	rep.retireWatchUnits(ctx, o, fleets)
-	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pin, pinned) }
+	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pins[e.ID].pin, pins[e.ID].pinned) }
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
 	irohNext := sidecarPath(o.Target, o.OS)
 	irohStale := false
@@ -259,10 +282,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			return rep, err
 		}
 		hold()
-		if pin, err = luvus.Keep(ctx, o.Root, bin, o.Env, o.Now()); err != nil {
-			return rep, err
+		for _, e := range fleets {
+			if e.State != "ok" || !Newer(rep.To.Luvus, pins[e.ID].pin.Version) {
+				continue
+			}
+			pin, err := luvus.Keep(ctx, fleet.LuvusStore(e.Home), bin, o.Env, o.Now())
+			if err != nil {
+				return rep, err
+			}
+			pins[e.ID] = fleetPin{pin, true}
+			rep.PinTo = pin.Version
 		}
-		pinned, rep.PinTo = true, pin.Version
 	}
 	hold()
 	for _, e := range fleets {
@@ -611,7 +641,7 @@ func (o Options) pause(ctx context.Context) error {
 }
 
 func (o Options) stopServer(ctx context.Context, e fleet.Entry) error {
-	pin, _, err := luvus.LoadPin(o.Root)
+	pin, _, err := fleet.LoadPin(o.Root, e.Home)
 	if err == nil {
 		err = pin.Verify()
 	}
@@ -843,6 +873,9 @@ func Render(r Report) *toon.Doc {
 		d.Field("desktop", r.Desktop)
 	}
 	d.List("backups", r.Backups)
+	if len(r.Migrated) > 0 {
+		d.List("migrated", r.Migrated)
+	}
 	units := [][]string{}
 	for _, u := range r.Units {
 		units = append(units, []string{u.Name, u.Action, u.Result})

@@ -41,11 +41,11 @@ func TestARelativePathToHandsOwnFilesGivesNoLink(t *testing.T) {
 	home := fleetFolder(t, map[string]string{
 		"hand.db": secret, "board.token": secret, "AGENTS.md": secret,
 		".env": secret, "reports/.secret/key": secret, "reports/t1/.draft.md": secret,
-		"projects/app/README.md": secret, "luvus/server.pid": secret, "locks/t1.lock": secret,
+		"projects/app/README.md": secret, "luvus/server.pid": secret, "locks/t1.lock": secret, "backups/hand.db.20261101T010203": secret, "cache/models/codex.json": secret,
 		"Projects/app/README.md": secret, "LUVUS/x": secret,
 		"reports/t1/design.md": design,
 	})
-	for _, rel := range []string{"hand.db", "board.token", "AGENTS.md", ".env", "reports/.secret/key", "reports/t1/.draft.md", ".git/config", "projects/app/README.md", "projects/app", "luvus/server.pid", "luvus/", "locks/t1.lock", "Projects/app/README.md", "LUVUS/x", "./projects/app/README.md", "reports/../projects/app/README.md"} {
+	for _, rel := range []string{"hand.db", "board.token", "AGENTS.md", ".env", "reports/.secret/key", "reports/t1/.draft.md", ".git/config", "projects/app/README.md", "projects/app", "luvus/server.pid", "luvus/", "locks/t1.lock", "backups/hand.db.20261101T010203", "cache/models/codex.json", "Projects/app/README.md", "LUVUS/x", "./projects/app/README.md", "reports/../projects/app/README.md"} {
 		if got := board.DocHref(home, "", rel); got != "" {
 			t.Errorf("DocHref(%q) = %q, want no link", rel, got)
 		}

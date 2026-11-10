@@ -24,11 +24,11 @@ import (
 const maxMarkdown = 1 << 20
 
 var (
-	errHidden  = errors.New("the Board does not show Hand's own files, dot files, luvus/, locks/ or projects/")
+	errHidden  = errors.New("the Board does not show Hand's own files, dot files, backups/, cache/, luvus/, locks/ or projects/")
 	errOutside = errors.New("this path leads outside the fleet folder, so the Board does not show it")
 	errKind    = errors.New("the Board shows files and folders only")
 	errChanged = errors.New("this file changed while the Board opened it; reload the page")
-	ownFolders = []string{"luvus", "locks", "projects"}
+	ownFolders = []string{"backups", "cache", "luvus", "locks", "projects"}
 )
 
 func hidden(rel string, dir bool) bool {

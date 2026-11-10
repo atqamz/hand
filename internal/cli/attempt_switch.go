@@ -56,7 +56,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		return err
 	}
 	to := harness.Spec{Harness: "opencode", Model: *model, Effort: *effort}
-	if _, err := harness.Check(to, harness.EnvOf(r.env.Getenv)); err != nil {
+	if _, err := harness.Check(to, r.harnessEnv()); err != nil {
 		return err
 	}
 	return r.withAttempts(func(ctx context.Context, st *state.Store, c luvus.Client) error {

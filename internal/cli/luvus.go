@@ -36,7 +36,7 @@ func (r *runner) luvusBin() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pin, ok, err := luvus.LoadPin(root)
+	pin, ok, err := fleet.LoadPin(root, r.home)
 	if err == nil && ok {
 		err = pin.Verify()
 	}
@@ -49,16 +49,15 @@ func (r *runner) luvusBin() (string, error) {
 	return pin.Path, nil
 }
 
-func (r *runner) pinLuvus(root, bin string) (luvus.Pin, error) {
-	pin, err := luvus.Keep(r.ctx(), root, bin, r.env.Environ(), r.env.Now())
+func (r *runner) pinLuvus(store, bin string) (luvus.Pin, error) {
+	pin, err := luvus.Keep(r.ctx(), store, bin, r.env.Environ(), r.env.Now())
 	if errors.Is(err, luvus.ErrNotLuvus) {
 		return pin, fmt.Errorf("%w: %w", state.ErrInvalid, err)
 	}
 	return pin, err
 }
 
-func (r *runner) fetchLuvus(root string) (luvus.Pin, error) {
-	store := filepath.Join(root, "luvus")
+func (r *runner) fetchLuvus(store string) (luvus.Pin, error) {
 	if err := os.MkdirAll(store, 0o755); err != nil {
 		return luvus.Pin{}, err
 	}
@@ -71,7 +70,7 @@ func (r *runner) fetchLuvus(root string) (luvus.Pin, error) {
 	if err != nil {
 		return luvus.Pin{}, err
 	}
-	return r.pinLuvus(root, bin)
+	return r.pinLuvus(store, bin)
 }
 
 func cmdLuvusPin(r *runner, args []string) error {
@@ -82,11 +81,15 @@ func cmdLuvusPin(r *runner, args []string) error {
 	if fs.NArg() > 1 {
 		return usageError{"usage: hand luvus pin [BIN]"}
 	}
+	if err := r.needHome(); err != nil {
+		return err
+	}
 	root, err := r.rootDir()
 	if err != nil {
 		return err
 	}
-	prev, had, err := luvus.LoadPin(root)
+	store := fleet.LuvusStore(r.home)
+	prev, had, err := fleet.LoadPin(root, r.home)
 	previous := pinLabel(prev, had)
 	switch {
 	case errors.Is(err, luvus.ErrPinChanged):
@@ -117,10 +120,10 @@ func cmdLuvusPin(r *runner, args []string) error {
 	}
 	var pin luvus.Pin
 	if fetch {
-		if pin, err = r.fetchLuvus(root); err != nil {
+		if pin, err = r.fetchLuvus(store); err != nil {
 			return fmt.Errorf("%w (download failed: %v)", lookErr, err)
 		}
-	} else if pin, err = r.pinLuvus(root, bin); err != nil {
+	} else if pin, err = r.pinLuvus(store, bin); err != nil {
 		return err
 	}
 	var d toon.Doc
@@ -142,7 +145,7 @@ func cmdLuvusShow(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	pin, had, err := luvus.LoadPin(root)
+	pin, had, err := fleet.LoadPin(root, r.home)
 	if err != nil {
 		return err
 	}

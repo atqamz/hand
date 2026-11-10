@@ -1107,3 +1107,61 @@ func TestListingTextIsCleanedBeforeItIsCached(t *testing.T) {
 		t.Fatalf("tidy = %+v", out)
 	}
 }
+
+func TestAFleetCacheHoldsTheListingAndTheMachineKeepsTheFreshnessGate(t *testing.T) {
+	f := newFixture(t)
+	f.env.Cache = filepath.Join(t.TempDir(), "cache", "models")
+	f.install("agy", map[string]string{"stdout": agyList})
+	f.refresh("agy")
+	for _, p := range []string{filepath.Join(f.env.Cache, "agy.json"), filepath.Join(f.root, "models", "agy.json")} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("a refresh left no listing at %s: %v", p, err)
+		}
+	}
+	if models, err := Detected("agy", f.env); err != nil || len(models) != 2 {
+		t.Fatalf("Detected = %v, %v", models, err)
+	}
+}
+
+func TestASecondFleetDoesNotRefreshWhatTheMachineJustListed(t *testing.T) {
+	f := newFixture(t)
+	count := filepath.Join(t.TempDir(), "count")
+	f.install("agy", map[string]string{"stdout": agyList, "count": count})
+	a, b := f.env, f.env
+	a.Cache, b.Cache = filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
+	if _, err := Refresh(context.Background(), "agy", a, f.opts); err != nil {
+		t.Fatal(err)
+	}
+	if st := StatusOf("agy", b, f.clock()); st.Due || !st.Found || len(st.Listing.Models) != 2 {
+		t.Fatalf("the second fleet's status = %+v", st)
+	}
+	if models, err := Detected("agy", b); err != nil || len(models) != 2 {
+		t.Fatalf("the second fleet reads %v, %v", models, err)
+	}
+	f.advance(7 * time.Hour)
+	if st := StatusOf("agy", b, f.clock()); !st.Due {
+		t.Fatalf("an old listing is not due: %+v", st)
+	}
+	if _, err := Refresh(context.Background(), "agy", b, f.opts); err != nil {
+		t.Fatal(err)
+	}
+	if st := StatusOf("agy", a, f.clock()); st.Due {
+		t.Fatalf("the first fleet is due again after the second refreshed: %+v", st)
+	}
+	if got, _ := os.ReadFile(count); strings.Count(string(got), "x") != 2 {
+		t.Fatalf("agy ran %q times for two fleets over two periods, want 2", got)
+	}
+}
+
+func TestAMovedFleetKeepsItsListingUntilThisMachineRefreshes(t *testing.T) {
+	f := newFixture(t)
+	f.env.Cache = filepath.Join(t.TempDir(), "cache", "models")
+	f.install("agy", map[string]string{"stdout": agyList})
+	f.refresh("agy")
+	if err := os.RemoveAll(filepath.Join(f.root, "models")); err != nil {
+		t.Fatal(err)
+	}
+	if models, err := Detected("agy", f.env); err != nil || len(models) != 2 {
+		t.Fatalf("Detected = %v, %v", models, err)
+	}
+}

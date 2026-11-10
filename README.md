@@ -67,7 +67,7 @@ You use two commands, then the browser. The other `hand` commands are for the su
    hand init
    ```
 
-   This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus, downloading the tested version when none is on `PATH`. It starts nothing. Running it again is safe.
+   This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus in the folder's `luvus/<os>-<arch>/`, downloading the tested version when none is on `PATH`. The folder also keeps its own `backups/` and `cache/models/`. It starts nothing. Running it again is safe.
 2. **Open it.** `hand open` opens the fleet's page in your browser and logs you in. `hand open --print` prints the login link for another browser or a phone; keep it private, since it holds the fleet's token. When no board answers, `hand open` starts one first ([Keep the watcher and the board running](docs/autostart.md#keep-the-watcher-and-the-board-running)).
 3. **Work in the browser.** A new fleet has no supervisor yet: press **Start** and pick a routing profile (`default` is a good first one). That starts the supervisor in the fleet's Luvus session and its watcher. Then:
    - write to the supervisor in the **Chat** tab, and name the repositories it should work on by absolute path. A first message could be: *Register /abs/path/to/repo as project demo, add a task to fix a typo in its README, and start a quick worker.*

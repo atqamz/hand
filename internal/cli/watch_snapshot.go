@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/fleet"
 )
 
 const (
@@ -20,7 +22,7 @@ func (w *watcher) snapshot(ctx context.Context) {
 	if day == w.snapped {
 		return
 	}
-	dir := filepath.Join(w.r.root, "backups", w.r.fleet.ID)
+	dir := fleet.Backups(w.r.home)
 	path := filepath.Join(dir, "hand-"+day+".db")
 	err := os.MkdirAll(dir, 0o700)
 	if _, statErr := os.Lstat(path); err == nil && statErr != nil {

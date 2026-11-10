@@ -70,14 +70,14 @@ func names(t *testing.T, dir string) []string {
 
 func TestBackupCopiesEachFleetAndTheBinary(t *testing.T) {
 	root := t.TempDir()
-	a, _ := newFleet(t, root, "alpha")
-	b, _ := newFleet(t, root, "beta")
+	_, a := newFleet(t, root, "alpha")
+	_, b := newFleet(t, root, "beta")
 	target := binary(t, "old hand")
 	got, err := Backup(context.Background(), root, target, entries(t, root), stamp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(root, "backups", a, "hand.db.20261002T010203"), filepath.Join(root, "backups", b, "hand.db.20261002T010203"), filepath.Join(root, "backups", "hand.20261002T010203")}
+	want := []string{filepath.Join(a, "backups", "hand.db.20261002T010203"), filepath.Join(b, "backups", "hand.db.20261002T010203"), filepath.Join(root, "backups", "hand.20261002T010203")}
 	slices.Sort(want[:2])
 	slices.Sort(got[:min(2, len(got))])
 	if !slices.Equal(got, want) {
@@ -97,30 +97,30 @@ func TestBackupCopiesEachFleetAndTheBinary(t *testing.T) {
 
 func TestBackupKeepsTheTwoNewestSets(t *testing.T) {
 	root := t.TempDir()
-	id, _ := newFleet(t, root, "alpha")
+	_, home := newFleet(t, root, "alpha")
 	target := binary(t, "old hand")
 	for i := range 3 {
 		if _, err := Backup(context.Background(), root, target, entries(t, root), stamp.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := names(t, filepath.Join(root, "backups", id)); len(got) != 3 {
+	if got := names(t, filepath.Join(home, "backups")); len(got) != 3 {
 		t.Fatalf("Backup pruned before the swap: %q", got)
 	}
 	if err := Prune(root, entries(t, root)); err != nil {
 		t.Fatal(err)
 	}
-	if got := names(t, filepath.Join(root, "backups", id)); !slices.Equal(got, []string{"hand.db.20261002T010204", "hand.db.20261002T010205"}) {
+	if got := names(t, filepath.Join(home, "backups")); !slices.Equal(got, []string{"hand.db.20261002T010204", "hand.db.20261002T010205"}) {
 		t.Fatalf("fleet backups = %q", got)
 	}
-	if got := names(t, filepath.Join(root, "backups")); !slices.Equal(got, []string{id, "hand.20261002T010204", "hand.20261002T010205"}) {
+	if got := names(t, filepath.Join(root, "backups")); !slices.Equal(got, []string{"hand.20261002T010204", "hand.20261002T010205"}) {
 		t.Fatalf("binary backups = %q", got)
 	}
 }
 
 func TestBackupSkipsAFleetThatIsNotOk(t *testing.T) {
 	root := t.TempDir()
-	id, home := newFleet(t, root, "alpha")
+	_, home := newFleet(t, root, "alpha")
 	if err := os.RemoveAll(home); err != nil {
 		t.Fatal(err)
 	}
@@ -132,12 +132,12 @@ func TestBackupSkipsAFleetThatIsNotOk(t *testing.T) {
 	if err != nil || !slices.Equal(got, []string{filepath.Join(root, "backups", "hand.20261002T010203")}) {
 		t.Fatalf("backups = %q, %v", got, err)
 	}
-	absent(t, filepath.Join(root, "backups", id))
+	absent(t, filepath.Join(home, "backups"))
 }
 
 func TestBackupMovesPastAnExistingStamp(t *testing.T) {
 	root := t.TempDir()
-	id, _ := newFleet(t, root, "alpha")
+	_, home := newFleet(t, root, "alpha")
 	if err := os.MkdirAll(filepath.Join(root, "backups"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestBackupMovesPastAnExistingStamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := Backup(context.Background(), root, binary(t, "old hand"), entries(t, root), stamp)
-	want := []string{filepath.Join(root, "backups", id, "hand.db.20261002T010204"), filepath.Join(root, "backups", "hand.20261002T010204")}
+	want := []string{filepath.Join(home, "backups", "hand.db.20261002T010204"), filepath.Join(root, "backups", "hand.20261002T010204")}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("backups = %q, %v", got, err)
 	}
@@ -153,8 +153,8 @@ func TestBackupMovesPastAnExistingStamp(t *testing.T) {
 
 func TestPruneLeavesTheWatcherSnapshots(t *testing.T) {
 	root := t.TempDir()
-	id, _ := newFleet(t, root, "alpha")
-	dir := filepath.Join(root, "backups", id)
+	_, home := newFleet(t, root, "alpha")
+	dir := filepath.Join(home, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

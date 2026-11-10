@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
@@ -58,7 +59,7 @@ func keepLuvus(t *testing.T, root, version string) luvus.Pin {
 	if err := os.WriteFile(bin, fakebin.Embed(t, "luvus", map[string]string{"version": version}), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pin, err := luvus.Keep(context.Background(), root, bin, os.Environ(), time.Now())
+	pin, err := luvus.Keep(context.Background(), fleet.OldLuvusStore(root), bin, os.Environ(), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,11 +226,12 @@ func TestRenderPrintsTheReport(t *testing.T) {
 func TestRunPinsTheTestedLuvus(t *testing.T) {
 	f := newFetch(t)
 	f.pin = keepLuvus(t, f.root, "0.14.3")
+	_, home := newFleet(t, f.root, "alpha")
 	rep, err := Run(context.Background(), f.o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin, ok, err := luvus.LoadPin(f.root); err != nil || !ok || pin.Version != "0.14.4" {
+	if pin, ok, err := luvus.LoadPin(fleet.LuvusStore(home)); err != nil || !ok || pin.Version != "0.14.4" {
 		t.Fatalf("pin = %+v, %v, %v", pin, ok, err)
 	}
 	if out := Render(rep).String(); !strings.Contains(out, "luvus: 0.14.3 -> 0.14.4\n") {
@@ -240,10 +242,11 @@ func TestRunPinsTheTestedLuvus(t *testing.T) {
 func TestRunNeverLowersThePin(t *testing.T) {
 	f := newFetch(t)
 	f.pin = keepLuvus(t, f.root, "0.15.0")
+	_, home := newFleet(t, f.root, "alpha")
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
 	}
-	if pin, _, _ := luvus.LoadPin(f.root); pin.Version != "0.15.0" {
+	if pin, _, _ := luvus.LoadPin(fleet.LuvusStore(home)); pin.Version != "0.15.0" {
 		t.Fatalf("pin = %+v", pin)
 	}
 	if slices.ContainsFunc(f.srv.asked(), func(p string) bool { return strings.Contains(p, "luvus-") }) {
@@ -265,6 +268,7 @@ func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
 func TestRunDoesNotHoldWhileDownloading(t *testing.T) {
 	f := newFetch(t)
 	f.pin = keepLuvus(t, f.root, "0.14.3")
+	newFleet(t, f.root, "alpha")
 	f.srv.set(luvusAsset("0.14.4"), nil)
 	held := 0
 	f.o.Hold = func() { held++ }

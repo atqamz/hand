@@ -1261,12 +1261,7 @@ func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
 
 func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 	fx := newAttemptFixture(t)
-	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "index"))
-	if err != nil || len(ids) != 1 {
-		t.Fatalf("fleets = %v, %v", ids, err)
-	}
-	dir := filepath.Join(root, "backups", ids[0].Name())
+	dir := filepath.Join(fx.h.home, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1307,12 +1302,7 @@ func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 
 func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
 	fx := newAttemptFixture(t)
-	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "index"))
-	if err != nil || len(ids) != 1 {
-		t.Fatalf("fleets = %v, %v", ids, err)
-	}
-	dir := filepath.Join(root, "backups", ids[0].Name())
+	dir := filepath.Join(fx.h.home, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1342,7 +1332,6 @@ func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.validateFail = true })
-	root := fx.h.vars["SECONDHAND_HOME"]
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan string, 1)
 	go func() {
@@ -1350,7 +1339,7 @@ func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
 		done <- out
 	}()
 	eventually(t, func() bool {
-		m, _ := filepath.Glob(filepath.Join(root, "backups", "*", "hand-*.db"))
+		m, _ := filepath.Glob(filepath.Join(fx.h.home, "backups", "hand-*.db"))
 		return len(m) == 1
 	})
 	cancel()
@@ -1361,12 +1350,7 @@ func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
 
 func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
 	fx := newAttemptFixture(t)
-	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "index"))
-	if err != nil || len(ids) != 1 {
-		t.Fatalf("fleets = %v, %v", ids, err)
-	}
-	dir := filepath.Join(root, "backups", ids[0].Name())
+	dir := filepath.Join(fx.h.home, "backups")
 	stuck := filepath.Join(dir, "hand-20240101.db.tmp")
 	if err := os.MkdirAll(filepath.Join(stuck, "child"), 0o700); err != nil {
 		t.Fatal(err)

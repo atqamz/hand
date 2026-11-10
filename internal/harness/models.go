@@ -77,6 +77,13 @@ const (
 )
 
 func cacheDir(env Env) string {
+	if env.Cache != "" {
+		return env.Cache
+	}
+	return machineDir(env)
+}
+
+func machineDir(env Env) string {
 	root := env.get("SECONDHAND_HOME")
 	if root == "" {
 		home := env.get("HOME")
@@ -89,7 +96,17 @@ func cacheDir(env Env) string {
 }
 
 func load(name string, env Env) (Listing, bool) {
-	dir := cacheDir(env)
+	l, ok := loadFrom(cacheDir(env), name)
+	if env.Cache == "" {
+		return l, ok
+	}
+	if m, mok := loadFrom(machineDir(env), name); mok && (!ok || m.At.After(l.At)) {
+		return m, true
+	}
+	return l, ok
+}
+
+func loadFrom(dir, name string) (Listing, bool) {
 	if _, ok := listers[name]; !ok || dir == "" {
 		return Listing{}, false
 	}
@@ -266,22 +283,30 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 	if err != nil {
 		return Listing{Harness: name, Failed: &Failure{At: o.Now(), Reason: missing(name, err)}}, nil
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return Listing{}, err
+	gate := machineDir(env)
+	if gate == "" {
+		gate = dir
 	}
-	_ = os.Chmod(dir, 0o700)
+	for _, d := range []string{dir, gate} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return Listing{}, err
+		}
+		_ = os.Chmod(d, 0o700)
+	}
 	started := time.Now()
-	unlock, waited, err := lock(ctx, filepath.Join(dir, name+".lock"))
+	unlock, waited, err := lock(ctx, filepath.Join(gate, name+".lock"))
 	if err != nil {
 		return Listing{}, err
 	}
 	defer unlock()
-	stale, _ := filepath.Glob(filepath.Join(dir, name+".*.tmp"))
-	for _, tmp := range stale {
-		_ = os.Remove(tmp)
+	for _, d := range []string{dir, gate} {
+		stale, _ := filepath.Glob(filepath.Join(d, name+".*.tmp"))
+		for _, tmp := range stale {
+			_ = os.Remove(tmp)
+		}
 	}
 	if prev, ok := load(name, env); ok && waited {
-		if fi, err := os.Stat(filepath.Join(dir, name+".json")); err == nil && !fi.ModTime().Before(started.Add(-time.Second)) {
+		if fi, err := os.Stat(filepath.Join(gate, name+".json")); err == nil && !fi.ModTime().Before(started.Add(-time.Second)) {
 			return prev, nil
 		}
 	}
@@ -308,7 +333,11 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 		}
 		next.Failed = &Failure{At: o.Now(), Reason: clip(err.Error(), 200)}
 	}
-	return next, store(dir, next)
+	err = store(dir, next)
+	if err == nil && gate != dir {
+		_ = store(gate, next)
+	}
+	return next, err
 }
 
 func lock(ctx context.Context, path string) (func(), bool, error) {
