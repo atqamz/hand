@@ -6,7 +6,7 @@ To update an installed Hand, run `hand update` from anywhere. It does the follow
 - downloads the newest build of the channel the running `hand` came from, and checks it;
 - backs up every fleet's `hand.db` to `backups/` in the fleet folder, and the old binary to `~/.secondhand/backups/`;
 - replaces the binary, then stops each fleet's watcher and the board by the process IDs they record (`watch.pid` in the fleet folder, `board.pid` in `~/.secondhand`) and starts them again as `hand supervisor start` and `hand open` do, on every OS;
-- runs `hand init` in every fleet.
+- runs `hand init` in every fleet, which writes the fleet's `hand.version` pin (see [Fleets](fleets.md#which-hand-last-opened-the-fleet));
 
 The first `hand update` or fleet command of a version that keeps a fleet's own `luvus/<os>-<arch>/`, `backups/` and `cache/models/` copies the old machine-side files into the fleet and prints a `migrated` list. It copies the backups once (a `backups/.migrated` file marks it done, so a backup that Hand pruned does not come back), it never moves or removes: a Luvus server that runs from `~/.secondhand/luvus/` keeps running from that binary, because the fleet's pin names the same version and `hand update` switches a server only when the version differs. `hand doctor` lists the old copies under `old machine copies`; delete them yourself once no Luvus server runs from the machine copy and you no longer need the older restore points.
 

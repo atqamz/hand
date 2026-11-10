@@ -105,18 +105,22 @@ func (r *runner) store() (*state.Store, error) {
 	if err := r.needHome(); err != nil {
 		return nil, err
 	}
+	takeOver, err := r.preflight()
+	if err != nil {
+		return nil, err
+	}
 	st, err := state.Open(r.dbPath(), r.env.Now)
 	if err != nil {
 		return nil, err
 	}
-	if err := r.claim(st); err != nil {
+	if err := r.claim(st, takeOver); err != nil {
 		_ = st.Close()
 		return nil, err
 	}
 	return st, nil
 }
 
-func (r *runner) claim(st *state.Store) error {
+func (r *runner) claim(st *state.Store, takeOver *fleet.HostMarker) error {
 	f, err := st.Fleet(r.ctx())
 	if err != nil {
 		return err
@@ -126,8 +130,10 @@ func (r *runner) claim(st *state.Store) error {
 			return err
 		}
 	}
-	if err := r.checkHost(st); err != nil {
-		return err
+	if takeOver != nil {
+		if err := r.takeOver(st, *takeOver, r.selfHost()); err != nil {
+			return err
+		}
 	}
 	if r.noAdopt {
 		if olds, due, err := adoptOlds(r.root, f, r.home, nil); err != nil {
@@ -145,6 +151,7 @@ func (r *runner) claim(st *state.Store) error {
 		return err
 	}
 	r.fleet = f
+	r.writePin()
 	r.migrateLayout()
 	return nil
 }
@@ -251,12 +258,18 @@ func cmdInit(r *runner, args []string) error {
 	var f state.Fleet
 	have := false
 	if !created {
+		takeOver, err := r.preflight()
+		if err != nil {
+			return err
+		}
 		if st, err = state.Open(r.dbPath(), r.env.Now); err != nil {
 			return err
 		}
 		defer st.Close()
-		if err := r.checkHost(st); err != nil {
-			return err
+		if takeOver != nil {
+			if err := r.takeOver(st, *takeOver, r.selfHost()); err != nil {
+				return err
+			}
 		}
 		switch f, err = st.Fleet(ctx); {
 		case err == nil:
@@ -315,6 +328,7 @@ func cmdInit(r *runner, args []string) error {
 	if _, err := fleet.Register(root, f.ID, r.home); err != nil {
 		return err
 	}
+	r.writePin()
 	var d toon.Doc
 	d.Field("home", r.home)
 	d.Field("fleet", f.Name)

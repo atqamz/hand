@@ -150,6 +150,7 @@ A fleet home holds:
 - `board.token`, made the first time the board serves the fleet;
 - `fleet.home`: the homes the fleet has lived at, with `.fleet.home.lock` beside it, which serialises its writes;
 - `fleet.host`: the [host marker](#host-marker), present while a watcher runs;
+- `hand.version`: the [version pin](#version-pin);
 - run-time files such as `luvus/`, `locks/`, `backups/`, `cache/`, `watch.lock` and `watch.log`.
 
 ### Move
@@ -163,6 +164,10 @@ Adopting is the rewrite a fleet gets at its new path: `hand fleet adopt [--from 
 ### Host marker
 
 `fleet.host` in the fleet home, JSON `{"host","boot","pid","at"}`: the host name, the boot id (Linux `boot_id`, macOS `kern.bootsessionuuid`, Windows `ticks:<unix second of the boot>` from `GetTickCount64`, equal within 5 seconds), the watcher's pid and its last beat. The watcher writes it on start and every 15 seconds, removes it on a clean stop, and stops itself when it reads another host's name there. A command that opens the fleet leaves a marker of this machine (the same boot id, or the same host name and boot id) alone however old it is, refuses a marker of another host up to 90 seconds old (naming the host and `hand fleet unlock`), and takes over from an older one, or from an earlier boot of this host when `watch.lock` is free: it removes the marker, appends `fleet.took_over` and ends the live attempts whose process is not alive here (`running` becomes `interrupted`, `launching` becomes `failed`), in one transaction. `hand fleet unlock` clears it and appends `fleet.unlocked`; it refuses while this machine's watcher holds `watch.lock`. `hand doctor` and `hand fleet list` never write it and show `open on another host` and `unclean close` rows when they apply. On Linux and macOS `watch.pid` and `board.pid` add a second line `boot <boot id> <host>`, and a pid from another boot or host is never signalled; the Windows tick form is never written there. See [Fleets](fleets.md#which-host-has-the-fleet-open).
+
+### Version pin
+
+`hand.version` in the fleet home, JSON `{"version","commit","schema"}`: the version and commit of the `hand` that last opened or migrated the fleet, and the schema it reads. `hand init` writes it, and a command that opens the fleet with a different `hand` rewrites it after the migration; it is written to a temporary name and renamed. A command that opens the fleet reads it before `hand.db` and refuses, exit 2 and no write, when it names a newer version or a newer schema than this `hand`, naming both and `hand update`; an older or missing pin is migrated and rewritten. `hand doctor` shows a `hand.version` row and never writes it. See [Fleets](fleets.md#which-hand-last-opened-the-fleet).
 
 ### Import
 

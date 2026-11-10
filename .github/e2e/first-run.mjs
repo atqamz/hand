@@ -53,7 +53,7 @@ async function cli(box, srv) {
   await ok(doctor, 'hand doctor exits 0 with no harness installed and an empty routing.json');
   const checks = toon(doctor.out).tables.checks;
   const state = (name) => checks.find((c) => c.check === name)?.state;
-  for (const name of ['luvus pin', 'schema', 'fleet', 'routing.json', 'project alpha', 'project beta']) equal(state(name), 'ok', `hand doctor: ${name} is ok`);
+  for (const name of ['luvus pin', 'hand.version', 'schema', 'fleet', 'routing.json', 'project alpha', 'project beta']) equal(state(name), 'ok', `hand doctor: ${name} is ok`);
   if (!win) check(['ok', 'warn'].includes(state('modes')), 'hand doctor: the mode check reports a state');
   const git = checks.find((c) => c.check === 'git');
   equal([git.state, git.fix], win ? ['warn', 'core.longpaths is off; run `git config --global core.longpaths true`'] : ['ok', ''], `hand doctor: git is ${win ? 'a warning for core.longpaths on Windows' : 'ok'}`);

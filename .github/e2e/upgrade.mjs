@@ -231,7 +231,7 @@ async function afterwards(box, s) {
   const checks = toon(doctor.out).tables.checks;
   equal(checks.filter((c) => c.state === 'fail'), [], `${name}: hand doctor fails nothing`);
   equal(checks.find((c) => c.check === 'harness')?.state, 'warn', `${name}: hand doctor warns that no harness is installed`);
-  for (const c of ['schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
+  for (const c of ['hand.version', 'schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
   for (const c of ['machine-local', 'restore points']) equal(checks.find((r) => r.check === c)?.state, 'info', `${name}: hand doctor: ${c} is information`);
   if (!win) check(['ok', 'warn'].includes(checks.find((r) => r.check === 'modes')?.state), `${name}: hand doctor: the mode check reports a state`);
   if (s.sidecar) {

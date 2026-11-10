@@ -34,26 +34,25 @@ func hostLabel(m fleet.HostMarker) string {
 	return fmt.Sprintf("%s (pid %d, last beat %s)", m.Host, m.PID, m.At.UTC().Format(time.RFC3339))
 }
 
-func (r *runner) checkHost(st *state.Store) error {
+func (r *runner) judgeHost() (*fleet.HostMarker, error) {
 	m, found, err := fleet.ReadHost(r.home)
 	if err != nil {
 		fmt.Fprintf(r.env.Stderr, "warning: cannot read %s: %v; treating it as absent; `hand fleet unlock` removes it\n", filepath.Join(r.home, fleet.HostFile), err)
-		return nil
+		return nil, nil
 	}
 	if !found {
-		return nil
+		return nil, nil
 	}
 	self := r.selfHost()
 	switch fleet.JudgeHost(m, found, self, self.At, r.watchHeld) {
 	case fleet.HostRefuse:
-		return fmt.Errorf("%w: this fleet is open on host %s: its watcher last beat %s ago. Close it there; or, if that host is gone, run `hand fleet unlock` here", state.ErrConflict, hostLabel(m), self.At.Sub(m.At).Round(time.Second))
+		return nil, fmt.Errorf("%w: this fleet is open on host %s: its watcher last beat %s ago. Close it there; or, if that host is gone, run `hand fleet unlock` here", state.ErrConflict, hostLabel(m), self.At.Sub(m.At).Round(time.Second))
 	case fleet.HostTakeOver:
-		if r.noAdopt {
-			return nil
+		if !r.noAdopt {
+			return &m, nil
 		}
-		return r.takeOver(st, m, self)
 	}
-	return nil
+	return nil, nil
 }
 
 func (r *runner) takeOver(st *state.Store, from, self fleet.HostMarker) error {

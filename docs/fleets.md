@@ -26,6 +26,7 @@ A fleet folder looks like this:
 ├── fleet.home         the homes this fleet has lived at
 ├── .fleet.home.lock   serialises writes to fleet.home
 ├── fleet.host         which host has the fleet open; only while a watcher runs
+├── hand.version       the hand that last opened the fleet
 ├── routing.json       fleet settings
 ├── memory/
 │   ├── operator.md    your standing preferences
@@ -115,7 +116,7 @@ The adoption refuses, and changes nothing:
 
 What travels and what stays:
 
-- The fleet folder is durable: `hand.db`, `fleet.home`, `memory/`, `inbox/`, `plans/`, `deliverables/`, `reports/`, `shots/`, `briefs/`, `scratch/`, `projects/`, `luvus/`, `backups/`, `cache/`, `routing.json`, `board.token`, `AGENTS.md` and the skills.
+- The fleet folder is durable: `hand.db`, `fleet.home`, `hand.version`, `memory/`, `inbox/`, `plans/`, `deliverables/`, `reports/`, `shots/`, `briefs/`, `scratch/`, `projects/`, `luvus/`, `backups/`, `cache/`, `routing.json`, `board.token`, `AGENTS.md` and the skills.
 - The machine keeps what names its processes and paths, and rebuilds it: worktrees (`~/.secondhand/worktrees`), pid and address files, the Board's peer secret and iroh key, the `hand` binaries, the harness transcripts. Uncommitted work in a worktree stays on the machine that made it, so stop and clean attempts, and push their branches, before you unplug.
 
 Limits:
@@ -137,7 +138,7 @@ Every `hand` command that opens the fleet reads the marker and decides:
 - **Another host, last beat 90 seconds ago or less**: the command refuses, naming the host, its watcher's pid and the beat, and `hand fleet unlock`, and writes nothing. A marker dated in the future (the other clock runs ahead) counts as fresh.
 - **Another host, older than 90 seconds**: the command takes over.
 
-Taking over removes the marker and, in one transaction, writes a `fleet.took_over` event and marks the live attempts ended, reason `the fleet moved to host X`: a running one `interrupted` (`attempt.interrupted`), a launching one `failed` (`attempt.failed`), except an attempt whose process still runs on this machine. The command says so on stderr. `hand supervisor stop` and `hand supervisor interrupt` refuse like the rest, also on a copy that is not adopted yet, but never take over. A refusal is judged before an adoption of a moved or copied fleet, so it writes nothing: the database, its events and backups stay as they were. `hand init` judges the marker the same way and refuses while another host has the fleet open. The worktrees and processes of those attempts stay on the host that made them.
+Taking over removes the marker and, in one transaction, writes a `fleet.took_over` event and marks the live attempts ended, reason `the fleet moved to host X`: a running one `interrupted` (`attempt.interrupted`), a launching one `failed` (`attempt.failed`), except an attempt whose process still runs on this machine. The command says so on stderr. `hand supervisor stop` and `hand supervisor interrupt` refuse like the rest, also on a copy that is not adopted yet, but never take over. A refusal is judged before an adoption of a moved or copied fleet and before `hand.db` is opened, so it writes nothing: the database (an old schema is not migrated first), its events and backups stay as they were. `hand init` judges the marker the same way and refuses while another host has the fleet open. The worktrees and processes of those attempts stay on the host that made them.
 
 A `fleet.host` that cannot be read (a permission error) is warned about and counts as absent. `hand fleet unlock` clears the marker, readable or not, writes a `fleet.unlocked` event and leaves the attempts as they are. It refuses while this machine's watcher holds `watch.lock`: run `hand watch stop` first.
 
@@ -146,3 +147,15 @@ After a suspend or a clock jump on the same machine, nothing changes: the next b
 `hand doctor` has two rows, shown only when they apply: `open on another host` (`fail`: a marker from another host within 90 seconds) and `unclean close` (`warn`: an older marker from another host, or one of this host whose watcher is not running, a crash or a reboot).
 
 On Linux and macOS the pid files carry the boot too: `watch.pid` and `board.pid` keep their line `<pid> <start time> <binary>` and add a second, `boot <boot id> <host>`. `hand watch stop`, `hand board stop` and `hand update` signal a process only when its start time, binary and boot id match this machine's, so a pid recorded on another host or before a reboot is never signalled. `watch stop` and `board stop` remove such a file when it names this host (an earlier boot, the process is gone) and leave it when it names another host, whose watcher may be running. Windows writes no boot id there: its start times are absolute. A file from an older build has none and is checked by start time and binary as before. An older `hand` reads the second line as part of the binary path, finds another binary and leaves the process alone, so rolling back with a watcher running is safe.
+
+### Which hand last opened the fleet
+
+`hand.version` in the fleet folder records the `hand` that last opened or migrated the fleet, as JSON `{"version":"0.13.0","commit":"abc1234","schema":22}`: the binary's version and commit and the database schema it reads. `hand init` writes it, and so does the first command that opens the fleet with a different `hand` (`hand update` runs `hand init` in each fleet with the new binary). It is written to a temporary name and renamed, so it works on exFAT, and a fleet with no file (made before the pin existed) is not refused and gets one at its next open.
+
+Every `hand` command that opens the fleet reads it first, before it opens `hand.db`, so a refusal writes nothing: no migration, no adoption, no event, no new file.
+
+- **Pinned to a newer `hand`** (a newer version, or a newer schema): the command refuses with exit 2, naming both versions and the command that fetches the newer `hand`. Run `hand update`, or `hand update --channel stable` for a build from source. On a machine without `hand`, run the install line in [Install](install.md), then `hand update` is there for next time. Opening the fleet with an older `hand` would not be safe: it cannot read a newer schema, and the notes the newer one wrote would be lost.
+- **Pinned to an older `hand`, or to none**: the normal migration runs on `hand.db`, then the pin is rewritten to this binary. A fleet carried on a disk from an old machine therefore opens on a new one, and the old machine is then refused until it updates.
+- **Same version, other commit** (two edge builds of one version): not refused; the pin follows the last one to open the fleet.
+
+`hand doctor` has a `hand.version` row: `ok`, `info` when the pin is older or missing (the next open migrates and pins), `fail` when the fleet is pinned to a newer `hand`. It never writes the pin, and it skips the schema checks while the fleet is pinned newer, so it does not migrate an old-schema database either.

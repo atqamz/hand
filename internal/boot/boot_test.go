@@ -68,3 +68,15 @@ func TestIDIsStableWithinABoot(t *testing.T) {
 		t.Fatalf("two reads differ: %q then %q", a, b)
 	}
 }
+
+func TestStableDropsTheTickForm(t *testing.T) {
+	for in, want := range map[string]string{
+		"ticks:1799999910":                     "",
+		"6f1c2d3e-aaaa-4bbb-8ccc-0123456789ab": "6f1c2d3e-aaaa-4bbb-8ccc-0123456789ab",
+		"":                                     "",
+	} {
+		if got := stable(in); got != want {
+			t.Errorf("stable(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
