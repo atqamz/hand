@@ -368,7 +368,7 @@ The running board keeps it alive. `hand unit board` prints the board's systemd u
 
 ### Event and cursor
 
-Every state change is one transaction that also appends an event with a sequence number, a kind such as `task.active` or `attempt.reported`, a task and a detail. A cursor is the sequence number of the last event seen. `hand orient` prints the current one.
+Every state change is one transaction that also appends an event with a sequence number, a kind such as `task.active` or `attempt.reported`, a task and a detail. The one exception is an `alert` row, written without an event because the change it announces has its own. A cursor is the sequence number of the last event seen. `hand orient` prints the current one.
 
 ### Wake
 

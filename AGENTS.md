@@ -5,7 +5,7 @@ Personal supervisor layer for agents. Read `docs/spec.md` before changing anythi
 - Terms follow `docs/vocabulary.md`; update it when a term, state, wake kind or ref changes.
 - Standard library first. The dependencies are `modernc.org/sqlite`, `golang.org/x/sys` (already one of its own) for macOS process start times, and `github.com/egoist/mygo` v0.7.4 (pinned; Dependabot ignores it) for the desktop window, which is cgo-free. `iroh/` is a separate Rust crate that builds `hand-iroh`; it adds no Go dependency, and a change there runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` and `cargo test --locked` in `iroh/` (`docs/phone.md`); `internal/board/peer.go` and `iroh/src/preface.rs` write the same preface grammar, so a change to either runs the `Iroh` workflow, which also runs the one `internal/sidecar` test that needs the real `hand-iroh` (`HAND_IROH_BIN`, absolute path; it skips without it). The sidecar's version is pinned once, in `internal/sidecar`, and a test keeps it equal to `iroh/Cargo.toml`: bump both together.
 - No code comments unless a hidden constraint needs one (≤3 lines).
-- Every state change goes through `internal/state` in one transaction that also appends an event.
+- Every state change goes through `internal/state` in one transaction that also appends an event, except an `alert` row (the change it announces has its own event).
 - Output is TOON via `internal/toon`; keep `hand orient` within its byte budget.
 - Run `gofmt -l .`, `go vet ./...` and `go test -race ./...` before committing.
 - `.github/e2e` drives a release build as a user does, in CI on all three OSes (`docs/dogfood/README.md`); a change to the rows `hand doctor` prints, what `hand update` reports or a Board route changes its assertions too.
