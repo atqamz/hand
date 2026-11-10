@@ -19,7 +19,9 @@ Android only. iOS is deferred and has no code here.
 
 ## Build a debug APK
 
-Debug-signed only. No release signing key exists in this repository or in CI.
+Debug-signed only. No release signing key exists in this repository or in CI. Every build is signed by the debug key committed at `src-tauri/gen/android/app/debug.keystore` (alias `androiddebugkey`, password `android`, SHA-256 `083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da`), so a new build updates the installed one in place. Debug keys are not secret. The `signingConfigs` block in `app/build.gradle.kts` selects it; `cargo tauri android init` overwrites that file, so redo the block after running it.
+
+An app installed from a build made before this key (CI run 42762177268 and earlier) is signed by a throwaway key: uninstall it and pair again once; later builds update in place.
 
 Prerequisites:
 
@@ -40,7 +42,7 @@ export NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724"
 cargo tauri android build --debug --apk --target aarch64
 ```
 
-The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`. It is signed with the Android debug key; `apksigner verify --print-certs` reports `CN=Android Debug`. For an emulator, replace `aarch64` with `x86_64` and install the same path with `adb install -r`.
+The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`. `apksigner verify --print-certs` reports the fingerprint above. For an emulator, replace `aarch64` with `x86_64` and install the same path with `adb install -r`.
 
 The build generates the Kotlin activity classes. Once they exist, `cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM test of the window-inset arithmetic.
 

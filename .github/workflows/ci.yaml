@@ -27,6 +27,7 @@ env:
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: "0"
   TAURI_CLI_VERSION: "2.12.4"
+  DEBUG_KEY_SHA256: 083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da
   HAND_SHA: 45940d9a204a8d1dbe5c92a7c156fe320d61493a
 
 jobs:
@@ -145,7 +146,8 @@ jobs:
         run: |
           apk=src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs"
-          grep -q 'CN=Android Debug' "$RUNNER_TEMP/certs"
+          grep -qx "Signer #1 certificate SHA-256 digest: $DEBUG_KEY_SHA256" "$RUNNER_TEMP/certs"
+          test "$(grep -c "^Signer #.* certificate SHA-256 digest:" "$RUNNER_TEMP/certs")" -eq 1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hand-android-debug-apk

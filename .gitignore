@@ -4,6 +4,7 @@
 *.aab
 *.jks
 *.keystore
+!/src-tauri/gen/android/app/debug.keystore
 keystore.properties
 local.properties
 .env
