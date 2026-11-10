@@ -372,3 +372,39 @@ func TestClaudeGoneSessionIsNotGlobbedWithinFloor(t *testing.T) {
 		t.Fatalf("globs after floor = %d, want 2", *globs)
 	}
 }
+
+func TestClaudeVanishedFileResetsSessionBeforeReappearing(t *testing.T) {
+	home, path := claudeHome(t, `{"type":"user","timestamp":"t","message":{"role":"user","content":"hi"}}`+"\n")
+	globFirst = 50 * time.Millisecond
+	t.Cleanup(func() { globFirst = time.Second })
+	r := &Reader{Paths: Paths{Claude: home}}
+	ctx := context.Background()
+	if _, err := r.Read(ctx, "claude", sessionUUID, "/f"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Read(ctx, "claude", sessionUUID, "/f"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("err = %v", err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	other := filepath.Join(home, "projects", "-other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, sessionUUID+".jsonl"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Read(ctx, "claude", sessionUUID, "/f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("entries = %d, want 1", len(got))
+	}
+}

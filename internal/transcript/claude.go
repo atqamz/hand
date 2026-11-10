@@ -19,13 +19,12 @@ var (
 )
 
 func (r *Reader) claude(s *session, id string) error {
-	moved := false
 	if s.file != "" {
 		err := s.follow(s.file, s.claudeLine)
 		if !errors.Is(err, ErrNoSession) {
 			return err
 		}
-		s.file, moved = "", true
+		*s = session{offsets: map[string]int64{}}
 	} else if time.Now().Before(s.retryAt) {
 		return ErrNoSession
 	}
@@ -39,9 +38,6 @@ func (r *Reader) claude(s *session, id string) error {
 		return ErrNoSession
 	}
 	s.retryAt, s.wait = time.Time{}, 0
-	if moved {
-		*s = session{offsets: map[string]int64{}}
-	}
 	s.file = paths[0]
 	return s.follow(s.file, s.claudeLine)
 }
