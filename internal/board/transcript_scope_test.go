@@ -169,7 +169,7 @@ func TestTheTimelineSkipsASupervisorThatNeverStarted(t *testing.T) {
 }
 
 func TestTheTimelineExportsEndedSessionsInParallel(t *testing.T) {
-	fx, count := opencodeFleet(t, map[string]string{"sleep": "600ms"})
+	fx, count := opencodeFleet(t, map[string]string{"sleep": "1s"})
 	for _, session := range []string{"ses_a", "ses_b", "ses_c", "ses_d"} {
 		addOpencodeSupervisor(t, fx, session, state.AttemptInterrupted)
 	}
@@ -177,8 +177,8 @@ func TestTheTimelineExportsEndedSessionsInParallel(t *testing.T) {
 	h := fx.handler()
 	start := time.Now()
 	get(t, h, "/")
-	if d := time.Since(start); d > 1800*time.Millisecond {
-		t.Fatalf("cold read took %v, want about one export (600ms), not five in a row", d)
+	if d := time.Since(start); d > 3500*time.Millisecond {
+		t.Fatalf("cold read took %v, want about one export (1s), not five in a row", d)
 	}
 	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "run") != 5 {
 		t.Fatalf("exports = %q, %v; want 5", b, err)

@@ -343,7 +343,12 @@ func TestOpencodeExportDoesNotBlockStatusOrOtherSessions(t *testing.T) {
 func TestOpencodeReaderLeavesAHungExportWhenItsContextEnds(t *testing.T) {
 	r, count := stubbed(t, map[string]string{"sleep": "3s"})
 	dir := t.TempDir()
-	go func() { _, _ = r.Read(context.Background(), "opencode", "ses_1", dir) }()
+	hung := make(chan struct{})
+	go func() {
+		defer close(hung)
+		_, _ = r.Read(context.Background(), "opencode", "ses_1", dir)
+	}()
+	defer func() { <-hung }()
 	for runs(t, count) == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
