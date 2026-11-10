@@ -139,10 +139,20 @@ func (r *runner) claim(st *state.Store) error {
 var errHomeMoved = errors.New("this fleet's home moved or was copied")
 
 func (r *runner) stillHome() error {
-	if _, err := os.Stat(r.dbPath()); err != nil {
+	vanished := func() error {
+		_, err := os.Stat(r.dbPath())
+		if err == nil {
+			return nil
+		}
 		return fmt.Errorf("%w: %w: %w", state.ErrConflict, errHomeMoved, err)
 	}
+	if err := vanished(); err != nil {
+		return err
+	}
 	if err := fleet.Check(r.root, r.fleet.ID, r.home); err != nil {
+		if verr := vanished(); verr != nil {
+			return verr
+		}
 		return fmt.Errorf("%w: %w", errHomeMoved, err)
 	}
 	return nil

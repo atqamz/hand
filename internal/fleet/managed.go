@@ -111,6 +111,10 @@ func (s Skills) Save(state map[string]Managed) error {
 	}
 	if err == nil {
 		err = fsx.Rename(tmp, s.statePath())
+		if err == nil {
+			_ = syncDir(dir)
+			return nil
+		}
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
