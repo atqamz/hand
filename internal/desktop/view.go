@@ -114,12 +114,12 @@ func (a *App) rail(c *ui.Context, p palette) {
 		ui.Column(c).Padding(0, 8).Gap(2).Children(func() {
 			a.nav(c, p, "screen:status", "Status", a.Screen == StatusScreen, 0, "", func() { a.Show(StatusScreen) })
 			a.nav(c, p, "screen:needs", "Needs", a.Screen == NeedsScreen, a.Status.Needs.Waiting, a.Status.Needs.Worst, func() { a.Show(NeedsScreen) })
-			a.nav(c, p, "screen:timeline", "Timeline", a.Screen == TimelineScreen, 0, "", func() { a.Show(TimelineScreen) })
+			a.nav(c, p, "screen:timeline", "Conversation", a.Screen == TimelineScreen, 0, "", func() { a.Show(TimelineScreen) })
 			a.nav(c, p, "screen:tasks", "Tasks", a.Screen == TasksScreen, a.Status.Tasks.Active+a.Status.Tasks.Inbox, "", func() { a.Show(TasksScreen) })
 		})
 		ui.Spacer(c)
 		if a.Model != nil {
-			ui.Text(c, "Messages, answers and acks go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
+			ui.Text(c, "Messages, answers and marks read go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
 		}
 	})
 }
@@ -433,9 +433,17 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 	}
 	a.actionCard(c, p)
 	ui.Column(c).Gap(0).Children(func() {
+		prev := ""
 		for _, item := range items {
 			need := item
 			ref := needRef(need)
+			if need.Word != prev {
+				bg, fg := toneColors(need.Tone, p)
+				ui.Row(c).Padding(10, 8, 4).Children(func() {
+					ui.Badge(c, need.Word).Background(bg).TextColor(fg)
+				})
+				prev = need.Word
+			}
 			ui.Row(c).Gap(6).Children(func() {
 				el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
 					BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1)
@@ -443,8 +451,6 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 					el.Cursor(ui.CursorPointer)
 				}
 				el.Children(func() {
-					bg, fg := toneColors(need.Tone, p)
-					ui.Badge(c, need.Word).Background(bg).TextColor(fg)
 					if need.Ref != "" {
 						ui.Text(c, need.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
 					}
@@ -462,9 +468,9 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 					}
 				}
 				if need.Kind == "report" && need.Report != "" {
-					label := "Ack"
+					label := "Mark read"
 					if a.Busy {
-						label = "Acknowledging…"
+						label = "Marking read…"
 					}
 					if ui.Button(c.Key("ack:"+need.Report), label).Disabled(a.Busy).Clicked() {
 						a.Ack(need.Report)
@@ -477,19 +483,17 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 
 func (a *App) timelineScreen(c *ui.Context, p palette) {
 	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Timeline").FontSize(22).Bold()
+		ui.Text(c, "Conversation").FontSize(22).Bold()
 		ui.Spacer(c)
 		if a.Timeline.Live {
 			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
 		}
 	})
 	a.actionCard(c, p)
-	a.composer(c, p)
-	if w := a.Timeline.Working; w != nil {
-		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
-			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
-			ui.Text(c, w.On).FontSize(12).TextColor(p.neutral)
-		})
+	if a.Timeline.Older > 0 {
+		if ui.Button(c.Key("timeline:older"), "Older messages").Clicked() {
+			a.Older()
+		}
 	}
 	if len(a.Timeline.Entries) == 0 {
 		note := a.Timeline.Note
@@ -497,10 +501,12 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			note = "Nothing yet: the conversation appears once the supervisor speaks."
 		}
 		a.emptyCard(c, p, "No messages", note)
+		a.working(c, p)
+		a.composer(c, p)
 		return
 	}
-	for _, entry := range a.Timeline.Entries {
-		e := entry
+	for i := len(a.Timeline.Entries) - 1; i >= 0; i-- {
+		e := a.Timeline.Entries[i]
 		ui.Column(c).Gap(3).Padding(8, 0, 12).BorderWidth(0, 0, 1, 0).
 			BorderColor(p.line).Children(func() {
 			ui.Row(c).Gap(8).Children(func() {
@@ -522,10 +528,16 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			}
 		})
 	}
-	if a.Timeline.Older > 0 {
-		if ui.Button(c.Key("timeline:older"), "Older messages").Clicked() {
-			a.Older()
-		}
+	a.working(c, p)
+	a.composer(c, p)
+}
+
+func (a *App) working(c *ui.Context, p palette) {
+	if w := a.Timeline.Working; w != nil {
+		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
+			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
+			ui.Text(c, w.On).FontSize(12).TextColor(p.neutral)
+		})
 	}
 }
 
@@ -536,7 +548,7 @@ func (a *App) composer(c *ui.Context, p palette) {
 			Placeholder("Message the supervisor").Lines(2, 8).Disabled(a.Busy).
 			OnChange(func() { a.saveDraft() }).
 			OnTextKey(func(k ui.TextKey) bool {
-				if k.Key != ui.KeyEnter || k.Mods != 0 {
+				if k.Key != ui.KeyEnter || (k.Mods != ui.Ctrl && k.Mods != ui.Super) {
 					return false
 				}
 				a.Draft = k.Text()
@@ -548,8 +560,7 @@ func (a *App) composer(c *ui.Context, p palette) {
 			ui.Text(c, a.DraftErr).FontSize(12).TextColor(p.fail)
 		}
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Text(c, "Enter sends · Shift+Enter starts a new line.").FontSize(12).
-				TextColor(p.neutral).Grow(1)
+			ui.Spacer(c)
 			if ui.Button(c.Key("composer:clear"), "Clear").
 				Disabled(a.Busy || (a.Draft == "" && a.DraftErr == "")).Clicked() {
 				a.ClearDraft()
@@ -851,15 +862,15 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 		ui.Text(c, stamp(r.Report.CreatedAt)).Font("monospace").FontSize(12).TextColor(p.neutral)
 		ui.Spacer(c)
 		if r.Report.AckedAt == "" {
-			label := "Ack"
+			label := "Mark read"
 			if a.Busy {
-				label = "Acknowledging…"
+				label = "Marking read…"
 			}
 			if ui.Button(c.Key("ack-report"), label).Disabled(a.Busy).Clicked() {
 				a.Ack(r.Report.Ref)
 			}
 		} else {
-			ui.Textf(c, "Acknowledged by %s", r.Report.AckedBy).FontSize(12).TextColor(p.neutral)
+			ui.Textf(c, "Read by %s", r.Report.AckedBy).FontSize(12).TextColor(p.neutral)
 		}
 		if ui.Button(c.Key("open-task"), "Open task").Clicked() {
 			a.OpenRef(r.Task.Ref)
@@ -868,7 +879,7 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 	a.delivered(c, p, r.Delivered)
 	a.markdown(c, r.Report.Body)
 	if r.Report.AckedAt != "" {
-		ui.Textf(c, "Acknowledged %s", stamp(r.Report.AckedAt)).FontSize(12).TextColor(p.neutral)
+		ui.Textf(c, "Read %s", stamp(r.Report.AckedAt)).FontSize(12).TextColor(p.neutral)
 	}
 }
 

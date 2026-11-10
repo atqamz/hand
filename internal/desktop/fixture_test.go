@@ -31,6 +31,7 @@ type fixture struct {
 	report        map[string]desktop.ReportDetail
 	fail          error
 	action        error
+	keepNeeds     bool
 	actionBlock   chan struct{}
 	actionEntered chan struct{}
 	choice        string
@@ -338,6 +339,9 @@ func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revis
 }
 
 func (f *fixture) dropNeed(id, ref string) {
+	if f.keepNeeds {
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	st := f.status[id]
@@ -445,5 +449,16 @@ func newApp(t *testing.T, f *fixture) *desktop.App {
 	if app.Err != "" && f.fail == nil {
 		t.Fatalf("boot: %s", app.Err)
 	}
+	if app.Screen == desktop.NeedsScreen {
+		app.Show(desktop.StatusScreen)
+	}
+	return app
+}
+
+func newLandingApp(t *testing.T, f *fixture) *desktop.App {
+	t.Helper()
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
 	return app
 }

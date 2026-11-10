@@ -102,6 +102,7 @@ type App struct {
 	stop      context.CancelFunc
 	gen       int
 	back      []backStep
+	landing   bool
 
 	polling    bool
 	closed     bool
@@ -219,7 +220,7 @@ func (a *App) SelectFleet(id string) {
 	if f, ok := a.fleetByID(id); ok {
 		a.Fleet = f
 	}
-	a.Screen, a.Ref, a.back = StatusScreen, "", nil
+	a.Screen, a.Ref, a.back, a.landing = StatusScreen, "", nil, true
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
@@ -270,7 +271,7 @@ func (a *App) install(f found, keep bool) {
 }
 
 func (a *App) Show(s Screen) {
-	a.Screen, a.Ref, a.back = s, "", nil
+	a.Screen, a.Ref, a.back, a.landing = s, "", nil, false
 	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
@@ -279,23 +280,51 @@ func (a *App) OpenRef(ref string) {
 	if ref == "" || a.Fleet.ID == "" {
 		return
 	}
-	var s Screen
-	switch ref[0] {
-	case 't':
-		s = TaskScreen
-	case 'a':
-		s = AttemptScreen
-	case 'd':
-		s = DecisionScreen
-	case 'r':
-		s = ReportScreen
-	default:
+	s, ok := refScreen(ref)
+	if !ok {
 		return
 	}
 	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
 	a.Screen, a.Ref = s, ref
 	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
+}
+
+func refScreen(ref string) (Screen, bool) {
+	switch ref[0] {
+	case 't':
+		return TaskScreen, true
+	case 'a':
+		return AttemptScreen, true
+	case 'd':
+		return DecisionScreen, true
+	case 'r':
+		return ReportScreen, true
+	}
+	return 0, false
+}
+
+func (a *App) next(done string) {
+	if a.Ref != done || len(a.back) == 0 || a.back[len(a.back)-1].Screen != NeedsScreen {
+		return
+	}
+	for _, need := range a.Status.Needs.Items {
+		ref := needRef(need)
+		if ref == done {
+			continue
+		}
+		if ref == "" {
+			break
+		}
+		if s, ok := refScreen(ref); ok {
+			a.Screen, a.Ref = s, ref
+			a.AnswerChoice, a.AnswerNote = "", ""
+			a.Reload()
+			return
+		}
+		break
+	}
+	a.Back()
 }
 
 func (a *App) Back() {
@@ -372,6 +401,7 @@ func (a *App) Answer() {
 			return
 		}
 		a.Status = st
+		a.next(ref)
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -451,6 +481,9 @@ func (a *App) Ack(ref string) {
 			return
 		}
 		a.Status = st
+		if screen == ReportScreen {
+			a.next(ref)
+		}
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -1103,6 +1136,12 @@ func (a *App) apply(l loaded) {
 		return
 	}
 	a.Status = l.Status
+	if a.landing {
+		a.landing = false
+		if a.Screen == StatusScreen && a.Status.Needs.Waiting > 0 {
+			a.Screen = NeedsScreen
+		}
+	}
 	switch l.Screen {
 	case TimelineScreen:
 		a.Timeline = l.Timeline
