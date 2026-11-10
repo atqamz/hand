@@ -41,14 +41,26 @@ type version struct {
 	signals     uint64
 	alerts      int64
 	models      int64
+	links       uint64
+	old         string
 }
 
 type sharedVersion struct {
-	mu sync.Mutex
-	at time.Time
-	v  version
-	ok bool
+	mu   sync.Mutex
+	at   time.Time
+	v    version
+	ok   bool
+	gen  uint64
+	call *versionCall
 }
+
+type versionCall struct {
+	done chan struct{}
+	v    version
+	err  error
+}
+
+const versionBudget = 30 * time.Second
 
 func (b *Board) sharedVersion(ctx context.Context, screen bool) (version, error) {
 	s := &b.versions[0]
@@ -56,25 +68,50 @@ func (b *Board) sharedVersion(ctx context.Context, screen bool) (version, error)
 		s = &b.versions[1]
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.ok && time.Since(s.at) < b.o.Tick*3/4 {
+		defer s.mu.Unlock()
 		return s.v, nil
 	}
-	s.ok = false
-	v, err := b.version(ctx, screen)
-	if err != nil {
-		return v, err
+	c := s.call
+	if c == nil {
+		c = &versionCall{done: make(chan struct{})}
+		s.call = c
+		go b.computeVersion(s, c, s.gen, screen)
 	}
-	b.computed.Add(1)
-	s.v, s.at, s.ok = v, time.Now(), true
-	return v, nil
+	s.mu.Unlock()
+	select {
+	case <-c.done:
+		return c.v, c.err
+	case <-ctx.Done():
+		return version{}, ctx.Err()
+	}
+}
+
+func (b *Board) computeVersion(s *sharedVersion, c *versionCall, gen uint64, screen bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), versionBudget)
+	defer cancel()
+	v, err := b.version(ctx, screen)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.call == c {
+		s.call = nil
+	}
+	if err == nil {
+		b.computed.Add(1)
+		if s.gen == gen {
+			s.v, s.at, s.ok = v, time.Now(), true
+		}
+	}
+	c.v, c.err = v, err
+	close(c.done)
 }
 
 func (b *Board) dropVersions() {
 	for i := range b.versions {
 		s := &b.versions[i]
 		s.mu.Lock()
-		s.ok = false
+		s.ok, s.call = false, nil
+		s.gen++
 		s.mu.Unlock()
 	}
 }
@@ -119,6 +156,8 @@ func (b *Board) version(ctx context.Context, screen bool) (version, error) {
 	if v.alerts, err = b.st.LatestAlertSeq(ctx); err != nil {
 		return v, err
 	}
+	v.old, _ = b.artifactWarning()
+	v.links = b.linkDigest()
 	live, err := b.st.LiveAttempts(ctx)
 	if err != nil {
 		return v, err

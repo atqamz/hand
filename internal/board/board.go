@@ -179,6 +179,7 @@ type Board struct {
 	phones    phones
 	refresh   refresher
 	artifacts artifactCache
+	links     linkSet
 	versions  [2]sharedVersion
 	computed  atomic.Int64
 }

@@ -1339,10 +1339,14 @@ func apiNeeds(v needsView) APINeeds {
 	return out
 }
 
+var idleFor = regexp.MustCompile(`^Supervisor idle for \S+ `)
+
 func apiNeed(w waiting) APINeed {
 	out := APINeed{Kind: w.Kind, Ref: w.Ref, Word: w.Word(), Tone: w.Tone()}
 	switch w.Kind {
 	case "blocked", "worker", "limited":
+	case "stalled":
+		out.Title = idleFor.ReplaceAllString(w.Title, "Supervisor idle ")
 	default:
 		out.Title = w.Title
 	}

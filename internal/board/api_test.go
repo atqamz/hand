@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1899,4 +1900,233 @@ func TestAPIAttemptHasNoApproveOrAccess(t *testing.T) {
 	if strings.Contains(body, `"approve"`) || strings.Contains(body, `"access"`) {
 		t.Fatalf("attempt JSON carries approve or access:\n%s", body)
 	}
+}
+
+func TestACursorBelongsToItsPathAndQuery(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/tasks")
+	for _, path := range []string{"/api/v1/tasks?all=1", "/api/v1/timeline", "/api/v1/status"} {
+		if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusOK {
+			t.Fatalf("a /tasks cursor answered %s with %d", path, rec.Code)
+		}
+	}
+	if rec := pollCursor(t, h, "/api/v1/tasks", env.Cursor); rec.Code != http.StatusNotModified {
+		t.Fatalf("the same read = %d", rec.Code)
+	}
+}
+
+func TestACursorFollowsAFileADeliverableLinksTo(t *testing.T) {
+	for _, gone := range []bool{false, true} {
+		name := "created"
+		if gone {
+			name = "deleted"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fx := apiFixture(t, func() time.Time { return frozen })
+			file := filepath.Join(fx.options.Home, "reports", "out.md")
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if gone {
+				if err := os.WriteFile(file, []byte("out"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			live, err := fx.st.LiveAttempts(ctx)
+			if err != nil || len(live) == 0 {
+				t.Fatalf("live attempts = %d, %v", len(live), err)
+			}
+			r, err := fx.st.AddReport(ctx, live[0].ID, state.ReportDone, "Done\nDelivered: "+file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := fx.handler()
+			for _, path := range []string{"/api/v1/report/" + state.ReportRef(r.ID), "/api/v1/task/" + state.TaskRef(r.TaskID), "/api/v1/tasks"} {
+				apiInto[json.RawMessage](t, h, path)
+				nextTick()
+				env, _ := apiInto[json.RawMessage](t, h, path)
+				if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusNotModified {
+					t.Fatalf("%s: unchanged poll = %d", path, rec.Code)
+				}
+				if gone {
+					err = os.Remove(file)
+				} else {
+					err = os.WriteFile(file, []byte("out"), 0o644)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				nextTick()
+				rec := pollCursor(t, h, path, env.Cursor)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s: a poll after the file %s = %d", path, name, rec.Code)
+				}
+				if has := strings.Contains(rec.Body.String(), `"href"`); has == gone {
+					t.Fatalf("%s: href present = %t after the file %s", path, has, name)
+				}
+				if gone {
+					err = os.WriteFile(file, []byte("out"), 0o644)
+				} else {
+					err = os.Remove(file)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestACursorFollowsAnInboxImage(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	shot := filepath.Join(fx.options.Home, "inbox", "20260101-000000-1.png")
+	if _, err := fx.st.AddSupervisorInput(context.Background(), "look\n[image: "+shot+"]"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	apiInto[json.RawMessage](t, h, "/api/v1/timeline")
+	nextTick()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/timeline")
+	if err := os.MkdirAll(filepath.Dir(shot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shot, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nextTick()
+	if rec := pollCursor(t, h, "/api/v1/timeline", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a poll after the image arrived = %d", rec.Code)
+	}
+}
+
+func TestACursorFollowsTheOldFilesWarning(t *testing.T) {
+	start := time.Now()
+	var offset time.Duration
+	fx := apiFixture(t, func() time.Time { return start.Add(offset) })
+	home := fx.options.Home
+	policy := `{"retention":{"warn_size":"off","warn_days":"30d"}}`
+	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(home, "shots", "t1", "a.png")
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	when := start.AddDate(0, 0, -31)
+	if err := os.Chtimes(old, when, when); err != nil {
+		t.Fatal(err)
+	}
+	offset = 6 * time.Minute
+	nextTick()
+	rec := pollCursor(t, h, "/api/v1/status", env.Cursor)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"kind":"artifacts"`) {
+		t.Fatalf("the warning did not reach the poll (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	env, _ = apiInto[json.RawMessage](t, h, "/api/v1/status")
+	if err := os.Remove(old); err != nil {
+		t.Fatal(err)
+	}
+	offset = 12 * time.Minute
+	nextTick()
+	rec = pollCursor(t, h, "/api/v1/status", env.Cursor)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"kind":"artifacts"`) {
+		t.Fatalf("the cleared warning did not reach the poll (%d):\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestACursorFollowsAWorkerSignalTheLiveStateRetires(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	live, err := fx.st.LiveAttempts(context.Background())
+	if err != nil || len(live) == 0 {
+		t.Fatalf("live attempts = %d, %v", len(live), err)
+	}
+	if err := fx.st.NoteAttempt(context.Background(), live[0].ID, "idle", "turn ended"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	nextTick()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	fx.mu.Lock()
+	fx.panes = map[string]string{"3": "idle"}
+	fx.mu.Unlock()
+	nextTick()
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a signal that the pane no longer retires left the cursor unchanged (%d)", rec.Code)
+	}
+}
+
+func TestAReportWriteMovesAnotherReportsCursor(t *testing.T) {
+	ctx := context.Background()
+	fx := newFixture(t)
+	apiSeed(t, fx)
+	fx.options.Tick = apiTick
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/report/r1")
+	live, err := fx.st.LiveAttempts(ctx)
+	if err != nil || len(live) == 0 {
+		t.Fatalf("live attempts = %d, %v", len(live), err)
+	}
+	if _, err := fx.st.AddReport(ctx, live[len(live)-1].ID, state.ReportProgress, "Unrelated"); err != nil {
+		t.Fatal(err)
+	}
+	nextTick()
+	if rec := pollCursor(t, h, "/api/v1/report/r1", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a report write left another report's cursor unchanged (%d)", rec.Code)
+	}
+}
+
+func TestAWriteDoesNotWaitForASlowVersion(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = 300 * time.Millisecond
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	var block atomic.Bool
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	fx.srv.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
+		if block.Load() {
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+			<-release
+		}
+		var p struct{ Pane string }
+		_ = json.Unmarshal(raw, &p)
+		return map[string]any{"pane": p.Pane, "agent": "claude", "status": "working"}, nil
+	})
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	time.Sleep(fx.options.Tick + 50*time.Millisecond)
+	block.Store(true)
+	slow := make(chan int, 1)
+	go func() { slow <- pollCursor(t, h, "/api/v1/status", env.Cursor).Code }()
+	<-entered
+	block.Store(false)
+	posted := make(chan int, 1)
+	go func() {
+		posted <- apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, token, true).Code
+	}()
+	select {
+	case code := <-posted:
+		if code >= 300 {
+			t.Fatalf("message = %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a message waited for a slow version read")
+	}
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("poll after a message = %d, want 200", rec.Code)
+	}
+	close(release)
+	<-slow
 }

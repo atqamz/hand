@@ -3,8 +3,11 @@ package board
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
+	"maps"
 	"mime"
 	"net/http"
 	"net/url"
@@ -14,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -151,10 +155,51 @@ func (b *Board) local() func(string) string {
 func (b *Board) linked(ds []Deliverable) []Deliverable {
 	for i, d := range ds {
 		if d.Kind == "file" {
+			b.links.add(d.Ref)
 			ds[i].Href = DocHref(b.o.Home, b.o.Base, d.Ref)
 		}
 	}
 	return ds
+}
+
+type linkSet struct {
+	mu    sync.Mutex
+	paths map[string]struct{}
+}
+
+func (l *linkSet) add(p string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.paths == nil {
+		l.paths = map[string]struct{}{}
+	}
+	l.paths[p] = struct{}{}
+}
+
+func (b *Board) linkDigest() uint64 {
+	b.links.mu.Lock()
+	paths := slices.Collect(maps.Keys(b.links.paths))
+	b.links.mu.Unlock()
+	var sum uint64
+	for _, p := range paths {
+		full := p
+		if rest, ok := strings.CutPrefix(p, "~/"); ok {
+			if user, err := os.UserHomeDir(); err == nil {
+				full = filepath.Join(user, rest)
+			}
+		} else if !filepath.IsAbs(p) {
+			full = filepath.Join(b.o.Home, p)
+		}
+		h := fnv.New64a()
+		fi, err := os.Stat(full)
+		if err != nil {
+			_, _ = fmt.Fprintf(h, "%s\x00missing", p)
+		} else {
+			_, _ = fmt.Fprintf(h, "%s\x00%d\x00%d\x00%d", p, fi.Size(), fi.ModTime().UnixNano(), fi.Mode())
+		}
+		sum += h.Sum64()
+	}
+	return sum
 }
 
 type crumb struct{ Name, Href string }
