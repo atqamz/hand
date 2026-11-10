@@ -1,12 +1,12 @@
 # Safe use
 
-Hand runs its agents with their permission prompts skipped (unless a Claude profile sets `"approve": "ask"`), as your own OS user, with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
+Hand runs its agents with their permission prompts skipped, as your own OS user, with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
 
 ## What runs without asking
 
-Unless a Claude profile sets `"approve": "ask"` (see [Ask before each command](#ask-before-each-command)), every worker starts with the flag that skips permission prompts, and the supervisor always does. No other Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option besides that profile setting.
+Every worker and the supervisor start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option.
 
-| Harness | Flags Hand passes (worker; the supervisor passes the same; a Claude `ask` profile's worker omits the Claude flag) |
+| Harness | Flags Hand passes (worker; the supervisor passes the same) |
 |---|---|
 | Claude Code | `--dangerously-skip-permissions` |
 | Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks --cd DIR` |
@@ -154,26 +154,6 @@ Claude Code may reach the network on its own while it answers (an authenticated 
 - **Programs git runs for you.** Hand now refuses to run git in a project whose program-naming settings changed. The check has the gaps listed under [What Hand checks before running git](#what-hand-checks-before-running-git), and it does not stop a worker that already runs as your account.
 - **A compromised worker on your own account.** Without steps 1 and 2, it has all of your account's access.
 - **Isolation between workers of one OS user**, egress control, protection of `board.token` from its own fleet's workers, and an audit log. Hand has none of these.
-
-## Ask before each command
-
-A `claude` profile can set `"approve": "ask"` in `routing.json`. Its workers start without `--dangerously-skip-permissions`, so Claude Code asks before each command, and the Board's Needs item shows the exact command (for a file edit or a fetch, the path or URL and the question) with **Approve**, **Approve always: PREFIX** and **Deny**: see [Approval](vocabulary.md#approval). An unanswered prompt is denied after `approve_timeout` (default `10m`), and the supervisor never answers it, nor any other screen that is not Claude's input prompt: the MCP-server dialog (one server or several), the CLAUDE.md import question, plan mode, or one Hand has never seen. Hand shows those raw with no **Approve**. With a Claude `statusLine` configured the worker's idle screen is not recognised as the input prompt either, so the supervisor's `hand attempt keys` is refused with exit 2 and only you answer or interrupt it from the Board. A dialog the worker sits at from the start, such as a theme picker or a login prompt, gets no Needs item and no timeout: read the attempt to find it. A question the worker asks you (Claude's `AskUserQuestion`) is not a permission: it has no timeout and nobody but you answers it, so such a worker waits until you do. The default stays `never`.
-
-The worker starts with `--permission-mode default`, so a mode set in your own Claude settings (`auto`, say) cannot silence the prompt. Your allow rules still apply: a command your user or project settings allow, or a grant, runs without asking. Hand starts each worker with the project's grants and nothing else.
-
-```json
-{"profiles": {"careful": {"harness": "claude", "model": "sonnet", "effort": "medium", "approve": "ask"}}, "approve_timeout": "10m"}
-```
-
-Asking is friction, not a boundary. While a worker can reach the fleet's Luvus socket, it can press the keys itself. Use it to see what a worker runs, not to contain a worker you do not trust. Only `claude` supports it; Codex, opencode, agy and Copilot reject the value, because Hand has not captured their prompt screens.
-
-## Read-only workers
-
-A `claude` profile can set `"access": "readonly"` in `routing.json` for a review, research or audit task: see [Access](vocabulary.md#access). The worker starts in `dontAsk` mode with only the Bash, Read, Grep and Glob tools, so it cannot write the worktree or commit, push or run anything that writes, and can still run `hand report add` and read the repository. The repository's own `.claude/settings.json`, `.claude/settings.local.json` and `.mcp.json` are ignored, so a pull request under review cannot widen the worker's permissions, and no MCP server is loaded. It is a permission mode, not a sandbox: a Bash allow rule or hook in your own user-level Claude settings (`~/.claude/settings.json`) still applies, and it does not stop a worker from leaking what it can read. Only `claude` supports it, and not on Windows; the other harnesses reject the value until a launcher enforces it. An older `hand` refuses a `routing.json` that holds `access`, and a database migrated to schema 16; going back to it needs the key removed and a backup restored ([Restore a backup](update.md#restore-a-backup)).
-
-```json
-{"profiles": {"look": {"harness": "claude", "model": "sonnet", "effort": "medium", "access": "readonly"}}}
-```
 
 ## MCP servers in workers
 

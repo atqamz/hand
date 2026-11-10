@@ -73,18 +73,6 @@ func unixFooterHead(exe string) string {
 		"Every temporary file, build output, log and download belongs in this attempt's scratch folder, which is `$TMPDIR` (and `$GOTMPDIR`), not directly under `$HOME`.\n"
 }
 
-func readonlyReportFooter(exe string) string { return readonlyReportFooterFor(runtime.GOOS, exe) }
-
-func readonlyReportFooterFor(goos, exe string) string {
-	head := unixFooterHead(exe)
-	if goos == "windows" {
-		head = windowsFooterHead(exe)
-	}
-	return head + "Apart from a milestone, write a report only when the work is done or you are stuck."
-}
-
-func reportRule(exe string) string { return "Bash(" + toon.ShellQuote(exe) + " report add *)" }
-
 func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	wd, err := r.getwd()
 	if err != nil {

@@ -254,9 +254,6 @@ func (w *watcher) session(ctx context.Context) error {
 				err = w.stall(sctx, c, caps)
 			}
 			if err == nil {
-				err = w.approvals(sctx, c, caps)
-			}
-			if err == nil {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
 				w.reapWorktrees(sctx)
@@ -746,9 +743,6 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				w.alert(ctx, "attempt.limited", ref, ref+" limited: "+line)
 				return nil
 			}
-		}
-		if status == "idle" && a.Approve == state.ApproveAsk && !harness.ClaudeIdle(s.Text) {
-			return w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text), s.Text)
 		}
 		since, _, err := w.st.TurnStart(ctx, a.ID)
 		if err != nil {

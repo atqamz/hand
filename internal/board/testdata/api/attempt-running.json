@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQA3YWNjZmZhOWI4MTdjYzc3.rcMe0FxmXw4Iq5LzhVn4uA",
+  "cursor": "ZjAwMDAwMDAwZTBhYQAxMDFhN2EyMzljNzQ3MWFj.zd8Wt-7KT06kQSTD3SHwRA",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "attempt": {
@@ -15,8 +15,6 @@
       "effort": "low",
       "status": "running",
       "branch": "hand/f00000000e0aa/t1-a1",
-      "approve": "never",
-      "access": "open",
       "created_at": "2026-11-01T04:40:00Z"
     },
     "task": {

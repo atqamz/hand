@@ -84,9 +84,6 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if routed.MCP != "" {
 			return usageError{"attempt start: give --mcp or a profile with mcp, not both"}
 		}
-		if routed.Access == state.AccessReadonly {
-			return fmt.Errorf("%w: a read-only profile starts without MCP servers; leave --mcp out", state.ErrInvalid)
-		}
 		if spec.Harness != "claude" {
 			return fmt.Errorf("%w: attempt start: --mcp is only available for claude, not %s: Hand knows no strict MCP mode for it", state.ErrInvalid, spec.Harness)
 		}
@@ -101,11 +98,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	footer := reportFooter(exe)
-	if routed.Access == state.AccessReadonly {
-		footer = readonlyReportFooter(exe)
-	}
-	text := string(prompt) + footer
+	text := string(prompt) + reportFooter(exe)
 	if err := harness.CheckPrompt(spec.Harness, text); err != nil {
 		return err
 	}
@@ -122,28 +115,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		approve := state.ApproveNever
 		argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree, mcp) }
-		if routed.Approve == state.ApproveAsk {
-			grants, err := st.Grants(ctx, project.Name, spec.Harness)
-			if err != nil {
-				return err
-			}
-			allow := make([]string, 0, len(grants))
-			for _, grant := range grants {
-				allow = append(allow, harness.ClaudeAllowRule(grant.Pattern))
-			}
-			approve = state.ApproveAsk
-			argvFor = func(worktree string) ([]string, error) { return harness.AskArgv(bin, spec, text, worktree, mcp, allow) }
-		}
-		access := state.AccessOpen
-		if routed.Access == state.AccessReadonly {
-			access = state.AccessReadonly
-			rules := []string{reportRule(exe)}
-			argvFor = func(worktree string) ([]string, error) {
-				return harness.ReadonlyArgv(bin, spec, text, worktree, mcp, rules)
-			}
-		}
 		if continues != 0 {
 			prev, err := st.Attempt(ctx, continues)
 			if err != nil {
@@ -164,7 +136,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if len(live) >= liveAttemptsWarn {
 			r.warn(fmt.Sprintf("%d attempts are already live in this fleet; each worker, and any dev server or browser it starts, uses memory", len(live)))
 		}
-		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues, Approve: approve, Access: access}, fleet.Worktrees(r.root, r.fleet.ID))
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}
@@ -212,11 +184,6 @@ func cmdAttemptStart(r *runner, args []string) error {
 			d.Field(f[0], f[1])
 		}
 		help = append(help, more...)
-		if approve == state.ApproveAsk {
-			if _, err := r.ensureWatcher(ctx); err != nil {
-				help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+"); without it an unanswered prompt is never denied")
-			}
-		}
 		d.Help(help...)
 		return r.print(&d)
 	})
@@ -241,12 +208,6 @@ func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.
 
 func (r *runner) routedSupervisor(cmd string, spec harness.Spec, profile string) (harness.Spec, error) {
 	p, err := r.routed(cmd, spec, profile)
-	if err == nil && p.Approve == state.ApproveAsk {
-		err = fmt.Errorf("%w: profile %q asks before each command, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
-	}
-	if err == nil && p.Access == state.AccessReadonly {
-		err = fmt.Errorf("%w: profile %q is read-only, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
-	}
 	if err == nil && p.MCP != "" {
 		err = fmt.Errorf("%w: profile %q names an MCP file, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
 	}
@@ -604,16 +565,6 @@ func askedScreen(screens []trustScreen, text string) (trustScreen, bool) {
 		}
 	}
 	return trustScreen{}, false
-}
-
-func (s trustScreen) whole(text string) bool {
-	var rows []string
-	for _, l := range strings.Split(text, "\n") {
-		if l = strings.TrimSpace(l); l != "" && (len(rows) > 0 || strings.Trim(l, "─") != "") {
-			rows = append(rows, l)
-		}
-	}
-	return s.footer != "" && len(rows) > 2 && rows[0] == s.folder && rows[len(rows)-1] == s.footer && s.hasYesRow(text)
 }
 
 func (s trustScreen) names(text string) (folder, repo string, noted bool) {
@@ -1006,12 +957,6 @@ func cmdAttemptShow(r *runner, args []string) error {
 		d.Field("branch", a.Branch)
 		if a.Continues != 0 {
 			d.Field("continues", state.AttemptRef(a.Continues))
-		}
-		if a.Approve != state.ApproveNever {
-			d.Field("approve", a.Approve)
-		}
-		if a.Access != state.AccessOpen {
-			d.Field("access", a.Access)
 		}
 		if i := slices.IndexFunc(a.Argv[:len(a.Argv)-1], func(arg string) bool { return strings.HasPrefix(arg, "--mcp-config=") }); i >= 0 {
 			d.Field("mcp", strings.TrimPrefix(a.Argv[i], "--mcp-config="))

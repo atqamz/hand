@@ -221,3 +221,16 @@ func TestPolicyReadsTheRetentionSetting(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyRejectsTheRemovedApproveKeys(t *testing.T) {
+	profile := `"profiles":{"a":{"harness":"claude","model":"sonnet","effort":"low"`
+	for body, key := range map[string]string{
+		`{` + profile + `}},"approve_timeout":"3m"}`: "approve_timeout",
+		`{` + profile + `,"approve":"ask"}}}`:        "approve",
+		`{` + profile + `,"access":"readonly"}}}`:    "access",
+	} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), `unknown field "`+key+`"`) {
+			t.Fatalf("%s: err = %v", body, err)
+		}
+	}
+}

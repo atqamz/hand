@@ -167,8 +167,6 @@ type Attempt struct {
 	Reason    string `json:"reason,omitempty"`
 	Branch    string `json:"branch,omitempty"`
 	Continues string `json:"continues,omitempty"`
-	Approve   string `json:"approve,omitempty"`
-	Access    string `json:"access,omitempty"`
 	CreatedAt string `json:"created_at"`
 	EndedAt   string `json:"ended_at,omitempty"`
 	CleanedAt string `json:"cleaned_at,omitempty"`

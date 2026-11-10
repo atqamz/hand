@@ -3,11 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -125,15 +123,6 @@ func cmdAttemptRead(r *runner, args []string) error {
 	})
 }
 
-func ownTrustScreen(harness, text, worktree string, keys []string) bool {
-	screen, ok := askedScreen(trustScreens[harness], text)
-	if !ok || !screen.whole(text) {
-		return false
-	}
-	folder, _, _ := screen.names(text)
-	return screen.same(folder, worktree) && !slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains([]string{"enter", "down", "up"}, k) })
-}
-
 func cmdAttemptKeys(r *runner, args []string) error {
 	fs := flags("attempt keys")
 	revision := fs.Int64("revision", -1, "content revision printed by `hand attempt read`")
@@ -163,20 +152,6 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		if err := pressedSince(ctx, st, state.AttemptRef(id), *after); err != nil {
 			return err
 		}
-		var perm harness.Permission
-		if a.Approve == state.ApproveAsk {
-			s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)
-			if err != nil {
-				return runtimeErr(err)
-			}
-			same := s.TerminalID == a.TerminalID
-			if same {
-				perm, _ = harness.ClaudePermission(s.Text)
-			}
-			if !r.env.Board && !(same && (harness.ClaudeIdle(s.Text) || ownTrustScreen(a.Harness, s.Text, a.Worktree, keys))) {
-				return fmt.Errorf("%w: attempt %s asks the operator before each command, and its screen is not Claude's input prompt; answer it from the Board", state.ErrInvalid, state.AttemptRef(id))
-			}
-		}
 		if err := pressKeys(ctx, c, a.PaneID, a.TerminalID, keys, *revision, *screen); err != nil {
 			if luvus.Code(err) == "content_revision_conflict" {
 				return fmt.Errorf("%w: the screen changed since revision %d; nothing was sent; read it again", state.ErrConflict, *revision)
@@ -190,17 +165,6 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", state.AttemptRef(id))
 		d.Field("keys", joined)
-		if perm.Always != "" && joined == perm.Always {
-			task, err := st.Task(ctx, a.TaskID)
-			if err == nil {
-				_, _, err = st.AddGrant(ctx, task.Project, a.Harness, perm.Pattern)
-			}
-			if err != nil {
-				fmt.Fprintf(r.env.Stderr, "warning: approved, but the grant for %q was not saved: %v\n", perm.Pattern, err)
-			} else {
-				d.Field("grant", perm.Pattern)
-			}
-		}
 		return r.print(&d)
 	})
 }

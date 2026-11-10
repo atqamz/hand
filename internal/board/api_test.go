@@ -1160,7 +1160,7 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		fx.hint = "Esc to cancel · Tab to amend"
 		fx.screen = permission
 		ctx := context.Background()
-		if err := fx.st.NoteAttempt(ctx, 1, "blocked", harness.ClaudeTitle(permission)); err != nil {
+		if err := fx.st.NoteAttempt(ctx, 1, "blocked", "Bash command"); err != nil {
 			t.Fatal(err)
 		}
 		if err := fx.st.NoteAttempt(ctx, 1, "limited", "You've hit your limit · resets 3pm"); err != nil {
@@ -1688,5 +1688,13 @@ func agreeWebAndAPI(t *testing.T, h http.Handler) {
 		if !strings.Contains(reportPage, `id="`+item.Report+`"`) || !strings.Contains(reportPage, html.EscapeString(report.Task.Title)) {
 			t.Fatalf("report %s disagrees with its task page", item.Report)
 		}
+	}
+}
+
+func TestAPIAttemptHasNoApproveOrAccess(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	body := apiRaw(t, fx.handler(), "/api/v1/attempt/a1")
+	if strings.Contains(body, `"approve"`) || strings.Contains(body, `"access"`) {
+		t.Fatalf("attempt JSON carries approve or access:\n%s", body)
 	}
 }

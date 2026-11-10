@@ -4,11 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -145,12 +143,6 @@ func TestClaudeDialogNeedsOptionOneToBeYes(t *testing.T) {
 	}
 }
 
-func TestClaudeAllowRuleIsTheFormTheScreenPrints(t *testing.T) {
-	if got := ClaudeAllowRule("git status"); got != "Bash(git status *)" {
-		t.Fatalf("rule = %q", got)
-	}
-}
-
 func TestClaudePermissionOffersNoAlwaysWithoutADerivableCommand(t *testing.T) {
 	for name, always := range map[string]string{
 		"compound":   "2. Yes, and don’t ask again for: git add and git push *",
@@ -200,22 +192,6 @@ func dropSessionID(t *testing.T, argv []string) []string {
 	return slices.Delete(slices.Clone(argv), i, i+2)
 }
 
-func TestAskArgvDropsTheSkipFlagAndPassesAllowRules(t *testing.T) {
-	spec := Spec{"claude", "sonnet", "low"}
-	got, err := AskArgv("/bin/claude", spec, "fix it", "/w", "", []string{"Bash(git push *)", "Bash(go test *)"})
-	want := []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "--allowedTools=Bash(git push *)", "--allowedTools=Bash(go test *)", "fix it"}
-	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
-		t.Fatalf("argv = %q, %v", got, err)
-	}
-	got, err = AskArgv("/bin/claude", spec, "fix it", "/w", "", nil)
-	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "fix it"}) {
-		t.Fatalf("argv without grants = %q, %v", got, err)
-	}
-	if _, err := AskArgv("/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "fix it", "/w", "", nil); !errors.Is(err, state.ErrInvalid) {
-		t.Fatalf("codex err = %v", err)
-	}
-}
-
 func TestArgvOfADefaultProfileKeepsTheSkipFlag(t *testing.T) {
 	got, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "/w", "")
 	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "fix it"}) {
@@ -229,10 +205,6 @@ func TestMCPFileAddsExactlyOneConfigToEveryClaudeLaunch(t *testing.T) {
 	flag := "--mcp-config=" + file
 	launches := map[string]func(mcp string) ([]string, error){
 		"default": func(mcp string) ([]string, error) { return Argv("/bin/claude", spec, "fix it", "/w", mcp) },
-		"ask":     func(mcp string) ([]string, error) { return AskArgv("/bin/claude", spec, "fix it", "/w", mcp, nil) },
-		"readonly": func(mcp string) ([]string, error) {
-			return ReadonlyArgv("/bin/claude", spec, "review it", "/w", mcp, nil)
-		},
 	}
 	for name, launch := range launches {
 		plain, err := launch("")
@@ -257,9 +229,6 @@ func TestMCPIsRefusedForOtherHarnessesAndOutsideTheFleetHome(t *testing.T) {
 			t.Fatalf("mcp %q err = %v", bad, err)
 		}
 	}
-	if err := checkMCP("look", Profile{Spec: Spec{"claude", "sonnet", "low"}, Access: state.AccessReadonly, MCP: "mcp.json"}); err == nil || !strings.Contains(err.Error(), "leave mcp out") {
-		t.Fatalf("readonly with mcp err = %v", err)
-	}
 }
 
 func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
@@ -280,115 +249,6 @@ func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
 	}
 	if path, err := pr.MCPFile(home); path != want || err != nil {
 		t.Fatalf("file = %q, %v", path, err)
-	}
-}
-
-func TestReadonlyArgvRunsClaudeInDontAskModeWithOnlyTheReportAndPrView(t *testing.T) {
-	spec := Spec{"claude", "sonnet", "low"}
-	got, err := ReadonlyArgv("/bin/claude", spec, "review it", "/w", "", []string{"Bash('/bin/hand' report add *)"})
-	want := []string{"/bin/claude", "--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob", "--allowedTools=Bash(gh pr view *)", "--allowedTools=Bash('/bin/hand' report add *)", "review it"}
-	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
-		t.Fatalf("argv = %q, %v", got, err)
-	}
-	for _, s := range []Spec{{"codex", "gpt-6-luna", "low"}, {Harness: "opencode"}, {"agy", "gemini-3.8-flash-low", ""}, {"copilot", "auto", ""}} {
-		if _, err := ReadonlyArgv("/bin/x", s, "review it", "/w", "", nil); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "only available for claude, not "+s.Harness) {
-			t.Fatalf("%s err = %v", s.Harness, err)
-		}
-	}
-}
-
-func TestReadonlyIsRefusedOnWindowsOnly(t *testing.T) {
-	pr := Profile{Spec: Spec{"claude", "sonnet", "low"}, Access: state.AccessReadonly}
-	if err := checkAccess("linux", "look", pr); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkAccess("windows", "look", pr); err == nil || !strings.Contains(err.Error(), `access "readonly" is not available on Windows`) {
-		t.Fatalf("err = %v", err)
-	}
-	pr.Access = state.AccessOpen
-	if err := checkAccess("windows", "look", pr); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestPolicyAccessField(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("read-only access is refused on Windows")
-	}
-	p, err := LoadPolicy(writePolicy(t, `{"profiles":{"look":{"harness":"claude","model":"sonnet","effort":"low","access":"readonly"},"open":{"harness":"claude","model":"sonnet","effort":"low","access":"open"},"plain":{"harness":"claude","model":"sonnet","effort":"low"}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, want := range map[string]string{"look": "readonly", "open": "open", "plain": ""} {
-		if s, _ := p.Profile(name); s.Access != want {
-			t.Fatalf("%s = %+v", name, s)
-		}
-	}
-	for body, want := range map[string]string{
-		`{"profiles":{"x":{"harness":"claude","model":"sonnet","effort":"low","access":"write"}}}`:                    `access "write" must be "open" or "readonly"`,
-		`{"profiles":{"x":{"harness":"codex","model":"gpt-6-luna","effort":"low","access":"readonly"}}}`:              `access "readonly" is only available for claude, not codex`,
-		`{"profiles":{"x":{"harness":"claude","model":"sonnet","effort":"low","access":"readonly","approve":"ask"}}}`: `cannot ask for approval`,
-	} {
-		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
-			t.Fatalf("%s: err = %v", body, err)
-		}
-	}
-}
-
-func TestPolicyApproveField(t *testing.T) {
-	p, err := LoadPolicy(writePolicy(t, `{"profiles":{"safe":{"harness":"claude","model":"sonnet","effort":"low","approve":"ask"},"plain":{"harness":"claude","model":"sonnet","effort":"low","approve":"never"},"codex":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s, _ := p.Profile("safe"); s.Approve != "ask" {
-		t.Fatalf("safe = %+v", s)
-	}
-	if s, _ := p.Profile("codex"); s.Approve != "" {
-		t.Fatalf("codex = %+v", s)
-	}
-	for _, body := range []string{
-		`{"profiles":{"x":{"harness":"claude","model":"sonnet","effort":"low","approve":"always"}}}`,
-		`{"profiles":{"x":{"harness":"codex","model":"gpt-6-luna","effort":"low","approve":"ask"}}}`,
-		`{"profiles":{"x":{"harness":"opencode","model":"m","effort":"low","approve":"ask"}}}`,
-	} {
-		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "approve") {
-			t.Fatalf("policy %s err = %v", body, err)
-		}
-	}
-}
-
-func TestApproveTimeout(t *testing.T) {
-	profiles := `"profiles":{"a":{"harness":"claude","model":"sonnet","effort":"low"}}`
-	for body, want := range map[string]time.Duration{
-		`{` + profiles + `}`:                         10 * time.Minute,
-		`{` + profiles + `,"approve_timeout":"3m"}`:  3 * time.Minute,
-		`{` + profiles + `,"approve_timeout":"24h"}`: 24 * time.Hour,
-	} {
-		p, err := LoadPolicy(writePolicy(t, body))
-		if err != nil || p.ApproveWait() != want {
-			t.Fatalf("%s: wait = %v, %v", body, p.ApproveWait(), err)
-		}
-	}
-	for _, bad := range []string{`"30s"`, `"25h"`, `"soon"`, `5`, `null`} {
-		if _, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"approve_timeout":`+bad+`}`)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "approve_timeout") {
-			t.Fatalf("approve_timeout %s err = %v", bad, err)
-		}
-	}
-}
-
-func TestTheStarterPolicyStaysFreeOfApprove(t *testing.T) {
-	home := t.TempDir()
-	if _, err := WriteStarterPolicy(home); err != nil {
-		t.Fatal(err)
-	}
-	p, err := LoadPolicy(home)
-	if err != nil || p.ApproveWait() != DefaultApproveTimeout {
-		t.Fatalf("starter = %+v, %v", p, err)
-	}
-	for name, s := range p.Profiles {
-		if s.Approve != "" {
-			t.Fatalf("%s approve = %q", name, s.Approve)
-		}
 	}
 }
 
@@ -445,67 +305,6 @@ func TestClaudeDialogTakesAQuestionThatWrapsOverTwoRows(t *testing.T) {
 	text := strings.Replace(screen(t, "write"), " Do you want to create new.txt?", " Do you want to create a-name-that-is-long-enough-to-wrap-the-\nquestion-over-two-rows.txt?", 1)
 	if !ClaudeDialog(text) {
 		t.Fatal("a wrapped question is not a dialog")
-	}
-}
-
-func TestClaudeIdleTakesOnlyTheInputPrompt(t *testing.T) {
-	idle := screen(t, "idle")
-	if !ClaudeIdle(idle) {
-		t.Fatal("the captured input prompt is not idle")
-	}
-	for name, text := range map[string]string{
-		"typed text":      strings.Replace(idle, "❯\u00a0", "❯ half a sentence", 1),
-		"two input rows":  strings.Replace(idle, "❯\u00a0", "❯ one\n  two", 1),
-		"trailing blanks": idle + "\n\n\n",
-	} {
-		if !ClaudeIdle(text) {
-			t.Fatalf("%s: not idle", name)
-		}
-	}
-	lines := strings.Split(strings.TrimRight(idle, "\n"), "\n")
-	bottom := len(lines) - 2
-	for name, text := range map[string]string{
-		"empty":            "",
-		"no footer":        strings.Join(lines[:len(lines)-1], "\n"),
-		"no bottom rule":   strings.Join(slices.Delete(slices.Clone(lines), bottom, bottom+1), "\n"),
-		"no input row":     strings.Join(slices.Delete(slices.Clone(lines), bottom-1, bottom), "\n"),
-		"a shorter rule":   strings.Join(slices.Replace(slices.Clone(lines), bottom, bottom+1, strings.Repeat("─", 40)), "\n"),
-		"an indented rule": strings.Join(slices.Replace(slices.Clone(lines), bottom, bottom+1, " "+lines[bottom]), "\n"),
-		"no prompt mark":   strings.Replace(idle, "❯\u00a0", "> ", 1),
-		"a dialog":         strings.Join(lines[:bottom-1], "\n") + "\n" + screen(t, "commit"),
-	} {
-		if ClaudeIdle(text) {
-			t.Fatalf("%s: idle", name)
-		}
-	}
-	for _, name := range []string{"commit", "pipe", "long16", "long16_last20", "edit", "write", "webfetch", "askq", "mcp", "mcp2", "import", "plan", "trust", "unreviewed", "writeforge", "idle_statusline", "idle_statusline2"} {
-		if ClaudeIdle(screen(t, name)) {
-			t.Fatalf("%s: idle", name)
-		}
-	}
-}
-
-func TestClaudeIdleIsNotForgedByTextAboveADialog(t *testing.T) {
-	forged := screen(t, "idle") + "\n" + screen(t, "mcp2")
-	if ClaudeIdle(forged) {
-		t.Fatal("an input prompt above a dialog is idle")
-	}
-}
-
-func TestClaudeTitleIsTheDialogsOwnFirstRow(t *testing.T) {
-	for name, want := range map[string]string{
-		"mcp":        "New MCP server found in this project: evil",
-		"mcp2":       "2 new MCP servers found in this project",
-		"import":     "Allow external CLAUDE.md file imports?",
-		"commit":     "Bash command",
-		"unreviewed": "Create file",
-	} {
-		if got := ClaudeTitle(screen(t, name)); got != want {
-			t.Fatalf("%s: title = %q, want %q", name, got, want)
-		}
-	}
-	if got := ClaudeTitle(rule + "\n " + strings.Repeat("w", 500)); len([]rune(got)) != questionMax+1 {
-		t.Fatalf("long title has %d runes", len([]rune(got)))
 	}
 }
 

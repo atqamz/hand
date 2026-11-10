@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,19 +24,16 @@ const PolicyFile = "routing.json"
 
 type Profile struct {
 	Spec
-	Approve string `json:"approve,omitempty"`
-	Access  string `json:"access,omitempty"`
-	MCP     string `json:"mcp,omitempty"`
+	MCP string `json:"mcp,omitempty"`
 }
 
 type Policy struct {
-	Profiles       map[string]Profile `json:"profiles"`
-	Notify         []string           `json:"notify,omitzero"`
-	Stall          Stall              `json:"stall,omitzero"`
-	Inbox          Inbox              `json:"inbox,omitzero"`
-	Retention      Retention          `json:"retention,omitzero"`
-	ApproveTimeout ApproveTimeout     `json:"approve_timeout,omitzero"`
-	Supervisor     struct {
+	Profiles   map[string]Profile `json:"profiles"`
+	Notify     []string           `json:"notify,omitzero"`
+	Stall      Stall              `json:"stall,omitzero"`
+	Inbox      Inbox              `json:"inbox,omitzero"`
+	Retention  Retention          `json:"retention,omitzero"`
+	Supervisor struct {
 		Autoresume bool `json:"autoresume"`
 	} `json:"supervisor,omitzero"`
 }
@@ -104,30 +100,6 @@ func (s Stall) Delay(n int) time.Duration {
 		d = min(2*d, s.Every)
 	}
 	return d
-}
-
-type ApproveTimeout time.Duration
-
-const DefaultApproveTimeout = 10 * time.Minute
-
-func (t *ApproveTimeout) UnmarshalJSON(b []byte) error {
-	var text string
-	if json.Unmarshal(b, &text) != nil {
-		return errors.New(`approve_timeout must be a duration from 1m to 24h, like "10m"`)
-	}
-	d, err := time.ParseDuration(text)
-	if err != nil || d < time.Minute || d > 24*time.Hour {
-		return fmt.Errorf("approve_timeout is %q; give a duration from 1m to 24h, like \"10m\"", text)
-	}
-	*t = ApproveTimeout(d)
-	return nil
-}
-
-func (p Policy) ApproveWait() time.Duration {
-	if p.ApproveTimeout == 0 {
-		return DefaultApproveTimeout
-	}
-	return time.Duration(p.ApproveTimeout)
 }
 
 type Inbox struct{ Keep time.Duration }
@@ -263,44 +235,11 @@ func LoadPolicy(home string) (Policy, error) {
 		if !profileName.MatchString(name) {
 			return Policy{}, fmt.Errorf("%w: %s: profile name %q must match %s", state.ErrInvalid, path, name, profileName)
 		}
-		err := checkApprove(name, p.Profiles[name])
-		if err == nil {
-			err = checkAccess(runtime.GOOS, name, p.Profiles[name])
-		}
-		if err == nil {
-			err = checkMCP(name, p.Profiles[name])
-		}
-		if err != nil {
+		if err := checkMCP(name, p.Profiles[name]); err != nil {
 			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
 		}
 	}
 	return p, nil
-}
-
-func checkApprove(name string, pr Profile) error {
-	switch pr.Approve {
-	case "", state.ApproveNever:
-		return nil
-	case state.ApproveAsk:
-		if pr.Harness != "claude" {
-			return fmt.Errorf("profile %q: approve %q is only available for claude, not %s", name, state.ApproveAsk, pr.Harness)
-		}
-		return nil
-	}
-	return fmt.Errorf("profile %q: approve is %q; give %q or %q", name, pr.Approve, state.ApproveNever, state.ApproveAsk)
-}
-
-func checkAccess(goos, name string, pr Profile) error {
-	if err := CheckAccess(pr.Harness, pr.Access); err != nil {
-		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
-	}
-	if pr.Access == state.AccessReadonly && pr.Approve == state.ApproveAsk {
-		return fmt.Errorf("profile %q: access %q cannot ask for approval; leave approve at %q", name, state.AccessReadonly, state.ApproveNever)
-	}
-	if pr.Access == state.AccessReadonly && goos == "windows" {
-		return fmt.Errorf("profile %q: access %q is not available on Windows; use a profile with access %q", name, state.AccessReadonly, state.AccessOpen)
-	}
-	return nil
 }
 
 func checkMCP(name string, pr Profile) error {
@@ -309,9 +248,6 @@ func checkMCP(name string, pr Profile) error {
 	}
 	if pr.MCP != "" && !filepath.IsLocal(pr.MCP) {
 		return fmt.Errorf("profile %q: mcp %q must be a path inside the fleet home, like \"mcp.json\"", name, pr.MCP)
-	}
-	if pr.MCP != "" && pr.Access == state.AccessReadonly {
-		return fmt.Errorf("profile %q: access %q starts without MCP servers; leave mcp out", name, state.AccessReadonly)
 	}
 	return nil
 }

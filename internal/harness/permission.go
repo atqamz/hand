@@ -69,43 +69,6 @@ func ClaudeDialog(screen string) bool {
 	return found && (!yes || marked)
 }
 
-func ClaudeIdle(screen string) bool {
-	var rows []string
-	for _, l := range strings.Split(screen, "\n") {
-		if strings.TrimSpace(l) != "" {
-			rows = append(rows, strings.TrimRight(l, " \t\r"))
-		}
-	}
-	n := len(rows)
-	if n < 4 || !ruleLine.MatchString(rows[n-2]) {
-		return false
-	}
-	top := n - 3
-	for top >= 0 && !ruleLine.MatchString(rows[top]) {
-		top--
-	}
-	return top >= 0 && top < n-3 && strings.HasPrefix(rows[top+1], "❯") && utf8.RuneCountInString(rows[top]) == utf8.RuneCountInString(rows[n-2])
-}
-
-func ClaudeTitle(screen string) string {
-	rows := strings.Split(screen, "\n")
-	for i := len(rows) - 1; i >= 0; i-- {
-		if ruleLine.MatchString(rows[i]) {
-			rows = rows[i+1:]
-			break
-		}
-	}
-	for _, l := range rows {
-		if t := strings.TrimSpace(boxEdge.ReplaceAllString(l, "")); t != "" {
-			if r := []rune(t); len(r) > questionMax {
-				t = string(r[:questionMax]) + "…"
-			}
-			return t
-		}
-	}
-	return ""
-}
-
 func ClaudePermission(screen string) (Permission, bool) {
 	lines := strings.Split(screen, "\n")
 	width := 0
@@ -225,8 +188,6 @@ func ClaudePermission(screen string) (Permission, bool) {
 func optionWrap(l string) bool {
 	return strings.TrimSpace(l) != "" && len(l)-len(strings.TrimLeft(l, " \t")) >= 4 && !optionLine.MatchString(strings.TrimSpace(l))
 }
-
-func ClaudeAllowRule(pattern string) string { return "Bash(" + pattern + " *)" }
 
 func dedent(lines []string) string {
 	indent := -1
