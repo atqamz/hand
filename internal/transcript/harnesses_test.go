@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,19 +24,35 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 		fakebin.Append(p["count"], "run")
-		if d, err := time.ParseDuration(p["sleep"]); err == nil {
+		if d, err := time.ParseDuration(p["sleep"]); err == nil && (p["slow"] == "" || p["slow"] == args[len(args)-1]) {
 			time.Sleep(d)
 		}
-		if p["touch"] != "" {
+		touch := func() {
+			if p["touch"] == "" {
+				return
+			}
 			b, _ := os.ReadFile(p["count"])
-			at := time.Now().Add(time.Duration(strings.Count(string(b), "run")) * time.Minute)
+			n := strings.Count(string(b), "run")
+			at := time.Now().Add(time.Duration(n) * time.Minute)
 			f, err := os.OpenFile(p["touch"], os.O_CREATE|os.O_WRONLY, 0o644)
 			if err == nil {
 				f.Close()
 				_ = os.Chtimes(p["touch"], at, at)
 			}
 		}
-		fmt.Println(p["export"])
+		out := p["export"]
+		if b, _ := os.ReadFile(p["count"]); p["export2"] != "" && strings.Count(string(b), "run") > 1 {
+			out = p["export2"]
+		}
+		late, _ := time.ParseDuration(p["late"])
+		if late == 0 {
+			touch()
+		}
+		fmt.Println(out)
+		if late > 0 {
+			time.Sleep(late)
+			touch()
+		}
 		return 0
 	}})
 	os.Exit(m.Run())
@@ -287,28 +304,152 @@ func TestOpencodeCachesTheLiveSessionAfterItsOwnExport(t *testing.T) {
 	}
 }
 
+func stubbed(t *testing.T, params map[string]string) (*Reader, string) {
+	t.Helper()
+	count, data := filepath.Join(t.TempDir(), "count"), t.TempDir()
+	p := map[string]string{"count": count, "export": opencodeExport, "touch": filepath.Join(data, "opencode.db-wal")}
+	for k, v := range params {
+		p[k] = v
+	}
+	return &Reader{Paths: Paths{Opencode: fakebin.Install(t, t.TempDir(), "opencode", "opencode", p), OpencodeData: data}}, count
+}
+
 func TestOpencodeExportDoesNotBlockStatusOrOtherSessions(t *testing.T) {
-	count := filepath.Join(t.TempDir(), "count")
-	data := t.TempDir()
-	r := &Reader{Paths: Paths{Opencode: touchingOpencode(t, count, data, "2s"), OpencodeData: data}}
+	r, count := stubbed(t, map[string]string{"sleep": "2s", "slow": "ses_1"})
 	ctx, dir := context.Background(), t.TempDir()
-	done := make(chan error, 1)
+	done := make(chan string, 2)
 	go func() {
 		_, err := r.Read(ctx, "opencode", "ses_1", dir)
-		done <- err
+		done <- fmt.Sprint("ses_1 ", err)
 	}()
 	for runs(t, count) == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
 	r.Status("opencode", "ses_1")
 	r.Forget("opencode", "ses_9")
+	if _, err := r.Read(ctx, "opencode", "ses_2", dir); err != nil {
+		t.Fatal(err)
+	}
 	select {
-	case <-done:
-		t.Fatal("the export ended before Status returned")
+	case got := <-done:
+		t.Fatalf("%s ended before the other session returned", got)
 	default:
 	}
-	if err := <-done; err != nil {
+	if got := <-done; got != "ses_1 <nil>" {
+		t.Fatal(got)
+	}
+}
+
+func TestOpencodeReaderLeavesAHungExportWhenItsContextEnds(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"sleep": "3s"})
+	dir := t.TempDir()
+	go func() { _, _ = r.Read(context.Background(), "opencode", "ses_1", dir) }()
+	for runs(t, count) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := r.Read(ctx, "opencode", "ses_1", dir)
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 1500*time.Millisecond {
+		t.Fatalf("read = %v after %v, want the deadline after about 500ms", err, time.Since(start))
+	}
+	if n := runs(t, count); n != 1 {
+		t.Fatalf("exports = %d, want 1", n)
+	}
+}
+
+func TestOpencodeWaitersShareAFailedExport(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"sleep": "300ms", "export": ""})
+	ctx, dir := context.Background(), t.TempDir()
+	errs := make(chan error, 5)
+	for range 5 {
+		go func() {
+			_, err := r.Read(ctx, "opencode", "ses_1", dir)
+			errs <- err
+		}()
+	}
+	for range 5 {
+		if err := <-errs; !errors.Is(err, ErrUnreadable) {
+			t.Fatalf("read = %v, want %v", err, ErrUnreadable)
+		}
+	}
+	if n := runs(t, count); n != 1 {
+		t.Fatalf("exports = %d, want 1: the waiters get the failure instead of retrying", n)
+	}
+}
+
+func TestOpencodeSeesAWriteThatLandsAfterTheExportWithinTheFloor(t *testing.T) {
+	old := reexport
+	reexport = 400 * time.Millisecond
+	t.Cleanup(func() { reexport = old })
+	later := strings.Replace(opencodeExport, `"text":"Done."`, `"text":"Late reply."`, 1)
+	r, count := stubbed(t, map[string]string{"late": "200ms", "export2": later})
+	ctx, dir := context.Background(), t.TempDir()
+	last := func() string {
+		t.Helper()
+		got, err := r.Read(ctx, "opencode", "ses_1", dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[len(got)-1].Text
+	}
+	last()
+	if got := last(); got == "Late reply." || runs(t, count) != 1 {
+		t.Fatalf("last = %q after %d exports, want one export inside the floor", got, runs(t, count))
+	}
+	time.Sleep(reexport + 100*time.Millisecond)
+	if got := last(); got != "Late reply." || runs(t, count) != 2 {
+		t.Fatalf("last = %q after %d exports, want the late reply after the floor", got, runs(t, count))
+	}
+}
+
+func TestOpencodeRetriesAFailedEndedExportOnlyAfterTheRetryWindow(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"export": ""})
+	ctx, dir := context.Background(), t.TempDir()
+	for range 5 {
+		if _, err := r.ReadEnded(ctx, "opencode", "ses_1", dir); !errors.Is(err, ErrUnreadable) {
+			t.Fatalf("read = %v, want %v", err, ErrUnreadable)
+		}
+	}
+	if n := runs(t, count); n != 1 {
+		t.Fatalf("exports = %d, want 1", n)
+	}
+	r.session("opencode:ses_1").failedAt = time.Now().Add(-endedRetry - time.Second)
+	_, _ = r.ReadEnded(ctx, "opencode", "ses_1", dir)
+	if n := runs(t, count); n != 2 {
+		t.Fatalf("exports = %d, want 2 after the retry window", n)
+	}
+}
+
+func TestOpencodeConcurrentReadersExportEachSessionOnce(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"sleep": "300ms"})
+	ctx, dir := context.Background(), t.TempDir()
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := r.Read(ctx, "opencode", fmt.Sprintf("ses_%d", i%2), dir); err != nil {
+				t.Error(err)
+			}
+			r.Status("opencode", "ses_0")
+		}()
+	}
+	wg.Wait()
+	if n := runs(t, count); n != 2 {
+		t.Fatalf("exports = %d, want 2: one per session", n)
+	}
+}
+
+func TestOpencodeForgetDropsTheGate(t *testing.T) {
+	r, _ := stubbed(t, nil)
+	if _, err := r.Read(context.Background(), "opencode", "ses_1", t.TempDir()); err != nil {
 		t.Fatal(err)
+	}
+	r.Forget("opencode", "ses_1")
+	if len(r.gates) != 0 || len(r.logs) != 0 {
+		t.Fatalf("gates = %d, logs = %d, want none", len(r.gates), len(r.logs))
 	}
 }
 

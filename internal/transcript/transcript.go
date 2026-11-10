@@ -52,23 +52,26 @@ type Reader struct {
 	mu      sync.Mutex
 	logs    map[string]*session
 	rollout map[string]string
-	gates   map[string]*sync.Mutex
+	gates   map[string]chan struct{}
 }
 
 type session struct {
-	offsets  map[string]int64
-	entries  []Entry
-	lines    int
-	known    int
-	turn     *Entry
-	shown    bool
-	exported time.Time
-	stamp    time.Time
-	file     string
-	retryAt  time.Time
-	wait     time.Duration
-	final    bool
-	status   Status
+	offsets     map[string]int64
+	entries     []Entry
+	lines       int
+	known       int
+	turn        *Entry
+	shown       bool
+	exported    time.Time
+	stamp       time.Time
+	file        string
+	retryAt     time.Time
+	wait        time.Duration
+	final       bool
+	failure     error
+	failedAt    time.Time
+	failedEnded bool
+	status      Status
 }
 
 const (
@@ -163,6 +166,7 @@ func (r *Reader) Forget(harness, id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.logs, harness+":"+id)
+	delete(r.gates, harness+":"+id)
 }
 
 func (r *Reader) Status(harness, id string) Status {

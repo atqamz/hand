@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -816,22 +817,44 @@ func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []sta
 	if err != nil || len(sups) == 0 {
 		return nil, "No supervisor", nil, err
 	}
-	latest := sups[len(sups)-1]
-	var all []transcript.Entry
-	note := ""
+	started := slices.DeleteFunc(slices.Clone(sups), func(s state.Supervisor) bool {
+		return s.Status == state.AttemptFailed && s.TerminalID == ""
+	})
+	if len(started) == 0 {
+		return nil, "No supervisor", sups, nil
+	}
+	latest := started[len(started)-1]
+	var reads []state.Supervisor
 	seen := map[string]bool{}
-	for _, s := range sups {
+	for _, s := range started {
 		key := s.Harness + ":" + s.Session
 		if s.Session == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-		isLatest := s.Session == latest.Session && s.Harness == latest.Harness
-		entries, n := b.conversation(ctx, s, true, !isLatest)
-		if isLatest {
-			note = n
+		reads = append(reads, s)
+	}
+	conversations := make([][]transcript.Entry, len(reads))
+	notes := make([]string, len(reads))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 4)
+	for i, s := range reads {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; wg.Done() }()
+			isLatest := s.Session == latest.Session && s.Harness == latest.Harness
+			conversations[i], notes[i] = b.conversation(ctx, s, true, !isLatest)
+		}()
+	}
+	wg.Wait()
+	var all []transcript.Entry
+	note := ""
+	for i, s := range reads {
+		if s.Session == latest.Session && s.Harness == latest.Harness {
+			note = notes[i]
 		}
-		all = append(all, entries...)
+		all = append(all, conversations[i]...)
 	}
 	if latest.Session == "" {
 		_, note = b.conversation(ctx, latest, true, false)
