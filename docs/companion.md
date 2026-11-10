@@ -234,7 +234,7 @@ The app sends it as any other request through the sidecar: `Host: localhost`, th
 - **`kind`.** One of the kinds in [Alerts on your phone](alerts.md), as `kinds` in the vectors lists. The set can grow inside this version: treat a kind you do not know as an ordinary alert, never as an error.
 - **`ref`.** `tN`, `dN`, `aN` or `supervisor`.
 - **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as the ntfy recipe already sends.
-- **`link`.** A `handboard://open/<fleet id>/<page>` link for the app's own open-link entry point: `<page>` is `task/tN`, `decision/dN`, `attempt/aN`, or empty for the fleet's root (`supervisor` alerts). The numbers have 1 to 9 digits and no leading zero. The app must check the link with its own parser, and that its fleet is the one it polled, before it opens anything; a link that fails the check is no link, and the alert is still shown. The `open` vectors are the grammar. The link holds no secret.
+- **`link`.** A `handboard://open/<fleet id>/<page>` link for the app's own open-link entry point: `<page>` is `task/tN`, `decision/dN`, `attempt/aN`, or empty for the fleet's root (`supervisor` alerts). The numbers have 1 to 9 digits and no leading zero. The app must check the link with its own parser, and that its fleet is the one it polled, before it opens anything; a link that fails the check is no link, and the alert is still shown. `link` is empty when Hand cannot place the ref. The `open` vectors are the grammar. The link holds no secret.
 - **Nothing else.** No token, cookie, pairing code, endpoint ID or path is in any field.
 
 ### Receipts

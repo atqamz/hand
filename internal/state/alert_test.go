@@ -33,7 +33,7 @@ func TestAVersion21DatabaseOnDiskMigratesToTheAlertTable(t *testing.T) {
 			t.Fatal(err)
 		}
 		var v, n int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 22 {
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 			t.Fatalf("user_version = %d, %v", v, err)
 		}
 		if err := s.db.QueryRow(`SELECT count(*) FROM alert`).Scan(&n); err != nil || n != 0 {
@@ -48,14 +48,14 @@ func TestAVersion21DatabaseOnDiskMigratesToTheAlertTable(t *testing.T) {
 	}
 }
 
-func TestAMigratedDatabaseCarriesSchema22InItsHeader(t *testing.T) {
+func TestAMigratedDatabaseCarriesTheCurrentSchemaInItsHeader(t *testing.T) {
 	s, path := openTest(t)
 	if err := s.RecordAlert(context.Background(), "attempt.failed", "a1", "a1 failed", ""); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
 	v, ok := headerVersion(path)
-	if !ok || v != 22 {
+	if !ok || v != SchemaVersion {
 		t.Fatalf("header version = %d, %v", v, ok)
 	}
 }
