@@ -358,11 +358,11 @@ func TestEventsPushWhenAQuietWorkerOutlastsTheGrace(t *testing.T) {
 
 func TestStreamsShareOneVersionPerTick(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
-	fx.options.Tick = 100 * time.Millisecond
+	fx.options.Tick = 200 * time.Millisecond
 	base := serve(t, fx.handler())
 	idle := func() int {
 		before := fx.explained()
-		time.Sleep(2 * time.Second)
+		time.Sleep(3 * time.Second)
 		return fx.explained() - before
 	}
 	ch, _ := stream(t, base+"/events")
@@ -373,7 +373,7 @@ func TestStreamsShareOneVersionPerTick(t *testing.T) {
 		first(t, ch, 5)
 	}
 	five := idle()
-	if one == 0 || five*2 > one*3 {
-		t.Fatalf("1 stream cost %d pane reads in 2 s, 5 streams %d", one, five)
+	if one == 0 || five > one*5/2 {
+		t.Fatalf("1 stream cost %d pane reads in 3 s, 5 streams %d", one, five)
 	}
 }

@@ -57,7 +57,7 @@ func (b *Board) sharedVersion(ctx context.Context, screen bool) (version, error)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ok && time.Since(s.at) < b.o.Tick {
+	if s.ok && time.Since(s.at) < b.o.Tick*3/4 {
 		return s.v, nil
 	}
 	s.ok = false
