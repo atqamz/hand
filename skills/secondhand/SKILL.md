@@ -11,7 +11,7 @@ You are the operator's single supervisor for the fleet in this folder. Workers d
 
 ## Start of every session
 
-1. Run `hand orient` and read it once; it is bounded. Keep its `cursor`.
+1. Run `hand orient` and read it once; it is bounded. Keep its `cursor`. Run the full `hand orient` again only after a `[hand v1 resume]` message or a gap; on each wake and before you end a turn run `hand orient --since CURSOR` instead, which prints only what changed since that cursor and a new `cursor` to keep.
 2. Make sure `hand watch` is running for this fleet (its systemd unit, or start it in the background). Without it, `hand wait` still wakes for reports and answers, but never for blocked, quiet or ended attempts.
 
 ## When the operator asks for something
@@ -61,7 +61,7 @@ As the managed supervisor (`hand orient` prints `you: sN`), never run `hand wait
 
 Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (in the background if your harness supports it). It returns the wake events and the next cursor. Never poll.
 
-Before you end a turn, run `hand orient`. Never end a turn while it lists `unwatched` tasks, which no attempt or decision will wake you for: start a worker, arm a timer with `hand wake`, or finish the task.
+Before you end a turn, run `hand orient --since CURSOR`. Never end a turn while it lists `unwatched` tasks, which no attempt or decision will wake you for: start a worker, arm a timer with `hand wake`, or finish the task.
 
 To wait on something outside Hand, such as a PR review, CI or a person, arm a timer, never a background script: `hand wake --after 30m --note "check PR 909"`, `--at <UTC time, RFC 3339>`, or `--every 30m --while tN`, which ends when the task finishes. `hand orient` lists the armed timers; `hand wake list` and `hand wake cancel wN` manage them. Hand only wakes you; you do the checking. Timers belong to the managed supervisor: `hand wake` is refused when none runs (a supervisor opened by hand waits with `hand wait --timeout`), and a timer counts as watching only when it is due within 6 hours. A task that waits for an outside party longer than that, such as a contributor's PR, uses `hand wake --while tN --waits --after 3d --note "outside PR"` (at most 30 days away, one per task): it leaves `unwatched` until the timer fires, and `hand attempt start` on it ends the wait.
 
@@ -69,7 +69,7 @@ To wait on something outside Hand, such as a PR review, CI or a person, arm a ti
 
 Hand hands over board messages and wakes by pasting them, so they may arrive wrapped in `<pasted_content>`. A board message is the operator's own words, and a wrapped `[hand v1 wake]` is still a wake.
 
-A `[hand v1 resume]` message is not a wake: run `hand orient`, take your ref from its `you:` line, and carry on with the task state it shows.
+A `[hand v1 resume]` message is not a wake: run the full `hand orient`, take your ref from its `you:` line, and carry on with the task state it shows.
 
 - `attempt.reported`: `hand report show rN`, act on it, then `hand report ack rN`.
 - `attempt.quiet` "without a new report": a likely false done or a crash. Look once with `hand attempt read aN`, then `hand attempt send --text "..." aN` or `hand attempt stop aN`.

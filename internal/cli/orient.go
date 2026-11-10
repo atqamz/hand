@@ -11,7 +11,9 @@ func init() {
 }
 
 func cmdOrient(r *runner, args []string) error {
-	if _, err := parse(flags("orient"), args, 0); err != nil {
+	fs := flags("orient")
+	since := fs.Int64("since", -1, "print only what changed after this event cursor")
+	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
 	st, err := r.store()
@@ -27,7 +29,15 @@ func cmdOrient(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	doc, err := orient.Build(context.Background(), st, r.home, r.env.Getenv("LUVUS_PANE_ID"), watch, managed, orient.DefaultBudget)
+	pane := r.env.Getenv("LUVUS_PANE_ID")
+	if *since >= 0 {
+		doc, err := orient.Short(context.Background(), st, *since, pane, watch, managed, orient.DefaultBudget)
+		if err != nil {
+			return err
+		}
+		return r.print(doc)
+	}
+	doc, err := orient.Build(context.Background(), st, r.home, pane, watch, managed, orient.DefaultBudget)
 	if err != nil {
 		return err
 	}

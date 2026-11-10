@@ -43,10 +43,10 @@ What you do:
 
 What the supervisor does, following the `secondhand` skill:
 
-1. `hand orient`, at the start of every turn and after every wake.
+1. `hand orient`, at the start of a session and after a resume; `hand orient --since CURSOR` on each wake, which prints only what changed.
 2. Capture with `hand task add`, start with `hand task start tN`, and plan with `hand plan set --body-file PLAN.md tN`.
 3. Start a worker with `hand attempt start --harness H --model M --effort E --prompt-file BRIEF.md tN`. Its pane starts through a hidden `hand attempt _exec` wrapper, which gives it a scratch folder at `<fleet home>/scratch/tN-aM` and points `TMPDIR`, `TMP`, `TEMP`, `GOTMPDIR` and `CLAUDE_CODE_TMPDIR` at it, so build output and downloads belong there rather than in your home folder.
-4. Wait: wakes arrive as messages that start with `[hand v1 wake]`. For something outside Hand, such as a PR review, it arms a timer with `hand wake` (managed supervisors only; one opened by hand waits with `hand wait --timeout`). Before it ends a turn it runs `hand orient`, and it never ends one while tasks are `unwatched`.
+4. Wait: wakes arrive as messages that start with `[hand v1 wake]`. For something outside Hand, such as a PR review, it arms a timer with `hand wake` (managed supervisors only; one opened by hand waits with `hand wait --timeout`). Before it ends a turn it runs `hand orient --since CURSOR`, and it never ends one while tasks are `unwatched`.
 5. Read reports with `hand report show rN`, act on them, and acknowledge them with `hand report ack rN`.
 6. Ask you with `hand decision ask tN "QUESTION"`.
 7. Verify the acceptance check, then `hand attempt stop aN` if the worker still runs, `hand attempt clean aN` and `hand task done tN`.

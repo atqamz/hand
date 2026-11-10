@@ -913,3 +913,121 @@ func TestOrientStaysWithinBudgetForANestedFleet(t *testing.T) {
 		t.Fatalf("nested active rows lost the parent column:\n%s", out)
 	}
 }
+
+func TestShortListsExactlyWhatChangedSinceTheCursor(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	b, _ := st.AddTask(ctx, "hand", "Write docs", "")
+	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+	since, err := st.LastEventSeq(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = st.SetPlan(ctx, a.ID, "fix cookie")
+	if _, err := st.Ask(ctx, a.ID, "Keep cookie name?"); err != nil {
+		t.Fatal(err)
+	}
+	cursor, _ := st.LastEventSeq(ctx)
+	doc, err := Short(ctx, st, since, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "since: " + strconv.FormatInt(since, 10) + "\n" +
+		"cursor: " + strconv.FormatInt(cursor, 10) + "\n" +
+		"tasks: inbox=1 active=1 done=0 abandoned=0\n" +
+		"open_decisions[1]{id,task,question}:\n" +
+		"  d1,t1,Keep cookie name?\n" +
+		"changed[1]{id,project,title,status,plan,attempt,report,open_decisions}:\n" +
+		"  t1,hand,Fix login,active,p1,none,none,1\n" +
+		"events[2]{seq,kind,task}:\n" +
+		"  " + strconv.FormatInt(since+1, 10) + ",plan.set,t1\n" +
+		"  " + strconv.FormatInt(cursor, 10) + ",decision.asked,t1\n"
+	if got := doc.String(); got != want {
+		t.Fatalf("short =\n%s\nwant\n%s", got, want)
+	}
+	if strings.Contains(doc.String(), b.Title) || strings.Contains(doc.String(), "help") || strings.Contains(doc.String(), "operator_memory") {
+		t.Fatalf("short carries unchanged or static text:\n%s", doc.String())
+	}
+}
+
+func TestShortOfAnUnchangedFleetIsTiny(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	for i := 0; i < 12; i++ {
+		a, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+		_, _ = st.Ask(ctx, a.ID, "Question?")
+	}
+	cursor, _ := st.LastEventSeq(ctx)
+	full, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Short(ctx, st, cursor, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "since: " + strconv.FormatInt(cursor, 10) + "\ncursor: " + strconv.FormatInt(cursor, 10) + "\ntasks: inbox=0 active=12 done=0 abandoned=0\n"
+	if got := doc.String(); got != want {
+		t.Fatalf("short =\n%s\nwant\n%s", got, want)
+	}
+	if len(doc.String())*10 > len(full.String()) {
+		t.Fatalf("short is %d bytes, full %d", len(doc.String()), len(full.String()))
+	}
+}
+
+func TestShortKeepsTheUnwatchedLine(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+	cursor, _ := st.LastEventSeq(ctx)
+	doc, err := Short(ctx, st, cursor, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "unwatched[1]:\n  - t1\nunwatched_idle: ") {
+		t.Fatalf("short =\n%s", out)
+	}
+}
+
+func TestShortReportsAMissingWatcherAndWhoYouAre(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	cursor, _ := st.LastEventSeq(ctx)
+	doc, err := Short(ctx, st, cursor, "", false, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "watch: missing\n") {
+		t.Fatalf("short =\n%s", out)
+	}
+}
+
+func TestShortRefusesACursorAheadOfTheFleet(t *testing.T) {
+	st, _ := setup(t)
+	if _, err := Short(context.Background(), st, 99, "", true, true, DefaultBudget); err == nil || !strings.Contains(err.Error(), "run `hand orient`") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestShortCutsALongRunOfEventsAndSaysSo(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	for i := 0; i < 30; i++ {
+		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+	}
+	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "more: events were cut; run `hand orient`") || len(out) >= DefaultBudget.ShortBytes {
+		t.Fatalf("short (%d bytes) =\n%s", len(out), out)
+	}
+}
