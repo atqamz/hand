@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -816,29 +817,52 @@ func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []sta
 	if err != nil || len(sups) == 0 {
 		return nil, "No supervisor", nil, err
 	}
-	latest := sups[len(sups)-1]
-	var all []transcript.Entry
-	note := ""
+	started := slices.DeleteFunc(slices.Clone(sups), func(s state.Supervisor) bool {
+		return s.Status == state.AttemptFailed && s.TerminalID == ""
+	})
+	if len(started) == 0 {
+		return nil, "No supervisor", sups, nil
+	}
+	latest := started[len(started)-1]
+	var reads []state.Supervisor
 	seen := map[string]bool{}
-	for _, s := range sups {
+	for _, s := range started {
 		key := s.Harness + ":" + s.Session
 		if s.Session == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-		entries, n := b.conversation(ctx, s, true)
+		reads = append(reads, s)
+	}
+	conversations := make([][]transcript.Entry, len(reads))
+	notes := make([]string, len(reads))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 4)
+	for i, s := range reads {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; wg.Done() }()
+			isLatest := s.Session == latest.Session && s.Harness == latest.Harness
+			conversations[i], notes[i] = b.conversation(ctx, s, true, !isLatest)
+		}()
+	}
+	wg.Wait()
+	var all []transcript.Entry
+	note := ""
+	for i, s := range reads {
 		if s.Session == latest.Session && s.Harness == latest.Harness {
-			note = n
+			note = notes[i]
 		}
-		all = append(all, entries...)
+		all = append(all, conversations[i]...)
 	}
 	if latest.Session == "" {
-		_, note = b.conversation(ctx, latest, true)
+		_, note = b.conversation(ctx, latest, true, false)
 	}
 	return all, note, sups, nil
 }
 
-func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
+func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok, ended bool) ([]transcript.Entry, string) {
 	switch {
 	case !ok:
 		return nil, "No supervisor"
@@ -853,7 +877,11 @@ func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool)
 		}
 		dir = harness.OmpAgent(getenv, b.o.Home)
 	}
-	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, dir)
+	read := b.o.Transcript.Read
+	if ended {
+		read = b.o.Transcript.ReadEnded
+	}
+	entries, err := read(ctx, sup.Harness, sup.Session, dir)
 	if err != nil {
 		return nil, Scrub(err.Error())
 	}

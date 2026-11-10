@@ -50,6 +50,9 @@ func TestMain(m *testing.M) {
 	}, "opencode": func(args []string) int {
 		if len(args) > 1 && args[0] == "session" && args[1] == "export" {
 			fakebin.Append(fakebin.Params()["count"], "run")
+			if d, err := time.ParseDuration(fakebin.Params()["sleep"]); err == nil {
+				time.Sleep(d)
+			}
 			fmt.Print(fakebin.Params()["export"])
 		}
 		return 0

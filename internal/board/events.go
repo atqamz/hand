@@ -68,7 +68,7 @@ func (b *Board) version(ctx context.Context, screen bool) (version, error) {
 			}
 		}
 	}
-	entries, note := b.conversation(ctx, sup, ok)
+	entries, note := b.conversation(ctx, sup, ok, false)
 	sum := fnv.New64a()
 	for _, e := range entries {
 		_, _ = fmt.Fprintf(sum, "%s\x00%s\x00%t\x00%s\x00", e.Role, e.At, e.Queued, e.Text)

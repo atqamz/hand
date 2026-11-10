@@ -14,23 +14,86 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 )
 
-const reexport = 5 * time.Second
+var reexport = 5 * time.Second
 
-func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error {
+const endedRetry = 10 * time.Minute
+
+func (s *session) cached(stamp time.Time, ended bool) (bool, error) {
+	if s.failure != nil {
+		window := reexport
+		if ended {
+			window = endedRetry
+		}
+		if time.Since(s.failedAt) < window {
+			return true, s.failure
+		}
+	}
+	switch {
+	case s.exported.IsZero():
+		return false, nil
+	case ended:
+		return s.final, nil
+	}
+	return time.Since(s.exported) < reexport && (stamp.IsZero() || stamp.Equal(s.stamp)), nil
+}
+
+func (r *Reader) gate(ctx context.Context, key string) (func(), error) {
+	r.mu.Lock()
+	if r.gates == nil {
+		r.gates = map[string]chan struct{}{}
+	}
+	gate := r.gates[key]
+	if gate == nil {
+		gate = make(chan struct{}, 1)
+		r.gates[key] = gate
+	}
+	r.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+		return func() { <-gate }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (r *Reader) fetch(ctx context.Context, name, id, dir string, ended bool) error {
+	if name != "opencode" || !sessionID.MatchString(id) {
+		return nil
+	}
 	if r.Paths.Opencode == "" {
 		return errors.New("opencode is not on PATH")
 	}
-	stamp := dbStamp(r.Paths.OpencodeData)
-	switch {
-	case s.exported.IsZero():
-	case stamp.IsZero() && time.Since(s.exported) < reexport:
-		return nil
-	case !stamp.IsZero() && stamp.Equal(s.stamp):
-		return nil
-	}
-	out, err := harness.Opencode(ctx, r.Paths.Opencode, dir, "session", "export", "--standalone", id)
+	key := name + ":" + id
+	release, err := r.gate(ctx, key)
 	if err != nil {
 		return err
+	}
+	defer release()
+	r.mu.Lock()
+	hit, failure := r.session(key).cached(dbStamp(r.Paths.OpencodeData), ended)
+	r.mu.Unlock()
+	if hit {
+		return failure
+	}
+	fresh, err := r.export(ctx, id, dir)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err != nil {
+		if ctx.Err() == nil {
+			s := r.session(key)
+			s.failure, s.failedAt = err, time.Now()
+		}
+		return err
+	}
+	fresh.final = ended
+	*r.session(key) = fresh
+	return nil
+}
+
+func (r *Reader) export(ctx context.Context, id, dir string) (session, error) {
+	out, err := harness.Opencode(ctx, r.Paths.Opencode, dir, "session", "export", "--standalone", id)
+	if err != nil {
+		return session{}, err
 	}
 	var export struct {
 		Info struct {
@@ -39,9 +102,9 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 		Messages []exportMessage `json:"messages"`
 	}
 	if json.Unmarshal(out, &export) != nil || export.Messages == nil {
-		return ErrUnreadable
+		return session{}, ErrUnreadable
 	}
-	fresh := session{offsets: map[string]int64{}, exported: time.Now(), stamp: stamp}
+	fresh := session{offsets: map[string]int64{}, exported: time.Now(), stamp: dbStamp(r.Paths.OpencodeData)}
 	for _, m := range export.Messages {
 		fresh.lines++
 		role, created, finish, texts := m.flat()
@@ -79,8 +142,7 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 	if fresh.status.Model == "" && export.Info.Model != nil {
 		fresh.status.Model, fresh.status.Effort = export.Info.Model.label()
 	}
-	*s = fresh
-	return nil
+	return fresh, nil
 }
 
 type exportModel struct {

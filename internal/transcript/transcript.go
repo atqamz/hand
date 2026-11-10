@@ -52,6 +52,7 @@ type Reader struct {
 	mu      sync.Mutex
 	logs    map[string]*session
 	rollout map[string]string
+	gates   map[string]chan struct{}
 }
 
 type session struct {
@@ -66,6 +67,9 @@ type session struct {
 	file     string
 	retryAt  time.Time
 	wait     time.Duration
+	final    bool
+	failure  error
+	failedAt time.Time
 	status   Status
 }
 
@@ -82,9 +86,20 @@ var (
 )
 
 func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, error) {
+	return r.read(ctx, harness, id, dir, false)
+}
+
+func (r *Reader) ReadEnded(ctx context.Context, harness, id, dir string) ([]Entry, error) {
+	return r.read(ctx, harness, id, dir, true)
+}
+
+func (r *Reader) read(ctx context.Context, harness, id, dir string, ended bool) ([]Entry, error) {
+	if err := r.fetch(ctx, harness, id, dir, ended); err != nil {
+		return nil, err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s, err := r.load(ctx, harness, id, dir)
+	s, err := r.load(harness, id, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -92,28 +107,35 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 }
 
 func (r *Reader) Refresh(ctx context.Context, harness, id, dir string) error {
+	if err := r.fetch(ctx, harness, id, dir, false); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s, err := r.load(ctx, harness, id, dir)
+	s, err := r.load(harness, id, dir)
 	if err == nil {
 		s.entries = nil
 	}
 	return err
 }
 
-func (r *Reader) load(ctx context.Context, harness, id, dir string) (*session, error) {
-	if !sessionID.MatchString(id) {
-		return nil, ErrNoSession
-	}
+func (r *Reader) session(key string) *session {
 	if r.logs == nil {
 		r.logs = map[string]*session{}
 	}
-	key := harness + ":" + id
 	s := r.logs[key]
 	if s == nil {
 		s = &session{offsets: map[string]int64{}}
 		r.logs[key] = s
 	}
+	return s
+}
+
+func (r *Reader) load(harness, id, dir string) (*session, error) {
+	if !sessionID.MatchString(id) {
+		return nil, ErrNoSession
+	}
+	s := r.session(harness + ":" + id)
 	var err error
 	switch harness {
 	case "claude":
@@ -121,7 +143,6 @@ func (r *Reader) load(ctx context.Context, harness, id, dir string) (*session, e
 	case "codex":
 		err = r.codex(s, id)
 	case "opencode":
-		err = r.opencode(ctx, s, id, dir)
 	case "agy":
 		err = r.agy(s, id)
 	case "copilot":
@@ -144,6 +165,7 @@ func (r *Reader) Forget(harness, id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.logs, harness+":"+id)
+	delete(r.gates, harness+":"+id)
 }
 
 func (r *Reader) Status(harness, id string) Status {
