@@ -130,7 +130,6 @@ func TestClaudeMCP(t *testing.T) {
 	sb.write(userState, mustJSON(user))
 	sb.init()
 	sb.write(filepath.Join(sb.fleet, "mcp.json"), mustJSON(map[string]any{"mcpServers": map[string]any{"named": map[string]any{"command": "touch", "args": []string{fileMarker}}}}))
-	sb.write(filepath.Join(sb.fleet, "routing.json"), fmt.Sprintf(`{"profiles":{"plain":{"harness":%q,"model":%q,"effort":%q},"browser":{"harness":%q,"model":%q,"effort":%q,"mcp":"mcp.json"}}}`, k.name, k.model, k.effort, k.name, k.model, k.effort))
 	sb.ok("project", "add", "app", repo)
 	for _, id := range []string{"t1", "t2"} {
 		sb.ok("task", "add", "--goal", "Look", "app", "Look")
@@ -139,19 +138,24 @@ func TestClaudeMCP(t *testing.T) {
 	briefFile := filepath.Join(sb.root, "brief.md")
 	sb.write(briefFile, "Look around and report.")
 
-	sb.ok("attempt", "start", "--profile", "plain", "--prompt-file", briefFile, "t1")
+	flags := []string{"--harness", k.name, "--model", k.model, "--effort", k.effort, "--prompt-file", briefFile}
+	sb.ok(append([]string{"attempt", "start"}, append(flags, "t1")...)...)
 	sb.until("the default worker's report", 90*time.Second, func() bool { return len(sb.reports()) > 0 })
 	for _, path := range []string{userMarker, fileMarker, projectMarker} {
 		if _, err := os.Stat(path); err == nil {
 			t.Errorf("the default worker started an MCP server it was not given: %s", path)
 		}
 	}
-	out := sb.ok("attempt", "start", "--profile", "browser", "--prompt-file", briefFile, "t2")
-	if show := sb.ok("attempt", "show", field(out, "attempt")); field(show, "mcp") != filepath.Join(sb.fleet, "mcp.json") {
-		t.Errorf("attempt show = %q, want the profile's mcp file", show)
+	out := sb.ok(append([]string{"attempt", "start", "--mcp", "mcp.json"}, append(flags, "t2")...)...)
+	wantMCP, err := filepath.EvalSymlinks(filepath.Join(sb.fleet, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if show := sb.ok("attempt", "show", field(out, "attempt")); field(show, "mcp") != wantMCP {
+		t.Errorf("attempt show = %q, want the --mcp file", show)
 	}
 	sb.until("the second worker's report", 90*time.Second, func() bool { return len(sb.reports()) > 1 })
-	sb.until("the profile's MCP server", 20*time.Second, func() bool { _, err := os.Stat(fileMarker); return err == nil })
+	sb.until("the --mcp file's MCP server", 20*time.Second, func() bool { _, err := os.Stat(fileMarker); return err == nil })
 	for _, path := range []string{userMarker, projectMarker} {
 		if _, err := os.Stat(path); err == nil {
 			t.Errorf("the worker with an MCP file also started a server of the user's or the repository's config: %s", path)

@@ -274,7 +274,11 @@ func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if path, err := pr.MCPFile(home); path != filepath.Join(home, "mcp.json") || err != nil {
+	want, err := filepath.EvalSymlinks(filepath.Join(home, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := pr.MCPFile(home); path != want || err != nil {
 		t.Fatalf("file = %q, %v", path, err)
 	}
 }
@@ -530,5 +534,127 @@ func TestAForgedRuleRowDoesNotCutTheDialog(t *testing.T) {
 		if !ok || p.Tool != "Create file" || p.Approve != "1" || !strings.Contains(p.Command, "line2") {
 			t.Fatalf("%s: %+v, %v", name, p, ok)
 		}
+	}
+}
+
+func TestMCPPathNamesTheFileInsideTheFleetHome(t *testing.T) {
+	home := t.TempDir()
+	if path, err := MCPPath(home, ""); path != "" || err != nil {
+		t.Fatalf("no mcp = %q, %v", path, err)
+	}
+	for _, bad := range []string{"../mcp.json", "/etc/mcp.json", "a/../../mcp.json"} {
+		if _, err := MCPPath(home, bad); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "inside the fleet home") {
+			t.Fatalf("mcp %q err = %v", bad, err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(home, "dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"mcp.json", "dir"} {
+		if _, err := MCPPath(home, bad); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), filepath.Join(home, bad)) {
+			t.Fatalf("%s err = %v", bad, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(home, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := MCPPath(home, "mcp.json"); path != want || err != nil {
+		t.Fatalf("file = %q, %v", path, err)
+	}
+}
+
+func TestMCPPathFollowsSymlinksOnlyInsideTheFleetHome(t *testing.T) {
+	home, outside := t.TempDir(), t.TempDir()
+	write := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := func(target, name string) {
+		t.Helper()
+		if err := os.Symlink(target, filepath.Join(home, name)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	write(filepath.Join(outside, "evil.json"))
+	write(filepath.Join(outside, "worktrees", "t1-a1", "mcp.json"))
+	write(filepath.Join(home, "scratch", "a1", "x.json"))
+	write(filepath.Join(home, "configs", "good.json"))
+	link(filepath.Join(outside, "evil.json"), "file.json")
+	link(outside, "dirlink")
+	link(filepath.Join(outside, "worktrees", "t1-a1"), "worktree")
+	link(filepath.Join(home, "scratch", "a1", "x.json"), "scratch.json")
+	link(filepath.Join(home, "scratch"), "scratchdir")
+	link(filepath.Join(home, "configs", "good.json"), "good.json")
+	link(filepath.Join(home, "configs"), "configs-link")
+	for file, want := range map[string]string{
+		"file.json":            "outside the fleet home",
+		"dirlink/evil.json":    "outside the fleet home",
+		"worktree/mcp.json":    "outside the fleet home",
+		"scratch/a1/x.json":    "scratch/",
+		"scratch.json":         "scratch/",
+		"scratchdir/a1/x.json": "scratch/",
+	} {
+		if _, err := MCPPath(home, file); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s err = %v, want %q", file, err, want)
+		}
+		if _, err := (Profile{MCP: file}).MCPFile(home); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("profile %s err = %v, want %q", file, err, want)
+		}
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realHome, "configs", "good.json")
+	for _, file := range []string{"good.json", "configs-link/good.json", "configs/good.json"} {
+		if path, err := MCPPath(home, file); path != want || err != nil {
+			t.Fatalf("%s = %q, %v", file, path, err)
+		}
+		if path, err := (Profile{MCP: file}).MCPFile(home); path != want || err != nil {
+			t.Fatalf("profile %s = %q, %v", file, path, err)
+		}
+	}
+}
+
+func TestMCPPathRefusesScratchByFileIdentity(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "store", "a1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "store", "a1", "x.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "store"), filepath.Join(home, "scratch")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, file := range []string{"scratch/a1/x.json", "store/a1/x.json"} {
+		if _, err := MCPPath(home, file); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "scratch/") {
+			t.Fatalf("%s err = %v", file, err)
+		}
+	}
+}
+
+func TestMCPPathRefusesScratchSpelledInAnotherCase(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "scratch", "a1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "scratch", "a1", "x.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "SCRATCH")); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	if _, err := MCPPath(home, "SCRATCH/a1/x.json"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "scratch/") {
+		t.Fatalf("err = %v", err)
 	}
 }

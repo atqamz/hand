@@ -45,6 +45,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 	base := fs.String("base", "", "git ref the worktree starts from (default origin/main, fetched first)")
 	cont := fs.String("continue", "", "ended, cleaned attempt whose branch the worktree checks out")
 	profile := fs.String("profile", "", "routing profile from routing.json")
+	mcpFile := fs.String("mcp", "", "claude only: an MCP config inside the fleet home, started with --strict-mcp-config")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
@@ -74,11 +75,25 @@ func cmdAttemptStart(r *runner, args []string) error {
 		return err
 	}
 	spec := routed.Spec
-	mcp, err := routed.MCPFile(r.home)
+	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return err
 	}
-	bin, err := harnessBin(r, spec)
+	var mcp string
+	if *mcpFile != "" {
+		if routed.MCP != "" {
+			return usageError{"attempt start: give --mcp or a profile with mcp, not both"}
+		}
+		if routed.Access == state.AccessReadonly {
+			return fmt.Errorf("%w: a read-only profile starts without MCP servers; leave --mcp out", state.ErrInvalid)
+		}
+		if spec.Harness != "claude" {
+			return fmt.Errorf("%w: attempt start: --mcp is only available for claude, not %s: Hand knows no strict MCP mode for it", state.ErrInvalid, spec.Harness)
+		}
+		mcp, err = harness.MCPPath(r.home, *mcpFile)
+	} else {
+		mcp, err = routed.MCPFile(r.home)
+	}
 	if err != nil {
 		return err
 	}
