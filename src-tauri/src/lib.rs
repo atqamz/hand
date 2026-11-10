@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 #[cfg(target_os = "android")]
 use hand_android_core::CompanionConfig;
 use hand_android_core::{
-    CAMERA_FAILED, Companion, ConfirmError, OfferError, OpenError, PAIRING_PENDING, ScanError,
-    ScanStatus, may_load, proxy_origin, scan_reply,
+    CAMERA_FAILED, Companion, ConfirmError, OfferError, OpenError, OpenLinkError, PAIRING_PENDING,
+    ScanError, ScanStatus, is_open_link, may_load, proxy_origin, scan_reply,
 };
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
@@ -36,6 +36,13 @@ struct OfferView {
     laptop: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     notice: Option<&'static str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+enum Intake {
+    Offer(OfferView),
+    Open { url: String },
 }
 
 #[derive(serde::Serialize)]
@@ -79,7 +86,7 @@ fn failure(error: ConfirmError, lost: &AtomicU32) -> Failure {
 async fn intake_intent(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<Option<OfferView>, Failure> {
+) -> Result<Option<Intake>, Failure> {
     #[cfg(target_os = "android")]
     let link = match app.try_state::<mobile::Bridge>() {
         Some(bridge) => bridge.take_link().await,
@@ -95,17 +102,40 @@ async fn intake_intent(
     };
     let companion = state.companion()?;
     state.launch.store(false, Ordering::Relaxed);
+    if is_open_link(&link) {
+        return match companion.open_link(&link).await {
+            Ok(url) => Ok(Some(Intake::Open { url })),
+            Err(OpenLinkError::Pending) => Ok(pending_offer(&companion)),
+            Err(OpenLinkError::Rejected) => match companion.open_board().await {
+                Ok(Some(url)) => Ok(Some(Intake::Open { url })),
+                _ => Err(Failure {
+                    message: OpenLinkError::Rejected.message().to_owned(),
+                    retry: false,
+                }),
+            },
+            Err(error) => Err(Failure {
+                message: error.message().to_owned(),
+                retry: false,
+            }),
+        };
+    }
     match companion.offer_link(&link) {
-        Ok(offer) => Ok(Some(OfferView {
+        Ok(offer) => Ok(Some(Intake::Offer(OfferView {
             laptop: offer.laptop,
             notice: None,
-        })),
-        Err(OfferError::Pending) => Ok(companion.pending_offer().map(|offer| OfferView {
-            laptop: offer.laptop,
-            notice: Some(PAIRING_PENDING),
-        })),
+        }))),
+        Err(OfferError::Pending) => Ok(pending_offer(&companion)),
         Err(error) => Err(Failure::rejected(error)),
     }
+}
+
+fn pending_offer(companion: &Companion) -> Option<Intake> {
+    companion.pending_offer().map(|offer| {
+        Intake::Offer(OfferView {
+            laptop: offer.laptop,
+            notice: Some(PAIRING_PENDING),
+        })
+    })
 }
 
 #[tauri::command]
@@ -432,6 +462,25 @@ mod tests {
             bundled_origin_for(&config, false).as_str(),
             "https://app.example.test/"
         );
+    }
+
+    #[test]
+    fn the_intake_reply_names_the_board_url_or_the_offer() {
+        let open = Intake::Open {
+            url: "http://localhost:50123/f0123456789ab/task/t3#r5".to_owned(),
+        };
+        assert_eq!(
+            serde_json::to_string(&open).unwrap(),
+            r#"{"url":"http://localhost:50123/f0123456789ab/task/t3#r5"}"#
+        );
+        let offer = Intake::Offer(OfferView {
+            laptop: "4d92…6ed6".to_owned(),
+            notice: Some(PAIRING_PENDING),
+        });
+        let json: serde_json::Value = serde_json::to_value(&offer).unwrap();
+        assert_eq!(json["laptop"], "4d92…6ed6");
+        assert_eq!(json["notice"], PAIRING_PENDING);
+        assert!(json.get("url").is_none());
     }
 
     #[test]

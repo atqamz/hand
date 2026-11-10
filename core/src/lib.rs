@@ -5,6 +5,7 @@ mod dialer;
 mod key;
 mod link;
 mod navigation;
+mod open;
 mod pairing;
 mod scan;
 #[cfg(test)]
@@ -13,7 +14,9 @@ mod testutil;
 pub mod proxy;
 
 pub use codes::{BOARD_ERROR, BOARD_UNREACHABLE, FULL, IDLE, STREAM_IDLE};
-pub use companion::{Companion, CompanionConfig, ConfirmError, StartError, proxy_origin};
+pub use companion::{
+    Companion, CompanionConfig, ConfirmError, OpenLinkError, StartError, proxy_origin,
+};
 pub use dialer::{
     ALPN, BACKOFF_RESET, Dialer, HANDSHAKE_DEADLINE, Notice, OpenError, STREAMS_PER_CONNECTION,
     StreamRecv, StreamSend, parse_target,
@@ -24,6 +27,7 @@ pub use link::{
     parse_link_with,
 };
 pub use navigation::may_load;
+pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, parse_open};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::{Proxy, Signal};
 pub use scan::{CAMERA_FAILED, SCAN_OPEN, ScanError, ScanStatus, scan_reply};

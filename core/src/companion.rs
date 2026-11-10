@@ -1,4 +1,5 @@
 use std::fmt;
+use std::future::Future;
 use std::io;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -16,7 +17,8 @@ use url::Url;
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
 use crate::key::{self, KeyCipher};
 use crate::link::LINK_REJECTED;
-use crate::pairing::{Offer, OfferError, Pairing};
+use crate::open::{NOT_PAIRED, OPEN_REJECTED, parse_open};
+use crate::pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 use crate::proxy::{self, Proxy, Signal};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -153,6 +155,37 @@ impl Companion {
         Ok(link.open_url(self.port))
     }
 
+    pub async fn open_link(&self, text: &str) -> Result<String, OpenLinkError> {
+        self.open_link_after(text, |fleet| async move {
+            self.dialer.attempt().await.map_err(ConfirmError::Open)?;
+            self.probe_pair_page(&fleet).await
+        })
+        .await
+    }
+
+    async fn open_link_after<Fut>(
+        &self,
+        text: &str,
+        reach: impl FnOnce(String) -> Fut,
+    ) -> Result<String, OpenLinkError>
+    where
+        Fut: Future<Output = Result<(), ConfirmError>>,
+    {
+        let active = {
+            let pairing = self.pairing.lock().unwrap();
+            if pairing.pending().is_some() {
+                return Err(OpenLinkError::Pending);
+            }
+            pairing.active().map(str::to_owned)
+        };
+        let link = parse_open(text).ok_or(OpenLinkError::Rejected)?;
+        let active = active.ok_or(OpenLinkError::NotPaired)?;
+        let target = parse_target(&active, None).map_err(ConfirmError::Target)?;
+        self.dialer.set_target(Some(target)).await;
+        reach(link.fleet.clone()).await?;
+        Ok(proxy_url(self.port, &link.path()))
+    }
+
     async fn probe_pair_page(&self, fleet: &str) -> Result<(), ConfirmError> {
         let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, self.port))
             .await
@@ -218,6 +251,42 @@ impl std::error::Error for ConfirmError {}
 impl From<OpenError> for ConfirmError {
     fn from(error: OpenError) -> Self {
         Self::Open(error)
+    }
+}
+
+#[derive(Debug)]
+pub enum OpenLinkError {
+    Pending,
+    Rejected,
+    NotPaired,
+    Failed(ConfirmError),
+}
+
+impl OpenLinkError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::Pending => PAIRING_PENDING,
+            Self::Rejected => OPEN_REJECTED,
+            Self::NotPaired => NOT_PAIRED,
+            Self::Failed(ConfirmError::Open(OpenError::Busy)) => {
+                "Your laptop is busy. Tap the link again."
+            }
+            Self::Failed(error) => error.message(),
+        }
+    }
+}
+
+impl fmt::Display for OpenLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for OpenLinkError {}
+
+impl From<ConfirmError> for OpenLinkError {
+    fn from(error: ConfirmError) -> Self {
+        Self::Failed(error)
     }
 }
 
@@ -332,6 +401,142 @@ mod tests {
                 .await
                 .map(|target| target.id.to_string()),
             Some(laptop.to_owned())
+        );
+    }
+
+    const OPEN: &str = "handboard://open/f0123456789ab/task/t3#r5";
+    const LAPTOP: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
+
+    #[tokio::test]
+    async fn an_open_link_with_no_laptop_dials_nothing_and_says_to_pair_first() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let error = companion.open_link(OPEN).await.unwrap_err();
+        assert!(matches!(error, OpenLinkError::NotPaired));
+        assert_eq!(error.message(), "Pair this phone with your laptop first.");
+        assert!(companion.dialer.target().await.is_none());
+        assert!(!dir.path().join("laptop").exists());
+    }
+
+    #[tokio::test]
+    async fn an_open_link_while_a_pairing_is_pending_is_dropped_and_the_offer_stays() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let offer = companion.offer_link(SECOND_LINK).unwrap();
+        let error = companion.open_link(OPEN).await.unwrap_err();
+        assert!(matches!(error, OpenLinkError::Pending));
+        assert_eq!(error.message(), PAIRING_PENDING);
+        assert_eq!(companion.pending_offer().unwrap().laptop, offer.laptop);
+        assert!(companion.dialer.target().await.is_none());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{LAPTOP}\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hostile_open_link_dials_nothing() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        for text in [
+            "handboard://open/f0123456789ab/task/t3/extra",
+            "handboard://open/f0123456789ab/task%2Ft3",
+            "handboard://open/f0123456789ab/task/t3?x=1",
+            LINK,
+            "",
+        ] {
+            let error = companion.open_link(text).await.unwrap_err();
+            assert!(matches!(error, OpenLinkError::Rejected), "{text}");
+            assert_eq!(error.message(), "This is not a link Hand can open.");
+        }
+        assert!(companion.dialer.target().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_open_link_to_a_reachable_board_returns_its_proxy_url_and_changes_nothing() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let reached = std::sync::Mutex::new(Vec::new());
+        let url = companion
+            .open_link_after(OPEN, |fleet| {
+                reached.lock().unwrap().push(fleet);
+                async { Ok(()) }
+            })
+            .await
+            .unwrap();
+        let port = companion.port();
+        assert_eq!(
+            url,
+            format!("http://localhost:{port}/f0123456789ab/task/t3#r5")
+        );
+        assert_eq!(*reached.lock().unwrap(), ["f0123456789ab"]);
+        let bundled = Url::parse("http://tauri.localhost/").unwrap();
+        assert!(crate::navigation::may_load(
+            &Url::parse(&url).unwrap(),
+            &bundled,
+            Some(&proxy_origin(port))
+        ));
+        assert_eq!(
+            companion
+                .dialer
+                .target()
+                .await
+                .map(|target| target.id.to_string()),
+            Some(LAPTOP.to_owned())
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("laptop")).unwrap(),
+            format!("{LAPTOP}\n").into_bytes()
+        );
+        assert!(companion.pending_offer().is_none());
+    }
+
+    #[tokio::test]
+    async fn an_open_link_to_an_unreachable_laptop_fails_before_any_navigation() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let error = companion.open_link(OPEN).await.unwrap_err();
+        assert!(
+            matches!(error, OpenLinkError::Failed(ConfirmError::Open(_))),
+            "{error:?}"
+        );
+        assert!(!error.message().is_empty());
+        assert_eq!(
+            companion
+                .dialer
+                .target()
+                .await
+                .map(|target| target.id.to_string()),
+            Some(LAPTOP.to_owned())
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{LAPTOP}\n")
+        );
+        assert!(companion.pending_offer().is_none());
+    }
+
+    #[test]
+    fn a_busy_laptop_asks_for_another_tap_and_the_other_failures_keep_their_messages() {
+        assert_eq!(
+            OpenLinkError::Failed(ConfirmError::Open(OpenError::Busy)).message(),
+            "Your laptop is busy. Tap the link again."
+        );
+        assert_eq!(
+            OpenLinkError::Failed(ConfirmError::BoardDown).message(),
+            crate::dialer::Notice::BoardUnreachable.message()
+        );
+        assert_eq!(
+            OpenLinkError::Failed(ConfirmError::Open(OpenError::Unreachable)).message(),
+            crate::dialer::Notice::Unreachable.message()
+        );
+        assert_eq!(
+            OpenLinkError::Failed(ConfirmError::Open(OpenError::Lost)).message(),
+            crate::dialer::Notice::Lost.message()
         );
     }
 }

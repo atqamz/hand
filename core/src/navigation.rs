@@ -20,6 +20,8 @@ mod tests {
             ("http://localhost:49152/", true),
             ("http://localhost:49152/f0123456789ab/pair#v1.abc", true),
             ("http://localhost:49152/static/app.js", true),
+            ("http://localhost:49152/f0123456789ab/decision/d3", true),
+            ("http://localhost:49152/f0123456789ab/task/t3#r5", true),
             ("http://LOCALHOST:49152/", true),
             ("http://localhost:49152", true),
             ("http://127.0.0.1:49152/", false),

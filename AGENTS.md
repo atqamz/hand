@@ -28,7 +28,7 @@ The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dial
 
 ## Contract with Hand
 
-Hand is the Board on the laptop. This app is the dialer of its `hand-iroh` sidecar, so every fact below is Hand's and changes there first. The contract is `docs/companion.md` with its vectors in `docs/companion-vectors.json`, in https://github.com/atqamz/hand. The app is built against the head of Hand's PR #1135, `f7c6e1c5c9da9c8d3735c2754fce68df3845ebff`; a newer head wins. `docs/phone.md` describes the peer listener and the sidecar. When one of them disagrees with this file, they win; fix this file.
+Hand is the Board on the laptop. This app is the dialer of its `hand-iroh` sidecar, so every fact below is Hand's and changes there first. The contract is `docs/companion.md` with its vectors in `docs/companion-vectors.json`, in https://github.com/atqamz/hand. The app is built against the head of Hand's PR #1200, `45940d9a204a8d1dbe5c92a7c156fe320d61493a`; a newer head wins. `docs/phone.md` describes the peer listener and the sidecar. When one of them disagrees with this file, they win; fix this file.
 
 - Transport: iroh, pinned to the sidecar's version (`iroh = "=1.4.1"` there), ALPN `hand-board`. The app dials the laptop's endpoint ID, through a relay or directly. Endpoint IDs are not secrets and iroh admits any dialer that completes the handshake; the Board decides who is paired.
 - Streams: one bidirectional QUIC stream per loopback TCP connection, and bidirectional only: the sidecar allows no unidirectional stream. At most 12 streams are open on a connection, and new ones are accepted at 20 a second after a burst of 12. Finishing the send side is the upload's end of file, and the Board's end of file finishes the stream.

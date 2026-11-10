@@ -27,7 +27,7 @@ env:
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: "0"
   TAURI_CLI_VERSION: "2.12.4"
-  HAND_SHA: f7c6e1c5c9da9c8d3735c2754fce68df3845ebff
+  HAND_SHA: 45940d9a204a8d1dbe5c92a7c156fe320d61493a
 
 jobs:
   actionlint:

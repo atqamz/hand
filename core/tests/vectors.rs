@@ -1,4 +1,4 @@
-use hand_android_core::parse_link;
+use hand_android_core::{parse_link, parse_open};
 use serde_json::Value;
 
 fn vectors() -> Value {
@@ -56,5 +56,35 @@ fn every_invalid_vector_yields_its_reason() {
         let expected = vector["reject"].as_str().unwrap();
         let reject = parse_link(text).expect_err(name);
         assert_eq!(reject.reason(), expected, "{name}");
+    }
+}
+
+#[test]
+fn every_open_vector_parses_or_is_rejected() {
+    let open = &vectors()["open"];
+    let valid = open["valid"].as_array().unwrap();
+    assert_eq!(valid.len(), 6);
+    for vector in valid {
+        let text = vector["link"].as_str().unwrap();
+        let link = parse_open(text).expect(text);
+        let parsed = &vector["parsed"];
+        assert_eq!(
+            parsed["fleet"].as_str(),
+            Some(link.fleet.as_str()),
+            "{text}"
+        );
+        assert_eq!(parsed["page"].as_str(), Some(link.page.as_str()), "{text}");
+        assert_eq!(parsed["report"].as_str(), link.report.as_deref(), "{text}");
+        assert_eq!(
+            parsed["path"].as_str(),
+            Some(link.path().as_str()),
+            "{text}"
+        );
+    }
+    let invalid = open["invalid"].as_array().unwrap();
+    assert_eq!(invalid.len(), 61);
+    for vector in invalid {
+        let text = vector["link"].as_str().unwrap();
+        assert_eq!(parse_open(text), None, "{text:?}");
     }
 }

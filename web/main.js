@@ -127,6 +127,10 @@ async function pair() {
 async function intake() {
   try {
     const view = await invoke("intake_intent");
+    if (view && view.url) {
+      window.location.href = view.url;
+      return;
+    }
     if (view) {
       offer(view);
       return;
