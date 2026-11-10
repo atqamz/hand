@@ -7,6 +7,7 @@ import (
 
 	"github.com/atqamz/hand/internal/buildstamp"
 	"github.com/atqamz/hand/internal/desktopasset"
+	"github.com/atqamz/hand/internal/launcher"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -19,6 +20,14 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 	if err != nil {
 		c.add("desktop", "info", "not installed; run `hand update` to put hand-desktop next to hand")
 		return
+	}
+	switch state, where := launcher.Check(r.env.Getenv, bin); state {
+	case launcher.OK:
+		c.add("desktop entry", "ok", "")
+	case launcher.Missing:
+		c.add("desktop entry", "warn", where+" is missing; run `hand update` to write the launcher entry")
+	default:
+		c.add("desktop entry", "warn", where+" does not point at "+bin+"; run `hand update` to rewrite it")
 	}
 	version, gotCommit, err := desktopasset.BinaryVersion(ctx, bin)
 	if err != nil {

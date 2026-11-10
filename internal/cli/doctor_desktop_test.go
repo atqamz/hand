@@ -10,6 +10,7 @@ import (
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/launcher"
 )
 
 func installDesktop(t *testing.T, fx *doctorFixture, params map[string]string) {
@@ -120,5 +121,42 @@ func TestDoctorDesktopRowNeedsNoSecondhandFolder(t *testing.T) {
 	}
 	if row[0] != "info" && row[0] != "warn" {
 		t.Fatalf("desktop = %q in:\n%s", row, out)
+	}
+}
+
+func TestDoctorDesktopEntryRow(t *testing.T) {
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
+		t.Skip("hand-desktop assets are Linux only")
+	}
+	fx := newDoctorFixture(t)
+	holdWatchLock(t, fx.h.home)
+	data := t.TempDir()
+	fx.h.vars["XDG_DATA_HOME"] = data
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "" {
+		t.Fatalf("a row without hand-desktop: %q", row)
+	}
+	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "warn" || !strings.Contains(row[1], "is missing") {
+		t.Fatalf("missing = %q", row)
+	}
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "warn" || !strings.Contains(row[1], "does not point at") {
+		t.Fatalf("elsewhere = %q", row)
+	}
+	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := launcher.Sync(func(k string) string { return fx.h.vars[k] }, bin); err != nil {
+		t.Fatal(err)
+	}
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "ok" {
+		t.Fatalf("synced = %q", row)
 	}
 }
