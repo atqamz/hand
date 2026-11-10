@@ -355,3 +355,25 @@ func TestEventsPushWhenAQuietWorkerOutlastsTheGrace(t *testing.T) {
 	mu.Unlock()
 	until(t, ch, arrives("queue", `data-kind="quiet"`))
 }
+
+func TestStreamsShareOneVersionPerTick(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = 100 * time.Millisecond
+	base := serve(t, fx.handler())
+	idle := func() int {
+		before := fx.explained()
+		time.Sleep(2 * time.Second)
+		return fx.explained() - before
+	}
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 5)
+	one := idle()
+	for range 4 {
+		ch, _ := stream(t, base+"/events")
+		first(t, ch, 5)
+	}
+	five := idle()
+	if one == 0 || five*2 > one*3 {
+		t.Fatalf("1 stream cost %d pane reads in 2 s, 5 streams %d", one, five)
+	}
+}

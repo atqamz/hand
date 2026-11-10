@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"net/http"
@@ -756,7 +757,7 @@ func (b *Board) apiMethod(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	f, since, ok := b.apiSince(w, r)
+	f, cursor, ok := b.apiRead(w, r)
 	if !ok {
 		return
 	}
@@ -765,7 +766,7 @@ func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, since, data)
+	b.apiRespond(w, f, cursor, data)
 }
 
 func (b *Board) apiTimeline(w http.ResponseWriter, r *http.Request) {
@@ -776,7 +777,7 @@ func (b *Board) apiTimeline(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	f, since, ok := b.apiSince(w, r)
+	f, cursor, ok := b.apiRead(w, r)
 	if !ok {
 		return
 	}
@@ -785,12 +786,12 @@ func (b *Board) apiTimeline(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, since, data)
+	b.apiRespond(w, f, cursor, data)
 }
 
 func (b *Board) apiTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	f, since, ok := b.apiSince(w, r)
+	f, cursor, ok := b.apiRead(w, r)
 	if !ok {
 		return
 	}
@@ -799,7 +800,7 @@ func (b *Board) apiTasks(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, since, data)
+	b.apiRespond(w, f, cursor, data)
 }
 
 func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
@@ -813,7 +814,7 @@ func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, since, ok := b.apiSince(w, r)
+	f, cursor, ok := b.apiRead(w, r)
 	if !ok {
 		return
 	}
@@ -822,7 +823,7 @@ func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, since, data)
+	b.apiRespond(w, f, cursor, data)
 }
 
 func (b *Board) apiAttempt(w http.ResponseWriter, r *http.Request) {
@@ -859,7 +860,7 @@ func (b *Board) apiDecision(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, since, ok := b.apiSince(w, r)
+	f, cursor, ok := b.apiRead(w, r)
 	if !ok {
 		return
 	}
@@ -868,7 +869,7 @@ func (b *Board) apiDecision(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, since, data)
+	b.apiRespond(w, f, cursor, data)
 }
 
 func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
@@ -882,7 +883,7 @@ func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	f, since, ok := b.apiSince(w, r)
+	f, cursor, ok := b.apiRead(w, r)
 	if !ok {
 		return
 	}
@@ -891,7 +892,7 @@ func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiOK(w, f, since, data)
+	b.apiRespond(w, f, cursor, data)
 }
 
 func (b *Board) apiUnknown(w http.ResponseWriter, r *http.Request) {
@@ -924,7 +925,42 @@ func (b *Board) apiOK(w http.ResponseWriter, f state.Fleet, since string, data a
 	sum := fnv.New64a()
 	_, _ = sum.Write([]byte(f.Name + "\x00"))
 	_, _ = sum.Write(raw)
+	b.apiSend(w, f, since, b.apiEncodeCursor(f.ID, sum.Sum64()), raw)
+}
+
+func (b *Board) apiRead(w http.ResponseWriter, r *http.Request) (state.Fleet, string, bool) {
+	f, since, ok := b.apiSince(w, r)
+	if !ok {
+		return f, "", false
+	}
+	v, err := b.sharedVersion(r.Context(), false)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return f, "", false
+	}
+	q := r.URL.Query()
+	q.Del("since")
+	sum := fnv.New64a()
+	_, _ = fmt.Fprintf(sum, "%s\x00%s\x00%s\x00%#v", f.Name, r.URL.Path, q.Encode(), v)
 	cursor := b.apiEncodeCursor(f.ID, sum.Sum64())
+	if since == cursor {
+		w.Header().Set("X-Hand-Cursor", cursor)
+		w.WriteHeader(http.StatusNotModified)
+		return f, "", false
+	}
+	return f, cursor, true
+}
+
+func (b *Board) apiRespond(w http.ResponseWriter, f state.Fleet, cursor string, data any) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiSend(w, f, "", cursor, raw)
+}
+
+func (b *Board) apiSend(w http.ResponseWriter, f state.Fleet, since, cursor string, raw []byte) {
 	w.Header().Set("X-Hand-Cursor", cursor)
 	if since != "" && since == cursor {
 		w.WriteHeader(http.StatusNotModified)

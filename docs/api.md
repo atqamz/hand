@@ -46,10 +46,10 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. It encodes the fleet and a signed fingerprint of the fleet's name and that response's `data`, including the facts the board reads outside its database (the harness transcript and the pane), so it is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals. The board computes that version once a second for all its clients and does not build the data to answer a poll, so a change reaches a poll within a second (at once after a write made through the board). A session, an attempt and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
 
 - No `?since=`: always `200` with the full data.
-- `?since=` equal to the fingerprint the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first; the board rebuilds the page's data to fingerprint it, so a poll costs a read, not a body.
+- `?since=` equal to the cursor the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first: for the pages above it costs no build and no body.
 - `?since=` from before any change to that data: `200` with the new data and a new cursor.
 - A cursor this board did not issue (another fleet, a typo, a truncated value): `400` with `bad_cursor`.
 

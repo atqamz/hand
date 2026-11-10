@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode"
@@ -178,6 +179,8 @@ type Board struct {
 	phones    phones
 	refresh   refresher
 	artifacts artifactCache
+	versions  [2]sharedVersion
+	computed  atomic.Int64
 }
 
 type card struct {
@@ -255,6 +258,9 @@ func New(st *state.Store, token string, o Options) http.Handler {
 }
 
 func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		defer b.dropVersions()
+	}
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")

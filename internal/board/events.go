@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
@@ -37,7 +38,45 @@ type version struct {
 	note        string
 	context     transcript.Status
 	workers     int
+	signals     uint64
+	alerts      int64
 	models      int64
+}
+
+type sharedVersion struct {
+	mu sync.Mutex
+	at time.Time
+	v  version
+	ok bool
+}
+
+func (b *Board) sharedVersion(ctx context.Context, screen bool) (version, error) {
+	s := &b.versions[0]
+	if screen {
+		s = &b.versions[1]
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ok && time.Since(s.at) < b.o.Tick {
+		return s.v, nil
+	}
+	s.ok = false
+	v, err := b.version(ctx, screen)
+	if err != nil {
+		return v, err
+	}
+	b.computed.Add(1)
+	s.v, s.at, s.ok = v, time.Now(), true
+	return v, nil
+}
+
+func (b *Board) dropVersions() {
+	for i := range b.versions {
+		s := &b.versions[i]
+		s.mu.Lock()
+		s.ok = false
+		s.mu.Unlock()
+	}
 }
 
 func (b *Board) version(ctx context.Context, screen bool) (version, error) {
@@ -77,6 +116,9 @@ func (b *Board) version(ctx context.Context, screen bool) (version, error) {
 	if ok && b.o.Transcript != nil {
 		v.context = b.o.Transcript.Status(sup.Harness, sup.Session)
 	}
+	if v.alerts, err = b.st.LatestAlertSeq(ctx); err != nil {
+		return v, err
+	}
 	live, err := b.st.LiveAttempts(ctx)
 	if err != nil {
 		return v, err
@@ -84,6 +126,11 @@ func (b *Board) version(ctx context.Context, screen bool) (version, error) {
 	signals, err := b.signals(ctx, live)
 	if err != nil {
 		return v, err
+	}
+	for id, e := range signals {
+		h := fnv.New64a()
+		_, _ = fmt.Fprintf(h, "%d\x00%d\x00%s", id, e.Seq, e.Kind)
+		v.signals += h.Sum64()
 	}
 	workers, err := b.workers(ctx, live, signals, ok && sup.Status == state.AttemptRunning, false)
 	v.workers = len(workers)
@@ -151,7 +198,7 @@ func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 		if !b.stillSignedIn(ctx) {
 			return
 		}
-		v, err := b.version(ctx, page == "supervisor")
+		v, err := b.sharedVersion(ctx, page == "supervisor")
 		if err != nil {
 			return
 		}

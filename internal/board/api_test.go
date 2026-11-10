@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,6 +90,10 @@ func apiSeed(t *testing.T, fx *fixture) {
 	}
 }
 
+const apiTick = 40 * time.Millisecond
+
+func nextTick() { time.Sleep(2 * apiTick) }
+
 func apiFixture(t *testing.T, now func() time.Time) *fixture {
 	t.Helper()
 	fx := newFixture(t)
@@ -96,6 +101,7 @@ func apiFixture(t *testing.T, now func() time.Time) *fixture {
 	fx.options.Now = now
 	fx.options.Controls = true
 	fx.options.Base = ""
+	fx.options.Tick = apiTick
 	if _, err := fx.st.RenameFleet(context.Background(), "golden"); err != nil {
 		t.Fatal(err)
 	}
@@ -929,6 +935,7 @@ func TestAPICursorFollowsTheData(t *testing.T) {
 	if _, err := fx.st.AddTask(context.Background(), "hand", "After the cursor", ""); err != nil {
 		t.Fatal(err)
 	}
+	nextTick()
 	rec = request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("old cursor after an event = %d:\n%s", rec.Code, rec.Body.String())
@@ -943,6 +950,129 @@ func TestAPICursorFollowsTheData(t *testing.T) {
 	body := testAPIError(t, request(h, "GET", "/api/v1/status?since=not-a-cursor", nil, true), http.StatusBadRequest, "bad_cursor")
 	if strings.Contains(body.Message, "/") {
 		t.Fatalf("cursor error names a path: %q", body.Message)
+	}
+}
+
+func pollCursor(t *testing.T, h http.Handler, path, cursor string) *httptest.ResponseRecorder {
+	t.Helper()
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return request(h, "GET", path+sep+"since="+url.QueryEscape(cursor), nil, true)
+}
+
+func TestClientsShareOneVersionPerTick(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = 300 * time.Millisecond
+	h := fx.handler()
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	read := func(clients int) int {
+		time.Sleep(fx.options.Tick + 50*time.Millisecond)
+		before := fx.explained()
+		var wg sync.WaitGroup
+		for range clients {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusNotModified || rec.Body.Len() != 0 {
+					t.Errorf("unchanged poll = %d with %d bytes", rec.Code, rec.Body.Len())
+				}
+			}()
+		}
+		wg.Wait()
+		return fx.explained() - before
+	}
+	one := read(1)
+	if one == 0 {
+		t.Fatal("a new tick did not recompute the version")
+	}
+	if twenty := read(20); twenty != one {
+		t.Fatalf("20 clients cost %d pane reads in a tick, 1 client costs %d", twenty, one)
+	}
+}
+
+func TestAnUnchangedReadWithinATickBuildsNothing(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	h := fx.handler()
+	for _, path := range []string{"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks", "/api/v1/tasks?all=1"} {
+		env, _ := apiInto[json.RawMessage](t, h, path)
+		before := fx.explained()
+		rec := pollCursor(t, h, path, env.Cursor)
+		if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 || rec.Header().Get("X-Hand-Cursor") != env.Cursor {
+			t.Fatalf("%s: unchanged poll = %d %q", path, rec.Code, rec.Body.String())
+		}
+		if got := fx.explained(); got != before {
+			t.Fatalf("%s: a 304 read the pane %d times", path, got-before)
+		}
+	}
+}
+
+func TestAWriteIsSeenOnTheNextTick(t *testing.T) {
+	ctx := context.Background()
+	writes := map[string]func(t *testing.T, st *state.Store, a state.Attempt) error{
+		"event": func(_ *testing.T, st *state.Store, _ state.Attempt) error {
+			_, err := st.AddTask(ctx, "hand", "Another", "")
+			return err
+		},
+		"report": func(_ *testing.T, st *state.Store, a state.Attempt) error {
+			_, err := st.AddReport(ctx, a.ID, state.ReportProgress, "More")
+			return err
+		},
+		"decision": func(_ *testing.T, st *state.Store, a state.Attempt) error {
+			_, err := st.Ask(ctx, a.TaskID, "Which way?")
+			return err
+		},
+		"attempt": func(_ *testing.T, st *state.Store, a state.Attempt) error {
+			return st.NoteAttempt(ctx, a.ID, "long", state.AttemptRef(a.ID)+": long")
+		},
+		"supervisor input": func(_ *testing.T, st *state.Store, _ state.Attempt) error {
+			_, err := st.AddSupervisorInput(ctx, "hello")
+			return err
+		},
+		"alert": func(_ *testing.T, st *state.Store, _ state.Attempt) error {
+			return st.RecordAlert(ctx, "report", "t1", "text", "")
+		},
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			h := fx.handler()
+			env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+			live, err := fx.st.LiveAttempts(ctx)
+			if err != nil || len(live) == 0 {
+				t.Fatalf("live attempts = %d, %v", len(live), err)
+			}
+			if err := write(t, fx.st, live[0]); err != nil {
+				t.Fatal(err)
+			}
+			nextTick()
+			rec := pollCursor(t, h, "/api/v1/status", env.Cursor)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("a %s write left the cursor unchanged (%d)", name, rec.Code)
+			}
+		})
+	}
+}
+
+func TestAnActionIsSeenAtOnce(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusNotModified {
+		t.Fatalf("unchanged poll = %d", rec.Code)
+	}
+	if rec := apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, token, true); rec.Code >= 300 {
+		t.Fatalf("message = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("poll after a message = %d, want 200", rec.Code)
 	}
 }
 
@@ -982,6 +1112,7 @@ func TestACursorMovesWhenOnlyATranscriptLineArrives(t *testing.T) {
 		rec("assistant", ago(19), "All good.", 0),
 		rec("assistant", ago(1), "A line that arrives without an event.", 0),
 	})
+	nextTick()
 	rec := request(h, "GET", "/api/v1/timeline?since="+url.QueryEscape(env.Cursor), nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a new transcript line left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
@@ -1013,6 +1144,7 @@ func TestACursorMovesWhenOnlyThePaneChanges(t *testing.T) {
 		t.Fatalf("agent state = %q, want working", before.AgentState)
 	}
 	fx.status = "idle"
+	nextTick()
 	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a pane change left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
