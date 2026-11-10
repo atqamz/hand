@@ -125,10 +125,10 @@ These need setup that Hand does not do. A phone that uses them opens the Board i
 The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet id>`; behind a proxy that sends `X-Forwarded-Proto: https` it is `__Host-hand_phone_<fleet id>` and has `Secure`. A proxy that sends `X-Forwarded-For` hides the fleet list at `/` from a request that holds no valid phone session. To open an alert link through a path with its own HTTPS name, rewrite the link in the `notify` command. With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
 
 ```json
-"notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: https://board.example.com${HAND_NOTIFY_URL#http://127.0.0.1:7777}\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
+"notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: https://board.example.com/${HAND_NOTIFY_URL#http://*/}\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
-The recipe needs `sh`, so it is for Linux and macOS. A board on another port needs that port in the prefix.
+The recipe needs `sh`, so it is for Linux and macOS.
 
 ### SSH tunnel
 

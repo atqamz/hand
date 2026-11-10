@@ -433,6 +433,14 @@ func number(t *testing.T, file, pattern string, times int) int {
 	return n * times
 }
 
+func TestAFleetOfTheRightLengthAndHeadIsRejectedForItsTail(t *testing.T) {
+	for _, fleet := range []string{"f0123456789xy", "f01234567g9ab", "f0123456789aB", "f012345678%2e", "f012345678\n9a", "f012345678\r\na", "f0123456789\u007fa", "f0123456789é"} {
+		if got, ok := parseOpen("handboard://open/" + fleet + "/task/t3"); ok {
+			t.Errorf("%q parses as %+v", fleet, got)
+		}
+	}
+}
+
 func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	v := load(t)
 	const forward, args, phone, peer = "iroh/src/forward.rs", "iroh/src/args.rs", "internal/board/phone.go", "internal/board/peer.go"

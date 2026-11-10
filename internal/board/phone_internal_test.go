@@ -135,3 +135,20 @@ func TestADeviceWithATailnetLoginIsNeverSignedInAgain(t *testing.T) {
 		t.Fatalf("fault = %v, want phoneOther", fault)
 	}
 }
+
+func TestOnlyAProxyHeaderOrAPeerMakesARequestForwarded(t *testing.T) {
+	for _, c := range []struct {
+		header string
+		want   bool
+	}{
+		{"Tailscale-User-Login", false},
+		{"X-Forwarded-For", true},
+		{"Forwarded", true},
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Header.Set(c.header, "x")
+		if got := forwarded(r); got != c.want {
+			t.Errorf("%s: forwarded = %v, want %v", c.header, got, c.want)
+		}
+	}
+}
