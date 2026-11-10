@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQBkMjk0OGVmOTIzNzg0NTZj.Aa3IRpwSfP3pUXU8ftuxQA",
+  "cursor": "ZjAwMDAwMDAwZTBhYQA0ODc5Yzk1MDViYTM1NDU.Qs7xDpShndn-EPF-cs9AUg",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "supervisor": {
@@ -21,6 +21,23 @@
         "revision": 7,
         "digest": "f8c722e0710879ae811b2fe7ad0c8ba0",
         "pressed": 0
+      },
+      "ask": {
+        "question": "Allow Bash?",
+        "options": [
+          {
+            "label": "2 No",
+            "keys": [
+              "2"
+            ]
+          },
+          {
+            "label": "1 Yes",
+            "keys": [
+              "1"
+            ]
+          }
+        ]
       }
     },
     "agent_state": "blocked",

@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +168,59 @@ func TestABlockedSupervisorShowsTheKeys(t *testing.T) {
 	click(t, tt, "Force")
 	if f.count("control:force") != 1 {
 		t.Fatalf("Force calls = %d", f.count("control:force"))
+	}
+}
+
+func askFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := blockedFixture(t)
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Ask = &desktop.Ask{Question: "Do you want to proceed?", Options: []desktop.AskOption{
+		{Label: "Yes", Keys: []string{"1"}},
+		{Label: "Yes, and do not ask again", Keys: []string{"down", "enter"}},
+		{Label: "No", Keys: []string{"esc"}},
+	}}
+	st.Supervisor = &sup
+	st.Needs.Items = append([]desktop.Need{{Kind: "blocked", Ref: "s1", Word: "BLOCKED", Tone: "fail"}}, st.Needs.Items...)
+	f.status[fleetID] = st
+	return f
+}
+
+func TestABlockedSupervisorShowsItsQuestionAndOptions(t *testing.T) {
+	f := askFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	mustText(t, tt, "Do you want to proceed?", "Yes", "Yes, and do not ask again", "No")
+	mustNotText(t, tt, "Keys")
+	click(t, tt, "Yes, and do not ask again")
+	f.mu.Lock()
+	keys, revision, digest, after, ref := append([]string(nil), f.keys...), f.keyRevision, f.keyDigest, f.keyAfter, f.keyRef
+	f.mu.Unlock()
+	if !slices.Equal(keys, []string{"down", "enter"}) || revision != 6 || digest != "0123456789abcdef0123456789abcdef" || after != 2 || ref != "s1" {
+		t.Fatalf("pressed %q at revision %d digest %q after %d for %q", keys, revision, digest, after, ref)
+	}
+}
+
+func TestAStaleAskPressIsRefusedAndTheAskStays(t *testing.T) {
+	f := askFixture(t)
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 6; nothing was sent"}
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Yes")
+	tt.Frame()
+	mustText(t, tt, "The action did not go through", "the screen changed since revision 6", "Do you want to proceed?", "Yes")
+}
+
+func TestTheBlockedNeedOpensTheStatusScreen(t *testing.T) {
+	app := newApp(t, askFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	mustNotText(t, tt, "Do you want to proceed?")
+	click(t, tt, "BLOCKED")
+	mustText(t, tt, "Supervisor", "Do you want to proceed?")
+	if app.Screen != desktop.StatusScreen {
+		t.Fatalf("screen = %v", app.Screen)
 	}
 }
 
@@ -1137,6 +1191,7 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Send")
 		}},
 		{"13-supervisor-controls", newApp(t, blocked), nil},
+		{"16-blocked-ask", newApp(t, askFixture(t)), nil},
 		{"14-open-error", homedApp(t, "/very/long/path/to/a-fleet"), func(t *testing.T, tt *ui.Tester) {
 			t.Setenv("PATH", t.TempDir())
 			click(t, tt, "Open in browser")

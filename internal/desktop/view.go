@@ -357,6 +357,10 @@ func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
 	if !sup.Blocked {
 		return
 	}
+	if sup.Ask != nil {
+		a.supervisorAsk(c, p, sup)
+		return
+	}
 	ui.Row(c).Gap(8).Children(func() {
 		ui.Text(c, "Keys").FontSize(12).Bold().TextColor(p.neutral).Grow(1)
 		for _, key := range supervisorControlKeys {
@@ -372,6 +376,24 @@ func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
 				a.Press(key)
 			}
 		}
+	})
+}
+
+func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
+	ui.Column(c).Gap(8).Padding(12).Radius(8).Background(p.card).Border(1, p.line).Children(func() {
+		ui.Text(c, sup.Ask.Question).FontSize(14).Bold()
+		ui.Row(c).Gap(8).Children(func() {
+			for _, option := range sup.Ask.Options {
+				name := "key:" + strings.Join(option.Keys, " ")
+				label := option.Label
+				if a.BusyAction == name {
+					label = "Sending…"
+				}
+				if ui.Button(c.Key(name), label).Disabled(a.Busy || sup.Keys == nil).Clicked() {
+					a.Press(option.Keys...)
+				}
+			}
+		})
 	})
 }
 
@@ -417,7 +439,7 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 			ui.Row(c).Gap(6).Children(func() {
 				el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
 					BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1)
-				if ref != "" {
+				if ref != "" || need.Kind == "blocked" {
 					el.Cursor(ui.CursorPointer)
 				}
 				el.Children(func() {
@@ -431,8 +453,13 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 						ui.Text(c, firstLine(need.Excerpt)).FontSize(12).TextColor(p.neutral).SingleLine()
 					}
 				})
-				if el.Clicked() && ref != "" {
-					a.OpenRef(ref)
+				if el.Clicked() {
+					switch {
+					case ref != "":
+						a.OpenRef(ref)
+					case need.Kind == "blocked":
+						a.Show(StatusScreen)
+					}
 				}
 				if need.Kind == "report" && need.Report != "" {
 					label := "Ack"

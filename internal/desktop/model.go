@@ -39,6 +39,17 @@ type Supervisor struct {
 	Resumable bool   `json:"resumable"`
 	Blocked   bool   `json:"blocked,omitempty"`
 	Keys      *Keys  `json:"keys,omitempty"`
+	Ask       *Ask   `json:"ask,omitempty"`
+}
+
+type Ask struct {
+	Question string      `json:"question"`
+	Options  []AskOption `json:"options"`
+}
+
+type AskOption struct {
+	Label string   `json:"label"`
+	Keys  []string `json:"keys"`
 }
 
 type Keys struct {

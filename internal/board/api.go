@@ -74,6 +74,7 @@ type APISupervisor struct {
 	Resumable bool     `json:"resumable"`
 	Blocked   bool     `json:"blocked,omitempty"`
 	Keys      *APIKeys `json:"keys,omitempty"`
+	Ask       *APIAsk  `json:"ask,omitempty"`
 	Held      bool     `json:"held,omitempty"`
 	Switching string   `json:"switching,omitempty"`
 	Reason    string   `json:"reason,omitempty"`
@@ -83,6 +84,16 @@ type APIKeys struct {
 	Revision int64  `json:"revision"`
 	Digest   string `json:"digest"`
 	Pressed  int64  `json:"pressed"`
+}
+
+type APIAsk struct {
+	Question string         `json:"question"`
+	Options  []APIAskOption `json:"options"`
+}
+
+type APIAskOption struct {
+	Label string   `json:"label"`
+	Keys  []string `json:"keys"`
 }
 
 type APITaskCounts struct {
@@ -1231,12 +1242,30 @@ func apiSupervisor(v supervisorView, pressed int64) *APISupervisor {
 	}
 	if v.Blocked {
 		out.Keys = &APIKeys{Revision: v.Revision, Digest: v.Digest, Pressed: pressed}
+		if v.Stale == "" && v.ScreenNote == "" {
+			out.Ask = apiAsk(ask(v.Screen, v.Agent))
+		}
 	}
 	if out.Ref == "" {
 		out.Ref = state.SupervisorRef(v.Sup.ID)
 	}
 	if v.Sup.Switching() {
 		out.Switching = v.Sup.SwitchText()
+	}
+	return out
+}
+
+func apiAsk(card *askCard) *APIAsk {
+	if card == nil {
+		return nil
+	}
+	out := &APIAsk{Question: Scrub(card.Question), Options: make([]APIAskOption, 0, len(card.Options))}
+	for _, o := range card.Options {
+		keys := strings.Fields(o.Value)
+		if len(keys) == 0 || slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains(state.SupervisorKeys, k) }) {
+			return nil
+		}
+		out.Options = append(out.Options, APIAskOption{Label: Scrub(o.Label), Keys: keys})
 	}
 	return out
 }

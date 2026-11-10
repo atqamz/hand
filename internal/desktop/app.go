@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -620,18 +621,18 @@ func (a *App) Supervise(action string) {
 	})
 }
 
-func (a *App) Press(key string) {
+func (a *App) Press(keys ...string) {
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
 	sup := a.Status.Supervisor
-	if sup == nil || !sup.Blocked || sup.Keys == nil || !supervisorKey(key) {
+	if sup == nil || !sup.Blocked || sup.Keys == nil || len(keys) == 0 || slices.ContainsFunc(keys, func(k string) bool { return !supervisorKey(k) }) {
 		return
 	}
-	keys, ref := *sup.Keys, sup.Ref
+	guard, ref := *sup.Keys, sup.Ref
 	model, fleet := a.Model, a.Fleet.ID
-	a.runControl("key:"+key, func(ctx context.Context) (Control, error) {
-		return model.PressKeys(ctx, fleet, []string{key}, keys.Revision, keys.Digest, keys.Pressed, ref)
+	a.runControl("key:"+strings.Join(keys, " "), func(ctx context.Context) (Control, error) {
+		return model.PressKeys(ctx, fleet, keys, guard.Revision, guard.Digest, guard.Pressed, ref)
 	})
 }
 
