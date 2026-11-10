@@ -224,7 +224,8 @@ func TestFleetAdoptRefusesAWatcherThatHoldsTheLockWithoutAPIDFile(t *testing.T) 
 	}
 	release := lockWatch(t, copied)
 	defer release()
-	if _, errOut, code := h.run("orient"); code != 3 || !strings.Contains(errOut, "the watcher is running") {
+	_, errOut, code := h.run("orient")
+	if code != 3 || !strings.Contains(errOut, "the watcher is running") || strings.Contains(errOut, "pid 0") || strings.Contains(errOut, "run `hand watch stop`") || !strings.Contains(errOut, filepath.Join(copied, "watch.lock")+" without a watch.pid") || !strings.Contains(errOut, "end that process") {
 		t.Fatalf("orient: code=%d stderr=%q", code, errOut)
 	}
 }
@@ -501,5 +502,17 @@ func TestInitFirstInAMovedHomeReportsTheMoveAndTheWatchUnit(t *testing.T) {
 	}
 	if _, errOut, code := h.run("task", "list"); code != 0 || !strings.Contains(errOut, "hand: adopted "+dest) {
 		t.Fatalf("first command after init: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestSupervisorStopAndInterruptRefuseACopy(t *testing.T) {
+	h, old, copied := adoptCopy(t)
+	for _, args := range [][]string{{"supervisor", "stop"}, {"supervisor", "interrupt"}} {
+		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "also at "+old) {
+			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	if got := recordedHome(t, copied); got != old {
+		t.Fatalf("a refused command changed the database: %q", got)
 	}
 }

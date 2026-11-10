@@ -48,8 +48,11 @@ func (r *runner) adoptBlockers(ctx context.Context, st *state.Store, f state.Fle
 		return nil, err
 	}
 	if held {
-		pid, _, _, _ := update.LivePID(filepath.Join(home, "watch.pid"))
-		blockers = append(blockers, fmt.Sprintf("the watcher is running (pid %d); run `hand watch stop`", pid))
+		if pid, _, _, live := update.LivePID(filepath.Join(home, "watch.pid")); live {
+			blockers = append(blockers, fmt.Sprintf("the watcher is running (pid %d); run `hand watch stop`", pid))
+		} else {
+			blockers = append(blockers, fmt.Sprintf("the watcher is running: a process holds %s without a watch.pid, so `hand watch stop` cannot reach it; end that process", filepath.Join(home, "watch.lock")))
+		}
 	}
 	if registered, _ := fleet.Home(r.root, f.ID); registered != "" {
 		if pid, _, _, live := update.LivePID(filepath.Join(r.root, "board.pid")); live {
