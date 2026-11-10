@@ -873,6 +873,48 @@ func TestAdoptRewritesAWindowsHomeOnAnotherSystem(t *testing.T) {
 	}
 }
 
+func TestAdoptFromASlashFormWindowsHomeAlsoRewritesTheBackslashSpelling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows home is native here")
+	}
+	parent := t.TempDir()
+	home := `C:\Users\me\fleet`
+	s := adoptStore(t, parent, home)
+	to := filepath.Join(parent, "fleet-new")
+	cells := map[string]string{
+		"p1": `C:\Users\me\fleet\reports\x.md`,
+		"p2": `c:/Users/me/fleet/y`,
+		"p3": `{"path":"C:\\Users\\me\\fleet\\a.md"}`,
+		"p4": `c:\Users\me\fleetx`,
+	}
+	for name, body := range cells {
+		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES (?, ?, '2026-09-26T00:00:00Z', '{}')`, name, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, from := range []string{`c:/Users/me/fleet`, `C:/Users/me/fleet`} {
+		rep, err := s.PlanAdopt(context.Background(), []string{from}, to)
+		if err != nil || len(rep.Hits) != 0 || rep.Absolute != 4 {
+			t.Fatalf("plan from %s: absolute=%d hits=%d, %v", from, rep.Absolute, len(rep.Hits), err)
+		}
+	}
+	rep, err := s.Adopt(context.Background(), []string{`c:/Users/me/fleet`}, to)
+	if err != nil || len(rep.Hits) != 0 {
+		t.Fatalf("adopt: %+v, %v", rep, err)
+	}
+	want := map[string]string{
+		"p1": to + `/reports/x.md`,
+		"p2": to + `/y`,
+		"p3": `{"path":"` + to + `/a.md"}`,
+		"p4": `c:\Users\me\fleetx`,
+	}
+	for name, w := range want {
+		if got := cell(t, s, `SELECT repo FROM project WHERE name = '`+name+`'`); got != w {
+			t.Errorf("%s = %q, want %q", name, got, w)
+		}
+	}
+}
+
 func TestAdoptRewritesAnEscapedSlashSpellingOfAWindowsHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("a Windows home is native here")

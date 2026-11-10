@@ -679,6 +679,13 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 	}
 	var addSpellings func(path, target string)
 	addSpellings = func(path, target string) {
+		if windowsPath(path) && strings.Contains(path, "/") {
+			backTarget := target
+			if windowsPath(target) {
+				backTarget = strings.ReplaceAll(target, "/", `\`)
+			}
+			addSpellings(strings.ReplaceAll(path, "/", `\`), backTarget)
+		}
 		cross := windowsPath(path) && !windowsPath(target)
 		sep := func(s string) string {
 			if cross {
