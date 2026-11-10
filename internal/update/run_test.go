@@ -98,8 +98,12 @@ func (f *fixture) log(t *testing.T, keep ...string) []string {
 	var out []string
 	for line := range strings.Lines(string(b)) {
 		line = strings.TrimSpace(line)
+		word := line
+		if i := strings.Index(line, " @ "); i >= 0 {
+			word = line[:i+3]
+		}
 		for _, k := range keep {
-			if strings.Contains(line, k) {
+			if strings.Contains(word, k) {
 				out = append(out, line)
 				break
 			}
