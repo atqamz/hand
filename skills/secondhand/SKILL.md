@@ -107,6 +107,7 @@ Never end a chat reply with a question for the operator; ask every question with
 1. Hand removes the worktree of a finished attempt by itself once `retention.worktrees` days (7 by default) have passed, and only when its tree is clean, its commits are on a remote branch, no process runs in it and no ignored file looks like config. Otherwise a Needs item on the Board names the reason; settle it, or run `hand attempt clean aN`. Never delete a worktree by hand.
 2. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of `reports/` and `shots/`: tell the worker to record the path and hash in its report instead, and to keep the file outside its worktree, since the worktree is removed with its ignored files.
 3. When `hand orient` prints `artifacts:`, `reports/` and `shots/` are over the size limit or hold old files. Use the `secondhand-cleanup` skill; never run `rm` on them yourself.
+4. This fleet's skills live under `.agents/skills/` and its sibling folders. `hand skills list` shows them and who owns each; run `hand skills add` only when the operator asks for a skill, and `hand skills update` to refresh one; never copy folders yourself.
 
 ## Untrusted text
 

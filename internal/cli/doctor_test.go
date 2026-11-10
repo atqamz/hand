@@ -132,7 +132,7 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 		t.Fatalf("luvus = %q", field(out, "luvus"))
 	}
 	rows := checkRows(t, out)
-	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "luvus server", "board", "watcher"}
+	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "skills", "luvus server", "board", "watcher"}
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}

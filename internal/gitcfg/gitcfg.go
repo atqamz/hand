@@ -296,8 +296,15 @@ func Toplevel(ctx context.Context, dir string) (string, error) {
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
+	return runEnv(ctx, dir, nil, args...)
+}
+
+func runEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}, args...)...)
 	cmd.WaitDelay = time.Second
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	proc.NoWindow(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -306,4 +313,16 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(append(stderr.Bytes(), out...)))
 	}
 	return string(out), nil
+}
+
+func Run(ctx context.Context, dir string, args ...string) (string, error) {
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
+	if os.Getenv("GIT_SSH_COMMAND") == "" && os.Getenv("GIT_SSH") == "" {
+		ssh := "ssh"
+		if out, err := run(ctx, dir, "config", "--get", "core.sshCommand"); err == nil && strings.TrimSpace(out) != "" {
+			ssh = strings.TrimSpace(out)
+		}
+		env = append(env, "GIT_SSH_COMMAND="+ssh+" -o BatchMode=yes")
+	}
+	return runEnv(ctx, dir, env, args...)
 }

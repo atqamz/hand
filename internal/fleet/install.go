@@ -15,7 +15,7 @@ import (
 	"github.com/atqamz/hand/skills"
 )
 
-var skillRoots = []string{".claude", ".agents", ".grok", ".pi"}
+var SkillRoots = []string{".claude", ".agents", ".grok", ".pi"}
 
 func RefuseBeside07(home string) error {
 	dir, err := os.OpenRoot(home)
@@ -41,7 +41,7 @@ func Install(home, command string) error {
 	defer dir.Close()
 	named := strings.NewReplacer("`hand ", "`"+command+" ", "`hand`", "`"+command+"`")
 	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
-	for _, root := range skillRoots {
+	for _, root := range SkillRoots {
 		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = named.Replace(skills.Secondhand)
 		files[filepath.Join(root, "skills", "secondhand-cleanup", "SKILL.md")] = named.Replace(skills.Cleanup)
 	}

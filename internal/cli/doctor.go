@@ -83,6 +83,7 @@ func cmdDoctor(r *runner, args []string) error {
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
 		r.doctorWatchUnits(ctx, &c, root)
 	}
+	r.doctorSkills(&c)
 	d.Rows("checks", []string{"check", "state", "fix"}, c.rows)
 	d.Help(c.help...)
 	if err := r.print(&d); err != nil {
