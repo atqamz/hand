@@ -105,3 +105,24 @@ func TestListSkipsABookmarkThatVanishesMidScan(t *testing.T) {
 		t.Fatalf("list = %+v, %v; want only %s", got.entries, got.err, first)
 	}
 }
+
+func TestSkillsSaveSucceedsWhenTheStateFolderCannotBeSynced(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores folder modes")
+	}
+	skills := fleet.Skills{Base: t.TempDir()}
+	dir := filepath.Join(skills.Base, fleet.SkillRoots[1], "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if err := fleet.SyncDir(dir); err == nil {
+		t.Skip("this folder syncs without read access")
+	}
+	if err := skills.Save(map[string]fleet.Managed{"a": {}}); err != nil {
+		t.Fatalf("save with an unsyncable folder: %v", err)
+	}
+}
