@@ -56,7 +56,7 @@ In the table:
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
 | `hand-desktop`: the MyGo window builds cgo-free, `hand-desktop --version` prints the same version and commit as `hand version`, and its `ui.NewTester` scenes, navigation and screenshots pass headless | CI, headless | CI, headless; the binary refuses to start | CI, headless; the binary refuses to start |
 | The release carries `hand-desktop` for Linux amd64 and arm64; `hand update` checks its `.sha256` and its version and commit, places it next to `hand`, and reports `none in this release` or `unsupported on OS/ARCH`, and `hand doctor` has a `desktop` row | CI, fake release | CI, fake release: unsupported | CI, fake release: unsupported |
-| `hand-desktop` over a running board: the fleet switch, Status, Needs, Timeline (with its composer), Tasks and the four detail screens read `/api/v1`, and a message, an answer and an Ack post to it | the window itself has run; the API path has the golden-JSON tests | not run | not run |
+| `hand-desktop` over a running board: the fleet switch, Status, Needs, Conversation (with its composer), Tasks and the four detail screens read `/api/v1`, and a message, an answer and a Mark read post to it | the window itself has run; the API path has the golden-JSON tests | not run | not run |
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
 

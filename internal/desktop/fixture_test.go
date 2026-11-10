@@ -445,5 +445,16 @@ func newApp(t *testing.T, f *fixture) *desktop.App {
 	if app.Err != "" && f.fail == nil {
 		t.Fatalf("boot: %s", app.Err)
 	}
+	if app.Screen == desktop.NeedsScreen {
+		app.Show(desktop.StatusScreen)
+	}
+	return app
+}
+
+func newLandingApp(t *testing.T, f *fixture) *desktop.App {
+	t.Helper()
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
 	return app
 }
