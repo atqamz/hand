@@ -158,8 +158,8 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if row := rows["desktop"]; row[0] != "info" || !(strings.Contains(row[1], "not installed") || strings.Contains(row[1], "unsupported on ")) {
 		t.Fatalf("desktop = %q in %q", row, out)
 	}
-	if len(rows) != len(want)+13 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+13, out)
+	if len(rows) != len(want)+10 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+10, out)
 	}
 }
 

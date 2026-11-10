@@ -24,7 +24,7 @@ func TestAttemptStartTakesTheHarnessFlags(t *testing.T) {
 	if _, errOut, code := fx.h.run("attempt", "start", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "give --harness, --model and --effort") {
 		t.Fatalf("no flags: code=%d stderr=%q", code, errOut)
 	}
-	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--prompt-file", fx.brief, "t1"); code == 0 || !strings.Contains(errOut, "claude") {
+	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--prompt-file", fx.brief, "t1"); code == 0 || !strings.Contains(errOut, `claude model "" must be 1 to 200 characters`) {
 		t.Fatalf("claude alone: code=%d stderr=%q", code, errOut)
 	}
 	if _, errOut, code := fx.h.run("attempt", "start", "--profile", "deep", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "-profile") {
@@ -39,6 +39,11 @@ func TestAttemptStartTakesTheHarnessFlags(t *testing.T) {
 func TestAttemptStartStartsAnOpencodeWithNothingElse(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+}
+
+func TestAttemptStartAgyTakesNoEffort(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.h.ok("attempt", "start", "--harness", "agy", "--model", "gemini-3-pro", "--prompt-file", fx.brief, "t1")
 }
 
 func TestRouteIsAnUnknownCommand(t *testing.T) {

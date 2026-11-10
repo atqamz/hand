@@ -2297,13 +2297,27 @@ func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
 	}
 }
 
-func TestSupervisorStartWithAProfileNeedsNoEarlierSupervisor(t *testing.T) {
+func TestSupervisorStartWithTheThreeFlagsNeedsNoEarlierSupervisor(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
 	policy := `{}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	has(t, "start", h.ok("supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "medium"), "supervisor: s1", "harness: claude", "status: running")
+}
+
+func TestSupervisorStartWithNoFlagsAndNoEarlierSupervisorGivesTheFlags(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	if _, errOut, code := h.run("supervisor", "start"); code != 2 || !strings.Contains(errOut, "there is no earlier supervisor to copy; give --harness, --model and --effort") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestSupervisorStartProfileIsAnUnknownFlag(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	if _, errOut, code := h.run("supervisor", "start", "--profile", "deep"); code != 2 || !strings.Contains(errOut, "-profile") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
 }
 
 func TestSupervisorForceReportsAWakeThatLuvusRefused(t *testing.T) {

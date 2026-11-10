@@ -712,7 +712,7 @@ func TestTheStartFormMarksAHarnessThatIsMissing(t *testing.T) {
 	lacks(t, "all found", start(t, "claude", "codex", "opencode", "agy", "omp"), "not found on the board&#39;s PATH", `class="gone"`, " disabled")
 
 	noCodex := start(t, "claude")
-	contains(t, "codex missing", noCodex, `<button disabled>Start codex</button><p class="gone">codex not found on the board&#39;s PATH</p>`, `<button>Start claude</button>`)
+	contains(t, "codex missing", noCodex, `<button disabled>Start codex</button><p class="gone">codex not found on the board&#39;s PATH; restart the board after installing it</p>`, `<button>Start claude</button>`)
 	lacks(t, "codex missing", noCodex, `<button disabled>Start claude</button>`)
 
 	contains(t, "none found", start(t), `<button disabled>Start claude</button>`, `<button disabled>Start codex</button>`)

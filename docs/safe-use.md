@@ -132,7 +132,7 @@ The check covers the repository's own configuration (with the files it includes 
 
 ### What Hand runs to list models
 
-Hand lists the models of each harness with one command each, with no prompt and no model call, so it spends no tokens:
+Hand lists the models of each harness with one command each, with no prompt and no model call, so it spends no tokens. The watcher runs every installed harness's listing command unattended whenever a list is stale or missing, not only for the harnesses a worker uses:
 
 | Harness | Command | What Hand keeps |
 |---|---|---|

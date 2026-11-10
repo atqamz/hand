@@ -625,7 +625,7 @@ func (b *Board) picker(name string) harnessChoice {
 	case errors.As(err, &batch):
 		c.Missing = name + " " + batchReason
 	case err != nil:
-		c.Missing = name + " not found on the board's PATH"
+		c.Missing = name + " not found on the board's PATH; restart the board after installing it"
 	}
 	models, err := harness.Detected(name, b.o.Harness)
 	if err == nil && len(models) == 0 {
