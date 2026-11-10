@@ -162,7 +162,7 @@ func (a *App) masthead(c *ui.Context, p palette) {
 				gauge(c, p, a.Status.Gauge)
 			}
 		}
-		if a.Model != nil && a.Fleet.ID != "" && ui.Button(c.Key("open-browser"), "Open in browser").Clicked() {
+		if a.Model != nil && a.Fleet.ID != "" && ui.Button(c.Key("open-browser"), "Open in browser").Disabled(a.OpenBusy).Clicked() {
 			a.OpenInBrowser()
 		}
 		if ui.Button(c.Key("refresh"), "Refresh").Clicked() && a.Fleet.ID != "" {

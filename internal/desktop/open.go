@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const openTimeout = 30 * time.Second
+var openTimeout = 30 * time.Second
 
 func (a *App) OpenInBrowser() {
 	switch a.Screen {
@@ -34,6 +34,9 @@ func (a *App) OpenBoardPath(dest string) {
 }
 
 func (a *App) openRef(ref string) {
+	if a.OpenBusy {
+		return
+	}
 	a.OpenErr = ""
 	fleet, home := a.Fleet.ID, a.Fleet.Home
 	if fleet == "" {
@@ -48,7 +51,7 @@ func (a *App) openRef(ref string) {
 		a.OpenErr = "`hand` was not found next to hand-desktop or on PATH; install it or add it to PATH"
 		return
 	}
-	argv := []string{"open"}
+	argv := []string{"--home", home, "open"}
 	if ref != "" {
 		argv = append(argv, ref)
 	}
@@ -57,6 +60,7 @@ func (a *App) openRef(ref string) {
 		defer cancel()
 		cmd := exec.CommandContext(ctx, bin, argv...)
 		cmd.Dir = home
+		cmd.WaitDelay = time.Second
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			return ""
@@ -67,14 +71,15 @@ func (a *App) openRef(ref string) {
 		a.OpenErr = run()
 		return
 	}
+	a.OpenBusy = true
 	go func() {
-		if msg := run(); msg != "" {
-			a.Post(func() {
-				if a.Fleet.ID == fleet {
-					a.OpenErr = msg
-				}
-			})
-		}
+		msg := run()
+		a.Post(func() {
+			a.OpenBusy = false
+			if msg != "" && a.Fleet.ID == fleet {
+				a.OpenErr = msg
+			}
+		})
 	}()
 }
 

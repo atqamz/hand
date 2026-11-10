@@ -74,6 +74,7 @@ type App struct {
 	ActionErr    string
 	ActionWarn   bool
 	OpenErr      string
+	OpenBusy     bool
 
 	Draft    string
 	DraftDir string

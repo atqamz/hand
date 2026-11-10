@@ -3,10 +3,12 @@ package desktop_test
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
 )
@@ -20,6 +22,10 @@ func TestMain(m *testing.M) {
 		os.Stderr.WriteString(msg + "\n")
 		os.Exit(3)
 	}
+	if os.Getenv("FAKE_HAND_SLEEPER") != "" {
+		time.Sleep(8 * time.Second)
+		os.Exit(0)
+	}
 	wd, _ := os.Getwd()
 	line := wd + "\n" + strings.Join(os.Args[1:], " ") + "\n"
 	f, err := os.OpenFile(os.Getenv("FAKE_HAND_LOG"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -28,6 +34,15 @@ func TestMain(m *testing.M) {
 	}
 	f.WriteString(line)
 	f.Close()
+	if os.Getenv("FAKE_HAND_SLEEP") != "" {
+		time.Sleep(8 * time.Second)
+	}
+	if os.Getenv("FAKE_HAND_BG") != "" {
+		c := exec.Command(os.Args[0])
+		c.Env = append(os.Environ(), "FAKE_HAND_SLEEPER=1")
+		c.Stdout, c.Stderr = os.Stdout, os.Stderr
+		c.Start()
+	}
 }
 
 type fakeHand struct {
@@ -89,8 +104,9 @@ func (h fakeHand) want(t *testing.T, argv ...string) {
 	if err != nil || wd != h.home {
 		t.Fatalf("hand ran in %q, want %q", got[0], h.home)
 	}
-	if got[1] != strings.Join(argv, " ") {
-		t.Fatalf("hand ran with %q, want %q", got[1], strings.Join(argv, " "))
+	want := strings.Join(append([]string{"--home", h.home}, argv...), " ")
+	if got[1] != want {
+		t.Fatalf("hand ran with %q, want %q", got[1], want)
 	}
 	if err := os.Remove(h.log); err != nil {
 		t.Fatal(err)
@@ -185,5 +201,75 @@ func TestABoardLinkGoesThroughHandOpen(t *testing.T) {
 		if app.OpenErr == "" || len(hand.calls(t)) != 0 {
 			t.Fatalf("%s: err %q calls %q", dest, app.OpenErr, hand.calls(t))
 		}
+	}
+}
+
+func TestAHandThatLeavesADescendantOnThePipeStillReturns(t *testing.T) {
+	hand := installFakeHand(t)
+	t.Setenv("FAKE_HAND_BG", "1")
+	app := homedApp(t, hand.home)
+	start := time.Now()
+	app.OpenInBrowser()
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("hand open held the window for %v", d)
+	}
+}
+
+func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
+	for _, switched := range []bool{false, true} {
+		hand := installFakeHand(t)
+		t.Setenv("FAKE_HAND_SLEEP", "1")
+		restore := desktop.SetOpenTimeout(300 * time.Millisecond)
+		app := homedApp(t, hand.home)
+		tt := newTester(app)
+		posted := make(chan func(), 8)
+		app.Post = func(fn func()) { posted <- fn }
+		start := time.Now()
+		click(t, tt, "Open in browser")
+		if switched {
+			app.SelectFleet(secondID)
+		}
+		for app.OpenBusy {
+			waitPost(t, posted)()
+		}
+		restore()
+		if d := time.Since(start); d > 5*time.Second {
+			t.Fatalf("switched=%v: the run took %v", switched, d)
+		}
+		if got := app.OpenErr != ""; got == switched {
+			t.Fatalf("switched=%v: OpenErr = %q", switched, app.OpenErr)
+		}
+		if app.OpenBusy {
+			t.Fatalf("switched=%v: still busy", switched)
+		}
+	}
+}
+
+func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
+	hand := installFakeHand(t)
+	t.Setenv("FAKE_HAND_SLEEP", "1")
+	defer desktop.SetOpenTimeout(300 * time.Millisecond)()
+	app := homedApp(t, hand.home)
+	tt := newTester(app)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	click(t, tt, "Open in browser")
+	tt.Frame()
+	tt.Click("Open in browser")
+	for app.OpenBusy {
+		waitPost(t, posted)()
+	}
+	if got := hand.calls(t); len(got) != 2 {
+		t.Fatalf("hand ran %q, want one call", got)
+	}
+	tt.Frame()
+	if err := tt.Click("Open in browser"); err != nil {
+		t.Fatal(err)
+	}
+	for app.OpenBusy {
+		waitPost(t, posted)()
+	}
+	if got := hand.calls(t); len(got) != 4 {
+		t.Fatalf("hand ran %q, want a second call once idle", got)
 	}
 }
