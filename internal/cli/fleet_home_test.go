@@ -165,7 +165,7 @@ func TestAMissingHomeCreatesNothing(t *testing.T) {
 	if err := os.WriteFile(brief, []byte("fix it"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"task", "list"}, {"route", "list"}, {"attempt", "start", "--profile", "default", "--prompt-file", brief, "t1"}} {
+	for _, args := range [][]string{{"task", "list"}, {"attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "medium", "--prompt-file", brief, "t1"}} {
 		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "run `hand init`") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
 		}

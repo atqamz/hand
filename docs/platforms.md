@@ -47,7 +47,7 @@ In the table:
 | `hand board --iroh` runs `hand-iroh` as its child, shows its state in the Phone page and `hand doctor`, and the child leaves when the board stops | CI e2e and CI, fake sidecar | CI e2e, fake sidecar | CI e2e, fake sidecar: the board is ended with `TerminateProcess` and the closed pipe stops the child |
 | `hand update` fetches `hand-iroh` with a new `hand` | CI e2e, CI, fake release | CI e2e, fake release | CI e2e, fake release |
 | The real `hand-iroh` starts, keeps its ID, holds its key with modes 0700 and 0600 and leaves when its input closes | CI, real sidecar | CI, real sidecar | CI, real sidecar |
-| First run with no harness: `hand init`, `doctor`, `orient`, projects, tasks, `route list`, `models` | CI e2e | CI e2e | CI e2e |
+| First run with no harness: `hand init`, `doctor`, `orient`, projects, tasks, `attempt track`, `models` | CI e2e | CI e2e | CI e2e |
 | The Board over HTTP: fleet page, `/events` beat, document viewer, phone pairing and revoke, install manifest | CI e2e | CI e2e | CI e2e |
 | The Board in Chromium at 1440 and 390 px: five regions, document dialog, project badges, no console error | CI e2e | CI e2e | CI e2e |
 | Upgrade from v0.13.0 with backups, the old binary refusing a migrated database, and the documented restore | CI e2e | CI e2e | CI e2e |

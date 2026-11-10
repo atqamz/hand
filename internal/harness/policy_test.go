@@ -21,31 +21,20 @@ func writePolicy(t *testing.T, body string) string {
 	return home
 }
 
-func TestLoadPolicyAndPickAProfile(t *testing.T) {
-	home := writePolicy(t, `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"quick":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`)
-	p, err := LoadPolicy(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := p.Names(); !slices.Equal(got, []string{"deep", "quick"}) {
-		t.Fatalf("names = %q", got)
-	}
-	if s, err := p.Profile("deep"); err != nil || s.Spec != (Spec{"claude", "opus", "xhigh"}) {
-		t.Fatalf("deep = %+v, %v", s, err)
-	}
-	if _, err := p.Profile("fast"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "deep, quick") {
-		t.Fatalf("unknown profile err = %v", err)
+func TestLoadPolicyAcceptsEveryKeyButProfiles(t *testing.T) {
+	for _, body := range []string{`{}`, `{"notify":["x"]}`, `{"stall":"off","inbox":"off","retention":"off","supervisor":{"autoresume":true}}`} {
+		if _, err := LoadPolicy(writePolicy(t, body)); err != nil {
+			t.Fatalf("policy %s err = %v", body, err)
+		}
 	}
 }
 
 func TestLoadPolicyRejectsBadFiles(t *testing.T) {
 	for _, body := range []string{
 		`{`,
-		`{"profiles":{}}`,
-		`{"profiles":{"Deep":{"harness":"claude","model":"opus","effort":"high"}}}`,
-		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high","temperature":1}}}`,
-		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high"}}}{`,
-		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high"}}} {"profiles":{}}`,
+		`{"temperature":1}`,
+		`{}{`,
+		`{} {"notify":[]}`,
 	} {
 		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), PolicyFile) {
 			t.Fatalf("policy %q err = %v", body, err)
@@ -56,16 +45,32 @@ func TestLoadPolicyRejectsBadFiles(t *testing.T) {
 	}
 }
 
+func TestLoadPolicyRejectsProfilesByName(t *testing.T) {
+	for _, body := range []string{
+		`{"profiles":{}}`,
+		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high","approve":"ask","mcp":"mcp.json"}},"notify":["x"]}`,
+	} {
+		home := writePolicy(t, body)
+		_, err := LoadPolicy(home)
+		want := filepath.Join(home, PolicyFile) + `: "profiles" was removed; delete the key and start workers with --harness, --model and --effort (see docs/update.md)`
+		if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("policy %s err = %v, want %q", body, err, want)
+		}
+	}
+}
+
 func TestStarterPolicyIsWrittenOnce(t *testing.T) {
 	home := t.TempDir()
 	if created, err := WriteStarterPolicy(home); err != nil || !created {
 		t.Fatalf("first write = %v, %v", created, err)
 	}
-	p, err := LoadPolicy(home)
-	if err != nil || !slices.Equal(p.Names(), []string{"deep", "default", "high", "max", "quick"}) {
-		t.Fatalf("starter = %+v, %v", p, err)
+	if b, _ := os.ReadFile(filepath.Join(home, PolicyFile)); string(b) != "{}\n" {
+		t.Fatalf("starter = %q", b)
 	}
-	edited := `{"profiles":{"mine":{"harness":"claude","model":"haiku","effort":"low"}}}`
+	if _, err := LoadPolicy(home); err != nil {
+		t.Fatal(err)
+	}
+	edited := `{"notify":["mine"]}`
 	if err := os.WriteFile(filepath.Join(home, PolicyFile), []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -78,39 +83,36 @@ func TestStarterPolicyIsWrittenOnce(t *testing.T) {
 }
 
 func TestPolicyAcceptsTheSupervisorBlock(t *testing.T) {
-	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
-	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"supervisor":{"autoresume":true}}`)); err != nil || !p.Supervisor.Autoresume {
+	if p, err := LoadPolicy(writePolicy(t, `{"supervisor":{"autoresume":true}}`)); err != nil || !p.Supervisor.Autoresume {
 		t.Fatalf("policy = %+v, %v", p, err)
 	}
-	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`}`)); err != nil || p.Supervisor.Autoresume {
+	if p, err := LoadPolicy(writePolicy(t, `{}`)); err != nil || p.Supervisor.Autoresume {
 		t.Fatalf("default policy = %+v, %v", p, err)
 	}
-	if _, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"supervisor":{"x":1}}`)); !errors.Is(err, state.ErrInvalid) {
+	if _, err := LoadPolicy(writePolicy(t, `{"supervisor":{"x":1}}`)); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("unknown supervisor field err = %v", err)
 	}
 }
 
 func TestPolicyAcceptsANotifyCommand(t *testing.T) {
-	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
-	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"notify":["ntfy","publish","topic"]}`)); err != nil || !slices.Equal(p.Notify, []string{"ntfy", "publish", "topic"}) {
+	if p, err := LoadPolicy(writePolicy(t, `{"notify":["ntfy","publish","topic"]}`)); err != nil || !slices.Equal(p.Notify, []string{"ntfy", "publish", "topic"}) {
 		t.Fatalf("policy = %+v, %v", p, err)
 	}
-	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`}`)); err != nil || p.Notify != nil {
+	if p, err := LoadPolicy(writePolicy(t, `{}`)); err != nil || p.Notify != nil {
 		t.Fatalf("default policy = %+v, %v", p, err)
 	}
-	if _, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"notify":"ntfy publish topic"}`)); !errors.Is(err, state.ErrInvalid) {
+	if _, err := LoadPolicy(writePolicy(t, `{"notify":"ntfy publish topic"}`)); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("string notify err = %v", err)
 	}
 }
 
 func TestPolicyReadsTheStallSetting(t *testing.T) {
-	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
 	for body, want := range map[string]Stall{
-		`{` + profiles + `}`:                                        DefaultStall,
-		`{` + profiles + `,"stall":"off"}`:                          {Off: true},
-		`{` + profiles + `,"stall":{"after":"10m"}}`:                {After: 10 * time.Minute, Every: time.Hour},
-		`{` + profiles + `,"stall":{"after":"5m","every":"30m"}}`:   {After: 5 * time.Minute, Every: 30 * time.Minute},
-		`{` + profiles + `,"stall":{"every":"2h","after":"1h30m"}}`: {After: 90 * time.Minute, Every: 2 * time.Hour},
+		`{}`:                                     DefaultStall,
+		`{"stall":"off"}`:                        {Off: true},
+		`{"stall":{"after":"10m"}}`:              {After: 10 * time.Minute, Every: time.Hour},
+		`{"stall":{"after":"5m","every":"30m"}}`: {After: 5 * time.Minute, Every: 30 * time.Minute},
+		`{"stall":{"every":"2h","after":"1h30m"}}`: {After: 90 * time.Minute, Every: 2 * time.Hour},
 	} {
 		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Stall != want {
 			t.Fatalf("policy %s: stall = %+v, %v; want %+v", body, p.Stall, err, want)
@@ -127,7 +129,7 @@ func TestPolicyReadsTheStallSetting(t *testing.T) {
 		`{"every":"25h"}`:              `stall.every is "25h"`,
 		`{"every":""}`:                 `stall.every is ""`,
 	} {
-		_, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"stall":`+body+`}`))
+		_, err := LoadPolicy(writePolicy(t, `{"stall":`+body+`}`))
 		if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), PolicyFile) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("stall %s err = %v, want %q", body, err, want)
 		}
@@ -155,15 +157,14 @@ func TestStallDelaysDoubleUpToEvery(t *testing.T) {
 }
 
 func TestPolicyReadsTheInboxSetting(t *testing.T) {
-	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
 	for body, want := range map[string]time.Duration{
-		`{` + profiles + `}`:                         0,
-		`{` + profiles + `,"inbox":"off"}`:           0,
-		`{` + profiles + `,"inbox":{}}`:              0,
-		`{` + profiles + `,"inbox":{"keep":"off"}}`:  0,
-		`{` + profiles + `,"inbox":{"keep":"30d"}}`:  30 * 24 * time.Hour,
-		`{` + profiles + `,"inbox":{"keep":"1d"}}`:   24 * time.Hour,
-		`{` + profiles + `,"inbox":{"keep":"365d"}}`: 365 * 24 * time.Hour,
+		`{}`:                        0,
+		`{"inbox":"off"}`:           0,
+		`{"inbox":{}}`:              0,
+		`{"inbox":{"keep":"off"}}`:  0,
+		`{"inbox":{"keep":"30d"}}`:  30 * 24 * time.Hour,
+		`{"inbox":{"keep":"1d"}}`:   24 * time.Hour,
+		`{"inbox":{"keep":"365d"}}`: 365 * 24 * time.Hour,
 	} {
 		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Inbox.Keep != want {
 			t.Fatalf("policy %s: inbox = %+v, %v; want keep %v", body, p.Inbox, err, want)
@@ -180,7 +181,7 @@ func TestPolicyReadsTheInboxSetting(t *testing.T) {
 		`{"keep":"12h"}`:              `inbox.keep is "12h"`,
 		`{"keep":""}`:                 `inbox.keep is ""`,
 	} {
-		_, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"inbox":`+body+`}`))
+		_, err := LoadPolicy(writePolicy(t, `{"inbox":`+body+`}`))
 		if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), PolicyFile) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("inbox %s err = %v, want %q", body, err, want)
 		}
@@ -188,18 +189,17 @@ func TestPolicyReadsTheInboxSetting(t *testing.T) {
 }
 
 func TestPolicyReadsTheRetentionSetting(t *testing.T) {
-	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
 	day := 24 * time.Hour
 	for body, want := range map[string]Retention{
-		`{` + profiles + `}`:                                   DefaultRetention,
-		`{` + profiles + `,"retention":{}}`:                    DefaultRetention,
-		`{` + profiles + `,"retention":"off"}`:                 {},
-		`{` + profiles + `,"retention":{"worktrees":"off"}}`:   {0, 20 << 30, 30 * day},
-		`{` + profiles + `,"retention":{"worktrees":"3d"}}`:    {3 * day, 20 << 30, 30 * day},
-		`{` + profiles + `,"retention":{"warn_size":"500MB"}}`: {7 * day, 500 << 20, 30 * day},
-		`{` + profiles + `,"retention":{"warn_size":"2TB"}}`:   {7 * day, 2 << 40, 30 * day},
-		`{` + profiles + `,"retention":{"warn_size":"off"}}`:   {7 * day, 0, 30 * day},
-		`{` + profiles + `,"retention":{"warn_days":"10d"}}`:   {7 * day, 20 << 30, 10 * day},
+		`{}`:                                  DefaultRetention,
+		`{"retention":{}}`:                    DefaultRetention,
+		`{"retention":"off"}`:                 {},
+		`{"retention":{"worktrees":"off"}}`:   {0, 20 << 30, 30 * day},
+		`{"retention":{"worktrees":"3d"}}`:    {3 * day, 20 << 30, 30 * day},
+		`{"retention":{"warn_size":"500MB"}}`: {7 * day, 500 << 20, 30 * day},
+		`{"retention":{"warn_size":"2TB"}}`:   {7 * day, 2 << 40, 30 * day},
+		`{"retention":{"warn_size":"off"}}`:   {7 * day, 0, 30 * day},
+		`{"retention":{"warn_days":"10d"}}`:   {7 * day, 20 << 30, 10 * day},
 	} {
 		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Retention != want {
 			t.Fatalf("policy %s: retention = %+v, %v; want %+v", body, p.Retention, err, want)
@@ -215,22 +215,15 @@ func TestPolicyReadsTheRetentionSetting(t *testing.T) {
 		`{"warn_size":"20 GB"}`: `retention.warn_size is "20 GB"`,
 		`{"keep":"7d"}`:         `retention must be "off"`,
 	} {
-		_, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"retention":`+body+`}`))
+		_, err := LoadPolicy(writePolicy(t, `{"retention":`+body+`}`))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("retention %s: err = %v, want %q", body, err, want)
 		}
 	}
 }
 
-func TestPolicyRejectsTheRemovedApproveKeys(t *testing.T) {
-	profile := `"profiles":{"a":{"harness":"claude","model":"sonnet","effort":"low"`
-	for body, key := range map[string]string{
-		`{` + profile + `}},"approve_timeout":"3m"}`: "approve_timeout",
-		`{` + profile + `,"approve":"ask"}}}`:        "approve",
-		`{` + profile + `,"access":"readonly"}}}`:    "access",
-	} {
-		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), `unknown field "`+key+`"`) {
-			t.Fatalf("%s: err = %v", body, err)
-		}
+func TestPolicyRejectsTheRemovedApproveTimeout(t *testing.T) {
+	if _, err := LoadPolicy(writePolicy(t, `{"approve_timeout":"3m"}`)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), `unknown field "approve_timeout"`) {
+		t.Fatalf("err = %v", err)
 	}
 }

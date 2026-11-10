@@ -4,7 +4,6 @@ import { fixture } from './fixture.mjs';
 import { Box, candidate, check, Client, commit, distDir, equal, exe, irohVersion, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
 
 const missing = (h) => `${h} not found on PATH`;
-const profileFix = 'invalid: claude not found on PATH; install claude, or add its folder to PATH';
 
 async function cli(box, srv) {
   const v = toon((await ok(await box.hand(['version']), 'hand version')).out).fields;
@@ -41,10 +40,9 @@ async function cli(box, srv) {
   matches(orient.out, /^tasks: inbox=3 active=1 done=0 abandoned=0$/m, 'hand orient counts the tasks');
   matches(orient.out, /^fleet: fleet \(/m, 'hand orient names the fleet');
 
-  const route = await ok(await box.hand(['route', 'list']), 'hand route list exits 0 with no harness installed');
-  const profiles = toon(route.out).tables.profiles;
-  equal(profiles.map((p) => p.name).sort(), ['deep', 'default', 'high', 'max', 'quick'], 'hand route list shows the five profiles');
-  check(profiles.every((p) => p.valid === profileFix), 'every profile says why it is invalid, with a fix');
+  const track = toon((await ok(await box.hand(['attempt', 'track']), 'hand attempt track exits 0 with no attempt')).out).tables.track;
+  equal(track, [], 'hand attempt track prints an empty track table');
+  equal(fs.readFileSync(path.join(box.fleet, 'routing.json'), 'utf8'), '{}\n', 'hand init wrote an empty routing.json');
 
   const models = toon((await ok(await box.hand(['models']), 'hand models exits 0 with no harness installed')).out);
   equal(models.tables.listings.map((l) => [l.harness, l.state]), ['claude', 'codex', 'opencode', 'agy', 'copilot', 'omp'].map((h) => [h, missing(h)]), 'hand models gives each harness a reason, not an error');
@@ -52,7 +50,7 @@ async function cli(box, srv) {
   check(!models.tables.models.some((m) => m.source === 'discovered'), 'hand models discovers no model without a harness');
 
   const doctor = await box.hand(['doctor']);
-  await ok(doctor, 'hand doctor exits 0 with no harness installed and the starter routing.json');
+  await ok(doctor, 'hand doctor exits 0 with no harness installed and an empty routing.json');
   const checks = toon(doctor.out).tables.checks;
   const state = (name) => checks.find((c) => c.check === name)?.state;
   for (const name of ['luvus pin', 'schema', 'fleet', 'routing.json', 'project alpha', 'project beta']) equal(state(name), 'ok', `hand doctor: ${name} is ok`);
@@ -60,9 +58,7 @@ async function cli(box, srv) {
   const git = checks.find((c) => c.check === 'git');
   equal([git.state, git.fix], win ? ['warn', 'core.longpaths is off; run `git config --global core.longpaths true`'] : ['ok', ''], `hand doctor: git is ${win ? 'a warning for core.longpaths on Windows' : 'ok'}`);
   equal(checks.filter((c) => c.state === 'fail'), [], 'hand doctor: no check fails');
-  const warning = checks.filter((c) => c.state === 'warn' && c.check.startsWith('profile '));
-  equal(warning.map((c) => c.check).sort(), ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'], 'hand doctor: the five profiles warn');
-  check(warning.every((c) => c.fix === profileFix), 'hand doctor: each warning profile names the missing claude');
+  equal(checks.find((c) => c.check === 'harness')?.state, 'warn', 'hand doctor: the harness row warns that none is installed');
   check(checks.every((c) => !/^harness /.test(c.check) || c.state !== 'fail'), 'hand doctor: no harness row fails');
   equal(toon(doctor.out).fields.server, 'not running', 'hand doctor: the Luvus server is not running yet');
   equal(state('iroh'), 'info', 'hand doctor: iroh is information only while the Board runs without --iroh');

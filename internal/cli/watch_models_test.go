@@ -39,10 +39,6 @@ func modelsWatcher(t *testing.T) (*watcher, *bytes.Buffer, string, *modelsClock)
 	for k, v := range vars {
 		environ = append(environ, k+"="+v)
 	}
-	policy := `{"profiles":{"a":{"harness":"agy","model":"gemini-3.8-flash-low"},"c":{"harness":"claude","model":"sonnet","effort":"low"}}}`
-	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	clock := &modelsClock{now: time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)}
 	var out bytes.Buffer
 	r := &runner{env: Env{Getenv: func(k string) string { return vars[k] }, Environ: func() []string { return environ }, Now: clock.Now, Stdout: &out}, home: home, root: root, fleet: state.Fleet{ID: "f"}}
@@ -110,37 +106,19 @@ func TestWatcherRefreshesDueListsAndLogsEachFailureOnce(t *testing.T) {
 	}
 }
 
-func TestWatcherSkipsHarnessesNoProfileNames(t *testing.T) {
+func TestWatcherRefreshesEveryInstalledHarness(t *testing.T) {
 	w, _, bin, _ := modelsWatcher(t)
-	log := filepath.Join(t.TempDir(), "log")
-	fakebin.Install(t, bin, "opencode", "lister", map[string]string{"stdout": "anthropic/sonnet\n", "log": log})
-	w.refreshModels(context.Background())
-	w.pending.Wait()
-	if n := runs(t, log); n != 0 {
-		t.Fatalf("opencode ran %d times though no profile names it", n)
-	}
-	policy := filepath.Join(w.r.home, "routing.json")
-	saved, err := os.ReadFile(policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(policy); err != nil {
-		t.Fatal(err)
+	logs := map[string]string{}
+	for name, stdout := range map[string]string{"opencode": "anthropic/sonnet\n", "agy": "gemini-3.8-flash-low\tGemini\n"} {
+		logs[name] = filepath.Join(t.TempDir(), name+".log")
+		fakebin.Install(t, bin, name, "lister", map[string]string{"stdout": stdout, "log": logs[name]})
 	}
 	w.refreshModels(context.Background())
 	w.pending.Wait()
-	if n := runs(t, log); n != 0 {
-		t.Fatalf("opencode ran %d times with no routing.json", n)
-	}
-	agyLog := filepath.Join(t.TempDir(), "agy.log")
-	fakebin.Install(t, bin, "agy", "lister", map[string]string{"stdout": "gemini-3.8-flash-low\tGemini\n", "log": agyLog})
-	if err := os.WriteFile(policy, saved, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	w.refreshModels(context.Background())
-	w.pending.Wait()
-	if n := runs(t, agyLog); n != 1 {
-		t.Fatalf("agy ran %d times once the policy was back", n)
+	for name, log := range logs {
+		if n := runs(t, log); n != 1 {
+			t.Fatalf("%s ran %d times", name, n)
+		}
 	}
 }
 

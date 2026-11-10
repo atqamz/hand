@@ -73,7 +73,17 @@ This build migrates `hand.db` only from schema 16, the one Hand 0.13.0 writes. I
 
 ## Workers start without MCP servers
 
-A Claude worker no longer loads the MCP servers of your own Claude config or of a repository's `.mcp.json`: it starts with `--strict-mcp-config` and none. This is a break, with no switch to go back. If your workers rely on a browser or another MCP server, put the servers in `mcp.json` in the fleet home and start those workers with `hand attempt start --mcp mcp.json` (see [MCP](vocabulary.md#mcp)); `hand attempt start` refuses a file that is missing. A profile's `"mcp": "mcp.json"` in `routing.json` still works, and `hand doctor` fails a profile whose file is missing.
+A Claude worker no longer loads the MCP servers of your own Claude config or of a repository's `.mcp.json`: it starts with `--strict-mcp-config` and none. This is a break, with no switch to go back. If your workers rely on a browser or another MCP server, put the servers in `mcp.json` in the fleet home and start those workers with `hand attempt start --mcp mcp.json` (see [MCP](vocabulary.md#mcp)); `hand attempt start` refuses a file that is missing.
+
+## Routing profiles are gone
+
+`routing.json` no longer has `profiles`. A `routing.json` that still holds the key does not parse: `hand doctor` fails its `routing.json` row with `"profiles" was removed; delete the key and start workers with --harness, --model and --effort`, and the watcher reads nothing from the file. `hand attempt start`, `hand supervisor start` and `hand supervisor switch` take `--harness`, `--model` and `--effort`, and `--profile` is an unknown flag. `hand route list` is gone: `hand models` lists models and `hand attempt track` prints the track record. `access: readonly`, `approve: ask`, `approve_timeout`, `hand project grants` and the `attempt.denied` wake went with them.
+
+There is a window between `hand update` and the edit. Until you delete the key, the watcher falls back to the desktop notifier (the `notify` command does not run, so phone alerts move to the desktop and are not lost), and autoresume, inbox pruning, worktree retention and stall delays use their defaults or stay off. The Board's watcher sweep does not restart a stopped fleet's watcher while `profiles` is present: it logs one stderr line per fleet, and the line stops when you delete the key. `hand orient` and the Board are unaffected. Do this in every fleet, in the same sitting:
+
+1. Before `hand update`, carry each profile you want to keep into `memory/operator.md` as standing rules in flag form, for example "workers run `--harness claude --model opus --effort high`". The supervisor's skill falls back to `--harness claude --model sonnet` when the file says nothing, and its levels are `low`, `medium`, `high`, `xhigh` and `max` (the old `quick`, `default`, `high`, `deep` and `max`).
+2. Run `hand update`, then delete only the `profiles` key from each fleet's `routing.json`. The file keeps `notify` and any other key; `hand init` writes `{}` for a new fleet.
+3. Run `hand doctor` in each fleet, and rewrite the profile mentions in the fleet's memory.
 
 ## Options
 

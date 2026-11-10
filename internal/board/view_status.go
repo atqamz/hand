@@ -69,16 +69,12 @@ type supervisorView struct {
 	Sup            *state.Supervisor
 	Ref            string
 	Pending        int
-	Profiles       []profile
 	Keys           []key
-	Chosen         string
-	NoneStartable  string
 	Pick           bool
 	StartHarnesses []harnessChoice
 	Resumable      bool
 	Drop           string
 	Switchable     bool
-	SwitchProfiles []profile
 	Current        *harnessChoice
 	OtherHarnesses []harnessChoice
 	ModelNote      string
@@ -114,9 +110,7 @@ func (b *Board) buildSupervisor(ctx context.Context, q url.Values) (supervisorVi
 	if err != nil {
 		return v, err
 	}
-	profiles := b.profiles()
-	v.Pending, v.Profiles, v.Keys = len(pending), profiles, keyButtons()
-	v.Chosen, v.NoneStartable = chosenProfile(profiles), noneStartable(profiles)
+	v.Pending, v.Keys = len(pending), keyButtons()
 	v.Pick = q.Get("pick") == "1" || !ok
 	label := "No supervisor"
 	if ok {
@@ -147,7 +141,6 @@ func (b *Board) buildSupervisor(ctx context.Context, q url.Values) (supervisorVi
 		v.AgentState, v.ComposerHint = hint(sup, v.paneState, v.Held)
 		if sup.Status == state.AttemptRunning {
 			v.Switchable = true
-			v.SwitchProfiles = b.profilesFor(sup.Harness)
 			current := b.picker(sup.Harness)
 			v.Current = &current
 			v.OtherHarnesses = b.choices(sup.Harness)
@@ -160,6 +153,9 @@ func (b *Board) buildSupervisor(ctx context.Context, q url.Values) (supervisorVi
 	}
 	if v.Pick {
 		v.StartHarnesses = b.choices("")
+		if ok {
+			prefill(v.StartHarnesses, sup)
+		}
 	}
 	v.Line = strings.ToLower(lineWord(label))
 	return v, nil

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -158,7 +159,7 @@ func TestTheStartFormAndThePickPage(t *testing.T) {
 	page := get(t, ended.handler(), "/")
 	contains(t, "ended", page, `action="/supervisor/resume"`, `href="/?pick=1#chat"`)
 	lacks(t, "ended", page, `name="harness"`)
-	contains(t, "picking a harness", get(t, ended.handler(), "/?pick=1"), `name="harness"`, `name="profile"`)
+	contains(t, "picking a harness", get(t, ended.handler(), "/?pick=1"), `name="harness"`)
 }
 
 func TestEveryPanelState(t *testing.T) {
@@ -240,7 +241,6 @@ func TestControlsCallTheCLI(t *testing.T) {
 		want []string
 		back string
 	}{
-		{"/supervisor/start", url.Values{"profile": {"default"}}, []string{"supervisor", "start", "--profile", "default"}, "/"},
 		{"/supervisor/start", url.Values{"harness": {"opencode"}}, []string{"supervisor", "start", "--harness", "opencode"}, "/"},
 		{"/supervisor/start", url.Values{"harness": {"claude"}, "model": {"sonnet"}, "effort": {"low"}}, []string{"supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low"}, "/"},
 		{"/supervisor/start", nil, []string{"supervisor", "start"}, "/"},
@@ -260,7 +260,6 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"not-a-digest"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/supervisor"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"supervisor", "send", "--text", "hi"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"supervisor", "send", "--text", "line one\nline two"}, "/"},
-		{"/supervisor/switch", url.Values{"profile": {"claude-deep"}}, []string{"supervisor", "switch", "--profile", "claude-deep"}, "/"},
 		{"/supervisor/switch", url.Values{"model": {"opus"}, "effort": {"high"}}, []string{"supervisor", "switch", "--model", "opus", "--effort", "high"}, "/"},
 		{"/supervisor/switch", url.Values{"effort": {"max"}}, []string{"supervisor", "switch", "--effort", "max"}, "/"},
 		{"/supervisor/switch", url.Values{"cancel": {"1"}}, []string{"supervisor", "switch", "--cancel"}, "/"},
@@ -409,20 +408,16 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 }
 
 func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
-	policy := `{"profiles":{"claude-deep":{"harness":"claude","model":"opus","effort":"high"},"luna":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`
 	fixture := func(t *testing.T, agent string) *fixture {
 		fx := newFixture(t)
-		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-			t.Fatal(err)
-		}
 		fx.status = agent
 		return fx
 	}
 	working := fixture(t, "working")
 	working.supervisor(t, state.AttemptRunning, "gen-1")
 	status := region(get(t, working.handler(), "/"), "console")
-	contains(t, "working", status, `id="model-menu"`, `value="claude-deep"`, "Switch after this turn", `action="/supervisor/switch"`)
-	lacks(t, "working", status, `value="luna"`, "Switch now")
+	contains(t, "working", status, `id="model-menu"`, `name="model"`, "Switch after this turn", `action="/supervisor/switch"`)
+	lacks(t, "working", status, `name="profile"`, "Switch now")
 	idle := fixture(t, "idle")
 	idle.supervisor(t, state.AttemptRunning, "gen-1")
 	contains(t, "idle", region(get(t, idle.handler(), "/"), "console"), "Switch now")
@@ -708,37 +703,38 @@ func TestHeadersSurviveNonASCIIText(t *testing.T) {
 	}
 }
 
-func TestTheStartPickerMarksProfilesWhoseHarnessIsMissing(t *testing.T) {
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"gpt":{"harness":"codex","model":"gpt-5.5","effort":"high"}}}`
-	start := func(t *testing.T, bins ...string) (*fixture, string) {
+func TestTheStartFormMarksAHarnessThatIsMissing(t *testing.T) {
+	start := func(t *testing.T, bins ...string) string {
 		fx := newFixture(t)
 		fx.options.Harness.Path = pathWith(t, bins...)
-		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return fx, region(get(t, fx.handler(), "/"), "console")
+		return region(get(t, fx.handler(), "/"), "console")
 	}
-	_, both := start(t, "claude", "codex")
-	lacks(t, "both found", both, " disabled", "not found on the board&#39;s PATH", `class="gone"`)
-	contains(t, "both found", both, `<option value="default" selected>`, `<button class="primary">Start</button>`)
+	lacks(t, "all found", start(t, "claude", "codex", "opencode", "agy", "omp"), "not found on the board&#39;s PATH", `class="gone"`, " disabled")
 
-	_, noCodex := start(t, "claude")
-	contains(t, "codex missing", noCodex, `<option value="gpt" disabled>gpt · codex gpt-5.5 high · codex not found on the board&#39;s PATH</option>`, `<option value="default" selected>default · claude sonnet medium</option>`, `<option value="deep">deep · claude opus xhigh</option>`)
-	lacks(t, "codex missing", noCodex, `class="gone"`, `<button class="primary" disabled>`)
+	noCodex := start(t, "claude")
+	contains(t, "codex missing", noCodex, `<button disabled>Start codex</button><p class="gone">codex not found on the board&#39;s PATH; restart the board after installing it</p>`, `<button>Start claude</button>`)
+	lacks(t, "codex missing", noCodex, `<button disabled>Start claude</button>`)
 
-	fx, noClaude := start(t, "codex")
-	contains(t, "claude missing", noClaude, `<option value="default" disabled>default · claude sonnet medium · claude not found on the board&#39;s PATH</option>`, `<option value="deep" disabled>`, `<option value="gpt" selected>gpt · codex gpt-5.5 high</option>`)
-	lacks(t, "claude missing", noClaude, `class="gone"`)
-	fx.options.Harness.Path = pathWith(t, "claude")
-	contains(t, "installed while running", region(get(t, fx.handler(), "/"), "console"), `<option value="default" selected>`, `<option value="gpt" disabled>`)
-
-	_, none := start(t)
-	contains(t, "none found", none, `<option value="default" disabled>`, `<option value="gpt" disabled>`, `<button class="primary" disabled>Start</button>`, `<p class="gone">claude, codex not found on the board&#39;s PATH. Install the harness or add its folder to PATH, then restart the board: `+"`hand board stop`"+`, then `+"`hand board`"+`, or restart its unit.</p>`)
-	lacks(t, "none found", none, " selected>")
+	contains(t, "none found", start(t), `<button disabled>Start claude</button>`, `<button disabled>Start codex</button>`)
 }
 
-func TestTheStartPickerSaysNothingWithoutProfiles(t *testing.T) {
+func TestTheStartFormsAreOpenAndSelectNothingWithoutAnEarlierSupervisor(t *testing.T) {
 	fx := newFixture(t)
-	fx.options.Harness.Path = pathWith(t)
-	lacks(t, "no policy", region(get(t, fx.handler(), "/"), "console"), `class="gone"`, " disabled")
+	fx.options.Harness.Path = pathWith(t, "claude", "codex")
+	console := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "first run", console, `<details class="others" id="start-others" open>`, `name="harness" value="claude"`, `<button>Start claude</button>`)
+	lacks(t, "first run", console, `name="profile"`, " selected>", "Start new")
+}
+
+func TestTheStartFormOfTheLastSupervisorsHarnessPreselectsItsModelAndEffort(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.Harness.Path = pathWith(t, "claude", "codex")
+	fx.supervisor(t, state.AttemptStopped, "gen-1")
+	console := region(get(t, fx.handler(), "/?pick=1"), "console")
+	contains(t, "after s1", console, "Start new, same as s1", `<option value="low" selected>`)
+	if !regexp.MustCompile(`<option value="sonnet"[^>]* selected>`).MatchString(console) {
+		t.Fatalf("the model of s1 is not selected:\n%s", console)
+	}
+	_, codex, _ := strings.Cut(console, `name="harness" value="codex"`)
+	lacks(t, "other harness", codex, " selected>")
 }

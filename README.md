@@ -69,7 +69,7 @@ You use two commands, then the browser. The other `hand` commands are for the su
 
    This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus in the folder's `luvus/<os>-<arch>/`, downloading the tested version when none is on `PATH`. The folder also keeps its own `backups/` and `cache/models/`. It starts nothing. Running it again is safe.
 2. **Open it.** `hand open` opens the fleet's page in your browser and logs you in. `hand open --print` prints the login link for another browser or a phone; keep it private, since it holds the fleet's token. When no board answers, `hand open` starts one first ([Keep the watcher and the board running](docs/autostart.md#keep-the-watcher-and-the-board-running)).
-3. **Work in the browser.** A new fleet has no supervisor yet: press **Start** and pick a routing profile (`default` is a good first one). That starts the supervisor in the fleet's Luvus session and its watcher. Then:
+3. **Work in the browser.** A new fleet has no supervisor yet: press **Start** on a harness, with the model and effort you want. That starts the supervisor in the fleet's Luvus session and its watcher. Then:
    - write to the supervisor in the **Chat** tab, and name the repositories it should work on by absolute path. A first message could be: *Register /abs/path/to/repo as project demo, add a task to fix a typo in its README, and start a quick worker.*
    - answer its decisions under **Needs**;
    - read its reports, and press **Mark read**.
@@ -82,7 +82,7 @@ One autostart is enough: run `hand board` once at login, and the board starts ev
 
 ## If something does not work
 
-Run `hand doctor` in the fleet folder. It checks Hand, git, the harnesses and routing profiles, Luvus, the fleet, each project's git settings, the board, the phone address and the watcher, and prints a fix for each problem. It repairs nothing and spends no tokens, so paste its output into a bug report. The board finds `claude` and the other harnesses on the `PATH` it started with, which can differ from your shell's: restart the board after you install one with `hand board stop` and `hand board`, or restart its unit (a systemd unit keeps the `PATH` from when you ran `hand unit board`, see [Linux](docs/autostart.md#linux)).
+Run `hand doctor` in the fleet folder. It checks Hand, git, the harnesses, Luvus, the fleet, each project's git settings, the board, the phone address and the watcher, and prints a fix for each problem. It repairs nothing and spends no tokens, so paste its output into a bug report. The board finds `claude` and the other harnesses on the `PATH` it started with, which can differ from your shell's: restart the board after you install one with `hand board stop` and `hand board`, or restart its unit (a systemd unit keeps the `PATH` from when you ran `hand unit board`, see [Linux](docs/autostart.md#linux)).
 
 Report a problem with the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), and a vulnerability as [`SECURITY.md`](SECURITY.md) says.
 

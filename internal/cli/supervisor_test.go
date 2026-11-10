@@ -436,7 +436,7 @@ func TestAutoresumeSettlesAFreshLaunchAfterTheMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	moveSupervisorFleet(t, h)
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1019,11 +1019,10 @@ func TestStartSearchesTheBoardsPath(t *testing.T) {
 	}
 	tools := h.vars["PATH"]
 	h.vars["PATH"] = t.TempDir()
-	has(t, "route list", h.ok("route", "list"), `default,claude,sonnet,medium,"invalid: claude not found on PATH; install claude, or add its folder to PATH"`)
-	if _, err := board(t.TempDir())(context.Background(), "supervisor", "start", "--profile", "default"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with); install claude or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit") {
+	if _, err := board(t.TempDir())(context.Background(), "supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "medium"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with); install claude or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit") {
 		t.Fatalf("start without claude on the board's PATH = %v", err)
 	}
-	if _, err := board(tools)(context.Background(), "supervisor", "start", "--profile", "default"); err != nil {
+	if _, err := board(tools)(context.Background(), "supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "medium"); err != nil {
 		t.Fatalf("start with claude only on the board's PATH = %v", err)
 	}
 }
@@ -1153,10 +1152,6 @@ func TestSwitchRefusals(t *testing.T) {
 	if _, _, code := h.run("supervisor", "switch", "--model", "opus"); code != 3 {
 		t.Fatalf("no supervisor code = %d", code)
 	}
-	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high"},"luna":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	startClaudeSupervisor(h)
 	for _, c := range []struct {
 		args []string
@@ -1164,7 +1159,7 @@ func TestSwitchRefusals(t *testing.T) {
 		want string
 	}{
 		{nil, 2, "switch"},
-		{[]string{"--profile", "deep", "--model", "opus"}, 2, "--profile"},
+		{[]string{"--profile", "deep", "--model", "opus"}, 2, "-profile"},
 		{[]string{"--model", "a b"}, 2, "claude model"},
 		{[]string{"--model", "sonnet", "--effort", "low"}, 3, "already"},
 		{[]string{"--effort", "very high"}, 2, "effort"},
@@ -1174,7 +1169,7 @@ func TestSwitchRefusals(t *testing.T) {
 			t.Fatalf("switch %q: code=%d stderr=%q", c.args, code, errOut)
 		}
 	}
-	has(t, "profile", h.ok("supervisor", "switch", "--profile", "deep"), "switch: pending", "model: opus")
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "xhigh"), "switch: pending", "model: opus")
 	if _, errOut, code := h.run("supervisor", "switch", "--effort", "max"); code != 3 || !strings.Contains(errOut, "--cancel") {
 		t.Fatalf("second switch code=%d stderr=%q", code, errOut)
 	}
@@ -1969,7 +1964,7 @@ func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
 
 func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1997,7 +1992,7 @@ func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
 
 func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2302,13 +2297,27 @@ func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
 	}
 }
 
-func TestSupervisorStartWithAProfileNeedsNoEarlierSupervisor(t *testing.T) {
+func TestSupervisorStartWithTheThreeFlagsNeedsNoEarlierSupervisor(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"low"}}}`
+	policy := `{}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	has(t, "start", h.ok("supervisor", "start", "--profile", "default"), "supervisor: s1", "harness: claude", "status: running")
+	has(t, "start", h.ok("supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "medium"), "supervisor: s1", "harness: claude", "status: running")
+}
+
+func TestSupervisorStartWithNoFlagsAndNoEarlierSupervisorGivesTheFlags(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	if _, errOut, code := h.run("supervisor", "start"); code != 2 || !strings.Contains(errOut, "there is no earlier supervisor to copy; give --harness, --model and --effort") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestSupervisorStartProfileIsAnUnknownFlag(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	if _, errOut, code := h.run("supervisor", "start", "--profile", "deep"); code != 2 || !strings.Contains(errOut, "-profile") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
 }
 
 func TestSupervisorForceReportsAWakeThatLuvusRefused(t *testing.T) {

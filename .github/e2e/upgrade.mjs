@@ -7,7 +7,6 @@ import { asset, Box, candidate, check, cleaned, Client, commit, distDir, equal, 
 const previous = 'v0.13.0';
 const previousSchema = 16;
 const previousLuvus = '0.14.3';
-const profiles = ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 async function waitFor(what, ok) {
@@ -218,11 +217,20 @@ async function afterwards(box, s) {
   const pinned = JSON.parse(fs.readFileSync(path.join(store, 'pin.json'), 'utf8'));
   check(!path.isAbsolute(pinned.path) && fs.existsSync(path.join(store, pinned.path)), `${name}: the fleet holds its own Luvus copy and pin.json names it relative to its folder`);
   check(fs.existsSync(path.join(box.fleet, 'cache', 'models')) && fs.readdirSync(path.join(box.fleet, 'backups')).some((n) => n.startsWith('hand.db.')), `${name}: the fleet holds the update's hand.db backup and a cache folder`);
+  const routing = path.join(box.fleet, 'routing.json');
+  const policy = JSON.parse(fs.readFileSync(routing, 'utf8'));
+  if ('profiles' in policy) {
+    const window = await box.hand(['doctor']);
+    await fails(window, `${name}: hand doctor fails while routing.json still holds profiles`, 1);
+    matches(toon(window.out).tables.checks.find((r) => r.check === 'routing.json')?.fix ?? '', /"profiles" was removed; delete the key/, `${name}: the routing.json row names the removed key`);
+    delete policy.profiles;
+    fs.writeFileSync(routing, `${JSON.stringify(policy)}\n`);
+  }
   const doctor = await box.hand(['doctor']);
   await ok(doctor, `${name}: hand doctor exits 0 with no harness installed`);
   const checks = toon(doctor.out).tables.checks;
   equal(checks.filter((c) => c.state === 'fail'), [], `${name}: hand doctor fails nothing`);
-  equal(checks.filter((c) => c.state === 'warn' && profiles.includes(c.check)).map((c) => c.check).sort(), [...profiles].sort(), `${name}: hand doctor warns for the five profiles`);
+  equal(checks.find((c) => c.check === 'harness')?.state, 'warn', `${name}: hand doctor warns that no harness is installed`);
   for (const c of ['schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
   for (const c of ['machine-local', 'restore points']) equal(checks.find((r) => r.check === c)?.state, 'info', `${name}: hand doctor: ${c} is information`);
   if (!win) check(['ok', 'warn'].includes(checks.find((r) => r.check === 'modes')?.state), `${name}: hand doctor: the mode check reports a state`);

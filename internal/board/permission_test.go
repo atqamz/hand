@@ -75,13 +75,3 @@ func TestAStaleScreenIsRefused(t *testing.T) {
 		t.Fatalf("a failed press redirected")
 	}
 }
-
-func TestTheSupervisorPickersLeaveMCPProfilesOut(t *testing.T) {
-	fx := newFixture(t)
-	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"browser":{"harness":"claude","model":"sonnet","effort":"low","mcp":"mcp.json"}}}`
-	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">`)
-	lacks(t, "start", region(get(t, fx.handler(), "/"), "console"), `value="browser"`)
-}

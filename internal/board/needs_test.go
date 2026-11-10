@@ -362,7 +362,7 @@ func TestNeedsNamesAKeptWorktreeAndOldFiles(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	home := t.TempDir()
 	fx.options.Home = home
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"retention":{"warn_size":"off","warn_days":"30d"}}`
+	policy := `{"retention":{"warn_size":"off","warn_days":"30d"}}`
 	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}

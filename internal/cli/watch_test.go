@@ -226,7 +226,7 @@ func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
 	desktop := fakeNotify(t, fx)
 	log := filepath.Join(t.TempDir(), "notify.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify","--title","a b; $(x)"]}`
+	policy := `{"notify":["hand-notify","--title","a b; $(x)"]}`
 	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "notify.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
 	write := func(argv string) {
-		policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":` + argv + `}`
+		policy := `{"notify":` + argv + `}`
 		if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +300,7 @@ func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
 	fx := newAttemptFixture(t)
 	log := filepath.Join(t.TempDir(), "notify.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify"]}`
+	policy := `{"notify":["hand-notify"]}`
 	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -697,7 +697,7 @@ func TestQuietTurnSaysWhetherTheWorkerReported(t *testing.T) {
 func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		h, rt := newSupervisorFixture(t)
-		policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":` + strconv.FormatBool(on) + `}}`
+		policy := `{"supervisor":{"autoresume":` + strconv.FormatBool(on) + `}}`
 		if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 			t.Fatal(err)
 		}

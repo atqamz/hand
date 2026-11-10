@@ -796,7 +796,7 @@ func TestOrientWarnsAboutOldAndLargeReportsAndShots(t *testing.T) {
 	st, home := setup(t)
 	policy := func(retention string) {
 		t.Helper()
-		body := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}` + retention + `}`
+		body := `{` + strings.TrimPrefix(retention, ",") + `}`
 		if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}

@@ -4,7 +4,7 @@ Hand runs its agents with their permission prompts skipped, as your own OS user,
 
 ## What runs without asking
 
-Every worker and the supervisor start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option.
+Every worker and the supervisor start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model` and `--effort`, and no permission option.
 
 | Harness | Flags Hand passes (worker; the supervisor passes the same) |
 |---|---|
@@ -132,7 +132,7 @@ The check covers the repository's own configuration (with the files it includes 
 
 ### What Hand runs to list models
 
-Hand lists the models of each harness with one command each, with no prompt and no model call, so it spends no tokens:
+Hand lists the models of each harness with one command each, with no prompt and no model call, so it spends no tokens. The watcher runs every installed harness's listing command unattended whenever a list is stale or missing, not only for the harnesses a worker uses:
 
 | Harness | Command | What Hand keeps |
 |---|---|---|

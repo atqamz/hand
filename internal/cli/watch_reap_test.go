@@ -164,7 +164,7 @@ func TestWatchSkipsWhenRetentionIsOffAndNeverTouchesALiveAttempt(t *testing.T) {
 	fx.h.ok("attempt", "stop", "a1")
 	fx.h.advance(8 * day)
 	routing := filepath.Join(fx.h.home, "routing.json")
-	if err := os.WriteFile(routing, []byte(`{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"retention":{"worktrees":"off"}}`), 0o644); err != nil {
+	if err := os.WriteFile(routing, []byte(`{"retention":{"worktrees":"off"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stop := startWatch(t, fx, "--every", "20ms")
@@ -175,7 +175,7 @@ func TestWatchSkipsWhenRetentionIsOffAndNeverTouchesALiveAttempt(t *testing.T) {
 	if out := retentionEvents(t, fx); out != "" {
 		t.Fatalf("events with retention off:\n%s", out)
 	}
-	if err := os.WriteFile(routing, []byte(`{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"retention":{"worktrees":"7d"}}`), 0o644); err != nil {
+	if err := os.WriteFile(routing, []byte(`{"retention":{"worktrees":"7d"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stop = startWatch(t, fx, "--every", "20ms")

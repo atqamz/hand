@@ -51,14 +51,10 @@ func cmdSupervisorStart(r *runner, args []string) error {
 	name := fs.String("harness", "", "claude, codex, opencode, agy or omp")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
-	profile := fs.String("profile", "", "routing profile from routing.json")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
-	spec, err := r.routedSupervisor("supervisor start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
-	if err != nil {
-		return err
-	}
+	spec := harness.Spec{Harness: *name, Model: *model, Effort: *effort}
 	if err := harness.CheckSupervisor(spec); err != nil {
 		return err
 	}
@@ -74,7 +70,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 		}
 		if spec == (harness.Spec{}) {
 			if !ok {
-				return usageError{"supervisor start: there is no earlier supervisor to copy; give --harness, --model and --effort, or --profile"}
+				return usageError{"supervisor start: there is no earlier supervisor to copy; give --harness, --model and --effort"}
 			}
 			spec = lastSpec(last)
 		}
@@ -456,19 +452,15 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	fs := flags("supervisor switch")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
-	profile := fs.String("profile", "", "routing profile from routing.json")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
 	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode, agy or omp")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
-	if *cancel == (*model != "" || *effort != "" || *profile != "" || *other != "") {
-		return usageError{"supervisor switch: give --profile, or --model and --effort (either may be left out), with --harness to change harness, or --cancel alone"}
+	if *cancel == (*model != "" || *effort != "" || *other != "") {
+		return usageError{"supervisor switch: give --model and --effort (either may be left out), with --harness to change harness, or --cancel alone"}
 	}
-	routed, err := r.routedSupervisor("supervisor switch", harness.Spec{Harness: *other, Model: *model, Effort: *effort}, *profile)
-	if err != nil {
-		return err
-	}
+	routed := harness.Spec{Harness: *other, Model: *model, Effort: *effort}
 	if err := harness.CheckSupervisor(routed); err != nil {
 		return err
 	}
@@ -508,8 +500,6 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		spec := harness.Spec{Harness: sup.Harness, Model: sup.Model, Effort: sup.Effort}
 		switch {
-		case *profile != "":
-			spec = routed
 		case sup.Harness == "opencode" && *model != "" && *model != sup.Model:
 			spec.Model, spec.Effort = *model, *effort
 		default:

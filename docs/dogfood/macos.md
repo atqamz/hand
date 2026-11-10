@@ -82,14 +82,11 @@ hash -r; command -v hand; hand version
 cd $D/repo && git init -q -b main && git config user.name dogfood && git config user.email dogfood@example.invalid && git config commit.gpgsign false && echo hello > README.md && git add README.md && git commit -q -m init
 ```
 
-**6.** Make the fleet, register the repository, and take the backup of `hand.db`. A profile named `cheap` uses the cheapest model and effort; change `haiku` if `hand route list` shows it as not valid for you:
+**6.** Make the fleet, register the repository, and take the backup of `hand.db`. The workers below start with the cheapest model and effort, `--harness claude --model haiku --effort low`; change `haiku` if `hand models claude` does not list it for you:
 
 ```zsh
 cd $D/fleet && hand init && hand project add demo $D/repo && cp hand.db $D/hand.db.backup
-cat > routing.json <<'EOF'
-{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}
-EOF
-hand route list | head -3
+hand models claude | head -3
 FID=$(ls $SECONDHAND_HOME/index)
 echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') SD=$LUVUS_HOME/sessions/secondhand-$FID" >> $D/env.sh
 . $D/env.sh; hand fleet list
@@ -101,7 +98,7 @@ Expected:
 - the install prints `installed hand version: 0.11.0 to /tmp/hand-dogfood.XXXXXX/bin/hand` (the version can be newer), and `command -v hand` prints that path;
 - `hand init` prints `created: true` and a `luvus: pinned 0.14.3 (...)` line (the version is the tested one);
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
-- `hand route list` shows `cheap,claude,haiku,low,yes`;
+- `hand models claude` shows a `claude,haiku` row;
 - the answer to the question is no.
 
 Evidence: `{ hand version; hand fleet list; hand luvus show; } 2>&1 | ev M0`, and the answer.
@@ -121,7 +118,7 @@ Steps:
 
 ```zsh
 . $D/env.sh; cd $D/fleet
-hand supervisor start --profile cheap
+hand supervisor start --harness claude --model haiku --effort low
 sleep 30
 hand supervisor show
 hand orient | sed -n 1,5p
@@ -164,7 +161,7 @@ EOF
 T=$(hand task add --goal "Add hello.txt" demo "dogfood hello" | sed -n 's/^task: //p')
 hand task start $T
 CUR=$(hand orient | sed -n 's/^cursor: //p')
-hand attempt start --profile cheap --prompt-file $D/brief.md $T | tee $D/m2-start.txt
+hand attempt start --harness claude --model haiku --effort low --prompt-file $D/brief.md $T | tee $D/m2-start.txt
 A=$(sed -n 's/^attempt: //p' $D/m2-start.txt)
 echo "export T=$T A=$A CUR=$CUR" >> $D/vars.sh
 ```
@@ -217,7 +214,7 @@ hand open --print
 
 The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue. Starting a board is also part of `M8`; `M3` does not judge it.
 
-**2.** Ask the owner to open that link in a browser, and press **Start** on the fleet page. The profile is `cheap`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Ask the owner to open that link in a browser, and press **Start claude** on the fleet page, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 
@@ -253,7 +250,7 @@ Do nothing else.
 EOF
 T=$(hand task add --goal "Hold a child process" demo "dogfood child" | sed -n 's/^task: //p')
 hand task start $T
-A=$(hand attempt start --profile cheap --prompt-file $D/brief4.md $T | sed -n 's/^attempt: //p')
+A=$(hand attempt start --harness claude --model haiku --effort low --prompt-file $D/brief4.md $T | sed -n 's/^attempt: //p')
 echo "export T=$T A=$A" >> $D/vars.sh
 for i in $(seq 24); do pgrep -f '[s]leep 1234' >/dev/null && break; sleep 5; done
 pgrep -fl '[s]leep 1234'
@@ -295,7 +292,7 @@ If it fails: file the failing step's output. If a process is left, add `ps -o pi
 - **Proves:** the watcher starts a killed Luvus server again row, with a real harness instead of a fake one.
 - **Run:** agent.
 - **Real sessions:** 0: it resumes the supervisor's session, which spends nothing until a message arrives.
-- **Preconditions:** `M3` left a supervisor running, or one is started with `hand supervisor start --profile cheap`. The watcher runs (`hand orient` prints `watch: running`).
+- **Preconditions:** `M3` left a supervisor running, or one is started with `hand supervisor start --harness claude --model haiku --effort low`. The watcher runs (`hand orient` prints `watch: running`).
 
 Steps:
 
@@ -337,16 +334,16 @@ If it fails: file the output above, and `tail -30 $D/fleet/watch.log` if it exis
 - **Proves:** the Start codex or agy row, and the Start opencode row.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
 - **Real sessions:** 1 for each harness that runs.
-- **Preconditions:** `M0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For agy, `agy models` must list models. For opencode, `opencode models` must list a model that has a variant (a name under that model's `variants` in opencode's configuration): take `<provider/id>` and `<variant>` from them, because `hand route list` shows no variants.
+- **Preconditions:** `M0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For agy, `agy models` must list models. For opencode, `opencode models` must list a model that has a variant (a name under that model's `variants` in opencode's configuration): take `<provider/id>` and `<variant>` from them, because `hand models` shows no variants.
 
-Steps (repeat for each harness, with its own `H`, `MODEL` and `EFFORT` from the cheapest row of `hand route list` under `models`; opencode takes its own `<provider/id>` as the model and its `<variant>` as the effort):
+Steps (repeat for each harness, with its own `H`, `MODEL` and `EFFORT` from the cheapest row of `hand models` under `models`; opencode takes its own `<provider/id>` as the model and its `<variant>` as the effort):
 
 **1.** List what is valid for you, and pick the cheapest model and effort:
 
 ```zsh
 . $D/env.sh; cd $D/fleet
 hand supervisor stop
-hand route list
+hand models
 echo 'export H=codex MODEL=<model> EFFORT=<effort>' >> $D/vars.sh
 ```
 
@@ -391,7 +388,7 @@ If it fails: file one issue per harness, titled `M6: <harness> ...`, with `hand 
 - **Proves:** the `hand attach` row, the one that is `not run` on macOS.
 - **Run:** needs human. The owner opens a real terminal window; the agent cannot attach.
 - **Real sessions:** 0 (a resume).
-- **Preconditions:** `M0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --profile cheap`.
+- **Preconditions:** `M0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --harness claude --model haiku --effort low`.
 
 Steps:
 
@@ -587,7 +584,7 @@ hand orient | sed -n 1,5p
 ```zsh
 . $D/env.sh
 cat > $D/fleet/routing.json <<'EOF'
-{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},"supervisor":{"autoresume":true}}
+{"supervisor":{"autoresume":true}}
 EOF
 ```
 

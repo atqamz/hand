@@ -136,15 +136,14 @@ git -C "$D\repo" add README.md
 git -C "$D\repo" commit -q -m init
 ```
 
-**7.** Make the fleet, register the repository, and take the backup of `hand.db`. A profile named `cheap` uses the cheapest model and effort; change `haiku` if `hand route list` shows it as not valid for you:
+**7.** Make the fleet, register the repository, and take the backup of `hand.db`. The workers below start with the cheapest model and effort, `--harness claude --model haiku --effort low`; change `haiku` if `hand models claude` does not list it for you:
 
 ```powershell
 Set-Location "$D\fleet"
 hand init
 hand project add demo "$D\repo"
 Copy-Item "$D\fleet\hand.db" "$D\hand.db.backup"
-Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}'
-hand route list | Select-Object -First 3
+hand models claude | Select-Object -First 3
 $fid = (Get-ChildItem "$env:SECONDHAND_HOME\index").Name
 $luvus = (Toon (hand luvus show | Select-String '^pin: (.*)$').Matches[0].Groups[1].Value) -replace '^\S+ '
 Add-Content "$D\env.ps1" "`$fid = '$fid'`n`$luvus = '$luvus'"
@@ -157,7 +156,7 @@ Expected:
 - the install prints `installed hand version: 0.11.0 to ...\bin\hand.exe` (the version can be newer), and `(Get-Command hand).Source` is that path;
 - `hand init` prints `created: true` and a `luvus:` line. With no `luvus.exe` on `PATH` it reads `"downloaded and pinned 0.14.3 (...)"`, and the pinned file is under `$D\home\luvus`; with one on `PATH` it reads `"pinned 0.14.3 (...)"`. Both are quoted, with doubled backslashes;
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
-- `hand route list` shows `cheap,claude,haiku,low,yes`;
+- `hand models claude` shows a `claude,haiku` row;
 - the answer is no.
 
 Evidence: `& { hand version; hand fleet list; hand luvus show } 2>&1 | Ev W0`, and the answer.
@@ -177,7 +176,7 @@ Steps:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
-hand supervisor start --profile cheap
+hand supervisor start --harness claude --model haiku --effort low
 Start-Sleep -Seconds 30
 hand supervisor show
 hand orient | Select-Object -First 5
@@ -219,7 +218,7 @@ hand open --print
 
 The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue.
 
-**2.** Ask the owner to open that link in a browser, and press **Start** on the fleet page. The profile is `cheap`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Ask the owner to open that link in a browser, and press **Start claude** on the fleet page, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 
@@ -256,7 +255,7 @@ Do nothing else.
 $t = (hand task add --goal "Add hello.txt" demo "dogfood hello" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
 $cur = (hand orient | Select-String '^cursor: (\d+)').Matches[0].Groups[1].Value
-$out = hand attempt start --profile cheap --prompt-file "$D\brief.md" $t
+$out = hand attempt start --harness claude --model haiku --effort low --prompt-file "$D\brief.md" $t
 $out
 $a = ($out | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 $wt = Toon ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value
@@ -308,16 +307,16 @@ If it fails: file the output above. File the Git Bash half as its own issue (`W3
 - **Proves:** the Start codex or agy row, the Start opencode row, that keys reach a harness whose program has an extension, which Luvus does not know as an agent until Hand asks it for a process scan, and that Hand answers Codex's trust screen for its own worktree or finds none.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
 - **Real sessions:** 1 for each harness that runs, and 1 more for codex (its supervisor, step 6).
-- **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For codex, use the standalone install (see [Windows](../install.md#windows)): `Get-Command codex -All` must list a `codex.exe` before any `codex.cmd`, and `codex --version` prints the version. For codex, either run `codex` once in the `demo` repository (`$D\repo`) and choose Trust, which removes the prompt entirely and makes Hand print `trust: not asked`, or leave it untrusted, and Hand presses Codex's trust screen itself: `trust: accepted` and a `trusted:` line naming the worktree and `$D\repo`. Both pass; say which one you ran in the evidence. Either way Codex keeps the trust of `$D\repo` in your real `$env:CODEX_HOME\config.toml` (`~\.codex\config.toml` by default); that is harmless and is not edited here. For agy, `agy models` must list models. For opencode, `opencode models` must list a model that has a variant (a name under that model's `variants` in opencode's configuration): take `<provider/id>` and `<variant>` from them, because `hand route list` shows no variants. Say what `Get-Command codex -All` and `codex --version` print in the evidence.
+- **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For codex, use the standalone install (see [Windows](../install.md#windows)): `Get-Command codex -All` must list a `codex.exe` before any `codex.cmd`, and `codex --version` prints the version. For codex, either run `codex` once in the `demo` repository (`$D\repo`) and choose Trust, which removes the prompt entirely and makes Hand print `trust: not asked`, or leave it untrusted, and Hand presses Codex's trust screen itself: `trust: accepted` and a `trusted:` line naming the worktree and `$D\repo`. Both pass; say which one you ran in the evidence. Either way Codex keeps the trust of `$D\repo` in your real `$env:CODEX_HOME\config.toml` (`~\.codex\config.toml` by default); that is harmless and is not edited here. For agy, `agy models` must list models. For opencode, `opencode models` must list a model that has a variant (a name under that model's `variants` in opencode's configuration): take `<provider/id>` and `<variant>` from them, because `hand models` shows no variants. Say what `Get-Command codex -All` and `codex --version` print in the evidence.
 
-Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand route list` under `models`; for opencode, `$model` is a `<provider/id>` from `opencode models` and `$effort` is a variant name of that model from opencode's configuration, because `hand route list` shows no variants):
+Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand models` under `models`; for opencode, `$model` is a `<provider/id>` from `opencode models` and `$effort` is a variant name of that model from opencode's configuration, because `hand models` shows no variants):
 
 **1.** List what is valid for you, and pick the cheapest model and effort:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
-hand route list
+hand models
 Get-Command codex, agy, opencode -All -ErrorAction SilentlyContinue | Select-Object Name, Source
 Add-Content "$D\vars.ps1" "`$h = '<harness>'`n`$model = '<model>'`n`$effort = '<effort>'"
 ```
@@ -393,7 +392,7 @@ If it fails: file one issue per harness, titled `W4a: <harness> ...`, with `hand
 - **Proves:** the Hand refuses a harness found only as a `.cmd` or `.bat` row of the Platform support table.
 - **Run:** agent.
 - **Real sessions:** 0: nothing starts.
-- **Preconditions:** `W0` passed. No supervisor runs. This check puts a stand-in `codex.cmd` first on the `PATH` of one shell, and takes every folder that holds a `codex.exe` out of it, which is what `npm install -g @openai/codex` leaves you with when the standalone Codex is absent. It installs nothing and changes no setting. The `$model` and `$effort` of the cheapest codex row of `hand route list` come from `W4a`.
+- **Preconditions:** `W0` passed. No supervisor runs. This check puts a stand-in `codex.cmd` first on the `PATH` of one shell, and takes every folder that holds a `codex.exe` out of it, which is what `npm install -g @openai/codex` leaves you with when the standalone Codex is absent. It installs nothing and changes no setting. The `$model` and `$effort` of the cheapest codex row of `hand models` come from `W4a`.
 
 Steps:
 
@@ -581,7 +580,7 @@ If it fails: file the output above and what the owner saw. A console window that
 - **Proves:** the `hand attach` row, the one that is `not run` on Windows.
 - **Run:** needs human. The owner opens a real Windows Terminal window; the agent cannot attach.
 - **Real sessions:** 0 (a resume).
-- **Preconditions:** `W0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --profile cheap`. Run A only.
+- **Preconditions:** `W0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --harness claude --model haiku --effort low`. Run A only.
 
 Steps:
 
@@ -628,7 +627,7 @@ Do nothing else.
 '@
 $t = (hand task add --goal "Hold a child process" demo "dogfood child" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
-$a = (hand attempt start --profile cheap --prompt-file "$D\brief8.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
+$a = (hand attempt start --harness claude --model haiku --effort low --prompt-file "$D\brief8.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
 foreach ($i in 1..24) { if (Find-Ping) { break }; Start-Sleep -Seconds 5 }
 Find-Ping
@@ -696,7 +695,7 @@ Append the line changed to the file $deep (the path is relative to your worktree
 "@
 $t = (hand task add --goal "Edit a deep file" demo "dogfood long path" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
-$out = hand attempt start --profile cheap --prompt-file "$D\brief9.md" $t
+$out = hand attempt start --harness claude --model haiku --effort low --prompt-file "$D\brief9.md" $t
 $a = ($out | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
 (Toon ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value).Length + $deep.Length + 1
@@ -748,7 +747,7 @@ $link.Arguments = "/c set `"SECONDHAND_HOME=$D\home`"&& set `"LUVUS_HOME=$D\luvu
 $link.WindowStyle = 7
 $link.Save()
 Test-Path $lnk
-Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},"supervisor":{"autoresume":true}}'
+Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"supervisor":{"autoresume":true}}'
 ```
 
 `Test-Path` must print `True`. The `cmd.exe` wrapper and its quoting are `unverified`.
@@ -798,7 +797,6 @@ git -C "$D2\repo" commit -q -m init
 Set-Location "$D2\fleet"
 hand init
 hand project add demo "$D2\repo"
-Set-Content -Path "$D2\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}'
 ```
 
 **2.** Run a worker to its report, as `W3` steps 1 and 3 do, with `$D2` in place of `$D` and the new fleet. Stop and clean it, then stop the second session:
@@ -812,7 +810,7 @@ Do nothing else.
 '@
 $t = (hand task add --goal "Add hello.txt" demo "dogfood space" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
-$a = (hand attempt start --profile cheap --prompt-file "$D2\brief.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
+$a = (hand attempt start --harness claude --model haiku --effort low --prompt-file "$D2\brief.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 hand wait --timeout 8m
 hand report list
 hand attempt stop $a
@@ -847,8 +845,8 @@ $rev = if ($docsRev) { $docsRev } else { 'main' }
 $doc = irm "https://raw.githubusercontent.com/atqamz/hand/$rev/docs/alerts.md"
 $line = ($doc -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.StartsWith('"notify": ["powershell.exe"') })[0]
 if (-not $line) { throw 'no toast recipe found in docs/alerts.md' }
-Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value ('{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},' + $line + '}')
-hand route list | Select-Object -First 2
+Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value ('{' + $line + '}')
+hand doctor | Select-String routing.json
 ```
 
 **2.** Run the watcher, which reads the recipe, and ask a decision, which it alerts on:
@@ -902,7 +900,7 @@ If it fails: file it as a documentation issue, with the facts.
 - **Proves:** the watcher starts a killed Luvus server again row, with a real harness instead of a fake one.
 - **Run:** agent.
 - **Real sessions:** 0: it resumes the supervisor's session, which spends nothing until a message arrives.
-- **Preconditions:** a supervisor runs (`hand supervisor start --profile cheap` if none does), and the watcher runs (`hand orient` prints `watch: running`).
+- **Preconditions:** a supervisor runs (`hand supervisor start --harness claude --model haiku --effort low` if none does), and the watcher runs (`hand orient` prints `watch: running`).
 
 Steps:
 

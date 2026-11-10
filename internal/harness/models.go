@@ -239,17 +239,6 @@ func goneText(s Spec) string {
 	return fmt.Sprintf("model %s is no longer listed by %s", s.Model, s.Harness)
 }
 
-func Vanished(s Spec, env Env, now time.Time) (string, bool) {
-	return StatusOf(s.Harness, env, now).Vanished(s)
-}
-
-func (st Status) Vanished(s Spec) (string, bool) {
-	if s.Model == "" || !slices.Contains(st.Listing.Gone, s.Model) {
-		return "", false
-	}
-	return goneText(s), s.Harness != "claude" && st.Found && st.Missing == "" && !st.Stale
-}
-
 func Detected(name string, env Env) ([]Model, error) {
 	if _, ok := listers[name]; !ok {
 		return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))

@@ -132,7 +132,7 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 		t.Fatalf("luvus = %q", field(out, "luvus"))
 	}
 	rows := checkRows(t, out)
-	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "skills", "luvus server", "board", "watcher"}
+	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "schema", "fleet", "routing.json", "skills", "luvus server", "board", "watcher"}
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}
@@ -158,8 +158,8 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if row := rows["desktop"]; row[0] != "info" || !(strings.Contains(row[1], "not installed") || strings.Contains(row[1], "unsupported on ")) {
 		t.Fatalf("desktop = %q in %q", row, out)
 	}
-	if len(rows) != len(want)+13 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+13, out)
+	if len(rows) != len(want)+10 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+10, out)
 	}
 }
 
@@ -201,26 +201,6 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		{"hand not on PATH", "hand", "warn", "PATH does not lead to this binary; put ", 0, func(fx *doctorFixture) { fx.h.vars["PATH"] = fx.tools }},
 		{"source build", "hand", "info", "--channel edge or --channel stable", 0, func(*doctorFixture) { cli.Channel = "source" }},
 		{"no git", "git", "fail", "install git", 1, func(fx *doctorFixture) { fx.remove(exe(fx.tools, "git")) }},
-		{"profile with an unverified model", "profile quick", "warn", "claude model acme-opus is not an alias", 0, func(fx *doctorFixture) {
-			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"claude","model":"acme-opus","effort":"low"}}}`)
-		}},
-		{"profile naming a missing mcp file", "profile quick", "fail", "mcp.json is not a file", 1, func(fx *doctorFixture) {
-			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"claude","model":"sonnet","effort":"low","mcp":"mcp.json"}}}`)
-		}},
-		{"a profile whose model left the list", "profile quick", "warn", "model gpt-5.5 is no longer listed by codex", 0, func(fx *doctorFixture) {
-			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"codex","model":"gpt-5.5","effort":"low"}}}`)
-			bundled := func(slugs ...string) string {
-				var models []string
-				for _, s := range slugs {
-					models = append(models, `{"slug":"`+s+`","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}`)
-				}
-				return `{"models":[` + strings.Join(models, ",") + `]}`
-			}
-			fakebin.Install(fx.h.t, fx.tools, "codex", "fake", map[string]string{"on --version": "codex 1\n", "on debug": bundled("gpt-5.5", "gpt-6-luna")})
-			fx.h.ok("models", "--refresh", "codex")
-			fakebin.Install(fx.h.t, fx.tools, "codex", "fake", map[string]string{"on --version": "codex 2\n", "on debug": bundled("gpt-6-luna")})
-			fx.h.ok("models", "--refresh", "codex")
-		}},
 		{"no codex list", "models codex", "info", "no list yet; run `hand models --refresh codex`", 0, func(fx *doctorFixture) {}},
 		{"agy signed out", "models agy", "info", "no list: agy is not signed in; run agy and sign in", 0, func(fx *doctorFixture) {
 			fakebin.Install(fx.h.t, fx.tools, "agy", "fake", map[string]string{"on --version": "agy 1\n", "exit": "1", "stderr": "Error: Please sign in to view available models."})
@@ -252,30 +232,9 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "index", fx.id))
 		}},
 		{"bad routing.json", "routing.json", "fail", "routing.json", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "routing.json"), "{") }},
-		{"no claude", "profile default", "fail", "claude not found on PATH; install claude, or add its folder to PATH", 1, func(fx *doctorFixture) { fx.remove(exe(fx.tools, "claude")) }},
-		{"no harness and a starter routing.json", "profile default", "warn", "claude not found on PATH", 0, (*doctorFixture).removeHarnesses},
-		{"no harness and a profile naming one", "profile default", "fail", "codex not found on PATH", 1, func(fx *doctorFixture) {
-			fx.removeHarnesses()
-			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`)
-		}},
-		{"no copilot and a profile naming it", "profile default", "fail", "copilot not found on PATH; install copilot (`npm install -g @github/copilot` or run `gh copilot` once, then `copilot login`), or add its folder to PATH", 1, func(fx *doctorFixture) {
-			fx.removeHarnesses()
-			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"copilot","model":"auto"}}}`)
-		}},
-		{"no harness and a routing.json cut down to one starter profile", "profile default", "fail", "claude not found on PATH", 1, func(fx *doctorFixture) {
-			fx.removeHarnesses()
-			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}}`)
-		}},
-		{"no harness and a supervisor running", "profile default", "fail", "claude not found on PATH", 1, func(fx *doctorFixture) {
-			fx.removeHarnesses()
-			st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), time.Now)
-			if err != nil {
-				fx.h.t.Fatal(err)
-			}
-			defer st.Close()
-			if _, err := st.AddSupervisor(context.Background(), state.SupervisorSpec{Harness: "claude", Argv: []string{"claude"}}); err != nil {
-				fx.h.t.Fatal(err)
-			}
+		{"no harness installed", "harness", "warn", "install one of claude, codex, opencode, agy, copilot or omp, or add its folder to PATH", 0, (*doctorFixture).removeHarnesses},
+		{"routing.json with profiles", "routing.json", "fail", `was removed; delete the key and start workers with --harness, --model and --effort`, 1, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{}}`)
 		}},
 		{"server stale", "luvus server", "warn", "run `hand update`", 0, func(fx *doctorFixture) { fx.serve("0.14.2") }},
 		{"server not running", "luvus server", "info", "not running", 0, func(fx *doctorFixture) {
@@ -356,7 +315,7 @@ func TestDoctorOutsideAFleet(t *testing.T) {
 	if rows["fleet"][0] != "info" || !strings.Contains(rows["fleet"][1], "not inside a fleet home") || !strings.Contains(rows["fleet"][1], "the fleet checks were skipped") {
 		t.Fatalf("fleet = %q", rows["fleet"])
 	}
-	for _, check := range []string{"schema", "routing.json", "profile default", "luvus server", "board", "watcher"} {
+	for _, check := range []string{"schema", "routing.json", "luvus server", "board", "watcher"} {
 		if _, ok := rows[check]; ok {
 			t.Fatalf("%s checked outside a fleet: %q", check, out)
 		}

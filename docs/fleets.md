@@ -25,7 +25,7 @@ A fleet folder looks like this:
 ├── hand.db            the fleet's state
 ├── fleet.home         the homes this fleet has lived at
 ├── .fleet.home.lock   serialises writes to fleet.home
-├── routing.json       routing profiles
+├── routing.json       fleet settings
 ├── memory/
 │   ├── operator.md    your standing preferences
 │   └── projects/      one file of lessons per project

@@ -135,7 +135,8 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	contains(t, "interrupted console", region(body, "console"), `action="/supervisor/resume"`)
 	contains(t, "interrupted needs", region(body, "queue"), `action="/supervisor/resume"`)
 	none := newFixture(t)
-	contains(t, "none", region(get(t, none.handler(), "/"), "console"), `name="harness"`, `name="profile"`)
+	contains(t, "none", region(get(t, none.handler(), "/"), "console"), `name="harness"`)
+	lacks(t, "none", region(get(t, none.handler(), "/"), "console"), `name="profile"`)
 	pending := newFixture(t)
 	pending.supervisor(t, state.AttemptRunning, "gen-1")
 	if _, err := pending.st.SetSupervisorSwitch(context.Background(), 1, "opus", "high"); err != nil {
@@ -386,36 +387,21 @@ func TestStopArmsWithJS(t *testing.T) {
 	contains(t, "app.js", asset(t, "app.js"), "form.dataset.confirm", "4000")
 }
 
-func TestProfilesShowWhatTheyResolveTo(t *testing.T) {
-	fx := newFixture(t)
-	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`
-	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">deep · claude opus xhigh</option>`)
-	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	contains(t, "switch", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">deep · claude opus xhigh</option>`)
-}
-
 func TestStartIsPrimaryAndFetches(t *testing.T) {
 	fx := newFixture(t)
-	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch data-starting="starting…">`, `<button class="primary">Start</button>`)
+	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch data-starting="starting…">`, `<button>Start claude</button>`)
 	contains(t, "app.js", asset(t, "app.js"), "form.dataset.starting")
 }
 
 func TestTheSupervisorMenusOfferAgy(t *testing.T) {
 	bin := t.TempDir()
 	fakebin.Install(t, bin, "agy", "agy", map[string]string{"models": agyModels})
-	policy := `{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
 	none := newFixture(t)
 	running := newFixture(t)
 	for _, fx := range []*fixture{none, running} {
 		listedHarness(t, fx, bin, "agy")
-		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-			t.Fatal(err)
-		}
 	}
-	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<button>Start agy</button>`, `<option value="gemini-3.8-flash-low" data-efforts="">Gemini 3.8 Flash (Low) · gemini-3.8-flash-low</option>`, `<option value="gem">`)
+	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<button>Start agy</button>`, `<option value="gemini-3.8-flash-low" data-efforts="">Gemini 3.8 Flash (Low) · gemini-3.8-flash-low</option>`)
 	running.status = "idle"
 	running.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, running.handler(), "/"), "console")
@@ -464,10 +450,7 @@ func TestStartFormListsClaudeModelsAndEfforts(t *testing.T) {
 	row := startRow(t, console, "claude")
 	contains(t, "claude row", row, `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`, `<option value="xhigh">xhigh</option>`, `<button>Start claude</button>`)
 	lacks(t, "claude row", row, `<input name="model"`)
-	contains(t, "profile first", console, `name="profile"`)
-	if strings.Index(console, `name="profile"`) > strings.Index(console, `name="harness"`) {
-		t.Fatal("profile select does not come first")
-	}
+	lacks(t, "no profile", console, `name="profile"`)
 }
 
 func TestStartFormCodexRowsComeFromTheModelsCache(t *testing.T) {
@@ -606,49 +589,21 @@ func TestStartRowDefaultsPostNoModelOrEffort(t *testing.T) {
 
 func TestTheStartStripHasItsOwnRow(t *testing.T) {
 	fresh := newFixture(t)
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`
-	if err := os.WriteFile(filepath.Join(fresh.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	console := region(get(t, fresh.handler(), "/"), "console")
-	contains(t, "first run", console, `<div class="starter">`, `<select name="profile" aria-label="Profile" required>`, `<option value="default" selected>`, `<details class="others" id="start-others">`)
-	lacks(t, "first run", console, "or pick a harness")
+	contains(t, "first run", console, `<div class="starter">`, `<details class="others" id="start-others" open>`)
+	lacks(t, "first run", console, "or pick a harness", `name="profile"`, " selected>")
 	others := strings.Index(console, `id="start-others"`)
 	for _, name := range []string{"claude", "codex", "opencode", "agy", "omp"} {
 		if i := strings.Index(console, `name="harness" value="`+name+`"`); i < others {
 			t.Errorf("the %s row is outside the other-harness details", name)
 		}
 	}
-	contains(t, "no policy", region(get(t, newFixture(t).handler(), "/"), "console"), `<details class="others" id="start-others" open>`)
 	ended := newFixture(t)
 	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
 	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
-	contains(t, "after a supervisor", picked, `>same as s1 · sonnet low</option>`, `<button>Start new</button>`, `<button class="primary">Resume</button>`)
-	lacks(t, "after a supervisor", picked, " required>", " selected>")
+	contains(t, "after a supervisor", picked, `>Start new, same as s1</button>`, `<button class="primary">Resume</button>`)
+	lacks(t, "after a supervisor", picked, `name="profile"`)
 	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){align-items:flex-start;gap:var(--space-12);padding:var(--space-16)}", ".starter{flex:1 1 100%", ".starter .gone{margin:0;color:var(--wait);font-size:14px}", `.sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
-}
-
-func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {
-	fx := newFixture(t)
-	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`
-	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	picked := regexp.MustCompile(`<option value="([^"]+)" selected>`).FindStringSubmatch(region(get(t, fx.handler(), "/"), "console"))
-	if picked == nil {
-		t.Fatal("the profile select preselects nothing")
-	}
-	post(fx.handler(), "/supervisor/start", url.Values{"profile": {picked[1]}})
-	if got := strings.Join(fx.called()[0], " "); got != "supervisor start --profile default" {
-		t.Fatalf("ran %q", got)
-	}
-	noDefault := newFixture(t)
-	if err := os.WriteFile(filepath.Join(noDefault.options.Home, "routing.json"), []byte(`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	console := region(get(t, noDefault.handler(), "/"), "console")
-	contains(t, "no default profile", console, `<select name="profile" aria-label="Profile" required><option value="">profile…</option>`)
-	lacks(t, "no default profile", console, " selected>")
 }
 
 func TestTheBoardNeverRunsAHarness(t *testing.T) {
@@ -656,16 +611,12 @@ func TestTheBoardNeverRunsAHarness(t *testing.T) {
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
 		fakebin.Install(t, bin, name, "forbidden", map[string]string{"log": log})
 	}
-	policy := `{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"},"default":{"harness":"claude","model":"sonnet","effort":"medium"}}}`
 	none, running := newFixture(t), newFixture(t)
 	running.status = "idle"
 	running.supervisor(t, state.AttemptRunning, "gen-1")
 	for _, fx := range []*fixture{none, running} {
 		vars := map[string]string{"PATH": bin, "HOME": t.TempDir(), "SECONDHAND_HOME": t.TempDir()}
 		fx.options.Harness = harness.EnvOf(func(k string) string { return vars[k] })
-		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
-			t.Fatal(err)
-		}
 		for _, path := range []string{"/", "/?pick=1", "/supervisor/log"} {
 			get(t, fx.handler(), path)
 		}
