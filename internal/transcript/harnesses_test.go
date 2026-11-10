@@ -427,8 +427,48 @@ func TestOpencodeRetriesAFailedEndedExportOnlyAfterTheRetryWindow(t *testing.T) 
 	}
 }
 
+func TestOpencodeCachesAFailedEndedExportPastTheLiveFloor(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"export": ""})
+	ctx, dir := context.Background(), t.TempDir()
+	_, _ = r.ReadEnded(ctx, "opencode", "ses_1", dir)
+	r.session("opencode:ses_1").failedAt = time.Now().Add(-reexport - time.Second)
+	if _, err := r.ReadEnded(ctx, "opencode", "ses_1", dir); !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("read = %v, want %v", err, ErrUnreadable)
+	}
+	if n := runs(t, count); n != 1 {
+		t.Fatalf("exports = %d, want 1: an ended read keeps the failure for the retry window", n)
+	}
+}
+
+func TestOpencodeLiveReadRetriesAnEndedFailureWithinTheLiveFloor(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"export": ""})
+	ctx, dir := context.Background(), t.TempDir()
+	_, _ = r.ReadEnded(ctx, "opencode", "ses_1", dir)
+	r.session("opencode:ses_1").failedAt = time.Now().Add(-reexport - time.Second)
+	_, _ = r.Read(ctx, "opencode", "ses_1", dir)
+	if n := runs(t, count); n != 2 {
+		t.Fatalf("exports = %d, want 2: a live read applies the live floor", n)
+	}
+}
+
+func TestOpencodeDoesNotCacheTheCallersOwnCancelledExport(t *testing.T) {
+	r, count := stubbed(t, map[string]string{"sleep": "1s"})
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := r.Read(ctx, "opencode", "ses_1", dir); err == nil {
+		t.Fatal("read of a cancelled export succeeded")
+	}
+	if _, err := r.Read(context.Background(), "opencode", "ses_1", dir); err != nil {
+		t.Fatal(err)
+	}
+	if n := runs(t, count); n != 2 {
+		t.Fatalf("exports = %d, want 2: a cancelled export is not cached", n)
+	}
+}
+
 func TestOpencodeConcurrentReadersExportEachSessionOnce(t *testing.T) {
-	r, count := stubbed(t, map[string]string{"sleep": "300ms"})
+	r, count := stubbed(t, map[string]string{"sleep": "300ms", "touch": ""})
 	ctx, dir := context.Background(), t.TempDir()
 	var wg sync.WaitGroup
 	for i := range 20 {

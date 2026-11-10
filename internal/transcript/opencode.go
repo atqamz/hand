@@ -21,7 +21,7 @@ const endedRetry = 10 * time.Minute
 func (s *session) cached(stamp time.Time, ended bool) (bool, error) {
 	if s.failure != nil {
 		window := reexport
-		if s.failedEnded {
+		if ended {
 			window = endedRetry
 		}
 		if time.Since(s.failedAt) < window {
@@ -81,7 +81,7 @@ func (r *Reader) fetch(ctx context.Context, name, id, dir string, ended bool) er
 	if err != nil {
 		if ctx.Err() == nil {
 			s := r.session(key)
-			s.failure, s.failedAt, s.failedEnded = err, time.Now(), ended
+			s.failure, s.failedAt = err, time.Now()
 		}
 		return err
 	}

@@ -56,22 +56,21 @@ type Reader struct {
 }
 
 type session struct {
-	offsets     map[string]int64
-	entries     []Entry
-	lines       int
-	known       int
-	turn        *Entry
-	shown       bool
-	exported    time.Time
-	stamp       time.Time
-	file        string
-	retryAt     time.Time
-	wait        time.Duration
-	final       bool
-	failure     error
-	failedAt    time.Time
-	failedEnded bool
-	status      Status
+	offsets  map[string]int64
+	entries  []Entry
+	lines    int
+	known    int
+	turn     *Entry
+	shown    bool
+	exported time.Time
+	stamp    time.Time
+	file     string
+	retryAt  time.Time
+	wait     time.Duration
+	final    bool
+	failure  error
+	failedAt time.Time
+	status   Status
 }
 
 const (
