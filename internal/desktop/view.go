@@ -495,18 +495,13 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			a.Older()
 		}
 	}
-	if w := a.Timeline.Working; w != nil {
-		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
-			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
-			ui.Text(c, w.On).FontSize(12).TextColor(p.neutral)
-		})
-	}
 	if len(a.Timeline.Entries) == 0 {
 		note := a.Timeline.Note
 		if note == "" {
 			note = "Nothing yet: the conversation appears once the supervisor speaks."
 		}
 		a.emptyCard(c, p, "No messages", note)
+		a.working(c, p)
 		a.composer(c, p)
 		return
 	}
@@ -533,7 +528,17 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			}
 		})
 	}
+	a.working(c, p)
 	a.composer(c, p)
+}
+
+func (a *App) working(c *ui.Context, p palette) {
+	if w := a.Timeline.Working; w != nil {
+		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
+			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
+			ui.Text(c, w.On).FontSize(12).TextColor(p.neutral)
+		})
+	}
 }
 
 func (a *App) composer(c *ui.Context, p palette) {
@@ -543,7 +548,7 @@ func (a *App) composer(c *ui.Context, p palette) {
 			Placeholder("Message the supervisor").Lines(2, 8).Disabled(a.Busy).
 			OnChange(func() { a.saveDraft() }).
 			OnTextKey(func(k ui.TextKey) bool {
-				if k.Key != ui.KeyEnter || k.Mods != ui.Ctrl {
+				if k.Key != ui.KeyEnter || (k.Mods != ui.Ctrl && k.Mods != ui.Super) {
 					return false
 				}
 				a.Draft = k.Text()

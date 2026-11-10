@@ -310,12 +310,19 @@ func (a *App) next(done string) {
 	}
 	for _, need := range a.Status.Needs.Items {
 		ref := needRef(need)
-		if s, ok := refScreen(ref); ok && ref != done && ref != "" {
+		if ref == done {
+			continue
+		}
+		if ref == "" {
+			break
+		}
+		if s, ok := refScreen(ref); ok {
 			a.Screen, a.Ref = s, ref
 			a.AnswerChoice, a.AnswerNote = "", ""
 			a.Reload()
 			return
 		}
+		break
 	}
 	a.Back()
 }

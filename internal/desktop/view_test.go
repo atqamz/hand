@@ -350,7 +350,7 @@ func TestComposerSendsWithCtrlEnter(t *testing.T) {
 	}
 	click(t, tt, "Message")
 	tt.Type("again")
-	tt.Key(ui.Ctrl, ui.KeyEnter)
+	tt.Key(ui.Super, ui.KeyEnter)
 	tt.Frame()
 	if f.sentText != "again" {
 		t.Fatalf("the second send was %q", f.sentText)
@@ -1723,4 +1723,106 @@ func TestTheLastReadReturnsToAnEmptyNeeds(t *testing.T) {
 		t.Fatalf("screen = %v, want Needs", app.Screen)
 	}
 	mustText(t, tt, "All clear")
+}
+
+func TestLeavingStatusDuringTheFirstLoadIsNotPulledToNeeds(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	f.block = make(chan struct{})
+	app.SelectFleet(fleetID)
+	app.Show(desktop.TasksScreen)
+	app.Show(desktop.StatusScreen)
+	close(f.block)
+	for {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(300 * time.Millisecond):
+			if app.Screen != desktop.StatusScreen {
+				t.Fatalf("screen = %v, want Status", app.Screen)
+			}
+			return
+		}
+	}
+}
+
+func TestAnAnswerBeforeABlockedSupervisorRowReturnsToNeeds(t *testing.T) {
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{Kind: "blocked", Ref: "s1", Word: "BLOCKED", Tone: "fail"}}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	if app.Screen != desktop.NeedsScreen || app.Ref != "" {
+		t.Fatalf("moved to %v %q, want Needs", app.Screen, app.Ref)
+	}
+}
+
+func TestAFailedAnswerOrReadDoesNotMove(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	f.action = errors.New("boom")
+	click(t, tt, "Send answer")
+	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
+		t.Fatalf("a failed answer moved to %v %q", app.Screen, app.Ref)
+	}
+	click(t, tt, "Back")
+	click(t, tt, "Cookie fixed")
+	click(t, tt, "Mark read")
+	if app.Screen != desktop.ReportScreen || app.Ref != "r1" {
+		t.Fatalf("a failed read moved to %v %q", app.Screen, app.Ref)
+	}
+}
+
+func TestAStatusStillListingTheAnsweredItemIsSkipped(t *testing.T) {
+	f := goldenFixture(t)
+	f.keepNeeds = true
+	st := f.status[fleetID]
+	for i, n := range st.Needs.Items {
+		if n.Decision == "d1" {
+			st.Needs.Items[0], st.Needs.Items[i] = st.Needs.Items[i], st.Needs.Items[0]
+		}
+	}
+	f.status[fleetID] = st
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	if app.Ref == "d1" {
+		t.Fatalf("reopened the answered item")
+
+	}
+}
+
+func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Conversation")
+	texts := tt.Texts()
+	idx := func(s string) int {
+		for i, x := range texts {
+			if x == s {
+				return i
+			}
+		}
+		t.Fatalf("%q not on screen in %q", s, texts)
+		return -1
+	}
+	e := app.Timeline.Entries
+	if idx("s1 is working") < idx(e[0].Text) || idx("s1 is working") > idx("Message") {
+		t.Fatalf("banner is not between the last message and the composer in %q", texts)
+	}
 }
