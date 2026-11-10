@@ -372,10 +372,12 @@ func userRecord(text string) string {
 }
 
 func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
+	empty := newFixture(t)
+	empty.supervisor(t, state.AttemptRunning, "gen-1")
+	contains(t, "no session file", get(t, empty.handler(), "/supervisor/log"), "waiting for the session…")
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	h := fx.handler()
-	contains(t, "no session file", get(t, h, "/supervisor/log"), "waiting for the session…")
 	claudeLog(t, fx, []string{
 		userRecord("hello <b>there</b>"),
 		`{"type":"assistant","timestamp":"2026-09-28T01:00:01Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Hi, operator."}]}}`,

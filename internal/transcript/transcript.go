@@ -63,6 +63,8 @@ type session struct {
 	shown    bool
 	exported time.Time
 	stamp    time.Time
+	file     string
+	goneAt   time.Time
 	status   Status
 }
 
