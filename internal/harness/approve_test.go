@@ -274,7 +274,11 @@ func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if path, err := pr.MCPFile(home); path != filepath.Join(home, "mcp.json") || err != nil {
+	want, err := filepath.EvalSymlinks(filepath.Join(home, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := pr.MCPFile(home); path != want || err != nil {
 		t.Fatalf("file = %q, %v", path, err)
 	}
 }
