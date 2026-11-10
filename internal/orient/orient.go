@@ -292,7 +292,7 @@ func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home strin
 	if same {
 		return ""
 	}
-	return "the database names " + f.Home + "; run `hand fleet move --rewrite-only --yes --from " + toon.ShellQuote(f.Home) + "` here"
+	return "the database names " + f.Home + "; run `hand fleet adopt` here"
 }
 
 func inboxFolder(home string) string {

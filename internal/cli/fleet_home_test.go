@@ -81,7 +81,7 @@ func TestInitNamesAndRenamesTheFleet(t *testing.T) {
 	}
 }
 
-func TestAMovedHomeIsRefusedUntilInitAdoptsIt(t *testing.T) {
+func TestAMovedHomeIsAdoptedByTheFirstCommand(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
 	old := h.home
@@ -89,11 +89,11 @@ func TestAMovedHomeIsRefusedUntilInitAdoptsIt(t *testing.T) {
 	if err := os.Rename(old, h.home); err != nil {
 		t.Fatal(err)
 	}
-	if _, errOut, code := h.run("task", "list"); code != 3 || !strings.Contains(errOut, "moved here from "+old) {
+	if _, errOut, code := h.run("task", "list"); code != 0 || !strings.Contains(errOut, "hand: adopted "+h.home) {
 		t.Fatalf("moved home: code=%d stderr=%q", code, errOut)
 	}
-	if out := h.ok("init"); field(out, "moved_from") != old || !strings.Contains(out, "remove any watch unit") {
-		t.Fatalf("init after move = %q", out)
+	if out := h.ok("init"); field(out, "moved_from") != "" {
+		t.Fatalf("init after adoption = %q", out)
 	}
 	h.ok("task", "list")
 }
@@ -223,7 +223,7 @@ func TestInitSeesThroughASymlinkedParent(t *testing.T) {
 	}
 }
 
-func TestAFailedAdoptionLeavesTheMoveUnadopted(t *testing.T) {
+func TestAFailedInitDoesNotStopTheFirstCommandAdopting(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
 	old := h.home
@@ -237,8 +237,8 @@ func TestAFailedAdoptionLeavesTheMoveUnadopted(t *testing.T) {
 	if _, _, code := h.run("init"); code != 3 {
 		t.Fatalf("init with a foreign AGENTS.md: code=%d", code)
 	}
-	if _, errOut, code := h.run("task", "list"); code != 3 || !strings.Contains(errOut, "moved here from "+old) {
-		t.Fatalf("after a failed adoption: code=%d stderr=%q", code, errOut)
+	if _, errOut, code := h.run("task", "list"); code != 0 || !strings.Contains(errOut, "hand: adopted "+h.home) {
+		t.Fatalf("after a failed init: code=%d stderr=%q", code, errOut)
 	}
 }
 

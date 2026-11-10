@@ -806,3 +806,233 @@ func TestPlanHomeReportsEveryHitBeyondABatch(t *testing.T) {
 		t.Fatalf("hits = %d, want %d", len(rep.Hits), n)
 	}
 }
+
+func adoptStore(t *testing.T, parent, oldHome string) *Store {
+	t.Helper()
+	setUserHome(t, parent)
+	s := openAt(t, filepath.Join(parent, "fleet-new"))
+	if _, err := s.CreateFleet(context.Background(), "fleet"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE fleet SET home = ?`, oldHome); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func cell(t *testing.T, s *Store, q string) string {
+	t.Helper()
+	var v string
+	if err := s.db.QueryRow(q).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestAdoptRewritesAWindowsHomeOnAnotherSystem(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows home is native here")
+	}
+	parent := t.TempDir()
+	old := `C:\Users\me\fleet`
+	s := adoptStore(t, parent, old)
+	to := filepath.Join(parent, "fleet-new")
+	cells := map[int]string{
+		1: `C:\Users\me\fleet\reports\t1\x.md`,
+		2: `C:/Users/me/fleet/reports/y.md`,
+		3: `c:\Users\me\fleet\reports\z.md and c:/Users/me/fleet/q`,
+		4: `{"path":"C:\\Users\\me\\fleet\\reports\\a.md","url":"file:///C:/Users/me/fleet/b"}`,
+		5: `C:\Users\me\fleet-old\keep and C:\Users\me\fleetx and C:\Users\me\fleet`,
+	}
+	for id, body := range cells {
+		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES (?, ?, '2026-09-26T00:00:00Z', '{}')`, "p"+strconv.Itoa(id), body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.PlanAdopt(context.Background(), []string{old}, to); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.Adopt(context.Background(), []string{old}, to)
+	if err != nil || len(rep.Hits) != 0 {
+		t.Fatalf("adopt: %+v, %v", rep, err)
+	}
+	want := map[string]string{
+		"p1": to + `/reports/t1/x.md`,
+		"p2": to + `/reports/y.md`,
+		"p3": to + `/reports/z.md and ` + to + `/q`,
+		"p4": `{"path":"` + to + `/reports/a.md","url":"file://` + to + `/b"}`,
+		"p5": `C:\Users\me\fleet-old\keep and C:\Users\me\fleetx and ` + to,
+	}
+	for name, w := range want {
+		if got := cell(t, s, `SELECT repo FROM project WHERE name = '`+name+`'`); got != w {
+			t.Errorf("%s = %q, want %q", name, got, w)
+		}
+	}
+	if got := cell(t, s, `SELECT home FROM fleet`); got != to {
+		t.Errorf("fleet.home = %q, want %q", got, to)
+	}
+}
+
+func TestAdoptFromASlashFormWindowsHomeAlsoRewritesTheBackslashSpelling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows home is native here")
+	}
+	parent := t.TempDir()
+	home := `C:\Users\me\fleet`
+	s := adoptStore(t, parent, home)
+	to := filepath.Join(parent, "fleet-new")
+	cells := map[string]string{
+		"p1": `C:\Users\me\fleet\reports\x.md`,
+		"p2": `c:/Users/me/fleet/y`,
+		"p3": `{"path":"C:\\Users\\me\\fleet\\a.md"}`,
+		"p4": `c:\Users\me\fleetx`,
+	}
+	for name, body := range cells {
+		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES (?, ?, '2026-09-26T00:00:00Z', '{}')`, name, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, from := range []string{`c:/Users/me/fleet`, `C:/Users/me/fleet`} {
+		rep, err := s.PlanAdopt(context.Background(), []string{from}, to)
+		if err != nil || len(rep.Hits) != 0 || rep.Absolute != 4 {
+			t.Fatalf("plan from %s: absolute=%d hits=%d, %v", from, rep.Absolute, len(rep.Hits), err)
+		}
+	}
+	rep, err := s.Adopt(context.Background(), []string{`c:/Users/me/fleet`}, to)
+	if err != nil || len(rep.Hits) != 0 {
+		t.Fatalf("adopt: %+v, %v", rep, err)
+	}
+	want := map[string]string{
+		"p1": to + `/reports/x.md`,
+		"p2": to + `/y`,
+		"p3": `{"path":"` + to + `/a.md"}`,
+		"p4": `c:\Users\me\fleetx`,
+	}
+	for name, w := range want {
+		if got := cell(t, s, `SELECT repo FROM project WHERE name = '`+name+`'`); got != w {
+			t.Errorf("%s = %q, want %q", name, got, w)
+		}
+	}
+}
+
+func TestAdoptRewritesAnEscapedSlashSpellingOfAWindowsHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows home is native here")
+	}
+	parent := t.TempDir()
+	old := `C:\Users\me\fleet`
+	s := adoptStore(t, parent, old)
+	if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES ('p', 'x', '2026-09-26T00:00:00Z', ?)`, `C:\u002fUsers\u002fme\u002ffleet\u002fq`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PlanAdopt(context.Background(), []string{old}, filepath.Join(parent, "fleet-new")); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(parent, "fleet-new")
+	rep, err := s.Adopt(context.Background(), []string{old}, to)
+	if err != nil || len(rep.Hits) != 0 {
+		t.Fatalf("adopt: %+v, %v", rep, err)
+	}
+	want := strings.ReplaceAll(to, "/", `\u002f`) + `\u002fq`
+	if got := cell(t, s, `SELECT settings FROM project`); got != want {
+		t.Fatalf("settings = %q, want %q", got, want)
+	}
+}
+
+func TestAdoptNamesTheColumnThatCannotHoldTheRewrite(t *testing.T) {
+	parent := t.TempDir()
+	s := adoptStore(t, parent, filepath.Join(parent, "a"))
+	old := filepath.Join(parent, "a")
+	to := filepath.Join(parent, "a-much-longer-folder-name-for-the-new-home-than-before")
+	title := strings.Repeat("x", 200-len(old)-1) + " " + old
+	if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES ('app', 'x', '2026-09-26T00:00:00Z', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'app', ?, 'g', 'active', '2026-09-26T00:00:00Z', '2026-09-26T00:00:00Z')`, title); err != nil {
+		t.Fatal(err)
+	}
+	for name, run := range map[string]func() error{
+		"plan":  func() error { _, err := s.PlanAdopt(context.Background(), []string{old}, to); return err },
+		"adopt": func() error { _, err := s.Adopt(context.Background(), []string{old}, to); return err },
+	} {
+		err := run()
+		if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "task.title of t1") || !strings.Contains(err.Error(), "edit that cell by hand") {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if got := cell(t, s, `SELECT title FROM task WHERE id = 1`); got != title {
+		t.Fatalf("a failed adoption changed the title")
+	}
+}
+
+func TestAdoptRewritesATildeOnlyWhenTheOldHomeIsUnderHome(t *testing.T) {
+	parent := t.TempDir()
+	setUserHome(t, parent)
+	outside := filepath.Join(t.TempDir(), "fleet")
+	s := adoptStore(t, parent, outside)
+	if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES ('p', 'x', '2026-09-26T00:00:00Z', ?)`, "see ~/fleet/x and "+outside+"/a"); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(parent, "fleet-new")
+	rep, err := s.Adopt(context.Background(), []string{outside}, to)
+	if err != nil || len(rep.Hits) != 0 {
+		t.Fatalf("a tilde that names another folder refused the adoption: %+v, %v", rep, err)
+	}
+	if got := cell(t, s, `SELECT settings FROM project`); got != "see ~/fleet/x and "+to+"/a" {
+		t.Fatalf("settings = %q", got)
+	}
+}
+
+func TestMovedSinceNamesAnAdoption(t *testing.T) {
+	parent := t.TempDir()
+	old := filepath.Join(parent, "fleet-old")
+	s := adoptStore(t, parent, old)
+	ctx := context.Background()
+	to := filepath.Join(parent, "fleet-new")
+	if _, err := s.Adopt(ctx, []string{old}, to); err != nil {
+		t.Fatal(err)
+	}
+	from, dest, moved, err := s.MovedSince(ctx, clock().Add(-time.Second))
+	if err != nil || !moved || from != old || dest != to {
+		t.Fatalf("moved since = %q, %q, %v, %v; want %q, %q", from, dest, moved, err, old, to)
+	}
+	if _, _, moved, err := s.MovedSince(ctx, clock()); err != nil || moved {
+		t.Fatalf("a supervisor that started at the adoption is not before it: moved = %v, %v", moved, err)
+	}
+}
+
+func TestMoveHitsWithNoPatternFindsNothing(t *testing.T) {
+	s, _ := openTest(t)
+	hits, err := moveHits(context.Background(), s.db, nil, "/x", "", false)
+	if err != nil || len(hits) != 0 {
+		t.Fatalf("hits = %v, %v", hits, err)
+	}
+}
+
+func TestAdoptFromASlashFormWindowsHomeToAWindowsTargetKeepsTheBackslashSpelling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows home is native here")
+	}
+	parent := t.TempDir()
+	s := adoptStore(t, parent, `C:\Users\me\fleet`)
+	for name, body := range map[string]string{
+		"p1": `C:\Users\me\fleet\reports\x.md`,
+		"p2": `c:/Users/me/fleet/y`,
+	} {
+		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at, settings) VALUES (?, ?, '2026-09-26T00:00:00Z', '{}')`, name, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Adopt(context.Background(), []string{`C:/Users/me/fleet`}, `D:/new`); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"p1": `D:\new\reports\x.md`,
+		"p2": `D:/new/y`,
+	}
+	for name, w := range want {
+		if got := cell(t, s, `SELECT repo FROM project WHERE name = '`+name+`'`); got != w {
+			t.Errorf("%s = %q, want %q", name, got, w)
+		}
+	}
+}

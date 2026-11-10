@@ -70,6 +70,9 @@ func TestWatchStopsOnTheFirstEventAfterAMove(t *testing.T) {
 	adopt := *fx.h
 	adopt.home = moved
 	adopt.ok("init")
+	if err := os.Remove(filepath.Join(moved, "watch.pid")); err != nil {
+		t.Fatal(err)
+	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
 	select {

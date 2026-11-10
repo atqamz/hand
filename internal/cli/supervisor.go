@@ -770,6 +770,7 @@ func cmdSupervisorStop(r *runner, args []string) error {
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
+	r.noAdopt = true
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		unlock, _, err := r.supervisorLock(true)
 		if err != nil {
@@ -1552,6 +1553,7 @@ func cmdSupervisorInterrupt(r *runner, args []string) error {
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
+	r.noAdopt = true
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		// A delivery may hold the lock; Escape must not wait behind it.
 		unlock, locked, err := r.supervisorLock(false)

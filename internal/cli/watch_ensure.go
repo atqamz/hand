@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -22,8 +24,14 @@ var (
 	systemdRunWait   = 10 * time.Second
 )
 
-func (r *runner) watchHeld() (bool, error) {
-	f, err := os.OpenFile(filepath.Join(r.home, "watch.lock"), os.O_RDWR, 0)
+func (r *runner) watchHeld() (bool, error) { return watchLocked(r.home) }
+
+func watchLocked(home string) (bool, error) {
+	path := filepath.Join(home, "watch.lock")
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if runtime.GOOS != "windows" && (errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS)) {
+		f, err = os.Open(path)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

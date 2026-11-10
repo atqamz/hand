@@ -197,7 +197,7 @@ func TestLuvusShowPrintsTheServerVersion(t *testing.T) {
 	has(t, "pin", h.ok("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")), "server: 0.14.2", "match: no", "`hand attach` refuses a server of another version", "until the server restarts")
 }
 
-func TestLuvusPinInAMovedFleetLeavesThePinAlone(t *testing.T) {
+func TestAdoptingAMovedFleetLeavesThePinAlone(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
 	h.ok("init")
@@ -211,9 +211,7 @@ func TestLuvusPinInAMovedFleetLeavesThePinAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	pinFile := filepath.Join(fleet.LuvusStore(h.home), "pin.json")
-	if _, errOut, code := h.run("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")); code != 3 || !strings.Contains(errOut, "moved here from") {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
-	}
+	h.ok("orient")
 	if after, err := os.ReadFile(pinFile); err != nil || string(after) != string(before) {
 		t.Fatalf("pin.json changed: %v", err)
 	}

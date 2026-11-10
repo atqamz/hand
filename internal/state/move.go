@@ -20,6 +20,8 @@ type MoveCell struct {
 
 type MoveReport struct {
 	From, To        string
+	Froms           []string
+	HomeSet         bool
 	Name            string
 	Cells           []MoveCell
 	Absolute, Tilde int
@@ -61,7 +63,15 @@ type moveWriter interface {
 }
 
 func OpenRead(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?mode=ro&_pragma=busy_timeout(10000)")
+	return openRead(path, "mode=ro")
+}
+
+func OpenReadImmutable(path string) (*Store, error) {
+	return openRead(path, "mode=ro&immutable=1")
+}
+
+func openRead(path, mode string) (*Store, error) {
+	db, err := sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?"+mode+"&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, err
 	}
@@ -88,10 +98,61 @@ func (s *Store) PlanHome(ctx context.Context, from, to string) (MoveReport, erro
 		return rep, err
 	}
 	rep.Name = moveTargetName(name, from, to)
-	pass, err := moveScan(ctx, s.db, from, to, userHome(), false)
+	pass, err := moveScan(ctx, s.db, []string{from}, to, userHome(), false, true)
 	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
 	rep.Hits = pass.Hits
 	rep.AfterAbsolute = len(rep.Hits)
+	return rep, err
+}
+
+func (s *Store) PlanAdopt(ctx context.Context, froms []string, to string) (MoveReport, error) {
+	rep := MoveReport{Froms: froms, To: to}
+	pass, err := moveScan(ctx, s.db, froms, to, userHome(), false, false)
+	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
+	rep.Hits = pass.Hits
+	rep.AfterAbsolute = len(rep.Hits)
+	if err == nil && len(rep.Hits) == 0 {
+		err = s.rehearseAdopt(ctx, froms, to)
+	}
+	return rep, err
+}
+
+func (s *Store) rehearseAdopt(ctx context.Context, froms []string, to string) error {
+	dir, err := os.MkdirTemp("", "hand-adopt-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "hand.db")
+	if err := s.Backup(ctx, path); err != nil {
+		return err
+	}
+	c, err := Open(path, s.now)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_, err = c.Adopt(ctx, froms, to)
+	return err
+}
+
+func (s *Store) Adopt(ctx context.Context, froms []string, to string) (MoveReport, error) {
+	rep := MoveReport{Froms: froms, To: to}
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		name, err := fleetName(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rep.Name = name
+		if err := s.rewriteTx(ctx, tx, froms, to, &rep, nil, false); err != nil {
+			return err
+		}
+		if len(rep.Cells) == 0 && !rep.HomeSet {
+			return nil
+		}
+		rep.EventSeq, err = adoptEvent(tx, s.stamp(), froms, to, rep)
+		return err
+	})
 	return rep, err
 }
 
@@ -126,28 +187,7 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 				return err
 			}
 		}
-		pass, err := moveScan(ctx, tx, from, to, userHome(), true)
-		if err != nil {
-			return err
-		}
-		rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
-		if after != nil {
-			if err := after(tx); err != nil {
-				return err
-			}
-		}
-		hits, err := moveHits(ctx, tx, from, to, userHome())
-		if err != nil {
-			return err
-		}
-		if len(hits) != 0 {
-			return fmt.Errorf("%w: the move verification found %d old home path(s) after the rewrite: %s; edit them to name %s by hand in %s, then run again; nothing changed", ErrConflict, len(hits), moveHitList(hits), to, filepath.Join(s.home, "hand.db"))
-		}
-		rep.Hits, rep.AfterAbsolute = hits, len(hits)
-		if err := moveChecks(ctx, tx, &rep); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE fleet SET home = ? WHERE home = ''`, to); err != nil {
+		if err := s.rewriteTx(ctx, tx, []string{from}, to, &rep, after, true); err != nil {
 			return err
 		}
 		if inPlace {
@@ -158,6 +198,37 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 		return err
 	})
 	return rep, err
+}
+
+func (s *Store) rewriteTx(ctx context.Context, tx *sql.Tx, froms []string, to string, rep *MoveReport, after func(moveWriter) error, strict bool) error {
+	pass, err := moveScan(ctx, tx, froms, to, userHome(), true, strict)
+	if err != nil {
+		return err
+	}
+	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
+	if after != nil {
+		if err := after(tx); err != nil {
+			return err
+		}
+	}
+	hits, err := moveHits(ctx, tx, froms, to, userHome(), strict)
+	if err != nil {
+		return err
+	}
+	if len(hits) != 0 {
+		return fmt.Errorf("%w: the move verification found %d old home path(s) after the rewrite: %s; edit them to name %s by hand in %s, then run again; nothing changed", ErrConflict, len(hits), moveHitList(hits), to, filepath.Join(s.home, "hand.db"))
+	}
+	rep.Hits, rep.AfterAbsolute = hits, len(hits)
+	if err := moveChecks(ctx, tx, rep); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE fleet SET home = ? WHERE home = ''`, to)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	rep.HomeSet = n > 0
+	return err
 }
 
 func fleetName(ctx context.Context, q moveQueryer) (string, error) {
@@ -202,6 +273,20 @@ func moveEvent(tx *sql.Tx, at, from, to string) (int64, error) {
 	return res.LastInsertId()
 }
 
+func adoptEvent(tx *sql.Tx, at string, froms []string, to string, rep MoveReport) (int64, error) {
+	b, _ := json.Marshal(struct {
+		From        []string `json:"from"`
+		To          string   `json:"to"`
+		Cells       int      `json:"cells"`
+		Occurrences int      `json:"occurrences"`
+	}{froms, to, len(rep.Cells), rep.Absolute + rep.Tilde})
+	res, err := tx.Exec(`INSERT INTO event(at, kind, task_id, detail) VALUES (?, 'fleet.adopted', NULL, ?)`, at, string(b))
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 func moveDetail(from, to string) string {
 	b, _ := json.Marshal(struct {
 		From string `json:"from"`
@@ -219,6 +304,17 @@ func moveSplit(detail string) (string, string, bool) {
 		return "", "", false
 	}
 	return v.From, v.To, true
+}
+
+func adoptSplit(detail string) (string, string, bool) {
+	var v struct {
+		From []string `json:"from"`
+		To   string   `json:"to"`
+	}
+	if err := json.Unmarshal([]byte(detail), &v); err != nil || len(v.From) == 0 || v.To == "" {
+		return "", "", false
+	}
+	return strings.Join(v.From, ", "), v.To, true
 }
 
 func (s *Store) PendingMove(ctx context.Context) (from, to string, ok bool, err error) {
@@ -260,26 +356,29 @@ func pendingMove(ctx context.Context, q moveQueryer) (from, to string, ok bool, 
 }
 
 func (s *Store) MovedSince(ctx context.Context, at time.Time) (from, to string, moved bool, err error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT at, detail FROM event WHERE kind = 'fleet.moved' ORDER BY seq`)
+	rows, err := s.db.QueryContext(ctx, `SELECT at, kind, detail FROM event WHERE kind IN ('fleet.moved', 'fleet.adopted') ORDER BY seq`)
 	if err != nil {
 		return "", "", false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var stamp, detail string
-		if err := rows.Scan(&stamp, &detail); err != nil {
+		var stamp, kind, detail string
+		if err := rows.Scan(&stamp, &kind, &detail); err != nil {
 			return "", "", false, err
 		}
 		when, err := time.Parse(time.RFC3339Nano, stamp)
 		if err != nil {
-			return "", "", false, fmt.Errorf("%w: event fleet.moved does not name a time: %q", ErrInvalid, stamp)
+			return "", "", false, fmt.Errorf("%w: event %s does not name a time: %q", ErrInvalid, kind, stamp)
 		}
 		if !when.After(at) {
 			continue
 		}
 		from, to, moved = moveSplit(detail)
+		if kind == "fleet.adopted" {
+			from, to, moved = adoptSplit(detail)
+		}
 		if !moved {
-			return "", "", false, fmt.Errorf("%w: event fleet.moved does not name a move: %q", ErrInvalid, detail)
+			return "", "", false, fmt.Errorf("%w: event %s does not name a move: %q", ErrInvalid, kind, detail)
 		}
 		return from, to, true, nil
 	}
@@ -324,7 +423,7 @@ func (s *Store) ConfirmMove(ctx context.Context, from, to string) (int64, error)
 }
 
 func (s *Store) VerifyHome(ctx context.Context, from, to string) ([]MoveCell, error) {
-	return moveHits(ctx, s.db, from, to, userHome())
+	return moveHits(ctx, s.db, []string{from}, to, userHome(), true)
 }
 
 func moveChecks(ctx context.Context, tx *sql.Tx, rep *MoveReport) error {
@@ -390,13 +489,13 @@ type movePass struct {
 	Hits            []MoveCell
 }
 
-func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bool) (movePass, error) {
+func moveScan(ctx context.Context, q moveWriter, froms []string, to, home string, apply, strict bool) (movePass, error) {
 	var pass movePass
 	cols, err := moveColumns(ctx, q)
 	if err != nil {
 		return pass, err
 	}
-	patterns := moveHitPatterns(from, to, home)
+	patterns := moveHitAll(froms, to, home, strict)
 	fold := foldHome()
 	for _, c := range cols {
 		last := int64(-1 << 63)
@@ -406,11 +505,16 @@ func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bo
 				return pass, err
 			}
 			for _, r := range found {
-				out, absolute, tilde := rewriteHome(r.value, from, to, home)
+				out, absolute, tilde := r.value, 0, 0
+				for _, from := range froms {
+					var a, t int
+					out, a, t = rewriteHome(out, from, to, home)
+					absolute, tilde = absolute+a, tilde+t
+				}
 				if out != r.value {
 					if apply {
 						if _, err := q.ExecContext(ctx, `UPDATE `+quoteIdent(c.table)+` SET `+quoteIdent(c.column)+` = ? WHERE rowid = ?`, out, r.rowid); err != nil {
-							return pass, err
+							return pass, fmt.Errorf("%w: rewriting %s.%s of %s to name %s failed: %v; edit that cell by hand so the rewritten value fits, then run again; nothing changed", ErrConflict, c.table, c.column, r.ref, to, err)
 						}
 					}
 					pass.Cells = append(pass.Cells, MoveCell{Table: c.table, Column: c.column, Ref: r.ref, Absolute: absolute, Tilde: tilde})
@@ -450,12 +554,15 @@ func moveBatchRows(ctx context.Context, q moveQueryer, query string, args ...any
 	return found, rows.Err()
 }
 
-func moveHits(ctx context.Context, q moveQueryer, from, to, home string) ([]MoveCell, error) {
+func moveHits(ctx context.Context, q moveQueryer, froms []string, to, home string, strict bool) ([]MoveCell, error) {
+	patterns := moveHitAll(froms, to, home, strict)
+	if len(patterns) == 0 {
+		return nil, nil
+	}
 	cols, err := moveColumns(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	patterns := moveHitPatterns(from, to, home)
 	fold := foldHome()
 	var hits []MoveCell
 	for _, c := range cols {
@@ -522,18 +629,30 @@ func moveRef(table string) string {
 
 func moveHistory(table string) string {
 	if table == "event" {
-		return ` AND kind NOT IN ('fleet.moved', 'fleet.moving')`
+		return ` AND kind NOT IN ('fleet.moved', 'fleet.moving', 'fleet.adopted')`
 	}
 	return ""
 }
 
 type movePattern struct {
-	text, target string
-	tilde        bool
+	text, target, sep string
+	tilde             bool
 }
 
-func moveHitPatterns(from, to, home string) []string {
-	ps := movePatterns(from, to, home, true)
+func moveHitAll(froms []string, to, home string, strict bool) []string {
+	var out []string
+	for _, from := range froms {
+		out = append(out, moveHitPatterns(from, to, home, strict)...)
+	}
+	return out
+}
+
+func moveHitPatterns(from, to, home string, strict bool) []string {
+	tilde := strict
+	if !strict {
+		_, tilde = homeChild(from, home)
+	}
+	ps := movePatterns(from, to, home, tilde)
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = p.text
@@ -543,7 +662,7 @@ func moveHitPatterns(from, to, home string) []string {
 
 func movePatterns(from, to, home string, tilde bool) []movePattern {
 	var ps []movePattern
-	add := func(text, target string, tilde bool) {
+	add := func(text, target string, tilde bool, sep ...string) {
 		if text == "" || text == target {
 			return
 		}
@@ -552,15 +671,33 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 				return
 			}
 		}
-		ps = append(ps, movePattern{text: text, target: target, tilde: tilde})
+		p := movePattern{text: text, target: target, tilde: tilde}
+		if len(sep) > 0 {
+			p.sep = sep[0]
+		}
+		ps = append(ps, p)
 	}
 	var addSpellings func(path, target string)
 	addSpellings = func(path, target string) {
-		add(path, target, false)
-		if escaped := escapeBackslashes(path); escaped != path {
-			add(escaped, escapeBackslashes(target), false)
+		if windowsPath(path) && strings.Contains(path, "/") {
+			backTarget := target
+			if windowsPath(target) {
+				backTarget = strings.ReplaceAll(target, "/", `\`)
+			}
+			addSpellings(strings.ReplaceAll(path, "/", `\`), backTarget)
 		}
-		slash, slashTarget := filepath.ToSlash(path), filepath.ToSlash(target)
+		cross := windowsPath(path) && !windowsPath(target)
+		sep := func(s string) string {
+			if cross {
+				return s
+			}
+			return ""
+		}
+		add(path, target, false, sep(`\`))
+		if escaped := escapeBackslashes(path); escaped != path {
+			add(escaped, escapeBackslashes(target), false, sep(`\\`))
+		}
+		slash, slashTarget := toSlash(path), toSlash(target)
 		if slash != path {
 			add(slash, slashTarget, false)
 			if escaped := escapeBackslashes(slash); escaped != slash {
@@ -580,10 +717,17 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 		add("file://"+path, "file://"+target, false)
 		if slash != path {
 			add("file://"+slash, "file://"+slashTarget, false)
-			add("file:///"+slash, "file:///"+slashTarget, false)
+			fileTarget := "file:///" + slashTarget
+			if strings.HasPrefix(slashTarget, "/") {
+				fileTarget = "file://" + slashTarget
+			}
+			add("file:///"+slash, fileTarget, false)
 		}
 	}
 	addSpellings(from, to)
+	if flipped := flipDrive(from); flipped != "" && !foldHome() {
+		addSpellings(flipped, to)
+	}
 	if alias, ok := homeAlias(from, home); ok {
 		addSpellings(alias, to)
 	}
@@ -602,6 +746,33 @@ func movePatterns(from, to, home string, tilde bool) []movePattern {
 		}
 	}
 	return ps
+}
+
+func windowsPath(p string) bool {
+	if strings.HasPrefix(p, `\\`) {
+		return true
+	}
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') && (p[0] >= 'a' && p[0] <= 'z' || p[0] >= 'A' && p[0] <= 'Z')
+}
+
+func toSlash(p string) string {
+	if foldHome() || windowsPath(p) {
+		return strings.ReplaceAll(p, `\`, "/")
+	}
+	return p
+}
+
+func flipDrive(p string) string {
+	if !windowsPath(p) || p[1] != ':' {
+		return ""
+	}
+	c := p[0]
+	if c >= 'a' && c <= 'z' {
+		c -= 'a' - 'A'
+	} else {
+		c += 'a' - 'A'
+	}
+	return string(c) + p[1:]
 }
 
 func slashEscaped(target, escape string) string {
@@ -631,7 +802,7 @@ func rewriteHome(s, from, to, home string) (string, int, int) {
 			target = escapeBackslashes(target)
 		}
 		var n int
-		out, n = replacePathFold(out, p.text, target, fold)
+		out, n = replacePathSep(out, p.text, target, fold, p.sep)
 		if p.tilde {
 			tilde += n
 		} else {
@@ -653,6 +824,10 @@ func replacePath(s, from, to string) (string, int) {
 }
 
 func replacePathFold(s, from, to string, fold bool) (string, int) {
+	return replacePathSep(s, from, to, fold, "")
+}
+
+func replacePathSep(s, from, to string, fold bool, sep string) (string, int) {
 	if s == "" || from == "" {
 		return s, 0
 	}
@@ -673,12 +848,31 @@ func replacePathFold(s, from, to string, fold bool) (string, int) {
 		if (j == 0 || !moveLead(s[j-1])) && pathEnd(s, end) {
 			b.WriteString(s[last:j])
 			b.WriteString(to)
+			if sep != "" {
+				end = slashTail(&b, s, end, sep)
+			}
 			last, n = end, n+1
 		}
 		i = end
 	}
 	b.WriteString(s[last:])
 	return b.String(), n
+}
+
+func slashTail(b *strings.Builder, s string, i int, sep string) int {
+	for i < len(s) {
+		switch {
+		case strings.HasPrefix(s[i:], sep):
+			b.WriteByte('/')
+			i += len(sep)
+		case moveName(s[i]) || s[i] == '/':
+			b.WriteByte(s[i])
+			i++
+		default:
+			return i
+		}
+	}
+	return i
 }
 
 func countHits(s string, patterns []string, fold bool) int {

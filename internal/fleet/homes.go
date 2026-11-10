@@ -1,15 +1,19 @@
 package fleet
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/atqamz/hand/internal/flock"
+	"github.com/atqamz/hand/internal/state"
 )
 
 const (
@@ -116,4 +120,48 @@ func renameSynced(tmp, dst string) error {
 		return err
 	}
 	return syncDir(filepath.Dir(dst))
+}
+
+func RefuseCopies(id string, homes []string) error {
+	for _, home := range homes {
+		db := filepath.Join(home, "hand.db")
+		info, err := os.Stat(db)
+		switch {
+		case absent(err):
+			continue
+		case err != nil:
+			return fmt.Errorf("cannot look for a copy at %s: %v; fix that folder's access, or move the fleet", home, err)
+		case !info.Mode().IsRegular():
+			continue
+		}
+		other, err := copyID(db)
+		switch {
+		case err != nil:
+			return fmt.Errorf("cannot read %s to tell whether it is a copy of fleet %s: %v; move or delete that file", db, id, err)
+		case other == id:
+			return fmt.Errorf("fleet %s is also at %s, so one of the two homes is a copy; delete one of them", id, home)
+		}
+	}
+	return nil
+}
+
+func copyID(db string) (string, error) {
+	f, _, err := readFleet(db)
+	return f.ID, err
+}
+
+func readFleet(db string) (state.Fleet, bool, error) {
+	st, err := state.OpenRead(db)
+	if err != nil {
+		var again error
+		if st, again = state.OpenReadImmutable(db); again != nil {
+			return state.Fleet{}, false, err
+		}
+	}
+	defer st.Close()
+	f, err := st.Fleet(context.Background())
+	if errors.Is(err, state.ErrNotFound) || err != nil && strings.Contains(err.Error(), "no such table") {
+		return state.Fleet{}, false, nil
+	}
+	return f, err == nil, err
 }

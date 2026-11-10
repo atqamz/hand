@@ -797,9 +797,6 @@ func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
 	if _, errOut, code := h.run("fleet", "move", "--yes", dest); code != 3 || !strings.Contains(errOut, "rewrite-only --yes --from "+home) {
 		t.Fatalf("move without --from: code=%d stderr=%q", code, errOut)
 	}
-	if out := h.ok("orient"); !strings.Contains(out, "--rewrite-only --yes --from '"+moveFieldPath(home)+"'") {
-		t.Fatalf("orient = %q", out)
-	}
 	if dry := h.ok("fleet", "move", "--dry-run", "--rewrite-only", "--from", home); !strings.Contains(dry, "Run `hand fleet move --rewrite-only --yes --from '"+home+"'` here") {
 		t.Fatalf("rewrite-only dry run = %q", dry)
 	}
