@@ -32,11 +32,14 @@ var homeSchema string
 //go:embed task_parent.sql
 var taskParentSchema string
 
-var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema}
+//go:embed attempt_status.sql
+var attemptStatusSchema string
+
+var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema}
 
 const MinSchemaVersion = 16
 
-const SchemaVersion = 20
+const SchemaVersion = 21
 
 const lastMigrating = "0.13.0"
 

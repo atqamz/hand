@@ -40,7 +40,7 @@ func hostIroh() (asset, sums, exe string) {
 func newIrohFetch(t *testing.T, handIroh, assetIroh string) *fixture {
 	t.Helper()
 	f := newFetch(t)
-	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "20", "0.14.4", handIroh) {
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "21", "0.14.4", handIroh) {
 		f.srv.set(name, body)
 	}
 	if assetIroh != "" {

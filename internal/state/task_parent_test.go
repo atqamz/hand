@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestAVersion19DatabaseOnDiskMigratesToTwentyWithRootTasks(t *testing.T) {
+func TestAVersion19DatabaseOnDiskMigratesWithRootTasks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hand.db")
 	db, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
@@ -36,7 +36,7 @@ func TestAVersion19DatabaseOnDiskMigratesToTwentyWithRootTasks(t *testing.T) {
 			t.Fatal(err)
 		}
 		var v, idx int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 20 {
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 			t.Fatalf("user_version = %d, %v", v, err)
 		}
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'task_parent'`).Scan(&idx); err != nil || idx != 1 {
