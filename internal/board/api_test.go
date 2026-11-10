@@ -19,6 +19,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +91,10 @@ func apiSeed(t *testing.T, fx *fixture) {
 	}
 }
 
+const apiTick = 40 * time.Millisecond
+
+func nextTick() { time.Sleep(2 * apiTick) }
+
 func apiFixture(t *testing.T, now func() time.Time) *fixture {
 	t.Helper()
 	fx := newFixture(t)
@@ -96,6 +102,7 @@ func apiFixture(t *testing.T, now func() time.Time) *fixture {
 	fx.options.Now = now
 	fx.options.Controls = true
 	fx.options.Base = ""
+	fx.options.Tick = apiTick
 	if _, err := fx.st.RenameFleet(context.Background(), "golden"); err != nil {
 		t.Fatal(err)
 	}
@@ -929,6 +936,7 @@ func TestAPICursorFollowsTheData(t *testing.T) {
 	if _, err := fx.st.AddTask(context.Background(), "hand", "After the cursor", ""); err != nil {
 		t.Fatal(err)
 	}
+	nextTick()
 	rec = request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("old cursor after an event = %d:\n%s", rec.Code, rec.Body.String())
@@ -943,6 +951,129 @@ func TestAPICursorFollowsTheData(t *testing.T) {
 	body := testAPIError(t, request(h, "GET", "/api/v1/status?since=not-a-cursor", nil, true), http.StatusBadRequest, "bad_cursor")
 	if strings.Contains(body.Message, "/") {
 		t.Fatalf("cursor error names a path: %q", body.Message)
+	}
+}
+
+func pollCursor(t *testing.T, h http.Handler, path, cursor string) *httptest.ResponseRecorder {
+	t.Helper()
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return request(h, "GET", path+sep+"since="+url.QueryEscape(cursor), nil, true)
+}
+
+func TestClientsShareOneVersionPerTick(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = 300 * time.Millisecond
+	h := fx.handler()
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	read := func(clients int) int {
+		time.Sleep(fx.options.Tick + 50*time.Millisecond)
+		before := fx.explained()
+		var wg sync.WaitGroup
+		for range clients {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusNotModified || rec.Body.Len() != 0 {
+					t.Errorf("unchanged poll = %d with %d bytes", rec.Code, rec.Body.Len())
+				}
+			}()
+		}
+		wg.Wait()
+		return fx.explained() - before
+	}
+	one := read(1)
+	if one == 0 {
+		t.Fatal("a new tick did not recompute the version")
+	}
+	if twenty := read(20); twenty != one {
+		t.Fatalf("20 clients cost %d pane reads in a tick, 1 client costs %d", twenty, one)
+	}
+}
+
+func TestAnUnchangedReadWithinATickBuildsNothing(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	h := fx.handler()
+	for _, path := range []string{"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks", "/api/v1/tasks?all=1"} {
+		env, _ := apiInto[json.RawMessage](t, h, path)
+		before := fx.explained()
+		rec := pollCursor(t, h, path, env.Cursor)
+		if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 || rec.Header().Get("X-Hand-Cursor") != env.Cursor {
+			t.Fatalf("%s: unchanged poll = %d %q", path, rec.Code, rec.Body.String())
+		}
+		if got := fx.explained(); got != before {
+			t.Fatalf("%s: a 304 read the pane %d times", path, got-before)
+		}
+	}
+}
+
+func TestAWriteIsSeenOnTheNextTick(t *testing.T) {
+	ctx := context.Background()
+	writes := map[string]func(t *testing.T, st *state.Store, a state.Attempt) error{
+		"event": func(_ *testing.T, st *state.Store, _ state.Attempt) error {
+			_, err := st.AddTask(ctx, "hand", "Another", "")
+			return err
+		},
+		"report": func(_ *testing.T, st *state.Store, a state.Attempt) error {
+			_, err := st.AddReport(ctx, a.ID, state.ReportProgress, "More")
+			return err
+		},
+		"decision": func(_ *testing.T, st *state.Store, a state.Attempt) error {
+			_, err := st.Ask(ctx, a.TaskID, "Which way?")
+			return err
+		},
+		"attempt": func(_ *testing.T, st *state.Store, a state.Attempt) error {
+			return st.NoteAttempt(ctx, a.ID, "long", state.AttemptRef(a.ID)+": long")
+		},
+		"supervisor input": func(_ *testing.T, st *state.Store, _ state.Attempt) error {
+			_, err := st.AddSupervisorInput(ctx, "hello")
+			return err
+		},
+		"alert": func(_ *testing.T, st *state.Store, _ state.Attempt) error {
+			return st.RecordAlert(ctx, "report", "t1", "text", "")
+		},
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			h := fx.handler()
+			env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+			live, err := fx.st.LiveAttempts(ctx)
+			if err != nil || len(live) == 0 {
+				t.Fatalf("live attempts = %d, %v", len(live), err)
+			}
+			if err := write(t, fx.st, live[0]); err != nil {
+				t.Fatal(err)
+			}
+			nextTick()
+			rec := pollCursor(t, h, "/api/v1/status", env.Cursor)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("a %s write left the cursor unchanged (%d)", name, rec.Code)
+			}
+		})
+	}
+}
+
+func TestAnActionIsSeenAtOnce(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusNotModified {
+		t.Fatalf("unchanged poll = %d", rec.Code)
+	}
+	if rec := apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, token, true); rec.Code >= 300 {
+		t.Fatalf("message = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("poll after a message = %d, want 200", rec.Code)
 	}
 }
 
@@ -982,6 +1113,7 @@ func TestACursorMovesWhenOnlyATranscriptLineArrives(t *testing.T) {
 		rec("assistant", ago(19), "All good.", 0),
 		rec("assistant", ago(1), "A line that arrives without an event.", 0),
 	})
+	nextTick()
 	rec := request(h, "GET", "/api/v1/timeline?since="+url.QueryEscape(env.Cursor), nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a new transcript line left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
@@ -1013,6 +1145,7 @@ func TestACursorMovesWhenOnlyThePaneChanges(t *testing.T) {
 		t.Fatalf("agent state = %q, want working", before.AgentState)
 	}
 	fx.status = "idle"
+	nextTick()
 	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a pane change left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
@@ -1766,5 +1899,300 @@ func TestAPIAttemptHasNoApproveOrAccess(t *testing.T) {
 	body := apiRaw(t, fx.handler(), "/api/v1/attempt/a1")
 	if strings.Contains(body, `"approve"`) || strings.Contains(body, `"access"`) {
 		t.Fatalf("attempt JSON carries approve or access:\n%s", body)
+	}
+}
+
+func TestACursorBelongsToItsPathAndQuery(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/tasks")
+	for _, path := range []string{"/api/v1/tasks?all=1", "/api/v1/timeline", "/api/v1/status"} {
+		if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusOK {
+			t.Fatalf("a /tasks cursor answered %s with %d", path, rec.Code)
+		}
+	}
+	if rec := pollCursor(t, h, "/api/v1/tasks", env.Cursor); rec.Code != http.StatusNotModified {
+		t.Fatalf("the same read = %d", rec.Code)
+	}
+}
+
+func TestACursorFollowsAFileADeliverableLinksTo(t *testing.T) {
+	for _, gone := range []bool{false, true} {
+		name := "created"
+		if gone {
+			name = "deleted"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fx := apiFixture(t, func() time.Time { return frozen })
+			file := filepath.Join(fx.options.Home, "reports", "out.md")
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if gone {
+				if err := os.WriteFile(file, []byte("out"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			live, err := fx.st.LiveAttempts(ctx)
+			if err != nil || len(live) == 0 {
+				t.Fatalf("live attempts = %d, %v", len(live), err)
+			}
+			r, err := fx.st.AddReport(ctx, live[0].ID, state.ReportDone, "Done\nDelivered: "+file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := fx.handler()
+			for _, path := range []string{"/api/v1/report/" + state.ReportRef(r.ID), "/api/v1/task/" + state.TaskRef(r.TaskID), "/api/v1/tasks"} {
+				apiInto[json.RawMessage](t, h, path)
+				nextTick()
+				env, _ := apiInto[json.RawMessage](t, h, path)
+				if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusNotModified {
+					t.Fatalf("%s: unchanged poll = %d", path, rec.Code)
+				}
+				if gone {
+					err = os.Remove(file)
+				} else {
+					err = os.WriteFile(file, []byte("out"), 0o644)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				nextTick()
+				rec := pollCursor(t, h, path, env.Cursor)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s: a poll after the file %s = %d", path, name, rec.Code)
+				}
+				if has := strings.Contains(rec.Body.String(), `"href"`); has == gone {
+					t.Fatalf("%s: href present = %t after the file %s", path, has, name)
+				}
+				if gone {
+					err = os.WriteFile(file, []byte("out"), 0o644)
+				} else {
+					err = os.Remove(file)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestACursorFollowsAnInboxImage(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	shot := filepath.Join(fx.options.Home, "inbox", "20260101-000000-1.png")
+	if _, err := fx.st.AddSupervisorInput(context.Background(), "look\n[image: "+shot+"]"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	apiInto[json.RawMessage](t, h, "/api/v1/timeline")
+	nextTick()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/timeline")
+	if err := os.MkdirAll(filepath.Dir(shot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shot, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nextTick()
+	if rec := pollCursor(t, h, "/api/v1/timeline", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a poll after the image arrived = %d", rec.Code)
+	}
+}
+
+func TestACursorFollowsTheOldFilesWarning(t *testing.T) {
+	start := time.Now()
+	var offset time.Duration
+	fx := apiFixture(t, func() time.Time { return start.Add(offset) })
+	home := fx.options.Home
+	policy := `{"retention":{"warn_size":"off","warn_days":"30d"}}`
+	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(home, "shots", "t1", "a.png")
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	when := start.AddDate(0, 0, -31)
+	if err := os.Chtimes(old, when, when); err != nil {
+		t.Fatal(err)
+	}
+	offset = 6 * time.Minute
+	nextTick()
+	rec := pollCursor(t, h, "/api/v1/status", env.Cursor)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"kind":"artifacts"`) {
+		t.Fatalf("the warning did not reach the poll (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	env, _ = apiInto[json.RawMessage](t, h, "/api/v1/status")
+	if err := os.Remove(old); err != nil {
+		t.Fatal(err)
+	}
+	offset = 12 * time.Minute
+	nextTick()
+	rec = pollCursor(t, h, "/api/v1/status", env.Cursor)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"kind":"artifacts"`) {
+		t.Fatalf("the cleared warning did not reach the poll (%d):\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestACursorFollowsAWorkerSignalTheLiveStateRetires(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	live, err := fx.st.LiveAttempts(context.Background())
+	if err != nil || len(live) == 0 {
+		t.Fatalf("live attempts = %d, %v", len(live), err)
+	}
+	if err := fx.st.NoteAttempt(context.Background(), live[0].ID, "idle", "turn ended"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	nextTick()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	fx.mu.Lock()
+	fx.panes = map[string]string{"3": "idle"}
+	fx.mu.Unlock()
+	nextTick()
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a signal that the pane no longer retires left the cursor unchanged (%d)", rec.Code)
+	}
+}
+
+func TestAReportWriteMovesAnotherReportsCursor(t *testing.T) {
+	ctx := context.Background()
+	fx := newFixture(t)
+	apiSeed(t, fx)
+	fx.options.Tick = apiTick
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/report/r1")
+	live, err := fx.st.LiveAttempts(ctx)
+	if err != nil || len(live) == 0 {
+		t.Fatalf("live attempts = %d, %v", len(live), err)
+	}
+	if _, err := fx.st.AddReport(ctx, live[len(live)-1].ID, state.ReportProgress, "Unrelated"); err != nil {
+		t.Fatal(err)
+	}
+	nextTick()
+	if rec := pollCursor(t, h, "/api/v1/report/r1", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a report write left another report's cursor unchanged (%d)", rec.Code)
+	}
+}
+
+func TestAWriteDoesNotWaitForASlowVersion(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = 300 * time.Millisecond
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	var block atomic.Bool
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	fx.srv.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
+		if block.Load() {
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+			<-release
+		}
+		var p struct{ Pane string }
+		_ = json.Unmarshal(raw, &p)
+		return map[string]any{"pane": p.Pane, "agent": "claude", "status": "working"}, nil
+	})
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	time.Sleep(fx.options.Tick + 50*time.Millisecond)
+	block.Store(true)
+	slow := make(chan int, 1)
+	go func() { slow <- pollCursor(t, h, "/api/v1/status", env.Cursor).Code }()
+	<-entered
+	block.Store(false)
+	posted := make(chan int, 1)
+	go func() {
+		posted <- apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, token, true).Code
+	}()
+	select {
+	case code := <-posted:
+		if code >= 300 {
+			t.Fatalf("message = %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a message waited for a slow version read")
+	}
+	close(release)
+	<-slow
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("poll after a message and a late version read = %d, want 200", rec.Code)
+	}
+}
+
+func TestAnUnauthenticatedWriteKeepsTheSharedVersion(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Tick = time.Hour
+	h := fx.handler()
+	env, _ := apiInto[json.RawMessage](t, h, "/api/v1/status")
+	before := fx.explained()
+	for _, rec := range []*httptest.ResponseRecorder{
+		apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, token, false),
+		apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello"}, "", true),
+	} {
+		if rec.Code < 400 {
+			t.Fatalf("a request without a session or token = %d", rec.Code)
+		}
+	}
+	if rec := pollCursor(t, h, "/api/v1/status", env.Cursor); rec.Code != http.StatusNotModified || fx.explained() != before {
+		t.Fatalf("poll after refused writes = %d with %d pane reads", rec.Code, fx.explained()-before)
+	}
+}
+
+func TestACursorDoesNotSurviveARestart(t *testing.T) {
+	now := frozen
+	fx := apiFixture(t, func() time.Time { return now })
+	env, _ := apiInto[json.RawMessage](t, fx.handler(), "/api/v1/status")
+	now = now.Add(time.Second)
+	if rec := pollCursor(t, fx.handler(), "/api/v1/status", env.Cursor); rec.Code != http.StatusOK {
+		t.Fatalf("a cursor from an earlier board = %d, want 200", rec.Code)
+	}
+}
+
+func TestAFileOutsideTheFleetNeverMovesACursor(t *testing.T) {
+	ctx := context.Background()
+	fx := apiFixture(t, func() time.Time { return frozen })
+	outside := filepath.Join(t.TempDir(), "build.log")
+	inside := filepath.Join(fx.options.Home, "reports", "out.md")
+	for _, f := range []string{outside, inside} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("a"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live, err := fx.st.LiveAttempts(ctx)
+	if err != nil || len(live) == 0 {
+		t.Fatalf("live attempts = %d, %v", len(live), err)
+	}
+	r, err := fx.st.AddReport(ctx, live[0].ID, state.ReportDone, "Done\nDelivered: "+outside+"\nDelivered: "+inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	path := "/api/v1/report/" + state.ReportRef(r.ID)
+	apiInto[json.RawMessage](t, h, path)
+	nextTick()
+	env, _ := apiInto[json.RawMessage](t, h, path)
+	for _, f := range []string{outside, inside} {
+		if err := os.WriteFile(f, []byte("a much longer file than before"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nextTick()
+	if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusNotModified {
+		t.Fatalf("a delivered file that only grew moved the cursor (%d)", rec.Code)
 	}
 }

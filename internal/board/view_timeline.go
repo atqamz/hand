@@ -111,6 +111,9 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 	for i := range all {
 		if all[i].Role == "operator" {
 			all[i].Text, all[i].Shots = shots(all[i].Text, b.o.Home, b.o.Base)
+			for _, a := range all[i].Shots {
+				b.links.add(b.o.Home, a.Path, true)
+			}
 		}
 	}
 	end := len(all)

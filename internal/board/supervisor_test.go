@@ -35,6 +35,7 @@ type fixture struct {
 	calls    [][]string
 	fail     error
 	warn     string
+	explains int
 	status   string
 	panes    map[string]string
 	hint     string
@@ -52,6 +53,7 @@ func newFixture(t *testing.T) *fixture {
 	fx.srv.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()
+		fx.explains++
 		var p struct{ Pane string }
 		_ = json.Unmarshal(raw, &p)
 		status, ok := fx.panes[p.Pane]
@@ -104,6 +106,12 @@ func (fx *fixture) called() [][]string {
 	fx.mu.Lock()
 	defer fx.mu.Unlock()
 	return slices.Clone(fx.calls)
+}
+
+func (fx *fixture) explained() int {
+	fx.mu.Lock()
+	defer fx.mu.Unlock()
+	return fx.explains
 }
 
 func (fx *fixture) handler() http.Handler { return board.New(fx.st, token, fx.options) }
