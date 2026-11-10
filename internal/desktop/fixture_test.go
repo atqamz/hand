@@ -50,6 +50,7 @@ type fixture struct {
 	stall         string
 	stallOnce     bool
 	nameIn        chan struct{}
+	nameOut       chan error
 	block         chan struct{}
 	entered       chan struct{}
 	pollBlock     chan struct{}
@@ -94,6 +95,9 @@ func (f *fixture) Name(ctx context.Context, id string) (string, error) {
 			f.nameIn <- struct{}{}
 		}
 		<-ctx.Done()
+		if f.nameOut != nil {
+			f.nameOut <- ctx.Err()
+		}
 		return "", ctx.Err()
 	}
 	for _, fleet := range f.fleets {

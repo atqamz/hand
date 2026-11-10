@@ -163,9 +163,10 @@ func TestWatchIgnoresABlockThatLastsOnePoll(t *testing.T) {
 func TestWatchIgnoresThreeOnePollFlickers(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
+	n := fx.rt.explained()
 	stop := startWatch(t, fx)
 	defer stop()
-	eventually(t, func() bool { return fx.rt.explained() > 0 })
+	eventually(t, func() bool { return fx.rt.explained() > n })
 	for range 3 {
 		fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})

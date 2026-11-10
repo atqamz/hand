@@ -1,6 +1,8 @@
 package desktop_test
 
 import (
+	"context"
+	"errors"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -1430,6 +1432,7 @@ func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
 	app.Boot()
 	f.stall, f.stallOnce = fleetID, true
 	f.nameIn = make(chan struct{}, 1)
+	f.nameOut = make(chan error, 1)
 	app.NameTimeout = time.Hour
 	base := f.count("name:" + secondID)
 	posted := make(chan func(), 8)
@@ -1442,6 +1445,14 @@ func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
 		t.Fatal("the first discovery never started")
 	}
 	click(t, tt, "Refresh")
+	select {
+	case err := <-f.nameOut:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("the earlier discovery ended with %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the earlier discovery was never canceled")
+	}
 	for i := 0; i < 6; i++ {
 		waitPost(t, posted)()
 	}
