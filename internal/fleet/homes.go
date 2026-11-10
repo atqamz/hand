@@ -4,12 +4,15 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"github.com/atqamz/hand/internal/flock"
+	"github.com/atqamz/hand/internal/state"
 )
 
 const (
@@ -116,4 +119,17 @@ func renameSynced(tmp, dst string) error {
 		return err
 	}
 	return syncDir(filepath.Dir(dst))
+}
+
+func RefuseCopies(id string, homes []string) error {
+	for _, home := range homes {
+		info, err := os.Stat(filepath.Join(home, "hand.db"))
+		switch {
+		case err == nil && info.Mode().IsRegular():
+			return fmt.Errorf("%w: fleet %s is also at %s, so one of the two homes is a copy; delete one of them", state.ErrConflict, id, home)
+		case err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
+			return err
+		}
+	}
+	return nil
 }

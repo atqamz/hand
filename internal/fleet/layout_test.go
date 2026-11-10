@@ -356,3 +356,36 @@ func TestRestorePointsSortByTheStampInTheNameNotTheModTime(t *testing.T) {
 		t.Fatalf("RestorePoints = %q", got)
 	}
 }
+
+func TestMigrateWritesNoBackupsMarkerWhenACopyFailsAndTheNextRunCopiesTheRest(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("an unreadable source needs a mode-enforcing filesystem and a non-root user")
+	}
+	o := fixtureOldLayout(t)
+	unreadable := filepath.Join(fleet.OldBackups(o.root, o.id), "hand.db.20261101T010203")
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(fleet.Backups(o.home), ".migrated")
+	if _, err := o.migrate(t); err == nil {
+		t.Fatal("Migrate succeeded with an unreadable backup")
+	}
+	if _, err := os.Lstat(marker); err == nil {
+		t.Fatal("the backups marker was written although a copy failed")
+	}
+	if err := os.Chmod(unreadable, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := o.migrate(t)
+	if err != nil || !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "backups: 1 files copied") }) {
+		t.Fatalf("second Migrate = %q, %v", lines, err)
+	}
+	if _, err := os.Lstat(marker); err != nil {
+		t.Fatalf("the backups marker is missing after the retry: %v", err)
+	}
+	for _, name := range []string{"hand.db.20261101T010203", "hand-20261102.db"} {
+		if _, err := os.Lstat(filepath.Join(fleet.Backups(o.home), name)); err != nil {
+			t.Fatalf("%s was not copied: %v", name, err)
+		}
+	}
+}

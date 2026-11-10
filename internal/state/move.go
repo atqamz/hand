@@ -20,6 +20,8 @@ type MoveCell struct {
 
 type MoveReport struct {
 	From, To        string
+	Froms           []string
+	HomeSet         bool
 	Name            string
 	Cells           []MoveCell
 	Absolute, Tilde int
@@ -88,10 +90,39 @@ func (s *Store) PlanHome(ctx context.Context, from, to string) (MoveReport, erro
 		return rep, err
 	}
 	rep.Name = moveTargetName(name, from, to)
-	pass, err := moveScan(ctx, s.db, from, to, userHome(), false)
+	pass, err := moveScan(ctx, s.db, []string{from}, to, userHome(), false, true)
 	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
 	rep.Hits = pass.Hits
 	rep.AfterAbsolute = len(rep.Hits)
+	return rep, err
+}
+
+func (s *Store) PlanAdopt(ctx context.Context, froms []string, to string) (MoveReport, error) {
+	rep := MoveReport{Froms: froms, To: to}
+	pass, err := moveScan(ctx, s.db, froms, to, userHome(), false, false)
+	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
+	rep.Hits = pass.Hits
+	rep.AfterAbsolute = len(rep.Hits)
+	return rep, err
+}
+
+func (s *Store) Adopt(ctx context.Context, froms []string, to string) (MoveReport, error) {
+	rep := MoveReport{Froms: froms, To: to}
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		name, err := fleetName(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rep.Name = name
+		if err := s.rewriteTx(ctx, tx, froms, to, &rep, nil, false); err != nil {
+			return err
+		}
+		if len(rep.Cells) == 0 && !rep.HomeSet {
+			return nil
+		}
+		rep.EventSeq, err = adoptEvent(tx, s.stamp(), froms, to, rep)
+		return err
+	})
 	return rep, err
 }
 
@@ -126,28 +157,7 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 				return err
 			}
 		}
-		pass, err := moveScan(ctx, tx, from, to, userHome(), true)
-		if err != nil {
-			return err
-		}
-		rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
-		if after != nil {
-			if err := after(tx); err != nil {
-				return err
-			}
-		}
-		hits, err := moveHits(ctx, tx, from, to, userHome())
-		if err != nil {
-			return err
-		}
-		if len(hits) != 0 {
-			return fmt.Errorf("%w: the move verification found %d old home path(s) after the rewrite: %s; edit them to name %s by hand in %s, then run again; nothing changed", ErrConflict, len(hits), moveHitList(hits), to, filepath.Join(s.home, "hand.db"))
-		}
-		rep.Hits, rep.AfterAbsolute = hits, len(hits)
-		if err := moveChecks(ctx, tx, &rep); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE fleet SET home = ? WHERE home = ''`, to); err != nil {
+		if err := s.rewriteTx(ctx, tx, []string{from}, to, &rep, after, true); err != nil {
 			return err
 		}
 		if inPlace {
@@ -158,6 +168,37 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 		return err
 	})
 	return rep, err
+}
+
+func (s *Store) rewriteTx(ctx context.Context, tx *sql.Tx, froms []string, to string, rep *MoveReport, after func(moveWriter) error, strict bool) error {
+	pass, err := moveScan(ctx, tx, froms, to, userHome(), true, strict)
+	if err != nil {
+		return err
+	}
+	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
+	if after != nil {
+		if err := after(tx); err != nil {
+			return err
+		}
+	}
+	hits, err := moveHits(ctx, tx, froms, to, userHome(), strict)
+	if err != nil {
+		return err
+	}
+	if len(hits) != 0 {
+		return fmt.Errorf("%w: the move verification found %d old home path(s) after the rewrite: %s; edit them to name %s by hand in %s, then run again; nothing changed", ErrConflict, len(hits), moveHitList(hits), to, filepath.Join(s.home, "hand.db"))
+	}
+	rep.Hits, rep.AfterAbsolute = hits, len(hits)
+	if err := moveChecks(ctx, tx, rep); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE fleet SET home = ? WHERE home = ''`, to)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	rep.HomeSet = n > 0
+	return err
 }
 
 func fleetName(ctx context.Context, q moveQueryer) (string, error) {
@@ -196,6 +237,20 @@ func moveMarker(tx *sql.Tx, at, from, to string) (int64, error) {
 
 func moveEvent(tx *sql.Tx, at, from, to string) (int64, error) {
 	res, err := tx.Exec(`INSERT INTO event(at, kind, task_id, detail) VALUES (?, 'fleet.moved', NULL, ?)`, at, moveDetail(from, to))
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func adoptEvent(tx *sql.Tx, at string, froms []string, to string, rep MoveReport) (int64, error) {
+	b, _ := json.Marshal(struct {
+		From        []string `json:"from"`
+		To          string   `json:"to"`
+		Cells       int      `json:"cells"`
+		Occurrences int      `json:"occurrences"`
+	}{froms, to, len(rep.Cells), rep.Absolute + rep.Tilde})
+	res, err := tx.Exec(`INSERT INTO event(at, kind, task_id, detail) VALUES (?, 'fleet.adopted', NULL, ?)`, at, string(b))
 	if err != nil {
 		return 0, err
 	}
@@ -324,7 +379,7 @@ func (s *Store) ConfirmMove(ctx context.Context, from, to string) (int64, error)
 }
 
 func (s *Store) VerifyHome(ctx context.Context, from, to string) ([]MoveCell, error) {
-	return moveHits(ctx, s.db, from, to, userHome())
+	return moveHits(ctx, s.db, []string{from}, to, userHome(), true)
 }
 
 func moveChecks(ctx context.Context, tx *sql.Tx, rep *MoveReport) error {
@@ -390,13 +445,13 @@ type movePass struct {
 	Hits            []MoveCell
 }
 
-func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bool) (movePass, error) {
+func moveScan(ctx context.Context, q moveWriter, froms []string, to, home string, apply, strict bool) (movePass, error) {
 	var pass movePass
 	cols, err := moveColumns(ctx, q)
 	if err != nil {
 		return pass, err
 	}
-	patterns := moveHitPatterns(from, to, home)
+	patterns := moveHitAll(froms, to, home, strict)
 	fold := foldHome()
 	for _, c := range cols {
 		last := int64(-1 << 63)
@@ -406,7 +461,12 @@ func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bo
 				return pass, err
 			}
 			for _, r := range found {
-				out, absolute, tilde := rewriteHome(r.value, from, to, home)
+				out, absolute, tilde := r.value, 0, 0
+				for _, from := range froms {
+					var a, t int
+					out, a, t = rewriteHome(out, from, to, home)
+					absolute, tilde = absolute+a, tilde+t
+				}
 				if out != r.value {
 					if apply {
 						if _, err := q.ExecContext(ctx, `UPDATE `+quoteIdent(c.table)+` SET `+quoteIdent(c.column)+` = ? WHERE rowid = ?`, out, r.rowid); err != nil {
@@ -450,12 +510,12 @@ func moveBatchRows(ctx context.Context, q moveQueryer, query string, args ...any
 	return found, rows.Err()
 }
 
-func moveHits(ctx context.Context, q moveQueryer, from, to, home string) ([]MoveCell, error) {
+func moveHits(ctx context.Context, q moveQueryer, froms []string, to, home string, strict bool) ([]MoveCell, error) {
 	cols, err := moveColumns(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	patterns := moveHitPatterns(from, to, home)
+	patterns := moveHitAll(froms, to, home, strict)
 	fold := foldHome()
 	var hits []MoveCell
 	for _, c := range cols {
@@ -522,7 +582,7 @@ func moveRef(table string) string {
 
 func moveHistory(table string) string {
 	if table == "event" {
-		return ` AND kind NOT IN ('fleet.moved', 'fleet.moving')`
+		return ` AND kind NOT IN ('fleet.moved', 'fleet.moving', 'fleet.adopted')`
 	}
 	return ""
 }
@@ -532,8 +592,20 @@ type movePattern struct {
 	tilde        bool
 }
 
-func moveHitPatterns(from, to, home string) []string {
-	ps := movePatterns(from, to, home, true)
+func moveHitAll(froms []string, to, home string, strict bool) []string {
+	var out []string
+	for _, from := range froms {
+		out = append(out, moveHitPatterns(from, to, home, strict)...)
+	}
+	return out
+}
+
+func moveHitPatterns(from, to, home string, strict bool) []string {
+	tilde := strict
+	if !strict {
+		_, tilde = homeChild(from, home)
+	}
+	ps := movePatterns(from, to, home, tilde)
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = p.text

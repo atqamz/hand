@@ -427,6 +427,12 @@ func TestAMovedFleetIsFollowed(t *testing.T) {
 	}
 	h.home = moved
 	h.ok("init")
+	if _, errOut, code := h.run("task", "add", "hand", "Filed after the move"); code != 3 || !strings.Contains(errOut, "the board is running") {
+		t.Fatalf("task add beside a live board: code=%d stderr=%q", code, errOut)
+	}
+	if err := os.Remove(filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid")); err != nil {
+		t.Fatal(err)
+	}
 	h.ok("task", "add", "hand", "Filed after the move")
 	fresh := strings.Repeat("c", 48)
 	if err := os.WriteFile(filepath.Join(moved, "board.token"), []byte(fresh+"\n"), 0o600); err != nil {

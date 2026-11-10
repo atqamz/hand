@@ -151,7 +151,7 @@ func cmdFleetMove(r *runner, args []string) error {
 			return err
 		}
 	}
-	backup := moveBackup(home, r.env.Now().UTC())
+	backup := moveBackup(home, "hand.db.pre-move-", r.env.Now().UTC())
 	if err := st.Backup(ctx, backup); err != nil {
 		return err
 	}
@@ -715,9 +715,9 @@ func moveBlockers(ctx context.Context, st *state.Store, home, root string) ([]st
 	return blockers, nil
 }
 
-func moveBackup(home string, now time.Time) string {
+func moveBackup(dir, prefix string, now time.Time) string {
 	stamp := now.Format("20060102T150405")
-	path := filepath.Join(home, "hand.db.pre-move-"+stamp)
+	path := filepath.Join(dir, prefix+stamp)
 	for n := 2; ; n++ {
 		_, err := os.Lstat(path)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -726,7 +726,7 @@ func moveBackup(home string, now time.Time) string {
 		if err != nil {
 			return path
 		}
-		path = filepath.Join(home, fmt.Sprintf("hand.db.pre-move-%s-%d", stamp, n))
+		path = filepath.Join(dir, fmt.Sprintf("%s%s-%d", prefix, stamp, n))
 	}
 }
 

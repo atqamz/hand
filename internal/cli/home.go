@@ -126,6 +126,9 @@ func (r *runner) claim(st *state.Store) error {
 			return err
 		}
 	}
+	if f, err = r.adoptOnOpen(st, f); err != nil {
+		return err
+	}
 	if err := fleet.Check(r.root, f.ID, r.home); err != nil {
 		if from, to, pending, perr := st.PendingMove(r.ctx()); perr == nil && pending && samePlace(r.home, to) {
 			return fmt.Errorf("%w; a move from %s to %s is pending: run `hand fleet move --yes %s` here to finish it", err, from, to, to)
