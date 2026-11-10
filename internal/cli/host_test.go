@@ -492,6 +492,23 @@ func TestStopLeavesThePidFileOfAnotherHost(t *testing.T) {
 	}
 }
 
+func TestStopRemovesADeadPidFileWithThisBootIdWhateverTheHostName(t *testing.T) {
+	if boot.Stable() == "" {
+		t.Skip("this system writes no boot id into pid files")
+	}
+	h, _, _ := initMoveFleet(t)
+	asHost(t, "desk", "boot-b")
+	path := filepath.Join(h.home, "watch.pid")
+	writeBootedPID(t, path, 2000000000, "123", boot.Stable(), "container-b")
+	out, _, code := h.run("watch", "stop")
+	if code != 0 || !strings.Contains(out, "watcher: not running") {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("a dead pid file with this machine's boot id was kept: %v", err)
+	}
+}
+
 func TestHostFileHoldsPlainJSON(t *testing.T) {
 	h, _, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")

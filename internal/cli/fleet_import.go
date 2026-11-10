@@ -69,6 +69,11 @@ func cmdFleetImport(r *runner, args []string) error {
 		return fmt.Errorf("%w: source and destination are the same fleet %s", state.ErrConflict, src.ID)
 	}
 	if !*dry {
+		for _, home := range []string{src.Home, dst.Home} {
+			if err := r.pinRefusal(home); err != nil {
+				return err
+			}
+		}
 		release, err := lockImportHomes(src.Home, dst.Home)
 		if err != nil {
 			return err

@@ -311,14 +311,19 @@ func TestTheBoardRefusesAFleetPinnedNewerAndWritesNothingInIt(t *testing.T) {
 	if res.StatusCode == http.StatusOK || !strings.Contains(string(body), "99.0.0") {
 		t.Fatalf("status %d: %s", res.StatusCode, body)
 	}
+	assertOnlyReadSidecars(t, before, home)
+}
+
+func assertOnlyReadSidecars(t *testing.T, before map[string]treeFile, home string) {
+	t.Helper()
 	for rel, f := range snapshotTree(t, home) {
 		want, had := before[rel]
 		switch {
 		case !had && (rel == "hand.db-wal" || rel == "hand.db-shm"):
 		case !had:
-			t.Errorf("the board added %s to a refused fleet", rel)
+			t.Errorf("%s was added to %s", rel, home)
 		case rel != "hand.db-wal" && rel != "hand.db-shm" && f != want:
-			t.Errorf("the board changed %s in a refused fleet", rel)
+			t.Errorf("%s changed in %s", rel, home)
 		}
 	}
 }
@@ -401,5 +406,33 @@ func TestTakeOverWarnsAndWentOnWhenTheMarkerCannotBeReread(t *testing.T) {
 	events := eventCount(t, home, "")
 	if err := cli.TakeOver(env, home, stale); err != nil || !strings.Contains(errOut.String(), "cannot read") || eventCount(t, home, "") != events {
 		t.Fatalf("err=%v stderr=%q events=%d", err, errOut.String(), eventCount(t, home, "")-events)
+	}
+}
+
+func TestFleetImportRefusesAFleetPinnedNewerAndWritesNothing(t *testing.T) {
+	for _, which := range []string{"source", "destination"} {
+		t.Run(which, func(t *testing.T) {
+			fx := importFixture(t)
+			pinned := fx.src
+			if which == "destination" {
+				pinned = fx.dest
+			}
+			putPin(t, pinned, "99.0.0", state.SchemaVersion)
+			srcBefore, destBefore := snapshotTree(t, fx.src), snapshotTree(t, fx.dest)
+			_, errOut, code := fx.h.run("fleet", "import", fx.srcID, "INTO", fx.destID)
+			if code != 2 || !strings.Contains(errOut, "99.0.0") || !strings.Contains(errOut, "`hand update") {
+				t.Fatalf("code=%d stderr=%q", code, errOut)
+			}
+			assertOnlyReadSidecars(t, srcBefore, fx.src)
+			assertOnlyReadSidecars(t, destBefore, fx.dest)
+			for _, home := range []string{fx.src, fx.dest} {
+				if _, err := os.Stat(state.ImportMarker(home)); err == nil {
+					t.Fatalf("a refused import left a marker in %s", home)
+				}
+			}
+			if _, errOut, code := fx.h.run("fleet", "import", "--dry-run", fx.srcID, "INTO", fx.destID); code != 0 {
+				t.Fatalf("dry run: code=%d stderr=%q", code, errOut)
+			}
+		})
 	}
 }
