@@ -248,6 +248,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 			c.add("modes", "ok", "")
 		}
 	}
+	r.doctorHost(c)
 	r.doctorLayout(c, root, f.ID)
 	doctorProjects(ctx, st, c)
 	_, live, lerr := st.LiveSupervisor(ctx)

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
@@ -130,8 +131,24 @@ func cmdWatch(r *runner, args []string) error {
 	}
 	r.writeWatchGeneration()
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
-	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
+	sig, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := r.beatHost(); errors.Is(err, errHostLost) {
+		return err
+	} else if err != nil {
+		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v; another host may take this fleet over\n", filepath.Join(r.home, fleet.HostFile), err)
+	}
+	ctx, lost := context.WithCancelCause(sig)
+	beating := make(chan struct{})
+	go func() {
+		defer close(beating)
+		r.heartbeat(ctx, lost)
+	}()
+	defer func() {
+		lost(nil)
+		<-beating
+		r.releaseHost()
+	}()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	r.screens = &screenLog{m: map[int64]string{}}
 	clickCtx, clickStop := context.WithCancel(ctx)
@@ -162,6 +179,9 @@ func cmdWatch(r *runner, args []string) error {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):
 		}
+	}
+	if cause := context.Cause(ctx); errors.Is(cause, errHostLost) {
+		return cause
 	}
 	return nil
 }

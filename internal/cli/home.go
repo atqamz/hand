@@ -126,6 +126,9 @@ func (r *runner) claim(st *state.Store) error {
 			return err
 		}
 	}
+	if err := r.checkHost(st); err != nil {
+		return err
+	}
 	if r.noAdopt {
 		if olds, due, err := adoptOlds(r.root, f, r.home, nil); err != nil {
 			return err
@@ -252,6 +255,9 @@ func cmdInit(r *runner, args []string) error {
 			return err
 		}
 		defer st.Close()
+		if err := r.checkHost(st); err != nil {
+			return err
+		}
 		switch f, err = st.Fleet(ctx); {
 		case err == nil:
 			have = true

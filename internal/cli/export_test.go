@@ -67,3 +67,13 @@ func Force(ctx context.Context, env Env, home string) error {
 	_, _, err = r.force(ctx, st, c, caps, "")
 	return err
 }
+
+var (
+	HostIdentity = &hostIdentity
+	HostBeat     = &hostBeatEvery
+	ErrHostLost  = errHostLost
+)
+
+func BeatHost(env Env, home string) error { return (&runner{env: env, home: home}).beatHost() }
+
+func ReleaseHost(env Env, home string) { (&runner{env: env, home: home}).releaseHost() }

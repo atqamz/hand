@@ -37,7 +37,7 @@ When the binary is already current and no newer Luvus needs pinning, `hand updat
 ## Restore a backup
 
 To restore a backup:
-1. stop the board, then the fleet's watcher, so the board cannot start it again: run `hand board stop`, then `hand watch stop` in the fleet (or with `--home DIR`). Each signals a process only when its recorded start time and binary still match, as `hand update` does, and reports `stopped`, or `not running` when none runs or the pid file was stale (it removes that file). If a process is another binary's, it exits 3 and leaves it running; if it is still alive 10 seconds after SIGTERM, it exits 3 too. The rest of this step is the fallback for a machine where `hand` itself is not usable: their process IDs start `board.pid` in `~/.secondhand` and `watch.pid` in the fleet folder, in one line `PID MARKER PATH`, where `MARKER` is the process's start time as Hand read it. A stale file can name an ID that another program now holds, so prove the process is the one that wrote the file before you stop it, and leave a file that fails the check alone. Run the snippet for your OS, then again with `watch.pid`:
+1. stop the board, then the fleet's watcher, so the board cannot start it again: run `hand board stop`, then `hand watch stop` in the fleet (or with `--home DIR`). Each signals a process only when its recorded start time, binary and boot id still match, as `hand update` does, and reports `stopped`, or `not running` when none runs or the pid file was stale (it removes that file). If a process is another binary's, it exits 3 and leaves it running; if it is still alive 10 seconds after SIGTERM, it exits 3 too. The rest of this step is the fallback for a machine where `hand` itself is not usable: their process IDs start `board.pid` in `~/.secondhand` and `watch.pid` in the fleet folder, in one line `PID MARKER PATH`, where `MARKER` is the process's start time as Hand read it. A second line, `boot ID HOST`, appears on Linux and macOS: if its boot id is not this machine's current one (`/proc/sys/kernel/random/boot_id`, `sysctl -n kern.bootsessionuuid`), the process ID belongs to another host or an earlier boot, so leave it alone. An older `hand` ignores that line and, because it then reads another binary path, leaves the process running. A stale file can name an ID that another program now holds, so prove the process is the one that wrote the file before you stop it, and leave a file that fails the check alone. Run the snippet for your OS, then again with `watch.pid`:
    - Linux: the start time must equal `MARKER`, which is what Hand checks:
      ```sh
      same() { [ "$(sed 's/.*) //' /proc/$1/stat 2>/dev/null | cut -d' ' -f20)" = "$2" ]; }
@@ -55,7 +55,7 @@ To restore a backup:
    - Windows: the start time as a file time must be within one second (10,000,000 ticks) of `MARKER` after `windows:`:
      ```powershell
      $id, $marker, $null = (Get-Content ~\.secondhand\board.pid).Split(' ')
-     if ([math]::Abs((Get-Process -Id $id).StartTime.ToFileTime() - [int64]$marker.Replace('windows:', '')) -lt 1e7) { Stop-Process -Id $id; Wait-Process -Id $id -ErrorAction SilentlyContinue }
+      if ([math]::Abs((Get-Process -Id $id).StartTime.ToFileTime() - [int64]$marker.Replace('windows:', '')) -lt 1e7) { Stop-Process -Id $id; Wait-Process -Id $id -ErrorAction SilentlyContinue }
      ```
 2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
 3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
