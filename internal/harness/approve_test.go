@@ -624,3 +624,37 @@ func TestMCPPathFollowsSymlinksOnlyInsideTheFleetHome(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPPathRefusesScratchByFileIdentity(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "store", "a1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "store", "a1", "x.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "store"), filepath.Join(home, "scratch")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, file := range []string{"scratch/a1/x.json", "store/a1/x.json"} {
+		if _, err := MCPPath(home, file); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "scratch/") {
+			t.Fatalf("%s err = %v", file, err)
+		}
+	}
+}
+
+func TestMCPPathRefusesScratchSpelledInAnotherCase(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "scratch", "a1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "scratch", "a1", "x.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "SCRATCH")); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	if _, err := MCPPath(home, "SCRATCH/a1/x.json"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "scratch/") {
+		t.Fatalf("err = %v", err)
+	}
+}

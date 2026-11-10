@@ -345,13 +345,28 @@ func resolveMCP(home, file, name string) (string, error) {
 	if err != nil || !filepath.IsLocal(rel) {
 		return "", fmt.Errorf("%w: mcp file %s resolves to %s, outside the fleet home", state.ErrInvalid, path, real)
 	}
-	if inScratch, err := filepath.Rel(fleet.Scratch(realHome), real); err == nil && filepath.IsLocal(inScratch) {
+	if underDir(real, fleet.Scratch(realHome)) {
 		return "", fmt.Errorf("%w: mcp file %s resolves into scratch/, which workers write; keep the file elsewhere in the fleet home", state.ErrInvalid, path)
 	}
 	if info, err := os.Stat(real); err != nil || !info.Mode().IsRegular() {
 		return "", notFile
 	}
 	return real, nil
+}
+
+func underDir(path, dir string) bool {
+	root, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	for p := filepath.Dir(path); ; p = filepath.Dir(p) {
+		if info, err := os.Stat(p); err == nil && os.SameFile(info, root) {
+			return true
+		}
+		if p == filepath.Dir(p) {
+			return false
+		}
+	}
 }
 
 func (p Policy) Names() []string {
