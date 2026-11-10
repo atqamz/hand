@@ -170,31 +170,34 @@ func localBoard(root string) (string, error) {
 }
 
 func localFleets(root string) ([]Fleet, map[string]string, error) {
-	dir := filepath.Join(root, "fleets")
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
 	var fleets []Fleet
 	tokens := map[string]string{}
-	for _, entry := range entries {
-		id := entry.Name()
-		if !fleetIDShape.MatchString(id) {
+	seen := map[string]bool{}
+	for _, dir := range []string{filepath.Join(root, "index"), filepath.Join(root, "fleets")} {
+		entries, err := os.ReadDir(dir)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		home, err := fleetHome(dir, id)
 		if err != nil {
-			continue
+			return nil, nil, err
 		}
-		if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
-			continue
+		for _, entry := range entries {
+			id := entry.Name()
+			if !fleetIDShape.MatchString(id) || seen[id] {
+				continue
+			}
+			home, err := fleetHome(dir, id)
+			if err != nil {
+				continue
+			}
+			if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			seen[id] = true
+			token := filepath.Join(home, "board.token")
+			tokens[id] = token
+			fleets = append(fleets, Fleet{ID: id, Name: id})
 		}
-		token := filepath.Join(home, "board.token")
-		tokens[id] = token
-		fleets = append(fleets, Fleet{ID: id, Name: id})
 	}
 	sort.Slice(fleets, func(i, j int) bool { return fleets[i].ID < fleets[j].ID })
 	return fleets, tokens, nil

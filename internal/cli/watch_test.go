@@ -1262,7 +1262,7 @@ func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
 func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 	fx := newAttemptFixture(t)
 	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	ids, err := os.ReadDir(filepath.Join(root, "index"))
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("fleets = %v, %v", ids, err)
 	}
@@ -1308,7 +1308,7 @@ func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
 	fx := newAttemptFixture(t)
 	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	ids, err := os.ReadDir(filepath.Join(root, "index"))
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("fleets = %v, %v", ids, err)
 	}
@@ -1362,7 +1362,7 @@ func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
 func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
 	fx := newAttemptFixture(t)
 	root := fx.h.vars["SECONDHAND_HOME"]
-	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	ids, err := os.ReadDir(filepath.Join(root, "index"))
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("fleets = %v, %v", ids, err)
 	}

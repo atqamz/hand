@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,28 +84,35 @@ func saveImage(dir string, now time.Time, original string, body io.Reader) (stri
 		return "", err
 	}
 	defer os.Remove(tmp.Name())
-	_, err = tmp.Write(data)
-	if err == nil {
-		err = tmp.Sync()
+	_, werr := tmp.Write(data)
+	if werr == nil {
+		werr = tmp.Sync()
 	}
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
 	}
-	if err != nil {
-		return "", err
+	if werr != nil {
+		return "", werr
 	}
 	stamp := now.Format("20060102-150405")
+	inboxMu.Lock()
+	defer inboxMu.Unlock()
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("%s-%d-%s", stamp, n, safe)
-		err := os.Link(tmp.Name(), filepath.Join(dir, name))
-		if err == nil {
-			return name, nil
-		}
-		if !errors.Is(err, fs.ErrExist) {
+		path := filepath.Join(dir, name)
+		if _, err := os.Lstat(path); err == nil {
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return "", err
 		}
+		if err := os.Rename(tmp.Name(), path); err != nil {
+			return "", err
+		}
+		return name, nil
 	}
 }
+
+var inboxMu sync.Mutex
 
 func (b *Board) image(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {

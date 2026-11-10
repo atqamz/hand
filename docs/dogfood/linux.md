@@ -90,7 +90,7 @@ cat > routing.json <<'EOF'
 {"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}
 EOF
 hand route list | head -3
-FID=$(ls $SECONDHAND_HOME/fleets)
+FID=$(ls $SECONDHAND_HOME/index)
 echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') SD=$LUVUS_HOME/sessions/secondhand-$FID" >> $D/env.sh
 . $D/env.sh; hand fleet list
 ```

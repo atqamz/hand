@@ -162,16 +162,16 @@ func TestBoardStopsKeepingWatchersWhenCancelled(t *testing.T) {
 
 func TestBoardLogsAFailedFleetListOnce(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows reads a file named fleets as a missing folder, not an error")
+		t.Skip("Windows reads a file named index as a missing folder, not an error")
 	}
 	sweepFast(t)
 	h := newHarness(t)
 	h.ok("init")
-	fleets := filepath.Join(h.vars["SECONDHAND_HOME"], "fleets")
-	if err := os.RemoveAll(fleets); err != nil {
+	index := filepath.Join(h.vars["SECONDHAND_HOME"], "index")
+	if err := os.RemoveAll(index); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fleets, nil, 0o600); err != nil {
+	if err := os.WriteFile(index, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, stop := startBoard(t, h, "127.0.0.1")

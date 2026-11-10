@@ -74,7 +74,7 @@ func TestReportFromAWorktreeOfAnUnregisteredFleetIsRefused(t *testing.T) {
 	fx.start()
 	fx.h.cwd = fx.h.worktree("t1-a1")
 	id := filepath.Base(filepath.Dir(fx.h.cwd))
-	if err := os.Remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "fleets", id)); err != nil {
+	if err := os.Remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "index", id)); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--text", "x"); code != 2 || !strings.Contains(errOut, "no fleet "+id+" is registered") {

@@ -472,6 +472,8 @@ func fileSecret(path, what string) (string, error) {
 
 func readBoardToken(path string) (string, error) { return readSecret(path, "board token") }
 
+var chmod = os.Chmod
+
 func readSecret(path, what string) (string, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -484,8 +486,10 @@ func readSecret(path, what string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return "", err
+	if err := chmod(path, 0o600); err != nil {
+		if enforced, perr := modesEnforced(filepath.Dir(path)); perr != nil || enforced {
+			return "", err
+		}
 	}
 	token := string(bytes.TrimSpace(b))
 	if _, err := hex.DecodeString(token); err != nil || len(token) != 48 {

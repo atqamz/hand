@@ -15,43 +15,69 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
     let path = dir.join(FILE);
     match read(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => match read_after_race(&path)? {
+            Some(key) => return Ok(key),
+            None => {
+                let _ = fs::remove_file(&path);
+            }
+        },
         found => return found,
     }
+    match create(&path) {
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => match read_after_race(&path)? {
+            Some(key) => Ok(key),
+            None => {
+                let _ = fs::remove_file(&path);
+                create(&path)
+            }
+        },
+        found => found,
+    }
+}
+
+fn create(path: &Path) -> io::Result<SecretKey> {
     let key = SecretKey::generate();
-    let temp = dir.join(format!("{FILE}.{}.tmp", key.public().fmt_short()));
-    let written = create_private(&temp).and_then(|mut f| {
-        f.write_all(&key.to_bytes())?;
-        f.sync_all()
-    });
-    let linked = written.and_then(|()| link(&temp, &path));
-    let _ = fs::remove_file(&temp);
-    match linked {
-        Ok(()) => Ok(key),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read(&path).map_err(|e| {
-            if e.kind() == io::ErrorKind::NotFound {
-                io::Error::new(
+    match create_private(path) {
+        Ok(mut f) => {
+            if let Err(e) = f.write_all(&key.to_bytes()).and_then(|()| f.sync_all()) {
+                drop(f);
+                let _ = fs::remove_file(path);
+                return Err(e);
+            }
+            Ok(key)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn read_after_race(path: &Path) -> io::Result<Option<SecretKey>> {
+    let mut last = None;
+    for _ in 0..100 {
+        match read(path) {
+            Ok(key) => return Ok(Some(key)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!(
                         "{} is a link to a file that does not exist; delete the link to make a new key",
                         path.display()
                     ),
-                )
-            } else {
-                e
+                ));
             }
-        }),
-        Err(e) => Err(e),
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => last = Some(e),
+            Err(e) => return Err(e),
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
-}
-
-fn link(temp: &Path, path: &Path) -> io::Result<()> {
-    fs::hard_link(temp, path).map_err(|e| match e.kind() {
-        io::ErrorKind::AlreadyExists => e,
-        kind => io::Error::new(
-            kind,
-            format!("{e}; the key folder must be on a filesystem that supports hard links"),
-        ),
-    })
+    match fs::metadata(path) {
+        Ok(meta) if meta.len() < 32 => Ok(None),
+        _ => Err(last.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} did not become a key", path.display()),
+            )
+        })),
+    }
 }
 
 fn sweep(dir: &Path) {
@@ -61,13 +87,17 @@ fn sweep(dir: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        let ours = name.starts_with(&format!("{FILE}.")) && name.ends_with(".tmp");
-        let age = entry
-            .metadata()
-            .and_then(|m| m.modified())
+        let Ok(meta) = entry.metadata() else { continue };
+        let stale = meta
+            .modified()
             .ok()
-            .and_then(|modified| modified.elapsed().ok());
-        if ours && age.is_some_and(|age| age > STALE_TEMP) {
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > STALE_TEMP);
+        if !stale {
+            continue;
+        }
+        let ours = name.starts_with(&format!("{FILE}.")) && name.ends_with(".tmp");
+        if ours || (name == FILE && meta.len() < 32) {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -173,10 +203,35 @@ mod tests {
     #[test]
     fn refuses_a_file_of_the_wrong_size() {
         let dir = TempDir::new();
-        dir.file(FILE, "short");
+        dir.file(FILE, &"x".repeat(40));
         let error = load_or_create(dir.path()).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(!error.to_string().contains("short\n"));
+        assert!(!error.to_string().contains(&"x".repeat(40)));
+    }
+
+    #[test]
+    fn replaces_a_partial_key_left_by_a_crash() {
+        let dir = TempDir::new();
+        let path = dir.file(FILE, "short");
+        let key = load_or_create(dir.path()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), key.to_bytes());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn an_old_file_longer_than_a_key_is_kept() {
+        let dir = TempDir::new();
+        let path = dir.file(FILE, &"x".repeat(40));
+        let old = SystemTime::now() - Duration::from_secs(120);
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let error = load_or_create(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).unwrap(), "x".repeat(40).as_bytes());
     }
 
     #[cfg(unix)]
@@ -257,15 +312,5 @@ mod tests {
             "{error}"
         );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn a_link_that_cannot_be_made_says_what_the_folder_needs() {
-        let dir = TempDir::new();
-        let error = link(&dir.path().join("absent"), &dir.path().join("target")).unwrap_err();
-        assert!(error.to_string().contains("supports hard links"), "{error}");
-        let existing = dir.file("existing", "");
-        let error = link(&existing, &existing).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
     }
 }

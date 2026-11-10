@@ -145,7 +145,7 @@ hand project add demo "$D\repo"
 Copy-Item "$D\fleet\hand.db" "$D\hand.db.backup"
 Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}'
 hand route list | Select-Object -First 3
-$fid = (Get-ChildItem "$env:SECONDHAND_HOME\fleets").Name
+$fid = (Get-ChildItem "$env:SECONDHAND_HOME\index").Name
 $luvus = (Toon (hand luvus show | Select-String '^pin: (.*)$').Matches[0].Groups[1].Value) -replace '^\S+ '
 Add-Content "$D\env.ps1" "`$fid = '$fid'`n`$luvus = '$luvus'"
 . "$D\env.ps1"; hand fleet list
@@ -804,7 +804,7 @@ Set-Content -Path "$D2\fleet\routing.json" -Encoding ascii -Value '{"profiles":{
 **2.** Run a worker to its report, as `W3` steps 1 and 3 do, with `$D2` in place of `$D` and the new fleet. Stop and clean it, then stop the second session:
 
 ```powershell
-$fid2 = (Get-ChildItem "$env:SECONDHAND_HOME\fleets").Name
+$fid2 = (Get-ChildItem "$env:SECONDHAND_HOME\index").Name
 Set-Content -Path "$D2\brief.md" -Value @'
 Create a file named hello.txt in the repository root containing exactly: hello
 Commit it with the message: dogfood

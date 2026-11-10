@@ -136,6 +136,9 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}
+	if runtime.GOOS != "windows" {
+		want = append(want, "modes")
+	}
 	for _, check := range want {
 		if rows[check] != [2]string{"ok", `""`} {
 			t.Fatalf("%s = %q in %q", check, rows[check], out)
@@ -246,7 +249,7 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		}},
 		{"broken database", "schema", "fail", "", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "hand.db"), "not a database") }},
 		{"not registered", "fleet", "fail", "run `hand init` here", 1, func(fx *doctorFixture) {
-			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "fleets", fx.id))
+			fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "index", fx.id))
 		}},
 		{"bad routing.json", "routing.json", "fail", "routing.json", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "routing.json"), "{") }},
 		{"no claude", "profile default", "fail", "claude not found on PATH; install claude, or add its folder to PATH", 1, func(fx *doctorFixture) { fx.remove(exe(fx.tools, "claude")) }},
@@ -332,7 +335,7 @@ func TestDoctorReadsTheOmpCacheFromTheFleetHomeWhateverTheWorkingDirectory(t *te
 
 func TestDoctorRepairsNothing(t *testing.T) {
 	fx := newDoctorFixture(t)
-	link := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "fleets", fx.id)
+	link := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "index", fx.id)
 	fx.remove(link)
 	fx.remove(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"))
 	if _, _, code := fx.h.run("doctor"); code != 1 {
@@ -427,5 +430,39 @@ func TestDoctorReportsAStaleWatchUnit(t *testing.T) {
 				t.Fatalf("watch unit = %q, want %q and %q", got[1], tc.why, tc.fix)
 			}
 		})
+	}
+}
+
+func TestDoctorFailsACopyWhoseRecordNamesALiveHome(t *testing.T) {
+	fx := newDoctorFixture(t)
+	cp := t.TempDir()
+	for _, name := range []string{"hand.db", "board.token"} {
+		if b, err := os.ReadFile(filepath.Join(fx.h.home, name)); err == nil {
+			if err := os.WriteFile(filepath.Join(cp, name), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	record, err := json.Marshal(fleet.HomesRecord{Homes: []string{fx.h.home}, Current: fx.h.home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cp, fleet.HomeFile), append(record, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.EvalSymlinks(fx.h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index", fx.id), []byte(cp+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.home, fx.h.cwd = cp, cp
+	out, errOut, code := fx.h.run("doctor")
+	if code != 1 {
+		t.Fatalf("doctor = %d: %q %q", code, out, errOut)
+	}
+	if row := checkRows(t, out)["fleet"]; row[0] != "fail" || !strings.Contains(row[1], "copy") {
+		t.Fatalf("fleet = %q in %q", row, out)
 	}
 }

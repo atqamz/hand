@@ -226,7 +226,7 @@ func assertTreeUnchanged(t *testing.T, before map[string]treeFile, root string) 
 
 func fleetLink(t *testing.T, h *harness) string {
 	t.Helper()
-	dir := filepath.Join(h.vars["SECONDHAND_HOME"], "fleets")
+	dir := filepath.Join(h.vars["SECONDHAND_HOME"], "index")
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -514,7 +514,7 @@ func TestAttemptExecRefusesTwoRegistrationsForOneHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	twin := "f000000000002"
-	if err := os.WriteFile(filepath.Join(root, "fleets", twin), recorded, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "index", twin), recorded, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{filepath.Base(link), twin} {
