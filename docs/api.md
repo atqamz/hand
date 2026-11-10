@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, and the supervisor controls (start, resume, stop, interrupt, force and keys). It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, and the supervisor controls (start, resume, stop, interrupt, force and keys). It never returns `last_screen` or a terminal screen. The one text parsed from a screen it carries is a blocked supervisor's `ask` (see `Status`), and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -118,7 +118,15 @@ While the supervisor's pane is blocked, `supervisor` also carries `"blocked": tr
 {"blocked": true, "keys": {"revision": 6, "digest": "f8c722e0710879ae811b2fe7ad0c8ba0", "pressed": 2}}
 ```
 
-`revision` and `digest` are the same guard the Blocked screen page sends, and `pressed` is the sequence of the last key press (`0` when none has been sent). They are the only facts about the screen the API carries: not its text, question, or the labels parsed from it. The desktop shows the fixed toolbar only while `blocked` is true and posts each key with these three values.
+`revision` and `digest` are the same guard the Blocked screen page sends, and `pressed` is the sequence of the last key press (`0` when none has been sent). The digest is a non-reversible hash, not screen content.
+
+When the Board's Ask card would show a question for that screen, `supervisor` also carries `ask`, with the Board's own parsed text and nothing else:
+
+```json
+{"ask": {"question": "Do you want to proceed?", "options": [{"label": "2 No", "keys": ["2"]}, {"label": "1 Yes", "keys": ["1"]}]}}
+```
+
+`question` is the one question line the Board parser picks from the screen. Each option has the `label` the Ask card shows (for a numbered dialog, the number and the option text clipped to 24 characters) and the `keys` that choose it, in the order they are sent: `["1"]`, or `["down", "enter"]` for a `◯`/`◉` list. Both go through the absolute-path scrub the rest of the API uses. `ask` is absent unless `blocked` is true, when the screen is stale or unreadable, when the parser rejects the screen (no option block), when the question line does not end in `?`, when a question or label looks like a secret (a bearer or API token, a `password=` form, a long token), when there are more than 8 options, and when any option would need a key outside the allowed set. The question is clipped to 200 characters and each label to 60. Nothing else from the screen is carried: not the command or file a dialog shows, not its footer or hint lines, and not the raw text. A client posts an option's `keys` as one press with the three guard values above, so a stale option is refused like any stale key.
 
 ### `Timeline.data`
 
@@ -218,7 +226,7 @@ Start and resume take no body. When a control ran but the board could not read t
 - `409 conflict`: the screen changed since the given revision, a key was pressed after the given sequence, or another supervisor runs than the one the request names; nothing was sent.
 - `200` with the updated `Status`, or `{"accepted": true}` when the press went through but the status could not be read; then the client warns and refreshes.
 
-**The keys decision.** The API carries no `Ask` DTO and no option labels, question or screen text. While the supervisor is blocked, `Status.supervisor.keys` carries only the revision, digest and pressed sequence the guard needs, and a client shows the fixed seven-key toolbar only in that state; the operator reads the ask itself on the board's Screen page. This is the smallest contract that keeps the stale-screen guards, and the digest is the same non-reversible value the web form already sends, not screen content.
+**The keys decision.** The API never returns a screen. While the supervisor is blocked, `Status.supervisor.keys` carries the revision, digest and pressed sequence the guard needs, and `Status.supervisor.ask` carries the question and option labels the Board's Ask card already shows the operator on the same loopback session, so it adds no new disclosure. A client shows one button per option when `ask` is present, and the fixed seven-key toolbar only when it is absent (a screen the parser does not understand). A blocked worker has no ask: the Board's Ask card covers the supervisor's screen only, and the API carries no worker screen text.
 
 ## Errors
 

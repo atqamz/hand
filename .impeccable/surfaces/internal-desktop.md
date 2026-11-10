@@ -13,12 +13,12 @@ related_targets:
 
 - **Covers:** `hand-desktop`, a MyGo v0.7.4 window (pinned, cgo-free) that is a client of the running Board:
   - the rail: the fleets this machine can open, then Status, Needs, Timeline and Tasks;
-  - Status: the supervisor, its controls and, while it is blocked, its key toolbar, the agent state, the context gauge and the task counts;
+  - Status: the supervisor, its controls and, while it is blocked, its question with one button per option (or the key toolbar), the agent state, the context gauge and the task counts;
   - Needs: every open item in the page's order, toned by its severity word;
   - Timeline: the conversation's entries, the working turn and its queued messages, and the composer: a multi-line message field with Send and Clear;
   - Tasks: the grouped task list, and each task's detail;
   - the detail of a task, an attempt, a decision and a report, opened in place with Back;
-  - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and the fixed key toolbar while it is blocked;
+  - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status and the open screen's data poll while the window is open (see Refresh).
 - **Not in v1:** any other write (attachments, because the API sends text only; a model switch, because the API has no route for it), the document viewer, phone pairing, the archive's search, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
@@ -82,6 +82,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
 | `15-delivered.png` | a task's Delivered list: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
+| `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
 
 ## Auth decision
 
@@ -89,11 +90,11 @@ The desktop reads the fleet's `board.token` and sends it as the cookie the board
 
 ## Keys decision
 
-The window shows the fixed key toolbar only while the board reports the supervisor blocked, and sends each press with the status's `revision`, `digest` and `pressed` sequence. The API carries no screen, question or option label, so the window never renders screen text; the operator reads the ask on the Board's Screen page. This is the smallest contract that keeps the stale-screen guards, rather than an `Ask` DTO that parses the screen.
+The window sends each press with the status's `revision`, `digest` and `pressed` sequence. While the supervisor is blocked and the status carries an `ask` (the question and option labels the Board's Ask card already parses, never the raw screen), it shows the question and one button per option, each sending that option's keys as one press. Only without an `ask`, for a screen the parser does not understand, does it show the fixed key toolbar. The Needs row of a blocked supervisor opens Status.
 
 ## Rules
 
-**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons on Status, and its key toolbar is fixed keys, with no fields. Every other click only changes which screen is shown, except the masthead's Open in browser, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
+**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons on Status, and its option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except the masthead's Open in browser, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
 
 **The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file, and does not import the CLI, the board service or the state store.
 

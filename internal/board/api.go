@@ -74,6 +74,7 @@ type APISupervisor struct {
 	Resumable bool     `json:"resumable"`
 	Blocked   bool     `json:"blocked,omitempty"`
 	Keys      *APIKeys `json:"keys,omitempty"`
+	Ask       *APIAsk  `json:"ask,omitempty"`
 	Held      bool     `json:"held,omitempty"`
 	Switching string   `json:"switching,omitempty"`
 	Reason    string   `json:"reason,omitempty"`
@@ -83,6 +84,16 @@ type APIKeys struct {
 	Revision int64  `json:"revision"`
 	Digest   string `json:"digest"`
 	Pressed  int64  `json:"pressed"`
+}
+
+type APIAsk struct {
+	Question string         `json:"question"`
+	Options  []APIAskOption `json:"options"`
+}
+
+type APIAskOption struct {
+	Label string   `json:"label"`
+	Keys  []string `json:"keys"`
 }
 
 type APITaskCounts struct {
@@ -1231,12 +1242,46 @@ func apiSupervisor(v supervisorView, pressed int64) *APISupervisor {
 	}
 	if v.Blocked {
 		out.Keys = &APIKeys{Revision: v.Revision, Digest: v.Digest, Pressed: pressed}
+		if v.Stale == "" && v.ScreenNote == "" {
+			out.Ask = apiAsk(ask(v.Screen, v.Agent))
+		}
 	}
 	if out.Ref == "" {
 		out.Ref = state.SupervisorRef(v.Sup.ID)
 	}
 	if v.Sup.Switching() {
 		out.Switching = v.Sup.SwitchText()
+	}
+	return out
+}
+
+var askSecret = regexp.MustCompile(`(?i)\b(bearer|basic)\s+\S{6,}|\b(sk|pk|ghp|gho|ghs|xox[bap]|AKIA)[-_][A-Za-z0-9_-]{8,}|\b(api[_-]?key|token|secret|passw(or)?d|pwd|authorization)\b\s*[:=]|[A-Za-z0-9+/_-]{32,}`)
+
+const (
+	askQuestionMax = 200
+	askLabelMax    = 60
+	askOptionsMax  = 8
+)
+
+func askClip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
+func apiAsk(card *askCard) *APIAsk {
+	if card == nil || !strings.HasSuffix(card.Question, "?") || len(card.Options) > askOptionsMax || askSecret.MatchString(card.Question) {
+		return nil
+	}
+	out := &APIAsk{Question: askClip(Scrub(card.Question), askQuestionMax), Options: make([]APIAskOption, 0, len(card.Options))}
+	for _, o := range card.Options {
+		keys := strings.Fields(o.Value)
+		if len(keys) == 0 || askSecret.MatchString(o.Label) || slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains(state.SupervisorKeys, k) }) {
+			return nil
+		}
+		out.Options = append(out.Options, APIAskOption{Label: askClip(Scrub(o.Label), askLabelMax), Keys: keys})
 	}
 	return out
 }

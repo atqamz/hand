@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -769,6 +770,41 @@ func TestAPISupervisorKeys(t *testing.T) {
 	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", body, "wrong", true), http.StatusForbidden, "csrf_required")
 }
 
+func TestAPIBlockedAsk(t *testing.T) {
+	for _, c := range []struct {
+		name, status, screen string
+		want                 *board.APIAsk
+	}{
+		{"numbered", "blocked", permission, &board.APIAsk{Question: "Do you want to proceed?", Options: []board.APIAskOption{
+			{Label: "2 No", Keys: []string{"2"}}, {Label: "1 Yes", Keys: []string{"1"}},
+		}}},
+		{"circle", "blocked", "Which flavor?\n❯ ◉ Vanilla\n  ◯ Mint\n\n↑/↓ select · enter to confirm · esc cancel", &board.APIAsk{Question: "Which flavor?", Options: []board.APIAskOption{
+			{Label: "Vanilla", Keys: []string{"enter"}}, {Label: "Mint", Keys: []string{"down", "enter"}},
+		}}},
+		{"command line", "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No", nil},
+		{"token question", "blocked", "Send Bearer sk-abcdef123456 to host?\n❯ 1. Yes\n  2. No", nil},
+		{"token label", "blocked", "Proceed?\n❯ 1. Use password=hunter22\n  2. No", nil},
+		{"too many options", "blocked", "Pick?\n❯ 1. a\n  2. b\n  3. c\n  4. d\n  5. e\n  6. f\n  7. g\n  8. h\n  9. i", nil},
+		{"unparsed", "blocked", "Something is wrong\nPress any key to continue", nil},
+		{"unsendable key", "blocked", "Pick one?\n❯ 1. a\n  2. b\n  3. c\n  4. d", nil},
+		{"not blocked", "idle", permission, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			fx.status, fx.screen = c.status, c.screen
+			h := fx.handler()
+			raw := apiRaw(t, h, "/api/v1/status")
+			_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+			if !reflect.DeepEqual(st.Supervisor.Ask, c.want) {
+				t.Fatalf("ask = %+v, want %+v", st.Supervisor.Ask, c.want)
+			}
+			if c.want == nil && strings.Contains(raw, `"ask"`) {
+				t.Fatalf("an absent ask is in the body:\n%s", raw)
+			}
+		})
+	}
+}
+
 func TestAPISupervisorGoldens(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	fx.status = "blocked"
@@ -1122,7 +1158,7 @@ func TestAPIUnknownRefs(t *testing.T) {
 	testAPIError(t, request(h, "GET", "/api/v1/timeline?before=-5", nil, true), http.StatusBadRequest, "bad_request")
 }
 
-var apiScreenLeaks = []string{"last_screen", "SECRET-SCREEN-TEXT", "Do you want to proceed?", "Trust this folder?", "Esc to cancel", "Tab to amend"}
+var apiScreenLeaks = []string{"last_screen", "SECRET-SCREEN-TEXT", "rm -f", "Claude Code will automatically deny", "Trust this folder?", "Esc to cancel", "Tab to amend"}
 
 var apiFieldLeaks = []string{"last_screen", token}
 
@@ -1236,6 +1272,14 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		}
 		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-after-semicolon") {
 			t.Fatalf("the timeline kept a screen detail after a semicolon:\n%s", raw)
+		}
+	})
+	t.Run("dialog without a question", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		fx.status, fx.screen = "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No"
+		raw := apiRaw(t, fx.handler(), "/api/v1/status")
+		if strings.Contains(raw, "id_rsa") || strings.Contains(raw, `"ask"`) {
+			t.Fatalf("status carries a screen line:\n%s", raw)
 		}
 	})
 	for _, sc := range scenes() {
