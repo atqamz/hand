@@ -54,6 +54,7 @@ type runner struct {
 	addrs      sync.Map
 	exits      *exitLog
 	screens    *screenLog
+	warnMu     sync.Mutex
 	warns      []string
 	noteLost   string
 	caller     string

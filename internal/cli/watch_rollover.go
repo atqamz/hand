@@ -16,6 +16,7 @@ import (
 const (
 	rolloverHeader   = "[hand v1 rollover]"
 	rolloverCooldown = time.Hour
+	rolloverAsks     = 3
 )
 
 var rolloverWait, rolloverPoll, rolloverStill = 5 * time.Minute, 2 * time.Second, update.StillFor
@@ -57,9 +58,6 @@ func (w *watcher) rollover(ctx context.Context, c luvus.Client, caps luvus.Capab
 		return
 	}
 	if !w.rolloverQuiet(ctx, c, sup) {
-		return
-	}
-	if !w.rolloverDue(ctx, sup) {
 		return
 	}
 	if !w.rollBusy.CompareAndSwap(false, true) {
@@ -161,10 +159,13 @@ func (w *watcher) rolled(ctx context.Context, c luvus.Client, sup state.Supervis
 		w.alert(ctx, "supervisor.rollover", "supervisor", fmt.Sprintf("%s holds %s tokens, over the rollover limit of %s, and %s; it keeps running and Hand will not ask it again", ref, tokens(used), tokens(limit), why))
 		return false
 	}
+	if _, err := harnessBin(r, lastSpec(sup)); err != nil {
+		return fail("Hand cannot start a fresh session: " + err.Error())
+	}
 	path := handoffPath(r.home)
 	before := readHandoff(path)
 	ask := fmt.Sprintf("%s Your context holds %s tokens, over the %s Hand keeps. Hand will end this session and start a fresh one. Write your handoff note to %s now: the tasks in flight and the next step for each, the decisions waiting on the operator, the timers that matter, and anything not in Hand's state. Keep it short. Then answer `done` and start no other work.", rolloverHeader, tokens(used), tokens(limit), path)
-	if _, err := sendToSupervisor(ctx, c, sup, "idle", ask); err != nil {
+	if err := w.askForNote(ctx, c, sup, ask); err != nil {
 		return fail("Hand could not send the request for a handoff note: " + err.Error())
 	}
 	deadline := time.Now().Add(rolloverWait)
@@ -190,45 +191,71 @@ func (w *watcher) rolled(ctx context.Context, c luvus.Client, sup state.Supervis
 			settled = 0
 		}
 	}
+	ctx = context.WithoutCancel(ctx)
 	cur, ok, err := w.st.LiveSupervisor(ctx)
-	if err != nil || !ok || cur.ID != sup.ID || !w.waitingNothing(ctx, cur) {
+	if err != nil || !ok || cur.ID != sup.ID || cur.Status != state.AttemptRunning || cur.Switching() {
 		return false
 	}
-	next, err := w.replace(ctx, c, cur, used)
+	next, stopped, err := w.replace(ctx, c, cur, used)
 	if err != nil {
-		w.alert(ctx, "supervisor.rollover", "supervisor", fmt.Sprintf("%s wrote its handoff note but Hand could not start the fresh session: %v; continue %s with `%s supervisor resume`", ref, err, ref, r.env.command()))
+		if !stopped {
+			return fail(fmt.Sprintf("it wrote its handoff note but Hand could not replace it, and nothing was stopped: %v", err))
+		}
+		w.alert(ctx, "supervisor.rollover", "supervisor", fmt.Sprintf("%s wrote its handoff note and Hand ended it, but the fresh session did not start: %v", ref, err))
 		return false
 	}
 	w.say(fmt.Sprintf("%s rolled over to %s at %s tokens", ref, state.SupervisorRef(next.ID), tokens(used)))
 	return true
 }
 
-func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervisor, used int64) (state.Supervisor, error) {
+func (w *watcher) askForNote(ctx context.Context, c luvus.Client, sup state.Supervisor, ask string) error {
+	var err error
+	for try := 0; try < rolloverAsks; try++ {
+		if try > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(rolloverPoll):
+			}
+		}
+		if _, err = sendToSupervisor(ctx, c, sup, "idle", ask); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervisor, used int64) (state.Supervisor, bool, error) {
 	r := w.r
 	unlock, ok, err := r.guardGeneration(ctx, w.st, sup)
 	if err != nil {
-		return state.Supervisor{}, err
+		return state.Supervisor{}, false, err
 	}
 	defer unlock()
 	if !ok {
-		return state.Supervisor{}, r.staleGeneration(sup)
+		return state.Supervisor{}, false, r.staleGeneration(sup)
 	}
 	who := r.requester()
 	if rootAlive(sup.PID, sup.StartMarker) {
 		if _, who, err = stopWorker(ctx, c, terminal(sup.Terminal), who); err != nil {
-			return state.Supervisor{}, err
+			return state.Supervisor{}, false, err
 		}
 	}
 	_ = r.findSession(ctx, w.st, &sup)
 	ref := state.SupervisorRef(sup.ID)
 	if _, err := w.st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, who.note("rolled over at "+tokens(used)+" tokens")); err != nil {
-		return state.Supervisor{}, err
+		return state.Supervisor{}, true, err
 	}
 	cmd := r.env.command()
 	note := "You continue " + ref + ", which Hand ended at " + tokens(used) + " tokens of context: run the full `" + cmd + " orient`, then read `" + handoffPath(r.home) + "`, the handoff note " + ref + " wrote for you."
 	next, err := r.startSupervisor(ctx, w.st, c, lastSpec(sup), note, sup.WakeCursor)
 	if err != nil {
-		return next, err
+		back, rerr := r.relaunch(ctx, w.st, c, sup, lastSpec(sup))
+		if rerr != nil {
+			return next, true, fmt.Errorf("%w; resuming %s failed too: %v; continue it with `%s supervisor resume`", err, ref, rerr, cmd)
+		}
+		w.rollFailed.Store(back.ID)
+		return back, true, fmt.Errorf("%w; Hand resumed %s as %s and will not ask it again", err, ref, state.SupervisorRef(back.ID))
 	}
 	session := next.Session
 	if session == "" {
@@ -240,5 +267,5 @@ func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervi
 	if _, _, err := r.settleLaunch(r.ctx(), w.st, c, next); err != nil {
 		w.say("supervisor rollover: " + err.Error())
 	}
-	return next, nil
+	return next, true, nil
 }

@@ -74,6 +74,11 @@ type fakeRuntime struct {
 	needScan     bool
 	scans        int
 	explains     int
+	createFail   string
+	createFails  int
+	onCreate     func(createCall)
+	promptFail   string
+	promptFails  int
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -165,6 +170,20 @@ func (rt *fakeRuntime) create(params json.RawMessage) (any, error) {
 	var call createCall
 	if err := json.Unmarshal(params, &call); err != nil {
 		return nil, err
+	}
+	rt.mu.Lock()
+	hook := rt.onCreate
+	refused := ""
+	if rt.createFails > 0 {
+		rt.createFails--
+		refused = rt.createFail
+	}
+	rt.mu.Unlock()
+	if refused != "" {
+		return nil, fakeuhp.Fail{Code: refused, Message: "create refused"}
+	}
+	if hook != nil {
+		hook(call)
 	}
 	term, err := rt.spawn(call.CWD, call.Label, call.Command)
 	if err != nil {
@@ -293,6 +312,10 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.promptFails > 0 {
+		rt.promptFails--
+		return nil, fakeuhp.Fail{Code: rt.promptFail, Message: "prompt failed"}
+	}
 	if !rt.ready || rt.needScan {
 		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "no prompt input was queued"}
 	}

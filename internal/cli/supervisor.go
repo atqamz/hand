@@ -614,10 +614,13 @@ func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 }
 
 func (r *runner) warn(w string) {
+	r.warnMu.Lock()
 	if w == "" || slices.Contains(r.warns, w) {
+		r.warnMu.Unlock()
 		return
 	}
 	r.warns = append(r.warns, w)
+	r.warnMu.Unlock()
 	if r.env.Warned != nil {
 		r.env.Warned(w)
 	}

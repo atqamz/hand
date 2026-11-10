@@ -963,12 +963,15 @@ func baseURL(raw string) (*url.URL, bool) {
 }
 
 func (w *watcher) flushWarns() {
-	for _, x := range w.r.warns {
+	w.r.warnMu.Lock()
+	warns := w.r.warns
+	w.r.warns = nil
+	w.r.warnMu.Unlock()
+	for _, x := range warns {
 		if x != w.r.noteLost {
 			w.say(x)
 		}
 	}
-	w.r.warns = nil
 }
 
 func (w *watcher) say(text string) {

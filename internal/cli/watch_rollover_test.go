@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,16 +48,33 @@ func (fx *rolloverFixture) session() string {
 	return m[1]
 }
 
-func (fx *rolloverFixture) context(session string, tokens int) {
-	fx.h.t.Helper()
-	path := filepath.Join(fx.h.vars["HOME"], ".claude", "projects", "p", session+".jsonl")
+func writeContext(home, session string, tokens int) error {
+	path := filepath.Join(home, ".claude", "projects", "p", session+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		fx.h.t.Fatal(err)
+		return err
 	}
 	line := `{"type":"assistant","timestamp":"2026-09-26T00:00:01Z","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":` + strconv.Itoa(tokens) + `,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[]}}` + "\n"
-	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+	return os.WriteFile(path, []byte(line), 0o644)
+}
+
+func (fx *rolloverFixture) context(session string, tokens int) {
+	fx.h.t.Helper()
+	if err := writeContext(fx.h.vars["HOME"], session, tokens); err != nil {
 		fx.h.t.Fatal(err)
 	}
+}
+
+func (fx *rolloverFixture) freshSessionsHold(tokens int) {
+	home := fx.h.vars["HOME"]
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.onCreate = func(call createCall) {
+			for i, a := range call.Command {
+				if a == "--session-id" && i+1 < len(call.Command) {
+					_ = writeContext(home, call.Command[i+1], tokens)
+				}
+			}
+		}
+	})
 }
 
 func (fx *rolloverFixture) writesNote() {
@@ -64,7 +82,7 @@ func (fx *rolloverFixture) writesNote() {
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.onPrompt = func() {
 			if p := rt.sent[len(rt.sent)-1]; strings.HasPrefix(p, "[hand v1 rollover]") {
-				_ = os.WriteFile(note, []byte("# Handoff\nt1: wait for CI\n"), 0o644)
+				_ = os.WriteFile(note, []byte(fmt.Sprintf("# Handoff\nt1: wait for CI %d\n", len(rt.sent))), 0o644)
 			}
 		}
 	})
@@ -74,6 +92,16 @@ func (fx *rolloverFixture) asked() int {
 	n := 0
 	for _, p := range fx.rt.prompts() {
 		if strings.HasPrefix(p, "[hand v1 rollover]") {
+			n++
+		}
+	}
+	return n
+}
+
+func (fx *rolloverFixture) askTries() int {
+	n := 0
+	for _, call := range fx.rt.srv.Calls("agent.prompt") {
+		if strings.Contains(string(call), "[hand v1 rollover]") {
 			n++
 		}
 	}
@@ -215,9 +243,6 @@ func TestRolloverKeepsTheSupervisorAndAlertsOnceWithoutANote(t *testing.T) {
 	fx.idle(t)
 	fx.h.advance(2 * time.Hour)
 	fx.idle(t)
-	for i, p := range fx.rt.prompts() {
-		t.Logf("prompt %d = %.60q", i, p)
-	}
 	if n, sups, alerts := fx.asked(), fx.supervisors(t), rolloverAlerts(fx.notify); n != 1 || len(sups) != 1 || !sups[0].Live() || len(alerts) != 1 || !strings.Contains(alerts[0], "s1 holds 350k tokens, over the rollover limit of 300k, and it wrote no handoff note in 300ms") {
 		t.Fatalf("asked %d times, supervisors = %+v, alerts = %q", n, sups, alerts)
 	}
@@ -280,8 +305,8 @@ func TestRolloverWaitsForAQueuedMessage(t *testing.T) {
 	fx.idle(t)
 	fx.h.advance(10 * time.Minute)
 	fx.idle(t)
-	if n := fx.asked(); n != 0 {
-		t.Fatalf("asked %d times while a message waited", n)
+	if n := fx.askTries(); n != 0 {
+		t.Fatalf("tried to send %d prompts while a message waited", n)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.ready = true })
 	fx.idle(t)
@@ -290,5 +315,205 @@ func TestRolloverWaitsForAQueuedMessage(t *testing.T) {
 	prompts := fx.rt.prompts()
 	if len(prompts) < 2 || prompts[0] != "operator words" {
 		t.Fatalf("prompts = %q", prompts)
+	}
+}
+
+func (fx *rolloverFixture) duringAsk(act func(rt *fakeRuntime, st *state.Store)) {
+	st := openStore(fx.h.t, fx.h)
+	note := filepath.Join(fx.h.home, "memory", "handoff.md")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.onPrompt = func() {
+			if p := rt.sent[len(rt.sent)-1]; strings.HasPrefix(p, "[hand v1 rollover]") {
+				_ = os.WriteFile(note, []byte(fmt.Sprintf("# Handoff\nt1: wait for CI %d\n", len(rt.sent))), 0o644)
+				act(rt, st)
+			}
+		}
+	})
+}
+
+func (fx *rolloverFixture) alertedOnce(t *testing.T, want ...string) {
+	t.Helper()
+	eventually(t, func() bool { return len(rolloverAlerts(fx.notify)) >= 1 })
+	fx.idle(t)
+	alerts := rolloverAlerts(fx.notify)
+	if len(alerts) != 1 {
+		t.Fatalf("alerts = %q", alerts)
+	}
+	has(t, "alert", alerts[0], want...)
+}
+
+func TestRolloverSendsAMessageAndAWakeFromTheExchangeToTheFreshSession(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.duringAsk(func(_ *fakeRuntime, st *state.Store) {
+		ctx := context.Background()
+		_, _ = st.AddSupervisorInput(ctx, "operator words")
+		_ = st.NoteSupervisor(ctx, 1, "stalled", "new wake")
+	})
+	if err := openStore(t, fx.h).NoteSupervisor(context.Background(), 1, "stalled", "old wake"); err != nil {
+		t.Fatal(err)
+	}
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	eventually(t, func() bool { return strings.Contains(strings.Join(fx.rt.prompts(), "\n"), "old wake") })
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	eventually(t, func() bool { return len(fx.rolledOver(t)) == 1 })
+	eventually(t, func() bool {
+		all := strings.Join(fx.rt.prompts(), "\n")
+		return strings.Contains(all, "operator words") && strings.Contains(all, "new wake")
+	})
+	fx.idle(t)
+	if n, alerts := fx.asked(), rolloverAlerts(fx.notify); n != 1 || len(alerts) != 0 {
+		t.Fatalf("asked %d times, alerts = %q", n, alerts)
+	}
+	if got := strings.Count(strings.Join(fx.rt.prompts(), "\n"), "old wake"); got != 1 {
+		t.Fatalf("the old wake reached a session %d times", got)
+	}
+	sups := fx.supervisors(t)
+	if len(sups) != 2 || sups[1].WakeCursor <= sups[0].WakeCursor {
+		t.Fatalf("supervisors = %+v", sups)
+	}
+}
+
+func TestRolloverWaitsForAQueuedWake(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	fx.rt.set(func(rt *fakeRuntime) { rt.ready = false })
+	if err := openStore(t, fx.h).NoteSupervisor(context.Background(), 1, "stalled", "waited too long"); err != nil {
+		t.Fatal(err)
+	}
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.idle(t)
+	if n := fx.askTries(); n != 0 {
+		t.Fatalf("tried to send %d prompts while a wake waited", n)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.ready = true })
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	eventually(t, func() bool { return len(fx.rolledOver(t)) == 1 })
+}
+
+func TestRolloverWaitsWhileTheScreenKeepsChanging(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	revisions := make([]int64, 5000)
+	for i := range revisions {
+		revisions[i] = int64(i + 1)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.revisions = revisions })
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.idle(t)
+	if n := fx.asked(); n != 0 {
+		t.Fatalf("asked %d times while the screen changed", n)
+	}
+}
+
+func TestRolloverStartsNothingAgainWithinTheCooldown(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.freshSessionsHold(350000)
+	fx.writesNote()
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	eventually(t, func() bool { return len(fx.rolledOver(t)) == 1 })
+	fx.idle(t)
+	fx.h.advance(11 * time.Minute)
+	fx.idle(t)
+	if n, sups := fx.asked(), fx.supervisors(t); n != 1 || len(sups) != 2 {
+		t.Fatalf("asked %d times within the cooldown, supervisors = %+v", n, sups)
+	}
+	fx.h.advance(time.Hour)
+	eventually(t, func() bool { return len(fx.rolledOver(t)) == 2 })
+}
+
+func TestRolloverKeepsTheSupervisorWhenTheBoardGenerationIsStale(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	writeGeneration(t, fx.h, "dead 1")
+	fx.h.vars["HAND_GENERATION"] = "dead 1"
+	writeGeneration(t, fx.h, "live 2")
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.alertedOnce(t, "s1 holds 350k tokens", "nothing was stopped", "will not ask it again")
+	fx.h.advance(2 * time.Hour)
+	fx.idle(t)
+	if n, sups := fx.asked(), fx.supervisors(t); n != 1 || len(sups) != 1 || !sups[0].Live() || len(rolloverAlerts(fx.notify)) != 1 {
+		t.Fatalf("asked %d times, supervisors = %+v", n, sups)
+	}
+}
+
+func TestRolloverAsksNothingWhenTheHarnessIsGone(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	if err := os.Remove(filepath.Join(fx.h.vars["PATH"], exe("", "claude"))); err != nil {
+		t.Fatal(err)
+	}
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.alertedOnce(t, "s1 holds 350k tokens", "Hand cannot start a fresh session", "will not ask it again")
+	if n, sups := fx.asked(), fx.supervisors(t); n != 0 || len(sups) != 1 || !sups[0].Live() {
+		t.Fatalf("asked %d times, supervisors = %+v", n, sups)
+	}
+}
+
+func TestRolloverResumesTheOldSessionWhenTheFreshOneCannotStart(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	old := fx.session()
+	fx.context(old, 350000)
+	fx.duringAsk(func(rt *fakeRuntime, _ *state.Store) { rt.createFail, rt.createFails = "create_refused", 1 })
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	fx.alertedOnce(t, "s1 wrote its handoff note", "the fresh session did not start", "resumed s1 as s3", "will not ask it again")
+	fx.h.advance(2 * time.Hour)
+	fx.idle(t)
+	sups := fx.supervisors(t)
+	if len(sups) != 3 || sups[0].Status != state.AttemptStopped || sups[1].Status != state.AttemptFailed || !sups[2].Live() || sups[2].Session != old {
+		t.Fatalf("supervisors = %+v", sups)
+	}
+	if n := fx.asked(); n != 1 {
+		t.Fatalf("asked %d times", n)
+	}
+}
+
+func TestRolloverStandsDownForASwitchRequestedDuringTheExchange(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.duringAsk(func(_ *fakeRuntime, st *state.Store) {
+		_, _ = st.SetSupervisorSwitch(context.Background(), 1, "opus", "high")
+	})
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	eventually(t, func() bool { return len(fx.supervisors(t)) == 2 })
+	fx.idle(t)
+	sups := fx.supervisors(t)
+	if n := fx.asked(); n != 1 || len(fx.rolledOver(t)) != 0 || sups[1].Model != "opus" || sups[1].Effort != "high" || sups[1].Session != sups[0].Session {
+		t.Fatalf("asked %d times, supervisors = %+v", n, sups)
+	}
+}
+
+func TestRolloverRetriesAnAskThatFailsTwice(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	fx.context(fx.session(), 350000)
+	fx.writesNote()
+	fx.rt.set(func(rt *fakeRuntime) { rt.promptFail, rt.promptFails = "agent_busy", 2 })
+	startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.idle(t)
+	fx.h.advance(10 * time.Minute)
+	eventually(t, func() bool { return len(fx.rolledOver(t)) == 1 })
+	if n := len(rolloverAlerts(fx.notify)); n != 0 {
+		t.Fatalf("alerts = %d", n)
 	}
 }
