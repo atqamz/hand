@@ -515,7 +515,7 @@ func scenes() []scene {
 			}
 		})},
 		{"f00000000e013", "ask", supervised("idle", "", 420000, func(t *testing.T, fx *fixture) {
-			askAttempt(t, fx, "Clean the build folder")
+			blockedWorker(t, fx, "Clean the build folder")
 			fx.screen = capture(t, "long16")
 		})},
 		{"f00000000e011", "decisions", func(t *testing.T, fx *fixture) {

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -43,8 +42,6 @@ type waiting struct {
 	Cut              bool
 	Prompt           prompt
 	Command          string
-	Note             string
-	Actions          []key
 }
 
 type prompt struct {
@@ -174,14 +171,6 @@ var severity = map[string]severityRank{
 	"artifacts": {11, "neutral", "OLD FILES"},
 }
 
-func permissionActions(p harness.Permission) []key {
-	actions := []key{{p.Approve, "Approve"}}
-	if p.Always != "" {
-		actions = append(actions, key{p.Always, "Approve always: " + p.Pattern})
-	}
-	return append(actions, key{p.Deny, "Deny"})
-}
-
 func (w waiting) Rank() int { return severity[w.Kind].rank }
 
 func (w waiting) Tone() string { return severity[w.Kind].tone }
@@ -230,7 +219,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 		default:
 			continue
 		}
-		if supervised && a.Approve != state.ApproveAsk && kind != "limited" && kind != "long" && now.Sub(parse(e.At)) < workerGrace {
+		if supervised && kind != "limited" && kind != "long" && now.Sub(parse(e.At)) < workerGrace {
 			continue
 		}
 		t, err := b.st.Task(ctx, a.TaskID)
@@ -250,14 +239,6 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 					w.Screen, w.Revision, w.Digest, w.Prompt = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text), blockedPrompt(s.Text)
 					if w.Prompt.Headline != "" {
 						w.Title = w.Prompt.Headline
-					}
-					if perm, ok := harness.ClaudePermission(s.Text); ok && a.Approve == state.ApproveAsk {
-						w.Command, w.Note, w.Actions = perm.Command, perm.Note, permissionActions(perm)
-						first, more, _ := strings.Cut(perm.Command, "\n")
-						w.Title = perm.Tool + ": " + first
-						if more != "" {
-							w.Title += " (+" + strconv.Itoa(strings.Count(more, "\n")+1) + " lines)"
-						}
 					}
 					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
 						return nil, err
