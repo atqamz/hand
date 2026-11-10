@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 type Screen int
@@ -91,6 +93,7 @@ type App struct {
 	errScreen bool
 	retry     string
 	writer    *draftWriter
+	md        markdown.Options
 	loadID    int
 	cancel    context.CancelFunc
 	stop      context.CancelFunc
