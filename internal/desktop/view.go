@@ -11,6 +11,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 type palette struct {
@@ -20,23 +22,11 @@ type palette struct {
 }
 
 func paletteFor(dark bool) palette {
-	if dark {
-		return palette{
-			line: ui.Hex("#262b32"), lineStrong: ui.Hex("#6b7482"), panel: ui.Hex("#15181d"),
-			card: ui.Hex("#1b1f25"), hover: ui.Hex("#1e232a"),
-			fail: ui.Hex("#ff6b6b"), wait: ui.Hex("#e6ac45"), pass: ui.Hex("#56c77a"),
-			neutral: ui.Hex("#9ba2ad"), accent: ui.Hex("#7ea6ff"),
-			failBG: ui.Hex("#2c1719"), waitBG: ui.Hex("#2a2212"), passBG: ui.Hex("#13281b"),
-			neutralBG: ui.Hex("#1e232a"), accentBG: ui.Hex("#172238"),
-		}
-	}
+	k := kit.ColorsFor(dark)
 	return palette{
-		line: ui.Hex("#e3e6ea"), lineStrong: ui.Hex("#80889a"), panel: ui.Hex("#f6f7f9"),
-		card: ui.Hex("#f1f3f5"), hover: ui.Hex("#eef0f3"),
-		fail: ui.Hex("#c42b32"), wait: ui.Hex("#8a5b00"), pass: ui.Hex("#1a7a3e"),
-		neutral: ui.Hex("#5b626e"), accent: ui.Hex("#2457c5"),
-		failBG: ui.Hex("#fdeeee"), waitBG: ui.Hex("#fcf3dc"), passBG: ui.Hex("#e4f4e9"),
-		neutralBG: ui.Hex("#eef0f3"), accentBG: ui.Hex("#ebf1fd"),
+		line: k.Line, lineStrong: k.LineStrong, panel: k.Panel, card: k.Card, hover: k.Hover,
+		fail: k.Fail, wait: k.Wait, pass: k.Pass, neutral: k.Neutral, accent: k.Accent,
+		failBG: k.FailBG, waitBG: k.WaitBG, passBG: k.PassBG, neutralBG: k.NeutralBG, accentBG: k.AccentBG,
 	}
 }
 
@@ -45,36 +35,28 @@ func boardTheme(dark bool) *ui.Theme {
 	if dark {
 		t = ui.DarkTheme()
 	}
+	k := kit.ColorsFor(dark)
 	p := paletteFor(dark)
-	t.Background = ui.Hex("#ffffff")
-	if dark {
-		t.Background = ui.Hex("#111317")
-	}
+	t.Background = k.BG
 	t.Surface = p.panel
 	t.SurfaceHover = p.hover
 	t.SurfacePressed = p.card
 	t.Border = p.lineStrong
-	t.Text = ui.Hex("#15171c")
-	if dark {
-		t.Text = ui.Hex("#e8eaee")
-	}
+	t.Text = k.FG
 	t.TextMuted = p.neutral
 	t.Accent = p.accent
 	t.AccentHover = p.accent
 	t.AccentPressed = p.accent
-	t.AccentText = ui.Hex("#ffffff")
-	if dark {
-		t.AccentText = ui.Hex("#111317")
-	}
+	t.AccentText = k.OnPrimary
 	t.Danger = p.fail
 	t.Warning = p.wait
 	t.Success = p.pass
 	t.Selection = p.accentBG
 	t.Focus = p.accent
 	t.Scrollbar = p.lineStrong
-	t.Radius = 6
-	t.Spacing = 4
-	t.FontSize = 14
+	t.Radius = kit.RadiusMD
+	t.Spacing = kit.Space4
+	t.FontSize = kit.Body.Size
 	return t
 }
 
@@ -94,12 +76,12 @@ func (a *App) rail(c *ui.Context, p palette) {
 	ui.Column(c).Width(208).FillHeight().Background(p.panel).
 		BorderWidth(0, 1, 0, 0).BorderColor(p.line).Children(func() {
 		ui.Column(c).Padding(16, 16, 12).Gap(2).Children(func() {
-			ui.Text(c, "Hand").FontSize(18).Bold()
-			ui.Text(c, "desktop").FontSize(12).TextColor(p.neutral)
+			ui.Text(c, "Hand").FontSize(kit.Heading.Size).Bold()
+			ui.Text(c, "desktop").FontSize(kit.Meta.Size).TextColor(p.neutral)
 		})
-		ui.Text(c, "Fleets").FontSize(12).Bold().TextColor(p.neutral).Padding(8, 16)
+		ui.Text(c, "Fleets").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(8, 16)
 		if len(a.Fleets) == 0 {
-			ui.Text(c, "No fleets").FontSize(12).TextColor(p.neutral).Padding(0, 16, 12)
+			ui.Text(c, "No fleets").FontSize(kit.Meta.Size).TextColor(p.neutral).Padding(0, 16, 12)
 		}
 		ui.Column(c).Padding(0, 8).Gap(2).Children(func() {
 			for _, f := range a.Fleets {
@@ -110,7 +92,7 @@ func (a *App) rail(c *ui.Context, p palette) {
 			}
 		})
 		ui.Divider(c).Margin(12, 8)
-		ui.Text(c, "Read").FontSize(12).Bold().TextColor(p.neutral).Padding(8, 16)
+		ui.Text(c, "Read").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(8, 16)
 		ui.Column(c).Padding(0, 8).Gap(2).Children(func() {
 			a.nav(c, p, "screen:status", "Status", a.Screen == StatusScreen, 0, "", func() { a.Show(StatusScreen) })
 			a.nav(c, p, "screen:needs", "Needs", a.Screen == NeedsScreen, a.Status.Needs.Waiting, a.Status.Needs.Worst, func() { a.Show(NeedsScreen) })
@@ -119,7 +101,7 @@ func (a *App) rail(c *ui.Context, p palette) {
 		})
 		ui.Spacer(c)
 		if a.Model != nil {
-			ui.Text(c, "Messages, answers and marks read go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
+			ui.Text(c, "Messages, answers and marks read go to the board.").FontSize(kit.Meta.Size).TextColor(p.neutral).Padding(8, 16, 14)
 		}
 	})
 }
@@ -132,7 +114,7 @@ func (a *App) nav(c *ui.Context, p palette, key, label string, current bool, cou
 		el.Background(ui.Transparent)
 	}
 	el.Children(func() {
-		ui.Text(c, label).FontSize(14).SingleLine().Grow(1)
+		ui.Text(c, label).FontSize(kit.Body.Size).SingleLine().Grow(1)
 		if count > 0 {
 			bg, fg := toneColors(tone, p)
 			if tone == "" {
@@ -149,15 +131,15 @@ func (a *App) nav(c *ui.Context, p palette, key, label string, current bool, cou
 func (a *App) masthead(c *ui.Context, p palette) {
 	ui.Row(c).Height(56).Padding(0, 16).Gap(12).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
-		ui.Text(c, fleetName(a.Fleet)).FontSize(18).Bold().SingleLine()
+		ui.Text(c, fleetName(a.Fleet)).FontSize(kit.Heading.Size).Bold().SingleLine()
 		if a.Status.Projects > 1 {
-			ui.Text(c, fmt.Sprintf("%d projects", a.Status.Projects)).FontSize(12).TextColor(p.neutral)
+			ui.Text(c, fmt.Sprintf("%d projects", a.Status.Projects)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 		ui.Spacer(c)
 		if a.Model != nil && a.Fleet.ID != "" {
 			statusPill(c, p, a.Status.Pill)
 			if sup := a.Status.Supervisor; sup != nil {
-				ui.Text(c, supervisorLine(sup)).FontSize(12).TextColor(p.neutral)
+				ui.Text(c, supervisorLine(sup)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 			if a.Status.Gauge.Text != "" {
 				gauge(c, p, a.Status.Gauge)
@@ -170,7 +152,7 @@ func (a *App) masthead(c *ui.Context, p palette) {
 			a.Refresh()
 		}
 		if a.Stale != "" {
-			ui.Text(c, "Stale · retrying").FontSize(12).TextColor(p.wait).Tooltip(a.Stale)
+			ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).Tooltip(a.Stale)
 		}
 	})
 }
@@ -210,8 +192,8 @@ func (a *App) body(c *ui.Context, p palette) {
 func (a *App) errorCard(c *ui.Context, p palette) {
 	ui.Column(c).Gap(10).Padding(16).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The board could not be read").FontSize(18).Bold().TextColor(p.fail)
-		ui.Text(c, a.Err).FontSize(14)
+		ui.Text(c, "The board could not be read").FontSize(kit.Heading.Size).Bold().TextColor(p.fail)
+		ui.Text(c, a.Err).FontSize(kit.Body.Size)
 		if len(a.back) > 0 && ui.Button(c.Key("back"), "Back").Width(100).Clicked() {
 			a.Back()
 		}
@@ -227,8 +209,8 @@ func (a *App) openCard(c *ui.Context, p palette) {
 	}
 	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The browser did not open").FontSize(15).Bold().TextColor(p.fail)
-		ui.Text(c, a.OpenErr).FontSize(13)
+		ui.Text(c, "The browser did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
+		ui.Text(c, a.OpenErr).FontSize(kit.Meta.Size)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-open"), "Dismiss").Clicked() {
 				a.OpenErr = ""
@@ -240,8 +222,8 @@ func (a *App) openCard(c *ui.Context, p palette) {
 func (a *App) emptyCard(c *ui.Context, p palette, title, body string) {
 	ui.Column(c).Gap(6).Padding(20).Radius(10).Background(p.card).
 		Border(1, p.line).Children(func() {
-		ui.Text(c, title).FontSize(18).Bold()
-		ui.Text(c, body).FontSize(14).TextColor(p.neutral)
+		ui.Text(c, title).FontSize(kit.Heading.Size).Bold()
+		ui.Text(c, body).FontSize(kit.Body.Size).TextColor(p.neutral)
 	})
 }
 
@@ -255,8 +237,8 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 	}
 	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(bg).
 		Border(1, tone).Children(func() {
-		ui.Text(c, title).FontSize(15).Bold().TextColor(tone)
-		ui.Text(c, a.ActionErr).FontSize(13)
+		ui.Text(c, title).FontSize(kit.Title.Size).Bold().TextColor(tone)
+		ui.Text(c, a.ActionErr).FontSize(kit.Meta.Size)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-action"), "Dismiss").Clicked() {
 				a.ActionErr = ""
@@ -277,10 +259,10 @@ func (a *App) statusScreen(c *ui.Context, p palette) {
 		title = supervisorLine(sup)
 	}
 	ui.Column(c).Gap(4).Children(func() {
-		ui.Text(c, "Status").FontSize(22).Bold()
-		ui.Text(c, title).FontSize(15)
+		ui.Text(c, "Status").FontSize(kit.Display.Size).Bold()
+		ui.Text(c, title).FontSize(kit.Title.Size)
 		if a.Status.Line != "" {
-			ui.Text(c, a.Status.Line).FontSize(14).TextColor(p.neutral)
+			ui.Text(c, a.Status.Line).FontSize(kit.Body.Size).TextColor(p.neutral)
 		}
 	})
 	ui.Row(c).Gap(8).Children(func() {
@@ -295,18 +277,18 @@ func (a *App) statusScreen(c *ui.Context, p palette) {
 			Border(1, p.line).Children(func() {
 			section(c, p, "Supervisor")
 			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, sup.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-				ui.Text(c, strings.TrimSpace(sup.Harness+" "+sup.Model+" "+sup.Effort)).FontSize(14)
+				ui.Text(c, sup.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+				ui.Text(c, strings.TrimSpace(sup.Harness+" "+sup.Model+" "+sup.Effort)).FontSize(kit.Body.Size)
 				statusPill(c, p, sup.Status)
 				if sup.Live {
 					ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
 				}
 			})
 			if sup.Pending > 0 {
-				ui.Textf(c, "%d message(s) queued", sup.Pending).FontSize(12).TextColor(p.neutral)
+				ui.Textf(c, "%d message(s) queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 			if sup.Resumable {
-				ui.Text(c, "This session can be resumed").FontSize(12).TextColor(p.neutral)
+				ui.Text(c, "This session can be resumed").FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 			a.supervisorControls(c, p, sup)
 		})
@@ -314,15 +296,15 @@ func (a *App) statusScreen(c *ui.Context, p palette) {
 	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.card).
 		Border(1, p.line).Children(func() {
 		section(c, p, "Agent")
-		ui.Textf(c, "agent %s", emptyAs(a.Status.AgentState, "unknown")).FontSize(14)
+		ui.Textf(c, "agent %s", emptyAs(a.Status.AgentState, "unknown")).FontSize(kit.Body.Size)
 		if a.Status.Gauge.Text != "" {
 			gauge(c, p, a.Status.Gauge)
 		}
 		if a.Status.Compactions > 0 {
-			ui.Textf(c, "%d compaction(s)", a.Status.Compactions).FontSize(12).TextColor(p.neutral)
+			ui.Textf(c, "%d compaction(s)", a.Status.Compactions).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 		if a.Status.ComposerHint != "" {
-			ui.Text(c, a.Status.ComposerHint).FontSize(12).TextColor(p.neutral)
+			ui.Text(c, a.Status.ComposerHint).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 	})
 }
@@ -342,7 +324,7 @@ var supervisorControls = []controlButton{
 func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
 	ui.Divider(c).Margin(10, 0)
 	ui.Row(c).Gap(8).Children(func() {
-		ui.Text(c, "Controls").FontSize(12).Bold().TextColor(p.neutral).Grow(1)
+		ui.Text(c, "Controls").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Grow(1)
 		for _, ctrl := range supervisorControls {
 			label := ctrl.label
 			if a.BusyAction == ctrl.action {
@@ -362,7 +344,7 @@ func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
 		return
 	}
 	ui.Row(c).Gap(8).Children(func() {
-		ui.Text(c, "Keys").FontSize(12).Bold().TextColor(p.neutral).Grow(1)
+		ui.Text(c, "Keys").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Grow(1)
 		for _, key := range supervisorControlKeys {
 			label := key
 			if l, ok := supervisorKeyLabels[key]; ok {
@@ -381,7 +363,7 @@ func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
 
 func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 	ui.Column(c).Gap(8).Padding(12).Radius(8).Background(p.card).Border(1, p.line).Children(func() {
-		ui.Text(c, sup.Ask.Question).FontSize(14).Bold()
+		ui.Text(c, sup.Ask.Question).FontSize(kit.Body.Size).Bold()
 		ui.Column(c).Gap(8).Children(func() {
 			for _, option := range sup.Ask.Options {
 				name := "key:" + strings.Join(option.Keys, " ")
@@ -402,22 +384,22 @@ var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up"
 func (a *App) stat(c *ui.Context, p palette, value, label string, tone ui.Color) {
 	ui.Column(c).Grow(1).Gap(2).Padding(12).Radius(8).Background(p.card).
 		Border(1, p.line).Children(func() {
-		ui.Text(c, value).FontSize(22).Bold().TextColor(tone)
-		ui.Text(c, label).FontSize(12).TextColor(p.neutral)
+		ui.Text(c, value).FontSize(kit.Display.Size).Bold().TextColor(tone)
+		ui.Text(c, label).FontSize(kit.Meta.Size).TextColor(p.neutral)
 	})
 }
 
 func (a *App) needsScreen(c *ui.Context, p palette) {
 	items := a.Status.Needs.Items
 	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Needs").FontSize(22).Bold()
+		ui.Text(c, "Needs").FontSize(kit.Display.Size).Bold()
 		if a.Status.Needs.Waiting > 0 {
 			bg, fg := toneColors(a.Status.Needs.Worst, p)
 			ui.Badge(c, fmt.Sprint(a.Status.Needs.Waiting)).Background(bg).TextColor(fg)
 		}
 		ui.Spacer(c)
 		if a.Status.Needs.Summary != "" {
-			ui.Text(c, a.Status.Needs.Summary).FontSize(12).TextColor(p.neutral)
+			ui.Text(c, a.Status.Needs.Summary).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 	})
 	if len(items) == 0 {
@@ -452,11 +434,11 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 				}
 				el.Children(func() {
 					if need.Ref != "" {
-						ui.Text(c, need.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
+						ui.Text(c, need.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 					}
-					ui.Text(c, needLabel(need)).FontSize(14).SingleLine().Grow(1)
+					ui.Text(c, needLabel(need)).FontSize(kit.Body.Size).SingleLine().Grow(1)
 					if need.Excerpt != "" {
-						ui.Text(c, firstLine(need.Excerpt)).FontSize(12).TextColor(p.neutral).SingleLine()
+						ui.Text(c, firstLine(need.Excerpt)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 					}
 				})
 				if el.Clicked() {
@@ -483,7 +465,7 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 
 func (a *App) timelineScreen(c *ui.Context, p palette) {
 	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Conversation").FontSize(22).Bold()
+		ui.Text(c, "Conversation").FontSize(kit.Display.Size).Bold()
 		ui.Spacer(c)
 		if a.Timeline.Live {
 			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
@@ -510,18 +492,18 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 		ui.Column(c).Gap(3).Padding(8, 0, 12).BorderWidth(0, 0, 1, 0).
 			BorderColor(p.line).Children(func() {
 			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, roleName(e)).FontSize(12).Bold().TextColor(roleColor(e, p))
-				ui.Text(c, stamp(e.At)).Font("monospace").FontSize(12).TextColor(p.neutral)
+				ui.Text(c, roleName(e)).FontSize(kit.Meta.Size).Bold().TextColor(roleColor(e, p))
+				ui.Text(c, stamp(e.At)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 				ui.Spacer(c)
 				if e.Queued {
 					ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
 				}
 				if e.Delivery != "" {
-					ui.Text(c, e.Delivery).FontSize(12).TextColor(p.neutral)
+					ui.Text(c, e.Delivery).FontSize(kit.Meta.Size).TextColor(p.neutral)
 				}
 			})
 			for _, wake := range e.Wakes {
-				ui.Text(c, wake.Text).FontSize(12).TextColor(p.neutral)
+				ui.Text(c, wake.Text).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 			if e.Text != "" {
 				a.markdown(c, e.Text)
@@ -535,8 +517,8 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 func (a *App) working(c *ui.Context, p palette) {
 	if w := a.Timeline.Working; w != nil {
 		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
-			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
-			ui.Text(c, w.On).FontSize(12).TextColor(p.neutral)
+			ui.Textf(c, "%s is working", w.Ref).FontSize(kit.Body.Size).TextColor(p.accent)
+			ui.Text(c, w.On).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		})
 	}
 }
@@ -557,7 +539,7 @@ func (a *App) composer(c *ui.Context, p palette) {
 				return true
 			})
 		if a.DraftErr != "" {
-			ui.Text(c, a.DraftErr).FontSize(12).TextColor(p.fail)
+			ui.Text(c, a.DraftErr).FontSize(kit.Meta.Size).TextColor(p.fail)
 		}
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Spacer(c)
@@ -579,10 +561,10 @@ func (a *App) composer(c *ui.Context, p palette) {
 
 func (a *App) tasksScreen(c *ui.Context, p palette) {
 	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Tasks").FontSize(22).Bold()
+		ui.Text(c, "Tasks").FontSize(kit.Display.Size).Bold()
 		ui.Spacer(c)
 		if a.Tasks.FinishedCount > 0 {
-			ui.Textf(c, "%d finished", a.Tasks.FinishedCount).FontSize(12).TextColor(p.neutral)
+			ui.Textf(c, "%d finished", a.Tasks.FinishedCount).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 	})
 	if len(a.Tasks.Groups) == 0 {
@@ -594,21 +576,21 @@ func (a *App) tasksScreen(c *ui.Context, p palette) {
 		ui.Column(c).Gap(2).Children(func() {
 			ui.Row(c).Gap(8).Padding(6, 0).Children(func() {
 				section(c, p, g.Name)
-				ui.Text(c, fmt.Sprint(g.Count)).FontSize(12).TextColor(p.neutral)
+				ui.Text(c, fmt.Sprint(g.Count)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			})
 			for _, row := range g.Tasks {
 				r := row
 				el := ui.ButtonBase(c.Key("task:"+r.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
 					BorderWidth(0, 0, 1, 0).BorderColor(p.line)
 				el.Children(func() {
-					ui.Text(c, stateWord(r.State)).FontSize(12).TextColor(stateColor(r.State, p)).Width(52)
-					ui.Text(c, r.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-					ui.Text(c, r.Title).FontSize(14).SingleLine().Grow(1)
+					ui.Text(c, stateWord(r.State)).FontSize(kit.Meta.Size).TextColor(stateColor(r.State, p)).Width(52)
+					ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+					ui.Text(c, r.Title).FontSize(kit.Body.Size).SingleLine().Grow(1)
 					if r.Project != "" && a.Status.Projects > 1 {
 						ui.Badge(c, r.Project).Background(p.neutralBG).TextColor(p.neutral)
 					}
 					if r.Attempt != nil {
-						ui.Text(c, attemptMeta(r.Attempt)).FontSize(12).TextColor(p.neutral)
+						ui.Text(c, attemptMeta(r.Attempt)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 					}
 					if r.Delivered != nil {
 						ui.Badge(c, r.Delivered.Kind).Background(p.accentBG).TextColor(p.accent)
@@ -627,11 +609,11 @@ func (a *App) taskScreen(c *ui.Context, p palette) {
 	a.detailHeader(c, p, t.Task.Ref, t.Task.Title)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, t.Pill)
-		ui.Text(c, t.Task.Status).FontSize(12).TextColor(p.neutral)
+		ui.Text(c, t.Task.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		if t.Task.Project != "" && a.Status.Projects > 1 {
 			ui.Badge(c, t.Task.Project).Background(p.neutralBG).TextColor(p.neutral)
 		}
-		ui.Text(c, stamp(t.Task.CreatedAt)).Font("monospace").FontSize(12).TextColor(p.neutral)
+		ui.Text(c, stamp(t.Task.CreatedAt)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 	})
 	if t.Task.Goal != "" {
 		a.paragraph(c, p, "Goal", t.Task.Goal)
@@ -693,14 +675,14 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 	a.detailHeader(c, p, at.Attempt.Ref, at.Task.Title)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, at.State)
-		ui.Text(c, fmt.Sprintf("%s %s %s", at.Attempt.Harness, at.Attempt.Model, at.Attempt.Effort)).FontSize(14)
-		ui.Text(c, at.Attempt.Status).FontSize(12).TextColor(p.neutral)
+		ui.Text(c, fmt.Sprintf("%s %s %s", at.Attempt.Harness, at.Attempt.Model, at.Attempt.Effort)).FontSize(kit.Body.Size)
+		ui.Text(c, at.Attempt.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		if at.Duration != "" {
-			ui.Text(c, at.Duration).Font("monospace").FontSize(12).TextColor(p.neutral)
+			ui.Text(c, at.Duration).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 	})
 	if at.Attempt.Branch != "" {
-		ui.Text(c, at.Attempt.Branch).Font("monospace").FontSize(12).TextColor(p.neutral)
+		ui.Text(c, at.Attempt.Branch).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 	}
 	if at.Attempt.Reason != "" {
 		a.paragraph(c, p, "Reason", at.Attempt.Reason)
@@ -726,13 +708,13 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 	if at.Transcript.Shown {
 		a.section(c, p, "Transcript")
 		if at.Transcript.Model != "" {
-			ui.Text(c, at.Transcript.Model).FontSize(12).TextColor(p.neutral)
+			ui.Text(c, at.Transcript.Model).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 		for _, turn := range at.Transcript.Turns {
 			ui.Column(c).Gap(2).Padding(6, 0, 8).Children(func() {
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, turn.Role).FontSize(12).Bold().TextColor(p.neutral)
-					ui.Text(c, stamp(turn.At)).Font("monospace").FontSize(12).TextColor(p.neutral)
+					ui.Text(c, turn.Role).FontSize(kit.Meta.Size).Bold().TextColor(p.neutral)
+					ui.Text(c, stamp(turn.At)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 					if turn.Queued {
 						ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
 					}
@@ -745,7 +727,7 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 		}
 	} else if at.Transcript.Note != "" {
 		a.section(c, p, "Transcript")
-		ui.Text(c, at.Transcript.Note).FontSize(12).TextColor(p.neutral)
+		ui.Text(c, at.Transcript.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
 	}
 	if len(at.Events) > 0 {
 		a.section(c, p, "Events")
@@ -766,9 +748,9 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 	a.actionCard(c, p)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, d.Decision.Pill)
-		ui.Text(c, d.Decision.Status).FontSize(12).TextColor(p.neutral)
-		ui.Text(c, d.Task.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, d.Task.Title).FontSize(14).SingleLine().Grow(1)
+		ui.Text(c, d.Decision.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, d.Task.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, d.Task.Title).FontSize(kit.Body.Size).SingleLine().Grow(1)
 		if ui.Button(c.Key("open-task"), "Open task").Clicked() {
 			a.OpenRef(d.Task.Ref)
 		}
@@ -801,16 +783,16 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 					el.Cursor(ui.CursorPointer)
 				}
 				el.Children(func() {
-					ui.Text(c, option.Key).Font("monospace").FontSize(12).TextColor(p.neutral).Width(18)
+					ui.Text(c, option.Key).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(18)
 					ui.Column(c).Gap(2).Grow(1).Children(func() {
 						ui.Row(c).Gap(8).Children(func() {
-							ui.Text(c, option.Label).FontSize(14).Bold()
+							ui.Text(c, option.Label).FontSize(kit.Body.Size).Bold()
 							if option.Recommended {
 								ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
 							}
 						})
 						if option.Note != "" {
-							ui.Text(c, option.Note).FontSize(12).TextColor(p.neutral)
+							ui.Text(c, option.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
 						}
 					})
 				})
@@ -831,7 +813,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 		ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
 			Disabled(a.Busy)
 		if other && strings.TrimSpace(a.AnswerNote) == "" {
-			ui.Text(c, "That option needs a note.").FontSize(12).TextColor(p.fail)
+			ui.Text(c, "That option needs a note.").FontSize(kit.Meta.Size).TextColor(p.fail)
 		}
 		ui.Row(c).Gap(8).Children(func() {
 			label := "Send answer"
@@ -847,7 +829,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 		a.paragraph(c, p, "Answer", d.Decision.Answer)
 	}
 	a.section(c, p, "Task")
-	ui.Textf(c, "%s · %s", d.Task.Ref, d.Task.Title).FontSize(14)
+	ui.Textf(c, "%s · %s", d.Task.Ref, d.Task.Title).FontSize(kit.Body.Size)
 }
 
 func (a *App) reportScreen(c *ui.Context, p palette) {
@@ -857,9 +839,9 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 	ui.Row(c).Gap(8).Children(func() {
 		_, statusFg := toneColors(r.Report.Status, p)
 		ui.Badge(c, r.Report.Status).Background(p.neutralBG).TextColor(statusFg)
-		ui.Text(c, r.Report.Attempt).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, r.Report.Task).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, stamp(r.Report.CreatedAt)).Font("monospace").FontSize(12).TextColor(p.neutral)
+		ui.Text(c, r.Report.Attempt).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, r.Report.Task).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, stamp(r.Report.CreatedAt)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 		ui.Spacer(c)
 		if r.Report.AckedAt == "" {
 			label := "Mark read"
@@ -870,7 +852,7 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 				a.Ack(r.Report.Ref)
 			}
 		} else {
-			ui.Textf(c, "Read by %s", r.Report.AckedBy).FontSize(12).TextColor(p.neutral)
+			ui.Textf(c, "Read by %s", r.Report.AckedBy).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 		if ui.Button(c.Key("open-task"), "Open task").Clicked() {
 			a.OpenRef(r.Task.Ref)
@@ -879,7 +861,7 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 	a.delivered(c, p, r.Delivered)
 	a.markdown(c, r.Report.Body)
 	if r.Report.AckedAt != "" {
-		ui.Textf(c, "Read %s", stamp(r.Report.AckedAt)).FontSize(12).TextColor(p.neutral)
+		ui.Textf(c, "Read %s", stamp(r.Report.AckedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 	}
 }
 
@@ -888,8 +870,8 @@ func (a *App) detailHeader(c *ui.Context, p palette, ref, title string) {
 		if ui.Button(c.Key("back"), "Back").Clicked() {
 			a.Back()
 		}
-		ui.Text(c, ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, title).FontSize(22).Bold().SingleLine().Grow(1)
+		ui.Text(c, ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, title).FontSize(kit.Display.Size).Bold().SingleLine().Grow(1)
 	})
 }
 
@@ -898,11 +880,11 @@ func (a *App) section(c *ui.Context, p palette, title string) {
 }
 
 func more(c *ui.Context, p palette, text string) {
-	ui.Text(c, text).FontSize(12).TextColor(p.neutral)
+	ui.Text(c, text).FontSize(kit.Meta.Size).TextColor(p.neutral)
 }
 
 func section(c *ui.Context, p palette, title string) {
-	ui.Text(c, title).FontSize(12).Bold().TextColor(p.neutral).Padding(0, 0, 2)
+	ui.Text(c, title).FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(0, 0, 2)
 }
 
 func (a *App) paragraph(c *ui.Context, p palette, title, body string) {
@@ -930,10 +912,10 @@ func (a *App) decisionRow(c *ui.Context, p palette, d Decision) {
 	el := ui.ButtonBase(c.Key("decision:"+d.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
 	el.Children(func() {
-		ui.Text(c, d.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, d.Headline).FontSize(14).SingleLine().Grow(1)
+		ui.Text(c, d.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, d.Headline).FontSize(kit.Body.Size).SingleLine().Grow(1)
 		if d.Answer != "" {
-			ui.Text(c, firstLine(d.Answer)).FontSize(12).TextColor(p.neutral).SingleLine()
+			ui.Text(c, firstLine(d.Answer)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 		}
 		statusPill(c, p, d.Pill)
 	})
@@ -946,8 +928,8 @@ func (a *App) reportRow(c *ui.Context, p palette, r Report) {
 	el := ui.ButtonBase(c.Key("report:"+r.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
 	el.Children(func() {
-		ui.Text(c, r.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, r.Summary).FontSize(14).SingleLine().Grow(1)
+		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, r.Summary).FontSize(kit.Body.Size).SingleLine().Grow(1)
 		_, statusFg := toneColors(r.Status, p)
 		ui.Badge(c, r.Status).Background(p.neutralBG).TextColor(statusFg)
 	})
@@ -960,9 +942,9 @@ func (a *App) attemptRow(c *ui.Context, p palette, at AttemptRow) {
 	el := ui.ButtonBase(c.Key("attempt:"+at.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
 	el.Children(func() {
-		ui.Text(c, at.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
-		ui.Text(c, attemptMeta(&at.Attempt)).FontSize(14).Grow(1).SingleLine()
-		ui.Text(c, stateWord(at.State)).FontSize(12).TextColor(stateColor(at.State, p))
+		ui.Text(c, at.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, attemptMeta(&at.Attempt)).FontSize(kit.Body.Size).Grow(1).SingleLine()
+		ui.Text(c, stateWord(at.State)).FontSize(kit.Meta.Size).TextColor(stateColor(at.State, p))
 	})
 	if el.Clicked() {
 		a.OpenRef(at.Ref)
@@ -971,10 +953,10 @@ func (a *App) attemptRow(c *ui.Context, p palette, at AttemptRow) {
 
 func (a *App) eventRow(c *ui.Context, p palette, e Event) {
 	ui.Row(c).Gap(8).Padding(3, 0).Children(func() {
-		ui.Text(c, stamp(e.At)).Font("monospace").FontSize(12).TextColor(p.neutral).Width(112)
-		ui.Text(c, e.Kind).Font("monospace").FontSize(12)
+		ui.Text(c, stamp(e.At)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(112)
+		ui.Text(c, e.Kind).Font("monospace").FontSize(kit.Meta.Size)
 		if e.Detail != "" {
-			ui.Text(c, e.Detail).FontSize(12).TextColor(p.neutral).SingleLine().Grow(1)
+			ui.Text(c, e.Detail).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine().Grow(1)
 		}
 	})
 }
@@ -996,14 +978,14 @@ func (a *App) deliveredRow(c *ui.Context, p palette, i int, d Deliverable) {
 	if dest == "" {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
-			ui.Text(c, d.Ref).Font("monospace").FontSize(12)
+			ui.Text(c, d.Ref).Font("monospace").FontSize(kit.Meta.Size)
 		})
 		return
 	}
 	el := ui.ButtonBase(c.Key("delivered:"+strconv.Itoa(i))).Gap(8).Padding(2, 0).Cursor(ui.CursorPointer)
 	el.Children(func() {
 		ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
-		ui.Text(c, d.Ref).Font("monospace").FontSize(12).TextColor(p.accent)
+		ui.Text(c, d.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent)
 		ui.Spacer(c)
 	})
 	if el.Clicked() {
@@ -1032,7 +1014,7 @@ func statusPill(c *ui.Context, p palette, word string) {
 	bg, fg := toneColors(word, p)
 	ui.Row(c).Gap(5).Padding(1, 8).Radius(999).Background(bg).Children(func() {
 		ui.Box(c).Size(7, 7).Radius(4).Background(fg)
-		ui.Text(c, word).FontSize(12).Bold().TextColor(fg)
+		ui.Text(c, word).FontSize(kit.Meta.Size).Bold().TextColor(fg)
 	})
 }
 
@@ -1049,7 +1031,7 @@ func gauge(c *ui.Context, p palette, g Gauge) {
 		pct = 100
 	}
 	ui.Column(c).Width(150).Gap(3).Children(func() {
-		ui.Text(c, g.Text).Font("monospace").FontSize(12).TextColor(fg).
+		ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(fg).
 			FontFeatures("tnum")
 		ui.Box(c).Height(5).Radius(3).Background(p.line).Children(func() {
 			if pct > 0 {
