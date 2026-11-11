@@ -129,9 +129,11 @@ func (b *Board) secretHash(secret string) string { return b.mac("device:" + secr
 
 func (b *Board) deviceCSRF(secret string) string { return b.mac("csrf:" + secret)[:32] }
 
-func forwarded(r *http.Request) bool {
-	return peerOf(r) != nil || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != ""
+func proxied(r *http.Request) bool {
+	return r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != ""
 }
+
+func forwarded(r *http.Request) bool { return peerOf(r) != nil || proxied(r) }
 
 func viaFunnel(r *http.Request) bool { return r.Header.Get("Tailscale-Funnel-Request") != "" }
 

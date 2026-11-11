@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1069,5 +1070,131 @@ func TestALinkTooLongForAQRCodeFallsBackToText(t *testing.T) {
 			contains(t, "code page", body, "On the phone, open this link:")
 			lacks(t, "code page", body, "Scan the code", "QR code")
 		}
+	}
+}
+
+type apiReply[T any] struct {
+	Data T `json:"data"`
+}
+
+func (r *peerRig) apiGet(c *peerClient, f railFleet, path string, headers map[string]string, cookies ...*http.Cookie) peerReply {
+	r.t.Helper()
+	return c.do("GET", "/"+f.id+"/api/v1/"+path, nil, headers, cookies...)
+}
+
+func (r *peerRig) apiAnswer(c *peerClient, f railFleet, csrf string, cookies ...*http.Cookie) peerReply {
+	r.t.Helper()
+	req, err := http.NewRequest("POST", "http://localhost/"+f.id+"/api/v1/decision/d1/answer", strings.NewReader(`{"choice":"1. Yes"}`))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hand-CSRF", csrf)
+	for _, ck := range cookies {
+		req.AddCookie(ck)
+	}
+	rep, err := c.exchange(req)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return rep
+}
+
+func (r *peerRig) decision(f railFleet) {
+	r.t.Helper()
+	ctx := context.Background()
+	if _, err := f.st.AddProject(ctx, "hand", handRepo, ""); err != nil {
+		r.t.Fatal(err)
+	}
+	task, err := f.st.AddTask(ctx, "hand", "Fix login", "")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	if _, err := f.st.Ask(ctx, task.ID, "Keep it?\n\n1. Yes\n2. No"); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func (r *peerRig) csrfOf(c *peerClient, f railFleet, phone *http.Cookie) string {
+	r.t.Helper()
+	rep := r.apiGet(c, f, "session", nil, phone)
+	var env apiReply[board.APISession]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &env) != nil || env.Data.CSRF == "" {
+		r.t.Fatalf("session = %d:\n%s", rep.Code, rep.Body)
+	}
+	return env.Data.CSRF
+}
+
+func TestAPairedPhoneReadsTheAPIAndAnswersADecision(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	r.decision(f)
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	rep := r.apiGet(c, f, "status", nil, phone)
+	var status apiReply[board.APIStatus]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &status) != nil {
+		t.Fatalf("status = %d:\n%s", rep.Code, rep.Body)
+	}
+	csrf := r.csrfOf(c, f, phone)
+	if csrf == f.token {
+		t.Fatal("a phone's session carries the laptop token")
+	}
+	rep = r.apiAnswer(c, f, csrf, phone)
+	var got apiReply[board.APIDecisionDetail]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &got) != nil {
+		t.Fatalf("answer = %d:\n%s", rep.Code, rep.Body)
+	}
+	if got.Data.Decision.Status != "answered" || got.Data.Decision.AnsweredBy != "phone (Pixel)" {
+		t.Fatalf("decision = %+v", got.Data.Decision)
+	}
+}
+
+func TestThePeerListenerRefusesTheAPIToAnUnpairedPeerAnAnonymousDeviceAndARevokedPhone(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	if rep := r.apiGet(r.as(peerA), f, "status", nil); rep.Code != http.StatusForbidden {
+		t.Fatalf("an unpaired peer = %d", rep.Code)
+	}
+	anon := r.anonymous()
+	bare := r.mustPair(anon, f)
+	if rep := r.apiGet(anon, f, "status", nil, bare); rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"forbidden"`) {
+		t.Fatalf("a device with no iroh login = %d:\n%s", rep.Code, rep.Body)
+	}
+	c := r.as(peerB)
+	phone := r.mustPair(c, f)
+	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusOK {
+		t.Fatalf("paired = %d", rep.Code)
+	}
+	if rep := r.apiGet(r.as(peerA), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a cookie from another endpoint = %d", rep.Code)
+	}
+	r.revoke(f, phone)
+	if rep := r.apiGet(r.as(peerB), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a revoked phone = %d", rep.Code)
+	}
+}
+
+func TestAForwardedHeaderStillClosesTheAPIToAPairedPhone(t *testing.T) {
+	p := newPhoneRig(t)
+	phone := p.pair()
+	for _, h := range []map[string]string{{"X-Forwarded-For": "100.64.0.7"}, {"Forwarded": "for=100.64.0.7"}} {
+		rec := p.do("GET", "/api/v1/status", nil, phone, h)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("a phone through %v = %d", h, rec.Code)
+		}
+	}
+}
+
+func TestANetworkAddressBoardKeepsTheAPIClosedToAPairedPhone(t *testing.T) {
+	r := servePeerRig(t, newPhoneHost(t, false, "alpha"))
+	f := r.fleets[0]
+	c := r.as(peerA)
+	phone, rep := r.pairOver(c, f, nil)
+	if phone == nil {
+		t.Fatalf("pair = %d", rep.Code)
+	}
+	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a network-address board answered the API = %d", rep.Code)
 	}
 }

@@ -379,13 +379,17 @@ func apiPath(path string) bool {
 }
 
 func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
-	if !b.o.Controls || forwarded(r) {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board")
+	if !b.o.Controls || proxied(r) {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board or to a paired phone")
 		return
 	}
 	s, fault := b.session(r)
 	if fault != signedIn {
 		b.apiFail(w, http.StatusUnauthorized, "unauthorized", "this request needs the board's session cookie")
+		return
+	}
+	if peerOf(r) != nil && (s.Device == nil || !strings.HasPrefix(s.Device.Login, "iroh:")) {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers on the peer listener only to a phone paired with its own key")
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
@@ -398,6 +402,13 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.mux.ServeHTTP(w, r)
+}
+
+func apiActor(ctx context.Context) string {
+	if s, _ := ctx.Value(sessionKey{}).(session); s.Device != nil {
+		return "phone (" + s.Device.Name + ")"
+	}
+	return "operator (desktop)"
 }
 
 func apiAllow(r *http.Request) string {
@@ -496,7 +507,7 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "write your answer: that option asks for one")
 		return
 	}
-	if _, err := b.st.Answer(ctx, id, answer, "operator (desktop)"); err != nil {
+	if _, err := b.st.Answer(ctx, id, answer, apiActor(ctx)); err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
@@ -513,7 +524,7 @@ func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	if _, err := b.st.AckReport(ctx, id, "operator (desktop)"); err != nil {
+	if _, err := b.st.AckReport(ctx, id, apiActor(ctx)); err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
