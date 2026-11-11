@@ -238,7 +238,7 @@ func (s *Store) StampSupervisorSocket(ctx context.Context, id int64, socket stri
 		if _, err := tx.Exec(`UPDATE supervisor SET socket = ? WHERE id = ?`, socket, id); err != nil {
 			return err
 		}
-		return emit(tx, s.stamp(), "supervisor.socket", 0, SupervisorRef(id)+": "+socket)
+		return emit(tx, s.stamp(), "luvus.socket", 0, SupervisorRef(id)+": "+socket)
 	})
 }
 

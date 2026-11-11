@@ -199,18 +199,21 @@ func TestAHealthyRowFromBeforeTheSocketWasRecordedGetsThisLuvusSocket(t *testing
 	}
 }
 
-func TestCleaningAnAttemptOfAnotherLuvusSweepsNothing(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("only Linux sweeps a worktree")
-	}
+func TestCleaningAnAttemptOfAnotherLuvusIsRefused(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
 	recordSocket(t, fx.h, "attempt", otherSocket)
 	fx.rt.srv.SetGeneration("gen-2")
 	fx.h.ok("attempt", "show", "a1")
-	fx.h.ok("attempt", "clean", "--discard", "a1")
+	_, errOut, code := fx.h.run("attempt", "clean", "--discard", "a1")
+	if code != 3 || !strings.Contains(errOut, "belongs to another luvus ("+otherSocket+")") || !strings.Contains(errOut, "nothing was removed") {
+		t.Fatalf("clean code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(fx.h.worktree("t1-a1")); err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
 	if gone(pid) {
-		t.Fatalf("worker %d of another luvus was swept", pid)
+		t.Fatalf("worker %d of another luvus was signalled", pid)
 	}
 }

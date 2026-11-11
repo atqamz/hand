@@ -203,7 +203,7 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 	}
 	if to == "" {
 		if a.Status == state.AttemptRunning && a.Socket == "" {
-			return st.StampAttemptSocket(ctx, a.ID, r.ownSocket())
+			_ = st.StampAttemptSocket(ctx, a.ID, r.ownSocket())
 		}
 		return nil
 	}

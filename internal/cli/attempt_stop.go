@@ -129,6 +129,9 @@ func cmdAttemptClean(r *runner, args []string) error {
 		case a.CleanedAt != "":
 			return fmt.Errorf("%w: attempt %s is already cleaned", state.ErrConflict, ref)
 		}
+		if sock := r.foreignSocket(a.Terminal); sock != "" {
+			return fmt.Errorf("%w: attempt %s belongs to another luvus (%s), so its worktree may hold that luvus's live worker; nothing was removed", state.ErrConflict, ref, sock)
+		}
 		task, err := st.Task(ctx, a.TaskID)
 		if err != nil {
 			return err
@@ -141,7 +144,7 @@ func cmdAttemptClean(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := removeWorktree(ctx, c, g, a.Worktree, *discard, r.foreignSocket(a.Terminal) == ""); err != nil {
+		if err := removeWorktree(ctx, c, g, a.Worktree, *discard, true); err != nil {
 			return err
 		}
 		if _, err := st.CleanAttempt(ctx, id); err != nil {

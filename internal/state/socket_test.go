@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -43,5 +44,27 @@ func TestAVersion22DatabaseMigratesToTwentyThreeWithNoSocketOnItsRows(t *testing
 	}
 	if a, err := s.Attempt(t.Context(), 1); err != nil || a.Socket != "/l.sock" {
 		t.Fatalf("attempt after switch = %+v, %v", a, err)
+	}
+}
+
+func TestStampingTheSocketKeepsTheAttemptsLatestSignal(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	a := runningAttempt(t, s)
+	if err := s.NoteAttempt(ctx, a.ID, "blocked", "Esc to cancel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StampAttemptSocket(ctx, a.ID, "/l.sock"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Attempt(ctx, a.ID)
+	if err != nil || got.Socket != "/l.sock" {
+		t.Fatalf("attempt = %+v, %v", got, err)
+	}
+	if kind, err := s.LastAttemptEvent(ctx, a.ID); err != nil || kind != "attempt.blocked" {
+		t.Fatalf("last event = %q, %v", kind, err)
+	}
+	if e, ok, err := s.AttemptSignal(ctx, a.ID); err != nil || !ok || e.Kind != "attempt.blocked" {
+		t.Fatalf("signal = %+v, %v, %v", e, ok, err)
 	}
 }

@@ -256,7 +256,7 @@ func (s *Store) StampAttemptSocket(ctx context.Context, id int64, socket string)
 		if _, err := tx.Exec(`UPDATE attempt SET socket = ? WHERE id = ?`, socket, id); err != nil {
 			return err
 		}
-		return emit(tx, s.stamp(), "attempt.socket", a.TaskID, AttemptRef(id)+": "+socket)
+		return emit(tx, s.stamp(), "luvus.socket", a.TaskID, AttemptRef(id)+": "+socket)
 	})
 }
 
