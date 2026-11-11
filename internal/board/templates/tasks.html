@@ -1,6 +1,6 @@
 {{define "tasks.html"}}{{template "head" .}}{{template "top" .}}{{with $v := .Detail}}<main class="thread archive">
 <header class="thread-head">
-<p class="crumbs">{{if $.Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{$.Base}}/">{{$.Fleet}}</a> / tasks</p>
+{{template "crumb" $}} / tasks</p>
 <h2 class="thread-title">Tasks</h2>
 </header>
 <form class="filters" method="get" action="{{.Base}}/tasks" role="search">

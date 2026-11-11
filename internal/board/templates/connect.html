@@ -1,6 +1,6 @@
 {{define "connect.html"}}{{template "head" .}}{{template "top" .}}<main class="thread connect">
 <header class="thread-head">
-<p class="crumbs">{{if and .Controls (not .Phone)}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / phone</p>
+{{template "crumb" .}} / phone</p>
 <h2 class="thread-title">{{if .Phone}}This phone{{else}}Connect your phone{{end}}</h2>
 </header>
 <p class="meta"><a href="{{.Base}}/alerts">Recent alerts</a>, as the Hand app reads them.</p>
