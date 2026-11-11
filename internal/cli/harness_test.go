@@ -265,8 +265,7 @@ func ocsessionMain(args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if rest, once := bytes.CutPrefix(b, []byte("failonce\n")); once {
-			_ = os.WriteFile(p["sessions"], rest, 0o644)
+		if os.Remove(p["sessions"]+".failonce") == nil {
 			fmt.Fprintln(os.Stderr, "failing once")
 			return 1
 		}
