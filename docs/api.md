@@ -1,6 +1,6 @@
 # JSON API
 
-The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
+The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired phone over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
 The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, and the supervisor controls (start, resume, stop, interrupt, force and keys). It never returns `last_screen` or a terminal screen. The one text parsed from a screen it carries is a blocked supervisor's `ask` (see `Status`), and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
@@ -12,11 +12,11 @@ Each fleet keeps its own prefix, as its pages do:
 http://127.0.0.1:7777/<fleet id>/api/v1/status
 ```
 
-A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of a paired phone. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
+A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of an iroh-paired phone, `hand_phone_<fleet id>` (`__Host-hand_phone_<fleet id>` behind an HTTPS proxy). A phone's cookie works only from its own endpoint, on the peer listener. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
 
 A local client proves the service at the recorded port is the board before it sends the token, since `board.addr` outlives a board that exits abnormally: `GET /<fleet id>/proof?nonce=<random>` answers the hex HMAC-SHA256 of the client's nonce keyed by `board.token`, with no cookie; a client that reads the token from the fleet compares it and only then sends the cookie. `hand open` and the desktop window both do this, and neither sends the token to a service that fails it.
 
-A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
+A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board, to the laptop's session and to a paired phone on the peer listener. A network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`), a Tailscale Funnel request, and a peer whose device has no `iroh:` login all get `403` with `forbidden`. A peer that is not paired, or was revoked, gets the peer listener's own `403` before it reaches the API.
 
 The actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
 
@@ -179,7 +179,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 {"choice": "1. Yes, keep it", "note": "the docs keep the old name"}
 ```
 
-`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. Send one JSON object under 64 KiB: a second object or trailing text is refused before the board changes anything. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)`.
+`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. Send one JSON object under 64 KiB: a second object or trailing text is refused before the board changes anything. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)` for the laptop's session and `phone (<device name>)` for a paired phone.
 
 - `400 bad_request`: an empty answer, an `other` option with no note, or a body that is not a JSON object.
 - `404 not_found`: an unknown ref.
@@ -188,7 +188,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 
 ### Acknowledging a report
 
-`POST /api/v1/report/{rN}/ack` takes no body. It sets `acked_at` and `acked_by` (`operator (desktop)`) and answers the updated `ReportDetail`. An unknown ref is `404`; a report already acknowledged is `409 conflict`.
+`POST /api/v1/report/{rN}/ack` takes no body. It sets `acked_at` and `acked_by` (`operator (desktop)`, or `phone (<device name>)` for a paired phone) and answers the updated `ReportDetail`. An unknown ref is `404`; a report already acknowledged is `409 conflict`.
 
 A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read.
 
@@ -241,7 +241,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `400` | `bad_request` | a query value the endpoint cannot read (`before`), or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, v1 on a network-address board, or a control with the board's controls off |
+| `403` | `forbidden` | a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `404` | `not_found` | an unknown route or ref |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |

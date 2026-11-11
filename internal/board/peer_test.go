@@ -113,6 +113,10 @@ func (c *peerClient) send(method, path string, form url.Values, headers map[stri
 	for _, ck := range cookies {
 		req.AddCookie(ck)
 	}
+	return c.exchange(req)
+}
+
+func (c *peerClient) exchange(req *http.Request) (peerReply, error) {
 	_ = c.conn.SetDeadline(time.Now().Add(5 * time.Second))
 	if c.line != "" {
 		if _, err := io.WriteString(c.conn, c.line); err != nil {

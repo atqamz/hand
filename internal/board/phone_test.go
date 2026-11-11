@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1069,5 +1070,167 @@ func TestALinkTooLongForAQRCodeFallsBackToText(t *testing.T) {
 			contains(t, "code page", body, "On the phone, open this link:")
 			lacks(t, "code page", body, "Scan the code", "QR code")
 		}
+	}
+}
+
+type apiReply[T any] struct {
+	Data T `json:"data"`
+}
+
+func (r *peerRig) apiGet(c *peerClient, f railFleet, path string, headers map[string]string, cookies ...*http.Cookie) peerReply {
+	r.t.Helper()
+	return c.do("GET", "/"+f.id+"/api/v1/"+path, nil, headers, cookies...)
+}
+
+func (r *peerRig) post(c *peerClient, f railFleet, path, body, csrf string, cookies ...*http.Cookie) peerReply {
+	r.t.Helper()
+	req, err := http.NewRequest("POST", "http://localhost/"+f.id+"/api/v1/"+path, strings.NewReader(body))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if csrf != "" {
+		req.Header.Set("X-Hand-CSRF", csrf)
+	}
+	for _, ck := range cookies {
+		req.AddCookie(ck)
+	}
+	rep, err := c.exchange(req)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return rep
+}
+
+func (r *peerRig) csrfOf(c *peerClient, f railFleet, phone *http.Cookie) string {
+	r.t.Helper()
+	rep := r.apiGet(c, f, "session", nil, phone)
+	var env apiReply[board.APISession]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &env) != nil || env.Data.CSRF == "" {
+		r.t.Fatalf("session = %d:\n%s", rep.Code, rep.Body)
+	}
+	return env.Data.CSRF
+}
+
+func TestAPairedPhoneReadsTheAPIAndAnswersADecision(t *testing.T) {
+	r := newPeerRig(t, "alpha", "bravo")
+	f := r.fleets[0]
+	seed(t, f.st)
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	rep := r.apiGet(c, f, "status", nil, phone)
+	var status apiReply[board.APIStatus]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &status) != nil {
+		t.Fatalf("status = %d:\n%s", rep.Code, rep.Body)
+	}
+	csrf := r.csrfOf(c, f, phone)
+	if csrf == f.token {
+		t.Fatal("a phone's session carries the laptop token")
+	}
+	for name, header := range map[string]string{"no CSRF header": "", "the laptop token": f.token} {
+		rep = r.post(c, f, "decision/d1/answer", `{"choice":"1. Yes"}`, header, phone)
+		if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"csrf_required"`) {
+			t.Fatalf("an answer with %s = %d:\n%s", name, rep.Code, rep.Body)
+		}
+	}
+	if rep := r.apiGet(c, r.fleets[1], "status", nil, phone); rep.Code != http.StatusUnauthorized {
+		t.Fatalf("another fleet's API with this fleet's cookie = %d", rep.Code)
+	}
+	rep = r.post(c, f, "decision/d1/answer", `{"choice":"1. Yes"}`, csrf, phone)
+	var got apiReply[board.APIDecisionDetail]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &got) != nil {
+		t.Fatalf("answer = %d:\n%s", rep.Code, rep.Body)
+	}
+	if got.Data.Decision.Status != "answered" || got.Data.Decision.AnsweredBy != "phone (Pixel)" {
+		t.Fatalf("decision = %+v", got.Data.Decision)
+	}
+	rep = r.post(c, f, "report/r1/ack", "", csrf, phone)
+	var acked apiReply[board.APIReportDetail]
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &acked) != nil || acked.Data.Report.AckedBy != "phone (Pixel)" {
+		t.Fatalf("ack = %d:\n%s", rep.Code, rep.Body)
+	}
+}
+
+func TestAPageRecordsAPairedPhoneByNameLikeTheAPI(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	seed(t, f.st)
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	csrf := r.csrfOf(c, f, phone)
+	if rep := c.do("POST", "/"+f.id+"/decision/d1/answer", url.Values{"csrf": {csrf}, "answer": {"yes"}}, nil, phone); rep.Code >= 400 {
+		t.Fatalf("page answer = %d:\n%s", rep.Code, rep.Body)
+	}
+	if rep := c.do("POST", "/"+f.id+"/report/r1/ack", url.Values{"csrf": {csrf}}, nil, phone); rep.Code >= 400 {
+		t.Fatalf("page ack = %d:\n%s", rep.Code, rep.Body)
+	}
+	var d apiReply[board.APIDecisionDetail]
+	var rp apiReply[board.APIReportDetail]
+	_ = json.Unmarshal([]byte(r.apiGet(c, f, "decision/d1", nil, phone).Body), &d)
+	_ = json.Unmarshal([]byte(r.apiGet(c, f, "report/r1", nil, phone).Body), &rp)
+	if d.Data.Decision.AnsweredBy != "phone (Pixel)" || rp.Data.Report.AckedBy != "phone (Pixel)" {
+		t.Fatalf("answered_by %q, acked_by %q", d.Data.Decision.AnsweredBy, rp.Data.Report.AckedBy)
+	}
+}
+
+func TestThePeerListenerRefusesTheAPIToAnUnpairedPeerAnAnonymousDeviceAndARevokedPhone(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	if rep := r.apiGet(r.as(peerA), f, "status", nil); rep.Code != http.StatusForbidden {
+		t.Fatalf("an unpaired peer = %d", rep.Code)
+	}
+	anon := r.anonymous()
+	bare := r.mustPair(anon, f)
+	if rep := r.apiGet(anon, f, "status", nil, bare); rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"forbidden"`) {
+		t.Fatalf("a device with no iroh login = %d:\n%s", rep.Code, rep.Body)
+	}
+	c := r.as(peerB)
+	phone := r.mustPair(c, f)
+	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusOK {
+		t.Fatalf("paired = %d", rep.Code)
+	}
+	if rep := r.apiGet(r.as(peerA), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a cookie from another endpoint = %d", rep.Code)
+	}
+	r.revoke(f, phone)
+	if rep := r.apiGet(r.as(peerB), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a revoked phone = %d", rep.Code)
+	}
+}
+
+func TestAForwardedHeaderStillClosesTheAPIToAPairedPhone(t *testing.T) {
+	p := newPhoneRig(t)
+	phone := p.pair()
+	proto := map[string]string{"X-Forwarded-Proto": "https"}
+	if rec := p.do("GET", "/api/v1/status", nil, phone, proto); rec.Code != http.StatusOK {
+		t.Fatalf("the same phone without a forwarded address = %d", rec.Code)
+	}
+	for _, h := range []map[string]string{{"X-Forwarded-For": "100.64.0.7"}, {"Forwarded": "for=100.64.0.7"}} {
+		h["X-Forwarded-Proto"] = "https"
+		if rec := p.do("GET", "/api/v1/status", nil, phone, h); rec.Code != http.StatusForbidden {
+			t.Fatalf("a phone through %v = %d", h, rec.Code)
+		}
+	}
+	req := httptest.NewRequest("GET", "/api/v1/status", nil)
+	req.AddCookie(phone)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header["X-Forwarded-For"] = []string{"", "100.64.0.7"}
+	rec := httptest.NewRecorder()
+	p.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("an empty first X-Forwarded-For line hid the second: %d", rec.Code)
+	}
+}
+
+func TestANetworkAddressBoardKeepsTheAPIClosedToAPairedPhone(t *testing.T) {
+	r := servePeerRig(t, newPhoneHost(t, false, "alpha"))
+	f := r.fleets[0]
+	c := r.as(peerA)
+	phone, rep := r.pairOver(c, f, nil)
+	if phone == nil {
+		t.Fatalf("pair = %d", rep.Code)
+	}
+	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a network-address board answered the API = %d", rep.Code)
 	}
 }

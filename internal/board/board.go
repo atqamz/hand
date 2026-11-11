@@ -819,7 +819,7 @@ func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 		b.rejected(w, r, id, http.StatusBadRequest, msg, sentence(msg))
 		return
 	}
-	if _, err := b.st.Answer(r.Context(), id, answer, "operator (board)"); err != nil {
+	if _, err := b.st.Answer(r.Context(), id, answer, actor(r.Context(), "operator (board)")); err != nil {
 		if d, derr := b.st.Decision(r.Context(), id); derr == nil && errors.Is(err, state.ErrConflict) && d.Status != state.DecisionOpen {
 			msg := state.DecisionRef(id) + " is already " + d.Status
 			notice := msg + "."
@@ -845,7 +845,7 @@ func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	rep, err := b.st.AckReport(r.Context(), id, "operator (board)")
+	rep, err := b.st.AckReport(r.Context(), id, actor(r.Context(), "operator (board)"))
 	if err != nil {
 		b.failErr(w, err)
 		return
