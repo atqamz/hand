@@ -39,6 +39,13 @@ func (q requester) String() string {
 
 func (q requester) note(reason string) string { return reason + "; requested by " + q.String() }
 
+func (q requester) noteSettled(reason string, signalled bool) string {
+	if signalled {
+		return q.note(reason)
+	}
+	return reason + "; recorded by " + q.String()
+}
+
 func (r *runner) requester() requester {
 	q := requester{caller: r.caller, pid: os.Getpid(), marker: "unknown"}
 	if m, err := luvus.ProcStartMarker(q.pid); err == nil {

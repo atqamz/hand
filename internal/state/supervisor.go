@@ -64,12 +64,12 @@ func SupervisorRef(id int64) string { return "s" + strconv.FormatInt(id, 10) }
 
 func inputRef(id int64) string { return "i" + strconv.FormatInt(id, 10) }
 
-const supervisorSelect = `SELECT id, harness, model, effort, argv, session, status, server_generation, terminal_id, pane_id, pid, start_marker, wake_cursor, reason, created_at, ended_at, switch_model, switch_effort FROM supervisor`
+const supervisorSelect = `SELECT id, harness, model, effort, argv, session, status, server_generation, terminal_id, pane_id, pid, start_marker, socket, wake_cursor, reason, created_at, ended_at, switch_model, switch_effort FROM supervisor`
 
 func scanSupervisor(row scanner) (Supervisor, error) {
 	var s Supervisor
 	var argv string
-	err := row.Scan(&s.ID, &s.Harness, &s.Model, &s.Effort, &argv, &s.Session, &s.Status, &s.ServerGeneration, &s.TerminalID, &s.PaneID, &s.PID, &s.StartMarker, &s.WakeCursor, &s.Reason, &s.CreatedAt, &s.EndedAt, &s.SwitchModel, &s.SwitchEffort)
+	err := row.Scan(&s.ID, &s.Harness, &s.Model, &s.Effort, &argv, &s.Session, &s.Status, &s.ServerGeneration, &s.TerminalID, &s.PaneID, &s.PID, &s.StartMarker, &s.Socket, &s.WakeCursor, &s.Reason, &s.CreatedAt, &s.EndedAt, &s.SwitchModel, &s.SwitchEffort)
 	if err != nil {
 		return s, err
 	}
@@ -134,8 +134,8 @@ func (s *Store) SupervisorRunning(ctx context.Context, id int64, t Terminal) (Su
 		if sup.Status != AttemptLaunching {
 			return fmt.Errorf("%w: supervisor %s is %s and cannot become %s", ErrConflict, SupervisorRef(id), sup.Status, AttemptRunning)
 		}
-		if _, err := tx.Exec(`UPDATE supervisor SET status = ?, server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ? WHERE id = ?`,
-			AttemptRunning, t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, id); err != nil {
+		if _, err := tx.Exec(`UPDATE supervisor SET status = ?, server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ?, socket = ? WHERE id = ?`,
+			AttemptRunning, t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, t.Socket, id); err != nil {
 			return err
 		}
 		sup.Status, sup.Terminal = AttemptRunning, t

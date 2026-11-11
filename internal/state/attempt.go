@@ -63,6 +63,7 @@ type Terminal struct {
 	PaneID           string
 	PID              int
 	StartMarker      string
+	Socket           string
 }
 
 type AttemptSpec struct {
@@ -96,7 +97,7 @@ type Attempt struct {
 
 func (a Attempt) Live() bool { return a.Status == AttemptLaunching || a.Status == AttemptRunning }
 
-const attemptColumns = `id, task_id, harness, model, effort, %sworktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, kept FROM attempt`
+const attemptColumns = `id, task_id, harness, model, effort, %sworktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, socket, reason, continues, created_at, ended_at, cleaned_at, kept FROM attempt`
 
 var (
 	attemptSelect    = `SELECT ` + fmt.Sprintf(attemptColumns, "argv, ")
@@ -119,7 +120,7 @@ func scanAttemptFields(row scanner, argv *string) (Attempt, error) {
 		dest = append(dest, argv)
 	}
 	dest = append(dest, &a.Worktree, &a.Branch, &a.Status,
-		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Kept)
+		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Socket, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Kept)
 	return a, row.Scan(dest...)
 }
 
@@ -235,8 +236,8 @@ func (s *Store) AttemptRunning(ctx context.Context, id int64, t Terminal) (Attem
 		if a.Status != AttemptLaunching {
 			return fmt.Errorf("%w: attempt %s is %s and cannot become %s", ErrConflict, AttemptRef(id), a.Status, AttemptRunning)
 		}
-		if _, err := tx.Exec(`UPDATE attempt SET status = ?, server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ? WHERE id = ?`,
-			AttemptRunning, t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, id); err != nil {
+		if _, err := tx.Exec(`UPDATE attempt SET status = ?, server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ?, socket = ? WHERE id = ?`,
+			AttemptRunning, t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, t.Socket, id); err != nil {
 			return err
 		}
 		a.Status, a.Terminal = AttemptRunning, t
@@ -256,8 +257,8 @@ func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, m
 		if a.Status != AttemptRunning {
 			return fmt.Errorf("%w: attempt %s is %s and cannot be switched", ErrConflict, AttemptRef(id), a.Status)
 		}
-		if _, err := tx.Exec(`UPDATE attempt SET server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ? WHERE id = ?`,
-			t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, id); err != nil {
+		if _, err := tx.Exec(`UPDATE attempt SET server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ?, socket = ? WHERE id = ?`,
+			t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, t.Socket, id); err != nil {
 			return err
 		}
 		a.Terminal = t

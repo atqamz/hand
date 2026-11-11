@@ -34,7 +34,7 @@ func TestRunUpdatesTheFleet(t *testing.T) {
 	if rep.Status != "updated" || rep.Failed || len(rep.Backups) != 2 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "22", "0.14.4") {
+	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "23", "0.14.4") {
 		t.Fatalf("target = %q", b)
 	}
 	for _, p := range rep.Backups {
@@ -347,7 +347,7 @@ func TestRunLeavesTheServerAloneWithoutAPin(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "22", "dev") {
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "23", "dev") {
 		f.srv.set(name, body)
 	}
 	f.current()
@@ -628,7 +628,7 @@ func TestCheckKeepsAnUnpinnedFleetWhenNoPinIsWritten(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "22", "dev") {
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "23", "dev") {
 		f.srv.set(name, body)
 	}
 	f.o.Check = true

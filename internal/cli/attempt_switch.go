@@ -134,7 +134,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 				}
 				return a, runtimeErr(err)
 			}
-			running, err := st.AttemptSwitched(ctx, id, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker}, text, model, effort, requested)
+			running, err := st.AttemptSwitched(ctx, id, stateTerminal(term, r.ownSocket()), text, model, effort, requested)
 			if err != nil {
 				return a, errors.Join(err, stopErr(stopWorker(ctx, c, term, r.requester())))
 			}

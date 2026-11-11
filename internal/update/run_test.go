@@ -76,7 +76,7 @@ func newFetch(t *testing.T) *fixture {
 	f := &fixture{root: t.TempDir(), calls: filepath.Join(t.TempDir(), "calls")}
 	f.old = handScript(t, "0.8.0", "source", "unknown", "18", "0.14.3")
 	f.target = binary(t, f.old)
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "22", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "23", "0.14.4")
 	maps.Copy(files, fakeLuvus(t, "0.14.4"))
 	f.srv = release(t, files)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
@@ -192,7 +192,7 @@ func TestTargetResolvesASymlink(t *testing.T) {
 	if dest, err := os.Readlink(link); err != nil || dest != f.target {
 		t.Fatalf("link = %q, %v", dest, err)
 	}
-	if b, _ := os.ReadFile(link); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "22", "0.14.4") {
+	if b, _ := os.ReadFile(link); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "23", "0.14.4") {
 		t.Fatal("the link does not reach the new binary")
 	}
 }
@@ -266,7 +266,7 @@ func TestRunNeverLowersThePin(t *testing.T) {
 
 func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
 	f := newFetch(t)
-	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "22", "0.14.4") {
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "23", "0.14.4") {
 		f.srv.set(name, body)
 	}
 	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: the download is a stable build, not edge") {

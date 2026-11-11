@@ -106,6 +106,23 @@ func terminal(t state.Terminal) luvus.Terminal {
 	return luvus.Terminal{ServerGeneration: t.ServerGeneration, TerminalID: t.TerminalID, PaneID: t.PaneID, Root: luvus.Root{PID: t.PID, StartMarker: t.StartMarker}}
 }
 
+func stateTerminal(t luvus.Terminal, socket string) state.Terminal {
+	return state.Terminal{ServerGeneration: t.ServerGeneration, TerminalID: t.TerminalID, PaneID: t.PaneID, PID: t.Root.PID, StartMarker: t.Root.StartMarker, Socket: socket}
+}
+
+func (r *runner) ownSocket() string {
+	return luvus.SocketPath(r.env.Getenv, fleet.Session(r.fleet.ID))
+}
+
+func foreignNote(socket string) string { return "terminal belongs to another luvus (" + socket + ")" }
+
+func (r *runner) foreignSocket(t state.Terminal) string {
+	if own := r.ownSocket(); t.Socket != "" && t.Socket != own {
+		return t.Socket
+	}
+	return ""
+}
+
 func (r *runner) withAttempts(fn func(context.Context, *state.Store, luvus.Client) error) error {
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		return fn(ctx, st, c)
@@ -160,6 +177,14 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 	if err != nil || to == "" {
 		return err
 	}
+	if sock := r.foreignSocket(a.Terminal); sock != "" {
+		note := r.requester().noteSettled(foreignNote(sock), false)
+		if _, err := st.EndAttemptWithScreen(ctx, a.ID, state.AttemptInterrupted, note, r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
+			return err
+		}
+		return nil
+	}
+	signalled := rootAlive(a.PID, a.StartMarker)
 	if err := stopRoot(a.PID, a.StartMarker); err != nil {
 		return err
 	}
@@ -171,7 +196,7 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 		}
 		reason += "; terminal cleanup failed: " + err.Error()
 	}
-	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, who.note(reason), r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
+	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, who.noteSettled(reason, signalled), r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
 		return err
 	}
 	return nil
