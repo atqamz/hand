@@ -1,6 +1,6 @@
 {{define "decision.html"}}{{template "head" .}}{{template "top" .}}{{with .Detail}}<main class="thread">
 <header class="thread-head">
-<p class="crumbs">{{if $.Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{$.Base}}/">{{$.Fleet}}</a> / <a class="ref" href="{{$.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> / <span class="ref">{{decision .Decision.ID}}</span></p>
+{{template "crumb" $}} / <a class="ref" href="{{$.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> / <span class="ref">{{decision .Decision.ID}}</span></p>
 <h2 class="thread-title">{{.Decision.Headline}}</h2>
 <p class="slug"><span class="badge status" data-state="{{.Pill}}" data-tone="{{tone .Pill}}">{{.Decision.Status}}</span><span class="ref">{{decision .Decision.ID}}</span><time datetime="{{.Decision.CreatedAt}}">{{when .Decision.CreatedAt}}</time></p>
 {{with prose .Decision.Body}}<div class="question md">{{mdrefs . $.Base $.Titles $.Local}}</div>{{end}}

@@ -1,6 +1,6 @@
 {{define "alerts.html"}}{{template "head" .}}{{template "top" .}}<main class="thread doc">
 <header class="thread-head">
-<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / alerts</p>
+{{template "crumb" .}} / alerts</p>
 <h2 class="thread-title">Alerts</h2>
 </header>
 <p class="meta">The last 7 days, as the Hand app reads them. Delay is the time from raised to acknowledged. Over 1 minute counts as slow.</p>

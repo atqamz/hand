@@ -31,3 +31,5 @@
 {{end}}
 
 {{define "csrf"}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
+
+{{define "crumb"}}<p class="crumbs">{{if and .Controls (not .Phone)}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a>{{end}}
