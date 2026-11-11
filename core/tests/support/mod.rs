@@ -443,7 +443,10 @@ pub fn body(response: &[u8]) -> &[u8] {
 
 #[derive(Clone, Debug)]
 pub struct Seen {
+    pub method: String,
     pub target: String,
+    pub csrf: Option<String>,
+    pub body: Vec<u8>,
     pub cookie: Option<String>,
     pub host: Option<String>,
     pub connection: Option<String>,
@@ -456,6 +459,7 @@ pub struct Reply {
     pub hold: Duration,
     pub length: Option<usize>,
     pub headers: Vec<(String, String)>,
+    pub raw: Option<Vec<u8>>,
 }
 
 impl Reply {
@@ -466,6 +470,7 @@ impl Reply {
             hold: Duration::ZERO,
             length: None,
             headers: Vec::new(),
+            raw: None,
         }
     }
 
@@ -476,6 +481,7 @@ impl Reply {
             hold: Duration::ZERO,
             length: None,
             headers: Vec::new(),
+            raw: None,
         }
     }
 
@@ -487,6 +493,13 @@ impl Reply {
     pub fn header(mut self, name: &str, value: &str) -> Self {
         self.headers.push((name.to_owned(), value.to_owned()));
         self
+    }
+
+    pub fn raw(bytes: &[u8]) -> Self {
+        Self {
+            raw: Some(bytes.to_vec()),
+            ..Self::status(200)
+        }
     }
 
     pub fn declaring(mut self, length: usize) -> Self {
@@ -558,13 +571,19 @@ async fn serve_feed(
             Ok(n) => request.extend_from_slice(&chunk[..n]),
         }
     }
-    let text = String::from_utf8_lossy(&request).into_owned();
+    let head_end = request
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .unwrap()
+        + 4;
+    let text = String::from_utf8_lossy(&request[..head_end]).into_owned();
     let mut lines = text.split("\r\n");
-    let target = lines
+    let first = lines
         .next()
-        .and_then(|line| line.split(' ').nth(1))
         .unwrap_or_default()
-        .to_owned();
+        .split(' ')
+        .collect::<Vec<_>>();
+    let target = first.get(1).copied().unwrap_or_default().to_owned();
     let header = |name: &str| {
         text.split("\r\n").skip(1).find_map(|line| {
             let (key, value) = line.split_once(':')?;
@@ -572,8 +591,20 @@ async fn serve_feed(
                 .then(|| value.trim().to_owned())
         })
     };
+    let length: usize = header("content-length")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    while request.len() < head_end + length {
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => request.extend_from_slice(&chunk[..n]),
+        }
+    }
     let seen = Seen {
+        method: first[0].to_owned(),
         target,
+        csrf: header("x-hand-csrf"),
+        body: request[head_end..head_end + length].to_vec(),
         cookie: header("cookie"),
         host: header("host"),
         connection: header("connection"),
@@ -591,6 +622,11 @@ async fn serve_feed(
         .iter()
         .map(|(name, value)| format!("{name}: {value}\r\n"))
         .collect();
+    if let Some(raw) = &reply.raw {
+        let _ = stream.write_all(raw).await;
+        let _ = stream.shutdown().await;
+        return;
+    }
     let head = format!(
         "HTTP/1.1 {} X\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n",
         reply.status,

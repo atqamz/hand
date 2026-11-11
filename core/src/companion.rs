@@ -15,6 +15,7 @@ use tokio::time::timeout;
 use url::Url;
 
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
+use crate::http::{Request, RequestError, Response, exchange};
 use crate::key::{self, KeyCipher};
 use crate::link::LINK_REJECTED;
 use crate::link::short_id;
@@ -85,6 +86,10 @@ impl Companion {
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
             signals: std::sync::Arc::new(StdMutex::new(Some(receiver))),
         })
+    }
+
+    pub async fn request(&self, request: &Request) -> Result<Response, RequestError> {
+        exchange(&self.dialer, request).await
     }
 
     pub fn port(&self) -> u16 {
@@ -329,6 +334,7 @@ impl From<io::Error> for StartError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::Method;
     use crate::key::CipherError;
     use crate::testutil::TempDir;
 
@@ -356,6 +362,25 @@ mod tests {
             data_dir: dir.path().to_owned(),
             cipher: Arc::new(TestCipher),
         }
+    }
+
+    #[tokio::test]
+    async fn a_request_with_no_laptop_paired_says_so() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let request = Request::new(
+            Method::Get,
+            "f0123456789ab",
+            "/api/v1/status",
+            "hand_phone_f0123456789ab=abc",
+            None,
+            b"",
+        )
+        .unwrap();
+        assert_eq!(
+            companion.request(&request).await,
+            Err(RequestError::NoLaptop)
+        );
     }
 
     #[tokio::test]

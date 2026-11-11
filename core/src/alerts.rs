@@ -8,18 +8,17 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep, sleep_until, timeout};
+use tokio::time::{Instant, sleep, sleep_until};
 
 use crate::backoff::Backoff;
 use crate::dialer::Dialer;
+use crate::http::{Method, Request, RequestError, exchange};
 use crate::open::{parse_open, valid_fleet};
-use crate::proxy::unpaired_403;
 
 pub const WAIT: Duration = Duration::from_secs(25);
 pub const RESCAN: Duration = Duration::from_secs(10);
 const ANSWER_SLACK: Duration = Duration::from_secs(10);
 const MIN_POLL: Duration = Duration::from_secs(1);
-const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 64 * 1024;
 const MAX_ALERTS: usize = 50;
 const MAX_TEXT: usize = 200;
@@ -76,7 +75,7 @@ fn paired_cookies(cookie_header: &str) -> Vec<(String, String)> {
     fleets
 }
 
-fn fleet_cookie(cookie_header: &str, fleet: &str) -> Option<String> {
+pub(crate) fn fleet_cookie(cookie_header: &str, fleet: &str) -> Option<String> {
     cookie_header.split(';').find_map(|pair| {
         let (name, value) = pair.trim().split_once('=')?;
         let id = name.strip_prefix(COOKIE_PREFIX)?;
@@ -84,7 +83,7 @@ fn fleet_cookie(cookie_header: &str, fleet: &str) -> Option<String> {
     })
 }
 
-fn valid_cookie_value(value: &str) -> bool {
+pub(crate) fn valid_cookie_value(value: &str) -> bool {
     !value.is_empty()
         && value.bytes().all(|byte| {
             (0x21..=0x7e).contains(&byte) && !matches!(byte, b'"' | b',' | b';' | b'\\')
@@ -235,54 +234,28 @@ impl Feed {
             .await
             .map_err(|_| Failure::Retry)?
             .ok_or(Failure::CookieGone)?;
-        let cookie = fleet_cookie(&header, fleet).ok_or(Failure::CookieGone)?;
-        let request = request(fleet, &cookie, cursor, (!more).then_some(self.wait));
-        let (mut send, mut recv) = self
-            .dialer
-            .open_with(request.as_bytes())
+        let request = Request::new(
+            Method::Get,
+            fleet,
+            &feed_path(cursor, (!more).then_some(self.wait)),
+            &header,
+            None,
+            &[],
+        )
+        .ok_or(Failure::CookieGone)?
+        .within(self.wait + ANSWER_SLACK)
+        .up_to(MAX_BODY)
+        .by_length();
+        let response = exchange(&self.dialer, &request)
             .await
-            .map_err(|_| Failure::Retry)?;
-        let _ = send.finish();
-        let body = timeout(self.wait + ANSWER_SLACK, async {
-            let mut buffer = Vec::new();
-            let mut chunk = [0u8; 4096];
-            let head_end = loop {
-                if let Some(end) = find_head_end(&buffer) {
-                    break end;
-                }
-                if buffer.len() > MAX_HEAD {
-                    return Err(Failure::Retry);
-                }
-                match recv.read(&mut chunk).await {
-                    Ok(0) | Err(_) => return Err(Failure::Retry),
-                    Ok(n) => buffer.extend_from_slice(&chunk[..n]),
-                }
-            };
-            let head = parse_head(&buffer[..head_end]).ok_or(Failure::Retry)?;
-            if head.status != 200 {
-                return Err(if unpaired_403(&buffer[..head_end]) {
-                    Failure::BoardGone
-                } else {
-                    Failure::Retry
-                });
-            }
-            if head.chunked {
-                return Err(Failure::Retry);
-            }
-            let length = head.length.filter(|length| *length <= MAX_BODY);
-            let length = length.ok_or(Failure::Retry)?;
-            let body_start = head_end + 4;
-            while buffer.len() < body_start + length {
-                match recv.read(&mut chunk).await {
-                    Ok(0) | Err(_) => return Err(Failure::Retry),
-                    Ok(n) => buffer.extend_from_slice(&chunk[..n]),
-                }
-            }
-            Ok(buffer[body_start..body_start + length].to_vec())
-        })
-        .await
-        .map_err(|_| Failure::Retry)??;
-        validate(fleet, cursor, &body).ok_or(Failure::Retry)
+            .map_err(|error| match error {
+                RequestError::Unpaired => Failure::BoardGone,
+                _ => Failure::Retry,
+            })?;
+        if response.status != 200 {
+            return Err(Failure::Retry);
+        }
+        validate(fleet, cursor, &response.body).ok_or(Failure::Retry)
     }
 }
 
@@ -426,7 +399,7 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
     }
 }
 
-fn request(fleet: &str, cookie: &str, cursor: Option<u64>, wait: Option<Duration>) -> String {
+fn feed_path(cursor: Option<u64>, wait: Option<Duration>) -> String {
     let mut query = Vec::new();
     if let Some(cursor) = cursor {
         query.push(format!("after={cursor}"));
@@ -434,54 +407,7 @@ fn request(fleet: &str, cookie: &str, cursor: Option<u64>, wait: Option<Duration
     if let Some(wait) = wait {
         query.push(format!("wait={}", wait.as_secs()));
     }
-    format!(
-        "GET /{fleet}/alerts/feed?{} HTTP/1.1\r\nHost: localhost\r\nCookie: {cookie}\r\nConnection: close\r\n\r\n",
-        query.join("&")
-    )
-}
-
-fn find_head_end(buffer: &[u8]) -> Option<usize> {
-    buffer.windows(4).position(|window| window == b"\r\n\r\n")
-}
-
-struct Head {
-    status: u16,
-    length: Option<usize>,
-    chunked: bool,
-}
-
-fn parse_head(head: &[u8]) -> Option<Head> {
-    let text = std::str::from_utf8(head).ok()?;
-    let mut lines = text.split("\r\n");
-    let mut status = lines.next()?.split(' ');
-    if status.next()? != "HTTP/1.1" {
-        return None;
-    }
-    let code = status.next()?;
-    if code.len() != 3 {
-        return None;
-    }
-    let status = code.parse().ok()?;
-    let mut length = None;
-    let mut chunked = false;
-    for line in lines {
-        let (name, value) = line.split_once(':')?;
-        if name.eq_ignore_ascii_case("transfer-encoding") {
-            chunked = true;
-        }
-        if name.eq_ignore_ascii_case("content-length") {
-            let value = value.trim();
-            if length.is_some() || value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            length = Some(value.parse().ok()?);
-        }
-    }
-    Some(Head {
-        status,
-        length,
-        chunked,
-    })
+    format!("/alerts/feed?{}", query.join("&"))
 }
 
 #[derive(Deserialize)]
@@ -649,38 +575,12 @@ mod tests {
     }
 
     #[test]
-    fn the_request_is_a_plain_get_with_the_cookie_and_connection_close() {
+    fn the_feed_path_carries_the_cursor_and_the_wait() {
         assert_eq!(
-            request(FLEET, "hand_phone_f0123456789ab=abc", Some(7), Some(WAIT)),
-            "GET /f0123456789ab/alerts/feed?after=7&wait=25 HTTP/1.1\r\nHost: localhost\r\nCookie: hand_phone_f0123456789ab=abc\r\nConnection: close\r\n\r\n"
+            feed_path(Some(7), Some(WAIT)),
+            "/alerts/feed?after=7&wait=25"
         );
-        assert_eq!(
-            request(FLEET, "hand_phone_f0123456789ab=abc", None, None),
-            "GET /f0123456789ab/alerts/feed? HTTP/1.1\r\nHost: localhost\r\nCookie: hand_phone_f0123456789ab=abc\r\nConnection: close\r\n\r\n"
-        );
-    }
-
-    #[test]
-    fn a_head_needs_http_one_one_and_one_length_and_flags_chunking() {
-        let head = |text: &str| parse_head(text.as_bytes());
-        let ok = head("HTTP/1.1 200 OK\r\nContent-Length: 12\r\nContent-Type: x").unwrap();
-        assert_eq!((ok.status, ok.length), (200, Some(12)));
-        assert_eq!(head("HTTP/1.1 403 Forbidden").unwrap().length, None);
-        let refusal = head("HTTP/1.1 403 Forbidden\r\nTransfer-Encoding: chunked").unwrap();
-        assert!((refusal.status, refusal.chunked) == (403, true));
-        assert!(!ok.chunked);
-        for bad in [
-            "HTTP/1.0 200 OK",
-            "HTTP/1.1 20 OK",
-            "HTTP/1.1 abc OK",
-            "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 1",
-            "HTTP/1.1 200 OK\r\nContent-Length: -1",
-            "HTTP/1.1 200 OK\r\nContent-Length: ",
-            "HTTP/1.1 200 OK\r\nno colon",
-            "",
-        ] {
-            assert!(head(bad).is_none(), "{bad}");
-        }
+        assert_eq!(feed_path(None, None), "/alerts/feed?");
     }
 
     #[test]

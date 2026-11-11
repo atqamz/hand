@@ -509,6 +509,78 @@ async fn a_chunked_answer_is_not_read() {
 }
 
 #[tokio::test]
+async fn a_well_formed_chunked_answer_is_not_read_either() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let body =
+        String::from_utf8(answer(2, vec![alert(2, "attempt.failed", "a1", "a1 failed", "")]).body)
+            .unwrap();
+    let chunked = format!(
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n",
+        body.len()
+    );
+    let harness = Harness::start(&bin, 60, move |n, _| match n {
+        0 => answer(1, vec![]),
+        1 => Reply::raw(chunked.as_bytes()),
+        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+    })
+    .await;
+    let task = harness.run(harness.feed());
+
+    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    task.abort();
+    assert!(harness.sink.alerts().is_empty());
+    assert_eq!(harness.cursor().as_deref(), Some("1"));
+}
+
+#[tokio::test]
+async fn a_200_without_a_length_is_not_read() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let body =
+        String::from_utf8(answer(2, vec![alert(2, "attempt.failed", "a1", "a1 failed", "")]).body)
+            .unwrap();
+    let unframed = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{body}");
+    let harness = Harness::start(&bin, 60, move |n, _| match n {
+        0 => answer(1, vec![]),
+        1 => Reply::raw(unframed.as_bytes()),
+        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+    })
+    .await;
+    let task = harness.run(harness.feed());
+
+    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    task.abort();
+    assert!(harness.sink.alerts().is_empty());
+    assert_eq!(harness.cursor().as_deref(), Some("1"));
+}
+
+#[tokio::test]
+async fn a_no_longer_paired_refusal_is_recognised_when_its_body_is_cut_short() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let cut =
+        format!("HTTP/1.1 403 Forbidden\r\nX-Hand-Error: {GONE}\r\nContent-Length: 100\r\n\r\nabc");
+    let harness = Harness::start(&bin, 60, move |n, _| match n {
+        0 => answer(4, vec![]),
+        _ => Reply::raw(cut.as_bytes()),
+    })
+    .await;
+    let task = harness.run(harness.feed());
+
+    let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert_eq!(stop, Stop::BoardGone);
+    assert_eq!(
+        harness.sink.unpaired(),
+        vec![(FLEET.to_owned(), Some("hand".to_owned()))]
+    );
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+}
+
+#[tokio::test]
 async fn no_cookie_header_and_no_own_cookie_stop_the_fleet_without_a_request() {
     let Some(bin) = sidecar_bin() else {
         return;
