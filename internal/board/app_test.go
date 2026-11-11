@@ -175,20 +175,18 @@ func TestTheHandAppFlowLogsNoCodeOrLink(t *testing.T) {
 	}
 }
 
-func TestTheHandAppAndInstallCardsHaveDistinctHeadings(t *testing.T) {
+func TestThePhonePageHasTheHandAppCardAndNoInstallCard(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha")
 	f := p.fleets[0]
 	p.iroh = func() sidecar.Status {
 		return sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay}
 	}
 	p.restart()
-	body := p.send("GET", "/"+f.id+"/connect", nil, []*http.Cookie{p.laptop(f)}, proxiedHTS()).Body.String()
-	for _, want := range []string{`<h3 id="handapp-head">Pair the Hand app</h3>`, `aria-labelledby="handapp-head"`, `<h3 id="app-head">Install</h3>`, `aria-labelledby="app-head"`} {
+	body := p.send("GET", "/"+f.id+"/connect", nil, []*http.Cookie{p.laptop(f)}, serving()).Body.String()
+	for _, want := range []string{`<h3 id="handapp-head">Pair the Hand app</h3>`, `aria-labelledby="handapp-head"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the Phone page lacks %q", want)
 		}
 	}
-	if got := strings.Count(body, `id="app-head"`); got != 1 {
-		t.Fatalf("the Phone page holds %d id=app-head headings", got)
-	}
+	lacks(t, "the Phone page", body, `id="app-head"`, "data-install")
 }

@@ -304,7 +304,7 @@ func TestAnUnpairedPeerReachesOnlyThePairPageAndItsAssets(t *testing.T) {
 		if rep := c.do("GET", asset, nil, nil); rep.Code != http.StatusOK {
 			t.Fatalf("%s: %s = %d", name, asset, rep.Code)
 		}
-		for _, path := range []string{"/", "/" + f.id + "/", "/" + f.id + "/connect", "/" + f.id + "/events", "/" + f.id + "/proof?nonce=x", "/" + f.id + "/pair/", "/manifest.webmanifest", "/sw.js", "//static/x"} {
+		for _, path := range []string{"/", "/" + f.id + "/", "/" + f.id + "/connect", "/" + f.id + "/events", "/" + f.id + "/proof?nonce=x", "/" + f.id + "/pair/", "/sw.js", "//static/x"} {
 			if rep := c.do("GET", path, nil, nil); rep.Code == http.StatusOK || strings.Contains(rep.Body, "alpha") {
 				t.Fatalf("%s: %s = %d for an unpaired peer", name, path, rep.Code)
 			}
@@ -843,8 +843,8 @@ func TestARequestWithNoCookieDoesNotUnpairAConnection(t *testing.T) {
 			t.Fatalf("request %d = %v, %v", i+1, rep.Code, err)
 		}
 	}
-	if rep := c.do("GET", "/manifest.webmanifest", nil, nil); rep.Code != http.StatusForbidden {
-		t.Fatalf("a cookie-less manifest request = %d", rep.Code)
+	if rep := c.do("GET", "/sw.js", nil, nil); rep.Code != http.StatusForbidden {
+		t.Fatalf("a cookie-less worker request = %d", rep.Code)
 	}
 	if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, nil, phone); err != nil || rep.Code != http.StatusOK {
 		t.Fatalf("the request after a cookie-less one = %v, %v", rep.Code, err)

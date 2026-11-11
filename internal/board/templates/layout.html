@@ -6,15 +6,9 @@
 <title>{{.Title}} · {{.Fleet}}</title>
 <link rel="stylesheet" href="{{asset "board.css"}}">
 <link rel="icon" href="{{asset "favicon.svg"}}">
-{{if .Worker}}<link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="{{asset "icon-192.png"}}">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Hand">
-{{end}}<script src="{{asset "app.js"}}" defer></script>
+<script src="{{asset "app.js"}}" defer></script>
 </head>
-<body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}"{{if .Live}} data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"{{end}}{{with .Session}} data-session="{{.}}"{{end}}{{if .Worker}} data-worker{{end}}>
+<body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}"{{if .Live}} data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"{{end}}{{with .Session}} data-session="{{.}}"{{end}}>
 {{end}}
 
 {{define "nav"}}<ul class="nav-pages">

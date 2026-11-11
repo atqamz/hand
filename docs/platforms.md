@@ -48,7 +48,7 @@ In the table:
 | `hand update` fetches `hand-iroh` with a new `hand` | CI e2e, CI, fake release | CI e2e, fake release | CI e2e, fake release |
 | The real `hand-iroh` starts, keeps its ID, holds its key with modes 0700 and 0600 and leaves when its input closes | CI, real sidecar | CI, real sidecar | CI, real sidecar |
 | First run with no harness: `hand init`, `doctor`, `orient`, projects, tasks, `attempt track`, `models` | CI e2e | CI e2e | CI e2e |
-| The Board over HTTP: fleet page, `/events` beat, document viewer, phone pairing and revoke, install manifest | CI e2e | CI e2e | CI e2e |
+| The Board over HTTP: fleet page, `/events` beat, document viewer, phone pairing and revoke | CI e2e | CI e2e | CI e2e |
 | The Board in Chromium at 1440 and 390 px: five regions, document dialog, project badges, no console error | CI e2e | CI e2e | CI e2e |
 | Upgrade from v0.13.0 with backups, the old binary refusing a migrated database, and the documented restore | CI e2e | CI e2e | CI e2e |
 | Desktop notifications | daily | real Mac (#895) | no |

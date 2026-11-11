@@ -90,7 +90,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 const (
 	cookieName = "hand_board"
 	laptopLife = 400 * 24 * time.Hour
-	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
+	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'"
 )
 
 func cookieFor(base string) string { return cookieName + strings.ReplaceAll(base, "/", "_") }
@@ -577,7 +577,6 @@ func (b *Board) pageData(data map[string]any) map[string]any {
 }
 
 func renderPage(w http.ResponseWriter, status int, name string, data map[string]any) {
-	data["Worker"] = installed(w)
 	var buf bytes.Buffer
 	if err := pages.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
