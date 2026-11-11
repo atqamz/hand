@@ -211,7 +211,7 @@ func TestWatchClickFreesItsSlotWhileTheDesktopStarts(t *testing.T) {
 func TestWatchStopsWaitingForTheDesktopAtShutdown(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
-	notifyLog, _, _, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
 	lingeringDesktop(t, fx)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -227,6 +227,10 @@ func TestWatchStopsWaitingForTheDesktopAtShutdown(t *testing.T) {
 	}
 	if n := len(readLines(notifyLog)); n != 1 {
 		t.Fatalf("%d notifications, want 1: no browser fallback at shutdown", n)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
+		t.Fatalf("the browser opened at shutdown")
 	}
 }
 
