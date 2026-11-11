@@ -59,3 +59,15 @@ func TestTheTimelineDropsTheOldLastKeyWhenTheWindowCutsASameSecondGroup(t *testi
 		t.Fatalf("drop = %q", ev.Drop)
 	}
 }
+
+func TestTheTimelineDropsACutGroupOfAnotherRoleWhole(t *testing.T) {
+	s := &apiStream{entries: map[string]apiSent{}}
+	at := "2026-11-01T05:01:00Z"
+	line := func(role, text string) APIEntry { return APIEntry{Role: role, At: at, Text: text} }
+	s.timeline(APITimeline{Entries: []APIEntry{line("hand", "3"), line("hand", "2"), line("hand", "1"), line("operator", "o")}})
+	s.started = true
+	ev, _ := s.timeline(APITimeline{Entries: []APIEntry{line("operator", "o")}})
+	if want := []string{"hand@" + at, "hand@" + at + "#2", "hand@" + at + "#3"}; !slices.Equal(ev.Drop, want) {
+		t.Fatalf("drop = %q", ev.Drop)
+	}
+}
