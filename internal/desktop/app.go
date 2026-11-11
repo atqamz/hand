@@ -945,9 +945,11 @@ func (a *App) pollOnce(gen, tick int) {
 	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
 	load := a.loadID
 	key := pollScreenID(screen, ref)
-	since := PollCursors{Fresh: a.pollFresh}
+	since := PollCursors{Fresh: a.pollFresh, Worker: slices.ContainsFunc(a.Status.Needs.Items, func(n Need) bool { return n.Kind == "worker" })}
 	if !a.pollFresh {
-		since.Status = a.pollStatus
+		if !since.Worker {
+			since.Status = a.pollStatus
+		}
 		if a.pollScreenFor == key {
 			since.Screen = a.pollScreenCursor
 		}
