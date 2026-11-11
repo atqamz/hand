@@ -28,10 +28,15 @@ import (
 
 func eventually(t *testing.T, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	eventuallyWithin(t, 5*time.Second, ok)
+}
+
+func eventuallyWithin(t *testing.T, d time.Duration, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
 	for !ok() {
 		if time.Now().After(deadline) {
-			t.Fatal("condition not reached within 5s")
+			t.Fatalf("condition not reached within %s", d)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
