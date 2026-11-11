@@ -1,0 +1,264 @@
+package board_test
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
+)
+
+const eventsPath = "/api/v1/events"
+
+func sseData[T any](t *testing.T, e sseEvent) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal([]byte(e.data), &v); err != nil {
+		t.Fatalf("%s data: %v:\n%s", e.name, err, e.data)
+	}
+	return v
+}
+
+func apiStream(t *testing.T, fx *fixture) <-chan sseEvent {
+	t.Helper()
+	ch, _ := stream(t, serve(t, board.New(fx.st, token, fx.options))+eventsPath)
+	first(t, ch, 3)
+	return ch
+}
+
+func quiet(t *testing.T, ch <-chan sseEvent, n int) {
+	t.Helper()
+	for _, e := range first(t, ch, n) {
+		if e.name != "beat" {
+			t.Fatalf("nothing changed, yet the stream sent %q: %s", e.name, e.data)
+		}
+	}
+}
+
+func changes(evs []sseEvent) []string {
+	return slices.DeleteFunc(eventNames(evs), func(name string) bool { return name == "beat" })
+}
+
+func TestEventsStartWithAFullSnapshot(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ch, _ := stream(t, serve(t, board.New(fx.st, token, fx.options))+eventsPath)
+	got := first(t, ch, 3)
+	if names := eventNames(got); !slices.Equal(names, []string{"hello", "status", "timeline"}) {
+		t.Fatalf("first events = %q", names)
+	}
+	hello := sseData[board.APIHello](t, got[0])
+	if hello.Version != 1 || hello.Fleet.ID != "f00000000e0aa" || hello.TickMS != apiTick.Milliseconds() || hello.BeatMS != 15000 {
+		t.Fatalf("hello = %+v", hello)
+	}
+	if st := sseData[board.APIStatus](t, got[1]); st.Supervisor == nil || st.Supervisor.Ref == "" || st.Tasks.Active != 3 {
+		t.Fatalf("status = %+v", st)
+	}
+	tl := sseData[board.APITimelineEvent](t, got[2])
+	if !tl.Snapshot || tl.From != 0 || tl.To != tl.Older+len(tl.Entries) || !slices.ContainsFunc(tl.Entries, func(e board.APIKeyedEntry) bool { return e.Text == "All good." && e.Key != "" }) {
+		t.Fatalf("timeline = %+v", tl)
+	}
+}
+
+func TestEventsNeedTheSessionLikeTheOtherReads(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	rec := request(board.New(fx.st, token, fx.options), "GET", eventsPath, nil, false)
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("Content-Type") == "text/event-stream" {
+		t.Fatalf("without the cookie = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestAQuietStreamSendsOnlyBeats(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	ch := apiStream(t, fx)
+	quiet(t, ch, 4)
+}
+
+func TestAStatusChangeSendsOneStatusEvent(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	ch := apiStream(t, fx)
+	fx.mu.Lock()
+	fx.status = "blocked"
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("timeline"))
+	if names := changes(evs); !slices.Equal(names, []string{"status", "timeline"}) {
+		t.Fatalf("after the agent blocked = %q", names)
+	}
+	if st := sseData[board.APIStatus](t, evs[len(evs)-2]); st.Supervisor == nil || !st.Supervisor.Blocked || st.Supervisor.Keys == nil {
+		t.Fatalf("status = %+v", st)
+	}
+	quiet(t, ch, 3)
+}
+
+func TestANewChatLineSendsATimelineUpsert(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	ch := apiStream(t, fx)
+	claudeLog(t, fx, []string{
+		rec("user", ago(20), "status?", 0),
+		rec("assistant", ago(19), "All good.", 0),
+		rec("assistant", ago(1), "Shipped it.", 0),
+	})
+	evs := until(t, ch, arrives("timeline", "Shipped it."))
+	for _, e := range evs {
+		if e.name == "status" || e.name == "touched" {
+			t.Fatalf("a chat line sent %q: %s", e.name, e.data)
+		}
+	}
+	tl := sseData[board.APITimelineEvent](t, evs[len(evs)-1])
+	if tl.Snapshot || len(tl.Entries) != 1 || tl.Entries[0].Text != "Shipped it." || tl.To != tl.From+1 || len(tl.Drop) != 0 {
+		t.Fatalf("timeline = %+v", tl)
+	}
+	quiet(t, ch, 3)
+}
+
+func TestATaskChangeSendsTouched(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	ch := apiStream(t, fx)
+	tasks, err := fx.st.Tasks(context.Background(), nil, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := tasks[len(tasks)-1]
+	if _, err := fx.st.Transition(context.Background(), task.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	evs := until(t, ch, arrives("touched"))
+	touched := sseData[board.APITouched](t, evs[len(evs)-1])
+	if !slices.Equal(touched.Topics, []string{"tasks"}) || !slices.Equal(touched.Tasks, []string{state.TaskRef(task.ID)}) {
+		t.Fatalf("touched = %+v", touched)
+	}
+	quiet(t, ch, 3)
+}
+
+func TestTouchedNamesTheAttemptDecisionAndReportAnEventNames(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ch := apiStream(t, fx)
+	d, err := fx.st.Ask(context.Background(), 1, "Ship it?\n\n1. Yes\n2. No")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := until(t, ch, arrives("touched"))
+	if touched := sseData[board.APITouched](t, evs[len(evs)-1]); !slices.Equal(touched.Decisions, []string{state.DecisionRef(d.ID)}) {
+		t.Fatalf("touched = %+v", touched)
+	}
+}
+
+func TestACountdownDoesNotSendAnEventPerSecond(t *testing.T) {
+	var mu sync.Mutex
+	clock := frozen
+	fx := apiFixture(t, func() time.Time { mu.Lock(); defer mu.Unlock(); return clock })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.status = "blocked"
+	fx.screen = "────────────────────────\n Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 4:55\n Do you want to proceed?\n❯ 1. Yes\n  2. No\n Esc to cancel · Tab to amend"
+	ch, _ := stream(t, serve(t, board.New(fx.st, token, fx.options))+eventsPath)
+	var need board.APINeed
+	var keys board.APIKeys
+	for _, e := range first(t, ch, 3) {
+		if e.name == "status" {
+			st := sseData[board.APIStatus](t, e)
+			need = st.Needs.Items[0]
+			keys = *st.Supervisor.Keys
+		}
+	}
+	if need.DenyAt != frozen.Add(295*time.Second).Format(time.RFC3339) {
+		t.Fatalf("deny_at = %q", need.DenyAt)
+	}
+	for second := 1; second <= 2; second++ {
+		mu.Lock()
+		clock = frozen.Add(time.Duration(second) * time.Second)
+		mu.Unlock()
+		fx.mu.Lock()
+		fx.revision++
+		fx.mu.Unlock()
+		quiet(t, ch, 2)
+	}
+	if keys.Revision != 7 {
+		t.Fatalf("keys = %+v", keys)
+	}
+	fx.mu.Lock()
+	fx.screen = strings.Replace(fx.screen, "4:55", "1:00", 1)
+	fx.revision++
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("status"))
+	st := sseData[board.APIStatus](t, evs[len(evs)-1])
+	if st.Needs.Items[0].DenyAt != frozen.Add(62*time.Second).Format(time.RFC3339) || st.Supervisor.Keys.Revision != 10 {
+		t.Fatalf("after the countdown was reset = %+v %+v", st.Needs.Items[0], st.Supervisor.Keys)
+	}
+}
+
+func TestAnOversizeEventBecomesAResync(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	claudeLog(t, fx, []string{rec("assistant", ago(1), strings.Repeat("x", 70<<10), 0)})
+	ch, _ := stream(t, serve(t, board.New(fx.st, token, fx.options))+eventsPath)
+	got := first(t, ch, 3)
+	if names := eventNames(got); !slices.Equal(names, []string{"hello", "status", "resync"}) || got[2].data != `{"topics":["timeline"]}` {
+		t.Fatalf("events = %q: %.80s", names, got[2].data)
+	}
+}
+
+func TestTheStreamEndsWhenItsClientLeaves(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := board.New(fx.st, token, fx.options)
+	left := make(chan struct{})
+	base := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(left)
+		h.ServeHTTP(w, r)
+	}))
+	before := runtime.NumGoroutine()
+	ch, cancel := stream(t, base+eventsPath)
+	first(t, ch, 3)
+	cancel()
+	select {
+	case <-left:
+	case <-time.After(hung):
+		t.Fatal("the stream still runs after its client left")
+	}
+	for end := time.Now().Add(5 * time.Second); runtime.NumGoroutine() > before && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+	}
+	if n := runtime.NumGoroutine(); n > before {
+		t.Fatalf("goroutines %d after the stream ended, %d before", n, before)
+	}
+}
+
+func TestTheStreamEndsWhenTheBoardShutsDown(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := board.NewHost(board.HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return "/home", nil },
+		Valid:    func(id, tok string) bool { return tok == token },
+		Open: func(id, _ string) (http.Handler, io.Closer, error) {
+			o := fx.options
+			o.Base = "/" + id
+			return board.New(fx.st, token, o), io.NopCloser(nil), nil
+		},
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest("GET", srv.URL+"/f00000000e0aa"+eventsPath, nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board_f00000000e0aa", Value: token})
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %v %v", res, err)
+	}
+	done := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, res.Body); close(done) }()
+	time.Sleep(3 * apiTick)
+	_ = h.Close()
+	select {
+	case <-done:
+	case <-time.After(hung):
+		t.Fatal("the stream outlived the board")
+	}
+}

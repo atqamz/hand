@@ -119,6 +119,7 @@ type APINeed struct {
 	CreatedAt string `json:"created_at,omitempty"`
 	Excerpt   string `json:"excerpt,omitempty"`
 	Cut       bool   `json:"cut,omitempty"`
+	DenyAt    string `json:"deny_at,omitempty"`
 }
 
 type APINeeds struct {
@@ -1082,7 +1083,7 @@ func (b *Board) apiStatusData(ctx context.Context) (APIStatus, error) {
 		Line:         sv.Line,
 		Gauge:        APIGauge{Text: status.Gauge.Text, Level: status.Gauge.Level, Pct: status.Gauge.Pct},
 		Compactions:  status.Compactions,
-		Needs:        apiNeeds(needs),
+		Needs:        apiNeeds(needs, b.now()),
 		Tasks: APITaskCounts{
 			Active:    counts[state.StatusActive],
 			Inbox:     counts[state.StatusInbox],
@@ -1323,7 +1324,7 @@ func apiAsk(card *askCard) *APIAsk {
 	return out
 }
 
-func apiNeeds(v needsView) APINeeds {
+func apiNeeds(v needsView, now time.Time) APINeeds {
 	out := APINeeds{
 		Waiting:    v.Waiting,
 		More:       v.More,
@@ -1335,7 +1336,13 @@ func apiNeeds(v needsView) APINeeds {
 		Items:      make([]APINeed, 0, len(v.Waits)),
 	}
 	for _, w := range v.Waits {
-		out.Items = append(out.Items, apiNeed(w))
+		n := apiNeed(w)
+		if m, sec, ok := strings.Cut(w.Prompt.Deadline, ":"); ok {
+			left, _ := strconv.Atoi(m)
+			rest, _ := strconv.Atoi(sec)
+			n.DenyAt = now.Add(time.Duration(left*60+rest) * time.Second).UTC().Format(time.RFC3339)
+		}
+		out.Items = append(out.Items, n)
 	}
 	return out
 }

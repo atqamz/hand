@@ -67,6 +67,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
 | `GET /api/v1/report/{rN}` | `ReportDetail`: report, task, delivered | the report's card on `/task/tN` |
 | `GET /api/v1/session` | `Session`: `csrf` | none; the form token a mutation sends |
+| `GET /api/v1/events` | a Server-Sent Events stream; see [The event stream](#the-event-stream) | the pages' own `/events` stream |
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
@@ -145,6 +146,25 @@ Every ref in a detail is the same `tN`, `aN`, `rN`, `dN`, `sN` the pages and the
 An event from a terminal screen (`attempt.blocked`, `attempt.limited`, `supervisor.blocked`, `supervisor.limited`) carries no `detail`, and neither does an event whose `detail` is a harness API error: that field would be screen text. Its `seq`, `at`, `kind` and `task` remain.
 
 The API never returns a host path. An attempt carries its `branch` but not its worktree or launch command; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's or supervisor's `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
+
+## The event stream
+
+`GET /api/v1/events` is a Server-Sent Events stream with the same cookie and access rules as the other reads. It carries no envelope and no `?since=`: every event's `data` is one JSON object on one line. The stream follows the board's own tick (`tick_ms`, 1 s) and its version, so a change reaches a client within about a second. A client that loses the stream reconnects and gets a full snapshot again.
+
+| Event | `data` |
+|---|---|
+| `hello` | first on every connect: `version`, `fleet`, `tick_ms`, `beat_ms` |
+| `status` | the whole `Status` object, sent on connect and whenever it changed |
+| `timeline` | an upsert of the latest page: `entries` new or changed since the last `timeline` event, each an entry plus a `key`; `drop`, the keys of entries that left the page's range (a wake line folded into a group); `working` (`null` when the supervisor is not working), `live` and `note`; the range `from` and `to`, where `to` is `older` plus the page's entry count and `from` is the previous event's `to`; `snapshot: true` on the first one, which replaces what the client holds |
+| `touched` | topics that moved (`tasks`) and the refs that events since the last one name: `tasks`, `attempts`, `decisions`, `reports`. The client re-reads what it shows |
+| `beat` | no data, every `beat_ms` (15 s) of silence |
+| `resync` | `{"topics": ["status"]}`: the event would exceed 64 KiB, so the client re-reads that topic with a plain `GET` |
+
+On connect the stream sends `hello`, `status` and the latest `timeline` page, and after that only what differs from what this connection was last sent: a quiet fleet gets only beats. A client treats a `timeline` whose `from` is not the `to` it holds as a gap and reads the page again. An entry's `key` is `i<input>` for a message the operator sent (queued and delivered are the same key), and otherwise its role and `at`, with `#2`, `#3` for a repeat.
+
+A blocked screen's countdown does not send an event each second. A `blocked` or `worker` item in `Status.needs.items` carries `deny_at`, the time the harness will deny the request, and the client counts down to it. While a screen counts down, `deny_at` and `supervisor.keys.revision` hold their last sent values (within 2 s); a key press with that revision is accepted while the digest matches.
+
+The stream ends when the client closes, when the session is revoked, and when the board shuts down. On the peer listener a half-close also ends it, as it ends `/events`.
 
 ## The actions
 

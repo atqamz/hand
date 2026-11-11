@@ -238,6 +238,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /connect/revoke/everywhere", b.connectRevokePhone(true))
 	b.mux.HandleFunc("GET "+apiPrefix, b.apiUnknown)
 	b.mux.HandleFunc("GET "+apiPrefix+"/session", b.apiSession)
+	b.mux.HandleFunc("GET "+apiPrefix+"/events", b.apiEvents)
 	b.mux.HandleFunc("GET "+apiPrefix+"/status", b.apiStatus)
 	b.mux.HandleFunc("GET "+apiPrefix+"/timeline", b.apiTimeline)
 	b.mux.HandleFunc("GET "+apiPrefix+"/tasks", b.apiTasks)
