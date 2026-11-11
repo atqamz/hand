@@ -111,7 +111,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 }
 ```
 
-`supervisor` is absent when no supervisor exists. `needs.items` follows the page's order and carries the same `kind`, `ref`, `word` and `tone` (`blocked`, `worker`, `failure`, `limited`, `nosup`, `stalled`, `resume`, `decision`, `report`, `quiet`, `long`, `kept`, `artifacts`). `cleared` and `summary` appear when the page shows "All clear". For a `blocked`, `worker` or `limited` item, `title` is absent because it comes from a terminal screen; use `ref`, `kind` and the attempt or supervisor detail instead. A `stalled` title leaves out how long the supervisor has been idle, so a client does not show a count that a `304` would freeze.
+`supervisor` is absent when no supervisor exists. A `blocked` or `worker` item carries `deny_at` (RFC 3339) only while its screen shows an automatic-deny countdown of up to 999 minutes; otherwise it is absent. `needs.items` follows the page's order and carries the same `kind`, `ref`, `word` and `tone` (`blocked`, `worker`, `failure`, `limited`, `nosup`, `stalled`, `resume`, `decision`, `report`, `quiet`, `long`, `kept`, `artifacts`). `cleared` and `summary` appear when the page shows "All clear". For a `blocked`, `worker` or `limited` item, `title` is absent because it comes from a terminal screen; use `ref`, `kind` and the attempt or supervisor detail instead. A `stalled` title leaves out how long the supervisor has been idle, so a client does not show a count that a `304` would freeze.
 
 While the supervisor's pane is blocked, `supervisor` also carries `"blocked": true` and a `keys` object:
 
@@ -153,18 +153,20 @@ The API never returns a host path. An attempt carries its `branch` but not its w
 
 | Event | `data` |
 |---|---|
-| `hello` | first on every connect: `version`, `fleet`, `tick_ms`, `beat_ms` |
-| `status` | the whole `Status` object, sent on connect and whenever it changed |
+| `hello` | first on every connect, flushed at once: `version`, `fleet`, `tick_ms`, `beat_ms`, `now` (the board's clock, RFC 3339) |
+| `status` | the whole `Status` object plus `now`, sent on connect and whenever it changed. A client computes its clock offset from `now` and counts a `deny_at` against its own clock plus that offset |
 | `timeline` | an upsert of the latest page: `entries` new or changed since the last `timeline` event, each an entry plus a `key`; `drop`, the keys of entries that left the page's range (a wake line folded into a group); `working` (`null` when the supervisor is not working), `live` and `note`; the range `from` and `to`, where `to` is `older` plus the page's entry count and `from` is the previous event's `to`; `snapshot: true` on the first one, which replaces what the client holds |
-| `touched` | topics that moved (`tasks`) and the refs that events since the last one name: `tasks`, `attempts`, `decisions`, `reports`. The client re-reads what it shows |
+| `touched` | topics that moved (`tasks`) and the refs that events since the last one name: `tasks`, `attempts`, `decisions`, `reports`. The client re-reads what it shows. A `touched` that would exceed 64 KiB is sent as `{"topics": ["tasks"]}`, and the client re-reads the task list and the detail it shows. At most 10,000 events are read per tick; a larger burst is named over the next ticks |
 | `beat` | no data, every `beat_ms` (15 s) of silence |
-| `resync` | `{"topics": ["status"]}`: the event would exceed 64 KiB, so the client re-reads that topic with a plain `GET` |
+| `resync` | `{"topics": ["status"]}`: a `status` or `timeline` event would exceed 64 KiB, so the client re-reads that topic with a plain `GET` |
 
 On connect the stream sends `hello`, `status` and the latest `timeline` page, and after that only what differs from what this connection was last sent: a quiet fleet gets only beats. A client treats a `timeline` whose `from` is not the `to` it holds as a gap and reads the page again. An entry's `key` is `i<input>` for a message the operator sent (queued and delivered are the same key), and otherwise its role and `at`, with `#2`, `#3` for a repeat.
 
+A client merges a `timeline` upsert by `key`: an entry it holds keeps its place and takes the new fields; a new one goes in by `at`, newest first, and entries with the same `at` keep the order the event gave them. `drop` removes the keys it names.
+
 A blocked screen's countdown does not send an event each second. A `blocked` or `worker` item in `Status.needs.items` carries `deny_at`, the time the harness will deny the request, and the client counts down to it. While a screen counts down, `deny_at` and `supervisor.keys.revision` hold their last sent values (within 2 s); a key press with that revision is accepted while the digest matches.
 
-The stream ends when the client closes, when the session is revoked, and when the board shuts down. On the peer listener a half-close also ends it, as it ends `/events`.
+The stream ends when the client closes, when the session is revoked, and when the board shuts down. A write that takes longer than twice `beat_ms` ends it too, so a client that stops reading cannot hold the board. `HEAD` answers `200` with the stream's headers and no body, and does not start a stream. Where the peer listener serves the API to a paired phone, a half-close also ends the stream, as it ends `/events`.
 
 ## The actions
 
