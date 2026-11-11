@@ -1,3 +1,5 @@
+//go:build !linux
+
 package launcher
 
 func Sync(func(string) string, string) (string, error) { return "", nil }
