@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
+	strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'"
 	priorCSP  = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 )
 
@@ -107,10 +107,10 @@ func directives(csp string) map[string]string {
 	return out
 }
 
-func TestThePageCSPGainedOnlyMediaFrameManifestAndWorkerSources(t *testing.T) {
+func TestThePageCSPGainedOnlyMediaAndFrameSources(t *testing.T) {
 	got := directives(strictCSP)
 	want := directives(priorCSP)
-	for _, name := range []string{"media-src", "frame-src", "manifest-src", "worker-src"} {
+	for _, name := range []string{"media-src", "frame-src"} {
 		want[name] = "'self'"
 	}
 	if len(got) != len(want) {
@@ -131,6 +131,7 @@ func TestThePageCSPGainedOnlyMediaFrameManifestAndWorkerSources(t *testing.T) {
 	if len(served) != len(want) {
 		t.Errorf("served %v, want %v", served, want)
 	}
+	lacks(t, "csp", rec.Header().Get("Content-Security-Policy"), "manifest-src", "worker-src")
 }
 
 func TestLinksFollowTheBase(t *testing.T) {

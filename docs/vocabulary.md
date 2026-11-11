@@ -549,11 +549,7 @@ The `alert` table of `hand.db` and the route that serves it to the Hand app: `GE
 
 ### Board app
 
-The Board installed on a phone's home screen. One per board: its manifest's `id`, `start_url` and `scope` are `/`, so it opens the fleet list of that phone, not one fleet. It exists only for pages that reached the board through a proxy over HTTPS (`X-Forwarded-Proto: https` with a proxy header, never Funnel), where `app.js` registers `/sw.js`. The installed app on iPhone has storage of its own and starts signed out.
-
-### Offline page
-
-`/offline`: the static page the Board app's worker shows in place of a navigation that failed, timed out after 8 seconds or got a `502`, `503` or `504`. It reads "Laptop unreachable" with the time, has **Retry**, names no fleet and holds no session, and it is the only page the worker stores, with the three static files it links.
+Removed. The Board no longer offers an installable app, a manifest, an app icon or the `/offline` page, and `app.js` registers no worker. For one release `/sw.js` stays as a worker that has no fetch handler, deletes every cache and unregisters itself, so a home-screen app installed earlier stops caching and loses its worker; delete its icon by hand. The release after drops the route.
 
 ### TOON
 

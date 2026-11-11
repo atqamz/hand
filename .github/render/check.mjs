@@ -202,7 +202,6 @@ async function render(browser, server, width, theme, rows) {
     deviceScaleFactor: 1,
     locale: 'en-US',
     timezoneId: 'Asia/Jakarta',
-    serviceWorkers: 'block',
   });
   await context.clock.setFixedTime(frozen);
   await context.addInitScript(() => {

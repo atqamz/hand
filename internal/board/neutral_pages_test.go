@@ -108,6 +108,7 @@ func TestNoPageWithoutASessionNamesTheFleet(t *testing.T) {
 			if rec.Code != c.status {
 				t.Fatalf("%s = %d, want %d:\n%s", what, rec.Code, c.status, rec.Body.String())
 			}
+			lacks(t, what, wholeResponse(rec), retiredMarkers...)
 			if strings.Contains(wholeResponse(rec), nameMarker) {
 				t.Fatalf("%s names the fleet:\n%s", what, wholeResponse(rec))
 			}

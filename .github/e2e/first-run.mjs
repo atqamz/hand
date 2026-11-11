@@ -98,7 +98,7 @@ async function board(box, srv, made) {
   for (const region of ['status', 'console', 'timeline', 'queue', 'tasks']) matches(page.text, new RegExp(`data-region="${region}"`), `the fleet page has the ${region} region`);
   matches(textOf(page.text), /Fix the login redirect/, 'the fleet page lists a task');
   matches(page.headers.get('content-security-policy') ?? '', /default-src 'none'; script-src 'self'; style-src 'self'/, 'the page carries the strict CSP');
-  lacks(page.text, /rel="manifest"|data-worker/, 'a loopback page does not offer the install manifest');
+  lacks(page.text, /rel="manifest"|data-worker/, 'a loopback page offers no install manifest');
   const screen = await laptop.get(`/${id}/supervisor`);
   equal(screen.status, 200, 'the Screen page answers 200');
   matches(screen.text, /data-region="sup"/, 'the Screen page has the sup region');
@@ -191,8 +191,7 @@ async function board(box, srv, made) {
 
   const home = await phone.get(`/${id}/`);
   equal(home.status, 200, 'the paired phone opens the fleet page');
-  matches(home.text, /rel="manifest"/, 'behind the proxy headers the page offers the install manifest');
-  matches(home.text, /data-worker/, 'behind the proxy headers the page registers its worker');
+  lacks(home.text, /rel="manifest"|data-worker/, 'behind the proxy headers the page offers no install manifest');
   const feed = await phone.get(`/${id}/alerts/feed?wait=0`);
   equal(feed.status, 200, 'the paired phone reads the alert feed');
   matches(feed.headers.get('content-type') ?? '', /^application\/json/, 'the feed is JSON');
@@ -211,14 +210,11 @@ async function board(box, srv, made) {
   const nested = await phone.post(`/${id}/connect/code`, { csrf: mine.text.match(/name="csrf" value="([^"]+)"/)?.[1], base: origin });
   equal(nested.status, 403, 'a paired phone cannot mint a code');
 
-  for (const [route, type] of [['/manifest.webmanifest', /application\/manifest\+json/], ['/sw.js', /javascript/], ['/offline', /text\/html/]]) {
-    const res = await new Client(origin, proxy).get(route);
-    check(res.status === 200 && type.test(res.headers.get('content-type') ?? ''), `${route} answers 200 with ${type.source}`);
-  }
-  const manifest = JSON.parse((await new Client(origin, proxy).get('/manifest.webmanifest')).text);
-  equal([manifest.scope, manifest.display, manifest.icons.length], ['/', 'standalone', 3], 'the manifest scopes the whole origin and lists three icons');
-  const worker = (await new Client(origin, proxy).get('/sw.js')).text;
-  matches(worker, /^const BUILD = "[0-9a-f]{12}";/, 'the worker carries a build hash');
+  for (const route of ['/manifest.webmanifest', '/offline']) equal((await new Client(origin, proxy).get(route)).status, 404, `${route} answers 404`);
+  const worker = await new Client(origin, proxy).get('/sw.js');
+  check(worker.status === 200 && /javascript/.test(worker.headers.get('content-type') ?? ''), '/sw.js answers 200 as JavaScript');
+  matches(worker.text, /registration\.unregister\(\)/, 'the worker unregisters itself');
+  lacks(worker.text, /"fetch"/, 'the worker has no fetch handler');
 
   const alerts = await laptop.get(`/${id}/alerts`);
   equal(alerts.status, 200, 'the laptop opens the Alerts page');

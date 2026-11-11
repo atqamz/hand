@@ -94,9 +94,7 @@ func NewHost(o HostOptions) *Host {
 	h := &Host{o: o, mux: http.NewServeMux(), fleets: map[string]hosted{}}
 	h.mux.HandleFunc("GET /{$}", h.list)
 	h.mux.HandleFunc("/static/", ServeStatic)
-	h.mux.HandleFunc("GET /manifest.webmanifest", manifest)
-	h.mux.HandleFunc("GET /sw.js", worker)
-	h.mux.HandleFunc("GET /offline", offline)
+	h.mux.HandleFunc("GET /sw.js", retireWorker)
 	h.mux.HandleFunc("/{id}/", h.fleet)
 	return h
 }
@@ -117,7 +115,7 @@ func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.mux.ServeHTTP(proxied{w, installable(r)}, r)
+	h.mux.ServeHTTP(w, r)
 }
 
 func (h *Host) Close() error {
