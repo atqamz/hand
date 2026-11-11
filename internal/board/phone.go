@@ -130,7 +130,7 @@ func (b *Board) secretHash(secret string) string { return b.mac("device:" + secr
 func (b *Board) deviceCSRF(secret string) string { return b.mac("csrf:" + secret)[:32] }
 
 func proxied(r *http.Request) bool {
-	return r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != ""
+	return len(r.Header.Values("X-Forwarded-For")) > 0 || len(r.Header.Values("Forwarded")) > 0
 }
 
 func forwarded(r *http.Request) bool { return peerOf(r) != nil || proxied(r) }

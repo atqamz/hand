@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/state"
@@ -404,11 +405,21 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	b.mux.ServeHTTP(w, r)
 }
 
-func apiActor(ctx context.Context) string {
-	if s, _ := ctx.Value(sessionKey{}).(session); s.Device != nil {
-		return "phone (" + s.Device.Name + ")"
+func actor(ctx context.Context, laptop string) string {
+	s, _ := ctx.Value(sessionKey{}).(session)
+	if s.Device == nil {
+		return laptop
 	}
-	return "operator (desktop)"
+	name := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if !unicode.IsGraphic(r) || r == '(' || r == ')' {
+			return -1
+		}
+		return r
+	}, s.Device.Name))
+	if name == "" {
+		return "phone"
+	}
+	return "phone (" + name + ")"
 }
 
 func apiAllow(r *http.Request) string {
@@ -507,7 +518,7 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "write your answer: that option asks for one")
 		return
 	}
-	if _, err := b.st.Answer(ctx, id, answer, apiActor(ctx)); err != nil {
+	if _, err := b.st.Answer(ctx, id, answer, actor(ctx, "operator (desktop)")); err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
@@ -524,7 +535,7 @@ func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	if _, err := b.st.AckReport(ctx, id, apiActor(ctx)); err != nil {
+	if _, err := b.st.AckReport(ctx, id, actor(ctx, "operator (desktop)")); err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
