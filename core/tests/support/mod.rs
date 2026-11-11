@@ -5,9 +5,9 @@ use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,6 +21,8 @@ use tokio::sync::watch;
 const READY_WAIT: Duration = Duration::from_secs(20);
 const STARTUP_WAIT: Duration = Duration::from_secs(5);
 
+static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
+
 pub struct TempDir(PathBuf);
 
 impl TempDir {
@@ -29,8 +31,11 @@ impl TempDir {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("hand-android-test-{}-{nanos}", std::process::id()));
+        let count = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "hand-android-test-{}-{nanos}-{count}",
+            std::process::id()
+        ));
         fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -434,4 +439,165 @@ pub fn body(response: &[u8]) -> &[u8] {
         .position(|window| window == b"\r\n\r\n")
         .expect("no header terminator");
     &response[split + 4..]
+}
+
+#[derive(Clone, Debug)]
+pub struct Seen {
+    pub target: String,
+    pub cookie: Option<String>,
+    pub host: Option<String>,
+    pub connection: Option<String>,
+    pub at: Instant,
+}
+
+pub struct Reply {
+    pub status: u16,
+    pub body: Vec<u8>,
+    pub hold: Duration,
+    pub length: Option<usize>,
+    pub headers: Vec<(String, String)>,
+}
+
+impl Reply {
+    pub fn json(body: String) -> Self {
+        Self {
+            status: 200,
+            body: body.into_bytes(),
+            hold: Duration::ZERO,
+            length: None,
+            headers: Vec::new(),
+        }
+    }
+
+    pub fn status(status: u16) -> Self {
+        Self {
+            status,
+            body: Vec::new(),
+            hold: Duration::ZERO,
+            length: None,
+            headers: Vec::new(),
+        }
+    }
+
+    pub fn held(mut self, hold: Duration) -> Self {
+        self.hold = hold;
+        self
+    }
+
+    pub fn header(mut self, name: &str, value: &str) -> Self {
+        self.headers.push((name.to_owned(), value.to_owned()));
+        self
+    }
+
+    pub fn declaring(mut self, length: usize) -> Self {
+        self.length = Some(length);
+        self
+    }
+}
+
+pub struct FeedBoard {
+    addr: SocketAddr,
+    seen: Arc<Mutex<Vec<Seen>>>,
+}
+
+impl FeedBoard {
+    pub async fn start(
+        secret: &str,
+        responder: impl Fn(usize, &Seen) -> Reply + Send + Sync + 'static,
+    ) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let responder = Arc::new(responder);
+        let log = seen.clone();
+        let secret = secret.to_owned();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let (secret, log, responder) = (secret.clone(), log.clone(), responder.clone());
+                tokio::spawn(async move {
+                    serve_feed(stream, &secret, log, responder.as_ref()).await;
+                });
+            }
+        });
+        Self { addr, seen }
+    }
+
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    pub fn seen(&self) -> Vec<Seen> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+async fn serve_feed(
+    mut stream: tokio::net::TcpStream,
+    secret: &str,
+    log: Arc<Mutex<Vec<Seen>>>,
+    responder: &(impl Fn(usize, &Seen) -> Reply + ?Sized),
+) {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let preface_end = loop {
+        if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
+            break end + 1;
+        }
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+        }
+    };
+    if !valid_preface(&bytes[..preface_end], secret) {
+        return;
+    }
+    let mut request = bytes.split_off(preface_end);
+    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => request.extend_from_slice(&chunk[..n]),
+        }
+    }
+    let text = String::from_utf8_lossy(&request).into_owned();
+    let mut lines = text.split("\r\n");
+    let target = lines
+        .next()
+        .and_then(|line| line.split(' ').nth(1))
+        .unwrap_or_default()
+        .to_owned();
+    let header = |name: &str| {
+        text.split("\r\n").skip(1).find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case(name)
+                .then(|| value.trim().to_owned())
+        })
+    };
+    let seen = Seen {
+        target,
+        cookie: header("cookie"),
+        host: header("host"),
+        connection: header("connection"),
+        at: Instant::now(),
+    };
+    let number = {
+        let mut log = log.lock().unwrap();
+        log.push(seen.clone());
+        log.len() - 1
+    };
+    let reply = responder(number, &seen);
+    tokio::time::sleep(reply.hold).await;
+    let extra: String = reply
+        .headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect();
+    let head = format!(
+        "HTTP/1.1 {} X\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n",
+        reply.status,
+        reply.length.unwrap_or(reply.body.len())
+    );
+    let mut out = head.into_bytes();
+    out.extend_from_slice(&reply.body);
+    let _ = stream.write_all(&out).await;
+    let _ = stream.shutdown().await;
 }

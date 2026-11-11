@@ -48,7 +48,7 @@ pub fn parse_open(text: &str) -> Option<OpenLink> {
     })
 }
 
-fn valid_fleet(fleet: &str) -> bool {
+pub(crate) fn valid_fleet(fleet: &str) -> bool {
     fleet.len() == 13
         && fleet.starts_with('f')
         && fleet[1..]

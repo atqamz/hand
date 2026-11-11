@@ -196,7 +196,7 @@ fn header_end(head: &[u8]) -> Option<usize> {
         .map(|end| end + 4)
 }
 
-fn unpaired_403(head: &[u8]) -> bool {
+pub(crate) fn unpaired_403(head: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(head) else {
         return false;
     };

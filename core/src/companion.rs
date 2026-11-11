@@ -51,6 +51,10 @@ pub struct Companion {
 }
 
 impl Companion {
+    pub fn dialer(&self) -> Dialer {
+        self.dialer.clone()
+    }
+
     pub async fn start(config: CompanionConfig) -> Result<Self, StartError> {
         std::fs::create_dir_all(&config.data_dir)?;
         let secret_key = key::load_or_create(&config.data_dir, config.cipher.as_ref())?;
