@@ -22,6 +22,8 @@ var lengths = map[string]float32{
 	"row-sm": RowSM, "row": Row, "tap": Tap, "row-lg": RowLG, "sheet": Sheet,
 }
 
+var unmirrored = []string{"backdrop", "doc-bg", "pane", "screen-fade", "screen-fade-fg", "screen-fade-fg-clear", "screen-thumb", "veil"}
+
 var (
 	declaration = regexp.MustCompile(`--([a-z0-9-]+):([^;}]+)`)
 	tintRule    = regexp.MustCompile(`\.tint-(\d+)\{--tint:(#[0-9a-f]{6})\}`)
@@ -98,6 +100,13 @@ func TestColorsMatchBoardCSS(t *testing.T) {
 	}
 	lightTints := tints(t, lightCSS)
 	darkTints := tints(t, darkCSS)
+	mirrored := map[string]bool{}
+	for _, name := range unmirrored {
+		if _, ok := light[name]; !ok {
+			t.Errorf("--%s is on the unmirrored list but not in board.css", name)
+		}
+		mirrored[name] = true
+	}
 	for _, th := range []struct {
 		name   string
 		dark   bool
@@ -108,8 +117,12 @@ func TestColorsMatchBoardCSS(t *testing.T) {
 		for i := range v.NumField() {
 			name := v.Type().Field(i).Tag.Get("css")
 			if name == "" {
+				if v.Type().Field(i).Name != "Tint" {
+					t.Errorf("Colors.%s has no css tag", v.Type().Field(i).Name)
+				}
 				continue
 			}
+			mirrored[name] = true
 			raw, ok := th.tokens[name]
 			if !ok {
 				t.Errorf("%s: --%s is not in board.css", th.name, name)
@@ -117,6 +130,11 @@ func TestColorsMatchBoardCSS(t *testing.T) {
 			}
 			if got, want := v.Field(i).Interface().(ui.Color), cssColor(t, raw); got != want {
 				t.Errorf("%s: kit %s = %+v, board.css --%s = %s", th.name, v.Type().Field(i).Name, got, name, raw)
+			}
+		}
+		for name, raw := range th.tokens {
+			if (strings.HasPrefix(raw, "#") || strings.HasPrefix(raw, "rgb")) && !mirrored[name] {
+				t.Errorf("%s: board.css --%s = %s is neither in kit nor on the unmirrored list", th.name, name, raw)
 			}
 		}
 		if len(th.tints) != 12 {
