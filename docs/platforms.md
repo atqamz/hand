@@ -58,7 +58,7 @@ In the table:
 | The release carries `hand-desktop` for Linux amd64 and arm64; `hand update` checks its `.sha256` and its version and commit, places it next to `hand`, and reports `none in this release` or `unsupported on OS/ARCH`, and `hand doctor` has a `desktop` row | CI, fake release | CI, fake release: unsupported | CI, fake release: unsupported |
 | `hand-desktop` over a running board: the fleet switch, Status, Needs, Conversation (with its composer), Tasks and the four detail screens read `/api/v1`, and a message, an answer and a Mark read post to it | the window itself has run; the API path has the golden-JSON tests | not run | not run |
 | `hand-desktop --open LINK` and the single-instance lock: an alert's **Open** shows the item in the window | the parser, the hand-off and the click command have tests; the lock has not run between two real windows | not run | not run |
-| the single-instance lock's socket is private to the user only under `XDG_RUNTIME_DIR` (mode 0700); without it MyGo puts `mygo-<uid>-<hash>.sock` in `$TMPDIR` or `/tmp`, where another local user could hold the name and stall a launch | read from MyGo v0.7.4 | not run | not run |
+| the single-instance lock's socket is private to the user only under `XDG_RUNTIME_DIR` (mode 0700); without it MyGo puts `mygo-<uid>-<hash>.sock` in `$TMPDIR` or `/tmp`, where another local user could hold the name and make a launch exit without opening a window | read from MyGo v0.7.4 | not run | not run |
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
 
