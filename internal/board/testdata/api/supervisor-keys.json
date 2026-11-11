@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQA0ODc5Yzk1MDViYTM1NDU.Qs7xDpShndn-EPF-cs9AUg",
+  "cursor": "ZjAwMDAwMDAwZTBhYQBlMWIyYmEwZDczZjM0YWEx.ZG_XbIcndHCtqXL6PzfAVw",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "supervisor": {
@@ -60,8 +60,30 @@
         {
           "kind": "blocked",
           "ref": "s1",
+          "title": "Allow Bash?",
           "word": "BLOCKED",
-          "tone": "fail"
+          "tone": "fail",
+          "excerpt": "Allow Bash?\n❯ 1. Yes\n  2. No",
+          "options": [
+            {
+              "label": "2 No",
+              "keys": [
+                "2"
+              ]
+            },
+            {
+              "label": "Esc",
+              "keys": [
+                "esc"
+              ]
+            },
+            {
+              "label": "1 Yes",
+              "keys": [
+                "1"
+              ]
+            }
+          ]
         },
         {
           "kind": "failure",

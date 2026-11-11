@@ -437,7 +437,7 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 						ui.Text(c, need.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 					}
 					ui.Text(c, needLabel(need)).FontSize(kit.Body.Size).SingleLine().Grow(1)
-					if need.Excerpt != "" {
+					if need.Excerpt != "" && need.Kind == "report" {
 						ui.Text(c, firstLine(need.Excerpt)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 					}
 				})

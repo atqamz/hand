@@ -1332,6 +1332,27 @@ func checkFileRefs(t *testing.T, what string, ds []board.APIDeliverable) {
 	}
 }
 
+func withoutScreens(t *testing.T, path, body string) string {
+	t.Helper()
+	if path != "/api/v1/status" {
+		return body
+	}
+	var env struct{ Data board.APIStatus }
+	if err := json.Unmarshal([]byte(body), &env); err != nil {
+		t.Fatal(err)
+	}
+	for i, n := range env.Data.Needs.Items {
+		if n.Kind == "blocked" || n.Kind == "worker" {
+			env.Data.Needs.Items[i].Excerpt, env.Data.Needs.Items[i].Title = "", ""
+		}
+	}
+	out, err := json.Marshal(env.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func apiRaw(t *testing.T, h http.Handler, path string) string {
 	t.Helper()
 	rec := request(h, "GET", path, nil, true)
@@ -1340,8 +1361,73 @@ func apiRaw(t *testing.T, h http.Handler, path string) string {
 	}
 	body := rec.Body.String()
 	scanAPIBody(t, path, body)
-	scanScreenText(t, "GET "+path, body)
+	scanScreenText(t, "GET "+path, withoutScreens(t, path, body))
 	return body
+}
+
+func TestAPIStatusShowsABlockedScreensLastLines(t *testing.T) {
+	wantOptions := []board.APIAskOption{{Label: "2 No", Keys: []string{"2"}}, {Label: "Esc", Keys: []string{"esc"}}, {Label: "1 Yes", Keys: []string{"1"}}}
+	wantTitle := "Bash: rm -f $r/$f · Do you want to proceed?"
+	deny := frozen.Add(119 * time.Second).Format(time.RFC3339)
+	long := strings.Repeat("noise\n", 30) + permission
+
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.status, fx.screen = "blocked", long
+	fx.panes = map[string]string{"3": "blocked"}
+	fx.screens = map[string]string{"3": permission}
+	if err := fx.st.NoteAttempt(context.Background(), 1, "blocked", "Esc to cancel · Tab to amend"); err != nil {
+		t.Fatal(err)
+	}
+	raw := apiRaw(t, fx.handler(), "/api/v1/status")
+	var env struct{ Data board.APIStatus }
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]board.APINeed{}
+	for _, n := range env.Data.Needs.Items {
+		seen[n.Kind] = n
+	}
+	for kind, excerpt := range map[string]string{"blocked": strings.Repeat("noise\n", 12) + permission, "worker": permission} {
+		n, ok := seen[kind]
+		if !ok {
+			t.Fatalf("no %s item in %+v", kind, env.Data.Needs.Items)
+		}
+		if n.Excerpt != excerpt || n.Title != wantTitle || n.DenyAt != deny || !reflect.DeepEqual(n.Options, wantOptions) {
+			t.Fatalf("%s item = %+v", kind, n)
+		}
+	}
+	if n := strings.Count(raw, "rm -f"); n != 4 {
+		t.Fatalf("a screen line outside the two items' title and excerpt, %d matches:\n%s", n, raw)
+	}
+}
+
+func TestAPIStatusHasNoExcerptWhenNothingIsBlocked(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.status, fx.screen = "idle", permission
+	raw := apiRaw(t, fx.handler(), "/api/v1/status")
+	var env struct{ Data board.APIStatus }
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range env.Data.Needs.Items {
+		if n.Kind == "blocked" || n.Kind == "worker" || n.Options != nil || n.DenyAt != "" || (n.Kind != "report" && n.Excerpt != "") {
+			t.Fatalf("an unblocked fleet shows a screen on %+v", n)
+		}
+	}
+}
+
+func TestAPIRefusedPeerGetsNoBlockedScreen(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.status, fx.screen = "blocked", permission
+	forwarded := httptest.NewRequest("GET", "/api/v1/status", nil)
+	forwarded.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	forwarded.Header.Set("X-Forwarded-For", "203.0.113.9")
+	rec := httptest.NewRecorder()
+	fx.handler().ServeHTTP(rec, forwarded)
+	testAPIError(t, rec, http.StatusForbidden, "forbidden")
+	if strings.Contains(rec.Body.String(), "rm -f") {
+		t.Fatalf("a refused request got the screen:\n%s", rec.Body.String())
+	}
 }
 
 func TestAPINeverReturnsScreenText(t *testing.T) {
@@ -1377,7 +1463,7 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 				t.Fatalf("GET %s = %d:\n%s", c, rec.Code, rec.Body.String())
 			}
 			scanAPIBody(t, c, rec.Body.String())
-			scanScreenText(t, c, rec.Body.String())
+			scanScreenText(t, c, withoutScreens(t, c, rec.Body.String()))
 		}
 		_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
 		blocked := 0
@@ -1386,7 +1472,7 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 				continue
 			}
 			blocked++
-			if item.Title != "" {
+			if item.Kind == "limited" && item.Title != "" {
 				t.Fatalf("%s item carries screen text: %+v", item.Kind, item)
 			}
 		}
@@ -1411,8 +1497,11 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		fx := apiFixture(t, func() time.Time { return frozen })
 		fx.status, fx.screen = "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No"
 		raw := apiRaw(t, fx.handler(), "/api/v1/status")
-		if strings.Contains(raw, "id_rsa") || strings.Contains(raw, `"ask"`) {
-			t.Fatalf("status carries a screen line:\n%s", raw)
+		if strings.Contains(raw, `"ask"`) {
+			t.Fatalf("status carries an ask:\n%s", raw)
+		}
+		if !strings.Contains(raw, `"excerpt":"rm -f id_rsa`) {
+			t.Fatalf("status lacks the screen's lines:\n%s", raw)
 		}
 	})
 	for _, sc := range scenes() {

@@ -108,21 +108,22 @@ type APITaskCounts struct {
 }
 
 type APINeed struct {
-	Kind      string `json:"kind"`
-	Ref       string `json:"ref,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Word      string `json:"word"`
-	Tone      string `json:"tone"`
-	Task      string `json:"task,omitempty"`
-	Decision  string `json:"decision,omitempty"`
-	Report    string `json:"report,omitempty"`
-	Attempt   string `json:"attempt,omitempty"`
-	Headline  string `json:"headline,omitempty"`
-	Status    string `json:"status,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	Excerpt   string `json:"excerpt,omitempty"`
-	Cut       bool   `json:"cut,omitempty"`
-	DenyAt    string `json:"deny_at,omitempty"`
+	Kind      string         `json:"kind"`
+	Ref       string         `json:"ref,omitempty"`
+	Title     string         `json:"title,omitempty"`
+	Word      string         `json:"word"`
+	Tone      string         `json:"tone"`
+	Task      string         `json:"task,omitempty"`
+	Decision  string         `json:"decision,omitempty"`
+	Report    string         `json:"report,omitempty"`
+	Attempt   string         `json:"attempt,omitempty"`
+	Headline  string         `json:"headline,omitempty"`
+	Status    string         `json:"status,omitempty"`
+	CreatedAt string         `json:"created_at,omitempty"`
+	Excerpt   string         `json:"excerpt,omitempty"`
+	Cut       bool           `json:"cut,omitempty"`
+	DenyAt    string         `json:"deny_at,omitempty"`
+	Options   []APIAskOption `json:"options,omitempty"`
 }
 
 type APINeeds struct {
@@ -1376,7 +1377,15 @@ var idleFor = regexp.MustCompile(`^Supervisor idle for \S+ `)
 func apiNeed(w waiting) APINeed {
 	out := APINeed{Kind: w.Kind, Ref: w.Ref, Word: w.Word(), Tone: w.Tone()}
 	switch w.Kind {
-	case "blocked", "worker", "limited":
+	case "blocked", "worker":
+		if w.Prompt.Headline != "" {
+			out.Title = w.Title
+		}
+		out.Excerpt = w.Screen
+		for _, k := range w.Prompt.Options {
+			out.Options = append(out.Options, APIAskOption{Label: k.Label, Keys: []string{k.Name}})
+		}
+	case "limited":
 	case "stalled":
 		out.Title = idleFor.ReplaceAllString(w.Title, "Supervisor idle ")
 	default:

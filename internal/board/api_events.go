@@ -253,7 +253,8 @@ func (t *APITouched) seal() bool {
 }
 
 // A counting screen moves deny_at by a second of phase and the keys revision
-// each tick; the CLI accepts a stale revision while the digest matches.
+// each tick, and its screen's own countdown text moves too; the CLI accepts
+// a stale revision while the digest matches.
 func (s *apiStream) steady(cur *APIStatus) {
 	own := false
 	for i := range cur.Needs.Items {
@@ -272,6 +273,9 @@ func (s *apiStream) steady(cur *APIStatus) {
 			continue
 		}
 		is.DenyAt = was
+		if old := s.status.Needs.Items[j].Excerpt; autoDeny.ReplaceAllLiteralString(old, "") == autoDeny.ReplaceAllLiteralString(is.Excerpt, "") {
+			is.Excerpt = old
+		}
 		own = own || cur.Supervisor != nil && is.Ref == cur.Supervisor.Ref
 	}
 	if o, n := s.status.Supervisor, cur.Supervisor; own && o != nil && n != nil && o.Keys != nil && n.Keys != nil && o.Keys.Digest == n.Keys.Digest && o.Keys.Pressed == n.Keys.Pressed {
