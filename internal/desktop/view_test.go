@@ -1150,6 +1150,10 @@ func TestScenes(t *testing.T) {
 		{Ref: "export.csv", Kind: "file"},
 	}
 	delivered.task[fleetID] = td
+	opened := newApp(t, goldenFixture(t))
+	if err := opened.OpenLink("handboard://open/" + secondID + "/decision/d1"); err != nil {
+		t.Fatal(err)
+	}
 	scenes := []scene{
 		{"01-fleet-switch", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "second")
@@ -1203,6 +1207,7 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Tasks")
 			click(t, tt, "Fix login")
 		}},
+		{"17-open-link", opened, nil},
 	}
 	for _, sc := range scenes {
 		t.Run(sc.name, func(t *testing.T) {

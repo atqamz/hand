@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/proc"
 )
@@ -15,6 +18,7 @@ const clickAction = "default"
 var (
 	clickTimeout = 10 * time.Minute
 	clickLimit   = 8
+	desktopWait  = 10 * time.Second
 )
 
 func notifyArgv(fleet, text string) (string, []string) {
@@ -29,11 +33,14 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	if !w.clickSupport(bin) || !w.reserveClick() {
 		return false
 	}
-	defer w.clicks.Add(-1)
+	var once sync.Once
+	release := func() { once.Do(func() { w.clicks.Add(-1) }) }
+	defer release()
 	url, openable := w.boardURL(ctx, ref)
 	if url == "" || !openable {
 		return false
 	}
+	link := w.appURL(ctx, ref)
 	nctx, cancel := context.WithTimeout(w.clickCtx, clickTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(nctx, bin, notifyClickArgv(fleet, text)...)
@@ -42,7 +49,8 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	proc.NoWindow(cmd)
 	out, err := cmd.Output()
 	if strings.TrimSpace(string(out)) == clickAction {
-		w.openBoard(url)
+		release()
+		w.openAlert(link, url)
 		return true
 	}
 	return err == nil || nctx.Err() != nil
@@ -71,6 +79,37 @@ func (w *watcher) reserveClick() bool {
 		if w.clicks.CompareAndSwap(n, n+1) {
 			return true
 		}
+	}
+}
+
+func (w *watcher) openAlert(link, url string) {
+	if link != "" && w.openDesktop(link) {
+		return
+	}
+	w.openBoard(url)
+}
+
+func (w *watcher) openDesktop(link string) bool {
+	self, _ := os.Executable()
+	bin, err := desktopasset.Locate(self, w.r.env.Getenv("PATH"))
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(bin, "--open", link)
+	cmd.Env = w.r.env.Environ()
+	proc.Detach(cmd)
+	if cmd.Start() != nil {
+		return false
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(desktopWait):
+		return true
+	case <-w.clickCtx.Done():
+		return true
 	}
 }
 

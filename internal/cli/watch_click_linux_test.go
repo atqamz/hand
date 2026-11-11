@@ -149,6 +149,106 @@ func TestWatchClickOpensTheBoardPage(t *testing.T) {
 	}
 }
 
+func TestWatchClickRunsTheDesktopWithTheAlertsOpenLink(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "joined", nil)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(openLog)) >= 1 && readLines(openLog)[0] != "" })
+	time.Sleep(100 * time.Millisecond)
+	want := "--open handboard://open/" + fleetID(t, fx.h) + "/attempt/a1"
+	if got := readLines(openLog); len(got) != 1 || got[0] != want {
+		t.Fatalf("opened %q, want only the desktop with %q", got, want)
+	}
+}
+
+func TestWatchClickFallsBackToTheBrowserWithoutTheDesktop(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(openLog)) == 1 && readLines(openLog)[0] != "" })
+	if got := readLines(openLog)[0]; !strings.HasPrefix(got, "http://127.0.0.1:7777/") || !strings.HasSuffix(got, "/attempt/a1") {
+		t.Fatalf("opened %q", got)
+	}
+}
+
+func lingeringDesktop(t *testing.T, fx *attemptFixture) func() bool {
+	t.Helper()
+	dir := t.TempDir()
+	stop, started := filepath.Join(dir, "stop"), filepath.Join(dir, "started")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "linger", map[string]string{"stop": stop, "started": started})
+	t.Cleanup(func() { _ = os.WriteFile(stop, nil, 0o644) })
+	return func() bool { _, err := os.Stat(started); return err == nil }
+}
+
+func TestWatchClickFreesItsSlotWhileTheDesktopStarts(t *testing.T) {
+	old := *cli.ClickLimit
+	*cli.ClickLimit = 1
+	t.Cleanup(func() { *cli.ClickLimit = old })
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	notifyLog, _, _, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	desktopStarted := lingeringDesktop(t, fx)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "50ms")
+	defer stop()
+	fx.h.ok("decision", "ask", "t1", "First?")
+	eventually(t, desktopStarted)
+	fx.h.ok("decision", "ask", "t1", "Second?")
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 2 })
+	if got := readLines(notifyLog)[1]; !strings.Contains(got, "--action=default=Open") {
+		t.Fatalf("second notification lost Open while the desktop started: %q", got)
+	}
+}
+
+func TestWatchStopsWaitingForTheDesktopAtShutdown(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	desktopStarted := lingeringDesktop(t, fx)
+	fx.start()
+	stop := startWatch(t, fx)
+	quietAlert(fx)
+	eventually(t, desktopStarted)
+	began := time.Now()
+	if _, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d", code)
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Fatalf("shutdown waited %v for the desktop", took)
+	}
+	if n := len(readLines(notifyLog)); n != 1 {
+		t.Fatalf("%d notifications, want 1: no browser fallback at shutdown", n)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
+		t.Fatalf("the browser opened at shutdown")
+	}
+}
+
+func TestWatchClickFallsBackToTheBrowserWhenTheDesktopRefuses(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "quiet", nil)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(openLog)) == 1 && readLines(openLog)[0] != "" })
+	if got := readLines(openLog)[0]; !strings.HasPrefix(got, "http://127.0.0.1:7777/") || !strings.HasSuffix(got, "/attempt/a1") {
+		t.Fatalf("opened %q", got)
+	}
+}
+
 func TestWatchFallsBackWhenNotifySendHasNoAction(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
