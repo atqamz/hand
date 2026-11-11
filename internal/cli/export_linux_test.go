@@ -7,6 +7,7 @@ var (
 	Sweep      = sweepWorktree
 	Ancestry   = ancestry
 	ClickWait  = &clickTimeout
+	ClickLimit = &clickLimit
 	ClickArgv  = notifyClickArgv
 )
 

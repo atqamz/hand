@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/desktopasset"
@@ -32,7 +33,9 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	if !w.clickSupport(bin) || !w.reserveClick() {
 		return false
 	}
-	defer w.clicks.Add(-1)
+	var once sync.Once
+	release := func() { once.Do(func() { w.clicks.Add(-1) }) }
+	defer release()
 	url, openable := w.boardURL(ctx, ref)
 	if url == "" || !openable {
 		return false
@@ -46,6 +49,7 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	proc.NoWindow(cmd)
 	out, err := cmd.Output()
 	if strings.TrimSpace(string(out)) == clickAction {
+		release()
 		w.openAlert(link, url)
 		return true
 	}
@@ -103,6 +107,8 @@ func (w *watcher) openDesktop(link string) bool {
 	case err := <-done:
 		return err == nil
 	case <-time.After(desktopWait):
+		return true
+	case <-w.clickCtx.Done():
 		return true
 	}
 }

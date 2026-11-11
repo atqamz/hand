@@ -180,6 +180,56 @@ func TestWatchClickFallsBackToTheBrowserWithoutTheDesktop(t *testing.T) {
 	}
 }
 
+func lingeringDesktop(t *testing.T, fx *attemptFixture) {
+	t.Helper()
+	stop := filepath.Join(t.TempDir(), "stop")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "linger", map[string]string{"stop": stop})
+	t.Cleanup(func() { _ = os.WriteFile(stop, nil, 0o644) })
+}
+
+func TestWatchClickFreesItsSlotWhileTheDesktopStarts(t *testing.T) {
+	old := *cli.ClickLimit
+	*cli.ClickLimit = 1
+	t.Cleanup(func() { *cli.ClickLimit = old })
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	notifyLog, _, _, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	lingeringDesktop(t, fx)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "50ms")
+	defer stop()
+	fx.h.ok("decision", "ask", "t1", "First?")
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 1 })
+	time.Sleep(500 * time.Millisecond)
+	fx.h.ok("decision", "ask", "t1", "Second?")
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 2 })
+	if got := readLines(notifyLog)[1]; !strings.Contains(got, "--action=default=Open") {
+		t.Fatalf("second notification lost Open while the desktop started: %q", got)
+	}
+}
+
+func TestWatchStopsWaitingForTheDesktopAtShutdown(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	notifyLog, _, _, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	lingeringDesktop(t, fx)
+	fx.start()
+	stop := startWatch(t, fx)
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 1 })
+	time.Sleep(500 * time.Millisecond)
+	began := time.Now()
+	if _, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d", code)
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Fatalf("shutdown waited %v for the desktop", took)
+	}
+	if n := len(readLines(notifyLog)); n != 1 {
+		t.Fatalf("%d notifications, want 1: no browser fallback at shutdown", n)
+	}
+}
+
 func TestWatchClickFallsBackToTheBrowserWhenTheDesktopRefuses(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
