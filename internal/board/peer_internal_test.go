@@ -359,3 +359,45 @@ func TestSequentialRequestsOnOneConnectionLeaveNoGoroutineBehind(t *testing.T) {
 		t.Fatalf("goroutines %d after 20 requests, %d after the first", n, start)
 	}
 }
+
+func TestAPeersHalfCloseEndsTheAPIEventStream(t *testing.T) {
+	ended := make(chan struct{})
+	p := NewPeer(NewHost(HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return "/home", nil },
+		Open: func(string, string) (http.Handler, io.Closer, error) {
+			return proving{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_ = http.NewResponseController(w).Flush()
+				<-r.Context().Done()
+				close(ended)
+			})}, io.NopCloser(nil), nil
+		},
+	}), "secret")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = p.Serve(ln) }()
+	t.Cleanup(func() { _ = p.srv.Close() })
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET /f0123456789ab/api/v1/events HTTP/1.1\r\nHost: x\r\nCookie: hand_phone_f0123456789ab=1\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := http.ReadResponse(bufio.NewReader(conn), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ended:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a half-closed peer left its API event stream running")
+	}
+}
