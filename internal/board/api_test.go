@@ -1374,7 +1374,7 @@ func TestAPIStatusShowsABlockedScreensLastLines(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	fx.status, fx.screen = "blocked", long
 	fx.panes = map[string]string{"3": "blocked"}
-	fx.screens = map[string]string{"3": permission}
+	fx.screens = map[string]string{"3": long}
 	if err := fx.st.NoteAttempt(context.Background(), 1, "blocked", "Esc to cancel · Tab to amend"); err != nil {
 		t.Fatal(err)
 	}
@@ -1387,7 +1387,8 @@ func TestAPIStatusShowsABlockedScreensLastLines(t *testing.T) {
 	for _, n := range env.Data.Needs.Items {
 		seen[n.Kind] = n
 	}
-	for kind, excerpt := range map[string]string{"blocked": strings.Repeat("noise\n", 12) + permission, "worker": permission} {
+	excerpt := strings.Repeat("noise\n", 12) + permission
+	for _, kind := range []string{"blocked", "worker"} {
 		n, ok := seen[kind]
 		if !ok {
 			t.Fatalf("no %s item in %+v", kind, env.Data.Needs.Items)
@@ -1495,10 +1496,14 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 	})
 	t.Run("dialog without a question", func(t *testing.T) {
 		fx := apiFixture(t, func() time.Time { return frozen })
-		fx.status, fx.screen = "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No"
+		fx.status, fx.screen, fx.hint = "blocked", "rm -f id_rsa\n❯ 1. Yes\n  2. No", "Esc to cancel"
 		raw := apiRaw(t, fx.handler(), "/api/v1/status")
 		if strings.Contains(raw, `"ask"`) {
 			t.Fatalf("status carries an ask:\n%s", raw)
+		}
+		_, st := apiInto[board.APIStatus](t, fx.handler(), "/api/v1/status")
+		if st.Needs.Items[0].Title != "" {
+			t.Fatalf("a screen without a question has the title %q", st.Needs.Items[0].Title)
 		}
 		if !strings.Contains(raw, `"excerpt":"rm -f id_rsa`) {
 			t.Fatalf("status lacks the screen's lines:\n%s", raw)

@@ -523,3 +523,46 @@ func TestATickingCountdownScreenSendsNoEventPerSecond(t *testing.T) {
 		t.Fatalf("a changed command did not reach the stream: %+v", st.Needs.Items[0])
 	}
 }
+
+func TestABlockedWorkersChangedPromptReachesTheStreamWithinABeat(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.status = "blocked"
+	fx.panes = map[string]string{"3": "blocked"}
+	fx.screens = map[string]string{"3": "Allow Bash?\n❯ 1. Yes\n  2. No"}
+	if err := fx.st.NoteAttempt(context.Background(), 1, "blocked", "Allow Bash?"); err != nil {
+		t.Fatal(err)
+	}
+	ch := apiStream(t, fx)
+	fx.mu.Lock()
+	fx.screens["3"] = "Delete the repo?\n❯ 1. Yes\n  2. No"
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("status", "Delete the repo?"))
+	st := sseData[board.APIStatus](t, evs[len(evs)-1])
+	i := slices.IndexFunc(st.Needs.Items, func(n board.APINeed) bool { return n.Kind == "worker" })
+	if i < 0 || !strings.Contains(st.Needs.Items[i].Excerpt, "Delete the repo?") {
+		t.Fatalf("status = %+v", st.Needs.Items)
+	}
+}
+
+func TestAFleetWithNoBlockedWorkerReadsNoWorkerScreenOnTheStream(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.panes = map[string]string{"3": "idle"}
+	ch := apiStream(t, fx)
+	workerReads := func() (n int) {
+		for _, raw := range fx.srv.Calls("agent.read") {
+			var p struct{ Target string }
+			_ = json.Unmarshal(raw, &p)
+			if p.Target == "3" {
+				n++
+			}
+		}
+		return n
+	}
+	before := workerReads()
+	quiet(t, ch, 10)
+	if n := workerReads() - before; n != 0 {
+		t.Fatalf("the stream read %d screens with no blocked worker", n)
+	}
+}

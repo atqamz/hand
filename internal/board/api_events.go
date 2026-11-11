@@ -81,6 +81,7 @@ type apiStream struct {
 	tasks    string
 	seq      int64
 	started  bool
+	built    time.Time
 }
 
 type apiOut struct {
@@ -135,8 +136,15 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		if !s.started || v != last {
-			outs, more, err := b.apiDelta(ctx, s, v)
+		changed := !s.started || v != last
+		if changed || s.workerBlocked() && time.Since(s.built) >= b.o.Beat {
+			var outs []apiOut
+			var more bool
+			if changed {
+				outs, more, err = b.apiDelta(ctx, s, v)
+			} else {
+				outs, err = b.apiStatusDelta(ctx, s)
+			}
 			if err != nil {
 				return
 			}
@@ -170,18 +178,9 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) (outs []apiOut, more bool, err error) {
 	first := !s.started
-	status, err := b.apiStatusData(ctx)
+	outs, err = b.apiStatusDelta(ctx, s)
 	if err != nil {
 		return nil, false, err
-	}
-	s.steady(&status)
-	raw, err := json.Marshal(status)
-	if err != nil {
-		return nil, false, err
-	}
-	if string(raw) != s.statusJS {
-		outs = append(outs, apiOut{"status", APIStatusEvent{Now: b.now().UTC().Format(time.RFC3339Nano), APIStatus: status}})
-		s.status, s.statusJS = status, string(raw)
 	}
 	tl, err := b.apiTimelineData(ctx, url.Values{})
 	if err != nil {
@@ -194,7 +193,7 @@ func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) (outs []a
 	if err != nil {
 		return nil, false, err
 	}
-	raw, err = json.Marshal(tasks)
+	raw, err := json.Marshal(tasks)
 	if err != nil {
 		return nil, false, err
 	}
@@ -226,6 +225,25 @@ func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) (outs []a
 		outs = append(outs, apiOut{"touched", touched})
 	}
 	return outs, more, nil
+}
+
+func (b *Board) apiStatusDelta(ctx context.Context, s *apiStream) ([]apiOut, error) {
+	status, err := b.apiStatusData(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.built = time.Now()
+	s.steady(&status)
+	raw, err := json.Marshal(status)
+	if err != nil || string(raw) == s.statusJS {
+		return nil, err
+	}
+	s.status, s.statusJS = status, string(raw)
+	return []apiOut{{"status", APIStatusEvent{Now: b.now().UTC().Format(time.RFC3339Nano), APIStatus: status}}}, nil
+}
+
+func (s *apiStream) workerBlocked() bool {
+	return slices.ContainsFunc(s.status.Needs.Items, func(n APINeed) bool { return n.Kind == "worker" })
 }
 
 func (t *APITouched) add(ref string, ok bool) {
