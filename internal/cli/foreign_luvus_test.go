@@ -200,6 +200,9 @@ func TestAHealthyRowFromBeforeTheSocketWasRecordedGetsThisLuvusSocket(t *testing
 }
 
 func TestCleaningAnAttemptOfAnotherLuvusSweepsNothing(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("only Linux sweeps a worktree")
+	}
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
