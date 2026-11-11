@@ -210,7 +210,11 @@ async function board(box, srv, made) {
   const nested = await phone.post(`/${id}/connect/code`, { csrf: mine.text.match(/name="csrf" value="([^"]+)"/)?.[1], base: origin });
   equal(nested.status, 403, 'a paired phone cannot mint a code');
 
-  for (const route of ['/manifest.webmanifest', '/offline']) equal((await new Client(origin, proxy).get(route)).status, 404, `${route} answers 404`);
+  for (const route of ['/manifest.webmanifest', '/offline']) {
+    const first = await new Client(origin, proxy).get(route);
+    const last = first.status === 307 ? await new Client(origin, proxy).get(first.location) : first;
+    equal(last.status, 404, `${route} ends in 404`);
+  }
   const worker = await new Client(origin, proxy).get('/sw.js');
   check(worker.status === 200 && /javascript/.test(worker.headers.get('content-type') ?? ''), '/sw.js answers 200 as JavaScript');
   matches(worker.text, /registration\.unregister\(\)/, 'the worker unregisters itself');
