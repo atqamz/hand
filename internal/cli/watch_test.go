@@ -1515,19 +1515,19 @@ func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
 
 const opencodePermission = "△ Permission required\n  bash: rm -rf build\n  Allow once\n  Allow always\n  Deny\n"
 
-func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(running bool, prefix ...string) string {
+func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(running bool) string {
 	t.Helper()
 	return opencodeSubagentIdle(t, fx, 2*time.Hour, hang...)
 }
 
-func opencodeSubagentIdle(t *testing.T, fx *attemptFixture, idle time.Duration, hang ...string) func(running bool, prefix ...string) string {
+func opencodeSubagentIdle(t *testing.T, fx *attemptFixture, idle time.Duration, hang ...string) func(running bool) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	fx.opencodeSession(map[string]string{"messages": "user", "sessions": path, "tui": "1", "sessionsleep": strings.Join(hang, "")})
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
 	session := regexp.MustCompile(`ses_hand[0-9a-f]{26}`).FindString(fx.h.ok("attempt", "show", "a1"))
-	return func(running bool, prefix ...string) string {
+	return func(running bool) string {
 		fx.h.mu.Lock()
 		now := fx.h.now.Add(idle).UnixMilli()
 		fx.h.mu.Unlock()
@@ -1536,7 +1536,7 @@ func opencodeSubagentIdle(t *testing.T, fx *attemptFixture, idle time.Duration, 
 			child = fmt.Sprintf(`{"id":"ses_child","parentID":%q,"time":{"updated":%d}}`, session, now)
 		}
 		list := fmt.Sprintf(`{"data":[{"id":%q,"time":{"updated":%d,"idle":%d}},%s]}`, session, now-1000, now, child)
-		if err := os.WriteFile(path, []byte(strings.Join(prefix, "")+list), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(list), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return path
@@ -1767,13 +1767,16 @@ func TestAnOlderBusyListDoesNotReleaseANewerHold(t *testing.T) {
 func TestOpencodeHoldSurvivesOneFailedBusyCheck(t *testing.T) {
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
-	subagent(true)
+	failOnce := subagent(true) + ".failonce"
 	stop := startWatch(t, fx, "--every", "100ms")
 	defer stop()
-	subagent(true, "failonce\n")
+	if err := os.WriteFile(failOnce, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "opencode"})
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
+	eventually(t, func() bool { _, err := os.Stat(failOnce); return errors.Is(err, os.ErrNotExist) })
 	time.Sleep(1500 * time.Millisecond)
 	if woken(fx, "attempt.quiet") || len(turnEvents(t, fx)) != 0 {
 		t.Fatalf("one failed busy check released a held turn: %s", fx.h.ok("wait", "--after", "0", "--timeout", "1ms"))
