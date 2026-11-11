@@ -17,6 +17,7 @@ const clickAction = "default"
 var (
 	clickTimeout = 10 * time.Minute
 	clickLimit   = 8
+	desktopWait  = 10 * time.Second
 )
 
 func notifyArgv(fleet, text string) (string, []string) {
@@ -96,8 +97,14 @@ func (w *watcher) openDesktop(link string) bool {
 	if cmd.Start() != nil {
 		return false
 	}
-	go func() { _ = cmd.Wait() }()
-	return true
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(desktopWait):
+		return true
+	}
 }
 
 func (w *watcher) openBoard(url string) {
