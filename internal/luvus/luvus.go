@@ -213,6 +213,11 @@ func (c Client) Version(ctx context.Context) (string, error) {
 	return pong.Version, err
 }
 
+func gone(err error) bool {
+	var timeout interface{ Timeout() bool }
+	return errors.Is(err, ErrUnreachable) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && (!errors.As(err, &timeout) || !timeout.Timeout())
+}
+
 func (c Client) StopServer(ctx context.Context, sessionDir string, kill func(pid int, marker string) error) error {
 	file := filepath.Join(sessionDir, "server.pid")
 	var pid int
@@ -238,7 +243,7 @@ func (c Client) StopServer(ctx context.Context, sessionDir string, kill func(pid
 	waitCtx, cancel := context.WithTimeout(ctx, serverExitBy)
 	defer cancel()
 	for ; waitCtx.Err() == nil; time.Sleep(50 * time.Millisecond) {
-		if _, err := os.Stat(file); !alive() && (err != nil || !answers(waitCtx)) {
+		if _, err := os.Stat(file); !alive() && (err != nil || gone(c.ping(waitCtx, nil))) {
 			return nil
 		}
 	}
