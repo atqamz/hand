@@ -312,7 +312,7 @@ func (s *apiStream) timeline(tl APITimeline) (APITimelineEvent, bool) {
 		oldest = parse(tl.Entries[n-1].At)
 	}
 	for key, old := range s.entries {
-		if _, ok := next[key]; !ok && (len(tl.Entries) == 0 || oldest.Before(parse(old.at))) {
+		if _, ok := next[key]; !ok && (len(tl.Entries) == 0 || oldest.Before(parse(old.at)) || strings.Contains(key, "#") && oldest.Equal(parse(old.at))) {
 			ev.Drop = append(ev.Drop, key)
 		}
 	}
