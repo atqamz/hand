@@ -652,7 +652,7 @@ func publishStatus(fx *attemptFixture, pane, status string) {
 
 func openStore(t *testing.T, h *harness) *state.Store {
 	t.Helper()
-	st, err := state.Open(filepath.Join(h.home, "hand.db"), func() time.Time { return h.now })
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
