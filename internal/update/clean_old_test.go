@@ -1,22 +1,29 @@
 package update
 
 import (
+	"crypto/rand"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
 )
 
 func TestCleanOldRemovesTheSidecarsAndTheWindowsOldCopiesToo(t *testing.T) {
 	dir := t.TempDir()
+	random := rand.Text()
 	hand := filepath.Join(dir, "hand.exe")
 	for _, name := range []string{
-		"hand.exe", "hand.exe.old", "hand-iroh.exe", "hand-iroh.exe.old", "hand-iroh.exe.old-abc",
-		"hand-desktop.exe", "hand-desktop.exe.old", "hand-desktop.exe.old-abc", "other.exe.old",
+		"hand.exe", "hand.exe.old", "hand-iroh.exe", "hand-iroh.exe.old", "hand-iroh.exe.old-" + random,
+		"hand-desktop.exe", "hand-desktop.exe.old", "hand-desktop.exe.old-" + random, "other.exe.old",
+		"hand-desktop.exe.older", "hand.exe.old-notes.txt",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	folder := "hand-desktop.exe.old-" + rand.Text()
+	if err := os.Mkdir(filepath.Join(dir, folder), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	cleanOld(hand)
 	var left []string
@@ -24,7 +31,10 @@ func TestCleanOldRemovesTheSidecarsAndTheWindowsOldCopiesToo(t *testing.T) {
 	for _, e := range entries {
 		left = append(left, e.Name())
 	}
-	if strings.Join(left, ",") != "hand-desktop.exe,hand-iroh.exe,hand.exe,other.exe.old" {
-		t.Fatalf("left %v", left)
+	slices.Sort(left)
+	want := []string{"hand-desktop.exe", "hand-desktop.exe.older", folder, "hand-iroh.exe", "hand.exe", "hand.exe.old-notes.txt", "other.exe.old"}
+	slices.Sort(want)
+	if !slices.Equal(left, want) {
+		t.Fatalf("left %v, want %v", left, want)
 	}
 }
