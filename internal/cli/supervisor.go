@@ -717,7 +717,7 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 		}
 		return fail(fmt.Errorf("%w; launching %s", runtimeErr(err), strings.Join(strings.Fields(spec.Harness+" "+spec.Model), " ")))
 	}
-	running, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
+	running, err := st.SupervisorRunning(ctx, sup.ID, stateTerminal(term, r.ownSocket()))
 	if err != nil {
 		return sup, errors.Join(err, stopErr(stopWorker(ctx, c, term, who)))
 	}
@@ -988,6 +988,8 @@ func (r *runner) settleSupervisor(ctx context.Context, st *state.Store, c luvus.
 			return r.endSupervisor(ctx, st, c, sup, to, reason)
 		case sup.Status != state.AttemptRunning:
 			return nil
+		case sup.Socket == "":
+			_ = st.StampSupervisorSocket(ctx, sup.ID, r.ownSocket())
 		}
 	}
 	unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
@@ -1032,6 +1034,14 @@ func (r *runner) endSupervisor(ctx context.Context, st *state.Store, c luvus.Cli
 	if !ok {
 		return nil
 	}
+	if sock := r.foreignSocket(sup.Terminal); sock != "" {
+		note := r.requester().noteSettled(foreignNote(sock), false)
+		if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptInterrupted, note); err != nil && !errors.Is(err, state.ErrConflict) {
+			return err
+		}
+		return nil
+	}
+	signalled := rootAlive(sup.PID, sup.StartMarker)
 	if err := stopRoot(sup.PID, sup.StartMarker); err != nil {
 		return err
 	}
@@ -1043,7 +1053,7 @@ func (r *runner) endSupervisor(ctx context.Context, st *state.Store, c luvus.Cli
 		reason += "; terminal cleanup failed: " + err.Error()
 	}
 	_ = r.findSession(ctx, st, &sup)
-	if _, err := st.EndSupervisor(ctx, sup.ID, to, who.note(reason)); err != nil && !errors.Is(err, state.ErrConflict) {
+	if _, err := st.EndSupervisor(ctx, sup.ID, to, who.noteSettled(reason, signalled)); err != nil && !errors.Is(err, state.ErrConflict) {
 		return err
 	}
 	return nil

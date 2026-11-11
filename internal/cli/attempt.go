@@ -136,7 +136,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...), r.requester())
+		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...), r.requester(), r.ownSocket())
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}
@@ -822,7 +822,7 @@ func remoteDefault(ctx context.Context, g gitcfg.Repo) string {
 	return ""
 }
 
-func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string, run []string, who requester) (state.Attempt, error) {
+func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string, run []string, who requester, socket string) (state.Attempt, error) {
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
@@ -838,7 +838,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	}
 	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), run)
 	if err == nil {
-		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
+		running, err := st.AttemptRunning(ctx, a.ID, stateTerminal(term, socket))
 		if err != nil {
 			return a, errors.Join(err, stopErr(stopWorker(ctx, c, term, who)))
 		}

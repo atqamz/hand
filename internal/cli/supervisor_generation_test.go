@@ -205,7 +205,7 @@ func TestTheBoardRecordsTheGenerationItsWatchersHold(t *testing.T) {
 	}
 }
 
-func TestAWatcherExitNamesWhoAsked(t *testing.T) {
+func TestAWatcherExitNamesWhoRecordedIt(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	term := rt.terms[0]
@@ -240,7 +240,7 @@ func TestAWatcherExitNamesWhoAsked(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatal("the watcher recorded no exit")
 	}
-	for _, want := range []string{"requested by hand watch", "pid "} {
+	for _, want := range []string{"recorded by hand watch", "pid "} {
 		if !strings.Contains(events[0].Detail, want) {
 			t.Fatalf("exit detail = %q, missing %q", events[0].Detail, want)
 		}

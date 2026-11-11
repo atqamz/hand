@@ -106,6 +106,47 @@ func terminal(t state.Terminal) luvus.Terminal {
 	return luvus.Terminal{ServerGeneration: t.ServerGeneration, TerminalID: t.TerminalID, PaneID: t.PaneID, Root: luvus.Root{PID: t.PID, StartMarker: t.StartMarker}}
 }
 
+func stateTerminal(t luvus.Terminal, socket string) state.Terminal {
+	return state.Terminal{ServerGeneration: t.ServerGeneration, TerminalID: t.TerminalID, PaneID: t.PaneID, PID: t.Root.PID, StartMarker: t.Root.StartMarker, Socket: socket}
+}
+
+func (r *runner) ownSocket() string {
+	session := fleet.Session(r.fleet.ID)
+	if runtime.GOOS == "windows" && r.env.Getenv("HAND_LUVUS_SOCKET") == "" {
+		return session
+	}
+	return luvus.SocketPath(r.env.Getenv, session)
+}
+
+func foreignNote(socket string) string { return "terminal belongs to another luvus (" + socket + ")" }
+
+func (r *runner) foreignSocket(t state.Terminal) string {
+	if t.Socket != "" && !sameSocket(t.Socket, r.ownSocket()) {
+		return t.Socket
+	}
+	return ""
+}
+
+func sameSocket(a, b string) bool {
+	if resolveSocket(a) == resolveSocket(b) {
+		return true
+	}
+	x, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.Stat(b)
+	return err == nil && os.SameFile(x, y)
+}
+
+func resolveSocket(p string) string {
+	p = filepath.Clean(p)
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		return filepath.Join(dir, filepath.Base(p))
+	}
+	return p
+}
+
 func (r *runner) withAttempts(fn func(context.Context, *state.Store, luvus.Client) error) error {
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		return fn(ctx, st, c)
@@ -157,9 +198,23 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 		return err
 	}
 	to, reason, err := r.observeTerminal(ctx, c, caps, a.Status, a.CreatedAt, a.Terminal)
-	if err != nil || to == "" {
+	if err != nil {
 		return err
 	}
+	if to == "" {
+		if a.Status == state.AttemptRunning && a.Socket == "" {
+			_ = st.StampAttemptSocket(ctx, a.ID, r.ownSocket())
+		}
+		return nil
+	}
+	if sock := r.foreignSocket(a.Terminal); sock != "" {
+		note := r.requester().noteSettled(foreignNote(sock), false)
+		if _, err := st.EndAttemptWithScreen(ctx, a.ID, state.AttemptInterrupted, note, r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
+			return err
+		}
+		return nil
+	}
+	signalled := rootAlive(a.PID, a.StartMarker)
 	if err := stopRoot(a.PID, a.StartMarker); err != nil {
 		return err
 	}
@@ -171,7 +226,7 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 		}
 		reason += "; terminal cleanup failed: " + err.Error()
 	}
-	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, who.note(reason), r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
+	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, who.noteSettled(reason, signalled), r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
 		return err
 	}
 	return nil

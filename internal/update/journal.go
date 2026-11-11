@@ -136,14 +136,14 @@ func (r *Report) finishJournal(ctx context.Context, o Options, hold func()) erro
 }
 
 func (r *Report) repair(ctx context.Context, o Options, j journal) {
+	if len(j.Board) > 0 {
+		r.start(ctx, o, "board", j.Board, o.Board)
+	}
 	for _, home := range j.Watcher {
 		r.start(ctx, o, "watch "+home, []string{home}, o.Watch)
 	}
 	for _, home := range j.Supervisor {
 		_ = r.resume(ctx, o, home)
-	}
-	if len(j.Board) > 0 {
-		r.start(ctx, o, "board", j.Board, o.Board)
 	}
 	for _, home := range j.Init {
 		if err := child(ctx, o, home, "init"); err != nil {

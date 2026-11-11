@@ -38,11 +38,14 @@ var attemptStatusSchema string
 //go:embed alert.sql
 var alertSchema string
 
-var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema, alertSchema}
+//go:embed socket.sql
+var socketSchema string
+
+var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema, alertSchema, socketSchema}
 
 const MinSchemaVersion = 16
 
-const SchemaVersion = 22
+const SchemaVersion = 23
 
 const lastMigrating = "0.13.0"
 

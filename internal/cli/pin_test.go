@@ -40,7 +40,7 @@ func asOldSchema(t *testing.T, home string, version int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`DROP TABLE alert`, fmt.Sprintf(`PRAGMA user_version = %d`, version)} {
+	for _, q := range []string{`ALTER TABLE attempt DROP COLUMN socket`, `ALTER TABLE supervisor DROP COLUMN socket`, fmt.Sprintf(`PRAGMA user_version = %d`, version)} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}

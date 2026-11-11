@@ -117,12 +117,6 @@ func cmdBoard(r *runner, args []string) error {
 		_ = srv.Shutdown(sctx)
 		drained.Wait()
 	}()
-	forget, err := recordAddr(root, local)
-	if err != nil {
-		_ = ln.Close()
-		return err
-	}
-	defer forget()
 	generation, forgetGeneration, err := recordGeneration(r.env, root)
 	if err != nil {
 		_ = ln.Close()
@@ -130,6 +124,12 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	r.generation = generation
 	defer forgetGeneration()
+	forget, err := recordAddr(root, local)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	defer forget()
 	defer r.writePID(filepath.Join(root, "board.pid"))()
 	if *every > 0 && Channel == "source" {
 		fmt.Fprintln(r.env.Stderr, "board: --update-every is off: this hand was built from source and has no update channel")
