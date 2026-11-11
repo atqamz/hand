@@ -427,11 +427,17 @@ func TestASlowButSteadyReaderIsNotCutOff(t *testing.T) {
 
 type deadlineLog struct {
 	*httptest.ResponseRecorder
-	mu  sync.Mutex
-	log []string
+	mu   sync.Mutex
+	log  []string
+	left []time.Duration
 }
 
-func (d *deadlineLog) SetWriteDeadline(time.Time) error { return d.add("deadline") }
+func (d *deadlineLog) SetWriteDeadline(t time.Time) error {
+	d.mu.Lock()
+	d.left = append(d.left, time.Until(t))
+	d.mu.Unlock()
+	return d.add("deadline")
+}
 
 func (d *deadlineLog) Write(p []byte) (int, error) {
 	d.add(strings.SplitN(string(p), "\n", 2)[0])
@@ -453,6 +459,7 @@ func (d *deadlineLog) events() []string {
 
 func TestEveryEventGetsItsOwnWriteDeadline(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = time.Minute
 	h := board.New(fx.st, token, fx.options)
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest("GET", eventsPath, nil).WithContext(ctx)
@@ -475,6 +482,11 @@ func TestEveryEventGetsItsOwnWriteDeadline(t *testing.T) {
 	log := w.events()
 	if events() < 3 {
 		t.Fatalf("log = %q", log)
+	}
+	for _, left := range w.left {
+		if left > 2*time.Minute || left < 2*time.Minute-10*time.Second {
+			t.Fatalf("a write deadline %v away, want 2 x beat", left)
+		}
 	}
 	for i, line := range log {
 		if strings.HasPrefix(line, "event: ") && (i == 0 || log[i-1] != "deadline") {
