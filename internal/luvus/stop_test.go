@@ -153,6 +153,7 @@ func TestGoneOnlyForADialThatFoundNoServer(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 	missing := luvus.Client{Socket: sock(t)}
+	absent := missing.Call(context.Background(), "ping", nil, nil)
 	live := luvus.Client{Socket: srv.Socket}
 	for name, c := range map[string]struct {
 		err  error
@@ -160,7 +161,8 @@ func TestGoneOnlyForADialThatFoundNoServer(t *testing.T) {
 	}{
 		"no error":              {nil, false},
 		"another error":         {errors.New("boom"), false},
-		"missing socket":        {missing.Call(context.Background(), "ping", nil, nil), true},
+		"missing socket":        {absent, true},
+		"missing then deadline": {errors.Join(absent, context.DeadlineExceeded), false},
 		"dial past its timeout": {live.Call(expired, "ping", nil, nil), false},
 		"dial cancelled":        {live.Call(cancelled, "ping", nil, nil), false},
 	} {
