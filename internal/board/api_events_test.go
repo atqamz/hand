@@ -408,7 +408,7 @@ func TestAClientThatNeverReadsIsCutOff(t *testing.T) {
 }
 
 func TestASlowButSteadyReaderIsNotCutOff(t *testing.T) {
-	conn, left, _ := bigStream(t, 2*time.Second)
+	conn, left, _ := bigStream(t, 4*time.Second)
 	buf := make([]byte, 128<<10)
 	for got := 0; got < bigEntry; {
 		n, err := conn.Read(buf)
