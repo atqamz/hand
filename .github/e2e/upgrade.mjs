@@ -181,8 +181,10 @@ async function update(box, s) {
   equal(doc.tables.fleets.map((f) => [f.name, f.init]), [['fleet', 'ok']], `${name}: hand init ran in the fleet`);
   const units = doc.tables.units.map((u) => [u.name.split(' ')[0], u.action, u.result]);
   const wanted = [];
-  if (running.watcher) wanted.push(['watch', 'stop', 'ok'], ['watch', 'start', 'ok']);
+  if (running.watcher) wanted.push(['watch', 'stop', 'ok']);
+  if (running.watcher && known) wanted.push(['watch', 'start', 'ok']);
   if (running.board) wanted.push(['board', 'stop', 'ok'], ['board', 'start', 'ok']);
+  if (running.watcher && !known) wanted.push(['watch', 'start', 'ok']);
   if (known) {
     matches(units.at(-1)[2], new RegExp(`^failed: invalid: state schema ${schema} is newer than this hand \\(${from.schema}\\)$`), `${name}: the old updater cannot restart the Board once the watcher migrated the database`);
     equal(units.slice(0, -1), wanted.slice(0, -1), `${name}: every other step ran`);
