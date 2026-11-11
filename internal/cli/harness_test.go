@@ -302,6 +302,9 @@ func ocsessionMain(args []string) int {
 
 func lingerMain([]string) int {
 	stop := fakebin.Params()["stop"]
+	if started := fakebin.Params()["started"]; started != "" {
+		_ = os.WriteFile(started, nil, 0o644)
+	}
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if _, err := os.Stat(stop); err == nil {
 			break

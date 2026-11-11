@@ -180,11 +180,13 @@ func TestWatchClickFallsBackToTheBrowserWithoutTheDesktop(t *testing.T) {
 	}
 }
 
-func lingeringDesktop(t *testing.T, fx *attemptFixture) {
+func lingeringDesktop(t *testing.T, fx *attemptFixture) func() bool {
 	t.Helper()
-	stop := filepath.Join(t.TempDir(), "stop")
-	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "linger", map[string]string{"stop": stop})
+	dir := t.TempDir()
+	stop, started := filepath.Join(dir, "stop"), filepath.Join(dir, "started")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "linger", map[string]string{"stop": stop, "started": started})
 	t.Cleanup(func() { _ = os.WriteFile(stop, nil, 0o644) })
+	return func() bool { _, err := os.Stat(started); return err == nil }
 }
 
 func TestWatchClickFreesItsSlotWhileTheDesktopStarts(t *testing.T) {
@@ -194,13 +196,12 @@ func TestWatchClickFreesItsSlotWhileTheDesktopStarts(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, _, _, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
-	lingeringDesktop(t, fx)
+	desktopStarted := lingeringDesktop(t, fx)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "50ms")
 	defer stop()
 	fx.h.ok("decision", "ask", "t1", "First?")
-	eventually(t, func() bool { return len(readLines(notifyLog)) == 1 })
-	time.Sleep(500 * time.Millisecond)
+	eventually(t, desktopStarted)
 	fx.h.ok("decision", "ask", "t1", "Second?")
 	eventually(t, func() bool { return len(readLines(notifyLog)) == 2 })
 	if got := readLines(notifyLog)[1]; !strings.Contains(got, "--action=default=Open") {
@@ -212,12 +213,11 @@ func TestWatchStopsWaitingForTheDesktopAtShutdown(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
-	lingeringDesktop(t, fx)
+	desktopStarted := lingeringDesktop(t, fx)
 	fx.start()
 	stop := startWatch(t, fx)
 	quietAlert(fx)
-	eventually(t, func() bool { return len(readLines(notifyLog)) == 1 })
-	time.Sleep(500 * time.Millisecond)
+	eventually(t, desktopStarted)
 	began := time.Now()
 	if _, code := stop(); code != 0 {
 		t.Fatalf("watch exit = %d", code)
