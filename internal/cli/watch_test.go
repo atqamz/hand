@@ -1824,6 +1824,9 @@ func TestWatchChecksTheHomeOnlyForEventsItActsOn(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "1h")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	publishBlocked(fx, "2", "claude")
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	if err := os.WriteFile(fleetLink(t, fx.h), []byte(t.TempDir()+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
