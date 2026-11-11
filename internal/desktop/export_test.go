@@ -7,3 +7,5 @@ func SetOpenTimeout(d time.Duration) func() {
 	openTimeout = d
 	return func() { openTimeout = old }
 }
+
+var LocalRoot = localRoot

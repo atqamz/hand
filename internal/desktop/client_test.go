@@ -560,20 +560,20 @@ func TestNewLocalUsesHOME(t *testing.T) {
 	}
 }
 
-func TestNewLocalFallsBackToUSERPROFILE(t *testing.T) {
+func TestLocalRootFallsBackToUSERPROFILEOnWindowsOnly(t *testing.T) {
 	home := t.TempDir()
-	writeLocal(t, filepath.Join(home, ".secondhand"))
-	c, err := desktop.NewLocal(func(key string) string {
+	getenv := func(key string) string {
 		if key == "USERPROFILE" {
 			return home
 		}
 		return ""
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	if len(c.Fleets()) != 1 {
-		t.Fatalf("fleets = %+v", c.Fleets())
+	got, err := desktop.LocalRoot(getenv, "windows")
+	if want := filepath.Join(home, ".secondhand"); err != nil || got != want {
+		t.Fatalf("windows: root = %q, %v, want %q", got, err, want)
+	}
+	if got, err := desktop.LocalRoot(getenv, "linux"); err == nil {
+		t.Fatalf("linux: root = %q, want an error", got)
 	}
 }
 
