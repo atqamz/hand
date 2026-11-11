@@ -11,15 +11,20 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
 
-const (
-	apiEventMax   = 64 << 10
-	apiDenyJitter = 2 * time.Second
-)
+const apiDenyJitter = 2 * time.Second
+
+var apiEventMax, apiEventsPerTick atomic.Int64
+
+func init() {
+	apiEventMax.Store(64 << 10)
+	apiEventsPerTick.Store(10_000)
+}
 
 var touchedRef = regexp.MustCompile(`^[adr][1-9][0-9]*:?$`)
 
@@ -28,6 +33,12 @@ type APIHello struct {
 	Fleet   APIFleet `json:"fleet"`
 	TickMS  int64    `json:"tick_ms"`
 	BeatMS  int64    `json:"beat_ms"`
+	Now     string   `json:"now"`
+}
+
+type APIStatusEvent struct {
+	Now string `json:"now"`
+	APIStatus
 }
 
 type APIKeyedEntry struct {
@@ -87,6 +98,9 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodHead {
+		return
+	}
 	tick := time.NewTicker(b.o.Tick)
 	defer tick.Stop()
 	write := func(name string, data any) error {
@@ -94,14 +108,21 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if len(raw) > apiEventMax {
-			name, raw = "resync", fmt.Appendf(nil, `{"topics":[%q]}`, name)
+		if len(raw) > int(apiEventMax.Load()) {
+			if name == "touched" {
+				raw = []byte(`{"topics":["tasks"]}`)
+			} else {
+				name, raw = "resync", fmt.Appendf(nil, `{"topics":[%q]}`, name)
+			}
 		}
 		_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, raw)
 		return err
 	}
+	deadline := func() { _ = rc.SetWriteDeadline(time.Now().Add(2 * b.o.Beat)) }
 	s := &apiStream{entries: map[string]apiSent{}}
-	if write("hello", APIHello{Version: apiVersion, Fleet: APIFleet{ID: f.ID, Name: f.Name}, TickMS: b.o.Tick.Milliseconds(), BeatMS: b.o.Beat.Milliseconds()}) != nil {
+	deadline()
+	hello := APIHello{Version: apiVersion, Fleet: APIFleet{ID: f.ID, Name: f.Name}, TickMS: b.o.Tick.Milliseconds(), BeatMS: b.o.Beat.Milliseconds(), Now: b.now().UTC().Format(time.RFC3339Nano)}
+	if write("hello", hello) != nil || rc.Flush() != nil {
 		return
 	}
 	var last version
@@ -115,10 +136,11 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !s.started || v != last {
-			outs, err := b.apiDelta(ctx, s, v)
+			outs, more, err := b.apiDelta(ctx, s, v)
 			if err != nil {
 				return
 			}
+			deadline()
 			for _, o := range outs {
 				if write(o.name, o.data) != nil {
 					return
@@ -128,9 +150,12 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 			if rc.Flush() != nil {
 				return
 			}
-			last = v
+			if !more {
+				last = v
+			}
 		}
 		if time.Since(wrote) >= b.o.Beat {
+			deadline()
 			if _, err := io.WriteString(w, "event: beat\ndata:\n\n"); err != nil || rc.Flush() != nil {
 				return
 			}
@@ -144,36 +169,35 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) ([]apiOut, error) {
+func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) (outs []apiOut, more bool, err error) {
 	first := !s.started
-	var outs []apiOut
 	status, err := b.apiStatusData(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	s.steady(&status)
 	raw, err := json.Marshal(status)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if string(raw) != s.statusJS {
-		outs = append(outs, apiOut{"status", status})
+		outs = append(outs, apiOut{"status", APIStatusEvent{Now: b.now().UTC().Format(time.RFC3339Nano), APIStatus: status}})
 		s.status, s.statusJS = status, string(raw)
 	}
 	tl, err := b.apiTimelineData(ctx, url.Values{})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if ev, ok := s.timeline(tl); ok {
 		outs = append(outs, apiOut{"timeline", ev})
 	}
 	tasks, err := b.apiTasksData(ctx, url.Values{})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	raw, err = json.Marshal(tasks)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var touched APITouched
 	if !first && string(raw) != s.tasks {
@@ -183,10 +207,12 @@ func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) ([]apiOut
 	if first {
 		s.seq = v.seq
 	} else {
-		events, err := b.st.EventsAfter(ctx, s.seq, nil, 10_000)
+		limit := int(apiEventsPerTick.Load())
+		events, err := b.st.EventsAfter(ctx, s.seq, nil, limit)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
+		more = len(events) == limit
 		for _, e := range events {
 			s.seq = e.Seq
 			touched.add(state.TaskRef(e.TaskID), e.TaskID != 0)
@@ -200,7 +226,7 @@ func (b *Board) apiDelta(ctx context.Context, s *apiStream, v version) ([]apiOut
 	if touched.seal() {
 		outs = append(outs, apiOut{"touched", touched})
 	}
-	return outs, nil
+	return outs, more, nil
 }
 
 func (t *APITouched) add(ref string, ok bool) {
@@ -230,19 +256,26 @@ func (t *APITouched) seal() bool {
 // A counting screen moves deny_at by a second of phase and the keys revision
 // each tick; the CLI accepts a stale revision while the digest matches.
 func (s *apiStream) steady(cur *APIStatus) {
-	old := slices.IndexFunc(s.status.Needs.Items, func(n APINeed) bool { return n.DenyAt != "" })
-	now := slices.IndexFunc(cur.Needs.Items, func(n APINeed) bool { return n.DenyAt != "" })
-	if old < 0 || now < 0 {
-		return
+	own := false
+	for i := range cur.Needs.Items {
+		is := &cur.Needs.Items[i]
+		if is.DenyAt == "" {
+			continue
+		}
+		j := slices.IndexFunc(s.status.Needs.Items, func(n APINeed) bool { return n.Ref == is.Ref && n.DenyAt != "" })
+		if j < 0 {
+			continue
+		}
+		was := s.status.Needs.Items[j].DenyAt
+		a, _ := time.Parse(time.RFC3339, was)
+		c, _ := time.Parse(time.RFC3339, is.DenyAt)
+		if c.Sub(a).Abs() > apiDenyJitter {
+			continue
+		}
+		is.DenyAt = was
+		own = own || cur.Supervisor != nil && is.Ref == cur.Supervisor.Ref
 	}
-	was, is := &s.status.Needs.Items[old], &cur.Needs.Items[now]
-	a, _ := time.Parse(time.RFC3339, was.DenyAt)
-	c, _ := time.Parse(time.RFC3339, is.DenyAt)
-	if was.Ref != is.Ref || c.Sub(a).Abs() > apiDenyJitter {
-		return
-	}
-	is.DenyAt = was.DenyAt
-	if o, n := s.status.Supervisor, cur.Supervisor; o != nil && n != nil && o.Keys != nil && n.Keys != nil && o.Keys.Digest == n.Keys.Digest && o.Keys.Pressed == n.Keys.Pressed {
+	if o, n := s.status.Supervisor, cur.Supervisor; own && o != nil && n != nil && o.Keys != nil && n.Keys != nil && o.Keys.Digest == n.Keys.Digest && o.Keys.Pressed == n.Keys.Pressed {
 		n.Keys.Revision = o.Keys.Revision
 	}
 }
@@ -274,21 +307,24 @@ func (s *apiStream) timeline(tl APITimeline) (APITimelineEvent, bool) {
 			ev.Entries = append(ev.Entries, e)
 		}
 	}
+	var oldest time.Time
 	if n := len(tl.Entries); n > 0 {
-		oldest := parse(tl.Entries[n-1].At)
-		for key, old := range s.entries {
-			if _, ok := next[key]; !ok && !parse(old.at).Before(oldest) {
-				ev.Drop = append(ev.Drop, key)
-			}
-		}
-		slices.Sort(ev.Drop)
+		oldest = parse(tl.Entries[n-1].At)
 	}
+	for key, old := range s.entries {
+		if _, ok := next[key]; !ok && (len(tl.Entries) == 0 || oldest.Before(parse(old.at))) {
+			ev.Drop = append(ev.Drop, key)
+		}
+	}
+	slices.Sort(ev.Drop)
 	meta, _ := json.Marshal(struct {
 		Live    bool
 		Note    string
 		Working *APIWorking
 	}{tl.Live, tl.Note, tl.Working})
 	changed := first || len(ev.Entries)+len(ev.Drop) > 0 || string(meta) != s.meta
-	s.entries, s.meta, s.to = next, string(meta), ev.To
+	if changed {
+		s.entries, s.meta, s.to = next, string(meta), ev.To
+	}
 	return ev, changed
 }

@@ -38,6 +38,7 @@ type fixture struct {
 	explains int
 	status   string
 	panes    map[string]string
+	screens  map[string]string
 	hint     string
 	revision int
 	screen   string
@@ -62,13 +63,19 @@ func newFixture(t *testing.T) *fixture {
 		}
 		return map[string]any{"pane": p.Pane, "agent": "claude", "status": status, "state_evidence": map[string]any{"blocked_hint": fx.hint}}, nil
 	})
-	fx.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
+	fx.srv.Handle("agent.read", func(raw json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()
 		if fx.readErr != nil {
 			return nil, fx.readErr
 		}
-		return map[string]any{"text": fx.screen, "content_revision": fx.revision, "terminal_id": "t1"}, nil
+		var p struct{ Target string }
+		_ = json.Unmarshal(raw, &p)
+		text := fx.screen
+		if own, ok := fx.screens[p.Target]; ok {
+			text = own
+		}
+		return map[string]any{"text": text, "content_revision": fx.revision, "terminal_id": "t1"}, nil
 	})
 	fx.options = board.Options{
 		Controls:   true,

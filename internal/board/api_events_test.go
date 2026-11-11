@@ -3,6 +3,7 @@ package board_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -56,6 +57,9 @@ func TestEventsStartWithAFullSnapshot(t *testing.T) {
 		t.Fatalf("first events = %q", names)
 	}
 	hello := sseData[board.APIHello](t, got[0])
+	if hello.Now != frozen.Format(time.RFC3339Nano) || sseData[struct{ Now string }](t, got[1]).Now != hello.Now {
+		t.Fatalf("now = %q, status now = %q", hello.Now, got[1].data)
+	}
 	if hello.Version != 1 || hello.Fleet.ID != "f00000000e0aa" || hello.TickMS != apiTick.Milliseconds() || hello.BeatMS != 15000 {
 		t.Fatalf("hello = %+v", hello)
 	}
@@ -260,5 +264,102 @@ func TestTheStreamEndsWhenTheBoardShutsDown(t *testing.T) {
 	case <-done:
 	case <-time.After(hung):
 		t.Fatal("the stream outlived the board")
+	}
+}
+
+const counting = "────────────────────────\n Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in %s\n Do you want to proceed?\n❯ 1. Yes\n  2. No\n Esc to cancel · Tab to amend"
+
+func TestEveryCountingScreenHoldsItsDeadlineAndOnlyTheSupervisorsHoldsTheRevision(t *testing.T) {
+	var mu sync.Mutex
+	clock := frozen
+	fx := apiFixture(t, func() time.Time { mu.Lock(); defer mu.Unlock(); return clock })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.status = "blocked"
+	fx.screen = fmt.Sprintf(counting, "4:55")
+	fx.screens = map[string]string{"3": fmt.Sprintf(counting, "2:00")}
+	if err := fx.st.NoteAttempt(context.Background(), 1, "blocked", "Esc to cancel · Tab to amend"); err != nil {
+		t.Fatal(err)
+	}
+	ch, _ := stream(t, serve(t, board.New(fx.st, token, fx.options))+eventsPath)
+	var st board.APIStatus
+	for _, e := range first(t, ch, 3) {
+		if e.name == "status" {
+			st = sseData[board.APIStatus](t, e)
+		}
+	}
+	deadlines := map[string]string{}
+	for _, n := range st.Needs.Items {
+		if n.DenyAt != "" {
+			deadlines[n.Ref] = n.DenyAt
+		}
+	}
+	if len(deadlines) != 2 || deadlines["s1"] == "" || deadlines["a1"] == "" {
+		t.Fatalf("deadlines = %v", deadlines)
+	}
+	for second := 1; second <= 2; second++ {
+		mu.Lock()
+		clock = frozen.Add(time.Duration(second) * time.Second)
+		mu.Unlock()
+		fx.mu.Lock()
+		fx.revision++
+		fx.mu.Unlock()
+		quiet(t, ch, 2)
+	}
+	fx.mu.Lock()
+	fx.screen = fmt.Sprintf(counting, "1:00")
+	fx.revision++
+	revision := fx.revision
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("status"))
+	st = sseData[board.APIStatus](t, evs[len(evs)-1])
+	got := map[string]string{}
+	for _, n := range st.Needs.Items {
+		got[n.Ref] = n.DenyAt
+	}
+	if got["s1"] != frozen.Add(62*time.Second).Format(time.RFC3339) || got["a1"] != deadlines["a1"] || st.Supervisor.Keys.Revision != int64(revision) {
+		t.Fatalf("after the supervisor's countdown was reset: deadlines %v, revision %d (want %d)", got, st.Supervisor.Keys.Revision, revision)
+	}
+}
+
+func TestAHeadRequestEndsAtOnce(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	rec := request(board.New(fx.st, token, fx.options), "HEAD", eventsPath, nil, true)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" || rec.Body.Len() != 0 {
+		t.Fatalf("HEAD = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+func TestABurstPastTheTickCapIsDrainedOnTheNextTicks(t *testing.T) {
+	defer board.SetAPIEventLimits(64<<10, 2)()
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ch := apiStream(t, fx)
+	want := map[string]bool{}
+	for i := range 5 {
+		d, err := fx.st.Ask(context.Background(), 1, fmt.Sprintf("Question %d?\n\n1. Yes\n2. No", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[state.DecisionRef(d.ID)] = true
+	}
+	until(t, ch, func(e sseEvent) bool {
+		if e.name == "touched" {
+			for _, ref := range sseData[board.APITouched](t, e).Decisions {
+				delete(want, ref)
+			}
+		}
+		return len(want) == 0
+	})
+}
+
+func TestAnOversizeTouchedBecomesATasksTopic(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ch := apiStream(t, fx)
+	defer board.SetAPIEventLimits(20, 10_000)()
+	if _, err := fx.st.Ask(context.Background(), 1, "Ship it?\n\n1. Yes\n2. No"); err != nil {
+		t.Fatal(err)
+	}
+	evs := until(t, ch, func(e sseEvent) bool { return e.name == "touched" })
+	if got := evs[len(evs)-1].data; got != `{"topics":["tasks"]}` {
+		t.Fatalf("touched = %s", got)
 	}
 }

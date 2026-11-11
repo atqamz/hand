@@ -29,6 +29,8 @@ const (
 	apiPrefix  = "/api/v1"
 )
 
+var denyIn = regexp.MustCompile(`^(\d{1,3}):(\d{2})$`)
+
 var supervisorRef = regexp.MustCompile(`^s[1-9][0-9]*$`)
 
 type APIFleet struct {
@@ -1337,9 +1339,9 @@ func apiNeeds(v needsView, now time.Time) APINeeds {
 	}
 	for _, w := range v.Waits {
 		n := apiNeed(w)
-		if m, sec, ok := strings.Cut(w.Prompt.Deadline, ":"); ok {
-			left, _ := strconv.Atoi(m)
-			rest, _ := strconv.Atoi(sec)
+		if m := denyIn.FindStringSubmatch(w.Prompt.Deadline); m != nil {
+			left, _ := strconv.Atoi(m[1])
+			rest, _ := strconv.Atoi(m[2])
 			n.DenyAt = now.Add(time.Duration(left*60+rest) * time.Second).UTC().Format(time.RFC3339)
 		}
 		out.Items = append(out.Items, n)
