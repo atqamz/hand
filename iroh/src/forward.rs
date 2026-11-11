@@ -757,7 +757,9 @@ mod tests {
                     let mut reader = BufReader::new(reader);
                     let mut line = String::new();
                     reader.read_line(&mut line).await.unwrap();
+                    reader.read_line(&mut line).await.unwrap();
                     writer.write_all(&vec![b'a'; 64 * 1024]).await.unwrap();
+                    writer.shutdown().await.unwrap();
                 });
             }
         });
@@ -765,15 +767,14 @@ mod tests {
         let client = dialer().await;
         let connection = client.connect(sidecar.addr.clone(), ALPN).await.unwrap();
         let (mut send, mut recv) = connection.open_bi().await.unwrap();
-        let uploading = tokio::spawn(async move { send.write_all(&vec![b'u'; 8 << 20]).await });
+        send.write_all(b"ping\n").await.unwrap();
         let answer = timeout(WAIT, recv.read_to_end(1 << 20))
             .await
             .unwrap()
             .unwrap();
         assert_eq!(answer.len(), 64 * 1024);
-        let stopped = timeout(WAIT, uploading)
+        let stopped = timeout(WAIT, send.write_all(&vec![b'u'; 8 << 20]))
             .await
-            .unwrap()
             .unwrap()
             .unwrap_err();
         assert!(
