@@ -220,7 +220,7 @@ func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
 	var eof <-chan struct{}
-	if fleetRest(r.URL.Path) == "events" {
+	if rest := fleetRest(r.URL.Path); rest == "events" || rest == apiPrefix[1:]+"/events" {
 		eof = c.eof
 	}
 	go func() {
