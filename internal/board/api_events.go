@@ -103,7 +103,9 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	tick := time.NewTicker(b.o.Tick)
 	defer tick.Stop()
+	deadline := func() { _ = rc.SetWriteDeadline(time.Now().Add(2 * b.o.Beat)) }
 	write := func(name string, data any) error {
+		deadline()
 		raw, err := json.Marshal(data)
 		if err != nil {
 			return err
@@ -118,9 +120,7 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 		_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, raw)
 		return err
 	}
-	deadline := func() { _ = rc.SetWriteDeadline(time.Now().Add(2 * b.o.Beat)) }
 	s := &apiStream{entries: map[string]apiSent{}}
-	deadline()
 	hello := APIHello{Version: apiVersion, Fleet: APIFleet{ID: f.ID, Name: f.Name}, TickMS: b.o.Tick.Milliseconds(), BeatMS: b.o.Beat.Milliseconds(), Now: b.now().UTC().Format(time.RFC3339Nano)}
 	if write("hello", hello) != nil || rc.Flush() != nil {
 		return
@@ -140,7 +140,6 @@ func (b *Board) apiEvents(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			deadline()
 			for _, o := range outs {
 				if write(o.name, o.data) != nil {
 					return
@@ -312,7 +311,7 @@ func (s *apiStream) timeline(tl APITimeline) (APITimelineEvent, bool) {
 		oldest = parse(tl.Entries[n-1].At)
 	}
 	for key, old := range s.entries {
-		if _, ok := next[key]; !ok && (len(tl.Entries) == 0 || oldest.Before(parse(old.at))) {
+		if _, ok := next[key]; !ok && (len(tl.Entries) == 0 || !oldest.After(parse(old.at))) {
 			ev.Drop = append(ev.Drop, key)
 		}
 	}

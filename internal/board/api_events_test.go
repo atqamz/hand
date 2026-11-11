@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -229,6 +230,11 @@ func TestTheStreamEndsWhenItsClientLeaves(t *testing.T) {
 	case <-time.After(hung):
 		t.Fatal("the stream still runs after its client left")
 	}
+	noGoroutinesLeft(t, before)
+}
+
+func noGoroutinesLeft(t *testing.T, before int) {
+	t.Helper()
 	for end := time.Now().Add(5 * time.Second); runtime.NumGoroutine() > before && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 	}
 	if n := runtime.NumGoroutine(); n > before {
@@ -361,5 +367,130 @@ func TestAnOversizeTouchedBecomesATasksTopic(t *testing.T) {
 	evs := until(t, ch, func(e sseEvent) bool { return e.name == "touched" })
 	if got := evs[len(evs)-1].data; got != `{"topics":["tasks"]}` {
 		t.Fatalf("touched = %s", got)
+	}
+}
+
+const bigEntry = 16 << 20
+
+func bigStream(t *testing.T, beat time.Duration) (net.Conn, <-chan struct{}, int) {
+	t.Helper()
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = beat
+	claudeLog(t, fx, []string{rec("assistant", ago(1), strings.Repeat("x", bigEntry), 0)})
+	t.Cleanup(board.SetAPIEventLimits(2*bigEntry, 10_000))
+	h := board.New(fx.st, token, fx.options)
+	left := make(chan struct{})
+	base := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(left)
+		h.ServeHTTP(w, r)
+	}))
+	before := runtime.NumGoroutine()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(base, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if _, err := fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: x\r\nCookie: hand_board=%s\r\n\r\n", eventsPath, token); err != nil {
+		t.Fatal(err)
+	}
+	return conn, left, before
+}
+
+func TestAClientThatNeverReadsIsCutOff(t *testing.T) {
+	conn, left, before := bigStream(t, 100*time.Millisecond)
+	select {
+	case <-left:
+	case <-time.After(hung):
+		t.Fatal("the stream still waits on a client that reads nothing")
+	}
+	conn.Close()
+	noGoroutinesLeft(t, before)
+}
+
+func TestASlowButSteadyReaderIsNotCutOff(t *testing.T) {
+	conn, left, _ := bigStream(t, 4*time.Second)
+	buf := make([]byte, 128<<10)
+	for got := 0; got < bigEntry; {
+		n, err := conn.Read(buf)
+		if err != nil {
+			t.Fatalf("cut off after %d of %d bytes: %v", got, bigEntry, err)
+		}
+		got += n
+		time.Sleep(8 * time.Millisecond)
+	}
+	select {
+	case <-left:
+		t.Fatal("the stream ended on a client that was reading")
+	default:
+	}
+}
+
+type deadlineLog struct {
+	*httptest.ResponseRecorder
+	mu   sync.Mutex
+	log  []string
+	left []time.Duration
+}
+
+func (d *deadlineLog) SetWriteDeadline(t time.Time) error {
+	d.mu.Lock()
+	d.left = append(d.left, time.Until(t))
+	d.mu.Unlock()
+	return d.add("deadline")
+}
+
+func (d *deadlineLog) Write(p []byte) (int, error) {
+	d.add(strings.SplitN(string(p), "\n", 2)[0])
+	return d.ResponseRecorder.Write(p)
+}
+
+func (d *deadlineLog) add(s string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.log = append(d.log, s)
+	return nil
+}
+
+func (d *deadlineLog) events() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.log)
+}
+
+func TestEveryEventGetsItsOwnWriteDeadline(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = time.Minute
+	h := board.New(fx.st, token, fx.options)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", eventsPath, nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	w := &deadlineLog{ResponseRecorder: httptest.NewRecorder()}
+	done := make(chan struct{})
+	go func() { defer close(done); h.ServeHTTP(w, req) }()
+	events := func() (n int) {
+		for _, line := range w.events() {
+			if strings.HasPrefix(line, "event: ") {
+				n++
+			}
+		}
+		return n
+	}
+	for end := time.Now().Add(hung); events() < 3 && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	}
+	cancel()
+	<-done
+	log := w.events()
+	if events() < 3 {
+		t.Fatalf("log = %q", log)
+	}
+	for _, left := range w.left {
+		if left > 2*time.Minute || left < 2*time.Minute-10*time.Second {
+			t.Fatalf("a write deadline %v away, want 2 x beat", left)
+		}
+	}
+	for i, line := range log {
+		if strings.HasPrefix(line, "event: ") && (i == 0 || log[i-1] != "deadline") {
+			t.Fatalf("event %q without a deadline of its own: %q", line, log)
+		}
 	}
 }
