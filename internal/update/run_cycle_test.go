@@ -425,7 +425,7 @@ func TestRepairStartsTheJournaledWatcherAndBoard(t *testing.T) {
 	if err != nil || rep.Status != "repaired" || rep.Failed {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	want := []string{"watcher @ " + f.alpha, "board @ " + f.alpha, "hand init @ " + f.alpha}
+	want := []string{"board @ " + f.alpha, "watcher @ " + f.alpha, "hand init @ " + f.alpha}
 	if got := f.processCalls(t); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q", got)
 	}
@@ -439,7 +439,7 @@ func TestRunRepairsBeforeFetching(t *testing.T) {
 	if _, err := Run(context.Background(), f.o); err == nil {
 		t.Fatal("a failed download succeeded")
 	}
-	want := []string{"watcher @ " + f.alpha, "board @ " + f.alpha, "hand init @ " + f.alpha}
+	want := []string{"board @ " + f.alpha, "watcher @ " + f.alpha, "hand init @ " + f.alpha}
 	if got := f.processCalls(t); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q", got)
 	}

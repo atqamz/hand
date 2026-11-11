@@ -111,16 +111,40 @@ func stateTerminal(t luvus.Terminal, socket string) state.Terminal {
 }
 
 func (r *runner) ownSocket() string {
-	return luvus.SocketPath(r.env.Getenv, fleet.Session(r.fleet.ID))
+	session := fleet.Session(r.fleet.ID)
+	if runtime.GOOS == "windows" && r.env.Getenv("HAND_LUVUS_SOCKET") == "" {
+		return session
+	}
+	return luvus.SocketPath(r.env.Getenv, session)
 }
 
 func foreignNote(socket string) string { return "terminal belongs to another luvus (" + socket + ")" }
 
 func (r *runner) foreignSocket(t state.Terminal) string {
-	if own := r.ownSocket(); t.Socket != "" && t.Socket != own {
+	if t.Socket != "" && !sameSocket(t.Socket, r.ownSocket()) {
 		return t.Socket
 	}
 	return ""
+}
+
+func sameSocket(a, b string) bool {
+	if resolveSocket(a) == resolveSocket(b) {
+		return true
+	}
+	x, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.Stat(b)
+	return err == nil && os.SameFile(x, y)
+}
+
+func resolveSocket(p string) string {
+	p = filepath.Clean(p)
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		return filepath.Join(dir, filepath.Base(p))
+	}
+	return p
 }
 
 func (r *runner) withAttempts(fn func(context.Context, *state.Store, luvus.Client) error) error {
@@ -174,8 +198,14 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 		return err
 	}
 	to, reason, err := r.observeTerminal(ctx, c, caps, a.Status, a.CreatedAt, a.Terminal)
-	if err != nil || to == "" {
+	if err != nil {
 		return err
+	}
+	if to == "" {
+		if a.Status == state.AttemptRunning && a.Socket == "" {
+			return st.StampAttemptSocket(ctx, a.ID, r.ownSocket())
+		}
+		return nil
 	}
 	if sock := r.foreignSocket(a.Terminal); sock != "" {
 		note := r.requester().noteSettled(foreignNote(sock), false)

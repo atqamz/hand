@@ -476,9 +476,9 @@ func TestRunFinishesAnInterruptedUpdate(t *testing.T) {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 	want := []string{
+		"board @ " + f.alpha,
 		"watcher @ " + f.alpha,
 		"hand supervisor resume @ " + f.alpha,
-		"board @ " + f.alpha,
 		"hand init @ " + f.alpha,
 	}
 	if got := f.log(t, "watcher @ ", "supervisor", "board @ ", "hand init"); !slices.Equal(got, want) {

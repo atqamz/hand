@@ -229,6 +229,19 @@ func (s *Store) SetSupervisorSession(ctx context.Context, id int64, session stri
 	})
 }
 
+func (s *Store) StampSupervisorSocket(ctx context.Context, id int64, socket string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		sup, err := getSupervisor(tx, id)
+		if err != nil || sup.Status != AttemptRunning || sup.Socket != "" {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE supervisor SET socket = ? WHERE id = ?`, socket, id); err != nil {
+			return err
+		}
+		return emit(tx, s.stamp(), "supervisor.socket", 0, SupervisorRef(id)+": "+socket)
+	})
+}
+
 func (s *Store) LiveSupervisor(ctx context.Context) (Supervisor, bool, error) {
 	return s.oneSupervisor(ctx, supervisorSelect+` WHERE status IN (?, ?) ORDER BY id DESC LIMIT 1`, AttemptLaunching, AttemptRunning)
 }

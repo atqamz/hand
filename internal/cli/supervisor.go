@@ -988,6 +988,10 @@ func (r *runner) settleSupervisor(ctx context.Context, st *state.Store, c luvus.
 			return r.endSupervisor(ctx, st, c, sup, to, reason)
 		case sup.Status != state.AttemptRunning:
 			return nil
+		case sup.Socket == "":
+			if err := st.StampSupervisorSocket(ctx, sup.ID, r.ownSocket()); err != nil {
+				return err
+			}
 		}
 	}
 	unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)

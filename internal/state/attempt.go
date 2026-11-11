@@ -247,6 +247,19 @@ func (s *Store) AttemptRunning(ctx context.Context, id int64, t Terminal) (Attem
 	return out, err
 }
 
+func (s *Store) StampAttemptSocket(ctx context.Context, id int64, socket string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		a, err := getAttempt(tx, id)
+		if err != nil || a.Status != AttemptRunning || a.Socket != "" {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE attempt SET socket = ? WHERE id = ?`, socket, id); err != nil {
+			return err
+		}
+		return emit(tx, s.stamp(), "attempt.socket", a.TaskID, AttemptRef(id)+": "+socket)
+	})
+}
+
 func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, model, effort string, requested bool) (Attempt, error) {
 	var out Attempt
 	err := s.tx(ctx, func(tx *sql.Tx) error {

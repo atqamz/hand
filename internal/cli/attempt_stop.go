@@ -141,7 +141,7 @@ func cmdAttemptClean(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := removeWorktree(ctx, c, g, a.Worktree, *discard, true); err != nil {
+		if err := removeWorktree(ctx, c, g, a.Worktree, *discard, r.foreignSocket(a.Terminal) == ""); err != nil {
 			return err
 		}
 		if _, err := st.CleanAttempt(ctx, id); err != nil {
