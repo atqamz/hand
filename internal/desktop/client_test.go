@@ -560,6 +560,23 @@ func TestNewLocalUsesHOME(t *testing.T) {
 	}
 }
 
+func TestNewLocalFallsBackToUSERPROFILE(t *testing.T) {
+	home := t.TempDir()
+	writeLocal(t, filepath.Join(home, ".secondhand"))
+	c, err := desktop.NewLocal(func(key string) string {
+		if key == "USERPROFILE" {
+			return home
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Fleets()) != 1 {
+		t.Fatalf("fleets = %+v", c.Fleets())
+	}
+}
+
 type mutations struct {
 	mu       sync.Mutex
 	badCSRF  bool

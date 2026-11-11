@@ -132,6 +132,9 @@ func localRoot(getenv func(string) string) (string, error) {
 	if root == "" {
 		home := getenv("HOME")
 		if home == "" {
+			home = getenv("USERPROFILE")
+		}
+		if home == "" {
 			return "", errors.New("set HOME or SECONDHAND_HOME; the desktop reads the board's address and tokens there")
 		}
 		root = filepath.Join(home, ".secondhand")
