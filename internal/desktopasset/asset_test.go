@@ -99,16 +99,16 @@ func TestLocatePrefersTheFolderOfHandThenPath(t *testing.T) {
 	self := filepath.Join(t.TempDir(), "hand")
 	next := install(t, filepath.Dir(self), "desktop", nil)
 	onPath := install(t, t.TempDir(), "desktop", nil)
-	got, err := Locate(self, filepath.Dir(onPath))
+	got, err := Locate(self, filepath.Dir(onPath), runtime.GOOS)
 	if err != nil || got != next {
 		t.Fatalf("Locate next to hand = %q, %v", got, err)
 	}
 	os.Remove(next)
-	got, err = Locate(self, filepath.Dir(onPath))
+	got, err = Locate(self, filepath.Dir(onPath), runtime.GOOS)
 	if err != nil || got != onPath {
 		t.Fatalf("Locate on PATH = %q, %v", got, err)
 	}
-	if _, err := Locate(self, t.TempDir()); !errors.Is(err, ErrNotFound) {
+	if _, err := Locate(self, t.TempDir(), runtime.GOOS); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -122,7 +122,7 @@ func TestLocateRefusesSomethingThatIsNotExecutable(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Locate(self, t.TempDir()); !errors.Is(err, ErrNotFound) {
+	if _, err := Locate(self, t.TempDir(), runtime.GOOS); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -133,5 +133,19 @@ func TestPathIsNextToHand(t *testing.T) {
 		if got != want {
 			t.Fatalf("%s: Path = %q, want %q", goos, got, want)
 		}
+	}
+}
+
+func TestLocateTakesTheSystemAsAnArgument(t *testing.T) {
+	self := filepath.Join(t.TempDir(), "hand")
+	exe := filepath.Join(filepath.Dir(self), Name+".exe")
+	if err := os.WriteFile(exe, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Locate(self, t.TempDir(), "windows"); err != nil || got != exe {
+		t.Fatalf("Locate for windows = %q, %v", got, err)
+	}
+	if _, err := Locate(self, t.TempDir(), "linux"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Locate for linux found the .exe: %v", err)
 	}
 }

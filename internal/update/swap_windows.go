@@ -6,11 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/atqamz/hand/internal/fsx"
-	"github.com/atqamz/hand/internal/sidecar"
 )
 
 func swap(src, target string) error {
@@ -45,13 +42,6 @@ func swap(src, target string) error {
 	return nil
 }
 
-func CleanOld(exe string) {
-	entries, _ := os.ReadDir(filepath.Dir(exe))
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), filepath.Base(exe)+".old") || strings.HasPrefix(e.Name(), sidecar.Name+".exe.old") {
-			_ = os.Remove(filepath.Join(filepath.Dir(exe), e.Name()))
-		}
-	}
-}
+func CleanOld(exe string) { cleanOld(exe) }
 
 func syncDir(string) error { return nil }

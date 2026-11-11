@@ -171,7 +171,7 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 	if err := os.Remove(entry); err != nil {
 		t.Fatal(err)
 	}
-	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"])
+	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"], runtime.GOOS)
 	if err != nil {
 		t.Fatal(err)
 	}

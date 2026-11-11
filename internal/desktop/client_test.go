@@ -560,6 +560,23 @@ func TestNewLocalUsesHOME(t *testing.T) {
 	}
 }
 
+func TestLocalRootFallsBackToUSERPROFILEOnWindowsOnly(t *testing.T) {
+	home := t.TempDir()
+	getenv := func(key string) string {
+		if key == "USERPROFILE" {
+			return home
+		}
+		return ""
+	}
+	got, err := desktop.LocalRoot(getenv, "windows")
+	if want := filepath.Join(home, ".secondhand"); err != nil || got != want {
+		t.Fatalf("windows: root = %q, %v, want %q", got, err, want)
+	}
+	if got, err := desktop.LocalRoot(getenv, "linux"); err == nil {
+		t.Fatalf("linux: root = %q, want an error", got)
+	}
+}
+
 type mutations struct {
 	mu       sync.Mutex
 	badCSRF  bool

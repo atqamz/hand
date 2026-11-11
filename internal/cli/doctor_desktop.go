@@ -16,7 +16,7 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		c.add("desktop", "info", desktopasset.Unsupported(runtime.GOOS, runtime.GOARCH))
 		return
 	}
-	bin, err := desktopasset.Locate(selfPath(), path)
+	bin, err := desktopasset.Locate(selfPath(), path, runtime.GOOS)
 	if err != nil {
 		if state, where := launcher.Check(r.env.Getenv, ""); state == launcher.Elsewhere {
 			c.add("desktop entry", "warn", where+" is left over and hand-desktop is not installed; run `hand update` to remove it")

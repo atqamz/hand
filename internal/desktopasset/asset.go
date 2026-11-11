@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -56,9 +55,9 @@ func Path(self, goos string) string {
 	return filepath.Join(filepath.Dir(self), Name+exeExt(goos))
 }
 
-func Locate(self, path string) (string, error) {
-	next := Path(self, runtime.GOOS)
-	if fi, err := os.Stat(next); err == nil && fi.Mode().IsRegular() && (runtime.GOOS == "windows" || fi.Mode()&0o111 != 0) {
+func Locate(self, path, goos string) (string, error) {
+	next := Path(self, goos)
+	if fi, err := os.Stat(next); err == nil && fi.Mode().IsRegular() && (goos == "windows" || fi.Mode()&0o111 != 0) {
 		return next, nil
 	}
 	if bin, err := harness.LookPath(Name, path); err == nil {

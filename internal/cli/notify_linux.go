@@ -91,7 +91,7 @@ func (w *watcher) openAlert(link, url string) {
 
 func (w *watcher) openDesktop(link string) bool {
 	self, _ := os.Executable()
-	bin, err := desktopasset.Locate(self, w.r.env.Getenv("PATH"))
+	bin, err := desktopasset.Locate(self, w.r.env.Getenv("PATH"), "linux")
 	if err != nil {
 		return false
 	}

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ func (c *HTTPClient) Fleets() []Fleet {
 }
 
 func NewLocal(getenv func(string) string) (*HTTPClient, error) {
-	root, err := localRoot(getenv)
+	root, err := localRoot(getenv, runtime.GOOS)
 	if err != nil {
 		return nil, err
 	}
@@ -127,10 +128,13 @@ func NewLocal(getenv func(string) string) (*HTTPClient, error) {
 	}, nil
 }
 
-func localRoot(getenv func(string) string) (string, error) {
+func localRoot(getenv func(string) string, goos string) (string, error) {
 	root := getenv("SECONDHAND_HOME")
 	if root == "" {
 		home := getenv("HOME")
+		if home == "" && goos == "windows" {
+			home = getenv("USERPROFILE")
+		}
 		if home == "" {
 			return "", errors.New("set HOME or SECONDHAND_HOME; the desktop reads the board's address and tokens there")
 		}
