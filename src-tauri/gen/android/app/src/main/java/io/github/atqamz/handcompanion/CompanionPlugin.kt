@@ -62,6 +62,12 @@ class CompanionPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  fun ensureAlerts(invoke: Invoke) {
+    (activity as? MainActivity)?.ensureAlerts()
+    invoke.resolve()
+  }
+
+  @Command
   fun setSecure(invoke: Invoke) {
     val secure = invoke.parseArgs(SecureArgs::class.java).secure
     activity.runOnUiThread {

@@ -14,7 +14,9 @@ mod testutil;
 
 pub mod proxy;
 
-pub use alerts::{Alert, AlertSink, CookieSource, Feed, Fleet, WAIT, paired_fleets};
+pub use alerts::{
+    Alert, AlertSink, CookieSource, Feed, Fleet, RESCAN, Stop, Supervisor, WAIT, paired_fleets,
+};
 pub use codes::{BOARD_ERROR, BOARD_UNREACHABLE, FULL, IDLE, STREAM_IDLE};
 pub use companion::{
     Companion, CompanionConfig, ConfirmError, OpenLinkError, StartError, proxy_origin,

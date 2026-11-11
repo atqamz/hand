@@ -445,7 +445,7 @@ mod tests {
             }
         }
         const KOTLIN: &str = include_str!(
-            "../../src-tauri/gen/android/app/src/main/java/io/github/atqamz/handcompanion/KeystorePlugin.kt"
+            "../../src-tauri/gen/android/app/src/main/java/io/github/atqamz/handcompanion/KeystoreSealer.kt"
         );
         for (name, code) in [
             ("CODE_KEY_REPLACED", CODE_KEY_REPLACED),
@@ -455,7 +455,7 @@ mod tests {
             let declaration = format!("const val {name} = \"{code}\"");
             assert!(
                 KOTLIN.contains(&declaration),
-                "KeystorePlugin.kt does not declare `{declaration}`"
+                "KeystoreSealer.kt does not declare `{declaration}`"
             );
         }
     }

@@ -1,15 +1,8 @@
 package io.github.atqamz.handcompanion
 
-import android.app.Activity
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import app.tauri.annotation.Command
-import app.tauri.annotation.InvokeArg
-import app.tauri.annotation.TauriPlugin
-import app.tauri.plugin.Invoke
-import app.tauri.plugin.JSObject
-import app.tauri.plugin.Plugin
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
 import javax.crypto.AEADBadTagException
@@ -17,60 +10,46 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import org.json.JSONArray
 
-@InvokeArg
-class KeyBytes {
-  var data: List<Int> = emptyList()
-}
+class SealError(val code: String, message: String) : Exception(message)
 
-@TauriPlugin
-class KeystorePlugin(activity: Activity) : Plugin(activity) {
-  @Command
+object KeystoreSealer {
   @Synchronized
-  fun probe(invoke: Invoke) {
+  fun probe() {
     try {
       if (key(create = false) == null) {
-        invoke.reject("the Android Keystore key that sealed the identity is gone", CODE_KEY_REPLACED)
-      } else {
-        invoke.resolve(response(ByteArray(0)))
+        throw SealError(CODE_KEY_REPLACED, "the Android Keystore key that sealed the identity is gone")
       }
+    } catch (error: SealError) {
+      throw error
     } catch (error: Exception) {
-      invoke.reject(error.message ?: "the Android Keystore could not read the key", CODE_KEYSTORE)
+      throw SealError(CODE_KEYSTORE, error.message ?: "the Android Keystore could not read the key")
     }
   }
 
-  @Command
   @Synchronized
-  fun seal(invoke: Invoke) {
+  fun seal(plaintext: ByteArray): ByteArray {
     try {
-      val plaintext = invoke.parseArgs(KeyBytes::class.java).data.toByteArray()
-      invoke.resolve(response(encrypt(plaintext)))
+      return encrypt(plaintext)
     } catch (error: Exception) {
-      invoke.reject(error.message ?: "the Android Keystore could not encrypt the key", CODE_KEYSTORE)
+      throw SealError(CODE_KEYSTORE, error.message ?: "the Android Keystore could not encrypt the key")
     }
   }
 
-  @Command
   @Synchronized
-  fun open(invoke: Invoke) {
-    val sealed = invoke.parseArgs(KeyBytes::class.java).data.toByteArray()
+  fun open(sealed: ByteArray): ByteArray {
     if (sealed.size < IV_BYTES + TAG_BYTES + 1) {
-      invoke.reject("the stored key is not IV, ciphertext and tag", CODE_CORRUPT)
-      return
+      throw SealError(CODE_CORRUPT, "the stored key is not IV, ciphertext and tag")
     }
     val key = try {
       key(create = false)
     } catch (error: KeyPermanentlyInvalidatedException) {
-      invoke.reject("the Android Keystore key that sealed the identity is gone", CODE_KEY_REPLACED)
-      return
+      throw SealError(CODE_KEY_REPLACED, "the Android Keystore key that sealed the identity is gone")
     } catch (error: Exception) {
-      invoke.reject(error.message ?: "the Android Keystore could not read the key", CODE_KEYSTORE)
-      return
+      throw SealError(CODE_KEYSTORE, error.message ?: "the Android Keystore could not read the key")
     }
     if (key == null) {
-      invoke.reject("the Android Keystore key that sealed the identity is gone", CODE_KEY_REPLACED)
-      return
+      throw SealError(CODE_KEY_REPLACED, "the Android Keystore key that sealed the identity is gone")
     }
     try {
       val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -79,13 +58,13 @@ class KeystorePlugin(activity: Activity) : Plugin(activity) {
         key,
         GCMParameterSpec(TAG_BITS, sealed.copyOfRange(0, IV_BYTES))
       )
-      invoke.resolve(response(cipher.doFinal(sealed.copyOfRange(IV_BYTES, sealed.size))))
+      return cipher.doFinal(sealed.copyOfRange(IV_BYTES, sealed.size))
     } catch (error: KeyPermanentlyInvalidatedException) {
-      invoke.reject("the Android Keystore key that sealed the identity is gone", CODE_KEY_REPLACED)
+      throw SealError(CODE_KEY_REPLACED, "the Android Keystore key that sealed the identity is gone")
     } catch (error: AEADBadTagException) {
-      invoke.reject("the stored key failed authentication", CODE_CORRUPT)
+      throw SealError(CODE_CORRUPT, "the stored key failed authentication")
     } catch (error: Exception) {
-      invoke.reject(error.message ?: "the Android Keystore could not open the key", CODE_KEYSTORE)
+      throw SealError(CODE_KEYSTORE, error.message ?: "the Android Keystore could not open the key")
     }
   }
 
@@ -153,24 +132,14 @@ class KeystorePlugin(activity: Activity) : Plugin(activity) {
     store.deleteEntry(ALIAS)
   }
 
-  private fun response(bytes: ByteArray): JSObject {
-    val values = JSONArray()
-    bytes.forEach { values.put(it.toInt() and 0xff) }
-    return JSObject().put("data", values)
-  }
-
-  private fun List<Int>.toByteArray(): ByteArray = ByteArray(size) { get(it).toByte() }
-
-  private companion object {
-    const val KEYSTORE = "AndroidKeyStore"
-    const val ALIAS = "io.github.atqamz.handcompanion.iroh"
-    const val TRANSFORMATION = "AES/GCM/NoPadding"
-    const val KEY_BITS = 256
-    const val TAG_BITS = 128
-    const val TAG_BYTES = TAG_BITS / 8
-    const val IV_BYTES = 12
-    const val CODE_KEY_REPLACED = "keyReplaced"
-    const val CODE_CORRUPT = "corrupt"
-    const val CODE_KEYSTORE = "keystore"
-  }
+  private const val KEYSTORE = "AndroidKeyStore"
+  private const val ALIAS = "io.github.atqamz.handcompanion.iroh"
+  private const val TRANSFORMATION = "AES/GCM/NoPadding"
+  private const val KEY_BITS = 256
+  private const val TAG_BITS = 128
+  private const val TAG_BYTES = TAG_BITS / 8
+  private const val IV_BYTES = 12
+  private const val CODE_KEY_REPLACED = "keyReplaced"
+  private const val CODE_CORRUPT = "corrupt"
+  private const val CODE_KEYSTORE = "keystore"
 }

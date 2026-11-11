@@ -1803,6 +1803,8 @@ name = "hand-android"
 version = "0.1.0"
 dependencies = [
  "hand-android-core",
+ "jni 0.21.1",
+ "ndk-context",
  "serde",
  "serde_json",
  "tauri",

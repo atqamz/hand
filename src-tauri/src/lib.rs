@@ -2,13 +2,11 @@ mod mobile;
 mod scanner;
 
 #[cfg(target_os = "android")]
-mod keystore;
+mod host;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-#[cfg(target_os = "android")]
-use hand_android_core::CompanionConfig;
 use hand_android_core::{
     CAMERA_FAILED, Companion, ConfirmError, OfferError, OpenError, OpenLinkError, PAIRING_PENDING,
     ScanError, ScanStatus, is_open_link, may_load, proxy_origin, scan_reply,
@@ -57,6 +55,13 @@ impl Failure {
             message: error.message().to_owned(),
             retry: false,
         }
+    }
+}
+
+fn not_cleared() -> Failure {
+    Failure {
+        message: "Can't clear the saved login. Try again.".to_owned(),
+        retry: false,
     }
 }
 
@@ -243,6 +248,7 @@ async fn forget_laptop(
         message: error.to_string(),
         retry: false,
     })?;
+    forget_alerts().map_err(|_| not_cleared())?;
     state
         .companion()?
         .forget_laptop()
@@ -262,16 +268,22 @@ async fn confirm_pairing(
         message: "Can't reach your laptop.".to_owned(),
         retry: false,
     })?;
+    let clear_failed = AtomicBool::new(false);
     let clear = || {
-        window
+        let cleared = window
             .clear_all_browsing_data()
             .map_err(|error| std::io::Error::other(error.to_string()))
+            .and_then(|()| forget_alerts());
+        clear_failed.store(cleared.is_err(), Ordering::Relaxed);
+        cleared
     };
-    let url = state
-        .companion()?
-        .confirm(clear)
-        .await
-        .map_err(|error| failure(error, &state.lost))?;
+    let url = state.companion()?.confirm(clear).await.map_err(|error| {
+        if clear_failed.load(Ordering::Relaxed) {
+            not_cleared()
+        } else {
+            failure(error, &state.lost)
+        }
+    })?;
     state.lost.store(0, Ordering::Relaxed);
     let url = tauri::Url::parse(&url).map_err(|_| Failure {
         message: "Can't reach your laptop.".to_owned(),
@@ -281,6 +293,13 @@ async fn confirm_pairing(
         message: error.to_string(),
         retry: false,
     })
+}
+
+fn forget_alerts() -> std::io::Result<()> {
+    #[cfg(target_os = "android")]
+    return host::forget_alerts();
+    #[cfg(not(target_os = "android"))]
+    Ok(())
 }
 
 fn secure_for(url: &tauri::Url, port: u16) -> bool {
@@ -303,6 +322,20 @@ fn apply_secure(app: &tauri::AppHandle, secure: bool) {
     #[cfg(not(target_os = "android"))]
     {
         let _ = (app, secure);
+    }
+}
+
+fn ensure_alerts(app: &tauri::AppHandle) {
+    #[cfg(target_os = "android")]
+    if let Some(bridge) = app.try_state::<mobile::Bridge>() {
+        let bridge = bridge.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            bridge.ensure_alerts().await;
+        });
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
     }
 }
 
@@ -366,8 +399,6 @@ pub fn run() {
         .plugin(scanner::init())
         .plugin(tauri_plugin_opener::Builder::new().build())
         .plugin(origin_guard(bundled));
-    #[cfg(target_os = "android")]
-    let builder = builder.plugin(keystore::plugin());
     builder
         .on_page_load(|webview, payload| {
             if let Some(state) = webview.app_handle().try_state::<AppState>()
@@ -375,23 +406,18 @@ pub fn run() {
             {
                 let secure = secure_for(payload.url(), companion.port());
                 apply_secure(webview.app_handle(), secure);
+                if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                    && payload.url().host_str() == Some("localhost")
+                {
+                    ensure_alerts(webview.app_handle());
+                }
             }
         })
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
             #[cfg(target_os = "android")]
-            let companion = {
-                let cipher = Arc::new(app.state::<keystore::KeystoreCipher>().inner().clone());
-                tauri::async_runtime::block_on(Companion::start(CompanionConfig {
-                    data_dir,
-                    cipher,
-                }))
-                .map(Arc::new)
-                .map_err(|error| format!("the phone's key could not start the companion: {error}"))
-            };
+            let companion = host::companion();
             #[cfg(not(target_os = "android"))]
             let companion = {
-                let _ = data_dir;
                 Err::<Arc<Companion>, String>(
                     "the Android Keystore is only available on a phone".to_owned(),
                 )

@@ -35,6 +35,13 @@ impl Bridge {
             .await;
     }
 
+    pub async fn ensure_alerts(&self) {
+        let _ = self
+            .0
+            .run_mobile_plugin_async::<()>("ensureAlerts", ())
+            .await;
+    }
+
     pub async fn show_recover_actions(&self) {
         let _ = self
             .0

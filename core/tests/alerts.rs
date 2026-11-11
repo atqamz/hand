@@ -4,11 +4,11 @@ mod support;
 
 use std::fs;
 use std::io;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use hand_android_core::{Alert, AlertSink, CookieSource, Dialer, Feed, Fleet};
+use hand_android_core::{Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Stop, Supervisor};
 use serde_json::{Value, json};
 use support::{FeedBoard, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, sidecar_bin};
 use tokio::task::JoinHandle;
@@ -79,6 +79,21 @@ struct Cookies;
 impl CookieSource for Cookies {
     async fn cookies(&self) -> io::Result<Option<String>> {
         Ok(Some(COOKIES.to_owned()))
+    }
+}
+
+#[derive(Clone, Default)]
+struct Shared(Arc<Mutex<Option<String>>>);
+
+impl Shared {
+    fn set(&self, header: Option<&str>) {
+        *self.0.lock().unwrap() = header.map(str::to_owned);
+    }
+}
+
+impl CookieSource for Shared {
+    async fn cookies(&self) -> io::Result<Option<String>> {
+        Ok(self.0.lock().unwrap().clone())
     }
 }
 
@@ -156,13 +171,26 @@ impl Harness {
         Feed::new(self.dialer.clone(), self.dir.path().join("alerts"))
     }
 
-    fn run(&self, feed: Feed) -> JoinHandle<()> {
+    fn run(&self, feed: Feed) -> JoinHandle<Stop> {
         self.run_with(feed, Cookies)
     }
 
-    fn run_with(&self, feed: Feed, cookies: impl CookieSource + Send + 'static) -> JoinHandle<()> {
+    fn run_with(
+        &self,
+        feed: Feed,
+        cookies: impl CookieSource + Send + 'static,
+    ) -> JoinHandle<Stop> {
+        self.run_after(feed, cookies, false)
+    }
+
+    fn run_after(
+        &self,
+        feed: Feed,
+        cookies: impl CookieSource + Send + 'static,
+        refused_before: bool,
+    ) -> JoinHandle<Stop> {
         let sink = self.sink.clone();
-        tokio::spawn(async move { feed.run(FLEET, &cookies, &sink).await })
+        tokio::spawn(async move { feed.run(FLEET, &cookies, &sink, refused_before).await })
     }
 
     fn cursor_path(&self) -> std::path::PathBuf {
@@ -390,7 +418,7 @@ async fn a_connection_the_laptop_closed_with_code_two_is_dialed_again() {
 }
 
 #[tokio::test]
-async fn a_no_longer_paired_refusal_stops_the_fleet_and_forgets_its_cursor() {
+async fn a_no_longer_paired_refusal_stops_the_fleet_and_the_second_one_forgets_its_cursor() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
@@ -403,14 +431,21 @@ async fn a_no_longer_paired_refusal_stops_the_fleet_and_forgets_its_cursor() {
     .await;
     let task = harness.run(harness.feed());
 
-    tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert_eq!(stop, Stop::BoardGone);
     assert_eq!(
         harness.sink.unpaired(),
         vec![(FLEET.to_owned(), Some("hand".to_owned()))]
     );
-    assert_eq!(harness.cursor(), None);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
     sleep(Duration::from_millis(1500)).await;
     assert_eq!(harness.board.seen().len(), 2);
+
+    let again = harness.run_after(harness.feed(), Cookies, true);
+    let stop = tokio::time::timeout(WAIT, again).await.unwrap().unwrap();
+    assert_eq!(stop, Stop::BoardGone);
+    assert_eq!(harness.sink.unpaired().len(), 1);
+    assert_eq!(harness.cursor(), None);
 }
 
 #[tokio::test]
@@ -424,7 +459,8 @@ async fn a_first_poll_refused_names_no_fleet() {
     .await;
     let task = harness.run(harness.feed());
 
-    tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert_eq!(stop, Stop::BoardGone);
     assert_eq!(harness.sink.unpaired(), vec![(FLEET.to_owned(), None)]);
 }
 
@@ -482,7 +518,8 @@ async fn no_cookie_header_and_no_own_cookie_stop_the_fleet_without_a_request() {
         harness.keep_cursor(4);
         let task = harness.run_with(harness.feed(), Header(header));
 
-        tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+        let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+        assert_eq!(stop, Stop::CookieGone);
         assert_eq!(harness.sink.unpaired(), vec![(FLEET.to_owned(), None)]);
         assert_eq!(harness.cursor(), None, "{header:?}");
         assert!(harness.board.seen().is_empty(), "{header:?}");
@@ -680,4 +717,240 @@ async fn a_hostile_feed_moves_nothing_and_shows_no_foreign_link() {
     assert_eq!(delivered[2].1.text.chars().count(), 200);
     assert!(delivered[2].1.text.starts_with("line one line two "));
     assert_eq!(harness.cursor().as_deref(), Some("4"));
+}
+
+const OWN: &str = "hand_phone_f0123456789ab=abc123";
+const TICK: Duration = Duration::from_millis(100);
+
+#[tokio::test]
+async fn the_supervisor_starts_a_fleet_when_its_cookie_appears_and_runs_one_loop() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(5, vec![]),
+        _ => answer(5, vec![]).held(Duration::from_millis(500)),
+    })
+    .await;
+    let cookies = Shared::default();
+    let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
+    supervisor.start();
+    supervisor.start();
+
+    sleep(Duration::from_millis(600)).await;
+    assert!(harness.board.seen().is_empty());
+    cookies.set(Some(&format!("session=zzz; {OWN}")));
+    assert!(wait_for(|| harness.board.seen().len() >= 2).await);
+    sleep(Duration::from_millis(2000)).await;
+    supervisor.stop();
+    sleep(Duration::from_millis(500)).await;
+
+    let requests = harness.board.seen().len();
+    assert!(requests <= 5, "{requests} requests in about 3 seconds");
+    sleep(Duration::from_millis(1500)).await;
+    assert_eq!(harness.board.seen().len(), requests);
+}
+
+#[tokio::test]
+async fn forgetting_stops_the_loops_and_the_cursors_and_posts_nothing() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(5, vec![]),
+        _ => answer(5, vec![]).held(Duration::from_millis(300)),
+    })
+    .await;
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
+    supervisor.start();
+    assert!(wait_for(|| harness.cursor().as_deref() == Some("5")).await);
+
+    supervisor.forget_all();
+    assert_eq!(harness.cursor(), None);
+    sleep(Duration::from_millis(500)).await;
+    let requests = harness.board.seen().len();
+    sleep(Duration::from_millis(2000)).await;
+    assert_eq!(harness.board.seen().len(), requests);
+    assert!(harness.sink.unpaired().is_empty());
+
+    cookies.set(None);
+    sleep(Duration::from_millis(500)).await;
+    cookies.set(Some(OWN));
+    assert!(wait_for(|| harness.board.seen().len() > requests).await);
+    supervisor.stop();
+}
+
+#[tokio::test]
+async fn a_fleet_the_board_refused_is_not_started_again_until_its_cookie_returns() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(4, vec![]),
+        1 => Reply::status(403).header("X-Hand-Error", GONE),
+        _ => answer(4, vec![]),
+    })
+    .await;
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
+    supervisor.start();
+    assert!(wait_for(|| harness.sink.unpaired().len() == 1).await);
+    sleep(Duration::from_millis(1500)).await;
+    assert_eq!(harness.sink.unpaired().len(), 1);
+    assert_eq!(harness.board.seen().len(), 2);
+
+    cookies.set(None);
+    sleep(Duration::from_millis(500)).await;
+    cookies.set(Some(OWN));
+    assert!(wait_for(|| harness.board.seen().len() > 2).await);
+    supervisor.stop();
+}
+
+#[derive(Clone)]
+struct Blocking {
+    sink: Sink,
+    entered: Arc<AtomicBool>,
+}
+
+impl AlertSink for Blocking {
+    async fn alert(&self, fleet: &Fleet, alert: &Alert) -> io::Result<()> {
+        self.entered.store(true, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(400));
+        self.sink.alert(fleet, alert).await
+    }
+
+    async fn unpaired(&self, fleet: &str, name: Option<&str>) {
+        AlertSink::unpaired(&self.sink, fleet, name).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forgetting_during_a_poll_in_flight_posts_nothing_more_and_leaves_no_cursor() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    for batch in [1u64, 2] {
+        let harness = Harness::start(&bin, 60, move |n, _| match n {
+            0 => answer(5, vec![]),
+            1 => answer(
+                5 + batch,
+                (6..=5 + batch)
+                    .map(|seq| alert(seq, "attempt.failed", "a1", "failed", ""))
+                    .collect(),
+            ),
+            _ => answer(5 + batch, vec![]).held(Duration::from_millis(300)),
+        })
+        .await;
+        let cookies = Shared::default();
+        cookies.set(Some(OWN));
+        let entered = Arc::new(AtomicBool::new(false));
+        let blocking = Blocking {
+            sink: harness.sink.clone(),
+            entered: entered.clone(),
+        };
+        let supervisor = Supervisor::new(harness.feed(), cookies.clone(), blocking, TICK);
+        supervisor.start();
+        assert!(wait_for(|| entered.load(Ordering::SeqCst)).await);
+
+        supervisor.forget_all();
+        sleep(Duration::from_millis(1000)).await;
+        supervisor.stop();
+
+        assert_eq!(harness.cursor(), None, "batch of {batch}");
+        assert_eq!(harness.sink.alerts().len(), 1, "batch of {batch}");
+    }
+}
+
+#[tokio::test]
+async fn a_changed_cookie_value_restarts_a_refused_fleet_at_once() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(4, vec![]),
+        1 => Reply::status(403).header("X-Hand-Error", GONE),
+        _ => answer(4, vec![]).held(Duration::from_millis(300)),
+    })
+    .await;
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
+    supervisor.start();
+    assert!(wait_for(|| harness.sink.unpaired().len() == 1).await);
+    sleep(Duration::from_millis(500)).await;
+    assert_eq!(harness.board.seen().len(), 2);
+
+    cookies.set(Some("hand_phone_f0123456789ab=def456"));
+    sleep(Duration::from_millis(1000)).await;
+    supervisor.stop();
+    assert!(harness.board.seen().len() > 2);
+    let seen = harness.board.seen();
+    assert_eq!(
+        seen[2].cookie.as_deref(),
+        Some("hand_phone_f0123456789ab=def456")
+    );
+}
+
+#[tokio::test]
+async fn a_refused_fleet_is_tried_again_and_only_the_second_refusal_forgets_its_cursor() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(4, vec![]),
+        1 | 2 => Reply::status(403).header("X-Hand-Error", GONE),
+        _ => answer(4, vec![]).held(Duration::from_millis(300)),
+    })
+    .await;
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
+    supervisor.start();
+    assert!(wait_for(|| harness.sink.unpaired().len() == 1).await);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+    sleep(Duration::from_millis(1500)).await;
+    assert_eq!(harness.board.seen().len(), 2);
+
+    assert!(wait_for(|| harness.board.seen().len() == 3).await);
+    assert!(wait_for(|| harness.cursor().is_none()).await);
+    assert_eq!(harness.sink.unpaired().len(), 1);
+
+    assert!(wait_for(|| harness.board.seen().len() >= 4).await);
+    supervisor.stop();
+    assert_eq!(harness.sink.unpaired().len(), 1);
+}
+
+struct BlocksThenNone(Arc<AtomicBool>);
+
+impl CookieSource for BlocksThenNone {
+    async fn cookies(&self) -> io::Result<Option<String>> {
+        self.0.store(true, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(400));
+        Ok(None)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forgetting_while_the_cookie_read_blocks_posts_no_unpaired_notice() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |_, _| answer(4, vec![])).await;
+    let feed = Arc::new(harness.feed());
+    let reading = Arc::new(AtomicBool::new(false));
+    let task = {
+        let feed = feed.clone();
+        let sink = harness.sink.clone();
+        let cookies = BlocksThenNone(reading.clone());
+        tokio::spawn(async move { feed.run(FLEET, &cookies, &sink, false).await })
+    };
+    assert!(wait_for(|| reading.load(Ordering::SeqCst)).await);
+
+    feed.forget_cursors();
+
+    assert_eq!(task.await.unwrap(), Stop::Forgotten);
+    assert!(harness.sink.unpaired().is_empty());
 }

@@ -2,8 +2,10 @@ package io.github.atqamz.handcompanion
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 
 private val handledInsets =
   WindowInsetsCompat.Type.systemBars() or
@@ -27,9 +30,52 @@ class MainActivity : TauriActivity() {
       result?.invoke(granted)
     }
 
+  private var askingNotifications = false
+  private val notificationPermission =
+    registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      askingNotifications = false
+      getPreferences(MODE_PRIVATE).edit().putBoolean(ASKED, true).apply()
+      if (granted) startAlerts()
+    }
+
+  override fun onResume() {
+    super.onResume()
+    ensureAlerts()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
+    Core.start(applicationContext)
+    Core.releaseContext()
     super.onCreate(savedInstanceState)
+  }
+
+  @Deprecated("Wry calls it when the web view cannot go back")
+  override fun onBackPressed() {
+    if (AlertService.running) moveTaskToBack(true) else super.onBackPressed()
+  }
+
+  private fun startAlerts() {
+    if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) AlertService.start(this)
+  }
+
+  fun ensureAlerts() {
+    runOnUiThread {
+      val paired = CookieManager.getInstance().getCookie(COOKIE_URL)?.contains("hand_phone_") == true
+      if (!paired) return@runOnUiThread
+      val needed =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+          ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+      if (!needed) {
+        startAlerts()
+        return@runOnUiThread
+      }
+      if (!askingNotifications && !getPreferences(MODE_PRIVATE).getBoolean(ASKED, false)) {
+        askingNotifications = true
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+      }
+    }
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -72,6 +118,10 @@ class MainActivity : TauriActivity() {
     )
     parent.addView(container, index, params)
     return container
+  }
+
+  private companion object {
+    const val ASKED = "notification-permission-asked"
   }
 
   fun requestCameraPermission(result: (Boolean) -> Unit) {

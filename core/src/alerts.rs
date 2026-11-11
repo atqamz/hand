@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::fs;
 use std::future::Future;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
+use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, sleep_until, timeout};
 
 use crate::backoff::Backoff;
@@ -13,6 +16,7 @@ use crate::open::{parse_open, valid_fleet};
 use crate::proxy::unpaired_403;
 
 pub const WAIT: Duration = Duration::from_secs(25);
+pub const RESCAN: Duration = Duration::from_secs(10);
 const ANSWER_SLACK: Duration = Duration::from_secs(10);
 const MIN_POLL: Duration = Duration::from_secs(1);
 const MAX_HEAD: usize = 16 * 1024;
@@ -47,7 +51,14 @@ pub trait AlertSink: Sync {
 }
 
 pub fn paired_fleets(cookie_header: &str) -> Vec<String> {
-    let mut fleets: Vec<String> = Vec::new();
+    paired_cookies(cookie_header)
+        .into_iter()
+        .map(|(fleet, _)| fleet)
+        .collect()
+}
+
+fn paired_cookies(cookie_header: &str) -> Vec<(String, String)> {
+    let mut fleets: Vec<(String, String)> = Vec::new();
     for pair in cookie_header.split(';') {
         let Some((name, value)) = pair.trim().split_once('=') else {
             continue;
@@ -55,8 +66,11 @@ pub fn paired_fleets(cookie_header: &str) -> Vec<String> {
         let Some(fleet) = name.strip_prefix(COOKIE_PREFIX) else {
             continue;
         };
-        if valid_fleet(fleet) && valid_cookie_value(value) && !fleets.iter().any(|f| f == fleet) {
-            fleets.push(fleet.to_owned());
+        if valid_fleet(fleet)
+            && valid_cookie_value(value)
+            && !fleets.iter().any(|(f, _)| f == fleet)
+        {
+            fleets.push((fleet.to_owned(), value.to_owned()));
         }
     }
     fleets
@@ -81,10 +95,19 @@ pub struct Feed {
     dialer: Dialer,
     dir: PathBuf,
     wait: Duration,
+    generation: Mutex<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    Forgotten,
+    CookieGone,
+    BoardGone,
 }
 
 enum Failure {
-    Unpaired,
+    CookieGone,
+    BoardGone,
     Retry,
 }
 
@@ -94,6 +117,7 @@ impl Feed {
             dialer,
             dir,
             wait: WAIT,
+            generation: Mutex::new(0),
         }
     }
 
@@ -102,39 +126,87 @@ impl Feed {
         self
     }
 
-    pub async fn run(&self, fleet: &str, cookies: &impl CookieSource, sink: &impl AlertSink) {
-        if !valid_fleet(fleet) {
+    pub fn forget_cursors(&self) {
+        let mut generation = self.generation.lock().unwrap();
+        *generation += 1;
+        let Ok(entries) = fs::read_dir(&self.dir) else {
             return;
+        };
+        for entry in entries.flatten() {
+            if entry.path().extension().is_some_and(|ext| ext == "cursor") {
+                let _ = fs::remove_file(entry.path());
+            }
         }
+    }
+
+    fn generation(&self) -> u64 {
+        *self.generation.lock().unwrap()
+    }
+
+    fn advance(&self, generation: u64, path: &Path, cursor: u64) -> Option<io::Result<()>> {
+        let current = self.generation.lock().unwrap();
+        (*current == generation).then(|| write_cursor(path, cursor))
+    }
+
+    pub async fn run(
+        &self,
+        fleet: &str,
+        cookies: &impl CookieSource,
+        sink: &impl AlertSink,
+        refused_before: bool,
+    ) -> Stop {
+        if !valid_fleet(fleet) {
+            return Stop::CookieGone;
+        }
+        let generation = self.generation();
         let path = self.dir.join(format!("{fleet}.cursor"));
         let mut cursor = read_cursor(&path);
         let mut backoff = Backoff::default();
         let mut more = false;
+        let mut refused_before = refused_before;
         let mut name: Option<String> = None;
         loop {
             let started = Instant::now();
             let answer = match self.poll(fleet, cookies, cursor, more).await {
                 Ok(answer) => answer,
-                Err(Failure::Unpaired) => {
+                Err(Failure::CookieGone) => {
+                    if self.generation() != generation {
+                        return Stop::Forgotten;
+                    }
                     let _ = fs::remove_file(&path);
                     sink.unpaired(fleet, name.as_deref()).await;
-                    return;
+                    return Stop::CookieGone;
+                }
+                Err(Failure::BoardGone) => {
+                    if refused_before {
+                        let _ = fs::remove_file(&path);
+                    } else {
+                        sink.unpaired(fleet, name.as_deref()).await;
+                    }
+                    return Stop::BoardGone;
                 }
                 Err(Failure::Retry) => {
                     sleep(backoff.next_delay()).await;
                     continue;
                 }
             };
+            refused_before = false;
             name = Some(answer.fleet.name.clone());
             let mut delivered = true;
             for alert in &answer.alerts {
+                if self.generation() != generation {
+                    return Stop::Forgotten;
+                }
                 if sink.alert(&answer.fleet, alert).await.is_err() {
                     delivered = false;
                     break;
                 }
             }
             if delivered && cursor != Some(answer.cursor) {
-                delivered = write_cursor(&path, answer.cursor).is_ok();
+                let Some(written) = self.advance(generation, &path, answer.cursor) else {
+                    return Stop::Forgotten;
+                };
+                delivered = written.is_ok();
                 if delivered {
                     cursor = Some(answer.cursor);
                 }
@@ -162,8 +234,8 @@ impl Feed {
             .cookies()
             .await
             .map_err(|_| Failure::Retry)?
-            .ok_or(Failure::Unpaired)?;
-        let cookie = fleet_cookie(&header, fleet).ok_or(Failure::Unpaired)?;
+            .ok_or(Failure::CookieGone)?;
+        let cookie = fleet_cookie(&header, fleet).ok_or(Failure::CookieGone)?;
         let request = request(fleet, &cookie, cursor, (!more).then_some(self.wait));
         let (mut send, mut recv) = self
             .dialer
@@ -189,7 +261,7 @@ impl Feed {
             let head = parse_head(&buffer[..head_end]).ok_or(Failure::Retry)?;
             if head.status != 200 {
                 return Err(if unpaired_403(&buffer[..head_end]) {
-                    Failure::Unpaired
+                    Failure::BoardGone
                 } else {
                     Failure::Retry
                 });
@@ -211,6 +283,146 @@ impl Feed {
         .await
         .map_err(|_| Failure::Retry)??;
         validate(fleet, cursor, &body).ok_or(Failure::Retry)
+    }
+}
+
+pub struct Supervisor<C, S> {
+    feed: Feed,
+    cookies: C,
+    sink: S,
+    rescan: Duration,
+    state: Mutex<State>,
+}
+
+const RETRY_SCANS: u32 = 30;
+
+struct Running {
+    task: JoinHandle<()>,
+    cookie: String,
+}
+
+struct Stopped {
+    cookie: String,
+    retry_at: Option<Instant>,
+    board_gone: bool,
+}
+
+#[derive(Default)]
+struct State {
+    loops: HashMap<String, Running>,
+    stopped: HashMap<String, Stopped>,
+    scanner: Option<JoinHandle<()>>,
+}
+
+impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor<C, S> {
+    pub fn new(feed: Feed, cookies: C, sink: S, rescan: Duration) -> Arc<Self> {
+        Arc::new(Self {
+            feed,
+            cookies,
+            sink,
+            rescan,
+            state: Mutex::new(State::default()),
+        })
+    }
+
+    pub fn start(self: &Arc<Self>) {
+        let mut state = self.state.lock().unwrap();
+        if state
+            .scanner
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+        {
+            return;
+        }
+        let this = self.clone();
+        state.scanner = Some(tokio::spawn(async move {
+            loop {
+                this.scan().await;
+                sleep(this.rescan).await;
+            }
+        }));
+    }
+
+    pub fn stop(&self) {
+        let mut state = self.state.lock().unwrap();
+        if let Some(scanner) = state.scanner.take() {
+            scanner.abort();
+        }
+        for (_, running) in state.loops.drain() {
+            running.task.abort();
+        }
+        state.stopped.clear();
+    }
+
+    pub fn forget_all(&self) {
+        let mut state = self.state.lock().unwrap();
+        let ended: Vec<(String, Running)> = state.loops.drain().collect();
+        for (fleet, running) in ended {
+            running.task.abort();
+            state.stopped.insert(
+                fleet,
+                Stopped {
+                    cookie: running.cookie,
+                    retry_at: None,
+                    board_gone: false,
+                },
+            );
+        }
+        self.feed.forget_cursors();
+    }
+
+    pub async fn scan(self: &Arc<Self>) {
+        let present = match self.cookies.cookies().await {
+            Ok(header) => paired_cookies(header.as_deref().unwrap_or_default()),
+            Err(_) => return,
+        };
+        let now = Instant::now();
+        let mut state = self.state.lock().unwrap();
+        state
+            .stopped
+            .retain(|fleet, _| present.iter().any(|(id, _)| id == fleet));
+        for (fleet, cookie) in present {
+            if let Some(running) = state.loops.get_mut(&fleet)
+                && !running.task.is_finished()
+            {
+                running.cookie = cookie;
+                continue;
+            }
+            let stopped = state.stopped.get(&fleet);
+            if let Some(stopped) = stopped
+                && stopped.cookie == cookie
+                && stopped.retry_at.is_none_or(|at| now < at)
+            {
+                continue;
+            }
+            let refused_before = stopped.is_some_and(|s| s.cookie == cookie && s.board_gone);
+            let this = self.clone();
+            let id = fleet.clone();
+            let task = tokio::spawn(async move {
+                let stop = this
+                    .feed
+                    .run(&id, &this.cookies, &this.sink, refused_before)
+                    .await;
+                if stop == Stop::Forgotten {
+                    return;
+                }
+                let mut state = this.state.lock().unwrap();
+                let Some(running) = state.loops.get(&id) else {
+                    return;
+                };
+                let cookie = running.cookie.clone();
+                state.stopped.insert(
+                    id,
+                    Stopped {
+                        cookie,
+                        retry_at: Some(Instant::now() + this.rescan * RETRY_SCANS),
+                        board_gone: stop == Stop::BoardGone,
+                    },
+                );
+            });
+            state.stopped.remove(&fleet);
+            state.loops.insert(fleet, Running { task, cookie });
+        }
     }
 }
 
