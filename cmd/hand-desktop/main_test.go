@@ -77,6 +77,7 @@ func TestParseArgsRefusesWhatIsNotAnOpenLink(t *testing.T) {
 		"no value":     {"--open"},
 		"positional":   {"handboard://open/" + fleetID + "/"},
 		"unknown flag": {"--exec", "sh"},
+		"escape flag":  {"--x\x1b]0;pwn\x07"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got, err := parseArgs(args); err == nil {
@@ -115,12 +116,14 @@ func TestSecondInstanceWithAHostileLinkIsRefusedOnScreen(t *testing.T) {
 		{"--open", "file:///etc/passwd"},
 		{"--open", "handboard://open/f00000000dead/task/t1"},
 		{"--bogus"},
+		{"--bogus\x1b]0;pwn\x07"},
+		{"--bogus" + strings.Repeat("x", 100000)},
 	} {
 		app := booted()
 		app.Show(desktop.TasksScreen)
 		handoff(app, args)
-		if app.Err == "" || app.Screen != desktop.TasksScreen {
-			t.Fatalf("%q: screen %d, err %q", args, app.Screen, app.Err)
+		if app.Err == "" || app.Screen != desktop.TasksScreen || len(app.Err) > 400 || strings.ContainsAny(app.Err, "\x1b\x07") {
+			t.Fatalf("%.100q: screen %d, err %.200q", args, app.Screen, app.Err)
 		}
 	}
 }

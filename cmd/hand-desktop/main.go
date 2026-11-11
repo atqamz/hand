@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -28,8 +29,8 @@ func parseArgs(args []string) (options, error) {
 	fs.BoolVar(&o.version, "version", false, "print the version and commit, then exit")
 	fs.StringVar(&o.fleet, "fleet", "", "fleet id or name to open")
 	fs.StringVar(&o.open, "open", "", "open link: handboard://open/<fleet id>/[task/tN|decision/dN|attempt/aN]")
-	if err := fs.Parse(args); err != nil {
-		return o, err
+	if fs.Parse(args) != nil {
+		return o, errors.New("unexpected flag; hand-desktop takes --open LINK, --fleet NAME and --version")
 	}
 	if fs.NArg() > 0 {
 		return o, fmt.Errorf("unexpected argument %s", clip(fs.Arg(0)))
