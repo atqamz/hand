@@ -145,6 +145,31 @@ func TestStopServerDoesNotTakeAFailedPingForAGoneServer(t *testing.T) {
 	}
 }
 
+func TestGoneOnlyForADialThatFoundNoServer(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	srv.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{}, nil })
+	expired, stop := context.WithTimeout(context.Background(), 0)
+	defer stop()
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	missing := luvus.Client{Socket: sock(t)}
+	live := luvus.Client{Socket: srv.Socket}
+	for name, c := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"no error":              {nil, false},
+		"another error":         {errors.New("boom"), false},
+		"missing socket":        {missing.Call(context.Background(), "ping", nil, nil), true},
+		"dial past its timeout": {live.Call(expired, "ping", nil, nil), false},
+		"dial cancelled":        {live.Call(cancelled, "ping", nil, nil), false},
+	} {
+		if got := luvus.Gone(c.err); got != c.want {
+			t.Errorf("%s: gone(%v) = %v, want %v", name, c.err, got, c.want)
+		}
+	}
+}
+
 func TestStopServerForcesOnlyAnAcknowledgedOrMuteServer(t *testing.T) {
 	refuse := func(json.RawMessage) (any, error) { return nil, fakeuhp.Fail{Code: "busy", Message: "no"} }
 	drop := func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop }

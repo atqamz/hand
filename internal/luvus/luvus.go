@@ -215,7 +215,7 @@ func (c Client) Version(ctx context.Context) (string, error) {
 
 func gone(err error) bool {
 	var timeout interface{ Timeout() bool }
-	return errors.Is(err, ErrUnreachable) && !errors.Is(err, context.DeadlineExceeded) && !(errors.As(err, &timeout) && timeout.Timeout())
+	return errors.Is(err, ErrUnreachable) && !errors.Is(err, context.Canceled) && !(errors.As(err, &timeout) && timeout.Timeout())
 }
 
 func (c Client) StopServer(ctx context.Context, sessionDir string, kill func(pid int, marker string) error) error {
