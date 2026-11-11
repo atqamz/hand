@@ -153,7 +153,7 @@ The fragment keeps the code out of the request: the Board's pair page reads it w
 - It listens on `127.0.0.1` and `[::1]`, never on any other address, because the name `localhost` resolves to either one.
 - Its port is chosen once at install from 49152 to 65535 and kept, so that the page's origin, and the drafts the Board keeps for it, survive a restart. If the port is taken at launch, the app picks and keeps another one.
 - It adds no header and removes none. The Board drops every proxy header itself, and reads the identity from the connection.
-- Any app on the phone can reach the port while the proxy runs. It gets what an unpaired phone gets, the pair page, unless it also holds the web view's cookie. The proxy therefore must not be on the LAN, and the cookie must stay in the web view.
+- Any app on the phone can reach the port while the proxy runs. It gets what an unpaired phone gets, the pair page, unless it also holds the web view's cookie. The proxy therefore must not be on the LAN, and the app must use the cookie only as the rules for the app allow.
 
 ## The open link
 
@@ -271,7 +271,7 @@ The pair page's texts on the right are the Board's; the app may show them in its
 ## Rules for the app
 
 - **Never log the code, the link or a cookie**, in the app's logs, crash reports, analytics, clipboard, notifications, intents it sends, or the URL it passes to an error screen. The reason code of a rejected link is the most a log may hold.
-- **The app never holds the sidecar's secret.** It is in `board.peer` on the laptop and the app is never given it. The device's secret is in an `HttpOnly` cookie that only the web view reads: the app must not read, copy or export the web view's cookies.
+- **The app never holds the sidecar's secret.** It is in `board.peer` on the laptop and the app is never given it. The device's secret is in an `HttpOnly` cookie that the web view sends. The app reads only the `hand_phone_<fleet id>` cookie, and only to send it on that fleet's own `/<fleet id>/alerts/feed` request. It never stores the cookie elsewhere, never logs it, and never sends it to any other path or fleet. It must not read, copy or export any other cookie of the web view.
 - **Block screenshots, recents thumbnails and screen recording of the pairing screen and of the pair page** where the OS can (on Android, `FLAG_SECURE` on that screen), because the code is on it in clear.
 - **Keep the app's iroh key in the keystore.** Make 32 random bytes on first run and keep them encrypted under a non-exportable key of the Android Keystore (hardware-backed when the phone has it), in storage private to the app and excluded from backups and device-to-device transfer, so that a copy of the phone does not copy the identity. A reinstall makes a new key, which the Board treats as a new phone.
 - **One laptop per install.** Cookies are scoped to the host `localhost`, not a port, so a second laptop's Board would be sent the first one's cookies. Pairing a second laptop first clears the web view's cookies and storage and forgets the first.
