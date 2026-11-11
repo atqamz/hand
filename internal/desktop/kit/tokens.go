@@ -84,11 +84,3 @@ const (
 	RowLG = 48
 	Sheet = 52
 )
-
-var Lengths = map[string]float32{
-	"r-xs": RadiusXS, "r-sm": RadiusSM, "r-md": RadiusMD, "r-lg": RadiusLG, "r-pill": RadiusPill,
-	"control": Control, "badge": Badge, "mast": Mast,
-	"space-2": Space2, "space-4": Space4, "space-6": Space6, "space-8": Space8, "space-10": Space10,
-	"space-12": Space12, "space-14": Space14, "space-16": Space16, "space-20": Space20, "space-24": Space24,
-	"row-sm": RowSM, "row": Row, "tap": Tap, "row-lg": RowLG, "sheet": Sheet,
-}

@@ -14,6 +14,14 @@ import (
 
 const darkMarker = "@media (prefers-color-scheme:dark){"
 
+var lengths = map[string]float32{
+	"r-xs": RadiusXS, "r-sm": RadiusSM, "r-md": RadiusMD, "r-lg": RadiusLG, "r-pill": RadiusPill,
+	"control": Control, "badge": Badge, "mast": Mast,
+	"space-2": Space2, "space-4": Space4, "space-6": Space6, "space-8": Space8, "space-10": Space10,
+	"space-12": Space12, "space-14": Space14, "space-16": Space16, "space-20": Space20, "space-24": Space24,
+	"row-sm": RowSM, "row": Row, "tap": Tap, "row-lg": RowLG, "sheet": Sheet,
+}
+
 var (
 	declaration = regexp.MustCompile(`--([a-z0-9-]+):([^;}]+)`)
 	tintRule    = regexp.MustCompile(`\.tint-(\d+)\{--tint:(#[0-9a-f]{6})\}`)
@@ -125,7 +133,7 @@ func TestColorsMatchBoardCSS(t *testing.T) {
 func TestLengthsMatchBoardCSS(t *testing.T) {
 	lightCSS, _ := boardCSS(t)
 	tokens := rootTokens(t, lightCSS)
-	for name, want := range Lengths {
+	for name, want := range lengths {
 		raw, ok := tokens[name]
 		if !ok {
 			t.Errorf("--%s is not in board.css", name)
