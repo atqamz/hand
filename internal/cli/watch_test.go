@@ -1819,3 +1819,25 @@ func TestWatchRecordsACodexQuestionInTheBlockedEvent(t *testing.T) {
 		t.Fatalf("events = %q", got)
 	}
 }
+
+func TestWatchChecksTheHomeOnlyForEventsItActsOn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "1h")
+	if err := os.WriteFile(fleetLink(t, fx.h), []byte(t.TempDir()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 50 {
+		fx.rt.srv.Publish("terminal.output_ready", map[string]any{"terminal_id": "t2"})
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := fx.rt.srv.Subscribers(); n != 1 {
+		t.Fatalf("subscribers after unrelated events = %d, want 1", n)
+	}
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "9", "status": "working", "agent": "claude"})
+	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 0 })
+	out, code := stop()
+	if code != 3 {
+		t.Fatalf("watch exit = %d, want 3, out %q", code, out)
+	}
+}
