@@ -1,10 +1,11 @@
+//go:build linux
+
 package launcher
 
 import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,6 @@ import (
 
 func env(t *testing.T) (func(string) string, string) {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("the launcher entry is Linux only")
-	}
 	data := t.TempDir()
 	t.Setenv("PATH", t.TempDir())
 	return func(k string) string {

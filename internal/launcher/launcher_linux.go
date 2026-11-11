@@ -1,3 +1,5 @@
+//go:build linux
+
 package launcher
 
 import (
@@ -16,15 +18,6 @@ import (
 )
 
 const marker = "X-Hand-Managed=true\n"
-
-type State string
-
-const (
-	OK        State = "ok"
-	Missing   State = "missing"
-	Elsewhere State = "elsewhere"
-	Foreign   State = "foreign"
-)
 
 func dataHome(getenv func(string) string) (string, error) {
 	if d := getenv("XDG_DATA_HOME"); filepath.IsAbs(d) {
