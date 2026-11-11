@@ -133,6 +133,18 @@ func TestStopServerWaitsForTheFileToo(t *testing.T) {
 	}
 }
 
+func TestStopServerDoesNotTakeAFailedPingForAGoneServer(t *testing.T) {
+	s := newFakeServer(t)
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) {
+		go s.kill()
+		return map[string]any{}, nil
+	})
+	s.uhp.Handle("ping", func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop })
+	if err := s.client().StopServer(context.Background(), s.dir, func(int, string) error { s.forced.Add(1); return nil }); err != nil || s.forced.Load() != 1 {
+		t.Fatalf("err = %v, forced %d", err, s.forced.Load())
+	}
+}
+
 func TestStopServerForcesOnlyAnAcknowledgedOrMuteServer(t *testing.T) {
 	refuse := func(json.RawMessage) (any, error) { return nil, fakeuhp.Fail{Code: "busy", Message: "no"} }
 	drop := func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop }
