@@ -149,6 +149,37 @@ func TestWatchClickOpensTheBoardPage(t *testing.T) {
 	}
 }
 
+func TestWatchClickRunsTheDesktopWithTheAlertsOpenLink(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-desktop", "joined", nil)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(openLog)) >= 1 && readLines(openLog)[0] != "" })
+	time.Sleep(100 * time.Millisecond)
+	want := "--open handboard://open/" + fleetID(t, fx.h) + "/attempt/a1"
+	if got := readLines(openLog); len(got) != 1 || got[0] != want {
+		t.Fatalf("opened %q, want only the desktop with %q", got, want)
+	}
+}
+
+func TestWatchClickFallsBackToTheBrowserWithoutTheDesktop(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(openLog)) == 1 && readLines(openLog)[0] != "" })
+	if got := readLines(openLog)[0]; !strings.HasPrefix(got, "http://127.0.0.1:7777/") || !strings.HasSuffix(got, "/attempt/a1") {
+		t.Fatalf("opened %q", got)
+	}
+}
+
 func TestWatchFallsBackWhenNotifySendHasNoAction(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)

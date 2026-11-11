@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/proc"
 )
@@ -34,6 +36,7 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	if url == "" || !openable {
 		return false
 	}
+	link := w.appURL(ctx, ref)
 	nctx, cancel := context.WithTimeout(w.clickCtx, clickTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(nctx, bin, notifyClickArgv(fleet, text)...)
@@ -42,7 +45,7 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	proc.NoWindow(cmd)
 	out, err := cmd.Output()
 	if strings.TrimSpace(string(out)) == clickAction {
-		w.openBoard(url)
+		w.openAlert(link, url)
 		return true
 	}
 	return err == nil || nctx.Err() != nil
@@ -72,6 +75,29 @@ func (w *watcher) reserveClick() bool {
 			return true
 		}
 	}
+}
+
+func (w *watcher) openAlert(link, url string) {
+	if link != "" && w.openDesktop(link) {
+		return
+	}
+	w.openBoard(url)
+}
+
+func (w *watcher) openDesktop(link string) bool {
+	self, _ := os.Executable()
+	bin, err := desktopasset.Locate(self, w.r.env.Getenv("PATH"))
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(bin, "--open", link)
+	cmd.Env = w.r.env.Environ()
+	proc.Detach(cmd)
+	if cmd.Start() != nil {
+		return false
+	}
+	go func() { _ = cmd.Wait() }()
+	return true
 }
 
 func (w *watcher) openBoard(url string) {
