@@ -75,7 +75,7 @@ func TestKeepLuvusUpdatesAndLeavesTheSwitchPending(t *testing.T) {
 	if err != nil || rep.Failed || rep.Status != "updated" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	want := []string{"kill", "watcher @ " + f.alpha, "kill", "board @ " + f.alpha, "hand init @ " + f.alpha}
+	want := []string{"kill", "kill", "board @ " + f.alpha, "watcher @ " + f.alpha, "hand init @ " + f.alpha}
 	if got := f.processCalls(t); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q, want %q", got, want)
 	}

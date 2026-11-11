@@ -146,11 +146,11 @@ func TestUpdateStopsByPIDAndRestartsThroughEnsure(t *testing.T) {
 	if err != nil || rep.Failed || rep.Status != "updated" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	want := []string{"kill", "watcher @ " + f.alpha, "kill", "board @ " + f.alpha, "hand init @ " + f.alpha}
+	want := []string{"kill", "kill", "board @ " + f.alpha, "watcher @ " + f.alpha, "hand init @ " + f.alpha}
 	if got := f.processCalls(t); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q, want %q", got, want)
 	}
-	wantRows := []UnitResult{{"watch alpha", "stop", "ok"}, {"watch " + f.alpha, "start", "ok"}, {"board", "stop", "ok"}, {"board", "start", "ok"}}
+	wantRows := []UnitResult{{"watch alpha", "stop", "ok"}, {"board", "stop", "ok"}, {"board", "start", "ok"}, {"watch " + f.alpha, "start", "ok"}}
 	if !slices.Equal(rep.Units, wantRows) {
 		t.Fatalf("units = %+v", rep.Units)
 	}
@@ -295,6 +295,31 @@ func TestUpdateReportsAFailedStart(t *testing.T) {
 	}
 }
 
+func TestUpdateStartsTheWatcherUnderTheNewBoardsGeneration(t *testing.T) {
+	f := newCycle(t)
+	f.watcherRuns(t)
+	f.boardRuns(t)
+	file := filepath.Join(f.root, "board.generation")
+	if err := os.WriteFile(file, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var held string
+	f.o.Board = func(context.Context, string) error {
+		return os.WriteFile(file, []byte("new\n"), 0o600)
+	}
+	f.o.Watch = func(context.Context, string) error {
+		b, err := os.ReadFile(file)
+		held = strings.TrimSpace(string(b))
+		return err
+	}
+	if rep, err := Run(context.Background(), f.o); err != nil || rep.Failed {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if held != "new" {
+		t.Fatalf("the watcher started under board generation %q, want the new board's", held)
+	}
+}
+
 func TestUpdateJournalsItsStepsBeforeStopping(t *testing.T) {
 	f := newCycle(t)
 	f.watcherRuns(t)
@@ -311,7 +336,7 @@ func TestUpdateJournalsItsStepsBeforeStopping(t *testing.T) {
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
 	}
-	if len(seen) != 2 || !slices.Equal(seen[0].Watcher, []string{f.alpha}) || len(seen[0].Board) != 0 || !slices.Equal(seen[1].Board, []string{f.alpha}) || len(seen[1].Watcher) != 0 || !slices.Equal(seen[1].Init, []string{f.alpha}) {
+	if len(seen) != 2 || !slices.Equal(seen[0].Watcher, []string{f.alpha}) || len(seen[0].Board) != 0 || !slices.Equal(seen[1].Board, []string{f.alpha}) || !slices.Equal(seen[1].Watcher, []string{f.alpha}) || !slices.Equal(seen[1].Init, []string{f.alpha}) {
 		t.Fatalf("journals at the stops = %+v", seen)
 	}
 }

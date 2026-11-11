@@ -440,7 +440,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 	case !full:
 		init = "skipped: current"
 	}
-	var homes []string
+	var homes, later []string
 	for _, e := range fleets {
 		fr := FleetResult{Name: e.Name, Init: init, Luvus: "kept"}
 		if e.State != "ok" {
@@ -499,7 +499,10 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 				}
 			}
 		}
-		if did {
+		switch {
+		case did && stopped && full:
+			later = append(later, e.Home)
+		case did:
 			if stopped {
 				r.start(ctx, o, "watch "+e.Home, []string{e.Home}, o.Watch)
 			}
@@ -515,6 +518,10 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 			r.start(ctx, o, "board", homes, o.Board)
 		}
 		r.unrecord(o, func(j *journal) { j.Board = nil })
+	}
+	for _, home := range later {
+		r.start(ctx, o, "watch "+home, []string{home}, o.Watch)
+		r.unrecord(o, func(j *journal) { j.Watcher = without(j.Watcher, home) })
 	}
 }
 

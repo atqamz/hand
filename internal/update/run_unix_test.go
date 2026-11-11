@@ -568,7 +568,7 @@ func TestUpdateLeavesInstalledUnitsToTheEnsurePath(t *testing.T) {
 	if err != nil || rep.Failed {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	want := []string{"kill", "watcher @ " + f.alpha, "kill", "board @ " + f.alpha}
+	want := []string{"kill", "kill", "board @ " + f.alpha, "watcher @ " + f.alpha}
 	if got := f.log(t, "kill", "watcher @ ", "board @ "); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q", got)
 	}
