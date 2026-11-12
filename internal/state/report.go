@@ -262,6 +262,12 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64, apiError strin
 		if err != nil {
 			return err
 		}
+		// attempt.working records the move out of a turn end, not a new report.
+		if last.Kind == "attempt.working" {
+			if last, _, err = attemptEventBefore(ctx, tx, attemptID, last.Seq); err != nil {
+				return err
+			}
+		}
 		kind = "attempt.quiet"
 		if last.Kind == "attempt.quiet" || last.Kind == "attempt.idle" || last.Kind == "attempt.reported" && !strings.HasSuffix(last.Detail, " "+ReportProgress) {
 			kind = "attempt.idle"

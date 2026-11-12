@@ -706,13 +706,17 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	case t == nil:
 		w.turns[a.ID] = &turn{since: w.r.env.Now()}
 	}
-	if status == "working" && prev != "blocked" && harness.Prefills(a.Harness) {
+	resumed := prev == "blocked"
+	if status == "working" && !resumed {
 		last, err := w.st.LastAttemptEvent(ctx, a.ID)
 		if err != nil {
 			return err
 		}
-		if last == "attempt.blocked" {
-			prev = "blocked"
+		switch {
+		case last == "attempt.blocked" && harness.Prefills(a.Harness):
+			prev, resumed = "blocked", true
+		case last == "attempt.quiet", last == "attempt.idle", last == "attempt.limited":
+			prev, resumed = strings.TrimPrefix(last, "attempt."), true
 		}
 	}
 	if prev == status {
@@ -723,7 +727,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	ref := state.AttemptRef(a.ID)
 	switch status {
 	case "working":
-		if prev == "blocked" {
+		if resumed {
 			if err := w.st.NoteAttempt(ctx, a.ID, "working", ""); !errors.Is(err, state.ErrConflict) {
 				return err
 			}

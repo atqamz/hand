@@ -287,6 +287,21 @@ func TestNoTurnSignalIsRecordedForAnEndedAttempt(t *testing.T) {
 	}
 }
 
+func TestATurnEndAfterTheMoveOutOfQuietIsIdle(t *testing.T) {
+	s, _ := openTest(t)
+	a := runningAttempt(t, s)
+	ctx := context.Background()
+	if kind, _, err := s.RecordQuiet(ctx, a.ID, ""); err != nil || kind != "attempt.quiet" {
+		t.Fatalf("first turn end = %q, %v", kind, err)
+	}
+	if err := s.NoteAttempt(ctx, a.ID, "working", ""); err != nil {
+		t.Fatal(err)
+	}
+	if kind, _, err := s.RecordQuiet(ctx, a.ID, ""); err != nil || kind != "attempt.idle" {
+		t.Fatalf("turn end after the move out of quiet = %q, %v", kind, err)
+	}
+}
+
 func TestWakeEventsLeaveOutWhatTheSupervisorAlreadyHandled(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
