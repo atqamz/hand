@@ -89,10 +89,10 @@ func TestFleetsRefusesAPhonePairedWithoutItsOwnKey(t *testing.T) {
 	a := r.fleets[0]
 	bare := phoneNamed("hand_phone_"+a.id, r.pair(a, serving()))
 	rep := r.as(peerA).do("GET", "/api/v1/fleets", nil, nil, bare)
-	if rep.Code != http.StatusUnauthorized || strings.Contains(rep.Body, a.id) {
+	if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"forbidden"`) || strings.Contains(rep.Body, a.id) {
 		t.Fatalf("a keyless phone over the peer = %d:\n%s", rep.Code, rep.Body)
 	}
-	if rep := r.as(peerA).do("GET", "/api/v1/meta", nil, nil, bare); rep.Code != http.StatusUnauthorized {
+	if rep := r.as(peerA).do("GET", "/api/v1/meta", nil, nil, bare); rep.Code != http.StatusForbidden {
 		t.Fatalf("meta for a keyless phone = %d", rep.Code)
 	}
 }
@@ -206,5 +206,20 @@ func TestFleetsAndMetaRefuseWhatEveryAPIReadRefuses(t *testing.T) {
 	net := newPhoneHost(t, false, "alpha")
 	for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
 		testAPIError(t, net.send("GET", path, nil, cookies(net.laptop(net.fleets[0])), nil), http.StatusForbidden, "forbidden")
+	}
+}
+
+func TestFleetsAndMetaTakeOnlyReads(t *testing.T) {
+	p := newPhoneHost(t, true, "alpha")
+	a := p.fleets[0]
+	for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
+		rec := p.send("POST", path, nil, cookies(p.laptop(a)), nil)
+		testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+		if rec.Header().Get("Allow") != "GET, HEAD" {
+			t.Fatalf("POST %s Allow = %q", path, rec.Header().Get("Allow"))
+		}
+		if rec := p.send("HEAD", path, nil, cookies(p.laptop(a)), nil); rec.Code != http.StatusOK {
+			t.Fatalf("HEAD %s = %d", path, rec.Code)
+		}
 	}
 }

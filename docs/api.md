@@ -53,7 +53,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 - `?since=` from before any change to that data: `200` with the new data and a new cursor. A worker's screen is not in the status cursor, so a conditional read of `status` does not see a worker's screen-only change: a client that refreshes a worker item reads without `since`.
 - A cursor this board did not issue (another fleet, a typo, a truncated value): `400` with `bad_cursor`.
 
-Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of reading the envelope.
+Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client may use it instead of reading the envelope. `fleets` and `meta` belong to no fleet, take no `?since=` and carry no cursor.
 
 ## Endpoints
 
@@ -286,7 +286,7 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
 | `fleets` | `GET /api/v1/fleets` |
 | `pair` | `POST /api/v1/pair` |
 
-Both paths take the refusals of every read: a request through a proxy or Funnel, and a network-address board, get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`.
+Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a phone on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 
 ### The supervisor controls
 

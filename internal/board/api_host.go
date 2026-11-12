@@ -87,6 +87,7 @@ func (h *Host) apiReadable(w http.ResponseWriter, r *http.Request) (map[string]b
 	for id := range h.phoneFleets(r, "") {
 		proven[id] = true
 	}
+	held := len(proven) > 0
 	if peerOf(r) != nil {
 		for id := range proven {
 			if !h.reads(id, r) {
@@ -94,8 +95,17 @@ func (h *Host) apiReadable(w http.ResponseWriter, r *http.Request) (map[string]b
 			}
 		}
 	}
+	if held && len(proven) == 0 {
+		hostAPIFail(w, http.StatusForbidden, "forbidden", "the API answers on the peer listener only to a phone paired with its own key")
+		return nil, false
+	}
 	if len(proven) == 0 {
 		hostAPIFail(w, http.StatusUnauthorized, "unauthorized", "this request needs the board's session cookie")
+		return nil, false
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		hostAPIFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "this path takes GET and HEAD")
 		return nil, false
 	}
 	return proven, true
@@ -136,10 +146,13 @@ func (h *Host) apiFleets(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	all, err := h.o.List()
-	if err != nil {
-		hostAPIFail(w, http.StatusInternalServerError, "internal", Scrub(err.Error()))
-		return
+	var all []FleetLink
+	if h.o.List != nil {
+		var err error
+		if all, err = h.o.List(); err != nil {
+			hostAPIFail(w, http.StatusInternalServerError, "internal", Scrub(err.Error()))
+			return
+		}
 	}
 	out := APIFleets{Fleets: []APIFleetItem{}}
 	for _, l := range within(all, proven) {

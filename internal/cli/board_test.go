@@ -267,6 +267,49 @@ func TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor(t *testing.T) {
 	}
 }
 
+func TestTheRealBoardListsItsFleetsAndFeaturesInTheAPI(t *testing.T) {
+	a := newHarness(t)
+	a.ok("init", "--name", "alpha")
+	b := newHarness(t)
+	b.vars = a.vars
+	b.ok("init", "--name", "beta")
+	base, _ := startBoard(t, a, "127.0.0.1")
+	urlA, tokenA := fleetPage(t, base, a)
+	fleetPage(t, base, b)
+	get := func(p string, cookies ...*http.Cookie) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest("GET", base+p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ck := range cookies {
+			req.AddCookie(ck)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		out, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(out)
+	}
+	laptop := &http.Cookie{Name: "hand_board_" + path.Base(urlA), Value: tokenA}
+	code, body := get("/api/v1/fleets", laptop)
+	if code != http.StatusOK || !strings.Contains(body, `"name":"alpha"`) || !strings.Contains(body, `"pill"`) || strings.Contains(body, "unavailable") || strings.Contains(body, "beta") {
+		t.Fatalf("fleets = %d:\n%s", code, body)
+	}
+	code, body = get("/api/v1/meta", laptop)
+	if code != http.StatusOK || !strings.Contains(body, `"version":"`+cli.Version+`"`) || !strings.Contains(body, `"features":["events","fleets","pair"]`) {
+		t.Fatalf("meta = %d:\n%s", code, body)
+	}
+	if code, _ := get("/api/v1/meta"); code != http.StatusUnauthorized {
+		t.Fatalf("meta without a session = %d", code)
+	}
+}
+
 func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")

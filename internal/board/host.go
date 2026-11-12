@@ -96,8 +96,8 @@ func NewHost(o HostOptions) *Host {
 	}
 	h := &Host{o: o, mux: http.NewServeMux(), fleets: map[string]hosted{}}
 	h.mux.HandleFunc("GET /{$}", h.list)
-	h.mux.HandleFunc("GET "+apiPrefix+"/fleets", h.apiFleets)
-	h.mux.HandleFunc("GET "+apiPrefix+"/meta", h.apiMeta)
+	h.mux.HandleFunc(apiPrefix+"/fleets", h.apiFleets)
+	h.mux.HandleFunc(apiPrefix+"/meta", h.apiMeta)
 	h.mux.HandleFunc("/static/", ServeStatic)
 	h.mux.HandleFunc("GET /sw.js", retireWorker)
 	h.mux.HandleFunc("/{id}/", h.fleet)
