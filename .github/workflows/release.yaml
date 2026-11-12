@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  TAURI_CLI_VERSION: "2.12.4"
+  NDK_VERSION: 27.3.13750724
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tag against the version and the pinned key
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ $version =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$ ]]
+          IFS=. read -r major minor patch <<<"$version"
+          test "$minor" -lt 1000
+          test "$patch" -lt 1000
+          test "$major" -lt 2100
+          config=src-tauri/tauri.conf.json
+          test "$(jq -r .version "$config")" = "$version"
+          test "$(jq -r .bundle.android.versionCode "$config")" -eq $((major * 1000000 + minor * 1000 + patch))
+          [[ "$(cat release-key.sha256)" =~ ^[0-9a-f]{64}$ ]]
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - name: Install the Android SDK packages
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add aarch64-linux-android
+      - run: cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+      - name: Build the release APK
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          cargo tauri android build --apk --target aarch64
+      - name: Sign the APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/release.jks"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias handcompanion --ks-pass env:RELEASE_KEYSTORE_PASSWORD --out "$RUNNER_TEMP/signed.apk" src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+      - name: Check the APK
+        run: |
+          apk="$RUNNER_TEMP/signed.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs"
+          grep -qxF "Signer #1 certificate SHA-256 digest: $(cat release-key.sha256)" "$RUNNER_TEMP/certs"
+          test "$(grep -c "^Signer #.* certificate SHA-256 digest:" "$RUNNER_TEMP/certs")" -eq 1
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test "$("$apkanalyzer" manifest version-name "$apk")" = "${GITHUB_REF_NAME#v}"
+          test "$("$apkanalyzer" manifest version-code "$apk")" = "$(jq -r .bundle.android.versionCode src-tauri/tauri.conf.json)"
+          .github/scripts/check-jni-keep.sh "$apk"
+          mv "$apk" "$RUNNER_TEMP/hand-android-${GITHUB_REF_NAME#v}.apk"
+      - name: Attach the APK to a draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$GITHUB_REF_NAME" --generate-notes "$RUNNER_TEMP/hand-android-${GITHUB_REF_NAME#v}.apk"

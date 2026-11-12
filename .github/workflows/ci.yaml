@@ -11,6 +11,7 @@ on:
       - Cargo.lock
       - rust-toolchain.toml
       - .github/workflows/**
+      - .github/scripts/**
       - .github/dependabot.yml
   pull_request:
     branches: [main]
@@ -148,6 +149,12 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs"
           grep -qx "Signer #1 certificate SHA-256 digest: $DEBUG_KEY_SHA256" "$RUNNER_TEMP/certs"
           test "$(grep -c "^Signer #.* certificate SHA-256 digest:" "$RUNNER_TEMP/certs")" -eq 1
+      - name: Build the unsigned release APK
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          cargo tauri android build --apk --target aarch64
+      - name: Check that R8 kept what Rust calls
+        run: .github/scripts/check-jni-keep.sh src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hand-android-debug-apk

@@ -2,7 +2,7 @@
 
 Reach a Hand Board from an Android phone over iroh.
 
-Status: roadmap steps 1 to 4 are built. The app keeps an iroh key, takes a `handboard://` pairing link from an intent, a paste or a QR scan, asks the user to confirm the laptop, and then shows the Board's pair page through a loopback proxy at `http://localhost:PORT`. The web view loads the bundled page and that proxy origin only; every other address opens in the system browser. Release signing is not built. A foreground service polls Hand's alert feed and posts each alert as a notification, with the app open or not; it is built and passes its host and JVM tests, and its device check is still to do (see Alerts on the phone).
+Status: roadmap steps 1 to 4 are built. The app keeps an iroh key, takes a `handboard://` pairing link from an intent, a paste or a QR scan, asks the user to confirm the laptop, and then shows the Board's pair page through a loopback proxy at `http://localhost:PORT`. The web view loads the bundled page and that proxy origin only; every other address opens in the system browser. The signed release build exists (see Release build) and nothing is published yet. A foreground service polls Hand's alert feed and posts each alert as a notification, with the app open or not; it is built and passes its host and JVM tests, and its device check is still to do (see Alerts on the phone).
 
 ## What it is
 
@@ -19,7 +19,7 @@ Android only. iOS is deferred and has no code here.
 
 ## Build a debug APK
 
-Debug-signed only. No release signing key exists in this repository or in CI. Every build is signed by the debug key committed at `src-tauri/gen/android/app/debug.keystore` (alias `androiddebugkey`, password `android`, SHA-256 `083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da`), so a new build updates the installed one in place. Debug keys are not secret. The `signingConfigs` block in `app/build.gradle.kts` selects it; `cargo tauri android init` overwrites that file, so redo the block after running it.
+Every debug build is signed by the debug key committed at `src-tauri/gen/android/app/debug.keystore` (alias `androiddebugkey`, password `android`, SHA-256 `083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da`), so a new build updates the installed one in place. Debug keys are not secret. The `signingConfigs` block in `app/build.gradle.kts` selects it; `cargo tauri android init` overwrites that file, so redo the block after running it.
 
 An app installed from a build made before this key (CI run 42762177268 and earlier) is signed by a throwaway key: uninstall it and pair again once; later builds update in place.
 
@@ -29,7 +29,7 @@ Prerequisites:
 - Android SDK platform 37, build-tools 36.0.0 and the command-line tools.
 - NDK 27.3.13750724, with `NDK_HOME` pointing at it.
 - Rust 1.98.1, from `rust-toolchain.toml`, with the `aarch64-linux-android` target for a phone and the `x86_64-linux-android` target for an emulator.
-- `tauri-cli` 2.12.4.
+- `tauri-cli` 2.12.4 (also pinned in `.github/workflows/ci.yaml` and `release.yaml`).
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
@@ -47,6 +47,84 @@ The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/ap
 The build generates the Kotlin activity classes. Once they exist, `cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the window-inset arithmetic, of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility), of the Board client and of the fleet list. `./gradlew :app:verifyPaparazziUniversalDebug` runs the same tests and also compares the rendered screens with the stored images; CI runs that one.
 
 Measured on 2026-11-05 on Linux x86_64 with 22 cores and warm SDK, Gradle and cargo caches: 1m36s for the `aarch64` debug APK with iroh in `target/`, 1m14s for the `x86_64` one, and a 127 MiB APK with debug symbols. The SDK, NDK, JDK, Gradle and Rust caches took about 12 GB.
+
+## Release build
+
+A tag `vMAJOR.MINOR.PATCH` builds an arm64-v8a APK, signs it and attaches it to a draft GitHub release. The version has one source, `src-tauri/tauri.conf.json`: `version` is `MAJOR.MINOR.PATCH` and `bundle.android.versionCode` is the literal `MAJOR*1000000 + MINOR*1000 + PATCH` (0.2.0 is 2000, and the file stays readable by F-Droid). Set both in the commit that the tag names. The job refuses a tag that disagrees with them, a major of 2100 or more, a minor or patch of 1000 or more, a `release-key.sha256` that is not exactly one line of 64 lowercase hex digits, and a signer that is not the one in `release-key.sha256`. Android refuses an update with a lower `versionCode`.
+
+R8 is on. Rust finds `Core` and `AppHost` and the Tauri plugins by name, so `app/proguard-rules.pro` keeps `Core` and `AppHost` whole (without it R8 strips every `AppHost` method) and `.github/scripts/check-jni-keep.sh` reads `src-tauri/src` for each native, `call_method`, plugin class and plugin command and fails when the APK lacks one, when any of those four lists comes up empty, when `lib/arm64-v8a/libhand_android_lib.so` is missing or another ABI is present, and when the sources use a JNI lookup it does not follow (`find_class`, `new_object`, `get_field`, `get_method_id`, a static call). CI runs it on an unsigned release build of every pull request.
+
+The key is the app's identity for good and one key serves every channel. It lives only in the `release` environment's secrets, so a pull request or another job never sees it, and the build never does either: the APK is built with no secret in the environment, and the last step signs it with `apksigner`, the password in that step's environment and not on its command line. `RELEASE_KEYSTORE_*` are never repository-level or organization-level secrets.
+
+### One-time steps for the maintainer
+
+Make the key on a machine you trust, outside the repository. The password stays in one shell variable (`read` does not echo it, and a variable keeps it off every command line); close the shell when the steps are done.
+
+```sh
+mkdir -p ~/hand-android-key && cd ~/hand-android-key
+read -rsp 'Release key password: ' RELEASE_KEYSTORE_PASSWORD && export RELEASE_KEYSTORE_PASSWORD
+keytool -genkeypair -storetype PKCS12 -keystore release.jks -alias handcompanion \
+  -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=Hand's Android Companion" \
+  -storepass:env RELEASE_KEYSTORE_PASSWORD
+```
+
+Back it up in two places that are not this machine, and keep the password in a password manager. Prove a backup opens:
+
+```sh
+cp release.jks /path/to/backup-one/ && cp release.jks /path/to/backup-two/
+keytool -list -keystore /path/to/backup-two/release.jks -storepass:env RELEASE_KEYSTORE_PASSWORD
+```
+
+Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `v*`, and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag before approving a run: a tag carries its own copy of it.
+
+```sh
+reviewer=$(gh api users/atqamz --jq .id)
+gh api -X PUT repos/atqamz/hand-android/environments/release --input - <<EOF
+{"reviewers":[{"type":"User","id":$reviewer}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+EOF
+gh api -X POST repos/atqamz/hand-android/environments/release/deployment-branch-policies -f name='v*' -f type=tag
+```
+
+Store the two secrets in that environment, never at repository or organization level:
+
+```sh
+base64 -w0 release.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo atqamz/hand-android
+printf '%s' "$RELEASE_KEYSTORE_PASSWORD" | gh secret set RELEASE_KEYSTORE_PASSWORD --env release --repo atqamz/hand-android
+```
+
+Pin the fingerprint in a pull request. This is a public value; it replaces the placeholder in `release-key.sha256`:
+
+```sh
+keytool -list -v -keystore release.jks -alias handcompanion -storepass:env RELEASE_KEYSTORE_PASSWORD \
+  | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d : | tr A-F a-f > /path/to/hand-android/release-key.sha256
+[[ "$(cat /path/to/hand-android/release-key.sha256)" =~ ^[0-9a-f]{64}$ ]] && echo ok
+```
+
+Print `ok` before you open the pull request: the file must hold one line of 64 lowercase hex digits (trailing newlines are ignored), and the job refuses anything else.
+
+Forget the password in this shell, then tag a commit of `main` whose CI is green, and approve the run in the Actions tab. The run leaves a draft release. Install its APK on the phone, pair, see an alert, and only then publish:
+
+```sh
+unset RELEASE_KEYSTORE_PASSWORD
+git tag -s v0.1.0 -m v0.1.0 && git push origin v0.1.0
+gh release download v0.1.0 --repo atqamz/hand-android --pattern '*.apk' --dir /tmp/hand-android-release
+adb install -r /tmp/hand-android-release/hand-android-0.1.0.apk
+gh release edit v0.1.0 --repo atqamz/hand-android --draft=false
+```
+
+The first release-signed install replaces a debug-signed one only after `adb uninstall io.github.atqamz.handcompanion`: Android refuses a different signer, and the uninstall deletes the Keystore key and the iroh identity, so pair again once.
+
+### A local release build
+
+Gradle makes `app-universal-release-unsigned.apk`. Sign it with the same command as the job, the password taken from the environment (read it with `read -rsp` after the build, so the build never sees it, and `unset` it afterwards):
+
+```sh
+cargo tauri android build --apk --target aarch64
+read -rsp 'Release key password: ' RELEASE_KEYSTORE_PASSWORD && export RELEASE_KEYSTORE_PASSWORD
+apksigner sign --ks /path/to/release.jks --ks-key-alias handcompanion --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
+  --out hand-android.apk src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+unset RELEASE_KEYSTORE_PASSWORD
+```
 
 ## An unreachable laptop
 
@@ -225,7 +303,8 @@ The wire contract is [Hand's Companion contract](https://github.com/atqamz/hand/
 2. [x] Loopback proxy and web view: listen on `127.0.0.1`, open one QUIC stream per TCP connection, and open the Board at `http://localhost:PORT`.
 3. [x] Pairing: parse the pairing link, confirm the laptop, and open the Board's pair page that spends the one-time code.
 4. [x] QR scanner for the pairing link.
-5. Release signing and distribution.
+5. [x] A signed release build: tag, version code, R8, a release job with its key in a protected environment.
+6. Distribution: an F-Droid repository.
 
 ## Contributing
 

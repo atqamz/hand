@@ -5,7 +5,7 @@ Hand's Android Companion is a personal project under the [MIT license](LICENSE).
 - For anything beyond a small fix, open an issue first and say what you want to change.
 - Send one pull request per change, and say in it what changed and why.
 - Read [`AGENTS.md`](AGENTS.md), then run the three `cargo` commands it lists before you push. A change to `src-tauri/` or `web/` also builds the debug APK: see [Build a debug APK](README.md#build-a-debug-apk).
-- Never commit a release signing key, a release keystore or any secret. The one exception is the public debug key `src-tauri/gen/android/app/debug.keystore`. Release builds are not made here yet.
+- Never commit a release signing key, a release keystore or any secret. The one exception is the public debug key `src-tauri/gen/android/app/debug.keystore`. Only the maintainer makes release builds: see [Release build](README.md#release-build).
 
 ## Sign off your commits
 
