@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -931,6 +932,96 @@ func TestAttemptStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
 	out, errOut, code := fx.h.run("attempt", "stop", "a1")
 	if code != 0 || !strings.Contains(out, "status: stopped") || !strings.Contains(out, "did not close") {
 		t.Fatalf("stop: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+}
+
+func TestAttemptStartContinueInheritsTheRoute(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	out := fx.h.ok("attempt", "start", "--continue", "a1", "--prompt-file", fx.brief, "t1")
+	for _, want := range []string{"attempt: a2", "continues: a1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("start = %q, missing %q", out, want)
+		}
+	}
+	if call := fx.rt.lastCreate(); !strings.Contains(strings.Join(call.Command, " "), "--model sonnet --effort low") {
+		t.Fatalf("argv = %q, want the route of a1", call.Command)
+	}
+	if show := fx.h.ok("attempt", "show", "a2"); !strings.Contains(show, "harness: claude sonnet low") {
+		t.Fatalf("show = %q", show)
+	}
+}
+
+func TestAttemptStartContinueOverridesOnlyTheFlagGiven(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	fx.h.ok("attempt", "start", "--continue", "a1", "--effort", "max", "--prompt-file", fx.brief, "t1")
+	if call := fx.rt.lastCreate(); !strings.Contains(strings.Join(call.Command, " "), "--model sonnet --effort max") {
+		t.Fatalf("argv = %q, want the inherited model and the explicit effort", call.Command)
+	}
+	if show := fx.h.ok("attempt", "show", "a2"); !strings.Contains(show, "harness: claude sonnet max") {
+		t.Fatalf("show = %q", show)
+	}
+}
+
+func TestAttemptStartContinueNamesTheAttemptWhenItsModelIsInvalid(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	db, err := sql.Open("sqlite", filepath.Join(fx.h.home, "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE attempt SET model = 'bad model' WHERE id = 1`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--prompt-file", fx.brief, "t1")
+	if code == 0 || !strings.Contains(errOut, `model "bad model"`) || !strings.Contains(errOut, "continued attempt a1") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestAttemptStartContinueWithNoRecordedRouteFallsBackToTheFlags(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	db, err := sql.Open("sqlite", filepath.Join(fx.h.home, "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE attempt SET harness = '', model = '', effort = '' WHERE id = 1`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--prompt-file", fx.brief, "t1")
+	if code != 2 || !strings.Contains(errOut, "continued attempt a1 recorded no harness") || !strings.Contains(errOut, "give --harness, --model and --effort") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestAttemptStartWithoutContinueStillNeedsTheFlags(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	_, errOut, code := fx.h.run("attempt", "start", "--prompt-file", fx.brief, "t1")
+	if code != 2 || !strings.Contains(errOut, "give --harness, --model and --effort") || strings.Contains(errOut, "a1") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a2") {
+		t.Fatalf("list = %q, want no a2", list)
 	}
 }
 
