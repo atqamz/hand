@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,8 +71,10 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	var inherited, noRoute bool
-	if continues != 0 && (*name == "" || *model == "" || *effort == "") {
+	if continues != 0 && (!given["harness"] || !given["model"] || !given["effort"]) {
 		prev, err := func() (state.Attempt, error) {
 			st, err := r.store()
 			if err != nil {
@@ -87,13 +90,13 @@ func cmdAttemptStart(r *runner, args []string) error {
 			noRoute = true
 		} else {
 			inherited = true
-			if *name == "" {
+			if !given["harness"] {
 				*name = prev.Harness
 			}
-			if *model == "" {
+			if !given["model"] {
 				*model = prev.Model
 			}
-			if *effort == "" {
+			if !given["effort"] {
 				*effort = prev.Effort
 			}
 		}

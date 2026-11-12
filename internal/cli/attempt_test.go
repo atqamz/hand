@@ -968,6 +968,17 @@ func TestAttemptStartContinueOverridesOnlyTheFlagGiven(t *testing.T) {
 	}
 }
 
+func TestAttemptStartContinueHonorsAnExplicitlyEmptyFlag(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--model", "", "--prompt-file", fx.brief, "t1")
+	if code == 0 || !strings.Contains(errOut, `claude model ""`) {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
 func TestAttemptStartContinueNamesTheAttemptWhenItsModelIsInvalid(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
@@ -1009,6 +1020,13 @@ func TestAttemptStartContinueWithNoRecordedRouteFallsBackToTheFlags(t *testing.T
 	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--prompt-file", fx.brief, "t1")
 	if code != 2 || !strings.Contains(errOut, "continued attempt a1 recorded no harness") || !strings.Contains(errOut, "give --harness, --model and --effort") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	branch := fx.h.branch("t1-a1")
+	out := fx.h.ok("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	for _, want := range []string{"attempt: a2", "continues: a1", "branch: " + branch} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("start = %q, missing %q", out, want)
+		}
 	}
 }
 
