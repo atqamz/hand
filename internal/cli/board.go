@@ -102,8 +102,10 @@ func cmdBoard(r *runner, args []string) error {
 				}
 			})
 		},
-		List:  func() ([]board.FleetLink, error) { return boardFleets(root) },
-		Valid: func(id, token string) bool { return boardTokenIs(root, id, token) },
+		List:    func() ([]board.FleetLink, error) { return boardFleets(root) },
+		Valid:   func(id, token string) bool { return boardTokenIs(root, id, token) },
+		Version: Version,
+		Iroh:    irohStatus,
 	})
 	defer host.Close()
 	srv := &http.Server{Handler: host, ReadHeaderTimeout: 10 * time.Second}
@@ -303,6 +305,24 @@ func (f *fleetBoard) PhoneSession(r *http.Request) bool {
 	h, err := f.current()
 	p, ok := h.(board.Prover)
 	return err == nil && ok && p.PhoneSession(r)
+}
+
+func (f *fleetBoard) FleetSummary(ctx context.Context) (board.APIFleetSummary, error) {
+	h, err := f.current()
+	if err != nil {
+		return board.APIFleetSummary{}, err
+	}
+	s, ok := h.(board.Summarizer)
+	if !ok {
+		return board.APIFleetSummary{}, state.ErrNotFound
+	}
+	return s.FleetSummary(ctx)
+}
+
+func (f *fleetBoard) APIRead(r *http.Request) bool {
+	h, err := f.current()
+	rd, ok := h.(board.Reader)
+	return err == nil && ok && rd.APIRead(r)
 }
 
 func (f *fleetBoard) PairPhone(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {

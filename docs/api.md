@@ -12,7 +12,7 @@ Each fleet keeps its own prefix, as its pages do:
 http://127.0.0.1:7777/<fleet id>/api/v1/status
 ```
 
-A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of an iroh-paired phone, `hand_phone_<fleet id>` (`__Host-hand_phone_<fleet id>` behind an HTTPS proxy). A phone's cookie works only from its own endpoint, on the peer listener. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
+A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. Two paths belong to the host, not to a fleet: `/api/v1/fleets` and `/api/v1/meta`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of an iroh-paired phone, `hand_phone_<fleet id>` (`__Host-hand_phone_<fleet id>` behind an HTTPS proxy). A phone's cookie works only from its own endpoint, on the peer listener. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
 
 A local client proves the service at the recorded port is the board before it sends the token, since `board.addr` outlives a board that exits abnormally: `GET /<fleet id>/proof?nonce=<random>` answers the hex HMAC-SHA256 of the client's nonce keyed by `board.token`, with no cookie; a client that reads the token from the fleet compares it and only then sends the cookie. `hand open` and the desktop window both do this, and neither sends the token to a service that fails it.
 
@@ -53,7 +53,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 - `?since=` from before any change to that data: `200` with the new data and a new cursor. A worker's screen is not in the status cursor, so a conditional read of `status` does not see a worker's screen-only change: a client that refreshes a worker item reads without `since`.
 - A cursor this board did not issue (another fleet, a typo, a truncated value): `400` with `bad_cursor`.
 
-Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of reading the envelope.
+Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client may use it instead of reading the envelope. `fleets` and `meta` belong to no fleet, take no `?since=` and carry no cursor.
 
 ## Endpoints
 
@@ -68,6 +68,8 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `GET /api/v1/report/{rN}` | `ReportDetail`: report, task, delivered | the report's card on `/task/tN` |
 | `GET /api/v1/session` | `Session`: `csrf` | none; the form token a mutation sends |
 | `GET /api/v1/events` | a Server-Sent Events stream; see [The event stream](#the-event-stream) | the pages' own `/events` stream |
+| `GET /api/v1/fleets` | `Fleets`: every fleet this session proves, each with its Needs summary and supervisor pill; host level, see [The fleet list and the features](#the-fleet-list-and-the-features) | the Board's rail order, with each fleet's status line |
+| `GET /api/v1/meta` | `Meta`: Hand's version, the `features` list and the sidecar's state; host level | none; what a client checks before it shows a feature |
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
@@ -241,6 +243,50 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
 - `403 codes_cancelled`: this was the tenth wrong code, so every code is cancelled.
 - `429 rate_limited`: 5 wrong codes from this endpoint in the last minute.
 - `200` with `Paired`.
+
+### The fleet list and the features
+
+`GET /api/v1/fleets` and `GET /api/v1/meta` answer on the host, not under a fleet prefix: `/api/v1/fleets`, never `/<fleet id>/api/v1/fleets`. A phone paired with several fleets holds one `hand_phone_<fleet id>` cookie for each, and sends all of them in every request, over its one iroh connection; only the host sees them together, as it does for the rail. Their envelope has no `fleet` and no `cursor`, because they belong to no fleet and have no change stream: a client re-reads them when it opens the fleet list and when a fleet's own stream reports a change.
+
+```json
+{
+  "version": 1,
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "fleets": [
+      {"id": "f00000000e0aa", "name": "hand", "pill": "working", "line": "working",
+       "needs": {"waiting": 2, "worst": "decision", "worst_word": "waiting", "worst_count": 1}},
+      {"id": "f00000000e0bb", "name": "api", "unavailable": true}
+    ]
+  }
+}
+```
+
+`fleets` holds every fleet the request's cookies prove, in the Board's rail order, and nothing else: a fleet it does not prove never appears, not by id, name or count. The rail draws the current fleet plus at most seven others, so the list keeps the rail's order but may carry more fleets than the narrow rail shows. A laptop session proves each fleet whose `hand_board_<fleet id>` cookie holds that fleet's token, a paired phone each fleet whose `hand_phone_<fleet id>` cookie proves it from this endpoint. `pill` and `line` are `Status.pill` and `Status.line` of that fleet, and `needs` carries `waiting`, `worst`, `worst_word`, `worst_count` and `summary` as `Status.needs` does; the two are one computation, so a list and a status read agree. A proven fleet that will not open has `unavailable: true` and no `pill` or `needs`. A fleet that has left the Board's list, and a phone's fleet that will not open, are not listed, as the rail does not list them. The list carries no path, ref or item text.
+
+`GET /api/v1/meta` answers any caller that can read a fleet's `status`:
+
+```json
+{
+  "version": 1,
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "version": "0.14.0",
+    "features": ["events", "fleets", "pair"],
+    "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
+  }
+}
+```
+
+`version` is what `hand version` prints. `features` is a sorted list of short names, one for each optional capability a client must check before it uses it. A name is added when its endpoint lands, and it is never renamed or removed inside v1; a client shows a feature only when its name is listed, so an app that updates before the laptop does hides what the laptop lacks. `sidecar` is the iroh sidecar's `state` (`starting`, `ready`, `failed` or `stopped`), with `id`, `relay` and a scrubbed `reason` when it has them; it is absent when the Board runs without `--iroh`, and for a caller on the peer listener, which has no use for the laptop's own sidecar. An unpaired caller cannot read `meta`: the pair path stays the only one that needs no session, so an app pairs first and checks `features` after.
+
+| Feature | Means |
+|---|---|
+| `events` | `GET /api/v1/events`, the change stream |
+| `fleets` | `GET /api/v1/fleets` |
+| `pair` | `POST /api/v1/pair` |
+
+Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a phone on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 
 ### The supervisor controls
 

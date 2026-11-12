@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -69,6 +70,8 @@ type HostOptions struct {
 	Open     func(id, home string) (http.Handler, io.Closer, error)
 	List     func() ([]FleetLink, error)
 	Valid    func(id, token string) bool
+	Version  string
+	Iroh     func() sidecar.Status
 }
 
 type Host struct {
@@ -76,6 +79,7 @@ type Host struct {
 	mux    *http.ServeMux
 	mu     sync.Mutex
 	fleets map[string]hosted
+	broken map[string]bool
 }
 
 type hosted struct {
@@ -91,8 +95,10 @@ func NewHost(o HostOptions) *Host {
 	if o.Grace <= 0 {
 		o.Grace = 30 * time.Second
 	}
-	h := &Host{o: o, mux: http.NewServeMux(), fleets: map[string]hosted{}}
+	h := &Host{o: o, mux: http.NewServeMux(), fleets: map[string]hosted{}, broken: map[string]bool{}}
 	h.mux.HandleFunc("GET /{$}", h.list)
+	h.mux.HandleFunc(apiPrefix+"/fleets", h.apiFleets)
+	h.mux.HandleFunc(apiPrefix+"/meta", h.apiMeta)
 	h.mux.HandleFunc("/static/", ServeStatic)
 	h.mux.HandleFunc("GET /sw.js", retireWorker)
 	h.mux.HandleFunc("/{id}/", h.fleet)
