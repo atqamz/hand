@@ -13,7 +13,7 @@ var iconDecoration = regexp.MustCompile(` (class|aria-hidden)="[^"]*"`)
 
 var iconNames = []string{
 	"attach", "board", "chat", "chevron", "close", "failure", "fleets", "idle",
-	"mark", "passing", "phone", "running", "screen", "search", "tasks", "waiting",
+	"mark", "passing", "phone", "running", "screen", "search", "sidebar", "tasks", "waiting",
 }
 
 func TestIconNames(t *testing.T) {

@@ -12,7 +12,7 @@ related_targets:
 ## Scope and mode
 
 - **Covers:** `hand-desktop`, a MyGo v0.7.4 window (pinned, cgo-free) that is a client of the running Board:
-  - the rail: the fleets this machine can open, then Status, Needs, Timeline and Tasks;
+  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen (the Status screen) and an inert Phone, then a tinted mark for each fleet this machine can open;
   - Status: the supervisor, its controls and, while it is blocked, its question with one button per option (or the key toolbar), the agent state, the context gauge and the task counts;
   - Needs: every open item in the page's order, toned by its severity word;
   - Timeline: the conversation's entries, the working turn and its queued messages, and the composer: a multi-line message field with Send and Clear;
@@ -46,11 +46,11 @@ related_targets:
 
 THESIS: The same on-call board, in a native window. The fleet's state is read; the only changes the window makes are a message to the supervisor, an answer to an open decision, an acknowledgement of a report, and the supervisor controls the console already offers. What waits on the operator, the conversation and the tasks are the same rows as the Board's, and a ref opens its detail in place. It refuses a second owner of state, a second design language and any other write.
 
-OWN-WORLD: The Board's palette with both themes: white ground, `#f6f7f9` panel, `#f1f3f5` card, `#e3e6ea` hairlines and `#15171c` ink; the fail red, wait amber, pass green and review blue, and their pale fills. Five type sizes (22, 18, 15, 14, 12px), system sans, system mono for refs, times and figures. A 208px rail, a 56px masthead and one scrolling content pane; resting surfaces carry a hairline, never a shadow.
+OWN-WORLD: The Board's palette with both themes: white ground, `#f6f7f9` panel, `#f1f3f5` card, `#e3e6ea` hairlines and `#15171c` ink; the fail red, wait amber, pass green and review blue, and their pale fills. Five type sizes (22, 18, 15, 14, 12px), system sans, system mono for refs, times and figures. A 56px rail, a 48px masthead with a 3px rule in the fleet's tint and one scrolling content pane; resting surfaces carry a hairline, never a shadow.
 
-STORY: The operator opens the window and knows whether anything is paged: the masthead names the fleet and the supervisor's state, the rail counts Needs and Tasks. On Status they start, resume, stop or interrupt the supervisor; when it is blocked, Force and the fixed key toolbar appear, and each press carries the screen's revision, digest and last pressed sequence. They click Needs, read the toned rows, click the decision, choose an option, add a note and send the answer; a report a step away gets Ack. On the Timeline they type a message and press Enter to send it, or Shift+Enter for a new line; a half-typed draft waits there after a fleet switch or a closed window. Back returns. They close the window; nothing else about the fleet changes.
+STORY: The operator opens the window and knows whether anything is paged: the masthead names the fleet and the supervisor's state, the rail's Board icon counts the Needs, in the tone of the worst. On Status they start, resume, stop or interrupt the supervisor; when it is blocked, Force and the fixed key toolbar appear, and each press carries the screen's revision, digest and last pressed sequence. They click Board, read the toned rows, click the decision, choose an option, add a note and send the answer; a report a step away gets Ack. On the Timeline they type a message and press Enter to send it, or Shift+Enter for a new line; a half-typed draft waits there after a fleet switch or a closed window. Back returns. They close the window; nothing else about the fleet changes.
 
-FIRST VIEWPORT: At 1100×760: the rail at the left with the Hand mark, the fleets, then Status, Needs with its count and Tasks with its count; the masthead with the fleet name, the state pill, the supervisor's harness and model, the context gauge, Open in browser and Refresh; the content pane with the screen's title and its rows.
+FIRST VIEWPORT: At 1100×760: the 56px icon rail at the left (Board with its Needs count, Tasks, Conversation, Screen, Phone, then the fleet marks); the masthead with the tint rule, the fleet's mark, name and id, the state pill, the queued count, the context bar and figure, Open in browser and Refresh; the content pane with the screen's title and its rows.
 
 FORM: It takes these raises:
 - from the Board: the severity ramp, the pale tone fills, the word-plus-shape rule and the flat resting surface;

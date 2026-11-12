@@ -61,99 +61,92 @@ func boardTheme(dark bool) *ui.Theme {
 }
 
 func (a *App) View(c *ui.Context) {
-	p := paletteFor(c.Theme().Dark)
-	c.SetTheme(boardTheme(c.Theme().Dark))
+	dark := c.Theme().Dark
+	p, k := paletteFor(dark), kit.ColorsFor(dark)
+	c.SetTheme(boardTheme(dark))
 	ui.Row(c).Fill().Children(func() {
-		a.rail(c, p)
+		a.rail(c, k, p)
 		ui.Column(c).Grow(1).FillHeight().Children(func() {
-			a.masthead(c, p)
+			a.masthead(c, k, p)
 			a.body(c, p)
 		})
 	})
 }
 
-func (a *App) rail(c *ui.Context, p palette) {
-	ui.Column(c).Width(208).FillHeight().Background(p.panel).
-		BorderWidth(0, 1, 0, 0).BorderColor(p.line).Children(func() {
-		ui.Column(c).Padding(16, 16, 12).Gap(2).Children(func() {
-			ui.Text(c, "Hand").FontSize(kit.Heading.Size).Bold()
-			ui.Text(c, "desktop").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		})
-		ui.Text(c, "Fleets").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(8, 16)
-		if len(a.Fleets) == 0 {
-			ui.Text(c, "No fleets").FontSize(kit.Meta.Size).TextColor(p.neutral).Padding(0, 16, 12)
+func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
+	bg, fg := toneColors(a.Status.Needs.Worst, p)
+	if a.Status.Needs.Worst == "" {
+		bg, fg = p.neutralBG, p.neutral
+	}
+	item := func(n kit.NavItem) bool {
+		n.Open = a.RailOpen
+		return kit.Nav(c, k, n)
+	}
+	kit.Rail(c, k, a.RailOpen, func() { a.RailOpen = !a.RailOpen }, func() {
+		if item(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: a.Screen == NeedsScreen || a.Screen == DecisionScreen || a.Screen == ReportScreen,
+			Count: a.Status.Needs.Waiting, CountBG: bg, CountFG: fg}) {
+			a.Show(NeedsScreen)
 		}
-		ui.Column(c).Padding(0, 8).Gap(2).Children(func() {
-			for _, f := range a.Fleets {
-				fleet := f
-				a.nav(c, p, "fleet:"+fleet.ID, fleetName(fleet), fleet.ID == a.Fleet.ID, 0, "", func() {
-					a.SelectFleet(fleet.ID)
-				})
+		if item(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: a.Screen == TasksScreen || a.Screen == TaskScreen || a.Screen == AttemptScreen}) {
+			a.Show(TasksScreen)
+		}
+		if item(kit.NavItem{Key: "screen:timeline", Label: "Conversation", Icon: "chat", Current: a.Screen == TimelineScreen,
+			Dot: a.Status.AgentState == "working"}) {
+			a.Show(TimelineScreen)
+		}
+		if item(kit.NavItem{Key: "screen:status", Label: "Screen", Icon: "screen", Current: a.Screen == StatusScreen}) {
+			a.Show(StatusScreen)
+		}
+		item(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone", Inert: true})
+		if len(a.Fleets) > 0 {
+			kit.RailHead(c, k, a.RailOpen, "Fleets")
+		}
+		for _, f := range a.Fleets {
+			fleet := f
+			if item(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: fleet.ID == a.Fleet.ID}) {
+				a.SelectFleet(fleet.ID)
 			}
-		})
-		ui.Divider(c).Margin(12, 8)
-		ui.Text(c, "Read").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(8, 16)
-		ui.Column(c).Padding(0, 8).Gap(2).Children(func() {
-			a.nav(c, p, "screen:status", "Status", a.Screen == StatusScreen, 0, "", func() { a.Show(StatusScreen) })
-			a.nav(c, p, "screen:needs", "Needs", a.Screen == NeedsScreen, a.Status.Needs.Waiting, a.Status.Needs.Worst, func() { a.Show(NeedsScreen) })
-			a.nav(c, p, "screen:timeline", "Conversation", a.Screen == TimelineScreen, 0, "", func() { a.Show(TimelineScreen) })
-			a.nav(c, p, "screen:tasks", "Tasks", a.Screen == TasksScreen, a.Status.Tasks.Active+a.Status.Tasks.Inbox, "", func() { a.Show(TasksScreen) })
-		})
-		ui.Spacer(c)
-		if a.Model != nil {
-			ui.Text(c, "Messages, answers and marks read go to the board.").FontSize(kit.Meta.Size).TextColor(p.neutral).Padding(8, 16, 14)
 		}
 	})
 }
 
-func (a *App) nav(c *ui.Context, p palette, key, label string, current bool, count int, tone string, action func()) {
-	el := ui.ButtonBase(c.Key(key)).Gap(8).Padding(6, 8).Radius(6).Cursor(ui.CursorPointer)
-	if current {
-		el.Background(p.accentBG)
-	} else {
-		el.Background(ui.Transparent)
+func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
+	name := fleetName(a.Fleet)
+	if name == "" {
+		name = "Hand"
 	}
-	el.Children(func() {
-		ui.Text(c, label).FontSize(kit.Body.Size).SingleLine().Grow(1)
-		if count > 0 {
-			bg, fg := toneColors(tone, p)
-			if tone == "" {
-				bg, fg = p.neutralBG, p.neutral
+	kit.Masthead(c, k, a.Fleet.ID, name, func() {
+		ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {
+			if a.Model != nil && a.Fleet.ID != "" {
+				statusPill(c, p, a.Status.Pill)
+				if sup := a.Status.Supervisor; sup != nil && sup.Pending > 0 {
+					ui.Textf(c, "%d queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
+				}
+				if g := a.Status.Gauge; g.Text != "" {
+					_, fg := toneColors(g.Level, p)
+					if g.Level == "" {
+						fg = p.accent
+					}
+					kit.ContextBar(c, k, g.Pct, fg)
+					text := ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
+					if g.Level != "" {
+						text.TextColor(fg)
+					}
+					if g.Level == "fail" {
+						text.Bold()
+					}
+				}
 			}
-			ui.Badge(c, fmt.Sprint(count)).Background(bg).TextColor(fg)
-		}
-	})
-	if el.Clicked() {
-		action()
-	}
-}
-
-func (a *App) masthead(c *ui.Context, p palette) {
-	ui.Row(c).Height(56).Padding(0, 16).Gap(12).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
-		ui.Text(c, fleetName(a.Fleet)).FontSize(kit.Heading.Size).Bold().SingleLine()
-		if a.Status.Projects > 1 {
-			ui.Text(c, fmt.Sprintf("%d projects", a.Status.Projects)).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		}
-		ui.Spacer(c)
-		if a.Model != nil && a.Fleet.ID != "" {
-			statusPill(c, p, a.Status.Pill)
-			if sup := a.Status.Supervisor; sup != nil {
-				ui.Text(c, supervisorLine(sup)).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			if a.Model != nil && a.Fleet.ID != "" && ui.Button(c.Key("open-browser"), "Open in browser").Disabled(a.OpenBusy).Clicked() {
+				a.OpenInBrowser()
 			}
-			if a.Status.Gauge.Text != "" {
-				gauge(c, p, a.Status.Gauge)
+			if ui.Button(c.Key("refresh"), "Refresh").Clicked() && a.Fleet.ID != "" {
+				a.Refresh()
 			}
-		}
-		if a.Model != nil && a.Fleet.ID != "" && ui.Button(c.Key("open-browser"), "Open in browser").Disabled(a.OpenBusy).Clicked() {
-			a.OpenInBrowser()
-		}
-		if ui.Button(c.Key("refresh"), "Refresh").Clicked() && a.Fleet.ID != "" {
-			a.Refresh()
-		}
-		if a.Stale != "" {
-			ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).Tooltip(a.Stale)
-		}
+			if a.Stale != "" {
+				ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).Tooltip(a.Stale)
+			}
+		})
 	})
 }
 
@@ -1046,9 +1039,9 @@ func gauge(c *ui.Context, p palette, g Gauge) {
 
 func toneOf(state string) string {
 	switch state {
-	case "fail", "failing", "failed", "blocked", "interrupted", "stuck":
+	case "fail", "failing", "failed", "failure", "blocked", "worker", "resume", "interrupted", "stuck":
 		return "fail"
-	case "wait", "waiting", "limited", "decision", "pending":
+	case "wait", "warn", "waiting", "limited", "nosup", "stalled", "decision", "pending":
 		return "wait"
 	case "pass", "ready", "running", "passing", "done":
 		return "pass"

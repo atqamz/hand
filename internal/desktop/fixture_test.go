@@ -15,7 +15,7 @@ import (
 
 const (
 	fleetID  = "f00000000e0aa"
-	secondID = "f00000000e0ab"
+	secondID = "f00000000e00d"
 )
 
 type fixture struct {
@@ -391,6 +391,10 @@ func goldenFixture(t *testing.T) *fixture {
 	var dd desktop.DecisionDetail
 	var rd desktop.ReportDetail
 	load("status", &st)
+	st.Gauge = desktop.Gauge{Text: "610K / 1M", Pct: 61}
+	sup := *st.Supervisor
+	sup.Pending = 1
+	st.Supervisor = &sup
 	load("timeline", &tl)
 	load("tasks", &ts)
 	load("task", &td)
