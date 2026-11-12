@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,7 +47,7 @@ private fun NeedRow(entry: Entry, onClick: (() -> Unit)?) {
     Modifier.fillMaxWidth()
       .heightIn(min = 52.dp)
       .clickable(enabled = onClick != null) { onClick?.invoke() }
-      .semantics { if (entry.opens == Opens.Card) stateDescription = "Collapsed" }
+      .semantics { if (entry.opens == Opens.Card || entry.opens == Opens.Choice) stateDescription = "Collapsed" }
       .padding(16.dp, 8.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -69,13 +70,7 @@ private fun NeedRow(entry: Entry, onClick: (() -> Unit)?) {
 }
 
 @Composable
-private fun NeedCard(
-  entry: Entry,
-  marking: Boolean,
-  onClose: () -> Unit,
-  onMarkRead: () -> Unit,
-  onWeb: () -> Unit
-) {
+private fun NeedCard(entry: Entry, onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
   val hand = LocalHand.current
   val need = entry.need
   val tone = toneOf(need.tone)
@@ -95,15 +90,18 @@ private fun NeedCard(
         Meta(meta(need))
       }
     }
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      need.excerpt?.let { Text(it, style = type.bodyMedium) }
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onMarkRead, enabled = !marking, shape = MaterialTheme.shapes.medium) {
-          Text("Mark read")
-        }
-        if (need.cut) Action("Open web Board", onWeb, Modifier.height(40.dp))
-      }
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+  }
+}
+
+@Composable
+private fun ReportBody(need: Need, marking: Boolean, onMarkRead: () -> Unit, onWeb: () -> Unit) {
+  need.excerpt?.let { Text(it, style = type.bodyMedium) }
+  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Button(onMarkRead, enabled = !marking, shape = MaterialTheme.shapes.medium) {
+      Text("Mark read")
     }
+    if (need.cut) Action("Open web Board", onWeb, Modifier.height(40.dp))
   }
 }
 
@@ -128,7 +126,8 @@ fun NeedsScreen(
   state: FleetState,
   onToggle: (String) -> Unit,
   onMarkRead: (String) -> Unit,
-  onWeb: () -> Unit
+  onWeb: () -> Unit,
+  choice: @Composable (String) -> Unit
 ) {
   if (!state.loaded) return Box(Modifier.fillMaxSize())
   if (state.bands.isEmpty()) return AllClear(state)
@@ -145,16 +144,18 @@ fun NeedsScreen(
         )
       }
       items(band.entries, key = { it.key }) { entry ->
+        val expands = entry.opens == Opens.Card || entry.opens == Opens.Choice
+        val ref = entry.need.ref.orEmpty()
         when {
-          entry.opens == Opens.Card && entry.key == open ->
-            NeedCard(
-              entry,
-              entry.need.ref in state.marking,
-              { onToggle(entry.key) },
-              { onMarkRead(entry.need.ref.orEmpty()) },
-              onWeb
-            )
-          entry.opens == Opens.Card -> NeedRow(entry) { onToggle(entry.key) }
+          expands && entry.key == open ->
+            NeedCard(entry, { onToggle(entry.key) }) {
+              if (entry.opens == Opens.Card) {
+                ReportBody(entry.need, ref in state.marking, { onMarkRead(ref) }, onWeb)
+              } else {
+                choice(ref)
+              }
+            }
+          expands -> NeedRow(entry) { onToggle(entry.key) }
           entry.opens == Opens.Web -> NeedRow(entry, onWeb)
           else -> NeedRow(entry, null)
         }

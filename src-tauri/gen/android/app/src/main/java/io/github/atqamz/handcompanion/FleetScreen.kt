@@ -136,7 +136,8 @@ fun FleetScreen(
   onTab: (Tab) -> Unit,
   onToggle: (String) -> Unit,
   onMarkRead: (String) -> Unit,
-  onWeb: () -> Unit
+  onWeb: () -> Unit,
+  choice: @Composable (String) -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
     TopBar(id, state, onBack)
@@ -149,7 +150,7 @@ fun FleetScreen(
             Meta("Pair this phone again on the laptop's Board.")
           }
         state.tab == null && state.band == null -> Unit
-        state.tab == Tab.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb)
+        state.tab == Tab.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, choice)
         else -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
     }

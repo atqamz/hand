@@ -3,11 +3,11 @@ package io.github.atqamz.handcompanion
 import java.io.File
 import java.util.TimeZone
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -65,8 +65,9 @@ private fun FleetsModel.row(id: String) = state.value.rows.single { it.id == id 
 class FleetsModelTest {
   @get:Rule val folder = TemporaryFolder()
 
-  @Before
-  fun zone() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+  private val zone = TimeZone.getDefault()
+
+  @After fun restoreZone() = TimeZone.setDefault(zone)
 
   private fun both(fleet: String) = if (fleet == ONE) blocked else clear
 

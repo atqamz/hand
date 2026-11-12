@@ -173,6 +173,9 @@ class BoardClient(
     return Poll.Changed(envelope)
   }
 
+  suspend fun <T> read(path: String, data: KSerializer<T>): Envelope<T> =
+    decode(send(false, "/api/v1/${path.trimStart('/')}", null), data)
+
   suspend fun <T> write(path: String, body: String?, data: KSerializer<T>): Write<T> {
     val raw =
       try {

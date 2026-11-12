@@ -67,6 +67,9 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    testOptions {
+        unitTests.all { it.systemProperty("user.timezone", "UTC") }
+    }
 }
 
 kotlin {

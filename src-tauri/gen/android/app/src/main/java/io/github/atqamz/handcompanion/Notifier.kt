@@ -57,9 +57,12 @@ object Notifier {
   }
 
   private fun open(context: Context, spec: NoticeSpec?): PendingIntent {
+    val link = spec?.tapUri
     val intent =
-      if (spec?.tapUri != null) {
-        Intent(Intent.ACTION_VIEW, Uri.parse(spec.tapUri)).setPackage(context.packageName)
+      if (link != null && BuildConfig.DEBUG && decisionRoute(link) != null) {
+        Intent(context, HandActivity::class.java).setData(Uri.parse(link))
+      } else if (link != null) {
+        Intent(Intent.ACTION_VIEW, Uri.parse(link)).setPackage(context.packageName)
       } else {
         context.packageManager.getLaunchIntentForPackage(context.packageName)!!
       }

@@ -3,6 +3,7 @@
     <application>
         <activity
             android:name=".HandActivity"
+            android:launchMode="singleTask"
             android:exported="true" />
     </application>
 </manifest>

@@ -20,6 +20,7 @@ enum class Tab {
 
 enum class Opens {
   Card,
+  Choice,
   Row,
   Web
 }
@@ -54,9 +55,9 @@ data class FleetState(
 private fun opens(need: Need) =
   when (need.kind) {
     "report" -> Opens.Card
+    "decision" -> Opens.Choice
     "blocked",
-    "failure",
-    "decision" -> Opens.Row
+    "failure" -> Opens.Row
     else -> Opens.Web
   }
 
@@ -81,10 +82,12 @@ private fun refusal(ref: String, error: BoardError) =
   }
 
 fun FleetState.openKey(): String? {
-  val cards = bands.flatMap { it.entries }.filter { it.opens == Opens.Card }.map { it.key }
+  val entries = bands.flatMap { it.entries }
+  val cards = entries.filter { it.opens == Opens.Card }.map { it.key }
   return when (open) {
     "" -> null
     in cards -> open
+    in entries.filter { it.opens == Opens.Choice }.map { it.key } -> open
     else -> cards.firstOrNull()
   }
 }

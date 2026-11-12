@@ -1,6 +1,5 @@
 package io.github.atqamz.handcompanion
 
-import java.util.TimeZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -11,7 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 
 private const val FLEET = "f000000000003"
@@ -80,9 +78,6 @@ private fun opensOf(json: String) =
   bands(listOf(Json.decodeFromString<Need>(json))).single().entries.single().opens
 
 class FleetModelTest {
-  @Before
-  fun zone() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
-
   @Test
   fun needsIsTheFirstTabWhenAnythingWaitsAndChatOtherwise() {
     val waiting = model(Board({ status(listOf(report)) }))
@@ -241,7 +236,7 @@ class FleetModelTest {
   @Test
   fun eachKindOpensWhereTheApiCanActOnIt() {
     assertEquals(Opens.Row, opensOf(blocked))
-    assertEquals(Opens.Row, opensOf(decision))
+    assertEquals(Opens.Choice, opensOf(decision))
     assertEquals(Opens.Row, opensOf(failure))
     assertEquals(Opens.Card, opensOf(report))
     assertEquals(Opens.Web, opensOf(worker))
@@ -263,6 +258,17 @@ class FleetModelTest {
     model.toggle("report:r2")
     assertEquals("report:r2", model.now().openKey())
     model.toggle("report:r2")
+    assertNull(model.now().openKey())
+  }
+
+  @Test
+  fun aDecisionOpensInPlaceInsteadOfTheFirstCard() {
+    val model = model(Board({ status(listOf(decision, report)) }))
+    runBlocking { model.refresh() }
+    assertEquals("report:r1", model.now().openKey())
+    model.toggle("decision:d1")
+    assertEquals("decision:d1", model.now().openKey())
+    model.toggle("decision:d1")
     assertNull(model.now().openKey())
   }
 
