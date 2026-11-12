@@ -72,6 +72,9 @@ func (d Drafts) Save(fleet, text string) error {
 	if len(text) > maxDraft {
 		return fmt.Errorf("the draft is %d bytes; the most is %d", len(text), maxDraft)
 	}
+	if text == "" {
+		return d.remove(path)
+	}
 	if err := os.MkdirAll(d.Dir, 0o700); err != nil {
 		return err
 	}

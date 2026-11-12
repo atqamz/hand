@@ -40,6 +40,26 @@ func TestDraftsWriteRestoreAndClear(t *testing.T) {
 	}
 }
 
+func TestSavingAnEmptyDraftRemovesTheFile(t *testing.T) {
+	dir := t.TempDir()
+	d := desktop.Drafts{Dir: dir}
+	if err := d.Save(fleetID, "typed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Save(fleetID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, fleetID+".txt")); !os.IsNotExist(err) {
+		t.Fatalf("the empty draft is still on disk: %v", err)
+	}
+	if got := d.Load(fleetID); got != "" {
+		t.Fatalf("loaded %q, want no draft", got)
+	}
+	if err := d.Save(fleetID, ""); err != nil {
+		t.Fatalf("saving an empty draft twice: %v", err)
+	}
+}
+
 func TestDraftsRefuseAnUnknownFleetAndAnOversizedDraft(t *testing.T) {
 	d := desktop.Drafts{Dir: t.TempDir()}
 	if err := d.Save("../elsewhere", "x"); err == nil {
