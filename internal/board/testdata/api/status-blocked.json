@@ -60,8 +60,30 @@
         {
           "kind": "blocked",
           "ref": "s1",
+          "title": "Allow Bash?",
           "word": "BLOCKED",
-          "tone": "fail"
+          "tone": "fail",
+          "excerpt": "Allow Bash?\n❯ 1. Yes\n  2. No",
+          "options": [
+            {
+              "label": "2 No",
+              "keys": [
+                "2"
+              ]
+            },
+            {
+              "label": "Esc",
+              "keys": [
+                "esc"
+              ]
+            },
+            {
+              "label": "1 Yes",
+              "keys": [
+                "1"
+              ]
+            }
+          ]
         },
         {
           "kind": "failure",

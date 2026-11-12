@@ -494,3 +494,81 @@ func TestEveryEventGetsItsOwnWriteDeadline(t *testing.T) {
 		}
 	}
 }
+
+func TestATickingCountdownScreenSendsNoEventPerSecond(t *testing.T) {
+	var mu sync.Mutex
+	clock := frozen
+	fx := apiFixture(t, func() time.Time { mu.Lock(); defer mu.Unlock(); return clock })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.status = "blocked"
+	fx.screen = fmt.Sprintf(counting, "4:55")
+	ch := apiStream(t, fx)
+	for second := 1; second <= 3; second++ {
+		mu.Lock()
+		clock = frozen.Add(time.Duration(second) * time.Second)
+		mu.Unlock()
+		fx.mu.Lock()
+		fx.screen = fmt.Sprintf(counting, fmt.Sprintf("4:%02d", 55-second))
+		fx.revision++
+		fx.mu.Unlock()
+		quiet(t, ch, 2)
+	}
+	fx.mu.Lock()
+	fx.screen = strings.Replace(fmt.Sprintf(counting, "4:52"), "rm -f $r/$f", "rm -f $r/$g", 1)
+	fx.revision++
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("status"))
+	st := sseData[board.APIStatus](t, evs[len(evs)-1])
+	if st.Needs.Items[0].Excerpt == "" || !strings.Contains(st.Needs.Items[0].Excerpt, "$g") {
+		t.Fatalf("a changed command did not reach the stream: %+v", st.Needs.Items[0])
+	}
+}
+
+func TestABlockedWorkersChangedPromptReachesTheStreamWithinABeat(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.status = "blocked"
+	fx.panes = map[string]string{"3": "blocked"}
+	fx.screens = map[string]string{"3": "Allow Bash?\n❯ 1. Yes\n  2. No"}
+	if err := fx.st.NoteAttempt(context.Background(), 1, "blocked", "Allow Bash?"); err != nil {
+		t.Fatal(err)
+	}
+	ch := apiStream(t, fx)
+	fx.mu.Lock()
+	fx.screens["3"] = "Delete the repo?\n❯ 1. Yes\n  2. No"
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("status", "Delete the repo?"))
+	st := sseData[board.APIStatus](t, evs[len(evs)-1])
+	i := slices.IndexFunc(st.Needs.Items, func(n board.APINeed) bool { return n.Kind == "worker" })
+	if i < 0 || !strings.Contains(st.Needs.Items[i].Excerpt, "Delete the repo?") {
+		t.Fatalf("status = %+v", st.Needs.Items)
+	}
+}
+
+func TestTheStreamStopsRebuildingTheStatusOnceNoWorkerIsBlocked(t *testing.T) {
+	var mu sync.Mutex
+	clock := frozen
+	fx := apiFixture(t, func() time.Time { mu.Lock(); defer mu.Unlock(); return clock })
+	fx.options.Beat = 20 * time.Millisecond
+	fx.status = "blocked"
+	fx.screen = fmt.Sprintf(counting, "4:55")
+	fx.panes = map[string]string{"3": "blocked"}
+	fx.screens = map[string]string{"3": "Allow Bash?\n❯ 1. Yes\n  2. No"}
+	if err := fx.st.NoteAttempt(context.Background(), 1, "blocked", "Allow Bash?"); err != nil {
+		t.Fatal(err)
+	}
+	ch := apiStream(t, fx)
+	fx.mu.Lock()
+	fx.panes["3"] = "working"
+	fx.mu.Unlock()
+	until(t, ch, func(e sseEvent) bool {
+		return e.name == "status" && !slices.ContainsFunc(sseData[board.APIStatus](t, e).Needs.Items, func(n board.APINeed) bool { return n.Kind == "worker" })
+	})
+	first(t, ch, 3)
+	mu.Lock()
+	clock = frozen.Add(time.Minute)
+	mu.Unlock()
+	if names := changes(first(t, ch, 10)); slices.Contains(names, "status") {
+		t.Fatalf("the stream rebuilt the status with no worker blocked: %q", names)
+	}
+}

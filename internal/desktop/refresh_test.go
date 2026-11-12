@@ -248,6 +248,30 @@ func newBoardApp(t *testing.T, b *fakeBoard) (*desktop.App, *fakeClock) {
 	return app, clock
 }
 
+func TestRefreshReadsTheStatusInFullWhileAWorkerIsBlocked(t *testing.T) {
+	b := newFakeBoard()
+	b.setStatus(func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{{Kind: "worker", Ref: "a1", Word: "BLOCKED", Tone: "fail", Title: "Bash: rm -f x · Proceed?"}}
+	})
+	app, clock := newBoardApp(t, b)
+	app.Show(desktop.StatusScreen)
+	app.StartRefresh()
+	before := b.fullReads("/api/v1/status")
+	for range 3 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := b.fullReads("/api/v1/status") - before; got != 3 {
+		t.Fatalf("%d full status reads in 3 ticks with a worker blocked, want 3", got)
+	}
+	b.setStatus(func(st *desktop.Status) { st.Needs.Items = nil })
+	clock.Advance(desktop.FocusedRefresh)
+	before = b.fullReads("/api/v1/status")
+	clock.Advance(desktop.FocusedRefresh)
+	if got := b.fullReads("/api/v1/status") - before; got != 0 {
+		t.Fatalf("%d full status reads with no worker blocked, want 0", got)
+	}
+}
+
 func TestRefreshSendsTheLastCursorAndLeavesA304Alone(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)

@@ -317,6 +317,19 @@ func TestNeedsScreen(t *testing.T) {
 		"Cookie fixed")
 }
 
+func TestABlockedNeedShowsItsTitleNotTheExcerptsRuleLine(t *testing.T) {
+	const rule = "────────────────────────"
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{Kind: "blocked", Ref: "s1", Word: "BLOCKED", Tone: "fail", Title: "Bash: rm -f x · Proceed?", Excerpt: rule + "\n Bash command\n  rm -f x"}}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Needs")
+	mustText(t, tt, "Bash: rm -f x · Proceed?")
+	mustNotText(t, tt, rule)
+}
+
 func TestNeedsOpensADecision(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)

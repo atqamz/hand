@@ -48,6 +48,7 @@ type PollCursors struct {
 	Status string
 	Screen string
 	Fresh  bool
+	Worker bool
 }
 
 // Poll is one auto-refresh tick: the status and the open screen's data, each
@@ -308,7 +309,7 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 	}
 	var p Poll
 	statusSince := since.Status
-	if statusSince == "" && !since.Fresh {
+	if statusSince == "" && !since.Fresh && !since.Worker {
 		statusSince = c.cursor(fleet, "/status")
 	}
 	p.StatusFresh, p.StatusCursor, err = c.pollAs(ctx, fleet, token, "/status", statusSince, &p.Status)
