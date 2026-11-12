@@ -3,6 +3,7 @@ package main
 import (
 	"html"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -185,6 +186,53 @@ func TestTheHomePageCarriesTheNavAndTheVersion(t *testing.T) {
 		if !strings.Contains(phone, want) {
 			t.Errorf("the phone page lacks %q", want)
 		}
+	}
+}
+
+func TestTheCNAMEFileIsNotPublished(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	if err := build(root, out, "v9.9.9", nil, noNotes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "CNAME")); !os.IsNotExist(err) {
+		t.Fatalf("the build published CNAME: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "www", "CNAME")); err != nil {
+		t.Fatalf("www/CNAME no longer records the domain: %v", err)
+	}
+}
+
+func TestDescribeMatchesReleaseTagsOnly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	git("init", "-q")
+	git("commit", "-q", "--allow-empty", "-m", "one")
+	git("tag", "v0.1.0")
+	git("commit", "-q", "--allow-empty", "-m", "two")
+	git("tag", "edge")
+	if got := describe(dir); got != "v0.1.0" {
+		t.Errorf("describe = %q, want v0.1.0", got)
+	}
+	git("tag", "-d", "v0.1.0")
+	if got := describe(dir); got != "unreleased" {
+		t.Errorf("describe without a release tag = %q, want unreleased", got)
 	}
 }
 
