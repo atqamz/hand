@@ -115,6 +115,7 @@ func (a *App) timelineEntries(c *ui.Context, p palette) {
 		a.working(c, p)
 		return
 	}
+	measure := kit.MeasureOf(c)
 	quiet := false
 	for _, r := range timelineRows(a.Timeline.Entries) {
 		line := r.Day == "" && (r.Entry.Role == "hand" || r.Entry.Role == "wakes")
@@ -123,12 +124,12 @@ func (a *App) timelineEntries(c *ui.Context, p palette) {
 			gap = kit.Space6
 		}
 		quiet = line
-		ui.Column(c).Margin(gap, 0, 0).Children(func() { a.timelineRow(c, p, r) })
+		ui.Column(c).Margin(gap, 0, 0).Children(func() { a.timelineRow(c, p, measure, r) })
 	}
 	a.working(c, p)
 }
 
-func (a *App) timelineRow(c *ui.Context, p palette, r row) {
+func (a *App) timelineRow(c *ui.Context, p palette, measure float32, r row) {
 	e := r.Entry
 	switch {
 	case r.Day != "":
@@ -139,13 +140,13 @@ func (a *App) timelineRow(c *ui.Context, p palette, r row) {
 		a.wakes(c, p, e, r.Dated)
 	case e.Role == "supervisor":
 		ui.Row(c).Children(func() {
-			a.bubble(c, p, r, false)
+			a.bubble(c, p, measure, r, false)
 			ui.Spacer(c)
 		})
 	default:
 		ui.Row(c).Children(func() {
 			ui.Spacer(c)
-			a.bubble(c, p, r, true)
+			a.bubble(c, p, measure, r, true)
 		})
 	}
 }
@@ -202,7 +203,7 @@ func (a *App) wakes(c *ui.Context, p palette, e Entry, dated bool) {
 	}
 }
 
-func (a *App) bubble(c *ui.Context, p palette, r row, you bool) {
+func (a *App) bubble(c *ui.Context, p palette, measure float32, r row, you bool) {
 	e := r.Entry
 	who, tone, bg := roleName(e), p.neutral, p.card
 	box := ui.Column(c).Gap(kit.Space4).Label("Message from " + who)
@@ -211,7 +212,7 @@ func (a *App) bubble(c *ui.Context, p palette, r row, you bool) {
 		box.Padding(kit.Space10, kit.Space14, kit.Space12).Radius(kit.RadiusLG, kit.RadiusLG, kit.RadiusSM, kit.RadiusLG).
 			Background(bg).MaxWidthPercent(88).MaxWidth(560)
 	} else {
-		box.Padding(9, 13, 11).Radius(kit.RadiusLG).Background(bg).Border(1, p.lineStrong).MaxWidth(kit.Measure + 30)
+		box.Padding(9, 13, 11).Radius(kit.RadiusLG).Background(bg).Border(1, p.lineStrong).MaxWidth(measure + 30)
 	}
 	box.Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Baseline).Children(func() {

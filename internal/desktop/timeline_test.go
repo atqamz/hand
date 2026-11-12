@@ -132,10 +132,12 @@ func TestMessagesAreHeldToTheMeasure(t *testing.T) {
 		{Role: "operator", No: 1, At: "2026-10-31T12:00:00Z", Text: long},
 	}}
 	tt := sized(t, app, 2400, 900, false)
+	var measure float32
+	ui.NewTester(func(c *ui.Context) { measure = kit.MeasureOf(c) }, 200, 200)
 	for _, label := range []string{"Message from s1", "Message from you"} {
 		r, ok := tt.Find(label)
-		if !ok || r.W > kit.Measure+31 || r.W < 300 {
-			t.Errorf("%q is %.0f wide, want the 72-character measure of at most %d", label, r.W, kit.Measure+30)
+		if !ok || r.W > measure+31 || r.W < 300 {
+			t.Errorf("%q is %.0f wide, want the %d-character measure of at most %.0f", label, r.W, kit.MeasureCharacters, measure+30)
 		}
 	}
 }
