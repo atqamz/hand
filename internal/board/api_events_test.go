@@ -275,7 +275,7 @@ func TestTheStreamEndsWhenTheBoardShutsDown(t *testing.T) {
 
 const counting = "────────────────────────\n Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in %s\n Do you want to proceed?\n❯ 1. Yes\n  2. No\n Esc to cancel · Tab to amend"
 
-func TestEveryCountingScreenHoldsItsDeadlineAndOnlyTheSupervisorsHoldsTheRevision(t *testing.T) {
+func TestEveryCountingScreenHoldsItsDeadlineAndTheUnchangedScreenHoldsItsRevision(t *testing.T) {
 	var mu sync.Mutex
 	clock := frozen
 	fx := apiFixture(t, func() time.Time { mu.Lock(); defer mu.Unlock(); return clock })
@@ -302,6 +302,15 @@ func TestEveryCountingScreenHoldsItsDeadlineAndOnlyTheSupervisorsHoldsTheRevisio
 	if len(deadlines) != 2 || deadlines["s1"] == "" || deadlines["a1"] == "" {
 		t.Fatalf("deadlines = %v", deadlines)
 	}
+	held := map[string]int64{}
+	for _, n := range st.Needs.Items {
+		if n.Keys != nil {
+			held[n.Ref] = n.Keys.Revision
+		}
+	}
+	if held["s1"] == 0 || held["a1"] == 0 {
+		t.Fatalf("keys revisions = %v", held)
+	}
 	for second := 1; second <= 2; second++ {
 		mu.Lock()
 		clock = frozen.Add(time.Duration(second) * time.Second)
@@ -319,11 +328,18 @@ func TestEveryCountingScreenHoldsItsDeadlineAndOnlyTheSupervisorsHoldsTheRevisio
 	evs := until(t, ch, arrives("status"))
 	st = sseData[board.APIStatus](t, evs[len(evs)-1])
 	got := map[string]string{}
+	keys := map[string]int64{}
 	for _, n := range st.Needs.Items {
 		got[n.Ref] = n.DenyAt
+		if n.Keys != nil {
+			keys[n.Ref] = n.Keys.Revision
+		}
 	}
 	if got["s1"] != frozen.Add(62*time.Second).Format(time.RFC3339) || got["a1"] != deadlines["a1"] || st.Supervisor.Keys.Revision != int64(revision) {
 		t.Fatalf("after the supervisor's countdown was reset: deadlines %v, revision %d (want %d)", got, st.Supervisor.Keys.Revision, revision)
+	}
+	if keys["a1"] != held["a1"] || keys["s1"] != int64(revision) {
+		t.Fatalf("keys revisions = %v, want a1 held at %d and s1 at %d", keys, held["a1"], revision)
 	}
 }
 

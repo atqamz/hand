@@ -33,6 +33,7 @@ const scenes = [
   ['decisions', fleet('011')],
   ['documents', fleet('012')],
   ['ask', fleet('013')],
+  ['worker-list', fleet('019')],
   ['cleanup', fleet('014')],
   ['screen', `${fleet('016')}supervisor`],
   ['phone', `${fleet('015')}connect`],

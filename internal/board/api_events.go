@@ -275,6 +275,7 @@ func (t *APITouched) seal() bool {
 // a stale revision while the digest matches.
 func (s *apiStream) steady(cur *APIStatus) {
 	own := false
+	steady := map[int]bool{}
 	for i := range cur.Needs.Items {
 		is := &cur.Needs.Items[i]
 		if is.DenyAt == "" {
@@ -291,6 +292,7 @@ func (s *apiStream) steady(cur *APIStatus) {
 			continue
 		}
 		is.DenyAt = was
+		steady[i] = true
 		if old := s.status.Needs.Items[j].Excerpt; autoDeny.ReplaceAllLiteralString(old, "") == autoDeny.ReplaceAllLiteralString(is.Excerpt, "") {
 			is.Excerpt = old
 		}
@@ -298,6 +300,19 @@ func (s *apiStream) steady(cur *APIStatus) {
 	}
 	if o, n := s.status.Supervisor, cur.Supervisor; own && o != nil && n != nil && o.Keys != nil && n.Keys != nil && o.Keys.Digest == n.Keys.Digest && o.Keys.Pressed == n.Keys.Pressed {
 		n.Keys.Revision = o.Keys.Revision
+	}
+	for i := range cur.Needs.Items {
+		is := &cur.Needs.Items[i]
+		if is.Keys == nil || !steady[i] {
+			continue
+		}
+		j := slices.IndexFunc(s.status.Needs.Items, func(n APINeed) bool { return n.Ref == is.Ref && n.Keys != nil })
+		if j < 0 {
+			continue
+		}
+		if was := s.status.Needs.Items[j].Keys; was.Digest == is.Keys.Digest && was.Pressed == is.Keys.Pressed {
+			is.Keys.Revision = was.Revision
+		}
 	}
 }
 

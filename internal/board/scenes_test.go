@@ -575,6 +575,10 @@ func scenes() []scene {
 			blockedWorker(t, fx, "Clean the build folder")
 			fx.screen = capture(t, "long16")
 		})},
+		{"f00000000e019", "worker-list", supervised("idle", "", 560000, func(t *testing.T, fx *fixture) {
+			blockedWorker(t, fx, "Pick the release channel")
+			fx.screen = "Release channel?\n❯ ◉ Stable\n  ◯ Beta\n  ◯ Nightly\n\n↑/↓ select · enter to confirm · esc cancel"
+		})},
 		{"f00000000e011", "decisions", func(t *testing.T, fx *fixture) {
 			ctx := context.Background()
 			fx.status = "idle"

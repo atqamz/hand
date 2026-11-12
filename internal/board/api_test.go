@@ -26,6 +26,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -812,6 +813,181 @@ func TestAPIBlockedAsk(t *testing.T) {
 	}
 }
 
+func needItem(t *testing.T, h http.Handler, kind string) (board.APIStatus, board.APINeed) {
+	t.Helper()
+	_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	for _, n := range st.Needs.Items {
+		if n.Kind == kind {
+			return st, n
+		}
+	}
+	t.Fatalf("no %s item in %+v", kind, st.Needs.Items)
+	return st, board.APINeed{}
+}
+
+func TestAPIBlockedItemAlwaysCarriesTheBoardTitle(t *testing.T) {
+	for _, c := range []struct{ name, screen, title string }{
+		{"parsed", "Allow Bash?\n❯ 1. Yes\n  2. No", "Allow Bash?"},
+		{"unparsed", "Something is wrong\nPress any key to continue", "The supervisor's screen needs a key"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			fx.status, fx.screen = "blocked", c.screen
+			_, item := needItem(t, fx.handler(), "blocked")
+			if item.Title != c.title {
+				t.Fatalf("title = %q, want %q", item.Title, c.title)
+			}
+			if item.Keys == nil {
+				t.Fatal("a blocked item carries no keys")
+			}
+			if c.name == "unparsed" {
+				if len(item.Options) != 0 {
+					t.Fatalf("an unparsed screen carries options: %+v", item.Options)
+				}
+				if got := len(item.Keys.Options); got != len(state.SupervisorKeys) {
+					t.Fatalf("the fixed toolbar has %d buttons, want %d", got, len(state.SupervisorKeys))
+				}
+			}
+		})
+	}
+}
+
+func TestAPIBlockedItemCarriesTheBoardKeys(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.status, fx.screen = "blocked", "Allow Bash?\n❯ 1. Yes\n  2. No"
+	st, item := needItem(t, fx.handler(), "blocked")
+	want := []board.APIAskOption{{Label: "2 No", Keys: []string{"2"}}, {Label: "Esc", Keys: []string{"esc"}}, {Label: "1 Yes", Keys: []string{"1"}}}
+	if !reflect.DeepEqual(item.Options, want) {
+		t.Fatalf("options = %+v, want %+v", item.Options, want)
+	}
+	if item.Keys == nil || !reflect.DeepEqual(item.Keys.Options, want) {
+		t.Fatalf("keys = %+v", item.Keys)
+	}
+	guard := st.Supervisor.Keys
+	if guard == nil || item.Keys.Revision != guard.Revision || item.Keys.Digest != guard.Digest || item.Keys.Pressed != guard.Pressed {
+		t.Fatalf("item guard = %+v, supervisor guard = %+v", item.Keys, guard)
+	}
+}
+
+func TestAPIWorkerItemCarriesItsScreenAndKeys(t *testing.T) {
+	cases := []struct {
+		name, screen, title string
+		want                []board.APIAskOption
+		toolbar             bool
+	}{
+		{"numbered", "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No", "Bash: rm -f $r/$f · Do you want to proceed?",
+			[]board.APIAskOption{{Label: "2 No", Keys: []string{"2"}}, {Label: "Esc", Keys: []string{"esc"}}, {Label: "1 Yes", Keys: []string{"1"}}}, false},
+		{"circle", "Which flavor?\n❯ ◉ Vanilla\n  ◯ Mint\n\n↑/↓ select · enter to confirm · esc cancel", "Which flavor?",
+			[]board.APIAskOption{{Label: "Vanilla", Keys: []string{"enter"}}, {Label: "Mint", Keys: []string{"down", "enter"}}}, false},
+		{"too many", "Pick one?\n❯ ◉ One\n  ◯ Two\n  ◯ Three\n  ◯ Four\n  ◯ Five\n  ◯ Six\n  ◯ Seven\n  ◯ Eight\n  ◯ Nine\n\n↑/↓ select · enter to confirm · esc cancel", "Pick one?", nil, true},
+		{"unparsed", "Press any key to continue", "Esc to cancel · Tab to amend", nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fx := newFixture(t)
+			fx.screen = c.screen
+			a := blockedWorker(t, fx, "Fix login")
+			_, item := needItem(t, fx.handler(), "worker")
+			if item.Ref != state.AttemptRef(a.ID) || item.Title != c.title || item.Excerpt != c.screen {
+				t.Fatalf("item = %+v", item)
+			}
+			if !reflect.DeepEqual(item.Options, c.want) {
+				t.Fatalf("options = %+v, want %+v", item.Options, c.want)
+			}
+			if item.Keys == nil {
+				t.Fatal("a worker item carries no keys")
+			}
+			if c.toolbar {
+				if got := len(item.Keys.Options); got != len(state.SupervisorKeys) {
+					t.Fatalf("the fixed toolbar has %d buttons, want %d", got, len(state.SupervisorKeys))
+				}
+			} else if !reflect.DeepEqual(item.Keys.Options, c.want) {
+				t.Fatalf("keys = %+v", item.Keys)
+			}
+			if item.Keys.Revision != 7 || item.Keys.Digest != luvus.ScreenDigest(c.screen) || item.Keys.Pressed != 0 {
+				t.Fatalf("guard = %+v", item.Keys)
+			}
+		})
+	}
+}
+
+func TestAPIAttemptKeys(t *testing.T) {
+	fx := newFixture(t)
+	fx.screen = "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	a := blockedWorker(t, fx, "Fix login")
+	var args []string
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		args = append([]string(nil), call...)
+		return "", fx.st.NoteAttempt(ctx, a.ID, "keys", "enter")
+	}
+	h := fx.handler()
+	_, item := needItem(t, h, "worker")
+	if item.Keys == nil {
+		t.Fatal("a worker item carries no keys")
+	}
+	body := map[string]any{"key": "enter", "revision": item.Keys.Revision, "after": item.Keys.Pressed, "screen": item.Keys.Digest}
+	env, got := apiBody[board.APIAttemptDetail](t, apiPost(t, h, "/api/v1/attempt/a1/keys", body, token, true))
+	if got.Attempt.Ref != "a1" || env.Cursor == "" {
+		t.Fatalf("answer = %+v, envelope = %+v", got.Attempt, env)
+	}
+	want := []string{"attempt", "keys", "--revision", "7", "--screen", item.Keys.Digest, "--after", "0", "a1", "enter"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("control called %q, want %q", args, want)
+	}
+	if pressed, err := fx.st.LastKeys(context.Background(), state.AttemptRef(a.ID)); err != nil || pressed <= item.Keys.Pressed {
+		t.Fatalf("pressed = %d, err %v; the press did not advance", pressed, err)
+	}
+}
+
+func TestAPIAttemptKeysRefusals(t *testing.T) {
+	fx := newFixture(t)
+	fx.screen = "Allow?\n❯ 1. Yes\n  2. No"
+	a := blockedWorker(t, fx, "Fix login")
+	fx.options.Control = func(context.Context, ...string) (string, error) {
+		return "", fmt.Errorf("%w: the screen changed since revision 7; nothing was sent", state.ErrConflict)
+	}
+	h := fx.handler()
+	body := map[string]any{"key": "1", "revision": 7, "after": 0, "screen": "0123456789abcdef0123456789abcdef"}
+	conflict := testAPIError(t, apiPost(t, h, "/api/v1/attempt/a1/keys", body, token, true), http.StatusConflict, "conflict")
+	if strings.Contains(conflict.Message, "/") {
+		t.Fatalf("conflict names a path: %q", conflict.Message)
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/attempt/a99/keys", body, token, true), http.StatusNotFound, "not_found")
+	for _, bad := range []map[string]any{
+		{"revision": 7, "after": 0, "screen": "0123456789abcdef0123456789abcdef"},
+		{"key": "", "revision": 7, "after": 0, "screen": "0123456789abcdef0123456789abcdef"},
+		{"key": "space", "revision": 7, "after": 0, "screen": "0123456789abcdef0123456789abcdef"},
+		{"key": "1", "after": 0, "screen": "0123456789abcdef0123456789abcdef"},
+		{"key": "1", "revision": -1, "after": 0, "screen": "0123456789abcdef0123456789abcdef"},
+		{"key": "1", "revision": 7, "screen": "0123456789abcdef0123456789abcdef"},
+		{"key": "1", "revision": 7, "after": 0, "screen": "short"},
+	} {
+		testAPIError(t, apiPost(t, h, "/api/v1/attempt/a1/keys", bad, token, true), http.StatusBadRequest, "bad_request")
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/attempt/a1/keys", body, "", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, apiPost(t, h, "/api/v1/attempt/a1/keys", body, "", false), http.StatusUnauthorized, "unauthorized")
+	forwarded := httptest.NewRequest("POST", "/api/v1/attempt/a1/keys", strings.NewReader(`{}`))
+	forwarded.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	forwarded.Header.Set("X-Hand-CSRF", token)
+	forwarded.Header.Set("X-Forwarded-For", "203.0.113.9")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, forwarded)
+	testAPIError(t, rec, http.StatusForbidden, "forbidden")
+	notLoopback := board.New(fx.st, token, board.Options{Now: func() time.Time { return frozen }})
+	testAPIError(t, apiPost(t, notLoopback, "/api/v1/attempt/a1/keys", body, token, true), http.StatusForbidden, "forbidden")
+	put := httptest.NewRequest("PUT", "/api/v1/attempt/a1/keys", nil)
+	put.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, put)
+	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("PUT /api/v1/attempt/a1/keys Allow = %q", got)
+	}
+	if a.Status != state.AttemptRunning {
+		t.Fatalf("the fixture worker is %s", a.Status)
+	}
+}
+
 func TestAPISupervisorGoldens(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	fx.status = "blocked"
@@ -1344,6 +1520,9 @@ func withoutScreens(t *testing.T, path, body string) string {
 	for i, n := range env.Data.Needs.Items {
 		if n.Kind == "blocked" || n.Kind == "worker" {
 			env.Data.Needs.Items[i].Excerpt, env.Data.Needs.Items[i].Title = "", ""
+			if n.Keys != nil {
+				env.Data.Needs.Items[i].Keys.Options = nil
+			}
 		}
 	}
 	out, err := json.Marshal(env.Data)
@@ -1502,7 +1681,7 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 			t.Fatalf("status carries an ask:\n%s", raw)
 		}
 		_, st := apiInto[board.APIStatus](t, fx.handler(), "/api/v1/status")
-		if st.Needs.Items[0].Title != "" {
+		if st.Needs.Items[0].Title != "Esc to cancel" {
 			t.Fatalf("a screen without a question has the title %q", st.Needs.Items[0].Title)
 		}
 		if !strings.Contains(raw, `"excerpt":"rm -f id_rsa`) {
