@@ -92,7 +92,7 @@ base64 -w0 release.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --r
 printf '%s' "$RELEASE_KEYSTORE_PASSWORD" | gh secret set RELEASE_KEYSTORE_PASSWORD --env release --repo atqamz/hand-android
 ```
 
-Pin the fingerprint in a pull request. This is a public value; it replaces the placeholder in `release-key.sha256`:
+To rotate the key, replace the fingerprint in `release-key.sha256` in a pull request. It is a public value:
 
 ```sh
 keytool -list -v -keystore release.jks -alias handcompanion -storepass:env RELEASE_KEYSTORE_PASSWORD \
