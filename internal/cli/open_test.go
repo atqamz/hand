@@ -167,13 +167,21 @@ func TestOpenDeepLinks(t *testing.T) {
 		{[]string{"d1"}, "/decision/d1", ""},
 		{[]string{"r2"}, "/task/t1", "#r2"},
 		{[]string{"a1"}, "/attempt/a1", ""},
+		{[]string{"screen"}, "/supervisor", ""},
+		{[]string{"phone"}, "/connect", ""},
+		{[]string{"tasks"}, "/tasks", ""},
+		{[]string{"tasks", "login bug&x=1"}, "/tasks?q=login+bug%26x%3D1", ""},
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t, i+1)
 		if len(opened) != i+1 {
 			t.Fatalf("open %q logged %d launches, want %d", c.args, len(opened), i+1)
 		}
-		want := fx.base + "/" + fx.id + c.path + "?token=" + fx.token(t) + "&keep=1" + c.frag
+		sep := "?"
+		if strings.Contains(c.path, "?") {
+			sep = "&"
+		}
+		want := fx.base + "/" + fx.id + c.path + sep + "token=" + fx.token(t) + "&keep=1" + c.frag
 		if got := opened[len(opened)-1]; got != want {
 			t.Fatalf("open %q = %q, want %q", c.args, got, want)
 		}
@@ -194,7 +202,7 @@ func TestOpenNeverPrintsTheToken(t *testing.T) {
 			t.Fatalf("open %q leaked the token:\n%s%s", args, out, errOut)
 		}
 	}
-	for _, args := range [][]string{nil, {"supervisor"}, {"t1"}, {"d1"}, {"r1"}, {"a1"}, {"t1", "--delivered"}, {"t9"}, {"x1"}} {
+	for _, args := range [][]string{nil, {"supervisor"}, {"screen"}, {"phone"}, {"tasks", "q"}, {"t1"}, {"d1"}, {"r1"}, {"a1"}, {"t1", "--delivered"}, {"t9"}, {"x1"}} {
 		check(args...)
 	}
 	path := fx.h.vars["PATH"]
