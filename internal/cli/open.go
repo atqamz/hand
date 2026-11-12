@@ -27,7 +27,7 @@ import (
 
 var launchWait = 2 * time.Second
 
-const openUsage = "usage: hand open [supervisor | screen | phone | tasks [QUERY] | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
+const openUsage = "usage: hand open [supervisor | screen | phone | tasks [--] [QUERY] | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
 
 func init() {
 	commands["open"] = cmdOpen
@@ -50,6 +50,12 @@ func cmdOpen(r *runner, args []string) error {
 			return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
 		}
 		rest = append(rest[:1:1], set.Args()...)
+	}
+	if len(rest) > 2 && rest[0] == "tasks" {
+		if err := set.Parse(rest[2:]); err != nil {
+			return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
+		}
+		rest = append(rest[:2:2], set.Args()...)
 	}
 	query := ""
 	if len(rest) == 2 && rest[0] == "tasks" {

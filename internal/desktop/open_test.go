@@ -435,5 +435,5 @@ func TestTasksSearchOpensTheBoardWithTheQuery(t *testing.T) {
 	tt.Type("login bug")
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	hand.want(t, "open", "tasks", "login bug")
+	hand.want(t, "open", "tasks", "--", "login bug")
 }

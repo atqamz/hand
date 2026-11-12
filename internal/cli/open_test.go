@@ -600,6 +600,28 @@ func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
 	}
 }
 
+func TestOpenPrintOfScreenPhoneAndTasksHasNoAppLink(t *testing.T) {
+	fx := newOpenFixture(t)
+	for _, c := range []struct {
+		args []string
+		path string
+	}{
+		{[]string{"--print", "screen"}, "/supervisor?token="},
+		{[]string{"--print", "phone"}, "/connect?token="},
+		{[]string{"--print", "tasks", "Q"}, "/tasks?q=Q&token="},
+		{[]string{"tasks", "a b", "--print"}, "/tasks?q=a+b&token="},
+		{[]string{"--print", "tasks", "--", "-x"}, "/tasks?q=-x&token="},
+	} {
+		out, errOut, code := fx.h.run(append([]string{"open"}, c.args...)...)
+		if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+c.path) || strings.Contains(out, "app:") || strings.Contains(out, "keep=1") {
+			t.Fatalf("open %q: code=%d out=%q stderr=%q", c.args, code, out, errOut)
+		}
+	}
+	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
+		t.Fatalf("open --print launched a browser: %v", err)
+	}
+}
+
 func openerName() string {
 	switch runtime.GOOS {
 	case "darwin":

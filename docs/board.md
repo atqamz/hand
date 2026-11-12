@@ -32,7 +32,7 @@ It never shows dot files and dot folders, the files at the top of the fleet fold
 | `hand open`, `hand open supervisor` | the fleet page |
 | `hand open screen` | the Screen page (`/supervisor`) |
 | `hand open phone` | the Phone page (`/connect`) |
-| `hand open tasks [QUERY]` | the Tasks page, searched for `QUERY` (`/tasks?q=`) when given |
+| `hand open tasks [--] [QUERY]` | the Tasks page, searched for `QUERY` (`/tasks?q=`) when given |
 | `hand open tN` | the task |
 | `hand open dN` | the decision |
 | `hand open rN`, `hand open aN` | the report or attempt, on its task's page |

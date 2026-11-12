@@ -92,7 +92,7 @@ func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
 		if item(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 			a.OpenScreen()
 		}
-		if item(kit.NavItem{Key: "nav:phone", Label: "Phone", Icon: "phone"}) {
+		if item(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone"}) {
 			a.OpenPhone()
 		}
 		if len(a.Fleets) > 0 {
