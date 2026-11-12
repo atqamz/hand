@@ -148,7 +148,7 @@ with `PORT` the proxy's port. **The host is the name `localhost`, never an IP ad
 
 The fragment keeps the code out of the request: the Board's pair page reads it with a script, puts it in the form's code field, and removes it from the address bar. The user then types a name for the phone and taps the button. So the web view must have JavaScript on, and the app must not submit the form for the user.
 
-The app may instead redeem the code itself with `POST /<fleet id>/api/v1/pair` and `{code, name}` as JSON ([Pairing a phone](api.md#pairing-a-phone)), over the same stream and with the same limits. The answer holds the cookie name and value the app keeps as its device secret. The web form is still the user's: the app must not submit it, and must not call this endpoint with a code or a name the user did not give.
+The app may instead redeem the code itself with `POST /<fleet id>/api/v1/pair` and `{code, name}` as JSON ([Pairing a phone](api.md#pairing-a-phone)), over the same stream and with the same limits. The answer holds the cookie name and value the app keeps as its device secret. The `cookie_value` is the device's number in digits with no leading zero, a dot, and the secret as 64 lowercase hexadecimal characters (`^[1-9][0-9]*\.[0-9a-f]{64}$`, the `cookie_value` of the `pair` vectors); an app accepts a stored value only in that shape, and `cookie_name` is `hand_phone_<fleet id>`. The web form is still the user's: the app must not submit it, and must not call this endpoint with a code or a name the user did not give.
 
 ### The loopback proxy
 

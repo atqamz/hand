@@ -477,6 +477,9 @@ func TestThePairEndpointNumbersAreTheOnesInTheCode(t *testing.T) {
 	if want := match(t, "internal/board/api.go", `r\.URL\.Path == apiPrefix\+"(/pair)"`); !strings.HasSuffix(v.Route, "/api/v1"+want) {
 		t.Errorf("the Board serves %q, the file says %q", want, v.Route)
 	}
+	if !strings.Contains(string(read(t, "docs/companion.md")), "`"+v.CookieValue+"`") {
+		t.Errorf("docs/companion.md does not state the cookie value grammar %q", v.CookieValue)
+	}
 	if v.ContentType != "application/json" || len(v.Fields) != 2 || len(v.ErrorFields) != 3 || len(v.Exchanges) < 3 {
 		t.Errorf("pair vectors: %+v", v)
 	}
