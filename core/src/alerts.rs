@@ -238,7 +238,7 @@ impl Feed {
             Method::Get,
             fleet,
             &feed_path(cursor, (!more).then_some(self.wait)),
-            &header,
+            Some(&header),
             None,
             &[],
         )

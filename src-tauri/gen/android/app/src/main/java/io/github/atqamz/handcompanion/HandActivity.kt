@@ -1,6 +1,7 @@
 package io.github.atqamz.handcompanion
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -37,10 +38,39 @@ class HandActivity : ComponentActivity() {
         FleetsModel(
           CoreTransport,
           { pairedFleets(Core.fleets()) },
-          { laptopId(laptop) }
+          { laptopId(laptop) },
+          Core::unsaved
         )
       }
     }
+  }
+
+  private val pair by viewModels<PairModel> {
+    viewModelFactory {
+      initializer {
+        PairModel(CorePairing, Build.MODEL, {
+          val fleets = model.state.value
+          Current(fleets.laptop, fleets.rows.map(FleetRow::name))
+        })
+      }
+    }
+  }
+
+  private var link by mutableStateOf<String?>(null)
+
+  private fun take(intent: Intent) {
+    val data = intent.data ?: return
+    if (data.scheme == "handboard" && data.host == "c") {
+      link = data.toString()
+    } else {
+      pending = decisionRoute(data.toString())
+    }
+    setIntent(Intent())
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    take(intent)
   }
 
   private fun fleetModel(id: String): FleetModel =
@@ -85,11 +115,6 @@ class HandActivity : ComponentActivity() {
     DecisionScreen(ref, state, onBack, model::pick, model::edit, model::send, model::reload)
   }
 
-  override fun onNewIntent(intent: Intent) {
-    super.onNewIntent(intent)
-    pending = decisionRoute(intent.dataString)
-  }
-
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -97,13 +122,19 @@ class HandActivity : ComponentActivity() {
       finish()
       return
     }
-    if (savedInstanceState == null) pending = decisionRoute(intent.dataString)
+    if (savedInstanceState == null) take(intent)
     setContent {
       HandTheme {
         var open by rememberSaveable { mutableStateOf<String?>(null) }
         var decision by rememberSaveable { mutableStateOf<String?>(null) }
-        LaunchedEffect(pending) {
-          pending?.let { (fleet, ref) ->
+        var adding by rememberSaveable { mutableStateOf(false) }
+        var scanning by remember { mutableStateOf(false) }
+        val pairing by pair.state.collectAsStateWithLifecycle()
+        LaunchedEffect(pending, pairing.busy) {
+          pending?.takeUnless { pairing.busy }?.let { (fleet, ref) ->
+            pair.cancel()
+            adding = false
+            scanning = false
             open = fleet
             decision = ref
             pending = null
@@ -115,9 +146,51 @@ class HandActivity : ComponentActivity() {
             if (fleet != null) fleet.poll() else model.poll()
           }
         }
-        if (fleet == null) {
+        LaunchedEffect(link, pairing.busy, pairing.done) {
+          link?.takeUnless { pairing.busy || pairing.done }?.let {
+            link = null
+            open = null
+            decision = null
+            scanning = false
+            adding = true
+            pair.offer(it)
+          }
+        }
+        LaunchedEffect(pairing.done) {
+          if (pairing.done) {
+            adding = false
+            pair.finish()
+            model.retry()
+          }
+        }
+        if (adding) {
+          Secure()
+          val leave = {
+            pair.cancel()
+            adding = false
+          }
+          BackHandler {
+            when {
+              pairing.busy -> Unit
+              scanning -> scanning = false
+              pairing.confirm != null -> pair.cancel()
+              else -> leave()
+            }
+          }
+          when {
+            scanning ->
+              Scanner(
+                { scanning = false; pair.offer(it) },
+                { scanning = false },
+                { scanning = false }
+              )
+            pairing.confirm != null -> ConfirmScreen(pairing, pair::rename, pair::pair, pair::cancel)
+            else ->
+              AddFleetScreen(pairing, pair::edit, { scanning = true }, { pair.offer(pairing.link) }, leave)
+          }
+        } else if (fleet == null) {
           val state by model.state.collectAsStateWithLifecycle()
-          FleetsScreen(state, model::retry, {}, {
+          FleetsScreen(state, model::retry, { adding = true }, {
             fleetModel(it).enter()
             open = it
           })

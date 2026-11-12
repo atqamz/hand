@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use hand_android_core::{
     Alert, AlertSink, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher, Method,
-    RESCAN, Request, RequestError, Response, Sessions, Supervisor, paired_fleets,
+    PairError, RESCAN, Request, RequestError, Response, Sessions, Supervisor, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jstring};
@@ -452,7 +452,14 @@ fn send(
     };
     let cookies = core.sessions.header().unwrap_or_default();
     let method = if post { Method::Post } else { Method::Get };
-    let request = Request::new(method, &fleet, &path, &cookies, csrf.as_deref(), &body)?;
+    let request = Request::new(
+        method,
+        &fleet,
+        &path,
+        Some(&cookies),
+        csrf.as_deref(),
+        &body,
+    )?;
     tauri::async_runtime::block_on(core.companion.request(&request))
 }
 
@@ -477,7 +484,88 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_request<'local>(
         Ok(Err(error)) => serde_json::json!({ "failure": error.name() }),
         Err(_) => serde_json::json!({ "failure": RequestError::Malformed.name() }),
     };
+    reply(&mut env, answer)
+}
+
+fn reply(env: &mut JNIEnv, answer: serde_json::Value) -> jstring {
     env.new_string(answer.to_string())
         .or_else(|_| env.new_string(r#"{"failure":"malformed"}"#))
         .map_or(ptr::null_mut(), |text| text.into_raw())
+}
+
+fn core() -> Option<Arc<Core>> {
+    STATE.lock().unwrap().core.clone()
+}
+
+fn failed(error: PairError) -> serde_json::Value {
+    serde_json::json!({ "failure": error.name(), "message": error.message() })
+}
+
+fn offered(text: &str) -> serde_json::Value {
+    let Some(core) = core() else {
+        return failed(PairError::NoPending);
+    };
+    match core.companion.offer_link(text) {
+        Ok(offer) => serde_json::json!({ "laptop": offer.laptop, "replaces": offer.replaces }),
+        Err(error) => serde_json::json!({ "failure": "link", "message": error.message() }),
+    }
+}
+
+fn paired(name: &str) -> serde_json::Value {
+    let Some(core) = core() else {
+        return failed(PairError::NoPending);
+    };
+    let stop_feeds = || core.alerts.forget_all();
+    match tauri::async_runtime::block_on(core.companion.pair(&core.sessions, name, stop_feeds)) {
+        Ok(fleets) => serde_json::json!({
+            "fleets": fleets.iter().map(|fleet| serde_json::json!({ "id": fleet.id, "name": fleet.name })).collect::<Vec<_>>(),
+        }),
+        Err(error) => failed(error),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_offer<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    link: JString<'local>,
+) -> jstring {
+    let answer = catch_unwind(AssertUnwindSafe(|| match text(&mut env, &link) {
+        Ok(Some(link)) => offered(&link),
+        _ => serde_json::json!({ "failure": "link", "message": hand_android_core::LINK_REJECTED }),
+    }))
+    .unwrap_or_else(|_| failed(PairError::NoPending));
+    reply(&mut env, answer)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_pair<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    name: JString<'local>,
+) -> jstring {
+    let answer = catch_unwind(AssertUnwindSafe(|| match text(&mut env, &name) {
+        Ok(Some(name)) => paired(&name),
+        _ => failed(PairError::Refused("bad_name")),
+    }))
+    .unwrap_or_else(|_| failed(PairError::NotSaved));
+    reply(&mut env, answer)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_cancel<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        core.companion.cancel_pairing();
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unsaved<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    jboolean::from(core().is_some_and(|core| core.sessions.unsaved()))
 }

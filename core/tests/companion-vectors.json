@@ -269,6 +269,106 @@
       }
     ]
   },
+  "pair": {
+    "route": "POST /<fleet id>/api/v1/pair",
+    "content_type": "application/json",
+    "request_fields": [
+      "code",
+      "name"
+    ],
+    "body_max_bytes": 4096,
+    "name_max_runes": 40,
+    "cookie_value": "^[1-9][0-9]*\\.[0-9a-f]{64}$",
+    "error_fields": [
+      "status",
+      "code",
+      "message"
+    ],
+    "exchanges": [
+      {
+        "name": "a fresh code and a name pair the phone",
+        "given": "fresh",
+        "request": {
+          "code": "<code>",
+          "name": "Pixel"
+        },
+        "status": 200,
+        "fleets": [
+          {
+            "id": "<fleet id>",
+            "name": "hand",
+            "cookie_name": "hand_phone_<fleet id>"
+          }
+        ]
+      },
+      {
+        "name": "a name of 40 characters is accepted",
+        "given": "fresh",
+        "request": {
+          "code": "<code>",
+          "name": "éééééééééééééééééééééééééééééééééééééééé"
+        },
+        "status": 200,
+        "fleets": [
+          {
+            "id": "<fleet id>",
+            "name": "hand",
+            "cookie_name": "hand_phone_<fleet id>"
+          }
+        ]
+      },
+      {
+        "name": "a wrong code is refused",
+        "given": "wrong",
+        "request": {
+          "code": "ZZZZZ-ZZZZZ",
+          "name": "Pixel"
+        },
+        "status": 403,
+        "error": "wrong_code"
+      },
+      {
+        "name": "an expired code is refused",
+        "given": "expired",
+        "request": {
+          "code": "<code>",
+          "name": "Pixel"
+        },
+        "status": 403,
+        "error": "code_expired"
+      },
+      {
+        "name": "a used code is refused",
+        "given": "used",
+        "request": {
+          "code": "<code>",
+          "name": "Pixel"
+        },
+        "status": 403,
+        "error": "code_used"
+      },
+      {
+        "name": "a sixth wrong try from one phone is rate limited",
+        "given": "five wrong tries",
+        "request": {
+          "code": "<code>",
+          "name": "Pixel"
+        },
+        "status": 429,
+        "error": "rate_limited"
+      },
+      {
+        "name": "a name of 41 characters is refused and the code is not spent",
+        "given": "fresh",
+        "request": {
+          "code": "<code>",
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "status": 400,
+        "error": "bad_name"
+      }
+    ]
+  },
   "valid": [
     {
       "name": "minimal, no relay",

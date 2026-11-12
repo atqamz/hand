@@ -8,6 +8,7 @@ mod key;
 mod link;
 mod navigation;
 mod open;
+mod pair;
 mod pairing;
 mod scan;
 mod sessions;
@@ -35,7 +36,8 @@ pub use link::{
 };
 pub use navigation::may_load;
 pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, parse_open};
+pub use pair::{NAME_MAX, PairError, parse_answer, redeem, valid_name};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::{Proxy, Signal};
 pub use scan::{CAMERA_FAILED, SCAN_OPEN, ScanError, ScanStatus, scan_reply};
-pub use sessions::{Jar, Sessions};
+pub use sessions::{Jar, Paired, SaveError, Sessions};

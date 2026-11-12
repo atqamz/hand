@@ -1,4 +1,4 @@
-use hand_android_core::{parse_link, parse_open};
+use hand_android_core::{NAME_MAX, PairError, parse_answer, parse_link, parse_open, valid_name};
 use serde_json::Value;
 
 fn vectors() -> Value {
@@ -87,4 +87,50 @@ fn every_open_vector_parses_or_is_rejected() {
         let text = vector["link"].as_str().unwrap();
         assert_eq!(parse_open(text), None, "{text:?}");
     }
+}
+
+#[test]
+fn the_pair_vectors_fix_the_name_the_body_and_each_answer() {
+    let data = vectors();
+    let pair = &data["pair"];
+    assert_eq!(pair["name_max_runes"].as_u64(), Some(NAME_MAX as u64));
+    assert_eq!(pair["request_fields"], serde_json::json!(["code", "name"]));
+    assert_eq!(pair["body_max_bytes"], 4096);
+    let exchanges = pair["exchanges"].as_array().unwrap();
+    assert_eq!(exchanges.len(), 7);
+    for vector in exchanges {
+        let name = vector["name"].as_str().unwrap();
+        let request_name = vector["request"]["name"].as_str().unwrap();
+        let status = vector["status"].as_u64().unwrap() as u16;
+        match vector["error"].as_str() {
+            Some("bad_name") => assert!(valid_name(request_name).is_none(), "{name}"),
+            Some(code) => {
+                assert!(valid_name(request_name).is_some(), "{name}");
+                let body = format!(r#"{{"error":{{"code":"{code}","message":"x"}}}}"#);
+                let error = parse_answer(status, body.as_bytes()).err();
+                assert_eq!(error.map(PairError::name), Some(code), "{name}");
+            }
+            None => {
+                assert_eq!(valid_name(request_name), Some(request_name), "{name}");
+                let value = format!("7.{}", "ab".repeat(32));
+                let fleets: Vec<_> = vector["fleets"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|fleet| {
+                        let id = "f0123456789ab";
+                        assert_eq!(fleet["cookie_name"], "hand_phone_<fleet id>", "{name}");
+                        serde_json::json!({"id": id, "name": fleet["name"], "cookie_name": format!("hand_phone_{id}"), "cookie_value": value})
+                    })
+                    .collect();
+                let body = serde_json::json!({"version": 1, "fleet": {"id": "f0123456789ab", "name": "hand"}, "data": {"fleets": fleets, "missed": 0}});
+                let paired = parse_answer(status, body.to_string().as_bytes())
+                    .ok()
+                    .unwrap();
+                assert_eq!(paired.len(), fleets.len(), "{name}");
+            }
+        }
+    }
+    let regex = pair["cookie_value"].as_str().unwrap();
+    assert_eq!(regex, "^[1-9][0-9]*\\.[0-9a-f]{64}$");
 }

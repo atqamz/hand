@@ -20,6 +20,14 @@ object Core {
 
   @JvmStatic external fun fleets(): String?
 
+  @JvmStatic external fun unsaved(): Boolean
+
+  @JvmStatic external fun offer(link: String): String?
+
+  @JvmStatic external fun pair(name: String): String?
+
+  @JvmStatic external fun cancel()
+
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()

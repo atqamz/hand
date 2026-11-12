@@ -122,10 +122,18 @@ fun band(error: BoardError, laptop: String?, since: String?): Band =
       )
   }
 
+val UNSAVED =
+  Band(
+    "The phone could not save its pairings",
+    "They work until the app closes. Check the phone's storage.",
+    retry = false
+  )
+
 class FleetsModel(
   private val transport: Transport,
   private val fleets: () -> List<String>,
   private val laptop: () -> String?,
+  private val unsaved: () -> Boolean = { false },
   private val clock: () -> String = { hhmm(Date()) }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetsState())
@@ -149,6 +157,7 @@ class FleetsModel(
   suspend fun refresh() =
     lock.withLock {
       val (ids, who) = withContext(Dispatchers.IO) { fleets() to laptop() }
+      val unsaved = withContext(Dispatchers.IO) { unsaved() }
       val now = clock()
       val known = mutableState.value.rows.associateBy { it.id }
       val rows = mutableListOf<FleetRow>()
@@ -179,7 +188,7 @@ class FleetsModel(
       clients.keys.retainAll(ids.toSet())
       downSince = if (failure in UNREACHABLE) downSince ?: now else null
       mutableState.value =
-        FleetsState(who, rows, failure?.let { band(it, who, downSince) })
+        FleetsState(who, rows, failure?.let { band(it, who, downSince) } ?: UNSAVED.takeIf { unsaved })
     }
 
   private suspend fun fetch(id: String, before: FleetRow, now: String): FleetRow {

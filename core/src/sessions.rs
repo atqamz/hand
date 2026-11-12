@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,6 +25,20 @@ pub trait Jar: Send + Sync {
 #[serde(default)]
 struct Data {
     laptops: Vec<Laptop>,
+    retired: Vec<Retired>,
+}
+
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct Retired {
+    id: String,
+    device: String,
+}
+
+fn device_of(value: &str) -> String {
+    value
+        .split_once('.')
+        .map_or_else(String::new, |(device, _)| device.to_owned())
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,12 +59,26 @@ struct Entry {
     imported: bool,
 }
 
+pub struct Paired {
+    pub id: String,
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SaveError {
+    Jar,
+    Store,
+}
+
 pub struct Sessions<J> {
     root: PathBuf,
     jar: J,
     cipher: Arc<dyn KeyCipher>,
     data: Mutex<Data>,
     quarantined: bool,
+    unsaved: AtomicBool,
+    unfinished: AtomicBool,
 }
 
 impl<J: Jar> Sessions<J> {
@@ -63,6 +92,8 @@ impl<J: Jar> Sessions<J> {
             cipher,
             data: Mutex::new(data),
             quarantined,
+            unsaved: AtomicBool::new(false),
+            unfinished: AtomicBool::new(false),
         })
     }
 
@@ -70,13 +101,54 @@ impl<J: Jar> Sessions<J> {
         self.quarantined
     }
 
+    pub fn unsaved(&self) -> bool {
+        self.unsaved.load(Ordering::SeqCst) || self.unfinished.load(Ordering::SeqCst)
+    }
+
+    pub fn mark_unsaved(&self) {
+        self.unfinished.store(true, Ordering::SeqCst);
+    }
+
+    fn imported(&self, data: &Data) -> io::Result<(Data, Vec<(String, String)>)> {
+        let jar = paired_cookies(&self.jar.cookies()?.unwrap_or_default());
+        let mut next = data.clone();
+        let same = |retired: &Retired, id: &String, value: &String| {
+            retired.id == *id && retired.device == device_of(value)
+        };
+        next.retired
+            .retain(|retired| jar.iter().any(|(id, value)| same(retired, id, value)));
+        let jar: Vec<_> = jar
+            .into_iter()
+            .filter(|(id, value)| !next.retired.iter().any(|retired| same(retired, id, value)))
+            .collect();
+        import(&mut next, read_laptop(&self.root), &jar);
+        Ok((next, jar))
+    }
+
+    fn planned(&self, data: &Data) -> Result<(Data, Vec<(String, String)>), SaveError> {
+        let (next, jar) = self.imported(data).map_err(|_| SaveError::Jar)?;
+        let held = |id: &String| {
+            next.laptops
+                .iter()
+                .any(|laptop| laptop.fleets.iter().any(|entry| entry.id == *id))
+        };
+        if jar.iter().all(|(id, _)| held(id)) {
+            Ok((next, jar))
+        } else {
+            Err(SaveError::Jar)
+        }
+    }
+
+    pub fn check(&self) -> Result<(), SaveError> {
+        let data = self.data.lock().unwrap();
+        self.planned(&data).map(|_| ())
+    }
+
     pub fn header(&self) -> Option<String> {
         let mut data = self.data.lock().unwrap();
-        let mut next = data.clone();
-        if let Ok(jar) = self.jar.cookies() {
-            let jar = paired_cookies(&jar.unwrap_or_default());
-            import(&mut next, read_laptop(&self.root), &jar);
-        }
+        let (next, _) = self
+            .imported(&data)
+            .unwrap_or_else(|_| (data.clone(), Vec::new()));
         if next != *data {
             let _ = self.commit(&mut data, next.clone());
         }
@@ -98,18 +170,83 @@ impl<J: Jar> Sessions<J> {
     pub fn forget(&self) -> io::Result<()> {
         let mut data = self.data.lock().unwrap();
         self.jar.clear()?;
-        self.commit(&mut data, Data::default())
+        self.unfinished.store(false, Ordering::SeqCst);
+        let saved = self.commit(&mut data, Data::default());
+        if saved.is_err() {
+            *data = Data::default();
+        }
+        saved
+    }
+
+    pub fn pair(
+        &self,
+        endpoint: &str,
+        fleets: &[Paired],
+        replacing: impl FnOnce(),
+    ) -> Result<(), SaveError> {
+        let mut data = self.data.lock().unwrap();
+        let (mut next, jar) = self.planned(&data)?;
+        next.retired.extend(jar.iter().map(|(id, value)| Retired {
+            id: id.clone(),
+            device: device_of(value),
+        }));
+        let replaces = next
+            .laptops
+            .iter()
+            .any(|laptop| laptop.endpoint != endpoint && !laptop.fleets.is_empty());
+        next.laptops
+            .retain(|laptop| !replaces && laptop.endpoint == endpoint);
+        if next.laptops.is_empty() {
+            next.laptops.push(Laptop {
+                endpoint: endpoint.to_owned(),
+                fleets: Vec::new(),
+            });
+        }
+        let laptop = &mut next.laptops[0];
+        for entry in &mut laptop.fleets {
+            entry.imported = false;
+        }
+        laptop
+            .fleets
+            .retain(|entry| !fleets.iter().any(|paired| paired.id == entry.id));
+        for paired in fleets {
+            let (device, secret) = paired.value.split_once('.').unwrap_or_default();
+            laptop.fleets.push(Entry {
+                device: device.to_owned(),
+                secret: secret.to_owned(),
+                id: paired.id.clone(),
+                name: paired.name.clone(),
+                paired: now(),
+                imported: false,
+            });
+        }
+        if self.commit(&mut data, next.clone()).is_err() && *data != next {
+            return Err(SaveError::Store);
+        }
+        self.unfinished.store(false, Ordering::SeqCst);
+        if replaces {
+            replacing();
+        }
+        drop(data);
+        if self.jar.clear().is_err() {
+            self.mark_unsaved();
+        }
+        Ok(())
     }
 
     fn commit(&self, data: &mut Data, next: Data) -> io::Result<()> {
-        let staged = self.stage(&next)?;
-        let dir = self.root.join(DIR);
-        if let Err(error) = fs::rename(&staged, dir.join(FILE)) {
-            let _ = fs::remove_file(&staged);
-            return Err(error);
-        }
-        *data = next;
-        sync_dir(&dir)
+        let saved = (|| {
+            let staged = self.stage(&next)?;
+            let dir = self.root.join(DIR);
+            if let Err(error) = fs::rename(&staged, dir.join(FILE)) {
+                let _ = fs::remove_file(&staged);
+                return Err(error);
+            }
+            *data = next;
+            sync_dir(&dir)
+        })();
+        self.unsaved.store(saved.is_err(), Ordering::SeqCst);
+        saved
     }
 
     fn stage(&self, data: &Data) -> io::Result<PathBuf> {
@@ -606,5 +743,337 @@ mod tests {
 
         assert!(!sessions.quarantined());
         assert_eq!(sessions.header().as_deref(), Some(COOKIE));
+    }
+
+    const NEW_LAPTOP: &str = "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5";
+
+    fn paired(id: &str, device: &str, secret: &str) -> Paired {
+        Paired {
+            id: id.to_owned(),
+            name: format!("name of {id}"),
+            value: format!("{device}.{secret}"),
+        }
+    }
+
+    fn header_of(sessions: &Sessions<FakeJar>) -> Vec<String> {
+        let mut parts: Vec<String> = sessions
+            .header()
+            .unwrap_or_default()
+            .split("; ")
+            .map(str::to_owned)
+            .collect();
+        parts.sort();
+        parts
+    }
+
+    #[test]
+    fn a_pairing_adds_every_fleet_adopts_the_others_and_clears_the_jar() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        let mut replaced = false;
+
+        sessions
+            .pair(
+                LAPTOP,
+                &[paired(OTHER, "9", C), paired("f111111111111", "5", B)],
+                || replaced = true,
+            )
+            .unwrap();
+
+        assert!(!replaced);
+        assert!(setup.jar.cookies().unwrap().is_none());
+        let expected = [
+            format!("hand_phone_{FLEET}=7.{A}"),
+            format!("hand_phone_{OTHER}=9.{C}"),
+            "hand_phone_f111111111111=5.".to_owned() + B,
+        ];
+        let mut expected = expected.to_vec();
+        expected.sort();
+        assert_eq!(header_of(&sessions), expected);
+        assert_eq!(header_of(&setup.open().unwrap()), expected);
+        let data = sessions.data.lock().unwrap();
+        assert!(data.laptops[0].fleets.iter().all(|entry| !entry.imported));
+        assert_eq!(data.laptops[0].fleets[2].name, "name of f111111111111");
+        assert!(!sessions.unsaved());
+    }
+
+    #[test]
+    fn a_pairing_for_a_fleet_already_held_replaces_its_secret_and_no_import_rolls_it_back() {
+        let setup = Setup::new(&[COOKIE, SECOND]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+
+        sessions
+            .pair(LAPTOP, &[paired(FLEET, "8", B)], || {})
+            .unwrap();
+        setup.jar.hold(&[COOKIE, SECOND]);
+
+        let expected = vec![
+            format!("hand_phone_{FLEET}=8.{B}"),
+            format!("hand_phone_{OTHER}=9.{C}"),
+        ];
+        assert_eq!(header_of(&sessions), expected);
+        assert_eq!(header_of(&setup.open().unwrap()), expected);
+    }
+
+    #[test]
+    fn a_pairing_that_cannot_be_saved_changes_nothing_and_can_be_tried_again() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        let before = fs::read(setup.file()).unwrap();
+
+        setup.cipher.fail_next_seal();
+        let failed = sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {});
+
+        assert_eq!(failed, Err(SaveError::Store));
+        assert!(sessions.unsaved());
+        assert_eq!(fs::read(setup.file()).unwrap(), before);
+        assert_eq!(header_of(&sessions), [COOKIE.to_owned()]);
+        assert!(setup.jar.cookies().unwrap().is_some());
+        assert!(!setup.dir.path().join(DIR).join(STAGED).exists());
+
+        sessions
+            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+        assert!(!sessions.unsaved());
+        assert_eq!(header_of(&sessions).len(), 2);
+    }
+
+    #[test]
+    fn a_jar_that_cannot_be_cleared_after_the_write_leaves_the_pairing_made_and_says_so() {
+        let setup = Setup::new(&[COOKIE, SECOND]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        setup.jar.fail_clear.store(true, Ordering::SeqCst);
+        let mut stopped = 0;
+
+        sessions
+            .pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {
+                stopped += 1
+            })
+            .unwrap();
+
+        assert_eq!(stopped, 1);
+        assert!(sessions.unsaved());
+        fs::write(setup.dir.path().join("laptop"), format!("{NEW_LAPTOP}\n")).unwrap();
+        assert_eq!(
+            header_of(&sessions)
+                .into_iter()
+                .filter(|part| part.contains("f111111111111"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            header_of(&setup.open().unwrap())
+                .into_iter()
+                .filter(|part| part.contains("f111111111111"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_stale_cookie_left_by_a_failed_clear_stays_unfinished_and_never_becomes_a_ghost_fleet() {
+        let setup = Setup::new(&[COOKIE, SECOND]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        setup.jar.fail_clear.store(true, Ordering::SeqCst);
+        sessions
+            .pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {})
+            .unwrap();
+        fs::write(setup.dir.path().join("laptop"), format!("{NEW_LAPTOP}\n")).unwrap();
+        let only = ["hand_phone_f111111111111=5.".to_owned() + B];
+
+        assert!(sessions.unsaved());
+        assert_eq!(header_of(&sessions), only);
+        assert!(sessions.unsaved());
+        assert_eq!(header_of(&sessions), only);
+        assert_eq!(header_of(&setup.open().unwrap()), only);
+
+        setup.jar.fail_clear.store(false, Ordering::SeqCst);
+        setup.jar.hold(&[]);
+        assert_eq!(header_of(&sessions), only);
+        assert!(sessions.data.lock().unwrap().retired.is_empty());
+        assert!(sessions.unsaved());
+        sessions
+            .pair(NEW_LAPTOP, &[paired("f222222222222", "6", C)], || {})
+            .unwrap();
+        assert!(!sessions.unsaved());
+    }
+
+    #[test]
+    fn a_new_cookie_of_a_retired_fleet_is_imported_again() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        setup.jar.fail_clear.store(true, Ordering::SeqCst);
+        sessions
+            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+        native(&sessions);
+        sessions.data.lock().unwrap().laptops[0]
+            .fleets
+            .retain(|entry| entry.id != FLEET);
+
+        setup.jar.hold(&[NEWER]);
+
+        assert!(header_of(&sessions).contains(&format!("hand_phone_{FLEET}=8.{B}")));
+    }
+
+    #[test]
+    fn forget_ends_an_unfinished_pairing() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        setup.jar.fail_clear.store(true, Ordering::SeqCst);
+        sessions
+            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+        assert!(sessions.unsaved());
+        setup.jar.fail_clear.store(false, Ordering::SeqCst);
+
+        sessions.forget().unwrap();
+
+        assert!(!sessions.unsaved());
+    }
+
+    #[test]
+    fn a_check_says_whether_a_pairing_could_start() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        assert_eq!(sessions.check(), Ok(()));
+        setup.jar.fail_read.store(true, Ordering::SeqCst);
+        assert_eq!(sessions.check(), Err(SaveError::Jar));
+        setup.jar.fail_read.store(false, Ordering::SeqCst);
+        setup.jar.hold(&[COOKIE, "hand_phone_f777777777777=bad"]);
+        assert_eq!(sessions.check(), Err(SaveError::Jar));
+    }
+
+    #[test]
+    fn a_jar_that_cannot_be_read_or_holds_a_cookie_with_no_place_stops_the_pairing_untouched() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        let before = fs::read(setup.file()).unwrap();
+        let mut stopped = 0;
+
+        setup.jar.fail_read.store(true, Ordering::SeqCst);
+        let unreadable = sessions.pair(NEW_LAPTOP, &[paired(OTHER, "9", C)], || stopped += 1);
+        setup.jar.fail_read.store(false, Ordering::SeqCst);
+        setup.jar.hold(&[COOKIE, "hand_phone_f777777777777=bad"]);
+        let misplaced = sessions.pair(NEW_LAPTOP, &[paired(OTHER, "9", C)], || stopped += 1);
+
+        assert_eq!(unreadable, Err(SaveError::Jar));
+        assert_eq!(misplaced, Err(SaveError::Jar));
+        assert_eq!(stopped, 0);
+        assert_eq!(fs::read(setup.file()).unwrap(), before);
+        assert!(setup.jar.cookies().unwrap().is_some());
+
+        let lone = Setup::new(&[COOKIE]);
+        fs::remove_file(lone.dir.path().join("laptop")).unwrap();
+        let sessions = lone.open().unwrap();
+        assert_eq!(
+            sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {}),
+            Err(SaveError::Jar)
+        );
+        assert!(lone.jar.cookies().unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_cannot_be_synced_after_the_rename_still_makes_the_pairing_and_says_so() {
+        use std::os::unix::fs::PermissionsExt;
+        let setup = Setup::new(&[]);
+        let sessions = setup.open().unwrap();
+        let dir = setup.dir.path().join(DIR);
+
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o300)).unwrap();
+        let done = sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {});
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert_eq!(done, Ok(()));
+        assert!(sessions.unsaved());
+        assert_eq!(header_of(&sessions).len(), 1);
+    }
+
+    #[test]
+    fn a_pairing_with_another_laptop_replaces_every_fleet_and_stops_the_feeds_once() {
+        let setup = Setup::new(&[COOKIE, SECOND]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        let mut stopped = 0;
+
+        sessions
+            .pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {
+                stopped += 1
+            })
+            .unwrap();
+
+        assert_eq!(stopped, 1);
+        fs::write(setup.dir.path().join("laptop"), format!("{NEW_LAPTOP}\n")).unwrap();
+        assert_eq!(
+            header_of(&sessions),
+            ["hand_phone_f111111111111=5.".to_owned() + B]
+        );
+        let data = sessions.data.lock().unwrap();
+        assert_eq!(data.laptops.len(), 1);
+        assert_eq!(data.laptops[0].endpoint, NEW_LAPTOP);
+        assert!(setup.jar.cookies().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_replacement_that_fails_leaves_the_old_laptop_and_stops_no_feed_when_it_cannot_save() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        let mut stopped = 0;
+
+        setup.cipher.fail_next_seal();
+        let failed = sessions.pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {
+            stopped += 1
+        });
+
+        assert!(failed.is_err());
+        assert_eq!(stopped, 0);
+        assert_eq!(header_of(&sessions), [COOKIE.to_owned()]);
+        assert!(setup.jar.cookies().unwrap().is_some());
+    }
+
+    #[test]
+    fn a_failed_forget_stops_serving_the_pairings_and_says_so() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        sessions
+            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+        assert!(sessions.header().is_some());
+
+        setup.cipher.fail_next_seal();
+        assert!(sessions.forget().is_err());
+
+        assert!(sessions.unsaved());
+        assert_eq!(sessions.header(), None);
+        sessions.forget().unwrap();
+        assert!(!sessions.unsaved());
+        assert_eq!(setup.open().unwrap().header(), None);
+    }
+
+    #[test]
+    fn a_write_that_header_could_not_make_is_reported_until_it_succeeds() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        sessions.header();
+        assert!(!sessions.unsaved());
+
+        setup.jar.hold(&[COOKIE, SECOND]);
+        setup.cipher.fail_next_seal();
+        assert_eq!(sessions.header().as_deref(), Some(BOTH));
+        assert!(sessions.unsaved());
+
+        assert_eq!(sessions.header().as_deref(), Some(BOTH));
+        assert!(!sessions.unsaved());
     }
 }

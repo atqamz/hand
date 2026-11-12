@@ -16,7 +16,7 @@ const COOKIES: &str =
     "session=zzz; hand_phone_f0123456789ab=abc.def; hand_phone_f999999999999=nope";
 
 fn get(path: &str) -> Request {
-    Request::new(Method::Get, FLEET, path, COOKIES, None, b"").unwrap()
+    Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap()
 }
 
 async fn serve(
@@ -76,7 +76,7 @@ async fn a_post_carries_its_csrf_token_and_body() {
         Method::Post,
         FLEET,
         "/api/v1/message",
-        COOKIES,
+        Some(COOKIES),
         Some("tok123"),
         br#"{"text":"hi"}"#,
     )
@@ -152,7 +152,7 @@ async fn a_large_post_body_arrives_whole() {
         Method::Post,
         FLEET,
         "/api/v1/message",
-        COOKIES,
+        Some(COOKIES),
         Some("tok123"),
         body.as_bytes(),
     )

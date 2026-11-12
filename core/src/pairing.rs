@@ -1,5 +1,6 @@
 use std::fs;
 use std::io;
+use std::mem;
 use std::path::{Path, PathBuf};
 
 use crate::link::{Link, Reject, parse_link_with};
@@ -11,6 +12,7 @@ pub const PAIRING_PENDING: &str = "Finish or dismiss the current pairing first";
 pub struct Pairing {
     dir: PathBuf,
     pending: Option<Link>,
+    in_flight: bool,
     active: Option<String>,
 }
 
@@ -40,6 +42,7 @@ impl Pairing {
         Self {
             dir: dir.to_owned(),
             pending: None,
+            in_flight: false,
             active: read_laptop(dir),
         }
     }
@@ -74,6 +77,7 @@ impl Pairing {
 
     pub fn clear_pending(&mut self) {
         self.pending = None;
+        self.in_flight = false;
     }
 
     pub fn active(&self) -> Option<&str> {
@@ -110,15 +114,24 @@ impl Pairing {
         }
     }
 
-    pub fn activate(&mut self) -> io::Result<()> {
-        let Some(pending) = &self.pending else {
-            return Ok(());
-        };
+    pub fn take(&mut self) -> Option<Link> {
+        let link = self.pending.take()?;
+        self.in_flight = true;
+        Some(link)
+    }
+
+    pub fn restore(&mut self, link: Link) {
+        if mem::take(&mut self.in_flight) {
+            self.pending.get_or_insert(link);
+        }
+    }
+
+    pub fn activate(&mut self, link: &Link) -> io::Result<()> {
         fs::write(
             self.dir.join(LAPTOP_FILE),
-            format!("{}\n", pending.endpoint_id),
+            format!("{}\n", link.endpoint_id),
         )?;
-        self.active = Some(pending.endpoint_id.clone());
+        self.active = Some(link.endpoint_id.clone());
         Ok(())
     }
 }
@@ -148,6 +161,11 @@ mod tests {
     const FIRST: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
     const SECOND: &str = "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5";
     const UNKNOWN: &str = "b6fcff633c251a1f5a8598247c85986e1acc1d0a8d6a3e055f7c4f737843783b";
+
+    fn activate(pairing: &mut Pairing) {
+        let link = pairing.pending().cloned().unwrap();
+        pairing.activate(&link).unwrap();
+    }
 
     fn link(endpoint: &str) -> String {
         format!("handboard://c#v=1&e={endpoint}&f=f0123456789ab&c=K7QM3XRD2P")
@@ -180,7 +198,7 @@ mod tests {
             .unwrap();
         assert!(!switched);
         assert!(calls.borrow().is_empty());
-        pairing.activate().unwrap();
+        activate(&mut pairing);
         pairing.clear_pending();
         assert_eq!(pairing.active(), Some(FIRST));
 
@@ -200,9 +218,32 @@ mod tests {
         assert_eq!(*calls.borrow(), ["clear"]);
         assert!(pairing.active().is_none());
         assert!(Pairing::new(dir.path()).active().is_none());
-        pairing.activate().unwrap();
+        activate(&mut pairing);
         assert_eq!(pairing.active(), Some(SECOND));
         assert_eq!(Pairing::new(dir.path()).active(), Some(SECOND));
+    }
+
+    #[test]
+    fn a_taken_link_comes_back_only_when_no_newer_one_has_arrived() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&link(FIRST)).unwrap();
+        let first = pairing.take().unwrap();
+        assert!(pairing.pending().is_none());
+        pairing.restore(first.clone());
+        assert_eq!(pairing.pending().unwrap().endpoint_id, FIRST);
+
+        pairing.take().unwrap();
+        pairing.offer(&link(SECOND)).unwrap();
+        pairing.restore(first.clone());
+        assert_eq!(pairing.pending().unwrap().endpoint_id, SECOND);
+
+        pairing.clear_pending();
+        pairing.offer(&link(FIRST)).unwrap();
+        let taken = pairing.take().unwrap();
+        pairing.clear_pending();
+        pairing.restore(taken);
+        assert!(pairing.pending().is_none());
     }
 
     #[test]
@@ -210,7 +251,7 @@ mod tests {
         let dir = TempDir::new();
         let mut pairing = Pairing::new(dir.path());
         pairing.offer(&link(FIRST)).unwrap();
-        pairing.activate().unwrap();
+        activate(&mut pairing);
         pairing.forget().unwrap();
         assert!(pairing.active().is_none());
         assert!(Pairing::new(dir.path()).active().is_none());

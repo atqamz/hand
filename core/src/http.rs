@@ -72,7 +72,7 @@ impl Request {
         method: Method,
         fleet: &str,
         path: &str,
-        cookies: &str,
+        cookies: Option<&str>,
         csrf: Option<&str>,
         body: &[u8],
     ) -> Result<Self, RequestError> {
@@ -83,13 +83,15 @@ impl Request {
         {
             return Err(RequestError::Malformed);
         }
-        let cookie = fleet_cookie(cookies, fleet).ok_or(RequestError::Unpaired)?;
         let verb = match method {
             Method::Get => "GET",
             Method::Post => "POST",
         };
-        let mut head =
-            format!("{verb} /{fleet}{path} HTTP/1.1\r\nHost: localhost\r\nCookie: {cookie}\r\n");
+        let mut head = format!("{verb} /{fleet}{path} HTTP/1.1\r\nHost: localhost\r\n");
+        if let Some(cookies) = cookies {
+            let cookie = fleet_cookie(cookies, fleet).ok_or(RequestError::Unpaired)?;
+            head.push_str(&format!("Cookie: {cookie}\r\n"));
+        }
         if let Some(token) = csrf {
             head.push_str(&format!("X-Hand-CSRF: {token}\r\n"));
         }
@@ -108,6 +110,10 @@ impl Request {
             max_body: MAX_BODY,
             by_length: false,
         })
+    }
+
+    pub fn pair(fleet: &str, body: &[u8]) -> Result<Self, RequestError> {
+        Self::new(Method::Post, fleet, "/api/v1/pair", None, None, body)
     }
 
     pub fn within(mut self, timeout: Duration) -> Self {
@@ -478,7 +484,14 @@ mod tests {
 
     #[test]
     fn a_get_names_the_fleets_cookie_alone_and_closes_the_connection() {
-        let request = Request::new(Method::Get, FLEET, "/api/v1/status", COOKIES, None, b"");
+        let request = Request::new(
+            Method::Get,
+            FLEET,
+            "/api/v1/status",
+            Some(COOKIES),
+            None,
+            b"",
+        );
         assert_eq!(
             text(&request.unwrap()),
             "GET /f0123456789ab/api/v1/status HTTP/1.1\r\nHost: localhost\r\nCookie: hand_phone_f0123456789ab=abc.def\r\nConnection: close\r\n\r\n"
@@ -491,7 +504,7 @@ mod tests {
             Method::Post,
             FLEET,
             "/api/v1/message",
-            COOKIES,
+            Some(COOKIES),
             Some("tok123"),
             br#"{"text":"hi"}"#,
         );
@@ -504,7 +517,7 @@ mod tests {
     #[test]
     fn a_request_that_could_leave_its_fleet_or_split_a_header_is_refused() {
         let new = |fleet: &str, path: &str, cookies: &str, csrf: Option<&str>| {
-            Request::new(Method::Get, fleet, path, cookies, csrf, b"").map(|_| ())
+            Request::new(Method::Get, fleet, path, Some(cookies), csrf, b"").map(|_| ())
         };
         let ok = "/api/v1/ok";
         assert_eq!(new(FLEET, ok, COOKIES, None), Ok(()));
@@ -524,7 +537,7 @@ mod tests {
             );
         }
         assert_eq!(
-            Request::new(Method::Get, FLEET, ok, COOKIES, None, b"x").map(|_| ()),
+            Request::new(Method::Get, FLEET, ok, Some(COOKIES), None, b"x").map(|_| ()),
             Err(RequestError::Malformed)
         );
     }
@@ -538,7 +551,8 @@ mod tests {
             "hand_phone_f0123456789ab=a\"b",
         ] {
             assert_eq!(
-                Request::new(Method::Get, FLEET, "/api/v1/ok", cookies, None, b"").map(|_| ()),
+                Request::new(Method::Get, FLEET, "/api/v1/ok", Some(cookies), None, b"")
+                    .map(|_| ()),
                 Err(RequestError::Unpaired),
                 "{cookies}"
             );
@@ -547,7 +561,8 @@ mod tests {
 
     #[test]
     fn only_the_feed_and_the_api_are_reachable_and_never_by_a_dotted_path() {
-        let path = |path: &str| Request::new(Method::Get, FLEET, path, COOKIES, None, b"").is_ok();
+        let path =
+            |path: &str| Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").is_ok();
         for allowed in [
             "/alerts/feed",
             "/alerts/feed?",

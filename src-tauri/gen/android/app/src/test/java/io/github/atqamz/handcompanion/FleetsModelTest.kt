@@ -58,7 +58,7 @@ private class Laptop(var script: (String, String) -> Raw) : Transport {
 }
 
 private fun model(laptop: Laptop, clock: () -> String = { "12:41" }) =
-  FleetsModel(laptop, { listOf(ONE, TWO) }, { "4d92…6ed6" }, clock)
+  FleetsModel(laptop, { listOf(ONE, TWO) }, { "4d92…6ed6" }, clock = clock)
 
 private fun FleetsModel.row(id: String) = state.value.rows.single { it.id == id }
 
@@ -324,6 +324,29 @@ class FleetsModelTest {
     runBlocking { model.refresh() }
     assertEquals(listOf(TWO), model.state.value.rows.map { it.id })
     assertNull(model.state.value.laptop)
+  }
+
+  @Test
+  fun pairingsTheCoreCouldNotSaveAreSaidSoWhileTheRowsStayLive() {
+    var unsaved = true
+    val model = FleetsModel(Laptop { f, _ -> both(f) }, { listOf(ONE) }, { null }, { unsaved }) { "12:41" }
+    runBlocking { model.refresh() }
+    assertEquals(UNSAVED, model.state.value.band)
+    assertEquals("blocked", model.row(ONE).pill?.text)
+    assertFalse(model.state.value.band?.retry == true)
+    unsaved = false
+    runBlocking { model.refresh() }
+    assertNull(model.state.value.band)
+  }
+
+  @Test
+  fun anUnreachableLaptopIsSaidBeforeAnUnsavedStore() {
+    val model =
+      FleetsModel(Laptop { _, _ -> throw BoardError.Unreachable }, { listOf(ONE) }, { null }, { true }) {
+        "12:41"
+      }
+    runBlocking { model.refresh() }
+    assertTrue(model.state.value.band?.title?.startsWith("Can't reach") == true)
   }
 
   @Test

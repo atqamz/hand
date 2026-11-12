@@ -17,11 +17,13 @@ use url::Url;
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
 use crate::http::{Request, RequestError, Response, exchange};
 use crate::key::{self, KeyCipher};
-use crate::link::LINK_REJECTED;
 use crate::link::short_id;
+use crate::link::{LINK_REJECTED, Link};
 use crate::open::{NOT_PAIRED, OPEN_REJECTED, parse_open};
+use crate::pair::{PairError, redeem};
 use crate::pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 use crate::proxy::{self, Proxy, Signal};
+use crate::sessions::{Jar, Paired, SaveError, Sessions};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -163,7 +165,7 @@ impl Companion {
         self.pairing
             .lock()
             .unwrap()
-            .activate()
+            .activate(&link)
             .map_err(ConfirmError::Io)?;
         let target = link.target().map_err(ConfirmError::Target)?;
         self.dialer.set_target(Some(target)).await;
@@ -171,6 +173,48 @@ impl Companion {
         self.probe_pair_page(&link.fleet).await?;
         self.pairing.lock().unwrap().clear_pending();
         Ok(link.open_url(self.port))
+    }
+
+    pub async fn pair<J: Jar>(
+        &self,
+        sessions: &Sessions<J>,
+        name: &str,
+        replacing: impl FnOnce(),
+    ) -> Result<Vec<Paired>, PairError> {
+        sessions.check().map_err(|_| PairError::Jar)?;
+        let link = self.pairing.lock().unwrap().take();
+        let link = link.ok_or(PairError::NoPending)?;
+        let target = link.target().map_err(|_| PairError::NoPending)?;
+        let dialer = Dialer::new(self.dialer.endpoint().clone(), Some(target));
+        let redeemed = redeem(&dialer, &link, name).await;
+        dialer.disconnect().await;
+        match redeemed {
+            Ok(paired) => self.settle(sessions, &link, paired, replacing).await,
+            Err(error) => {
+                self.pairing.lock().unwrap().restore(link);
+                Err(error)
+            }
+        }
+    }
+
+    async fn settle<J: Jar>(
+        &self,
+        sessions: &Sessions<J>,
+        link: &Link,
+        paired: Vec<Paired>,
+        replacing: impl FnOnce(),
+    ) -> Result<Vec<Paired>, PairError> {
+        let target = link.target().map_err(|_| PairError::NoPending)?;
+        sessions
+            .pair(&link.endpoint_id, &paired, replacing)
+            .map_err(|error| match error {
+                SaveError::Jar | SaveError::Store => PairError::NotSaved,
+            })?;
+        if self.pairing.lock().unwrap().activate(link).is_err() {
+            sessions.mark_unsaved();
+        }
+        self.dialer.set_target(Some(target)).await;
+        Ok(paired)
     }
 
     pub async fn open_link(&self, text: &str) -> Result<String, OpenLinkError> {
@@ -372,7 +416,7 @@ mod tests {
             Method::Get,
             "f0123456789ab",
             "/api/v1/status",
-            "hand_phone_f0123456789ab=abc",
+            Some("hand_phone_f0123456789ab=abc"),
             None,
             b"",
         )
@@ -441,6 +485,209 @@ mod tests {
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
             format!("{LAPTOP}\n")
         );
+    }
+
+    struct HeldJar(StdMutex<Option<&'static str>>);
+
+    fn held(cookie: Option<&'static str>) -> HeldJar {
+        HeldJar(StdMutex::new(cookie))
+    }
+
+    impl Jar for HeldJar {
+        fn cookies(&self) -> io::Result<Option<String>> {
+            Ok(self.0.lock().unwrap().map(str::to_owned))
+        }
+
+        fn clear(&self) -> io::Result<()> {
+            *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn pairing_without_a_pending_link_says_so() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        let result = companion.pair(&sessions, "Pixel", || {}).await;
+        assert_eq!(result.err(), Some(PairError::NoPending));
+    }
+
+    #[tokio::test]
+    async fn a_pairing_that_cannot_reach_the_laptop_changes_nothing_and_stays_pending() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        companion.open_board().await.unwrap_err();
+        let offer = companion.offer_link(SECOND_LINK).unwrap();
+        assert!(offer.replaces);
+
+        let result = companion
+            .pair(&sessions, "Pixel", || {
+                panic!("the feeds stop only on success")
+            })
+            .await;
+
+        assert!(matches!(result.err(), Some(PairError::Request(_))));
+        assert!(companion.pending_offer().is_some());
+        assert_eq!(
+            companion
+                .dialer
+                .target()
+                .await
+                .map(|target| target.id.to_string()),
+            Some(LAPTOP.to_owned())
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{LAPTOP}\n")
+        );
+        assert_eq!(sessions.header(), None);
+    }
+
+    fn answered(id: &str) -> Vec<Paired> {
+        vec![Paired {
+            id: id.to_owned(),
+            name: "orchard".to_owned(),
+            value: format!("7.{}", "ab".repeat(32)),
+        }]
+    }
+
+    #[tokio::test]
+    async fn a_paired_laptop_becomes_the_laptop_and_its_fleets_are_stored_and_replace_the_old() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        let sessions = Sessions::open(dir.path(), held(Some(old)), Arc::new(TestCipher)).unwrap();
+        assert!(sessions.header().is_some());
+        let offer = companion.offer_link(SECOND_LINK).unwrap();
+        assert!(offer.replaces);
+        let link = companion.pairing.lock().unwrap().take().unwrap();
+        let mut stopped = 0;
+
+        let fleets = companion
+            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || stopped += 1)
+            .await
+            .unwrap();
+
+        assert_eq!(stopped, 1);
+        assert_eq!(fleets.len(), 1);
+        assert_eq!(fleets[0].name, "orchard");
+        assert_eq!(
+            sessions.header().as_deref(),
+            Some(format!("hand_phone_fa1b2c3d4e5f6=7.{}", "ab".repeat(32)).as_str())
+        );
+        assert!(companion.pending_offer().is_none());
+        assert_eq!(
+            companion.pairing.lock().unwrap().active(),
+            Some(link.endpoint_id.as_str())
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{}\n", link.endpoint_id)
+        );
+        assert_eq!(
+            companion
+                .dialer
+                .target()
+                .await
+                .map(|target| target.id.to_string()),
+            Some(link.endpoint_id.clone())
+        );
+        let again = companion.offer_link(SECOND_LINK).unwrap();
+        assert!(!again.replaces);
+    }
+
+    #[tokio::test]
+    async fn a_cancel_and_a_new_offer_during_a_pairing_do_not_redirect_what_it_commits() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+        let link = companion.pairing.lock().unwrap().take().unwrap();
+        assert!(companion.pending_offer().is_none());
+        companion.cancel_pairing();
+        companion.offer_link(LINK).unwrap();
+
+        companion
+            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || {})
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{}\n", link.endpoint_id)
+        );
+        assert_eq!(
+            companion
+                .dialer
+                .target()
+                .await
+                .map(|target| target.id.to_string()),
+            Some(link.endpoint_id.clone())
+        );
+        assert_eq!(companion.pending_offer().unwrap().laptop, "4d92…6ed6");
+        assert!(sessions.header().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_laptop_file_that_cannot_be_written_still_ends_the_pairing_and_says_so() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        std::fs::create_dir(dir.path().join("laptop")).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+        let link = companion.pairing.lock().unwrap().take().unwrap();
+
+        let paired = companion
+            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || {})
+            .await
+            .unwrap();
+
+        assert_eq!(paired.len(), 1);
+        assert!(sessions.unsaved());
+        assert!(sessions.header().is_some());
+        assert_eq!(
+            companion
+                .dialer
+                .target()
+                .await
+                .map(|target| target.id.to_string()),
+            Some(link.endpoint_id.clone())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_store_that_cannot_be_read_stops_a_pairing_before_anything_is_taken_or_sent() {
+        struct Unreadable;
+
+        impl Jar for Unreadable {
+            fn cookies(&self) -> io::Result<Option<String>> {
+                Err(io::Error::other("no"))
+            }
+
+            fn clear(&self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Sessions::open(dir.path(), Unreadable, Arc::new(TestCipher)).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+
+        let result = companion.pair(&sessions, "Pixel", || {}).await;
+
+        assert_eq!(result.err(), Some(PairError::Jar));
+        assert!(companion.pending_offer().is_some());
+        assert!(companion.dialer.target().await.is_none());
+        let link = companion.pairing.lock().unwrap().take().unwrap();
+        let late = companion
+            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || {})
+            .await;
+        assert_eq!(late.err(), Some(PairError::NotSaved));
+        assert!(!dir.path().join("laptop").exists());
     }
 
     #[tokio::test]

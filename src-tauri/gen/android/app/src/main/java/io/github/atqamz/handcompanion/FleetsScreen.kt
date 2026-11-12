@@ -76,11 +76,17 @@ internal fun Passing(text: String) {
 }
 
 @Composable
-internal fun Action(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun Action(
+  label: String,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  enabled: Boolean = true
+) {
   val hand = LocalHand.current
   OutlinedButton(
     onClick,
     modifier,
+    enabled = enabled,
     shape = MaterialTheme.shapes.medium,
     border = BorderStroke(1.dp, hand.lineStrong),
     contentPadding = PaddingValues(horizontal = 14.dp)
