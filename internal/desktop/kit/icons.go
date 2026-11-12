@@ -15,6 +15,7 @@ var sources = map[string]string{
 	"passing":   svg("", ring+`<path d="M5.25 8.25l1.9 1.9 3.6-4"/>`),
 	"idle":      svg(` stroke-dasharray="2.2 2.2"`, ring),
 	"mark":      svg("", `<path d="M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z"/><path d="M8 3.3v1"/><path d="M8 8l2.9-3.9"/><path d="M8 7.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6z" fill="currentColor"/>`),
+	"down":      svg("", `<path d="M8 3v10"/><path d="M3.5 8.5L8 13l4.5-4.5"/>`),
 	"chevron":   svg("", `<path d="M4.5 6.25L8 9.75l3.5-3.5"/>`),
 	"attach":    svg("", `<path d="M13.25 7.5l-5.6 5.6a3.25 3.25 0 0 1-4.6-4.6l5.95-5.95a2.17 2.17 0 0 1 3.06 3.06L6.3 11.37a1.08 1.08 0 0 1-1.53-1.53L10 4.6"/>`),
 	"search":    svg("", `<path d="M7 2.25a4.75 4.75 0 1 0 0 9.5a4.75 4.75 0 1 0 0-9.5z"/><path d="M10.5 10.5l3.25 3.25"/>`),

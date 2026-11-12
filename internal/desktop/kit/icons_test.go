@@ -9,10 +9,11 @@ import (
 )
 
 var iconDefinition = regexp.MustCompile(`\{\{define "icon-([a-z]+)"\}\}(<svg .*?</svg>)\{\{end\}\}`)
+var glyphDown = regexp.MustCompile(`down: \["([^"]+)", "([^"]+)"\]`)
 var iconDecoration = regexp.MustCompile(` (class|aria-hidden)="[^"]*"`)
 
 var iconNames = []string{
-	"attach", "board", "chat", "chevron", "close", "failure", "fleets", "idle",
+	"attach", "board", "chat", "chevron", "close", "down", "failure", "fleets", "idle",
 	"interrupt", "mark", "more", "passing", "phone", "running", "screen", "search", "sidebar", "tasks", "waiting",
 }
 
@@ -31,10 +32,17 @@ func TestIconsMatchBoard(t *testing.T) {
 	for _, m := range iconDefinition.FindAllStringSubmatch(string(b), -1) {
 		board[m[1]] = iconDecoration.ReplaceAllString(m[2], "")
 	}
+	app, err := os.ReadFile("../../board/static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := glyphDown.FindStringSubmatch(string(app)); m != nil {
+		board["down"] = svg("", `<path d="`+m[1]+`"/><path d="`+m[2]+`"/>`)
+	}
 	for name, src := range sources {
 		want, ok := board[name]
 		if !ok {
-			t.Errorf("icon %q is not in icons.html", name)
+			t.Errorf("icon %q is not in icons.html or app.js", name)
 			continue
 		}
 		if src != want {

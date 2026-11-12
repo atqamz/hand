@@ -1,7 +1,7 @@
 package desktop
 
 import (
-	"fmt"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 
@@ -63,17 +63,20 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 				ui.Column(c).Gap(8).Children(func() { a.timelineError(c, p) })
 			})
 		}
-		ui.Scroll(c).Grow(1).Padding(16).Children(func() {
-			ui.Column(c).Gap(8).Selectable().Children(func() {
-				a.timelineEntries(c, p)
-				mark := ui.Box(c).Height(1)
-				if tail := a.timelineTail(); tail != a.tail {
-					a.tail = tail
-					mark.ScrollIntoView()
-				}
-			})
+		if !a.away() {
+			a.scroll.Y = math.MaxFloat32
+		}
+		scroll := ui.Scroll(c.Key("chat-scroll")).Label("The conversation").Grow(1).Padding(16).TrackScroll(&a.scroll)
+		held := max(scroll.Bounds().H-32, 0)
+		if held != a.chatH {
+			a.chatH = held
+			c.Invalidate()
+		}
+		scroll.Children(func() {
+			ui.Column(c).Selectable().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, p) })
 		})
 		ui.Column(c).Gap(6).Padding(0, 16, 16).Children(func() {
+			a.latest(c, k)
 			a.composer(c, p)
 			if a.Status.Supervisor == nil && a.Status.ComposerHint != "" && a.known() {
 				ui.Text(c, a.Status.ComposerHint).FontSize(kit.Meta.Size).TextColor(p.neutral)
@@ -98,18 +101,6 @@ func (a *App) timelineError(c *ui.Context, p palette) {
 	if a.OlderErr != "" {
 		fail("timeline:older-retry", "The earlier messages could not be read", a.OlderErr, a.Older)
 	}
-}
-
-func (a *App) timelineTail() string {
-	tail := ""
-	if len(a.Timeline.Entries) > 0 {
-		newest := a.Timeline.Entries[0]
-		tail = fmt.Sprintf("%d/%s", newest.No, newest.At)
-	}
-	if a.Timeline.Working != nil {
-		tail += "\x00working"
-	}
-	return tail
 }
 
 func (a *App) known() bool { return !a.Loading && !a.errStatus }

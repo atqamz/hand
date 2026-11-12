@@ -139,7 +139,7 @@ func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
 func TestPlainTextSelectsAndCopies(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	line := "s1 is working"
+	line := "s1 working"
 	r, ok := tt.Find(line)
 	if !ok {
 		t.Fatalf("need row %q not on screen", line)

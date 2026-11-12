@@ -339,62 +339,6 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 	})
 }
 
-func (a *App) timelineEntries(c *ui.Context, p palette) {
-	if a.Timeline.Live {
-		ui.Row(c).Children(func() {
-			ui.Spacer(c)
-			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
-		})
-	}
-	if a.Timeline.Older > 0 {
-		if ui.Button(c.Key("timeline:older"), "Older messages").Clicked() {
-			a.Older()
-		}
-	}
-	if len(a.Timeline.Entries) == 0 {
-		note := a.Timeline.Note
-		if note == "" {
-			note = "Nothing yet: the conversation appears once the supervisor speaks."
-		}
-		a.emptyCard(c, p, "No messages", note)
-		a.working(c, p)
-		return
-	}
-	for i := len(a.Timeline.Entries) - 1; i >= 0; i-- {
-		e := a.Timeline.Entries[i]
-		ui.Column(c).Gap(3).Padding(8, 0, 12).BorderWidth(0, 0, 1, 0).
-			BorderColor(p.line).Children(func() {
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, roleName(e)).FontSize(kit.Meta.Size).Bold().TextColor(roleColor(e, p))
-				ui.Text(c, stamp(e.At)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-				ui.Spacer(c)
-				if e.Queued {
-					ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
-				}
-				if e.Delivery != "" {
-					ui.Text(c, e.Delivery).FontSize(kit.Meta.Size).TextColor(p.neutral)
-				}
-			})
-			for _, wake := range e.Wakes {
-				ui.Text(c, wake.Text).FontSize(kit.Meta.Size).TextColor(p.neutral)
-			}
-			if e.Text != "" {
-				a.markdown(c, e.Text)
-			}
-		})
-	}
-	a.working(c, p)
-}
-
-func (a *App) working(c *ui.Context, p palette) {
-	if w := a.Timeline.Working; w != nil {
-		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
-			ui.Textf(c, "%s is working", w.Ref).FontSize(kit.Body.Size).TextColor(p.accent)
-			ui.Text(c, w.On).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		})
-	}
-}
-
 func (a *App) composer(c *ui.Context, p palette) {
 	ui.Column(c).Gap(8).Padding(12).Radius(10).Background(p.card).
 		Border(1, p.line).Children(func() {

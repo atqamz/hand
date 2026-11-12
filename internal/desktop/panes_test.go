@@ -510,3 +510,22 @@ func TestTheConversationErrorsStayInViewOverALongHistory(t *testing.T) {
 		t.Errorf("Retry is at y=%.0f, want it above the history", r.Y)
 	}
 }
+
+func TestAShortConversationSitsNextToTheComposer(t *testing.T) {
+	app, _ := talk(t)
+	app.Timeline = desktop.Timeline{Entries: []desktop.Entry{
+		{Role: "supervisor", Ref: "s1", No: 2, At: "2026-10-31T12:02:00Z", Text: "Only one."},
+	}}
+	tt := sized(t, app, 1100, 760, false)
+	view, ok := tt.Find("The conversation")
+	if !ok || view.H == 0 {
+		t.Fatalf("the conversation viewport is %v", view)
+	}
+	one, ok := tt.Find("Only one.")
+	if !ok || one.H == 0 {
+		t.Fatalf("the only entry is %v", one)
+	}
+	if bottom := view.Y + view.H; one.Y+one.H > bottom || bottom-(one.Y+one.H) > 40 {
+		t.Errorf("the only entry is at %v in the viewport %v, want it against the composer", one, view)
+	}
+}
