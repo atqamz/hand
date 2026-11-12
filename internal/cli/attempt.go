@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,7 +45,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
 	base := fs.String("base", "", "git ref the worktree starts from (default origin/main, fetched first)")
-	cont := fs.String("continue", "", "ended, cleaned attempt whose branch the worktree checks out")
+	cont := fs.String("continue", "", "ended, cleaned attempt whose branch the worktree checks out; an omitted --harness, --model or --effort comes from it (a flag, then it, then the harness default)")
 	mcpFile := fs.String("mcp", "", "claude only: an MCP config inside the fleet home, started with --strict-mcp-config")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
@@ -70,7 +71,40 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	var inherited, noRoute bool
+	if continues != 0 && (!given["harness"] || !given["model"] || !given["effort"]) {
+		prev, err := func() (state.Attempt, error) {
+			st, err := r.store()
+			if err != nil {
+				return state.Attempt{}, err
+			}
+			defer st.Close()
+			return st.Attempt(r.ctx(), continues)
+		}()
+		if err != nil {
+			return err
+		}
+		if prev.Harness == "" {
+			noRoute = true
+		} else {
+			inherited = true
+			if !given["harness"] {
+				*name = prev.Harness
+			}
+			if !given["model"] {
+				*model = prev.Model
+			}
+			if !given["effort"] {
+				*effort = prev.Effort
+			}
+		}
+	}
 	if *name == "" {
+		if noRoute {
+			return usageError{fmt.Sprintf("attempt start: continued attempt %s recorded no harness (it failed before it launched); give --harness, --model and --effort (see hand models)", state.AttemptRef(continues))}
+		}
 		return usageError{"attempt start: give --harness, --model and --effort (see hand models)"}
 	}
 	if err := r.needHome(); err != nil {
@@ -79,6 +113,12 @@ func cmdAttemptStart(r *runner, args []string) error {
 	spec := harness.Spec{Harness: *name, Model: *model, Effort: *effort}
 	bin, err := harnessBin(r, spec)
 	if err != nil {
+		switch {
+		case inherited:
+			return fmt.Errorf("%w; the route comes from continued attempt %s unless a flag overrides it", err, state.AttemptRef(continues))
+		case noRoute:
+			return fmt.Errorf("%w; continued attempt %s recorded no harness (it failed before it launched), so no route was inherited", err, state.AttemptRef(continues))
+		}
 		return err
 	}
 	var mcp string
