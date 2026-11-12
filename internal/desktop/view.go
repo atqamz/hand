@@ -309,57 +309,6 @@ func (a *App) composer(c *ui.Context, p palette) {
 	})
 }
 
-func (a *App) tasksScreen(c *ui.Context, p palette) {
-	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Tasks").FontSize(kit.Display.Size).Bold()
-		ui.Spacer(c)
-		if ui.SearchField(c, &a.TaskQuery).Label("Search tasks").Placeholder("Search tasks in the browser").Width(240).Submitted() {
-			a.SearchTasks()
-		}
-		if a.Tasks.FinishedCount > 0 {
-			ui.Textf(c, "%d finished", a.Tasks.FinishedCount).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		}
-	})
-	if len(a.Tasks.Groups) == 0 {
-		a.emptyCard(c, p, "No tasks", "The supervisor has not captured a task yet.")
-		return
-	}
-	for _, group := range a.Tasks.Groups {
-		g := group
-		ui.Column(c).Gap(2).Children(func() {
-			ui.Row(c).Gap(8).Padding(6, 0).Children(func() {
-				section(c, p, g.Name)
-				ui.Text(c, fmt.Sprint(g.Count)).FontSize(kit.Meta.Size).TextColor(p.neutral)
-			})
-			for _, row := range g.Tasks {
-				r := row
-				el := ui.ButtonBase(c.Key("task:"+r.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
-					BorderWidth(0, 0, 1, 0).BorderColor(p.line)
-				el.Children(func() {
-					ui.Row(c).Gap(4).Width(72).Children(func() {
-						ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p))
-						ui.Text(c, stateWord(r.State)).FontSize(kit.Meta.Size).TextColor(stateColor(r.State, p))
-					})
-					ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-					ui.Text(c, r.Title).FontSize(kit.Body.Size).SingleLine().Grow(1)
-					if r.Project != "" && a.Status.Projects > 1 {
-						ui.Badge(c, r.Project).Background(p.neutralBG).TextColor(p.neutral)
-					}
-					if r.Attempt != nil {
-						ui.Text(c, attemptMeta(r.Attempt)).FontSize(kit.Meta.Size).TextColor(p.neutral)
-					}
-					if r.Delivered != nil {
-						ui.Badge(c, r.Delivered.Kind).Background(p.accentBG).TextColor(p.accent)
-					}
-				})
-				if el.Clicked() {
-					a.OpenRef(r.Ref)
-				}
-			}
-		})
-	}
-}
-
 func (a *App) taskScreen(c *ui.Context, p palette) {
 	t := a.Task
 	a.detailHeader(c, p, t.Task.Ref, t.Task.Title)
@@ -736,20 +685,22 @@ func toneColors(tone string, p palette) (bg, fg ui.Color) {
 	return p.neutralBG, p.neutral
 }
 
-func stateIcon(state string) *ui.SVG {
+func stateIcon(state string) *ui.SVG { return kit.Icon(stateIconName(state)) }
+
+func stateIconName(state string) string {
 	switch state {
 	case "running", "working":
-		return kit.Icon("running")
+		return "running"
 	}
 	switch toneOf(state) {
 	case "fail":
-		return kit.Icon("failure")
+		return "failure"
 	case "wait":
-		return kit.Icon("waiting")
+		return "waiting"
 	case "pass":
-		return kit.Icon("passing")
+		return "passing"
 	}
-	return kit.Icon("idle")
+	return "idle"
 }
 
 func stateColor(state string, p palette) ui.Color {

@@ -196,6 +196,7 @@ type TaskRow struct {
 	Delivered  *Deliverable `json:"delivered,omitempty"`
 	Waits      *Waits       `json:"waits,omitempty"`
 	FinishedAt string       `json:"finished_at,omitempty"`
+	Parent     string       `json:"parent,omitempty"`
 }
 
 type TaskGroup struct {
