@@ -583,7 +583,10 @@ func (a *App) tasksScreen(c *ui.Context, p palette) {
 				el := ui.ButtonBase(c.Key("task:"+r.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
 					BorderWidth(0, 0, 1, 0).BorderColor(p.line)
 				el.Children(func() {
-					ui.Text(c, stateWord(r.State)).FontSize(kit.Meta.Size).TextColor(stateColor(r.State, p)).Width(52)
+					ui.Row(c).Gap(4).Width(72).Children(func() {
+						ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p))
+						ui.Text(c, stateWord(r.State)).FontSize(kit.Meta.Size).TextColor(stateColor(r.State, p))
+					})
 					ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 					ui.Text(c, r.Title).FontSize(kit.Body.Size).SingleLine().Grow(1)
 					if r.Project != "" && a.Status.Projects > 1 {
@@ -1013,7 +1016,7 @@ func statusPill(c *ui.Context, p palette, word string) {
 	}
 	bg, fg := toneColors(word, p)
 	ui.Row(c).Gap(5).Padding(1, 8).Radius(999).Background(bg).Children(func() {
-		ui.Box(c).Size(7, 7).Radius(4).Background(fg)
+		ui.Icon(c, stateIcon(word)).TextColor(fg)
 		ui.Text(c, word).FontSize(kit.Meta.Size).Bold().TextColor(fg)
 	})
 }
@@ -1041,18 +1044,48 @@ func gauge(c *ui.Context, p palette, g Gauge) {
 	})
 }
 
-func toneColors(tone string, p palette) (bg, fg ui.Color) {
-	switch tone {
+func toneOf(state string) string {
+	switch state {
 	case "fail", "failing", "failed", "blocked", "interrupted", "stuck":
-		return p.failBG, p.fail
+		return "fail"
 	case "wait", "waiting", "limited", "decision", "pending":
-		return p.waitBG, p.wait
+		return "wait"
 	case "pass", "ready", "running", "passing", "done":
-		return p.passBG, p.pass
+		return "pass"
 	case "accent", "working":
+		return "accent"
+	}
+	return "neutral"
+}
+
+func toneColors(tone string, p palette) (bg, fg ui.Color) {
+	switch toneOf(tone) {
+	case "fail":
+		return p.failBG, p.fail
+	case "wait":
+		return p.waitBG, p.wait
+	case "pass":
+		return p.passBG, p.pass
+	case "accent":
 		return p.accentBG, p.accent
 	}
 	return p.neutralBG, p.neutral
+}
+
+func stateIcon(state string) *ui.SVG {
+	switch state {
+	case "running", "working":
+		return kit.Icon("running")
+	}
+	switch toneOf(state) {
+	case "fail":
+		return kit.Icon("failure")
+	case "wait":
+		return kit.Icon("waiting")
+	case "pass":
+		return kit.Icon("passing")
+	}
+	return kit.Icon("idle")
 }
 
 func stateColor(state string, p palette) ui.Color {
