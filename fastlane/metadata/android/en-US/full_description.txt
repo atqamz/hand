@@ -1,0 +1,18 @@
+Hand Companion is the phone side of Hand (<a href="https://github.com/atqamz/hand">https://github.com/atqamz/hand</a>). It needs a laptop that runs Hand. Without one the app has nothing to show.
+
+You pair the phone with the laptop once, with a link or a QR code that the laptop shows. After that the phone dials the laptop over iroh (<a href="https://www.iroh.computer">https://www.iroh.computer</a>), through a relay or directly.
+
+What works today:
+<ul>
+<li>Alerts for decisions, reports and blocked workers, as notifications from a foreground service.</li>
+<li>The Board on the phone, in a web view.</li>
+</ul>
+Native screens are arriving step by step and replace the web view as they land. No dates are promised.
+
+Privacy:
+<ul>
+<li>The app sends nothing to the developer. It has no ads, analytics or crash reporting.</li>
+<li>The phone talks to your laptop, your router and n0's infrastructure, nothing else. The router is probed for port mapping (UPnP, NAT-PMP, PCP), and the system DNS resolver is used.</li>
+<li>The app always uses the public relays and DNS discovery that the iroh project (n0) runs, even when the laptop has its own relay. The phone publishes its home relay URL, signed with its endpoint ID, in n0's public DNS. It does not publish its IP address. n0 sees the phone's IP address when the phone connects to the relay and to the DNS server. The traffic itself is encrypted between the phone and the laptop.</li>
+<li>The phone's iroh key is its identity. It stays on the phone, sealed with the Android Keystore.</li>
+</ul>

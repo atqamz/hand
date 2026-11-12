@@ -295,6 +295,10 @@ The host tests cover the parser over the five valid forms and 61 hostile ones, a
 
 `Cargo.lock` holds every transitive version.
 
+## Store text
+
+F-Droid reads the store text from `fastlane/metadata/android/en-US/`: `title.txt` (at most 50 characters), `short_description.txt` (at most 80; no trailing dot is this project's rule, not F-Droid's), `full_description.txt` (at most 4000, F-Droid's simple HTML) and `images/icon.png` (512x512). Each release adds `changelogs/<versionCode>.txt` (at most 500 characters), named by the literal version code from `src-tauri/tauri.conf.json`. `.github/scripts/check-store-metadata.sh` checks the limits in CI. There are no screenshots or feature graphic yet.
+
 ## Contract with Hand
 
 The wire contract is [Hand's Companion contract](https://github.com/atqamz/hand/blob/main/docs/companion.md), with its test vectors in `docs/companion-vectors.json`. It is built against Hand's `main` at `ca2ecce738d857a9239ac3001f4d0c43855ac30c`, which has the alert feed (PR #1203); a newer head wins when they disagree. `core/tests/companion-vectors.json` is that file copied from the same commit, and `core/tests/vectors.rs` runs the parser over all 13 valid and 73 invalid pairing links and all 6 valid and 61 invalid open links as written. In short: iroh 1.4.1, ALPN `hand-board`, one bidirectional QUIC stream per loopback TCP connection, 12 open streams, one connection to a laptop, the phone's endpoint ID as its identity, and the close and reset codes 1 to 5. `AGENTS.md` carries the rules this repository follows.
