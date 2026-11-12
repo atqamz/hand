@@ -59,7 +59,7 @@ func decodeReleases(data []byte) ([]release, error) {
 }
 
 func describe(root string) string {
-	out, err := exec.Command("git", "-C", root, "describe", "--tags", "--abbrev=0").Output()
+	out, err := exec.Command("git", "-C", root, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").Output()
 	if v := strings.TrimSpace(string(out)); err == nil && v != "" {
 		return v
 	}

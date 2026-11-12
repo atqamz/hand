@@ -110,7 +110,7 @@ func build(root, out, version string, rs []release, note string) error {
 			return err
 		}
 	}
-	for _, name := range []string{"style.css", "CNAME", "favicon.svg"} {
+	for _, name := range []string{"style.css", "favicon.svg"} {
 		data, err := os.ReadFile(filepath.Join(root, "www", name))
 		if err != nil {
 			return err

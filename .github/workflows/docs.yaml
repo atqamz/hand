@@ -35,7 +35,7 @@ jobs:
       - name: Build the site
         env:
           GH_TOKEN: ${{ github.token }}
-        run: go run ./www/gen -out www/dist -version "$(git describe --tags --abbrev=0)"
+        run: go run ./www/gen -out www/dist -version "$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: www/dist
