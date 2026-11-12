@@ -90,7 +90,7 @@ func TestAFleetFolderBehindASymlinkStillLinks(t *testing.T) {
 	}
 	h := board.New(st, token, board.Options{Home: home})
 	contains(t, "task page", get(t, h, "/task/t1"), `<a class="file" href="/doc/reports/t1/design.md"`)
-	contains(t, "viewer", get(t, h, "/doc/reports/t1/design.md"), "<h3 id=\"export-design\">Export design</h3>")
+	contains(t, "viewer", get(t, h, "/doc/reports/t1/design.md"), "<h3 id=\"doc-export-design\">Export design</h3>")
 }
 
 func TestASymlinkOutOfTheFleetStaysText(t *testing.T) {
