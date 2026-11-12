@@ -183,4 +183,7 @@ func TestTypeRolesMatchBoardCSS(t *testing.T) {
 	if want := fmt.Sprintf("font:%gpx/%gpx var(--sans)", Body.Size, Body.Line); !strings.Contains(lightCSS, want) {
 		t.Errorf("kit Body is %gpx on %gpx, board.css has no %q", Body.Size, Body.Line, want)
 	}
+	if want := fmt.Sprintf(".card .copy{font-size:%gpx;line-height:%g}", Message.Size, Message.Line/Message.Size); !strings.Contains(lightCSS, want) {
+		t.Errorf("kit Message is %gpx on %gpx, board.css has no %q", Message.Size, Message.Line, want)
+	}
 }
