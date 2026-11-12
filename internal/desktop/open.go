@@ -33,6 +33,14 @@ func (a *App) OpenBoardPath(dest string) {
 	a.runOpen(args...)
 }
 
+func (a *App) OpenScreen() { a.runOpen("screen") }
+
+func (a *App) OpenPhone() { a.runOpen("phone") }
+
+func (a *App) SearchTasks() {
+	a.runOpen("tasks", "--", strings.TrimSpace(a.TaskQuery))
+}
+
 func (a *App) runOpen(args ...string) {
 	if a.OpenBusy {
 		return

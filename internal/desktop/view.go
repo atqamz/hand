@@ -89,8 +89,12 @@ func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
 		}
 		item(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Inert: true})
 		item(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
-		item(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen", Inert: true})
-		item(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone", Inert: true})
+		if item(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
+			a.OpenScreen()
+		}
+		if item(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone"}) {
+			a.OpenPhone()
+		}
 		if len(a.Fleets) > 0 {
 			kit.RailHead(c, k, a.RailOpen, "Fleets")
 		}
@@ -431,6 +435,9 @@ func (a *App) tasksScreen(c *ui.Context, p palette) {
 	ui.Row(c).Gap(10).Children(func() {
 		ui.Text(c, "Tasks").FontSize(kit.Display.Size).Bold()
 		ui.Spacer(c)
+		if ui.SearchField(c, &a.TaskQuery).Label("Search tasks").Placeholder("Search tasks in the browser").Width(240).Submitted() {
+			a.SearchTasks()
+		}
 		if a.Tasks.FinishedCount > 0 {
 			ui.Textf(c, "%d finished", a.Tasks.FinishedCount).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}

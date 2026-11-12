@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +27,7 @@ import (
 
 var launchWait = 2 * time.Second
 
-const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
+const openUsage = "usage: hand open [supervisor | screen | phone | tasks [--] [QUERY] | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
 
 func init() {
 	commands["open"] = cmdOpen
@@ -49,6 +50,16 @@ func cmdOpen(r *runner, args []string) error {
 			return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
 		}
 		rest = append(rest[:1:1], set.Args()...)
+	}
+	if len(rest) > 2 && rest[0] == "tasks" {
+		if err := set.Parse(rest[2:]); err != nil {
+			return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
+		}
+		rest = append(rest[:2:2], set.Args()...)
+	}
+	query := ""
+	if len(rest) == 2 && rest[0] == "tasks" {
+		query, rest = strings.TrimSpace(rest[1]), rest[:1]
 	}
 	if len(rest) > 1 {
 		return usageError{openUsage}
@@ -113,20 +124,35 @@ func cmdOpen(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if query != "" {
+		path += "?q=" + url.QueryEscape(query)
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
 	page := "http://" + addr + "/" + r.fleet.ID + path
 	if *printed {
 		app := ""
-		if !*delivered && *doc == "" {
+		if !*delivered && *doc == "" && !slices.Contains([]string{"screen", "phone", "tasks"}, ref) {
 			app = appLink(r.fleet.ID, path, frag)
 		}
-		return r.printLink(page+"?token="+token+frag, app, "The link holds the fleet's token; paste it only into your own browser")
+		return r.printLink(page+sep+"token="+token+frag, app, "The link holds the fleet's token; paste it only into your own browser")
 	}
-	return r.launch(page+"?token="+token+"&keep=1"+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
+	return r.launch(page+sep+"token="+token+"&keep=1"+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
 }
 
 func boardPage(ctx context.Context, st *state.Store, ref string) (string, string, error) {
 	if ref == "" || ref == "supervisor" {
 		return "/", "", nil
+	}
+	switch ref {
+	case "screen":
+		return "/supervisor", "", nil
+	case "phone":
+		return "/connect", "", nil
+	case "tasks":
+		return "/tasks", "", nil
 	}
 	prefix := ref[:1]
 	if !strings.Contains("tdra", prefix) {

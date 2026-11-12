@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/egoist/mygo/ui"
 )
 
 func TestMain(m *testing.M) {
@@ -414,4 +415,25 @@ func TestSameNamedDeliveredFilesOpenTheirOwnDocument(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	hand.want(t, "open", "--doc", "reports/t2/design.md")
+}
+
+func TestRailScreenAndPhoneOpenThroughHandOpen(t *testing.T) {
+	hand := installFakeHand(t)
+	app := homedApp(t, hand.home)
+	tt := newTester(app)
+	click(t, tt, "Screen")
+	hand.want(t, "open", "screen")
+	click(t, tt, "Phone")
+	hand.want(t, "open", "phone")
+}
+
+func TestTasksSearchOpensTheBoardWithTheQuery(t *testing.T) {
+	hand := installFakeHand(t)
+	app := homedApp(t, hand.home)
+	tt := newTester(app)
+	click(t, tt, "Search tasks")
+	tt.Type("login bug")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	hand.want(t, "open", "tasks", "--", "login bug")
 }
