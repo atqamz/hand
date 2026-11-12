@@ -431,7 +431,6 @@ func TestTasksSearchOpensTheBoardWithTheQuery(t *testing.T) {
 	hand := installFakeHand(t)
 	app := homedApp(t, hand.home)
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Search tasks")
 	tt.Type("login bug")
 	tt.Key(0, ui.KeyEnter)
