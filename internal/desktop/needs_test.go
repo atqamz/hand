@@ -389,8 +389,12 @@ func TestAnAnswerDraftBelongsToItsDecision(t *testing.T) {
 
 func TestAFailedStatusAfterMarkReadKeepsTheReportRead(t *testing.T) {
 	f := goldenFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Waiting = 17
+	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
+	mustText(t, tt, "17")
 	click(t, tt, "Cookie fixed")
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -407,8 +411,44 @@ func TestAFailedStatusAfterMarkReadKeepsTheReportRead(t *testing.T) {
 	waitPost(t, posted)()
 	waitPost(t, posted)()
 	tt.Frame()
-	mustText(t, tt, "r1 marked read", "View a2")
+	mustText(t, tt, "r1 marked read", "View a2", "16")
 	mustNotText(t, tt, "Mark read")
+	mustNotText(t, tt, "17")
+	if n := countText(t, tt, "16"); n != 2 {
+		t.Errorf("the waiting count is shown %d times, want once in Needs and once in the rail", n)
+	}
+}
+
+func borderRows(tt *ui.Tester, r ui.Rect, k kit.Colors) int {
+	img := tt.Image()
+	x := int(r.X) + 20
+	n := 0
+	for y := int(r.Y) - 14; y <= int(r.Y)+2; y++ {
+		if c := img.RGBAAt(x, y); c.R == k.Line.R && c.G == k.Line.G && c.B == k.Line.B {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTheRowAfterTheOpenNeedKeepsItsTopBorder(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		k := kit.ColorsFor(dark)
+		tt := darkTester(newApp(t, goldenFixture(t)), dark)
+		click(t, tt, "Cookie fixed")
+		r, ok := tt.Find("Halfway there")
+		if !ok {
+			t.Fatal("no row below the open need")
+		}
+		if n := borderRows(tt, r, k); n < 2 {
+			t.Errorf("dark=%v: %d border rows above the row after the open need, want the card's and the row's", dark, n)
+		}
+		click(t, tt, "Cookie fixed")
+		r, _ = tt.Find("Halfway there")
+		if n := borderRows(tt, r, k); n > 1 {
+			t.Errorf("dark=%v: %d border rows above the row with no need open, want only the row before it", dark, n)
+		}
+	}
 }
 
 func TestClosingANeedDoesNotReopenTheTopItem(t *testing.T) {

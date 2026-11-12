@@ -37,6 +37,19 @@ func (a *App) visibleNeeds() []Need {
 	return out
 }
 
+func (a *App) waitingNeeds() int {
+	if len(a.ackDone) == 0 {
+		return a.Status.Needs.Waiting
+	}
+	hidden := 0
+	for _, n := range a.Status.Needs.Items {
+		if a.ackDone[needRef(n)] {
+			hidden++
+		}
+	}
+	return max(0, a.Status.Needs.Waiting-hidden)
+}
+
 func (a *App) reconcileAcked() {
 	if len(a.ackDone) == 0 {
 		return
@@ -198,9 +211,9 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 	items := a.visibleNeeds()
 	ui.Row(c).Gap(10).Children(func() {
 		ui.Text(c, "Needs").FontSize(kit.Display.Size).Bold()
-		if needs.Waiting > 0 {
+		if n := a.waitingNeeds(); n > 0 {
 			bg, fg := toneColors(needs.Worst, p)
-			ui.Badge(c, fmt.Sprint(needs.Waiting)).Background(bg).TextColor(fg)
+			ui.Badge(c, fmt.Sprint(n)).Background(bg).TextColor(fg)
 		}
 	})
 	if len(items) == 0 {
