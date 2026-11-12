@@ -7,7 +7,11 @@ on:
       - docs/**
       - README.md
       - www/**
+      - internal/markdown/**
       - .github/workflows/docs.yaml
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
