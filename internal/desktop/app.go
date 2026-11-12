@@ -80,6 +80,21 @@ type App struct {
 	Busy        bool
 	BusyAction  string
 
+	needChosen    map[string]bool
+	needTop       string
+	needClosedTop string
+	ackDone       map[string]bool
+	decTried      string
+	decGen        int
+	decErr        string
+	attTried      string
+	attGen        int
+	attErr        string
+	needAttempt   AttemptDetail
+	receipt       string
+	receiptKey    string
+	answerRef     string
+
 	AnswerChoice string
 	AnswerNote   string
 	ActionErr    string
@@ -262,9 +277,13 @@ func (a *App) SelectFleet(id string) {
 	a.scroll.Y = math.MaxFloat32
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
+	a.needChosen, a.needTop, a.needClosedTop, a.ackDone = nil, "", "", nil
+	a.decTried, a.decErr, a.attTried, a.attErr = "", "", "", ""
+	a.needAttempt = AttemptDetail{}
 	a.TimelineErr, a.OlderErr = "", ""
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
-	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
 	a.OpenBusy = false
 	a.DraftErr, a.retry, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
@@ -313,7 +332,7 @@ func (a *App) install(f found, keep bool) {
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
-	a.AnswerChoice, a.AnswerNote = "", ""
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.Reload()
 }
 
@@ -327,7 +346,7 @@ func (a *App) OpenRef(ref string) {
 	}
 	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
 	a.Screen, a.Ref = s, ref
-	a.AnswerChoice, a.AnswerNote = "", ""
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.Reload()
 }
 
@@ -359,7 +378,7 @@ func (a *App) next(done string) {
 		}
 		if s, ok := refScreen(ref); ok {
 			a.Screen, a.Ref = s, ref
-			a.AnswerChoice, a.AnswerNote = "", ""
+			a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 			a.Reload()
 			return
 		}
@@ -376,7 +395,7 @@ func (a *App) Back() {
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref = step.Screen, step.Ref
-	a.AnswerChoice, a.AnswerNote = "", ""
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.Reload()
 }
 
@@ -423,13 +442,17 @@ func (a *App) Older() {
 }
 
 func (a *App) Answer() {
-	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.Screen != DecisionScreen || a.Ref == "" {
+	ref := a.Ref
+	if a.Screen == BoardScreen {
+		ref = a.Decision.Decision.Ref
+	}
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.Screen != DecisionScreen && a.Screen != BoardScreen || ref == "" {
 		return
 	}
 	choice, note := a.AnswerChoice, a.AnswerNote
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
-	model, fleet, ref := a.Model, a.Fleet.ID, a.Ref
+	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
 	detail := func(d DecisionDetail) {
 		if id != a.loadID {
@@ -437,6 +460,8 @@ func (a *App) Answer() {
 		}
 		a.Busy = false
 		a.Decision = d
+		a.receipt = a.answerReceipt(ref)
+		a.receiptKey = "answer:" + ref
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -444,6 +469,7 @@ func (a *App) Answer() {
 		}
 		a.Status = st
 		a.next(ref)
+		a.nextNeed(ref)
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -517,15 +543,24 @@ func (a *App) Ack(ref string) {
 		if screen == ReportScreen {
 			a.Report = r
 		}
+		a.receipt = ref + " marked read"
+		a.receiptKey = "ack:" + ref
+		if a.ackDone == nil {
+			a.ackDone = map[string]bool{}
+		}
+		a.ackDone[ref] = true
+		a.nextNeed(ref)
 	}
 	status := func(st Status) {
 		if id != a.loadID {
 			return
 		}
 		a.Status = st
+		a.reconcileAcked()
 		if screen == ReportScreen {
 			a.next(ref)
 		}
+		a.nextNeed(ref)
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -1105,6 +1140,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
+		a.reconcileAcked()
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
 		a.Timeline, a.pollTimeline = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor
@@ -1274,6 +1310,7 @@ func (a *App) apply(l loaded) {
 		return
 	}
 	a.Status = l.Status
+	a.reconcileAcked()
 	switch {
 	case l.TimelineOK && len(a.Timeline.Entries) == 0:
 		a.Timeline = l.Timeline

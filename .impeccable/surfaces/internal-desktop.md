@@ -15,7 +15,7 @@ related_targets:
   - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and an inert Phone (Board returns to the two panes; Tasks, Conversation, Screen and Phone do nothing until the pages they name exist), then a tinted mark for each fleet this machine can open;
   - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat starts at 38% wide clamped to 400 to 720 px and may be dragged down to 360 px, the work pane never under 440 px, the width kept while the window runs; the window is never narrower than 860 px, so that rule holds until the narrow tabs exist);
   - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button and the status's composer hint under the composer; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
-  - Needs: every open item in the page's order, toned by its severity word;
+  - Needs: bands by severity in the page's order, each headed by its word in the band's tone; 44px rows with the kind's icon, refs and time; the top item open as a card with its band's toned header, any row opening in place and closing again, one open at a time; a report opens to its excerpt and Mark read, a failure to its attempt's reason, a decision to its options and note; a kind with nothing to show stays inert; after Mark read or an answer a receipt toast shows for 4 seconds and the next item opens; nothing waiting shows All clear, when it cleared and the summary;
   - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: a multi-line message field with Send and Clear;
   - Tasks: the grouped task list, and each task's detail;
   - the detail of a task, an attempt, a decision and a report, opened in the left pane with Back;
@@ -41,7 +41,7 @@ related_targets:
 
 ## Chosen direction and memorable moment
 
-**The same on-call board, with a composer.** The memorable moment is the ref: the window opens on the fleet's state, and one click on a Needs row or a task row puts its detail in place, with Back returning to the list exactly where it was left.
+**The same on-call board, with a composer.** The memorable moment is the ref: the window opens on the fleet's state, and one click on a Needs row opens it in place, and one on a task row puts its detail in place, with Back returning to the list exactly where it was left.
 
 ## Direction contract
 
@@ -98,7 +98,7 @@ The desktop reads the fleet's `board.token` and sends it as the cookie the board
 
 ## Keys decision
 
-The window sends each press with the status's `revision`, `digest` and `pressed` sequence. While the supervisor is blocked and the status carries an `ask` (the question and option labels the Board's Ask card already parses, never the raw screen), it shows the question and one button per option, each sending that option's keys as one press. Only without an `ask`, for a screen the parser does not understand, does it show the fixed key toolbar. The Needs row of a blocked supervisor opens nothing: its question already sits in the pane head's pane.
+The window sends each press with the status's `revision`, `digest` and `pressed` sequence. While the supervisor is blocked and the status carries an `ask` (the question and option labels the Board's Ask card already parses, never the raw screen), it shows the question and one button per option, each sending that option's keys as one press. Only without an `ask`, for a screen the parser does not understand, does it show the fixed key toolbar. The Needs row of a blocked supervisor opens to the same question and buttons, beside the ones in the pane head's pane.
 
 ## Rules
 

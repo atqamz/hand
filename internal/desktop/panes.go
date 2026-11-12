@@ -45,7 +45,7 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 	}
 	work := total - chatWidth(a.Chat, total, total+rail)
 	box.Children(func() {
-		split := ui.Split(c, &work, func() { a.workPane(c, p) }, func() { a.chatPane(c, k, p) }).Grow(1)
+		split := ui.Split(c, &work, func() { a.workPane(c, k, p) }, func() { a.chatPane(c, k, p) }).Grow(1)
 		if split.Changed() {
 			a.Chat = chatWidth(total-work, total, total+rail)
 		}
