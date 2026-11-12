@@ -9,13 +9,14 @@ import (
 )
 
 const (
-	minChat    = 360
-	minWork    = 440
-	firstW     = 1100
-	chatVW     = .38
-	chatLow    = 400
-	chatHigh   = 720
-	blockedMax = 180
+	minChat     = 360
+	minWork     = 440
+	firstW      = 1100
+	chatVW      = .38
+	chatLow     = 400
+	chatHigh    = 720
+	blockedMax  = 180
+	railOpenMin = kit.RailWidthOpen + minChat + minWork + 1
 )
 
 func chatWidth(pref, total, viewport float32) float32 {
@@ -36,6 +37,10 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 	}
 	if total != a.paneW {
 		a.paneW = total
+		c.Invalidate()
+	}
+	if a.RailOpen && total+rail < railOpenMin {
+		a.RailOpen = false
 		c.Invalidate()
 	}
 	work := total - chatWidth(a.Chat, total, total+rail)
@@ -158,7 +163,7 @@ func (a *App) controls(c *ui.Context, k kit.Colors, sup *Supervisor) {
 			a.Supervise("force")
 		}
 		stop, label := look{k.LineStrong, k.Muted, k.BG}, "Stop"
-		if a.StopArmed {
+		if a.StopArmed && a.stopRef == sup.Ref {
 			stop, label = look{k.Fail, k.Fail, k.FailBG}, "Press again to stop"
 		}
 		if button("stop", label, "Stopping…", nil, stop) {
@@ -229,4 +234,8 @@ func headButton(c *ui.Context, key, label string, icon *ui.SVG, l look, disabled
 		ui.Text(c, label).FontSize(kit.Body.Size).TextColor(l.fg).SingleLine()
 	})
 	return el.Clicked()
+}
+
+func (a *App) toggleRail() {
+	a.RailOpen = !a.RailOpen && a.paneW+kit.RailWidth >= railOpenMin
 }

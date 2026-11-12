@@ -108,6 +108,7 @@ type App struct {
 	back      []backStep
 	stopTimer func()
 	stopGen   int
+	stopRef   string
 	tail      string
 
 	polling    bool
@@ -674,16 +675,17 @@ func (a *App) Supervise(action string) {
 }
 
 func (a *App) PressStop() {
-	if a.StopArmed {
+	sup := a.Status.Supervisor
+	if a.StopArmed && sup != nil && sup.Ref == a.stopRef {
 		a.disarmStop()
 		a.Supervise("stop")
 		return
 	}
-	sup := a.Status.Supervisor
+	a.disarmStop()
 	if a.Busy || sup == nil || !canSupervise(sup, "stop") {
 		return
 	}
-	a.StopArmed = true
+	a.StopArmed, a.stopRef = true, sup.Ref
 	if a.Clock == nil && a.Post == nil {
 		return
 	}
@@ -1063,7 +1065,13 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
-		a.Timeline, a.pollTimeline, a.TimelineErr = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor, ""
+		a.Timeline, a.pollTimeline = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor
+	}
+	if a.Fleet.ID == fleet && p.TimelineRead {
+		a.TimelineErr = ""
+	}
+	if a.Fleet.ID == fleet && p.TimelineErr != nil {
+		a.TimelineErr = friendly(p.TimelineErr)
 	}
 	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
 		a.setScreen(screen, key, &p)
@@ -1208,8 +1216,11 @@ func (a *App) apply(l loaded) {
 		return
 	}
 	a.Status = l.Status
-	if l.TimelineOK {
+	switch {
+	case l.TimelineOK && len(a.Timeline.Entries) == 0:
 		a.Timeline = l.Timeline
+	case l.TimelineOK:
+		a.Timeline = mergeTimeline(a.Timeline, l.Timeline)
 	}
 	switch l.Screen {
 	case BoardScreen:

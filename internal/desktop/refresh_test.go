@@ -89,6 +89,7 @@ type fakeBoard struct {
 	full         map[string]int
 	fail         bool
 	failTimeline bool
+	failTasks    bool
 	reject       bool
 
 	block        chan struct{}
@@ -131,6 +132,12 @@ func (b *fakeBoard) setFailTimeline(fail bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.failTimeline = fail
+}
+
+func (b *fakeBoard) setFailTasks(fail bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failTasks = fail
 }
 
 func (b *fakeBoard) setReject(reject bool) {
@@ -194,7 +201,7 @@ func (b *fakeBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"status": 400, "code": "bad_cursor", "message": "bad cursor"}})
 		return
 	}
-	if (b.fail && rest == "/api/v1/status") || (b.failTimeline && rest == "/api/v1/timeline") {
+	if (b.fail && rest == "/api/v1/status") || (b.failTimeline && rest == "/api/v1/timeline") || (b.failTasks && rest == "/api/v1/tasks") {
 		b.mu.Unlock()
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"status": 500, "code": "internal", "message": "the status store failed"}})
@@ -401,11 +408,11 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 		if app.TimelineErr != "" {
 			t.Fatalf("timeline error = %q after the timeline answered", app.TimelineErr)
 		}
-		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 1 {
-			t.Fatalf("%d full timeline reads after the failure, want 1", got)
+		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 0 {
+			t.Fatalf("%d full timeline reads after the failure, want the held conversation kept", got)
 		}
-		if got := b.fullReads("/api/v1/status") - statusBefore; got != 1 {
-			t.Fatalf("%d full status reads after the failure, want 1", got)
+		if got := b.fullReads("/api/v1/status") - statusBefore; got != 0 {
+			t.Fatalf("%d full status reads after a timeline-only failure, want none", got)
 		}
 	})
 
@@ -498,20 +505,52 @@ func TestAPartialPollClearsTheErrorOfTheHalfItAnswered(t *testing.T) {
 	b.setFailTimeline(true)
 	app.StartRefresh()
 	clock.Advance(desktop.FocusedRefresh)
-	if app.Stale == "" {
-		t.Fatal("the failed timeline read left no stale note")
+	if app.TimelineErr == "" {
+		t.Fatal("the failed timeline read left no error in the chat pane")
 	}
 
 	b.setFailTimeline(false)
 	clock.Advance(2 * desktop.FocusedRefresh)
-	if app.Err != "" {
-		t.Fatalf("error = %q after the status recovered, then a clean poll", app.Err)
+	if app.Err != "" || app.TimelineErr != "" {
+		t.Fatalf("error = %q, timeline error = %q after the status recovered, then a clean poll", app.Err, app.TimelineErr)
 	}
 	if app.Stale != "" {
 		t.Fatalf("stale = %q after a clean poll", app.Stale)
 	}
 	if app.Status.Line != "moving" {
 		t.Fatalf("status = %+v, want the answered half's data", app.Status)
+	}
+}
+
+func TestAFailedTimelinePollDoesNotBackOffTheOtherReads(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	b.setFailTimeline(true)
+	b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Status.Pill != "waiting" || app.TimelineErr == "" || app.Stale != "" {
+		t.Fatalf("status %q, timeline error %q, stale %q", app.Status.Pill, app.TimelineErr, app.Stale)
+	}
+	if got := clock.delay(); got != desktop.FocusedRefresh {
+		t.Fatalf("a failed timeline backed the next tick off to %v", got)
+	}
+}
+
+func TestAFailedScreenReadDoesNotStopTheConversation(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	b.setFailTasks(true)
+	b.setTimeline(func(tl *desktop.Timeline) {
+		tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "while tasks failed", No: 2}}, tl.Entries...)
+	})
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Stale == "" {
+		t.Fatal("the failed tasks read left no stale note")
+	}
+	if len(app.Timeline.Entries) == 0 || app.Timeline.Entries[0].Text != "while tasks failed" {
+		t.Fatalf("the conversation stopped refreshing: %+v", app.Timeline.Entries)
 	}
 }
 

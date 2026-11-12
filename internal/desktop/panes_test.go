@@ -31,7 +31,7 @@ func chatLeft(t *testing.T, tt *ui.Tester) float32 {
 	return r.X
 }
 
-func TestTwoPanes(t *testing.T) {
+func TestScenesTwoPanes(t *testing.T) {
 	for _, tc := range []struct {
 		width, height int
 		chat          float32
@@ -327,7 +327,7 @@ func (timelineFails) Timeline(context.Context, string, int) (desktop.Timeline, e
 	return desktop.Timeline{}, errors.New("the timeline store failed")
 }
 
-func TestPaneScenesForTheBlockedAndResumableHeads(t *testing.T) {
+func TestScenesBlockedAndResumableHeads(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		theme := "light"
 		if dark {
@@ -341,4 +341,56 @@ func TestPaneScenesForTheBlockedAndResumableHeads(t *testing.T) {
 		tt := sized(t, newApp(t, f), 1100, 760, dark)
 		shotSized(t, tt, "22-resumable-1100x760-"+theme, 1100, 760)
 	}
+}
+
+func TestASecondStopPressDoesNotStopAReplacementSupervisor(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Stop")
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Ref = "s2"
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+	menu(t, tt, "Refresh now")
+	mustText(t, tt, "s2")
+	mustNotText(t, tt, "Press again to stop")
+	click(t, tt, "Stop")
+	if f.count("control:stop") != 0 {
+		t.Fatalf("Stop ran %d times for a supervisor the operator never confirmed", f.count("control:stop"))
+	}
+	mustText(t, tt, "Press again to stop")
+	click(t, tt, "Press again to stop")
+	if f.count("control:stop") != 1 {
+		t.Fatalf("Stop ran %d times after the confirmation of s2", f.count("control:stop"))
+	}
+}
+
+func TestOlderMessagesSurviveOpeningATask(t *testing.T) {
+	f := goldenFixture(t)
+	tl := f.timeline[fleetID]
+	tl.Older = 42
+	f.timeline[fleetID] = tl
+	f.older = map[string]desktop.Timeline{fleetID: {
+		Entries: []desktop.Entry{{Role: "operator", Text: "the earlier message", At: "2026-10-31T04:40:00Z"}},
+	}}
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Older messages")
+	mustText(t, tt, "the earlier message")
+	click(t, tt, "Fix login")
+	mustText(t, tt, "the earlier message")
+}
+
+func TestTheLabelledRailStaysClosedWhereTheWorkPaneWouldShrink(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := sized(t, app, 860, 700, false)
+	click(t, tt, "Show labels")
+	if app.RailOpen {
+		t.Fatal("the rail opened in an 860 px window")
+	}
+	wide := sized(t, newApp(t, goldenFixture(t)), 1100, 700, false)
+	click(t, wide, "Show labels")
+	mustText(t, wide, "Hide labels")
 }

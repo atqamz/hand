@@ -64,6 +64,8 @@ type Poll struct {
 	ScreenCursor   string
 	TimelineFresh  bool
 	TimelineCursor string
+	TimelineRead   bool
+	TimelineErr    error
 	Timeline       Timeline
 	Tasks          Tasks
 	Task           TaskDetail
@@ -325,14 +327,20 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 		screenSince = c.cursor(fleet, path)
 	}
 	p.ScreenFresh, p.ScreenCursor, err = c.pollAs(ctx, fleet, token, path, screenSince, pollData(screen, &p))
-	if err != nil {
-		return p, err
-	}
 	timelineSince := since.Timeline
 	if timelineSince == "" && !since.Fresh {
 		timelineSince = c.cursor(fleet, "/timeline")
 	}
-	p.TimelineFresh, p.TimelineCursor, err = c.pollAs(ctx, fleet, token, "/timeline", timelineSince, &p.Timeline)
+	var terr error
+	p.TimelineFresh, p.TimelineCursor, terr = c.pollAs(ctx, fleet, token, "/timeline", timelineSince, &p.Timeline)
+	switch {
+	case terr == nil:
+		p.TimelineRead = true
+	case ctx.Err() != nil:
+		return p, terr
+	default:
+		p.TimelineErr = terr
+	}
 	return p, err
 }
 

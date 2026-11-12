@@ -82,7 +82,7 @@ func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
 		n.Open = a.RailOpen
 		return kit.Nav(c, k, n)
 	}
-	kit.Rail(c, k, a.RailOpen, func() { a.RailOpen = !a.RailOpen }, func() {
+	kit.Rail(c, k, a.RailOpen, a.toggleRail, func() {
 		if item(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: a.Screen == BoardScreen || a.Screen == DecisionScreen || a.Screen == ReportScreen,
 			Count: a.Status.Needs.Waiting, CountBG: bg, CountFG: fg}) {
 			a.Show(BoardScreen)

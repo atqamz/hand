@@ -216,7 +216,7 @@ func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, re
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	p := desktop.Poll{StatusFresh: true, Status: f.status[id], TimelineFresh: true, Timeline: f.timeline[id]}
+	p := desktop.Poll{StatusFresh: true, Status: f.status[id], TimelineFresh: true, TimelineRead: true, Timeline: f.timeline[id]}
 	switch screen {
 	case desktop.BoardScreen:
 		p.ScreenFresh, p.Tasks = true, f.tasks[id]
