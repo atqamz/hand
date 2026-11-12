@@ -1844,3 +1844,60 @@ func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {
 		t.Fatalf("banner is not between the last message and the composer in %q", texts)
 	}
 }
+
+func TestTheRailCountsTheWaitingNeeds(t *testing.T) {
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Waiting = 13
+	f.status[fleetID] = st
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "13")
+}
+
+func TestTheConversationDotFollowsTheAgent(t *testing.T) {
+	if _, ok := newTester(newApp(t, goldenFixture(t))).Find("Working"); !ok {
+		t.Error("no working dot while the agent works")
+	}
+	if _, ok := newTester(newApp(t, emptyFixture())).Find("Working"); ok {
+		t.Error("working dot while the agent is idle")
+	}
+}
+
+func TestTheLabelButtonOpensAndClosesTheRail(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Show labels")
+	if !app.RailOpen {
+		t.Fatal("rail did not open")
+	}
+	if _, ok := tt.Find("Hide labels"); !ok {
+		t.Fatalf("no Hide labels in %q", tt.Texts())
+	}
+	click(t, tt, "Hide labels")
+	if app.RailOpen {
+		t.Error("rail did not close")
+	}
+}
+
+func TestTheMastheadContextFigureIsMutedMono(t *testing.T) {
+	tt := newTester(newApp(t, goldenFixture(t)))
+	r, ok := tt.Find("610K / 1M")
+	if !ok {
+		t.Fatalf("no figure in %q", tt.Texts())
+	}
+	if r.W < 60 {
+		t.Errorf("figure is %v wide, a proportional face", r.W)
+	}
+	img := tt.Image()
+	darkest := uint32(0xffff)
+	for y := int(r.Y); y < int(r.Y+r.H); y++ {
+		for x := int(r.X); x < int(r.X+r.W); x++ {
+			if red, _, _, _ := img.At(x, y).RGBA(); red < darkest {
+				darkest = red
+			}
+		}
+	}
+	if got := darkest >> 8; got < 0x50 {
+		t.Errorf("figure ink is %#x, darker than the muted tone", got)
+	}
+}

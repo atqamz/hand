@@ -15,7 +15,7 @@ import (
 
 const (
 	fleetID  = "f00000000e0aa"
-	secondID = "f00000000e0ab"
+	secondID = "f00000000e00d"
 )
 
 type fixture struct {
