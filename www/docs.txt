@@ -1,6 +1,5 @@
 README.md
 docs/install.md
-docs/commands.md
 docs/update.md
 docs/platforms.md
 docs/board.md
@@ -14,4 +13,3 @@ docs/safe-use.md
 docs/how-it-works.md
 docs/vocabulary.md
 docs/api.md
-docs/autostart.md

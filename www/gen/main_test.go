@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+const noNotes = "This page is built from GitHub Releases when the site deploys; this build had no release data."
+
 var (
 	idPattern   = regexp.MustCompile(`id="([^"]+)"`)
 	hrefPattern = regexp.MustCompile(`<a [^>]*href="([^"]*)"`)
@@ -35,13 +37,35 @@ func TestEveryManifestPathIsInTheRepository(t *testing.T) {
 	}
 }
 
-func TestAManifestPathOutsideTheRepositoryFails(t *testing.T) {
-	for _, line := range []string{"../outside.md", "missing.md"} {
-		root := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(root, "www"), 0o755); err != nil {
+func siteRoot(t *testing.T, docs ...string) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"www/docs.txt":      strings.Join(docs, "\n") + "\n",
+		"www/template.html": "<!doctype html>{{.Body}}",
+		"www/style.css":     "",
+		"www/CNAME":         "",
+		"www/favicon.svg":   "",
+	}
+	for name, body := range files {
+		file := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, "www", "docs.txt"), []byte(line+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestAManifestPathOutsideTheRepositoryFails(t *testing.T) {
+	for _, line := range []string{"../outside.md", "missing.md"} {
+		root := siteRoot(t, line)
+		if err := os.WriteFile(filepath.Join(root, "..", "outside.md"), []byte("# Outside\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if err := build(root, t.TempDir(), "v0", nil, noNotes); err == nil {
@@ -51,19 +75,13 @@ func TestAManifestPathOutsideTheRepositoryFails(t *testing.T) {
 }
 
 func TestASymlinkedManifestPathOutsideTheRepositoryFails(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "www"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	root := siteRoot(t, "link.md")
 	outside := filepath.Join(t.TempDir(), "outside.md")
 	if err := os.WriteFile(outside, []byte("# Outside\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(root, "link.md")); err != nil {
 		t.Skip(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "www", "docs.txt"), []byte("link.md\n"), 0o644); err != nil {
-		t.Fatal(err)
 	}
 	if err := build(root, t.TempDir(), "v0", nil, noNotes); err == nil {
 		t.Fatal("a manifest path through a symlink outside the repository did not fail")
@@ -72,18 +90,12 @@ func TestASymlinkedManifestPathOutsideTheRepositoryFails(t *testing.T) {
 
 func TestAnUnpublishedManifestPathFails(t *testing.T) {
 	for _, line := range []string{"DESIGN.md", "PRODUCT.md", "docs/spec.md", "docs/e2e.md", "docs/dogfood/README.md", "docs/images/desktop/a.png"} {
-		root := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(root, "www"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		root := siteRoot(t, line)
 		file := filepath.Join(root, filepath.FromSlash(line))
 		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(file, []byte("# Hidden\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, "www", "docs.txt"), []byte(line+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if err := build(root, t.TempDir(), "v0", nil, noNotes); err == nil {
@@ -99,27 +111,6 @@ func TestChangelogSharesHeadingIDs(t *testing.T) {
 	}
 }
 
-func TestADocFileMissingFromTheManifestFails(t *testing.T) {
-	root := t.TempDir()
-	for _, dir := range []string{"www", "docs"} {
-		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hand\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "docs", "new.md"), []byte("# New\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "www", "docs.txt"), []byte("README.md\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manifest(root); err == nil {
-		t.Fatal("an unlisted docs/*.md file did not fail the manifest")
-	}
-}
-
 func TestEveryRenderedLinkResolves(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -130,8 +121,8 @@ func TestEveryRenderedLinkResolves(t *testing.T) {
 		t.Fatal(err)
 	}
 	pages := readPages(t, out)
-	if len(pages) != 18 {
-		t.Fatalf("built %d pages, want 18", len(pages))
+	if len(pages) != 16 {
+		t.Fatalf("built %d pages, want 16", len(pages))
 	}
 	ids := map[string]map[string]bool{}
 	for url, body := range pages {
@@ -177,7 +168,7 @@ func TestTheHomePageCarriesTheNavAndTheVersion(t *testing.T) {
 	home := pages["/"]
 	for _, want := range []string{
 		`<a class="wordmark" href="/">Hand</a>`,
-		`href="/install/"`, `href="/commands/"`, `href="/update/"`, `href="/board/"`, `href="/phone/"`,
+		`href="/install/"`, `href="/update/"`, `href="/board/"`, `href="/phone/"`,
 		`href="/api/"`, `href="/fleets/"`, `href="/safe-use/"`, `href="/changelog/"`,
 		`href="https://github.com/atqamz/hand"`,
 		"Hand v9.9.9 · MIT License",

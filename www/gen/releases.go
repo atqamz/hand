@@ -11,6 +11,8 @@ import (
 	"github.com/atqamz/hand/internal/markdown"
 )
 
+const noReleases = "This page is built from GitHub Releases when the site deploys; this build could not read them."
+
 type release struct {
 	TagName     string `json:"tag_name"`
 	PublishedAt string `json:"published_at"`
@@ -35,37 +37,30 @@ func changelog(rs []release, note string) string {
 	return b.String()
 }
 
-func fetchReleases(root string) ([]release, string) {
+func fetchReleases() ([]release, string) {
 	if os.Getenv("GH_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
 		return nil, "This page is built from GitHub Releases when the site deploys; this build had no token, so it has no release notes."
 	}
-	cmd := exec.Command("gh", "api", "repos/atqamz/hand/releases?per_page=40")
-	cmd.Dir = root
-	out, err := cmd.Output()
+	out, err := exec.Command("gh", "api", "repos/atqamz/hand/releases?per_page=40").Output()
 	if err != nil {
-		return nil, "This page is built from GitHub Releases when the site deploys; this build could not read them."
+		return nil, noReleases
 	}
 	rs, err := decodeReleases(out)
 	if err != nil {
-		return nil, "This page is built from GitHub Releases when the site deploys; this build could not read them."
+		return nil, noReleases
 	}
 	return rs, ""
 }
 
 func decodeReleases(data []byte) ([]release, error) {
 	var rs []release
-	if err := json.Unmarshal(data, &rs); err != nil {
-		return nil, err
-	}
-	return rs, nil
+	err := json.Unmarshal(data, &rs)
+	return rs, err
 }
 
 func describe(root string) string {
 	out, err := exec.Command("git", "-C", root, "describe", "--tags", "--abbrev=0").Output()
-	if err != nil {
-		return "unreleased"
-	}
-	if v := strings.TrimSpace(string(out)); v != "" {
+	if v := strings.TrimSpace(string(out)); err == nil && v != "" {
 		return v
 	}
 	return "unreleased"

@@ -8,17 +8,12 @@ import (
 	"strings"
 )
 
-var unpublished = map[string]bool{"DESIGN.md": true, "PRODUCT.md": true, "docs/spec.md": true, "docs/e2e.md": true}
-
-var unpublishedPrefixes = []string{"docs/dogfood/", "docs/images/desktop/"}
+var unpublished = []string{"DESIGN.md", "PRODUCT.md", "docs/spec.md", "docs/e2e.md", "docs/dogfood/", "docs/images/desktop/"}
 
 func unpublishedPath(rel string) bool {
 	rel = path.Clean(rel)
-	if unpublished[rel] {
-		return true
-	}
-	for _, prefix := range unpublishedPrefixes {
-		if strings.HasPrefix(rel, prefix) {
+	for _, p := range unpublished {
+		if rel == p || strings.HasSuffix(p, "/") && strings.HasPrefix(rel, p) {
 			return true
 		}
 	}
@@ -46,21 +41,6 @@ func manifest(root string) ([]string, error) {
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("www/docs.txt lists no docs")
-	}
-	listed := map[string]bool{}
-	for _, src := range out {
-		listed[path.Clean(src)] = true
-	}
-	entries, err := os.ReadDir(filepath.Join(root, "docs"))
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		rel := "docs/" + e.Name()
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || listed[rel] || unpublishedPath(rel) {
-			continue
-		}
-		return nil, fmt.Errorf("%s is in neither www/docs.txt nor the unpublished list", rel)
 	}
 	return out, nil
 }

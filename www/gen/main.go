@@ -18,7 +18,6 @@ import (
 const (
 	siteURL   = "https://hand.atqamz.com"
 	repoURL   = "https://github.com/atqamz/hand"
-	noNotes   = "This page is built from GitHub Releases when the site deploys; this build had no release data."
 	companion = `<h3 id="hand-companion">Hand Companion</h3><p>Hand Companion is the Android app for a paired phone. It needs a Hand laptop running the board, because the phone reaches that laptop through Hand and the app does not run Hand itself. Its source is <a href="https://github.com/atqamz/hand-android" rel="noopener">atqamz/hand-android</a>.</p>`
 )
 
@@ -55,7 +54,7 @@ func main() {
 	if *version == "" {
 		*version = describe(*root)
 	}
-	rs, note := fetchReleases(*root)
+	rs, note := fetchReleases()
 	if err := build(*root, *out, *version, rs, note); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -135,8 +134,7 @@ func splitTitle(text, src string) (string, string) {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	for i, line := range lines {
 		if title, ok := strings.CutPrefix(line, "# "); ok {
-			rest := append(append([]string{}, lines[:i]...), lines[i+1:]...)
-			return strings.TrimSpace(title), strings.Join(rest, "\n")
+			return strings.TrimSpace(title), strings.Join(append(lines[:i:i], lines[i+1:]...), "\n")
 		}
 		if strings.TrimSpace(line) != "" {
 			break
@@ -190,7 +188,6 @@ func relative(ref string) bool {
 func nav(url string) []navItem {
 	items := []navItem{
 		{Name: "Install", Href: "/install/"},
-		{Name: "Commands", Href: "/commands/"},
 		{Name: "Update", Href: "/update/"},
 		{Name: "Board", Href: "/board/"},
 		{Name: "Phone", Href: "/phone/"},
