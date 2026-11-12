@@ -65,6 +65,12 @@ func (c counted) RevokePhone(ctx context.Context, rv *board.Revocation) (int, er
 	return c.Handler.(board.Revoker).RevokePhone(ctx, rv)
 }
 
+func (c counted) FleetSummary(ctx context.Context) (board.APIFleetSummary, error) {
+	return c.Handler.(board.Summarizer).FleetSummary(ctx)
+}
+
+func (c counted) APIRead(r *http.Request) bool { return c.Handler.(board.Reader).APIRead(r) }
+
 type bare struct {
 	http.Handler
 }
@@ -126,6 +132,8 @@ func (p *phoneHost) restart() {
 	}
 	p.h = board.NewHost(board.HostOptions{
 		Loopback: p.loopback,
+		Version:  "9.9.9-test",
+		Iroh:     p.iroh,
 		Resolve: func(id string) (string, error) {
 			p.mu.Lock()
 			down, gone := p.down[id], p.gone[id]
