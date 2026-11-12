@@ -18,7 +18,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private const val POLL_MILLIS = 5_000L
-private const val COOKIE_PREFIX = "hand_phone_"
 private val FLEET_ID = Regex("f[0-9a-f]{12}")
 
 data class Badge(val text: String, val tone: Tone)
@@ -44,13 +43,8 @@ data class FleetsState(
   val band: Band? = null
 )
 
-fun pairedFleets(cookies: String?): List<String> =
-  cookies
-    .orEmpty()
-    .split(';')
-    .map { it.trim().substringBefore('=').removePrefix(COOKIE_PREFIX) }
-    .filter(FLEET_ID::matches)
-    .distinct()
+fun pairedFleets(ids: String?): List<String> =
+  ids.orEmpty().split(' ').filter(FLEET_ID::matches).distinct()
 
 fun laptopId(file: File): String? =
   try {

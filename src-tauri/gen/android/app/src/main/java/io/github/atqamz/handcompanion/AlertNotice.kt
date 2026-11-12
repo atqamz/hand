@@ -82,3 +82,13 @@ fun unpairedSpec(fleetId: String, fleetName: String?): NoticeSpec =
     tapUri = null,
     visibility = Notification.VISIBILITY_PRIVATE
   )
+
+fun unreadableSpec(): NoticeSpec =
+  NoticeSpec(
+    tag = "sessions/unreadable",
+    title = "Hand",
+    text = "Pairings could not be read; check the app",
+    channel = Channels.NEEDS,
+    tapUri = null,
+    visibility = Notification.VISIBILITY_PRIVATE
+  )

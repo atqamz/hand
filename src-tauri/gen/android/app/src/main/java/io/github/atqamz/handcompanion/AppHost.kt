@@ -50,6 +50,10 @@ class AppHost(private val context: Context) {
     AlertService.stop(context)
   }
 
+  fun unreadable() {
+    Notifier.post(context, unreadableSpec())
+  }
+
   fun unpaired(fleetId: String, fleetName: String?) {
     Notifier.post(context, unpairedSpec(fleetId, fleetName))
   }

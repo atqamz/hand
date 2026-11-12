@@ -326,10 +326,10 @@ class FleetsModelTest {
   }
 
   @Test
-  fun fleetsComeFromTheCookieNamesAlone() {
+  fun fleetsComeFromTheCoresSpaceSeparatedIds() {
     assertEquals(
       listOf(ONE, TWO),
-      pairedFleets("a=b; hand_phone_$ONE=1.x; hand_phone_$TWO=2.y; hand_phone_$ONE=3.z; hand_phone_bad=1")
+      pairedFleets("$ONE $TWO $ONE bad  hand_phone_$TWO")
     )
     assertEquals(emptyList<String>(), pairedFleets(null))
   }

@@ -16,6 +16,10 @@ object Core {
 
   @JvmStatic external fun releaseContext()
 
+  @JvmStatic external fun paired(): Boolean
+
+  @JvmStatic external fun fleets(): String?
+
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()

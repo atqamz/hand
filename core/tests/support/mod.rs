@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use hand_android_core::{ALPN, Dialer, Proxy};
+use hand_android_core::{ALPN, CipherError, Dialer, Jar, KeyCipher, Proxy, Sessions};
 use iroh::endpoint::{Endpoint, PortmapperConfig, presets};
 use iroh::{EndpointAddr, EndpointId, RelayMode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -636,4 +636,45 @@ async fn serve_feed(
     out.extend_from_slice(&reply.body);
     let _ = stream.write_all(&out).await;
     let _ = stream.shutdown().await;
+}
+
+pub struct PlainCipher;
+
+impl KeyCipher for PlainCipher {
+    fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, CipherError> {
+        Ok(plaintext.to_vec())
+    }
+
+    fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, CipherError> {
+        Ok(sealed.to_vec())
+    }
+
+    fn probe(&self) -> Result<(), CipherError> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct MemoryJar(Arc<Mutex<Option<String>>>);
+
+impl MemoryJar {
+    pub fn set(&self, header: Option<&str>) {
+        *self.0.lock().unwrap() = header.map(str::to_owned);
+    }
+}
+
+impl Jar for MemoryJar {
+    fn cookies(&self) -> std::io::Result<Option<String>> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn clear(&self) -> std::io::Result<()> {
+        self.set(None);
+        Ok(())
+    }
+}
+
+pub fn sessions(dir: &Path, laptop: EndpointId, jar: &MemoryJar) -> Arc<Sessions<MemoryJar>> {
+    fs::write(dir.join("laptop"), format!("{laptop}\n")).unwrap();
+    Arc::new(Sessions::open(dir, jar.clone(), Arc::new(PlainCipher)).unwrap())
 }

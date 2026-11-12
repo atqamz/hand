@@ -1,7 +1,6 @@
 package io.github.atqamz.handcompanion
 
 import android.os.Bundle
-import android.webkit.CookieManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,7 +22,7 @@ class HandActivity : ComponentActivity() {
         val laptop = File(applicationContext.dataDir, "laptop")
         FleetsModel(
           CoreTransport,
-          { pairedFleets(CookieManager.getInstance().getCookie(COOKIE_URL)) },
+          { pairedFleets(Core.fleets()) },
           { laptopId(laptop) }
         )
       }

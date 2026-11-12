@@ -88,6 +88,16 @@ class AlertNoticeTest {
   }
 
   @Test
+  fun unreadablePairingsSayToCheckTheAppAndNameNothing() {
+    val spec = unreadableSpec()
+    assertEquals("Pairings could not be read; check the app", spec.text)
+    assertEquals("sessions/unreadable", spec.tag)
+    assertEquals(Channels.NEEDS, spec.channel)
+    assertNull(spec.tapUri)
+    assertEquals(Notification.VISIBILITY_PRIVATE, spec.visibility)
+  }
+
+  @Test
   fun aNoticeIsAcknowledgedOnlyAfterItWasPosted() {
     var posted = 0
     assertEquals(false, deliver(false) { posted++ })

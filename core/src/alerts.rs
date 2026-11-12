@@ -23,7 +23,7 @@ const MAX_BODY: usize = 64 * 1024;
 const MAX_ALERTS: usize = 50;
 const MAX_TEXT: usize = 200;
 const MAX_NAME: usize = 64;
-const COOKIE_PREFIX: &str = "hand_phone_";
+pub(crate) const COOKIE_PREFIX: &str = "hand_phone_";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fleet {
@@ -56,7 +56,7 @@ pub fn paired_fleets(cookie_header: &str) -> Vec<String> {
         .collect()
 }
 
-fn paired_cookies(cookie_header: &str) -> Vec<(String, String)> {
+pub(crate) fn paired_cookies(cookie_header: &str) -> Vec<(String, String)> {
     let mut fleets: Vec<(String, String)> = Vec::new();
     for pair in cookie_header.split(';') {
         let Some((name, value)) = pair.trim().split_once('=') else {

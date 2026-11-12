@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 
 use hand_android_core::{Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Stop, Supervisor};
 use serde_json::{Value, json};
-use support::{FeedBoard, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, sidecar_bin};
+use support::{
+    FeedBoard, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, sessions,
+    sidecar_bin,
+};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -1025,4 +1028,31 @@ async fn forgetting_while_the_cookie_read_blocks_posts_no_unpaired_notice() {
 
     assert_eq!(task.await.unwrap(), Stop::Forgotten);
     assert!(harness.sink.unpaired().is_empty());
+}
+
+#[tokio::test]
+async fn the_feed_sends_the_stored_cookie_and_stops_when_the_jar_loses_an_imported_fleet() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |_, _| answer(5, vec![])).await;
+    let stored = format!("hand_phone_{FLEET}=7.{}", "ab".repeat(32));
+    let jar = MemoryJar::default();
+    jar.set(Some(&format!("session=zzz; {stored}")));
+    let store = sessions(harness.dir.path(), harness._sidecar.id(), &jar);
+    let task = harness.run_with(harness.feed(), store);
+
+    assert!(wait_for(|| !harness.board.seen().is_empty()).await);
+    jar.set(Some(&format!("hand_phone_{FLEET}=x.junk")));
+    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    assert!(!task.is_finished());
+    for request in harness.board.seen() {
+        assert_eq!(request.cookie.as_deref(), Some(stored.as_str()));
+    }
+
+    jar.set(None);
+    let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+
+    assert_eq!(stop, Stop::CookieGone);
+    assert_eq!(harness.sink.unpaired().len(), 1);
 }

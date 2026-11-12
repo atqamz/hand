@@ -37,14 +37,10 @@ impl OfferError {
 
 impl Pairing {
     pub fn new(dir: &Path) -> Self {
-        let active = fs::read_to_string(dir.join(LAPTOP_FILE))
-            .ok()
-            .map(|text| text.trim().to_owned())
-            .filter(|endpoint| valid_endpoint(endpoint));
         Self {
             dir: dir.to_owned(),
             pending: None,
-            active,
+            active: read_laptop(dir),
         }
     }
 
@@ -125,6 +121,13 @@ impl Pairing {
         self.active = Some(pending.endpoint_id.clone());
         Ok(())
     }
+}
+
+pub(crate) fn read_laptop(dir: &Path) -> Option<String> {
+    fs::read_to_string(dir.join(LAPTOP_FILE))
+        .ok()
+        .map(|text| text.trim().to_owned())
+        .filter(|endpoint| valid_endpoint(endpoint))
 }
 
 fn valid_endpoint(endpoint: &str) -> bool {

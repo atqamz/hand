@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
-import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
@@ -60,21 +59,22 @@ class MainActivity : TauriActivity() {
   }
 
   fun ensureAlerts() {
-    runOnUiThread {
-      val paired = CookieManager.getInstance().getCookie(COOKIE_URL)?.contains("hand_phone_") == true
-      if (!paired) return@runOnUiThread
-      val needed =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-          ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-      if (!needed) {
-        startAlerts()
-        return@runOnUiThread
-      }
-      if (!askingNotifications && !getPreferences(MODE_PRIVATE).getBoolean(ASKED, false)) {
-        askingNotifications = true
-        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-      }
+    Thread { if (Core.paired()) runOnUiThread { askAndStartAlerts() } }.start()
+  }
+
+  private fun askAndStartAlerts() {
+    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
+    val needed =
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+          PackageManager.PERMISSION_GRANTED
+    if (!needed) {
+      startAlerts()
+      return
+    }
+    if (!askingNotifications && !getPreferences(MODE_PRIVATE).getBoolean(ASKED, false)) {
+      askingNotifications = true
+      notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
   }
 

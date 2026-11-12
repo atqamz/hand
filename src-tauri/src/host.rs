@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use hand_android_core::{
-    Alert, AlertSink, CipherError, Companion, CompanionConfig, CookieSource, Feed, Fleet,
-    KeyCipher, Method, RESCAN, Request, RequestError, Response, Supervisor,
+    Alert, AlertSink, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher, Method,
+    RESCAN, Request, RequestError, Response, Sessions, Supervisor, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jstring};
@@ -19,11 +19,12 @@ const PROBE: i32 = 0;
 const SEAL: i32 = 1;
 const OPEN: i32 = 2;
 
-type Alerts = Supervisor<HostCookies, HostSink>;
+type Alerts = Supervisor<Arc<Sessions<HostJar>>, HostSink>;
 
 struct Core {
     companion: Arc<Companion>,
     alerts: Arc<Alerts>,
+    sessions: Arc<Sessions<HostJar>>,
     host: Arc<Host>,
 }
 
@@ -55,19 +56,12 @@ pub fn forget_alerts() -> io::Result<()> {
         return Ok(());
     };
     core.alerts.forget_all();
-    let cleared = core.host.clear_cookies();
+    let cleared = core.sessions.forget();
     let _ = core.host.stop_service();
-    match cleared {
-        Ok(true) => Ok(()),
-        Ok(false) => {
-            warn("the web view's cookies were not cleared in time");
-            Err(io::Error::other("the web view's cookies were not cleared"))
-        }
-        Err(error) => {
-            warn("the web view's cookies could not be cleared");
-            Err(error)
-        }
+    if cleared.is_err() {
+        warn("the web view's cookies or the session store could not be cleared");
     }
+    cleared
 }
 
 unsafe extern "C" {
@@ -159,6 +153,10 @@ impl Host {
         })
     }
 
+    fn unreadable(&self) -> io::Result<()> {
+        self.call(|env| env.call_method(&self.object, "unreadable", "()V", &[])?.v())
+    }
+
     fn stop_service(&self) -> io::Result<()> {
         self.call(|env| {
             env.call_method(&self.object, "stopService", "()V", &[])?
@@ -217,11 +215,19 @@ impl KeyCipher for HostCipher {
     }
 }
 
-struct HostCookies(Arc<Host>);
+struct HostJar(Arc<Host>);
 
-impl CookieSource for HostCookies {
-    async fn cookies(&self) -> io::Result<Option<String>> {
+impl Jar for HostJar {
+    fn cookies(&self) -> io::Result<Option<String>> {
         self.0.cookies()
+    }
+
+    fn clear(&self) -> io::Result<()> {
+        if self.0.clear_cookies()? {
+            Ok(())
+        } else {
+            Err(io::Error::other("the web view's cookies were not cleared"))
+        }
     }
 }
 
@@ -282,19 +288,21 @@ fn start(
                 .new_global_ref(host)
                 .map_err(|error| error.to_string())?,
         });
+        let cipher = Arc::new(HostCipher(host.clone()));
+        let sessions = Sessions::open(&data_dir, HostJar(host.clone()), cipher.clone())
+            .map(Arc::new)
+            .map_err(|error| format!("the phone's pairings could not be read: {error}"))?;
+        if sessions.quarantined() {
+            let _ = host.unreadable();
+        }
         let companion = tauri::async_runtime::block_on(Companion::start(CompanionConfig {
             data_dir: data_dir.clone(),
-            cipher: Arc::new(HostCipher(host.clone())),
+            cipher,
         }))
         .map(Arc::new)
         .map_err(|error| format!("the phone's key could not start the companion: {error}"))?;
         let feed = Feed::new(companion.dialer(), data_dir.join("alerts"));
-        let alerts = Supervisor::new(
-            feed,
-            HostCookies(host.clone()),
-            HostSink(host.clone()),
-            RESCAN,
-        );
+        let alerts = Supervisor::new(feed, sessions.clone(), HostSink(host.clone()), RESCAN);
         let restored = companion.clone();
         tauri::async_runtime::spawn(async move {
             let _ = restored.open_board().await;
@@ -302,6 +310,7 @@ fn start(
         Ok(Core {
             companion,
             alerts,
+            sessions,
             host,
         })
     })();
@@ -342,6 +351,39 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_releaseContext<'
     if OWNS_CONTEXT.swap(false, Ordering::SeqCst) {
         unsafe { ndk_context::release_android_context() };
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_paired<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let sessions = STATE
+        .lock()
+        .unwrap()
+        .core
+        .as_ref()
+        .map(|core| core.sessions.clone());
+    jboolean::from(sessions.is_some_and(|sessions| sessions.header().is_some()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fleets<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    let sessions = STATE
+        .lock()
+        .unwrap()
+        .core
+        .as_ref()
+        .map(|core| core.sessions.clone());
+    let ids = sessions
+        .and_then(|sessions| sessions.header())
+        .map(|header| paired_fleets(&header).join(" "))
+        .unwrap_or_default();
+    env.new_string(ids)
+        .map_or(ptr::null_mut(), |text| text.into_raw())
 }
 
 #[unsafe(no_mangle)]
@@ -408,11 +450,7 @@ fn send(
         env.convert_byte_array(body)
             .map_err(|_| RequestError::Malformed)?
     };
-    let cookies = core
-        .host
-        .cookies()
-        .map_err(|_| RequestError::Unreachable)?
-        .unwrap_or_default();
+    let cookies = core.sessions.header().unwrap_or_default();
     let method = if post { Method::Post } else { Method::Get };
     let request = Request::new(method, &fleet, &path, &cookies, csrf.as_deref(), &body)?;
     tauri::async_runtime::block_on(core.companion.request(&request))

@@ -10,6 +10,7 @@ mod navigation;
 mod open;
 mod pairing;
 mod scan;
+mod sessions;
 #[cfg(test)]
 mod testutil;
 
@@ -37,3 +38,4 @@ pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, parse_open};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::{Proxy, Signal};
 pub use scan::{CAMERA_FAILED, SCAN_OPEN, ScanError, ScanStatus, scan_reply};
+pub use sessions::{Jar, Sessions};
