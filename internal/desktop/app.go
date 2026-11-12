@@ -82,9 +82,10 @@ type App struct {
 	OpenErr      string
 	OpenBusy     bool
 
-	Draft    string
-	DraftDir string
-	DraftErr string
+	Draft     string
+	TaskQuery string
+	DraftDir  string
+	DraftErr  string
 
 	Status   Status
 	Timeline Timeline
