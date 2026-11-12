@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -91,8 +90,8 @@ func (a *App) taskDeliverable(c *ui.Context, p palette, d Deliverable) {
 		if d.Href != "" {
 			color = p.accent
 		}
-		ui.Text(c, "file: "+path.Base(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
-			TextColor(color).SingleLine().Label("deliverable file")
+		ui.Text(c, "file: "+taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+			TextColor(color).SingleLine()
 		return
 	}
 	ui.Badge(c, d.Kind).Background(ui.Transparent).TextColor(p.accent).Border(1, p.line).
@@ -138,6 +137,11 @@ func taskDepths(rows []TaskRow) []int {
 		at[r.Ref] = i
 	}
 	return depths
+}
+
+func taskFileBase(p string) string {
+	p = strings.TrimRight(p, `\/`)
+	return p[strings.LastIndexAny(p, `\/`)+1:]
 }
 
 func taskPlural(n int) string {

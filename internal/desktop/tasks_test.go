@@ -38,7 +38,11 @@ func taskFixture(t *testing.T) *fixture {
 				{Ref: "t4", Title: "Write docs", Project: "web", Status: "inbox", State: "idle"},
 			}},
 			{Name: "Done", Count: 7, Tasks: []desktop.TaskRow{
-				{Ref: "t5", Title: "Ship the rename", Project: "api", Status: "done", State: "passing", FinishedAt: "2026-11-01T04:40:00Z"},
+				{
+					Ref: "t5", Title: "Ship the rename", Project: "api", Status: "done", State: "passing",
+					FinishedAt: "2026-11-01T04:40:00Z",
+					Delivered:  &desktop.Deliverable{Ref: `reports\t5\plan.md`, Kind: "file"},
+				},
 			}},
 		},
 	}
@@ -105,9 +109,7 @@ func TestTheTaskRowShowsItsProjectAndDeliverableBadges(t *testing.T) {
 			t.Errorf("%q is at %v, outside its row %v", want, b, row)
 		}
 	}
-	if _, ok := tt.Find("deliverable file"); !ok {
-		t.Error("no file deliverable")
-	}
+	mustText(t, tt, "file: design.md", "file: plan.md")
 }
 
 func TestTheProjectBadgeOnlyShowsForSeveralProjects(t *testing.T) {
