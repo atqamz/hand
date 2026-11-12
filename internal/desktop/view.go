@@ -272,42 +272,6 @@ func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 
 var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
 
-func (a *App) composer(c *ui.Context, p palette) {
-	ui.Column(c).Gap(8).Padding(12).Radius(10).Background(p.card).
-		Border(1, p.line).Children(func() {
-		ui.TextArea(c, &a.Draft).Label("Message").
-			Placeholder("Message the supervisor").Lines(2, 8).Disabled(a.Busy).
-			OnChange(func() { a.saveDraft() }).
-			OnTextKey(func(k ui.TextKey) bool {
-				if k.Key != ui.KeyEnter || (k.Mods != ui.Ctrl && k.Mods != ui.Super) {
-					return false
-				}
-				a.Draft = k.Text()
-				a.saveDraft()
-				a.Send()
-				return true
-			})
-		if a.DraftErr != "" {
-			ui.Text(c, a.DraftErr).FontSize(kit.Meta.Size).TextColor(p.fail)
-		}
-		ui.Row(c).Gap(8).Children(func() {
-			ui.Spacer(c)
-			if ui.Button(c.Key("composer:clear"), "Clear").
-				Disabled(a.Busy || (a.Draft == "" && a.DraftErr == "")).Clicked() {
-				a.ClearDraft()
-			}
-			label := "Send"
-			if a.Busy {
-				label = "Sending…"
-			}
-			if ui.Button(c.Key("composer:send"), label).
-				Disabled(a.Busy || strings.TrimSpace(a.Draft) == "").Clicked() {
-				a.Send()
-			}
-		})
-	})
-}
-
 func (a *App) taskScreen(c *ui.Context, p palette) {
 	t := a.Task
 	a.detailHeader(c, p, t.Task.Ref, t.Task.Title)

@@ -72,6 +72,9 @@ func (d Drafts) Save(fleet, text string) error {
 	if len(text) > maxDraft {
 		return fmt.Errorf("the draft is %d bytes; the most is %d", len(text), maxDraft)
 	}
+	if text == "" {
+		return d.remove(path)
+	}
 	if err := os.MkdirAll(d.Dir, 0o700); err != nil {
 		return err
 	}
@@ -95,14 +98,6 @@ func (d Drafts) Save(fleet, text string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
-}
-
-func (d Drafts) Clear(fleet string) error {
-	path, err := d.path(fleet)
-	if err != nil {
-		return err
-	}
-	return d.remove(path)
 }
 
 // ClearIf removes the draft only while it still holds text, so a send cannot
@@ -138,7 +133,7 @@ func (d Drafts) remove(path string) error {
 // writes inline, as Boot reads.
 type draftWriter struct {
 	drafts Drafts
-	report func(fleet string, err error)
+	report func(fleet, text string, err error)
 	inline bool
 	mu     sync.Mutex
 	next   map[string]string
@@ -157,11 +152,10 @@ type draftFailure struct {
 type draftClear struct {
 	fleet string
 	text  string
-	only  bool
 	reply chan error
 }
 
-func newDraftWriter(d Drafts, report func(fleet string, err error), inline bool) *draftWriter {
+func newDraftWriter(d Drafts, report func(fleet, text string, err error), inline bool) *draftWriter {
 	w := &draftWriter{
 		drafts: d,
 		report: report,
@@ -182,7 +176,7 @@ func (w *draftWriter) Save(fleet, text string) {
 	if w.inline {
 		err := w.drafts.Save(fleet, text)
 		w.record(fleet, text, err)
-		w.report(fleet, err)
+		w.report(fleet, text, err)
 		return
 	}
 	w.mu.Lock()
@@ -194,18 +188,11 @@ func (w *draftWriter) Save(fleet, text string) {
 	}
 }
 
-func (w *draftWriter) Clear(fleet string) error {
-	if w.inline {
-		return w.done(fleet, w.drafts.Clear(fleet))
-	}
-	return w.request(draftClear{fleet: fleet, reply: make(chan error, 1)}, true)
-}
-
 func (w *draftWriter) ClearIf(fleet, text string) error {
 	if w.inline {
 		return w.done(fleet, w.drafts.ClearIf(fleet, text))
 	}
-	return w.request(draftClear{fleet: fleet, text: text, only: true, reply: make(chan error, 1)}, false)
+	return w.request(draftClear{fleet: fleet, text: text, reply: make(chan error, 1)})
 }
 
 // unsaved reports the text a save refused, as a fleet switch reads it.
@@ -225,12 +212,7 @@ func (w *draftWriter) Flush() {
 	<-done
 }
 
-func (w *draftWriter) request(op draftClear, drop bool) error {
-	if drop {
-		w.mu.Lock()
-		delete(w.next, op.fleet)
-		w.mu.Unlock()
-	}
+func (w *draftWriter) request(op draftClear) error {
 	w.clears <- op
 	return <-op.reply
 }
@@ -266,15 +248,12 @@ func (w *draftWriter) writeOne() bool {
 	}
 	err := w.drafts.Save(fleet, text)
 	w.record(fleet, text, err)
-	w.report(fleet, err)
+	w.report(fleet, text, err)
 	return true
 }
 
 func (w *draftWriter) clear(op draftClear) error {
-	if op.only {
-		return w.done(op.fleet, w.drafts.ClearIf(op.fleet, op.text))
-	}
-	return w.done(op.fleet, w.drafts.Clear(op.fleet))
+	return w.done(op.fleet, w.drafts.ClearIf(op.fleet, op.text))
 }
 
 func (w *draftWriter) done(fleet string, err error) error {

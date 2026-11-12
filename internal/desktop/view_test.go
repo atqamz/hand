@@ -417,7 +417,7 @@ func TestComposerSendsWithCtrlEnter(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("hello there")
 	tt.Key(ui.Ctrl, ui.KeyEnter)
 	tt.Frame()
@@ -428,7 +428,7 @@ func TestComposerSendsWithCtrlEnter(t *testing.T) {
 	if app.Draft != "" {
 		t.Fatalf("draft = %q after a send", app.Draft)
 	}
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("again")
 	tt.Key(ui.Super, ui.KeyEnter)
 	tt.Frame()
@@ -442,7 +442,7 @@ func TestComposerShiftEnterBreaksTheLine(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("one")
 	tt.Key(ui.Shift, ui.KeyEnter)
 	tt.Type("two")
@@ -463,7 +463,7 @@ func TestAFailedSendKeepsTheDraft(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("keep this text")
 	f.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
 	click(t, tt, "Send")
@@ -478,7 +478,7 @@ func TestTheComposerIsDisabledWhileSending(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("one moment")
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -507,7 +507,7 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("half a message")
 	tt.Frame()
 	app.FlushDrafts()
@@ -543,7 +543,7 @@ func TestSendingClearsTheStoredDraft(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("send me")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -552,27 +552,11 @@ func TestSendingClearsTheStoredDraft(t *testing.T) {
 	}
 }
 
-func TestTheDraftCanBeCleared(t *testing.T) {
-	dir := t.TempDir()
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	tt := newTester(app)
-	click(t, tt, "Message")
-	tt.Type("throw me away")
-	tt.Frame()
-	click(t, tt, "Clear")
-	if app.Draft != "" || (desktop.Drafts{Dir: dir}).Load(fleetID) != "" {
-		t.Fatalf("Clear left draft %q", app.Draft)
-	}
-}
-
 func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("  indented\n\nand trailing\n")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -584,31 +568,12 @@ func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
 	}
 }
 
-func TestAWhitespaceDraftCanBeCleared(t *testing.T) {
-	dir := t.TempDir()
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	tt := newTester(app)
-	click(t, tt, "Message")
-	tt.Type("   ")
-	tt.Frame()
-	click(t, tt, "Clear")
-	if app.Draft != "" {
-		t.Fatalf("draft = %q after Clear", app.Draft)
-	}
-	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "" {
-		t.Fatalf("the stored draft = %q after Clear", got)
-	}
-}
-
 func TestASendWhoseTimelineCannotBeReadClearsTheDraft(t *testing.T) {
 	f := goldenFixture(t)
 	f.stale = true
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("sent once")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -634,7 +599,7 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("keep this draft")
 	tt.Frame()
 	mustText(t, tt, "the draft was not saved")
@@ -649,26 +614,6 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 	mustText(t, tt, "the draft was not saved")
 }
 
-func TestADraftThatCannotBeRemovedIsReported(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, fleetID+".txt", "kept"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	tt := newTester(app)
-	click(t, tt, "Message")
-	tt.Type("clear me")
-	tt.Frame()
-	click(t, tt, "Clear")
-	mustText(t, tt, "the stored draft could not be removed")
-	if app.ActionErr != "" {
-		t.Fatalf("a failed cleanup became a failed action: %q", app.ActionErr)
-	}
-}
-
 func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, fleetID+".txt", "kept"), 0o700); err != nil {
@@ -679,7 +624,7 @@ func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("sent anyway")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -689,19 +634,6 @@ func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	}
 	if app.Draft != "" {
 		t.Fatalf("draft = %q after a send", app.Draft)
-	}
-	if err := os.RemoveAll(filepath.Join(dir, fleetID+".txt")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, fleetID+".txt"), []byte("a newer draft"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	click(t, tt, "Clear")
-	if app.DraftErr != "" {
-		t.Fatalf("the retry left %q", app.DraftErr)
-	}
-	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "a newer draft" {
-		t.Fatalf("the retry removed a newer draft: %q", got)
 	}
 }
 
@@ -722,7 +654,7 @@ func TestTheSentDraftIsClearedAfterANavigation(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("sent once")
 	tt.Frame()
 	posted := make(chan func(), 64)
@@ -763,7 +695,7 @@ func TestASaveFailureIsRestoredBeforeItsReport(t *testing.T) {
 	tt := newTester(app)
 	pump(t, posted, func() bool { return !app.Loading })
 	tt.Frame()
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("keep this draft")
 	click(t, tt, "second")
 	click(t, tt, "golden")
@@ -783,7 +715,7 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("a")
 	tt.Frame()
 	mustText(t, tt, "the draft was not saved")
@@ -803,28 +735,6 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 	}
 }
 
-func TestClearWinsOverAQueuedSave(t *testing.T) {
-	dir := t.TempDir()
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	posted := make(chan func(), 64)
-	app.Post = func(fn func()) { posted <- fn }
-	tt := newTester(app)
-	pump(t, posted, func() bool { return !app.Loading })
-	tt.Frame()
-	click(t, tt, "Message")
-	tt.Type("gone")
-	click(t, tt, "Clear")
-	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "" {
-		t.Fatalf("the stored draft = %q after Clear", got)
-	}
-	if app.Draft != "" || app.DraftErr != "" {
-		t.Fatalf("draft = %q, error = %q", app.Draft, app.DraftErr)
-	}
-}
-
 func TestASendKeepsANewerDraft(t *testing.T) {
 	dir := t.TempDir()
 	f := goldenFixture(t)
@@ -832,7 +742,7 @@ func TestASendKeepsANewerDraft(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("the older draft")
 	tt.Frame()
 	posted := make(chan func(), 8)
@@ -1200,6 +1110,10 @@ func TestScenes(t *testing.T) {
 	}
 	errFleet := goldenFixture(t)
 	errApp := newApp(t, errFleet)
+	sceneNow := func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
+	errApp.Now = sceneNow
+	composer := newApp(t, goldenFixture(t))
+	composer.Now = sceneNow
 	blocked := blockedFixture(t)
 	delivered := goldenFixture(t)
 	td := delivered.task[fleetID]
@@ -1235,12 +1149,12 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Board")
 			click(t, tt, "Cookie fixed")
 		}},
-		{"11-composer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Message")
+		{"11-composer", composer, func(t *testing.T, tt *ui.Tester) {
+			click(t, tt, "Message the supervisor")
 			tt.Type("Please look at the cookie rename after the docs pass.")
 		}},
 		{"12-composer-error", errApp, func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("This text stays when the send fails.")
 			errFleet.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
 			click(t, tt, "Send")
@@ -1690,7 +1604,7 @@ func TestComposerEnterBreaksTheLineAndShowsNoHint(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("one")
 	tt.Key(0, ui.KeyEnter)
 	tt.Type("two")
@@ -1724,7 +1638,7 @@ func TestTheConversationReadsOldestFirstWithTheComposerBelow(t *testing.T) {
 	if at(e[len(e)-1].Text) > at(e[0].Text) {
 		t.Fatalf("the oldest message is below the newest in %q", texts)
 	}
-	if at("Message") < at(e[0].Text) {
+	if at("Message the supervisor") < at(e[0].Text) {
 		t.Fatalf("the composer is above the messages in %q", texts)
 	}
 }
@@ -1856,7 +1770,7 @@ func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {
 		return -1
 	}
 	e := app.Timeline.Entries
-	if idx("s1 working") < idx(e[0].Text) || idx("s1 working") > idx("Message") {
+	if idx("s1 working") < idx(e[0].Text) || idx("s1 working") > idx("Message the supervisor") {
 		t.Fatalf("banner is not between the last message and the composer in %q", texts)
 	}
 }

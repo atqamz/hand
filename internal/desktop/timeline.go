@@ -265,7 +265,7 @@ func (a *App) latest(c *ui.Context, k kit.Colors) {
 	if !a.away() {
 		return
 	}
-	b := ui.ButtonBase(c.Key("timeline:latest")).Absolute().Top(-kit.Control-13).Right(15).Size(kit.Control, kit.Control).
+	b := ui.ButtonBase(c.Key("timeline:latest")).Absolute().Top(-kit.Control-13).Right(-1).Size(kit.Control, kit.Control).
 		Radius(kit.RadiusPill).Border(1, k.LineStrong).Background(k.Panel).Justify(ui.Center).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Label("Scroll to latest message")
 	b.Children(func() { ui.Icon(c, kit.Icon("down")).TextColor(k.FG) })
