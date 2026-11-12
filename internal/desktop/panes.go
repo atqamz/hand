@@ -53,7 +53,7 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
-	ui.Column(c).Fill().Background(k.BG).Children(func() {
+	ui.Column(c).Fill().Background(k.Panel).Children(func() {
 		a.paneHead(c, k, p)
 		if sup := a.Status.Supervisor; sup != nil && sup.Blocked && a.known() {
 			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 8).Children(func() { a.blockedKeys(c, p, sup) })
@@ -66,8 +66,14 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 		if !a.away() {
 			a.scroll.Y = math.MaxFloat32
 		}
-		ui.Scroll(c).Grow(1).Padding(16).TrackScroll(&a.scroll).Children(func() {
-			ui.Column(c).Selectable().Children(func() { a.timelineEntries(c, p) })
+		scroll := ui.Scroll(c.Key("chat-scroll")).Label("The conversation").Grow(1).Padding(16).TrackScroll(&a.scroll)
+		held := max(scroll.Bounds().H-32, 0)
+		if held != a.chatH {
+			a.chatH = held
+			c.Invalidate()
+		}
+		scroll.Children(func() {
+			ui.Column(c).Selectable().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, p) })
 		})
 		ui.Column(c).Gap(6).Padding(0, 16, 16).Children(func() {
 			a.latest(c, k)

@@ -176,7 +176,7 @@ func (a *App) handLine(c *ui.Context, p palette, text, at string, dated bool) {
 func (a *App) wakes(c *ui.Context, p palette, e Entry, dated bool) {
 	key := fmt.Sprintf("%s/%d/%s", a.Fleet.ID, e.No, e.At)
 	open := a.wakesOpen[key]
-	head := ui.ButtonBase(c.Key("wakes:" + key)).Height(kit.Control).Gap(kit.Space8).Justify(ui.Start).AlignItems(ui.Center).
+	head := ui.ButtonBase(c.Key("wakes:" + key)).Height(kit.Meta.Line).Gap(kit.Space8).Justify(ui.Start).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Label(fmt.Sprintf("%d wakes", len(e.Wakes)))
 	head.Children(func() {
 		fg := p.neutral
@@ -259,7 +259,7 @@ func (a *App) latest(c *ui.Context, k kit.Colors) {
 		return
 	}
 	b := ui.ButtonBase(c.Key("timeline:latest")).Absolute().Top(-kit.Control-13).Right(15).Size(kit.Control, kit.Control).
-		Radius(kit.RadiusPill).Border(1, k.LineStrong).Background(k.BG).Justify(ui.Center).AlignItems(ui.Center).
+		Radius(kit.RadiusPill).Border(1, k.LineStrong).Background(k.Panel).Justify(ui.Center).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Label("Scroll to latest message")
 	b.Children(func() { ui.Icon(c, kit.Icon("down")).TextColor(k.FG) })
 	if b.Clicked() {

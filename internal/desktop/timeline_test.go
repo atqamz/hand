@@ -1,8 +1,12 @@
 package desktop_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/kit"
@@ -138,10 +142,21 @@ func TestMessagesAreHeldToTheMeasure(t *testing.T) {
 
 func TestMessageTextIs15OnA24Line(t *testing.T) {
 	app, _ := talk(t)
+	run := strings.Repeat("W", 20)
+	app.Timeline = desktop.Timeline{Entries: []desktop.Entry{
+		{Role: "operator", No: 1, At: "2026-10-31T12:00:00Z", Text: run},
+	}}
 	tt := sized(t, app, 1100, 760, false)
-	r, ok := tt.Find("status?")
+	r, ok := tt.Find(run)
 	if !ok || r.H < 23.5 || r.H > 24.5 {
 		t.Fatalf("the message text box is %v, want a 24 px line", r)
+	}
+	var w15 float32
+	ui.NewTester(func(c *ui.Context) {
+		w15, _ = c.MeasureText(1e6, ui.Span{Text: run, Size: kit.Message.Size})
+	}, 10, 10)
+	if d := r.W - w15; d < -1 || d > 1 {
+		t.Errorf("the run is %.0f wide, want %.0f at %v px", r.W, w15, kit.Message.Size)
 	}
 }
 
@@ -151,4 +166,56 @@ func TestADayDividerKeepsTimesShortAfterIt(t *testing.T) {
 	mustText(t, tt, "Oct 30, 11:35", "Sat, Oct 31", "11:00", "12:02")
 	mustNotText(t, tt, "Oct 31, 11:00")
 	mustNotText(t, tt, "Oct 31, 12:02")
+}
+
+func filled(t *testing.T, n int) (*desktop.App, *ui.Tester) {
+	t.Helper()
+	app, _ := talk(t)
+	entries := make([]desktop.Entry, 0, n)
+	for i := range n {
+		entries = append(entries, desktop.Entry{Role: "hand", At: "2026-10-31T12:00:00Z", Text: fmt.Sprintf("filler %02d", n-1-i)})
+	}
+	app.Timeline = desktop.Timeline{Entries: entries}
+	return app, sized(t, app, 1100, 760, false)
+}
+
+func TestANewEntryArrivingWhilePinnedStaysInView(t *testing.T) {
+	app, tt := filled(t, 40)
+	mustNotText(t, tt, "Scroll to latest message")
+	app.Timeline.Entries = append([]desktop.Entry{
+		{Role: "supervisor", Ref: "s1", No: 99, At: "2026-11-01T09:00:00Z", Text: "arrived while pinned"},
+	}, app.Timeline.Entries...)
+	tt.Frame()
+	view, ok := tt.Find("The conversation")
+	if !ok {
+		t.Fatal("no conversation viewport")
+	}
+	r, ok := tt.Find("arrived while pinned")
+	if !ok || r.H == 0 || r.Y < view.Y || r.Y+r.H > view.Y+view.H {
+		t.Fatalf("the new entry is at %v, outside the viewport %v", r, view)
+	}
+	mustNotText(t, tt, "Scroll to latest message")
+}
+
+func TestAnEntryArrivingWhileScrolledUpMovesNothing(t *testing.T) {
+	app, tt := filled(t, 40)
+	chat, _ := tt.Find("Supervisor")
+	for range 4 {
+		tt.Scroll(chat.X+100, 300, 0, -400)
+		tt.Frame()
+	}
+	mustText(t, tt, "Scroll to latest message")
+	before, ok := tt.Find("filler 10")
+	if !ok || before.H == 0 {
+		t.Fatalf("filler 10 is at %v, want it in view", before)
+	}
+	app.Timeline.Entries = append([]desktop.Entry{
+		{Role: "supervisor", Ref: "s1", No: 100, At: "2026-11-01T10:00:00Z", Text: "arrived while scrolled up"},
+	}, app.Timeline.Entries...)
+	tt.Frame()
+	after, _ := tt.Find("filler 10")
+	if after != before {
+		t.Errorf("filler 10 moved from %v to %v as an entry arrived", before, after)
+	}
+	mustText(t, tt, "Scroll to latest message")
 }

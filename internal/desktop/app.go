@@ -71,6 +71,7 @@ type App struct {
 	RailOpen    bool
 	Chat        float32
 	paneW       float32
+	chatH       float32
 	StopArmed   bool
 	TimelineErr string
 	OlderErr    string

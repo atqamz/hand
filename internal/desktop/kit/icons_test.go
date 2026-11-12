@@ -42,7 +42,7 @@ func TestIconsMatchBoard(t *testing.T) {
 	for name, src := range sources {
 		want, ok := board[name]
 		if !ok {
-			t.Errorf("icon %q is not in icons.html", name)
+			t.Errorf("icon %q is not in icons.html or app.js", name)
 			continue
 		}
 		if src != want {
