@@ -35,4 +35,10 @@ var icons = func() map[string]*ui.SVG {
 	return m
 }()
 
-func Icon(name string) *ui.SVG { return icons[name] }
+func Icon(name string) *ui.SVG {
+	i, ok := icons[name]
+	if !ok {
+		panic("kit: no icon " + name)
+	}
+	return i
+}

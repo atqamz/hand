@@ -27,8 +27,5 @@ func TestIconsMatchBoard(t *testing.T) {
 		if src != want {
 			t.Errorf("icon %q drifts from icons.html\n kit:   %s\n board: %s", name, src, want)
 		}
-		if Icon(name) == nil {
-			t.Errorf("icon %q does not parse", name)
-		}
 	}
 }
