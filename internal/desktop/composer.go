@@ -8,8 +8,6 @@ import (
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
-// composerMax is board.css's 760 px measure; the box sits centred once the
-// pane is wider, and 16 px from its edges otherwise.
 const composerMax = 760
 
 func composerMargin(pane float32) float32 {

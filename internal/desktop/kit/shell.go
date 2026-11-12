@@ -150,8 +150,6 @@ func countPill(c *ui.Context, text string, bg, fg ui.Color) {
 	})
 }
 
-// Keycap draws a key hint as board.css draws kbd: a small cap with a
-// heavier bottom edge.
 func Keycap(c *ui.Context, k Colors, text string) {
 	ui.Row(c).Height(Badge).Padding(0, Space6).Radius(RadiusSM).BorderWidth(1, 1, 2, 1).
 		BorderColor(k.Line).AlignItems(ui.Center).Label(text).Children(func() {

@@ -130,7 +130,7 @@ func (d Drafts) remove(path string) error {
 // writes inline, as Boot reads.
 type draftWriter struct {
 	drafts Drafts
-	report func(fleet string, err error)
+	report func(fleet, text string, err error)
 	inline bool
 	mu     sync.Mutex
 	next   map[string]string
@@ -152,7 +152,7 @@ type draftClear struct {
 	reply chan error
 }
 
-func newDraftWriter(d Drafts, report func(fleet string, err error), inline bool) *draftWriter {
+func newDraftWriter(d Drafts, report func(fleet, text string, err error), inline bool) *draftWriter {
 	w := &draftWriter{
 		drafts: d,
 		report: report,
@@ -173,7 +173,7 @@ func (w *draftWriter) Save(fleet, text string) {
 	if w.inline {
 		err := w.drafts.Save(fleet, text)
 		w.record(fleet, text, err)
-		w.report(fleet, err)
+		w.report(fleet, text, err)
 		return
 	}
 	w.mu.Lock()
@@ -245,7 +245,7 @@ func (w *draftWriter) writeOne() bool {
 	}
 	err := w.drafts.Save(fleet, text)
 	w.record(fleet, text, err)
-	w.report(fleet, err)
+	w.report(fleet, text, err)
 	return true
 }
 

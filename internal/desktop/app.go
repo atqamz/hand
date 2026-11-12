@@ -877,8 +877,6 @@ func (a *App) saveDraft() {
 	}
 	if a.Draft == "" {
 		a.draftAt = time.Time{}
-	} else {
-		a.draftAt = a.now()
 	}
 	a.draftWriter().Save(a.Fleet.ID, a.Draft)
 }
@@ -890,26 +888,32 @@ func (a *App) FlushDrafts() {
 	}
 }
 
-func (a *App) draftSaved(fleet string, err error) {
+func (a *App) draftSaved(fleet, text string, err error) {
 	if a.Post != nil {
-		a.Post(func() { a.applyDraftSave(fleet) })
+		a.Post(func() { a.applyDraftSave(fleet, text) })
 		return
 	}
-	a.applyDraftSave(fleet)
+	a.applyDraftSave(fleet, text)
 }
 
-func (a *App) applyDraftSave(fleet string) {
+func (a *App) applyDraftSave(fleet, text string) {
 	if fleet != a.Fleet.ID {
 		return
 	}
 	if u, ok := a.draftWriter().unsaved(fleet); ok {
-		a.DraftErr = "the draft was not saved: " + friendly(u.err)
-		a.draftAt = time.Time{}
+		if a.Draft == u.text {
+			a.DraftErr = "the draft was not saved: " + friendly(u.err)
+			a.draftAt = time.Time{}
+		}
 		return
 	}
 	a.DraftErr = ""
 	if a.Draft == "" {
 		a.draftAt = time.Time{}
+		return
+	}
+	if a.Draft == text {
+		a.draftAt = a.now()
 	}
 }
 
