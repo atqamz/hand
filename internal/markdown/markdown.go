@@ -19,7 +19,7 @@ type opts struct {
 	site  bool
 	local func(path string) string
 	left  *int
-	slugs *slugger
+	slugs *Slugger
 }
 
 func Render(text string, local func(path string) string) template.HTML {
@@ -28,6 +28,16 @@ func Render(text string, local func(path string) string) template.HTML {
 
 func RenderSite(text string) template.HTML {
 	return render(text, opts{site: true}, nil)
+}
+
+type Slugger struct{ seen map[string]int }
+
+func NewSlugger() *Slugger {
+	return &Slugger{seen: map[string]int{}}
+}
+
+func RenderSiteWith(text string, slugs *Slugger) template.HTML {
+	return render(text, opts{site: true, slugs: slugs}, nil)
 }
 
 func RenderRefs(text, base string, title, local func(string) string) template.HTML {
@@ -42,7 +52,9 @@ func render(text string, o opts, title func(ref string) string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	left := maxPaths
 	o.left = &left
-	o.slugs = &slugger{seen: map[string]int{}}
+	if o.slugs == nil {
+		o.slugs = NewSlugger()
+	}
 	var b strings.Builder
 	blocks(&b, lines, true, o, 0)
 	return template.HTML(titled(b.String(), title))
@@ -61,9 +73,7 @@ var refLink = regexp.MustCompile(`<a class="ref" href="([^"]*)">([a-z][0-9]+)</a
 
 var linkDest = regexp.MustCompile(`\]\([^)]*\)`)
 
-type slugger struct{ seen map[string]int }
-
-func (s *slugger) slug(text string) string {
+func (s *Slugger) slug(text string) string {
 	text = linkDest.ReplaceAllString(text, "")
 	var b strings.Builder
 	for _, r := range text {
@@ -74,13 +84,12 @@ func (s *slugger) slug(text string) string {
 			b.WriteByte('-')
 		}
 	}
-	base := b.String()
-	n := s.seen[base]
-	s.seen[base] = n + 1
-	if n > 0 {
-		return base + "-" + strconv.Itoa(n)
+	base, slug := b.String(), b.String()
+	for n := 1; s.seen[slug] > 0; n++ {
+		slug = base + "-" + strconv.Itoa(n)
 	}
-	return base
+	s.seen[slug] = 1
+	return slug
 }
 
 const docID = "doc-"
@@ -542,7 +551,7 @@ func link(rest string, doc, site bool) (string, int) {
 	}
 	u := rest[mid+2 : mid+2+end]
 	if doc && relative(u) {
-		if base, frag, ok := strings.Cut(u, "#"); ok && frag != "" {
+		if base, frag, ok := strings.Cut(u, "#"); ok && frag != "" && (strings.HasSuffix(strings.ToLower(base), ".md") || strings.HasSuffix(strings.ToLower(base), ".markdown")) {
 			u = base + "#" + docID + frag
 		}
 		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end

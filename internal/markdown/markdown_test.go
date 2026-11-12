@@ -82,10 +82,20 @@ func TestHeadingIDs(t *testing.T) {
 		{"## What's new? (v2)", `<h2 id="whats-new-v2">What&#39;s new? (v2)</h2>`},
 		{"## A — B", `<h2 id="a--b">A — B</h2>`},
 		{"## Run `hand doctor` now", "<h2 id=\"run-hand-doctor-now\">Run <code>hand doctor</code> now</h2>"},
+		{"# Foo\n\n# Foo 1\n\n# Foo", `<h2 id="foo">Foo</h2><h2 id="foo-1">Foo 1</h2><h2 id="foo-2">Foo</h2>`},
 	} {
 		if got := string(markdown.RenderSite(c.in)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
+	}
+}
+
+func TestRenderSiteWithSharesHeadingIDs(t *testing.T) {
+	slugs := markdown.NewSlugger()
+	first := string(markdown.RenderSiteWith("# Notes", slugs))
+	second := string(markdown.RenderSiteWith("# Notes", slugs))
+	if first != `<h2 id="notes">Notes</h2>` || second != `<h2 id="notes-1">Notes</h2>` {
+		t.Errorf("got %s and %s", first, second)
 	}
 }
 
@@ -467,6 +477,7 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 		{"[notes](../t286/notes.md)", `<p><a href="../t286/notes.md">notes</a></p>`},
 		{"[x](sub/a b.md)", `<p><a href="sub/a b.md">x</a></p>`},
 		{"[x](a.md#h)", `<p><a href="a.md#doc-h">x</a></p>`},
+		{"[x](../logs/x.log#L42)", `<p><a href="../logs/x.log#L42">x</a></p>`},
 		{"[x](#top)", `<p><a href="#doc-top">x</a></p>`},
 		{"[**b**](shots/)", `<p><a href="shots/"><strong>b</strong></a></p>`},
 		{`[x](a.md"onmouseover="y)`, `<p><a href="a.md&#34;onmouseover=&#34;y">x</a></p>`},
