@@ -42,8 +42,8 @@ type ReadModel interface {
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
 }
 
-// PollCursors are the last cursors the window accepted for the status, its
-// open screen and the conversation; a window sends them back and commits only what it applies.
+// PollCursors are the last cursors the window accepted for the status and its
+// open screen; a window sends them back and commits only what it applies.
 type PollCursors struct {
 	Status   string
 	Screen   string
@@ -52,7 +52,7 @@ type PollCursors struct {
 	Worker   bool
 }
 
-// Poll is one auto-refresh tick: the status, the open screen's data and the conversation, each
+// Poll is one auto-refresh tick: the status and the open screen's data, each
 // read only when its change cursor moved. A false Fresh field means the board
 // answered 304, so the field is empty and the screen keeps what it has. The
 // cursor fields are the ones the tick's 200 answers issued.

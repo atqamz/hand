@@ -378,15 +378,18 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 
 		b.setFailTimeline(true)
 		app.Refresh()
-		if app.Err == "" {
-			t.Fatal("a failed timeline read left no error")
+		if app.Err != "" || app.TimelineErr == "" {
+			t.Fatalf("a failed timeline read left error %q and timeline error %q, want only the chat pane's", app.Err, app.TimelineErr)
 		}
-		if len(app.Timeline.Entries) != 0 {
-			t.Fatalf("timeline = %+v, want the failed read's zero value", app.Timeline.Entries)
+		if len(app.Timeline.Entries) == 0 {
+			t.Fatal("a failed timeline read wiped the held conversation")
 		}
+		tt := newTester(app)
+		mustText(t, tt, "The conversation could not be read", "Needs", "Tasks")
+		mustNotText(t, tt, "The board could not be read")
 		b.setStatus(func(st *desktop.Status) { st.Line = "still moving" })
 		clock.Advance(desktop.FocusedRefresh)
-		if app.Err == "" {
+		if app.TimelineErr == "" {
 			t.Fatal("a poll that still failed on the timeline cleared the error")
 		}
 
@@ -395,11 +398,8 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 		for i := 0; i < 8; i++ {
 			clock.Advance(desktop.FocusedRefresh)
 		}
-		if app.Err != "" {
-			t.Fatalf("error = %q after the timeline answered", app.Err)
-		}
-		if len(app.Timeline.Entries) == 0 {
-			t.Fatal("the timeline was not fetched after the error")
+		if app.TimelineErr != "" {
+			t.Fatalf("timeline error = %q after the timeline answered", app.TimelineErr)
 		}
 		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 1 {
 			t.Fatalf("%d full timeline reads after the failure, want 1", got)
@@ -425,7 +425,7 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 
 		b.setFailTimeline(true)
 		app.Show(desktop.BoardScreen)
-		if app.Err == "" {
+		if app.TimelineErr == "" {
 			t.Fatal("a failed timeline read left no error")
 		}
 		b.setFailTimeline(false)

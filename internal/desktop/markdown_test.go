@@ -178,7 +178,6 @@ func TestEveryMarkdownBearingTextRendersTables(t *testing.T) {
 			app := newApp(t, f)
 			tt := newTester(app)
 			if tc.ref == "" {
-				click(t, tt, "Conversation")
 			} else {
 				app.OpenRef(tc.ref)
 				tt.Frame()

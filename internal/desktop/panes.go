@@ -1,18 +1,21 @@
 package desktop
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 const (
-	minChat  = 360
-	minWork  = 440
-	firstW   = 1100
-	chatVW   = .38
-	chatLow  = 400
-	chatHigh = 720
+	minChat    = 360
+	minWork    = 440
+	firstW     = 1100
+	chatVW     = .38
+	chatLow    = 400
+	chatHigh   = 720
+	blockedMax = 180
 )
 
 func chatWidth(pref, total, viewport float32) float32 {
@@ -48,10 +51,11 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 	ui.Column(c).Fill().Background(k.Panel).Children(func() {
 		a.paneHead(c, k, p)
 		if sup := a.Status.Supervisor; sup != nil && sup.Blocked && a.known() {
-			ui.Column(c).Gap(8).Padding(12, 16, 0).Children(func() { a.blockedKeys(c, p, sup) })
+			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 8).Children(func() { a.blockedKeys(c, p, sup) })
 		}
 		ui.Scroll(c).Grow(1).Padding(16).Children(func() {
 			ui.Column(c).Gap(8).Selectable().Children(func() {
+				a.timelineError(c, p)
 				a.timelineEntries(c, p)
 				mark := ui.Box(c).Height(1)
 				if tail := a.timelineTail(); tail != a.tail {
@@ -60,14 +64,33 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 				}
 			})
 		})
-		ui.Column(c).Padding(0, 16, 16).Children(func() { a.composer(c, p) })
+		ui.Column(c).Gap(6).Padding(0, 16, 16).Children(func() {
+			a.composer(c, p)
+			if a.Status.Supervisor == nil && a.Status.ComposerHint != "" && a.known() {
+				ui.Text(c, a.Status.ComposerHint).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			}
+		})
+	})
+}
+
+func (a *App) timelineError(c *ui.Context, p palette) {
+	if a.TimelineErr == "" {
+		return
+	}
+	ui.Column(c).Gap(6).Padding(12).Radius(kit.RadiusLG).Background(p.failBG).Border(1, p.fail).Children(func() {
+		ui.Text(c, "The conversation could not be read").FontSize(kit.Body.Size).Bold().TextColor(p.fail)
+		ui.Text(c, a.TimelineErr).FontSize(kit.Meta.Size)
+		if ui.Button(c.Key("timeline:retry"), "Retry").Clicked() {
+			a.Retry()
+		}
 	})
 }
 
 func (a *App) timelineTail() string {
 	tail := ""
 	if len(a.Timeline.Entries) > 0 {
-		tail = entryKey(a.Timeline.Entries[0])
+		newest := a.Timeline.Entries[0]
+		tail = fmt.Sprintf("%d/%s", newest.No, newest.At)
 	}
 	if a.Timeline.Working != nil {
 		tail += "\x00working"
@@ -76,6 +99,13 @@ func (a *App) timelineTail() string {
 }
 
 func (a *App) known() bool { return !a.Loading && !a.errStatus }
+
+func (a *App) knownSupervisor() *Supervisor {
+	if !a.known() {
+		return nil
+	}
+	return a.Status.Supervisor
+}
 
 func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette) {
 	sup := a.Status.Supervisor
@@ -94,7 +124,7 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette) {
 			ui.Text(c, modelLine(sup)).FontSize(kit.Body.Size).Bold().SingleLine().Ellipsis("…").Grow(1)
 			a.controls(c, k, sup)
 		}
-		a.overflow(c, k)
+		a.overflow(c, k, a.knownSupervisor())
 	})
 }
 
@@ -136,11 +166,12 @@ func (a *App) controls(c *ui.Context, k kit.Colors, sup *Supervisor) {
 		}
 	case sup.Live:
 		ui.Text(c, "starting…").FontSize(kit.Body.Size).TextColor(k.Muted)
-	default:
-		if sup.Resumable && button("resume", "Resume", "Resuming…", nil, look{ui.Transparent, k.OnPrimary, k.Primary}) {
+	case sup.Resumable:
+		if button("resume", "Resume", "Resuming…", nil, look{ui.Transparent, k.OnPrimary, k.Primary}) {
 			a.Supervise("resume")
 		}
-		if button("start", "Start", "Starting…", nil, plain) {
+	default:
+		if button("start", "Start new, same as "+sup.Ref, "Starting…", nil, plain) {
 			a.Supervise("start")
 		}
 	}
@@ -151,8 +182,8 @@ func (a *App) blockedKeys(c *ui.Context, p palette, sup *Supervisor) {
 		a.supervisorAsk(c, p, sup)
 		return
 	}
-	ui.Row(c).Gap(8).Children(func() {
-		ui.Text(c, "Keys").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Grow(1)
+	ui.Row(c).Gap(8).Wrap().Children(func() {
+		ui.Text(c, "Keys").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(0, 8, 0, 0)
 		for _, key := range supervisorControlKeys {
 			label := key
 			if l, ok := supervisorKeyLabels[key]; ok {
@@ -168,11 +199,14 @@ func (a *App) blockedKeys(c *ui.Context, p palette, sup *Supervisor) {
 	})
 }
 
-func (a *App) overflow(c *ui.Context, k kit.Colors) {
+func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 	more := ui.ButtonBase(c.Key("more")).Size(kit.Control, kit.Control).Radius(kit.RadiusMD).
 		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("More")
 	more.Children(func() { ui.Icon(c, kit.Icon("more")).TextColor(k.Muted) })
 	more.PopoverMenuButton(func(m *ui.Menu) {
+		if sup != nil && sup.Resumable && !sup.Live && sup.Status != "running" && m.Item("New session").Disabled(a.Busy).Chosen() {
+			a.Supervise("start")
+		}
 		if m.Item("Refresh now").Chosen() {
 			a.Refresh()
 		}

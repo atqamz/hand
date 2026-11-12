@@ -143,10 +143,8 @@ func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
 		open   func()
 		argv   []string
 	}{
-		{"Status", func() {}, []string{"open"}},
-		{"Needs", func() { click(t, tt, "Board") }, []string{"open"}},
-		{"Timeline", func() { click(t, tt, "Conversation") }, []string{"open"}},
-		{"Tasks", func() { click(t, tt, "Tasks") }, []string{"open"}},
+		{"panes", func() {}, []string{"open"}},
+		{"Board", func() { click(t, tt, "Board") }, []string{"open"}},
 		{"task", func() { app.OpenRef("t1") }, []string{"open", "t1"}},
 		{"attempt", func() { app.OpenRef("a1") }, []string{"open", "a1"}},
 		{"decision", func() { app.OpenRef("d1") }, []string{"open", "d1"}},

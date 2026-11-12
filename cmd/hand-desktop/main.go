@@ -103,7 +103,7 @@ func main() {
 	}
 	mygo.App.WhenReady(func() {
 		win = mygo.NewWindow(mygo.WindowOptions{
-			Title: windowTitle(app.Fleet), Width: 1100, Height: 760, MinWidth: 780, MinHeight: 480,
+			Title: windowTitle(app.Fleet), Width: 1100, Height: 760, MinWidth: 860, MinHeight: 480,
 			Content: ui.View(app.View),
 		})
 		app.Post = win.Update

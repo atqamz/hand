@@ -125,17 +125,17 @@ func TestThePaneHeadShowsOnlyTheControlsThatApply(t *testing.T) {
 		not    []string
 	}{
 		{"working", func(s *desktop.Supervisor) { s.Status, s.Live = "running", true }, "working",
-			[]string{"Interrupt", "Stop"}, []string{"Start", "Resume", "Force", "starting…"}},
+			[]string{"Interrupt", "Stop"}, []string{"Start new", "Resume", "Force", "starting…"}},
 		{"idle", func(s *desktop.Supervisor) { s.Status, s.Live = "running", true }, "ready",
-			[]string{"Stop"}, []string{"Interrupt", "Start", "Resume", "Force"}},
+			[]string{"Stop"}, []string{"Interrupt", "Start new", "Resume", "Force"}},
 		{"blocked", func(s *desktop.Supervisor) { s.Status, s.Live, s.Blocked = "running", true, true }, "working",
-			[]string{"Force", "Stop"}, []string{"Interrupt", "Start", "Resume"}},
+			[]string{"Force", "Stop"}, []string{"Interrupt", "Start new", "Resume"}},
 		{"resumable", func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "interrupted", false, true }, "",
-			[]string{"Resume", "Start"}, []string{"Stop", "Interrupt", "Force"}},
+			[]string{"Resume"}, []string{"Start", "Stop", "Interrupt", "Force"}},
 		{"stopped", func(s *desktop.Supervisor) { s.Status, s.Live = "stopped", false }, "",
-			[]string{"Start"}, []string{"Resume", "Stop", "Interrupt", "Force"}},
+			[]string{"Start new, same as s1"}, []string{"Resume", "Stop", "Interrupt", "Force"}},
 		{"starting", func(s *desktop.Supervisor) { s.Status, s.Live = "starting", true }, "",
-			[]string{"starting…"}, []string{"Start", "Resume", "Stop", "Interrupt", "Force"}},
+			[]string{"starting…"}, []string{"Start new", "Resume", "Stop", "Interrupt", "Force"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := statusWith(t, tc.change)
@@ -158,7 +158,7 @@ func TestWithNoSupervisorTheHeadOnlyOpensTheBoard(t *testing.T) {
 	f.status[fleetID] = st
 	tt := newTester(newApp(t, f))
 	mustText(t, tt, "Open in browser", "More")
-	for _, s := range []string{"Start", "Resume", "Stop", "Interrupt", "Force"} {
+	for _, s := range []string{"Start new", "Resume", "Stop", "Interrupt", "Force"} {
 		mustNotText(t, tt, s)
 	}
 }
@@ -371,7 +371,7 @@ func TestASupervisorControlWarnsWhenTheStatusCannotBeRead(t *testing.T) {
 	}
 }
 
-func TestNeedsScreen(t *testing.T) {
+func TestTheBoardScreenListsTheNeeds(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Board")
@@ -402,10 +402,9 @@ func TestNeedsOpensADecision(t *testing.T) {
 	mustText(t, tt, "d1", "Options", "Yes, keep it", "No, rename it", "Open task")
 }
 
-func TestTimelineScreen(t *testing.T) {
+func TestTheConversationShowsItsEntriesAndTheWorkingLine(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	mustText(t, tt, "Conversation", "s1 is working", "All good.", "status?", "you", "hand")
 }
 
@@ -413,7 +412,6 @@ func TestComposerSendsWithCtrlEnter(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("hello there")
 	tt.Key(ui.Ctrl, ui.KeyEnter)
@@ -439,7 +437,6 @@ func TestComposerShiftEnterBreaksTheLine(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("one")
 	tt.Key(ui.Shift, ui.KeyEnter)
@@ -461,7 +458,6 @@ func TestAFailedSendKeepsTheDraft(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("keep this text")
 	f.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
@@ -477,7 +473,6 @@ func TestTheComposerIsDisabledWhileSending(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("one moment")
 	posted := make(chan func(), 8)
@@ -507,7 +502,6 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("half a message")
 	tt.Frame()
@@ -531,7 +525,6 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 		t.Fatalf("a reopened window loaded %q", again.Draft)
 	}
 	tt = newTester(again)
-	click(t, tt, "Conversation")
 	if again.Draft != "half a message" {
 		t.Fatalf("the reopened composer has %q", again.Draft)
 	}
@@ -545,7 +538,6 @@ func TestSendingClearsTheStoredDraft(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("send me")
 	tt.Frame()
@@ -562,7 +554,6 @@ func TestTheDraftCanBeCleared(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("throw me away")
 	tt.Frame()
@@ -576,7 +567,6 @@ func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("  indented\n\nand trailing\n")
 	tt.Frame()
@@ -596,7 +586,6 @@ func TestAWhitespaceDraftCanBeCleared(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("   ")
 	tt.Frame()
@@ -614,7 +603,6 @@ func TestASendWhoseTimelineCannotBeReadClearsTheDraft(t *testing.T) {
 	f.stale = true
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("sent once")
 	tt.Frame()
@@ -641,7 +629,6 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("keep this draft")
 	tt.Frame()
@@ -654,7 +641,6 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 	if app.Draft != "keep this draft" {
 		t.Fatalf("the unsaved draft did not come back: %q", app.Draft)
 	}
-	click(t, tt, "Conversation")
 	mustText(t, tt, "the draft was not saved")
 }
 
@@ -668,7 +654,6 @@ func TestADraftThatCannotBeRemovedIsReported(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("clear me")
 	tt.Frame()
@@ -689,7 +674,6 @@ func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("sent anyway")
 	tt.Frame()
@@ -733,7 +717,6 @@ func TestTheSentDraftIsClearedAfterANavigation(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("sent once")
 	tt.Frame()
@@ -773,7 +756,6 @@ func TestASaveFailureIsRestoredBeforeItsReport(t *testing.T) {
 	posted := make(chan func(), 64)
 	app.Post = func(fn func()) { posted <- fn }
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	pump(t, posted, func() bool { return !app.Loading })
 	tt.Frame()
 	click(t, tt, "Message")
@@ -796,7 +778,6 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("a")
 	tt.Frame()
@@ -826,7 +807,6 @@ func TestClearWinsOverAQueuedSave(t *testing.T) {
 	posted := make(chan func(), 64)
 	app.Post = func(fn func()) { posted <- fn }
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	pump(t, posted, func() bool { return !app.Loading })
 	tt.Frame()
 	click(t, tt, "Message")
@@ -847,7 +827,6 @@ func TestASendKeepsANewerDraft(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("the older draft")
 	tt.Frame()
@@ -876,10 +855,9 @@ func TestASendKeepsANewerDraft(t *testing.T) {
 	}
 }
 
-func TestTasksScreenAndDetail(t *testing.T) {
+func TestTasksOpenTheirDetail(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	mustText(t, tt, "Tasks", "Fix login", "Write docs", "Active", "Inbox")
 	click(t, tt, "Fix login")
 	mustText(t, tt, "Fix login", "1.", "reproduce", "Plan · p1", "Cookie fixed",
@@ -891,7 +869,6 @@ func TestTasksScreenAndDetail(t *testing.T) {
 func TestAttemptScreen(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	click(t, tt, "a1")
 	mustText(t, tt, "Brief", "x", "20m", "Cookie fixed", "Reports")
@@ -1021,7 +998,6 @@ func TestTheAnswerButtonIsDisabledWhileSending(t *testing.T) {
 func TestBackFromAttemptRestoresTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	click(t, tt, "a1")
 	mustText(t, tt, "Brief")
@@ -1049,7 +1025,7 @@ func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 	mustText(t, tt, "Options", "d1")
 	click(t, tt, "Back")
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("Back left %v, want Needs", app.Screen)
+		t.Fatalf("Back left %v, want the Board screen", app.Screen)
 	}
 	mustText(t, tt, "FAILED")
 	mustNotText(t, tt, "The board could not be read")
@@ -1058,7 +1034,6 @@ func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 func TestBackFromATaskReportReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	click(t, tt, "Cookie fixed")
 	mustText(t, tt, "All tests pass.")
@@ -1073,7 +1048,6 @@ func TestBackFromATaskReportReturnsToTheTask(t *testing.T) {
 func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	click(t, tt, "Keep the old cookie name?")
 	mustText(t, tt, "Options")
@@ -1088,7 +1062,6 @@ func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
 func TestBackFromAnAttemptReportReturnsToTheAttempt(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	click(t, tt, "a1")
 	click(t, tt, "Cookie fixed")
@@ -1196,9 +1169,7 @@ func TestEmptyStates(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Board")
 	mustText(t, tt, "All clear", "Nothing waits on you.")
-	click(t, tt, "Conversation")
 	mustText(t, tt, "No messages")
-	click(t, tt, "Tasks")
 	mustText(t, tt, "No tasks")
 }
 
@@ -1240,7 +1211,6 @@ func TestScenes(t *testing.T) {
 		}},
 		{"02-panes", newApp(t, goldenFixture(t)), nil},
 		{"06-detail", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Tasks")
 			click(t, tt, "Fix login")
 		}},
 		{"07-empty", newApp(t, emptyFixture()), func(t *testing.T, tt *ui.Tester) {
@@ -1257,12 +1227,10 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Cookie fixed")
 		}},
 		{"11-composer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Conversation")
 			click(t, tt, "Message")
 			tt.Type("Please look at the cookie rename after the docs pass.")
 		}},
 		{"12-composer-error", errApp, func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Conversation")
 			click(t, tt, "Message")
 			tt.Type("This text stays when the send fails.")
 			errFleet.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
@@ -1275,7 +1243,6 @@ func TestScenes(t *testing.T) {
 			menu(t, tt, "Open in browser")
 		}},
 		{"15-delivered", newApp(t, delivered), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Tasks")
 			click(t, tt, "Fix login")
 		}},
 		{"17-open-link", opened, nil},
@@ -1407,13 +1374,12 @@ func TestRefreshDiscoversAgainAndKeepsTheScreen(t *testing.T) {
 	})
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	menu(t, tt, "Refresh now")
 	if app.Model != desktop.ReadModel(second) {
 		t.Fatal("Refresh did not discover the board again")
 	}
 	if app.Screen != desktop.BoardScreen || app.Fleet.ID != fleetID {
-		t.Fatalf("Refresh left %v %s, want the timeline of %s", app.Screen, app.Fleet.ID, fleetID)
+		t.Fatalf("Refresh left %v %s, want the Board screen of %s", app.Screen, app.Fleet.ID, fleetID)
 	}
 	mustText(t, tt, "third", "All good.")
 }
@@ -1426,13 +1392,13 @@ func TestASupersededReloadStartsNoDetailRequest(t *testing.T) {
 	tt := newTester(app)
 	before := f.count("tasks")
 	f.block, f.entered = make(chan struct{}), make(chan struct{}, 2)
-	click(t, tt, "Tasks")
+	click(t, tt, "Board")
 	select {
 	case <-f.entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the window never read the board")
 	}
-	click(t, tt, "Conversation")
+	click(t, tt, "Board")
 	select {
 	case <-f.entered:
 	case <-time.After(5 * time.Second):
@@ -1453,7 +1419,6 @@ func TestBackStaysOnTheErrorCard(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
 	menu(t, tt, "Refresh now")
@@ -1464,7 +1429,7 @@ func TestBackStaysOnTheErrorCard(t *testing.T) {
 	}
 }
 
-func TestTimelineOlderReadsTheEarlierPage(t *testing.T) {
+func TestOlderMessagesReadTheEarlierPage(t *testing.T) {
 	f := goldenFixture(t)
 	tl := f.timeline[fleetID]
 	tl.Older = 42
@@ -1474,7 +1439,6 @@ func TestTimelineOlderReadsTheEarlierPage(t *testing.T) {
 	}}
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	mustText(t, tt, "Older messages")
 	click(t, tt, "Older messages")
 	mustText(t, tt, "the earlier message", "All good.")
@@ -1487,7 +1451,6 @@ func TestTaskShowsDecisionHistory(t *testing.T) {
 	f.extra = map[string]desktop.DecisionDetail{"d0": {Decision: td.Decisions[0], Task: td.Task, Body: td.Decisions[0].Question}}
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	mustText(t, tt, "Rename the helper?", "Yes")
 	if n := countText(t, tt, "Keep the old cookie name?"); n != 1 {
@@ -1508,7 +1471,6 @@ func TestAnOmittedTranscriptIsNoticed(t *testing.T) {
 	f.attempt[fleetID] = ad
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Tasks")
 	click(t, tt, "Fix login")
 	click(t, tt, "a1")
 	mustText(t, tt, "the last turn", "Only the latest 50 entries are shown.")
@@ -1546,7 +1508,7 @@ func TestARefreshErrorSurvivesAStaleLoad(t *testing.T) {
 	app.Post = func(fn func()) { posted <- fn }
 	tt := newTester(app)
 	f.block, f.entered = make(chan struct{}), make(chan struct{}, 1)
-	click(t, tt, "Conversation")
+	click(t, tt, "Board")
 	select {
 	case <-f.entered:
 	case <-time.After(5 * time.Second):
@@ -1703,7 +1665,6 @@ func TestComposerEnterBreaksTheLineAndShowsNoHint(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	click(t, tt, "Message")
 	tt.Type("one")
 	tt.Key(0, ui.KeyEnter)
@@ -1721,7 +1682,6 @@ func TestComposerEnterBreaksTheLineAndShowsNoHint(t *testing.T) {
 func TestTheConversationReadsOldestFirstWithTheComposerBelow(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	texts := tt.Texts()
 	at := func(s string) int {
 		for i, x := range texts {
@@ -1744,20 +1704,20 @@ func TestTheConversationReadsOldestFirstWithTheComposerBelow(t *testing.T) {
 	}
 }
 
-func TestTheWindowOpensOnNeedsWhenSomethingWaits(t *testing.T) {
+func TestTheWindowOpensOnTheTwoPanesAndAFleetSwitchKeepsThem(t *testing.T) {
 	app := newLandingApp(t, goldenFixture(t))
 	tt := newTester(app)
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("screen = %v, want Needs", app.Screen)
+		t.Fatalf("screen = %v, want the Board screen", app.Screen)
 	}
 	mustText(t, tt, "Keep the old cookie name?")
 	click(t, tt, "second")
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("a fleet switch landed on %v, want Needs", app.Screen)
+		t.Fatalf("a fleet switch landed on %v, want the Board screen", app.Screen)
 	}
 }
 
-func TestTheWindowOpensOnStatusWhenNothingWaits(t *testing.T) {
+func TestAQuietFleetOpensOnTheTwoPanesToo(t *testing.T) {
 	f := goldenFixture(t)
 	for id, st := range f.status {
 		st.Needs = desktop.Needs{}
@@ -1765,8 +1725,9 @@ func TestTheWindowOpensOnStatusWhenNothingWaits(t *testing.T) {
 	}
 	app := newLandingApp(t, f)
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("screen = %v, want Status", app.Screen)
+		t.Fatalf("screen = %v, want the Board screen", app.Screen)
 	}
+	mustText(t, newTester(app), "All clear")
 }
 
 func TestAnAnswerMovesToTheNextNeed(t *testing.T) {
@@ -1803,32 +1764,9 @@ func TestTheLastReadReturnsToAnEmptyNeeds(t *testing.T) {
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Mark read")
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("screen = %v, want Needs", app.Screen)
+		t.Fatalf("screen = %v, want the Board screen", app.Screen)
 	}
 	mustText(t, tt, "All clear")
-}
-
-func TestLeavingStatusDuringTheFirstLoadIsNotPulledToNeeds(t *testing.T) {
-	f := goldenFixture(t)
-	app := newApp(t, f)
-	posted := make(chan func(), 16)
-	app.Post = func(fn func()) { posted <- fn }
-	f.block = make(chan struct{})
-	app.SelectFleet(fleetID)
-	app.Show(desktop.BoardScreen)
-	app.Show(desktop.BoardScreen)
-	close(f.block)
-	for {
-		select {
-		case fn := <-posted:
-			fn()
-		case <-time.After(300 * time.Millisecond):
-			if app.Screen != desktop.BoardScreen {
-				t.Fatalf("screen = %v, want Status", app.Screen)
-			}
-			return
-		}
-	}
 }
 
 func TestAnAnswerBeforeABlockedSupervisorRowReturnsToNeeds(t *testing.T) {
@@ -1844,7 +1782,7 @@ func TestAnAnswerBeforeABlockedSupervisorRowReturnsToNeeds(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
 	if app.Screen != desktop.BoardScreen || app.Ref != "" {
-		t.Fatalf("moved to %v %q, want Needs", app.Screen, app.Ref)
+		t.Fatalf("moved to %v %q, want the Board screen", app.Screen, app.Ref)
 	}
 }
 
@@ -1893,7 +1831,6 @@ func TestAStatusStillListingTheAnsweredItemIsSkipped(t *testing.T) {
 func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Conversation")
 	texts := tt.Texts()
 	idx := func(s string) int {
 		for i, x := range texts {

@@ -1,7 +1,11 @@
 package desktop_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,5 +165,180 @@ func TestNoPollingWhileMinimised(t *testing.T) {
 	app.SetMinimized(false)
 	if got := clock.delay(); got != time.Second {
 		t.Fatalf("restored tick = %v, want 1s", got)
+	}
+}
+
+func inPane(t *testing.T, tt *ui.Tester, width, height int, names ...string) {
+	t.Helper()
+	left := chatLeft(t, tt)
+	for _, s := range names {
+		r, ok := tt.Find(s)
+		if !ok || r.H == 0 || r.X < left || r.X+r.W > float32(width) || r.Y < 0 || r.Y+r.H > float32(height) {
+			t.Errorf("%q is at %v, outside the pane at x=%.0f of the %dx%d window", s, r, left, width, height)
+		}
+	}
+}
+
+func TestTheBlockedKeysStayInsideTheChatPane(t *testing.T) {
+	for _, width := range []int{780, 860, 1100} {
+		f := blockedFixture(t)
+		tasks := f.tasks[fleetID]
+		for i := range tasks.Groups {
+			tasks.Groups[i].Count = 7 + i
+		}
+		f.tasks[fleetID] = tasks
+		tt := sized(t, newApp(t, f), width, 700, false)
+		inPane(t, tt, width, 700, "Enter", "Esc", "↑", "↓", "1", "2", "3", "Message", "Send")
+		first, ok := tt.Find("status?")
+		keys, _ := tt.Find("3")
+		if ok && first.H > 0 && keys.Y+keys.H > first.Y {
+			t.Errorf("%d wide: the key row ends at %.0f over the first entry at %.0f", width, keys.Y+keys.H, first.Y)
+		}
+	}
+}
+
+func TestALongAskCannotEatTheChatPane(t *testing.T) {
+	f := askFixture(t)
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	ask := *sup.Ask
+	for i := 0; i < 14; i++ {
+		ask.Options = append(ask.Options, desktop.AskOption{Label: fmt.Sprintf("Another option number %d", i), Keys: slices.Repeat([]string{"up"}, i+1)})
+	}
+	sup.Ask = &ask
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+	tt := sized(t, newApp(t, f), 780, 480, false)
+	inPane(t, tt, 780, 480, "Message", "Send")
+	msg, _ := tt.Find("Message")
+	if msg.Y < 250 {
+		t.Errorf("the composer is at y=%.0f, want it left at the bottom of the 480 px window", msg.Y)
+	}
+}
+
+func TestAResumableHeadLeadsWithAPrimaryResumeAndKeepsStartInTheMenu(t *testing.T) {
+	f := statusWith(t, func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "interrupted", false, true })
+	tt := sized(t, newApp(t, f), 1100, 760, false)
+	resume, ok := tt.Find("Resume")
+	more, _ := tt.Find("More")
+	if !ok || resume.X > more.X {
+		t.Fatalf("Resume at %v, More at %v, want Resume first", resume, more)
+	}
+	primary := kit.ColorsFor(false).Primary
+	got := tt.Image().RGBAAt(int(resume.X)+4, int(resume.Y+resume.H/2))
+	if got.R != primary.R || got.G != primary.G || got.B != primary.B {
+		t.Fatalf("Resume background is %v, want the primary %v", got, primary)
+	}
+	mustNotText(t, tt, "Start new")
+	click(t, tt, "More")
+	mustText(t, tt, "New session", "Refresh now", "Open in browser")
+	click(t, tt, "New session")
+	if f.count("control:start") != 1 {
+		t.Fatalf("New session ran %d starts", f.count("control:start"))
+	}
+}
+
+func TestTheHeadsButtonsFollowTheBoardsOrder(t *testing.T) {
+	tt := sized(t, newApp(t, goldenFixture(t)), 1100, 760, false)
+	interrupt, _ := tt.Find("Interrupt")
+	stop, _ := tt.Find("Stop")
+	more, _ := tt.Find("More")
+	if !(interrupt.X < stop.X && stop.X < more.X) {
+		t.Fatalf("Interrupt at %.0f, Stop at %.0f, More at %.0f", interrupt.X, stop.X, more.X)
+	}
+}
+
+func TestStopArmedInOneFleetIsNotArmedInTheNext(t *testing.T) {
+	if desktop.StopWindow != 4*time.Second {
+		t.Fatalf("StopWindow = %v, want the Board's 4s", desktop.StopWindow)
+	}
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Stop")
+	if !app.StopArmed {
+		t.Fatal("the first press did not arm Stop")
+	}
+	click(t, tt, "second")
+	if app.StopArmed {
+		t.Fatal("the next fleet opened with Stop armed")
+	}
+	click(t, tt, "golden")
+	mustNotText(t, tt, "Press again to stop")
+}
+
+func TestALongDraftErrorKeepsTheComposerInsideThePane(t *testing.T) {
+	for _, width := range []int{860, 1100} {
+		app := newApp(t, goldenFixture(t))
+		app.DraftErr = "the draft was not saved: " + strings.Repeat("x", 600)
+		tt := sized(t, app, width, 700, false)
+		inPane(t, tt, width, 700, "Clear", "Send")
+	}
+}
+
+func TestWithNoSupervisorTheComposerShowsTheStatusHint(t *testing.T) {
+	f := emptyFixture()
+	st := f.status[fleetID]
+	st.ComposerHint = "No supervisor is running; your message waits."
+	f.status[fleetID] = st
+	mustText(t, newTester(newApp(t, f)), "No supervisor is running; your message waits.")
+	g := goldenFixture(t)
+	gs := g.status[fleetID]
+	gs.ComposerHint = "should not show"
+	g.status[fleetID] = gs
+	mustNotText(t, newTester(newApp(t, g)), "should not show")
+}
+
+func TestTheRailsInertItemsLeaveAnOpenDetailAlone(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	app.OpenRef("t1")
+	tt.Frame()
+	reads := f.count("status:" + fleetID)
+	for _, item := range []string{"Tasks", "Conversation", "Screen", "Phone"} {
+		click(t, tt, item)
+	}
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || f.count("status:"+fleetID) != reads {
+		t.Fatalf("an inert rail item changed the screen to %v %q or reloaded it", app.Screen, app.Ref)
+	}
+	click(t, tt, "Board")
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("Board left the window on %v", app.Screen)
+	}
+}
+
+func TestAFailedTimelineReadStaysInTheChatPane(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	held := len(app.Timeline.Entries)
+	app.Model = timelineFails{app.Model}
+	app.Retry()
+	if app.Err != "" || app.TimelineErr == "" || len(app.Timeline.Entries) != held {
+		t.Fatalf("error %q, timeline error %q, %d of %d entries kept", app.Err, app.TimelineErr, len(app.Timeline.Entries), held)
+	}
+	tt := newTester(app)
+	mustText(t, tt, "The conversation could not be read", "Needs", "Fix login", "status?", "Retry")
+	mustNotText(t, tt, "The board could not be read")
+}
+
+type timelineFails struct{ desktop.ReadModel }
+
+func (timelineFails) Timeline(context.Context, string, int) (desktop.Timeline, error) {
+	return desktop.Timeline{}, errors.New("the timeline store failed")
+}
+
+func TestPaneScenesForTheBlockedAndResumableHeads(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := "light"
+		if dark {
+			theme = "dark"
+		}
+		for _, size := range [][2]int{{780, 700}, {1100, 760}} {
+			tt := sized(t, newApp(t, askFixture(t)), size[0], size[1], dark)
+			shotSized(t, tt, fmt.Sprintf("21-blocked-%dx%d-%s", size[0], size[1], theme), size[0], size[1])
+		}
+		f := statusWith(t, func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "interrupted", false, true })
+		tt := sized(t, newApp(t, f), 1100, 760, dark)
+		shotSized(t, tt, "22-resumable-1100x760-"+theme, 1100, 760)
 	}
 }

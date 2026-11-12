@@ -21,9 +21,8 @@ const (
 	ReportScreen
 )
 
-// The auto-refresh intervals: the Board's own tick while the window has
-// keyboard focus, a slower one while it does not. A failed tick backs off to
-// at most maxRefreshBackoff. StopWindow is how long Stop stays armed.
+// The auto-refresh intervals: short while the window has keyboard focus,
+// long while it does not. A failed tick backs off to at most maxRefreshBackoff.
 const (
 	FocusedRefresh    = time.Second
 	UnfocusedRefresh  = 5 * time.Second
@@ -53,7 +52,6 @@ type App struct {
 	Clock Clock
 	// Unfocused asks for the long refresh interval; SetFocused sets it.
 	Unfocused bool
-	// Minimized stops the auto-refresh while the window is minimised.
 	Minimized bool
 	// PollTimeout bounds each auto-refresh tick; zero means five seconds.
 	PollTimeout time.Duration
@@ -65,16 +63,16 @@ type App struct {
 	Fleets []Fleet
 	Fleet  Fleet
 
-	Screen   Screen
-	RailOpen bool
-	// Chat is the chat pane's width once the divider moved; zero is the Board's default.
-	Chat       float32
-	paneW      float32
-	StopArmed  bool
-	Ref        string
-	Loading    bool
-	Busy       bool
-	BusyAction string
+	Screen      Screen
+	RailOpen    bool
+	Chat        float32
+	paneW       float32
+	StopArmed   bool
+	TimelineErr string
+	Ref         string
+	Loading     bool
+	Busy        bool
+	BusyAction  string
 
 	AnswerChoice string
 	AnswerNote   string
@@ -160,7 +158,6 @@ func (a *App) Close() {
 	a.resetPoll()
 }
 
-// SetMinimized pauses the auto-refresh while the window is minimised.
 func (a *App) SetMinimized(minimized bool) {
 	if a.Minimized == minimized {
 		return
@@ -380,9 +377,10 @@ func (a *App) Older() {
 			return
 		}
 		if err != nil {
-			a.Err, a.errStatus, a.errScreen = friendly(err), false, true
+			a.TimelineErr = friendly(err)
 			return
 		}
+		a.TimelineErr = ""
 		merged := a.Timeline
 		merged.Entries = append(append([]Entry(nil), a.Timeline.Entries...), tl.Entries...)
 		merged.Older = tl.Older
@@ -675,7 +673,6 @@ func (a *App) Supervise(action string) {
 	})
 }
 
-// PressStop arms Stop; a second press within StopWindow stops the supervisor.
 func (a *App) PressStop() {
 	if a.StopArmed {
 		a.disarmStop()
@@ -1061,18 +1058,18 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	} else {
 		a.Stale, a.pollFails, a.pollFresh = "", 0, false
 	}
-	statusFresh, screenFresh, timelineFresh := false, false, false
+	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
-		a.Timeline, a.pollTimeline, timelineFresh = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor, true
+		a.Timeline, a.pollTimeline, a.TimelineErr = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor, ""
 	}
 	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
 		a.setScreen(screen, key, &p)
 		screenFresh = true
 	}
-	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh && timelineFresh) {
+	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
 		a.setErr("")
 	}
 	a.armPoll()
@@ -1154,6 +1151,9 @@ type loaded struct {
 	Decision DecisionDetail
 	Report   ReportDetail
 	Err      string
+
+	TimelineOK  bool
+	TimelineErr string
 }
 
 func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string) loaded {
@@ -1167,12 +1167,6 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	}
 	l.StatusOK, l.Status = true, st
 	if ctx.Err() != nil {
-		return l
-	}
-	if l.Timeline, err = model.Timeline(ctx, fleet, 0); err != nil {
-		if ctx.Err() == nil {
-			l.Err = friendly(err)
-		}
 		return l
 	}
 	switch screen {
@@ -1190,20 +1184,33 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	if err != nil && ctx.Err() == nil {
 		l.Err = friendly(err)
 	}
+	if ctx.Err() != nil {
+		return l
+	}
+	tl, err := model.Timeline(ctx, fleet, 0)
+	if err != nil {
+		l.TimelineErr = friendly(err)
+		return l
+	}
+	l.Timeline, l.TimelineOK = tl, true
 	return l
 }
 
 func (a *App) apply(l loaded) {
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
-	if l.Err == "" {
+	a.TimelineErr = l.TimelineErr
+	if l.Err == "" && l.TimelineErr == "" {
 		a.Stale, a.pollFails, a.pollFresh = "", 0, false
 	} else {
-		a.Stale, a.pollFresh = l.Err, true
+		a.Stale, a.pollFresh = l.Err+l.TimelineErr, true
 	}
 	if !l.StatusOK {
 		return
 	}
-	a.Status, a.Timeline = l.Status, l.Timeline
+	a.Status = l.Status
+	if l.TimelineOK {
+		a.Timeline = l.Timeline
+	}
 	switch l.Screen {
 	case BoardScreen:
 		a.Tasks = l.Tasks

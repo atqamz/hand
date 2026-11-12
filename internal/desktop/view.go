@@ -87,16 +87,9 @@ func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
 			Count: a.Status.Needs.Waiting, CountBG: bg, CountFG: fg}) {
 			a.Show(BoardScreen)
 		}
-		if item(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: a.Screen == TaskScreen || a.Screen == AttemptScreen}) {
-			a.Show(BoardScreen)
-		}
-		if item(kit.NavItem{Key: "screen:timeline", Label: "Conversation", Icon: "chat",
-			Dot: a.Status.AgentState == "working"}) {
-			a.Show(BoardScreen)
-		}
-		if item(kit.NavItem{Key: "screen:status", Label: "Screen", Icon: "screen"}) {
-			a.Show(BoardScreen)
-		}
+		item(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Inert: true})
+		item(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
+		item(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen", Inert: true})
 		item(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone", Inert: true})
 		if len(a.Fleets) > 0 {
 			kit.RailHead(c, k, a.RailOpen, "Fleets")
@@ -153,9 +146,9 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 				case a.Err != "":
 					a.errorCard(c, p)
 				case a.Loading:
-					a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer; Refresh now reads again.")
+					a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
 				default:
-					a.emptyCard(c, p, "Nothing to show", "Register a fleet, start its board with `hand open`, then refresh.")
+					a.emptyCard(c, p, "Nothing to show", "Register a fleet and start its board with `hand open`.")
 				}
 			})
 		})
@@ -173,7 +166,7 @@ func (a *App) workPane(c *ui.Context, p palette) {
 			case a.Err != "":
 				a.errorCard(c, p)
 			case a.Loading:
-				a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer; Refresh now reads again.")
+				a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
 			case a.Screen == BoardScreen:
 				a.needsScreen(c, p)
 				a.tasksScreen(c, p)
@@ -309,12 +302,7 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 				prev = need.Word
 			}
 			ui.Row(c).Gap(6).Children(func() {
-				el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
-					BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1)
-				if ref != "" {
-					el.Cursor(ui.CursorPointer)
-				}
-				el.Children(func() {
+				content := func() {
 					if need.Ref != "" {
 						ui.Text(c, need.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 					}
@@ -322,9 +310,16 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 					if need.Excerpt != "" && need.Kind == "report" {
 						ui.Text(c, firstLine(need.Excerpt)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 					}
-				})
-				if el.Clicked() && ref != "" {
-					a.OpenRef(ref)
+				}
+				if ref == "" {
+					ui.Row(c).Gap(8).Padding(6, 8).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1).Children(content)
+				} else {
+					el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
+						BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1).Cursor(ui.CursorPointer)
+					el.Children(content)
+					if el.Clicked() {
+						a.OpenRef(ref)
+					}
 				}
 				if need.Kind == "report" && need.Report != "" {
 					label := "Mark read"
@@ -397,7 +392,7 @@ func (a *App) working(c *ui.Context, p palette) {
 }
 
 func (a *App) composer(c *ui.Context, p palette) {
-	ui.Column(c).FillWidth().Gap(8).Padding(12).Radius(10).Background(p.card).
+	ui.Column(c).Gap(8).Padding(12).Radius(10).Background(p.card).
 		Border(1, p.line).Children(func() {
 		ui.TextArea(c, &a.Draft).Label("Message").
 			Placeholder("Message the supervisor").Lines(2, 8).Disabled(a.Busy).
@@ -892,29 +887,6 @@ func statusPill(c *ui.Context, p palette, word string) {
 	})
 }
 
-func gauge(c *ui.Context, p palette, g Gauge) {
-	_, fg := toneColors(g.Level, p)
-	if g.Level == "" {
-		fg = p.accent
-	}
-	pct := g.Pct
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
-	ui.Column(c).Width(150).Gap(3).Children(func() {
-		ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(fg).
-			FontFeatures("tnum")
-		ui.Box(c).Height(5).Radius(3).Background(p.line).Children(func() {
-			if pct > 0 {
-				ui.Box(c).WidthPercent(float32(pct)).Height(5).Radius(3).Background(fg)
-			}
-		})
-	})
-}
-
 func toneOf(state string) string {
 	switch state {
 	case "fail", "failing", "failed", "failure", "blocked", "worker", "resume", "interrupted", "stuck":
@@ -969,20 +941,6 @@ func stateWord(state string) string {
 		return "idle"
 	}
 	return state
-}
-
-func supervisorLine(sup *Supervisor) string {
-	if sup == nil {
-		return ""
-	}
-	parts := []string{sup.Ref, sup.Harness}
-	if sup.Model != "" {
-		parts = append(parts, sup.Model)
-	}
-	if sup.Effort != "" {
-		parts = append(parts, sup.Effort)
-	}
-	return strings.TrimSpace(strings.Join(parts, " ") + " · " + sup.Status)
 }
 
 func attemptMeta(a *Attempt) string {
@@ -1102,13 +1060,6 @@ func questionBody(question, headline string, options bool) string {
 		keep = append(keep, line)
 	}
 	return strings.TrimSpace(strings.Join(keep, "\n"))
-}
-
-func emptyAs(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }
 
 func fleetName(f Fleet) string {
