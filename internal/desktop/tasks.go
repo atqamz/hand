@@ -65,8 +65,8 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
 			if (a.Status.Projects > 1 && r.Project != "") || r.Attempt != nil || r.Waits != nil ||
-				r.Delivered != nil || under != "" || r.Children > 0 {
-				a.taskSubline(c, p, r, under)
+				r.Delivered != nil || under != "" || r.Children > 0 || depth > 3 {
+				a.taskSubline(c, p, r, under, depth)
 			}
 		})
 	})
@@ -75,7 +75,7 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 	}
 }
 
-func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string) {
+func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string, depth int) {
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).MinWidth(0).Children(func() {
 		if a.Status.Projects > 1 && r.Project != "" {
 			ui.Badge(c, taskProject(r.Project)).Background(p.neutralBG).TextColor(p.neutral).Label("project " + r.Project)
@@ -90,6 +90,10 @@ func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string) {
 		}
 		if r.Delivered != nil {
 			a.taskDeliverable(c, p, *r.Delivered)
+		}
+		if depth > 3 {
+			ui.Textf(c, "depth %d", depth).FontSize(kit.Meta.Size).TextColor(p.neutral).
+				FixedLineHeight(18).SingleLine()
 		}
 		if under != "" {
 			ui.Text(c, "under "+under).FontSize(kit.Meta.Size).TextColor(p.neutral).

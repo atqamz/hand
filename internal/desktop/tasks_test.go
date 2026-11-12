@@ -213,3 +213,33 @@ func TestTheTaskMoreLineCarriesTheBoardsFlags(t *testing.T) {
 	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
 	mustText(t, tt, "12 more tasks are not shown; use hand task list --status inbox,active,done,abandoned --limit 1000.")
 }
+
+func TestADeepSubTaskSaysItsDepth(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	rows := make([]desktop.TaskRow, 0, 5)
+	for i := range 5 {
+		r := desktop.TaskRow{Ref: fmt.Sprintf("t1%d", i), Title: fmt.Sprintf("Deep %d", i), Project: "web", Status: "active", State: "idle"}
+		if i > 0 {
+			r.Parent = fmt.Sprintf("t1%d", i-1)
+		}
+		rows = append(rows, r)
+	}
+	ts.Groups[0].Tasks = append(ts.Groups[0].Tasks, rows...)
+	ts.Groups[0].Count += len(rows)
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	mustText(t, tt, "depth 4")
+	mustNotText(t, tt, "depth 3")
+	deep, ok := tt.Find("Deep 4")
+	if !ok {
+		t.Fatal("no deep sub-task")
+	}
+	root, ok := tt.Find("Deep 0")
+	if !ok {
+		t.Fatal("no root task")
+	}
+	if got := deep.X - root.X; got != 60 {
+		t.Errorf("the fourth-level sub-task is indented %.0f, want 60 (three steps)", got)
+	}
+}
