@@ -15,6 +15,7 @@ func taskFixture(t *testing.T) *fixture {
 	st.Needs = desktop.Needs{}
 	f.status[fleetID] = st
 	f.tasks[fleetID] = desktop.Tasks{
+		All:           true,
 		FinishedCount: 7,
 		Groups: []desktop.TaskGroup{
 			{Name: "Active", Count: 3, Tasks: []desktop.TaskRow{
