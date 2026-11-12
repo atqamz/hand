@@ -37,7 +37,7 @@ related_targets:
   - opening and closing the window start and stop nothing: the board, the watcher and the fleet keep running;
   - Linux first: the window builds on macOS and Windows, and its binary refuses to start there with that reason, until those runs are green (`docs/platforms.md`);
   - light and dark follow the system through MyGo's theme;
-  - the only writes the window sends are a message, an answer to an open decision, an acknowledgement of a report and the supervisor controls; its only local file is the per-fleet composer draft under `$XDG_STATE_HOME/hand-desktop/drafts/<fleet id>.txt` (falling back to `~/.local/state/hand-desktop/drafts/`, and `%LOCALAPPDATA%\hand-desktop\drafts` on Windows), mode 0600, no secret in it; navigation changes only which screen it shows.
+  - the only writes the window sends are a message, an answer to an open decision, an acknowledgement of a report and the supervisor controls; its local files are the per-fleet composer draft under `$XDG_STATE_HOME/hand-desktop/drafts/<fleet id>.txt` (falling back to `~/.local/state/hand-desktop/drafts/`, and `%LOCALAPPDATA%\hand-desktop\drafts` on Windows) and `prefs.json` beside the drafts folder, both mode 0600, no secret in either; navigation changes only which screen it shows.
 
 ## Chosen direction and memorable moment
 
@@ -96,7 +96,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `30-composer-sent-<light or dark>.png` | the composer after a send: the new message in the conversation, the box empty again |
 | `31-composer-failed-<light or dark>.png` | a failed send: the action's error card and the text the box kept |
 | `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
-| `33-zoom-150-<light or dark>.png` | the same at 150%, the ladder's next rung above 125% |
+| `33-zoom-150-<light or dark>.png` | the same with 150% requested at 1100 px: the window draws it at 128% so the work pane keeps its 440 px |
 
 The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. The hint sits on the foot's left and the draft note over the box's top-right corner, as the Board places it; the note is set on every save and cleared when the box empties. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
 
@@ -108,7 +108,7 @@ The desktop reads the fleet's `board.token` and sends it as the cookie the board
 
 ## Zoom decision
 
-The window zooms its content as a browser does, through the toolkit's `SetZoom`: text stays crisp because the view is laid out at the smaller size and drawn at the screen's resolution, and pointer, text input and scroll are remapped for it. `Ctrl+=` (and `Ctrl+Shift+=`, which is the `+` key) steps up the browser ladder 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 percent, `Ctrl+-` steps down it, `Ctrl+0` returns to 100%, and the ends hold instead of wrapping. The kit's tokens stay in logical pixels; nothing is scaled by hand. The zoom is one value in `prefs.json` beside the drafts folder, read at boot and written on change; a missing, malformed or off-ladder value boots at 100% or the nearest rung.
+The window zooms its content as a browser does, through the toolkit's `SetZoom`: text stays crisp because the view is laid out at the smaller size and drawn at the screen's resolution, and pointer, text input and scroll are remapped for it. `Ctrl+=` (and `Ctrl+Shift+=`, which is the `+` key) steps up the browser ladder 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 percent, `Ctrl+-` steps down it, `Ctrl+0` returns to 100%, and the ends hold instead of wrapping. The kit's tokens stay in logical pixels; nothing is scaled by hand. The ladder is the requested zoom: a window too narrow to draw it at that size draws it lower, `min(requested, width/860)`, so the content never drops under the window's 860 px minimum and the work pane keeps its 440 px; widening the window draws the requested rung. The requested zoom is the one value in `prefs.json` beside the drafts folder, read at boot and written on change; a missing, malformed or off-ladder value boots at 100% or the nearest rung.
 
 ## Keys decision
 
@@ -118,7 +118,7 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 **The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons in the pane head, and the ask's option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except Open in browser in the overflow menu, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
 
-**The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file, and does not import the CLI, the board service or the state store.
+**The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file and `prefs.json` beside it, and does not import the CLI, the board service or the state store.
 
 **The Loopback Rule.** The window opens a board only on a loopback address; a network board is refused with the reason, because the API refuses it too.
 
