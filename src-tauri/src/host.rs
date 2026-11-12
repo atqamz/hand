@@ -1,7 +1,7 @@
 use std::ffi::{CString, c_char};
 use std::io;
 use std::mem;
-use std::panic::catch_unwind;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,10 +9,10 @@ use std::sync::{Arc, Mutex};
 
 use hand_android_core::{
     Alert, AlertSink, CipherError, Companion, CompanionConfig, CookieSource, Feed, Fleet,
-    KeyCipher, RESCAN, Supervisor,
+    KeyCipher, Method, RESCAN, Request, RequestError, Response, Supervisor,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
-use jni::sys::jstring;
+use jni::sys::{jboolean, jstring};
 use jni::{JNIEnv, JavaVM};
 
 const PROBE: i32 = 0;
@@ -374,4 +374,72 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
     if let Some(alerts) = alerts {
         alerts.stop();
     }
+}
+
+fn text(env: &mut JNIEnv, value: &JString) -> Result<Option<String>, RequestError> {
+    if value.as_raw().is_null() {
+        return Ok(None);
+    }
+    env.get_string(value)
+        .map(|text| Some(text.into()))
+        .map_err(|_| RequestError::Malformed)
+}
+
+fn send(
+    env: &mut JNIEnv,
+    fleet: &JString,
+    post: bool,
+    path: &JString,
+    csrf: &JString,
+    body: &JByteArray,
+) -> Result<Response, RequestError> {
+    let core = STATE
+        .lock()
+        .unwrap()
+        .core
+        .clone()
+        .ok_or(RequestError::NoLaptop)?;
+    let fleet = text(env, fleet)?.ok_or(RequestError::Malformed)?;
+    let path = text(env, path)?.ok_or(RequestError::Malformed)?;
+    let csrf = text(env, csrf)?;
+    let body = if body.as_raw().is_null() {
+        Vec::new()
+    } else {
+        env.convert_byte_array(body)
+            .map_err(|_| RequestError::Malformed)?
+    };
+    let cookies = core
+        .host
+        .cookies()
+        .map_err(|_| RequestError::Unreachable)?
+        .unwrap_or_default();
+    let method = if post { Method::Post } else { Method::Get };
+    let request = Request::new(method, &fleet, &path, &cookies, csrf.as_deref(), &body)?;
+    tauri::async_runtime::block_on(core.companion.request(&request))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_request<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    fleet: JString<'local>,
+    post: jboolean,
+    path: JString<'local>,
+    csrf: JString<'local>,
+    body: JByteArray<'local>,
+) -> jstring {
+    let sent = catch_unwind(AssertUnwindSafe(|| {
+        send(&mut env, &fleet, post != 0, &path, &csrf, &body)
+    }));
+    let answer = match sent {
+        Ok(Ok(response)) => serde_json::json!({
+            "status": response.status,
+            "body": String::from_utf8_lossy(&response.body),
+        }),
+        Ok(Err(error)) => serde_json::json!({ "failure": error.name() }),
+        Err(_) => serde_json::json!({ "failure": RequestError::Malformed.name() }),
+    };
+    env.new_string(answer.to_string())
+        .or_else(|_| env.new_string(r#"{"failure":"malformed"}"#))
+        .map_or(ptr::null_mut(), |text| text.into_raw())
 }

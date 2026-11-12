@@ -33,6 +33,22 @@ pub enum RequestError {
     Malformed,
 }
 
+impl RequestError {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Busy => "busy",
+            Self::NoLaptop => "no_laptop",
+            Self::Unreachable => "unreachable",
+            Self::Unpaired => "unpaired",
+            Self::Lost => "lost",
+            Self::BoardNotRunning => "board_not_running",
+            Self::TimedOut => "timed_out",
+            Self::TooLarge => "too_large",
+            Self::Malformed => "malformed",
+        }
+    }
+}
+
 impl From<OpenError> for RequestError {
     fn from(error: OpenError) -> Self {
         match error {
@@ -59,15 +75,15 @@ impl Request {
         cookies: &str,
         csrf: Option<&str>,
         body: &[u8],
-    ) -> Option<Self> {
+    ) -> Result<Self, RequestError> {
         if !valid_fleet(fleet)
             || !allowed_path(path)
             || csrf.is_some_and(|token| !valid_cookie_value(token))
             || (method == Method::Get && !body.is_empty())
         {
-            return None;
+            return Err(RequestError::Malformed);
         }
-        let cookie = fleet_cookie(cookies, fleet)?;
+        let cookie = fleet_cookie(cookies, fleet).ok_or(RequestError::Unpaired)?;
         let verb = match method {
             Method::Get => "GET",
             Method::Post => "POST",
@@ -86,7 +102,7 @@ impl Request {
         head.push_str("Connection: close\r\n\r\n");
         let mut bytes = head.into_bytes();
         bytes.extend_from_slice(body);
-        Some(Self {
+        Ok(Self {
             bytes,
             timeout: REQUEST_TIMEOUT,
             max_body: MAX_BODY,
@@ -412,6 +428,25 @@ mod tests {
     use super::*;
 
     const FLEET: &str = "f0123456789ab";
+
+    #[test]
+    fn every_failure_has_the_name_kotlin_reads() {
+        let names = [
+            (RequestError::Busy, "busy"),
+            (RequestError::NoLaptop, "no_laptop"),
+            (RequestError::Unreachable, "unreachable"),
+            (RequestError::Unpaired, "unpaired"),
+            (RequestError::Lost, "lost"),
+            (RequestError::BoardNotRunning, "board_not_running"),
+            (RequestError::TimedOut, "timed_out"),
+            (RequestError::TooLarge, "too_large"),
+            (RequestError::Malformed, "malformed"),
+        ];
+        for (error, name) in names {
+            assert_eq!(error.name(), name);
+        }
+    }
+
     const COOKIES: &str = "a=b; hand_phone_f999999999999=other; hand_phone_f0123456789ab=abc.def";
 
     fn parse(chunks: &[&[u8]], max_body: usize) -> Result<Response, RequestError> {
@@ -469,13 +504,11 @@ mod tests {
     #[test]
     fn a_request_that_could_leave_its_fleet_or_split_a_header_is_refused() {
         let new = |fleet: &str, path: &str, cookies: &str, csrf: Option<&str>| {
-            Request::new(Method::Get, fleet, path, cookies, csrf, b"")
+            Request::new(Method::Get, fleet, path, cookies, csrf, b"").map(|_| ())
         };
         let ok = "/api/v1/ok";
-        assert!(new(FLEET, ok, COOKIES, None).is_some());
+        assert_eq!(new(FLEET, ok, COOKIES, None), Ok(()));
         for (fleet, path, cookies, csrf) in [
-            ("f999999999999", ok, "hand_phone_f0123456789ab=abc", None),
-            (FLEET, ok, "a=b", None),
             ("bad", ok, "hand_phone_bad=abc", None),
             (FLEET, "api/v1/ok", COOKIES, None),
             (FLEET, "/api/v1/a b", COOKIES, None),
@@ -484,15 +517,37 @@ mod tests {
             (FLEET, ok, COOKIES, Some("a\r\nb")),
             (FLEET, ok, COOKIES, Some("")),
         ] {
-            assert!(new(fleet, path, cookies, csrf).is_none(), "{path} {csrf:?}");
+            assert_eq!(
+                new(fleet, path, cookies, csrf),
+                Err(RequestError::Malformed),
+                "{path} {csrf:?}"
+            );
         }
-        assert!(Request::new(Method::Get, FLEET, ok, COOKIES, None, b"x").is_none());
+        assert_eq!(
+            Request::new(Method::Get, FLEET, ok, COOKIES, None, b"x").map(|_| ()),
+            Err(RequestError::Malformed)
+        );
+    }
+
+    #[test]
+    fn only_a_missing_fleet_cookie_is_unpaired() {
+        for cookies in [
+            "hand_phone_f999999999999=abc",
+            "a=b",
+            "",
+            "hand_phone_f0123456789ab=a\"b",
+        ] {
+            assert_eq!(
+                Request::new(Method::Get, FLEET, "/api/v1/ok", cookies, None, b"").map(|_| ()),
+                Err(RequestError::Unpaired),
+                "{cookies}"
+            );
+        }
     }
 
     #[test]
     fn only_the_feed_and_the_api_are_reachable_and_never_by_a_dotted_path() {
-        let path =
-            |path: &str| Request::new(Method::Get, FLEET, path, COOKIES, None, b"").is_some();
+        let path = |path: &str| Request::new(Method::Get, FLEET, path, COOKIES, None, b"").is_ok();
         for allowed in [
             "/alerts/feed",
             "/alerts/feed?",

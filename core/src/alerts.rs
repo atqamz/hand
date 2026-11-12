@@ -242,7 +242,10 @@ impl Feed {
             None,
             &[],
         )
-        .ok_or(Failure::CookieGone)?
+        .map_err(|error| match error {
+            RequestError::Unpaired => Failure::CookieGone,
+            _ => Failure::Retry,
+        })?
         .within(self.wait + ANSWER_SLACK)
         .up_to(MAX_BODY)
         .by_length();

@@ -19,4 +19,13 @@ object Core {
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()
+
+  @JvmStatic
+  external fun request(
+    fleet: String,
+    post: Boolean,
+    path: String,
+    csrf: String?,
+    body: ByteArray?
+  ): String?
 }
