@@ -74,6 +74,9 @@ var refLink = regexp.MustCompile(`<a class="ref" href="([^"]*)">([a-z][0-9]+)</a
 var linkDest = regexp.MustCompile(`\]\([^)]*\)`)
 
 func (s *Slugger) slug(text string) string {
+	if s.seen == nil {
+		s.seen = map[string]int{}
+	}
 	text = linkDest.ReplaceAllString(text, "")
 	var b strings.Builder
 	for _, r := range text {
