@@ -173,9 +173,19 @@ func (s *Store) LastKeys(ctx context.Context, ref string) (int64, error) {
 func lastAttemptEvent(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, attemptID int64) (Event, bool, error) {
+	return attemptEventBefore(ctx, q, attemptID, 0)
+}
+
+func attemptEventBefore(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, attemptID, seq int64) (Event, bool, error) {
 	ref := AttemptRef(attemptID)
+	where, args := ``, []any{ref, ref + ": %"}
+	if seq > 0 {
+		where, args = ` AND seq < ?`, append(args, seq)
+	}
 	var e Event
-	err := q.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?) ORDER BY seq DESC LIMIT 1`, ref, ref+": %").Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
+	err := q.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?)`+where+` ORDER BY seq DESC LIMIT 1`, args...).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Event{}, false, nil
 	}
