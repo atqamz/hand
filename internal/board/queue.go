@@ -150,6 +150,27 @@ func blockedPrompt(screen string) prompt {
 	return p
 }
 
+func waitPrompt(screen string) prompt {
+	p := blockedPrompt(screen)
+	if p.Headline != "" && len(p.Options) > 0 {
+		return p
+	}
+	card := ask(screen, "blocked")
+	if card == nil {
+		return p
+	}
+	if p.Headline == "" {
+		p.Headline = card.Question
+	}
+	if len(p.Options) == 0 && len(card.Options) > 0 {
+		p.Options = make([]key, 0, len(card.Options))
+		for _, o := range card.Options {
+			p.Options = append(p.Options, key{o.Value, o.Label})
+		}
+	}
+	return p
+}
+
 type severityRank struct {
 	rank       int
 	tone, word string
@@ -236,7 +257,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			}
 			if screens {
 				if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID {
-					w.Screen, w.Revision, w.Digest, w.Prompt = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text), blockedPrompt(s.Text)
+					w.Screen, w.Revision, w.Digest, w.Prompt = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text), waitPrompt(s.Text)
 					if w.Prompt.Headline != "" {
 						w.Title = w.Prompt.Headline
 					}

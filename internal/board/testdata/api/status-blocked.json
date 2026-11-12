@@ -83,7 +83,32 @@
                 "1"
               ]
             }
-          ]
+          ],
+          "keys": {
+            "options": [
+              {
+                "label": "2 No",
+                "keys": [
+                  "2"
+                ]
+              },
+              {
+                "label": "Esc",
+                "keys": [
+                  "esc"
+                ]
+              },
+              {
+                "label": "1 Yes",
+                "keys": [
+                  "1"
+                ]
+              }
+            ],
+            "revision": 7,
+            "digest": "f8c722e0710879ae811b2fe7ad0c8ba0",
+            "pressed": 0
+          }
         },
         {
           "kind": "failure",

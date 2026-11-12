@@ -253,6 +253,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/interrupt", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "interrupt") })
 	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/force", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "force") })
 	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/keys", b.apiKeys)
+	b.mux.HandleFunc("POST "+apiPrefix+"/attempt/{id}/keys", b.apiAttemptKeys)
 	b.mux.HandleFunc("POST "+apiPrefix+"/decision/{id}/answer", b.apiAnswer)
 	b.mux.HandleFunc("POST "+apiPrefix+"/report/{id}/ack", b.apiAck)
 	b.mux.HandleFunc("POST "+apiPrefix+"/", b.apiMethod)

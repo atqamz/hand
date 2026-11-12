@@ -125,6 +125,14 @@ type APINeed struct {
 	Cut       bool           `json:"cut,omitempty"`
 	DenyAt    string         `json:"deny_at,omitempty"`
 	Options   []APIAskOption `json:"options,omitempty"`
+	Keys      *APINeedKeys   `json:"keys,omitempty"`
+}
+
+type APINeedKeys struct {
+	Options  []APIAskOption `json:"options"`
+	Revision int64          `json:"revision"`
+	Digest   string         `json:"digest"`
+	Pressed  int64          `json:"pressed"`
 }
 
 type APINeeds struct {
@@ -439,6 +447,7 @@ func apiAllow(r *http.Request) string {
 	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
 	if p == "/pair" || p == "/message" || p == "/supervisor/start" || p == "/supervisor/resume" || p == "/supervisor/stop" ||
 		p == "/supervisor/interrupt" || p == "/supervisor/force" || p == "/supervisor/keys" ||
+		strings.HasPrefix(p, "/attempt/") && strings.HasSuffix(p, "/keys") ||
 		strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
 		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
 		return "POST"
@@ -478,6 +487,13 @@ type apiKeysBody struct {
 	Digest   string   `json:"digest"`
 	After    *int64   `json:"after"`
 	Ref      string   `json:"ref"`
+}
+
+type apiAttemptKeysBody struct {
+	Key      string `json:"key"`
+	Revision *int64 `json:"revision"`
+	After    *int64 `json:"after"`
+	Screen   string `json:"screen"`
 }
 
 type APIPairedFleet struct {
@@ -786,6 +802,59 @@ func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.apiControlOK(w, f, ctx)
+}
+
+func (b *Board) apiAttemptKeys(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	id, err := pathID(r, "a")
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	if _, err := b.st.Attempt(ctx, id); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	const bad = "send one JSON object with key, revision, after and screen"
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return
+	}
+	var in apiAttemptKeysBody
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return
+	}
+	keys := strings.Fields(in.Key)
+	if len(keys) == 0 || in.Revision == nil || *in.Revision < 0 || in.After == nil || *in.After < 0 || (in.Screen != "" && !digest.MatchString(in.Screen)) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return
+	}
+	for _, k := range keys {
+		if !slices.Contains(state.SupervisorKeys, k) && !(len(k) == 1 && k[0] >= '4' && k[0] <= '9') {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", "use one of the board's keys")
+			return
+		}
+	}
+	args := []string{"attempt", "keys", "--revision", strconv.FormatInt(*in.Revision, 10)}
+	if in.Screen != "" {
+		args = append(args, "--screen", in.Screen)
+	}
+	args = append(args, "--after", strconv.FormatInt(*in.After, 10), state.AttemptRef(id))
+	if _, err := b.o.Control(ctx, append(args, keys...)...); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiAttemptData(ctx, id) })
 }
 
 // apiMessageText rejects the text a JSON decoder would quietly change: invalid
@@ -1452,12 +1521,13 @@ func apiNeed(w waiting) APINeed {
 	out := APINeed{Kind: w.Kind, Ref: w.Ref, Word: w.Word(), Tone: w.Tone()}
 	switch w.Kind {
 	case "blocked", "worker":
-		if w.Prompt.Headline != "" {
-			out.Title = w.Title
-		}
+		out.Title = Scrub(w.Title)
 		out.Excerpt = w.Screen
-		for _, k := range w.Prompt.Options {
-			out.Options = append(out.Options, APIAskOption{Label: k.Label, Keys: []string{k.Name}})
+		if options, ok := apiNeedOptions(w.Prompt.Options); ok {
+			out.Options = options
+		}
+		if w.Kind == "blocked" || w.Screen != "" {
+			out.Keys = apiNeedKeys(w)
 		}
 	case "limited":
 	case "stalled":
@@ -1484,6 +1554,25 @@ func apiNeed(w waiting) APINeed {
 		out.Attempt = state.AttemptRef(w.Attempt.ID)
 	}
 	return out
+}
+
+func apiNeedKeys(w waiting) *APINeedKeys {
+	options, ok := apiNeedOptions(w.Prompt.Options)
+	if !ok || len(options) == 0 {
+		options, _ = apiNeedOptions(keyButtons())
+	}
+	return &APINeedKeys{Options: options, Revision: w.Revision, Digest: w.Digest, Pressed: w.Pressed}
+}
+
+func apiNeedOptions(buttons []key) ([]APIAskOption, bool) {
+	if len(buttons) > askOptionsMax {
+		return nil, false
+	}
+	out := make([]APIAskOption, 0, len(buttons))
+	for _, k := range buttons {
+		out = append(out, APIAskOption{Label: askClip(k.Label, askLabelMax), Keys: strings.Fields(k.Name)})
+	}
+	return out, true
 }
 
 func apiWakeText(text string) string {

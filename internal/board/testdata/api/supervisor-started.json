@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQBlMWIyYmEwZDczZjM0YWEx.ZG_XbIcndHCtqXL6PzfAVw",
+  "cursor": "ZjAwMDAwMDAwZTBhYQBkMWMwZTU1MDJhNTMwMjUx.WJwfWWaT4bakDr--wYZldQ",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "supervisor": {
@@ -83,7 +83,32 @@
                 "1"
               ]
             }
-          ]
+          ],
+          "keys": {
+            "options": [
+              {
+                "label": "2 No",
+                "keys": [
+                  "2"
+                ]
+              },
+              {
+                "label": "Esc",
+                "keys": [
+                  "esc"
+                ]
+              },
+              {
+                "label": "1 Yes",
+                "keys": [
+                  "1"
+                ]
+              }
+            ],
+            "revision": 7,
+            "digest": "f8c722e0710879ae811b2fe7ad0c8ba0",
+            "pressed": 0
+          }
         },
         {
           "kind": "failure",
