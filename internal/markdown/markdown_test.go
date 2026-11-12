@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/markdown"
@@ -40,12 +41,12 @@ func TestRenderSubset(t *testing.T) {
 }
 
 var blocks = []struct{ in, want string }{
-	{"## Sources\ntext", `<h3>Sources</h3><p>text</p>`},
-	{"# A", `<h3>A</h3>`},
-	{"### B", `<h4>B</h4>`},
-	{"###### C", `<h4>C</h4>`},
+	{"## Sources\ntext", `<h3 id="sources">Sources</h3><p>text</p>`},
+	{"# A", `<h3 id="a">A</h3>`},
+	{"### B", `<h4 id="b">B</h4>`},
+	{"###### C", `<h4 id="c">C</h4>`},
 	{"#tag", `<p>#tag</p>`},
-	{"## **Bold** head", `<h3><strong>Bold</strong> head</h3>`},
+	{"## **Bold** head", `<h3 id="bold-head"><strong>Bold</strong> head</h3>`},
 	{"a\n---\nb", `<p>a</p><hr><p>b</p>`},
 	{"***", `<hr>`},
 	{"_ _ _", `<hr>`},
@@ -73,6 +74,27 @@ var tables = []struct{ in, want string }{
 	{"a | b\nc | d", `<p>a | b<br>c | d</p>`},
 	{"| a | b |\n|---|---|---|\n| x | y |", `<p>| a | b |<br>|---|---|---|<br>| x | y |</p>`},
 	{"```\n| a |\n|---|\n```", "<pre><code>| a |\n|---|</code></pre>"},
+}
+
+func TestHeadingIDs(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"# One\n\n# One\n\n# One", `<h3 id="one">One</h3><h3 id="one-1">One</h3><h3 id="one-2">One</h3>`},
+		{"## What's new? (v2)", `<h3 id="whats-new-v2">What&#39;s new? (v2)</h3>`},
+		{"## A — B", `<h3 id="a--b">A — B</h3>`},
+		{"## Run `hand doctor` now", "<h3 id=\"run-hand-doctor-now\">Run <code>hand doctor</code> now</h3>"},
+	} {
+		if got := string(markdown.Render(c.in, nil)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestInPageAnchorsRender(t *testing.T) {
+	for _, got := range []string{string(markdown.RenderSite("[x](#x)")), string(markdown.RenderDoc("[x](#x)", "/f1", nil, nil))} {
+		if got != `<p><a href="#x">x</a></p>` {
+			t.Errorf("got %s", got)
+		}
+	}
 }
 
 func TestRenderTables(t *testing.T) {
@@ -204,6 +226,9 @@ func safeWithPaths(t *testing.T, in string, fail func(string, ...any)) {
 	if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil, stub))); msg != "" {
 		fail("RenderDoc(%q) with paths: %s", in, msg)
 	}
+	if msg := activeDoc(string(markdown.RenderSite(in))); msg != "" {
+		fail("RenderSite(%q): %s", in, msg)
+	}
 }
 
 func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
@@ -235,7 +260,7 @@ func FuzzRender(f *testing.F) {
 var (
 	tagPattern   = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z-]+="[^"<>]*")*)>`)
 	attrPattern  = regexp.MustCompile(` ([a-z-]+)="([^"]*)"`)
-	allowed      = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
+	allowed      = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h2": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
 	startPattern = regexp.MustCompile(`^[0-9]+$`)
 	fixed        = map[string]string{"div class": "table", "div role": "region", "div aria-label": "Table", "div tabindex": "0"}
 	aligns       = map[string]bool{"l": true, "r": true, "c": true}
@@ -244,6 +269,15 @@ var (
 func active(out string) string { return markup(out, false) }
 
 func activeDoc(out string) string { return markup(out, true) }
+
+func headingID(v string) bool {
+	for _, r := range v {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
 
 func relativeRef(raw string) bool {
 	u, err := url.Parse(raw)
@@ -263,9 +297,16 @@ func markup(out string, doc bool) string {
 			return "element " + m[2]
 		}
 		for _, a := range attrPattern.FindAllStringSubmatch(m[3], -1) {
+			if (m[2] == "h2" || m[2] == "h3" || m[2] == "h4") && a[1] == "id" && headingID(a[2]) {
+				continue
+			}
 			if doc {
 				switch v := html.UnescapeString(a[2]); m[2] + " " + a[1] {
-				case "img src", "a href":
+				case "a href":
+					if relativeRef(v) || strings.HasPrefix(v, "#") {
+						continue
+					}
+				case "img src":
 					if relativeRef(v) {
 						continue
 					}
@@ -425,6 +466,7 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 		{"[notes](../t286/notes.md)", `<p><a href="../t286/notes.md">notes</a></p>`},
 		{"[x](sub/a b.md)", `<p><a href="sub/a b.md">x</a></p>`},
 		{"[x](a.md#h)", `<p><a href="a.md#h">x</a></p>`},
+		{"[x](#top)", `<p><a href="#top">x</a></p>`},
 		{"[**b**](shots/)", `<p><a href="shots/"><strong>b</strong></a></p>`},
 		{`[x](a.md"onmouseover="y)`, `<p><a href="a.md&#34;onmouseover=&#34;y">x</a></p>`},
 		{"[PR](https://github.com/a/b/pull/1)", `<p><a href="https://github.com/a/b/pull/1" target="_blank" rel="noopener noreferrer">PR</a></p>`},
@@ -442,7 +484,7 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 
 func TestDocumentModeRefusesSchemesHostsAndBackslashes(t *testing.T) {
 	for _, u := range []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", " javascript:alert(1)", "java\tscript:alert(1)", "data:text/html,x", "vbscript:x", "mailto:a@b.c", "c:/x",
-		"//evil.io/x", "  //evil.io/x", "https:///nohost", `\\evil.io\x`, `/\evil.io`, `a\..\..\x`, `C:\x`, "/abs/path", "#top", ""} {
+		"//evil.io/x", "  //evil.io/x", "https:///nohost", `\\evil.io\x`, `/\evil.io`, `a\..\..\x`, `C:\x`, "/abs/path", ""} {
 		for _, in := range []string{"[x](" + u + ")", "![x](" + u + ")"} {
 			if got := string(markdown.RenderDoc(in, "/f1", nil, nil)); strings.Contains(got, "<a") || strings.Contains(got, "<img") {
 				t.Errorf("RenderDoc(%q) = %s", in, got)
@@ -511,7 +553,7 @@ func TestRenderLinksThePathsTheHookAllows(t *testing.T) {
 		{"/fleet/a.md /fleet/shots/\n/fleet/a.md", `<p>` + path(a, a) + ` ` + path(b, b) + `<br>` + path(a, a) + `</p>`},
 		{"`/fleet/a.md`", `<p>` + path(a, `<code>/fleet/a.md</code>`) + `</p>`},
 		{"**/fleet/a.md** and *see /fleet/a.md*", `<p><strong>` + path(a, a) + `</strong> and <em>see ` + path(a, a) + `</em></p>`},
-		{"## /fleet/a.md\n- /fleet/a.md\n\n> /fleet/a.md", `<h3>` + path(a, a) + `</h3><ul><li>` + path(a, a) + `</li></ul><blockquote><p>` + path(a, a) + `</p></blockquote>`},
+		{"## /fleet/a.md\n- /fleet/a.md\n\n> /fleet/a.md", `<h3 id="fleetamd">` + path(a, a) + `</h3><ul><li>` + path(a, a) + `</li></ul><blockquote><p>` + path(a, a) + `</p></blockquote>`},
 		{"| doc |\n|---|\n| /fleet/a.md |", wrap + `<thead><tr><th>doc</th></tr></thead><tbody><tr><td>` + path(a, a) + `</td></tr></tbody></table></div>`},
 		{"/fleet/a.md:12 and `/fleet/a.md:12`", `<p>/fleet/a.md:12 and <code>/fleet/a.md:12</code></p>`},
 		{"/fleet/b.md and `/fleet/a.md and more`", `<p>/fleet/b.md and <code>/fleet/a.md and more</code></p>`},
