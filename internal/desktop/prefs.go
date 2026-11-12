@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -25,7 +26,12 @@ func (a *App) loadPrefs() {
 	if path == "" {
 		return
 	}
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxPrefs+1))
 	if err != nil || len(raw) > maxPrefs {
 		return
 	}

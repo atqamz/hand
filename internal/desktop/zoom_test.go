@@ -99,6 +99,16 @@ func TestAMalformedPreferencesFileBootsAt100(t *testing.T) {
 	}
 }
 
+func TestAnOffLadderZoomSnapsToTheNearestRung(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(desktop.PrefsPath(dir), []byte(`{"zoom":1.33}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if app := booted(t, dir); app.Zoom != 1.25 {
+		t.Fatalf("1.33 boots at %v, want the nearest rung 1.25", app.Zoom)
+	}
+}
+
 func composerRect(t *testing.T, tt *ui.Tester) ui.Rect {
 	t.Helper()
 	for _, label := range []string{"Message", "Message the supervisor"} {
