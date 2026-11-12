@@ -25,7 +25,7 @@ An app installed from a build made before this key (CI run 42762177268 and earli
 
 Prerequisites:
 
-- JDK 17 or newer, with `JAVA_HOME` set.
+- JDK 21 or newer (Paparazzi's Gradle plugin needs it), with `JAVA_HOME` set.
 - Android SDK platform 37, build-tools 36.0.0 and the command-line tools.
 - NDK 27.3.13750724, with `NDK_HOME` pointing at it.
 - Rust 1.98.1, from `rust-toolchain.toml`, with the `aarch64-linux-android` target for a phone and the `x86_64-linux-android` target for an emulator.
@@ -44,7 +44,7 @@ cargo tauri android build --debug --apk --target aarch64
 
 The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`. `apksigner verify --print-certs` reports the fingerprint above. For an emulator, replace `aarch64` with `x86_64` and install the same path with `adb install -r`.
 
-The build generates the Kotlin activity classes. Once they exist, `cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the window-inset arithmetic, of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility) and of the Board client.
+The build generates the Kotlin activity classes. Once they exist, `cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the window-inset arithmetic, of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility), of the Board client and of the fleet list. `./gradlew :app:verifyPaparazziUniversalDebug` runs the same tests and also compares the rendered screens with the stored images; CI runs that one.
 
 Measured on 2026-11-05 on Linux x86_64 with 22 cores and warm SDK, Gradle and cargo caches: 1m36s for the `aarch64` debug APK with iroh in `target/`, 1m14s for the `x86_64` one, and a 127 MiB APK with debug symbols. The SDK, NDK, JDK, Gradle and Rust caches took about 12 GB.
 
@@ -140,6 +140,16 @@ Read at the device run, not settled by tests:
 
 The JVM tests read Hand's golden answers from `app/src/test/resources/api`, copied from `internal/board/testdata/api` at Hand commit `0063ff18f3fdbdd3b2221e391611dec08937163b`: the four that carry a `Status`. Copy them again when Hand changes them. The JNI method has no host test.
 
+## Native screens
+
+`HandActivity` is the first Compose screen and is not the launcher: `MainActivity` still is, and nothing the user sees changes. It is registered in `src/debug/AndroidManifest.xml`, so release builds do not carry it until it becomes the launcher. Open it in a debug build with `adb shell am start -n io.github.atqamz.handcompanion/.HandActivity`. It shows one row per fleet whose `hand_phone_<fleet id>` cookie is in the web view's jar, reads each fleet's `status` through `BoardClient` every 5 seconds while it is in front, and shows the laptop's short ID from the `laptop` file. Nothing is polled in the background; the alert service still is the only thing that runs there.
+
+`FleetsModel` turns each answer into display-ready rows and one band. A `304` keeps the row and moves its time. Busy shows "Your laptop is busy. Trying again."; an unreachable laptop (also lost and timed out) shows the band with Retry and turns the rows to their last state "at HH:mm" with an "unknown" pill; code 3 twice shows "Your laptop answers, but the Board is not running."; an unpaired fleet shows "No longer paired" on its own row. The first failure ends the round, so a dead laptop is asked once and not once per fleet, and "since" counts from the first failure of an outage. An error that is not about the laptop (an answer that cannot be read, an unsupported version, a refusal) shows "The Board's answer could not be read." on that fleet's row only, and the round goes on. Add fleet and the menu are drawn and do nothing yet: pairing from inside the app is a later step.
+
+`HandTheme` holds the Board's colours (static, light and dark, no dynamic colour), its five type sizes, its radii and the icons as vectors. Each fleet's mark takes the Board's tint, the FNV-1a hash of the fleet ID modulo 12.
+
+`app/src/test/snapshots` holds the stored images of the fleet list and of the unreachable band, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
+
 ## Pairing
 
 A link arrives from the `handboard://` intent, from the paste field on the first screen, or from the scanner behind **Scan the QR code**. The scanner asks for the camera once on first use, decodes only QR codes, and hands the text to the same `offer_link` command as a paste; a foreign or invalid code gets the same "check the link" message. If the camera is refused or fails to start, the scanner says so and can be opened again. The app trims surrounding whitespace and applies the contract's 15 checks before it accepts anything. It then shows the first four and last four characters of the laptop's endpoint ID and asks for confirmation. A link that arrives while a pairing is open replaces nothing until the user confirms; the app says `Finish or dismiss the current pairing first` and keeps the first link. The code is never shown.
@@ -190,6 +200,8 @@ The host tests cover the parser over the five valid forms and 61 hostile ones, a
 - `tauri` 2.12.5 and `tauri-build` 2.7.4: the Android shell and its build script, pinned with `tauri-cli` 2.12.4.
 - `tauri-plugin-opener` 2.7.2: sends a refused navigation and a clicked `_blank` link or `window.open` call to another origin, or with a `mailto:` or `tel:` scheme, to the Android system browser; neither the standard library nor Tauri starts that intent itself. Its `open_url` command is granted to the bundled page and to `http://localhost:*` by `src-tauri/capabilities/external-links.json`, and its link script is left on.
 - `org.jetbrains.kotlinx:kotlinx-serialization-json` 1.9.0 and its compiler plugin, Android: decodes Hand's JSON into typed models that ignore unknown fields. `org.json` is absent from JVM unit tests and gives untyped maps. 1.9.0 because the Kotlin compiler this build runs is 2.2.10, which cannot read the metadata of a later release.
+- `androidx.compose:compose-bom` 2026.09.00 with `material3`, `androidx.activity:activity-compose` 1.10.1 and `androidx.lifecycle:lifecycle-runtime-compose` 2.10.0, and the Kotlin Compose compiler plugin 2.4.21, Android: the native screens. They add 8,549,266 B to the debug APK's entries (CI at this PR's head against CI at its base), 8,152,271 B of it dex, since debug builds are not minified. Compose needs JVM target 11, so the app module's `compileOptions` and `jvmTarget` moved from 1.8 to 11.
+- `app.cash.paparazzi` 2.0.0-alpha05.1, tests only: renders the screens on the JVM, light and dark, and checks them against stored images, so a screen change is reviewed as a picture without a device. It is an alpha because its release notes name Android Gradle plugin 9 support, which this build needs (9.3.1); it never reaches the APK.
 - `com.google.zxing:core` 3.5.4 and `com.journeyapps:zxing-android-embedded` 4.3.0, Android: the QR decoder and the camera preview that feeds it. They add 463,884 B to the debug APK; the two artifacts are 610,364 and 151,839 B, about 0.76 MB together. They need no Google Play services; the embedded library's own `core` is excluded so the decoder is pinned directly. A hand-written camera loop would be more code for the same result.
 
 `Cargo.lock` holds every transitive version.
