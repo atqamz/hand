@@ -16,7 +16,7 @@ A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`
 
 A local client proves the service at the recorded port is the board before it sends the token, since `board.addr` outlives a board that exits abnormally: `GET /<fleet id>/proof?nonce=<random>` answers the hex HMAC-SHA256 of the client's nonce keyed by `board.token`, with no cookie; a client that reads the token from the fleet compares it and only then sends the cookie. `hand open` and the desktop window both do this, and neither sends the token to a service that fails it.
 
-A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board, to the laptop's session and to a paired phone on the peer listener. A network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`), a Tailscale Funnel request, and a peer whose device has no `iroh:` login all get `403` with `forbidden`. A peer that is not paired, or was revoked, gets the peer listener's own `403` before it reaches the API.
+A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board, to the laptop's session and to a paired phone on the peer listener. A network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`), a Tailscale Funnel request, and a peer whose device has no `iroh:` login all get `403` with `forbidden`. A peer that is not paired, or was revoked, gets the peer listener's own `403` before it reaches the API. The one path that needs no cookie is `POST /api/v1/pair` ([Pairing a phone](#pairing-a-phone)); it keeps every refusal above except the missing cookie.
 
 The actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
 
@@ -71,6 +71,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
+| `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
 | `POST /api/v1/supervisor/stop` | the same `Status` after the stop | the console's Stop |
@@ -216,6 +217,31 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 
 A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read.
 
+### Pairing a phone
+
+`POST /api/v1/pair` is the app's way to redeem a pairing code without the pair page. It needs no cookie and no `X-Hand-CSRF`, and it is the only API path an unpaired peer on the peer listener may reach. Send one `application/json` object under 4 KiB:
+
+```json
+{"code": "K7QM3-XRD2P", "name": "Pixel"}
+```
+
+It runs the pair form's code path, so the limits are the form's: a code works once for 5 minutes, 5 wrong codes in a minute from one endpoint block it, and 10 wrong codes from anyone cancel every code. The device is bound to the peer's iroh endpoint ID (`iroh:<endpoint id>`) and recorded as the form records it. `name` may be empty, which stores `Phone`. Unlike the form, which cleans a name, the API refuses a name over 40 characters or with a control character, before it spends the code. A request through a proxy, through Funnel, or to a network-address board is refused as every API request is. On a loopback board a direct request pairs a device with no login, as the form does; such a device cannot use the API on the peer listener.
+
+The answer is the usual envelope. `data` is `Paired`:
+
+```json
+{"fleets": [{"id": "f00000000e0aa", "name": "hand", "cookie_name": "hand_phone_f00000000e0aa", "cookie_value": "7.4d1c…(64 hex characters)"}], "missed": 0}
+```
+
+A code may name several fleets: `fleets` holds each one that paired, and `missed` counts the ones that did not. The client keeps `cookie_value` as the device secret and sends it as the cookie `cookie_name` on that fleet's `/api/v1` requests; it reads the CSRF value from `GET /api/v1/session`, as for any phone. The secret is in this answer only. The board never logs a code or a secret, and the client must not either.
+
+- `400 bad_request`: a body that is not one JSON object with `code` and `name`, over 4 KiB, or not `application/json`.
+- `400 bad_name`: a name over 40 characters or with a control character.
+- `403 wrong_code`, `code_expired`, `code_used`: the code is not right, is past 5 minutes, or was already redeemed.
+- `403 codes_cancelled`: this was the tenth wrong code, so every code is cancelled.
+- `429 rate_limited`: 5 wrong codes from this endpoint in the last minute.
+- `200` with `Paired`.
+
 ### The supervisor controls
 
 `POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` run the same path as the console button they mirror and answer the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read.
@@ -264,12 +290,19 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 |---|---|---|
 | `400` | `bad_request` | a query value the endpoint cannot read (`before`), or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
+| `400` | `bad_name` | `pair` with a name over 40 characters or with a control character |
 | `401` | `unauthorized` | no valid board session |
 | `403` | `forbidden` | a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
+| `403` | `wrong_code` | `pair` with a code the board does not hold |
+| `403` | `code_expired` | `pair` with a code older than 5 minutes |
+| `403` | `code_used` | `pair` with a code already redeemed |
+| `403` | `codes_cancelled` | `pair` was the tenth wrong code, so every code is cancelled |
 | `404` | `not_found` | an unknown route or ref |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
 | `409` | `conflict` | a state conflict while reading or acting |
+| `413` | `too_large` | a request too large for the board; no v1 endpoint answers it yet, because those that take a body answer `bad_request` |
+| `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |
 
