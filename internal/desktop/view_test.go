@@ -1524,9 +1524,15 @@ func TestARefreshErrorSurvivesAStaleLoad(t *testing.T) {
 		t.Fatal("the window never read the board")
 	}
 	menu(t, tt, "Refresh now")
-	waitPost(t, posted)()
-	waitPost(t, posted)()
-	waitPost(t, posted)()
+	deadline := time.After(5 * time.Second)
+	for app.Err != desktop.ErrNoBoard.Error() {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			t.Fatalf("the refresh error never arrived; the window shows %q", tt.Texts())
+		}
+	}
 	tt.Frame()
 	mustText(t, tt, "no board is running")
 	close(f.block)
@@ -1608,7 +1614,7 @@ func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
 	click(t, tt, "Send answer")
-	mustText(t, tt, "the answer was saved, but the fleet status could not be read", "the board is restarting")
+	mustText(t, tt, "Answer", "Yes, keep it", "the answer was saved, but the fleet status could not be read", "the board is restarting")
 	mustNotText(t, tt, "Send answer")
 	if app.Busy {
 		t.Fatal("the window is still busy after the answer was saved")

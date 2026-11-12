@@ -901,7 +901,7 @@ func stamp(at string) string {
 			return at
 		}
 	}
-	return t.Local().Format("Jan 2 15:04")
+	return t.Local().Format("Jan 2, 15:04")
 }
 
 func (a *App) markdown(c *ui.Context, src string) {

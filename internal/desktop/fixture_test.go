@@ -26,6 +26,8 @@ type fixture struct {
 	tasks         map[string]desktop.Tasks
 	task          map[string]desktop.TaskDetail
 	attempt       map[string]desktop.AttemptDetail
+	attemptRefs   map[string]desktop.AttemptDetail
+	attemptErr    error
 	decision      map[string]desktop.DecisionDetail
 	extra         map[string]desktop.DecisionDetail
 	report        map[string]desktop.ReportDetail
@@ -155,8 +157,15 @@ func (f *fixture) Task(ctx context.Context, id, ref string) (desktop.TaskDetail,
 }
 
 func (f *fixture) Attempt(ctx context.Context, id, ref string) (desktop.AttemptDetail, error) {
+	f.note("attempt:" + ref)
+	if f.attemptErr != nil {
+		return desktop.AttemptDetail{}, f.attemptErr
+	}
 	if f.fail != nil {
 		return desktop.AttemptDetail{}, f.fail
+	}
+	if d, ok := f.attemptRefs[ref]; ok {
+		return d, nil
 	}
 	d, ok := f.attempt[id]
 	if !ok || (ref != "" && d.Attempt.Ref != ref) {
@@ -390,6 +399,7 @@ func goldenFixture(t *testing.T) *fixture {
 	var ts desktop.Tasks
 	var td desktop.TaskDetail
 	var ad desktop.AttemptDetail
+	var af desktop.AttemptDetail
 	var dd desktop.DecisionDetail
 	var rd desktop.ReportDetail
 	load("status", &st)
@@ -401,6 +411,8 @@ func goldenFixture(t *testing.T) *fixture {
 	load("tasks", &ts)
 	load("task", &td)
 	load("attempt-running", &ad)
+	load("attempt-failed", &af)
+	f.attemptRefs = map[string]desktop.AttemptDetail{af.Attempt.Ref: af}
 	load("decision", &dd)
 	load("report", &rd)
 	td.Decisions = append([]desktop.Decision{{

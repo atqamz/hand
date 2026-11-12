@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -16,18 +15,46 @@ const receiptFor = 4 * time.Second
 
 func needKey(n Need) string { return n.Kind + ":" + n.Ref }
 
-func (a *App) openNeed(items []Need) string {
-	if a.needSet && (a.needOpen == "" || slices.ContainsFunc(items, func(n Need) bool { return needKey(n) == a.needOpen })) {
-		return a.needOpen
+func needHasBody(n Need) bool {
+	switch n.Kind {
+	case "blocked", "decision", "report":
+		return true
 	}
-	return needKey(items[0])
+	return n.Attempt != "" || n.Excerpt != "" || n.Status != ""
+}
+
+func (a *App) openNeed(items []Need) string {
+	for _, n := range items {
+		if a.needChosen[needKey(n)] && needHasBody(n) {
+			return needKey(n)
+		}
+	}
+	top := items[0]
+	if open, ok := a.needChosen[needKey(top)]; ok && !open {
+		return ""
+	}
+	if !needHasBody(top) {
+		return ""
+	}
+	return needKey(top)
 }
 
 func (a *App) toggleNeed(key string, open bool) {
-	a.needSet, a.needOpen, a.decTried = true, key, ""
-	if open {
-		a.needOpen = ""
+	if a.needChosen == nil {
+		a.needChosen = map[string]bool{}
 	}
+	if open {
+		a.needChosen[key] = false
+	} else {
+		for k, v := range a.needChosen {
+			if v && k != key {
+				a.needChosen[k] = false
+			}
+		}
+		a.needChosen[key] = true
+	}
+	a.decTried, a.decErr = "", ""
+	a.attTried, a.attErr = "", ""
 	a.AnswerChoice, a.AnswerNote = "", ""
 }
 
@@ -35,11 +62,13 @@ func (a *App) nextNeed(done string) {
 	if a.Screen != BoardScreen {
 		return
 	}
-	a.needSet, a.needOpen = true, ""
+	a.needChosen = nil
+	a.decTried, a.decErr = "", ""
+	a.attTried, a.attErr = "", ""
 	a.AnswerChoice, a.AnswerNote = "", ""
 	for _, n := range a.Status.Needs.Items {
-		if needRef(n) != done {
-			a.needOpen = needKey(n)
+		if needRef(n) != done && needHasBody(n) {
+			a.needChosen = map[string]bool{needKey(n): true}
 			break
 		}
 	}
@@ -82,6 +111,36 @@ func (a *App) loadNeedDecision(ref string) {
 	}()
 }
 
+func (a *App) loadNeedAttempt(ref string) {
+	if a.Model == nil || a.Fleet.ID == "" || ref == "" || a.attTried == ref {
+		return
+	}
+	a.attTried, a.attErr = ref, ""
+	model, fleet, post := a.Model, a.Fleet.ID, a.Post
+	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
+	apply := func(d AttemptDetail, err error) {
+		if a.Fleet.ID != fleet || a.attTried != ref {
+			return
+		}
+		if err != nil {
+			a.attErr = friendly(err)
+			return
+		}
+		a.needAttempt = d
+	}
+	if post == nil {
+		d, err := model.Attempt(ctx, fleet, ref)
+		cancel()
+		apply(d, err)
+		return
+	}
+	go func() {
+		d, err := model.Attempt(ctx, fleet, ref)
+		cancel()
+		post(func() { apply(d, err) })
+	}()
+}
+
 func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 	needs := a.Status.Needs
 	ui.Row(c).Gap(10).Children(func() {
@@ -97,7 +156,7 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 	}
 	open := a.openNeed(needs.Items)
 	ui.Column(c).Children(func() {
-		prev := ""
+		prev, afterOpen := "", false
 		for i, item := range needs.Items {
 			need := item
 			first := need.Word != prev
@@ -107,7 +166,9 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 					Padding(kit.Space20*float32(min(i, 1)), kit.Space16, kit.Space4)
 				prev = need.Word
 			}
-			a.needRow(c, k, p, need, first, needKey(need) == open)
+			isOpen := needKey(need) == open
+			a.needRow(c, k, p, need, first, afterOpen, isOpen)
+			afterOpen = isOpen
 		}
 	})
 	if needs.More > 0 {
@@ -133,7 +194,9 @@ func (a *App) allClear(c *ui.Context, k kit.Colors) {
 	})
 }
 
-func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, open bool) {
+func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, afterOpen, open bool) {
+	inert := !needHasBody(need)
+	open = open && !inert
 	bg, ink := toneColors(need.Tone, p)
 	refs := []string{need.Ref}
 	if need.Task != "" && need.Task != need.Ref {
@@ -145,13 +208,16 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, 
 		card.Margin(kit.Space6, 0, kit.Space10).Border(1, k.Line).Radius(kit.RadiusLG).Clip()
 	} else {
 		top := float32(0)
-		if first {
+		if first || afterOpen {
 			top = 1
 		}
 		card.BorderWidth(top, 0, 1, 0).BorderColor(k.Line)
 	}
 	card.Children(func() {
-		head := ui.ButtonBase(c.Key("need:" + needKey(need))).Gap(kit.Space10).Cursor(ui.CursorPointer).Label(need.Title)
+		head := ui.ButtonBase(c.Key("need:" + needKey(need))).Gap(kit.Space10).Label(need.Title)
+		if !inert {
+			head.Cursor(ui.CursorPointer)
+		}
 		if open {
 			head.Background(bg).Padding(kit.Space12, 15, kit.Space10).AlignItems(ui.Start)
 		} else {
@@ -163,7 +229,18 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, 
 				icon.Margin(3, 0, 0)
 			}
 			meta := func() {
-				ui.Text(c, slug).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+				line := slug
+				if open && need.Kind == "report" {
+					if need.Attempt != "" {
+						line += " " + need.Attempt
+					}
+					if need.Status != "" {
+						line += " · " + need.Status
+					}
+				}
+				if line != "" {
+					ui.Text(c, line).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+				}
 				if need.CreatedAt != "" {
 					ui.Text(c, stamp(need.CreatedAt)).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
@@ -178,12 +255,14 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, 
 				ui.Text(c, title).FontSize(kit.Body.Size).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 				meta()
 			}
-			chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
-			if open {
-				chevron.Rotate(180)
+			if !inert {
+				chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
+				if open {
+					chevron.Rotate(180)
+				}
 			}
 		})
-		if head.Clicked() {
+		if head.Clicked() && !inert {
 			a.toggleNeed(needKey(need), open)
 		}
 		if open {
@@ -193,8 +272,11 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, 
 }
 
 func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
-	if need.Kind == "decision" {
+	switch need.Kind {
+	case "decision":
 		a.loadNeedDecision(need.Decision)
+	case "failure":
+		a.loadNeedAttempt(need.Attempt)
 	}
 	ui.Column(c).Gap(kit.Space10).Padding(kit.Space10, 15, 15, 41).Children(func() {
 		link := func(ref string) {
@@ -202,8 +284,15 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 				return
 			}
 			label := "View " + ref
-			if need.Kind == "decision" || need.Kind == "report" {
+			switch need.Kind {
+			case "decision":
 				label = "Open " + ref
+			case "report":
+				if need.Cut {
+					label = "read more"
+				} else {
+					label = "Open " + ref
+				}
 			}
 			el := ui.ButtonBase(c.Key("open:" + ref)).Height(kit.Control).AlignSelf(ui.Start).Cursor(ui.CursorPointer).Label(label)
 			el.Children(func() { ui.Text(c, label).FontSize(kit.Body.Size).TextColor(k.Accent) })
@@ -234,8 +323,12 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 					a.markdown(c, body)
 				}
 				a.answerForm(c, p, d, false)
+				if d.Decision.Answer != "" {
+					ui.Text(c, "Answer").FontSize(kit.Meta.Size).Bold().TextColor(k.Muted)
+					a.markdown(c, d.Decision.Answer)
+				}
 			case a.decErr != "":
-				ui.Text(c, a.decErr).FontSize(kit.Body.Size).TextColor(k.Fail)
+				a.needReadError(c, p, "retry-decision:"+need.Decision, a.decErr, func() { a.decTried, a.decErr = "", "" })
 			default:
 				ui.Text(c, "Reading "+need.Decision+"…").FontSize(kit.Body.Size).TextColor(k.Muted)
 			}
@@ -245,12 +338,30 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 				a.blockedKeys(c, p, sup)
 			}
 		case "failure":
-			if need.Status != "" {
-				ui.Text(c, need.Status).FontSize(kit.Body.Size).TextColor(k.Muted)
+			switch {
+			case a.attErr != "" && a.attTried == need.Attempt:
+				a.needReadError(c, p, "retry-attempt:"+need.Attempt, a.attErr, func() { a.attTried, a.attErr = "", "" })
+			case a.needAttempt.Attempt.Ref == need.Attempt:
+				if reason := a.needAttempt.Attempt.Reason; reason != "" {
+					ui.Text(c, reason).FontSize(kit.Body.Size).TextColor(k.Muted)
+				}
+			default:
+				if need.Attempt != "" {
+					ui.Text(c, "Reading "+need.Attempt+"…").FontSize(kit.Body.Size).TextColor(k.Muted)
+				}
 			}
 			link(need.Attempt)
 		default:
 			link(need.Attempt)
+		}
+	})
+}
+
+func (a *App) needReadError(c *ui.Context, p palette, key, msg string, retry func()) {
+	ui.Column(c).Gap(6).Children(func() {
+		ui.Text(c, msg).FontSize(kit.Body.Size).TextColor(p.fail)
+		if ui.Button(c.Key(key), "Retry").Clicked() {
+			retry()
 		}
 	})
 }

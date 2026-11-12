@@ -37,11 +37,10 @@ func yOf(t *testing.T, tt *ui.Tester, text string) float32 {
 }
 
 func TestScenesNeeds(t *testing.T) {
-	reason := "launch did not finish: the worktree already exists at a path that is not ours"
+	const reason = "launch did not finish: the worktree already exists at a path that is not ours"
 	cleared := func(st *desktop.Status) {
 		st.Needs = desktop.Needs{Cleared: "2026-11-01T04:40:00Z", Summary: "3 reports read, 1 decision answered"}
 	}
-	failing := func(st *desktop.Status) { st.Needs.Items[0].Status = reason }
 	scenes := []struct {
 		name   string
 		change func(*desktop.Status)
@@ -52,7 +51,7 @@ func TestScenesNeeds(t *testing.T) {
 			[]string{"Failed", "Decision", "Report", "Mark read", "Open r1", "All tests pass."}},
 		{"decision-open", func(*desktop.Status) {}, func(t *testing.T, tt *ui.Tester) { click(t, tt, "Keep the old cookie name?") },
 			[]string{"Yes, keep it", "No, rename it", "Send answer", "Open d1"}},
-		{"failure-open", failing, nil, []string{"Failed", reason, "View a2"}},
+		{"failure-open", func(*desktop.Status) {}, nil, []string{"Failed", reason, "View a2"}},
 		{"all-clear", cleared, nil, []string{"All clear", "since", "3 reports read, 1 decision answered"}},
 	}
 	for _, sc := range scenes {
@@ -166,11 +165,86 @@ func TestTheTopNeedStartsOpenAndClosesAgain(t *testing.T) {
 	mustText(t, tt, "View a2")
 }
 
-func TestAFailureShowsItsReasonWhereStatusCarriesOne(t *testing.T) {
-	reason := "launch did not finish: the worktree already exists"
-	f := needsWith(t, func(st *desktop.Status) { st.Needs.Items[0].Status = reason })
-	mustText(t, newTester(newApp(t, f)), reason, "View a2")
-	mustNotText(t, newTester(newApp(t, goldenFixture(t))), reason)
+func TestAFailureShowsTheAttemptsReason(t *testing.T) {
+	const reason = "launch did not finish: the worktree already exists at a path that is not ours"
+	mustText(t, newTester(newApp(t, goldenFixture(t))), reason, "View a2")
+}
+
+func TestAFailedAttemptReadOffersRetry(t *testing.T) {
+	f := goldenFixture(t)
+	refs := f.attemptRefs
+	f.attemptRefs = nil
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "not found: attempt a2", "Retry")
+	f.attemptRefs = refs
+	click(t, tt, "Retry")
+	mustText(t, tt, "launch did not finish: the worktree already exists at a path that is not ours")
+}
+
+func TestAFailedDecisionReadOffersRetry(t *testing.T) {
+	f := goldenFixture(t)
+	tt := newTester(newApp(t, f))
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	click(t, tt, "Keep the old cookie name?")
+	mustText(t, tt, "the board is restarting", "Retry")
+	f.fail = nil
+	click(t, tt, "Retry")
+	mustText(t, tt, "Yes, keep it", "Send answer")
+}
+
+func TestAFreshTopNeedOpensAfterTheOldOneCloses(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	title := "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump"
+	click(t, tt, title)
+	mustNotText(t, tt, "View a2")
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{
+		Kind: "report", Ref: "r9", Title: "Fresh report", Word: "REPORT", Tone: "neutral",
+		Task: "t1", Report: "r9", Attempt: "a1", Status: "done",
+		CreatedAt: "2026-11-01T06:00:00Z", Excerpt: "New.",
+	}}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	menu(t, tt, "Refresh now")
+	mustText(t, tt, "Fresh report", "Mark read")
+}
+
+func TestAKindWithNothingToShowStaysInert(t *testing.T) {
+	const title = "Supervisor idle for 1h with 2 active tasks"
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{
+			{Kind: "stalled", Ref: "s1", Title: title, Word: "STALLED", Tone: "wait"},
+			{Kind: "report", Ref: "r1", Title: "Cookie fixed", Word: "REPORT", Tone: "neutral", Task: "t1", Report: "r1", Attempt: "a1", Status: "done", Excerpt: "All tests pass."},
+		}
+	})
+	tt := newTester(newApp(t, f))
+	row, ok := tt.Find(title)
+	if !ok || row.H != kit.Tap {
+		t.Fatalf("a closed inert row is %v high, want %d", row.H, kit.Tap)
+	}
+	click(t, tt, title)
+	if row, _ = tt.Find(title); row.H != kit.Tap {
+		t.Errorf("an inert row opened to %v high, want %d", row.H, kit.Tap)
+	}
+	mustNotText(t, tt, "Mark read")
+	mustNotText(t, tt, "View a1")
+}
+
+func TestAReportOpenCardShowsItsAttemptAndStatus(t *testing.T) {
+	tt := newTester(newApp(t, goldenFixture(t)))
+	click(t, tt, "Cookie fixed")
+	at, _ := time.Parse(time.RFC3339, "2026-11-01T04:40:00Z")
+	mustText(t, tt, "r1 t1 a1 · done", at.Local().Format("Jan 2, 15:04"))
+}
+
+func TestACutExcerptReadsMore(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) { st.Needs.Items[2].Cut = true })
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "read more")
+	mustNotText(t, tt, "Open r1")
 }
 
 func TestAReportOpensToItsExcerptAndMarksRead(t *testing.T) {
@@ -279,6 +353,6 @@ func TestAllClearShowsWhenItClearedAndTheSummary(t *testing.T) {
 	})
 	tt := newTester(newApp(t, f))
 	at, _ := time.Parse(time.RFC3339, "2026-11-01T04:40:00Z")
-	mustText(t, tt, "All clear", "since "+at.Local().Format("Jan 2 15:04")+" · 3 reports read")
+	mustText(t, tt, "All clear", "since "+at.Local().Format("Jan 2, 15:04")+" · 3 reports read")
 	mustNotText(t, tt, "Nothing waits on you.")
 }
