@@ -405,7 +405,7 @@ func TestNeedsOpensADecision(t *testing.T) {
 func TestTheConversationShowsItsEntriesAndTheWorkingLine(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	mustText(t, tt, "Conversation", "s1 is working", "All good.", "status?", "you", "hand")
+	mustText(t, tt, "Conversation", "s1 working", "All good.", "status?", "you", "hand")
 }
 
 func TestComposerSendsWithCtrlEnter(t *testing.T) {
@@ -1131,7 +1131,7 @@ func TestAHungBoardDoesNotFreezeTheWindow(t *testing.T) {
 	waitPost(t, posted)()
 	waitPost(t, posted)()
 	tt.Frame()
-	mustText(t, tt, "Needs", "s1 is working")
+	mustText(t, tt, "Needs", "s1 working")
 	mustNotText(t, tt, "Reading the board")
 }
 
@@ -1842,7 +1842,7 @@ func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {
 		return -1
 	}
 	e := app.Timeline.Entries
-	if idx("s1 is working") < idx(e[0].Text) || idx("s1 is working") > idx("Message") {
+	if idx("s1 working") < idx(e[0].Text) || idx("s1 working") > idx("Message") {
 		t.Fatalf("banner is not between the last message and the composer in %q", texts)
 	}
 }

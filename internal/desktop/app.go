@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 )
 
@@ -59,6 +61,8 @@ type App struct {
 	// reads inline, as the tests and Boot do.
 	Post    func(func())
 	OnFleet func(Fleet)
+	// Now is the time the working line counts from; nil uses the wall clock.
+	Now func() time.Time
 
 	Fleets []Fleet
 	Fleet  Fleet
@@ -111,7 +115,8 @@ type App struct {
 	stopTimer func()
 	stopGen   int
 	stopRef   string
-	tail      string
+	scroll    ui.ScrollState
+	wakesOpen map[string]bool
 
 	polling    bool
 	closed     bool
@@ -252,7 +257,8 @@ func (a *App) SelectFleet(id string) {
 	if f, ok := a.fleetByID(id); ok {
 		a.Fleet = f
 	}
-	a.Screen, a.Ref, a.back, a.tail = BoardScreen, "", nil, "\x00"
+	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.scroll.Y = math.MaxFloat32
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.TimelineErr, a.OlderErr = "", ""
