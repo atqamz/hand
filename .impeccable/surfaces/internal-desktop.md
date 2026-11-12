@@ -12,9 +12,9 @@ related_targets:
 ## Scope and mode
 
 - **Covers:** `hand-desktop`, a MyGo v0.7.4 window (pinned, cgo-free) that is a client of the running Board:
-  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and an inert Phone (Board, Tasks, Conversation and Screen all return to the two panes until the pages they name exist), then a tinted mark for each fleet this machine can open;
-  - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat 38% wide by default, 360 to 720 px, the work pane never under 440 px, the width kept while the window runs; below 900 px the chat holds 360 px and the work pane takes the rest, until the narrow tabs exist);
-  - the supervisor's pane head: its ref and model, the controls that apply (Start and Resume, Interrupt, Force, Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button; a blocked supervisor's question with one button per option (or the key toolbar) under it;
+  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and an inert Phone (Board returns to the two panes; Tasks, Conversation, Screen and Phone do nothing until the pages they name exist), then a tinted mark for each fleet this machine can open;
+  - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat starts at 38% wide clamped to 400 to 720 px and may be dragged down to 360 px, the work pane never under 440 px, the width kept while the window runs; the window is never narrower than 860 px, so that rule holds until the narrow tabs exist);
+  - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button and the status's composer hint under the composer; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
   - Needs: every open item in the page's order, toned by its severity word;
   - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: a multi-line message field with Send and Clear;
   - Tasks: the grouped task list, and each task's detail;
@@ -84,6 +84,8 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `18-overflow-menu.png` | the pane head's menu: Refresh now and Open in browser |
 | `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
 | `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
+| `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 780×700 and 1100×760 in both themes |
+| `22-resumable-1100x760-<light or dark>.png` | the head of a supervisor that can be resumed: Resume, with New session in the menu |
 
 ## Auth decision
 
