@@ -56,6 +56,8 @@ type fixture struct {
 	nameOut       chan error
 	block         chan struct{}
 	entered       chan struct{}
+	attemptIn     chan chan error
+	decisionIn    chan chan error
 	pollBlock     chan struct{}
 	pollEntered   chan struct{}
 	pollExited    chan struct{}
@@ -158,6 +160,13 @@ func (f *fixture) Task(ctx context.Context, id, ref string) (desktop.TaskDetail,
 
 func (f *fixture) Attempt(ctx context.Context, id, ref string) (desktop.AttemptDetail, error) {
 	f.note("attempt:" + ref)
+	if f.attemptIn != nil {
+		ch := make(chan error, 1)
+		f.attemptIn <- ch
+		if err := <-ch; err != nil {
+			return desktop.AttemptDetail{}, err
+		}
+	}
 	if f.attemptErr != nil {
 		return desktop.AttemptDetail{}, f.attemptErr
 	}
@@ -175,6 +184,13 @@ func (f *fixture) Attempt(ctx context.Context, id, ref string) (desktop.AttemptD
 }
 
 func (f *fixture) Decision(ctx context.Context, id, ref string) (desktop.DecisionDetail, error) {
+	if f.decisionIn != nil {
+		ch := make(chan error, 1)
+		f.decisionIn <- ch
+		if err := <-ch; err != nil {
+			return desktop.DecisionDetail{}, err
+		}
+	}
 	if f.fail != nil {
 		return desktop.DecisionDetail{}, f.fail
 	}

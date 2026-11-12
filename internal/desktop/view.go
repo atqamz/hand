@@ -65,8 +65,8 @@ func (a *App) View(c *ui.Context) {
 	p, k := paletteFor(dark), kit.ColorsFor(dark)
 	c.SetTheme(boardTheme(dark))
 	if a.receipt != "" {
-		c.AddToast(ui.Toast{ID: "receipt", Title: a.receipt, Timeout: receiptFor})
-		a.receipt = ""
+		c.AddToast(ui.Toast{ID: a.receiptKey, Title: a.receipt, Timeout: receiptFor})
+		a.receipt, a.receiptKey = "", ""
 	}
 	ui.Row(c).Fill().Children(func() {
 		a.rail(c, k, p)

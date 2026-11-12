@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -355,4 +356,174 @@ func TestAllClearShowsWhenItClearedAndTheSummary(t *testing.T) {
 	at, _ := time.Parse(time.RFC3339, "2026-11-01T04:40:00Z")
 	mustText(t, tt, "All clear", "since "+at.Local().Format("Jan 2, 15:04")+" · 3 reports read")
 	mustNotText(t, tt, "Nothing waits on you.")
+}
+
+func TestAnAnswerDraftBelongsToItsDecision(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{
+			{Kind: "decision", Ref: "d1", Title: "Keep the old cookie name?", Word: "DECISION", Tone: "wait", Task: "t1", Decision: "d1", CreatedAt: "2026-11-01T04:40:00Z"},
+			{Kind: "decision", Ref: "d2", Title: "Rename the cookie?", Word: "DECISION", Tone: "wait", Task: "t1", Decision: "d2", CreatedAt: "2026-11-01T05:40:00Z"},
+		}
+	})
+	second := f.decision[fleetID]
+	second.Decision.Ref, second.Decision.Headline = "d2", "Rename the cookie?"
+	second.Decision.Question = "Rename the cookie?\n\n1. Yes, keep it\n2. No, rename it"
+	f.extra = map[string]desktop.DecisionDetail{"d2": second}
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Yes, keep it")
+	if app.AnswerChoice == "" {
+		t.Fatal("the option was not selected")
+	}
+
+	st := f.status[fleetID]
+	st.Needs.Items = st.Needs.Items[1:]
+	st.Needs.Waiting = 1
+	f.status[fleetID] = st
+	menu(t, tt, "Refresh now")
+	if app.AnswerChoice != "" {
+		t.Errorf("the next decision opens with %q still selected", app.AnswerChoice)
+	}
+	mustText(t, tt, "Rename the cookie?", "Send answer")
+}
+
+func TestAFailedStatusAfterMarkReadKeepsTheReportRead(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Cookie fixed")
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Mark read")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the acknowledgement never started")
+	}
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "r1 marked read", "View a2")
+	mustNotText(t, tt, "Mark read")
+}
+
+func TestClosingANeedDoesNotReopenTheTopItem(t *testing.T) {
+	tt := newTester(newApp(t, goldenFixture(t)))
+	mustText(t, tt, "View a2")
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "Mark read")
+	click(t, tt, "Cookie fixed")
+	mustNotText(t, tt, "View a2")
+	mustNotText(t, tt, "Mark read")
+	mustNotText(t, tt, "Send answer")
+}
+
+func TestACompletedNeedDoesNotReopenAsTheTopItem(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{{
+			Kind: "report", Ref: "r1", Title: "Cookie fixed", Word: "REPORT", Tone: "neutral",
+			Task: "t1", Report: "r1", Attempt: "a1", Status: "done", CreatedAt: "2026-11-01T04:40:00Z", Excerpt: "All tests pass.",
+		}}
+	})
+	f.keepNeeds = true
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Mark read")
+	mustNotText(t, tt, "Mark read")
+	mustText(t, tt, "All clear")
+}
+
+func answerReads(t *testing.T, first chan error, ch chan chan error, posted <-chan func(), tt *ui.Tester, done func() bool) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for !done() {
+		select {
+		case c := <-ch:
+			c <- nil
+			waitPost(t, posted)()
+		case <-time.After(100 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("the need never settled on a read")
+		}
+		tt.Frame()
+	}
+	first <- errors.New("the earlier read failed")
+	waitPost(t, posted)()
+	for {
+		select {
+		case c := <-ch:
+			c <- errors.New("the earlier read failed")
+			waitPost(t, posted)()
+		case <-time.After(100 * time.Millisecond):
+			tt.Frame()
+			return
+		}
+	}
+}
+
+func TestAnEarlierAttemptReadCannotReplaceTheNewerOne(t *testing.T) {
+	const (
+		title  = "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump"
+		reason = "launch did not finish: the worktree already exists at a path that is not ours"
+	)
+	f := goldenFixture(t)
+	f.attemptIn = make(chan chan error, 8)
+	app := newApp(t, f)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	tt.Frame()
+	first := <-f.attemptIn
+	click(t, tt, title)
+	click(t, tt, title)
+	answerReads(t, first, f.attemptIn, posted, tt, func() bool { return tt.HasText(reason) })
+	mustNotText(t, tt, "the earlier read failed")
+	mustText(t, tt, reason)
+}
+
+func TestAnEarlierDecisionReadCannotReplaceTheNewerOne(t *testing.T) {
+	f := goldenFixture(t)
+	f.decisionIn = make(chan chan error, 8)
+	app := newApp(t, f)
+	tt := newTester(app)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	const title = "Keep the old cookie name?"
+	click(t, tt, title)
+	first := <-f.decisionIn
+	click(t, tt, title)
+	click(t, tt, title)
+	answerReads(t, first, f.decisionIn, posted, tt, func() bool { return tt.HasText("Send answer") })
+	mustNotText(t, tt, "the earlier read failed")
+	mustText(t, tt, "Yes, keep it", "Send answer")
+}
+
+func TestAFailedDecisionRereadShowsTheErrorNotTheCachedForm(t *testing.T) {
+	f := goldenFixture(t)
+	tt := newTester(newApp(t, f))
+	const title = "Keep the old cookie name?"
+	click(t, tt, title)
+	mustText(t, tt, "Yes, keep it", "Send answer")
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	click(t, tt, title)
+	click(t, tt, title)
+	mustText(t, tt, "the board is restarting", "Retry")
+	mustNotText(t, tt, "Yes, keep it")
+	mustNotText(t, tt, "Send answer")
+}
+
+func TestTwoActionReceiptsStayForTheirFullInterval(t *testing.T) {
+	f := goldenFixture(t)
+	f.keepNeeds = true
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Cookie fixed")
+	click(t, tt, "Mark read")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	mustText(t, tt, "r1 marked read", "d1 answered · s1 reads it now")
 }

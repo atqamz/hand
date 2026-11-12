@@ -23,28 +23,72 @@ func needHasBody(n Need) bool {
 	return n.Attempt != "" || n.Excerpt != "" || n.Status != ""
 }
 
+func (a *App) visibleNeeds() []Need {
+	items := a.Status.Needs.Items
+	if len(a.ackDone) == 0 {
+		return items
+	}
+	out := make([]Need, 0, len(items))
+	for _, n := range items {
+		if !a.ackDone[needRef(n)] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func (a *App) reconcileAcked() {
+	if len(a.ackDone) == 0 {
+		return
+	}
+	live := make(map[string]bool, len(a.Status.Needs.Items))
+	for _, n := range a.Status.Needs.Items {
+		live[needRef(n)] = true
+	}
+	for ref := range a.ackDone {
+		if !live[ref] {
+			delete(a.ackDone, ref)
+		}
+	}
+}
+
 func (a *App) openNeed(items []Need) string {
 	for _, n := range items {
 		if a.needChosen[needKey(n)] && needHasBody(n) {
 			return needKey(n)
 		}
 	}
-	top := items[0]
-	if open, ok := a.needChosen[needKey(top)]; ok && !open {
+	top := needKey(items[0])
+	if closed, ok := a.needChosen[top]; ok && !closed {
 		return ""
 	}
-	if !needHasBody(top) {
+	if top == a.needClosedTop || !needHasBody(items[0]) {
 		return ""
 	}
-	return needKey(top)
+	return top
 }
 
-func (a *App) toggleNeed(key string, open bool) {
+func (a *App) syncAnswer(items []Need, open string) {
+	ref := ""
+	for _, n := range items {
+		if needKey(n) == open && n.Kind == "decision" {
+			ref = n.Decision
+			break
+		}
+	}
+	if ref == a.answerRef {
+		return
+	}
+	a.answerRef, a.AnswerChoice, a.AnswerNote = ref, "", ""
+}
+
+func (a *App) toggleNeed(key, top string, open bool) {
 	if a.needChosen == nil {
 		a.needChosen = map[string]bool{}
 	}
 	if open {
 		a.needChosen[key] = false
+		a.needClosedTop = top
 	} else {
 		for k, v := range a.needChosen {
 			if v && k != key {
@@ -55,7 +99,7 @@ func (a *App) toggleNeed(key string, open bool) {
 	}
 	a.decTried, a.decErr = "", ""
 	a.attTried, a.attErr = "", ""
-	a.AnswerChoice, a.AnswerNote = "", ""
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 }
 
 func (a *App) nextNeed(done string) {
@@ -65,12 +109,16 @@ func (a *App) nextNeed(done string) {
 	a.needChosen = nil
 	a.decTried, a.decErr = "", ""
 	a.attTried, a.attErr = "", ""
-	a.AnswerChoice, a.AnswerNote = "", ""
-	for _, n := range a.Status.Needs.Items {
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	items := a.visibleNeeds()
+	for _, n := range items {
 		if needRef(n) != done && needHasBody(n) {
 			a.needChosen = map[string]bool{needKey(n): true}
-			break
+			return
 		}
+	}
+	if len(items) > 0 {
+		a.needClosedTop = needKey(items[0])
 	}
 }
 
@@ -86,10 +134,12 @@ func (a *App) loadNeedDecision(ref string) {
 		return
 	}
 	a.decTried, a.decErr = ref, ""
+	a.decGen++
+	gen := a.decGen
 	model, fleet, post := a.Model, a.Fleet.ID, a.Post
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(d DecisionDetail, err error) {
-		if a.Fleet.ID != fleet || a.decTried != ref {
+		if a.Fleet.ID != fleet || a.decTried != ref || a.decGen != gen {
 			return
 		}
 		if err != nil {
@@ -116,10 +166,12 @@ func (a *App) loadNeedAttempt(ref string) {
 		return
 	}
 	a.attTried, a.attErr = ref, ""
+	a.attGen++
+	gen := a.attGen
 	model, fleet, post := a.Model, a.Fleet.ID, a.Post
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(d AttemptDetail, err error) {
-		if a.Fleet.ID != fleet || a.attTried != ref {
+		if a.Fleet.ID != fleet || a.attTried != ref || a.attGen != gen {
 			return
 		}
 		if err != nil {
@@ -143,6 +195,7 @@ func (a *App) loadNeedAttempt(ref string) {
 
 func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 	needs := a.Status.Needs
+	items := a.visibleNeeds()
 	ui.Row(c).Gap(10).Children(func() {
 		ui.Text(c, "Needs").FontSize(kit.Display.Size).Bold()
 		if needs.Waiting > 0 {
@@ -150,14 +203,16 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 			ui.Badge(c, fmt.Sprint(needs.Waiting)).Background(bg).TextColor(fg)
 		}
 	})
-	if len(needs.Items) == 0 {
+	if len(items) == 0 {
 		a.allClear(c, k)
 		return
 	}
-	open := a.openNeed(needs.Items)
+	open := a.openNeed(items)
+	a.syncAnswer(items, open)
+	top := needKey(items[0])
 	ui.Column(c).Children(func() {
 		prev, afterOpen := "", false
-		for i, item := range needs.Items {
+		for i, item := range items {
 			need := item
 			first := need.Word != prev
 			if first {
@@ -167,7 +222,7 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 				prev = need.Word
 			}
 			isOpen := needKey(need) == open
-			a.needRow(c, k, p, need, first, afterOpen, isOpen)
+			a.needRow(c, k, p, need, top, first, afterOpen, isOpen)
 			afterOpen = isOpen
 		}
 	})
@@ -194,7 +249,7 @@ func (a *App) allClear(c *ui.Context, k kit.Colors) {
 	})
 }
 
-func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, afterOpen, open bool) {
+func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top string, first, afterOpen, open bool) {
 	inert := !needHasBody(need)
 	open = open && !inert
 	bg, ink := toneColors(need.Tone, p)
@@ -263,7 +318,7 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, first, 
 			}
 		})
 		if head.Clicked() && !inert {
-			a.toggleNeed(needKey(need), open)
+			a.toggleNeed(needKey(need), top, open)
 		}
 		if open {
 			a.needBody(c, k, p, need)
@@ -318,6 +373,8 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 		case "decision":
 			d := a.Decision
 			switch {
+			case a.decTried == need.Decision && a.decErr != "":
+				a.needReadError(c, p, "retry-decision:"+need.Decision, a.decErr, func() { a.decTried, a.decErr = "", "" })
 			case d.Decision.Ref == need.Decision:
 				if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
 					a.markdown(c, body)
@@ -327,8 +384,6 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 					ui.Text(c, "Answer").FontSize(kit.Meta.Size).Bold().TextColor(k.Muted)
 					a.markdown(c, d.Decision.Answer)
 				}
-			case a.decErr != "":
-				a.needReadError(c, p, "retry-decision:"+need.Decision, a.decErr, func() { a.decTried, a.decErr = "", "" })
 			default:
 				ui.Text(c, "Reading "+need.Decision+"…").FontSize(kit.Body.Size).TextColor(k.Muted)
 			}
