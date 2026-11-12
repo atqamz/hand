@@ -79,16 +79,21 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) timelineError(c *ui.Context, p palette) {
-	if a.TimelineErr == "" {
-		return
+	fail := func(key, title, msg string, retry func()) {
+		ui.Column(c).Gap(6).Padding(12).Radius(kit.RadiusLG).Background(p.failBG).Border(1, p.fail).Children(func() {
+			ui.Text(c, title).FontSize(kit.Body.Size).Bold().TextColor(p.fail)
+			ui.Text(c, msg).FontSize(kit.Meta.Size)
+			if ui.Button(c.Key(key), "Retry").Clicked() {
+				retry()
+			}
+		})
 	}
-	ui.Column(c).Gap(6).Padding(12).Radius(kit.RadiusLG).Background(p.failBG).Border(1, p.fail).Children(func() {
-		ui.Text(c, "The conversation could not be read").FontSize(kit.Body.Size).Bold().TextColor(p.fail)
-		ui.Text(c, a.TimelineErr).FontSize(kit.Meta.Size)
-		if ui.Button(c.Key("timeline:retry"), "Retry").Clicked() {
-			a.Retry()
-		}
-	})
+	if a.TimelineErr != "" {
+		fail("timeline:retry", "The conversation could not be read", a.TimelineErr, a.Retry)
+	}
+	if a.OlderErr != "" {
+		fail("timeline:older-retry", "The earlier messages could not be read", a.OlderErr, a.Older)
+	}
 }
 
 func (a *App) timelineTail() string {

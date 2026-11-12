@@ -42,30 +42,30 @@ type ReadModel interface {
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
 }
 
-// PollCursors are the last cursors the window accepted for the status and its
-// open screen; a window sends them back and commits only what it applies.
-type PollCursors struct {
-	Status   string
-	Screen   string
-	Timeline string
-	Fresh    bool
-	Worker   bool
+type ReadCursor struct {
+	Since       string
+	Fresh, Skip bool
 }
 
-// Poll is one auto-refresh tick: the status and the open screen's data, each
-// read only when its change cursor moved. A false Fresh field means the board
-// answered 304, so the field is empty and the screen keeps what it has. The
-// cursor fields are the ones the tick's 200 answers issued.
+type PollCursors struct {
+	Status, Screen, Timeline ReadCursor
+	Worker                   bool
+}
+
 type Poll struct {
 	StatusFresh    bool
+	StatusRead     bool
+	StatusErr      error
 	Status         Status
 	StatusCursor   string
 	ScreenFresh    bool
+	ScreenRead     bool
+	ScreenErr      error
 	ScreenCursor   string
 	TimelineFresh  bool
-	TimelineCursor string
 	TimelineRead   bool
 	TimelineErr    error
+	TimelineCursor string
 	Timeline       Timeline
 	Tasks          Tasks
 	Task           TaskDetail
@@ -305,43 +305,31 @@ func (c *HTTPClient) Report(ctx context.Context, fleet, ref string) (ReportDetai
 	return out, err
 }
 
-// Poll asks only for the status and the open screen's data, sending the last
-// cursor each read returned. The proof runs once for both requests.
 func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error) {
 	token, err := c.prepare(ctx, fleet)
 	if err != nil {
 		return Poll{}, err
 	}
 	var p Poll
-	statusSince := since.Status
-	if statusSince == "" && !since.Fresh && !since.Worker {
-		statusSince = c.cursor(fleet, "/status")
+	p.StatusFresh, p.StatusCursor, p.StatusRead, p.StatusErr = c.pollRead(ctx, fleet, token, "/status", since.Status, since.Worker, &p.Status)
+	p.ScreenFresh, p.ScreenCursor, p.ScreenRead, p.ScreenErr = c.pollRead(ctx, fleet, token, pollPath(screen, ref), since.Screen, false, pollData(screen, &p))
+	p.TimelineFresh, p.TimelineCursor, p.TimelineRead, p.TimelineErr = c.pollRead(ctx, fleet, token, "/timeline", since.Timeline, false, &p.Timeline)
+	if ctx.Err() != nil {
+		return p, errors.Join(p.StatusErr, p.ScreenErr, p.TimelineErr)
 	}
-	p.StatusFresh, p.StatusCursor, err = c.pollAs(ctx, fleet, token, "/status", statusSince, &p.Status)
-	if err != nil {
-		return Poll{}, err
+	return p, nil
+}
+
+func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc ReadCursor, full bool, out any) (fresh bool, cursor string, read bool, err error) {
+	if rc.Skip {
+		return
 	}
-	path := pollPath(screen, ref)
-	screenSince := since.Screen
-	if screenSince == "" && !since.Fresh {
-		screenSince = c.cursor(fleet, path)
+	since := rc.Since
+	if since == "" && !rc.Fresh && !full {
+		since = c.cursor(fleet, path)
 	}
-	p.ScreenFresh, p.ScreenCursor, err = c.pollAs(ctx, fleet, token, path, screenSince, pollData(screen, &p))
-	timelineSince := since.Timeline
-	if timelineSince == "" && !since.Fresh {
-		timelineSince = c.cursor(fleet, "/timeline")
-	}
-	var terr error
-	p.TimelineFresh, p.TimelineCursor, terr = c.pollAs(ctx, fleet, token, "/timeline", timelineSince, &p.Timeline)
-	switch {
-	case terr == nil:
-		p.TimelineRead = true
-	case ctx.Err() != nil:
-		return p, terr
-	default:
-		p.TimelineErr = terr
-	}
-	return p, err
+	fresh, cursor, err = c.pollAs(ctx, fleet, token, path, since, out)
+	return fresh, cursor, err == nil, err
 }
 
 func pollPath(screen Screen, ref string) string {

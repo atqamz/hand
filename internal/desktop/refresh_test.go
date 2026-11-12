@@ -408,8 +408,8 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 		if app.TimelineErr != "" {
 			t.Fatalf("timeline error = %q after the timeline answered", app.TimelineErr)
 		}
-		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 0 {
-			t.Fatalf("%d full timeline reads after the failure, want the held conversation kept", got)
+		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 1 {
+			t.Fatalf("%d full timeline reads after the failure, want 1", got)
 		}
 		if got := b.fullReads("/api/v1/status") - statusBefore; got != 0 {
 			t.Fatalf("%d full status reads after a timeline-only failure, want none", got)
@@ -480,8 +480,8 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 		if got := b.fullReads("/api/v1/status") - statusBefore; got != 1 {
 			t.Fatalf("%d full status reads after the failure, want 1", got)
 		}
-		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 1 {
-			t.Fatalf("%d full timeline reads after the failure, want 1", got)
+		if got := b.fullReads("/api/v1/timeline") - timelineBefore; got != 0 {
+			t.Fatalf("%d full timeline reads after a status-only failure, want none", got)
 		}
 		if app.Status.Pill != "waiting" {
 			t.Fatalf("status = %+v", app.Status)
@@ -510,7 +510,9 @@ func TestAPartialPollClearsTheErrorOfTheHalfItAnswered(t *testing.T) {
 	}
 
 	b.setFailTimeline(false)
-	clock.Advance(2 * desktop.FocusedRefresh)
+	for range 4 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
 	if app.Err != "" || app.TimelineErr != "" {
 		t.Fatalf("error = %q, timeline error = %q after the status recovered, then a clean poll", app.Err, app.TimelineErr)
 	}
@@ -580,53 +582,85 @@ func TestRefreshRecoversFromABadCursor(t *testing.T) {
 	}
 }
 
-func TestRefreshBacksOffOnErrors(t *testing.T) {
+func readsOf(b *fakeBoard, start int, path string) int {
+	n := 0
+	for _, req := range b.seen(start) {
+		if req.path == path {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAFailingReadBacksOffOnItsOwn(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
 	app.Show(desktop.BoardScreen)
 	b.setFail(true)
 	app.StartRefresh()
-
-	clock.Advance(desktop.FocusedRefresh)
-	if app.Stale == "" {
-		t.Fatal("a failed tick left no stale note")
+	for tick, want := range []int{1, 0, 1, 0, 0, 0, 1} {
+		start := b.mark()
+		clock.Advance(desktop.FocusedRefresh)
+		if got := readsOf(b, start, "/api/v1/status"); got != want {
+			t.Fatalf("tick %d read the failing status %d times, want %d", tick+1, got, want)
+		}
+		for _, path := range []string{"/api/v1/tasks", "/api/v1/timeline"} {
+			if got := readsOf(b, start, path); got != 1 {
+				t.Fatalf("tick %d read %s %d times, want 1: the failing status must not slow it", tick+1, path, got)
+			}
+		}
+		if got := clock.delay(); got != desktop.FocusedRefresh {
+			t.Fatalf("the tick slowed to %v", got)
+		}
 	}
 	mustText(t, newTester(app), "Stale · retrying")
-	if got, want := clock.delay(), 2*desktop.FocusedRefresh; got != want {
-		t.Fatalf("first backoff = %v, want %v", got, want)
-	}
-	start := b.mark()
-	clock.Advance(desktop.FocusedRefresh)
-	if got := b.mark(); got != start {
-		t.Fatal("a tick fired before the backoff elapsed")
-	}
-	clock.Advance(time.Second)
-	if got, want := clock.delay(), 4*desktop.FocusedRefresh; got != want {
-		t.Fatalf("second backoff = %v, want %v", got, want)
-	}
 
 	b.setFail(false)
-	clock.Advance(4 * desktop.FocusedRefresh)
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
 	if app.Stale != "" {
 		t.Fatalf("stale = %q after the board answered", app.Stale)
 	}
 	mustNotText(t, newTester(app), "Stale · retrying")
-	if got := clock.delay(); got != desktop.FocusedRefresh {
-		t.Fatalf("interval after recovery = %v, want %v", got, desktop.FocusedRefresh)
+	start := b.mark()
+	clock.Advance(desktop.FocusedRefresh)
+	if got := readsOf(b, start, "/api/v1/status"); got != 1 {
+		t.Fatalf("a recovered status is read %d times a tick, want 1", got)
 	}
 }
 
-func TestRefreshBacksOffUpToTheCap(t *testing.T) {
+func TestAFailingReadBacksOffUpToTheCap(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
 	b.setFail(true)
 	app.StartRefresh()
-	clock.Advance(desktop.FocusedRefresh)
-	for _, want := range []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second} {
-		if got := clock.delay(); got != want {
-			t.Fatalf("backoff = %v, want %v", got, want)
+	var got []int
+	for tick := 1; tick <= 125; tick++ {
+		start := b.mark()
+		clock.Advance(desktop.FocusedRefresh)
+		if readsOf(b, start, "/api/v1/status") > 0 {
+			got = append(got, tick)
 		}
-		clock.Advance(want)
+	}
+	if want := []int{1, 3, 7, 15, 31, 63, 123}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("the failing status was read at ticks %v, want %v", got, want)
+	}
+}
+
+func TestAFailingTimelineAndAFailingScreenBackOffApart(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	b.setFailTimeline(true)
+	b.setFailTasks(true)
+	app.StartRefresh()
+	for tick, want := range [][3]int{{1, 1, 1}, {1, 0, 0}, {1, 1, 1}, {1, 0, 0}} {
+		start := b.mark()
+		clock.Advance(desktop.FocusedRefresh)
+		got := [3]int{readsOf(b, start, "/api/v1/status"), readsOf(b, start, "/api/v1/tasks"), readsOf(b, start, "/api/v1/timeline")}
+		if got != want {
+			t.Fatalf("tick %d read status, tasks, timeline %v, want %v", tick+1, got, want)
+		}
 	}
 }
 
@@ -684,8 +718,14 @@ func TestAPollThatOutrunsItsTimeoutLeavesTheStaleNote(t *testing.T) {
 		t.Fatalf("stale = %q after the tick timed out", app.Stale)
 	}
 	close(f.pollBlock)
-	if got := clock.delay(); got != 2*desktop.FocusedRefresh {
-		t.Fatalf("backoff after the timeout = %v, want %v", got, 2*desktop.FocusedRefresh)
+	polls := f.count("poll:" + fleetID)
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("poll:" + fleetID); got != polls {
+		t.Fatalf("a tick inside the backoff polled again")
+	}
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("poll:" + fleetID); got != polls+1 {
+		t.Fatalf("the retry after the backoff made %d polls, want %d", got, polls+1)
 	}
 }
 

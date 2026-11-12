@@ -43,3 +43,23 @@ func TestAPollOlderThanTheLastReadIsDropped(t *testing.T) {
 		t.Fatalf("a poll older than the last read applied its status: %+v", a.Status)
 	}
 }
+
+func TestAQueuedMessageDeliveredLaterIsKeptOnce(t *testing.T) {
+	have := Timeline{Older: 10, Entries: []Entry{
+		{Role: "operator", Input: 7, Text: "hi", At: "2026-11-01T04:40:00Z", Queued: true},
+		{Role: "supervisor", Text: "mid", At: "2026-11-01T04:43:00Z"},
+		{Role: "supervisor", Text: "old", At: "2026-11-01T04:39:00Z"},
+	}}
+	next := Timeline{Older: 20, Entries: []Entry{
+		{Role: "operator", Input: 7, No: 9, Text: "hi", At: "2026-11-01T04:46:00Z", Delivery: "delivered"},
+		{Role: "supervisor", Text: "mid", At: "2026-11-01T04:43:00Z"},
+	}}
+	got := mergeTimeline(have, next)
+	var texts []string
+	for _, e := range got.Entries {
+		texts = append(texts, e.Text)
+	}
+	if !reflect.DeepEqual(texts, []string{"hi", "mid", "old"}) || got.Older != 10 || got.Entries[0].Delivery != "delivered" {
+		t.Fatalf("merged %q at %d, want hi once, delivered, with the old page kept", texts, got.Older)
+	}
+}

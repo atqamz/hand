@@ -69,6 +69,7 @@ type App struct {
 	paneW       float32
 	StopArmed   bool
 	TimelineErr string
+	OlderErr    string
 	Ref         string
 	Loading     bool
 	Busy        bool
@@ -118,13 +119,25 @@ type App struct {
 	pollTimer  func()
 	pollCancel context.CancelFunc
 	pollBusy   bool
-	pollFails  int
 
-	pollFresh        bool
+	reads            [3]readState
+	pollSkipped      [3]bool
 	pollStatus       string
 	pollScreenFor    string
 	pollScreenCursor string
 	pollTimeline     string
+}
+
+const (
+	readStatus = iota
+	readScreen
+	readTimeline
+)
+
+type readState struct {
+	fails, skip int
+	err         string
+	fresh       bool
 }
 
 type backStep struct {
@@ -241,6 +254,7 @@ func (a *App) SelectFleet(id string) {
 	a.Screen, a.Ref, a.back, a.tail = BoardScreen, "", nil, "\x00"
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
+	a.TimelineErr, a.OlderErr = "", ""
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
 	a.OpenBusy = false
@@ -378,10 +392,10 @@ func (a *App) Older() {
 			return
 		}
 		if err != nil {
-			a.TimelineErr = friendly(err)
+			a.OlderErr = friendly(err)
 			return
 		}
-		a.TimelineErr = ""
+		a.OlderErr = ""
 		merged := a.Timeline
 		merged.Entries = append(append([]Entry(nil), a.Timeline.Entries...), tl.Entries...)
 		merged.Older = tl.Older
@@ -583,7 +597,7 @@ func (a *App) Send() {
 			a.ActionWarn = true
 			return
 		}
-		a.Timeline = sent.Timeline
+		a.Timeline = mergeTimeline(a.Timeline, sent.Timeline)
 	}
 	uncleared := func(err error) {
 		if id != a.loadID {
@@ -944,12 +958,6 @@ func (a *App) pollDelay() time.Duration {
 	if a.Unfocused {
 		d = UnfocusedRefresh
 	}
-	for i := 0; i < a.pollFails && d < maxRefreshBackoff; i++ {
-		d *= 2
-	}
-	if d > maxRefreshBackoff {
-		d = maxRefreshBackoff
-	}
 	return d
 }
 
@@ -967,8 +975,7 @@ func (a *App) resetPoll() {
 		a.pollCancel = nil
 	}
 	a.pollBusy = false
-	a.pollFails = 0
-	a.pollFresh = false
+	a.reads, a.pollSkipped = [3]readState{}, [3]bool{}
 	a.pollStatus, a.pollScreenFor, a.pollScreenCursor, a.pollTimeline = "", "", "", ""
 	a.Stale = ""
 }
@@ -1005,15 +1012,29 @@ func (a *App) pollOnce(gen, tick int) {
 	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
 	load := a.loadID
 	key := pollScreenID(screen, ref)
-	since := PollCursors{Fresh: a.pollFresh, Worker: slices.ContainsFunc(a.Status.Needs.Items, func(n Need) bool { return n.Kind == "worker" })}
-	if !a.pollFresh {
-		if !since.Worker {
-			since.Status = a.pollStatus
+	since := PollCursors{Worker: slices.ContainsFunc(a.Status.Needs.Items, func(n Need) bool { return n.Kind == "worker" })}
+	cursors := [3]*ReadCursor{&since.Status, &since.Screen, &since.Timeline}
+	held := [3]string{a.pollStatus, "", a.pollTimeline}
+	if a.pollScreenFor == key {
+		held[readScreen] = a.pollScreenCursor
+	}
+	for i, rc := range cursors {
+		rs := &a.reads[i]
+		a.pollSkipped[i] = rs.skip > 0
+		switch {
+		case rs.skip > 0:
+			rs.skip--
+			rc.Skip = true
+		case rs.fresh:
+			rc.Fresh = true
+		case i == readStatus && since.Worker:
+		default:
+			rc.Since = held[i]
 		}
-		if a.pollScreenFor == key {
-			since.Screen = a.pollScreenCursor
-		}
-		since.Timeline = a.pollTimeline
+	}
+	if a.pollSkipped == [3]bool{true, true, true} {
+		a.armPoll()
+		return
 	}
 	ctx := a.Context
 	if ctx == nil {
@@ -1051,14 +1072,27 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.armPoll()
 		return
 	}
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	errs := [3]error{p.StatusErr, p.ScreenErr, p.TimelineErr}
+	read := [3]bool{p.StatusRead, p.ScreenRead, p.TimelineRead}
+	for i := range a.reads {
+		switch {
+		case read[i]:
+			a.reads[i] = readState{}
+		case a.pollSkipped[i]:
+		case errs[i] != nil || err != nil:
+			e := errs[i]
+			if e == nil {
+				e = err
+			}
+			a.failRead(i, e)
 		}
-		a.Stale = friendly(err)
-		a.pollFails++
-	} else {
-		a.Stale, a.pollFails, a.pollFresh = "", 0, false
+	}
+	a.Stale = a.reads[readStatus].err
+	if a.Stale == "" {
+		a.Stale = a.reads[readScreen].err
 	}
 	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
@@ -1067,11 +1101,8 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if a.Fleet.ID == fleet && p.TimelineFresh {
 		a.Timeline, a.pollTimeline = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor
 	}
-	if a.Fleet.ID == fleet && p.TimelineRead {
-		a.TimelineErr = ""
-	}
-	if a.Fleet.ID == fleet && p.TimelineErr != nil {
-		a.TimelineErr = friendly(p.TimelineErr)
+	if a.Fleet.ID == fleet {
+		a.TimelineErr = a.reads[readTimeline].err
 	}
 	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
 		a.setScreen(screen, key, &p)
@@ -1081,6 +1112,14 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.setErr("")
 	}
 	a.armPoll()
+}
+
+func (a *App) failRead(i int, err error) {
+	rs := &a.reads[i]
+	rs.fails++
+	rs.err = friendly(err)
+	ticks := int(maxRefreshBackoff / a.pollDelay())
+	rs.skip = min(1<<min(rs.fails, 16), max(ticks, 1)) - 1
 }
 
 func (a *App) setScreen(screen Screen, key string, p *Poll) {
@@ -1100,26 +1139,38 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 }
 
 func mergeTimeline(have, next Timeline) Timeline {
-	// A boundary that moved back means the board re-indexed or lost entries, so
-	// the held page no longer covers a range Older can address; the fresh page wins.
 	if have.Older >= next.Older {
 		return next
 	}
+	oldest := ""
 	seen := map[string]bool{}
 	for _, entry := range next.Entries {
 		seen[entryKey(entry)] = true
-	}
-	for _, entry := range have.Entries {
-		if !seen[entryKey(entry)] {
-			next.Entries = append(next.Entries, entry)
+		if entry.At != "" && (oldest == "" || entry.At < oldest) {
+			oldest = entry.At
 		}
 	}
-	next.Older = have.Older
+	if oldest == "" {
+		return next
+	}
+	held := false
+	for _, entry := range have.Entries {
+		if !seen[entryKey(entry)] && entry.At != "" && entry.At < oldest {
+			next.Entries = append(next.Entries, entry)
+			held = true
+		}
+	}
+	if held {
+		next.Older = have.Older
+	}
 	return next
 }
 
 func entryKey(e Entry) string {
-	return fmt.Sprintf("%d/%s/%s/%s", e.No, e.Role, e.At, e.Text)
+	if e.Input != 0 {
+		return fmt.Sprintf("i%d", e.Input)
+	}
+	return fmt.Sprintf("%s/%s/%s", e.Role, e.At, e.Text)
 }
 
 func (a *App) nameTimeout() time.Duration {
@@ -1208,9 +1259,12 @@ func (a *App) apply(l loaded) {
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
 	a.TimelineErr = l.TimelineErr
 	if l.Err == "" && l.TimelineErr == "" {
-		a.Stale, a.pollFails, a.pollFresh = "", 0, false
+		a.Stale, a.reads = "", [3]readState{}
 	} else {
-		a.Stale, a.pollFresh = l.Err+l.TimelineErr, true
+		a.Stale = l.Err + l.TimelineErr
+		for i := range a.reads {
+			a.reads[i].fresh = true
+		}
 	}
 	if !l.StatusOK {
 		return

@@ -84,7 +84,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `18-overflow-menu.png` | the pane head's menu: Refresh now and Open in browser |
 | `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
 | `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
-| `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 780×700 and 1100×760 in both themes |
+| `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 860×700 and 1100×760 in both themes |
 | `22-resumable-1100x760-<light or dark>.png` | the head of a supervisor that can be resumed: Resume, with New session in the menu |
 
 ## Auth decision
@@ -117,4 +117,4 @@ The selected fleet refreshes itself, off the render path: a timer posts a tick t
 | unfocused | 5 s |
 | minimised | paused |
 
-The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` in the masthead (the error is in its tooltip), and backs off, doubling up to 60 s and resetting on the next answer. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; Refresh now re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.
+The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` in the masthead (the error is in its tooltip), and backs off that read alone, doubling its wait up to 60 s and resetting on its next answer, while the other reads go on every tick. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; Refresh now re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.

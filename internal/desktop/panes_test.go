@@ -333,11 +333,17 @@ func TestScenesBlockedAndResumableHeads(t *testing.T) {
 		if dark {
 			theme = "dark"
 		}
-		for _, size := range [][2]int{{780, 700}, {1100, 760}} {
+		for _, size := range [][2]int{{860, 700}, {1100, 760}} {
 			tt := sized(t, newApp(t, askFixture(t)), size[0], size[1], dark)
 			shotSized(t, tt, fmt.Sprintf("21-blocked-%dx%d-%s", size[0], size[1], theme), size[0], size[1])
 		}
 		f := statusWith(t, func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "interrupted", false, true })
+		st := f.status[fleetID]
+		st.AgentState, st.Pill, st.Line = "idle", "idle", "interrupted"
+		f.status[fleetID] = st
+		tl := f.timeline[fleetID]
+		tl.Live, tl.Working = false, nil
+		f.timeline[fleetID] = tl
 		tt := sized(t, newApp(t, f), 1100, 760, dark)
 		shotSized(t, tt, "22-resumable-1100x760-"+theme, 1100, 760)
 	}
@@ -393,4 +399,92 @@ func TestTheLabelledRailStaysClosedWhereTheWorkPaneWouldShrink(t *testing.T) {
 	wide := sized(t, newApp(t, goldenFixture(t)), 1100, 700, false)
 	click(t, wide, "Show labels")
 	mustText(t, wide, "Hide labels")
+}
+
+type olderFails struct{ desktop.ReadModel }
+
+func (olderFails) Timeline(context.Context, string, int) (desktop.Timeline, error) {
+	return desktop.Timeline{}, errors.New("the earlier page failed")
+}
+
+func olderFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := goldenFixture(t)
+	tl := f.timeline[fleetID]
+	tl.Older = 42
+	f.timeline[fleetID] = tl
+	f.older = map[string]desktop.Timeline{fleetID: {
+		Entries: []desktop.Entry{{Role: "operator", Text: "the earlier message", At: "2026-10-31T04:40:00Z"}},
+	}}
+	return f
+}
+
+func TestAnOlderFailureStaysUntilAnOlderReadAnswers(t *testing.T) {
+	f := olderFixture(t)
+	app := newApp(t, f)
+	good := app.Model
+	app.Model = olderFails{good}
+	app.Older()
+	if app.OlderErr == "" || app.TimelineErr != "" {
+		t.Fatalf("older error %q, timeline error %q", app.OlderErr, app.TimelineErr)
+	}
+	clock := newFakeClock()
+	app.Clock = clock
+	app.Model = good
+	app.StartRefresh()
+	for range 3 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if app.OlderErr == "" {
+		t.Fatal("a poll answering 304 cleared the earlier-messages error")
+	}
+	tt := newTester(app)
+	mustText(t, tt, "The earlier messages could not be read", "Retry")
+	click(t, tt, "Retry")
+	if app.OlderErr != "" {
+		t.Fatalf("Retry left older error %q", app.OlderErr)
+	}
+	mustText(t, tt, "the earlier message")
+}
+
+func TestSendingKeepsTheOlderMessagesLoaded(t *testing.T) {
+	f := olderFixture(t)
+	app := newApp(t, f)
+	app.Older()
+	app.Draft = "a new message"
+	app.Send()
+	found := slices.ContainsFunc(app.Timeline.Entries, func(e desktop.Entry) bool { return e.Text == "the earlier message" })
+	sent := slices.ContainsFunc(app.Timeline.Entries, func(e desktop.Entry) bool { return e.Text == "a new message" })
+	if !found || !sent {
+		t.Fatalf("after a send, earlier message kept=%v, sent message shown=%v", found, sent)
+	}
+}
+
+func TestARailLeftOpenInATooNarrowWindowCollapses(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	app.RailOpen = true
+	tt := sized(t, app, 860, 700, false)
+	if app.RailOpen {
+		t.Fatal("the rail stayed open in an 860 px window")
+	}
+	mustText(t, tt, "Show labels")
+	inPane(t, tt, 860, 700, "Send")
+	left := chatLeft(t, tt)
+	if work := left - kit.RailWidth; work < 440 {
+		t.Errorf("the work pane is %.0f wide after the collapse, want at least 440", work)
+	}
+}
+
+func TestAFailingStatusDoesNotStopTheConversation(t *testing.T) {
+	b := newFakeBoard()
+	app, clock := newBoardApp(t, b)
+	b.setFail(true)
+	b.setTimeline(func(tl *desktop.Timeline) {
+		tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "while status failed", No: 2}}, tl.Entries...)
+	})
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	if app.Stale == "" || app.Timeline.Entries[0].Text != "while status failed" {
+		t.Fatalf("stale %q, newest entry %q", app.Stale, app.Timeline.Entries[0].Text)
+	}
 }
