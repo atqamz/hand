@@ -1155,7 +1155,7 @@ func mergeTimeline(have, next Timeline) Timeline {
 	}
 	held := false
 	for _, entry := range have.Entries {
-		if !seen[entryKey(entry)] && entry.At != "" && entry.At < oldest {
+		if !seen[entryKey(entry)] && entry.At != "" && entry.At <= oldest {
 			next.Entries = append(next.Entries, entry)
 			held = true
 		}
@@ -1258,13 +1258,9 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 func (a *App) apply(l loaded) {
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
 	a.TimelineErr = l.TimelineErr
-	if l.Err == "" && l.TimelineErr == "" {
-		a.Stale, a.reads = "", [3]readState{}
-	} else {
-		a.Stale = l.Err + l.TimelineErr
-		for i := range a.reads {
-			a.reads[i].fresh = true
-		}
+	a.Stale, a.reads = l.Err, [3]readState{}
+	for i := range a.reads {
+		a.reads[i].fresh = l.Err != "" || i == readTimeline && l.TimelineErr != ""
 	}
 	if !l.StatusOK {
 		return

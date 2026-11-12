@@ -58,9 +58,13 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 		if sup := a.Status.Supervisor; sup != nil && sup.Blocked && a.known() {
 			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 8).Children(func() { a.blockedKeys(c, p, sup) })
 		}
+		if a.TimelineErr != "" || a.OlderErr != "" {
+			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 0).Children(func() {
+				ui.Column(c).Gap(8).Children(func() { a.timelineError(c, p) })
+			})
+		}
 		ui.Scroll(c).Grow(1).Padding(16).Children(func() {
 			ui.Column(c).Gap(8).Selectable().Children(func() {
-				a.timelineError(c, p)
 				a.timelineEntries(c, p)
 				mark := ui.Box(c).Height(1)
 				if tail := a.timelineTail(); tail != a.tail {

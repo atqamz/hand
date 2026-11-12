@@ -63,3 +63,23 @@ func TestAQueuedMessageDeliveredLaterIsKeptOnce(t *testing.T) {
 		t.Fatalf("merged %q at %d, want hi once, delivered, with the old page kept", texts, got.Older)
 	}
 }
+
+func TestAHeldEntryAtThePageBoundaryIsKept(t *testing.T) {
+	have := Timeline{Older: 10, Entries: []Entry{
+		{Role: "supervisor", Text: "newest", At: "2026-11-01T04:45:00Z"},
+		{Role: "hand", Text: "held at the boundary", At: "2026-11-01T04:43:00Z"},
+		{Role: "supervisor", Text: "old", At: "2026-11-01T04:41:00Z"},
+	}}
+	next := Timeline{Older: 20, Entries: []Entry{
+		{Role: "supervisor", Text: "newest", At: "2026-11-01T04:45:00Z"},
+		{Role: "supervisor", Text: "oldest of the page", At: "2026-11-01T04:43:00Z"},
+	}}
+	got := mergeTimeline(have, next)
+	var texts []string
+	for _, e := range got.Entries {
+		texts = append(texts, e.Text)
+	}
+	if !reflect.DeepEqual(texts, []string{"newest", "oldest of the page", "held at the boundary", "old"}) || got.Older != 10 {
+		t.Fatalf("merged %q at %d, want the entry at the boundary kept", texts, got.Older)
+	}
+}

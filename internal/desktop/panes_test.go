@@ -313,6 +313,9 @@ func TestAFailedTimelineReadStaysInTheChatPane(t *testing.T) {
 	held := len(app.Timeline.Entries)
 	app.Model = timelineFails{app.Model}
 	app.Retry()
+	if app.Stale != "" {
+		t.Fatalf("a conversation-only failure put %q in the masthead's stale note", app.Stale)
+	}
 	if app.Err != "" || app.TimelineErr == "" || len(app.Timeline.Entries) != held {
 		t.Fatalf("error %q, timeline error %q, %d of %d entries kept", app.Err, app.TimelineErr, len(app.Timeline.Entries), held)
 	}
@@ -486,5 +489,24 @@ func TestAFailingStatusDoesNotStopTheConversation(t *testing.T) {
 	clock.Advance(desktop.FocusedRefresh)
 	if app.Stale == "" || app.Timeline.Entries[0].Text != "while status failed" {
 		t.Fatalf("stale %q, newest entry %q", app.Stale, app.Timeline.Entries[0].Text)
+	}
+}
+
+func TestTheConversationErrorsStayInViewOverALongHistory(t *testing.T) {
+	f := goldenFixture(t)
+	tl := f.timeline[fleetID]
+	var entries []desktop.Entry
+	for i := 60; i >= 1; i-- {
+		entries = append(entries, desktop.Entry{Role: "supervisor", Ref: "s1", No: i, At: "2026-11-01T11:41:00Z", Text: fmt.Sprintf("entry number %d", i)})
+	}
+	tl.Entries, tl.Older = entries, 42
+	f.timeline[fleetID] = tl
+	app := newApp(t, f)
+	app.TimelineErr, app.OlderErr = "the timeline store failed", "the earlier page failed"
+	tt := sized(t, app, 1100, 760, false)
+	inPane(t, tt, 1100, 760, "Retry")
+	r, _ := tt.Find("Retry")
+	if r.Y > 400 {
+		t.Errorf("Retry is at y=%.0f, want it above the history", r.Y)
 	}
 }
