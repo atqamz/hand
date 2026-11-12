@@ -78,7 +78,7 @@ func TestFleetSwitch(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "golden", "second")
 	click(t, tt, "second")
-	click(t, tt, "Status")
+	click(t, tt, "Screen")
 	mustText(t, tt, "the second fleet's status", "second")
 	if app.Fleet.ID != secondID {
 		t.Fatalf("fleet = %s, want %s", app.Fleet.ID, secondID)
@@ -218,7 +218,7 @@ func TestAStaleAskPressIsRefusedAndTheAskStays(t *testing.T) {
 func TestTheBlockedNeedOpensTheStatusScreen(t *testing.T) {
 	app := newApp(t, askFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	mustNotText(t, tt, "Do you want to proceed?")
 	click(t, tt, "Blocked · s1")
 	mustText(t, tt, "Supervisor", "Do you want to proceed?")
@@ -310,7 +310,7 @@ func TestASupervisorControlWarnsWhenTheStatusCannotBeRead(t *testing.T) {
 func TestNeedsScreen(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	mustText(t, tt, "Needs", "FAILED", "DECISION", "REPORT",
 		"Keep the old cookie name?",
 		"Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump",
@@ -325,7 +325,7 @@ func TestABlockedNeedShowsItsTitleNotTheExcerptsRuleLine(t *testing.T) {
 	st.Needs.Waiting = len(st.Needs.Items)
 	f.status[fleetID] = st
 	tt := newTester(newApp(t, f))
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	mustText(t, tt, "Bash: rm -f x · Proceed?")
 	mustNotText(t, tt, rule)
 }
@@ -333,7 +333,7 @@ func TestABlockedNeedShowsItsTitleNotTheExcerptsRuleLine(t *testing.T) {
 func TestNeedsOpensADecision(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	mustText(t, tt, "d1", "Options", "Yes, keep it", "No, rename it", "Open task")
 }
@@ -836,7 +836,7 @@ func TestAttemptScreen(t *testing.T) {
 func TestReportScreen(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	mustText(t, tt, "r1", "Cookie fixed", "All tests pass.", "Open task", "Mark read")
 }
@@ -879,7 +879,7 @@ func TestAFailedAnswerKeepsTheScreen(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "decision d1 is answered"}
 	click(t, tt, "Yes, keep it")
@@ -914,7 +914,7 @@ func TestAFailedAckKeepsTheScreen(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "report r1 is already acknowledged"}
 	click(t, tt, "Mark read")
@@ -929,7 +929,7 @@ func TestTheAnswerButtonIsDisabledWhileSending(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	posted := make(chan func(), 8)
@@ -971,7 +971,7 @@ func TestBackFromAttemptRestoresTheTask(t *testing.T) {
 func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Open task")
 	mustText(t, tt, "Plan · p1")
@@ -1037,7 +1037,7 @@ func TestBackFromAnAttemptReportReturnsToTheAttempt(t *testing.T) {
 func TestBackFromAReportsTaskReturnsToTheReport(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open task")
 	mustText(t, tt, "Plan · p1")
@@ -1127,7 +1127,7 @@ func TestFleetSwitchUpdatesTheTitle(t *testing.T) {
 func TestEmptyStates(t *testing.T) {
 	app := newApp(t, emptyFixture())
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	mustText(t, tt, "All clear", "Nothing waits on you.")
 	click(t, tt, "Conversation")
 	mustText(t, tt, "No messages")
@@ -1173,7 +1173,7 @@ func TestScenes(t *testing.T) {
 		}},
 		{"02-status", newApp(t, goldenFixture(t)), nil},
 		{"03-needs", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Needs")
+			click(t, tt, "Board")
 		}},
 		{"04-timeline", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "Conversation")
@@ -1186,16 +1186,16 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Fix login")
 		}},
 		{"07-empty", newApp(t, emptyFixture()), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Needs")
+			click(t, tt, "Board")
 		}},
 		{"08-error", newApp(t, errorFixture()), nil},
 		{"09-decision-answer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Needs")
+			click(t, tt, "Board")
 			click(t, tt, "Keep the old cookie name?")
 			click(t, tt, "Yes, keep it")
 		}},
 		{"10-report-ack", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Needs")
+			click(t, tt, "Board")
 			click(t, tt, "Cookie fixed")
 		}},
 		{"11-composer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
@@ -1456,7 +1456,7 @@ func TestDecisionOptionsAreShownOnce(t *testing.T) {
 	f.decision[fleetID] = dd
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	mustText(t, tt, "We made this earlier.", "Then update the docs.")
 	for _, want := range []string{"Yes, keep it", "No, rename it"} {
@@ -1555,7 +1555,7 @@ func TestACSRFRefusalShowsTheBoardMessage(t *testing.T) {
 		Message: "the X-Hand-CSRF header is missing or wrong; read the session's token first"}
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
@@ -1567,7 +1567,7 @@ func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
@@ -1587,7 +1587,7 @@ func TestAnOtherOptionAsksForItsNote(t *testing.T) {
 	f.decision[fleetID] = d
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Other")
 	mustText(t, tt, "That option needs a note.")
@@ -1600,7 +1600,7 @@ func TestBackClearsTheAnswerDraft(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Note")
 	tt.Type("first draft")
@@ -1626,7 +1626,7 @@ func TestAnAckLeavesTheOtherFleetsNeedsAlone(t *testing.T) {
 	before := len(f.status[secondID].Needs.Items)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Mark read")
 	if got := len(f.status[secondID].Needs.Items); got != before {
@@ -1708,7 +1708,7 @@ func TestAnAnswerMovesToTheNextNeed(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
@@ -1734,7 +1734,7 @@ func TestTheLastReadReturnsToAnEmptyNeeds(t *testing.T) {
 	}
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Mark read")
 	if app.Screen != desktop.NeedsScreen {
@@ -1774,7 +1774,7 @@ func TestAnAnswerBeforeABlockedSupervisorRowReturnsToNeeds(t *testing.T) {
 	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
@@ -1787,7 +1787,7 @@ func TestAFailedAnswerOrReadDoesNotMove(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	f.action = errors.New("boom")
@@ -1815,7 +1815,7 @@ func TestAStatusStillListingTheAnsweredItemIsSkipped(t *testing.T) {
 	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")

@@ -26,7 +26,7 @@ func reportAppAt(t *testing.T, body, home string) (*desktop.App, *ui.Tester) {
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Needs")
+	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	if app.Screen != desktop.ReportScreen {
 		t.Fatalf("screen = %v, want the report", app.Screen)

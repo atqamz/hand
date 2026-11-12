@@ -65,6 +65,7 @@ type App struct {
 	Fleet  Fleet
 
 	Screen     Screen
+	RailOpen   bool
 	Ref        string
 	Loading    bool
 	Busy       bool
