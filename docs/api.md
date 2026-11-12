@@ -68,7 +68,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/report/{rN}` | `ReportDetail`: report, task, delivered | the report's card on `/task/tN` |
 | `GET /api/v1/session` | `Session`: `csrf` | none; the form token a mutation sends |
 | `GET /api/v1/events` | a Server-Sent Events stream; see [The event stream](#the-event-stream) | the pages' own `/events` stream |
-| `GET /api/v1/fleets` | `Fleets`: the fleets this session proves, each with its Needs summary and supervisor pill; host level, see [The fleet list and the features](#the-fleet-list-and-the-features) | the Board's rail, with each fleet's status line |
+| `GET /api/v1/fleets` | `Fleets`: every fleet this session proves, each with its Needs summary and supervisor pill; host level, see [The fleet list and the features](#the-fleet-list-and-the-features) | the Board's rail order, with each fleet's status line |
 | `GET /api/v1/meta` | `Meta`: Hand's version, the `features` list and the sidecar's state; host level | none; what a client checks before it shows a feature |
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
@@ -262,7 +262,7 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
 }
 ```
 
-`fleets` holds the fleets the request's cookies prove, in the Board's rail order, and nothing else: a fleet it does not prove never appears, not by id, name or count. A laptop session proves each fleet whose `hand_board_<fleet id>` cookie holds that fleet's token, a paired phone each fleet whose `hand_phone_<fleet id>` cookie proves it from this endpoint, as the rail lists them. `pill` and `line` are `Status.pill` and `Status.line` of that fleet, and `needs` carries `waiting`, `worst`, `worst_word`, `worst_count` and `summary` as `Status.needs` does; the two are one computation, so a list and a status read agree. A fleet the rail lists but that will not open has `unavailable: true` and no `pill` or `needs`. A fleet that has left the Board's list, and a phone's fleet that will not open, are not listed, as the rail does not list them. The list carries no path, ref or item text.
+`fleets` holds every fleet the request's cookies prove, in the Board's rail order, and nothing else: a fleet it does not prove never appears, not by id, name or count. The rail draws the current fleet plus at most seven others, so the list keeps the rail's order but may carry more fleets than the narrow rail shows. A laptop session proves each fleet whose `hand_board_<fleet id>` cookie holds that fleet's token, a paired phone each fleet whose `hand_phone_<fleet id>` cookie proves it from this endpoint. `pill` and `line` are `Status.pill` and `Status.line` of that fleet, and `needs` carries `waiting`, `worst`, `worst_word`, `worst_count` and `summary` as `Status.needs` does; the two are one computation, so a list and a status read agree. A proven fleet that will not open has `unavailable: true` and no `pill` or `needs`. A fleet that has left the Board's list, and a phone's fleet that will not open, are not listed, as the rail does not list them. The list carries no path, ref or item text.
 
 `GET /api/v1/meta` answers any caller that can read a fleet's `status`:
 
