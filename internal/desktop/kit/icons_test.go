@@ -1,13 +1,26 @@
 package kit
 
 import (
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"testing"
 )
 
 var iconDefinition = regexp.MustCompile(`\{\{define "icon-([a-z]+)"\}\}(<svg .*?</svg>)\{\{end\}\}`)
 var iconDecoration = regexp.MustCompile(` (class|aria-hidden)="[^"]*"`)
+
+var iconNames = []string{
+	"attach", "board", "chat", "chevron", "close", "failure", "fleets", "idle",
+	"mark", "passing", "phone", "running", "screen", "search", "tasks", "waiting",
+}
+
+func TestIconNames(t *testing.T) {
+	if got := slices.Sorted(maps.Keys(sources)); !slices.Equal(got, iconNames) {
+		t.Errorf("icons = %v, want %v", got, iconNames)
+	}
+}
 
 func TestIconsMatchBoard(t *testing.T) {
 	b, err := os.ReadFile("../../board/templates/icons.html")
