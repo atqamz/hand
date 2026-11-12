@@ -608,14 +608,14 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 var pairFailure = map[pairResult]struct {
-	status int
-	text   string
+	status     int
+	code, text string
 }{
-	pairWrong:   {http.StatusForbidden, "That code is not right. Check it against the one on your laptop, or show a new code there."},
-	pairExpired: {http.StatusForbidden, "That code has expired. A code works for 5 minutes. Show a new code on your laptop."},
-	pairUsed:    {http.StatusForbidden, "That code was already used. A code works once. Show a new code on your laptop."},
-	pairBurned:  {http.StatusForbidden, "Too many wrong codes. Every code was cancelled. Show a new code on your laptop."},
-	pairBlocked: {http.StatusTooManyRequests, "Too many wrong codes from this phone. Wait a minute, then try again."},
+	pairWrong:   {http.StatusForbidden, "wrong_code", "That code is not right. Check it against the one on your laptop, or show a new code there."},
+	pairExpired: {http.StatusForbidden, "code_expired", "That code has expired. A code works for 5 minutes. Show a new code on your laptop."},
+	pairUsed:    {http.StatusForbidden, "code_used", "That code was already used. A code works once. Show a new code on your laptop."},
+	pairBurned:  {http.StatusForbidden, "codes_cancelled", "Too many wrong codes. Every code was cancelled. Show a new code on your laptop."},
+	pairBlocked: {http.StatusTooManyRequests, "rate_limited", "Too many wrong codes from this phone. Wait a minute, then try again."},
 }
 
 func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg, name string) {
@@ -649,6 +649,26 @@ func (b *Board) PairPhone(ctx context.Context, rd *Redeemed) (Paired, error) {
 	return Paired{ID: id, Name: f.Name, Device: d.ID}, nil
 }
 
+func (b *Board) pairSet(r *http.Request, set []string, name string) (*Redeemed, []Paired, error) {
+	rd := &Redeemed{fleets: set, done: map[string]bool{}, secret: randomText(32), name: name, login: deviceLogin(r), label: randomText(state.PhoneLabelLen / 2)}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), pairWait)
+	defer cancel()
+	var paired []Paired
+	var failed error
+	for _, id := range set {
+		p, err := b.pairFleet(ctx, rd, id)
+		if err == nil && p.ID != id {
+			err = errNotInCode
+		}
+		if err != nil {
+			failed = err
+			continue
+		}
+		paired = append(paired, p)
+	}
+	return rd, paired, failed
+}
+
 func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		b.pairPage(w, r, http.StatusOK, "", "Phone")
@@ -666,22 +686,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 		b.pairPage(w, r, f.status, f.text, name)
 		return
 	}
-	rd := &Redeemed{fleets: set, done: map[string]bool{}, secret: randomText(32), name: name, login: deviceLogin(r), label: randomText(state.PhoneLabelLen / 2)}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), pairWait)
-	defer cancel()
-	var paired []Paired
-	var failed error
-	for _, id := range set {
-		p, err := b.pairFleet(ctx, rd, id)
-		if err == nil && p.ID != id {
-			err = errNotInCode
-		}
-		if err != nil {
-			failed = err
-			continue
-		}
-		paired = append(paired, p)
-	}
+	rd, paired, failed := b.pairSet(r, set, name)
 	if len(paired) == 0 {
 		if len(set) == 1 {
 			b.failNeutralErr(w, failed)

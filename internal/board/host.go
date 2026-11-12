@@ -172,9 +172,10 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 		}
 	case err != nil:
 		log.Printf("board: fleet %s did not open: %v", id, err)
+		pairing := peerOf(r) != nil && fleetRest(r.URL.Path) == apiPrefix[1:]+"/pair"
 		if api {
 			switch {
-			case !h.apiSignedIn(id, r):
+			case !pairing && !h.apiSignedIn(id, r):
 				hostAPIFail(w, http.StatusUnauthorized, "unauthorized", "this request needs the board's session cookie")
 			case h.o.Loopback && !forwarded(r):
 				hostAPIFail(w, http.StatusInternalServerError, "internal", Scrub(err.Error()))

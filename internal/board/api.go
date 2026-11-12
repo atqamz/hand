@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -388,6 +389,14 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board or to a paired phone")
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/pair" {
+		if deviceLogin(r) == "" {
+			b.apiFail(w, http.StatusForbidden, "forbidden", "a phone pairs through the API only from a peer with its own key")
+			return
+		}
+		b.apiPair(w, r)
+		return
+	}
 	s, fault := b.session(r)
 	if fault != signedIn {
 		b.apiFail(w, http.StatusUnauthorized, "unauthorized", "this request needs the board's session cookie")
@@ -428,7 +437,7 @@ func actor(ctx context.Context, laptop string) string {
 
 func apiAllow(r *http.Request) string {
 	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
-	if p == "/message" || p == "/supervisor/start" || p == "/supervisor/resume" || p == "/supervisor/stop" ||
+	if p == "/pair" || p == "/message" || p == "/supervisor/start" || p == "/supervisor/resume" || p == "/supervisor/stop" ||
 		p == "/supervisor/interrupt" || p == "/supervisor/force" || p == "/supervisor/keys" ||
 		strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
 		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
@@ -469,6 +478,18 @@ type apiKeysBody struct {
 	Digest   string   `json:"digest"`
 	After    *int64   `json:"after"`
 	Ref      string   `json:"ref"`
+}
+
+type APIPairedFleet struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	CookieName  string `json:"cookie_name"`
+	CookieValue string `json:"cookie_value"`
+}
+
+type APIPaired struct {
+	Fleets []APIPairedFleet `json:"fleets"`
+	Missed int              `json:"missed"`
 }
 
 type apiControlBody struct {
@@ -527,6 +548,59 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiDecisionData(ctx, id) })
+}
+
+func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send the pairing request as application/json")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 4096+1))
+	if err != nil || len(raw) > 4096 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object under 4 KiB")
+		return
+	}
+	var in map[string]*string
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil || len(in) != 2 || in["code"] == nil || in["name"] == nil {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with exactly code and name, both strings")
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with code and name")
+		return
+	}
+	code := *in["code"]
+	name := *in["name"]
+	if strings.ContainsFunc(name, unicode.IsControl) || utf8.RuneCountInString(strings.TrimSpace(name)) > state.MaxDeviceName {
+		b.apiFail(w, http.StatusBadRequest, "bad_name", fmt.Sprintf("a phone's name is at most %d characters and has no control character", state.MaxDeviceName))
+		return
+	}
+	f, err := b.st.Fleet(r.Context())
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	res, set := b.redeem(remote(r), code, b.now())
+	if res != pairOK {
+		x := pairFailure[res]
+		b.apiFail(w, x.status, x.code, x.text)
+		return
+	}
+	rd, paired, failed := b.pairSet(r, set, name)
+	if len(paired) == 0 {
+		if len(set) == 1 {
+			b.apiFailErr(w, failed)
+			return
+		}
+		b.apiFail(w, http.StatusInternalServerError, "internal", "No fleet could be paired, and the code is spent. Show a new code on your laptop.")
+		return
+	}
+	out := APIPaired{Fleets: make([]APIPairedFleet, len(paired)), Missed: len(set) - len(paired)}
+	for i, p := range paired {
+		out.Fleets[i] = APIPairedFleet{ID: p.ID, Name: p.Name, CookieName: phoneCookieName(p.ID, false), CookieValue: strconv.FormatInt(p.Device, 10) + "." + rd.secret}
+	}
+	b.apiOK(w, f, "", out)
 }
 
 func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {

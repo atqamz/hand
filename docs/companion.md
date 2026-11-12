@@ -148,6 +148,8 @@ with `PORT` the proxy's port. **The host is the name `localhost`, never an IP ad
 
 The fragment keeps the code out of the request: the Board's pair page reads it with a script, puts it in the form's code field, and removes it from the address bar. The user then types a name for the phone and taps the button. So the web view must have JavaScript on, and the app must not submit the form for the user.
 
+The app may instead redeem the code itself with `POST /<fleet id>/api/v1/pair` and `{code, name}` as JSON ([Pairing a phone](api.md#pairing-a-phone)), over the same stream and with the same limits. The answer holds the cookie name and value the app keeps as its device secret. The `cookie_value` is the device's number in digits with no leading zero, a dot, and the secret as 64 lowercase hexadecimal characters (`^[1-9][0-9]*\.[0-9a-f]{64}$`, the `cookie_value` of the `pair` vectors); an app accepts a stored value only in that shape, and `cookie_name` is `hand_phone_<fleet id>`. The web form is still the user's: the app must not submit it, and must not call this endpoint with a code or a name the user did not give.
+
 ### The loopback proxy
 
 - It listens on `127.0.0.1` and `[::1]`, never on any other address, because the name `localhost` resolves to either one.
@@ -184,14 +186,14 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 ### Today
 
 - **Where it arrives.** The sidecar's streams arrive at the [peer listener](phone.md#the-peer-listener) (`hand board --peer-addr 127.0.0.1:7778`), where every request counts as remote and proxy headers are dropped.
-- **Before pairing.** The connection may ask only for `/<fleet id>/pair` and `/static/…`. It is closed after 32 requests or 64 KiB without a paired phone's cookie, after a request body that takes over 10 seconds, and after 30 seconds with no request, paired or not. Each stream is one such connection, so a page that opens many streams starts each one capped.
+- **Before pairing.** The connection may ask only for `/<fleet id>/pair`, `/<fleet id>/api/v1/pair` (only a `POST` pairs) and `/static/…`. It is closed after 32 requests or 64 KiB without a paired phone's cookie, after a request body that takes over 10 seconds, and after 30 seconds with no request, paired or not. Each stream is one such connection, so a page that opens many streams starts each one capped.
 - **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the phone's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The laptop shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-should-see).
 - **The device.** A good code creates a device whose login is `iroh:<endpoint id>`, the name the user typed, and a hash of a secret. The page sets the cookie `hand_phone_<fleet id>`: `HttpOnly`, `SameSite=Lax`, path `/`, 90 days. It has neither `Secure` nor the `__Host-` prefix, because the Board dropped `X-Forwarded-Proto` and the origin is plain HTTP. Then it redirects to `/<fleet id>/`.
 - **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the phone's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
 - **After pairing.** The whole Board, with the supervisor's controls, except `/<fleet id>/proof`. A request that carries a cookie that no longer proves puts the connection's caps back.
 - **The app link.** The Phone page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this laptop's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
 - **Revoking.** On the Phone page, **Revoke** deletes the device and **Revoke everywhere** deletes the phone's devices in every fleet. The cookie fails at once and the page answers 403 "This phone is no longer paired with this fleet". That endpoint ID's live connections are closed, and the laptop then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
-- **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired phone. A key that is not paired may still dial and reaches only the pair page.
+- **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired phone. A key that is not paired may still dial and reaches only the pair page and the pair endpoint.
 
 ### Step 3
 
@@ -259,16 +261,16 @@ The app's own screens say the left column. A page the Board serves appears in th
 | The laptop is full or refuses | Code 1, or a refusal | "Your laptop is busy. Trying again." |
 | The Board is not running | Code 3 twice in a row | "Your laptop answers, but the Board is not running. Start it on the laptop." |
 | The connection is lost | Any other close | "Reconnecting…", and after three tries "Can't reach your laptop." |
-| A wrong code | The pair page's 403 | "That code is not right. Check it against the one on your laptop, or show a new code there." |
-| An expired code | The pair page's 403 | "That code has expired. A code works for 5 minutes. Show a new code on your laptop." |
-| A used code | The pair page's 403 | "That code was already used. A code works once. Show a new code on your laptop." |
-| Too many wrong codes (all cancelled) | The pair page's 403 | "Too many wrong codes. Every code was cancelled. Show a new code on your laptop." |
-| Too many wrong codes from this phone | The pair page's 429 | "Too many wrong codes from this phone. Wait a minute, then try again." |
+| A wrong code | The pair page's 403, or `wrong_code` | "That code is not right. Check it against the one on your laptop, or show a new code there." |
+| An expired code | The pair page's 403, or `code_expired` | "That code has expired. A code works for 5 minutes. Show a new code on your laptop." |
+| A used code | The pair page's 403, or `code_used` | "That code was already used. A code works once. Show a new code on your laptop." |
+| Too many wrong codes (all cancelled) | The pair page's 403, or `codes_cancelled` | "Too many wrong codes. Every code was cancelled. Show a new code on your laptop." |
+| Too many wrong codes from this phone | The pair page's 429, or `rate_limited` | "Too many wrong codes from this phone. Wait a minute, then try again." |
 | The phone is still paired in another fleet, and this fleet's pairing was removed on the laptop | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this laptop** |
 | The phone's only paired fleet was removed on the laptop | The Board's 403 "Pair this phone first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
 | Too much asked before pairing | The Board's 429 | The page; the web view reconnects, which opens a new stream |
 
-The pair page's texts on the right are the Board's; the app may show them in its own words but must keep their meaning, and must not add the code.
+A name the Board refuses is `bad_name`: the app limits the field to 40 characters and no control character, so the user never sees it. The pair page's texts on the right are the Board's, and the API's `message` carries the same text; the app may show them in its own words but must keep their meaning, and must not add the code.
 
 ## Rules for the app
 
@@ -284,7 +286,7 @@ The pair page's texts on the right are the Board's; the app may show them in its
 
 ## Test vectors
 
-[`companion-vectors.json`](companion-vectors.json) holds 13 valid and 73 invalid links, each with the result a conforming parser gives: the fields and the path to open, or the reason. It also holds the numbers of the wire and of the Board's pairing rules, under the keys `wire` and `board`. `go test ./internal/companion` runs a reference parser against the file, and reads the numbers back out of `iroh/src/` and `internal/board/`, so a change of code and a stale file cannot both pass.
+[`companion-vectors.json`](companion-vectors.json) holds 13 valid and 73 invalid links, each with the result a conforming parser gives: the fields and the path to open, or the reason. It also holds the numbers of the wire and of the Board's pairing rules, under the keys `wire` and `board`. Under `pair` it holds the request, the answer and each refusal of `POST /api/v1/pair`, which `go test ./internal/board` replays against a Board. `go test ./internal/companion` runs a reference parser against the file, and reads the numbers back out of `iroh/src/` and `internal/board/`, so a change of code and a stale file cannot both pass.
 
 The app copies the file into its own tests and runs its parser over every vector as written: trimming whitespace is the caller's job and happens before the parser, so a vector with a leading space is rejected as `characters`. A valid vector whose `canonical` is true is also what a Board emits: an emitter must reproduce its `link` from its `parsed` fields. The reference parser checks shape only: an ID of 64 hexadecimal characters is valid in it even where the app's iroh library refuses it as a key.
 
