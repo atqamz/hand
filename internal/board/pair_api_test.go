@@ -305,4 +305,19 @@ func TestAnUnpairedPeerPairingWithAFleetThatDoesNotOpenGetsNotFoundNotUnauthoriz
 	if rep := c.do("POST", "/"+f.id+"/pair", url.Values{"code": {code}, "name": {"Pixel"}}, nil); rep.Code != http.StatusNotFound {
 		t.Fatalf("the form on a fleet that does not open = %d", rep.Code)
 	}
+	for _, method := range []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS"} {
+		if rep := c.do(method, "/"+f.id+"/api/v1/pair", nil, nil); rep.Code != http.StatusNotFound {
+			t.Fatalf("%s pair on a fleet that does not open = %d", method, rep.Code)
+		}
+	}
+}
+
+func TestAWrongMethodOnThePairPathOfAnOpenFleetStaysUnauthorized(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	for _, method := range []string{"GET", "PUT", "DELETE"} {
+		if rep := r.as(peerA).do(method, "/"+f.id+"/api/v1/pair", nil, nil); rep.Code != http.StatusUnauthorized || !strings.Contains(rep.Body, `"unauthorized"`) {
+			t.Fatalf("%s pair on an open fleet = %d:\n%s", method, rep.Code, rep.Body)
+		}
+	}
 }

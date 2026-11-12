@@ -172,7 +172,7 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 		}
 	case err != nil:
 		log.Printf("board: fleet %s did not open: %v", id, err)
-		pairing := peerOf(r) != nil && r.Method == http.MethodPost && fleetRest(r.URL.Path) == apiPrefix[1:]+"/pair"
+		pairing := peerOf(r) != nil && fleetRest(r.URL.Path) == apiPrefix[1:]+"/pair"
 		if api {
 			switch {
 			case !pairing && !h.apiSignedIn(id, r):
