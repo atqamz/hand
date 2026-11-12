@@ -190,3 +190,13 @@ func readPages(t *testing.T, out string) map[string]string {
 	}
 	return pages
 }
+
+func TestReleasesReadBodiesFromTheAPI(t *testing.T) {
+	rs, err := decodeReleases([]byte(`[{"tag_name":"v1.2.3","published_at":"2026-11-01T12:00:00Z","body":"# Notes"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 || rs[0].TagName != "v1.2.3" || rs[0].Body != "# Notes" {
+		t.Fatalf("decoded %#v", rs)
+	}
+}

@@ -12,8 +12,8 @@ import (
 )
 
 type release struct {
-	TagName     string `json:"tagName"`
-	PublishedAt string `json:"publishedAt"`
+	TagName     string `json:"tag_name"`
+	PublishedAt string `json:"published_at"`
 	Body        string `json:"body"`
 }
 
@@ -38,17 +38,25 @@ func fetchReleases(root string) ([]release, string) {
 	if os.Getenv("GH_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
 		return nil, "This page is built from GitHub Releases when the site deploys; this build had no token, so it has no release notes."
 	}
-	cmd := exec.Command("gh", "release", "list", "--repo", "atqamz/hand", "--json", "tagName,publishedAt,body", "--limit", "40")
+	cmd := exec.Command("gh", "api", "repos/atqamz/hand/releases?per_page=40")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, "This page is built from GitHub Releases when the site deploys; this build could not read them."
 	}
-	var rs []release
-	if err := json.Unmarshal(out, &rs); err != nil {
+	rs, err := decodeReleases(out)
+	if err != nil {
 		return nil, "This page is built from GitHub Releases when the site deploys; this build could not read them."
 	}
 	return rs, ""
+}
+
+func decodeReleases(data []byte) ([]release, error) {
+	var rs []release
+	if err := json.Unmarshal(data, &rs); err != nil {
+		return nil, err
+	}
+	return rs, nil
 }
 
 func describe(root string) string {
