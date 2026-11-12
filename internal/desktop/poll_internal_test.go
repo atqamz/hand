@@ -37,7 +37,7 @@ func TestAPollForAnotherRefLeavesTheOpenTaskAlone(t *testing.T) {
 
 func TestAPollOlderThanTheLastReadIsDropped(t *testing.T) {
 	a := &App{Fleet: Fleet{ID: "f0"}, Status: Status{Pill: "keep"}}
-	a.polled(0, 1, "f0", StatusScreen, "", pollScreenID(StatusScreen, ""),
+	a.polled(0, 1, "f0", BoardScreen, "", pollScreenID(BoardScreen, ""),
 		Poll{StatusFresh: true, Status: Status{Pill: "changed"}}, nil)
 	if a.Status.Pill != "keep" {
 		t.Fatalf("a poll older than the last read applied its status: %+v", a.Status)

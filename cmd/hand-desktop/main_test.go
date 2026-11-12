@@ -40,6 +40,9 @@ func (stub) Name(context.Context, string) (string, error) {
 func (stub) Status(context.Context, string) (desktop.Status, error) {
 	return desktop.Status{}, nil
 }
+func (stub) Timeline(context.Context, string, int) (desktop.Timeline, error) {
+	return desktop.Timeline{}, nil
+}
 func (stub) Tasks(context.Context, string, bool) (desktop.Tasks, error) {
 	return desktop.Tasks{}, nil
 }
@@ -104,9 +107,9 @@ func TestSecondInstanceHandsItsLinkToTheRunningWindow(t *testing.T) {
 
 func TestSecondInstanceWithoutALinkChangesNothing(t *testing.T) {
 	app := booted()
-	app.Show(desktop.TasksScreen)
+	app.Show(desktop.BoardScreen)
 	handoff(app, nil)
-	if app.Screen != desktop.TasksScreen || app.Err != "" {
+	if app.Screen != desktop.BoardScreen || app.Err != "" {
 		t.Fatalf("screen %d, err %q", app.Screen, app.Err)
 	}
 }
@@ -120,9 +123,9 @@ func TestSecondInstanceWithAHostileLinkIsRefusedOnScreen(t *testing.T) {
 		{"--bogus" + strings.Repeat("x", 100000)},
 	} {
 		app := booted()
-		app.Show(desktop.TasksScreen)
+		app.Show(desktop.BoardScreen)
 		handoff(app, args)
-		if app.Err == "" || app.Screen != desktop.TasksScreen || len(app.Err) > 400 || strings.ContainsAny(app.Err, "\x1b\x07") {
+		if app.Err == "" || app.Screen != desktop.BoardScreen || len(app.Err) > 400 || strings.ContainsAny(app.Err, "\x1b\x07") {
 			t.Fatalf("%.100q: screen %d, err %.200q", args, app.Screen, app.Err)
 		}
 	}

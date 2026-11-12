@@ -110,6 +110,8 @@ func main() {
 		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
 		win.OnFocus(func() { app.SetFocused(true) })
 		win.OnBlur(func() { app.SetFocused(false) })
+		win.OnMinimize(func() { app.SetMinimized(true) })
+		win.OnRestore(func() { app.SetMinimized(false) })
 		win.OnClosed(func() { app.Close() })
 		for _, args := range early {
 			handoff(app, args)

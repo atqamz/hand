@@ -111,11 +111,11 @@ func TestOpenLinkLandsOnTheRef(t *testing.T) {
 		"decision": {"decision/d1", desktop.DecisionScreen, "d1"},
 		"attempt":  {"attempt/a1", desktop.AttemptScreen, "a1"},
 		"report":   {"task/t1#r1", desktop.ReportScreen, "r1"},
-		"fleet":    {"", desktop.NeedsScreen, ""},
+		"fleet":    {"", desktop.BoardScreen, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			app := newApp(t, goldenFixture(t))
-			app.Show(desktop.TasksScreen)
+			app.Show(desktop.BoardScreen)
 			if err := app.OpenLink("handboard://open/" + secondID + "/" + tc.link); err != nil {
 				t.Fatal(err)
 			}
@@ -128,7 +128,7 @@ func TestOpenLinkLandsOnTheRef(t *testing.T) {
 
 func TestOpenLinkInTheShownFleetKeepsItsFleet(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	app.Show(desktop.TasksScreen)
+	app.Show(desktop.BoardScreen)
 	if err := app.OpenLink("handboard://open/" + fleetID + "/decision/d1"); err != nil {
 		t.Fatal(err)
 	}
@@ -136,30 +136,30 @@ func TestOpenLinkInTheShownFleetKeepsItsFleet(t *testing.T) {
 		t.Fatalf("fleet %s, screen %d, ref %q", app.Fleet.ID, app.Screen, app.Ref)
 	}
 	app.Back()
-	if app.Screen != desktop.NeedsScreen {
+	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("back left on screen %d", app.Screen)
 	}
 }
 
 func TestOpenLinkRefusesAnUnknownFleetAndStaysPut(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	app.Show(desktop.TasksScreen)
+	app.Show(desktop.BoardScreen)
 	err := app.OpenLink("handboard://open/f00000000dead/task/t1")
 	if err == nil || !strings.Contains(err.Error(), "f00000000dead") || app.Err != err.Error() {
 		t.Fatalf("err %v, shown %q", err, app.Err)
 	}
-	if app.Fleet.ID != fleetID || app.Screen != desktop.TasksScreen {
+	if app.Fleet.ID != fleetID || app.Screen != desktop.BoardScreen {
 		t.Fatalf("moved to fleet %s, screen %d", app.Fleet.ID, app.Screen)
 	}
 }
 
 func TestOpenLinkRefusesATextThatIsNotALinkAndStaysPut(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	app.Show(desktop.TasksScreen)
+	app.Show(desktop.BoardScreen)
 	if err := app.OpenLink("http://example.com/"); err == nil || app.Err != err.Error() {
 		t.Fatalf("err %v, shown %q", err, app.Err)
 	}
-	if app.Screen != desktop.TasksScreen {
+	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("moved to screen %d", app.Screen)
 	}
 }

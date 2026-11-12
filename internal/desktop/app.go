@@ -14,22 +14,21 @@ import (
 type Screen int
 
 const (
-	StatusScreen Screen = iota
-	NeedsScreen
-	TimelineScreen
-	TasksScreen
+	BoardScreen Screen = iota
 	TaskScreen
 	AttemptScreen
 	DecisionScreen
 	ReportScreen
 )
 
-// The auto-refresh intervals: short while the window has keyboard focus,
-// long while it does not. A failed tick backs off to at most maxRefreshBackoff.
+// The auto-refresh intervals: the Board's own tick while the window has
+// keyboard focus, a slower one while it does not. A failed tick backs off to
+// at most maxRefreshBackoff. StopWindow is how long Stop stays armed.
 const (
-	FocusedRefresh    = 2 * time.Second
-	UnfocusedRefresh  = 15 * time.Second
+	FocusedRefresh    = time.Second
+	UnfocusedRefresh  = 5 * time.Second
 	maxRefreshBackoff = 60 * time.Second
+	StopWindow        = 4 * time.Second
 )
 
 // Clock schedules the auto-refresh tick; nil uses the wall clock.
@@ -54,6 +53,8 @@ type App struct {
 	Clock Clock
 	// Unfocused asks for the long refresh interval; SetFocused sets it.
 	Unfocused bool
+	// Minimized stops the auto-refresh while the window is minimised.
+	Minimized bool
 	// PollTimeout bounds each auto-refresh tick; zero means five seconds.
 	PollTimeout time.Duration
 	// Post runs fetched state on the window's thread and repaints it. Nil
@@ -64,8 +65,12 @@ type App struct {
 	Fleets []Fleet
 	Fleet  Fleet
 
-	Screen     Screen
-	RailOpen   bool
+	Screen   Screen
+	RailOpen bool
+	// Chat is the chat pane's width once the divider moved; zero is the Board's default.
+	Chat       float32
+	paneW      float32
+	StopArmed  bool
 	Ref        string
 	Loading    bool
 	Busy       bool
@@ -103,7 +108,9 @@ type App struct {
 	stop      context.CancelFunc
 	gen       int
 	back      []backStep
-	landing   bool
+	stopTimer func()
+	stopGen   int
+	tail      string
 
 	polling    bool
 	closed     bool
@@ -118,6 +125,7 @@ type App struct {
 	pollStatus       string
 	pollScreenFor    string
 	pollScreenCursor string
+	pollTimeline     string
 }
 
 type backStep struct {
@@ -150,6 +158,17 @@ func (a *App) StartRefresh() {
 func (a *App) Close() {
 	a.polling, a.closed = false, true
 	a.resetPoll()
+}
+
+// SetMinimized pauses the auto-refresh while the window is minimised.
+func (a *App) SetMinimized(minimized bool) {
+	if a.Minimized == minimized {
+		return
+	}
+	a.Minimized = minimized
+	if !a.pollBusy {
+		a.armPoll()
+	}
 }
 
 // SetFocused switches the loop between the focused and unfocused intervals.
@@ -221,7 +240,8 @@ func (a *App) SelectFleet(id string) {
 	if f, ok := a.fleetByID(id); ok {
 		a.Fleet = f
 	}
-	a.Screen, a.Ref, a.back, a.landing = StatusScreen, "", nil, true
+	a.Screen, a.Ref, a.back, a.tail = BoardScreen, "", nil, "\x00"
+	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
@@ -272,7 +292,7 @@ func (a *App) install(f found, keep bool) {
 }
 
 func (a *App) Show(s Screen) {
-	a.Screen, a.Ref, a.back, a.landing = s, "", nil, false
+	a.Screen, a.Ref, a.back = s, "", nil
 	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
@@ -306,7 +326,7 @@ func refScreen(ref string) (Screen, bool) {
 }
 
 func (a *App) next(done string) {
-	if a.Ref != done || len(a.back) == 0 || a.back[len(a.back)-1].Screen != NeedsScreen {
+	if a.Ref != done || len(a.back) == 0 || a.back[len(a.back)-1].Screen != BoardScreen {
 		return
 	}
 	for _, need := range a.Status.Needs.Items {
@@ -330,7 +350,7 @@ func (a *App) next(done string) {
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
-		a.Show(StatusScreen)
+		a.Show(BoardScreen)
 		return
 	}
 	step := a.back[len(a.back)-1]
@@ -356,7 +376,7 @@ func (a *App) Older() {
 	post := a.Post
 	model, fleet, before := a.Model, a.Fleet.ID, a.Timeline.Older
 	apply := func(tl Timeline, err error) {
-		if id != a.loadID || a.Screen != TimelineScreen {
+		if id != a.loadID {
 			return
 		}
 		if err != nil {
@@ -655,6 +675,46 @@ func (a *App) Supervise(action string) {
 	})
 }
 
+// PressStop arms Stop; a second press within StopWindow stops the supervisor.
+func (a *App) PressStop() {
+	if a.StopArmed {
+		a.disarmStop()
+		a.Supervise("stop")
+		return
+	}
+	sup := a.Status.Supervisor
+	if a.Busy || sup == nil || !canSupervise(sup, "stop") {
+		return
+	}
+	a.StopArmed = true
+	if a.Clock == nil && a.Post == nil {
+		return
+	}
+	a.stopGen++
+	gen := a.stopGen
+	disarm := func() {
+		if gen == a.stopGen {
+			a.StopArmed, a.stopTimer = false, nil
+		}
+	}
+	a.stopTimer = a.clock().After(StopWindow, func() {
+		if a.Post != nil {
+			a.Post(disarm)
+			return
+		}
+		disarm()
+	})
+}
+
+func (a *App) disarmStop() {
+	a.StopArmed = false
+	a.stopGen++
+	if a.stopTimer != nil {
+		a.stopTimer()
+		a.stopTimer = nil
+	}
+}
+
 func (a *App) Press(keys ...string) {
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" {
 		return
@@ -910,7 +970,7 @@ func (a *App) resetPoll() {
 	a.pollBusy = false
 	a.pollFails = 0
 	a.pollFresh = false
-	a.pollStatus, a.pollScreenFor, a.pollScreenCursor = "", "", ""
+	a.pollStatus, a.pollScreenFor, a.pollScreenCursor, a.pollTimeline = "", "", "", ""
 	a.Stale = ""
 }
 
@@ -920,7 +980,7 @@ func (a *App) armPoll() {
 		a.pollTimer()
 		a.pollTimer = nil
 	}
-	if !a.polling || a.closed || a.pollBusy || a.Model == nil || a.Fleet.ID == "" || (a.Clock == nil && a.Post == nil) {
+	if !a.polling || a.closed || a.Minimized || a.pollBusy || a.Model == nil || a.Fleet.ID == "" || (a.Clock == nil && a.Post == nil) {
 		return
 	}
 	gen, tick := a.pollGen, a.tickGen
@@ -954,6 +1014,7 @@ func (a *App) pollOnce(gen, tick int) {
 		if a.pollScreenFor == key {
 			since.Screen = a.pollScreenCursor
 		}
+		since.Timeline = a.pollTimeline
 	}
 	ctx := a.Context
 	if ctx == nil {
@@ -1000,15 +1061,18 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	} else {
 		a.Stale, a.pollFails, a.pollFresh = "", 0, false
 	}
-	statusFresh, screenFresh := false, false
+	statusFresh, screenFresh, timelineFresh := false, false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
+	}
+	if a.Fleet.ID == fleet && p.TimelineFresh {
+		a.Timeline, a.pollTimeline, timelineFresh = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor, true
 	}
 	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
 		a.setScreen(screen, key, &p)
 		screenFresh = true
 	}
-	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
+	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh && timelineFresh) {
 		a.setErr("")
 	}
 	a.armPoll()
@@ -1016,9 +1080,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 
 func (a *App) setScreen(screen Screen, key string, p *Poll) {
 	switch screen {
-	case TimelineScreen:
-		a.Timeline = mergeTimeline(a.Timeline, p.Timeline)
-	case TasksScreen:
+	case BoardScreen:
 		a.Tasks = p.Tasks
 	case TaskScreen:
 		a.Task = p.Task
@@ -1107,11 +1169,14 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	if ctx.Err() != nil {
 		return l
 	}
+	if l.Timeline, err = model.Timeline(ctx, fleet, 0); err != nil {
+		if ctx.Err() == nil {
+			l.Err = friendly(err)
+		}
+		return l
+	}
 	switch screen {
-	case StatusScreen, NeedsScreen:
-	case TimelineScreen:
-		l.Timeline, err = model.Timeline(ctx, fleet, 0)
-	case TasksScreen:
+	case BoardScreen:
 		l.Tasks, err = model.Tasks(ctx, fleet, true)
 	case TaskScreen:
 		l.Task, err = model.Task(ctx, fleet, ref)
@@ -1138,17 +1203,9 @@ func (a *App) apply(l loaded) {
 	if !l.StatusOK {
 		return
 	}
-	a.Status = l.Status
-	if a.landing {
-		a.landing = false
-		if a.Screen == StatusScreen && a.Status.Needs.Waiting > 0 {
-			a.Screen = NeedsScreen
-		}
-	}
+	a.Status, a.Timeline = l.Status, l.Timeline
 	switch l.Screen {
-	case TimelineScreen:
-		a.Timeline = l.Timeline
-	case TasksScreen:
+	case BoardScreen:
 		a.Tasks = l.Tasks
 	case TaskScreen:
 		a.Task = l.Task

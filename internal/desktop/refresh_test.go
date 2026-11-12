@@ -164,7 +164,7 @@ func (b *fakeBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
-	if rest != "/api/v1/status" && rest != "/api/v1/timeline" {
+	if rest != "/api/v1/status" && rest != "/api/v1/timeline" && rest != "/api/v1/tasks" {
 		http.NotFound(w, r)
 		return
 	}
@@ -202,8 +202,11 @@ func (b *fakeBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	cur := fmt.Sprintf("%s#%d", rest, b.version[rest])
 	data := any(b.status)
-	if rest == "/api/v1/timeline" {
+	switch rest {
+	case "/api/v1/timeline":
 		data = b.timeline
+	case "/api/v1/tasks":
+		data = desktop.Tasks{}
 	}
 	b.issued[rest] = cur
 	if since != cur {
@@ -254,7 +257,7 @@ func TestRefreshReadsTheStatusInFullWhileAWorkerIsBlocked(t *testing.T) {
 		st.Needs.Items = []desktop.Need{{Kind: "worker", Ref: "a1", Word: "BLOCKED", Tone: "fail", Title: "Bash: rm -f x · Proceed?"}}
 	})
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.StatusScreen)
+	app.Show(desktop.BoardScreen)
 	app.StartRefresh()
 	before := b.fullReads("/api/v1/status")
 	for range 3 {
@@ -275,7 +278,7 @@ func TestRefreshReadsTheStatusInFullWhileAWorkerIsBlocked(t *testing.T) {
 func TestRefreshSendsTheLastCursorAndLeavesA304Alone(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	status, timeline := app.Status, app.Timeline
 
 	start := b.mark()
@@ -293,8 +296,8 @@ func TestRefreshSendsTheLastCursorAndLeavesA304Alone(t *testing.T) {
 		t.Fatal("a 304 repainted the screen")
 	}
 	seen := b.seen(start)
-	if len(seen) != 2 {
-		t.Fatalf("poll made %d requests, want 2: %+v", len(seen), seen)
+	if len(seen) != 3 {
+		t.Fatalf("poll made %d requests, want 3: %+v", len(seen), seen)
 	}
 	for _, req := range seen {
 		if req.since == "" || req.since != req.issued {
@@ -308,7 +311,7 @@ func TestRefreshSendsTheLastCursorAndLeavesA304Alone(t *testing.T) {
 	start = b.mark()
 	clock.Advance(desktop.FocusedRefresh)
 	seen = b.seen(start)
-	if len(seen) != 2 || seen[0].since == "" || seen[0].since != seen[0].issued || seen[1].since != seen[1].issued {
+	if len(seen) != 3 || seen[0].since == "" || seen[0].since != seen[0].issued || seen[2].since != seen[2].issued {
 		t.Fatalf("second poll sent stale cursors: %+v", seen)
 	}
 	if len(app.Timeline.Entries) == 0 || app.Timeline.Entries[0].Text != "second" {
@@ -319,7 +322,7 @@ func TestRefreshSendsTheLastCursorAndLeavesA304Alone(t *testing.T) {
 func TestRefreshAppliesAChangedStatusOffTheScreen(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	b.setStatus(func(st *desktop.Status) { st.Pill, st.Line = "waiting", "blocked on a decision" })
 	app.StartRefresh()
 	clock.Advance(desktop.FocusedRefresh)
@@ -368,7 +371,7 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 	t.Run("screen", func(t *testing.T) {
 		b := newFakeBoard()
 		app, clock := newBoardApp(t, b)
-		app.Show(desktop.TimelineScreen)
+		app.Show(desktop.BoardScreen)
 		b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
 		app.StartRefresh()
 		clock.Advance(desktop.FocusedRefresh)
@@ -409,7 +412,7 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 	t.Run("screen with a held cursor", func(t *testing.T) {
 		b := newFakeBoard()
 		app, clock := newBoardApp(t, b)
-		app.Show(desktop.TimelineScreen)
+		app.Show(desktop.BoardScreen)
 		app.StartRefresh()
 		b.setTimeline(func(tl *desktop.Timeline) {
 			tl.Entries = append(tl.Entries, desktop.Entry{Role: "supervisor", Text: "second", No: 2})
@@ -421,7 +424,7 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 		clock.Advance(desktop.FocusedRefresh)
 
 		b.setFailTimeline(true)
-		app.Show(desktop.TimelineScreen)
+		app.Show(desktop.BoardScreen)
 		if app.Err == "" {
 			t.Fatal("a failed timeline read left no error")
 		}
@@ -444,7 +447,7 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 	t.Run("status", func(t *testing.T) {
 		b := newFakeBoard()
 		app, clock := newBoardApp(t, b)
-		app.Show(desktop.TimelineScreen)
+		app.Show(desktop.BoardScreen)
 		b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
 		app.StartRefresh()
 		clock.Advance(desktop.FocusedRefresh)
@@ -482,7 +485,7 @@ func TestRefreshKeepsAnErrorWhileTheBoardStillFailsAndClearsItOnceItAnswers(t *t
 func TestAPartialPollClearsTheErrorOfTheHalfItAnswered(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 
 	b.setFail(true)
 	app.Retry()
@@ -515,7 +518,7 @@ func TestAPartialPollClearsTheErrorOfTheHalfItAnswered(t *testing.T) {
 func TestRefreshRecoversFromABadCursor(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	b.setReject(true)
 	b.setStatus(func(st *desktop.Status) { st.Pill = "waiting" })
 	start := b.mark()
@@ -528,10 +531,10 @@ func TestRefreshRecoversFromABadCursor(t *testing.T) {
 		t.Fatalf("stale = %q after the retry succeeded", app.Stale)
 	}
 	seen := b.seen(start)
-	if len(seen) != 4 {
-		t.Fatalf("poll made %d requests, want a retry of each half: %+v", len(seen), seen)
+	if len(seen) != 6 {
+		t.Fatalf("poll made %d requests, want a retry of each read: %+v", len(seen), seen)
 	}
-	for i, want := range []bool{true, false, true, false} {
+	for i, want := range []bool{true, false, true, false, true, false} {
 		if got := seen[i].since != ""; got != want {
 			t.Fatalf("request %d sent since %q, want the full read after bad_cursor: %+v", i, seen[i].since, seen)
 		}
@@ -541,7 +544,7 @@ func TestRefreshRecoversFromABadCursor(t *testing.T) {
 func TestRefreshBacksOffOnErrors(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	b.setFail(true)
 	app.StartRefresh()
 
@@ -554,7 +557,7 @@ func TestRefreshBacksOffOnErrors(t *testing.T) {
 		t.Fatalf("first backoff = %v, want %v", got, want)
 	}
 	start := b.mark()
-	clock.Advance(3 * time.Second)
+	clock.Advance(desktop.FocusedRefresh)
 	if got := b.mark(); got != start {
 		t.Fatal("a tick fired before the backoff elapsed")
 	}
@@ -580,7 +583,7 @@ func TestRefreshBacksOffUpToTheCap(t *testing.T) {
 	b.setFail(true)
 	app.StartRefresh()
 	clock.Advance(desktop.FocusedRefresh)
-	for _, want := range []time.Duration{4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second} {
+	for _, want := range []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second} {
 		if got := clock.delay(); got != want {
 			t.Fatalf("backoff = %v, want %v", got, want)
 		}
@@ -591,7 +594,7 @@ func TestRefreshBacksOffUpToTheCap(t *testing.T) {
 func TestAManualRefreshClearsTheStaleNote(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	b.setFail(true)
 	app.StartRefresh()
 	clock.Advance(desktop.FocusedRefresh)
@@ -725,7 +728,7 @@ func TestRefreshDropsAScreenTheOperatorLeft(t *testing.T) {
 	app.Clock = newFakeClock()
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	settle(t, posted)
 	app.StartRefresh()
 	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
@@ -741,9 +744,9 @@ func TestRefreshDropsAScreenTheOperatorLeft(t *testing.T) {
 	f.timeline[fleetID] = tl
 	f.mu.Unlock()
 
-	app.Show(desktop.TasksScreen)
+	app.OpenRef("t1")
 	settle(t, posted)
-	tasks := app.Tasks
+	tasks, task := app.Tasks, app.Task
 	close(f.pollBlock)
 	select {
 	case <-f.pollDone:
@@ -752,11 +755,8 @@ func TestRefreshDropsAScreenTheOperatorLeft(t *testing.T) {
 	}
 	settle(t, posted)
 
-	if app.Screen != desktop.TasksScreen || !reflect.DeepEqual(app.Tasks, tasks) {
+	if app.Screen != desktop.TaskScreen || !reflect.DeepEqual(app.Tasks, tasks) || !reflect.DeepEqual(app.Task, task) {
 		t.Fatal("a poll of the old screen replaced the new one")
-	}
-	if len(app.Timeline.Entries) > 0 && app.Timeline.Entries[0].Text == "while away" {
-		t.Fatal("a poll of the old screen changed the timeline")
 	}
 }
 
@@ -769,7 +769,7 @@ func TestRefreshDropsAPollOlderThanTheLastRead(t *testing.T) {
 	app.Clock = newFakeClock()
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	settle(t, posted)
 	app.StartRefresh()
 	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
@@ -869,7 +869,7 @@ func TestRefreshKeepsTimelineHistory(t *testing.T) {
 		Entries: []desktop.Entry{{Role: "operator", Text: "the earlier message", At: "2026-10-31T04:40:00Z"}},
 	}}
 	app := newApp(t, f)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	app.Older()
 	f.mu.Lock()
 	tl = f.timeline[fleetID]
@@ -899,7 +899,7 @@ func TestRefreshKeepsTimelineHistory(t *testing.T) {
 func TestRefreshKeepsTheComposerDraft(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	app.Draft = "half a message"
 	b.setTimeline(func(tl *desktop.Timeline) {
 		tl.Entries = append([]desktop.Entry{{Role: "supervisor", Text: "newer", No: 2}}, tl.Entries...)
@@ -917,7 +917,7 @@ func TestRefreshKeepsTheComposerDraft(t *testing.T) {
 func TestRefreshDoesNotBlockTheRenderPath(t *testing.T) {
 	b := newFakeBoard()
 	app, clock := newBoardApp(t, b)
-	app.Show(desktop.TimelineScreen)
+	app.Show(desktop.BoardScreen)
 	posted := make(chan func(), 4)
 	app.Post = func(fn func()) { posted <- fn }
 	app.StartRefresh()
@@ -1001,7 +1001,7 @@ func TestRefreshKeepsTheLastStatusAndClearsAFailedReadOnTheNextAnsweredPoll(t *t
 		t.Fatalf("status = %+v before the failure", app.Status)
 	}
 	b.setFail(true)
-	app.Show(desktop.NeedsScreen)
+	app.Show(desktop.BoardScreen)
 	if app.Err == "" {
 		t.Fatal("the failed read left no error")
 	}

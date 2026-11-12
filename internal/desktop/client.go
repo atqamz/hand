@@ -42,31 +42,34 @@ type ReadModel interface {
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
 }
 
-// PollCursors are the last cursors the window accepted for the status and its
-// open screen; a window sends them back and commits only what it applies.
+// PollCursors are the last cursors the window accepted for the status, its
+// open screen and the conversation; a window sends them back and commits only what it applies.
 type PollCursors struct {
-	Status string
-	Screen string
-	Fresh  bool
-	Worker bool
+	Status   string
+	Screen   string
+	Timeline string
+	Fresh    bool
+	Worker   bool
 }
 
-// Poll is one auto-refresh tick: the status and the open screen's data, each
+// Poll is one auto-refresh tick: the status, the open screen's data and the conversation, each
 // read only when its change cursor moved. A false Fresh field means the board
 // answered 304, so the field is empty and the screen keeps what it has. The
 // cursor fields are the ones the tick's 200 answers issued.
 type Poll struct {
-	StatusFresh  bool
-	Status       Status
-	StatusCursor string
-	ScreenFresh  bool
-	ScreenCursor string
-	Timeline     Timeline
-	Tasks        Tasks
-	Task         TaskDetail
-	Attempt      AttemptDetail
-	Decision     DecisionDetail
-	Report       ReportDetail
+	StatusFresh    bool
+	Status         Status
+	StatusCursor   string
+	ScreenFresh    bool
+	ScreenCursor   string
+	TimelineFresh  bool
+	TimelineCursor string
+	Timeline       Timeline
+	Tasks          Tasks
+	Task           TaskDetail
+	Attempt        AttemptDetail
+	Decision       DecisionDetail
+	Report         ReportDetail
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -316,41 +319,40 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 	if err != nil {
 		return Poll{}, err
 	}
-	path, ok := pollPath(screen, ref)
-	if !ok {
-		return p, nil
-	}
+	path := pollPath(screen, ref)
 	screenSince := since.Screen
 	if screenSince == "" && !since.Fresh {
 		screenSince = c.cursor(fleet, path)
 	}
 	p.ScreenFresh, p.ScreenCursor, err = c.pollAs(ctx, fleet, token, path, screenSince, pollData(screen, &p))
+	if err != nil {
+		return p, err
+	}
+	timelineSince := since.Timeline
+	if timelineSince == "" && !since.Fresh {
+		timelineSince = c.cursor(fleet, "/timeline")
+	}
+	p.TimelineFresh, p.TimelineCursor, err = c.pollAs(ctx, fleet, token, "/timeline", timelineSince, &p.Timeline)
 	return p, err
 }
 
-func pollPath(screen Screen, ref string) (string, bool) {
+func pollPath(screen Screen, ref string) string {
 	switch screen {
-	case TimelineScreen:
-		return "/timeline", true
-	case TasksScreen:
-		return "/tasks?all=1", true
 	case TaskScreen:
-		return "/task/" + url.PathEscape(ref), true
+		return "/task/" + url.PathEscape(ref)
 	case AttemptScreen:
-		return "/attempt/" + url.PathEscape(ref), true
+		return "/attempt/" + url.PathEscape(ref)
 	case DecisionScreen:
-		return "/decision/" + url.PathEscape(ref), true
+		return "/decision/" + url.PathEscape(ref)
 	case ReportScreen:
-		return "/report/" + url.PathEscape(ref), true
+		return "/report/" + url.PathEscape(ref)
 	}
-	return "", false
+	return "/tasks?all=1"
 }
 
 func pollData(screen Screen, p *Poll) any {
 	switch screen {
-	case TimelineScreen:
-		return &p.Timeline
-	case TasksScreen:
+	case BoardScreen:
 		return &p.Tasks
 	case TaskScreen:
 		return &p.Task

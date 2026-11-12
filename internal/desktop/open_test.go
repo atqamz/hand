@@ -154,7 +154,7 @@ func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
 	} {
 		t.Run(tc.screen, func(t *testing.T) {
 			tc.open()
-			click(t, tt, "Open in browser")
+			menu(t, tt, "Open in browser")
 			hand.want(t, tc.argv...)
 			if app.OpenErr != "" {
 				t.Fatalf("OpenErr = %q", app.OpenErr)
@@ -168,7 +168,7 @@ func TestAFailingHandShowsItsLastLine(t *testing.T) {
 	t.Setenv("FAKE_HAND_FAIL", "the board did not start")
 	app := homedApp(t, hand.home)
 	tt := newTester(app)
-	click(t, tt, "Open in browser")
+	menu(t, tt, "Open in browser")
 	mustText(t, tt, "The browser did not open", "the board did not start")
 	click(t, tt, "Dismiss")
 	mustNotText(t, tt, "The browser did not open")
@@ -178,7 +178,7 @@ func TestAMissingHandShowsAnError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	app := homedApp(t, t.TempDir())
 	tt := newTester(app)
-	click(t, tt, "Open in browser")
+	menu(t, tt, "Open in browser")
 	mustText(t, tt, "The browser did not open", "`hand` was not found")
 }
 
@@ -186,7 +186,7 @@ func TestAFleetWithoutAFolderShowsAnError(t *testing.T) {
 	installFakeHand(t)
 	app := homedApp(t, "")
 	tt := newTester(app)
-	click(t, tt, "Open in browser")
+	menu(t, tt, "Open in browser")
 	mustText(t, tt, "the fleet's folder is not known")
 }
 
@@ -252,7 +252,7 @@ func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
 		posted := make(chan func(), 8)
 		app.Post = func(fn func()) { posted <- fn }
 		start := time.Now()
-		click(t, tt, "Open in browser")
+		menu(t, tt, "Open in browser")
 		if switched {
 			app.SelectFleet(secondID)
 		}
@@ -281,13 +281,14 @@ func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
 	tt := newTester(app)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
-	click(t, tt, "Open in browser")
+	menu(t, tt, "Open in browser")
 	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("hand never started")
 		}
 	}
 	tt.Frame()
+	tt.Click("More")
 	tt.Click("Open in browser")
 	if !app.OpenBusy {
 		t.Fatal("the window is not busy while hand runs")
@@ -305,6 +306,9 @@ func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
 		t.Fatalf("hand ran %q, want one call", got)
 	}
 	tt.Frame()
+	if _, ok := tt.Find("Open in browser"); !ok {
+		click(t, tt, "More")
+	}
 	if err := tt.Click("Open in browser"); err != nil {
 		t.Fatal(err)
 	}
