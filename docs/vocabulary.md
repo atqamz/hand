@@ -507,13 +507,13 @@ Start, resume, stop, interrupt, force and keys, from the Board's console and blo
 
 ### Composer
 
-The message box at a [Board](#board) fleet page's Chat, and in the desktop [window](#desktop) the field below the Conversation. It sends one [supervisor input](#supervisor-input) and nothing else. On the desktop, as on the Board, Ctrl+Enter or Cmd+Enter sends, Enter starts a new line, Send sends the bound text, and Clear discards it; a send, a Clear and a successful open read the fleet's [draft](#draft). The Board keeps its composer's text in the browser's local storage; the desktop keeps it in its own state folder. A failed send keeps the text and shows the board's scrubbed message.
+The message box at a [Board](#board) fleet page's Chat, and in the desktop [window](#desktop) the field below the Conversation. It sends one [supervisor input](#supervisor-input) and nothing else. On the desktop, as on the Board, Ctrl+Enter or Cmd+Enter sends, Enter starts a new line, and Send sends the bound text; a send and a successful open read the fleet's [draft](#draft). Neither composer has a Clear button: emptying the box deletes the stored draft. The Board keeps its composer's text in the browser's local storage; the desktop keeps it in its own state folder. A failed send keeps the text and shows the board's scrubbed message.
 
 The desktop's composer sends text only in v1. The Board's composer also accepts attachments, which it copies into `inbox/` and writes into the input as `[image: PATH]` or `[file: PATH]`; the JSON API does not carry a host path, so attaching from the desktop waits for a contract that names the inbox file instead.
 
 ### Draft
 
-Composer text the operator typed but did not send. The desktop stores one draft per [fleet](#fleet) at `$XDG_STATE_HOME/hand-desktop/drafts/<fleet id>.txt`, falling back to `~/.local/state/hand-desktop/drafts/` and, on Windows, `%LOCALAPPDATA%\hand-desktop\drafts`, with mode 0600. It is not a secret and holds no token. Opening the window or switching fleets restores that fleet's draft; a successful send and Clear delete it; a failed send leaves it. The draft file is the desktop's only local write.
+Composer text the operator typed but did not send. The desktop stores one draft per [fleet](#fleet) at `$XDG_STATE_HOME/hand-desktop/drafts/<fleet id>.txt`, falling back to `~/.local/state/hand-desktop/drafts/` and, on Windows, `%LOCALAPPDATA%\hand-desktop\drafts`, with mode 0600. It is not a secret and holds no token. Opening the window or switching fleets restores that fleet's draft; a successful send deletes it, and so does emptying the box; a failed send leaves it. The draft file is the desktop's only local write.
 
 ### Transcript
 

@@ -126,6 +126,7 @@ func TestScenesTheComposerKeepsAFailedSend(t *testing.T) {
 		t.Run(theme, func(t *testing.T) {
 			f := goldenFixture(t)
 			app := newApp(t, f)
+			app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
 			tt := sized(t, app, 1100, 760, dark)
 			click(t, tt, "Message")
 			tt.Type("keep this text")

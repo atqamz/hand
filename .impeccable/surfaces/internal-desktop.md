@@ -93,7 +93,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `27-composer-empty-<light or dark>.png` | the composer as the Board draws it: one box with the control edge, the placeholder, the key hint and Send |
 | `28-composer-hint-<light or dark>.png` | the composer with the status's hint on its foot |
 | `29-composer-draft-<light or dark>.png` | a typed message with the focused box and the draft note at its top edge |
-| `30-composer-sent.png` | the composer after a send: the new message in the conversation, the box empty again |
+| `30-composer-sent-<light or dark>.png` | the composer after a send: the new message in the conversation, the box empty again |
 | `31-composer-failed-<light or dark>.png` | a failed send: the action's error card and the text the box kept |
 
 The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. The hint sits on the foot's left and the draft note over the box's top-right corner, as the Board places it; the note is set on every save and cleared when the box empties. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.

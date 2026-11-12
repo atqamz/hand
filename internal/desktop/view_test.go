@@ -1110,6 +1110,10 @@ func TestScenes(t *testing.T) {
 	}
 	errFleet := goldenFixture(t)
 	errApp := newApp(t, errFleet)
+	sceneNow := func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
+	errApp.Now = sceneNow
+	composer := newApp(t, goldenFixture(t))
+	composer.Now = sceneNow
 	blocked := blockedFixture(t)
 	delivered := goldenFixture(t)
 	td := delivered.task[fleetID]
@@ -1145,7 +1149,7 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Board")
 			click(t, tt, "Cookie fixed")
 		}},
-		{"11-composer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
+		{"11-composer", composer, func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "Message")
 			tt.Type("Please look at the cookie rename after the docs pass.")
 		}},
