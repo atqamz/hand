@@ -2,6 +2,7 @@ package io.github.atqamz.handcompanion
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,26 +34,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-private val type
+internal val type
   @Composable get() = MaterialTheme.typography
 
-private fun glyph(tone: Tone) =
+internal fun glyph(tone: Tone) =
   when (tone) {
     Tone.Fail -> HandIcons.Failure
     Tone.Accent -> HandIcons.Running
     Tone.Pass -> HandIcons.Passing
+    Tone.Wait -> HandIcons.Waiting
     else -> HandIcons.Idle
   }
 
 @Composable
-private fun Label(text: String, color: Color) = Text(text, color = color, style = type.labelMedium)
+internal fun Label(text: String, color: Color) = Text(text, color = color, style = type.labelMedium)
 
 @Composable
-private fun Meta(text: String, color: Color = LocalHand.current.muted) =
+internal fun Meta(text: String, color: Color = LocalHand.current.muted) =
   Text(text, color = color, style = type.bodySmall)
 
 @Composable
-private fun Chip(text: String, tone: Tone, height: Int, icon: ImageVector? = null) {
+internal fun Chip(text: String, tone: Tone, height: Int, icon: ImageVector? = null) {
   val hand = LocalHand.current
   Row(
     Modifier.height(height.dp).background(hand.fill(tone), CircleShape).padding(horizontal = 8.dp),
@@ -65,7 +67,7 @@ private fun Chip(text: String, tone: Tone, height: Int, icon: ImageVector? = nul
 }
 
 @Composable
-private fun Passing(text: String) {
+internal fun Passing(text: String) {
   val pass = LocalHand.current.ink(Tone.Pass)
   Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
     Icon(HandIcons.Passing, null, Modifier.size(12.dp), pass)
@@ -74,7 +76,7 @@ private fun Passing(text: String) {
 }
 
 @Composable
-private fun Action(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun Action(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
   val hand = LocalHand.current
   OutlinedButton(
     onClick,
@@ -102,7 +104,7 @@ private fun Strip(laptop: String) {
 }
 
 @Composable
-private fun BandView(band: Band, onRetry: () -> Unit) {
+internal fun BandView(band: Band, onRetry: () -> Unit) {
   Row(
     Modifier.fillMaxWidth().background(LocalHand.current.fill(Tone.Wait)).padding(16.dp, 12.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -121,10 +123,13 @@ private fun past(row: FleetRow, seen: String) =
   else listOfNotNull(row.badge?.text, "${row.open} open").joinToString(" · ") + " at $seen"
 
 @Composable
-private fun Fleet(row: FleetRow, stale: Boolean) {
+private fun Fleet(row: FleetRow, stale: Boolean, onOpen: (String) -> Unit) {
   val hand = LocalHand.current
   Row(
-    Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(16.dp, 12.dp),
+    Modifier.fillMaxWidth()
+      .heightIn(min = 76.dp)
+      .clickable(enabled = row.paired) { onOpen(row.id) }
+      .padding(16.dp, 12.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp)
   ) {
@@ -166,7 +171,12 @@ private fun Fleet(row: FleetRow, stale: Boolean) {
 }
 
 @Composable
-fun FleetsScreen(state: FleetsState, onRetry: () -> Unit, onAddFleet: () -> Unit) {
+fun FleetsScreen(
+  state: FleetsState,
+  onRetry: () -> Unit,
+  onAddFleet: () -> Unit,
+  onOpen: (String) -> Unit
+) {
   val line = LocalHand.current.line
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
     Row(
@@ -185,7 +195,7 @@ fun FleetsScreen(state: FleetsState, onRetry: () -> Unit, onAddFleet: () -> Unit
     }
     HorizontalDivider(color = line)
     LazyColumn {
-      items(state.rows, key = { it.id }) { Fleet(it, state.band?.retry == true) }
+      items(state.rows, key = { it.id }) { Fleet(it, state.band?.retry == true, onOpen) }
     }
   }
 }

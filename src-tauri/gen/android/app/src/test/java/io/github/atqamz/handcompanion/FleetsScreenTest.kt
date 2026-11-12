@@ -58,7 +58,7 @@ class FleetsScreenTest {
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 1500))
 
   private fun shot(dark: Boolean, state: FleetsState) =
-    paparazzi.snapshot { HandTheme(dark) { FleetsScreen(state, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { FleetsScreen(state, {}, {}, {}) } }
 
   @Test fun fleetsLight() = shot(false, connected)
 

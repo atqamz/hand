@@ -103,21 +103,61 @@ fun tint(fleet: String): Int {
   return (hash.toUInt() % 12u).toInt()
 }
 
-private fun scheme(hand: HandColors, base: ColorScheme) =
-  base.copy(
+internal fun scheme(hand: HandColors, base: ColorScheme): ColorScheme {
+  val accent = hand.ink(Tone.Accent)
+  val accentFill = hand.fill(Tone.Accent)
+  val neutralFill = hand.fill(Tone.Neutral)
+  return base.copy(
     primary = hand.primary,
     onPrimary = hand.onPrimary,
+    primaryContainer = neutralFill,
+    onPrimaryContainer = hand.fg,
+    inversePrimary = hand.bg,
+    secondary = hand.muted,
+    onSecondary = hand.bg,
+    secondaryContainer = hand.line,
+    onSecondaryContainer = hand.fg,
+    tertiary = accent,
+    onTertiary = hand.bg,
+    tertiaryContainer = accentFill,
+    onTertiaryContainer = accent,
     background = hand.bg,
     onBackground = hand.fg,
     surface = hand.bg,
     onSurface = hand.fg,
     surfaceVariant = hand.panel,
     onSurfaceVariant = hand.muted,
+    surfaceTint = hand.primary,
+    inverseSurface = hand.fg,
+    inverseOnSurface = hand.bg,
+    error = hand.ink(Tone.Fail),
+    onError = hand.bg,
+    errorContainer = hand.fill(Tone.Fail),
+    onErrorContainer = hand.ink(Tone.Fail),
     outline = hand.lineStrong,
     outlineVariant = hand.line,
-    error = hand.ink(Tone.Fail),
-    errorContainer = hand.fill(Tone.Fail)
+    scrim = Color.Black,
+    surfaceBright = hand.bg,
+    surfaceDim = hand.panel,
+    surfaceContainerLowest = hand.bg,
+    surfaceContainerLow = hand.bg,
+    surfaceContainer = hand.panel,
+    surfaceContainerHigh = hand.panel,
+    surfaceContainerHighest = hand.panel,
+    primaryFixed = neutralFill,
+    primaryFixedDim = hand.line,
+    onPrimaryFixed = hand.fg,
+    onPrimaryFixedVariant = hand.muted,
+    secondaryFixed = hand.panel,
+    secondaryFixedDim = hand.line,
+    onSecondaryFixed = hand.fg,
+    onSecondaryFixedVariant = hand.muted,
+    tertiaryFixed = accentFill,
+    tertiaryFixedDim = hand.line,
+    onTertiaryFixed = accent,
+    onTertiaryFixedVariant = accent
   )
+}
 
 private fun style(
   size: Int,

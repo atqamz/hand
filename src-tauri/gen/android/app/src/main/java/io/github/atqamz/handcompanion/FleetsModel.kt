@@ -17,7 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-private const val POLL_MILLIS = 5_000L
+const val POLL_MILLIS = 5_000L
 private val FLEET_ID = Regex("f[0-9a-f]{12}")
 
 data class Badge(val text: String, val tone: Tone)
@@ -53,9 +53,9 @@ fun laptopId(file: File): String? =
     null
   }
 
-private fun hhmm(date: Date) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
+fun hhmm(date: Date) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
 
-private fun localTime(iso: String): String? =
+fun localTime(iso: String): String? =
   try {
     SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT)
       .parse(iso.replace(Regex("\\.\\d+"), ""))
@@ -64,7 +64,7 @@ private fun localTime(iso: String): String? =
     null
   }
 
-private fun toneOf(name: String?) =
+fun toneOf(name: String?) =
   when (name) {
     "fail" -> Tone.Fail
     "wait" -> Tone.Wait
@@ -73,6 +73,17 @@ private fun toneOf(name: String?) =
     "link" -> Tone.Accent
     else -> Tone.Neutral
   }
+
+fun pill(status: Status) =
+  Badge(
+    status.line,
+    when (status.pill) {
+      "working" -> Tone.Accent
+      "ready" -> Tone.Pass
+      "failing" -> Tone.Fail
+      else -> Tone.Neutral
+    }
+  )
 
 private fun row(envelope: Envelope<Status>, seen: String): FleetRow {
   val status = envelope.data
@@ -87,27 +98,18 @@ private fun row(envelope: Envelope<Status>, seen: String): FleetRow {
     open = needs.waiting,
     clear = needs.waiting == 0,
     since = needs.cleared?.let(::localTime),
-    pill =
-      Badge(
-        status.line,
-        when (status.pill) {
-          "working" -> Tone.Accent
-          "ready" -> Tone.Pass
-          "failing" -> Tone.Fail
-          else -> Tone.Neutral
-        }
-      ),
+    pill = pill(status),
     seen = seen
   )
 }
 
-private val UNREACHABLE: Set<BoardError> =
+val UNREACHABLE: Set<BoardError> =
   setOf(BoardError.Unreachable, BoardError.NoLaptop, BoardError.Lost, BoardError.TimedOut)
 
-private val LAPTOP_LEVEL: Set<BoardError> =
+val LAPTOP_LEVEL: Set<BoardError> =
   UNREACHABLE + setOf(BoardError.Busy, BoardError.BoardNotRunning)
 
-private fun band(error: BoardError, laptop: String?, since: String?): Band =
+fun band(error: BoardError, laptop: String?, since: String?): Band =
   when (error) {
     BoardError.Busy -> Band("Your laptop is busy. Trying again.", retry = false)
     BoardError.BoardNotRunning ->
