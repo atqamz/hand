@@ -125,7 +125,7 @@ func (h *Host) summary(ctx context.Context, l FleetLink) APIFleetItem {
 	item := APIFleetItem{ID: l.ID, Name: l.Name, Unavailable: true}
 	f, err := h.handler(l.ID)
 	if err != nil {
-		log.Printf("board: the fleet list could not reach fleet %s: %v", l.ID, err)
+		h.noteRead(l.ID, err)
 		return item
 	}
 	defer f.busy.Done()
@@ -135,10 +135,28 @@ func (h *Host) summary(ctx context.Context, l FleetLink) APIFleetItem {
 	}
 	got, err := s.FleetSummary(ctx)
 	if err != nil {
-		log.Printf("board: the fleet list could not read fleet %s: %v", l.ID, err)
+		h.noteRead(l.ID, err)
 		return item
 	}
+	h.noteRead(l.ID, nil)
 	return APIFleetItem{ID: l.ID, Name: l.Name, APIFleetSummary: &got}
+}
+
+func (h *Host) noteRead(id string, err error) {
+	h.mu.Lock()
+	broken := h.broken[id]
+	if err != nil {
+		h.broken[id] = true
+	} else {
+		delete(h.broken, id)
+	}
+	h.mu.Unlock()
+	switch {
+	case err != nil && !broken:
+		log.Printf("board: the fleet list could not read fleet %s: %v", id, err)
+	case err == nil && broken:
+		log.Printf("board: the fleet list reaches fleet %s again", id)
+	}
 }
 
 func (h *Host) apiFleets(w http.ResponseWriter, r *http.Request) {
