@@ -390,8 +390,8 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/pair" {
-		if peerOf(r) == nil {
-			b.apiFail(w, http.StatusForbidden, "forbidden", "a phone pairs through the API only on the peer listener")
+		if deviceLogin(r) == "" {
+			b.apiFail(w, http.StatusForbidden, "forbidden", "a phone pairs through the API only from a peer with its own key")
 			return
 		}
 		b.apiPair(w, r)
@@ -571,8 +571,8 @@ func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := *in["code"]
-	name := strings.TrimSpace(*in["name"])
-	if utf8.RuneCountInString(name) > state.MaxDeviceName || strings.ContainsFunc(name, unicode.IsControl) {
+	name := *in["name"]
+	if strings.ContainsFunc(name, unicode.IsControl) || utf8.RuneCountInString(strings.TrimSpace(name)) > state.MaxDeviceName {
 		b.apiFail(w, http.StatusBadRequest, "bad_name", fmt.Sprintf("a phone's name is at most %d characters and has no control character", state.MaxDeviceName))
 		return
 	}

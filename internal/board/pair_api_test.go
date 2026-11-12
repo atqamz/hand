@@ -112,7 +112,7 @@ func TestThePairAPIRefusesABadNameWithoutSpendingTheCode(t *testing.T) {
 	f := r.fleets[0]
 	c := r.as(peerA)
 	code := r.code(f)
-	for _, name := range []string{strings.Repeat("x", 41), "Pi\nxel", "Pi\x00xel"} {
+	for _, name := range []string{strings.Repeat("x", 41), "Pi\nxel", "Pi\x00xel", "Pixel\n", "\tPixel"} {
 		r.refused(c, f, pairBody(code, name), http.StatusBadRequest, "bad_name")
 	}
 	rep, got := r.pairAPI(c, f, pairBody(code, strings.Repeat("é", 40)))
@@ -189,6 +189,13 @@ func TestThePairAPIKeepsTheAPIsRefusalsForForwardedFunnelAndNetworkAddressReques
 	}
 	if len(p.devicesOf(f)) != 0 {
 		t.Fatal("the loopback listener paired a device")
+	}
+
+	r := newPeerRig(t, "alpha")
+	rf := r.fleets[0]
+	r.refused(r.anonymous(), rf, pairBody(r.code(rf), "Pixel"), http.StatusForbidden, "forbidden")
+	if len(r.devicesOf(rf)) != 0 {
+		t.Fatal("a peer with no key paired a device through the API")
 	}
 
 	n := servePeerRig(t, newPhoneHost(t, false, "alpha"))

@@ -219,13 +219,13 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after either 
 
 ### Pairing a phone
 
-`POST /api/v1/pair` is the app's way to redeem a pairing code without the pair page. It needs no cookie and no `X-Hand-CSRF`, and it is the only API path an unpaired peer on the peer listener may reach. It answers only there: on the loopback listener it is `403 forbidden`, because the answer carries the device secret in a readable body, where the form sets an `HttpOnly` cookie. Send one `application/json` object under 4 KiB, with exactly the keys `code` and `name`, both strings (a missing, extra, differently cased or `null` key is `bad_request`):
+`POST /api/v1/pair` is the app's way to redeem a pairing code without the pair page. It needs no cookie and no `X-Hand-CSRF`, and it is the only API path an unpaired peer on the peer listener may reach. It answers only a peer that sent its endpoint ID: on the loopback listener, or on a peer connection with no preface, it is `403 forbidden`. The answer carries the device secret in a readable body, where the form sets an `HttpOnly` cookie, and a device with no `iroh:` login is one the API refuses anyway. Send one `application/json` object under 4 KiB, with exactly the keys `code` and `name`, both strings (a missing, extra, differently cased or `null` key is `bad_request`):
 
 ```json
 {"code": "K7QM3-XRD2P", "name": "Pixel"}
 ```
 
-It runs the pair form's code path, so the limits are the form's: a code works once for 5 minutes, 5 wrong codes in a minute from one endpoint block it, and 10 wrong codes from anyone cancel every code. The device is bound to the peer's iroh endpoint ID (`iroh:<endpoint id>`) and recorded as the form records it. `name` may be an empty string, which stores `Phone`. Unlike the form, which cleans a name, the API refuses a name over 40 characters or with a control character, before it spends the code. A request through a proxy, through Funnel, to a network-address board, or on the loopback listener is refused as every API request is. A body that is refused as `bad_request` never counts as a wrong code. A fleet that does not open answers `404 not_found`, as the form's page does, not `401`.
+It runs the pair form's code path, so the limits are the form's: a code works once for 5 minutes, 5 wrong codes in a minute from one endpoint block it, and 10 wrong codes from anyone cancel every code. The device is bound to the peer's iroh endpoint ID (`iroh:<endpoint id>`) and recorded as the form records it. `name` may be an empty string, which stores `Phone`. Unlike the form, which cleans a name, the API refuses a name with a control character, even a trailing newline, or over 40 characters once trimmed, before it spends the code. A request through a proxy, through Funnel, to a network-address board, or on the loopback listener is refused as every API request is. A body that is refused as `bad_request` never counts as a wrong code. A fleet that does not open answers `404 not_found`, as the form's page does, not `401`.
 
 The answer is the usual envelope. `data` is `Paired`:
 
@@ -236,7 +236,7 @@ The answer is the usual envelope. `data` is `Paired`:
 A code may name several fleets: `fleets` holds each one that paired, and `missed` counts the ones that did not. The client keeps `cookie_value` as the device secret and sends it as the cookie `cookie_name` on that fleet's `/api/v1` requests; it reads the CSRF value from `GET /api/v1/session`, as for any phone. The secret is in this answer only. The board never logs a code or a secret, and the client must not either.
 
 - `400 bad_request`: a body that is not one JSON object with `code` and `name`, over 4 KiB, or not `application/json`.
-- `400 bad_name`: a name over 40 characters or with a control character.
+- `400 bad_name`: a name with a control character, or over 40 characters once trimmed.
 - `403 wrong_code`, `code_expired`, `code_used`: the code is not right, is past 5 minutes, or was already redeemed.
 - `403 codes_cancelled`: this was the tenth wrong code, so every code is cancelled.
 - `429 rate_limited`: 5 wrong codes from this endpoint in the last minute.
@@ -290,7 +290,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 |---|---|---|
 | `400` | `bad_request` | a query value the endpoint cannot read (`before`), or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
-| `400` | `bad_name` | `pair` with a name over 40 characters or with a control character |
+| `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
 | `403` | `forbidden` | a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
