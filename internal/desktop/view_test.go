@@ -410,7 +410,7 @@ func TestNeedsOpensADecisionInPlace(t *testing.T) {
 func TestTheConversationShowsItsEntriesAndTheWorkingLine(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	mustText(t, tt, "Conversation", "s1 working", "All good.", "status?", "you", "hand")
+	mustText(t, tt, "Conversation", "s1 working", "All good.", "status?", "you", "s1 started")
 }
 
 func TestComposerSendsWithCtrlEnter(t *testing.T) {
