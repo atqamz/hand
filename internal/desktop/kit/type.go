@@ -9,3 +9,7 @@ var (
 	Body    = Role{14, 20}
 	Meta    = Role{12, 18}
 )
+
+var Message = Role{15, 24}
+
+const Measure = 600
