@@ -128,7 +128,13 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 						fg = p.accent
 					}
 					kit.ContextBar(c, k, g.Pct, fg)
-					ui.Text(c, g.Text).FontSize(kit.Meta.Size).FontFeatures("tnum")
+					text := ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
+					if g.Level != "" {
+						text.TextColor(fg)
+					}
+					if g.Level == "fail" {
+						text.Bold()
+					}
 				}
 			}
 			if a.Model != nil && a.Fleet.ID != "" && ui.Button(c.Key("open-browser"), "Open in browser").Disabled(a.OpenBusy).Clicked() {
@@ -1033,9 +1039,9 @@ func gauge(c *ui.Context, p palette, g Gauge) {
 
 func toneOf(state string) string {
 	switch state {
-	case "fail", "failing", "failed", "blocked", "interrupted", "stuck":
+	case "fail", "failing", "failed", "failure", "blocked", "worker", "resume", "interrupted", "stuck":
 		return "fail"
-	case "wait", "waiting", "limited", "decision", "pending":
+	case "wait", "warn", "waiting", "limited", "nosup", "stalled", "decision", "pending":
 		return "wait"
 	case "pass", "ready", "running", "passing", "done":
 		return "pass"
