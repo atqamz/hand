@@ -70,7 +70,7 @@ func TestTheViewerRendersMarkdown(t *testing.T) {
 		`<a class="doc-download" href="/doc/reports/t1/design.md?download">Download</a>`,
 		`<button type="button" class="doc-copy" data-copy="path" data-text="`+filepath.Join(home, "reports", "t1", "design.md")+`">Copy path</button>`,
 		`<button type="button" class="doc-copy" data-copy="contents" data-src="/doc/reports/t1/design.md?raw">Copy contents</button>`,
-		`<article class="doc-body copy md"><h3>Export design</h3>`,
+		`<article class="doc-body copy md"><h3 id="doc-export-design">Export design</h3>`,
 		`Proposal for <a class="ref" href="/ref/t1">t1</a>`,
 		`<a href="api.md">API notes</a>`, `<a href="../t0/notes.md">old notes</a>`,
 		`<ul><li class="task done"><span class="sr">done: </span>one job per night</li><li class="task"><span class="sr">to do: </span>a backfill</li></ul>`,

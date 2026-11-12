@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.PageTitle}}</title>
+<link rel="canonical" href="{{.Canonical}}">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+<a class="wordmark" href="/">Hand</a>
+<nav aria-label="Docs">
+{{range .Nav}}<a href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>
+{{end}}</nav>
+</header>
+<main class="page">
+<h1>{{.Title}}</h1>
+{{if .Edit}}<p class="edit"><a href="{{.Edit}}">Edit on GitHub</a></p>{{end}}
+<article class="doc">
+{{.Body}}
+</article>
+<nav class="pager" aria-label="Pages">
+{{with .Prev}}<a class="prev" href="{{.Href}}">← {{.Name}}</a>{{else}}<span></span>{{end}}
+{{with .Next}}<a class="next" href="{{.Href}}">{{.Name}} →</a>{{else}}<span></span>{{end}}
+</nav>
+</main>
+<footer class="site-footer">
+<p>Hand {{.Version}} · MIT License</p>
+</footer>
+</body>
+</html>

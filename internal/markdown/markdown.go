@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 const maxPaths = 50
@@ -15,12 +16,28 @@ const maxPaths = 50
 type opts struct {
 	refs  string
 	doc   bool
+	site  bool
 	local func(path string) string
 	left  *int
+	slugs *Slugger
 }
 
 func Render(text string, local func(path string) string) template.HTML {
 	return render(text, opts{local: local}, nil)
+}
+
+func RenderSite(text string) template.HTML {
+	return render(text, opts{site: true}, nil)
+}
+
+type Slugger struct{ seen map[string]int }
+
+func NewSlugger() *Slugger {
+	return &Slugger{seen: map[string]int{}}
+}
+
+func RenderSiteWith(text string, slugs *Slugger) template.HTML {
+	return render(text, opts{site: true, slugs: slugs}, nil)
 }
 
 func RenderRefs(text, base string, title, local func(string) string) template.HTML {
@@ -35,6 +52,9 @@ func render(text string, o opts, title func(ref string) string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	left := maxPaths
 	o.left = &left
+	if o.slugs == nil {
+		o.slugs = NewSlugger()
+	}
 	var b strings.Builder
 	blocks(&b, lines, true, o, 0)
 	return template.HTML(titled(b.String(), title))
@@ -50,6 +70,32 @@ func Refs(text, base string, title func(ref string) string) template.HTML {
 }
 
 var refLink = regexp.MustCompile(`<a class="ref" href="([^"]*)">([a-z][0-9]+)</a>`)
+
+var linkDest = regexp.MustCompile(`\]\([^)]*\)`)
+
+func (s *Slugger) slug(text string) string {
+	if s.seen == nil {
+		s.seen = map[string]int{}
+	}
+	text = linkDest.ReplaceAllString(text, "")
+	var b strings.Builder
+	for _, r := range text {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_' || r == '-':
+			b.WriteRune(unicode.ToLower(r))
+		case unicode.IsSpace(r):
+			b.WriteByte('-')
+		}
+	}
+	base, slug := b.String(), b.String()
+	for n := 1; s.seen[slug] > 0; n++ {
+		slug = base + "-" + strconv.Itoa(n)
+	}
+	s.seen[slug] = 1
+	return slug
+}
+
+const docID = "doc-"
 
 func titled(out string, title func(ref string) string) string {
 	if title == nil {
@@ -88,7 +134,24 @@ func blocks(b *strings.Builder, lines []string, quotes bool, refs opts, depth in
 			if heading(line) > 2 {
 				tag = "h4"
 			}
-			b.WriteString("<" + tag + ">" + inline(strings.TrimSpace(line[heading(line):]), true, refs) + "</" + tag + ">")
+			if refs.site {
+				switch {
+				case heading(line) <= 2:
+					tag = "h2"
+				case heading(line) == 3:
+					tag = "h3"
+				}
+			}
+			text := strings.TrimSpace(line[heading(line):])
+			b.WriteString("<" + tag)
+			if refs.doc || refs.site {
+				id := refs.slugs.slug(text)
+				if refs.doc {
+					id = docID + id
+				}
+				b.WriteString(` id="` + id + `"`)
+			}
+			b.WriteString(">" + inline(text, true, refs) + "</" + tag + ">")
 			i++
 		case quotes && strings.HasPrefix(line, ">"):
 			var inner []string
@@ -260,7 +323,7 @@ func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, r
 	}
 	b.WriteString(open)
 	for i < len(lines) && item(lines[i], ordered) != "" {
-		if class, label, rest := task(item(lines[i], ordered)); refs.doc && class != "" {
+		if class, label, rest := task(item(lines[i], ordered)); (refs.doc || refs.site) && class != "" {
 			b.WriteString(`<li class="` + class + `"><span class="sr">` + label + "</span>" + inline(rest, true, refs))
 		} else {
 			b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs))
@@ -401,14 +464,14 @@ func (sc scan) marker(i int) (string, int) {
 		} else if j < 0 {
 			sc.dead[rest[:1]] = true
 		}
-	case strings.HasPrefix(rest, "![") && links && sc.o.doc && !sc.dead["["]:
+	case strings.HasPrefix(rest, "![") && links && (sc.o.doc || sc.o.site) && !sc.dead["["]:
 		if out, n := picture(rest[1:]); n > 0 {
 			return out, n + 1
 		} else if n < 0 {
 			sc.dead["["] = true
 		}
 	case rest[0] == '[' && links && !sc.dead["["]:
-		if out, n := link(rest, sc.o.doc); n > 0 {
+		if out, n := link(rest, sc.o.doc, sc.o.site); n > 0 {
 			return out, n
 		} else if n < 0 {
 			sc.dead["["] = true
@@ -477,7 +540,7 @@ func closing(s string, i int) int {
 	return -1
 }
 
-func link(rest string, doc bool) (string, int) {
+func link(rest string, doc, site bool) (string, int) {
 	mid := strings.Index(rest, "](")
 	if mid < 0 {
 		return "", -1
@@ -491,6 +554,19 @@ func link(rest string, doc bool) (string, int) {
 	}
 	u := rest[mid+2 : mid+2+end]
 	if doc && relative(u) {
+		if base, frag, ok := strings.Cut(u, "#"); ok && frag != "" && (strings.HasSuffix(strings.ToLower(base), ".md") || strings.HasSuffix(strings.ToLower(base), ".markdown")) {
+			u = base + "#" + docID + frag
+		}
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
+	if site && relative(u) {
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
+	if doc && strings.HasPrefix(u, "#") {
+		u = "#" + docID + u[1:]
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
+	if site && strings.HasPrefix(u, "#") {
 		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
 	}
 	if !safe(u) {

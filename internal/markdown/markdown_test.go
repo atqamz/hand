@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/markdown"
@@ -73,6 +74,38 @@ var tables = []struct{ in, want string }{
 	{"a | b\nc | d", `<p>a | b<br>c | d</p>`},
 	{"| a | b |\n|---|---|---|\n| x | y |", `<p>| a | b |<br>|---|---|---|<br>| x | y |</p>`},
 	{"```\n| a |\n|---|\n```", "<pre><code>| a |\n|---|</code></pre>"},
+}
+
+func TestHeadingIDs(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"# One\n\n# One\n\n# One", `<h2 id="one">One</h2><h2 id="one-1">One</h2><h2 id="one-2">One</h2>`},
+		{"## What's new? (v2)", `<h2 id="whats-new-v2">What&#39;s new? (v2)</h2>`},
+		{"## A — B", `<h2 id="a--b">A — B</h2>`},
+		{"## Run `hand doctor` now", "<h2 id=\"run-hand-doctor-now\">Run <code>hand doctor</code> now</h2>"},
+		{"# Foo\n\n# Foo 1\n\n# Foo", `<h2 id="foo">Foo</h2><h2 id="foo-1">Foo 1</h2><h2 id="foo-2">Foo</h2>`},
+	} {
+		if got := string(markdown.RenderSite(c.in)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRenderSiteWithSharesHeadingIDs(t *testing.T) {
+	slugs := markdown.NewSlugger()
+	first := string(markdown.RenderSiteWith("# Notes", slugs))
+	second := string(markdown.RenderSiteWith("# Notes", slugs))
+	if first != `<h2 id="notes">Notes</h2>` || second != `<h2 id="notes-1">Notes</h2>` {
+		t.Errorf("got %s and %s", first, second)
+	}
+}
+
+func TestInPageAnchorsRender(t *testing.T) {
+	if got := string(markdown.RenderSite("[x](#x)")); got != `<p><a href="#x">x</a></p>` {
+		t.Errorf("site got %s", got)
+	}
+	if got := string(markdown.RenderDoc("[x](#x)", "/f1", nil, nil)); got != `<p><a href="#doc-x">x</a></p>` {
+		t.Errorf("doc got %s", got)
+	}
 }
 
 func TestRenderTables(t *testing.T) {
@@ -204,6 +237,9 @@ func safeWithPaths(t *testing.T, in string, fail func(string, ...any)) {
 	if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil, stub))); msg != "" {
 		fail("RenderDoc(%q) with paths: %s", in, msg)
 	}
+	if msg := activeDoc(string(markdown.RenderSite(in))); msg != "" {
+		fail("RenderSite(%q): %s", in, msg)
+	}
 }
 
 func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
@@ -235,7 +271,7 @@ func FuzzRender(f *testing.F) {
 var (
 	tagPattern   = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z-]+="[^"<>]*")*)>`)
 	attrPattern  = regexp.MustCompile(` ([a-z-]+)="([^"]*)"`)
-	allowed      = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
+	allowed      = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h2": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
 	startPattern = regexp.MustCompile(`^[0-9]+$`)
 	fixed        = map[string]string{"div class": "table", "div role": "region", "div aria-label": "Table", "div tabindex": "0"}
 	aligns       = map[string]bool{"l": true, "r": true, "c": true}
@@ -244,6 +280,15 @@ var (
 func active(out string) string { return markup(out, false) }
 
 func activeDoc(out string) string { return markup(out, true) }
+
+func headingID(v string) bool {
+	for _, r := range v {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
 
 func relativeRef(raw string) bool {
 	u, err := url.Parse(raw)
@@ -263,9 +308,16 @@ func markup(out string, doc bool) string {
 			return "element " + m[2]
 		}
 		for _, a := range attrPattern.FindAllStringSubmatch(m[3], -1) {
+			if (m[2] == "h2" || m[2] == "h3" || m[2] == "h4") && a[1] == "id" && headingID(a[2]) {
+				continue
+			}
 			if doc {
 				switch v := html.UnescapeString(a[2]); m[2] + " " + a[1] {
-				case "img src", "a href":
+				case "a href":
+					if relativeRef(v) || strings.HasPrefix(v, "#") {
+						continue
+					}
+				case "img src":
 					if relativeRef(v) {
 						continue
 					}
@@ -424,7 +476,9 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 		{"[API notes](api.md)", `<p><a href="api.md">API notes</a></p>`},
 		{"[notes](../t286/notes.md)", `<p><a href="../t286/notes.md">notes</a></p>`},
 		{"[x](sub/a b.md)", `<p><a href="sub/a b.md">x</a></p>`},
-		{"[x](a.md#h)", `<p><a href="a.md#h">x</a></p>`},
+		{"[x](a.md#h)", `<p><a href="a.md#doc-h">x</a></p>`},
+		{"[x](../logs/x.log#L42)", `<p><a href="../logs/x.log#L42">x</a></p>`},
+		{"[x](#top)", `<p><a href="#doc-top">x</a></p>`},
 		{"[**b**](shots/)", `<p><a href="shots/"><strong>b</strong></a></p>`},
 		{`[x](a.md"onmouseover="y)`, `<p><a href="a.md&#34;onmouseover=&#34;y">x</a></p>`},
 		{"[PR](https://github.com/a/b/pull/1)", `<p><a href="https://github.com/a/b/pull/1" target="_blank" rel="noopener noreferrer">PR</a></p>`},
@@ -442,7 +496,7 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 
 func TestDocumentModeRefusesSchemesHostsAndBackslashes(t *testing.T) {
 	for _, u := range []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", " javascript:alert(1)", "java\tscript:alert(1)", "data:text/html,x", "vbscript:x", "mailto:a@b.c", "c:/x",
-		"//evil.io/x", "  //evil.io/x", "https:///nohost", `\\evil.io\x`, `/\evil.io`, `a\..\..\x`, `C:\x`, "/abs/path", "#top", ""} {
+		"//evil.io/x", "  //evil.io/x", "https:///nohost", `\\evil.io\x`, `/\evil.io`, `a\..\..\x`, `C:\x`, "/abs/path", ""} {
 		for _, in := range []string{"[x](" + u + ")", "![x](" + u + ")"} {
 			if got := string(markdown.RenderDoc(in, "/f1", nil, nil)); strings.Contains(got, "<a") || strings.Contains(got, "<img") {
 				t.Errorf("RenderDoc(%q) = %s", in, got)

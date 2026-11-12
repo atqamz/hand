@@ -535,6 +535,30 @@ The Board's navigation: a 56px column of icons at the left edge from 900px, and 
 
 The phone app that dials the laptop's [hand-iroh](#hand-iroh) endpoint ID and shows the Board in a web view. It is for Android only; the Android app is built outside this repository against the same [contract](#companion-contract). Hand's iOS Companion is deferred, and nothing targets iOS.
 
+### Peer listener
+
+The second loopback listener that `hand board --peer-addr 127.0.0.1:7778` opens beside the board, where every request counts as remote whatever header it carries. Before pairing it serves only `/<fleet id>/pair`, `POST /<fleet id>/api/v1/pair` and what the pair page loads; after pairing it serves the whole board except `/<fleet id>/proof`. It takes loopback addresses only, and only beside a loopback `--addr`.
+
+### Hand-iroh
+
+The `hand-iroh` sidecar, built from `iroh/`, that `hand board --iroh` starts. It opens an iroh endpoint, and turns each stream a phone dials into one connection to the [peer listener](#peer-listener) with the [peer preface](#peer-preface) in front. Hand looks for it next to `hand`, then on `PATH`, and runs it only at the version this `hand` pins.
+
+### Peer preface
+
+The `HAND-PEER 1 <endpoint id> <secret>` line a peer writes before its HTTP on the [peer listener](#peer-listener). The secret is `board.peer`, and a connection that sends it has the identity `iroh:<peer ID>`; one without it is anonymous remote and shares that listener's pairing rate limit.
+
+### Paired phone
+
+An Android device that redeemed a [pairing code](#pairing-code) and holds the cookie the fleet set for it. It opens the fleets it is paired with on the board, and on a `--peer-addr` connection its cookie is bound to the peer ID in the [peer preface](#peer-preface).
+
+### Pairing code
+
+The one-time code in the [companion link](#companion-link); the whole link is at most 213 bytes, and the code never goes in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [paired phone](#paired-phone).
+
+### Phone access over iroh
+
+The board's `--iroh` option and the `board.iroh` setting that records it: the board opens a free loopback [peer listener](#peer-listener) and starts [hand-iroh](#hand-iroh) as its child. A restart by `hand open` or `hand update` keeps it only when the board's own command carries `--iroh`.
+
 ### Companion contract
 
 The page [`companion.md`](companion.md) and the test vectors beside it, which fix what a phone app may rely on when it reaches the [peer listener](#peer-listener) through the [hand-iroh](#hand-iroh) sidecar: the protocol name `hand-board`, one bidirectional stream per TCP connection, the close and reset codes 1 to 5, the caps, the [companion link](#companion-link), what the app opens, and the version rule. It has one whole-number version, 1 today. The app is a separate program built against it; the Board's side, the Phone page's choice and the effect of revoking on an open connection, is built, and the page marks what remains of step 3. iOS is deferred.
