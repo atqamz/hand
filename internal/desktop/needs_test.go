@@ -1,0 +1,284 @@
+package desktop_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
+)
+
+func needsWith(t *testing.T, change func(*desktop.Status)) *fixture {
+	t.Helper()
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	change(&st)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	return f
+}
+
+func darkTester(app *desktop.App, dark bool) *ui.Tester {
+	tt := newTester(app)
+	tt.SetDark(dark)
+	tt.Frame()
+	return tt
+}
+
+func yOf(t *testing.T, tt *ui.Tester, text string) float32 {
+	t.Helper()
+	r, ok := tt.Find(text)
+	if !ok {
+		t.Fatalf("no %q in %q", text, tt.Texts())
+	}
+	return r.Y
+}
+
+func TestScenesNeeds(t *testing.T) {
+	reason := "launch did not finish: the worktree already exists at a path that is not ours"
+	cleared := func(st *desktop.Status) {
+		st.Needs = desktop.Needs{Cleared: "2026-11-01T04:40:00Z", Summary: "3 reports read, 1 decision answered"}
+	}
+	failing := func(st *desktop.Status) { st.Needs.Items[0].Status = reason }
+	scenes := []struct {
+		name   string
+		change func(*desktop.Status)
+		play   func(*testing.T, *ui.Tester)
+		want   []string
+	}{
+		{"bands-report-open", func(*desktop.Status) {}, func(t *testing.T, tt *ui.Tester) { click(t, tt, "Cookie fixed") },
+			[]string{"Failed", "Decision", "Report", "Mark read", "Open r1", "All tests pass."}},
+		{"decision-open", func(*desktop.Status) {}, func(t *testing.T, tt *ui.Tester) { click(t, tt, "Keep the old cookie name?") },
+			[]string{"Yes, keep it", "No, rename it", "Send answer", "Open d1"}},
+		{"failure-open", failing, nil, []string{"Failed", reason, "View a2"}},
+		{"all-clear", cleared, nil, []string{"All clear", "since", "3 reports read, 1 decision answered"}},
+	}
+	for _, sc := range scenes {
+		for _, dark := range []bool{false, true} {
+			mode := map[bool]string{false: "light", true: "dark"}[dark]
+			t.Run(sc.name+"-"+mode, func(t *testing.T) {
+				tt := darkTester(newApp(t, needsWith(t, sc.change)), dark)
+				if sc.play != nil {
+					sc.play(t, tt)
+				}
+				mustText(t, tt, sc.want...)
+				shot(t, tt, "needs-"+sc.name+"-"+mode)
+			})
+		}
+	}
+}
+
+func TestTheOpenNeedHasTheTonedHeaderOfItsBand(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		k := kit.ColorsFor(dark)
+		for _, c := range []struct {
+			title string
+			want  ui.Color
+		}{
+			{"Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump", k.FailBG},
+			{"Keep the old cookie name?", k.WaitBG},
+			{"Cookie fixed", k.NeutralBG},
+		} {
+			tt := darkTester(newApp(t, goldenFixture(t)), dark)
+			if c.title != "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump" {
+				click(t, tt, c.title)
+			}
+			r, ok := tt.Find(c.title)
+			if !ok {
+				t.Fatalf("no %q", c.title)
+			}
+			got := tt.Image().RGBAAt(int(r.X)+2, int(r.Y+r.H/2))
+			if got.R != c.want.R || got.G != c.want.G || got.B != c.want.B {
+				t.Errorf("dark=%v %q: header fill %v, want %v", dark, c.title, got, c.want)
+			}
+		}
+	}
+}
+
+func TestBandsRunInTheBoardsOrderWithOneHeadEach(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{
+			{Kind: "failure", Ref: "a2", Title: "Failing run", Word: "FAILED", Tone: "fail", Task: "t2", Attempt: "a2"},
+			{Kind: "decision", Ref: "d1", Title: "First decision", Word: "DECISION", Tone: "wait", Task: "t1", Decision: "d1", CreatedAt: "2026-11-01T04:40:00Z"},
+			{Kind: "decision", Ref: "d2", Title: "Second decision", Word: "DECISION", Tone: "wait", Task: "t1", Decision: "d2", CreatedAt: "2026-11-01T05:40:00Z"},
+			{Kind: "report", Ref: "r1", Title: "First report", Word: "REPORT", Tone: "neutral", Task: "t1", Report: "r1", CreatedAt: "2026-11-01T04:40:00Z"},
+			{Kind: "report", Ref: "r2", Title: "Second report", Word: "REPORT", Tone: "neutral", Task: "t3", Report: "r2", CreatedAt: "2026-11-01T05:40:00Z"},
+		}
+	})
+	tt := newTester(newApp(t, f))
+	order := []string{"Failed", "Failing run", "Decision", "First decision", "Second decision", "Report", "First report", "Second report"}
+	last := float32(-1)
+	for _, text := range order {
+		y := yOf(t, tt, text)
+		if y <= last {
+			t.Errorf("%q is at y=%v, not below the line before it (%v)", text, y, last)
+		}
+		last = y
+	}
+	for _, band := range []string{"Failed", "Decision", "Report"} {
+		if n := countText(t, tt, band); n != 1 {
+			t.Errorf("band %q is headed %d times, want once", band, n)
+		}
+	}
+	mustNotText(t, tt, "DECISION")
+}
+
+func TestAClosedNeedRowIs44High(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{
+			{Kind: "failure", Ref: "a2", Title: "Failing run", Word: "FAILED", Tone: "fail", Task: "t2", Attempt: "a2"},
+			{Kind: "decision", Ref: "d1", Title: "First decision", Word: "DECISION", Tone: "wait", Decision: "d1"},
+			{Kind: "decision", Ref: "d2", Title: "Second decision", Word: "DECISION", Tone: "wait", Decision: "d2"},
+		}
+	})
+	tt := newTester(newApp(t, f))
+	row, ok := tt.Find("Second decision")
+	if !ok || row.H != kit.Tap {
+		t.Errorf("a closed row is %v high, want %d", row.H, kit.Tap)
+	}
+}
+
+func TestOneNeedIsOpenAtATime(t *testing.T) {
+	tt := newTester(newApp(t, goldenFixture(t)))
+	mustText(t, tt, "View a2")
+	mustNotText(t, tt, "Send answer")
+	click(t, tt, "Keep the old cookie name?")
+	mustText(t, tt, "Send answer")
+	mustNotText(t, tt, "View a2")
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "Mark read")
+	mustNotText(t, tt, "Send answer")
+	if n := countText(t, tt, "Mark read"); n != 1 {
+		t.Errorf("%d Mark read buttons, want one", n)
+	}
+}
+
+func TestTheTopNeedStartsOpenAndClosesAgain(t *testing.T) {
+	tt := newTester(newApp(t, goldenFixture(t)))
+	title := "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump"
+	mustText(t, tt, "View a2")
+	click(t, tt, title)
+	mustNotText(t, tt, "View a2")
+	mustNotText(t, tt, "Send answer")
+	click(t, tt, title)
+	mustText(t, tt, "View a2")
+}
+
+func TestAFailureShowsItsReasonWhereStatusCarriesOne(t *testing.T) {
+	reason := "launch did not finish: the worktree already exists"
+	f := needsWith(t, func(st *desktop.Status) { st.Needs.Items[0].Status = reason })
+	mustText(t, newTester(newApp(t, f)), reason, "View a2")
+	mustNotText(t, newTester(newApp(t, goldenFixture(t))), reason)
+}
+
+func TestAReportOpensToItsExcerptAndMarksRead(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "All tests pass.", "Mark read", "Open r1")
+	click(t, tt, "Mark read")
+	if f.count("ack:r1") != 1 {
+		t.Fatalf("ack calls = %d, want 1", f.count("ack:r1"))
+	}
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("Mark read left the Board screen for %v", app.Screen)
+	}
+}
+
+func TestMarkReadOpensTheNextNeed(t *testing.T) {
+	f := goldenFixture(t)
+	f.keepNeeds = true
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Cookie fixed")
+	mustNotText(t, tt, "View a2")
+	click(t, tt, "Mark read")
+	mustText(t, tt, "View a2")
+	mustNotText(t, tt, "Mark read")
+}
+
+func TestAnAnswerOpensTheNextNeed(t *testing.T) {
+	f := goldenFixture(t)
+	f.keepNeeds = true
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	mustText(t, tt, "View a2")
+	mustNotText(t, tt, "Send answer")
+}
+
+func TestTheReceiptToastAppearsAndGoes(t *testing.T) {
+	tt := newTester(newApp(t, goldenFixture(t)))
+	mustNotText(t, tt, "r1 marked read")
+	click(t, tt, "Cookie fixed")
+	click(t, tt, "Mark read")
+	tt.Frame()
+	mustText(t, tt, "r1 marked read")
+	tt.Advance(3 * time.Second)
+	mustText(t, tt, "r1 marked read")
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	mustNotText(t, tt, "r1 marked read")
+}
+
+func TestAnAnswersReceiptNamesTheSupervisorOrSaysItWaits(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		change func(*desktop.Supervisor)
+		want   string
+	}{
+		{"running", func(*desktop.Supervisor) {}, "d1 answered · s1 reads it now"},
+		{"stopped", func(s *desktop.Supervisor) { s.Status, s.Live = "stopped", false }, "d1 answered · no supervisor is running; it waits"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tt := newTester(newApp(t, statusWith(t, c.change)))
+			click(t, tt, "Keep the old cookie name?")
+			click(t, tt, "Yes, keep it")
+			click(t, tt, "Send answer")
+			tt.Frame()
+			mustText(t, tt, c.want)
+		})
+	}
+}
+
+func TestAFailedMarkReadShowsNoReceipt(t *testing.T) {
+	f := goldenFixture(t)
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Cookie fixed")
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "report r1 is already acknowledged"}
+	click(t, tt, "Mark read")
+	tt.Frame()
+	mustNotText(t, tt, "r1 marked read")
+	mustText(t, tt, "Mark read", "All tests pass.")
+}
+
+func TestABlockedNeedOpensToTheSupervisorsKeys(t *testing.T) {
+	f := blockedFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{Kind: "blocked", Ref: "s1", Title: "Bash: rm -f x · Proceed?", Word: "BLOCKED", Tone: "fail"}}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	app := newApp(t, f)
+	tt := newTester(app)
+	mustText(t, tt, "Blocked", "Keys")
+	if n := countText(t, tt, "Esc"); n != 2 {
+		t.Fatalf("Esc shown %d times, want in the card and beside the conversation", n)
+	}
+	click(t, tt, "Bash: rm -f x · Proceed?")
+	if n := countText(t, tt, "Esc"); n != 1 {
+		t.Fatalf("Esc shown %d times after the card closed, want once", n)
+	}
+}
+
+func TestAllClearShowsWhenItClearedAndTheSummary(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs = desktop.Needs{Cleared: "2026-11-01T04:40:00Z", Summary: "3 reports read"}
+	})
+	tt := newTester(newApp(t, f))
+	at, _ := time.Parse(time.RFC3339, "2026-11-01T04:40:00Z")
+	mustText(t, tt, "All clear", "since "+at.Local().Format("Jan 2 15:04")+" · 3 reports read")
+	mustNotText(t, tt, "Nothing waits on you.")
+}

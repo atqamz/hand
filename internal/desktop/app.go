@@ -80,6 +80,12 @@ type App struct {
 	Busy        bool
 	BusyAction  string
 
+	needOpen string
+	needSet  bool
+	decTried string
+	decErr   string
+	receipt  string
+
 	AnswerChoice string
 	AnswerNote   string
 	ActionErr    string
@@ -262,6 +268,7 @@ func (a *App) SelectFleet(id string) {
 	a.scroll.Y = math.MaxFloat32
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
+	a.needOpen, a.needSet, a.decTried, a.decErr = "", false, "", ""
 	a.TimelineErr, a.OlderErr = "", ""
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn, a.OpenErr = "", "", "", false, ""
@@ -423,13 +430,17 @@ func (a *App) Older() {
 }
 
 func (a *App) Answer() {
-	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.Screen != DecisionScreen || a.Ref == "" {
+	ref := a.Ref
+	if a.Screen == BoardScreen {
+		ref = a.Decision.Decision.Ref
+	}
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.Screen != DecisionScreen && a.Screen != BoardScreen || ref == "" {
 		return
 	}
 	choice, note := a.AnswerChoice, a.AnswerNote
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
-	model, fleet, ref := a.Model, a.Fleet.ID, a.Ref
+	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
 	detail := func(d DecisionDetail) {
 		if id != a.loadID {
@@ -437,6 +448,7 @@ func (a *App) Answer() {
 		}
 		a.Busy = false
 		a.Decision = d
+		a.receipt = a.answerReceipt(ref)
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -444,6 +456,7 @@ func (a *App) Answer() {
 		}
 		a.Status = st
 		a.next(ref)
+		a.nextNeed(ref)
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -517,6 +530,7 @@ func (a *App) Ack(ref string) {
 		if screen == ReportScreen {
 			a.Report = r
 		}
+		a.receipt = ref + " marked read"
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -526,6 +540,7 @@ func (a *App) Ack(ref string) {
 		if screen == ReportScreen {
 			a.next(ref)
 		}
+		a.nextNeed(ref)
 	}
 	failed := func(err error) {
 		if id != a.loadID {

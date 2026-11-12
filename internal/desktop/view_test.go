@@ -375,7 +375,7 @@ func TestTheBoardScreenListsTheNeeds(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Board")
-	mustText(t, tt, "Needs", "FAILED", "DECISION", "REPORT",
+	mustText(t, tt, "Needs", "Failed", "Decision", "Report",
 		"Keep the old cookie name?",
 		"Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump",
 		"Cookie fixed")
@@ -394,12 +394,17 @@ func TestABlockedNeedShowsItsTitleNotTheExcerptsRuleLine(t *testing.T) {
 	mustNotText(t, tt, rule)
 }
 
-func TestNeedsOpensADecision(t *testing.T) {
+func TestNeedsOpensADecisionInPlace(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
-	mustText(t, tt, "d1", "Options", "Yes, keep it", "No, rename it", "Open task")
+	mustText(t, tt, "d1", "Yes, keep it", "No, rename it", "Send answer", "Open d1")
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("a Needs row left the Board screen for %v", app.Screen)
+	}
+	click(t, tt, "Open d1")
+	mustText(t, tt, "Options", "Open task")
 }
 
 func TestTheConversationShowsItsEntriesAndTheWorkingLine(t *testing.T) {
@@ -879,6 +884,7 @@ func TestReportScreen(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
+	click(t, tt, "Open r1")
 	mustText(t, tt, "r1", "Cookie fixed", "All tests pass.", "Open task", "Mark read")
 }
 
@@ -929,7 +935,7 @@ func TestAFailedAnswerKeepsTheScreen(t *testing.T) {
 	click(t, tt, "Send answer")
 	mustText(t, tt, "The action did not go through", "decision d1 is answered",
 		"Keep the old cookie name?", "Send answer")
-	if app.Screen != desktop.DecisionScreen || app.Decision.Decision.Ref != "d1" {
+	if app.Screen != desktop.BoardScreen || app.Decision.Decision.Ref != "d1" {
 		t.Fatalf("the error left %v %q", app.Screen, app.Decision.Decision.Ref)
 	}
 	click(t, tt, "Dismiss")
@@ -964,7 +970,7 @@ func TestAFailedAckKeepsTheScreen(t *testing.T) {
 	click(t, tt, "Mark read")
 	mustText(t, tt, "The action did not go through", "report r1 is already acknowledged",
 		"All tests pass.", "Mark read")
-	if app.Screen != desktop.ReportScreen {
+	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("the error left screen %v", app.Screen)
 	}
 }
@@ -990,8 +996,9 @@ func TestTheAnswerButtonIsDisabledWhileSending(t *testing.T) {
 	}
 	close(f.actionBlock)
 	waitPost(t, posted)()
+	waitPost(t, posted)()
 	tt.Frame()
-	mustText(t, tt, "answered", "Answer")
+	mustText(t, tt, "d1 answered · s1 reads it now")
 	mustNotText(t, tt, "Sending…")
 }
 
@@ -1016,6 +1023,7 @@ func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Open d1")
 	click(t, tt, "Open task")
 	mustText(t, tt, "Plan · p1")
 	click(t, tt, "Back")
@@ -1027,7 +1035,7 @@ func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("Back left %v, want the Board screen", app.Screen)
 	}
-	mustText(t, tt, "FAILED")
+	mustText(t, tt, "Failed")
 	mustNotText(t, tt, "The board could not be read")
 }
 
@@ -1079,6 +1087,7 @@ func TestBackFromAReportsTaskReturnsToTheReport(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
+	click(t, tt, "Open r1")
 	click(t, tt, "Open task")
 	mustText(t, tt, "Plan · p1")
 	click(t, tt, "Back")
@@ -1168,7 +1177,7 @@ func TestEmptyStates(t *testing.T) {
 	app := newApp(t, emptyFixture())
 	tt := newTester(app)
 	click(t, tt, "Board")
-	mustText(t, tt, "All clear", "Nothing waits on you.")
+	mustText(t, tt, "All clear")
 	mustText(t, tt, "No messages")
 	mustText(t, tt, "No tasks")
 }
@@ -1599,8 +1608,8 @@ func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
 	click(t, tt, "Send answer")
-	mustText(t, tt, "answered", "Answer", "1.", "Yes, keep it",
-		"the answer was saved, but the fleet status could not be read", "the board is restarting")
+	mustText(t, tt, "the answer was saved, but the fleet status could not be read", "the board is restarting")
+	mustNotText(t, tt, "Send answer")
 	if app.Busy {
 		t.Fatal("the window is still busy after the answer was saved")
 	}
@@ -1633,6 +1642,10 @@ func TestBackClearsTheAnswerDraft(t *testing.T) {
 	tt.Type("first draft")
 	if app.AnswerNote != "first draft" {
 		t.Fatalf("draft = %q", app.AnswerNote)
+	}
+	click(t, tt, "Open d1")
+	if app.AnswerNote != "" {
+		t.Fatalf("opening the decision kept the draft %q", app.AnswerNote)
 	}
 	click(t, tt, "Open task")
 	click(t, tt, "Keep the old cookie name?")
@@ -1738,11 +1751,10 @@ func TestAnAnswerMovesToTheNextNeed(t *testing.T) {
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
-	if app.Screen == desktop.DecisionScreen || app.Ref == "d1" {
-		t.Fatalf("still on the answered decision: %v %q", app.Screen, app.Ref)
-	}
-	if app.Ref != "a2" {
-		t.Fatalf("moved to %q, want the next need a2", app.Ref)
+	mustText(t, tt, "View a2")
+	mustNotText(t, tt, "Send answer")
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("an answer left the Board screen for %v", app.Screen)
 	}
 }
 
@@ -1761,11 +1773,7 @@ func TestTheLastReadReturnsToAnEmptyNeeds(t *testing.T) {
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Board")
-	click(t, tt, "Cookie fixed")
 	click(t, tt, "Mark read")
-	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("screen = %v, want the Board screen", app.Screen)
-	}
 	mustText(t, tt, "All clear")
 }
 
@@ -1795,15 +1803,12 @@ func TestAFailedAnswerOrReadDoesNotMove(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	f.action = errors.New("boom")
 	click(t, tt, "Send answer")
-	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
-		t.Fatalf("a failed answer moved to %v %q", app.Screen, app.Ref)
-	}
-	click(t, tt, "Back")
+	mustText(t, tt, "Send answer")
+	click(t, tt, "Dismiss")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Mark read")
-	if app.Screen != desktop.ReportScreen || app.Ref != "r1" {
-		t.Fatalf("a failed read moved to %v %q", app.Screen, app.Ref)
-	}
+	mustText(t, tt, "Mark read")
+	mustNotText(t, tt, "View a2")
 }
 
 func TestAStatusStillListingTheAnsweredItemIsSkipped(t *testing.T) {
@@ -1819,13 +1824,10 @@ func TestAStatusStillListingTheAnsweredItemIsSkipped(t *testing.T) {
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Board")
-	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
-	if app.Ref == "d1" {
-		t.Fatalf("reopened the answered item")
-
-	}
+	mustText(t, tt, "View a2")
+	mustNotText(t, tt, "Send answer")
 }
 
 func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {

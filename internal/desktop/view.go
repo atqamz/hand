@@ -64,6 +64,10 @@ func (a *App) View(c *ui.Context) {
 	dark := c.Theme().Dark
 	p, k := paletteFor(dark), kit.ColorsFor(dark)
 	c.SetTheme(boardTheme(dark))
+	if a.receipt != "" {
+		c.AddToast(ui.Toast{ID: "receipt", Title: a.receipt, Timeout: receiptFor})
+		a.receipt = ""
+	}
 	ui.Row(c).Fill().Children(func() {
 		a.rail(c, k, p)
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
@@ -162,7 +166,7 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 	a.panes(c, k, p)
 }
 
-func (a *App) workPane(c *ui.Context, p palette) {
+func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {
 	ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 		ui.Column(c).Gap(16).Selectable().Children(func() {
 			a.openCard(c, p)
@@ -172,7 +176,7 @@ func (a *App) workPane(c *ui.Context, p palette) {
 			case a.Loading:
 				a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
 			case a.Screen == BoardScreen:
-				a.needsScreen(c, p)
+				a.needsScreen(c, k, p)
 				a.tasksScreen(c, p)
 			case a.Screen == TaskScreen:
 				a.taskScreen(c, p)
@@ -268,76 +272,6 @@ func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 }
 
 var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
-
-func (a *App) needsScreen(c *ui.Context, p palette) {
-	items := a.Status.Needs.Items
-	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Needs").FontSize(kit.Display.Size).Bold()
-		if a.Status.Needs.Waiting > 0 {
-			bg, fg := toneColors(a.Status.Needs.Worst, p)
-			ui.Badge(c, fmt.Sprint(a.Status.Needs.Waiting)).Background(bg).TextColor(fg)
-		}
-		ui.Spacer(c)
-		if a.Status.Needs.Summary != "" {
-			ui.Text(c, a.Status.Needs.Summary).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		}
-	})
-	if len(items) == 0 {
-		body := a.Status.Needs.Summary
-		if body == "" {
-			body = a.Status.Needs.Cleared
-		}
-		if body == "" {
-			body = "Nothing waits on you."
-		}
-		a.emptyCard(c, p, "All clear", body)
-		return
-	}
-	ui.Column(c).Gap(0).Children(func() {
-		prev := ""
-		for _, item := range items {
-			need := item
-			ref := needRef(need)
-			if need.Word != prev {
-				bg, fg := toneColors(need.Tone, p)
-				ui.Row(c).Padding(10, 8, 4).Children(func() {
-					ui.Badge(c, need.Word).Background(bg).TextColor(fg)
-				})
-				prev = need.Word
-			}
-			ui.Row(c).Gap(6).Children(func() {
-				content := func() {
-					if need.Ref != "" {
-						ui.Text(c, need.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-					}
-					ui.Text(c, needLabel(need)).FontSize(kit.Body.Size).SingleLine().Grow(1)
-					if need.Excerpt != "" && need.Kind == "report" {
-						ui.Text(c, firstLine(need.Excerpt)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
-					}
-				}
-				if ref == "" {
-					ui.Row(c).Gap(8).Padding(6, 8).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1).Children(content)
-				} else {
-					el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
-						BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1).Cursor(ui.CursorPointer)
-					el.Children(content)
-					if el.Clicked() {
-						a.OpenRef(ref)
-					}
-				}
-				if need.Kind == "report" && need.Report != "" {
-					label := "Mark read"
-					if a.Busy {
-						label = "Marking read…"
-					}
-					if ui.Button(c.Key("ack:"+need.Report), label).Disabled(a.Busy).Clicked() {
-						a.Ack(need.Report)
-					}
-				}
-			})
-		}
-	})
-}
 
 func (a *App) composer(c *ui.Context, p palette) {
 	ui.Column(c).Gap(8).Padding(12).Radius(10).Background(p.card).
@@ -581,71 +515,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 			a.markdown(c, body)
 		}
 	}
-	open := d.Decision.Status == "open"
-	other := false
-	for _, o := range d.Options {
-		if a.AnswerChoice == o.Value && o.Other {
-			other = true
-		}
-	}
-	if len(d.Options) > 0 {
-		a.section(c, p, "Options")
-		ui.Column(c).Gap(6).Children(func() {
-			for _, o := range d.Options {
-				option := o
-				selected := a.AnswerChoice == option.Value
-				bg, border := p.card, p.line
-				if selected {
-					bg, border = p.passBG, p.pass
-				}
-				el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
-					Radius(8).Background(bg).Border(1, border).Disabled(!open || a.Busy)
-				if open && !a.Busy {
-					el.Cursor(ui.CursorPointer)
-				}
-				el.Children(func() {
-					ui.Text(c, option.Key).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(18)
-					ui.Column(c).Gap(2).Grow(1).Children(func() {
-						ui.Row(c).Gap(8).Children(func() {
-							ui.Text(c, option.Label).FontSize(kit.Body.Size).Bold()
-							if option.Recommended {
-								ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
-							}
-						})
-						if option.Note != "" {
-							ui.Text(c, option.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
-						}
-					})
-				})
-				if open && el.Clicked() && !a.Busy {
-					a.AnswerChoice = option.Value
-				}
-			}
-		})
-	}
-	if open {
-		placeholder := "Your answer"
-		if len(d.Options) > 0 {
-			placeholder = "Add a note (optional)"
-		}
-		if other {
-			placeholder = "Write your answer (required)"
-		}
-		ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
-			Disabled(a.Busy)
-		if other && strings.TrimSpace(a.AnswerNote) == "" {
-			ui.Text(c, "That option needs a note.").FontSize(kit.Meta.Size).TextColor(p.fail)
-		}
-		ui.Row(c).Gap(8).Children(func() {
-			label := "Send answer"
-			if a.Busy {
-				label = "Sending…"
-			}
-			if ui.Button(c.Key("send-answer"), label).Disabled(a.Busy).Clicked() {
-				a.Answer()
-			}
-		})
-	}
+	a.answerForm(c, p, d, true)
 	if d.Decision.Answer != "" {
 		a.paragraph(c, p, "Answer", d.Decision.Answer)
 	}
