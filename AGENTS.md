@@ -27,7 +27,7 @@ The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dial
 - R8 is on for the release variant. Rust reaches Kotlin by name through JNI (`Core`, `AppHost`, the two Tauri plugins), so `proguard-rules.pro` keeps `Core` and `AppHost` whole, and `.github/scripts/check-jni-keep.sh` fails CI when a class, native or method that `src-tauri/src` names is missing from the release APK. A new JNI call needs a keep rule in the same change.
 - Cleartext: the web view opens the Board at `http://localhost:PORT`, by the name `localhost`, never at `http://127.0.0.1:PORT` or `http://[::1]:PORT`: a real phone refused the IP forms. `res/xml/network_security_config.xml` forbids cleartext everywhere and permits it for the host `localhost` without subdomains. Do not set `usesCleartextTraffic`, add `cleartextTrafficPermitted="true"` elsewhere or add another domain.
 - iOS is deferred. Add nothing for it.
-- Pin the toolchain in one place each: Rust in `rust-toolchain.toml`, `tauri-cli` in `.github/workflows/ci.yaml`, `.github/workflows/release.yaml` and `README.md` (move them together with the `tauri` and `tauri-build` crates), Gradle, the Android Gradle plugin, the AndroidX and Compose libraries and Paparazzi in `src-tauri/gen/android`.
+- Pin the toolchain in one place each: Rust in `rust-toolchain.toml`, `tauri-cli` in `.github/workflows/ci.yaml`, the composite action `.github/actions/build-signed-apk/action.yml` that `release.yaml` and `main-apk.yaml` run, and `README.md` (move them together with the `tauri` and `tauri-build` crates), Gradle, the Android Gradle plugin, the AndroidX and Compose libraries and Paparazzi in `src-tauri/gen/android`.
 
 ## Contract with Hand
 

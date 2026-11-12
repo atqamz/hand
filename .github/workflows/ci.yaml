@@ -12,6 +12,7 @@ on:
       - Cargo.lock
       - rust-toolchain.toml
       - .github/workflows/**
+      - .github/actions/**
       - .github/scripts/**
       - .github/dependabot.yml
   pull_request:

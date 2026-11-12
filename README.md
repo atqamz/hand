@@ -29,7 +29,7 @@ Prerequisites:
 - Android SDK platform 37, build-tools 36.0.0 and the command-line tools.
 - NDK 27.3.13750724, with `NDK_HOME` pointing at it.
 - Rust 1.98.1, from `rust-toolchain.toml`, with the `aarch64-linux-android` target for a phone and the `x86_64-linux-android` target for an emulator.
-- `tauri-cli` 2.12.4 (also pinned in `.github/workflows/ci.yaml` and `release.yaml`).
+- `tauri-cli` 2.12.4 (also pinned in `.github/workflows/ci.yaml` and `.github/actions/build-signed-apk/action.yml`).
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
@@ -75,7 +75,7 @@ cp release.jks /path/to/backup-one/ && cp release.jks /path/to/backup-two/
 keytool -list -keystore /path/to/backup-two/release.jks -storepass:env RELEASE_KEYSTORE_PASSWORD
 ```
 
-Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `v*`, and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag before approving a run: a tag carries its own copy of it.
+Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `v*` and to the `main` branch (the on-demand build in `main-apk.yaml` runs there), and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag or on `main` before approving a run: that ref carries its own copy of it.
 
 ```sh
 reviewer=$(gh api users/atqamz --jq .id)
@@ -83,6 +83,7 @@ gh api -X PUT repos/atqamz/hand-android/environments/release --input - <<EOF
 {"reviewers":[{"type":"User","id":$reviewer}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
 EOF
 gh api -X POST repos/atqamz/hand-android/environments/release/deployment-branch-policies -f name='v*' -f type=tag
+gh api -X POST repos/atqamz/hand-android/environments/release/deployment-branch-policies -f name=main -f type=branch
 ```
 
 Store the two secrets in that environment, never at repository or organization level:
@@ -124,6 +125,16 @@ read -rsp 'Release key password: ' RELEASE_KEYSTORE_PASSWORD && export RELEASE_K
 apksigner sign --ks /path/to/release.jks --ks-key-alias handcompanion --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
   --out hand-android.apk src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
 unset RELEASE_KEYSTORE_PASSWORD
+```
+
+### An APK from `main`
+
+The phone runs a release-signed build, and a debug APK cannot replace it, so testing `main` on the device needs the same key. `main-apk.yaml` is a `workflow_dispatch` that builds `main` only, on purpose: the `release` environment's branch policy matches the dispatch ref, and `./.github/actions/build-signed-apk` resolves from the checked-out tree, so an input ref would hand the release key to that ref's scripts, and a ref older than the action cannot build at all. It signs the same arm64 release APK with the same key, checks the signer, the `versionName`, the `versionCode` and the JNI keep rules, and uploads the artifact `hand-android-main-apk` for 7 days; the run summary carries its `versionName`, `versionCode` and sha256. It refuses a `versionCode` that does not follow from `version` or a `release-key.sha256` that is not 64 lowercase hex digits, both before the build, and attaches no release. `workflow_dispatch` reads the workflow from the default branch, so a change to it runs only after the merge.
+
+```sh
+gh workflow run main-apk.yaml --repo atqamz/hand-android
+gh run download --repo atqamz/hand-android --name hand-android-main-apk --dir /tmp/hand-android-main
+adb install -r /tmp/hand-android-main/hand-android-main.apk
 ```
 
 ## An unreachable laptop (the Tauri first screen, unreachable since A6)
@@ -168,7 +179,7 @@ cargo fmt --all --check
 cargo test --locked --workspace
 node --test "src-tauri/tests/*.test.mjs"
 cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings
-actionlint .github/workflows/ci.yaml
+actionlint
 ```
 
 The link wrapper test needs Node.js 20 or newer, and no package.
