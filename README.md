@@ -1,5 +1,7 @@
 # Hand
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/atqamz/hand)
+
 Hand is a personal supervisor layer for agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode, Antigravity, GitHub Copilot or oh-my-pi workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
 ![The Board in a browser, dark theme. On the left, Needs holds one open decision, "Which theme should new users get?", with three choices and a Send answer button, and one unread worker report; below it, the task list shows two active tasks and one in the inbox. On the right, the chat with the supervisor: a request to register a project and fix a typo, the worker's report, and the supervisor's replies.](docs/images/board-desktop.png)
@@ -107,6 +109,16 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 - [Safe use](docs/safe-use.md): what the agents can do with prompts skipped, how to run Hand safer, and what nothing prevents yet.
 - [Commands](docs/commands.md): every `hand` command.
 - [Design and non-goals](docs/spec.md) and [vocabulary](docs/vocabulary.md).
+
+## Media
+
+Images for issues and pull requests live on the `blob` branch of this repository. That branch is append-only, holds no code, and is never merged into `main`. A clone fetches every branch, so it downloads the media too; fetch only the default branch to keep it small:
+
+```sh
+git clone --single-branch --branch main https://github.com/atqamz/hand.git
+```
+
+Its `.git` is 17 MB, against 113 MB for a full clone; add `--depth 1` for a one-shot checkout (4.8 MB).
 
 ## Development
 

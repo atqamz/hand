@@ -318,7 +318,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -334,8 +334,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          old=$(git rev-parse -q --verify 'refs/tags/edge^{commit}' || true)
-          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$old"; then
+          old=$(gh api "repos/$GITHUB_REPOSITORY/commits/edge" --jq .sha 2>/dev/null || true)
+          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ] &&
+            [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$old" --jq .status)" = ahead ]; then
             echo "edge is already past $GITHUB_SHA"
             exit 0
           fi
