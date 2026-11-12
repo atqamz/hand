@@ -567,3 +567,55 @@ func TestTwoActionReceiptsStayForTheirFullInterval(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "r1 marked read", "d1 answered · s1 reads it now")
 }
+
+func TestAFreshTopNeedOpensOverALowerSelection(t *testing.T) {
+	f := goldenFixture(t)
+	detail := f.attemptRefs["a2"]
+	detail.Attempt.Ref = "a9"
+	f.attemptRefs["a9"] = detail
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "Mark read")
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{
+		Kind: "failure", Ref: "a9", Title: "Fresh failure", Word: "FAILED", Tone: "fail", Task: "t9", Attempt: "a9",
+	}}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	menu(t, tt, "Refresh now")
+	mustText(t, tt, "Fresh failure", "View a9")
+	mustNotText(t, tt, "Mark read")
+}
+
+func TestNoAllClearWhileMoreNeedsWait(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{{
+			Kind: "report", Ref: "r1", Title: "Cookie fixed", Word: "REPORT", Tone: "neutral",
+			Task: "t1", Report: "r1", Attempt: "a1", Status: "done", CreatedAt: "2026-11-01T04:40:00Z", Excerpt: "All tests pass.",
+		}}
+	})
+	st := f.status[fleetID]
+	st.Needs.More = 2
+	st.Needs.Waiting = 3
+	f.status[fleetID] = st
+	f.keepNeeds = true
+	app := newApp(t, f)
+	tt := newTester(app)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Mark read")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the acknowledgement never started")
+	}
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	tt.Frame()
+	mustNotText(t, tt, "All clear")
+	mustText(t, tt, "2 more waiting")
+}

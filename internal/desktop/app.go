@@ -81,6 +81,7 @@ type App struct {
 	BusyAction  string
 
 	needChosen    map[string]bool
+	needTop       string
 	needClosedTop string
 	ackDone       map[string]bool
 	decTried      string
@@ -276,7 +277,7 @@ func (a *App) SelectFleet(id string) {
 	a.scroll.Y = math.MaxFloat32
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
-	a.needChosen, a.needClosedTop, a.ackDone = nil, "", nil
+	a.needChosen, a.needTop, a.needClosedTop, a.ackDone = nil, "", "", nil
 	a.decTried, a.decErr, a.attTried, a.attErr = "", "", "", ""
 	a.needAttempt = AttemptDetail{}
 	a.TimelineErr, a.OlderErr = "", ""

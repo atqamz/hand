@@ -66,12 +66,18 @@ func (a *App) reconcileAcked() {
 }
 
 func (a *App) openNeed(items []Need) string {
+	top := needKey(items[0])
+	if top != a.needTop {
+		a.needTop = top
+		if needHasBody(items[0]) {
+			a.needChosen, a.needClosedTop = nil, ""
+		}
+	}
 	for _, n := range items {
 		if a.needChosen[needKey(n)] && needHasBody(n) {
 			return needKey(n)
 		}
 	}
-	top := needKey(items[0])
 	if closed, ok := a.needChosen[top]; ok && !closed {
 		return ""
 	}
@@ -217,6 +223,10 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 		}
 	})
 	if len(items) == 0 {
+		if n := a.waitingNeeds(); n > 0 {
+			ui.Textf(c, "%d more waiting", n).FontSize(kit.Meta.Size).TextColor(k.Muted)
+			return
+		}
 		a.allClear(c, k)
 		return
 	}
