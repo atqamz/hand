@@ -1414,8 +1414,14 @@ func TestASupersededReloadStartsNoDetailRequest(t *testing.T) {
 		t.Fatal("the second read never started")
 	}
 	close(f.block)
-	for i := 0; i < 4; i++ {
-		waitPost(t, posted)()
+	deadline := time.After(5 * time.Second)
+	for f.count("tasks") == before {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			t.Fatal("no reload read the task list")
+		}
 	}
 	if got := f.count("tasks") - before; got != 1 {
 		t.Fatalf("the two reloads read the task list %d times, want only the last", got)
