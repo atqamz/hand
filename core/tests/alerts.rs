@@ -858,6 +858,34 @@ async fn forgetting_stops_the_loops_and_the_cursors_and_posts_nothing() {
 }
 
 #[tokio::test]
+async fn a_stopped_supervisor_polls_a_fleet_forget_parked_when_its_cookie_stayed() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(5, vec![]),
+        _ => answer(5, vec![]).held(Duration::from_millis(300)),
+    })
+    .await;
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
+    supervisor.start();
+    assert!(wait_for(|| harness.cursor().as_deref() == Some("5")).await);
+
+    supervisor.forget_all();
+    sleep(Duration::from_millis(500)).await;
+    let parked = harness.board.seen().len();
+    sleep(Duration::from_millis(1500)).await;
+    assert_eq!(harness.board.seen().len(), parked);
+
+    supervisor.stop();
+    supervisor.start();
+    assert!(wait_for(|| harness.board.seen().len() > parked).await);
+    supervisor.stop();
+}
+
+#[tokio::test]
 async fn a_fleet_the_board_refused_is_not_started_again_until_its_cookie_returns() {
     let Some(bin) = sidecar_bin() else {
         return;

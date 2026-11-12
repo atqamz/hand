@@ -372,4 +372,75 @@ class FleetsModelTest {
     assertEquals(5, tint("f0123456789ab"))
     assertEquals(0, tint("f000000000003"))
   }
+
+  @Test
+  fun forgettingAsksFirstAndTheMenuOnlyOpensTheQuestion() {
+    var forgotten = 0
+    val model = FleetsModel(Laptop { fleet, _ -> both(fleet) }, { listOf(ONE) }, { "4d92…6ed6" }, forgetter = { forgotten++; true })
+    model.ask(true)
+    assertTrue(model.state.value.asking)
+    assertEquals(0, forgotten)
+    model.ask(false)
+    assertFalse(model.state.value.asking)
+    assertEquals(0, forgotten)
+  }
+
+  @Test
+  fun aForgetThatWorksEmptiesTheListAndClearsTheAlertsLine() {
+    var paired = listOf(ONE, TWO)
+    val model =
+      FleetsModel(
+        Laptop { fleet, _ -> both(fleet) },
+        { paired },
+        { "4d92…6ed6" },
+        forgetter = {
+          paired = emptyList()
+          true
+        }
+      )
+    runBlocking { model.refresh() }
+    model.alerts(true)
+    model.ask(true)
+    runBlocking { model.forgetLaptop() }
+    val state = model.state.value
+    assertTrue(state.rows.isEmpty())
+    assertFalse(state.asking)
+    assertFalse(state.alertsOff)
+    assertNull(state.notice)
+  }
+
+  @Test
+  fun aForgetThatFailsIsShownAndKeepsWhatTheCoreStillHolds() {
+    val model =
+      FleetsModel(Laptop { fleet, _ -> both(fleet) }, { listOf(ONE) }, { "4d92…6ed6" }, forgetter = { false })
+    runBlocking { model.refresh() }
+    model.ask(true)
+    runBlocking { model.forgetLaptop() }
+    val state = model.state.value
+    assertEquals("Can't clear the saved login. Try again.", state.notice)
+    assertFalse(state.asking)
+    assertEquals(listOf(ONE), state.rows.map { it.id })
+  }
+
+  @Test
+  fun aNoticeGoesWhenTheUserAsksOrSaysSomethingElse() {
+    val model = model(Laptop { fleet, _ -> both(fleet) })
+    model.say("This is not a link Hand can open.")
+    assertEquals("This is not a link Hand can open.", model.state.value.notice)
+    model.ask(true)
+    assertNull(model.state.value.notice)
+    model.say("again")
+    model.say(null)
+    assertNull(model.state.value.notice)
+  }
+
+  @Test
+  fun aPollKeepsTheAlertsLineAndTheNotice() {
+    val model = model(Laptop { fleet, _ -> both(fleet) })
+    model.alerts(true)
+    model.say("kept")
+    runBlocking { model.refresh() }
+    assertTrue(model.state.value.alertsOff)
+    assertEquals("kept", model.state.value.notice)
+  }
 }

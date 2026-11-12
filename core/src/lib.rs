@@ -35,7 +35,7 @@ pub use link::{
     parse_link_with,
 };
 pub use navigation::may_load;
-pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, parse_open};
+pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, open_paired, parse_open};
 pub use pair::{NAME_MAX, PairError, parse_answer, redeem, valid_name};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::{Proxy, Signal};

@@ -310,23 +310,4 @@ class DecisionModelTest {
     runBlocking { model.answer() }
     assertEquals("""{"choice":"","note":"yes"}""", board.bodies.single())
   }
-
-  @Test
-  fun aDecisionLinkNamesItsFleetAndRef() {
-    assertEquals(
-      DECISION_FLEET to "d12",
-      decisionRoute("handboard://open/$DECISION_FLEET/decision/d12")
-    )
-    for (link in
-      listOf(
-        null,
-        "handboard://open/$DECISION_FLEET/task/t3",
-        "handboard://open/$DECISION_FLEET/decision/d0",
-        "handboard://open/$DECISION_FLEET/decision/d12/",
-        "handboard://open/$DECISION_FLEET/decision/d12#r1",
-        "handboard://open/F000000000003/decision/d12",
-        "handboard://open/f00000000000/decision/d12",
-        "https://example.com/$DECISION_FLEET/decision/d12"
-      )) assertNull(link, decisionRoute(link))
-  }
 }

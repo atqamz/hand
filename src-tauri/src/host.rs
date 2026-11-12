@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use hand_android_core::{
     Alert, AlertSink, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher, Method,
-    PairError, RESCAN, Request, RequestError, Response, Sessions, Supervisor, paired_fleets,
+    OPEN_REJECTED, PairError, RESCAN, Request, RequestError, Response, Sessions, Supervisor,
+    open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jstring};
@@ -59,6 +60,7 @@ pub fn forget_alerts() -> io::Result<()> {
     let cleared = core.sessions.forget();
     let _ = core.host.stop_service();
     if cleared.is_err() {
+        core.alerts.stop();
         warn("the web view's cookies or the session store could not be cleared");
     }
     cleared
@@ -568,4 +570,63 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unsaved<'local>(
     _class: JClass<'local>,
 ) -> jboolean {
     jboolean::from(core().is_some_and(|core| core.sessions.unsaved()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_open<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    link: JString<'local>,
+) -> jstring {
+    let answer = catch_unwind(AssertUnwindSafe(|| {
+        let paired = core()
+            .and_then(|core| core.sessions.header())
+            .map(|header| paired_fleets(&header))
+            .unwrap_or_default();
+        let opened = match text(&mut env, &link) {
+            Ok(Some(link)) => open_paired(&paired, &link),
+            _ => Err(OPEN_REJECTED),
+        };
+        match opened {
+            Ok(open) => serde_json::json!({ "path": open.path() }),
+            Err(message) => serde_json::json!({ "message": message }),
+        }
+    }))
+    .unwrap_or_else(|_| serde_json::json!({ "message": OPEN_REJECTED }));
+    reply(&mut env, answer)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fallback<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    fleet: JString<'local>,
+) -> jstring {
+    let answer = catch_unwind(AssertUnwindSafe(|| {
+        let board = text(&mut env, &fleet).ok().flatten().and_then(|fleet| {
+            let core = core()?;
+            let cookie = core.sessions.cookie(&fleet)?;
+            Some((core.companion.port(), cookie))
+        });
+        match board {
+            Some((port, cookie)) => serde_json::json!({ "port": port, "cookie": cookie }),
+            None => serde_json::json!({}),
+        }
+    }))
+    .unwrap_or_else(|_| serde_json::json!({}));
+    reply(&mut env, answer)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let forgotten = catch_unwind(AssertUnwindSafe(|| {
+        forget_alerts().is_ok()
+            && core().is_none_or(|core| {
+                tauri::async_runtime::block_on(core.companion.forget_laptop()).is_ok()
+            })
+    }));
+    jboolean::from(forgotten.unwrap_or(false))
 }

@@ -167,6 +167,14 @@ impl<J: Jar> Sessions<J> {
         (!header.is_empty()).then_some(header)
     }
 
+    pub fn cookie(&self, fleet: &str) -> Option<String> {
+        let prefix = format!("{COOKIE_PREFIX}{fleet}=");
+        self.header()?
+            .split("; ")
+            .find(|cookie| cookie.starts_with(&prefix))
+            .map(str::to_owned)
+    }
+
     pub fn forget(&self) -> io::Result<()> {
         let mut data = self.data.lock().unwrap();
         self.jar.clear()?;
@@ -764,6 +772,26 @@ mod tests {
             .collect();
         parts.sort();
         parts
+    }
+
+    #[test]
+    fn one_fleets_cookie_comes_from_the_store_and_no_other() {
+        let setup = Setup::new(&[]);
+        let sessions = setup.open().unwrap();
+        sessions
+            .pair(
+                LAPTOP,
+                &[paired(FLEET, "7", A), paired(OTHER, "9", C)],
+                || {},
+            )
+            .unwrap();
+
+        assert_eq!(sessions.cookie(FLEET).as_deref(), Some(COOKIE));
+        assert_eq!(sessions.cookie(OTHER).as_deref(), Some(SECOND));
+        assert_eq!(sessions.cookie("f111111111111"), None);
+        assert_eq!(sessions.cookie("f012345678"), None);
+        sessions.forget().unwrap();
+        assert_eq!(sessions.cookie(FLEET), None);
     }
 
     #[test]

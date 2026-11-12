@@ -14,11 +14,9 @@
         android:theme="@style/Theme.hand_android"
         android:networkSecurityConfig="@xml/network_security_config">
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
-            android:windowSoftInputMode="adjustResize"
-            android:name=".MainActivity"
+            android:name=".HandActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -37,6 +35,11 @@
                 <data android:scheme="handboard" android:host="open" />
             </intent-filter>
         </activity>
+
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".HandActivity"
+            android:exported="true" />
 
         <service
             android:name=".AlertService"

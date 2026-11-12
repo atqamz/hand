@@ -28,6 +28,12 @@ object Core {
 
   @JvmStatic external fun cancel()
 
+  @JvmStatic external fun open(link: String): String?
+
+  @JvmStatic external fun fallback(fleet: String): String?
+
+  @JvmStatic external fun forget(): Boolean
+
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()

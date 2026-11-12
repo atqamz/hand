@@ -4,8 +4,11 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
+import android.webkit.WebStorage
+import android.webkit.WebView
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 const val COOKIE_URL = "http://localhost/"
 
@@ -36,14 +39,29 @@ class AppHost(private val context: Context) {
 
   fun clearCookies(): Boolean {
     val done = CountDownLatch(1)
+    val storage = AtomicBoolean(true)
     Handler(Looper.getMainLooper()).post {
-      val manager = CookieManager.getInstance()
-      manager.removeAllCookies {
-        manager.flush()
+      try {
+        try {
+          WebStorage.getInstance().deleteAllData()
+          WebView(context).apply {
+            clearCache(true)
+            destroy()
+          }
+        } catch (_: Exception) {
+          storage.set(false)
+        }
+        val manager = CookieManager.getInstance()
+        manager.removeAllCookies {
+          manager.flush()
+          done.countDown()
+        }
+      } catch (_: Exception) {
+        storage.set(false)
         done.countDown()
       }
     }
-    return done.await(COOKIE_CLEAR_SECONDS, TimeUnit.SECONDS)
+    return done.await(COOKIE_CLEAR_SECONDS, TimeUnit.SECONDS) && storage.get()
   }
 
   fun stopService() {

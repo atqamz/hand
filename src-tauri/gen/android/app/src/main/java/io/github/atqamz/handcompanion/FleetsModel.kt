@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,8 +41,13 @@ data class Band(val title: String, val body: String? = null, val retry: Boolean 
 data class FleetsState(
   val laptop: String? = null,
   val rows: List<FleetRow> = emptyList(),
-  val band: Band? = null
+  val band: Band? = null,
+  val alertsOff: Boolean = false,
+  val asking: Boolean = false,
+  val notice: String? = null
 )
+
+const val FORGET_FAILED = "Can't clear the saved login. Try again."
 
 fun pairedFleets(ids: String?): List<String> =
   ids.orEmpty().split(' ').filter(FLEET_ID::matches).distinct()
@@ -134,6 +140,7 @@ class FleetsModel(
   private val fleets: () -> List<String>,
   private val laptop: () -> String?,
   private val unsaved: () -> Boolean = { false },
+  private val forgetter: () -> Boolean = { true },
   private val clock: () -> String = { hhmm(Date()) }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetsState())
@@ -152,6 +159,24 @@ class FleetsModel(
 
   fun retry() {
     if (!lock.isLocked) viewModelScope.launch { refresh() }
+  }
+
+  fun alerts(off: Boolean) = mutableState.update { it.copy(alertsOff = off) }
+
+  fun say(text: String?) = mutableState.update { it.copy(notice = text, asking = false) }
+
+  fun ask(on: Boolean) = mutableState.update { it.copy(asking = on, notice = null) }
+
+  fun forget() {
+    viewModelScope.launch { forgetLaptop() }
+  }
+
+  suspend fun forgetLaptop() {
+    mutableState.update { it.copy(asking = false, notice = null) }
+    val forgotten = withContext(Dispatchers.IO) { forgetter() }
+    if (forgotten) mutableState.update { it.copy(alertsOff = false) }
+    refresh()
+    if (!forgotten) say(FORGET_FAILED)
   }
 
   suspend fun refresh() =
@@ -187,8 +212,13 @@ class FleetsModel(
       }
       clients.keys.retainAll(ids.toSet())
       downSince = if (failure in UNREACHABLE) downSince ?: now else null
-      mutableState.value =
-        FleetsState(who, rows, failure?.let { band(it, who, downSince) } ?: UNSAVED.takeIf { unsaved })
+      mutableState.update {
+        it.copy(
+          laptop = who,
+          rows = rows,
+          band = failure?.let { band(it, who, downSince) } ?: UNSAVED.takeIf { unsaved }
+        )
+      }
     }
 
   private suspend fun fetch(id: String, before: FleetRow, now: String): FleetRow {

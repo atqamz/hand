@@ -67,14 +67,14 @@ fun replaceNotice(current: Current): String {
 
 private val json = Json { ignoreUnknownKeys = true }
 
-private fun parse(text: String?): JsonObject =
+internal fun parse(text: String?): JsonObject =
   try {
     json.parseToJsonElement(text.orEmpty()).jsonObject
   } catch (_: Exception) {
     JsonObject(emptyMap())
   }
 
-private fun JsonObject.field(name: String) = get(name)?.jsonPrimitive?.content
+internal fun JsonObject.field(name: String) = get(name)?.jsonPrimitive?.content
 
 class PairModel(
   private val core: Pairing,

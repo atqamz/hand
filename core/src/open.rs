@@ -22,6 +22,15 @@ impl OpenLink {
     }
 }
 
+pub fn open_paired(paired: &[String], text: &str) -> Result<OpenLink, &'static str> {
+    if paired.is_empty() {
+        return Err(NOT_PAIRED);
+    }
+    parse_open(text)
+        .filter(|link| paired.contains(&link.fleet))
+        .ok_or(OPEN_REJECTED)
+}
+
 pub fn is_open_link(text: &str) -> bool {
     text.starts_with(HOST_PREFIX)
 }
@@ -83,6 +92,27 @@ mod tests {
 
     fn open(tail: &str) -> String {
         format!("handboard://open/{FLEET}/{tail}")
+    }
+
+    #[test]
+    fn a_link_opens_only_a_paired_fleet() {
+        let paired = vec![FLEET.to_owned()];
+        let task = open("task/t3");
+        assert_eq!(
+            open_paired(&paired, &task).unwrap().path(),
+            "/f0123456789ab/task/t3"
+        );
+        assert_eq!(open_paired(&[], &task), Err(NOT_PAIRED));
+        let other = vec!["f999999999999".to_owned()];
+        assert_eq!(open_paired(&other, &task), Err(OPEN_REJECTED));
+        for text in [
+            "handboard://c#v1.abc",
+            "handboard://open/f0123456789ab/report/r1",
+            "https://example.test/",
+            "",
+        ] {
+            assert_eq!(open_paired(&paired, text), Err(OPEN_REJECTED), "{text}");
+        }
     }
 
     #[test]
