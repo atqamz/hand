@@ -83,6 +83,8 @@ func (s *slugger) slug(text string) string {
 	return base
 }
 
+const docID = "doc-"
+
 func titled(out string, title func(ref string) string) string {
 	if title == nil {
 		return out
@@ -129,7 +131,15 @@ func blocks(b *strings.Builder, lines []string, quotes bool, refs opts, depth in
 				}
 			}
 			text := strings.TrimSpace(line[heading(line):])
-			b.WriteString("<" + tag + ` id="` + refs.slugs.slug(text) + `">` + inline(text, true, refs) + "</" + tag + ">")
+			b.WriteString("<" + tag)
+			if refs.doc || refs.site {
+				id := refs.slugs.slug(text)
+				if refs.doc {
+					id = docID + id
+				}
+				b.WriteString(` id="` + id + `"`)
+			}
+			b.WriteString(">" + inline(text, true, refs) + "</" + tag + ">")
 			i++
 		case quotes && strings.HasPrefix(line, ">"):
 			var inner []string
@@ -449,7 +459,7 @@ func (sc scan) marker(i int) (string, int) {
 			sc.dead["["] = true
 		}
 	case rest[0] == '[' && links && !sc.dead["["]:
-		if out, n := link(rest, sc.o.doc || sc.o.site); n > 0 {
+		if out, n := link(rest, sc.o.doc, sc.o.site); n > 0 {
 			return out, n
 		} else if n < 0 {
 			sc.dead["["] = true
@@ -518,7 +528,7 @@ func closing(s string, i int) int {
 	return -1
 }
 
-func link(rest string, doc bool) (string, int) {
+func link(rest string, doc, site bool) (string, int) {
 	mid := strings.Index(rest, "](")
 	if mid < 0 {
 		return "", -1
@@ -531,7 +541,20 @@ func link(rest string, doc bool) (string, int) {
 		return "", -1
 	}
 	u := rest[mid+2 : mid+2+end]
-	if doc && (relative(u) || strings.HasPrefix(u, "#")) {
+	if doc && relative(u) {
+		if base, frag, ok := strings.Cut(u, "#"); ok && frag != "" {
+			u = base + "#" + docID + frag
+		}
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
+	if site && relative(u) {
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
+	if doc && strings.HasPrefix(u, "#") {
+		u = "#" + docID + u[1:]
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
+	if site && strings.HasPrefix(u, "#") {
 		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
 	}
 	if !safe(u) {

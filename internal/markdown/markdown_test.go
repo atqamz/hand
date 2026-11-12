@@ -41,12 +41,12 @@ func TestRenderSubset(t *testing.T) {
 }
 
 var blocks = []struct{ in, want string }{
-	{"## Sources\ntext", `<h3 id="sources">Sources</h3><p>text</p>`},
-	{"# A", `<h3 id="a">A</h3>`},
-	{"### B", `<h4 id="b">B</h4>`},
-	{"###### C", `<h4 id="c">C</h4>`},
+	{"## Sources\ntext", `<h3>Sources</h3><p>text</p>`},
+	{"# A", `<h3>A</h3>`},
+	{"### B", `<h4>B</h4>`},
+	{"###### C", `<h4>C</h4>`},
 	{"#tag", `<p>#tag</p>`},
-	{"## **Bold** head", `<h3 id="bold-head"><strong>Bold</strong> head</h3>`},
+	{"## **Bold** head", `<h3><strong>Bold</strong> head</h3>`},
 	{"a\n---\nb", `<p>a</p><hr><p>b</p>`},
 	{"***", `<hr>`},
 	{"_ _ _", `<hr>`},
@@ -78,22 +78,23 @@ var tables = []struct{ in, want string }{
 
 func TestHeadingIDs(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{"# One\n\n# One\n\n# One", `<h3 id="one">One</h3><h3 id="one-1">One</h3><h3 id="one-2">One</h3>`},
-		{"## What's new? (v2)", `<h3 id="whats-new-v2">What&#39;s new? (v2)</h3>`},
-		{"## A — B", `<h3 id="a--b">A — B</h3>`},
-		{"## Run `hand doctor` now", "<h3 id=\"run-hand-doctor-now\">Run <code>hand doctor</code> now</h3>"},
+		{"# One\n\n# One\n\n# One", `<h2 id="one">One</h2><h2 id="one-1">One</h2><h2 id="one-2">One</h2>`},
+		{"## What's new? (v2)", `<h2 id="whats-new-v2">What&#39;s new? (v2)</h2>`},
+		{"## A — B", `<h2 id="a--b">A — B</h2>`},
+		{"## Run `hand doctor` now", "<h2 id=\"run-hand-doctor-now\">Run <code>hand doctor</code> now</h2>"},
 	} {
-		if got := string(markdown.Render(c.in, nil)); got != c.want {
+		if got := string(markdown.RenderSite(c.in)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
 }
 
 func TestInPageAnchorsRender(t *testing.T) {
-	for _, got := range []string{string(markdown.RenderSite("[x](#x)")), string(markdown.RenderDoc("[x](#x)", "/f1", nil, nil))} {
-		if got != `<p><a href="#x">x</a></p>` {
-			t.Errorf("got %s", got)
-		}
+	if got := string(markdown.RenderSite("[x](#x)")); got != `<p><a href="#x">x</a></p>` {
+		t.Errorf("site got %s", got)
+	}
+	if got := string(markdown.RenderDoc("[x](#x)", "/f1", nil, nil)); got != `<p><a href="#doc-x">x</a></p>` {
+		t.Errorf("doc got %s", got)
 	}
 }
 
@@ -465,8 +466,8 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 		{"[API notes](api.md)", `<p><a href="api.md">API notes</a></p>`},
 		{"[notes](../t286/notes.md)", `<p><a href="../t286/notes.md">notes</a></p>`},
 		{"[x](sub/a b.md)", `<p><a href="sub/a b.md">x</a></p>`},
-		{"[x](a.md#h)", `<p><a href="a.md#h">x</a></p>`},
-		{"[x](#top)", `<p><a href="#top">x</a></p>`},
+		{"[x](a.md#h)", `<p><a href="a.md#doc-h">x</a></p>`},
+		{"[x](#top)", `<p><a href="#doc-top">x</a></p>`},
 		{"[**b**](shots/)", `<p><a href="shots/"><strong>b</strong></a></p>`},
 		{`[x](a.md"onmouseover="y)`, `<p><a href="a.md&#34;onmouseover=&#34;y">x</a></p>`},
 		{"[PR](https://github.com/a/b/pull/1)", `<p><a href="https://github.com/a/b/pull/1" target="_blank" rel="noopener noreferrer">PR</a></p>`},
@@ -553,7 +554,7 @@ func TestRenderLinksThePathsTheHookAllows(t *testing.T) {
 		{"/fleet/a.md /fleet/shots/\n/fleet/a.md", `<p>` + path(a, a) + ` ` + path(b, b) + `<br>` + path(a, a) + `</p>`},
 		{"`/fleet/a.md`", `<p>` + path(a, `<code>/fleet/a.md</code>`) + `</p>`},
 		{"**/fleet/a.md** and *see /fleet/a.md*", `<p><strong>` + path(a, a) + `</strong> and <em>see ` + path(a, a) + `</em></p>`},
-		{"## /fleet/a.md\n- /fleet/a.md\n\n> /fleet/a.md", `<h3 id="fleetamd">` + path(a, a) + `</h3><ul><li>` + path(a, a) + `</li></ul><blockquote><p>` + path(a, a) + `</p></blockquote>`},
+		{"## /fleet/a.md\n- /fleet/a.md\n\n> /fleet/a.md", `<h3>` + path(a, a) + `</h3><ul><li>` + path(a, a) + `</li></ul><blockquote><p>` + path(a, a) + `</p></blockquote>`},
 		{"| doc |\n|---|\n| /fleet/a.md |", wrap + `<thead><tr><th>doc</th></tr></thead><tbody><tr><td>` + path(a, a) + `</td></tr></tbody></table></div>`},
 		{"/fleet/a.md:12 and `/fleet/a.md:12`", `<p>/fleet/a.md:12 and <code>/fleet/a.md:12</code></p>`},
 		{"/fleet/b.md and `/fleet/a.md and more`", `<p>/fleet/b.md and <code>/fleet/a.md and more</code></p>`},

@@ -51,7 +51,7 @@ func TestASymlinkToHandsDatabaseIsRefused(t *testing.T) {
 	for _, path := range []string{"/doc/reports/db-link", "/doc/reports/token", "/doc/reports/clones/app/README.md", "/doc/reports/clones", "/doc/reports/root", "/doc/reports/root/hand.db"} {
 		refused(t, h, path, policy["hidden"])
 	}
-	contains(t, "a link inside the fleet", get(t, h, "/doc/reports/notes-link.md"), "<h3 id=\"notes\">notes</h3>", `<h2 class="thread-title">notes-link.md</h2>`)
+	contains(t, "a link inside the fleet", get(t, h, "/doc/reports/notes-link.md"), "<h3 id=\"doc-notes\">notes</h3>", `<h2 class="thread-title">notes-link.md</h2>`)
 	contains(t, "listing", get(t, h, "/doc/reports"), `<span class="badge" aria-hidden="true">LINK</span><span class="name">db-link</span>`)
 }
 
