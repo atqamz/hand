@@ -390,6 +390,10 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/pair" {
+		if peerOf(r) == nil {
+			b.apiFail(w, http.StatusForbidden, "forbidden", "a phone pairs through the API only on the peer listener")
+			return
+		}
 		b.apiPair(w, r)
 		return
 	}
@@ -476,11 +480,6 @@ type apiKeysBody struct {
 	Ref      string   `json:"ref"`
 }
 
-type apiPairBody struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
-}
-
 type APIPairedFleet struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -561,17 +560,18 @@ func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object under 4 KiB")
 		return
 	}
-	var in apiPairBody
+	var in map[string]*string
 	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := dec.Decode(&in); err != nil {
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with code and name")
+	if err := dec.Decode(&in); err != nil || len(in) != 2 || in["code"] == nil || in["name"] == nil {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with exactly code and name, both strings")
 		return
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with code and name")
 		return
 	}
-	name := strings.TrimSpace(in.Name)
+	code := *in["code"]
+	name := strings.TrimSpace(*in["name"])
 	if utf8.RuneCountInString(name) > state.MaxDeviceName || strings.ContainsFunc(name, unicode.IsControl) {
 		b.apiFail(w, http.StatusBadRequest, "bad_name", fmt.Sprintf("a phone's name is at most %d characters and has no control character", state.MaxDeviceName))
 		return
@@ -581,7 +581,7 @@ func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	res, set := b.redeem(remote(r), in.Code, b.now())
+	res, set := b.redeem(remote(r), code, b.now())
 	if res != pairOK {
 		x := pairFailure[res]
 		b.apiFail(w, x.status, x.code, x.text)

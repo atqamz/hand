@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -126,15 +127,25 @@ func TestThePairAPIReadsOnlyOneSmallJSONObject(t *testing.T) {
 	c := r.as(peerA)
 	code := r.code(f)
 	for name, body := range map[string]string{
-		"empty":    "",
-		"text":     "code=" + code,
-		"array":    "[]",
-		"trailing": pairBody(code, "Pixel") + pairBody(code, "Pixel"),
-		"large":    pairBody(code, strings.Repeat("x", 5000)),
+		"empty":       "",
+		"text":        "code=" + code,
+		"array":       "[]",
+		"null":        "null",
+		"no keys":     "{}",
+		"no name":     `{"code":"` + code + `"}`,
+		"null name":   `{"code":"` + code + `","name":null}`,
+		"null code":   `{"code":null,"name":"Pixel"}`,
+		"number name": `{"code":"` + code + `","name":7}`,
+		"unknown key": `{"code":"` + code + `","name":"Pixel","extra":"x"}`,
+		"cased keys":  `{"Code":"` + code + `","Name":"Pixel"}`,
+		"trailing":    pairBody(code, "Pixel") + pairBody(code, "Pixel"),
+		"large":       pairBody(code, strings.Repeat("x", 5000)),
 	} {
-		rep, got := r.pairAPI(c, f, body)
-		if rep.Code != http.StatusBadRequest || got.Error.Code != "bad_request" {
-			t.Fatalf("%s = %d:\n%s", name, rep.Code, rep.Body)
+		for range 3 {
+			rep, got := r.pairAPI(r.as(peerA), f, body)
+			if rep.Code != http.StatusBadRequest || got.Error.Code != "bad_request" {
+				t.Fatalf("%s = %d:\n%s", name, rep.Code, rep.Body)
+			}
 		}
 	}
 	req, _ := http.NewRequest("POST", "http://localhost/"+f.id+"/api/v1/pair", strings.NewReader(pairBody(code, "Pixel")))
@@ -143,7 +154,7 @@ func TestThePairAPIReadsOnlyOneSmallJSONObject(t *testing.T) {
 		t.Fatalf("a form-like content type = %d, %v:\n%s", rep.Code, err, rep.Body)
 	}
 	if rep, _ := r.pairAPI(c, f, pairBody(code, "Pixel")); rep.Code != http.StatusOK {
-		t.Fatalf("the code after unreadable bodies = %d:\n%s", rep.Code, rep.Body)
+		t.Fatalf("the code after 39 unreadable bodies, which must not count as wrong codes = %d:\n%s", rep.Code, rep.Body)
 	}
 }
 
@@ -173,8 +184,11 @@ func TestThePairAPIKeepsTheAPIsRefusalsForForwardedFunnelAndNetworkAddressReques
 	if len(p.devicesOf(f)) != 0 {
 		t.Fatal("a refused request paired a device")
 	}
-	if rec := do(nil); rec.Code != http.StatusOK {
+	if rec := do(nil); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"forbidden"`) || strings.Contains(rec.Body.String(), "hand_phone") {
 		t.Fatalf("a direct loopback request = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if len(p.devicesOf(f)) != 0 {
+		t.Fatal("the loopback listener paired a device")
 	}
 
 	n := servePeerRig(t, newPhoneHost(t, false, "alpha"))
@@ -268,5 +282,20 @@ func TestTheCompanionVectorsForPairingAreWhatTheBoardAnswers(t *testing.T) {
 				t.Errorf("%s: fleet %+v, want %+v", x.Name, g, want)
 			}
 		}
+	}
+}
+
+func TestAnUnpairedPeerPairingWithAFleetThatDoesNotOpenGetsNotFoundNotUnauthorized(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	code := r.code(f)
+	r.setDown(f)
+	c := r.as(peerA)
+	r.refused(c, f, pairBody(code, "Pixel"), http.StatusNotFound, "not_found")
+	if rep := r.apiGet(c, f, "status", nil); rep.Code != http.StatusForbidden {
+		t.Fatalf("an unpaired peer's GET status on a fleet that does not open = %d", rep.Code)
+	}
+	if rep := c.do("POST", "/"+f.id+"/pair", url.Values{"code": {code}, "name": {"Pixel"}}, nil); rep.Code != http.StatusNotFound {
+		t.Fatalf("the form on a fleet that does not open = %d", rep.Code)
 	}
 }
