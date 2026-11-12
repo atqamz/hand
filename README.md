@@ -118,7 +118,7 @@ Images for issues and pull requests live on the `blob` branch of this repository
 git clone --single-branch --branch main https://github.com/atqamz/hand.git
 ```
 
-Its `.git` is 17 MB, against 113 MB for a full clone; add `--depth 1` for a one-shot checkout (4.8 MB).
+Measured 2026-11-12 with `du -sb .git`: 18,489,594 bytes (18.5 MB) against 115,522,218 bytes (115.5 MB) for a full clone; add `--depth 1` for a one-shot checkout (5,344,819 bytes, 5.3 MB). The media branch grows, so the full-clone figure will too.
 
 ## Development
 
