@@ -417,7 +417,7 @@ func TestComposerSendsWithCtrlEnter(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("hello there")
 	tt.Key(ui.Ctrl, ui.KeyEnter)
 	tt.Frame()
@@ -428,7 +428,7 @@ func TestComposerSendsWithCtrlEnter(t *testing.T) {
 	if app.Draft != "" {
 		t.Fatalf("draft = %q after a send", app.Draft)
 	}
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("again")
 	tt.Key(ui.Super, ui.KeyEnter)
 	tt.Frame()
@@ -442,7 +442,7 @@ func TestComposerShiftEnterBreaksTheLine(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("one")
 	tt.Key(ui.Shift, ui.KeyEnter)
 	tt.Type("two")
@@ -463,7 +463,7 @@ func TestAFailedSendKeepsTheDraft(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("keep this text")
 	f.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
 	click(t, tt, "Send")
@@ -478,7 +478,7 @@ func TestTheComposerIsDisabledWhileSending(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("one moment")
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -507,7 +507,7 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("half a message")
 	tt.Frame()
 	app.FlushDrafts()
@@ -543,7 +543,7 @@ func TestSendingClearsTheStoredDraft(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("send me")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -556,7 +556,7 @@ func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("  indented\n\nand trailing\n")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -573,7 +573,7 @@ func TestASendWhoseTimelineCannotBeReadClearsTheDraft(t *testing.T) {
 	f.stale = true
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("sent once")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -599,7 +599,7 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("keep this draft")
 	tt.Frame()
 	mustText(t, tt, "the draft was not saved")
@@ -624,7 +624,7 @@ func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("sent anyway")
 	tt.Frame()
 	click(t, tt, "Send")
@@ -654,7 +654,7 @@ func TestTheSentDraftIsClearedAfterANavigation(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("sent once")
 	tt.Frame()
 	posted := make(chan func(), 64)
@@ -695,7 +695,7 @@ func TestASaveFailureIsRestoredBeforeItsReport(t *testing.T) {
 	tt := newTester(app)
 	pump(t, posted, func() bool { return !app.Loading })
 	tt.Frame()
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("keep this draft")
 	click(t, tt, "second")
 	click(t, tt, "golden")
@@ -715,7 +715,7 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("a")
 	tt.Frame()
 	mustText(t, tt, "the draft was not saved")
@@ -742,7 +742,7 @@ func TestASendKeepsANewerDraft(t *testing.T) {
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("the older draft")
 	tt.Frame()
 	posted := make(chan func(), 8)
@@ -1150,11 +1150,11 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Cookie fixed")
 		}},
 		{"11-composer", composer, func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("Please look at the cookie rename after the docs pass.")
 		}},
 		{"12-composer-error", errApp, func(t *testing.T, tt *ui.Tester) {
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("This text stays when the send fails.")
 			errFleet.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
 			click(t, tt, "Send")
@@ -1604,7 +1604,7 @@ func TestComposerEnterBreaksTheLineAndShowsNoHint(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("one")
 	tt.Key(0, ui.KeyEnter)
 	tt.Type("two")
@@ -1638,7 +1638,7 @@ func TestTheConversationReadsOldestFirstWithTheComposerBelow(t *testing.T) {
 	if at(e[len(e)-1].Text) > at(e[0].Text) {
 		t.Fatalf("the oldest message is below the newest in %q", texts)
 	}
-	if at("Message") < at(e[0].Text) {
+	if at("Message the supervisor") < at(e[0].Text) {
 		t.Fatalf("the composer is above the messages in %q", texts)
 	}
 }
@@ -1770,7 +1770,7 @@ func TestTheWorkingBannerSitsBelowTheLastMessage(t *testing.T) {
 		return -1
 	}
 	e := app.Timeline.Entries
-	if idx("s1 working") < idx(e[0].Text) || idx("s1 working") > idx("Message") {
+	if idx("s1 working") < idx(e[0].Text) || idx("s1 working") > idx("Message the supervisor") {
 		t.Fatalf("banner is not between the last message and the composer in %q", texts)
 	}
 }

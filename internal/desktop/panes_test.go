@@ -47,7 +47,7 @@ func TestScenesTwoPanes(t *testing.T) {
 				if got := float32(tc.width) - chatLeft(t, tt); got < tc.chat-2 || got > tc.chat+2 {
 					t.Errorf("the chat is %.0f wide, want the Board's default %.0f", got, tc.chat)
 				}
-				for _, s := range []string{"Message", "Send", "More", "Stop"} {
+				for _, s := range []string{"Message the supervisor", "Send", "More", "Stop"} {
 					r, ok := tt.Find(s)
 					if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > float32(tc.width) || r.Y+r.H > float32(tc.height) {
 						t.Errorf("%q is at %v, outside the %dx%d window", s, r, tc.width, tc.height)
@@ -126,7 +126,7 @@ func TestTheConversationOpensAtItsNewestEntryWithTheComposerPinned(t *testing.T)
 	if oldest, ok := tt.Find("entry number 1"); ok && oldest.H > 0 && oldest.Y >= 100 && oldest.Y+oldest.H <= 760 {
 		t.Fatalf("the oldest entry is in view at %v", oldest)
 	}
-	message, ok := tt.Find("Message")
+	message, ok := tt.Find("Message the supervisor")
 	if !ok || message.Y+message.H > 760 || message.Y < 400 {
 		t.Fatalf("the composer is at %v, want it pinned at the bottom", message)
 	}
@@ -188,7 +188,7 @@ func TestTheBlockedKeysStayInsideTheChatPane(t *testing.T) {
 		}
 		f.tasks[fleetID] = tasks
 		tt := sized(t, newApp(t, f), width, 700, false)
-		inPane(t, tt, width, 700, "Enter", "Esc", "↑", "↓", "1", "2", "3", "Message", "Send")
+		inPane(t, tt, width, 700, "Enter", "Esc", "↑", "↓", "1", "2", "3", "Message the supervisor", "Send")
 		first, ok := tt.Find("status?")
 		keys, _ := tt.Find("3")
 		if ok && first.H > 0 && keys.Y+keys.H > first.Y {
@@ -209,8 +209,8 @@ func TestALongAskCannotEatTheChatPane(t *testing.T) {
 	st.Supervisor = &sup
 	f.status[fleetID] = st
 	tt := sized(t, newApp(t, f), 780, 480, false)
-	inPane(t, tt, 780, 480, "Message", "Send")
-	msg, _ := tt.Find("Message")
+	inPane(t, tt, 780, 480, "Message the supervisor", "Send")
+	msg, _ := tt.Find("Message the supervisor")
 	if msg.Y < 250 {
 		t.Errorf("the composer is at y=%.0f, want it left at the bottom of the 480 px window", msg.Y)
 	}
@@ -283,7 +283,7 @@ func TestTheComposerHintFollowsTheSupervisorsState(t *testing.T) {
 	app := newApp(t, f)
 	tt := newTester(app)
 	mustText(t, tt, st.ComposerHint)
-	click(t, tt, "Message")
+	click(t, tt, "Message the supervisor")
 	tt.Type("half a message")
 	st.ComposerHint = ""
 	f.status[fleetID] = st

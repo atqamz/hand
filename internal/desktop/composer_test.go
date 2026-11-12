@@ -70,7 +70,7 @@ func TestScenesTheComposerDraftNote(t *testing.T) {
 			app := newApp(t, goldenFixture(t))
 			app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
 			tt := sized(t, app, 1100, 760, dark)
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("half a message")
 			tt.Frame()
 			mustText(t, tt, "Draft saved 14:32")
@@ -97,7 +97,7 @@ func TestScenesTheComposerSendsOnceFromCtrlEnterAndOnceFromSend(t *testing.T) {
 			f := goldenFixture(t)
 			tt := sized(t, newApp(t, f), 1100, 760, dark)
 			composerBox(t, tt)
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("hello there")
 			tt.Key(ui.Ctrl, ui.KeyEnter)
 			tt.Frame()
@@ -105,7 +105,7 @@ func TestScenesTheComposerSendsOnceFromCtrlEnterAndOnceFromSend(t *testing.T) {
 				t.Fatalf("Ctrl+Enter sent %d times, %q", got, f.sentText)
 			}
 			mustText(t, tt, "hello there")
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("again")
 			click(t, tt, "Send")
 			tt.Frame()
@@ -128,7 +128,7 @@ func TestScenesTheComposerKeepsAFailedSend(t *testing.T) {
 			app := newApp(t, f)
 			app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
 			tt := sized(t, app, 1100, 760, dark)
-			click(t, tt, "Message")
+			click(t, tt, "Message the supervisor")
 			tt.Type("keep this text")
 			f.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
 			click(t, tt, "Send")
@@ -159,9 +159,16 @@ func TestTheComposerHoldsTheBoardsWidth(t *testing.T) {
 			if box.Y+box.H > 760 || 760-(box.Y+box.H) < 15 {
 				t.Errorf("%d wide: the box ends at %.0f in a 760 px window with its 16 px margin", width, box.Y+box.H)
 			}
-			left := chatLeft(t, tt)
-			if gap := box.X - left; gap < 15 {
-				t.Errorf("%d wide: the box starts %.0f px into the pane, want 16", width, gap)
+			head, ok := tt.Find("Supervisor")
+			if !ok {
+				t.Fatal("no pane head")
+			}
+			left, right := box.X-head.X, head.X+head.W-(box.X+box.W)
+			if left < 15 {
+				t.Errorf("%d wide: the box starts %.0f px into the pane, want 16", width, left)
+			}
+			if diff := right - left; diff > 1 || diff < -1 {
+				t.Errorf("%d wide: the box has %.0f px on its left and %.0f on its right, want it centred", width, left, right)
 			}
 		})
 	}
