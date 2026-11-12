@@ -22,13 +22,14 @@ func changelog(rs []release, note string) string {
 		return "<p>" + html.EscapeString(note) + "</p>"
 	}
 	var b strings.Builder
+	slugs := markdown.NewSlugger()
 	for _, r := range rs {
 		date := r.PublishedAt
 		if t, err := time.Parse(time.RFC3339, date); err == nil {
 			date = t.Format("2 January 2006")
 		}
 		b.WriteString(`<section class="release"><h2 id="` + html.EscapeString(r.TagName) + `">` + html.EscapeString(r.TagName) + `</h2><p class="date">` + html.EscapeString(date) + `</p>`)
-		b.WriteString(rewrite(string(markdown.RenderSite(r.Body)), ".", nil))
+		b.WriteString(rewrite(string(markdown.RenderSiteWith(r.Body, slugs)), ".", nil))
 		b.WriteString("</section>")
 	}
 	return b.String()

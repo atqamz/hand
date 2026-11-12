@@ -8,7 +8,22 @@ import (
 	"strings"
 )
 
-var unpublished = map[string]bool{"docs/spec.md": true, "docs/e2e.md": true}
+var unpublished = map[string]bool{"DESIGN.md": true, "PRODUCT.md": true, "docs/spec.md": true, "docs/e2e.md": true}
+
+var unpublishedPrefixes = []string{"docs/dogfood/", "docs/images/desktop/"}
+
+func unpublishedPath(rel string) bool {
+	rel = path.Clean(rel)
+	if unpublished[rel] {
+		return true
+	}
+	for _, prefix := range unpublishedPrefixes {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 func manifest(root string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(root, "www", "docs.txt"))
@@ -23,6 +38,9 @@ func manifest(root string) ([]string, error) {
 		}
 		if _, err := source(root, line); err != nil {
 			return nil, fmt.Errorf("www/docs.txt:%d: %w", i+1, err)
+		}
+		if unpublishedPath(line) {
+			return nil, fmt.Errorf("www/docs.txt:%d: %q is unpublished", i+1, line)
 		}
 		out = append(out, line)
 	}
@@ -39,7 +57,7 @@ func manifest(root string) ([]string, error) {
 	}
 	for _, e := range entries {
 		rel := "docs/" + e.Name()
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || listed[rel] || unpublished[rel] {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || listed[rel] || unpublishedPath(rel) {
 			continue
 		}
 		return nil, fmt.Errorf("%s is in neither www/docs.txt nor the unpublished list", rel)

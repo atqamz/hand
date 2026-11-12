@@ -70,6 +70,35 @@ func TestASymlinkedManifestPathOutsideTheRepositoryFails(t *testing.T) {
 	}
 }
 
+func TestAnUnpublishedManifestPathFails(t *testing.T) {
+	for _, line := range []string{"DESIGN.md", "PRODUCT.md", "docs/spec.md", "docs/e2e.md", "docs/dogfood/README.md", "docs/images/desktop/a.png"} {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "www"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(root, filepath.FromSlash(line))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("# Hidden\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "www", "docs.txt"), []byte(line+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := build(root, t.TempDir(), "v0", nil, noNotes); err == nil {
+			t.Errorf("%q was published", line)
+		}
+	}
+}
+
+func TestChangelogSharesHeadingIDs(t *testing.T) {
+	got := changelog([]release{{TagName: "v1.0.0", Body: "## Notes"}, {TagName: "v1.1.0", Body: "## Notes"}}, "")
+	if !strings.Contains(got, `id="notes"`) || !strings.Contains(got, `id="notes-1"`) {
+		t.Errorf("changelog ids collide: %s", got)
+	}
+}
+
 func TestADocFileMissingFromTheManifestFails(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"www", "docs"} {
