@@ -6,7 +6,7 @@ Hand is a personal supervisor layer for agents. You talk to one supervisor agent
 
 <img src="docs/images/board-phone.png" width="260" alt="The same Board at phone width: the Needs tab with the decision's three choices, a note field and a Send answer button, and the worker's report below.">
 
-A native window, `hand-desktop` on Linux, can read the same fleet beside the browser: it refreshes the selected fleet's status and open screen every 2 seconds while focused and every 15 seconds while not, sending the API's change cursor so an unchanged board answers `304`, and it keeps the composer's draft across a refresh.
+A native window, `hand-desktop` on Linux, can read the same fleet beside the browser: it refreshes the selected fleet's status, open screen and conversation every second while focused and every 5 seconds while not, and not at all while minimised, sending the API's change cursor so an unchanged board answers `304`, and it keeps the composer's draft across a refresh.
 
 ## Platform support
 
