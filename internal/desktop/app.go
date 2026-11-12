@@ -70,6 +70,7 @@ type App struct {
 	Screen      Screen
 	RailOpen    bool
 	Chat        float32
+	Zoom        float32
 	paneW       float32
 	chatH       float32
 	StopArmed   bool
@@ -174,10 +175,11 @@ type found struct {
 }
 
 func New(connect func() (ReadModel, error)) *App {
-	return &App{Connect: connect, Context: context.Background()}
+	return &App{Connect: connect, Context: context.Background(), Zoom: zoomDefault}
 }
 
 func (a *App) Boot() {
+	a.loadPrefs()
 	a.install(discover(a.Connect, a.Context, a.nameTimeout()), false)
 }
 

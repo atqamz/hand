@@ -95,6 +95,8 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `29-composer-draft-<light or dark>.png` | a typed message with the focused box and the draft note at its top edge |
 | `30-composer-sent-<light or dark>.png` | the composer after a send: the new message in the conversation, the box empty again |
 | `31-composer-failed-<light or dark>.png` | a failed send: the action's error card and the text the box kept |
+| `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
+| `33-zoom-150-<light or dark>.png` | the same at 150%, the ladder's next rung above 125% |
 
 The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. The hint sits on the foot's left and the draft note over the box's top-right corner, as the Board places it; the note is set on every save and cleared when the box empties. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
 
@@ -103,6 +105,10 @@ The day divider prints the day in the entries' own clock (`Sat, Oct 31`), not th
 ## Auth decision
 
 The desktop reads the fleet's `board.token` and sends it as the cookie the board already accepts for that fleet, the same value `hand open` exchanges for a browser. A fleet without a token, or whose token the board refuses, is named in the error with the fix (`hand open` in the fleet); the token never appears in a URL, an error or a log. The API adds the actions and a read-only `GET /api/v1/session` that answers the session's CSRF token; a mutation sends it as `X-Hand-CSRF`, and the board refuses one without it with `403 csrf_required`. There is no local-trust bypass.
+
+## Zoom decision
+
+The window zooms its content as a browser does, through the toolkit's `SetZoom`: text stays crisp because the view is laid out at the smaller size and drawn at the screen's resolution, and pointer, text input and scroll are remapped for it. `Ctrl+=` (and `Ctrl+Shift+=`, which is the `+` key) steps up the browser ladder 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 percent, `Ctrl+-` steps down it, `Ctrl+0` returns to 100%, and the ends hold instead of wrapping. The kit's tokens stay in logical pixels; nothing is scaled by hand. The zoom is one value in `prefs.json` beside the drafts folder, read at boot and written on change; a missing, malformed or off-ladder value boots at 100% or the nearest rung.
 
 ## Keys decision
 

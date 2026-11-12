@@ -1,0 +1,52 @@
+package desktop
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+const maxPrefs = 1 << 10
+
+// PrefsPath names the window's preferences file, beside the drafts folder.
+func PrefsPath(drafts string) string {
+	if drafts == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(filepath.Clean(drafts)), "prefs.json")
+}
+
+type prefs struct {
+	Zoom float32 `json:"zoom"`
+}
+
+func (a *App) loadPrefs() {
+	path := PrefsPath(a.DraftDir)
+	if path == "" {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) > maxPrefs {
+		return
+	}
+	var p prefs
+	if json.Unmarshal(raw, &p) != nil || !(p.Zoom > 0) {
+		return
+	}
+	a.Zoom = zoomFactor(zoomSteps[zoomRung(p.Zoom)])
+}
+
+func (a *App) savePrefs() {
+	path := PrefsPath(a.DraftDir)
+	if path == "" {
+		return
+	}
+	raw, err := json.Marshal(prefs{Zoom: a.Zoom})
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, raw, 0o600)
+}
