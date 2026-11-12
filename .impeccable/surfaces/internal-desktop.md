@@ -89,6 +89,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `23-conversation-<light or dark>.png` | the conversation as the Board draws it: the supervisor's and the operator's bubbles, the hand lines, a folded wake group, a day divider and the working line |
 | `24-conversation-unfolded-<light or dark>.png` | the same with the wake group unfolded |
 | `25-conversation-scrolled-<light or dark>.png` | scrolled up, with the button that returns to the newest entry |
+| `26-tasks-1100x760-<light or dark>.png` | a task list as the Board draws it: 48 px rows with a state icon, the meta line, project and deliverable badges, a sub-task indented under its parent, and the group heads |
 
 The day divider prints the day in the entries' own clock (`Sat, Oct 31`), not the Board's server-side UTC badge (`Sat 31 Oct UTC`): every entry prints a local time, so a UTC divider would draw the day a whole offset away from the entries under it. A deliberate deviation from the Board.
 

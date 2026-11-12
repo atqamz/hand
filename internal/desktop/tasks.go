@@ -26,11 +26,8 @@ func (a *App) tasksScreen(c *ui.Context, p palette) {
 			a.taskGroup(c, p, group)
 		}
 		if n := a.Tasks.Hidden; n > 0 {
-			ui.Textf(c, "%d more %s not shown; use hand task list --limit 1000.", n, taskPlural(n)).
+			ui.Textf(c, "%d more %s not shown; use hand task list --status inbox,active,done,abandoned --limit 1000.", n, taskPlural(n)).
 				FontSize(kit.Meta.Size).TextColor(p.neutral).Padding(kit.Space4, 0)
-		}
-		if a.Tasks.FinishedCount > 0 {
-			a.taskBrowse(c, p)
 		}
 	})
 }
@@ -42,14 +39,22 @@ func (a *App) taskGroup(c *ui.Context, p palette, g TaskGroup) {
 			Label(fmt.Sprintf("%s %d", g.Name, g.Count))
 	})
 	depths := taskDepths(g.Tasks)
+	inGroup := make(map[string]bool, len(g.Tasks))
+	for _, r := range g.Tasks {
+		inGroup[r.Ref] = true
+	}
 	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 		for i, row := range g.Tasks {
-			a.taskRow(c, p, row, depths[i])
+			under := ""
+			if row.Parent != "" && (!inGroup[row.Parent] || row.Parent == row.Ref) {
+				under = row.Parent
+			}
+			a.taskRow(c, p, row, depths[i], under)
 		}
 	})
 }
 
-func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int) {
+func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under string) {
 	indent := float32(min(depth, 3)) * kit.Space20
 	el := ui.ButtonBase(c.Key("task:"+r.Ref)).Height(kit.RowLG).Gap(kit.Space8).
 		Padding(kit.Space4, kit.Space4, kit.Space4, kit.Space4+indent).AlignItems(ui.Center).
@@ -59,8 +64,9 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int) {
 		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent).SingleLine()
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
-			if (a.Status.Projects > 1 && r.Project != "") || r.Attempt != nil || r.Delivered != nil {
-				a.taskSubline(c, p, r)
+			if (a.Status.Projects > 1 && r.Project != "") || r.Attempt != nil || r.Waits != nil ||
+				r.Delivered != nil || under != "" || r.Children > 0 {
+				a.taskSubline(c, p, r, under)
 			}
 		})
 	})
@@ -69,17 +75,29 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int) {
 	}
 }
 
-func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow) {
+func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string) {
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).MinWidth(0).Children(func() {
 		if a.Status.Projects > 1 && r.Project != "" {
-			ui.Badge(c, r.Project).Background(p.neutralBG).TextColor(p.neutral).Label("project " + r.Project)
+			ui.Badge(c, taskProject(r.Project)).Background(p.neutralBG).TextColor(p.neutral).Label("project " + r.Project)
 		}
 		if r.Attempt != nil {
 			ui.Text(c, taskAttemptLine(r)).FontSize(kit.Meta.Size).TextColor(p.neutral).
 				FixedLineHeight(18).SingleLine().MinWidth(0)
 		}
+		if r.Waits != nil {
+			ui.Text(c, taskWaitsLine(*r.Waits)).FontSize(kit.Meta.Size).TextColor(p.neutral).
+				FixedLineHeight(18).SingleLine().MinWidth(0)
+		}
 		if r.Delivered != nil {
 			a.taskDeliverable(c, p, *r.Delivered)
+		}
+		if under != "" {
+			ui.Text(c, "under "+under).FontSize(kit.Meta.Size).TextColor(p.neutral).
+				FixedLineHeight(18).SingleLine()
+		}
+		if r.Children > 0 {
+			ui.Textf(c, "%d %s", r.Children, taskSubtasks(r.Children)).FontSize(kit.Meta.Size).
+				TextColor(p.neutral).FixedLineHeight(18).SingleLine()
 		}
 	})
 }
@@ -98,18 +116,6 @@ func (a *App) taskDeliverable(c *ui.Context, p palette, d Deliverable) {
 		Label("deliverable " + d.Kind)
 }
 
-func (a *App) taskBrowse(c *ui.Context, p palette) {
-	label := fmt.Sprintf("Browse finished tasks (%d)", a.Tasks.FinishedCount)
-	el := ui.ButtonBase(c.Key("tasks:finished")).Padding(kit.Space8, 0).Justify(ui.Start).
-		Cursor(ui.CursorPointer).Label(label)
-	el.Children(func() {
-		ui.Text(c, label).FontSize(kit.Meta.Size).TextColor(p.accent)
-	})
-	if el.Clicked() {
-		a.runOpen("tasks")
-	}
-}
-
 func taskAttemptLine(r TaskRow) string {
 	a := r.Attempt
 	word := r.Agent
@@ -125,6 +131,38 @@ func taskAttemptLine(r TaskRow) string {
 		line += " · " + word
 	}
 	return line
+}
+
+func taskWaitsLine(w Waits) string {
+	line := "Waits until " + taskDay(w.Due)
+	if w.Note != "" {
+		line += ": " + w.Note
+	}
+	return line
+}
+
+func taskDay(at string) string {
+	t, ok := parseAt(at)
+	if !ok {
+		return at
+	}
+	return t.UTC().Format("Jan 2")
+}
+
+func taskProject(name string) string {
+	const max = 24
+	runes := []rune(name)
+	if len(runes) <= max {
+		return name
+	}
+	return string(runes[:max-1]) + "…"
+}
+
+func taskSubtasks(n int) string {
+	if n == 1 {
+		return "sub-task"
+	}
+	return "sub-tasks"
 }
 
 func taskDepths(rows []TaskRow) []int {

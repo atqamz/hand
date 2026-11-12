@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -842,15 +841,9 @@ func fleetName(f Fleet) string {
 }
 
 func stamp(at string) string {
-	if at == "" {
-		return ""
-	}
-	t, err := time.Parse(time.RFC3339Nano, at)
-	if err != nil {
-		t, err = time.Parse(time.RFC3339, at)
-		if err != nil {
-			return at
-		}
+	t, ok := parseAt(at)
+	if !ok {
+		return at
 	}
 	return t.Local().Format("Jan 2, 15:04")
 }

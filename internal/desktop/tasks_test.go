@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
@@ -23,6 +24,7 @@ func taskFixture(t *testing.T) *fixture {
 					Ref: "t1", Title: "Fix login", Project: "web", Status: "active", State: "waiting", Agent: "working",
 					Attempt:   &desktop.Attempt{Ref: "a1", Task: "t1", Harness: "claude", Model: "sonnet", Status: "running"},
 					Delivered: &desktop.Deliverable{Ref: "https://github.com/example/hand/pull/42", Kind: "PR"},
+					Children:  1,
 				},
 				{
 					Ref: "t2", Title: "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump",
@@ -36,7 +38,10 @@ func taskFixture(t *testing.T) *fixture {
 				},
 			}},
 			{Name: "Inbox", Count: 1, Tasks: []desktop.TaskRow{
-				{Ref: "t4", Title: "Write docs", Project: "web", Status: "inbox", State: "idle"},
+				{
+					Ref: "t4", Title: "Write docs", Project: "web", Status: "inbox", State: "idle", Parent: "t1",
+					Waits: &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z", Note: "the API freeze", Status: "waiting", Waits: true},
+				},
 			}},
 			{Name: "Done", Count: 7, Tasks: []desktop.TaskRow{
 				{
@@ -52,14 +57,14 @@ func taskFixture(t *testing.T) *fixture {
 
 func TestScenesTasks(t *testing.T) {
 	for _, dark := range []bool{false, true} {
-		name := "23-tasks-light"
+		name := "26-tasks-1100x760-light"
 		if dark {
-			name = "23-tasks-dark"
+			name = "26-tasks-1100x760-dark"
 		}
 		t.Run(name, func(t *testing.T) {
 			tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, dark)
 			mustText(t, tt, "Tasks", "Active", "Inbox", "Done", "Fix login", "Write docs",
-				"Browse finished tasks (7)")
+				"Waits until Nov 20: the API freeze", "1 sub-task", "under t1")
 			shotSized(t, tt, name, windowWidth, windowHeight)
 		})
 	}
@@ -95,6 +100,12 @@ func TestTheTaskMetaLineCarriesTheAttemptRefs(t *testing.T) {
 	mustNotText(t, tt, "a1 claude sonnet · running")
 }
 
+func TestTheTaskSublineCarriesTheWaitsAndNestingMarks(t *testing.T) {
+	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
+	mustText(t, tt, "Waits until Nov 20: the API freeze", "1 sub-task", "under t1")
+	mustNotText(t, tt, "1 sub-tasks")
+}
+
 func TestTheTaskRowShowsItsProjectAndDeliverableBadges(t *testing.T) {
 	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
 	row, ok := tt.Find("task t1")
@@ -111,6 +122,35 @@ func TestTheTaskRowShowsItsProjectAndDeliverableBadges(t *testing.T) {
 		}
 	}
 	mustText(t, tt, "file: design.md", "file: plan.md")
+}
+
+func TestTheProjectBadgeIsCappedAtTwentyFourCharacters(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	long := strings.Repeat("project-", 10)
+	ts.Groups[0].Tasks[0].Project = long
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	row, ok := tt.Find("task t1")
+	if !ok {
+		t.Fatal("no task t1")
+	}
+	b, ok := tt.Find("project " + long)
+	if !ok {
+		t.Fatalf("no %q", "project "+long)
+	}
+	if b.W > 200 {
+		t.Errorf("the project badge is %.0f wide, want at most 200 for a %d-character name", b.W, len(long))
+	}
+	for _, want := range []string{"project " + long, "deliverable PR"} {
+		b, ok := tt.Find(want)
+		if !ok {
+			t.Fatalf("no %q", want)
+		}
+		if b.X < row.X || b.X+b.W > row.X+row.W || b.Y < row.Y || b.Y+b.H > row.Y+row.H {
+			t.Errorf("%q is at %v, outside its row %v", want, b, row)
+		}
+	}
 }
 
 func TestTheProjectBadgeOnlyShowsForSeveralProjects(t *testing.T) {
@@ -142,19 +182,34 @@ func TestASubTaskIsIndentedUnderItsParent(t *testing.T) {
 	}
 }
 
-func TestTheTaskGroupHeadsCarryTheBoardsWordsAndCounts(t *testing.T) {
+func TestTheTaskGroupHeadsCarryTheBoardsWordsCountsAndOrder(t *testing.T) {
 	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
+	last := float32(-1)
 	for _, tc := range []struct {
 		group string
 		count int
 	}{{"Active", 3}, {"Inbox", 1}, {"Done", 7}} {
-		if _, ok := tt.Find("group " + tc.group); !ok {
+		head, ok := tt.Find("group " + tc.group)
+		if !ok {
 			t.Errorf("no %q group head", tc.group)
+			continue
 		}
+		if head.Y <= last {
+			t.Errorf("%q is at y=%.0f, not below the group before it at y=%.0f", tc.group, head.Y, last)
+		}
+		last = head.Y
 		label := fmt.Sprintf("%s %d", tc.group, tc.count)
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("no count badge %q in %q", label, tt.Texts())
 		}
 	}
-	mustText(t, tt, "Browse finished tasks (7)")
+}
+
+func TestTheTaskMoreLineCarriesTheBoardsFlags(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	ts.Hidden = 12
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	mustText(t, tt, "12 more tasks are not shown; use hand task list --status inbox,active,done,abandoned --limit 1000.")
 }

@@ -23,7 +23,13 @@ type row struct {
 
 func parseAt(at string) (time.Time, bool) {
 	t, err := time.Parse(time.RFC3339Nano, at)
-	return t.Local(), err == nil
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, at)
+		if err != nil {
+			return time.Time{}, false
+		}
+	}
+	return t.Local(), true
 }
 
 func clockOf(at string, dated bool) string {
