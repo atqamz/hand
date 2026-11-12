@@ -344,6 +344,12 @@ The wire contract is [Hand's Companion contract](https://github.com/atqamz/hand/
 5. [x] A signed release build: tag, version code, R8, a release job with its key in a protected environment.
 6. Distribution: an F-Droid repository.
 
+## Media
+
+Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand-android/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only.
+
+A clone without it is lighter: `git clone --single-branch --branch main https://github.com/atqamz/hand-android.git`, or the same with `--depth 1`. Measured after the media move: 3.5 MB of `.git` for a single-branch clone, 5.4 MB for a full clone.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md). The project is under the [MIT license](LICENSE).
