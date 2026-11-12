@@ -93,12 +93,13 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 			fg = k.FG
 		}
 	}
-	cursor := ui.CursorPointer
+	var el ui.Element
 	if n.Inert {
-		cursor = ui.CursorDefault
+		el = ui.Row(c).Cursor(ui.CursorDefault)
+	} else {
+		el = ui.ButtonBase(c.Key(n.Key)).Cursor(ui.CursorPointer)
 	}
-	el := ui.ButtonBase(c.Key(n.Key)).Height(Row).Radius(RadiusMD).Border(1, edge).Background(bg).
-		AlignItems(ui.Center).Cursor(cursor).Label(n.Label)
+	el.Height(Row).Radius(RadiusMD).Border(1, edge).Background(bg).AlignItems(ui.Center).Label(n.Label)
 	if n.Open {
 		el.Gap(Space12).Padding(0, 11)
 	} else {

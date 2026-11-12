@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -1899,5 +1900,29 @@ func TestTheMastheadContextFigureIsMutedMono(t *testing.T) {
 	}
 	if got := darkest >> 8; got < 0x50 {
 		t.Errorf("figure ink is %#x, darker than the muted tone", got)
+	}
+}
+
+func railBadgeFill(t *testing.T, worst string) [3]uint8 {
+	t.Helper()
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Waiting, st.Needs.Worst = 13, worst
+	f.status[fleetID] = st
+	tt := newTester(newApp(t, f))
+	r, ok := tt.Find("13")
+	if !ok {
+		t.Fatalf("no badge in %q", tt.Texts())
+	}
+	red, green, blue, _ := tt.Image().At(int(r.X)-2, int(r.Y+r.H/2)).RGBA()
+	return [3]uint8{uint8(red >> 8), uint8(green >> 8), uint8(blue >> 8)}
+}
+
+func TestTheRailBadgeIsTonedByTheWorstNeed(t *testing.T) {
+	k := kit.ColorsFor(false)
+	for worst, want := range map[string]ui.Color{"failure": k.FailBG, "decision": k.WaitBG, "": k.NeutralBG} {
+		if got := railBadgeFill(t, worst); got != [3]uint8{want.R, want.G, want.B} {
+			t.Errorf("worst=%q: badge fill %v, want %v", worst, got, want)
+		}
 	}
 }

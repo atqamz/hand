@@ -149,3 +149,54 @@ func TestAClosedRailNamesEveryItemOnHoverEvenAnInertOne(t *testing.T) {
 		}
 	}
 }
+
+func inertRail(clicked *[]string) *ui.Tester {
+	k := ColorsFor(false)
+	return ui.NewTester(func(c *ui.Context) {
+		Rail(c, k, false, func() {}, func() {
+			for _, n := range []NavItem{
+				{Key: "board", Label: "Board", Icon: "board"},
+				{Key: "phone", Label: "Phone", Icon: "phone", Inert: true},
+				{Key: "tasks", Label: "Tasks", Icon: "tasks"},
+			} {
+				if Nav(c, k, n) {
+					*clicked = append(*clicked, n.Label)
+				}
+			}
+		})
+	}, 400, 300)
+}
+
+func TestAnInertItemIsNeverClicked(t *testing.T) {
+	var clicked []string
+	tt := inertRail(&clicked)
+	if err := tt.Click("Phone"); err != nil {
+		t.Fatal(err)
+	}
+	if len(clicked) != 0 {
+		t.Errorf("clicked %v", clicked)
+	}
+	if err := tt.Click("Tasks"); err != nil || len(clicked) != 1 || clicked[0] != "Tasks" {
+		t.Errorf("a live item does not click: %v %v", clicked, err)
+	}
+}
+
+func TestTabSkipsAnInertItem(t *testing.T) {
+	var clicked []string
+	tt := inertRail(&clicked)
+	seen := map[string]bool{}
+	for range 6 {
+		tt.Key(0, ui.KeyTab)
+		for _, l := range []string{"Board", "Phone", "Tasks"} {
+			if tt.Focused(l) {
+				seen[l] = true
+			}
+		}
+	}
+	if seen["Phone"] {
+		t.Error("Tab focused the inert Phone item")
+	}
+	if !seen["Board"] || !seen["Tasks"] {
+		t.Errorf("Tab reached only %v", seen)
+	}
+}
