@@ -33,6 +33,9 @@
 /iroh/dist/
 !/skills/
 !/skills/**
+!/www/
+!/www/**
+/www/dist/
 *.db
 *.db-*
 *.lock
