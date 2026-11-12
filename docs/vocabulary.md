@@ -553,7 +553,7 @@ An Android device that redeemed a [pairing code](#pairing-code) and holds the co
 
 ### Pairing code
 
-The one-time code in the [companion link](#companion-link), at most 213 bytes and never sent in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [paired phone](#paired-phone).
+The one-time code in the [companion link](#companion-link); the whole link is at most 213 bytes, and the code never goes in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [paired phone](#paired-phone).
 
 ### Phone access over iroh
 
