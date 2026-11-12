@@ -237,6 +237,16 @@ type vectors struct {
 			Body    json.RawMessage `json:"body"`
 		} `json:"exchanges"`
 	} `json:"alerts"`
+	Pair struct {
+		Route        string          `json:"route"`
+		ContentType  string          `json:"content_type"`
+		Fields       []string        `json:"request_fields"`
+		BodyMaxBytes int             `json:"body_max_bytes"`
+		NameMaxRunes int             `json:"name_max_runes"`
+		CookieValue  string          `json:"cookie_value"`
+		ErrorFields  []string        `json:"error_fields"`
+		Exchanges    json.RawMessage `json:"exchanges"`
+	} `json:"pair"`
 	Valid []struct {
 		Name      string `json:"name"`
 		Link      string `json:"link"`
@@ -454,6 +464,22 @@ func number(t *testing.T, file, pattern string, times int) int {
 		t.Fatal(err)
 	}
 	return n * times
+}
+
+func TestThePairEndpointNumbersAreTheOnesInTheCode(t *testing.T) {
+	v := load(t).Pair
+	if want := number(t, "internal/state/device.go", `MaxDeviceName\s+= (\d+)\n`, 1); v.NameMaxRunes != want {
+		t.Errorf("name runes: the file says %d, the code says %d", v.NameMaxRunes, want)
+	}
+	if want := number(t, "internal/board/api.go", `io\.LimitReader\(r\.Body, (\d+)\+1\)\)\n\tif err != nil \|\| len\(raw\) > \d+ \{\n\t\tb\.apiFail\(w, http\.StatusBadRequest, "bad_request", "send one JSON object under 4 KiB"`, 1); v.BodyMaxBytes != want {
+		t.Errorf("body bytes: the file says %d, the code says %d", v.BodyMaxBytes, want)
+	}
+	if want := match(t, "internal/board/api.go", `r\.URL\.Path == apiPrefix\+"(/pair)"`); !strings.HasSuffix(v.Route, "/api/v1"+want) {
+		t.Errorf("the Board serves %q, the file says %q", want, v.Route)
+	}
+	if v.ContentType != "application/json" || len(v.Fields) != 2 || len(v.ErrorFields) != 3 || len(v.Exchanges) < 3 {
+		t.Errorf("pair vectors: %+v", v)
+	}
 }
 
 func TestAFleetOfTheRightLengthAndHeadIsRejectedForItsTail(t *testing.T) {

@@ -207,7 +207,8 @@ func fleetRest(path string) string {
 }
 
 func unpairedPath(path string) bool {
-	return strings.HasPrefix(path, "/static/") || fleetRest(path) == "pair"
+	rest := fleetRest(path)
+	return strings.HasPrefix(path, "/static/") || rest == "pair" || rest == apiPrefix[1:]+"/pair"
 }
 
 func carriesPhoneCookie(r *http.Request) bool {
