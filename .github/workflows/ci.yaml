@@ -318,7 +318,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -334,10 +334,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          old=$(git rev-parse -q --verify 'refs/tags/edge^{commit}' || true)
-          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$old"; then
-            echo "edge is already past $GITHUB_SHA"
-            exit 0
+          old=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/edge" --jq '.[] | select(.ref == "refs/tags/edge") | .object.sha')
+          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ]; then
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$old" --jq .status)
+            case "$status" in
+              ahead)
+                echo "edge is already past $GITHUB_SHA"
+                exit 0
+                ;;
+              behind | identical | diverged) ;;
+              *)
+                echo "compare answered '$status', not publishing" >&2
+                exit 1
+                ;;
+            esac
           fi
           notes="Rolling build of main at ${GITHUB_SHA:0:12}, $(date -u +%Y-%m-%d). Not a release; install with HAND_INSTALL_VERSION=edge."
           if ! gh release view edge >/dev/null 2>&1; then
