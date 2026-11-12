@@ -60,7 +60,7 @@ func boardTheme(dark bool) *ui.Theme {
 }
 
 func (a *App) View(c *ui.Context) {
-	c.SetZoom(a.Zoom)
+	c.SetZoom(a.drawnZoom(c))
 	a.zoomKeys(c)
 	dark := c.Theme().Dark
 	p, k := paletteFor(dark), kit.ColorsFor(dark)

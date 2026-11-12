@@ -9,7 +9,6 @@ import (
 
 const maxPrefs = 1 << 10
 
-// PrefsPath names the window's preferences file, beside the drafts folder.
 func PrefsPath(drafts string) string {
 	if drafts == "" {
 		return ""
@@ -51,8 +50,26 @@ func (a *App) savePrefs() {
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
-	_ = os.WriteFile(path, raw, 0o600)
+	f, err := os.CreateTemp(dir, ".prefs-*")
+	if err != nil {
+		return
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return
+	}
+	if err := f.Close(); err != nil {
+		return
+	}
+	_ = os.Rename(name, path)
 }

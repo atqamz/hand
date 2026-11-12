@@ -4,12 +4,19 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/kit"
 	"github.com/egoist/mygo/ui"
 )
+
+const windowMin = 860
+
+func drawnZoom(requested float32, width int) float32 {
+	return min(requested, float32(width)/windowMin)
+}
 
 func booted(t *testing.T, drafts string) *desktop.App {
 	t.Helper()
@@ -42,9 +49,10 @@ func TestTheZoomKeysStepTheLadder(t *testing.T) {
 		if math.Abs(float64(app.Zoom-step.want)) > 1e-6 {
 			t.Fatalf("after Ctrl+%v zoom is %v, want %v", step.key, app.Zoom, step.want)
 		}
+		drawn := drawnZoom(step.want, windowWidth)
 		rail, ok := tt.Find("Pages and fleets")
-		if !ok || math.Abs(float64(rail.W/step.want)-kit.RailWidth) > 0.01 {
-			t.Fatalf("the rail is %v at zoom %v, want %d logical px", rail.W, app.Zoom, kit.RailWidth)
+		if !ok || math.Abs(float64(rail.W/drawn)-kit.RailWidth) > 0.01 {
+			t.Fatalf("the rail is %v at requested zoom %v (drawn %v), want %d logical px", rail.W, step.want, drawn, kit.RailWidth)
 		}
 	}
 }
@@ -99,6 +107,40 @@ func TestAMalformedPreferencesFileBootsAt100(t *testing.T) {
 	}
 }
 
+func TestAPreferencesFileOverTheLimitBootsAt100(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"zoom":2}` + strings.Repeat(" ", 1<<10)
+	if err := os.WriteFile(desktop.PrefsPath(dir), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if app := booted(t, dir); app.Zoom != 1 {
+		t.Fatalf("an oversized preferences file boots at %v, want 1", app.Zoom)
+	}
+}
+
+func TestUnusablePreferencesValuesBootAt100OrTheLadderEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want float32
+	}{
+		{"zero", `{"zoom":0}`, 1},
+		{"negative", `{"zoom":-2}`, 1},
+		{"not a number", `{"zoom":NaN}`, 1},
+		{"out of range", `{"zoom":480}`, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(desktop.PrefsPath(dir), []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if app := booted(t, dir); app.Zoom != tc.want {
+				t.Fatalf("%s boots at %v, want %v", tc.body, app.Zoom, tc.want)
+			}
+		})
+	}
+}
+
 func TestAnOffLadderZoomSnapsToTheNearestRung(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(desktop.PrefsPath(dir), []byte(`{"zoom":1.33}`), 0o600); err != nil {
@@ -111,20 +153,64 @@ func TestAnOffLadderZoomSnapsToTheNearestRung(t *testing.T) {
 
 func composerRect(t *testing.T, tt *ui.Tester) ui.Rect {
 	t.Helper()
-	for _, label := range []string{"Message", "Message the supervisor"} {
-		if r, ok := tt.Find(label); ok {
-			return r
-		}
+	r, ok := tt.Find("Composer")
+	if !ok {
+		t.Fatal("no composer")
 	}
-	t.Fatal("no composer")
-	return ui.Rect{}
+	return r
+}
+
+func TestANarrowWindowLowersTheDrawnZoom(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		height int
+		drawn  float32
+	}{
+		{"narrow", windowWidth, windowHeight, float32(windowWidth) / windowMin},
+		{"wide", 1440, 900, 1.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newApp(t, goldenFixture(t))
+			tt := sized(t, app, tc.width, tc.height, false)
+			tt.Key(ui.Ctrl, ui.KeyEqual)
+			tt.Key(ui.Ctrl, ui.KeyEqual)
+			tt.Key(ui.Ctrl, ui.KeyEqual)
+			tt.Frame()
+			if app.Zoom != 1.5 {
+				t.Fatalf("the requested zoom is %v, want 1.5", app.Zoom)
+			}
+			raw, err := os.ReadFile(desktop.PrefsPath(app.DraftDir))
+			if err != nil {
+				t.Fatalf("no preferences file: %v", err)
+			}
+			if !strings.Contains(string(raw), `"zoom":1.5`) {
+				t.Fatalf("preferences hold %q, want the requested 1.5", raw)
+			}
+			rail, ok := tt.Find("Pages and fleets")
+			if !ok {
+				t.Fatal("no rail")
+			}
+			drawn := rail.W / kit.RailWidth
+			if math.Abs(float64(drawn-tc.drawn)) > .01 {
+				t.Fatalf("the window draws at %v, want %v", drawn, tc.drawn)
+			}
+			head, ok := tt.Find("Supervisor")
+			if !ok {
+				t.Fatal("no chat pane")
+			}
+			if work := (head.X - rail.W) / drawn; work < 440 {
+				t.Fatalf("the work pane is %v logical px, under the Board's 440", work)
+			}
+		})
+	}
 }
 
 func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 	for _, tc := range []struct {
 		zoom  float32
 		scene int
-	}{{1.25, 27}, {1.5, 28}} {
+	}{{1.25, 32}, {1.5, 33}} {
 		zoom := tc.zoom
 		for _, dark := range []bool{false, true} {
 			theme := "light"
@@ -136,25 +222,29 @@ func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 				tt := sized(t, app, windowWidth, windowHeight, dark)
 				app.Zoom = zoom
 				tt.Frame()
+				drawn := drawnZoom(zoom, windowWidth)
 				mustText(t, tt, "Needs", "Tasks", "Supervisor", "More", "Fix login", "Message")
 
 				rail, ok := tt.Find("Pages and fleets")
-				if !ok || math.Abs(float64(rail.W/zoom)-kit.RailWidth) > .01 || rail.X != 0 {
-					t.Fatalf("the rail is %v at zoom %v, want %d logical px from the left", rail, zoom, kit.RailWidth)
+				if !ok || math.Abs(float64(rail.W/drawn)-kit.RailWidth) > .01 || rail.X != 0 {
+					t.Fatalf("the rail is %v at requested zoom %v (drawn %v), want %d logical px from the left", rail, zoom, drawn, kit.RailWidth)
 				}
 				head, ok := tt.Find("Supervisor")
 				if !ok || head.X <= rail.W || math.Abs(float64(head.X+head.W-float32(windowWidth))) > 1 {
 					t.Fatalf("the chat pane is %v in a %d px window", head, windowWidth)
 				}
+				if work := (head.X - rail.W) / drawn; work < 440 {
+					t.Fatalf("the work pane is %v logical px at requested zoom %v, under the Board's 440", work, zoom)
+				}
 				message := composerRect(t, tt)
-				left, right := (message.X-head.X)/zoom, (float32(windowWidth)-message.X-message.W)/zoom
-				if left < 16 || right < 16 {
+				left, right := (message.X-head.X)/drawn, (float32(windowWidth)-message.X-message.W)/drawn
+				if left < 16-0.01 || right < 16-0.01 {
 					t.Fatalf("the composer has %v and %v logical px beside it, want at least 16", left, right)
 				}
-				if message.W/zoom > 760 {
-					t.Fatalf("the composer is %v logical px wide, more than the Board's 760", message.W/zoom)
+				if message.W/drawn > 760 {
+					t.Fatalf("the composer is %v logical px wide, more than the Board's 760", message.W/drawn)
 				}
-				for _, s := range []string{"Needs", "Tasks", "Supervisor", "Send", "More", "Message"} {
+				for _, s := range []string{"Needs", "Tasks", "Supervisor", "Send", "More", "Composer"} {
 					r, ok := tt.Find(s)
 					if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > float32(windowWidth) || r.Y+r.H > float32(windowHeight) {
 						t.Errorf("%q is at %v, outside the %dx%d window", s, r, windowWidth, windowHeight)
@@ -165,7 +255,7 @@ func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 				if zoom != 1.25 {
 					return
 				}
-				click(t, tt, "Message")
+				click(t, tt, "Message the supervisor")
 				tt.Type("The zoom keeps this line.")
 				tt.Frame()
 				if app.Draft != "The zoom keeps this line." {

@@ -152,23 +152,24 @@ func TestTheComposerHoldsTheBoardsWidth(t *testing.T) {
 			app := newApp(t, goldenFixture(t))
 			app.Chat = 1200
 			tt := sized(t, app, width, 760, false)
+			drawn := drawnZoom(1, width)
 			box := composerBox(t, tt)
-			if box.W > 760.5 {
-				t.Errorf("%d wide: the box is %.0f, want at most 760", width, box.W)
+			if box.W/drawn > 760.5 {
+				t.Errorf("%d wide: the box is %.0f logical, want at most 760", width, box.W/drawn)
 			}
-			if box.Y+box.H > 760 || 760-(box.Y+box.H) < 15 {
-				t.Errorf("%d wide: the box ends at %.0f in a 760 px window with its 16 px margin", width, box.Y+box.H)
+			if bottom := (760 - (box.Y + box.H)) / drawn; box.Y+box.H > 760 || bottom < 15 {
+				t.Errorf("%d wide: the box ends %.0f logical px above the bottom, want 16", width, bottom)
 			}
 			head, ok := tt.Find("Supervisor")
 			if !ok {
 				t.Fatal("no pane head")
 			}
-			left, right := box.X-head.X, head.X+head.W-(box.X+box.W)
+			left, right := (box.X-head.X)/drawn, (head.X+head.W-(box.X+box.W))/drawn
 			if left < 15 {
-				t.Errorf("%d wide: the box starts %.0f px into the pane, want 16", width, left)
+				t.Errorf("%d wide: the box starts %.0f logical px into the pane, want 16", width, left)
 			}
 			if diff := right - left; diff > 1 || diff < -1 {
-				t.Errorf("%d wide: the box has %.0f px on its left and %.0f on its right, want it centred", width, left, right)
+				t.Errorf("%d wide: the box has %.0f logical px on its left and %.0f on its right, want it centred", width, left, right)
 			}
 		})
 	}

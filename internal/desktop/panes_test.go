@@ -63,14 +63,16 @@ func TestTheChatKeepsTheBoardsLimits(t *testing.T) {
 	for _, tc := range []struct {
 		width      int
 		chat, work float32
-	}{{900, 400, 444}, {1100, 418, 626}, {1440, 547.2, 836.8}, {2400, 720, 1624}, {800, 360, 384}} {
+	}{{900, 400, 444}, {1100, 418, 626}, {1440, 547.2, 836.8}, {2400, 720, 1624}, {800, 364, 440}} {
 		tt := sized(t, newApp(t, goldenFixture(t)), tc.width, 700, false)
-		chat := float32(tc.width) - chatLeft(t, tt)
+		drawn := drawnZoom(1, tc.width)
+		logical := float32(tc.width) / drawn
+		chat := (float32(tc.width) - chatLeft(t, tt)) / drawn
 		if chat < tc.chat-2 || chat > tc.chat+2 {
-			t.Errorf("%d wide: the chat is %.0f, want %.0f", tc.width, chat, tc.chat)
+			t.Errorf("%d wide: the chat is %.0f logical, want %.0f", tc.width, chat, tc.chat)
 		}
-		if work := float32(tc.width) - kit.RailWidth - chat - 1; work < tc.work-2 {
-			t.Errorf("%d wide: the work pane is %.0f, want at least %.0f", tc.width, work, tc.work)
+		if work := logical - kit.RailWidth - chat - 1; work < tc.work-2 {
+			t.Errorf("%d wide: the work pane is %.0f logical, want at least %.0f", tc.width, work, tc.work)
 		}
 	}
 }
