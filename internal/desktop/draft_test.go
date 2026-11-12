@@ -29,13 +29,13 @@ func TestDraftsWriteRestoreAndClear(t *testing.T) {
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("draft mode = %v, want 0600", info.Mode().Perm())
 	}
-	if err := d.Clear(fleetID); err != nil {
+	if err := d.ClearIf(fleetID, "line one\nline two"); err != nil {
 		t.Fatal(err)
 	}
 	if got := d.Load(fleetID); got != "" {
 		t.Fatalf("a cleared draft loaded %q", got)
 	}
-	if err := d.Clear(fleetID); err != nil {
+	if err := d.ClearIf(fleetID, "line one\nline two"); err != nil {
 		t.Fatalf("clearing again: %v", err)
 	}
 }

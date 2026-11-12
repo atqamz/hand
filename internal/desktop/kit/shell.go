@@ -150,6 +150,15 @@ func countPill(c *ui.Context, text string, bg, fg ui.Color) {
 	})
 }
 
+// Keycap draws a key hint as board.css draws kbd: a small cap with a
+// heavier bottom edge.
+func Keycap(c *ui.Context, k Colors, text string) {
+	ui.Row(c).Height(Badge).Padding(0, Space6).Radius(RadiusSM).BorderWidth(1, 1, 2, 1).
+		BorderColor(k.Line).AlignItems(ui.Center).Label(text).Children(func() {
+		ui.Text(c, text).Font("monospace").FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
+	})
+}
+
 func Masthead(c *ui.Context, k Colors, id, name string, trailing func()) {
 	tint := k.Tint[TintOf(id)]
 	ui.Column(c).Height(Mast).BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Label("Masthead").Children(func() {

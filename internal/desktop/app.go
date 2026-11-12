@@ -106,6 +106,7 @@ type App struct {
 	TaskQuery string
 	DraftDir  string
 	DraftErr  string
+	draftAt   time.Time
 
 	Status   Status
 	Timeline Timeline
@@ -120,7 +121,6 @@ type App struct {
 	Stale     string
 	errStatus bool
 	errScreen bool
-	retry     string
 	writer    *draftWriter
 	md        markdown.Options
 	loadID    int
@@ -285,11 +285,12 @@ func (a *App) SelectFleet(id string) {
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
 	a.OpenBusy = false
-	a.DraftErr, a.retry, a.Busy, a.BusyAction = "", "", false, ""
+	a.DraftErr, a.Busy, a.BusyAction = "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()
 	}
 	a.Draft = a.drafts().Load(a.Fleet.ID)
+	a.draftAt = time.Time{}
 	if a.writer != nil {
 		if u, ok := a.writer.unsaved(a.Fleet.ID); ok {
 			a.Draft = u.text
@@ -626,10 +627,10 @@ func (a *App) Send() {
 	post := a.Post
 	model, fleet, writer := a.Model, a.Fleet.ID, a.draftWriter()
 	a.Busy = true
-	a.DraftErr, a.retry = "", ""
+	a.DraftErr = ""
 	applied := func(sent Sent) {
 		if a.Fleet.ID == fleet && a.Draft == text {
-			a.Draft = ""
+			a.Draft, a.draftAt = "", time.Time{}
 		}
 		if id != a.loadID {
 			return
@@ -647,7 +648,6 @@ func (a *App) Send() {
 			return
 		}
 		a.DraftErr = "the message was sent, but its stored draft could not be removed: " + friendly(err)
-		a.retry = text
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -860,27 +860,6 @@ func (a *App) runControl(name string, call func(context.Context) (Control, error
 	go fetch()
 }
 
-func (a *App) ClearDraft() {
-	if a.Busy {
-		return
-	}
-	fleet, draft, retry := a.Fleet.ID, a.Draft, a.retry
-	a.Draft, a.DraftErr, a.retry = "", "", ""
-	if fleet == "" {
-		return
-	}
-	var err error
-	if draft == "" && retry != "" {
-		err = a.draftWriter().ClearIf(fleet, retry)
-	} else {
-		err = a.draftWriter().Clear(fleet)
-	}
-	if err != nil {
-		a.DraftErr = "the stored draft could not be removed: " + friendly(err)
-		a.retry = retry
-	}
-}
-
 func (a *App) drafts() Drafts {
 	return Drafts{Dir: a.DraftDir}
 }
@@ -895,6 +874,11 @@ func (a *App) draftWriter() *draftWriter {
 func (a *App) saveDraft() {
 	if a.Fleet.ID == "" {
 		return
+	}
+	if a.Draft == "" {
+		a.draftAt = time.Time{}
+	} else {
+		a.draftAt = a.now()
 	}
 	a.draftWriter().Save(a.Fleet.ID, a.Draft)
 }
@@ -920,9 +904,13 @@ func (a *App) applyDraftSave(fleet string) {
 	}
 	if u, ok := a.draftWriter().unsaved(fleet); ok {
 		a.DraftErr = "the draft was not saved: " + friendly(u.err)
+		a.draftAt = time.Time{}
 		return
 	}
 	a.DraftErr = ""
+	if a.Draft == "" {
+		a.draftAt = time.Time{}
+	}
 }
 
 func (a *App) Reload() {

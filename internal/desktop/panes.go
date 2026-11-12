@@ -53,7 +53,16 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
-	ui.Column(c).Fill().Background(k.Panel).Children(func() {
+	pane := ui.Column(c).Fill().Background(k.Panel)
+	width := pane.Bounds().W
+	if width <= 0 {
+		rail := float32(kit.RailWidth)
+		if a.RailOpen {
+			rail = kit.RailWidthOpen
+		}
+		width = chatWidth(a.Chat, a.paneW, a.paneW+rail)
+	}
+	pane.Children(func() {
 		a.paneHead(c, k, p)
 		if sup := a.Status.Supervisor; sup != nil && sup.Blocked && a.known() {
 			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 8).Children(func() { a.blockedKeys(c, p, sup) })
@@ -75,13 +84,7 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 		scroll.Children(func() {
 			ui.Column(c).Selectable().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, p) })
 		})
-		ui.Column(c).Gap(6).Padding(0, 16, 16).Children(func() {
-			a.latest(c, k)
-			a.composer(c, p)
-			if a.Status.Supervisor == nil && a.Status.ComposerHint != "" && a.known() {
-				ui.Text(c, a.Status.ComposerHint).FontSize(kit.Meta.Size).TextColor(p.neutral)
-			}
-		})
+		a.composer(c, k, p, width)
 	})
 }
 

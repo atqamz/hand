@@ -552,22 +552,6 @@ func TestSendingClearsTheStoredDraft(t *testing.T) {
 	}
 }
 
-func TestTheDraftCanBeCleared(t *testing.T) {
-	dir := t.TempDir()
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	tt := newTester(app)
-	click(t, tt, "Message")
-	tt.Type("throw me away")
-	tt.Frame()
-	click(t, tt, "Clear")
-	if app.Draft != "" || (desktop.Drafts{Dir: dir}).Load(fleetID) != "" {
-		t.Fatalf("Clear left draft %q", app.Draft)
-	}
-}
-
 func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
@@ -581,25 +565,6 @@ func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
 	}
 	if app.Draft != "" {
 		t.Fatalf("draft = %q after a send", app.Draft)
-	}
-}
-
-func TestAWhitespaceDraftCanBeCleared(t *testing.T) {
-	dir := t.TempDir()
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	tt := newTester(app)
-	click(t, tt, "Message")
-	tt.Type("   ")
-	tt.Frame()
-	click(t, tt, "Clear")
-	if app.Draft != "" {
-		t.Fatalf("draft = %q after Clear", app.Draft)
-	}
-	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "" {
-		t.Fatalf("the stored draft = %q after Clear", got)
 	}
 }
 
@@ -649,26 +614,6 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 	mustText(t, tt, "the draft was not saved")
 }
 
-func TestADraftThatCannotBeRemovedIsReported(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, fleetID+".txt", "kept"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	tt := newTester(app)
-	click(t, tt, "Message")
-	tt.Type("clear me")
-	tt.Frame()
-	click(t, tt, "Clear")
-	mustText(t, tt, "the stored draft could not be removed")
-	if app.ActionErr != "" {
-		t.Fatalf("a failed cleanup became a failed action: %q", app.ActionErr)
-	}
-}
-
 func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, fleetID+".txt", "kept"), 0o700); err != nil {
@@ -689,19 +634,6 @@ func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 	}
 	if app.Draft != "" {
 		t.Fatalf("draft = %q after a send", app.Draft)
-	}
-	if err := os.RemoveAll(filepath.Join(dir, fleetID+".txt")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, fleetID+".txt"), []byte("a newer draft"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	click(t, tt, "Clear")
-	if app.DraftErr != "" {
-		t.Fatalf("the retry left %q", app.DraftErr)
-	}
-	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "a newer draft" {
-		t.Fatalf("the retry removed a newer draft: %q", got)
 	}
 }
 
@@ -800,28 +732,6 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 	click(t, tt, "golden")
 	if app.Draft != "ab" {
 		t.Fatalf("the restored draft = %q", app.Draft)
-	}
-}
-
-func TestClearWinsOverAQueuedSave(t *testing.T) {
-	dir := t.TempDir()
-	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
-	app.DraftDir = dir
-	app.Boot()
-	posted := make(chan func(), 64)
-	app.Post = func(fn func()) { posted <- fn }
-	tt := newTester(app)
-	pump(t, posted, func() bool { return !app.Loading })
-	tt.Frame()
-	click(t, tt, "Message")
-	tt.Type("gone")
-	click(t, tt, "Clear")
-	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "" {
-		t.Fatalf("the stored draft = %q after Clear", got)
-	}
-	if app.Draft != "" || app.DraftErr != "" {
-		t.Fatalf("draft = %q, error = %q", app.Draft, app.DraftErr)
 	}
 }
 

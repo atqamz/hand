@@ -97,14 +97,6 @@ func (d Drafts) Save(fleet, text string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-func (d Drafts) Clear(fleet string) error {
-	path, err := d.path(fleet)
-	if err != nil {
-		return err
-	}
-	return d.remove(path)
-}
-
 // ClearIf removes the draft only while it still holds text, so a send cannot
 // delete a newer draft another window saved meanwhile.
 func (d Drafts) ClearIf(fleet, text string) error {
@@ -157,7 +149,6 @@ type draftFailure struct {
 type draftClear struct {
 	fleet string
 	text  string
-	only  bool
 	reply chan error
 }
 
@@ -194,18 +185,11 @@ func (w *draftWriter) Save(fleet, text string) {
 	}
 }
 
-func (w *draftWriter) Clear(fleet string) error {
-	if w.inline {
-		return w.done(fleet, w.drafts.Clear(fleet))
-	}
-	return w.request(draftClear{fleet: fleet, reply: make(chan error, 1)}, true)
-}
-
 func (w *draftWriter) ClearIf(fleet, text string) error {
 	if w.inline {
 		return w.done(fleet, w.drafts.ClearIf(fleet, text))
 	}
-	return w.request(draftClear{fleet: fleet, text: text, only: true, reply: make(chan error, 1)}, false)
+	return w.request(draftClear{fleet: fleet, text: text, reply: make(chan error, 1)})
 }
 
 // unsaved reports the text a save refused, as a fleet switch reads it.
@@ -225,12 +209,7 @@ func (w *draftWriter) Flush() {
 	<-done
 }
 
-func (w *draftWriter) request(op draftClear, drop bool) error {
-	if drop {
-		w.mu.Lock()
-		delete(w.next, op.fleet)
-		w.mu.Unlock()
-	}
+func (w *draftWriter) request(op draftClear) error {
 	w.clears <- op
 	return <-op.reply
 }
@@ -271,10 +250,7 @@ func (w *draftWriter) writeOne() bool {
 }
 
 func (w *draftWriter) clear(op draftClear) error {
-	if op.only {
-		return w.done(op.fleet, w.drafts.ClearIf(op.fleet, op.text))
-	}
-	return w.done(op.fleet, w.drafts.Clear(op.fleet))
+	return w.done(op.fleet, w.drafts.ClearIf(op.fleet, op.text))
 }
 
 func (w *draftWriter) done(fleet string, err error) error {

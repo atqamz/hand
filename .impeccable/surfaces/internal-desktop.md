@@ -14,9 +14,9 @@ related_targets:
 - **Covers:** `hand-desktop`, a MyGo v0.7.4 window (pinned, cgo-free) that is a client of the running Board:
   - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and an inert Phone (Board returns to the two panes; Tasks, Conversation, Screen and Phone do nothing until the pages they name exist), then a tinted mark for each fleet this machine can open;
   - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat starts at 38% wide clamped to 400 to 720 px and may be dragged down to 360 px, the work pane never under 440 px, the width kept while the window runs; the window is never narrower than 860 px, so that rule holds until the narrow tabs exist);
-  - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button and the status's composer hint under the composer; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
+  - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button, and the status's hint on the composer's foot; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
   - Needs: bands by severity in the page's order, each headed by its word in the band's tone; 44px rows with the kind's icon, refs and time; the top item open as a card with its band's toned header, any row opening in place and closing again, one open at a time; a report opens to its excerpt and Mark read, a failure to its attempt's reason, a decision to its options and note; a kind with nothing to show stays inert; after Mark read or an answer a receipt toast shows for 4 seconds and the next item opens; nothing waiting shows All clear, when it cleared and the summary;
-  - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: a multi-line message field with Send and Clear;
+  - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: one box with a two-row message field, the status's hint, the Ctrl Enter key hint and Send;
   - Tasks: the grouped task list, and each task's detail;
   - the detail of a task, an attempt, a decision and a report, opened in the left pane with Back;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
@@ -75,7 +75,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `08-error.png` | a token the board refuses, with Retry |
 | `09-decision-answer.png` | an open decision with an option chosen and the note field |
 | `10-report-ack.png` | a report with its Ack |
-| `11-composer.png` | a typed message in the composer, with Send and Clear |
+| `11-composer.png` | a typed message in the Board's one composer box, with the key hint and Send |
 | `12-composer-error.png` | a failed send, its error and the text it kept |
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
@@ -90,6 +90,13 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `24-conversation-unfolded-<light or dark>.png` | the same with the wake group unfolded |
 | `25-conversation-scrolled-<light or dark>.png` | scrolled up, with the button that returns to the newest entry |
 | `26-tasks-1100x760-<light or dark>.png` | a task list as the Board draws it: 48 px rows with a state icon, the meta line, project and deliverable badges, a sub-task indented under its parent, and the group heads |
+| `27-composer-empty-<light or dark>.png` | the composer as the Board draws it: one box with the control edge, the placeholder, the key hint and Send |
+| `28-composer-hint-<light or dark>.png` | the composer with the status's hint on its foot |
+| `29-composer-draft-<light or dark>.png` | a typed message with the focused box and the draft note at its top edge |
+| `30-composer-sent.png` | the composer after a send: the new message in the conversation, the box empty again |
+| `31-composer-failed-<light or dark>.png` | a failed send: the action's error card and the text the box kept |
+
+The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. The hint sits on the foot's left and the draft note over the box's top-right corner, as the Board places it; the note is set on every save and cleared when the box empties. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
 
 The day divider prints the day in the entries' own clock (`Sat, Oct 31`), not the Board's server-side UTC badge (`Sat 31 Oct UTC`): every entry prints a local time, so a UTC divider would draw the day a whole offset away from the entries under it. A deliberate deviation from the Board.
 

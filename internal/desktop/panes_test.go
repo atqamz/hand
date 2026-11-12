@@ -271,21 +271,32 @@ func TestALongDraftErrorKeepsTheComposerInsideThePane(t *testing.T) {
 		app := newApp(t, goldenFixture(t))
 		app.DraftErr = "the draft was not saved: " + strings.Repeat("x", 600)
 		tt := sized(t, app, width, 700, false)
-		inPane(t, tt, width, 700, "Clear", "Send")
+		inPane(t, tt, width, 700, "Send")
 	}
 }
 
-func TestWithNoSupervisorTheComposerShowsTheStatusHint(t *testing.T) {
-	f := emptyFixture()
+func TestTheComposerHintFollowsTheSupervisorsState(t *testing.T) {
+	f := goldenFixture(t)
 	st := f.status[fleetID]
-	st.ComposerHint = "No supervisor is running; your message waits."
+	st.ComposerHint = "s1 is waiting on a screen in Needs; your message waits too."
 	f.status[fleetID] = st
-	mustText(t, newTester(newApp(t, f)), "No supervisor is running; your message waits.")
-	g := goldenFixture(t)
-	gs := g.status[fleetID]
-	gs.ComposerHint = "should not show"
-	g.status[fleetID] = gs
-	mustNotText(t, newTester(newApp(t, g)), "should not show")
+	app := newApp(t, f)
+	tt := newTester(app)
+	mustText(t, tt, st.ComposerHint)
+	click(t, tt, "Message")
+	tt.Type("half a message")
+	st.ComposerHint = ""
+	f.status[fleetID] = st
+	menu(t, tt, "Refresh now")
+	tt.Frame()
+	mustNotText(t, tt, "your message waits")
+	if app.Draft != "half a message" {
+		t.Fatalf("a status refresh changed the typed draft to %q", app.Draft)
+	}
+	click(t, tt, "second")
+	if app.Draft != "" {
+		t.Fatalf("the second fleet inherited the draft %q", app.Draft)
+	}
 }
 
 func TestTheRailsInertItemsLeaveAnOpenDetailAlone(t *testing.T) {
