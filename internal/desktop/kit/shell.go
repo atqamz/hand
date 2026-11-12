@@ -79,6 +79,9 @@ type NavItem struct {
 
 func Nav(c *ui.Context, k Colors, n NavItem) bool {
 	fg := k.Muted
+	if n.Inert {
+		fg = k.Muted.Alpha(.55)
+	}
 	edge := ui.Transparent
 	bg := ui.Transparent
 	if n.Current {
@@ -90,8 +93,12 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 			fg = k.FG
 		}
 	}
+	cursor := ui.CursorPointer
+	if n.Inert {
+		cursor = ui.CursorDefault
+	}
 	el := ui.ButtonBase(c.Key(n.Key)).Height(Row).Radius(RadiusMD).Border(1, edge).Background(bg).
-		AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(n.Label).Disabled(n.Inert)
+		AlignItems(ui.Center).Cursor(cursor).Label(n.Label)
 	if n.Open {
 		el.Gap(Space12).Padding(0, 11)
 	} else {
@@ -125,14 +132,14 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 				Background(k.FG).Label("Current fleet")
 		}
 	})
-	if !n.Open && !n.Inert {
+	if !n.Open {
 		ui.TooltipBase(c, el, func(tip ui.Element) {
 			tip.AttachTo(el, ui.AnchorEnd, ui.AnchorStart).MarginStart(Space10)
 			tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
 			tip.Children(func() { ui.Text(c, n.Label).FontSize(Meta.Size) })
 		})
 	}
-	return el.Clicked()
+	return el.Clicked() && !n.Inert
 }
 
 func countPill(c *ui.Context, text string, bg, fg ui.Color) {

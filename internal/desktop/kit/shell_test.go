@@ -2,12 +2,13 @@ package kit
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
 func TestTintOfMatchesTheBoard(t *testing.T) {
-	for id, want := range map[string]int{"": 0, "f00000000e0aa": 10, "f00000000e0ab": 11, "f6b63e98d4af2": 3, "fda07bc0c8b0f": 5} {
+	for id, want := range map[string]int{"": 0, "f00000000e0aa": 10, "f00000000e0ab": 11, "f00000000e00d": 4, "f6b63e98d4af2": 3, "fda07bc0c8b0f": 5} {
 		if got := TintOf(id); got != want {
 			t.Errorf("TintOf(%q) = %d, want %d", id, got, want)
 		}
@@ -38,13 +39,13 @@ func TestRailIsFiftySixWideAndOpensToTwoThirtyTwo(t *testing.T) {
 			Nav(c, ColorsFor(false), NavItem{Key: "a", Label: "Board", Icon: "board", Open: open})
 		})
 	}, 400, 300)
-	if got := width(t, tt, "Pages and fleets"); got != RailWidth {
+	if got := width(t, tt, "Pages and fleets"); got != 56 {
 		t.Errorf("closed rail is %v wide", got)
 	}
 	if err := tt.Click("Show labels"); err != nil {
 		t.Fatal(err)
 	}
-	if got := width(t, tt, "Pages and fleets"); got != RailWidthOpen {
+	if got := width(t, tt, "Pages and fleets"); got != 232 {
 		t.Errorf("open rail is %v wide", got)
 	}
 	if !tt.HasText("Board") {
@@ -89,11 +90,11 @@ func TestOnlyTheCurrentFleetHasAnInkBar(t *testing.T) {
 func TestMastheadIsFortyEightHighWithItsFleetTint(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		k := ColorsFor(dark)
-		for _, id := range []string{"f00000000e0aa", "f00000000e0ab"} {
+		for _, id := range []string{"f00000000e0aa", "f00000000e0ab", "f00000000e00d"} {
 			tt := ui.NewTester(func(c *ui.Context) {
 				Masthead(c, k, id, "busy", func() {})
 			}, 400, 200)
-			if h := height(t, tt, "Masthead"); h != Mast {
+			if h := height(t, tt, "Masthead"); h != 48 {
 				t.Errorf("masthead is %v high", h)
 			}
 			want := k.Tint[TintOf(id)]
@@ -118,7 +119,33 @@ func TestContextBarIsFortyEightWide(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		ContextBar(c, ColorsFor(false), 61, ColorsFor(false).Accent)
 	}, 200, 100)
-	if got := width(t, tt, "Context 61%"); got != ContextWidth {
+	if got := width(t, tt, "Context 61%"); got != 48 {
 		t.Errorf("bar is %v wide", got)
+	}
+}
+
+func tipShown(t *testing.T, n NavItem) bool {
+	t.Helper()
+	tt := nav(t, n)
+	r, ok := tt.Find(n.Label)
+	if !ok {
+		t.Fatalf("no %q", n.Label)
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(2 * time.Second)
+	seen := 0
+	for _, s := range tt.Texts() {
+		if s == n.Label {
+			seen++
+		}
+	}
+	return seen > 1
+}
+
+func TestAClosedRailNamesEveryItemOnHoverEvenAnInertOne(t *testing.T) {
+	for _, inert := range []bool{false, true} {
+		if !tipShown(t, NavItem{Key: "a", Label: "Phone", Icon: "phone", Inert: inert}) {
+			t.Errorf("no tooltip, inert=%v", inert)
+		}
 	}
 }
