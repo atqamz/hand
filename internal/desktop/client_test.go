@@ -824,11 +824,11 @@ func TestPollDoesNotRememberAnAnswerTheWindowDiscarded(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.setStatus(func(st *desktop.Status) { st.Pill = "changed" })
-	first, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	first, err := c.Poll(ctx, fleetID, desktop.BoardScreen, "", desktop.PollCursors{})
 	if err != nil || !first.StatusFresh || first.Status.Pill != "changed" {
 		t.Fatalf("first poll = %+v, %v", first, err)
 	}
-	second, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	second, err := c.Poll(ctx, fleetID, desktop.BoardScreen, "", desktop.PollCursors{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -852,7 +852,7 @@ func TestPollKeepsTheDeadlineInItsError(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	_, err := c.Poll(ctx, fleetID, desktop.StatusScreen, "", desktop.PollCursors{})
+	_, err := c.Poll(ctx, fleetID, desktop.BoardScreen, "", desktop.PollCursors{})
 	b.mu.Lock()
 	block := b.block
 	b.mu.Unlock()
@@ -871,13 +871,7 @@ func TestPollReadsOnlyTheOpenScreensData(t *testing.T) {
 		seen   func(desktop.Poll) bool
 	}
 	cases := []pollCase{
-		{screen: desktop.StatusScreen},
-		{screen: desktop.NeedsScreen},
-		{screen: desktop.TimelineScreen, path: "/api/v1/timeline", data: `{"entries":[{"text":"tl"}]}`,
-			seen: func(p desktop.Poll) bool {
-				return p.ScreenFresh && len(p.Timeline.Entries) == 1 && p.Timeline.Entries[0].Text == "tl"
-			}},
-		{screen: desktop.TasksScreen, path: "/api/v1/tasks?all=1", data: `{"finished_count":7}`,
+		{screen: desktop.BoardScreen, path: "/api/v1/tasks?all=1", data: `{"finished_count":7}`,
 			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Tasks.FinishedCount == 7 }},
 		{screen: desktop.TaskScreen, ref: "t1", path: "/api/v1/task/t1", data: `{"task":{"ref":"t1"}}`,
 			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Task.Task.Ref == "t1" }},
@@ -931,10 +925,7 @@ func TestPollReadsOnlyTheOpenScreensData(t *testing.T) {
 		if !p.StatusFresh {
 			t.Fatalf("poll screen %d sent no status", tc.screen)
 		}
-		want := []string{"/api/v1/status"}
-		if tc.path != "" {
-			want = append(want, tc.path)
-		}
+		want := []string{"/api/v1/status", tc.path, "/api/v1/timeline"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("poll screen %d read %v, want %v", tc.screen, got, want)
 		}

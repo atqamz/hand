@@ -127,6 +127,8 @@ func (f *fixture) Timeline(ctx context.Context, id string, before int) (desktop.
 	if f.fail != nil {
 		return desktop.Timeline{}, f.fail
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if before > 0 {
 		return f.older[id], nil
 	}
@@ -214,11 +216,9 @@ func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, re
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	p := desktop.Poll{StatusFresh: true, Status: f.status[id]}
+	p := desktop.Poll{StatusFresh: true, StatusRead: true, ScreenRead: true, Status: f.status[id], TimelineFresh: true, TimelineRead: true, Timeline: f.timeline[id]}
 	switch screen {
-	case desktop.TimelineScreen:
-		p.ScreenFresh, p.Timeline = true, f.timeline[id]
-	case desktop.TasksScreen:
+	case desktop.BoardScreen:
 		p.ScreenFresh, p.Tasks = true, f.tasks[id]
 	case desktop.TaskScreen:
 		p.ScreenFresh, p.Task = true, f.task[id]
@@ -290,6 +290,8 @@ func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Sen
 	if f.action != nil {
 		return desktop.Sent{}, f.action
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	tl := f.timeline[id]
 	tl.Entries = append([]desktop.Entry{{Role: "operator", Text: text, At: "2026-11-01T05:00:00Z", Queued: true}}, tl.Entries...)
 	f.timeline[id] = tl
@@ -452,9 +454,6 @@ func newApp(t *testing.T, f *fixture) *desktop.App {
 	app.Boot()
 	if app.Err != "" && f.fail == nil {
 		t.Fatalf("boot: %s", app.Err)
-	}
-	if app.Screen == desktop.NeedsScreen {
-		app.Show(desktop.StatusScreen)
 	}
 	return app
 }

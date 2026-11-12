@@ -139,10 +139,10 @@ func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
 func TestPlainTextSelectsAndCopies(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	line := "agent " + app.Status.AgentState
+	line := "s1 is working"
 	r, ok := tt.Find(line)
 	if !ok {
-		t.Fatalf("status line %q not on screen", line)
+		t.Fatalf("need row %q not on screen", line)
 	}
 	tt.Press(r.X+1, r.Y+r.H/2)
 	tt.Move(r.X+r.W-1, r.Y+r.H/2)
@@ -178,7 +178,6 @@ func TestEveryMarkdownBearingTextRendersTables(t *testing.T) {
 			app := newApp(t, f)
 			tt := newTester(app)
 			if tc.ref == "" {
-				click(t, tt, "Conversation")
 			} else {
 				app.OpenRef(tc.ref)
 				tt.Frame()

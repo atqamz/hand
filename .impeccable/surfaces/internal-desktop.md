@@ -12,12 +12,13 @@ related_targets:
 ## Scope and mode
 
 - **Covers:** `hand-desktop`, a MyGo v0.7.4 window (pinned, cgo-free) that is a client of the running Board:
-  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen (the Status screen) and an inert Phone, then a tinted mark for each fleet this machine can open;
-  - Status: the supervisor, its controls and, while it is blocked, its question with one button per option (or the key toolbar), the agent state, the context gauge and the task counts;
+  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and an inert Phone (Board returns to the two panes; Tasks, Conversation, Screen and Phone do nothing until the pages they name exist), then a tinted mark for each fleet this machine can open;
+  - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat starts at 38% wide clamped to 400 to 720 px and may be dragged down to 360 px, the work pane never under 440 px, the width kept while the window runs; the window is never narrower than 860 px, so that rule holds until the narrow tabs exist);
+  - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button and the status's composer hint under the composer; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
   - Needs: every open item in the page's order, toned by its severity word;
-  - Timeline: the conversation's entries, the working turn and its queued messages, and the composer: a multi-line message field with Send and Clear;
+  - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: a multi-line message field with Send and Clear;
   - Tasks: the grouped task list, and each task's detail;
-  - the detail of a task, an attempt, a decision and a report, opened in place with Back;
+  - the detail of a task, an attempt, a decision and a report, opened in the left pane with Back;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status and the open screen's data poll while the window is open (see Refresh).
@@ -48,14 +49,14 @@ THESIS: The same on-call board, in a native window. The fleet's state is read; t
 
 OWN-WORLD: The Board's palette with both themes: white ground, `#f6f7f9` panel, `#f1f3f5` card, `#e3e6ea` hairlines and `#15171c` ink; the fail red, wait amber, pass green and review blue, and their pale fills. Five type sizes (22, 18, 15, 14, 12px), system sans, system mono for refs, times and figures. A 56px rail, a 48px masthead with a 3px rule in the fleet's tint and one scrolling content pane; resting surfaces carry a hairline, never a shadow.
 
-STORY: The operator opens the window and knows whether anything is paged: the masthead names the fleet and the supervisor's state, the rail's Board icon counts the Needs, in the tone of the worst. On Status they start, resume, stop or interrupt the supervisor; when it is blocked, Force and the fixed key toolbar appear, and each press carries the screen's revision, digest and last pressed sequence. They click Board, read the toned rows, click the decision, choose an option, add a note and send the answer; a report a step away gets Ack. On the Timeline they type a message and press Enter to send it, or Shift+Enter for a new line; a half-typed draft waits there after a fleet switch or a closed window. Back returns. They close the window; nothing else about the fleet changes.
+STORY: The operator opens the window and knows whether anything is paged: the masthead names the fleet and the supervisor's state, the rail's Board icon counts the Needs, in the tone of the worst. In the pane head they start, resume, stop (two presses) or interrupt the supervisor; when it is blocked, Force and the fixed key toolbar appear, and each press carries the screen's revision, digest and last pressed sequence. They read the toned rows, click the decision, choose an option, add a note and send the answer; a report a step away gets Ack. In the pane beside the work they type a message and press Ctrl+Enter (Cmd+Enter on macOS) to send it, or Enter for a new line; a half-typed draft waits there after a fleet switch or a closed window. Back returns. They close the window; nothing else about the fleet changes.
 
-FIRST VIEWPORT: At 1100×760: the 56px icon rail at the left (Board with its Needs count, Tasks, Conversation, Screen, Phone, then the fleet marks); the masthead with the tint rule, the fleet's mark, name and id, the state pill, the queued count, the context bar and figure, Open in browser and Refresh; the content pane with the screen's title and its rows.
+FIRST VIEWPORT: At 1100×760: the 56px icon rail at the left (Board with its Needs count, Tasks, Conversation, Screen, Phone, then the fleet marks); the masthead with the tint rule, the fleet's mark, name and id, the state pill, the queued count and the context bar and figure; below it, the Needs and Tasks, and the supervisor's conversation with its pane head and its composer.
 
 FORM: It takes these raises:
 - from the Board: the severity ramp, the pale tone fills, the word-plus-shape rule and the flat resting surface;
 - from a native list: keyboard focus, a hover wash and a pointer on every row, with no page reload between screens;
-- from a viewer: a ref opens where it is, Back returns to the exact list, and Refresh re-reads the screen.
+- from a viewer: a ref opens where it is, Back returns to the exact list, and Refresh now re-reads the screen.
 
 Signature moment: one click from a Needs row to its decision, then Open task to the task, then Back twice; the list is where it was. The only traces are the message, the answer, the acknowledgement and the supervisor action the Board records.
 
@@ -68,12 +69,9 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | File | Scene |
 |---|---|
 | `01-fleet-switch.png` | the rail after a switch, the second fleet's masthead |
-| `02-status.png` | the supervisor, the agent and the counts |
-| `03-needs.png` | a failure, a decision and two reports |
-| `04-timeline.png` | the working turn and three entries |
-| `05-tasks.png` | Active and Inbox |
+| `02-panes.png` | the two panes: Needs and Tasks, the supervisor's head, its conversation and its composer |
 | `06-detail.png` | a task's plan, delivered PR, decisions, reports, attempts and events |
-| `07-empty.png` | All clear, and the empty Timeline and Tasks |
+| `07-empty.png` | All clear, no tasks, and no supervisor: the head offers Open in browser |
 | `08-error.png` | a token the board refuses, with Retry |
 | `09-decision-answer.png` | an open decision with an option chosen and the note field |
 | `10-report-ack.png` | a report with its Ack |
@@ -83,6 +81,11 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
 | `15-delivered.png` | a task's Delivered list: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
 | `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
+| `18-overflow-menu.png` | the pane head's menu: Refresh now and Open in browser |
+| `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
+| `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
+| `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 860×700 and 1100×760 in both themes |
+| `22-resumable-1100x760-<light or dark>.png` | the head of a supervisor that can be resumed: Resume, with New session in the menu |
 
 ## Auth decision
 
@@ -90,11 +93,11 @@ The desktop reads the fleet's `board.token` and sends it as the cookie the board
 
 ## Keys decision
 
-The window sends each press with the status's `revision`, `digest` and `pressed` sequence. While the supervisor is blocked and the status carries an `ask` (the question and option labels the Board's Ask card already parses, never the raw screen), it shows the question and one button per option, each sending that option's keys as one press. Only without an `ask`, for a screen the parser does not understand, does it show the fixed key toolbar. The Needs row of a blocked supervisor opens Status.
+The window sends each press with the status's `revision`, `digest` and `pressed` sequence. While the supervisor is blocked and the status carries an `ask` (the question and option labels the Board's Ask card already parses, never the raw screen), it shows the question and one button per option, each sending that option's keys as one press. Only without an `ask`, for a screen the parser does not understand, does it show the fixed key toolbar. The Needs row of a blocked supervisor opens nothing: its question already sits in the pane head's pane.
 
 ## Rules
 
-**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons on Status, and its option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except the masthead's Open in browser, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
+**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons in the pane head, and the ask's option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except Open in browser in the overflow menu, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
 
 **The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file, and does not import the CLI, the board service or the state store.
 
@@ -106,11 +109,12 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 ## Refresh
 
-The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks only for the status and the open screen's data (the timeline, the tasks list, or the opened task, attempt, decision or report), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
+The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks only for the status, the conversation and the open screen's data (the tasks list, or the opened task, attempt, decision or report), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
 
 | Window state | Interval |
 |---|---|
-| focused | 2 s |
-| unfocused | 15 s |
+| focused | 1 s |
+| unfocused | 5 s |
+| minimised | paused |
 
-The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` beside Refresh (the error is in its tooltip), and backs off, doubling up to 60 s and resetting on the next answer. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; a manual Refresh re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.
+The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` in the masthead (the error is in its tooltip), and backs off that read alone, doubling its wait up to 60 s and resetting on its next answer, while the other reads go on every tick. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; Refresh now re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.

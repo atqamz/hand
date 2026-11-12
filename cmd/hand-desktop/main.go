@@ -103,13 +103,15 @@ func main() {
 	}
 	mygo.App.WhenReady(func() {
 		win = mygo.NewWindow(mygo.WindowOptions{
-			Title: windowTitle(app.Fleet), Width: 1100, Height: 760, MinWidth: 780, MinHeight: 480,
+			Title: windowTitle(app.Fleet), Width: 1100, Height: 760, MinWidth: 860, MinHeight: 480,
 			Content: ui.View(app.View),
 		})
 		app.Post = win.Update
 		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
 		win.OnFocus(func() { app.SetFocused(true) })
 		win.OnBlur(func() { app.SetFocused(false) })
+		win.OnMinimize(func() { app.SetMinimized(true) })
+		win.OnRestore(func() { app.SetMinimized(false) })
 		win.OnClosed(func() { app.Close() })
 		for _, args := range early {
 			handoff(app, args)
