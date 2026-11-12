@@ -1,8 +1,10 @@
 package board_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"slices"
@@ -33,6 +35,28 @@ func fleetItemIDs(items []board.APIFleetItem) []string {
 		out = append(out, i.ID)
 	}
 	return out
+}
+
+func jsonKind(raw json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "invalid"
+	}
+	switch v.(type) {
+	case string:
+		return "string"
+	case float64:
+		return "number"
+	case bool:
+		return "bool"
+	case nil:
+		return "null"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	}
+	return "unknown"
 }
 
 func cookies(cs ...*http.Cookie) []*http.Cookie { return cs }
@@ -122,6 +146,79 @@ func TestFleetsSummaryMatchesStatus(t *testing.T) {
 	}
 	if w := items[0].Needs; w.Waiting == 0 || w.Worst == "" || w.WorstWord == "" || items[1].Needs.Waiting != 0 {
 		t.Fatalf("the needs are not exercised: %+v / %+v", items[0].Needs, items[1].Needs)
+	}
+}
+
+func TestFleetsPinsTheNeedsNames(t *testing.T) {
+	p := newPhoneHost(t, true, "alpha", "beta")
+	a, b := p.fleets[0], p.fleets[1]
+	task := active(t, a.st, "Fix login")
+	if _, err := a.st.Ask(context.Background(), task.ID, "Keep the old cookie name?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.st.AddProject(context.Background(), "hand", handRepo, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.st.AddTask(context.Background(), "hand", "Read the queue", ""); err != nil {
+		t.Fatal(err)
+	}
+	body := p.send("GET", "/api/v1/fleets", nil, cookies(p.laptop(a), p.laptop(b)), nil).Body.String()
+	var got struct {
+		Data struct {
+			Fleets []struct {
+				Needs map[string]json.RawMessage `json:"needs"`
+			} `json:"fleets"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []map[string]string{
+		{"waiting": "number", "worst": "string", "worst_word": "string", "worst_count": "number"},
+		{"waiting": "number", "worst_count": "number", "summary": "string"},
+	}
+	if len(got.Data.Fleets) != len(want) {
+		t.Fatalf("fleets = %d, want %d:\n%s", len(got.Data.Fleets), len(want), body)
+	}
+	for i, names := range want {
+		needs := got.Data.Fleets[i].Needs
+		if len(needs) != len(names) {
+			t.Fatalf("fleet %d needs = %v, want exactly %v", i, needs, names)
+		}
+		for name, kind := range names {
+			raw, ok := needs[name]
+			if !ok {
+				t.Fatalf("fleet %d needs = %v, want %q", i, needs, name)
+			}
+			if got := jsonKind(raw); got != kind {
+				t.Fatalf("fleet %d needs.%s = %s %s, want %s", i, name, got, raw, kind)
+			}
+		}
+	}
+}
+
+func TestFleetsLogsAFailedFleetOncePerState(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	p := newPhoneHost(t, true, "alpha", "beta")
+	a, b := p.fleets[0], p.fleets[1]
+	both := cookies(p.laptop(a), p.laptop(b))
+	p.down[b.id] = true
+	for range 2 {
+		p.send("GET", "/api/v1/fleets", nil, both, nil)
+	}
+	if n := strings.Count(logged.String(), b.id); n != 1 {
+		t.Fatalf("a broken fleet logged %d times:\n%s", n, logged.String())
+	}
+	p.down[b.id] = false
+	p.send("GET", "/api/v1/fleets", nil, both, nil)
+	if n := strings.Count(logged.String(), b.id); n != 2 || !strings.Contains(logged.String(), "again") {
+		t.Fatalf("a recovered fleet logged:\n%s", logged.String())
+	}
+	p.send("GET", "/api/v1/fleets", nil, both, nil)
+	if n := strings.Count(logged.String(), b.id); n != 2 {
+		t.Fatalf("a healthy fleet logged again:\n%s", logged.String())
 	}
 }
 
