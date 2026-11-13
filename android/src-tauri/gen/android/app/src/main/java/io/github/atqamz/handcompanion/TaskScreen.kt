@@ -83,8 +83,9 @@ private fun TaskHead(detail: TaskDetail, onTarget: (ThreadTarget) -> Unit) {
   Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Text(task.title, style = type.headlineMedium)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      val pill = detail.pill.ifEmpty { task.status }
-      if (pill.isNotEmpty()) Chip(pill, stateTone(pill), 24, glyph(stateTone(pill)))
+      val word = task.status.ifEmpty { detail.pill }
+      val tone = stateTone(detail.pill.ifEmpty { task.status })
+      if (word.isNotEmpty()) Chip(word, tone, 24, glyph(tone))
       if (meta.isNotEmpty())
         Text(
           meta,
@@ -183,7 +184,7 @@ private fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (Th
         color = if (target is ThreadTarget.Browser) hand.ink(Tone.Accent) else hand.fg,
         style = type.bodyLarge.copy(fontWeight = if (deliverable.kind == "file") FontWeight.Normal else FontWeight.SemiBold)
       )
-      if (deliverable.kind == "file") Meta("Opens in the web Board")
+      if (deliverable.kind == "file" && target != ThreadTarget.None) Meta("Opens in the web Board")
     }
   }
 }
@@ -275,9 +276,11 @@ private fun DecisionRow(decision: TaskDecision, onTarget: (ThreadTarget) -> Unit
     Text(decision.ref, color = hand.muted, style = HandMono)
     Column(Modifier.weight(1f)) {
       Text(decision.headline, style = type.bodyLarge)
-      val answer = decision.answer.lines().firstOrNull().orEmpty()
+      val answer = decision.answer.trim()
+      val first = answer.lineSequence().firstOrNull().orEmpty()
+      val cut = answer.lineSequence().drop(1).any(String::isNotBlank)
       when {
-        answer.isNotEmpty() -> Meta(answer)
+        first.isNotEmpty() -> Meta(if (cut) "$first …" else first)
         decision.status == "open" -> Label("Answer", hand.ink(Tone.Accent))
       }
     }

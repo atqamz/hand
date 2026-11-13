@@ -247,8 +247,10 @@ class TaskModel(
   private val lock = Mutex()
   @Volatile private var cursor: String? = null
   @Volatile private var supported: Boolean? = null
+  @Volatile private var pending = false
 
   suspend fun run() {
+    pending = false
     load()
     if (mutableState.value.unpaired || mutableState.value.refused != null) return
     if (!eventsSupported()) return poll()
@@ -342,15 +344,31 @@ class TaskModel(
   }
 
   private suspend fun refreshHint() {
-    if (!lock.isLocked) load()
+    if (lock.isLocked) {
+      pending = true
+      return
+    }
+    load()
+    while (pending) {
+      pending = false
+      load()
+    }
   }
 
   private fun touched(json: String): Boolean {
     val topics = topics(json)
     val refs = refs(json)
     val tasks = refs["tasks"].orEmpty()
-    val named = listOf("reports", "decisions", "attempts").any { refs[it].orEmpty().isNotEmpty() }
-    return named || ("tasks" in topics && (tasks.isEmpty() || ref in tasks))
+    val detail = mutableState.value.detail ?: return "tasks" in topics && tasks.isEmpty()
+    val watchedTasks = setOf(detail.task.ref) + detail.children.map { it.ref }
+    val watchedReports = (detail.reports + detail.unread).map { it.ref }.toSet()
+    val watchedDecisions = (detail.decisions + detail.openDecisions).map { it.ref }.toSet()
+    val watchedAttempts = detail.attempts.map { it.ref }.toSet()
+    return tasks.any { it in watchedTasks } ||
+      ("tasks" in topics && tasks.isEmpty()) ||
+      refs["reports"].orEmpty().any { it in watchedReports } ||
+      refs["decisions"].orEmpty().any { it in watchedDecisions } ||
+      refs["attempts"].orEmpty().any { it in watchedAttempts }
   }
 
   private fun topics(json: String): List<String> =
@@ -401,6 +419,16 @@ class TaskModel(
           load()
           null
         }
+      }
+    } catch (_: BoardError.AppliedUnread) {
+      load()
+      val acked = mutableState.value.detail?.reports?.firstOrNull { it.ref == report }?.ackedAt
+      if (!acked.isNullOrEmpty()) {
+        null
+      } else {
+        val message = "Not sure $report was marked read."
+        mutableState.update { it.copy(errors = it.errors + (report to message)) }
+        message
       }
     } catch (error: BoardError) {
       if (error == BoardError.Unpaired) {

@@ -236,14 +236,17 @@ Tapping a paired fleet opens `FleetScreen`: the top bar (back, the fleet's name 
 `TaskScreen` reads `GET /api/v1/task/{tN}` once when it opens, with the envelope's cursor on later
 reads, and shows the Board's phone column: the open decisions and unread reports waiting on the
 task first, then Delivered, Sub-tasks, Plan, Reports, Decisions, Attempts and Events. A section the
-answer leaves empty has no heading. A report card shows its ref, summary, "from aN", state and time,
+answer leaves empty has no heading. The head shows the task's title, its `status` word with `pill`'s
+tone, and the project, parent, waits and updated time; `goal` is lead text, not a section. A report card shows its ref, summary, "from aN", state and time,
 and **Mark read** until `acked_at` is set, when it reads "read by …" from the `ReportDetail` the
 ack answered. A second tap while the ack is in flight is ignored; a refusal keeps the button and
 says so under the card, and nothing on the screen is cleared. A task, sub-task or decision ref opens
-its native screen; an attempt or report ref, and a delivered file, open the web fallback, and a PR
-or other link opens the browser. `LiveBus` hints that name this task, or any report, decision or
-attempt, re-read the detail; a laptop whose `meta.features` lacks `events` polls it every 5 seconds
-while the screen is shown, and the read stops when the screen leaves. The fleet route keeps its
+its native screen; an attempt or report ref, and a delivered file with a `/doc/...` href, open the
+web fallback (a file outside the fleet stays plain text), and a PR or other link opens the browser. `LiveBus` hints that name this task or one of its sub-tasks, or a
+report, decision or attempt the detail holds, re-read it; a hint naming anything else does not, and
+a hint during a read queues one more read for when it finishes. A laptop whose `meta.features` lacks
+`events` polls the detail every 5 seconds while the screen is shown, and the read stops when the
+screen leaves. The fleet route keeps its
 saved state, so Back from a task returns to the Tasks tab with its list and scroll where they were. A `404` shows the Board's own message with **Back**; a first failure shows **Retry**;
 a failure after the detail was shown keeps it.
 
@@ -253,7 +256,9 @@ A decision row in Needs opens in place to its choice list, and **Open dN** (or a
 
 A blocked supervisor's item is a card: its last lines in the terminal box, **Screen misread?** with **Type queued messages anyway**, and one button per option of `supervisor.ask` in the Board's order, or the fixed `enter`, `esc`, `up`, `down`, `1`, `2` and `3` keys when there is no ask. Every press posts `{"keys", "revision", "digest", "after", "ref"}` from the latest `Status.supervisor.keys`; its `Status` answer is applied first, the row reads "Sent 2 · waiting…" and a receipt names the supervisor for 4 seconds. A `409` reopens the card on the refreshed screen and says nothing was sent. A `deny_at` on the blocked item counts down locally, one second at a time, and when it passes the screen says it was denied and refreshes.
 
-`app/src/test/snapshots` holds the stored images of the fleet list and of the fleet list before its first answer (`loadingLight`, `loadingDark`), the unreachable band, Decision with a recommended option, an `other` option with its note and its answered state, Needs with a decision open in place, Needs with several bands and one open report, Needs with only rows, a cut report, the blocked supervisor with its ask options, its fixed keys, its countdown and a stale refusal, a tab that has not loaded (`notLoadedLight`), a first frame after a failed request with the band above `Loading…` (`failedFirstFrameLight`, `failedFirstFrameDark`), the live band while the stream reconnects (`reconnectingLight`, `reconnectingDark`) and after it gives up (`liveLostLight`, `liveLostDark`), a tapped tab before the first answer (`tappedBeforeAnswerLight`, `tappedBeforeAnswerDark`), Task with its waiting rows and every section, the same with nothing waiting, a sub-task, the card after Mark read, its loading frame and its error with Retry, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the phone is not paired with the fleet (`notPairedHereLight`, `notPairedHereDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
+`app/src/test/snapshots` holds the stored images of the fleet list and of the fleet list before its first answer (`loadingLight`, `loadingDark`), the unreachable band, Decision with a recommended option, an `other` option with its note and its answered state, Needs with a decision open in place, Needs with several bands and one open report, Needs with only rows, a cut report, the blocked supervisor with its ask options, its fixed keys, its countdown and a stale refusal, a tab that has not loaded (`notLoadedLight`), a first frame after a failed request with the band above `Loading…` (`failedFirstFrameLight`, `failedFirstFrameDark`), the live band while the stream reconnects (`reconnectingLight`, `reconnectingDark`) and after it gives up (`liveLostLight`, `liveLostDark`), a tapped tab before the first answer (`tappedBeforeAnswerLight`, `tappedBeforeAnswerDark`), Task with its waiting rows and every section, the same with nothing waiting, a sub-task, a task with
+sub-tasks, an inbox task, the card after Mark read, its loading frame and its error with Retry, each
+light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the phone is not paired with the fleet (`notPairedHereLight`, `notPairedHereDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
 
 ## Native pairing
 

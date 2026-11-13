@@ -95,8 +95,11 @@ private class TaskBoard(
     )
   },
   private val features: List<String> = listOf("events"),
-  private val gate: CompletableDeferred<Unit>? = null
+  private val gate: CompletableDeferred<Unit>? = null,
+  private val readGate: CompletableDeferred<Unit>? = null,
+  private val gateAfter: Int = 0
 ) : Transport {
+  private val taskReads = java.util.concurrent.atomic.AtomicInteger()
   val calls = CopyOnWriteArrayList<String>()
   val posts = CopyOnWriteArrayList<List<String?>>()
 
@@ -104,7 +107,11 @@ private class TaskBoard(
     calls += "${if (post) "POST" else "GET"} $path"
     if (post) posts += listOf(path, body, csrf)
     return when {
-      path.startsWith("/api/v1/task/") -> detailAnswer(path.substringAfter("since=", "").takeIf { "since=" in path })
+      path.startsWith("/api/v1/task/") -> {
+        val count = taskReads.incrementAndGet()
+        if (readGate != null && count > gateAfter) kotlinx.coroutines.runBlocking { readGate.await() }
+        detailAnswer(path.substringAfter("since=", "").takeIf { "since=" in path })
+      }
       path == "/api/v1/meta" ->
         Raw(
           200,
@@ -303,20 +310,85 @@ class TaskModelTest {
   }
 
   @Test
-  fun aHintRereadsThisTaskAndIgnoresAnother() = runBlocking {
+  fun aHintRereadsOnlyWhatThisTaskShows() = runBlocking {
     val board = TaskBoard()
     val task = model(board)
     task.load()
     task.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t41"]}"""))
     assertEquals(1, reads(board))
-    task.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}"""))
-    assertEquals(2, reads(board))
+    task.reduce(LiveEvent(FLEET, "touched", """{"reports":["r99"]}"""))
+    assertEquals(1, reads(board))
     task.reduce(LiveEvent(FLEET, "touched", """{"reports":["r90"]}"""))
+    assertEquals(2, reads(board))
+    task.reduce(LiveEvent(FLEET, "touched", """{"decisions":["d12"]}"""))
     assertEquals(3, reads(board))
-    task.reduce(LiveEvent(FLEET, "resync", """{"topics":["tasks"]}"""))
+    task.reduce(LiveEvent(FLEET, "touched", """{"attempts":["a62"]}"""))
     assertEquals(4, reads(board))
+    task.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}"""))
+    assertEquals(5, reads(board))
+    task.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"]}"""))
+    assertEquals(6, reads(board))
     task.reduce(LiveEvent(FLEET, "touched", """{"topics":["status"]}"""))
-    assertEquals(4, reads(board))
+    assertEquals(6, reads(board))
+    val childBoard = TaskBoard(detailAnswer = { answer(detail(children = true)) })
+    val child = model(childBoard)
+    child.load()
+    child.reduce(LiveEvent(FLEET, "touched", """{"tasks":["t42"]}"""))
+    assertEquals(2, reads(childBoard))
+  }
+
+  @Test
+  fun aHintDuringAReadIsRepeatedWhenItFinishes() = runBlocking {
+    val gate = CompletableDeferred<Unit>()
+    val board = TaskBoard(readGate = gate, gateAfter = 1)
+    val task = model(board)
+    task.load()
+    val first =
+      launch(Dispatchers.IO) {
+        task.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}"""))
+      }
+    withTimeout(5_000) { while (reads(board) < 2) delay(5) }
+    val second =
+      launch(Dispatchers.IO) {
+        task.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}"""))
+      }
+    second.join()
+    gate.complete(Unit)
+    first.join()
+    assertEquals(3, reads(board))
+  }
+
+  @Test
+  fun aMalformedAckSaysItIsNotSureAndKeepsTheButton() = runBlocking {
+    val board = TaskBoard(ackAnswer = { Raw(200, "not json") })
+    val task = model(board)
+    task.load()
+    assertEquals("Not sure r90 was marked read.", task.acknowledge("r90"))
+    val state = task.state.value
+    assertEquals("Not sure r90 was marked read.", state.errors["r90"])
+    assertEquals("", state.detail?.reports?.single()?.ackedAt)
+    assertTrue(state.detail?.unread?.isNotEmpty() == true)
+    assertEquals(2, reads(board))
+  }
+
+  @Test
+  fun aMalformedAckThatIsReadBackShowsReadBy() = runBlocking {
+    var acked = false
+    val board =
+      TaskBoard(
+        detailAnswer = { answer(if (acked) detail(acked = true) else detail()) },
+        ackAnswer = {
+          acked = true
+          Raw(200, "not json")
+        }
+      )
+    val task = model(board)
+    task.load()
+    assertNull(task.acknowledge("r90"))
+    val state = task.state.value
+    assertNull(state.errors["r90"])
+    assertEquals("phone (Pixel 8)", state.detail?.reports?.single()?.ackedBy)
+    assertTrue(state.detail?.unread?.isEmpty() == true)
   }
 
   @Test

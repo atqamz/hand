@@ -7,13 +7,13 @@ import org.junit.Test
 
 private const val FLEET = "f000000000003"
 
-private fun taskInfo(parent: String = "") =
+private fun taskInfo(parent: String = "", status: String = "active") =
   TaskInfo(
     ref = "t40",
     title = "Pin the luvus version in CI",
     goal = "",
     project = "hand",
-    status = "active",
+    status = status,
     parent = parent,
     createdAt = "2026-11-11T09:00:00Z",
     updatedAt = "2026-11-11T11:52:00Z"
@@ -42,14 +42,27 @@ private val decision =
     createdAt = "2026-11-11T11:40:00Z"
   )
 
+private val answered =
+  decision.copy(
+    status = "answered",
+    pill = "passing",
+    answer = "2. Track 0.14.x",
+    answeredBy = "phone (Pixel 8)",
+    closedAt = "2026-11-11T11:45:00Z"
+  )
+
 private fun detail(
   parent: String = "",
-  open: Boolean = true,
-  read: Boolean = false
+  status: String = "active",
+  pill: String = "running",
+  openDecision: Boolean = true,
+  unread: Boolean = true,
+  withReport: Boolean = true,
+  children: Boolean = false
 ) =
   TaskDetail(
-    task = taskInfo(parent),
-    pill = "running",
+    task = taskInfo(parent, status),
+    pill = pill,
     plan =
       TaskPlan(
         ref = "p2",
@@ -63,25 +76,17 @@ private fun detail(
         TaskDeliverable("https://github.com/atqamz/hand/pull/1241", "PR"),
         TaskDeliverable("plan-t40.md", "file", "/doc/plan-t40.md")
       ),
-    openDecisions = if (open) listOf(decision) else emptyList(),
-    decisions =
-      listOf(
-        decision.copy(
-          status = "answered",
-          pill = "passing",
-          answer = "2. Track 0.14.x",
-          answeredBy = "phone (Pixel 8)",
-          closedAt = "2026-11-11T11:45:00Z"
-        )
-      ),
-    unread = if (open && !read) listOf(report) else emptyList(),
+    openDecisions = if (openDecision) listOf(decision) else emptyList(),
+    decisions = listOf(if (openDecision) decision else answered),
+    unread = if (unread) listOf(report) else emptyList(),
     reports =
-      listOf(
-        if (read)
-          report.copy(ackedAt = "2026-11-11T12:00:00Z", ackedBy = "phone (Pixel 8)")
-        else report
-      ),
-    moreReports = true,
+      when {
+        !withReport -> emptyList()
+        unread -> listOf(report)
+        else ->
+          listOf(report.copy(ackedAt = "2026-11-11T12:00:00Z", ackedBy = "phone (Pixel 8)"))
+      },
+    moreReports = false,
     attempts =
       listOf(
         TaskAttempt(
@@ -94,14 +99,18 @@ private fun detail(
           state = "running",
           branch = "hand/a62",
           createdAt = "2026-11-11T11:10:00Z"
-        ),
+        )
       ),
     events =
       listOf(
         TaskEvent(3, "2026-11-11T11:52:00Z", "attempt.reported", "a62 reported r90", "t40"),
         TaskEvent(2, "2026-11-11T11:40:00Z", "decision.asked", "d12 asked", "t40")
       ),
-    moreEvents = true
+    moreEvents = false,
+    children =
+      if (children)
+        listOf(TaskRow("t42", "Bisect the arm64 failure", "idle", status = "inbox", parent = "t40"))
+      else emptyList()
   )
 
 private fun state(detail: TaskDetail? = detail(), failed: Boolean = false, loading: Boolean = false) =
@@ -122,17 +131,31 @@ class TaskScreenTest {
 
   @Test fun taskDark() = shot(true, state())
 
-  @Test fun nothingWaitingLight() = shot(false, state(detail(open = false)))
+  @Test fun nothingWaitingLight() =
+    shot(false, state(detail(openDecision = false, unread = false, withReport = false)))
 
-  @Test fun nothingWaitingDark() = shot(true, state(detail(open = false)))
+  @Test fun nothingWaitingDark() =
+    shot(true, state(detail(openDecision = false, unread = false, withReport = false)))
 
   @Test fun subTaskLight() = shot(false, state(detail(parent = "t39")))
 
   @Test fun subTaskDark() = shot(true, state(detail(parent = "t39")))
 
-  @Test fun readLight() = shot(false, state(detail(open = false, read = true)))
+  @Test fun childrenLight() =
+    shot(false, state(detail(openDecision = false, unread = false, withReport = false, children = true)))
 
-  @Test fun readDark() = shot(true, state(detail(open = false, read = true)))
+  @Test fun childrenDark() =
+    shot(true, state(detail(openDecision = false, unread = false, withReport = false, children = true)))
+
+  @Test fun inboxLight() =
+    shot(false, state(detail(status = "inbox", pill = "neutral", openDecision = false, unread = false, withReport = false)))
+
+  @Test fun inboxDark() =
+    shot(true, state(detail(status = "inbox", pill = "neutral", openDecision = false, unread = false, withReport = false)))
+
+  @Test fun readLight() = shot(false, state(detail(openDecision = false, unread = false)))
+
+  @Test fun readDark() = shot(true, state(detail(openDecision = false, unread = false)))
 
   @Test fun loadingLight() = shot(false, TaskState())
 

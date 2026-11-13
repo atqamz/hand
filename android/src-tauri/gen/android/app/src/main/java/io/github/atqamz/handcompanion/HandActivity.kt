@@ -369,7 +369,7 @@ class HandActivity : ComponentActivity() {
                   ThreadTarget.None -> Unit
                 }
               }
-              holder.SaveableStateProvider("task:$thread") {
+              holder.SaveableStateProvider("task:$open:$thread") {
                 Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
               }
             } else {
