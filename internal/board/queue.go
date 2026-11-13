@@ -425,9 +425,10 @@ func (c check) Model() string {
 	if name == "" {
 		return a.Harness
 	}
-	model, harness := strings.ToLower(name), strings.ToLower(a.Harness)
+	short := strings.TrimSuffix(name, "/")
+	model, harness := strings.ToLower(short), strings.ToLower(a.Harness)
 	if model == harness || strings.HasPrefix(model, harness+"-") {
-		return name
+		return short
 	}
 	return a.Harness + " " + name
 }

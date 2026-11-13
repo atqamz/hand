@@ -91,6 +91,8 @@ func TestATaskRowShowsTheShortModel(t *testing.T) {
 	started(active(t, st, "Start opencode with an effort").ID, "opencode", "", "high")
 	started(active(t, st, "Import the whole provider").ID, "omp", "commandcode/", "high")
 	started(active(t, st, "Invite a lookalike").ID, "omp", "omphalos-1", "high")
+	started(active(t, st, "Repeat the claude harness").ID, "claude", "claude/", "low")
+	started(active(t, st, "Repeat the omp harness").ID, "omp", "omp/", "high")
 	h := board.New(st, token, board.Options{})
 	rows := checks(get(t, h, "/"))
 	contains(t, "long model row", rows["t1"],
@@ -105,6 +107,10 @@ func TestATaskRowShowsTheShortModel(t *testing.T) {
 		`a5 <span class="model">omp commandcode/</span></span><span class="meta"> · running</span>`)
 	contains(t, "lookalike harness row", rows["t6"],
 		`a6 <span class="model">omp omphalos-1</span></span><span class="meta"> · running</span>`)
+	contains(t, "trailing slash claude row", rows["t7"],
+		`a7 <span class="model">claude</span></span><span class="meta"> · running</span>`)
+	contains(t, "trailing slash omp row", rows["t8"],
+		`a8 <span class="model">omp</span></span><span class="meta"> · running</span>`)
 	lacks(t, "task rows", region(get(t, h, "/"), "tasks"), `<span class="model"></span>`)
 	lacks(t, "long model row", rows["t1"], "commandcode/deepseek/deepseek-v4.1-flash")
 	contains(t, "task page", get(t, h, "/task/t1"), "omp commandcode/deepseek/deepseek-v4.1-flash high")
