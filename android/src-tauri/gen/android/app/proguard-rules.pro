@@ -1,0 +1,2 @@
+-keep class io.github.atqamz.handcompanion.Core { *; }
+-keep class io.github.atqamz.handcompanion.AppHost { *; }

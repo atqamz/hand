@@ -1,0 +1,6 @@
+[workspace]
+members = ["core", "src-tauri"]
+resolver = "3"
+
+[profile.dev]
+debug = "line-tables-only"

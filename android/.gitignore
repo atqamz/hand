@@ -1,0 +1,16 @@
+/target/
+/src-tauri/target/
+*.apk
+*.aab
+*.jks
+*.p12
+*.pfx
+*.keystore
+!/src-tauri/gen/android/app/debug.keystore
+keystore.properties
+local.properties
+.env
+.idea/
+.vscode/
+.DS_Store
+/src-tauri/gen/schemas/

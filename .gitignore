@@ -40,3 +40,5 @@
 *.db-*
 *.lock
 !/iroh/Cargo.lock
+!/android/
+!/android/**
