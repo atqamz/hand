@@ -23,13 +23,11 @@ grep -qx lib/arm64-v8a/libhand_android_lib.so <<<"$entries" || fail "lib/arm64-v
 
 natives=$(grep -ohP 'Java_io_github_atqamz_handcompanion_\K\w+' "$sources/host.rs" || true)
 calls=$(perl -0ne 'print "$1\n" while /call_method\w*\(\s*[^,]+,\s*"(\w+)"/g' "$sources"/*.rs)
-plugins=$(perl -0ne 'print "$1\n" while /register_android_plugin\(\s*"io\.github\.atqamz\.handcompanion"\s*,\s*"(\w+)"/g' "$sources"/*.rs)
-commands=$(perl -0ne 'print "$1\n" while /run_mobile_plugin(?:_async)?(?:::<[^"]*?>)?\(\s*"(\w+)"/g' "$sources"/*.rs)
 
 call_sites=$(grep -ohE 'call_method\w*\(' "$sources"/*.rs | wc -l)
 [[ $(grep -c . <<<"$calls") -eq $call_sites ]] || fail "a call_method names its method by something other than a string literal"
 
-for category in natives calls plugins commands; do
+for category in natives calls; do
   [[ -n ${!category} ]] || fail "no $category found in $sources: the script no longer reads the sources it checks"
 done
 
@@ -46,15 +44,5 @@ while read -r method; do
   [[ -n $method ]] || continue
   require "^M.*[[:space:]]$escaped\.AppHost .* ${method}\(" "AppHost.$method"
 done <<<"$calls"
-
-while read -r plugin; do
-  [[ -n $plugin ]] || continue
-  require "^C.*[[:space:]]$escaped\.${plugin}\$" "$plugin"
-done <<<"$plugins"
-
-while read -r command; do
-  [[ -n $command ]] || continue
-  require "^M.*[[:space:]]$escaped\.[A-Za-z]*Plugin .* ${command}\(" "plugin command $command"
-done <<<"$commands"
 
 exit "$failed"

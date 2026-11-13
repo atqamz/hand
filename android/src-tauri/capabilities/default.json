@@ -1,7 +1,0 @@
-{
-  "$schema": "../gen/schemas/mobile-schema.json",
-  "identifier": "default",
-  "description": "The bundled first screen",
-  "windows": ["main"],
-  "permissions": ["core:default"]
-}

@@ -10,9 +10,7 @@ use std::time::Duration;
 use iroh::endpoint::{Endpoint, QuicTransportConfig, VarInt, presets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio::time::timeout;
-use url::Url;
 
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
 use crate::http::{Request, RequestError, Response, exchange};
@@ -22,8 +20,8 @@ use crate::link::{LINK_REJECTED, Link};
 use crate::open::{NOT_PAIRED, OPEN_REJECTED, parse_open};
 use crate::pair::{PairError, redeem};
 use crate::pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
-use crate::proxy::{self, Proxy, Signal};
-use crate::sessions::{Jar, Paired, SaveError, Sessions};
+use crate::proxy::{self, Proxy};
+use crate::sessions::{Jar, Paired, Sessions};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -41,17 +39,12 @@ pub(crate) fn proxy_url(port: u16, path: &str) -> String {
     format!("http://localhost:{port}{path}")
 }
 
-pub fn proxy_origin(port: u16) -> Url {
-    Url::parse(&proxy_url(port, "/")).expect("the proxy URL parses")
-}
-
 #[derive(Clone)]
 pub struct Companion {
     dialer: Dialer,
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
     store: std::sync::Arc<StdMutex<()>>,
-    signals: std::sync::Arc<StdMutex<Option<UnboundedReceiver<Signal>>>>,
     #[cfg(test)]
     gate: std::sync::Arc<StdMutex<Option<std::sync::Arc<Gate>>>>,
 }
@@ -83,20 +76,14 @@ impl Companion {
             .map_err(|error| StartError::Bind(error.to_string()))?;
         let (proxy, listeners) = Proxy::bind(&config.data_dir).await?;
         let dialer = Dialer::new(endpoint, None);
-        let (signals, receiver) = unbounded_channel();
         for listener in listeners {
-            tokio::spawn(proxy::serve(
-                listener,
-                dialer.clone(),
-                Some(signals.clone()),
-            ));
+            tokio::spawn(proxy::serve(listener, dialer.clone()));
         }
         Ok(Self {
             dialer,
             port: proxy.port(),
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
             store: std::sync::Arc::new(StdMutex::new(())),
-            signals: std::sync::Arc::new(StdMutex::new(Some(receiver))),
             #[cfg(test)]
             gate: std::sync::Arc::new(StdMutex::new(None)),
         })
@@ -157,10 +144,6 @@ impl Companion {
 
     pub fn cancel_pairing(&self) {
         self.pairing.lock().unwrap().clear_pending();
-    }
-
-    pub fn take_signals(&self) -> Option<UnboundedReceiver<Signal>> {
-        self.signals.lock().unwrap().take()
     }
 
     pub async fn forget_laptop(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
@@ -224,7 +207,6 @@ impl Companion {
         name: &str,
         replacing: impl FnOnce(),
     ) -> Result<Vec<Paired>, PairError> {
-        sessions.check().map_err(|_| PairError::Jar)?;
         let (link, generation) = {
             let mut pairing = self.pairing.lock().unwrap();
             let generation = pairing.generation();
@@ -266,9 +248,7 @@ impl Companion {
             }
             sessions
                 .pair(&link.endpoint_id, &paired, replacing)
-                .map_err(|error| match error {
-                    SaveError::Jar | SaveError::Store => PairError::NotSaved,
-                })?;
+                .map_err(|_| PairError::NotSaved)?;
             if pairing.activate(link).is_err() {
                 sessions.mark_unsaved();
             }
@@ -453,6 +433,8 @@ impl From<io::Error> for StartError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
     use crate::http::Method;
     use crate::key::CipherError;
@@ -582,6 +564,19 @@ mod tests {
 
         fn clear(&self) -> io::Result<()> {
             *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    struct UnreadableJar(Arc<AtomicBool>);
+
+    impl Jar for UnreadableJar {
+        fn cookies(&self) -> io::Result<Option<String>> {
+            Err(io::Error::other("the jar is unreadable"))
+        }
+
+        fn clear(&self) -> io::Result<()> {
+            self.0.store(true, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -940,29 +935,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_store_that_cannot_be_read_stops_a_pairing_before_anything_is_taken_or_sent() {
-        struct Unreadable;
-
-        impl Jar for Unreadable {
-            fn cookies(&self) -> io::Result<Option<String>> {
-                Err(io::Error::other("no"))
-            }
-
-            fn clear(&self) -> io::Result<()> {
-                Ok(())
-            }
-        }
+    async fn a_pairing_that_cannot_be_saved_leaves_the_laptop_file_unwritten() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let sessions = Sessions::open(dir.path(), Unreadable, Arc::new(TestCipher)).unwrap();
+        let cipher = Arc::new(crate::testutil::FakeCipher::new());
+        let sessions = Sessions::open(dir.path(), held(None), cipher.clone()).unwrap();
+        sessions.header();
         companion.offer_link(SECOND_LINK).unwrap();
-
-        let result = companion.pair(&sessions, "Pixel", || {}).await;
-
-        assert_eq!(result.err(), Some(PairError::Jar));
-        assert!(companion.pending_offer().is_some());
-        assert!(companion.dialer.target().await.is_none());
         let (link, generation) = take(&companion);
+        cipher.fail_next_seal();
+
         let late = companion
             .settle(
                 &sessions,
@@ -972,8 +954,35 @@ mod tests {
                 || {},
             )
             .await;
+
         assert_eq!(late.err(), Some(PairError::NotSaved));
         assert!(!dir.path().join("laptop").exists());
+    }
+
+    #[tokio::test]
+    async fn a_pairing_whose_jar_cannot_be_read_returns_not_saved_and_changes_nothing() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let jar = UnreadableJar(cleared.clone());
+        let sessions = Sessions::open(dir.path(), jar, Arc::new(TestCipher)).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+
+        let late = companion
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || {},
+            )
+            .await;
+
+        assert_eq!(late.err(), Some(PairError::NotSaved));
+        assert!(!cleared.load(Ordering::SeqCst));
+        assert!(!dir.path().join("laptop").exists());
+        assert!(!dir.path().join("sessions/sessions.sealed").exists());
     }
 
     #[tokio::test]
@@ -1075,12 +1084,6 @@ mod tests {
             format!("http://localhost:{port}/f0123456789ab/task/t3#r5")
         );
         assert_eq!(*reached.lock().unwrap(), ["f0123456789ab"]);
-        let bundled = Url::parse("http://tauri.localhost/").unwrap();
-        assert!(crate::navigation::may_load(
-            &Url::parse(&url).unwrap(),
-            &bundled,
-            Some(&proxy_origin(port))
-        ));
         assert_eq!(
             companion
                 .dialer

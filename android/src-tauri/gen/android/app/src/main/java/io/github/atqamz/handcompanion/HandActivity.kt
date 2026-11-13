@@ -122,6 +122,7 @@ class HandActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
+    lifecycleScope.launch { withContext(Dispatchers.IO) { Core.resume() } }
     checkAlerts()
   }
 

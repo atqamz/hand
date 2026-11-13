@@ -5,7 +5,6 @@ use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::UnboundedSender;
 
 use crate::dialer::Dialer;
 
@@ -58,22 +57,13 @@ impl Proxy {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Signal {
-    Unpaired,
-}
-
-pub async fn serve(
-    listener: TcpListener,
-    dialer: Dialer,
-    signals: Option<UnboundedSender<Signal>>,
-) {
+pub async fn serve(listener: TcpListener, dialer: Dialer) {
     while let Ok((tcp, _)) = listener.accept().await {
-        tokio::spawn(handle(tcp, dialer.clone(), signals.clone()));
+        tokio::spawn(handle(tcp, dialer.clone()));
     }
 }
 
-async fn handle(mut tcp: TcpStream, dialer: Dialer, signals: Option<UnboundedSender<Signal>>) {
+async fn handle(mut tcp: TcpStream, dialer: Dialer) {
     let mut first = vec![0u8; 16 << 10];
     let n = match tcp.read(&mut first).await {
         Ok(0) | Err(_) => return,
@@ -89,7 +79,7 @@ async fn handle(mut tcp: TcpStream, dialer: Dialer, signals: Option<UnboundedSen
     let (mut tcp_read, mut tcp_write) = tcp.into_split();
     let (up, down) = {
         let mut up = std::pin::pin!(upload(&mut tcp_read, &mut send));
-        let mut down = std::pin::pin!(download(&mut recv, &mut tcp_write, &signals));
+        let mut down = std::pin::pin!(download(&mut recv, &mut tcp_write));
         let (mut up_result, mut down_result) = (None, None);
         loop {
             if up_result.is_some() && down_result.is_some() {
@@ -149,14 +139,8 @@ async fn upload(tcp: &mut OwnedReadHalf, send: &mut crate::dialer::StreamSend) -
     }
 }
 
-async fn download(
-    recv: &mut crate::dialer::StreamRecv,
-    tcp: &mut OwnedWriteHalf,
-    signals: &Option<UnboundedSender<Signal>>,
-) -> Side {
+async fn download(recv: &mut crate::dialer::StreamRecv, tcp: &mut OwnedWriteHalf) -> Side {
     let mut buffer = vec![0u8; 16 << 10];
-    let mut head = Vec::new();
-    let mut watching = signals.is_some();
     loop {
         match recv.read(&mut buffer).await {
             Ok(0) => {
@@ -164,21 +148,6 @@ async fn download(
                 return Side::Done;
             }
             Ok(n) => {
-                if watching {
-                    head.extend_from_slice(&buffer[..n]);
-                    if let Some(end) = header_end(&head) {
-                        if unpaired_403(&head[..end])
-                            && let Some(signals) = signals
-                        {
-                            let _ = signals.send(Signal::Unpaired);
-                        }
-                        watching = false;
-                        head = Vec::new();
-                    } else if head.len() >= 16 << 10 {
-                        watching = false;
-                        head = Vec::new();
-                    }
-                }
                 if tcp.write_all(&buffer[..n]).await.is_err() {
                     return Side::Client;
                 }
@@ -188,12 +157,6 @@ async fn download(
             }
         }
     }
-}
-
-fn header_end(head: &[u8]) -> Option<usize> {
-    head.windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|end| end + 4)
 }
 
 pub(crate) fn unpaired_403(head: &[u8]) -> bool {

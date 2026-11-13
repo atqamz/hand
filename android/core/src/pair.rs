@@ -42,7 +42,6 @@ const REFUSED: &str =
 pub enum PairError {
     NoPending,
     NotSaved,
-    Jar,
     Request(RequestError),
     Refused(&'static str),
 }
@@ -52,7 +51,6 @@ impl PairError {
         match self {
             Self::NoPending => "no_pending",
             Self::NotSaved => "not_saved",
-            Self::Jar => "jar",
             Self::Request(error) => error.name(),
             Self::Refused(code) => code,
         }
@@ -65,12 +63,6 @@ impl PairError {
                 "The phone could not save the pairing. Check its storage. ",
                 "The laptop may hold an unfinished device: remove it on the laptop's Phone page, then show a new code and try again."
             ),
-            Self::Jar => {
-                concat!(
-                    "The phone could not read or place its saved web login, so nothing changed. Try again. ",
-                    "If it keeps failing, open that fleet in the web Board, sign this phone out there, and try once more."
-                )
-            }
             Self::Request(RequestError::Busy) => "Your laptop is busy. Try again in a moment.",
             Self::Request(RequestError::NoLaptop | RequestError::Unreachable) => {
                 "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet."
@@ -280,8 +272,6 @@ mod tests {
         ] {
             assert!(unfinished.contains("remove it on the laptop's Phone page"));
         }
-        assert!(PairError::Jar.message().contains("nothing changed"));
-        assert!(PairError::Jar.message().contains("sign this phone out"));
     }
 
     #[test]

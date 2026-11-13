@@ -13,6 +13,6 @@ for f in "$dir"/changelogs/*; do
   [[ $(basename "$f") =~ ^[0-9]+\.txt$ ]] || fail "$f is not named <versionCode>.txt"
   limit "$f" 500
 done
-code=$(jq -r .bundle.android.versionCode src-tauri/tauri.conf.json)
+code=$(sed -n 's/^versionCode=//p' version.properties)
 [ -f "$dir/changelogs/$code.txt" ] || fail "changelogs/$code.txt is missing"
 [[ $(file -b "$dir/images/icon.png") == "PNG image data, 512 x 512,"* ]] || fail "images/icon.png is not a 512x512 PNG"

@@ -14,8 +14,6 @@ object Core {
 
   @JvmStatic private external fun nativeStart(dataDir: String, host: Any, context: Context): String?
 
-  @JvmStatic external fun releaseContext()
-
   @JvmStatic external fun paired(): Boolean
 
   @JvmStatic external fun fleets(): String?
@@ -37,6 +35,8 @@ object Core {
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()
+
+  @JvmStatic external fun resume()
 
   @JvmStatic
   external fun request(
