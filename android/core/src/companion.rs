@@ -51,6 +51,14 @@ pub struct Companion {
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
     signals: std::sync::Arc<StdMutex<Option<UnboundedReceiver<Signal>>>>,
+    #[cfg(test)]
+    gate: std::sync::Arc<StdMutex<Option<std::sync::Arc<Gate>>>>,
+}
+
+#[cfg(test)]
+struct Gate {
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
 }
 
 impl Companion {
@@ -87,6 +95,8 @@ impl Companion {
             port: proxy.port(),
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
             signals: std::sync::Arc::new(StdMutex::new(Some(receiver))),
+            #[cfg(test)]
+            gate: std::sync::Arc::new(StdMutex::new(None)),
         })
     }
 
@@ -113,13 +123,25 @@ impl Companion {
     pub async fn open_board(&self) -> Result<Option<String>, ConfirmError> {
         let active = {
             let pairing = self.pairing.lock().unwrap();
-            pairing.active().map(str::to_owned)
+            pairing.active().map(|active| {
+                (
+                    active.to_owned(),
+                    pairing.active_relay().map(str::to_owned),
+                    pairing.generation(),
+                )
+            })
         };
-        let Some(active) = active else {
+        let Some((active, relay, generation)) = active else {
             return Ok(None);
         };
-        let target = parse_target(&active, None).map_err(ConfirmError::Target)?;
+        let target = parse_target(&active, relay.as_deref()).map_err(ConfirmError::Target)?;
+        #[cfg(test)]
+        self.pass_gate().await;
         self.dialer.set_target(Some(target)).await;
+        if self.pairing.lock().unwrap().generation() != generation {
+            self.dialer.set_target(None).await;
+            return Ok(None);
+        }
         self.dialer.attempt().await?;
         Ok(Some(proxy_url(self.port, "/")))
     }
@@ -139,9 +161,28 @@ impl Companion {
         self.signals.lock().unwrap().take()
     }
 
-    pub async fn forget_laptop(&self) -> io::Result<()> {
+    pub async fn forget_laptop(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        let forgotten = {
+            let mut pairing = self.pairing.lock().unwrap();
+            clear()?;
+            pairing.forget()
+        };
         self.dialer.set_target(None).await;
-        self.pairing.lock().unwrap().forget()
+        forgotten
+    }
+
+    #[cfg(test)]
+    fn arm_gate(&self, gate: std::sync::Arc<Gate>) {
+        *self.gate.lock().unwrap() = Some(gate);
+    }
+
+    #[cfg(test)]
+    async fn pass_gate(&self) {
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.reached.notify_one();
+            gate.resume.notified().await;
+        }
     }
 
     pub async fn confirm(
@@ -182,14 +223,21 @@ impl Companion {
         replacing: impl FnOnce(),
     ) -> Result<Vec<Paired>, PairError> {
         sessions.check().map_err(|_| PairError::Jar)?;
-        let link = self.pairing.lock().unwrap().take();
+        let (link, generation) = {
+            let mut pairing = self.pairing.lock().unwrap();
+            let generation = pairing.generation();
+            (pairing.take(), generation)
+        };
         let link = link.ok_or(PairError::NoPending)?;
         let target = link.target().map_err(|_| PairError::NoPending)?;
         let dialer = Dialer::new(self.dialer.endpoint().clone(), Some(target));
         let redeemed = redeem(&dialer, &link, name).await;
         dialer.disconnect().await;
         match redeemed {
-            Ok(paired) => self.settle(sessions, &link, paired, replacing).await,
+            Ok(paired) => {
+                self.settle(sessions, &link, generation, paired, replacing)
+                    .await
+            }
             Err(error) => {
                 self.pairing.lock().unwrap().restore(link);
                 Err(error)
@@ -201,19 +249,32 @@ impl Companion {
         &self,
         sessions: &Sessions<J>,
         link: &Link,
+        generation: u64,
         paired: Vec<Paired>,
         replacing: impl FnOnce(),
     ) -> Result<Vec<Paired>, PairError> {
+        #[cfg(test)]
+        self.pass_gate().await;
         let target = link.target().map_err(|_| PairError::NoPending)?;
-        sessions
-            .pair(&link.endpoint_id, &paired, replacing)
-            .map_err(|error| match error {
-                SaveError::Jar | SaveError::Store => PairError::NotSaved,
-            })?;
-        if self.pairing.lock().unwrap().activate(link).is_err() {
-            sessions.mark_unsaved();
+        {
+            let mut pairing = self.pairing.lock().unwrap();
+            if pairing.generation() != generation {
+                return Err(PairError::NoPending);
+            }
+            sessions
+                .pair(&link.endpoint_id, &paired, replacing)
+                .map_err(|error| match error {
+                    SaveError::Jar | SaveError::Store => PairError::NotSaved,
+                })?;
+            if pairing.activate(link).is_err() {
+                sessions.mark_unsaved();
+            }
         }
         self.dialer.set_target(Some(target)).await;
+        if self.pairing.lock().unwrap().generation() != generation {
+            self.dialer.set_target(None).await;
+            return Err(PairError::NoPending);
+        }
         Ok(paired)
     }
 
@@ -238,12 +299,24 @@ impl Companion {
             if pairing.pending().is_some() {
                 return Err(OpenLinkError::Pending);
             }
-            pairing.active().map(str::to_owned)
+            pairing.active().map(|active| {
+                (
+                    active.to_owned(),
+                    pairing.active_relay().map(str::to_owned),
+                    pairing.generation(),
+                )
+            })
         };
         let link = parse_open(text).ok_or(OpenLinkError::Rejected)?;
-        let active = active.ok_or(OpenLinkError::NotPaired)?;
-        let target = parse_target(&active, None).map_err(ConfirmError::Target)?;
+        let (active, relay, generation) = active.ok_or(OpenLinkError::NotPaired)?;
+        let target = parse_target(&active, relay.as_deref()).map_err(ConfirmError::Target)?;
+        #[cfg(test)]
+        self.pass_gate().await;
         self.dialer.set_target(Some(target)).await;
+        if self.pairing.lock().unwrap().generation() != generation {
+            self.dialer.set_target(None).await;
+            return Err(OpenLinkError::NotPaired);
+        }
         reach(link.fleet.clone()).await?;
         Ok(proxy_url(self.port, &link.path()))
     }
@@ -487,6 +560,12 @@ mod tests {
         );
     }
 
+    fn take(companion: &Companion) -> (Link, u64) {
+        let mut pairing = companion.pairing.lock().unwrap();
+        let generation = pairing.generation();
+        (pairing.take().unwrap(), generation)
+    }
+
     struct HeldJar(StdMutex<Option<&'static str>>);
 
     fn held(cookie: Option<&'static str>) -> HeldJar {
@@ -564,11 +643,17 @@ mod tests {
         assert!(sessions.header().is_some());
         let offer = companion.offer_link(SECOND_LINK).unwrap();
         assert!(offer.replaces);
-        let link = companion.pairing.lock().unwrap().take().unwrap();
+        let (link, generation) = take(&companion);
         let mut stopped = 0;
 
         let fleets = companion
-            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || stopped += 1)
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || stopped += 1,
+            )
             .await
             .unwrap();
 
@@ -606,13 +691,19 @@ mod tests {
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
         companion.offer_link(SECOND_LINK).unwrap();
-        let link = companion.pairing.lock().unwrap().take().unwrap();
+        let (link, generation) = take(&companion);
         assert!(companion.pending_offer().is_none());
         companion.cancel_pairing();
         companion.offer_link(LINK).unwrap();
 
         companion
-            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || {})
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || {},
+            )
             .await
             .unwrap();
 
@@ -639,16 +730,26 @@ mod tests {
         let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
         std::fs::create_dir(dir.path().join("laptop")).unwrap();
         companion.offer_link(SECOND_LINK).unwrap();
-        let link = companion.pairing.lock().unwrap().take().unwrap();
+        let (link, generation) = take(&companion);
 
         let paired = companion
-            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || {})
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || {},
+            )
             .await
             .unwrap();
 
         assert_eq!(paired.len(), 1);
         assert!(sessions.unsaved());
         assert!(sessions.header().is_some());
+        assert_eq!(
+            companion.pairing.lock().unwrap().active(),
+            Some(link.endpoint_id.as_str())
+        );
         assert_eq!(
             companion
                 .dialer
@@ -657,6 +758,136 @@ mod tests {
                 .map(|target| target.id.to_string()),
             Some(link.endpoint_id.clone())
         );
+    }
+
+    #[tokio::test]
+    async fn a_pairing_taken_before_a_forget_does_not_keep_the_laptop() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+
+        companion.forget_laptop(|| Ok(())).await.unwrap();
+        let result = companion
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || {},
+            )
+            .await;
+
+        assert_eq!(result.err(), Some(PairError::NoPending));
+        assert!(companion.pairing.lock().unwrap().active().is_none());
+        assert!(sessions.header().is_none());
+        assert!(!dir.path().join("laptop").exists());
+        assert!(companion.dialer.target().await.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_forget_that_lands_while_a_pairing_commits_leaves_no_store_laptop_or_target() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        let sessions =
+            Arc::new(Sessions::open(dir.path(), held(Some(old)), Arc::new(TestCipher)).unwrap());
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+        let (done, settled) = std::sync::mpsc::channel();
+        let gate = Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        companion.arm_gate(gate.clone());
+        let pairing = {
+            let companion = companion.clone();
+            let sessions = sessions.clone();
+            tokio::spawn(async move {
+                let result = companion
+                    .settle(
+                        &sessions,
+                        &link,
+                        generation,
+                        answered("fa1b2c3d4e5f6"),
+                        || {},
+                    )
+                    .await;
+                let _ = done.send(());
+                result
+            })
+        };
+
+        gate.reached.notified().await;
+        let cleared = {
+            let sessions = sessions.clone();
+            companion
+                .forget_laptop(move || {
+                    let cleared = sessions.forget();
+                    gate.resume.notify_one();
+                    let _ = settled.recv_timeout(Duration::from_secs(1));
+                    cleared
+                })
+                .await
+        };
+
+        let result = pairing.await.unwrap();
+        assert!(cleared.is_ok());
+        assert_eq!(result.err(), Some(PairError::NoPending));
+        assert!(sessions.header().is_none());
+        assert!(companion.pairing.lock().unwrap().active().is_none());
+        assert!(!dir.path().join("laptop").exists());
+        assert!(companion.dialer.target().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_forget_between_reading_a_laptop_and_dialing_it_leaves_no_target() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let gate = std::sync::Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        companion.arm_gate(gate.clone());
+        let opening = {
+            let companion = companion.clone();
+            tokio::spawn(async move { companion.open_board().await })
+        };
+        gate.reached.notified().await;
+        companion.forget_laptop(|| Ok(())).await.unwrap();
+        gate.resume.notify_one();
+
+        assert_eq!(opening.await.unwrap().unwrap(), None);
+        assert!(companion.dialer.target().await.is_none());
+        assert!(!dir.path().join("laptop").exists());
+    }
+
+    #[tokio::test]
+    async fn a_forget_between_reading_a_laptop_and_an_open_link_leaves_no_target() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let gate = std::sync::Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        companion.arm_gate(gate.clone());
+        let opening = {
+            let companion = companion.clone();
+            tokio::spawn(async move { companion.open_link_after(OPEN, |_| async { Ok(()) }).await })
+        };
+        gate.reached.notified().await;
+        companion.forget_laptop(|| Ok(())).await.unwrap();
+        gate.resume.notify_one();
+
+        assert!(matches!(
+            opening.await.unwrap(),
+            Err(OpenLinkError::NotPaired)
+        ));
+        assert!(companion.dialer.target().await.is_none());
+        assert!(!dir.path().join("laptop").exists());
     }
 
     #[tokio::test]
@@ -682,9 +913,15 @@ mod tests {
         assert_eq!(result.err(), Some(PairError::Jar));
         assert!(companion.pending_offer().is_some());
         assert!(companion.dialer.target().await.is_none());
-        let link = companion.pairing.lock().unwrap().take().unwrap();
+        let (link, generation) = take(&companion);
         let late = companion
-            .settle(&sessions, &link, answered("fa1b2c3d4e5f6"), || {})
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || {},
+            )
             .await;
         assert_eq!(late.err(), Some(PairError::NotSaved));
         assert!(!dir.path().join("laptop").exists());
@@ -702,6 +939,26 @@ mod tests {
 
     const OPEN: &str = "handboard://open/f0123456789ab/task/t3#r5";
     const LAPTOP: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
+    const RELAY: &str = "https://relay.example.test:7842/";
+
+    #[tokio::test]
+    async fn a_saved_relay_is_dialed_when_a_link_reopens_the_board() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n{RELAY}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+
+        companion
+            .open_link_after(OPEN, |_| async { Ok(()) })
+            .await
+            .unwrap();
+
+        let target = companion.dialer.target().await.unwrap();
+        assert_eq!(target.id.to_string(), LAPTOP);
+        assert_eq!(
+            target.relay_urls().next().map(|relay| relay.to_string()),
+            Some(RELAY.to_owned())
+        );
+    }
 
     #[tokio::test]
     async fn an_open_link_with_no_laptop_dials_nothing_and_says_to_pair_first() {

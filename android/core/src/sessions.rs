@@ -121,7 +121,7 @@ impl<J: Jar> Sessions<J> {
             .into_iter()
             .filter(|(id, value)| !next.retired.iter().any(|retired| same(retired, id, value)))
             .collect();
-        import(&mut next, read_laptop(&self.root), &jar);
+        import(&mut next, read_laptop(&self.root).0, &jar);
         Ok((next, jar))
     }
 

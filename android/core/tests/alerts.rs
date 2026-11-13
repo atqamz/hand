@@ -1037,6 +1037,33 @@ impl CookieSource for BlocksThenNone {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forgetting_while_a_refusal_is_in_flight_posts_no_unpaired_notice() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(4, vec![]),
+        _ => Reply::status(403)
+            .header("X-Hand-Error", GONE)
+            .header("Transfer-Encoding", "chunked")
+            .held(Duration::from_millis(600)),
+    })
+    .await;
+    let feed = Arc::new(harness.feed());
+    let task = {
+        let feed = feed.clone();
+        let sink = harness.sink.clone();
+        tokio::spawn(async move { feed.run(FLEET, &Cookies, &sink, false).await })
+    };
+    assert!(wait_for(|| harness.board.seen().len() >= 2).await);
+
+    feed.forget_cursors();
+
+    assert_eq!(task.await.unwrap(), Stop::Forgotten);
+    assert!(harness.sink.unpaired().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn forgetting_while_the_cookie_read_blocks_posts_no_unpaired_notice() {
     let Some(bin) = sidecar_bin() else {
         return;
