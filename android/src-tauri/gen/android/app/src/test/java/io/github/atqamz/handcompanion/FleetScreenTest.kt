@@ -127,6 +127,10 @@ class FleetScreenTest {
 
   @Test fun notLoadedLight() = shot(false, "f000000000003", FleetState(name = "atlas", tab = Tab.Needs))
 
+  @Test fun tappedBeforeAnswerLight() = shot(false, "f000000000003", FleetState(name = "atlas", tab = Tab.Tasks))
+
+  @Test fun tappedBeforeAnswerDark() = shot(true, "f000000000003", FleetState(name = "atlas", tab = Tab.Tasks))
+
   @Test fun firstFrameLight() = shot(false, "f000000000003", FleetState(name = "atlas"))
 
   @Test fun firstFrameDark() = shot(true, "f000000000003", FleetState(name = "atlas"))

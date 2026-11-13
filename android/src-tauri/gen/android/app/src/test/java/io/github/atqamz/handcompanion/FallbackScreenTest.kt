@@ -24,7 +24,7 @@ private val rows =
     FleetRow("f000000000005", "orchard", Badge("2 waiting", Tone.Wait), 3, pill = Badge("working", Tone.Accent), seen = "12:41")
   )
 
-private val connected = FleetsState("4d92…6ed6", rows)
+private val connected = FleetsState("4d92…6ed6", rows, loaded = true)
 
 private val fleet =
   FleetState(
@@ -71,6 +71,14 @@ class FallbackScreenTest {
   @Test fun fallbackLight() = shot(false, web)
 
   @Test fun fallbackDark() = shot(true, web)
+
+  private val webLoading: @Composable () -> Unit = {
+    FallbackScreen("f000000000003", "atlas", "/f000000000003/task/t40#r91", {}) { BoardBody(null, {}) {} }
+  }
+
+  @Test fun webLoadingLight() = shot(false, webLoading)
+
+  @Test fun webLoadingDark() = shot(true, webLoading)
 
   @Test
   fun fleetMenuLight() =

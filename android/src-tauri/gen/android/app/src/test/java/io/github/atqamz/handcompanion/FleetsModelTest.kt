@@ -93,6 +93,22 @@ class FleetsModelTest {
   }
 
   @Test
+  fun theLauncherShowsLoadingUntilItsFirstAnswer() {
+    val model = model(Laptop { fleet, _ -> both(fleet) })
+    assertEquals(FleetsBody.Loading, fleetsBody(model.state.value))
+    runBlocking { model.refresh() }
+    assertEquals(FleetsBody.Rows, fleetsBody(model.state.value))
+  }
+
+  @Test
+  fun aFirstAnswerWithNoFleetStillEndsTheLoadingLine() {
+    val model = FleetsModel(Laptop { _, _ -> blocked }, { emptyList() }, { "4d92…6ed6" })
+    runBlocking { model.refresh() }
+    assertTrue(model.state.value.rows.isEmpty())
+    assertEquals(FleetsBody.Rows, fleetsBody(model.state.value))
+  }
+
+  @Test
   fun anUnchangedPollKeepsTheRowAndMovesTheTimeSeen() {
     val laptop = Laptop { fleet, path ->
       if (path.contains("since=")) Raw(304, "") else both(fleet)
