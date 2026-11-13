@@ -16,9 +16,10 @@ import (
 const awayBy = 48
 
 type row struct {
-	Entry Entry
-	Day   string
-	Dated bool
+	Entry        Entry
+	Day          string
+	Dated        bool
+	ModelChanged bool
 }
 
 func parseAt(at string) (time.Time, bool) {
@@ -46,6 +47,7 @@ func clockOf(at string, dated bool) string {
 func timelineRows(newest []Entry) []row {
 	rows := make([]row, 0, len(newest)+2)
 	prev, split := "", false
+	ref, model := "", ""
 	for i := len(newest) - 1; i >= 0; i-- {
 		e := newest[i]
 		if t, ok := parseAt(e.At); ok {
@@ -56,9 +58,88 @@ func timelineRows(newest []Entry) []row {
 			}
 			prev = day
 		}
-		rows = append(rows, row{Entry: e, Dated: !split})
+		r := row{Entry: e, Dated: !split}
+		if e.Role == "supervisor" {
+			r.ModelChanged = e.Model != "" && (e.Ref != ref || e.Model != model)
+			ref, model = e.Ref, e.Model
+		}
+		rows = append(rows, r)
 	}
 	return rows
+}
+
+func applyTimelineUpsert(have Timeline, ev TimelineEvent) Timeline {
+	if ev.Snapshot {
+		have = Timeline{Live: ev.Live, Note: ev.Note, Working: ev.Working, Older: max(ev.To-len(ev.Entries), 0)}
+		have.Entries = append([]Entry(nil), ev.Entries...)
+		return have
+	}
+	drop := make(map[string]bool, len(ev.Drop))
+	for _, key := range ev.Drop {
+		drop[key] = true
+	}
+	kept := have.Entries[:0:0]
+	for _, e := range have.Entries {
+		if !drop[entryKey(e)] {
+			kept = append(kept, e)
+		}
+	}
+	have.Entries = kept
+	if ev.Working != nil {
+		have.Working = ev.Working
+	}
+	for _, e := range ev.Entries {
+		key := entryKey(e)
+		at, _ := parseAt(e.At)
+		replaced := false
+		for i := range have.Entries {
+			if entryKey(have.Entries[i]) != key {
+				continue
+			}
+			if e.Key == "" {
+				e.Key = have.Entries[i].Key
+			}
+			have.Entries[i] = e
+			replaced = true
+			break
+		}
+		if replaced {
+			continue
+		}
+		pos := len(have.Entries)
+		for i := range have.Entries {
+			other, ok := parseAt(have.Entries[i].At)
+			if ok && at.After(other) {
+				pos = i
+				break
+			}
+		}
+		have.Entries = append(have.Entries, Entry{})
+		copy(have.Entries[pos+1:], have.Entries[pos:])
+		have.Entries[pos] = e
+	}
+	return have
+}
+
+func newSupervisorReplies(have, next Timeline) int {
+	if len(have.Entries) == 0 {
+		return 0
+	}
+	seen := make(map[string]bool, len(have.Entries))
+	newest := ""
+	for _, e := range have.Entries {
+		seen[entryKey(e)] = true
+		if e.Role == "supervisor" && (newest == "" || e.At > newest) {
+			newest = e.At
+		}
+	}
+	n := 0
+	for _, e := range next.Entries {
+		if e.Role == "supervisor" && !seen[entryKey(e)] && (newest == "" || e.At > newest) {
+			n++
+		}
+	}
+	return n
 }
 
 func elapsed(since string, now time.Time) string {
@@ -100,13 +181,7 @@ func (a *App) now() time.Time {
 	return time.Now()
 }
 
-func (a *App) timelineEntries(c *ui.Context, p palette) {
-	if a.Timeline.Live {
-		ui.Row(c).Children(func() {
-			ui.Spacer(c)
-			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
-		})
-	}
+func (a *App) timelineEntries(c *ui.Context, p palette, column float32) {
 	if a.Timeline.Older > 0 {
 		if ui.Button(c.Key("timeline:older"), "Older messages").Clicked() {
 			a.Older()
@@ -130,12 +205,12 @@ func (a *App) timelineEntries(c *ui.Context, p palette) {
 			gap = kit.Space6
 		}
 		quiet = line
-		ui.Column(c).Margin(gap, 0, 0).Children(func() { a.timelineRow(c, p, measure, r) })
+		ui.Column(c).Margin(gap, 0, 0).Children(func() { a.timelineRow(c, p, measure, column, r) })
 	}
 	a.working(c, p)
 }
 
-func (a *App) timelineRow(c *ui.Context, p palette, measure float32, r row) {
+func (a *App) timelineRow(c *ui.Context, p palette, measure, column float32, r row) {
 	e := r.Entry
 	switch {
 	case r.Day != "":
@@ -145,21 +220,21 @@ func (a *App) timelineRow(c *ui.Context, p palette, measure float32, r row) {
 	case e.Role == "wakes" && len(e.Wakes) > 0:
 		a.wakes(c, p, e, r.Dated)
 	case e.Role == "supervisor":
-		ui.Row(c).Children(func() {
-			a.bubble(c, p, measure, r, false)
+		ui.Row(c).FillWidth().Children(func() {
+			a.bubble(c, p, measure, column, r, false)
 			ui.Spacer(c)
 		})
 	default:
-		ui.Row(c).Children(func() {
+		ui.Row(c).FillWidth().Children(func() {
 			ui.Spacer(c)
-			a.bubble(c, p, measure, r, true)
+			a.bubble(c, p, measure, column, r, true)
 		})
 	}
 }
 
 func (a *App) dayDivider(c *ui.Context, p palette, day string) {
 	rule := func() { ui.Box(c).Grow(1).Height(1).Background(p.line) }
-	ui.Row(c).Gap(kit.Space12).Padding(kit.Space6, 0).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Gap(kit.Space12).Padding(kit.Space6, 0).AlignItems(ui.Center).Children(func() {
 		rule()
 		ui.Row(c).Height(kit.Badge).Padding(0, kit.Space8).Radius(kit.RadiusPill).Border(1, p.line).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, day).FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).SingleLine()
@@ -181,7 +256,7 @@ func (a *App) handLine(c *ui.Context, p palette, text, at string, dated bool) {
 }
 
 func (a *App) wakes(c *ui.Context, p palette, e Entry, dated bool) {
-	key := fmt.Sprintf("%s/%d/%s", a.Fleet.ID, e.No, e.At)
+	key := "wakes/" + e.Wakes[0].At
 	open := a.wakesOpen[key]
 	head := ui.ButtonBase(c.Key("wakes:" + key)).Height(kit.Meta.Line).Gap(kit.Space8).Justify(ui.Start).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Label(fmt.Sprintf("%d wakes", len(e.Wakes)))
@@ -209,30 +284,34 @@ func (a *App) wakes(c *ui.Context, p palette, e Entry, dated bool) {
 	}
 }
 
-func (a *App) bubble(c *ui.Context, p palette, measure float32, r row, you bool) {
+func (a *App) bubble(c *ui.Context, p palette, measure, column float32, r row, you bool) {
 	e := r.Entry
 	who, tone, bg := roleName(e), p.neutral, p.card
 	box := ui.Column(c).Gap(kit.Space4).Label("Message from " + who)
+	maxW := min(column, measure+28)
 	if you {
 		tone, bg = p.accent, p.accentBG
+		maxW = min(maxW, column*.88, 560)
 		box.Padding(kit.Space10, kit.Space14, kit.Space12).Radius(kit.RadiusLG, kit.RadiusLG, kit.RadiusSM, kit.RadiusLG).
-			Background(bg).MaxWidthPercent(88).MaxWidth(560)
+			Background(bg).MaxWidth(maxW)
 	} else {
-		box.Padding(9, 13, 11).Radius(kit.RadiusLG).Background(bg).Border(1, p.lineStrong).MaxWidth(measure + 30)
+		box.Padding(9, 13, 11).Radius(kit.RadiusLG).Background(bg).Border(1, p.lineStrong).MaxWidth(maxW)
 	}
 	box.Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Baseline).Children(func() {
 			ui.Text(c, who).FontSize(kit.Meta.Size).Bold().TextColor(tone).SingleLine()
-			if e.Model != "" {
+			ui.Text(c, clockOf(e.At, r.Dated)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
+			if !you && r.ModelChanged {
 				ui.Text(c, e.Model).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 			}
-			ui.Text(c, clockOf(e.At, r.Dated)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 			ui.Spacer(c)
-			switch {
-			case e.Queued || e.Delivery == "queued":
-				ui.Text(c, "queued").FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
-			case e.Delivery != "":
-				ui.Text(c, strings.TrimSpace(e.Delivery+" "+clockOf(e.Delivered, false))).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
+			if you {
+				switch {
+				case e.Queued || e.Delivery == "queued":
+					ui.Text(c, "queued").FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
+				case e.Delivery != "":
+					ui.Text(c, strings.TrimSpace(e.Delivery+" "+clockOf(e.Delivered, false))).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
+				}
 			}
 		})
 		switch {
@@ -252,24 +331,50 @@ func (a *App) working(c *ui.Context, p palette) {
 	if w == nil {
 		return
 	}
-	ui.Row(c).Gap(kit.Space8).Padding(kit.Space10, 0).AlignItems(ui.Start).Children(func() {
+	ui.Row(c).FillWidth().Gap(kit.Space8).Padding(kit.Space10, 0).AlignItems(ui.Start).Children(func() {
 		ui.Box(c).Size(8, 8).Margin(5, 0, 0).Radius(kit.RadiusPill).Background(p.accent)
-		ui.Text(c, w.Ref+" working").FontSize(kit.Meta.Size).LineHeight(1.5).Bold()
+		ui.Text(c, w.Ref+" working").FontSize(kit.Meta.Size).LineHeight(1.5).Bold().SingleLine().Shrink(0)
 		ui.Text(c, "· "+workingText(w, a.now())).FontSize(kit.Meta.Size).LineHeight(1.5).TextColor(p.neutral).MinWidth(0)
+		if a.Timeline.Live {
+			ui.Spacer(c)
+			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
+		}
 	})
 }
 
 func (a *App) away() bool { return a.scroll.MaxY-a.scroll.Y > awayBy }
 
 func (a *App) latest(c *ui.Context, k kit.Colors) {
-	if !a.away() {
-		return
-	}
-	b := ui.ButtonBase(c.Key("timeline:latest")).Absolute().Top(-kit.Control-13).Right(-1).Size(kit.Control, kit.Control).
-		Radius(kit.RadiusPill).Border(1, k.LineStrong).Background(k.Panel).Justify(ui.Center).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).Label("Scroll to latest message")
-	b.Children(func() { ui.Icon(c, kit.Icon("down")).TextColor(k.FG) })
-	if b.Clicked() {
-		a.scroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
-	}
+	box := ui.Box(c).Absolute().Top(-kit.Control-13).Right(-1).Size(kit.Control, kit.Control)
+	box.Children(func() {
+		if !a.away() {
+			return
+		}
+		label := "Scroll to latest message"
+		switch n := a.latestNew; {
+		case n == 1:
+			label = "Scroll to latest, 1 new message"
+		case n > 1:
+			label = fmt.Sprintf("Scroll to latest, %d new messages", n)
+		}
+		b := ui.ButtonBase(c.Key("timeline:latest")).Size(kit.Control, kit.Control).
+			Radius(kit.RadiusPill).Border(1, k.LineStrong).Background(k.Panel).Justify(ui.Center).AlignItems(ui.Center).
+			Cursor(ui.CursorPointer).KeepFocus().Label(label).
+			Transition(ui.ElementTransition{
+				Duration: 150 * time.Millisecond, Position: true,
+				Enter: &ui.Motion{Y: 8, Opacity: 0}, Exit: &ui.Motion{Y: 8, Opacity: 0},
+			})
+		b.Children(func() { ui.Icon(c, kit.Icon("down")).TextColor(k.FG) })
+		if b.Clicked() {
+			a.latestNew = 0
+			a.scroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
+		}
+		if n := a.latestNew; n > 0 {
+			count := strconv.Itoa(n)
+			if n > 99 {
+				count = "99+"
+			}
+			ui.Badge(c, count).Absolute().Top(-6).Right(-8).Background(k.Primary).TextColor(k.OnPrimary)
+		}
+	})
 }

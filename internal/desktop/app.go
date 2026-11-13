@@ -142,6 +142,7 @@ type App struct {
 	stopRef   string
 	scroll    ui.ScrollState
 	wakesOpen map[string]bool
+	latestNew int
 
 	polling    bool
 	closed     bool
@@ -439,8 +440,7 @@ func (a *App) Older() {
 			return
 		}
 		a.OlderErr = ""
-		merged := a.Timeline
-		merged.Entries = append(append([]Entry(nil), a.Timeline.Entries...), tl.Entries...)
+		merged := applyTimelineUpsert(a.Timeline, TimelineEvent{Entries: tl.Entries})
 		merged.Older = tl.Older
 		a.Timeline = merged
 	}
@@ -1222,7 +1222,13 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.watchDeny()
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
-		a.Timeline, a.pollTimeline = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor
+		next := mergeTimeline(a.Timeline, p.Timeline)
+		if a.away() {
+			a.latestNew += newSupervisorReplies(a.Timeline, next)
+		} else {
+			a.latestNew = 0
+		}
+		a.Timeline, a.pollTimeline = next, p.TimelineCursor
 	}
 	if a.Fleet.ID == fleet {
 		a.TimelineErr = a.reads[readTimeline].err
@@ -1290,7 +1296,10 @@ func mergeTimeline(have, next Timeline) Timeline {
 }
 
 func entryKey(e Entry) string {
-	if e.Input != 0 {
+	switch {
+	case e.Key != "":
+		return e.Key
+	case e.Input != 0:
 		return fmt.Sprintf("i%d", e.Input)
 	}
 	return fmt.Sprintf("%s/%s/%s", e.Role, e.At, e.Text)

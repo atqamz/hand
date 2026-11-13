@@ -75,15 +75,23 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 		}
 		if !a.away() {
 			a.scroll.Y = math.MaxFloat32
+			a.latestNew = 0
 		}
-		scroll := ui.Scroll(c.Key("chat-scroll")).Label("The conversation").Grow(1).Padding(16).TrackScroll(&a.scroll)
-		held := max(scroll.Bounds().H-32, 0)
-		if held != a.chatH {
-			a.chatH = held
-			c.Invalidate()
-		}
-		scroll.Children(func() {
-			ui.Column(c).Selectable().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, p) })
+		m := composerMargin(width)
+		column := max(width-2*m, 0)
+		feed := ui.Column(c).Grow(1).MinHeight(0)
+		feed.Children(func() {
+			scroll := ui.Scroll(c.Key("chat-scroll")).Label("The conversation").Grow(1).Padding(kit.Space16, m, kit.Space16, m).TrackScroll(&a.scroll)
+			held := max(scroll.Bounds().H-32, 0)
+			if held != a.chatH {
+				a.chatH = held
+				c.Invalidate()
+			}
+			scroll.Children(func() {
+				ui.Column(c).Selectable().FillWidth().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, p, column) })
+			})
+			ui.Box(c).Absolute().Top(0).Left(m).Right(m).Height(kit.Space16).
+				Gradient(p.panel, p.panel.Alpha(0), 180).IgnoreInput(true)
 		})
 		a.composer(c, k, p, width)
 	})

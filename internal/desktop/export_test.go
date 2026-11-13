@@ -9,3 +9,7 @@ func SetOpenTimeout(d time.Duration) func() {
 }
 
 var LocalRoot = localRoot
+
+func SetLatestNew(a *App, n int) { a.latestNew = n }
+
+func LatestNew(a *App) int { return a.latestNew }
