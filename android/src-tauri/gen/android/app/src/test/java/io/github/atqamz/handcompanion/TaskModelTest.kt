@@ -331,12 +331,10 @@ class TaskModelTest {
     delay(100)
     assertEquals(1, reads(board))
     val again = launch(Dispatchers.Default) { task.run() }
-    withTimeout(5_000) {
-      while (reads(board) < 3) {
-        if (reads(board) >= 2) bus.publish(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}""")
-        delay(10)
-      }
-    }
+    withTimeout(5_000) { while (reads(board) < 2) delay(5) }
+    delay(100)
+    bus.publish(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}""")
+    withTimeout(5_000) { while (reads(board) < 3) delay(5) }
     again.cancelAndJoin()
     assertEquals(3, reads(board))
   }
