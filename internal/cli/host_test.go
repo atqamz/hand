@@ -123,11 +123,11 @@ func TestHostMarkerFromAnotherHostRefusesWhileFresh(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")
 	dead, _, _ := seedLiveAttempts(t, home)
-	putMarker(t, h, "laptop", "boot-x", 30*time.Second)
+	putMarker(t, h, "bench", "boot-x", 30*time.Second)
 	before, events := markerBytes(t, h), eventCount(t, home, "")
 	for _, args := range [][]string{{"orient"}, {"task", "list"}} {
 		_, errOut, code := h.run(args...)
-		if code != 3 || !strings.Contains(errOut, "open on host laptop") || !strings.Contains(errOut, "hand fleet unlock") {
+		if code != 3 || !strings.Contains(errOut, "open on host bench") || !strings.Contains(errOut, "hand fleet unlock") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
 		}
 	}
@@ -139,7 +139,7 @@ func TestHostMarkerFromAnotherHostRefusesWhileFresh(t *testing.T) {
 		t.Fatalf("at 90s: code=%d stderr=%q", code, errOut)
 	}
 	h.advance(time.Second)
-	if _, errOut, code := h.run("orient"); code != 0 || !strings.Contains(errOut, "took over from host laptop") {
+	if _, errOut, code := h.run("orient"); code != 0 || !strings.Contains(errOut, "took over from host bench") {
 		t.Fatalf("at 91s: code=%d stderr=%q", code, errOut)
 	}
 }
@@ -148,9 +148,9 @@ func TestHostMarkerStaleFromAnotherHostIsTakenOver(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")
 	dead, alive, launching := seedLiveAttempts(t, home)
-	putMarker(t, h, "laptop", "boot-x", 5*time.Minute)
+	putMarker(t, h, "bench", "boot-x", 5*time.Minute)
 	_, errOut, code := h.run("orient")
-	if code != 0 || !strings.Contains(errOut, "took over from host laptop: 2 live attempts marked interrupted") {
+	if code != 0 || !strings.Contains(errOut, "took over from host bench: 2 live attempts marked interrupted") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if markerBytes(t, h) != nil {
@@ -221,7 +221,7 @@ func TestHostMarkerReadsTheWindowsBootForm(t *testing.T) {
 func TestSupervisorStopNeverTakesOver(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", 10*time.Minute)
+	putMarker(t, h, "bench", "boot-x", 10*time.Minute)
 	before := markerBytes(t, h)
 	h.run("supervisor", "stop")
 	if !bytes.Equal(markerBytes(t, h), before) || eventCount(t, home, "fleet.took_over") != 0 {
@@ -235,12 +235,12 @@ func TestFleetUnlock(t *testing.T) {
 	if out := h.ok("fleet", "unlock"); !strings.Contains(out, "unlock: free") {
 		t.Fatalf("no marker: %q", out)
 	}
-	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	putMarker(t, h, "bench", "boot-x", 10*time.Second)
 	if _, errOut, code := h.run("orient"); code != 3 {
 		t.Fatalf("before unlock: code=%d stderr=%q", code, errOut)
 	}
 	out := h.ok("fleet", "unlock")
-	if !strings.Contains(out, "unlock: cleared") || !strings.Contains(out, "host: laptop") {
+	if !strings.Contains(out, "unlock: cleared") || !strings.Contains(out, "host: bench") {
 		t.Fatalf("unlock = %q", out)
 	}
 	if markerBytes(t, h) != nil || eventCount(t, home, "fleet.unlocked") != 1 {
@@ -264,7 +264,7 @@ func TestFleetUnlockRefusesWhileThisHostsWatcherHoldsIt(t *testing.T) {
 	if !bytes.Equal(markerBytes(t, h), before) || eventCount(t, home, "fleet.unlocked") != 0 {
 		t.Fatal("a refused unlock changed the fleet")
 	}
-	putMarker(t, h, "laptop", "boot-x", time.Second)
+	putMarker(t, h, "bench", "boot-x", time.Second)
 	h.ok("fleet", "unlock")
 }
 
@@ -291,8 +291,8 @@ func TestDoctorRowsForTheHostMarker(t *testing.T) {
 		row              string
 		code             int
 	}{
-		{"fresh elsewhere", "laptop", "boot-x", 20 * time.Second, false, "open on another host", 1},
-		{"stale elsewhere", "laptop", "boot-x", 10 * time.Minute, false, "unclean close", 0},
+		{"fresh elsewhere", "bench", "boot-x", 20 * time.Second, false, "open on another host", 1},
+		{"stale elsewhere", "bench", "boot-x", 10 * time.Minute, false, "unclean close", 0},
 		{"this host's watcher died", "desk", "boot-b", time.Hour, false, "unclean close", 0},
 		{"this host's earlier boot", "desk", "boot-a", time.Hour, false, "unclean close", 0},
 		{"this host's watcher runs", "desk", "boot-b", time.Hour, true, "", 0},
@@ -349,15 +349,15 @@ func TestBeatHostKeepsOneMarkerAndNoticesATakeover(t *testing.T) {
 	if got := read(); got.Boot != "boot-b" {
 		t.Fatalf("marker = %+v", got)
 	}
-	putMarker(t, h, "laptop", "boot-x", time.Second)
+	putMarker(t, h, "bench", "boot-x", time.Second)
 	if err := cli.BeatHost(env, h.home); err == nil || !strings.Contains(err.Error(), "took this fleet over") {
 		t.Fatalf("beat over another host's marker = %v", err)
 	}
-	if got := read(); got.Host != "laptop" {
+	if got := read(); got.Host != "bench" {
 		t.Fatalf("a lost beat overwrote the marker: %+v", got)
 	}
 	cli.ReleaseHost(env, h.home)
-	if read().Host != "laptop" {
+	if read().Host != "bench" {
 		t.Fatal("release removed another host's marker")
 	}
 	if err := fleet.WriteHost(h.home, fleet.HostMarker{Host: "desk", Boot: "boot-b", PID: os.Getpid() + 1, At: h.clock()}); err != nil {
@@ -407,12 +407,12 @@ func TestWatchHoldsTheMarkerAndStopsWhenAnotherHostTakesOver(t *testing.T) {
 			}
 			finished = true
 		case <-tick.C:
-			putMarker(t, fx.h, "laptop", "boot-x", 0)
+			putMarker(t, fx.h, "bench", "boot-x", 0)
 		case <-deadline:
 			t.Fatal("the watcher kept running after another host took the fleet")
 		}
 	}
-	if read().Host != "laptop" {
+	if read().Host != "bench" {
 		t.Fatalf("the watcher touched the new owner's marker: %+v", read())
 	}
 }
@@ -482,9 +482,9 @@ func TestStopLeavesThePidFileOfAnotherHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(h.home, "watch.pid")
-	writeBootedPID(t, path, os.Getpid(), marker, "00000000-0000-4000-8000-000000000000", "laptop")
+	writeBootedPID(t, path, os.Getpid(), marker, "00000000-0000-4000-8000-000000000000", "bench")
 	out, _, code := h.run("watch", "stop")
-	if code != 0 || !strings.Contains(out, "watcher: not running") || !strings.Contains(out, "host laptop") {
+	if code != 0 || !strings.Contains(out, "watcher: not running") || !strings.Contains(out, "host bench") {
 		t.Fatalf("code=%d out=%q", code, out)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -538,10 +538,10 @@ func TestRefusedOpenOfACopyChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	putMarker(t, h, "bench", "boot-x", 10*time.Second)
 	events, backups, marker := eventCount(t, copied, ""), backupNames(t, copied), markerBytes(t, h)
 	_, errOut, code := h.run("orient")
-	if code != 3 || !strings.Contains(errOut, "open on host laptop") || strings.Contains(errOut, "adopted") {
+	if code != 3 || !strings.Contains(errOut, "open on host bench") || strings.Contains(errOut, "adopted") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if got := recordedHome(t, copied); got != old {
@@ -561,9 +561,9 @@ func TestRefusedOpenOfACopyChangesNothing(t *testing.T) {
 func TestSupervisorStopOfAnUnadoptedCopyJudgesTheHost(t *testing.T) {
 	h, old, copied := adoptCopy(t)
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	putMarker(t, h, "bench", "boot-x", 10*time.Second)
 	for _, args := range [][]string{{"supervisor", "stop"}, {"supervisor", "interrupt"}} {
-		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "open on host laptop") {
+		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "open on host bench") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
 		}
 	}
@@ -578,7 +578,7 @@ func TestUnreadableHostMarkerWarnsAndUnlockRemovesIt(t *testing.T) {
 	}
 	h, home, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	putMarker(t, h, "bench", "boot-x", 10*time.Second)
 	path := filepath.Join(h.home, fleet.HostFile)
 	if err := os.Chmod(path, 0); err != nil {
 		t.Fatal(err)
@@ -597,9 +597,9 @@ func TestUnreadableHostMarkerWarnsAndUnlockRemovesIt(t *testing.T) {
 func TestInitRefusesAFleetAnotherHostHasOpen(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	putMarker(t, h, "bench", "boot-x", 10*time.Second)
 	before, events := markerBytes(t, h), eventCount(t, home, "")
-	if _, errOut, code := h.run("init"); code != 3 || !strings.Contains(errOut, "open on host laptop") {
+	if _, errOut, code := h.run("init"); code != 3 || !strings.Contains(errOut, "open on host bench") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if !bytes.Equal(markerBytes(t, h), before) || eventCount(t, home, "") != events {

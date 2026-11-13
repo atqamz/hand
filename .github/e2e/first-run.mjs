@@ -78,46 +78,46 @@ async function board(box, srv, made) {
   const addr = box.read('board.addr').trim();
   equal(`http://${addr}`, origin, 'board.addr names the address the link uses');
 
-  const laptop = new Client(origin);
-  const anon = await laptop.get(`/${id}/`);
+  const host = new Client(origin);
+  const anon = await host.get(`/${id}/`);
   equal(anon.status, 403, 'the fleet page refuses a request without the token');
   check(!anon.text.includes('Fix the login redirect'), 'the refusal shows nothing of the fleet');
-  const wrong = await laptop.get(`/${id}/?token=${'0'.repeat(48)}`);
+  const wrong = await host.get(`/${id}/?token=${'0'.repeat(48)}`);
   equal(wrong.status, 403, 'a wrong token is refused');
-  const login = await laptop.get(`${link.pathname}${link.search}`);
+  const login = await host.get(`${link.pathname}${link.search}`);
   equal([login.status, login.location], [303, `/${id}/`], 'the login link redirects to the fleet page');
   check(login.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c)), 'the login sets an HttpOnly, SameSite=Strict cookie');
   check(!link.searchParams.has('keep'), 'the printed login link does not ask to be kept');
   check(login.cookies.every((c) => !/Max-Age/i.test(c)), 'a login without keep=1 is a session cookie');
-  const kept = await laptop.get(`${link.pathname}${link.search}&keep=1`);
+  const kept = await host.get(`${link.pathname}${link.search}&keep=1`);
   equal([kept.status, kept.location], [303, `/${id}/`], 'the keep=1 login link redirects to the fleet page');
   check(kept.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /Max-Age=34560000/i.test(c)), 'a keep=1 login on loopback lasts 400 days');
 
-  const page = await laptop.get(`/${id}/`);
+  const page = await host.get(`/${id}/`);
   equal(page.status, 200, 'the fleet page answers 200 with the cookie');
   for (const region of ['status', 'console', 'timeline', 'queue', 'tasks']) matches(page.text, new RegExp(`data-region="${region}"`), `the fleet page has the ${region} region`);
   matches(textOf(page.text), /Fix the login redirect/, 'the fleet page lists a task');
   matches(page.headers.get('content-security-policy') ?? '', /default-src 'none'; script-src 'self'; style-src 'self'/, 'the page carries the strict CSP');
   lacks(page.text, /rel="manifest"|data-worker/, 'a loopback page offers no install manifest');
-  const screen = await laptop.get(`/${id}/supervisor`);
+  const screen = await host.get(`/${id}/supervisor`);
   equal(screen.status, 200, 'the Screen page answers 200');
   matches(screen.text, /data-region="sup"/, 'the Screen page has the sup region');
   matches(screen.text, /data-region="status"/, 'the Screen page has the live status region');
   matches(screen.text, /data-icon-working=/, 'the Screen page can change the favicon');
   matches(screen.text, /href="\/[^"]+\/supervisor"/, 'the rail links the Screen page');
-  equal((await laptop.get('/')).status, 200, 'the fleet list answers on loopback');
-  matches((await laptop.get('/')).text, new RegExp(`href="/${id}/"`), 'the fleet list links the fleet');
+  equal((await host.get('/')).status, 200, 'the fleet list answers on loopback');
+  matches((await host.get('/')).text, new RegExp(`href="/${id}/"`), 'the fleet list links the fleet');
 
-  const api = await laptop.get(`/${id}/api/v1/status`);
+  const api = await host.get(`/${id}/api/v1/status`);
   equal(api.status, 200, '/api/v1/status answers with the board session');
   matches(api.headers.get('content-type') ?? '', /application\/json/, '/api/v1 returns JSON');
   const envelope = JSON.parse(api.text);
   equal([envelope.version, envelope.fleet.id], [1, id], 'the API envelope names v1 and the fleet');
   check(Boolean(envelope.cursor) && envelope.cursor === api.headers.get('x-hand-cursor'), 'the API response carries the same cursor header');
-  equal((await laptop.get(`/${id}/api/v1/status?since=${encodeURIComponent(envelope.cursor)}`)).status, 304, 'the same cursor is not modified');
+  equal((await host.get(`/${id}/api/v1/status?since=${encodeURIComponent(envelope.cursor)}`)).status, 304, 'the same cursor is not modified');
   equal((await new Client(origin).get(`/${id}/api/v1/status`)).status, 401, '/api/v1 refuses a request without a session');
 
-  const events = await laptop.get(`/${id}/events?page=supervisor`, { stream: true, timeout: 40_000 });
+  const events = await host.get(`/${id}/events?page=supervisor`, { stream: true, timeout: 40_000 });
   equal(events.status, 200, '/events answers 200');
   matches(events.headers.get('content-type') ?? '', /text\/event-stream/, '/events streams');
   const reader = events.res.body.getReader();
@@ -134,19 +134,19 @@ async function board(box, srv, made) {
   matches(seen, /event: beat/, '/events sends a heartbeat when nothing else changed');
   equal((await new Client(origin).get(`/${id}/events`)).status, 403, '/events refuses a request without a session');
 
-  const doc = await laptop.get(`/${id}/doc/docs/export-notes.md`);
+  const doc = await host.get(`/${id}/doc/docs/export-notes.md`);
   equal(doc.status, 200, 'the document viewer serves a file inside the fleet folder');
   matches(doc.text, /<h[1-6][^>]*>Export notes<\/h[1-6]>/, 'the viewer renders the Markdown');
-  matches((await laptop.get(`/${id}/doc/docs/export-notes.md?raw`)).text, /^# Export notes/, 'the raw file is served too');
-  matches(textOf((await laptop.get(`/${id}/doc/docs/nested/log.txt`)).text), /line one/, 'the viewer shows a text file');
+  matches((await host.get(`/${id}/doc/docs/export-notes.md?raw`)).text, /^# Export notes/, 'the raw file is served too');
+  matches(textOf((await host.get(`/${id}/doc/docs/nested/log.txt`)).text), /line one/, 'the viewer shows a text file');
   const token = fs.readFileSync(path.join(box.fleet, 'board.token'), 'utf8').trim();
   for (const refused of ['hand.db', 'board.token', 'AGENTS.md', 'luvus/note.txt', 'locks/note.txt', 'projects/note.txt', 'backups/note.txt', 'cache/note.txt', '.claude']) {
-    const res = await laptop.get(`/${id}/doc/${refused}`);
+    const res = await host.get(`/${id}/doc/${refused}`);
     check(res.status === 403 && /does not show Hand&#39;s own files/.test(res.text) && !res.text.includes('SQLite format') && !res.text.includes(token) && !res.text.includes('inside '), `the viewer refuses ${refused} with the reason`);
   }
-  const climbed = await laptop.raw(`/${id}/doc/docs/../hand.db`);
+  const climbed = await host.raw(`/${id}/doc/docs/../hand.db`);
   check(climbed.status !== 200 && !climbed.text.includes('SQLite format'), `the viewer does not serve hand.db through a .. segment (${climbed.status})`);
-  const encoded = await laptop.raw(`/${id}/doc/docs/%2e%2e/hand.db`);
+  const encoded = await host.raw(`/${id}/doc/docs/%2e%2e/hand.db`);
   check(encoded.status !== 200 && !encoded.text.includes('SQLite format'), `the viewer does not serve hand.db through an encoded .. segment (${encoded.status})`);
   equal((await new Client(origin).get(`/${id}/doc/docs/export-notes.md`)).status, 403, 'the viewer refuses a request without a session');
 
@@ -162,12 +162,12 @@ async function board(box, srv, made) {
   equal(funnel.status, 403, 'a Tailscale Funnel request is refused');
   matches(textOf(funnel.text), /does not answer the public internet/, 'the Funnel refusal says why');
 
-  const connect = await laptop.get(`/${id}/connect`);
-  equal(connect.status, 200, 'the laptop opens the Phone page');
+  const connect = await host.get(`/${id}/connect`);
+  equal(connect.status, 200, 'the host opens the Phone page');
   const csrf = connect.text.match(/name="csrf" value="([^"]+)"/)?.[1];
   check(Boolean(csrf), 'the Phone page carries a form token');
-  const minted = await laptop.post(`/${id}/connect/code`, { csrf, base: origin });
-  equal(minted.status, 200, 'the laptop mints a pairing code');
+  const minted = await host.post(`/${id}/connect/code`, { csrf, base: origin });
+  equal(minted.status, 200, 'the host mints a pairing code');
   const code = minted.text.match(/class="code-big"[^>]*>([A-Z0-9]{5}-[A-Z0-9]{5})</)?.[1];
   check(Boolean(code), `the page shows a pairing code (${code?.replace(/./g, '*')})`);
   matches(minted.text, new RegExp(`${origin.replace(/[.]/g, '\\.')}/${id}/pair#${code}`), 'the pairing link holds the code after the #');
@@ -220,21 +220,21 @@ async function board(box, srv, made) {
   matches(worker.text, /registration\.unregister\(\)/, 'the worker unregisters itself');
   lacks(worker.text, /"fetch"/, 'the worker has no fetch handler');
 
-  const alerts = await laptop.get(`/${id}/alerts`);
-  equal(alerts.status, 200, 'the laptop opens the Alerts page');
+  const alerts = await host.get(`/${id}/alerts`);
+  equal(alerts.status, 200, 'the host opens the Alerts page');
   matches(textOf(alerts.text), /Alerts The last 7 days/, 'the Alerts page says what it lists');
-  const listed = await laptop.get(`/${id}/connect`);
-  matches(textOf(listed.text), /E2E phone/, 'the laptop lists the paired phone');
+  const listed = await host.get(`/${id}/connect`);
+  matches(textOf(listed.text), /E2E phone/, 'the host lists the paired phone');
   const phoneId = listed.text.match(/action="[^"]*\/connect\/revoke"><input type="hidden" name="csrf" value="[^"]*"><input type="hidden" name="id" value="(\d+)"/)?.[1];
-  check(Boolean(phoneId), 'the laptop offers Revoke for the phone');
-  const revoked = await laptop.post(`/${id}/connect/revoke`, { csrf: listed.text.match(/name="csrf" value="([^"]+)"/)[1], id: phoneId });
-  equal(revoked.status, 303, 'the laptop revokes the phone');
+  check(Boolean(phoneId), 'the host offers Revoke for the phone');
+  const revoked = await host.post(`/${id}/connect/revoke`, { csrf: listed.text.match(/name="csrf" value="([^"]+)"/)[1], id: phoneId });
+  equal(revoked.status, 303, 'the host revokes the phone');
   const gone = await phone.get(`/${id}/`);
   equal(gone.status, 403, 'the revoked phone is refused at once');
   matches(textOf(gone.text), /no longer paired/, 'the refusal says the phone is no longer paired');
   check(!gone.text.includes('Fix the login redirect'), 'the refusal shows nothing of the fleet');
   equal((await phone.get(`/${id}/alerts/feed?wait=0`)).status, 403, 'the revoked phone is refused the alert feed');
-  equal((await laptop.get(`/${id}/`)).status, 200, 'the laptop stays signed in after the revoke');
+  equal((await host.get(`/${id}/`)).status, 200, 'the host stays signed in after the revoke');
 
   const doctor = toon((await box.hand(['doctor'])).out).tables.checks;
   equal(doctor.find((c) => c.check === 'board')?.state, 'ok', 'hand doctor: the board answers');
@@ -263,13 +263,13 @@ async function iroh(box, made) {
   const doctor = toon((await ok(await box.hand(['doctor']), 'hand doctor with the sidecar running')).out);
   equal(doctor.tables.checks.find((c) => c.check === 'iroh')?.state, 'ok', 'hand doctor: iroh is ok while the sidecar is ready');
   equal(doctor.fields.iroh_id, endpoint, 'hand doctor prints the endpoint ID');
-  const laptop = new Client(link.origin);
-  await laptop.get(`${link.pathname}${link.search}`);
-  const connect = await laptop.get(`/${id}/connect`);
-  matches(textOf(connect.text), new RegExp(`Phone access over iroh is online\\. The Hand app can pair with this laptop\\. Endpoint ID ${endpoint}`), 'the Phone page shows the sidecar ready, with its endpoint ID');
+  const host = new Client(link.origin);
+  await host.get(`${link.pathname}${link.search}`);
+  const connect = await host.get(`/${id}/connect`);
+  matches(textOf(connect.text), new RegExp(`Phone access over iroh is online\\. The Hand app can pair with this host\\. Endpoint ID ${endpoint}`), 'the Phone page shows the sidecar ready, with its endpoint ID');
   const csrf = connect.text.match(/name="csrf" value="([^"]+)"/)?.[1];
-  const app = await laptop.post(`/${id}/connect/app`, { csrf });
-  equal(app.status, 200, 'the laptop asks for a Hand app link');
+  const app = await host.post(`/${id}/connect/app`, { csrf });
+  equal(app.status, 200, 'the host asks for a Hand app link');
   const appText = textOf(app.text);
   const appShown = appText.replace(/handboard:\/\/[^"<\s]+/g, 'handboard://…');
   matches(appText, new RegExp(`handboard://c#v=1&e=${endpoint}&f=${id}&c=[0-9A-Z]{10}&r=https%3A%2F%2Frelay\\.example\\.test\\.%2F`), 'the Hand app link is canonical, with this fleet and the relay', appShown);

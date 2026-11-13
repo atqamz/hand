@@ -146,7 +146,7 @@ func TestBoardIrohStartsTheSidecarAsItsChildAndShowsItsState(t *testing.T) {
 		secret = strings.TrimSpace(string(b))
 	}
 	page := phonePage(t, fleetURL, token)
-	for _, want := range []string{"Phone access over iroh is online", irohID, "The Hand app can pair with this laptop", `data-tone="pass"`} {
+	for _, want := range []string{"Phone access over iroh is online", irohID, "The Hand app can pair with this host", `data-tone="pass"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the Phone page lacks %q", want)
 		}

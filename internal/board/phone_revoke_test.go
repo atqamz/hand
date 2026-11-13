@@ -22,7 +22,7 @@ var operator = serving()
 func (p *phoneHost) phoneWith(name string, home railFleet, with ...railFleet) map[string]*http.Cookie {
 	p.t.Helper()
 	all := append([]railFleet{home}, with...)
-	code := p.codeOf(p.mint(home, p.laptops(all...), with...))
+	code := p.codeOf(p.mint(home, p.hosts(all...), with...))
 	rec := p.redeem(home, code, url.Values{"name": {name}}, operator)
 	if rec.Code != http.StatusOK && rec.Code != http.StatusSeeOther {
 		p.t.Fatalf("pair %s = %d:\n%s", name, rec.Code, rec.Body.String())
@@ -98,11 +98,11 @@ func sameResponse(t *testing.T, what string, a, b *httptest.ResponseRecorder) {
 	}
 }
 
-func TestAPhoneIsListedOnceWithTheFleetsTheLaptopIsSignedInTo(t *testing.T) {
+func TestAPhoneIsListedOnceWithTheFleetsTheHostIsSignedInTo(t *testing.T) {
 	cases := []struct {
 		what   string
 		paired []int
-		laptop []int
+		host   []int
 		view   int
 		down   []int
 		gone   []int
@@ -111,8 +111,8 @@ func TestAPhoneIsListedOnceWithTheFleetsTheLaptopIsSignedInTo(t *testing.T) {
 	}{
 		{"one fleet", []int{0}, []int{0}, 0, nil, nil, nil, ""},
 		{"three fleets", []int{0, 1, 2}, []int{0, 1, 2}, 0, nil, nil, []int{0, 1, 2}, ""},
-		{"the laptop is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, 0, nil, nil, []int{0, 1}, ""},
-		{"the laptop is signed in to the other two only", []int{0, 1, 2}, []int{0, 2}, 0, nil, nil, []int{0, 2}, ""},
+		{"the host is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, 0, nil, nil, []int{0, 1}, ""},
+		{"the host is signed in to the other two only", []int{0, 1, 2}, []int{0, 2}, 0, nil, nil, []int{0, 2}, ""},
 		{"read from a fleet the phone is not paired with", []int{1, 2}, []int{0, 1, 2}, 0, nil, nil, []int{1, 2}, ""},
 		{"read from a fleet the phone is paired with, beside one it is not", []int{1}, []int{0, 1, 2}, 0, nil, nil, []int{1}, ""},
 		{"a fleet that was removed", []int{0, 1, 2}, []int{0, 1, 2}, 0, nil, []int{2}, []int{0, 1}, ""},
@@ -132,7 +132,7 @@ func TestAPhoneIsListedOnceWithTheFleetsTheLaptopIsSignedInTo(t *testing.T) {
 			}
 			view := p.fleets[c.view]
 			p.resetCounts()
-			body := p.phonePage(view, p.laptops(fleetsAt(p, c.laptop...)...)...)
+			body := p.phonePage(view, p.hosts(fleetsAt(p, c.host...)...)...)
 			label := p.labelOf(paired[0], "Pixel")
 			groups := strings.Count(body, `class="device device-group"`)
 			if len(c.want) == 0 {
@@ -176,7 +176,7 @@ func TestAPhoneIsListedOnceWithTheFleetsTheLaptopIsSignedInTo(t *testing.T) {
 				lacks(t, "the page", body, "could not be reached")
 			}
 			signed := map[int]bool{}
-			for _, i := range c.laptop {
+			for _, i := range c.host {
 				signed[i] = true
 			}
 			for i, f := range p.fleets {
@@ -184,7 +184,7 @@ func TestAPhoneIsListedOnceWithTheFleetsTheLaptopIsSignedInTo(t *testing.T) {
 					continue
 				}
 				if !signed[i] || slices.Contains(c.gone, i) {
-					lacks(t, "the page of a laptop that is not signed in to "+f.name, body, f.name, f.id)
+					lacks(t, "the page of a host that is not signed in to "+f.name, body, f.name, f.id)
 					if got := p.counts(p.lists, f); got != 0 {
 						t.Fatalf("fleet %s was asked for its phones %d times", f.name, got)
 					}
@@ -207,14 +207,14 @@ func TestAFleetsLegacyRecordsStayThisFleetOnly(t *testing.T) {
 		}
 	}
 	p.phoneWith("Pixel", a, b)
-	body := p.phonePage(a, p.laptops(a, b)...)
+	body := p.phonePage(a, p.hosts(a, b)...)
 	if got := strings.Count(body, "this fleet only ·"); got != 1 {
 		t.Fatalf("%d legacy rows read 'this fleet only':\n%s", got, body)
 	}
 	contains(t, "the page", body, `aria-label="Revoke Old alpha"`, `<span class="dev-name">Pixel</span>`)
 	lacks(t, "the page", body, "Old beta")
 	label := p.labelOf(a, "Pixel")
-	if rec := p.everywhere(a, label, p.laptops(a, b)...); rec.Code != http.StatusSeeOther {
+	if rec := p.everywhere(a, label, p.hosts(a, b)...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke everywhere = %d", rec.Code)
 	}
 	for _, f := range p.fleets {
@@ -223,15 +223,15 @@ func TestAFleetsLegacyRecordsStayThisFleetOnly(t *testing.T) {
 		}
 	}
 	for what, label := range map[string]string{"an empty label": "", "no label": "x", "a short one": "abc", "an upper-case one": "ABCDEF0123456789"} {
-		rec := p.everywhere(a, label, p.laptops(a, b)...)
+		rec := p.everywhere(a, label, p.hosts(a, b)...)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("revoke everywhere with %s = %d", what, rec.Code)
 		}
-		if rec := p.revokeAt(a, b, label, p.laptops(a, b)...); rec.Code != http.StatusBadRequest {
+		if rec := p.revokeAt(a, b, label, p.hosts(a, b)...); rec.Code != http.StatusBadRequest {
 			t.Fatalf("revoke in one fleet with %s = %d", what, rec.Code)
 		}
 	}
-	if rec := p.everywhere(a, "abcdef0123456789", p.laptops(a, b)...); rec.Code != http.StatusSeeOther {
+	if rec := p.everywhere(a, "abcdef0123456789", p.hosts(a, b)...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke everywhere with the lower-case form = %d", rec.Code)
 	}
 	for _, f := range p.fleets {
@@ -241,11 +241,11 @@ func TestAFleetsLegacyRecordsStayThisFleetOnly(t *testing.T) {
 	}
 }
 
-func TestRevokingEverywhereRevokesEveryFleetTheLaptopIsSignedInTo(t *testing.T) {
+func TestRevokingEverywhereRevokesEveryFleetTheHostIsSignedInTo(t *testing.T) {
 	cases := []struct {
 		what    string
 		paired  []int
-		laptop  []int
+		host    []int
 		down    []int
 		gone    []int
 		bare    []int
@@ -257,8 +257,8 @@ func TestRevokingEverywhereRevokesEveryFleetTheLaptopIsSignedInTo(t *testing.T) 
 	}{
 		{"one fleet", []int{0}, []int{0}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0}, nil},
 		{"three fleets", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1, 2}, nil},
-		{"the laptop is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, []int{2}},
-		{"a fleet the laptop holds a token for and the phone is not in", []int{0, 1}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
+		{"the host is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, []int{2}},
+		{"a fleet the host holds a token for and the phone is not in", []int{0, 1}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
 		{"one fleet is down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1}, nil, nil, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
 		{"one fleet's store fails", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, []int{2}, http.StatusOK, "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 1}, []int{2}},
 		{"one fleet cannot revoke", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, []int{1}, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
@@ -288,7 +288,7 @@ func TestRevokingEverywhereRevokesEveryFleetTheLaptopIsSignedInTo(t *testing.T) 
 					t.Fatal(err)
 				}
 			}
-			rec := p.everywhere(home, label, p.laptops(fleetsAt(p, c.laptop...)...)...)
+			rec := p.everywhere(home, label, p.hosts(fleetsAt(p, c.host...)...)...)
 			if rec.Code != c.status {
 				t.Fatalf("revoke everywhere = %d:\n%s", rec.Code, rec.Body.String())
 			}
@@ -317,9 +317,9 @@ func TestRevokingEverywhereRevokesEveryFleetTheLaptopIsSignedInTo(t *testing.T) 
 				}
 			}
 			for i, f := range p.fleets {
-				if !slices.Contains(c.laptop, i) || slices.Contains(c.gone, i) {
+				if !slices.Contains(c.host, i) || slices.Contains(c.gone, i) {
 					if got := p.counts(p.revokes, f); got != 0 {
-						t.Fatalf("fleet %s the laptop is not signed in to was asked to revoke %d times", f.name, got)
+						t.Fatalf("fleet %s the host is not signed in to was asked to revoke %d times", f.name, got)
 					}
 					lacks(t, "the result", body, f.name)
 				}
@@ -345,7 +345,7 @@ func TestRevokingEverywhereRevokesEveryFleetTheLaptopIsSignedInTo(t *testing.T) 
 					delete(p.down, p.fleets[i].id)
 					p.mu.Unlock()
 				}
-				again := p.everywhere(home, label, p.laptops(fleetsAt(p, c.laptop...)...)...)
+				again := p.everywhere(home, label, p.hosts(fleetsAt(p, c.host...)...)...)
 				if again.Code != http.StatusSeeOther {
 					t.Fatalf("the repeat once the fleets are back = %d:\n%s", again.Code, again.Body.String())
 				}
@@ -368,7 +368,7 @@ func TestRepeatingARevokeEverywhereIsHarmless(t *testing.T) {
 	label := p.labelOf(a, "Pixel")
 	var first *httptest.ResponseRecorder
 	for i := range 4 {
-		rec := p.everywhere(a, label, p.laptops(a, b, c)...)
+		rec := p.everywhere(a, label, p.hosts(a, b, c)...)
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/"+a.id+"/connect" {
 			t.Fatalf("revoke %d = %d", i, rec.Code)
 		}
@@ -395,7 +395,7 @@ func TestRevokingInOneFleetTouchesThatFleetAlone(t *testing.T) {
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
 	cookies := p.phoneWith("Pixel", a, b, c)
 	label := p.labelOf(a, "Pixel")
-	if rec := p.revokeAt(a, b, label, p.laptops(a, b, c)...); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/"+a.id+"/connect" {
+	if rec := p.revokeAt(a, b, label, p.hosts(a, b, c)...); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/"+a.id+"/connect" {
 		t.Fatalf("revoke in beta = %d", rec.Code)
 	}
 	for i, f := range p.fleets {
@@ -412,13 +412,13 @@ func TestRevokingInOneFleetTouchesThatFleetAlone(t *testing.T) {
 			t.Fatalf("fleet %s = %d", f.name, got)
 		}
 	}
-	if rec := p.revokeAt(a, a, label, p.laptops(a, b, c)...); rec.Code != http.StatusSeeOther {
+	if rec := p.revokeAt(a, a, label, p.hosts(a, b, c)...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke in the current fleet = %d", rec.Code)
 	}
 	if got := len(p.devicesOf(a)); got != 0 || len(p.devicesOf(c)) != 1 {
 		t.Fatalf("alpha holds %d, gamma %d", got, len(p.devicesOf(c)))
 	}
-	if rec := p.revokeAt(a, b, label, p.laptops(a, b, c)...); rec.Code != http.StatusSeeOther {
+	if rec := p.revokeAt(a, b, label, p.hosts(a, b, c)...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("a repeated revoke in beta = %d", rec.Code)
 	}
 	if got := p.revoked(b); len(got) != 1 {
@@ -432,7 +432,7 @@ func TestRevokingInAFleetThatIsDownSaysSoAndOffersTheSamePress(t *testing.T) {
 	cookies := p.phoneWith("Pixel", a, b)
 	label := p.labelOf(a, "Pixel")
 	p.setDown(b)
-	rec := p.revokeAt(a, b, label, p.laptops(a, b)...)
+	rec := p.revokeAt(a, b, label, p.hosts(a, b)...)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("revoke in a fleet that is down = %d", rec.Code)
 	}
@@ -445,7 +445,7 @@ func TestRevokingInAFleetThatIsDownSaysSoAndOffersTheSamePress(t *testing.T) {
 	p.mu.Lock()
 	delete(p.down, b.id)
 	p.mu.Unlock()
-	if rec := p.revokeAt(a, b, label, p.laptops(a, b)...); rec.Code != http.StatusSeeOther {
+	if rec := p.revokeAt(a, b, label, p.hosts(a, b)...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke once beta is back = %d", rec.Code)
 	}
 	if got := p.opens(b, operator, cookies[b.id]); got != http.StatusForbidden || len(p.devicesOf(a)) != 1 {
@@ -459,15 +459,15 @@ func TestALabelOnlyAnUnprovenFleetHoldsIsNeverRevealed(t *testing.T) {
 	p.phoneWith("Visible", a, b)
 	hidden := p.phoneWith("Hidden", c)
 	secret := p.labelOf(c, "Hidden")
-	laptop := p.laptops(a, b)
+	host := p.hosts(a, b)
 	p.resetCounts()
-	page := p.phonePage(a, laptop...)
+	page := p.phonePage(a, host...)
 	lacks(t, "the page", page, "Hidden", secret, c.name, c.id)
 	nowhere := "0123456789abcdef"
-	sameResponse(t, "a label held only by an unproven fleet and a label nobody holds", p.everywhere(a, secret, laptop...), p.everywhere(a, nowhere, laptop...))
-	sameResponse(t, "the same, revoking in one proven fleet", p.revokeAt(a, b, secret, laptop...), p.revokeAt(a, b, nowhere, laptop...))
-	sameResponse(t, "an unproven fleet and an unregistered one", p.revokeAt(a, c, secret, laptop...), p.revokeAt(a, railFleet{id: "f00000000dead"}, secret, laptop...))
-	if rec := p.revokeAt(a, c, secret, laptop...); rec.Code != http.StatusForbidden {
+	sameResponse(t, "a label held only by an unproven fleet and a label nobody holds", p.everywhere(a, secret, host...), p.everywhere(a, nowhere, host...))
+	sameResponse(t, "the same, revoking in one proven fleet", p.revokeAt(a, b, secret, host...), p.revokeAt(a, b, nowhere, host...))
+	sameResponse(t, "an unproven fleet and an unregistered one", p.revokeAt(a, c, secret, host...), p.revokeAt(a, railFleet{id: "f00000000dead"}, secret, host...))
+	if rec := p.revokeAt(a, c, secret, host...); rec.Code != http.StatusForbidden {
 		t.Fatalf("revoke in an unproven fleet = %d", rec.Code)
 	} else {
 		lacks(t, "the refusal", rec.Body.String(), "Hidden", secret, c.name, c.id)
@@ -476,7 +476,7 @@ func TestALabelOnlyAnUnprovenFleetHoldsIsNeverRevealed(t *testing.T) {
 		t.Fatalf("gamma holds %v and logged %v", got, p.revoked(c))
 	}
 	if p.counts(p.lists, c) != 0 || p.counts(p.revokes, c) != 0 || p.counts(p.proofs, c) != 0 {
-		t.Fatal("the laptop's request reached a fleet it is not signed in to")
+		t.Fatal("the host's request reached a fleet it is not signed in to")
 	}
 	if got := p.opens(c, operator, hidden[c.id]); got != http.StatusOK {
 		t.Fatalf("the hidden phone = %d", got)
@@ -562,13 +562,13 @@ func TestAPhoneSessionCannotListRevokeOrLearnOfAnotherPhone(t *testing.T) {
 	}
 }
 
-func TestAPhoneHoldingALaptopsLoginForAnotherFleetStillRevokesNothing(t *testing.T) {
+func TestAPhoneHoldingAHostsLoginForAnotherFleetStillRevokesNothing(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	mine := p.phoneWith("Pixel", a, b)
 	label := p.labelOf(a, "Pixel")
 	csrf := csrfRe.FindStringSubmatch(p.send("GET", "/"+a.id+"/connect", nil, []*http.Cookie{mine[a.id]}, operator).Body.String())[1]
-	sent := []*http.Cookie{mine[a.id], mine[b.id], p.laptop(b)}
+	sent := []*http.Cookie{mine[a.id], mine[b.id], p.host(b)}
 	for _, route := range []string{"in", "everywhere"} {
 		rec := p.send("POST", "/"+a.id+"/connect/revoke/"+route, url.Values{"csrf": {csrf}, "phone": {label}, "fleet": {b.id}}, sent, operator)
 		if rec.Code != http.StatusForbidden {
@@ -576,11 +576,11 @@ func TestAPhoneHoldingALaptopsLoginForAnotherFleetStillRevokesNothing(t *testing
 		}
 	}
 	if len(p.devicesOf(a)) != 1 || len(p.devicesOf(b)) != 1 || p.counts(p.revokes, b) != 0 {
-		t.Fatal("a phone revoked through a laptop login it carried")
+		t.Fatal("a phone revoked through a host login it carried")
 	}
 }
 
-func TestACrossFleetRevokeNeedsTheLaptopsProofForEveryFleet(t *testing.T) {
+func TestACrossFleetRevokeNeedsTheHostsProofForEveryFleet(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
 	cookies := p.phoneWith("Pixel", a, b, c)
@@ -604,16 +604,16 @@ func TestACrossFleetRevokeNeedsTheLaptopsProofForEveryFleet(t *testing.T) {
 		return p.send("POST", "/"+home.id+"/connect/revoke/"+route, form, jar, nil)
 	}
 	for what, c := range map[string]*httptest.ResponseRecorder{
-		"alpha's form token at beta's route":            send(b, "everywhere", a.token, railFleet{}, p.laptops(a, b)...),
-		"alpha's form token at beta's route, one fleet": send(b, "in", a.token, b, p.laptops(a, b)...),
-		"beta's form token at alpha's route":            send(a, "in", b.token, b, p.laptops(a, b)...),
-		"no form token":                                 send(a, "everywhere", "", railFleet{}, p.laptops(a, b, c)...),
-		"alpha's token with no login for beta":          send(a, "in", a.token, b, p.laptops(a)...),
-		"a stale login for beta":                        send(a, "in", a.token, b, p.laptop(a), stale(b, strings.Repeat("0", 32))),
-		"gamma's login under beta's name":               send(a, "in", a.token, b, p.laptop(a), stale(b, c.token)),
-		"a phone's own cookie for beta":                 send(a, "in", a.token, b, p.laptop(a), cookies[b.id]),
-		"an unregistered fleet":                         send(a, "in", a.token, railFleet{id: "f00000000dead"}, p.laptops(a, b)...),
-		"a fleet id that is a path":                     send(a, "in", a.token, railFleet{id: "../" + b.id}, p.laptops(a, b)...),
+		"alpha's form token at beta's route":            send(b, "everywhere", a.token, railFleet{}, p.hosts(a, b)...),
+		"alpha's form token at beta's route, one fleet": send(b, "in", a.token, b, p.hosts(a, b)...),
+		"beta's form token at alpha's route":            send(a, "in", b.token, b, p.hosts(a, b)...),
+		"no form token":                                 send(a, "everywhere", "", railFleet{}, p.hosts(a, b, c)...),
+		"alpha's token with no login for beta":          send(a, "in", a.token, b, p.hosts(a)...),
+		"a stale login for beta":                        send(a, "in", a.token, b, p.host(a), stale(b, strings.Repeat("0", 32))),
+		"gamma's login under beta's name":               send(a, "in", a.token, b, p.host(a), stale(b, c.token)),
+		"a phone's own cookie for beta":                 send(a, "in", a.token, b, p.host(a), cookies[b.id]),
+		"an unregistered fleet":                         send(a, "in", a.token, railFleet{id: "f00000000dead"}, p.hosts(a, b)...),
+		"a fleet id that is a path":                     send(a, "in", a.token, railFleet{id: "../" + b.id}, p.hosts(a, b)...),
 	} {
 		if c.Code != http.StatusForbidden {
 			t.Fatalf("%s = %d:\n%s", what, c.Code, c.Body.String())
@@ -623,14 +623,14 @@ func TestACrossFleetRevokeNeedsTheLaptopsProofForEveryFleet(t *testing.T) {
 	if got := p.counts(p.revokes, b) + p.counts(p.revokes, c); got != 0 {
 		t.Fatalf("beta and gamma were asked to revoke %d times", got)
 	}
-	if rec := send(a, "in", a.token, b, p.laptop(a), p.laptop(b), cookies[c.id]); rec.Code != http.StatusSeeOther {
+	if rec := send(a, "in", a.token, b, p.host(a), p.host(b), cookies[c.id]); rec.Code != http.StatusSeeOther {
 		t.Fatalf("alpha's form token with a login for beta = %d", rec.Code)
 	}
 	if len(p.devicesOf(b)) != 0 || len(p.devicesOf(a)) != 1 || len(p.devicesOf(c)) != 1 {
 		t.Fatalf("holds %v, %v, %v", holds(p, a), holds(p, b), holds(p, c))
 	}
 	if got := p.counts(p.proofs, a) + p.counts(p.proofs, b); got != 0 {
-		t.Fatalf("a laptop's revoke asked for %d phone proofs", got)
+		t.Fatalf("a host's revoke asked for %d phone proofs", got)
 	}
 }
 
@@ -640,12 +640,12 @@ func TestEachFleetsLoginIsCheckedAgainForEachFleetOfARevoke(t *testing.T) {
 	p.phoneWith("Pixel", a, b, c)
 	label := p.labelOf(a, "Pixel")
 	rotated := &http.Cookie{Name: "hand_board_" + c.id, Value: strings.Repeat("7", 32)}
-	rec := p.everywhere(a, label, p.laptop(a), p.laptop(b), rotated)
+	rec := p.everywhere(a, label, p.host(a), p.host(b), rotated)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke everywhere = %d", rec.Code)
 	}
 	if got := holds(p, c); len(got) != 1 || p.counts(p.revokes, c) != 0 {
-		t.Fatalf("gamma, whose login the laptop no longer holds, = %v, asked %d times", got, p.counts(p.revokes, c))
+		t.Fatalf("gamma, whose login the host no longer holds, = %v, asked %d times", got, p.counts(p.revokes, c))
 	}
 	for _, f := range []railFleet{a, b} {
 		if len(p.devicesOf(f)) != 0 {
@@ -679,7 +679,7 @@ func TestARevokedPhoneIsSignedOutOfEveryFleetAndItsStreamsClose(t *testing.T) {
 		return sc
 	}
 	streams := []*bufio.Scanner{open(a), open(c)}
-	rec := p.everywhere(a, p.labelOf(a, "Pixel"), p.laptops(a, b, c)...)
+	rec := p.everywhere(a, p.labelOf(a, "Pixel"), p.hosts(a, b, c)...)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke everywhere = %d", rec.Code)
 	}
@@ -723,14 +723,14 @@ func TestARevokeEverywhereOnAReadOnlyBoardReachesNoOtherFleet(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	laptop := p.laptops(a, b)
-	page := p.phonePage(a, laptop...)
+	host := p.hosts(a, b)
+	page := p.phonePage(a, host...)
 	lacks(t, "the page", page, b.name, b.id, "dev-fleets", "revoke/everywhere", "Revoke everywhere")
 	contains(t, "the page", page, `aria-label="Revoke Pixel"`)
-	if rec := p.revokeAt(a, b, "0123456789abcdef", laptop...); rec.Code != http.StatusForbidden {
+	if rec := p.revokeAt(a, b, "0123456789abcdef", host...); rec.Code != http.StatusForbidden {
 		t.Fatalf("revoke in another fleet = %d", rec.Code)
 	}
-	if rec := p.everywhere(a, "0123456789abcdef", laptop...); rec.Code != http.StatusSeeOther {
+	if rec := p.everywhere(a, "0123456789abcdef", host...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke everywhere = %d", rec.Code)
 	}
 	if len(p.devicesOf(a)) != 0 || len(p.devicesOf(b)) != 1 || p.counts(p.revokes, b)+p.counts(p.lists, b) != 0 {
@@ -746,7 +746,7 @@ func TestARevokeThroughFunnelRevokesNothing(t *testing.T) {
 	funnel := map[string]string{"Tailscale-Funnel-Request": "?1", "X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"}
 	for _, route := range []string{"in", "everywhere"} {
 		form := url.Values{"csrf": {a.token}, "phone": {label}, "fleet": {b.id}}
-		rec := p.send("POST", "/"+a.id+"/connect/revoke/"+route, form, p.laptops(a, b), funnel)
+		rec := p.send("POST", "/"+a.id+"/connect/revoke/"+route, form, p.hosts(a, b), funnel)
 		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "does not answer the public internet") {
 			t.Fatalf("%s through Funnel = %d", route, rec.Code)
 		}
@@ -762,11 +762,11 @@ func TestARecordOlderThanNinetyDaysIsListedAndRevokedLikeAnyOther(t *testing.T) 
 	p.phoneWith("Pixel", a, b)
 	label := p.labelOf(a, "Pixel")
 	p.advance(91 * 24 * time.Hour)
-	body := p.phonePage(a, p.laptops(a, b)...)
+	body := p.phonePage(a, p.hosts(a, b)...)
 	if got := strings.Count(body, "signed out after 90 days"); got != 2 {
 		t.Fatalf("%d fleets read 'signed out after 90 days':\n%s", got, body)
 	}
-	if rec := p.everywhere(a, label, p.laptops(a, b)...); rec.Code != http.StatusSeeOther || len(p.devicesOf(a))+len(p.devicesOf(b)) != 0 {
+	if rec := p.everywhere(a, label, p.hosts(a, b)...); rec.Code != http.StatusSeeOther || len(p.devicesOf(a))+len(p.devicesOf(b)) != 0 {
 		t.Fatalf("revoke = %d", rec.Code)
 	}
 }
@@ -786,12 +786,12 @@ func TestTwoPhonesWithOneNameAndLoginNeverMerge(t *testing.T) {
 	if len(labels) != n {
 		t.Fatalf("%d labels for %d pairings", len(labels), n)
 	}
-	body := p.phonePage(a, p.laptops(a, b, c)...)
+	body := p.phonePage(a, p.hosts(a, b, c)...)
 	if got := strings.Count(body, `class="device device-group"`); got != n {
 		t.Fatalf("%d group rows for %d phones", got, n)
 	}
 	first := p.devicesOf(a)[0].Phone
-	if rec := p.everywhere(a, first, p.laptops(a, b, c)...); rec.Code != http.StatusSeeOther {
+	if rec := p.everywhere(a, first, p.hosts(a, b, c)...); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke = %d", rec.Code)
 	}
 	for _, f := range p.fleets {
@@ -816,7 +816,7 @@ func TestRevokingWritesNoLabelCodeSecretOrTokenToTheLogOrTheEvents(t *testing.T)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
 	rec := p.redeem(a, code, nil, operator)
 	cookies := phoneCookiesOf(rec)
 	secret := strings.SplitN(cookies[a.id].Value, ".", 2)[1]
@@ -825,9 +825,9 @@ func TestRevokingWritesNoLabelCodeSecretOrTokenToTheLogOrTheEvents(t *testing.T)
 	if err := c.st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	p.everywhere(a, label, p.laptops(a, b, c)...)
-	p.revokeAt(a, b, label, p.laptops(a, b, c)...)
-	p.phonePage(a, p.laptops(a, b, c)...)
+	p.everywhere(a, label, p.hosts(a, b, c)...)
+	p.revokeAt(a, b, label, p.hosts(a, b, c)...)
+	p.phonePage(a, p.hosts(a, b, c)...)
 	hidden := []string{label, secret, code, strings.ReplaceAll(code, "-", ""), a.token, b.token, c.token}
 	for _, bad := range hidden {
 		if strings.Contains(buf.String(), bad) {
@@ -862,10 +862,10 @@ func TestEveryNewFormOnThePhonePageHoldsNoInlineCodeAndKeepsTheCopyableText(t *t
 	p.phoneWith("Tablet", b, c)
 	label := p.labelOf(a, "Pixel")
 	p.setDown(c)
-	partial := p.everywhere(a, label, p.laptops(a, b, c)...)
-	codePage := p.mint(a, p.laptops(a, b, c), b)
+	partial := p.everywhere(a, label, p.hosts(a, b, c)...)
+	codePage := p.mint(a, p.hosts(a, b, c), b)
 	pages := map[string]string{
-		"list":    p.phonePage(a, p.laptops(a, b)...),
+		"list":    p.phonePage(a, p.hosts(a, b)...),
 		"partial": partial.Body.String(),
 		"code":    codePage.Body.String(),
 	}
@@ -888,7 +888,7 @@ func TestEveryNewFormOnThePhonePageHoldsNoInlineCodeAndKeepsTheCopyableText(t *t
 		}
 	}
 	code := p.codeOf(codePage)
-	contains(t, "the code page", pages["code"], `data-copy="link" data-text="https://laptop.example/`+a.id+`/pair#`+code+`"`, `<code class="ref">https://laptop.example/`+a.id+`/pair#`+code+`</code>`, `<p class="code-big" aria-label="Pairing code `+code+`">`+code+`</p>`, `class="device device-group"`)
+	contains(t, "the code page", pages["code"], `data-copy="link" data-text="https://host.example/`+a.id+`/pair#`+code+`"`, `<code class="ref">https://host.example/`+a.id+`/pair#`+code+`</code>`, `<p class="code-big" aria-label="Pairing code `+code+`">`+code+`</p>`, `class="device device-group"`)
 	lacks(t, "the code page", pages["code"], `class="revoke-note"`)
 	contains(t, "the partial page", pages["partial"], `class="doc-notice revoke-note" role="status"`)
 	if strings.Count(pages["list"], "<button") != strings.Count(pages["list"], "</button>") {

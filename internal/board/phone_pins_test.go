@@ -100,7 +100,7 @@ func TestThePhoneScriptPinsItsFlow(t *testing.T) {
 		`field.value = localStorage.getItem(addressKey) || field.value`,
 		`if (typed && typed !== detected) localStorage.setItem(addressKey, typed);`,
 		`else localStorage.removeItem(addressKey);`,
-		`body.dataset.session === "phone" ? "Signed out: pair again on your laptop" : "Log in again: hand open --print"`,
+		`body.dataset.session === "phone" ? "Signed out: pair again from the host's Board" : "Log in again: hand open --print"`,
 		`{ path: "Path", link: "Link" }[b.dataset.copy]`)
 	lacks(t, "app.js", js, `location.hash = `, `location.search`, `eval(`, "document.write")
 	if n := strings.Count(js, "const pairForm ="); n != 1 {
@@ -115,11 +115,11 @@ func TestThePhonePagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
 	pages := map[string]string{
 		"pair":     p.do("GET", "/pair", nil, nil, viaServe).Body.String(),
 		"pair bad": p.tryPair("AAAAA-AAAAA", "100.64.0.7").Body.String(),
-		"connect":  p.do("GET", "/connect", nil, laptop, nil).Body.String(),
-		"code":     p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://laptop.tailnet.example"}}, laptop, nil).Body.String(),
+		"connect":  p.do("GET", "/connect", nil, host, nil).Body.String(),
+		"code":     p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://host.tailnet.example"}}, host, nil).Body.String(),
 		"phone":    p.do("GET", "/connect", nil, phone, viaServe).Body.String(),
 		"revoked":  p.do("GET", "/", nil, &http.Cookie{Name: phone.Name, Value: "1." + strings.Repeat("0", 64)}, viaServe).Body.String(),
-		"funnel":   p.do("GET", "/", nil, laptop, map[string]string{"Tailscale-Funnel-Request": "?1"}).Body.String(),
+		"funnel":   p.do("GET", "/", nil, host, map[string]string{"Tailscale-Funnel-Request": "?1"}).Body.String(),
 	}
 	_ = code
 	inline := regexp.MustCompile(`(?i)\sstyle=|<style|<script[^>]*>[^<]|\son[a-z]+=|javascript:`)

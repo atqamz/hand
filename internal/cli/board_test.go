@@ -296,12 +296,12 @@ func TestTheRealBoardListsItsFleetsAndFeaturesInTheAPI(t *testing.T) {
 		}
 		return res.StatusCode, string(out)
 	}
-	laptop := &http.Cookie{Name: "hand_board_" + path.Base(urlA), Value: tokenA}
-	code, body := get("/api/v1/fleets", laptop)
+	host := &http.Cookie{Name: "hand_board_" + path.Base(urlA), Value: tokenA}
+	code, body := get("/api/v1/fleets", host)
 	if code != http.StatusOK || !strings.Contains(body, `"name":"alpha"`) || !strings.Contains(body, `"pill"`) || strings.Contains(body, "unavailable") || strings.Contains(body, "beta") {
 		t.Fatalf("fleets = %d:\n%s", code, body)
 	}
-	code, body = get("/api/v1/meta", laptop)
+	code, body = get("/api/v1/meta", host)
 	if code != http.StatusOK || !strings.Contains(body, `"version":"`+cli.Version+`"`) || !strings.Contains(body, `"features":["events","fleets","pair"]`) {
 		t.Fatalf("meta = %d:\n%s", code, body)
 	}
@@ -356,7 +356,7 @@ func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
 	}
 	pair := func(fleetURL, token, id string) *http.Cookie {
 		t.Helper()
-		_, page := send("POST", fleetURL+"/connect/code", url.Values{"csrf": {token}, "base": {"https://laptop.example"}}, []*http.Cookie{{Name: "hand_board_" + id, Value: token}})
+		_, page := send("POST", fleetURL+"/connect/code", url.Values{"csrf": {token}, "base": {"https://host.example"}}, []*http.Cookie{{Name: "hand_board_" + id, Value: token}})
 		m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
 		if m == nil {
 			t.Fatalf("no pairing code:\n%s", page)
@@ -430,12 +430,12 @@ func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
 		}
 		return res, string(out)
 	}
-	laptop := []*http.Cookie{{Name: "hand_board_" + idA, Value: tokenA}, {Name: "hand_board_" + idB, Value: tokenB}}
-	_, page := send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://laptop.example"}, "fleet": {idC}}, laptop)
+	host := []*http.Cookie{{Name: "hand_board_" + idA, Value: tokenA}, {Name: "hand_board_" + idB, Value: tokenB}}
+	_, page := send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://host.example"}, "fleet": {idC}}, host)
 	if strings.Contains(page, "pairing link") || !strings.Contains(page, "not signed in to every fleet you chose") {
-		t.Fatalf("a fleet the laptop holds no token for:\n%s", page)
+		t.Fatalf("a fleet the host holds no token for:\n%s", page)
 	}
-	_, page = send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://laptop.example"}, "fleet": {idB}}, laptop)
+	_, page = send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://host.example"}, "fleet": {idB}}, host)
 	m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
 	if m == nil || !strings.Contains(page, "It pairs the phone with alpha and beta.") {
 		t.Fatalf("no code for two fleets:\n%s", page)
@@ -706,7 +706,7 @@ func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
 	idA, idB, idC, idD := path.Base(urlA), path.Base(urlB), path.Base(urlC), path.Base(urlD)
 	login := func(id, token string) *http.Cookie { return &http.Cookie{Name: "hand_board_" + id, Value: token} }
 	all := []*http.Cookie{login(idA, tokenA), login(idB, tokenB), login(idC, tokenC), login(idD, tokenD)}
-	_, page := proxiedSend(t, "POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://laptop.example"}, "fleet": {idB, idC}}, all)
+	_, page := proxiedSend(t, "POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://host.example"}, "fleet": {idB, idC}}, all)
 	m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
 	if m == nil {
 		t.Fatalf("no code:\n%s", page)

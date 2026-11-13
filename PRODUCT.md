@@ -73,7 +73,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - **JavaScript:** allowed since 2026-09-28, as small first-party code with no framework and no build step, embedded in the binary. The CSP allows `script-src 'self'`. Live updates use Server-Sent Events from the Go server.
 - **Security:**
   - the board token is exchanged for an `HttpOnly`, `SameSite=Strict` cookie named for one fleet, which only that fleet accepts;
-  - the JSON API needs that same session cookie, answers only on a loopback board, to the laptop's session or to a phone paired over the peer listener, and refuses a mutation without the session's CSRF token; v1 permits a message to the supervisor, an answer to a decision, an acknowledgement of a report and the supervisor controls, keys included;
+  - the JSON API needs that same session cookie, answers only on a loopback board, to the host's session or to a phone paired over the peer listener, and refuses a mutation without the session's CSRF token; v1 permits a message to the supervisor, an answer to a decision, an acknowledgement of a report and the supervisor controls, keys included;
   - CSRF protects every form;
   - supervisor controls work only on a loopback listener. On a network address the controls are off, while answering decisions and acknowledging reports still work;
   - error pages reveal no paths;

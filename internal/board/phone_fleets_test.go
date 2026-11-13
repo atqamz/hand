@@ -23,8 +23,8 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 		home    []int
 	}{
 		{"no cookie", false, 0, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) { return nil, op }, nil, nil},
-		{"laptop session only", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
-			return []*http.Cookie{p.laptop(p.fleets[0]), p.laptop(p.fleets[1])}, op
+		{"host session only", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+			return []*http.Cookie{p.host(p.fleets[0]), p.host(p.fleets[1])}, op
 		}, []int{0, 1}, nil},
 		{"phone paired with one fleet", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op)}, op
@@ -132,9 +132,9 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 				t.Fatalf("GET / = %d:\n%s", rec.Code, body)
 			}
 			if c.home == nil {
-				contains(t, c.what, body, "pair it on the fleet's Phone page")
+				contains(t, c.what, body, "pair it on the host, on that fleet's Phone page")
 			} else {
-				lacks(t, c.what, body, "pair it on the fleet's Phone page", "No fleets yet")
+				lacks(t, c.what, body, "pair it on the host, on that fleet's Phone page", "No fleets yet")
 			}
 			for i, f := range p.fleets {
 				if slices.Contains(c.home, i) {
@@ -153,23 +153,23 @@ func TestOnlyAProxyHidesTheFleetListAndAPhoneBringsItBack(t *testing.T) {
 		p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
 		phones := []*http.Cookie{p.pair(p.fleets[0], headers), p.pair(p.fleets[1], headers)}
 		bare := p.send("GET", "/", nil, nil, headers).Body.String()
-		contains(t, fmt.Sprint(headers), bare, "pair it on the fleet's Phone page")
+		contains(t, fmt.Sprint(headers), bare, "pair it on the host, on that fleet's Phone page")
 		lacks(t, fmt.Sprint(headers), bare, "alpha", "bravo", "charlie")
 		listed := p.send("GET", "/", nil, phones, headers).Body.String()
 		contains(t, fmt.Sprint(headers), listed, `href="/`+p.fleets[0].id+`/"`, `href="/`+p.fleets[1].id+`/"`)
-		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the fleet's Phone page")
+		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the host, on that fleet's Phone page")
 		direct := p.send("GET", "/", nil, phones, nil).Body.String()
 		contains(t, "direct", direct, "alpha", "bravo", "charlie")
 	}
 }
 
-func TestALaptopSessionNeverOpensTheListForAProxy(t *testing.T) {
+func TestAHostSessionNeverOpensTheListForAProxy(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
 	phone := p.pair(p.fleets[0], op)
-	body := p.send("GET", "/", nil, []*http.Cookie{p.laptop(p.fleets[2])}, op).Body.String()
-	lacks(t, "laptop only", body, "alpha", "bravo", "charlie")
-	body = p.send("GET", "/", nil, []*http.Cookie{phone, p.laptop(p.fleets[2])}, op).Body.String()
+	body := p.send("GET", "/", nil, []*http.Cookie{p.host(p.fleets[2])}, op).Body.String()
+	lacks(t, "host only", body, "alpha", "bravo", "charlie")
+	body = p.send("GET", "/", nil, []*http.Cookie{phone, p.host(p.fleets[2])}, op).Body.String()
 	contains(t, "both", body, "alpha")
 	lacks(t, "both", body, "bravo", "charlie")
 }

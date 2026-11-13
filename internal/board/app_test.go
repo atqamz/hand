@@ -46,16 +46,16 @@ func appRig(t *testing.T, st *sidecar.Status) (*phoneRig, string, func() string)
 		p.fx.options.Iroh = func() sidecar.Status { return *st }
 	}
 	p.h = p.fx.handler()
-	return p, f.ID, func() string { return p.do("GET", "/connect", nil, p.laptopAt(f.ID), nil).Body.String() }
+	return p, f.ID, func() string { return p.do("GET", "/connect", nil, p.hostAt(f.ID), nil).Body.String() }
 }
 
-func (p *phoneRig) laptopAt(id string) *http.Cookie {
+func (p *phoneRig) hostAt(id string) *http.Cookie {
 	return &http.Cookie{Name: "hand_board_" + id, Value: token}
 }
 
 func (p *phoneRig) appCode(id string) (string, string) {
 	p.t.Helper()
-	rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.laptopAt(id), nil)
+	rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.hostAt(id), nil)
 	body := rec.Body.String()
 	m := appCodeRe.FindStringSubmatch(body)
 	if rec.Code != http.StatusOK || m == nil {
@@ -80,7 +80,7 @@ func TestTheHandAppLinkIsShownAsTextAndAQRCode(t *testing.T) {
 			t.Fatalf("app page missing %q:\n%s", want, redactAppPage(body))
 		}
 	}
-	if rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.laptopAt(id), nil); rec.Header().Get("Cache-Control") != "no-store" {
+	if rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.hostAt(id), nil); rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
 	}
 	if len(want) > 213 {
@@ -154,7 +154,7 @@ func TestTheHandAppLinkNeedsASidecarWithARelay(t *testing.T) {
 				t.Errorf("%s: the card does not say %q", name, want)
 			}
 		}
-		rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.laptopAt(id), nil)
+		rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.hostAt(id), nil)
 		if rec.Code == http.StatusOK || strings.Contains(rec.Body.String(), "handboard://") {
 			t.Errorf("%s: connect/app = %d and shows a link", name, rec.Code)
 		}
@@ -182,7 +182,7 @@ func TestThePhonePageHasTheHandAppCardAndNoInstallCard(t *testing.T) {
 		return sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay}
 	}
 	p.restart()
-	body := p.send("GET", "/"+f.id+"/connect", nil, []*http.Cookie{p.laptop(f)}, serving()).Body.String()
+	body := p.send("GET", "/"+f.id+"/connect", nil, []*http.Cookie{p.host(f)}, serving()).Body.String()
 	for _, want := range []string{`<h3 id="handapp-head">Pair the Hand app</h3>`, `aria-labelledby="handapp-head"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the Phone page lacks %q", want)

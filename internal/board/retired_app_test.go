@@ -14,9 +14,9 @@ func TestTheManifestAndTheOfflinePageAreGone(t *testing.T) {
 	f := p.fleets[0]
 	for name, headers := range map[string]map[string]string{"loopback": nil, "proxied https": serving()} {
 		for _, path := range []string{"/manifest.webmanifest", "/offline", "/" + f.id + "/offline", "/" + f.id + "/manifest.webmanifest"} {
-			rec := p.send("GET", path, nil, []*http.Cookie{p.laptop(f)}, headers)
+			rec := p.send("GET", path, nil, []*http.Cookie{p.host(f)}, headers)
 			if rec.Code == http.StatusTemporaryRedirect {
-				rec = p.send("GET", rec.Header().Get("Location"), nil, []*http.Cookie{p.laptop(f)}, headers)
+				rec = p.send("GET", rec.Header().Get("Location"), nil, []*http.Cookie{p.host(f)}, headers)
 			}
 			if rec.Code != http.StatusNotFound {
 				t.Errorf("%s GET %s = %d, want 404", name, path, rec.Code)
@@ -56,7 +56,7 @@ func TestNoPageOffersTheApp(t *testing.T) {
 	phone := p.pair(f, https)
 	for name, headers := range map[string]map[string]string{"loopback": nil, "proxied https": https} {
 		for _, path := range []string{"/", "/" + f.id + "/", "/" + f.id + "/connect", "/" + f.id + "/tasks", "/" + f.id + "/pair"} {
-			rec := p.send("GET", path, nil, []*http.Cookie{p.laptop(f), phone}, headers)
+			rec := p.send("GET", path, nil, []*http.Cookie{p.host(f), phone}, headers)
 			whole := wholeResponse(rec)
 			for _, bad := range retiredMarkers {
 				if strings.Contains(whole, bad) {
@@ -78,7 +78,7 @@ func TestNoPageOffersTheApp(t *testing.T) {
 func TestTheScriptNoLongerRegistersAWorker(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha")
 	f := p.fleets[0]
-	page := p.send("GET", "/"+f.id+"/", nil, []*http.Cookie{p.laptop(f)}, nil).Body.String()
+	page := p.send("GET", "/"+f.id+"/", nil, []*http.Cookie{p.host(f)}, nil).Body.String()
 	app := regexp.MustCompile(`/static/app\.[0-9a-f]{12}\.js`).FindString(page)
 	if app == "" {
 		t.Fatal("the fleet page names no app.js")

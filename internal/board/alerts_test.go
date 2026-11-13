@@ -63,7 +63,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) feedBody {
 func (p *phoneHost) feed(f railFleet, query string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	p.t.Helper()
 	if len(cookies) == 0 {
-		cookies = []*http.Cookie{p.laptop(f)}
+		cookies = []*http.Cookie{p.host(f)}
 	}
 	return p.send("GET", "/"+f.id+"/alerts/feed"+query, nil, cookies, nil)
 }
@@ -244,13 +244,13 @@ func TestOnlyAGetFromTheAppStampsTheReceipts(t *testing.T) {
 		}
 		return
 	}
-	if rec := p.send("HEAD", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.laptop(f)}, nil); rec.Code != http.StatusOK {
+	if rec := p.send("HEAD", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.host(f)}, nil); rec.Code != http.StatusOK {
 		t.Fatalf("HEAD = %d", rec.Code)
 	}
 	if fetched, acked := stamped(); fetched != 0 || acked != 0 {
 		t.Fatalf("a HEAD stamped %d fetched, %d acked", fetched, acked)
 	}
-	rec := p.send("GET", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.laptop(f)}, map[string]string{"Sec-Fetch-Site": "cross-site"})
+	rec := p.send("GET", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.host(f)}, map[string]string{"Sec-Fetch-Site": "cross-site"})
 	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), `"alerts"`) {
 		t.Fatalf("a cross-site GET = %d:\n%s", rec.Code, rec.Body.String())
 	}
@@ -258,7 +258,7 @@ func TestOnlyAGetFromTheAppStampsTheReceipts(t *testing.T) {
 		t.Fatalf("a cross-site GET stamped %d fetched, %d acked", fetched, acked)
 	}
 	for _, site := range []string{"same-origin", "same-site", "none", ""} {
-		if rec := p.send("GET", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.laptop(f)}, map[string]string{"Sec-Fetch-Site": site}); rec.Code != http.StatusOK {
+		if rec := p.send("GET", "/"+f.id+"/alerts/feed?after=0", nil, []*http.Cookie{p.host(f)}, map[string]string{"Sec-Fetch-Site": site}); rec.Code != http.StatusOK {
 			t.Fatalf("Sec-Fetch-Site %q = %d", site, rec.Code)
 		}
 	}
@@ -309,8 +309,8 @@ func TestAnUnpairedPhoneAndAnotherFleetsCookieGetNoFeed(t *testing.T) {
 	if rep := c.do("GET", path(b), nil, nil, phone); rep.Code != http.StatusForbidden || strings.Contains(rep.Body, `"alerts"`) {
 		t.Fatalf("another fleet's cookie = %d:\n%s", rep.Code, rep.Body)
 	}
-	if rep := c.do("GET", path(a), nil, nil, r.laptop(a)); rep.Code != http.StatusForbidden || strings.Contains(rep.Body, `"alerts"`) {
-		t.Fatalf("the laptop cookie over the peer listener = %d:\n%s", rep.Code, rep.Body)
+	if rep := c.do("GET", path(a), nil, nil, r.host(a)); rep.Code != http.StatusForbidden || strings.Contains(rep.Body, `"alerts"`) {
+		t.Fatalf("the host cookie over the peer listener = %d:\n%s", rep.Code, rep.Body)
 	}
 	if rep := c.do("GET", path(a)+"&token="+a.token, nil, nil); rep.Code != http.StatusForbidden {
 		t.Fatalf("a token link over the peer listener = %d", rep.Code)
@@ -353,7 +353,7 @@ func TestAPairedPeerGetsTheFeedWithALengthAndNoSecret(t *testing.T) {
 func TestTheAlertsPageListsTheWeekWithItsReceipts(t *testing.T) {
 	p := alertHost(t, "alpha")
 	f := p.fleets[0]
-	if empty := p.send("GET", "/"+f.id+"/alerts", nil, []*http.Cookie{p.laptop(f)}, nil).Body.String(); !strings.Contains(empty, "No alerts in the last 7 days.") {
+	if empty := p.send("GET", "/"+f.id+"/alerts", nil, []*http.Cookie{p.host(f)}, nil).Body.String(); !strings.Contains(empty, "No alerts in the last 7 days.") {
 		t.Fatalf("empty page:\n%s", empty)
 	}
 	raise(t, f, 4)
@@ -362,7 +362,7 @@ func TestTheAlertsPageListsTheWeekWithItsReceipts(t *testing.T) {
 	decode(t, p.feed(f, "?after=2"))
 	p.advance(90 * time.Second)
 	decode(t, p.feed(f, "?after=3"))
-	rec := p.send("GET", "/"+f.id+"/alerts", nil, []*http.Cookie{p.laptop(f)}, nil)
+	rec := p.send("GET", "/"+f.id+"/alerts", nil, []*http.Cookie{p.host(f)}, nil)
 	page := rec.Body.String()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("page = %d", rec.Code)

@@ -108,10 +108,10 @@ func TestRefusedHostOpenLeavesAnOldSchemaDatabaseUnmigrated(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	asOldSchema(t, home, state.SchemaVersion-1)
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", 10*time.Second)
+	putMarker(t, h, "bench", "boot-x", 10*time.Second)
 	before := snapshotTree(t, home)
 	for _, args := range [][]string{{"orient"}, {"init"}} {
-		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "open on host laptop") {
+		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "open on host bench") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
 		}
 	}
@@ -273,11 +273,11 @@ func TestTakeOverRejudgesAMarkerThatChanged(t *testing.T) {
 	h, home, _ := initMoveFleet(t)
 	env := h.env(&bytes.Buffer{}, &bytes.Buffer{})
 	asHost(t, "desk", "boot-b")
-	stale := fleet.HostMarker{Host: "laptop", Boot: "boot-x", PID: 31337, At: h.clock().Add(-time.Hour)}
-	putMarker(t, h, "laptop", "boot-x", time.Second)
+	stale := fleet.HostMarker{Host: "bench", Boot: "boot-x", PID: 31337, At: h.clock().Add(-time.Hour)}
+	putMarker(t, h, "bench", "boot-x", time.Second)
 	fresh := markerBytes(t, h)
 	events := eventCount(t, home, "")
-	if err := cli.TakeOver(env, home, stale); err == nil || !strings.Contains(err.Error(), "open on host laptop") {
+	if err := cli.TakeOver(env, home, stale); err == nil || !strings.Contains(err.Error(), "open on host bench") {
 		t.Fatalf("err = %v", err)
 	}
 	if !bytes.Equal(markerBytes(t, h), fresh) || eventCount(t, home, "") != events {
@@ -366,7 +366,7 @@ func TestFleetAdoptAndMoveRefuseAPinnedNewerFleetAndUnlockStaysOpen(t *testing.T
 		}
 	}
 	asHost(t, "desk", "boot-b")
-	putMarker(t, h, "laptop", "boot-x", time.Hour)
+	putMarker(t, h, "bench", "boot-x", time.Hour)
 	if out := h.ok("fleet", "unlock"); !strings.Contains(out, "unlock: cleared") {
 		t.Fatalf("unlock = %q", out)
 	}
@@ -395,7 +395,7 @@ func TestTakeOverWarnsAndWentOnWhenTheMarkerCannotBeReread(t *testing.T) {
 	var errOut bytes.Buffer
 	env := h.env(&bytes.Buffer{}, &errOut)
 	asHost(t, "desk", "boot-b")
-	stale := fleet.HostMarker{Host: "laptop", Boot: "boot-x", PID: 31337, At: h.clock().Add(-time.Hour)}
+	stale := fleet.HostMarker{Host: "bench", Boot: "boot-x", PID: 31337, At: h.clock().Add(-time.Hour)}
 	if err := fleet.WriteHost(home, stale); err != nil {
 		t.Fatal(err)
 	}

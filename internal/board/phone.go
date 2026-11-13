@@ -58,7 +58,7 @@ type Pairer interface {
 
 type pairKey struct{}
 
-type laptopKey struct{}
+type hostKey struct{}
 
 var errNotInCode = errors.New("this pairing code does not name this fleet")
 
@@ -230,11 +230,11 @@ func (b *Board) phoneIdentify(r *http.Request) (session, sessionFault) {
 func sessionFaults(f sessionFault, viaProxy bool) string {
 	switch {
 	case f == phoneGone:
-		return "This phone is no longer paired with this fleet. Pair it again from the Board on your laptop: Phone, in its menu."
+		return "This phone is no longer paired with this fleet. Pair it again from the host's Board: Phone, in its menu."
 	case f == phoneOther:
-		return "This phone was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from your laptop."
+		return "This phone was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from the host's Board."
 	case viaProxy:
-		return "Pair this phone first: on your laptop, open this fleet's Board, choose Phone in its menu, and show a pairing code."
+		return "Pair this phone first: open this fleet's Board, choose Phone in its menu, and show a pairing code."
 	}
 	return "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints."
 }
@@ -373,7 +373,7 @@ func (b *Board) redeem(addr, typed string, now time.Time) (pairResult, []string)
 func cleanBase(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Trim(u.Path, "/") != "" {
-		return "", errors.New("type the address your phone opens, like https://laptop.example")
+		return "", errors.New("type the address your phone opens, like https://host.example")
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
@@ -400,7 +400,7 @@ type fleetChoice struct {
 }
 
 func (b *Board) pairChoices(ctx context.Context, set []string) []fleetChoice {
-	list := b.laptopFleets(ctx)
+	list := b.hostFleets(ctx)
 	if len(list) < 2 {
 		return nil
 	}
@@ -428,7 +428,7 @@ func irohView(st sidecar.Status) *irohInfo {
 		if st.Relay == "none" {
 			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a phone elsewhere cannot dial it."}
 		}
-		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. The Hand app can pair with this laptop."}
+		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. The Hand app can pair with this host."}
 	case sidecar.Starting:
 		text := "starting."
 		if st.Reason != "" {
@@ -475,7 +475,7 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 func (b *Board) chosenFleets(r *http.Request) ([]string, bool) {
 	own := b.fleetID()
 	offered := map[string]bool{}
-	for _, l := range b.laptopFleets(r.Context()) {
+	for _, l := range b.hostFleets(r.Context()) {
 		offered[l.ID] = true
 	}
 	set := []string{own}
@@ -503,7 +503,7 @@ func joined(names []string) string {
 
 func (b *Board) fleetNames(ctx context.Context, set []string) []string {
 	byID := map[string]string{}
-	for _, l := range b.laptopFleets(ctx) {
+	for _, l := range b.hostFleets(ctx) {
 		byID[l.ID] = l.Name
 	}
 	names := make([]string, 0, len(set))
@@ -515,7 +515,7 @@ func (b *Board) fleetNames(ctx context.Context, set []string) []string {
 
 func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the code on your laptop")
+		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the code on the host's Board")
 		return
 	}
 	set, ok := b.chosenFleets(r)
@@ -541,7 +541,7 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the link on your laptop")
+		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the link on the host's Board")
 		return
 	}
 	var st sidecar.Status
@@ -549,17 +549,17 @@ func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 		st = b.o.Iroh()
 	}
 	if st.State != sidecar.Ready || st.ID == "" || st.Relay == "" || st.Relay == "none" {
-		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AppError": "Phone access over iroh is not ready with a relay, so a phone cannot reach this laptop yet. Start the Board with `--iroh`, or check the sidecar's state above."})
+		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AppError": "Phone access over iroh is not ready with a relay, so a phone cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state above."})
 		return
 	}
 	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P"); err != nil {
-		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This laptop cannot show a pairing link: its iroh relay address does not fit one."})
+		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
 		return
 	}
 	code, until := b.mint(b.now(), []string{b.fleetID()})
 	link, err := appLink(st.ID, st.Relay, b.fleetID(), code)
 	if err != nil {
-		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This laptop cannot show a pairing link: its iroh relay address does not fit one."})
+		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
 		return
 	}
 	qr, _ := qrSVG(link, "QR code for the Hand app pairing link")
@@ -592,7 +592,7 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	b.phones.mu.Unlock()
 	if s.Device != nil {
 		http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
-		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the Board on your laptop: Phone, in its menu.")
+		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the host's Board: Phone, in its menu.")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -611,10 +611,10 @@ var pairFailure = map[pairResult]struct {
 	status     int
 	code, text string
 }{
-	pairWrong:   {http.StatusForbidden, "wrong_code", "That code is not right. Check it against the one on your laptop, or show a new code there."},
-	pairExpired: {http.StatusForbidden, "code_expired", "That code has expired. A code works for 5 minutes. Show a new code on your laptop."},
-	pairUsed:    {http.StatusForbidden, "code_used", "That code was already used. A code works once. Show a new code on your laptop."},
-	pairBurned:  {http.StatusForbidden, "codes_cancelled", "Too many wrong codes. Every code was cancelled. Show a new code on your laptop."},
+	pairWrong:   {http.StatusForbidden, "wrong_code", "That code is not right. Check it against the one on the Board, or show a new code there."},
+	pairExpired: {http.StatusForbidden, "code_expired", "That code has expired. A code works for 5 minutes. Show a new code on the Board."},
+	pairUsed:    {http.StatusForbidden, "code_used", "That code was already used. A code works once. Show a new code on the Board."},
+	pairBurned:  {http.StatusForbidden, "codes_cancelled", "Too many wrong codes. Every code was cancelled. Show a new code on the Board."},
 	pairBlocked: {http.StatusTooManyRequests, "rate_limited", "Too many wrong codes from this phone. Wait a minute, then try again."},
 }
 
@@ -692,7 +692,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 			b.failNeutralErr(w, failed)
 			return
 		}
-		b.failNeutral(w, http.StatusInternalServerError, "No fleet could be paired, and the code is spent. Show a new code on your laptop.")
+		b.failNeutral(w, http.StatusInternalServerError, "No fleet could be paired, and the code is spent. Show a new code on the Board.")
 		return
 	}
 	for _, p := range paired {

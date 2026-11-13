@@ -30,7 +30,7 @@ const railOthers = 7
 
 func (b *Board) fleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, fleetsKey{}) }
 
-func (b *Board) laptopFleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, laptopKey{}) }
+func (b *Board) hostFleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, hostKey{}) }
 
 func (b *Board) fleetsFrom(ctx context.Context, key any) []railLink {
 	f, err := b.st.Fleet(ctx)
@@ -200,7 +200,7 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 		defer context.AfterFunc(f.ctx, cancel)()
 		if h.o.Loopback && h.o.List != nil {
 			ctx = context.WithValue(ctx, fleetsKey{}, h.signedIn(id, r))
-			ctx = context.WithValue(ctx, laptopKey{}, h.laptopIn(id, r))
+			ctx = context.WithValue(ctx, hostKey{}, h.hostIn(id, r))
 			ctx = context.WithValue(ctx, pairKey{}, h.pairIn)
 			ctx = context.WithValue(ctx, listKey{}, listFunc(h.listIn(id, r)))
 			ctx = context.WithValue(ctx, revokeKey{}, revokeFunc(h.revokeIn(id, r)))
@@ -310,7 +310,7 @@ func (h *Host) revokeIn(current string, r *http.Request) func(context.Context, s
 	}
 }
 
-func (h *Host) laptopIn(current string, r *http.Request) func() []FleetLink {
+func (h *Host) hostIn(current string, r *http.Request) func() []FleetLink {
 	return sync.OnceValue(func() []FleetLink {
 		proven := h.tokenFleets(current, r)
 		if len(proven) == 1 {

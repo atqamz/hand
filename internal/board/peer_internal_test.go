@@ -242,17 +242,17 @@ func TestAPairedRequestMayTakeLongerThanTheBodyDeadlineToSendItsBody(t *testing.
 	}
 }
 
-func TestAPeerRequestProvesNoFleetByALaptopCookie(t *testing.T) {
+func TestAPeerRequestProvesNoFleetByAHostCookie(t *testing.T) {
 	h := NewHost(HostOptions{Loopback: true, Valid: func(string, string) bool { return true }, Resolve: func(string) (string, error) { return "", errors.New("none") }})
 	const current, other = "f0000000000aa", "f0123456789ab"
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: cookieName + "_" + other, Value: "x"})
 	if !h.tokenProves(current, other, req) || len(h.tokenFleets(current, req)) != 2 {
-		t.Fatal("the main listener does not read the laptop cookie")
+		t.Fatal("the main listener does not read the host cookie")
 	}
 	req = req.WithContext(context.WithValue(req.Context(), peerKey{}, &peerConn{}))
 	if h.tokenProves(current, other, req) || len(h.tokenFleets(current, req)) != 1 {
-		t.Fatal("a peer connection proved a fleet with a laptop cookie")
+		t.Fatal("a peer connection proved a fleet with a host cookie")
 	}
 }
 

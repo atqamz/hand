@@ -89,7 +89,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 
 const (
 	cookieName = "hand_board"
-	laptopLife = 400 * 24 * time.Hour
+	hostLife   = 400 * 24 * time.Hour
 	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'"
 )
 
@@ -304,7 +304,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c := &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode}
 		if r.URL.Query().Get("keep") == "1" && b.o.Controls && !forwarded(r) {
-			c.MaxAge = int(laptopLife / time.Second)
+			c.MaxAge = int(hostLife / time.Second)
 		}
 		http.SetCookie(w, c)
 		q := r.URL.Query()

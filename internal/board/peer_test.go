@@ -163,7 +163,7 @@ func (c *peerClient) closed() bool {
 
 func (r *peerRig) code(f railFleet) string {
 	r.t.Helper()
-	return r.codeOf(r.mint(f, []*http.Cookie{r.laptop(f)}))
+	return r.codeOf(r.mint(f, []*http.Cookie{r.host(f)}))
 }
 
 func (r *peerRig) pairOver(c *peerClient, f railFleet, headers map[string]string) (*http.Cookie, peerReply) {
@@ -319,15 +319,15 @@ func TestAnUnpairedPeerReachesOnlyThePairPageAndItsAssets(t *testing.T) {
 	}
 }
 
-func TestThePeerListenerNeverTakesTheLaptopToken(t *testing.T) {
+func TestThePeerListenerNeverTakesTheHostToken(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
 	if rep := c.do("GET", "/"+a.id+"/?token="+a.token, nil, nil); rep.Code != http.StatusForbidden || len(rep.Cookies) != 0 {
 		t.Fatalf("a token link on the peer listener = %d with %d cookies", rep.Code, len(rep.Cookies))
 	}
-	if rep := c.do("GET", "/"+a.id+"/", nil, nil, r.laptop(a)); rep.Code != http.StatusForbidden {
-		t.Fatalf("the laptop cookie opened the board over the peer listener: %d", rep.Code)
+	if rep := c.do("GET", "/"+a.id+"/", nil, nil, r.host(a)); rep.Code != http.StatusForbidden {
+		t.Fatalf("the host cookie opened the board over the peer listener: %d", rep.Code)
 	}
 	if rep := c.do("GET", "/"+a.id+"/pair?token="+a.token, nil, nil); len(rep.Cookies) != 0 {
 		t.Fatalf("the pair path took a token and set %d cookies", len(rep.Cookies))
@@ -336,15 +336,15 @@ func TestThePeerListenerNeverTakesTheLaptopToken(t *testing.T) {
 	if rep := c.do("GET", "/"+b.id+"/?token="+b.token, nil, nil, phone); rep.Code != http.StatusForbidden || len(rep.Cookies) != 0 {
 		t.Fatalf("a paired peer logged in to another fleet with its token: %d, %d cookies", rep.Code, len(rep.Cookies))
 	}
-	if rep := c.do("GET", "/"+b.id+"/connect", nil, nil, phone, r.laptop(b)); rep.Code != http.StatusForbidden {
-		t.Fatalf("a paired peer opened another fleet with its laptop cookie: %d", rep.Code)
+	if rep := c.do("GET", "/"+b.id+"/connect", nil, nil, phone, r.host(b)); rep.Code != http.StatusForbidden {
+		t.Fatalf("a paired peer opened another fleet with its host cookie: %d", rep.Code)
 	}
-	if rep := c.do("GET", "/"+a.id+"/connect", nil, nil, phone, r.laptop(a)); rep.Code != http.StatusOK || strings.Contains(rep.Body, "Show pairing code") {
-		t.Fatalf("a laptop cookie beside the phone's gave the laptop's Phone page: %d", rep.Code)
+	if rep := c.do("GET", "/"+a.id+"/connect", nil, nil, phone, r.host(a)); rep.Code != http.StatusOK || strings.Contains(rep.Body, "Show pairing code") {
+		t.Fatalf("a host cookie beside the phone's gave the host's Phone page: %d", rep.Code)
 	}
 }
 
-func TestAPeerGetsNoLaptopLoginEvenWithKeep(t *testing.T) {
+func TestAPeerGetsNoHostLoginEvenWithKeep(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	rec := r.send("GET", "/"+f.id+"/pair?token="+f.token+"&keep=1", nil, nil, nil)
@@ -387,7 +387,7 @@ func TestClientSentProxyHeadersDoNothingOnThePeerListener(t *testing.T) {
 	}
 }
 
-func TestAnAnonymousPeerPairsWithNoBindingAndNeverAsTheLaptop(t *testing.T) {
+func TestAnAnonymousPeerPairsWithNoBindingAndNeverAsTheHost(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	f := r.fleets[0]
 	c := r.anonymous()
@@ -762,27 +762,27 @@ func TestAPairedPeerIsNotServedTheProofCheckOfAnyFleet(t *testing.T) {
 	}
 }
 
-func TestAPeerPairedWithOneFleetSeesNothingOfAnotherThroughItsLaptopCookie(t *testing.T) {
+func TestAPeerPairedWithOneFleetSeesNothingOfAnotherThroughItsHostCookie(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
 	phone := r.mustPair(c, a)
 	for _, path := range []string{"/" + a.id + "/", "/" + a.id + "/connect", "/" + a.id + "/tasks", "/"} {
-		rep := c.do("GET", path, nil, nil, phone, r.laptop(b))
+		rep := c.do("GET", path, nil, nil, phone, r.host(b))
 		if rep.Code != http.StatusOK || strings.Contains(rep.Body, "bravo") || strings.Contains(rep.Body, b.id) {
-			t.Fatalf("%s with a laptop cookie of another fleet = %d and names it: %v", path, rep.Code, strings.Contains(rep.Body, "bravo"))
+			t.Fatalf("%s with a host cookie of another fleet = %d and names it: %v", path, rep.Code, strings.Contains(rep.Body, "bravo"))
 		}
 	}
 }
 
-func TestALaptopCookieOverAPeerCannotRevokeAnotherFleetsPhones(t *testing.T) {
+func TestAHostCookieOverAPeerCannotRevokeAnotherFleetsPhones(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
 	phone := r.mustPair(c, a)
 	r.phoneWith("Pixel B", b)
 	label := r.labelOf(b, "Pixel B")
-	rep := c.do("POST", "/"+a.id+"/connect/revoke/in", url.Values{"csrf": {a.token}, "phone": {label}, "fleet": {b.id}}, nil, phone, r.laptop(a), r.laptop(b))
+	rep := c.do("POST", "/"+a.id+"/connect/revoke/in", url.Values{"csrf": {a.token}, "phone": {label}, "fleet": {b.id}}, nil, phone, r.host(a), r.host(b))
 	if got := holds(r.phoneHost, b); len(got) != 1 {
 		t.Fatalf("a peer revoked a phone of another fleet: %d, %v", rep.Code, got)
 	}
@@ -924,7 +924,7 @@ func TestRevokeClosesTheEndpointsConnectionsAndLeavesOnlyThePairPage(t *testing.
 			label := devices[0].Phone
 			other := r.as(peerB)
 			otherPhone := r.mustPair(other, f)
-			rec := r.send("POST", "/"+f.id+revoke.path, revoke.form(f, label), []*http.Cookie{r.laptop(f)}, nil)
+			rec := r.send("POST", "/"+f.id+revoke.path, revoke.form(f, label), []*http.Cookie{r.host(f)}, nil)
 			if rec.Code != http.StatusSeeOther {
 				t.Fatalf("%s = %d:\n%s", revoke.path, rec.Code, rec.Body.String())
 			}
@@ -983,7 +983,7 @@ func TestRevokeClosesEveryConnectionOfAnEndpoint(t *testing.T) {
 	if label == "" {
 		t.Fatal("the paired endpoint holds no device label")
 	}
-	rec := r.send("POST", "/"+f.id+"/connect/revoke/in", url.Values{"csrf": {f.token}, "phone": {label}, "fleet": {f.id}}, []*http.Cookie{r.laptop(f)}, nil)
+	rec := r.send("POST", "/"+f.id+"/connect/revoke/in", url.Values{"csrf": {f.token}, "phone": {label}, "fleet": {f.id}}, []*http.Cookie{r.host(f)}, nil)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke = %d:\n%s", rec.Code, rec.Body.String())
 	}
@@ -1029,7 +1029,7 @@ func TestAHandAppCodePairsOverAPeerConnection(t *testing.T) {
 	}
 	p.restart()
 	r := servePeerRig(t, p)
-	rec := r.send("POST", "/"+f.id+"/connect/app", url.Values{"csrf": {f.token}}, []*http.Cookie{r.laptop(f)}, nil)
+	rec := r.send("POST", "/"+f.id+"/connect/app", url.Values{"csrf": {f.token}}, []*http.Cookie{r.host(f)}, nil)
 	m := appCodeRe.FindStringSubmatch(rec.Body.String())
 	if rec.Code != http.StatusOK || m == nil {
 		t.Fatalf("connect/app = %d:\n%s", rec.Code, redactAppPage(rec.Body.String()))

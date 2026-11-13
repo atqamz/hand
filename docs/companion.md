@@ -1,6 +1,6 @@
 # The Android Companion contract
 
-The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your laptop and shows the Board in a web view. It lives outside this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests copy it.
+The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives outside this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests copy it.
 
 **Status.** Three kinds of statement share this page, and each says which it is:
 
@@ -14,9 +14,9 @@ The words *must*, *must not* and *may* bind the app or the Board as the sentence
 
 ### What the app dials
 
-The app is an iroh endpoint with a key of its own, made on first run. Its public key is the identity the Board sees. It dials the laptop's endpoint ID from the link, 32 bytes written as 64 lowercase hexadecimal characters, with the ALPN `hand-board` (ten bytes, no version suffix). If the link carries a relay URL, the app gives it to iroh as a relay hint for that endpoint. The link never carries IP addresses, and the app must not store or send any it learns.
+The app is an iroh endpoint with a key of its own, made on first run. Its public key is the identity the Board sees. It dials the host's endpoint ID from the link, 32 bytes written as 64 lowercase hexadecimal characters, with the ALPN `hand-board` (ten bytes, no version suffix). If the link carries a relay URL, the app gives it to iroh as a relay hint for that endpoint. The link never carries IP addresses, and the app must not store or send any it learns.
 
-The app holds **one connection to a laptop at a time** and opens every stream on it. A laptop admits 16 connections by default and 4 from one source (one direct IPv4 address or IPv6 /64, or one relayed endpoint ID), so a second connection from the same phone is a cost, not a speed-up.
+The app holds **one connection to a host at a time** and opens every stream on it. A host admits 16 connections by default and 4 from one source (one direct IPv4 address or IPv6 /64, or one relayed endpoint ID), so a second connection from the same phone is a cost, not a speed-up.
 
 ### Streams
 
@@ -34,7 +34,7 @@ HAND-PEER 1 <endpoint id of the app> <secret from board.peer>\n
 
 It does not wait for an answer, and the Board never sends one: the first byte the app receives on a stream is the first byte of the Board's HTTP response. The app never sees the preface or the secret. After the line, the sidecar copies bytes both ways. It writes nothing else of its own to a stream.
 
-If the sidecar cannot connect to the Board, or cannot do it within the idle time, it resets the stream with code 3. If the Board refuses the preface (a wrong secret, which only a misconfigured laptop causes), it closes without an answer: the app sees the stream end with no byte, or a reset with code 5.
+If the sidecar cannot connect to the Board, or cannot do it within the idle time, it resets the stream with code 3. If the Board refuses the preface (a wrong secret, which only a misconfigured host causes), it closes without an answer: the app sees the stream end with no byte, or a reset with code 5.
 
 ### Ending a stream
 
@@ -51,16 +51,16 @@ Codes 1 to 5 exist today. Every other code is unassigned.
 
 | Code | Name | Where | When the sidecar sends it | What the app does | What the user sees |
 |---|---|---|---|---|---|
-| 1 | `full` | Connection close | The handshake finished and no connection slot was free | Waits and dials again with backoff (below) | "Your laptop is busy. Trying again." |
+| 1 | `full` | Connection close | The handshake finished and no connection slot was free | Waits and dials again with backoff (below) | "Your host is busy. Trying again." |
 | 2 | `idle` | Connection close | No byte moved on any stream for the idle time | Nothing at once. Dials again when the web view next opens a stream | Nothing |
-| 3 | `board_unreachable` | Stream reset and stop | The sidecar could not reach the peer listener | Closes the web view's socket. The connection stays open | After 2 in a row: "Your laptop answers, but the Board is not running. Start it on the laptop." |
+| 3 | `board_unreachable` | Stream reset and stop | The sidecar could not reach the peer listener | Closes the web view's socket. The connection stays open | After 2 in a row: "Your host answers, but the Board is not running. Start it on the host." |
 | 4 | `stream_idle` | Stream reset and stop | No byte moved on this stream for the idle time | Closes the web view's socket | Nothing: the page reconnects |
 | 5 | `board_error` | Stream reset or stop | The Board's TCP connection broke | Closes the web view's socket. Keeps any answer already delivered | Nothing |
-| other | n/a | Either | Never today | Treats it as a lost connection: backoff, three tries, then the message of a lost connection | "Your laptop closed the connection. If you removed this phone there, pair it again." |
+| other | n/a | Either | Never today | Treats it as a lost connection: backoff, three tries, then the message of a lost connection | "Your host closed the connection. If you removed this phone there, pair it again." |
 
-**Refusals.** A dialer is also refused before the handshake finishes, with no application code, when 16 connections are open, when 8 handshakes are running, or when 4 connections from its source are open. A refusal arrives at once, before any handshake, and the app treats it as code 1. A handshake that does not finish in 3 seconds is dropped with no code at all: the app cannot tell that drop from a laptop that is off, so it keeps dialing until its own 20-second deadline and then says the laptop does not answer, as below.
+**Refusals.** A dialer is also refused before the handshake finishes, with no application code, when 16 connections are open, when 8 handshakes are running, or when 4 connections from its source are open. A refusal arrives at once, before any handshake, and the app treats it as code 1. A handshake that does not finish in 3 seconds is dropped with no code at all: the app cannot tell that drop from a host that is off, so it keeps dialing until its own 20-second deadline and then says the host does not answer, as below.
 
-**Backoff.** Start at 1 second, double each time up to 30 seconds, add up to 25 percent of random jitter, and reset after a connection has carried a stream for 10 seconds. The app must not retry faster, because every attempt costs the laptop a handshake.
+**Backoff.** Start at 1 second, double each time up to 30 seconds, add up to 25 percent of random jitter, and reset after a connection has carried a stream for 10 seconds. The app must not retry faster, because every attempt costs the host a handshake.
 
 ### Caps the app must respect
 
@@ -69,19 +69,19 @@ Codes 1 to 5 exist today. Every other code is unassigned.
 | Open streams per connection | 12 | A 13th `open_bi` waits until one ends |
 | New streams per second per connection | 20, after a burst of 12 | The sidecar accepts them later, at that rate: they are delayed, not refused |
 | Unidirectional streams | 0 | They cannot be opened |
-| Connections per laptop | 16 by default; the operator may set 1 to 1024 | Refused, or closed with code 1 |
+| Connections per host | 16 by default; the operator may set 1 to 1024 | Refused, or closed with code 1 |
 | Connections from one source | 4 | Refused |
 | Handshakes at once | 8, each dropped after 3 seconds | Refused |
 | Idle, stream | 60 seconds by default; the operator may set 1 to 86400 | Reset with code 4 |
 | Idle, connection | The same | Closed with code 2 |
 
-Only a byte moves the idle clock. QUIC keepalive packets, opening a stream and ending one do not. The app cannot learn the laptop's setting, so it must assume 60 seconds and treat any connection or stream as one that may end. The Board's live pages send a heartbeat every 15 seconds, which keeps a page's event stream under the default.
+Only a byte moves the idle clock. QUIC keepalive packets, opening a stream and ending one do not. The app cannot learn the host's setting, so it must assume 60 seconds and treat any connection or stream as one that may end. The Board's live pages send a heartbeat every 15 seconds, which keeps a page's event stream under the default.
 
 The Board also bounds what an unpaired connection may do; see [What the Board does with a paired phone](#what-the-board-does-with-a-paired-phone).
 
 ## The pairing link
 
-The link is what the laptop's QR code and its text form carry. It is not the Phone page's `ADDRESS/<fleet id>/pair#CODE` link, which a browser opens.
+The link is what the host's QR code and its text form carry. It is not the Phone page's `ADDRESS/<fleet id>/pair#CODE` link, which a browser opens.
 
 ### Grammar
 
@@ -97,10 +97,10 @@ The link is printable ASCII (bytes 0x21 to 0x7E) and at most **213 bytes**, the 
 | Key | Required | Value |
 |---|---|---|
 | `v` | yes, and first | The contract version, the text `1` |
-| `e` | yes | The laptop's endpoint ID: 64 lowercase hexadecimal characters |
+| `e` | yes | The host's endpoint ID: 64 lowercase hexadecimal characters |
 | `f` | yes | The fleet ID the code pairs with: `f` and 12 lowercase hexadecimal characters |
 | `c` | yes | The one-time code: 10 characters of `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, uppercase, no hyphen |
-| `r` | no | The laptop's relay URL, percent-encoded as below. Absent when the laptop uses the public relays of the iroh project, which the app finds through its own defaults |
+| `r` | no | The host's relay URL, percent-encoded as below. Absent when the host uses the public relays of the iroh project, which the app finds through its own defaults |
 
 Any other key is ignored, so that a later version can add one.
 
@@ -134,7 +134,7 @@ The app trims surrounding whitespace that a scanner or a paste adds, and then pa
 
 Check 8 comes before every check of a field, so that a later version may change anything after `v=` and an old app still says "needs a newer app" and not "invalid". An app also rejects, as `endpoint_id`, an ID its iroh library will not turn into a public key: the reference parser checks only the shape.
 
-The app shows the user the first four and last four characters of the laptop's ID and asks for confirmation before it dials: any other app may open a custom-scheme link, and a link must not pair the phone with a stranger's laptop on one tap. A link that arrives while a pairing is open replaces nothing until the user confirms.
+The app shows the user the first four and last four characters of the host's ID and asks for confirmation before it dials: any other app may open a custom-scheme link, and a link must not pair the phone with a stranger's host on one tap. A link that arrives while a pairing is open replaces nothing until the user confirms.
 
 ### What the app opens
 
@@ -171,11 +171,11 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 
 **Grammar.** The scheme `handboard` and the host `open`, so it never collides with the pairing link, whose host is `c`. Then the fleet, which matches `^f[0-9a-f]{12}$`; then `/` and nothing, `task/tN`, `decision/dN` or `attempt/aN`, with N one to nine digits and no leading zero; then optionally `#rN`, only after `task/tN`, with the same rule for N. Everything is lowercase ASCII. No query, userinfo, port, percent escape or trailing slash is valid. Any other text is not an open link, and the parser gives no reason: it rejects.
 
-**The laptop.** The desktop window takes the same link as `hand-desktop --open LINK`, and the Linux alert's **Open** runs it. `go test ./internal/desktop` runs its parser over the same vectors, and a link with a `#rN` opens the report `rN` there.
+**The desktop window.** It takes the same link as `hand-desktop --open LINK`, and the Linux alert's **Open** runs it. `go test ./internal/desktop` runs its parser over the same vectors, and a link with a `#rN` opens the report `rN` there.
 
-**What it holds.** No token, no pairing code and no endpoint ID, because an alert service reads it and the app has one laptop per install. It names the fleet and an item, nothing more.
+**What it holds.** No token, no pairing code and no endpoint ID, because an alert service reads it and the app has one host per install. It names the fleet and an item, nothing more.
 
-**What the app does.** The app must treat it as a request to show one read page through the proxy it already has, never as a pairing. It must not clear cookies, change the laptop, replace a pending pairing or pair a phone. With a laptop paired, it dials, sets up the loopback proxy and loads `http://localhost:PORT/<fleet id>/<page>` (with `#rN` kept as the fragment). With no laptop it shows "Pair this phone with your laptop first." and drops the link. When the laptop is unreachable it shows the unreachable screen, and tapping the alert again retries. A phone that is not paired for the fleet gets the Board's own refusal. A hostile link from another app can open one read page of an already paired laptop, and a change on the Board needs a POST with the form token, so the link grants nothing.
+**What the app does.** The app must treat it as a request to show one read page through the proxy it already has, never as a pairing. It must not clear cookies, change the host, replace a pending pairing or pair a phone. With a host paired, it dials, sets up the loopback proxy and loads `http://localhost:PORT/<fleet id>/<page>` (with `#rN` kept as the fragment). With no host it shows "Pair this phone with your host first." and drops the link. When the host is unreachable it shows the unreachable screen, and tapping the alert again retries. A phone that is not paired for the fleet gets the Board's own refusal. A hostile link from another app can open one read page of an already paired host, and a change on the Board needs a POST with the form token, so the link grants nothing.
 
 **Vectors.** [`companion-vectors.json`](companion-vectors.json) holds 6 valid and 61 invalid open links under the key `open`. Valid entries carry the parsed `fleet`, `page`, `report` and the `path` to open, and every one is a link Hand emits (`canonical`); an emitter must reproduce its `link` from `fleet`, `page` and `report`. Invalid entries carry only the `link`; they are the app's main reject table, and the reference parser's anchored fleet check also rejects the app's extra right-length fleet cases, which only `internal/companion/companion_test.go` (the reference parser test) holds, not the vectors file. `go test ./internal/companion` runs the reference parser over both lists, and `go test ./internal/cli` checks that Hand's emitter reproduces every valid link. The app runs its parser over them as written.
 
@@ -187,12 +187,12 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 
 - **Where it arrives.** The sidecar's streams arrive at the [peer listener](phone.md#the-peer-listener) (`hand board --peer-addr 127.0.0.1:7778`), where every request counts as remote and proxy headers are dropped.
 - **Before pairing.** The connection may ask only for `/<fleet id>/pair`, `/<fleet id>/api/v1/pair` (only a `POST` pairs) and `/static/…`. It is closed after 32 requests or 64 KiB without a paired phone's cookie, after a request body that takes over 10 seconds, and after 30 seconds with no request, paired or not. Each stream is one such connection, so a page that opens many streams starts each one capped.
-- **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the phone's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The laptop shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-should-see).
+- **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the phone's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The host shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-should-see).
 - **The device.** A good code creates a device whose login is `iroh:<endpoint id>`, the name the user typed, and a hash of a secret. The page sets the cookie `hand_phone_<fleet id>`: `HttpOnly`, `SameSite=Lax`, path `/`, 90 days. It has neither `Secure` nor the `__Host-` prefix, because the Board dropped `X-Forwarded-Proto` and the origin is plain HTTP. Then it redirects to `/<fleet id>/`.
 - **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the phone's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
 - **After pairing.** The whole Board, with the supervisor's controls, except `/<fleet id>/proof`; and the host-level `/api/v1/fleets` and `/api/v1/meta`. A request that carries a cookie that no longer proves puts the connection's caps back.
-- **The app link.** The Phone page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this laptop's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
-- **Revoking.** On the Phone page, **Revoke** deletes the device and **Revoke everywhere** deletes the phone's devices in every fleet. The cookie fails at once and the page answers 403 "This phone is no longer paired with this fleet". That endpoint ID's live connections are closed, and the laptop then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
+- **The app link.** The Phone page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this host's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
+- **Revoking.** On the Phone page, **Revoke** deletes the device and **Revoke everywhere** deletes the phone's devices in every fleet. The cookie fails at once and the page answers 403 "This phone is no longer paired with this fleet". That endpoint ID's live connections are closed, and the host then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
 - **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired phone. A key that is not paired may still dial and reaches only the pair page and the pair endpoint.
 
 ### Step 3
@@ -255,19 +255,19 @@ The app's own screens say the left column. A page the Board serves appears in th
 
 | Case | How the app knows | What the user sees |
 |---|---|---|
-| The link is rejected | A reason from the table above | For `version_unsupported`: "This code needs a newer Hand app. Update the app." For every other reason: "This is not a Hand pairing code. Show a new one on your laptop." The app never shows the reason code to the user, the link or the code |
+| The link is rejected | A reason from the table above | For `version_unsupported`: "This code needs a newer Hand app. Update the app." For every other reason: "This is not a Hand pairing code. Show a new one on the Board." The app never shows the reason code to the user, the link or the code |
 | The camera is refused | The OS | "Allow the camera to scan the code, or paste the link." |
-| The laptop does not answer | No handshake within the app's 20-second deadline | "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet." |
-| The laptop is full or refuses | Code 1, or a refusal | "Your laptop is busy. Trying again." |
-| The Board is not running | Code 3 twice in a row | "Your laptop answers, but the Board is not running. Start it on the laptop." |
-| The connection is lost | Any other close | "Reconnecting…", and after three tries "Can't reach your laptop." |
-| A wrong code | The pair page's 403, or `wrong_code` | "That code is not right. Check it against the one on your laptop, or show a new code there." |
-| An expired code | The pair page's 403, or `code_expired` | "That code has expired. A code works for 5 minutes. Show a new code on your laptop." |
-| A used code | The pair page's 403, or `code_used` | "That code was already used. A code works once. Show a new code on your laptop." |
-| Too many wrong codes (all cancelled) | The pair page's 403, or `codes_cancelled` | "Too many wrong codes. Every code was cancelled. Show a new code on your laptop." |
+| The host does not answer | No handshake within the app's 20-second deadline | "Can't reach your host. Check that it is on, that Hand's Board is running, and that this phone has internet." |
+| The host is full or refuses | Code 1, or a refusal | "Your host is busy. Trying again." |
+| The Board is not running | Code 3 twice in a row | "Your host answers, but the Board is not running. Start it on the host." |
+| The connection is lost | Any other close | "Reconnecting…", and after three tries "Can't reach your host." |
+| A wrong code | The pair page's 403, or `wrong_code` | "That code is not right. Check it against the one on the Board, or show a new code there." |
+| An expired code | The pair page's 403, or `code_expired` | "That code has expired. A code works for 5 minutes. Show a new code on the Board." |
+| A used code | The pair page's 403, or `code_used` | "That code was already used. A code works once. Show a new code on the Board." |
+| Too many wrong codes (all cancelled) | The pair page's 403, or `codes_cancelled` | "Too many wrong codes. Every code was cancelled. Show a new code on the Board." |
 | Too many wrong codes from this phone | The pair page's 429, or `rate_limited` | "Too many wrong codes from this phone. Wait a minute, then try again." |
-| The phone is still paired in another fleet, and this fleet's pairing was removed on the laptop | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this laptop** |
-| The phone's only paired fleet was removed on the laptop | The Board's 403 "Pair this phone first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
+| The phone is still paired in another fleet, and this fleet's pairing was removed on the host | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
+| The phone's only paired fleet was removed on the host | The Board's 403 "Pair this phone first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
 | Too much asked before pairing | The Board's 429 | The page; the web view reconnects, which opens a new stream |
 
 A name the Board refuses is `bad_name`: the app limits the field to 40 characters and no control character, so the user never sees it. The pair page's texts on the right are the Board's, and the API's `message` carries the same text; the app may show them in its own words but must keep their meaning, and must not add the code.
@@ -275,10 +275,10 @@ A name the Board refuses is `bad_name`: the app limits the field to 40 character
 ## Rules for the app
 
 - **Never log the code, the link or a cookie**, in the app's logs, crash reports, analytics, clipboard, notifications, intents it sends, or the URL it passes to an error screen. The reason code of a rejected link is the most a log may hold.
-- **The app never holds the sidecar's secret.** It is in `board.peer` on the laptop and the app is never given it. The device's secret is in an `HttpOnly` cookie that the web view sends. The app reads only the `hand_phone_<fleet id>` cookie, and may send it only on that fleet's own `/<fleet id>/alerts/feed` and `/<fleet id>/api/v1` requests (the [JSON API](api.md)). It may keep the secret in a file of its own sealed by a Keystore key, and nowhere else. It never logs it and never sends it to any other path or fleet. It must not read, copy or export any other cookie of the web view.
+- **The app never holds the sidecar's secret.** It is in `board.peer` on the host and the app is never given it. The device's secret is in an `HttpOnly` cookie that the web view sends. The app reads only the `hand_phone_<fleet id>` cookie, and may send it only on that fleet's own `/<fleet id>/alerts/feed` and `/<fleet id>/api/v1` requests (the [JSON API](api.md)). It may keep the secret in a file of its own sealed by a Keystore key, and nowhere else. It never logs it and never sends it to any other path or fleet. It must not read, copy or export any other cookie of the web view.
 - **Block screenshots, recents thumbnails and screen recording of the pairing screen and of the pair page** where the OS can (on Android, `FLAG_SECURE` on that screen), because the code is on it in clear.
 - **Keep the app's iroh key in the keystore.** Make 32 random bytes on first run and keep them encrypted under a non-exportable key of the Android Keystore (hardware-backed when the phone has it), in storage private to the app and excluded from backups and device-to-device transfer, so that a copy of the phone does not copy the identity. A reinstall makes a new key, which the Board treats as a new phone.
-- **One laptop per install.** Cookies are scoped to the host `localhost`, not a port, so a second laptop's Board would be sent the first one's cookies. Pairing a second laptop first clears the web view's cookies and storage and forgets the first.
+- **One host per install.** Cookies are scoped to the name `localhost`, not a port, so a second host's Board would be sent the first one's cookies. Pairing a second host first clears the web view's cookies and storage and forgets the first.
 - **Load only the proxy's origin** in the web view. Every other address opens in the system browser. Do not enable file access, content access, or a JavaScript bridge to the web view.
 - **Cleartext only to `localhost`.** The network security config allows cleartext to that name and to nothing else.
 - **Pace itself.** Follow the caps and the backoff above.
@@ -297,7 +297,7 @@ The contract has one whole-number version, in the link as `v` and on the wire as
 - **A change that needs no new version.** A new optional link key (old apps ignore it), a new route such as the alert feed, a new close or reset code (an old app treats an unassigned code as a lost connection), a new vector, a clearer sentence. Add them here and in the vectors file in one change. A vector is never changed or removed inside a version.
 - **A change that needs a new version.** Any change to the meaning, spelling or limits of a key that exists, to the code's alphabet or length, to what a stream carries, or to what the app must do for the link to work. It becomes version 2 with the ALPN `hand-board/2`, a vectors file with `"contract": 2`, and a new section here.
 - **Old apps keep working.** The sidecar serves the ALPNs of every version a Hand release lists as supported, and a version is dropped only in a release whose notes say so. The Board emits links of the lowest version still supported, so an old app can still pair. An app accepts every link version up to the one it was built for.
-- **A feature on an older laptop.** The app and the laptop update apart. After pairing, the app reads `GET /api/v1/meta` and shows a feature only when its name is in `features` ([JSON API](api.md#the-fleet-list-and-the-features)); a name is added when its endpoint lands and is never renamed or removed inside v1. The app lists its fleets with `GET /api/v1/fleets` on the host, which answers with the fleets its cookies prove.
+- **A feature on an older host.** The app and the host update apart. After pairing, the app reads `GET /api/v1/meta` and shows a feature only when its name is in `features` ([JSON API](api.md#the-fleet-list-and-the-features)); a name is added when its endpoint lands and is never renamed or removed inside v1. The app lists its fleets with `GET /api/v1/fleets` on the host, which answers with the fleets its cookies prove.
 - **An old app meets a newer link.** It rejects it as `version_unsupported` and tells the user to update, because check 8 runs before any other field is read.
 
 ## iOS is deferred

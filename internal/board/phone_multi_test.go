@@ -35,17 +35,17 @@ func (p *phoneHost) setGone(f railFleet) {
 	p.gone[f.id] = true
 }
 
-func (p *phoneHost) laptops(fleets ...railFleet) []*http.Cookie {
+func (p *phoneHost) hosts(fleets ...railFleet) []*http.Cookie {
 	var out []*http.Cookie
 	for _, f := range fleets {
-		out = append(out, p.laptop(f))
+		out = append(out, p.host(f))
 	}
 	return out
 }
 
 func (p *phoneHost) mint(f railFleet, cookies []*http.Cookie, ticked ...railFleet) *httptest.ResponseRecorder {
 	p.t.Helper()
-	form := url.Values{"csrf": {f.token}, "base": {"https://laptop.example"}}
+	form := url.Values{"csrf": {f.token}, "base": {"https://host.example"}}
 	for _, t := range ticked {
 		form.Add("fleet", t.id)
 	}
@@ -126,33 +126,33 @@ func fleetsAt(p *phoneHost, idx ...int) []railFleet {
 	return out
 }
 
-func TestOneCodePairsAPhoneWithTheFleetsTheLaptopChose(t *testing.T) {
+func TestOneCodePairsAPhoneWithTheFleetsTheHostChose(t *testing.T) {
 	op := serving()
 	cases := []struct {
-		what    string
-		laptops []int
-		ticked  []int
-		down    []int
-		gone    []int
-		status  int
-		paired  []int
-		missed  string
-		said    string
+		what   string
+		hosts  []int
+		ticked []int
+		down   []int
+		gone   []int
+		status int
+		paired []int
+		missed string
+		said   string
 	}{
 		{"one fleet", []int{0}, nil, nil, nil, http.StatusSeeOther, []int{0}, "", ""},
-		{"the laptop is proven for more but ticked none", []int{0, 1, 2}, nil, nil, nil, http.StatusSeeOther, []int{0}, "", ""},
+		{"the host is proven for more but ticked none", []int{0, 1, 2}, nil, nil, nil, http.StatusSeeOther, []int{0}, "", ""},
 		{"two fleets", []int{0, 1}, []int{1}, nil, nil, http.StatusOK, []int{0, 1}, "", "Paired with alpha and beta."},
 		{"three fleets", []int{0, 1, 2}, []int{1, 2}, nil, nil, http.StatusOK, []int{0, 1, 2}, "", "Paired with alpha, beta and gamma."},
 		{"one of three unticked", []int{0, 1, 2}, []int{2}, nil, nil, http.StatusOK, []int{0, 2}, "", "Paired with alpha and gamma."},
-		{"one fleet down at redeem", []int{0, 1, 2}, []int{1, 2}, []int{1}, nil, http.StatusOK, []int{0, 2}, "1 fleet was not reachable. Pair it from its own Phone page on your laptop.", "Paired with alpha and gamma."},
-		{"one fleet removed after the code was shown", []int{0, 1, 2}, []int{1, 2}, nil, []int{2}, http.StatusOK, []int{0, 1}, "1 fleet was not reachable. Pair it from its own Phone page on your laptop.", "Paired with alpha and beta."},
-		{"every other fleet unreachable", []int{0, 1, 2}, []int{1, 2}, []int{1}, []int{2}, http.StatusOK, []int{0}, "2 fleets were not reachable. Pair them from their own Phone page on your laptop.", "Paired with alpha."},
+		{"one fleet down at redeem", []int{0, 1, 2}, []int{1, 2}, []int{1}, nil, http.StatusOK, []int{0, 2}, "1 fleet was not reachable. Pair it from the host's Board, on its Phone page.", "Paired with alpha and gamma."},
+		{"one fleet removed after the code was shown", []int{0, 1, 2}, []int{1, 2}, nil, []int{2}, http.StatusOK, []int{0, 1}, "1 fleet was not reachable. Pair it from the host's Board, on its Phone page.", "Paired with alpha and beta."},
+		{"every other fleet unreachable", []int{0, 1, 2}, []int{1, 2}, []int{1}, []int{2}, http.StatusOK, []int{0}, "2 fleets were not reachable. Pair them from the host's Board, on its Phone page.", "Paired with alpha."},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
 			p := newPhoneHost(t, true, "alpha", "beta", "gamma", "delta")
 			a := p.fleets[0]
-			code := p.codeOf(p.mint(a, p.laptops(fleetsAt(p, c.laptops...)...), fleetsAt(p, c.ticked...)...))
+			code := p.codeOf(p.mint(a, p.hosts(fleetsAt(p, c.hosts...)...), fleetsAt(p, c.ticked...)...))
 			for _, i := range c.down {
 				p.setDown(p.fleets[i])
 			}
@@ -220,7 +220,7 @@ func TestTheRecordsOfTwoPairingsCarryTwoLabels(t *testing.T) {
 	a, b := p.fleets[0], p.fleets[1]
 	op := serving()
 	for range 2 {
-		code := p.codeOf(p.mint(a, p.laptops(a, b), b))
+		code := p.codeOf(p.mint(a, p.hosts(a, b), b))
 		if rec := p.redeem(a, code, nil, op); rec.Code != http.StatusOK {
 			t.Fatalf("redeem = %d", rec.Code)
 		}
@@ -236,7 +236,7 @@ func TestTheRecordsOfTwoPairingsCarryTwoLabels(t *testing.T) {
 	}
 }
 
-func TestAChosenFleetTheLaptopIsNotProvenForGetsNoCode(t *testing.T) {
+func TestAChosenFleetTheHostIsNotProvenForGetsNoCode(t *testing.T) {
 	op := serving()
 	wrong := func(f railFleet) *http.Cookie {
 		return &http.Cookie{Name: "hand_board_" + f.id, Value: strings.Repeat("0", 32)}
@@ -246,17 +246,17 @@ func TestAChosenFleetTheLaptopIsNotProvenForGetsNoCode(t *testing.T) {
 		cookie func(p *phoneHost) []*http.Cookie
 		ticked func(p *phoneHost) []string
 	}{
-		{"a fleet with no cookie", func(p *phoneHost) []*http.Cookie { return p.laptops(p.fleets[0]) }, func(p *phoneHost) []string { return []string{p.fleets[1].id} }},
+		{"a fleet with no cookie", func(p *phoneHost) []*http.Cookie { return p.hosts(p.fleets[0]) }, func(p *phoneHost) []string { return []string{p.fleets[1].id} }},
 		{"a fleet whose cookie holds another token", func(p *phoneHost) []*http.Cookie {
-			return []*http.Cookie{p.laptop(p.fleets[0]), wrong(p.fleets[1])}
+			return []*http.Cookie{p.host(p.fleets[0]), wrong(p.fleets[1])}
 		}, func(p *phoneHost) []string { return []string{p.fleets[1].id} }},
-		{"one proven and one not", func(p *phoneHost) []*http.Cookie { return p.laptops(p.fleets[0], p.fleets[1]) }, func(p *phoneHost) []string { return []string{p.fleets[1].id, p.fleets[2].id} }},
+		{"one proven and one not", func(p *phoneHost) []*http.Cookie { return p.hosts(p.fleets[0], p.fleets[1]) }, func(p *phoneHost) []string { return []string{p.fleets[1].id, p.fleets[2].id} }},
 		{"an id nobody registered", func(p *phoneHost) []*http.Cookie {
-			return []*http.Cookie{p.laptop(p.fleets[0]), {Name: "hand_board_f00000000dead", Value: p.fleets[0].token}}
+			return []*http.Cookie{p.host(p.fleets[0]), {Name: "hand_board_f00000000dead", Value: p.fleets[0].token}}
 		}, func(p *phoneHost) []string { return []string{"f00000000dead"} }},
-		{"an id that is not a fleet id", func(p *phoneHost) []*http.Cookie { return p.laptops(p.fleets[0]) }, func(p *phoneHost) []string { return []string{"../" + p.fleets[1].id, "", " ", "%00"} }},
-		{"a fleet the phone is paired with, not the laptop", func(p *phoneHost) []*http.Cookie {
-			return []*http.Cookie{p.laptop(p.fleets[0]), p.pair(p.fleets[1], op)}
+		{"an id that is not a fleet id", func(p *phoneHost) []*http.Cookie { return p.hosts(p.fleets[0]) }, func(p *phoneHost) []string { return []string{"../" + p.fleets[1].id, "", " ", "%00"} }},
+		{"a fleet the phone is paired with, not the host", func(p *phoneHost) []*http.Cookie {
+			return []*http.Cookie{p.host(p.fleets[0]), p.pair(p.fleets[1], op)}
 		}, func(p *phoneHost) []string { return []string{p.fleets[1].id} }},
 	}
 	for _, c := range cases {
@@ -265,7 +265,7 @@ func TestAChosenFleetTheLaptopIsNotProvenForGetsNoCode(t *testing.T) {
 			a := p.fleets[0]
 			cookies := c.cookie(p)
 			before := len(p.devicesOf(p.fleets[1]))
-			form := url.Values{"csrf": {a.token}, "base": {"https://laptop.example"}, "fleet": c.ticked(p)}
+			form := url.Values{"csrf": {a.token}, "base": {"https://host.example"}, "fleet": c.ticked(p)}
 			rec := p.send("POST", "/"+a.id+"/connect/code", form, cookies, op)
 			if rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 				t.Fatalf("mint = %d:\n%s", rec.Code, rec.Body.String())
@@ -290,7 +290,7 @@ func TestAChosenFleetTheLaptopIsNotProvenForGetsNoCode(t *testing.T) {
 	}
 }
 
-func TestOnlyTheFleetsTheLaptopHoldsATokenForAreOffered(t *testing.T) {
+func TestOnlyTheFleetsTheHostHoldsATokenForAreOffered(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma", "delta")
 	a, b, c, d := p.fleets[0], p.fleets[1], p.fleets[2], p.fleets[3]
@@ -301,10 +301,10 @@ func TestOnlyTheFleetsTheLaptopHoldsATokenForAreOffered(t *testing.T) {
 		}
 		return rec.Body.String()
 	}
-	alone := page(p.laptop(a))
-	lacks(t, "the page of a laptop signed in to one fleet", alone, `name="fleet"`, "Fleets this phone may open", b.name, c.name, d.name)
+	alone := page(p.host(a))
+	lacks(t, "the page of a host signed in to one fleet", alone, `name="fleet"`, "Fleets this phone may open", b.name, c.name, d.name)
 
-	both := page(p.laptop(b), p.laptop(a))
+	both := page(p.host(b), p.host(a))
 	if got := checkboxRe.FindAllStringSubmatch(both, -1); len(got) != 2 {
 		t.Fatalf("checkboxes = %v", got)
 	}
@@ -314,8 +314,8 @@ func TestOnlyTheFleetsTheLaptopHoldsATokenForAreOffered(t *testing.T) {
 	lacks(t, "the page for two proven fleets", both, c.name, d.name, c.id, d.id)
 
 	phoneC := p.pair(c, op)
-	withPhone := p.send("GET", "/"+a.id+"/connect", nil, []*http.Cookie{p.laptop(a), p.laptop(b), phoneC}, op).Body.String()
-	contains(t, "the rail of a laptop that also holds a phone's cookie", withPhone, `href="/`+c.id+`/"`)
+	withPhone := p.send("GET", "/"+a.id+"/connect", nil, []*http.Cookie{p.host(a), p.host(b), phoneC}, op).Body.String()
+	contains(t, "the rail of a host that also holds a phone's cookie", withPhone, `href="/`+c.id+`/"`)
 	var values []string
 	for _, m := range checkboxRe.FindAllStringSubmatch(withPhone, -1) {
 		values = append(values, m[1])
@@ -324,12 +324,12 @@ func TestOnlyTheFleetsTheLaptopHoldsATokenForAreOffered(t *testing.T) {
 		t.Fatalf("a phone's cookie for gamma changed the choices to %v", values)
 	}
 
-	stale := page(p.laptop(a), p.laptop(b), &http.Cookie{Name: "hand_board_" + c.id, Value: strings.Repeat("1", 32)})
+	stale := page(p.host(a), p.host(b), &http.Cookie{Name: "hand_board_" + c.id, Value: strings.Repeat("1", 32)})
 	lacks(t, "a stale token", stale, c.name, c.id)
 	p.setGone(b)
-	lacks(t, "a removed fleet", page(p.laptop(a), p.laptop(b)), b.name, b.id, `name="fleet"`)
+	lacks(t, "a removed fleet", page(p.host(a), p.host(b)), b.name, b.id, `name="fleet"`)
 
-	form := p.send("POST", "/"+a.id+"/connect/code", url.Values{"csrf": {a.token}, "base": {"https://laptop.example"}, "fleet": {c.id}}, p.laptops(a, c), nil)
+	form := p.send("POST", "/"+a.id+"/connect/code", url.Values{"csrf": {a.token}, "base": {"https://host.example"}, "fleet": {c.id}}, p.hosts(a, c), nil)
 	contains(t, "the code page", form.Body.String(), `name="fleet" value="`+c.id+`" checked>`, "It pairs the phone with alpha and gamma.")
 	lacks(t, "the code page", form.Body.String(), `value="`+c.id+`" checked disabled`)
 	if got := checkboxRe.FindAllStringSubmatch(form.Body.String(), -1); len(got) != 2 {
@@ -340,8 +340,8 @@ func TestOnlyTheFleetsTheLaptopHoldsATokenForAreOffered(t *testing.T) {
 func TestAFleetListedOnTheCodePageKeepsItsTickWhenTheAddressIsWrong(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	form := url.Values{"csrf": {a.token}, "base": {"laptop"}, "fleet": {b.id}}
-	rec := p.send("POST", "/"+a.id+"/connect/code", form, p.laptops(a, b), nil)
+	form := url.Values{"csrf": {a.token}, "base": {"host"}, "fleet": {b.id}}
+	rec := p.send("POST", "/"+a.id+"/connect/code", form, p.hosts(a, b), nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad address = %d", rec.Code)
 	}
@@ -359,12 +359,12 @@ func TestAPhoneCannotMintACodeOrAddAFleet(t *testing.T) {
 	phoneA, phoneB := p.pair(a, op), p.pair(b, op)
 	csrfA := csrfRe.FindStringSubmatch(p.send("GET", "/"+a.id+"/connect", nil, []*http.Cookie{phoneA, phoneB}, op).Body.String())[1]
 	for what, form := range map[string]url.Values{
-		"its own csrf":                   {"csrf": {csrfA}, "base": {"https://laptop.example"}},
-		"a fleet it is paired with":      {"csrf": {csrfA}, "base": {"https://laptop.example"}, "fleet": {b.id}},
-		"a fleet it is not paired with":  {"csrf": {csrfA}, "base": {"https://laptop.example"}, "fleet": {c.id}},
-		"the fleet token as its csrf":    {"csrf": {a.token}, "base": {"https://laptop.example"}, "fleet": {b.id}},
-		"another fleet's token as csrf":  {"csrf": {b.token}, "base": {"https://laptop.example"}, "fleet": {b.id}},
-		"every fleet at once, bad csrf":  {"csrf": {"x"}, "base": {"https://laptop.example"}, "fleet": {b.id, c.id}},
+		"its own csrf":                   {"csrf": {csrfA}, "base": {"https://host.example"}},
+		"a fleet it is paired with":      {"csrf": {csrfA}, "base": {"https://host.example"}, "fleet": {b.id}},
+		"a fleet it is not paired with":  {"csrf": {csrfA}, "base": {"https://host.example"}, "fleet": {c.id}},
+		"the fleet token as its csrf":    {"csrf": {a.token}, "base": {"https://host.example"}, "fleet": {b.id}},
+		"another fleet's token as csrf":  {"csrf": {b.token}, "base": {"https://host.example"}, "fleet": {b.id}},
+		"every fleet at once, bad csrf":  {"csrf": {"x"}, "base": {"https://host.example"}, "fleet": {b.id, c.id}},
 		"a body with only the fleet ids": {"fleet": {a.id, b.id, c.id}},
 	} {
 		rec := p.send("POST", "/"+a.id+"/connect/code", form, []*http.Cookie{phoneA, phoneB}, op)
@@ -379,12 +379,12 @@ func TestAPhoneCannotMintACodeOrAddAFleet(t *testing.T) {
 	}
 }
 
-func TestAPhoneWithAFleetsCookieAndTheLaptopForAnotherCannotAddThatFleet(t *testing.T) {
+func TestAPhoneWithAFleetsCookieAndTheHostForAnotherCannotAddThatFleet(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	phoneB := p.pair(b, op)
-	rec := p.send("POST", "/"+a.id+"/connect/code", url.Values{"csrf": {a.token}, "base": {"https://laptop.example"}, "fleet": {b.id}}, []*http.Cookie{p.laptop(a), phoneB}, op)
+	rec := p.send("POST", "/"+a.id+"/connect/code", url.Values{"csrf": {a.token}, "base": {"https://host.example"}, "fleet": {b.id}}, []*http.Cookie{p.host(a), phoneB}, op)
 	if rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 		t.Fatalf("mint with a phone's proof for beta = %d:\n%s", rec.Code, rec.Body.String())
 	}
@@ -394,7 +394,7 @@ func TestThePhoneCannotChangeTheFleetsOfACode(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b))
 	extra := url.Values{"fleet": {c.id}, "fleets": {c.id, b.id}, "Fleet": {c.id}, "id": {c.id}, "base": {"/" + c.id}}
 	rec := p.redeem(a, code, extra, op)
 	if rec.Code != http.StatusOK {
@@ -414,7 +414,7 @@ func TestACodeStaysOneUseAndGrantsNothingTwice(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
 	first := p.redeem(a, code, nil, op)
 	if first.Code != http.StatusOK {
 		t.Fatalf("first = %d", first.Code)
@@ -438,7 +438,7 @@ func TestACodeMintedHereDoesNotPairAtAnotherFleet(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	code := p.codeOf(p.mint(a, p.laptops(a, b), b))
+	code := p.codeOf(p.mint(a, p.hosts(a, b), b))
 	rec := p.redeem(b, code, nil, op)
 	if rec.Code != http.StatusForbidden || len(phoneCookiesOf(rec)) != 0 {
 		t.Fatalf("a code of alpha redeemed at beta = %d", rec.Code)
@@ -456,8 +456,8 @@ func TestACodeMintedHereDoesNotPairAtAnotherFleet(t *testing.T) {
 func TestTenWrongTriesCancelAMultiFleetCodeAndPairNothing(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
-	other := p.codeOf(p.mint(b, p.laptops(b)))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
+	other := p.codeOf(p.mint(b, p.hosts(b)))
 	var last *httptest.ResponseRecorder
 	for i := range 10 {
 		from := map[string]string{"X-Forwarded-For": fmt.Sprintf("100.64.1.%d", i+1), "X-Forwarded-Proto": "https"}
@@ -484,7 +484,7 @@ func TestTenWrongTriesCancelAMultiFleetCodeAndPairNothing(t *testing.T) {
 func TestOneAddressStillCannotGuessAtAMultiFleetCode(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	code := p.codeOf(p.mint(a, p.laptops(a, b), b))
+	code := p.codeOf(p.mint(a, p.hosts(a, b), b))
 	from := map[string]string{"X-Forwarded-For": "100.64.3.1", "X-Forwarded-Proto": "https"}
 	for i := range 5 {
 		if rec := p.redeem(a, "AAAAA-AAAAA", nil, from); rec.Code != http.StatusForbidden {
@@ -506,7 +506,7 @@ func TestAFleetWhoseStoreFailsLeavesNoRecordAndNoCookie(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
 	if err := b.st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -553,7 +553,7 @@ func TestEveryFleetOfAPairedPhoneSeesOnlyItsOwnSessionAndNeverAToken(t *testing.
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma", "delta")
 	a, b, c, d := p.fleets[0], p.fleets[1], p.fleets[2], p.fleets[3]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c, d), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c, d), b, c))
 	rec := p.redeem(a, code, nil, op)
 	cookies := phoneCookiesOf(rec)
 	var sent []*http.Cookie
@@ -625,14 +625,14 @@ func TestOneFleetsFormTokenOpensNothingInAnotherFleet(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	code := p.codeOf(p.mint(a, p.laptops(a, b), b))
+	code := p.codeOf(p.mint(a, p.hosts(a, b), b))
 	rec := p.redeem(a, code, nil, op)
 	cookies := phoneCookiesOf(rec)
 	sent := []*http.Cookie{cookies[a.id], cookies[b.id]}
 	csrfA := csrfRe.FindStringSubmatch(p.send("GET", "/"+a.id+"/connect", nil, sent, op).Body.String())[1]
 	csrfB := csrfRe.FindStringSubmatch(p.send("GET", "/"+b.id+"/connect", nil, sent, op).Body.String())[1]
 	idB := strings.SplitN(cookies[b.id].Value, ".", 2)[0]
-	for what, token := range map[string]string{"alpha's token": csrfA, "no token": "", "the laptop's token": b.token, "alpha's laptop token": a.token} {
+	for what, token := range map[string]string{"alpha's token": csrfA, "no token": "", "the host's token": b.token, "alpha's host token": a.token} {
 		got := p.send("POST", "/"+b.id+"/connect/revoke", url.Values{"csrf": {token}, "id": {idB}}, sent, op)
 		if got.Code != http.StatusForbidden {
 			t.Fatalf("%s posted to beta = %d", what, got.Code)
@@ -656,7 +656,7 @@ func TestRevokingInOneFleetLeavesTheOtherFleetsOfThePhoneAlone(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
 	rec := p.redeem(a, code, nil, op)
 	cookies := phoneCookiesOf(rec)
 	sent := []*http.Cookie{cookies[a.id], cookies[b.id], cookies[c.id]}
@@ -682,7 +682,7 @@ func TestRotatingOneFleetsTokenSignsOutThePhoneOfThatFleetOnly(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
 	cookies := phoneCookiesOf(p.redeem(a, code, nil, op))
 	sent := []*http.Cookie{cookies[a.id], cookies[b.id], cookies[c.id]}
 	p.fleets[1].token = strings.Repeat("9", 32)
@@ -703,19 +703,19 @@ func TestEightFleetsFitOneCodeAndANinthIsNotOffered(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10")
 	a := p.fleets[0]
-	page := p.send("GET", "/"+a.id+"/connect", nil, p.laptops(p.fleets...), nil).Body.String()
+	page := p.send("GET", "/"+a.id+"/connect", nil, p.hosts(p.fleets...), nil).Body.String()
 	if got := checkboxRe.FindAllStringSubmatch(page, -1); len(got) != 8 {
-		t.Fatalf("a laptop proven for ten fleets is offered %d, want this one and 7 others", len(got))
+		t.Fatalf("a host proven for ten fleets is offered %d, want this one and 7 others", len(got))
 	}
 	over := p.fleets[8]
-	rec := p.mint(a, p.laptops(p.fleets...), p.fleets[1:9]...)
+	rec := p.mint(a, p.hosts(p.fleets...), p.fleets[1:9]...)
 	if rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 		t.Fatalf("a code for nine fleets = %d", rec.Code)
 	}
-	if rec := p.mint(a, p.laptops(p.fleets...), over); rec.Code != http.StatusForbidden {
+	if rec := p.mint(a, p.hosts(p.fleets...), over); rec.Code != http.StatusForbidden {
 		t.Fatalf("a fleet beyond the 7 offered = %d", rec.Code)
 	}
-	code := p.codeOf(p.mint(a, p.laptops(p.fleets...), p.fleets[1:8]...))
+	code := p.codeOf(p.mint(a, p.hosts(p.fleets...), p.fleets[1:8]...))
 	rec = p.redeem(a, code, nil, op)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("redeem = %d:\n%s", rec.Code, rec.Body.String())
@@ -770,12 +770,12 @@ func TestAFunnelRequestPairsNothingAndSpendsNoCode(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	funnel := map[string]string{"Tailscale-Funnel-Request": "?1", "X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"}
-	form := url.Values{"csrf": {a.token}, "base": {"https://laptop.example"}, "fleet": {b.id}}
-	rec := p.send("POST", "/"+a.id+"/connect/code", form, p.laptops(a, b), funnel)
+	form := url.Values{"csrf": {a.token}, "base": {"https://host.example"}, "fleet": {b.id}}
+	rec := p.send("POST", "/"+a.id+"/connect/code", form, p.hosts(a, b), funnel)
 	if rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 		t.Fatalf("a code through Funnel = %d", rec.Code)
 	}
-	code := p.codeOf(p.mint(a, p.laptops(a, b), b))
+	code := p.codeOf(p.mint(a, p.hosts(a, b), b))
 	if rec := p.redeem(a, code, nil, funnel); rec.Code != http.StatusForbidden || len(phoneCookiesOf(rec)) != 0 {
 		t.Fatalf("a redeem through Funnel = %d", rec.Code)
 	}
@@ -792,11 +792,11 @@ func TestAFunnelRequestPairsNothingAndSpendsNoCode(t *testing.T) {
 func TestABoardOnANetworkAddressPairsOnlyItsOwnFleet(t *testing.T) {
 	p := newPhoneHost(t, false, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	lacks(t, "the Phone page", p.send("GET", "/"+a.id+"/connect", nil, p.laptops(a, b), nil).Body.String(), `name="fleet"`, b.name)
-	if rec := p.mint(a, p.laptops(a, b), b); rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
+	lacks(t, "the Phone page", p.send("GET", "/"+a.id+"/connect", nil, p.hosts(a, b), nil).Body.String(), `name="fleet"`, b.name)
+	if rec := p.mint(a, p.hosts(a, b), b); rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 		t.Fatalf("a second fleet on a network address board = %d", rec.Code)
 	}
-	code := p.codeOf(p.mint(a, p.laptops(a, b)))
+	code := p.codeOf(p.mint(a, p.hosts(a, b)))
 	rec := p.redeem(a, code, nil, serving())
 	if rec.Code != http.StatusSeeOther || len(phoneCookiesOf(rec)) != 1 {
 		t.Fatalf("redeem = %d", rec.Code)
@@ -813,7 +813,7 @@ func TestPairingSeveralFleetsWritesNoCodeSecretOrTokenToTheLog(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	code := p.codeOf(p.mint(a, p.laptops(a, b, c), b, c))
+	code := p.codeOf(p.mint(a, p.hosts(a, b, c), b, c))
 	p.setDown(c)
 	rec := p.redeem(a, code, nil, op)
 	cookies := phoneCookiesOf(rec)
@@ -839,12 +839,12 @@ func TestAPhoneListsItsRecordsAsLabelledOrFleetOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := func() string {
-		return p.send("GET", "/"+a.id+"/connect", nil, p.laptops(a), nil).Body.String()
+		return p.send("GET", "/"+a.id+"/connect", nil, p.hosts(a), nil).Body.String()
 	}
 	if got := strings.Count(page(), "this fleet only ·"); got != 1 {
 		t.Fatalf("one legacy row reads %d times 'this fleet only'", got)
 	}
-	code := p.codeOf(p.mint(a, p.laptops(a, b), b))
+	code := p.codeOf(p.mint(a, p.hosts(a, b), b))
 	p.redeem(a, code, nil, op)
 	body := page()
 	if got := strings.Count(body, "this fleet only ·"); got != 1 {
@@ -863,12 +863,12 @@ func TestThePairPageBeforeRedeemingNamesNoFleetAndTheMarkupHoldsNoInlineCode(t *
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	codePage := p.mint(a, p.laptops(a, b, c), b)
+	codePage := p.mint(a, p.hosts(a, b, c), b)
 	code := p.codeOf(codePage)
 	pages := map[string]string{
 		"pair":     p.send("GET", "/"+a.id+"/pair", nil, nil, op).Body.String(),
 		"pair bad": p.redeem(a, "AAAAA-AAAAA", nil, op).Body.String(),
-		"connect":  p.send("GET", "/"+a.id+"/connect", nil, p.laptops(a, b, c), nil).Body.String(),
+		"connect":  p.send("GET", "/"+a.id+"/connect", nil, p.hosts(a, b, c), nil).Body.String(),
 		"code":     codePage.Body.String(),
 		"result":   p.redeem(a, code, nil, op).Body.String(),
 	}
