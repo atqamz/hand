@@ -1,6 +1,6 @@
 # The Android Companion contract
 
-The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests copy it.
+The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests read it by path.
 
 **Status.** Three kinds of statement share this page, and each says which it is:
 

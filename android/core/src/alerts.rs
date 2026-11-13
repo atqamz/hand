@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn the_contracts_numbers_and_exchanges_hold() {
         let vectors: Value =
-            serde_json::from_str(include_str!("../tests/companion-vectors.json")).unwrap();
+            serde_json::from_str(include_str!("../../../docs/companion-vectors.json")).unwrap();
         let alerts = &vectors["alerts"];
         assert_eq!(alerts["wait_seconds_max"], WAIT.as_secs());
         assert_eq!(alerts["batch_max"], MAX_ALERTS);
