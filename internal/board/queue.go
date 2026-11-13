@@ -413,6 +413,28 @@ type check struct {
 
 func (c check) Indent() int { return min(c.Depth, 3) }
 
+// Model keeps the part that tells two models apart: the last path segment, and
+// no harness the name already carries. ModelTitle keeps the whole identity.
+func (c check) Model() string {
+	a := c.Attempt
+	if a == nil {
+		return ""
+	}
+	name := a.Model[strings.LastIndex(a.Model, "/")+1:]
+	if name == "" || strings.HasPrefix(strings.ToLower(name), a.Harness) {
+		return name
+	}
+	return a.Harness + " " + name
+}
+
+func (c check) ModelTitle() string {
+	a := c.Attempt
+	if a == nil {
+		return ""
+	}
+	return strings.TrimSpace(a.Harness + " " + a.Model + " " + a.Effort)
+}
+
 func (f facts) check(t state.Task) check {
 	c := check{Task: t, State: "idle", FinishedAt: t.FinishedAt}
 	if d, ok := f.delivered[t.ID]; ok {
