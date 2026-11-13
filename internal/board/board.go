@@ -172,17 +172,17 @@ type Options struct {
 }
 
 type Board struct {
-	st        *state.Store
-	token     string
-	o         Options
-	mux       *http.ServeMux
-	phones    phones
-	refresh   refresher
-	artifacts artifactCache
-	links     linkSet
-	versions  [2]sharedVersion
-	computed  atomic.Int64
-	boot      int64
+	st         *state.Store
+	token      string
+	o          Options
+	mux        *http.ServeMux
+	companions companions
+	refresh    refresher
+	artifacts  artifactCache
+	links      linkSet
+	versions   [2]sharedVersion
+	computed   atomic.Int64
+	boot       int64
 }
 
 type card struct {
@@ -202,7 +202,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	if o.Beat <= 0 {
 		o.Beat = 15 * time.Second
 	}
-	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), phones: phones{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
+	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), companions: companions{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
 	b.boot = b.now().UnixNano()
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor", b.supervisorPage)

@@ -191,11 +191,11 @@ func TestEveryAttemptRefLeadsToTheAttemptPage(t *testing.T) {
 }
 
 func TestAPhoneSeesTheAttemptPageWithoutTheFleetToken(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	seed(t, p.fx.st)
 	note(t, p.fx.st, 1, "blocked", "Do you want to proceed?")
-	phone := p.pair()
-	rec := p.do("GET", "/attempt/a1", nil, phone, viaServe)
+	companion := p.pair()
+	rec := p.do("GET", "/attempt/a1", nil, companion, viaServe)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("phone GET /attempt/a1 = %d:\n%s", rec.Code, rec.Body.String())
 	}
@@ -204,7 +204,7 @@ func TestAPhoneSeesTheAttemptPageWithoutTheFleetToken(t *testing.T) {
 	if strings.Contains(body, token) {
 		t.Fatalf("the attempt page holds the fleet token:\n%s", body)
 	}
-	if rec := p.do("GET", "/ref/a1", nil, phone, viaServe); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/attempt/a1" {
+	if rec := p.do("GET", "/ref/a1", nil, companion, viaServe); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/attempt/a1" {
 		t.Fatalf("phone GET /ref/a1 = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }

@@ -211,8 +211,8 @@ func unpairedPath(path string) bool {
 	return strings.HasPrefix(path, "/static/") || rest == "pair" || rest == apiPrefix[1:]+"/pair"
 }
 
-func carriesPhoneCookie(r *http.Request) bool {
-	return slices.ContainsFunc(r.Cookies(), func(c *http.Cookie) bool { return strings.HasPrefix(c.Name, phoneName+"_") })
+func carriesCompanionCookie(r *http.Request) bool {
+	return slices.ContainsFunc(r.Cookies(), func(c *http.Cookie) bool { return strings.HasPrefix(c.Name, companionName+"_") })
 }
 
 func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -240,10 +240,10 @@ func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			delete(r.Header, k)
 		}
 	}
-	proved := !funnel && len(p.h.phoneFleets(r, "")) > 0
+	proved := !funnel && len(p.h.companionFleets(r, "")) > 0
 	if proved {
 		c.paired.Store(true)
-	} else if carriesPhoneCookie(r) {
+	} else if carriesCompanionCookie(r) {
 		c.paired.Store(false)
 	}
 	counted := !c.paired.Load()

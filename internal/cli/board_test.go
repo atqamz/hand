@@ -371,15 +371,15 @@ func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
 		return nil
 	}
 	idA, idB := path.Base(urlA), path.Base(urlB)
-	phone := []*http.Cookie{pair(urlA, tokenA, idA), pair(urlB, tokenB, idB)}
-	_, home := send("GET", base+"/", nil, phone)
+	companion := []*http.Cookie{pair(urlA, tokenA, idA), pair(urlB, tokenB, idB)}
+	_, home := send("GET", base+"/", nil, companion)
 	if !strings.Contains(home, ">alpha</a>") || !strings.Contains(home, ">beta</a>") || strings.Contains(home, "gamma") {
 		t.Fatalf("the phone's fleet list:\n%s", home)
 	}
 	if _, nobody := send("GET", base+"/", nil, nil); strings.Contains(nobody, "alpha") || strings.Contains(nobody, "beta") {
 		t.Fatalf("a proxied request with no phone session sees fleets:\n%s", nobody)
 	}
-	res, page := send("GET", urlA+"/", nil, phone)
+	res, page := send("GET", urlA+"/", nil, companion)
 	if res.StatusCode != http.StatusOK || !strings.Contains(page, `<span class="label">beta</span>`) || strings.Contains(page, "gamma") {
 		t.Fatalf("alpha's rail on the phone = %d:\n%s", res.StatusCode, page)
 	}
@@ -444,17 +444,17 @@ func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(result, "Paired with alpha and beta.") || strings.Contains(result, "gamma") {
 		t.Fatalf("pair = %d:\n%s", res.StatusCode, result)
 	}
-	var phone []*http.Cookie
+	var companion []*http.Cookie
 	for _, ck := range res.Cookies() {
 		if ck.MaxAge > 0 {
-			phone = append(phone, ck)
+			companion = append(companion, ck)
 		}
 	}
-	if len(phone) != 2 {
-		t.Fatalf("cookies = %v", phone)
+	if len(companion) != 2 {
+		t.Fatalf("cookies = %v", companion)
 	}
 	for _, fleetURL := range []string{urlA, urlB} {
-		res, page := send("GET", fleetURL+"/", nil, phone)
+		res, page := send("GET", fleetURL+"/", nil, companion)
 		if res.StatusCode != http.StatusOK || !strings.Contains(page, `href="/`+idA+`/"`) || !strings.Contains(page, `href="/`+idB+`/"`) || strings.Contains(page, "gamma") {
 			t.Fatalf("%s on the phone = %d:\n%s", fleetURL, res.StatusCode, page)
 		}
@@ -462,16 +462,16 @@ func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
 			t.Fatalf("%s holds a fleet token", fleetURL)
 		}
 	}
-	if res, _ := send("GET", urlC+"/", nil, phone); res.StatusCode != http.StatusForbidden {
+	if res, _ := send("GET", urlC+"/", nil, companion); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("a fleet outside the code = %d", res.StatusCode)
 	}
 	if err := os.WriteFile(filepath.Join(b.home, "board.token"), []byte(strings.Repeat("d", 48)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if res, _ := send("GET", urlB+"/", nil, phone); res.StatusCode != http.StatusForbidden {
+	if res, _ := send("GET", urlB+"/", nil, companion); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("beta after its token changed = %d", res.StatusCode)
 	}
-	if res, _ := send("GET", urlA+"/", nil, phone); res.StatusCode != http.StatusOK {
+	if res, _ := send("GET", urlA+"/", nil, companion); res.StatusCode != http.StatusOK {
 		t.Fatalf("alpha after beta's token changed = %d", res.StatusCode)
 	}
 }
@@ -715,17 +715,17 @@ func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(result, "Paired with alpha, beta and gamma.") {
 		t.Fatalf("pair = %d:\n%s", res.StatusCode, result)
 	}
-	var phone []*http.Cookie
+	var companion []*http.Cookie
 	for _, ck := range res.Cookies() {
 		if ck.MaxAge > 0 {
-			phone = append(phone, ck)
+			companion = append(companion, ck)
 		}
 	}
-	if len(phone) != 3 {
-		t.Fatalf("cookies = %v", phone)
+	if len(companion) != 3 {
+		t.Fatalf("cookies = %v", companion)
 	}
 	opens := func(fleetURL string) int {
-		res, _ := proxiedSend(t, "GET", fleetURL+"/", nil, phone)
+		res, _ := proxiedSend(t, "GET", fleetURL+"/", nil, companion)
 		return res.StatusCode
 	}
 	_, list := proxiedSend(t, "GET", urlA+"/connect", nil, all[:3])

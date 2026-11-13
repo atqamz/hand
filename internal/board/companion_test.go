@@ -28,7 +28,7 @@ var (
 	viaServe = map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"}
 )
 
-type phoneRig struct {
+type companionRig struct {
 	t   *testing.T
 	fx  *fixture
 	h   http.Handler
@@ -36,9 +36,9 @@ type phoneRig struct {
 	now time.Time
 }
 
-func newPhoneRig(t *testing.T) *phoneRig {
+func newCompanionRig(t *testing.T) *companionRig {
 	t.Helper()
-	p := &phoneRig{t: t, fx: newFixture(t), now: time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)}
+	p := &companionRig{t: t, fx: newFixture(t), now: time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)}
 	p.fx.options.Now = func() time.Time {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -49,13 +49,13 @@ func newPhoneRig(t *testing.T) *phoneRig {
 	return p
 }
 
-func (p *phoneRig) advance(d time.Duration) {
+func (p *companionRig) advance(d time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = p.now.Add(d)
 }
 
-func (p *phoneRig) do(method, path string, form url.Values, cookie *http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
+func (p *companionRig) do(method, path string, form url.Values, cookie *http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
 	p.t.Helper()
 	body := strings.NewReader("")
 	if form != nil {
@@ -76,7 +76,7 @@ func (p *phoneRig) do(method, path string, form url.Values, cookie *http.Cookie,
 	return rec
 }
 
-func (p *phoneRig) code() string {
+func (p *companionRig) code() string {
 	p.t.Helper()
 	rec := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://host.tailnet.example"}}, host, nil)
 	m := codeRe.FindStringSubmatch(rec.Body.String())
@@ -86,13 +86,13 @@ func (p *phoneRig) code() string {
 	return m[1]
 }
 
-func (p *phoneRig) tryPair(code, from string) *httptest.ResponseRecorder {
+func (p *companionRig) tryPair(code, from string) *httptest.ResponseRecorder {
 	p.t.Helper()
 	h := map[string]string{"X-Forwarded-For": from, "X-Forwarded-Proto": "https"}
 	return p.do("POST", "/pair", url.Values{"code": {code}, "name": {"Pixel"}}, nil, h)
 }
 
-func phoneCookieOf(rec *httptest.ResponseRecorder) *http.Cookie {
+func companionCookieOf(rec *httptest.ResponseRecorder) *http.Cookie {
 	for _, c := range rec.Result().Cookies() {
 		if strings.HasSuffix(c.Name, "hand_phone") && c.MaxAge > 0 {
 			return c
@@ -101,19 +101,19 @@ func phoneCookieOf(rec *httptest.ResponseRecorder) *http.Cookie {
 	return nil
 }
 
-func (p *phoneRig) pair() *http.Cookie {
+func (p *companionRig) pair() *http.Cookie {
 	p.t.Helper()
 	rec := p.tryPair(p.code(), "100.64.0.7")
-	c := phoneCookieOf(rec)
+	c := companionCookieOf(rec)
 	if rec.Code != http.StatusSeeOther || c == nil {
 		p.t.Fatalf("pair = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	return c
 }
 
-func (p *phoneRig) deviceID(c *http.Cookie) string { return strings.SplitN(c.Value, ".", 2)[0] }
+func (p *companionRig) deviceID(c *http.Cookie) string { return strings.SplitN(c.Value, ".", 2)[0] }
 
-func (p *phoneRig) events(kinds ...string) []string {
+func (p *companionRig) events(kinds ...string) []string {
 	p.t.Helper()
 	events, err := p.fx.st.EventsAfter(context.Background(), 0, kinds, 100)
 	if err != nil {
@@ -127,12 +127,12 @@ func (p *phoneRig) events(kinds ...string) []string {
 }
 
 func TestAPairedPhoneGetsItsOwnSessionNotTheToken(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.fx.supervisor(t, state.AttemptRunning, "gen-1")
 	seed(t, p.fx.st)
-	phone := p.pair()
+	companion := p.pair()
 
-	home := p.do("GET", "/", nil, phone, viaServe)
+	home := p.do("GET", "/", nil, companion, viaServe)
 	if home.Code != http.StatusOK {
 		t.Fatalf("phone home = %d", home.Code)
 	}
@@ -144,30 +144,30 @@ func TestAPairedPhoneGetsItsOwnSessionNotTheToken(t *testing.T) {
 		t.Fatalf("the host's csrf field = %v, want today's token", mine)
 	}
 
-	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {token}, "text": {"hi"}}, phone, viaServe); rec.Code != http.StatusForbidden {
+	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {token}, "text": {"hi"}}, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("phone POST with the fleet token as csrf = %d", rec.Code)
 	}
-	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {own[1]}, "text": {"hi from the phone"}}, phone, viaServe); rec.Code == http.StatusForbidden {
+	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {own[1]}, "text": {"hi from the phone"}}, companion, viaServe); rec.Code == http.StatusForbidden {
 		t.Fatalf("phone POST with its own csrf = %d", rec.Code)
 	}
-	if rec := p.do("POST", "/connect/code", url.Values{"csrf": {own[1]}, "base": {"https://host.tailnet.example"}}, phone, viaServe); rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
+	if rec := p.do("POST", "/connect/code", url.Values{"csrf": {own[1]}, "base": {"https://host.tailnet.example"}}, companion, viaServe); rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 		t.Fatalf("a phone minted a pairing code: %d", rec.Code)
 	}
-	if rec := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://host.tailnet.example"}}, phone, viaServe); rec.Code != http.StatusForbidden {
+	if rec := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://host.tailnet.example"}}, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("a phone minted a pairing code with the token as csrf: %d", rec.Code)
 	}
 }
 
 func TestNoPageAPhoneLoadsHoldsTheFleetToken(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.fx.supervisor(t, state.AttemptRunning, "gen-1")
 	seed(t, p.fx.st)
-	phone := p.pair()
-	own := csrfRe.FindStringSubmatch(p.do("GET", "/", nil, phone, viaServe).Body.String())[1]
+	companion := p.pair()
+	own := csrfRe.FindStringSubmatch(p.do("GET", "/", nil, companion, viaServe).Body.String())[1]
 	paths := []string{"/", "/?all=1", "/?pick=1", "/tasks", "/tasks?q=fix", "/task/t1", "/task/t2", "/attempt/a1", "/ref/a1", "/decision/d1", "/ref/t1", "/ref/d1", "/supervisor/log", "/connect", "/pair"}
 	hostSaw := 0
 	for _, path := range paths {
-		rec := p.do("GET", path, nil, phone, viaServe)
+		rec := p.do("GET", path, nil, companion, viaServe)
 		if rec.Code >= 500 {
 			t.Fatalf("GET %s = %d", path, rec.Code)
 		}
@@ -196,7 +196,7 @@ func TestNoPageAPhoneLoadsHoldsTheFleetToken(t *testing.T) {
 	}
 	base := serve(t, p.h)
 	req, _ := http.NewRequest("GET", base+"/events", nil)
-	req.AddCookie(phone)
+	req.AddCookie(companion)
 	for k, v := range viaServe {
 		req.Header.Set(k, v)
 	}
@@ -219,7 +219,7 @@ func TestNoPageAPhoneLoadsHoldsTheFleetToken(t *testing.T) {
 }
 
 func TestAPairingCodeLooksAndWorksAsDesigned(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	seen := map[string]bool{}
 	for range 20 {
 		code := p.code()
@@ -236,19 +236,19 @@ func TestAPairingCodeLooksAndWorksAsDesigned(t *testing.T) {
 }
 
 func TestAPairingCodeWorksOnceAndSaysWhyItFailed(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	used := p.code()
 	if rec := p.tryPair(used, "100.64.0.7"); rec.Code != http.StatusSeeOther {
 		t.Fatalf("first use = %d", rec.Code)
 	}
 	rec := p.tryPair(used, "100.64.0.7")
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "already used") || phoneCookieOf(rec) != nil {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "already used") || companionCookieOf(rec) != nil {
 		t.Fatalf("replayed code = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	late := p.code()
 	p.advance(5*time.Minute + time.Second)
 	rec = p.tryPair(late, "100.64.0.7")
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "has expired") || phoneCookieOf(rec) != nil {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "has expired") || companionCookieOf(rec) != nil {
 		t.Fatalf("expired code = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	edge := p.code()
@@ -266,7 +266,7 @@ func TestAPairingCodeWorksOnceAndSaysWhyItFailed(t *testing.T) {
 }
 
 func TestEveryFailureKeepsTheFormAndWaysBack(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.code()
 	rec := p.tryPair("AAAAA-AAAAA", "100.64.0.7")
 	body := rec.Body.String()
@@ -275,10 +275,10 @@ func TestEveryFailureKeepsTheFormAndWaysBack(t *testing.T) {
 }
 
 func TestANewCodeCancelsTheOneBefore(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	first, second := p.code(), p.code()
 	rec := p.tryPair(first, "100.64.0.7")
-	if rec.Code != http.StatusForbidden || phoneCookieOf(rec) != nil || !strings.Contains(rec.Body.String(), "not right") {
+	if rec.Code != http.StatusForbidden || companionCookieOf(rec) != nil || !strings.Contains(rec.Body.String(), "not right") {
 		t.Fatalf("the earlier code after a new one = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	if rec := p.tryPair(second, "100.64.0.7"); rec.Code != http.StatusSeeOther {
@@ -293,8 +293,8 @@ func TestANewCodeCancelsTheOneBefore(t *testing.T) {
 }
 
 func TestAPhoneStaysSignedInForNinetyDaysAndNoLonger(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
+	p := newCompanionRig(t)
+	companion := p.pair()
 	devices, err := p.fx.st.Devices(context.Background())
 	if err != nil || len(devices) != 1 {
 		t.Fatalf("devices = %v, %v", devices, err)
@@ -303,22 +303,22 @@ func TestAPhoneStaysSignedInForNinetyDaysAndNoLonger(t *testing.T) {
 	p.mu.Lock()
 	p.now = paired.Add(90*24*time.Hour - time.Second)
 	p.mu.Unlock()
-	if rec := p.do("GET", "/", nil, phone, viaServe); rec.Code != http.StatusOK {
+	if rec := p.do("GET", "/", nil, companion, viaServe); rec.Code != http.StatusOK {
 		t.Fatalf("a second before 90 days = %d", rec.Code)
 	}
 	p.advance(2 * time.Second)
-	rec := p.do("GET", "/", nil, phone, viaServe)
+	rec := p.do("GET", "/", nil, companion, viaServe)
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "no longer paired") {
 		t.Fatalf("a second after 90 days = %d", rec.Code)
 	}
 	contains(t, "list", p.do("GET", "/connect", nil, host, nil).Body.String(), "signed out after 90 days", `aria-label="Revoke Pixel"`)
-	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, host, nil); rec.Code != http.StatusSeeOther {
+	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(companion)}}, host, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoking an expired phone = %d", rec.Code)
 	}
 }
 
 func TestTenWrongCodesCancelTheLiveCode(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	live := p.code()
 	for i := range 9 {
 		if rec := p.tryPair("AAAAA-AAAAA", "100.64.0."+strconv.Itoa(10+i/3)); rec.Code != http.StatusForbidden {
@@ -329,7 +329,7 @@ func TestTenWrongCodesCancelTheLiveCode(t *testing.T) {
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "Every code was cancelled") {
 		t.Fatalf("the tenth wrong try = %d:\n%s", rec.Code, rec.Body.String())
 	}
-	if rec := p.tryPair(live, "100.64.0.7"); rec.Code != http.StatusForbidden || phoneCookieOf(rec) != nil {
+	if rec := p.tryPair(live, "100.64.0.7"); rec.Code != http.StatusForbidden || companionCookieOf(rec) != nil {
 		t.Fatalf("a live code survived 10 wrong tries: %d", rec.Code)
 	}
 	if rec := p.tryPair(p.code(), "100.64.0.7"); rec.Code != http.StatusSeeOther {
@@ -338,7 +338,7 @@ func TestTenWrongCodesCancelTheLiveCode(t *testing.T) {
 }
 
 func TestOneAddressCannotGuessAtSpeed(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	code := p.code()
 	for i := range 5 {
 		if rec := p.tryPair("BBBBB-BBBBB", "100.64.0.99"); rec.Code != http.StatusForbidden {
@@ -346,7 +346,7 @@ func TestOneAddressCannotGuessAtSpeed(t *testing.T) {
 		}
 	}
 	rec := p.tryPair(code, "100.64.0.99")
-	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "Wait a minute") || phoneCookieOf(rec) != nil {
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "Wait a minute") || companionCookieOf(rec) != nil {
 		t.Fatalf("the right code from a blocked address = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	spoofed := map[string]string{"X-Forwarded-For": "1.2.3.4, 100.64.0.99", "X-Forwarded-Proto": "https"}
@@ -364,7 +364,7 @@ func TestOneAddressCannotGuessAtSpeed(t *testing.T) {
 }
 
 func TestOpeningThePairLinkNeverSpendsTheCode(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	code := p.code()
 	for _, path := range []string{"/pair", "/pair?code=" + code} {
 		rec := p.do("GET", path, nil, nil, viaServe)
@@ -383,14 +383,14 @@ func TestOpeningThePairLinkNeverSpendsTheCode(t *testing.T) {
 }
 
 func TestOnlyThePostOfAFormPairs(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	code := p.code()
 	for _, m := range []string{"PUT", "DELETE", "PATCH"} {
-		if rec := p.do(m, "/pair", url.Values{"code": {code}}, nil, viaServe); rec.Code == http.StatusSeeOther || phoneCookieOf(rec) != nil {
+		if rec := p.do(m, "/pair", url.Values{"code": {code}}, nil, viaServe); rec.Code == http.StatusSeeOther || companionCookieOf(rec) != nil {
 			t.Fatalf("%s /pair = %d", m, rec.Code)
 		}
 	}
-	if rec := p.do("POST", "/pair?code="+code, nil, nil, viaServe); phoneCookieOf(rec) != nil {
+	if rec := p.do("POST", "/pair?code="+code, nil, nil, viaServe); companionCookieOf(rec) != nil {
 		t.Fatal("a code in the query string paired a phone")
 	}
 	if rec := p.tryPair(code, "100.64.0.7"); rec.Code != http.StatusSeeOther {
@@ -403,13 +403,13 @@ func TestOnlyThePostOfAFormPairs(t *testing.T) {
 }
 
 func TestThePhoneCookieIsHardened(t *testing.T) {
-	p := newPhoneRig(t)
-	secure := phoneCookieOf(p.tryPair(p.code(), "100.64.0.7"))
+	p := newCompanionRig(t)
+	secure := companionCookieOf(p.tryPair(p.code(), "100.64.0.7"))
 	if secure.Name != "__Host-hand_phone" || !secure.Secure || !secure.HttpOnly || secure.SameSite != http.SameSiteLaxMode || secure.Path != "/" || secure.Domain != "" || secure.MaxAge != 90*24*3600 {
 		t.Fatalf("cookie through https = %+v", secure)
 	}
 	rec := p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, map[string]string{"X-Forwarded-For": "127.0.0.1"})
-	plain := phoneCookieOf(rec)
+	plain := companionCookieOf(rec)
 	if plain == nil || plain.Name != "hand_phone" || plain.Secure || !plain.HttpOnly || plain.SameSite != http.SameSiteLaxMode || plain.Path != "/" || plain.MaxAge != 90*24*3600 {
 		t.Fatalf("cookie over plain http = %+v", plain)
 	}
@@ -422,13 +422,13 @@ func TestThePhoneCookieIsHardened(t *testing.T) {
 }
 
 func TestACookieTossedFromASiblingNeverSignsAPhoneIn(t *testing.T) {
-	p := newPhoneRig(t)
-	secure := phoneCookieOf(p.tryPair(p.code(), "100.64.0.7"))
+	p := newCompanionRig(t)
+	secure := companionCookieOf(p.tryPair(p.code(), "100.64.0.7"))
 	plainName := &http.Cookie{Name: "hand_phone", Value: secure.Value}
 	if rec := p.do("GET", "/", nil, plainName, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("a plain-named cookie over https = %d", rec.Code)
 	}
-	plain := phoneCookieOf(p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, map[string]string{"X-Forwarded-For": "127.0.0.1"}))
+	plain := companionCookieOf(p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, map[string]string{"X-Forwarded-For": "127.0.0.1"}))
 	hostNamed := &http.Cookie{Name: "__Host-hand_phone", Value: plain.Value}
 	if rec := p.do("GET", "/", nil, hostNamed, map[string]string{"X-Forwarded-For": "127.0.0.1"}); rec.Code != http.StatusForbidden {
 		t.Fatalf("a __Host- cookie over plain http = %d", rec.Code)
@@ -439,9 +439,9 @@ func TestACookieTossedFromASiblingNeverSignsAPhoneIn(t *testing.T) {
 }
 
 func TestAForgedOrBorrowedCookieOpensNothing(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
-	id, secret, _ := strings.Cut(phone.Value, ".")
+	p := newCompanionRig(t)
+	companion := p.pair()
+	id, secret, _ := strings.Cut(companion.Value, ".")
 	flipped := secret[:len(secret)-1] + "0"
 	if strings.HasSuffix(secret, "0") {
 		flipped = secret[:len(secret)-1] + "1"
@@ -461,9 +461,9 @@ func TestAForgedOrBorrowedCookieOpensNothing(t *testing.T) {
 		"leading space":     " " + id + "." + secret,
 		"a zero id":         "0." + secret,
 		"a very large id":   "99999999999999999999." + secret,
-		"the csrf as value": id + "." + csrfRe.FindStringSubmatch(p.do("GET", "/", nil, phone, viaServe).Body.String())[1],
+		"the csrf as value": id + "." + csrfRe.FindStringSubmatch(p.do("GET", "/", nil, companion, viaServe).Body.String())[1],
 	} {
-		rec := p.do("GET", "/", nil, &http.Cookie{Name: phone.Name, Value: value}, viaServe)
+		rec := p.do("GET", "/", nil, &http.Cookie{Name: companion.Name, Value: value}, viaServe)
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("%s opened the Board: %d", name, rec.Code)
 		}
@@ -471,11 +471,11 @@ func TestAForgedOrBorrowedCookieOpensNothing(t *testing.T) {
 }
 
 func TestATailscaleLoginHeaderIsNotAnIdentity(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	named := map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https", "Tailscale-User-Login": "operator@example.com"}
 	rec := p.do("POST", "/pair", url.Values{"code": {p.code()}, "name": {"Pixel"}}, nil, named)
-	phone := phoneCookieOf(rec)
-	if phone == nil {
+	companion := companionCookieOf(rec)
+	if companion == nil {
 		t.Fatalf("pairing with the header = %d", rec.Code)
 	}
 	devices, err := p.fx.st.Devices(context.Background())
@@ -483,7 +483,7 @@ func TestATailscaleLoginHeaderIsNotAnIdentity(t *testing.T) {
 		t.Fatalf("devices = %+v, %v", devices, err)
 	}
 	for name, headers := range map[string]map[string]string{"with the header": named, "without it": viaServe} {
-		if rec := p.do("GET", "/", nil, phone, headers); rec.Code != http.StatusOK {
+		if rec := p.do("GET", "/", nil, companion, headers); rec.Code != http.StatusOK {
 			t.Fatalf("the phone %s = %d", name, rec.Code)
 		}
 	}
@@ -493,7 +493,7 @@ func TestATailscaleLoginHeaderIsNotAnIdentity(t *testing.T) {
 }
 
 func TestAnIdentityHeaderAloneGrantsNothing(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	for _, path := range []string{"/", "/connect", "/tasks", "/events", "/supervisor/log", "/task/t1", "/attempt/a1", "/doc/inbox"} {
 		rec := p.do("GET", path, nil, nil, viaServe)
 		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "Pair this phone first") {
@@ -519,29 +519,29 @@ func TestAnIdentityHeaderAloneGrantsNothing(t *testing.T) {
 }
 
 func TestRevokingAPhoneSignsItOutAtOnce(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.fx.supervisor(t, state.AttemptRunning, "gen-1")
-	phone, keep := p.pair(), p.pair()
-	if rec := p.do("GET", "/", nil, phone, viaServe); rec.Code != http.StatusOK {
+	companion, keep := p.pair(), p.pair()
+	if rec := p.do("GET", "/", nil, companion, viaServe); rec.Code != http.StatusOK {
 		t.Fatalf("before the revoke = %d", rec.Code)
 	}
 	list := p.do("GET", "/connect", nil, host, nil)
-	contains(t, "list", list.Body.String(), "Pixel", `value="`+p.deviceID(phone)+`"`, `aria-label="Revoke Pixel"`)
-	rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, host, nil)
+	contains(t, "list", list.Body.String(), "Pixel", `value="`+p.deviceID(companion)+`"`, `aria-label="Revoke Pixel"`)
+	rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(companion)}}, host, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/connect" {
 		t.Fatalf("revoke = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	rec = p.do("GET", "/", nil, phone, viaServe)
+	rec = p.do("GET", "/", nil, companion, viaServe)
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "This phone is no longer paired with this fleet") || !strings.Contains(rec.Body.String(), "Phone, in its menu") {
 		t.Fatalf("revoked phone = %d:\n%s", rec.Code, rec.Body.String())
 	}
-	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {"x"}, "text": {"x"}}, phone, viaServe); rec.Code != http.StatusForbidden {
+	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {"x"}, "text": {"x"}}, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("revoked phone POST = %d", rec.Code)
 	}
 	if rec := p.do("GET", "/", nil, keep, viaServe); rec.Code != http.StatusOK {
 		t.Fatalf("revoking one phone signed out another = %d", rec.Code)
 	}
-	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, host, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/connect" {
+	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(companion)}}, host, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/connect" {
 		t.Fatalf("revoking a phone twice = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {"x"}}, host, nil); rec.Code != http.StatusBadRequest {
@@ -553,12 +553,12 @@ func TestRevokingAPhoneSignsItOutAtOnce(t *testing.T) {
 }
 
 func TestRevokingClosesThePhonesOpenStream(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.fx.supervisor(t, state.AttemptRunning, "gen-1")
-	phone := p.pair()
+	companion := p.pair()
 	base := serve(t, p.h)
 	req, _ := http.NewRequest("GET", base+"/events", nil)
-	req.AddCookie(phone)
+	req.AddCookie(companion)
 	for k, v := range viaServe {
 		req.Header.Set(k, v)
 	}
@@ -572,7 +572,7 @@ func TestRevokingClosesThePhonesOpenStream(t *testing.T) {
 	if !sc.Scan() {
 		t.Fatal("the stream said nothing")
 	}
-	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, host, nil); rec.Code != http.StatusSeeOther {
+	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(companion)}}, host, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke = %d", rec.Code)
 	}
 	done := make(chan struct{})
@@ -589,19 +589,19 @@ func TestRevokingClosesThePhonesOpenStream(t *testing.T) {
 }
 
 func TestAPhoneSignsItselfOutAndNobodyElse(t *testing.T) {
-	p := newPhoneRig(t)
-	phone, other := p.pair(), p.pair()
-	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, phone, viaServe).Body.String())[1]
-	page := p.do("GET", "/connect", nil, phone, viaServe).Body.String()
+	p := newCompanionRig(t)
+	companion, other := p.pair(), p.pair()
+	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, companion, viaServe).Body.String())[1]
+	page := p.do("GET", "/connect", nil, companion, viaServe).Body.String()
 	contains(t, "This phone", page, "This phone", "Paired as <b>Pixel</b>", "It stays signed in for 90 days from pairing, or until it is revoked.", "Sign out this phone", `action="/connect/revoke"`)
 	lacks(t, "This phone", page, "Paired phones", "Show pairing code", `name="base"`, `value="`+p.deviceID(other)+`"`)
-	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(other)}}, phone, viaServe); rec.Code != http.StatusForbidden {
+	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(other)}}, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("a phone revoked another phone = %d", rec.Code)
 	}
 	if rec := p.do("GET", "/", nil, other, viaServe); rec.Code != http.StatusOK {
 		t.Fatalf("the other phone was signed out = %d", rec.Code)
 	}
-	rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(phone)}}, phone, viaServe)
+	rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(companion)}}, companion, viaServe)
 	cleared := false
 	for _, c := range rec.Result().Cookies() {
 		cleared = cleared || (c.Name == "__Host-hand_phone" && c.MaxAge < 0 && c.Secure && c.Path == "/" && c.Value == "")
@@ -609,26 +609,26 @@ func TestAPhoneSignsItselfOutAndNobodyElse(t *testing.T) {
 	if rec.Code != http.StatusOK || !cleared || !strings.Contains(rec.Body.String(), "This phone is signed out") {
 		t.Fatalf("sign out = %d, cleared %v:\n%s", rec.Code, cleared, rec.Body.String())
 	}
-	if rec := p.do("GET", "/", nil, phone, viaServe); rec.Code != http.StatusForbidden {
+	if rec := p.do("GET", "/", nil, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("the signed-out phone = %d", rec.Code)
 	}
-	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(phone)}}, phone, viaServe); rec.Code != http.StatusForbidden {
+	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(companion)}}, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("a signed-out phone revoked again = %d", rec.Code)
 	}
-	if got := p.events("board.revoked"); len(got) != 1 || got[0] != "board.revoked "+p.deviceID(phone)+" Pixel" {
+	if got := p.events("board.revoked"); len(got) != 1 || got[0] != "board.revoked "+p.deviceID(companion)+" Pixel" {
 		t.Fatalf("revoked events = %q", got)
 	}
 }
 
 func TestRotatingTheTokenSignsEveryPhoneOut(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
-	if p.do("GET", "/", nil, phone, viaServe).Code != http.StatusOK {
+	p := newCompanionRig(t)
+	companion := p.pair()
+	if p.do("GET", "/", nil, companion, viaServe).Code != http.StatusOK {
 		t.Fatal("the phone cannot open before the rotation")
 	}
 	rotated := board.New(p.fx.st, "fedcba9876543210fedcba9876543210", p.fx.options)
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(phone)
+	req.AddCookie(companion)
 	for k, v := range viaServe {
 		req.Header.Set(k, v)
 	}
@@ -643,16 +643,16 @@ func TestRotatingTheTokenSignsEveryPhoneOut(t *testing.T) {
 }
 
 func TestThePairedPhonesAndTheirEventsHoldNoSecret(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
-	_, secret, _ := strings.Cut(phone.Value, ".")
+	p := newCompanionRig(t)
+	companion := p.pair()
+	_, secret, _ := strings.Cut(companion.Value, ".")
 	code := p.code()
 	list := p.do("GET", "/connect", nil, host, nil).Body.String()
-	own := csrfRe.FindStringSubmatch(p.do("GET", "/", nil, phone, viaServe).Body.String())[1]
-	for _, leak := range []string{secret, own, phone.Value} {
+	own := csrfRe.FindStringSubmatch(p.do("GET", "/", nil, companion, viaServe).Body.String())[1]
+	for _, leak := range []string{secret, own, companion.Value} {
 		lacks(t, "the host's Phone page", list, leak)
 	}
-	contains(t, "events", strings.Join(p.events("board.paired"), "\n"), "board.paired "+p.deviceID(phone)+" Pixel")
+	contains(t, "events", strings.Join(p.events("board.paired"), "\n"), "board.paired "+p.deviceID(companion)+" Pixel")
 	all, err := p.fx.st.RecentEvents(context.Background(), 100)
 	if err != nil {
 		t.Fatal(err)
@@ -674,7 +674,7 @@ func TestThePairedPhonesAndTheirEventsHoldNoSecret(t *testing.T) {
 }
 
 func TestTheHostSessionAloneMintsAndListsCodes(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	for _, path := range []string{"/connect/code", "/connect/revoke"} {
 		if rec := p.do("POST", path, url.Values{"csrf": {token}, "base": {"https://x.example"}, "id": {"1"}}, nil, nil); rec.Code != http.StatusForbidden {
 			t.Fatalf("POST %s with no session = %d", path, rec.Code)
@@ -711,7 +711,7 @@ func TestTheHostSessionAloneMintsAndListsCodes(t *testing.T) {
 }
 
 func TestThePhonePageIsOnTheRailAndDoesNotKeepTheCode(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	code := p.code()
 	page := p.do("GET", "/connect", nil, host, nil)
 	body := page.Body.String()
@@ -726,8 +726,8 @@ func TestThePhonePageIsOnTheRailAndDoesNotKeepTheCode(t *testing.T) {
 }
 
 func TestAFunnelRequestGetsARefusalAndNothingElse(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
+	p := newCompanionRig(t)
+	companion := p.pair()
 	code := p.code()
 	funnel := func(h map[string]string) map[string]string {
 		out := map[string]string{"Tailscale-Funnel-Request": "?1"}
@@ -741,9 +741,9 @@ func TestAFunnelRequestGetsARefusalAndNothingElse(t *testing.T) {
 		cookie       *http.Cookie
 		form         url.Values
 	}{
-		{"GET", "/", host, nil}, {"GET", "/", phone, nil}, {"GET", "/", nil, nil},
+		{"GET", "/", host, nil}, {"GET", "/", companion, nil}, {"GET", "/", nil, nil},
 		{"GET", "/pair", nil, nil}, {"POST", "/pair", nil, url.Values{"code": {code}}},
-		{"GET", "/attempt/a1", host, nil}, {"GET", "/attempt/a1", phone, nil},
+		{"GET", "/attempt/a1", host, nil}, {"GET", "/attempt/a1", companion, nil},
 		{"GET", "/connect", host, nil}, {"POST", "/connect/code", host, url.Values{"csrf": {token}, "base": {"https://x.example"}}},
 		{"GET", "/events", host, nil}, {"GET", "/proof?nonce=x", nil, nil},
 		{"GET", "/?token=" + token, nil, nil},
@@ -777,14 +777,14 @@ func TestAFunnelRequestGetsARefusalAndNothingElse(t *testing.T) {
 }
 
 func TestEveryResponseTellsTheBrowserNotToSendAReferrer(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
+	p := newCompanionRig(t)
+	companion := p.pair()
 	for _, c := range []struct {
 		path   string
 		cookie *http.Cookie
 		h      map[string]string
 	}{
-		{"/", host, nil}, {"/", phone, viaServe}, {"/", nil, nil}, {"/pair", nil, viaServe}, {"/connect", host, nil},
+		{"/", host, nil}, {"/", companion, viaServe}, {"/", nil, nil}, {"/pair", nil, viaServe}, {"/connect", host, nil},
 		{"/tasks", host, nil}, {"/static/board.css", nil, nil}, {"/proof?nonce=x", nil, nil}, {"/", host, map[string]string{"Tailscale-Funnel-Request": "?1"}},
 		{"/doc/inbox", host, nil}, {"/nope", host, nil},
 	} {
@@ -795,19 +795,19 @@ func TestEveryResponseTellsTheBrowserNotToSendAReferrer(t *testing.T) {
 }
 
 func TestAReadOnlyBoardKeepsEveryPhoneSessionReadOnly(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.fx.options.Controls = false
 	p.h = p.fx.handler()
-	phone := p.pair()
-	home := p.do("GET", "/", nil, phone, viaServe)
+	companion := p.pair()
+	home := p.do("GET", "/", nil, companion, viaServe)
 	if home.Code != http.StatusOK {
 		t.Fatalf("read-only phone home = %d", home.Code)
 	}
 	contains(t, "read-only", home.Body.String(), "Read-only: this board listens on a network address")
 	lacks(t, "read-only", home.Body.String(), `id="composer"`, `action="/supervisor/send"`, `action="/supervisor/start"`)
-	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, phone, viaServe).Body.String())[1]
+	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, companion, viaServe).Body.String())[1]
 	for _, path := range []string{"/supervisor/send", "/supervisor/start", "/supervisor/resume", "/supervisor/stop", "/supervisor/keys", "/supervisor/interrupt", "/supervisor/force", "/supervisor/switch", "/supervisor/image"} {
-		rec := p.do("POST", path, url.Values{"csrf": {own}, "text": {"hi"}}, phone, viaServe)
+		rec := p.do("POST", path, url.Values{"csrf": {own}, "text": {"hi"}}, companion, viaServe)
 		if rec.Code < 400 {
 			t.Errorf("read-only phone POST %s = %d", path, rec.Code)
 		}
@@ -818,10 +818,10 @@ func TestAReadOnlyBoardKeepsEveryPhoneSessionReadOnly(t *testing.T) {
 }
 
 func TestAPhoneOnALoopbackBoardKeepsTheControlsItsCsrfAllows(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	p.fx.supervisor(t, state.AttemptRunning, "gen-1")
-	phone := p.pair()
-	home := p.do("GET", "/", nil, phone, viaServe).Body.String()
+	companion := p.pair()
+	home := p.do("GET", "/", nil, companion, viaServe).Body.String()
 	contains(t, "phone home", home, `id="composer"`, `action="/supervisor/send"`, `data-session="phone"`)
 	if strings.Contains(p.do("GET", "/", nil, host, nil).Body.String(), `data-session=`) {
 		t.Fatal("the host's page says it is a phone")
@@ -845,7 +845,7 @@ func TestTheFleetListStaysHiddenFromAProxy(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		body := rec.Body.String()
-		if strings.Contains(body, "alpha") || strings.Contains(body, "bravo") || strings.Contains(body, f[0].id) || !strings.Contains(body, "pair it on the host, on that fleet's Phone page") {
+		if strings.Contains(body, "alpha") || strings.Contains(body, "bravo") || strings.Contains(body, f[0].id) || !strings.Contains(body, "pair it on the host, on the fleet's Phone page") {
 			t.Fatalf("a proxied request (%v) sees the fleet list:\n%s", header, body)
 		}
 	}
@@ -877,15 +877,15 @@ func TestAPhoneSessionOnTheHostSeesOnlyItsOwnFleet(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, pairReq)
-	var phone *http.Cookie
+	var companion *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		phone = c
+		companion = c
 	}
-	if rec.Code != http.StatusSeeOther || phone == nil || phone.Name != "__Host-hand_phone_"+f[0].id || rec.Header().Get("Location") != "/"+f[0].id+"/" {
-		t.Fatalf("pair on the host = %d %+v %q", rec.Code, phone, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || companion == nil || companion.Name != "__Host-hand_phone_"+f[0].id || rec.Header().Get("Location") != "/"+f[0].id+"/" {
+		t.Fatalf("pair on the host = %d %+v %q", rec.Code, companion, rec.Header().Get("Location"))
 	}
 	view := httptest.NewRequest("GET", "/"+f[0].id+"/", nil)
-	view.AddCookie(phone)
+	view.AddCookie(companion)
 	for k, v := range viaServe {
 		view.Header.Set(k, v)
 	}
@@ -896,7 +896,7 @@ func TestAPhoneSessionOnTheHostSeesOnlyItsOwnFleet(t *testing.T) {
 		t.Fatalf("phone on the host = %d:\n%s", rec.Code, body)
 	}
 	other := httptest.NewRequest("GET", "/"+f[1].id+"/", nil)
-	other.AddCookie(phone)
+	other.AddCookie(companion)
 	for k, v := range viaServe {
 		other.Header.Set(k, v)
 	}
@@ -940,7 +940,7 @@ func TestAFunnelRequestToTheHostGetsOnlyTheStyles(t *testing.T) {
 }
 
 func TestOnePhonesFormTokenOpensNothingOnAnotherSession(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	a, b := p.pair(), p.pair()
 	tokenOf := func(c *http.Cookie) string {
 		return csrfRe.FindStringSubmatch(p.do("GET", "/", nil, c, viaServe).Body.String())[1]
@@ -964,8 +964,8 @@ func TestOnePhonesFormTokenOpensNothingOnAnotherSession(t *testing.T) {
 }
 
 func TestEveryNewPageRefusesFramingAndKeepsTheStrictPolicy(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
+	p := newCompanionRig(t)
+	companion := p.pair()
 	for _, c := range []struct {
 		method, path string
 		cookie       *http.Cookie
@@ -973,8 +973,8 @@ func TestEveryNewPageRefusesFramingAndKeepsTheStrictPolicy(t *testing.T) {
 		form         url.Values
 	}{
 		{"GET", "/pair", nil, viaServe, nil}, {"POST", "/pair", nil, viaServe, url.Values{"code": {"AAAAA-AAAAA"}}}, {"GET", "/connect", host, nil, nil},
-		{"GET", "/connect", phone, viaServe, nil}, {"GET", "/", nil, viaServe, nil}, {"GET", "/", host, map[string]string{"Tailscale-Funnel-Request": "?1"}, nil},
-		{"POST", "/connect/revoke", phone, viaServe, url.Values{"csrf": {csrfRe.FindStringSubmatch(p.do("GET", "/", nil, phone, viaServe).Body.String())[1]}, "id": {p.deviceID(phone)}}},
+		{"GET", "/connect", companion, viaServe, nil}, {"GET", "/", nil, viaServe, nil}, {"GET", "/", host, map[string]string{"Tailscale-Funnel-Request": "?1"}, nil},
+		{"POST", "/connect/revoke", companion, viaServe, url.Values{"csrf": {csrfRe.FindStringSubmatch(p.do("GET", "/", nil, companion, viaServe).Body.String())[1]}, "id": {p.deviceID(companion)}}},
 	} {
 		h := p.do(c.method, c.path, c.form, c.cookie, c.h).Header()
 		if h.Get("X-Frame-Options") != "DENY" || !strings.Contains(h.Get("Content-Security-Policy"), "frame-ancestors 'none'") || !strings.Contains(h.Get("Content-Security-Policy"), "script-src 'self'; style-src 'self'") || !strings.Contains(h.Get("Content-Security-Policy"), "form-action 'self'") {
@@ -987,12 +987,12 @@ func TestPairingWritesNothingToTheLog(t *testing.T) {
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	code := p.code()
-	phone := p.pair()
+	companion := p.pair()
 	p.tryPair(code, "100.64.0.7")
 	p.tryPair("AAAAA-AAAAA", "100.64.0.7")
-	p.do("GET", "/", nil, phone, viaServe)
+	p.do("GET", "/", nil, companion, viaServe)
 	p.do("GET", "/", nil, nil, map[string]string{"Tailscale-Funnel-Request": "?1"})
 	if buf.Len() != 0 {
 		t.Fatalf("the board logged %q", buf.String())
@@ -1000,7 +1000,7 @@ func TestPairingWritesNothingToTheLog(t *testing.T) {
 }
 
 func TestANewPhoneDoesNotInheritARevokedPhonesLastSeen(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	old := p.pair()
 	p.do("GET", "/", nil, old, viaServe)
 	if !strings.Contains(p.do("GET", "/connect", nil, host, nil).Body.String(), ", seen ") {
@@ -1017,7 +1017,7 @@ func TestANewPhoneDoesNotInheritARevokedPhonesLastSeen(t *testing.T) {
 }
 
 func TestTheCodePageShowsThePairingLinkAsAQRCode(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	show := func() (*httptest.ResponseRecorder, string, string) {
 		rec := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://host.tailnet.example"}}, host, nil)
 		body := rec.Body.String()
@@ -1050,7 +1050,7 @@ func TestTheCodePageShowsThePairingLinkAsAQRCode(t *testing.T) {
 }
 
 func TestALinkTooLongForAQRCodeFallsBackToText(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	for _, c := range []struct {
 		host    int
 		picture bool
@@ -1102,9 +1102,9 @@ func (r *peerRig) post(c *peerClient, f railFleet, path, body, csrf string, cook
 	return rep
 }
 
-func (r *peerRig) csrfOf(c *peerClient, f railFleet, phone *http.Cookie) string {
+func (r *peerRig) csrfOf(c *peerClient, f railFleet, companion *http.Cookie) string {
 	r.t.Helper()
-	rep := r.apiGet(c, f, "session", nil, phone)
+	rep := r.apiGet(c, f, "session", nil, companion)
 	var env apiReply[board.APISession]
 	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &env) != nil || env.Data.CSRF == "" {
 		r.t.Fatalf("session = %d:\n%s", rep.Code, rep.Body)
@@ -1117,26 +1117,26 @@ func TestAPairedPhoneReadsTheAPIAndAnswersADecision(t *testing.T) {
 	f := r.fleets[0]
 	seed(t, f.st)
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
-	rep := r.apiGet(c, f, "status", nil, phone)
+	companion := r.mustPair(c, f)
+	rep := r.apiGet(c, f, "status", nil, companion)
 	var status apiReply[board.APIStatus]
 	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &status) != nil {
 		t.Fatalf("status = %d:\n%s", rep.Code, rep.Body)
 	}
-	csrf := r.csrfOf(c, f, phone)
+	csrf := r.csrfOf(c, f, companion)
 	if csrf == f.token {
 		t.Fatal("a phone's session carries the host token")
 	}
 	for name, header := range map[string]string{"no CSRF header": "", "the host token": f.token} {
-		rep = r.post(c, f, "decision/d1/answer", `{"choice":"1. Yes"}`, header, phone)
+		rep = r.post(c, f, "decision/d1/answer", `{"choice":"1. Yes"}`, header, companion)
 		if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"csrf_required"`) {
 			t.Fatalf("an answer with %s = %d:\n%s", name, rep.Code, rep.Body)
 		}
 	}
-	if rep := r.apiGet(c, r.fleets[1], "status", nil, phone); rep.Code != http.StatusUnauthorized {
+	if rep := r.apiGet(c, r.fleets[1], "status", nil, companion); rep.Code != http.StatusUnauthorized {
 		t.Fatalf("another fleet's API with this fleet's cookie = %d", rep.Code)
 	}
-	rep = r.post(c, f, "decision/d1/answer", `{"choice":"1. Yes"}`, csrf, phone)
+	rep = r.post(c, f, "decision/d1/answer", `{"choice":"1. Yes"}`, csrf, companion)
 	var got apiReply[board.APIDecisionDetail]
 	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &got) != nil {
 		t.Fatalf("answer = %d:\n%s", rep.Code, rep.Body)
@@ -1144,7 +1144,7 @@ func TestAPairedPhoneReadsTheAPIAndAnswersADecision(t *testing.T) {
 	if got.Data.Decision.Status != "answered" || got.Data.Decision.AnsweredBy != "phone (Pixel)" {
 		t.Fatalf("decision = %+v", got.Data.Decision)
 	}
-	rep = r.post(c, f, "report/r1/ack", "", csrf, phone)
+	rep = r.post(c, f, "report/r1/ack", "", csrf, companion)
 	var acked apiReply[board.APIReportDetail]
 	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &acked) != nil || acked.Data.Report.AckedBy != "phone (Pixel)" {
 		t.Fatalf("ack = %d:\n%s", rep.Code, rep.Body)
@@ -1156,18 +1156,18 @@ func TestAPageRecordsAPairedPhoneByNameLikeTheAPI(t *testing.T) {
 	f := r.fleets[0]
 	seed(t, f.st)
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
-	csrf := r.csrfOf(c, f, phone)
-	if rep := c.do("POST", "/"+f.id+"/decision/d1/answer", url.Values{"csrf": {csrf}, "answer": {"yes"}}, nil, phone); rep.Code >= 400 {
+	companion := r.mustPair(c, f)
+	csrf := r.csrfOf(c, f, companion)
+	if rep := c.do("POST", "/"+f.id+"/decision/d1/answer", url.Values{"csrf": {csrf}, "answer": {"yes"}}, nil, companion); rep.Code >= 400 {
 		t.Fatalf("page answer = %d:\n%s", rep.Code, rep.Body)
 	}
-	if rep := c.do("POST", "/"+f.id+"/report/r1/ack", url.Values{"csrf": {csrf}}, nil, phone); rep.Code >= 400 {
+	if rep := c.do("POST", "/"+f.id+"/report/r1/ack", url.Values{"csrf": {csrf}}, nil, companion); rep.Code >= 400 {
 		t.Fatalf("page ack = %d:\n%s", rep.Code, rep.Body)
 	}
 	var d apiReply[board.APIDecisionDetail]
 	var rp apiReply[board.APIReportDetail]
-	_ = json.Unmarshal([]byte(r.apiGet(c, f, "decision/d1", nil, phone).Body), &d)
-	_ = json.Unmarshal([]byte(r.apiGet(c, f, "report/r1", nil, phone).Body), &rp)
+	_ = json.Unmarshal([]byte(r.apiGet(c, f, "decision/d1", nil, companion).Body), &d)
+	_ = json.Unmarshal([]byte(r.apiGet(c, f, "report/r1", nil, companion).Body), &rp)
 	if d.Data.Decision.AnsweredBy != "phone (Pixel)" || rp.Data.Report.AckedBy != "phone (Pixel)" {
 		t.Fatalf("answered_by %q, acked_by %q", d.Data.Decision.AnsweredBy, rp.Data.Report.AckedBy)
 	}
@@ -1185,34 +1185,34 @@ func TestThePeerListenerRefusesTheAPIToAnUnpairedPeerAnAnonymousDeviceAndARevoke
 		t.Fatalf("a device with no iroh login = %d:\n%s", rep.Code, rep.Body)
 	}
 	c := r.as(peerB)
-	phone := r.mustPair(c, f)
-	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusOK {
+	companion := r.mustPair(c, f)
+	if rep := r.apiGet(c, f, "status", nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("paired = %d", rep.Code)
 	}
-	if rep := r.apiGet(r.as(peerA), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+	if rep := r.apiGet(r.as(peerA), f, "status", nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a cookie from another endpoint = %d", rep.Code)
 	}
-	r.revoke(f, phone)
-	if rep := r.apiGet(r.as(peerB), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+	r.revoke(f, companion)
+	if rep := r.apiGet(r.as(peerB), f, "status", nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a revoked phone = %d", rep.Code)
 	}
 }
 
 func TestAForwardedHeaderStillClosesTheAPIToAPairedPhone(t *testing.T) {
-	p := newPhoneRig(t)
-	phone := p.pair()
+	p := newCompanionRig(t)
+	companion := p.pair()
 	proto := map[string]string{"X-Forwarded-Proto": "https"}
-	if rec := p.do("GET", "/api/v1/status", nil, phone, proto); rec.Code != http.StatusOK {
+	if rec := p.do("GET", "/api/v1/status", nil, companion, proto); rec.Code != http.StatusOK {
 		t.Fatalf("the same phone without a forwarded address = %d", rec.Code)
 	}
 	for _, h := range []map[string]string{{"X-Forwarded-For": "100.64.0.7"}, {"Forwarded": "for=100.64.0.7"}} {
 		h["X-Forwarded-Proto"] = "https"
-		if rec := p.do("GET", "/api/v1/status", nil, phone, h); rec.Code != http.StatusForbidden {
+		if rec := p.do("GET", "/api/v1/status", nil, companion, h); rec.Code != http.StatusForbidden {
 			t.Fatalf("a phone through %v = %d", h, rec.Code)
 		}
 	}
 	req := httptest.NewRequest("GET", "/api/v1/status", nil)
-	req.AddCookie(phone)
+	req.AddCookie(companion)
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header["X-Forwarded-For"] = []string{"", "100.64.0.7"}
 	rec := httptest.NewRecorder()
@@ -1223,14 +1223,14 @@ func TestAForwardedHeaderStillClosesTheAPIToAPairedPhone(t *testing.T) {
 }
 
 func TestANetworkAddressBoardKeepsTheAPIClosedToAPairedPhone(t *testing.T) {
-	r := servePeerRig(t, newPhoneHost(t, false, "alpha"))
+	r := servePeerRig(t, newCompanionHost(t, false, "alpha"))
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone, rep := r.pairOver(c, f, nil)
-	if phone == nil {
+	companion, rep := r.pairOver(c, f, nil)
+	if companion == nil {
 		t.Fatalf("pair = %d", rep.Code)
 	}
-	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusForbidden {
+	if rep := r.apiGet(c, f, "status", nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a network-address board answered the API = %d", rep.Code)
 	}
 }

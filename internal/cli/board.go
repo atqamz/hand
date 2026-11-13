@@ -301,10 +301,10 @@ func (f *fleetBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
-func (f *fleetBoard) PhoneSession(r *http.Request) bool {
+func (f *fleetBoard) CompanionSession(r *http.Request) bool {
 	h, err := f.current()
 	p, ok := h.(board.Prover)
-	return err == nil && ok && p.PhoneSession(r)
+	return err == nil && ok && p.CompanionSession(r)
 }
 
 func (f *fleetBoard) FleetSummary(ctx context.Context) (board.APIFleetSummary, error) {
@@ -325,7 +325,7 @@ func (f *fleetBoard) APIRead(r *http.Request) bool {
 	return err == nil && ok && rd.APIRead(r)
 }
 
-func (f *fleetBoard) PairPhone(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
+func (f *fleetBoard) PairCompanion(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
 	h, err := f.current()
 	if err != nil {
 		return board.Paired{}, err
@@ -334,7 +334,7 @@ func (f *fleetBoard) PairPhone(ctx context.Context, rd *board.Redeemed) (board.P
 	if !ok {
 		return board.Paired{}, state.ErrNotFound
 	}
-	return p.PairPhone(ctx, rd)
+	return p.PairCompanion(ctx, rd)
 }
 
 func (f *fleetBoard) PhoneRecords(ctx context.Context) ([]board.PhoneRecord, error) {

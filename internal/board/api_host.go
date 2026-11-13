@@ -84,7 +84,7 @@ func (h *Host) apiReadable(w http.ResponseWriter, r *http.Request) (map[string]b
 	}
 	proven := h.tokenFleets("", r)
 	delete(proven, "")
-	for id := range h.phoneFleets(r, "") {
+	for id := range h.companionFleets(r, "") {
 		proven[id] = true
 	}
 	held := len(proven) > 0

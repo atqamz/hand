@@ -61,11 +61,11 @@ func (b *Board) PhoneRecords(ctx context.Context) ([]PhoneRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	b.phones.mu.Lock()
-	defer b.phones.mu.Unlock()
+	b.companions.mu.Lock()
+	defer b.companions.mu.Unlock()
 	out := make([]PhoneRecord, len(devices))
 	for i, d := range devices {
-		out[i] = PhoneRecord{d, b.phones.seen[d.ID], b.lapsed(d)}
+		out[i] = PhoneRecord{d, b.companions.seen[d.ID], b.lapsed(d)}
 	}
 	return out, nil
 }
@@ -79,11 +79,11 @@ func (b *Board) RevokePhone(ctx context.Context, rv *Revocation) (int, error) {
 
 func (b *Board) revokeLabel(ctx context.Context, label string) (int, error) {
 	gone, err := b.st.RevokePhone(ctx, label)
-	b.phones.mu.Lock()
+	b.companions.mu.Lock()
 	for _, d := range gone {
-		delete(b.phones.seen, d.ID)
+		delete(b.companions.seen, d.ID)
 	}
-	b.phones.mu.Unlock()
+	b.companions.mu.Unlock()
 	if err == nil {
 		b.closePeers(gone...)
 	}

@@ -18,71 +18,71 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 		network bool
 		on      int
 		status  int
-		setup   func(p *phoneHost) ([]*http.Cookie, map[string]string)
+		setup   func(p *companionHost) ([]*http.Cookie, map[string]string)
 		rail    []int
 		home    []int
 	}{
-		{"no cookie", false, 0, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) { return nil, op }, nil, nil},
-		{"host session only", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"no cookie", false, 0, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) { return nil, op }, nil, nil},
+		{"host session only", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.host(p.fleets[0]), p.host(p.fleets[1])}, op
 		}, []int{0, 1}, nil},
-		{"phone paired with one fleet", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"phone paired with one fleet", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op)}, op
 		}, []int{0}, []int{0}},
-		{"phone paired with two of three", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"phone paired with two of three", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)}, op
 		}, []int{0, 1}, []int{0, 1}},
-		{"the second of two, opened from its own page", false, 1, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"the second of two, opened from its own page", false, 1, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)}, op
 		}, []int{0, 1}, []int{0, 1}},
-		{"the third fleet, never paired", false, 2, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"the third fleet, never paired", false, 2, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)}, op
 		}, nil, []int{0, 1}},
-		{"one paired fleet revoked", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"one paired fleet revoked", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			a, b := p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)
 			p.revoke(p.fleets[1], b)
 			return []*http.Cookie{a, b}, op
 		}, []int{0}, []int{0}},
-		{"the revoked fleet's own page", false, 1, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"the revoked fleet's own page", false, 1, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			a, b := p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)
 			p.revoke(p.fleets[1], b)
 			return []*http.Cookie{a, b}, op
 		}, nil, []int{0}},
-		{"one paired fleet lapsed", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"one paired fleet lapsed", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			b := p.pair(p.fleets[1], op)
 			p.advance(60 * 24 * time.Hour)
 			a := p.pair(p.fleets[0], op)
 			p.advance(40 * 24 * time.Hour)
 			return []*http.Cookie{a, b}, op
 		}, []int{0}, []int{0}},
-		{"the lapsed fleet's own page", false, 1, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"the lapsed fleet's own page", false, 1, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			b := p.pair(p.fleets[1], op)
 			p.advance(60 * 24 * time.Hour)
 			a := p.pair(p.fleets[0], op)
 			p.advance(40 * 24 * time.Hour)
 			return []*http.Cookie{a, b}, op
 		}, nil, []int{0}},
-		{"a forged cookie beside a real one", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"a forged cookie beside a real one", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op), {Name: "__Host-hand_phone_" + p.fleets[1].id, Value: forged}}, op
 		}, []int{0}, []int{0}},
-		{"a forged cookie alone", false, 1, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"a forged cookie alone", false, 1, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{{Name: "__Host-hand_phone_" + p.fleets[1].id, Value: forged}}, op
 		}, nil, nil},
-		{"fleet A's cookie under fleet B's name", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"fleet A's cookie under fleet B's name", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			a := p.pair(p.fleets[0], op)
-			return []*http.Cookie{a, phoneNamed("__Host-hand_phone_"+p.fleets[1].id, a)}, op
+			return []*http.Cookie{a, companionNamed("__Host-hand_phone_"+p.fleets[1].id, a)}, op
 		}, []int{0}, []int{0}},
-		{"fleet B's page with fleet A's cookie under B's name", false, 1, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"fleet B's page with fleet A's cookie under B's name", false, 1, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			a := p.pair(p.fleets[0], op)
-			return []*http.Cookie{a, phoneNamed("__Host-hand_phone_"+p.fleets[1].id, a)}, op
+			return []*http.Cookie{a, companionNamed("__Host-hand_phone_"+p.fleets[1].id, a)}, op
 		}, nil, []int{0}},
-		{"fleet B's page with fleet A's cookie as it is", false, 1, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"fleet B's page with fleet A's cookie as it is", false, 1, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op)}, op
 		}, nil, []int{0}},
-		{"a read-only board", true, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"a read-only board", true, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)}, op
 		}, []int{0}, nil},
-		{"plain HTTP", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"plain HTTP", false, 0, 200, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			plain := map[string]string{"X-Forwarded-For": "100.64.0.7"}
 			a, b := p.pair(p.fleets[0], plain), p.pair(p.fleets[1], plain)
 			if a.Name != "hand_phone_"+p.fleets[0].id {
@@ -90,13 +90,13 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 			}
 			return []*http.Cookie{a, b}, plain
 		}, []int{0, 1}, []int{0, 1}},
-		{"a secure cookie over plain HTTP", false, 0, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+		{"a secure cookie over plain HTTP", false, 0, 403, func(p *companionHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)}, map[string]string{"X-Forwarded-For": "100.64.0.7"}
 		}, nil, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
-			p := newPhoneHost(t, !c.network, "alpha", "bravo", "charlie")
+			p := newCompanionHost(t, !c.network, "alpha", "bravo", "charlie")
 			cookies, headers := c.setup(p)
 			on := p.fleets[c.on]
 			rec := p.send("GET", "/"+on.id+"/", nil, cookies, headers)
@@ -132,9 +132,9 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 				t.Fatalf("GET / = %d:\n%s", rec.Code, body)
 			}
 			if c.home == nil {
-				contains(t, c.what, body, "pair it on the host, on that fleet's Phone page")
+				contains(t, c.what, body, "pair it on the host, on the fleet's Phone page")
 			} else {
-				lacks(t, c.what, body, "pair it on the host, on that fleet's Phone page", "No fleets yet")
+				lacks(t, c.what, body, "pair it on the host, on the fleet's Phone page", "No fleets yet")
 			}
 			for i, f := range p.fleets {
 				if slices.Contains(c.home, i) {
@@ -150,33 +150,33 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 func TestOnlyAProxyHidesTheFleetListAndAPhoneBringsItBack(t *testing.T) {
 	proxies := []map[string]string{{"X-Forwarded-For": "100.64.0.7"}, {"Forwarded": "for=100.64.0.7"}}
 	for _, headers := range proxies {
-		p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
-		phones := []*http.Cookie{p.pair(p.fleets[0], headers), p.pair(p.fleets[1], headers)}
+		p := newCompanionHost(t, true, "alpha", "bravo", "charlie")
+		companions := []*http.Cookie{p.pair(p.fleets[0], headers), p.pair(p.fleets[1], headers)}
 		bare := p.send("GET", "/", nil, nil, headers).Body.String()
-		contains(t, fmt.Sprint(headers), bare, "pair it on the host, on that fleet's Phone page")
+		contains(t, fmt.Sprint(headers), bare, "pair it on the host, on the fleet's Phone page")
 		lacks(t, fmt.Sprint(headers), bare, "alpha", "bravo", "charlie")
-		listed := p.send("GET", "/", nil, phones, headers).Body.String()
+		listed := p.send("GET", "/", nil, companions, headers).Body.String()
 		contains(t, fmt.Sprint(headers), listed, `href="/`+p.fleets[0].id+`/"`, `href="/`+p.fleets[1].id+`/"`)
-		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the host, on that fleet's Phone page")
-		direct := p.send("GET", "/", nil, phones, nil).Body.String()
+		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the host, on the fleet's Phone page")
+		direct := p.send("GET", "/", nil, companions, nil).Body.String()
 		contains(t, "direct", direct, "alpha", "bravo", "charlie")
 	}
 }
 
 func TestAHostSessionNeverOpensTheListForAProxy(t *testing.T) {
 	op := serving()
-	p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
-	phone := p.pair(p.fleets[0], op)
+	p := newCompanionHost(t, true, "alpha", "bravo", "charlie")
+	companion := p.pair(p.fleets[0], op)
 	body := p.send("GET", "/", nil, []*http.Cookie{p.host(p.fleets[2])}, op).Body.String()
 	lacks(t, "host only", body, "alpha", "bravo", "charlie")
-	body = p.send("GET", "/", nil, []*http.Cookie{phone, p.host(p.fleets[2])}, op).Body.String()
+	body = p.send("GET", "/", nil, []*http.Cookie{companion, p.host(p.fleets[2])}, op).Body.String()
 	contains(t, "both", body, "alpha")
 	lacks(t, "both", body, "bravo", "charlie")
 }
 
 func TestAFunnelRequestWithPhoneSessionsGetsOnlyTheRefusal(t *testing.T) {
 	op := serving()
-	p := newPhoneHost(t, true, "alpha", "bravo")
+	p := newCompanionHost(t, true, "alpha", "bravo")
 	cookies := []*http.Cookie{p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)}
 	funnel := map[string]string{"Tailscale-Funnel-Request": "?1", "X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"}
 	for _, path := range []string{"/", "/" + p.fleets[0].id + "/", "/" + p.fleets[1].id + "/connect", "/" + p.fleets[0].id + "/pair"} {
@@ -191,7 +191,7 @@ func TestAFunnelRequestWithPhoneSessionsGetsOnlyTheRefusal(t *testing.T) {
 
 func TestAPhoneSwitchesBetweenItsFleetsWithoutANewLogin(t *testing.T) {
 	op := serving()
-	p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
+	p := newCompanionHost(t, true, "alpha", "bravo", "charlie")
 	a, b := p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)
 	cookies := []*http.Cookie{a, b}
 	first := p.send("GET", "/"+p.fleets[0].id+"/", nil, cookies, op)
@@ -219,7 +219,7 @@ func TestAPhoneSwitchesBetweenItsFleetsWithoutANewLogin(t *testing.T) {
 
 func TestTwoFleetsPhoneCookiesCoexist(t *testing.T) {
 	op := serving()
-	p := newPhoneHost(t, true, "alpha", "bravo")
+	p := newCompanionHost(t, true, "alpha", "bravo")
 	a, b := p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)
 	for i, c := range []*http.Cookie{a, b} {
 		if c.Name != "__Host-hand_phone_"+p.fleets[i].id || c.Path != "/" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode {
@@ -237,14 +237,14 @@ func TestTwoFleetsPhoneCookiesCoexist(t *testing.T) {
 	if rec := p.send("GET", "/"+p.fleets[1].id+"/", nil, []*http.Cookie{a}, op); rec.Code != http.StatusForbidden {
 		t.Fatalf("bravo with alpha's cookie = %d", rec.Code)
 	}
-	if rec := p.send("POST", "/"+p.fleets[1].id+"/supervisor/send", url.Values{"csrf": {"x"}, "text": {"hi"}}, []*http.Cookie{phoneNamed(b.Name, a)}, op); rec.Code != http.StatusForbidden {
+	if rec := p.send("POST", "/"+p.fleets[1].id+"/supervisor/send", url.Values{"csrf": {"x"}, "text": {"hi"}}, []*http.Cookie{companionNamed(b.Name, a)}, op); rec.Code != http.StatusForbidden {
 		t.Fatalf("bravo with alpha's secret = %d", rec.Code)
 	}
 }
 
 func TestOnlyTheFleetsACookieNamesAreOpenedAndEachIsCheckedOnce(t *testing.T) {
 	op := serving()
-	p := newPhoneHost(t, true, "alpha", "bravo", "charlie", "delta", "echo")
+	p := newCompanionHost(t, true, "alpha", "bravo", "charlie", "delta", "echo")
 	b, d := p.pair(p.fleets[1], op), p.pair(p.fleets[3], op)
 	p.restart()
 	unknown := &http.Cookie{Name: "__Host-hand_phone_f0000000000ff", Value: b.Value}
@@ -263,7 +263,7 @@ func TestOnlyTheFleetsACookieNamesAreOpenedAndEachIsCheckedOnce(t *testing.T) {
 	}
 }
 
-func opened(p *phoneHost) []string {
+func opened(p *companionHost) []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var ids []string

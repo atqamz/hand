@@ -59,11 +59,11 @@ func TestAnUnpairedPeerPairsThroughTheAPIAndItsSecretOpensTheAPI(t *testing.T) {
 	if len(devices) != 1 || devices[0].Login != "iroh:"+peerA || devices[0].Name != "Pixel" {
 		t.Fatalf("devices = %+v", devices)
 	}
-	phone := &http.Cookie{Name: pf.CookieName, Value: pf.CookieValue}
-	if rep := r.apiGet(c, f, "status", nil, phone); rep.Code != http.StatusOK {
+	companion := &http.Cookie{Name: pf.CookieName, Value: pf.CookieValue}
+	if rep := r.apiGet(c, f, "status", nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("status with the answered secret = %d:\n%s", rep.Code, rep.Body)
 	}
-	if rep := r.apiGet(r.as(peerB), f, "status", nil, phone); rep.Code != http.StatusForbidden {
+	if rep := r.apiGet(r.as(peerB), f, "status", nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("the secret from another endpoint = %d", rep.Code)
 	}
 	r.refused(r.as(peerB), f, pairBody(code, "Pixel"), http.StatusForbidden, "code_used")
@@ -159,7 +159,7 @@ func TestThePairAPIReadsOnlyOneSmallJSONObject(t *testing.T) {
 }
 
 func TestThePairAPIKeepsTheAPIsRefusalsForForwardedFunnelAndNetworkAddressRequests(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	code := codeOf(p, f)
 	do := func(headers map[string]string) *httptest.ResponseRecorder {
@@ -198,12 +198,12 @@ func TestThePairAPIKeepsTheAPIsRefusalsForForwardedFunnelAndNetworkAddressReques
 		t.Fatal("a peer with no key paired a device through the API")
 	}
 
-	n := servePeerRig(t, newPhoneHost(t, false, "alpha"))
+	n := servePeerRig(t, newCompanionHost(t, false, "alpha"))
 	nf := n.fleets[0]
 	n.refused(n.as(peerA), nf, pairBody(n.code(nf), "Pixel"), http.StatusForbidden, "forbidden")
 }
 
-func codeOf(p *phoneHost, f railFleet) string {
+func codeOf(p *companionHost, f railFleet) string {
 	return p.codeOf(p.mint(f, []*http.Cookie{p.host(f)}))
 }
 

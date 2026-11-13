@@ -28,7 +28,7 @@ var (
 )
 
 type peerRig struct {
-	*phoneHost
+	*companionHost
 	addr string
 	peer *board.Peer
 }
@@ -41,10 +41,10 @@ func (r *peerRig) drained() error {
 
 func newPeerRig(t *testing.T, names ...string) *peerRig {
 	t.Helper()
-	return servePeerRig(t, newPhoneHost(t, true, names...))
+	return servePeerRig(t, newCompanionHost(t, true, names...))
 }
 
-func servePeerRig(t *testing.T, p *phoneHost) *peerRig {
+func servePeerRig(t *testing.T, p *companionHost) *peerRig {
 	t.Helper()
 	peer := board.NewPeer(p.h, peerSecret)
 	p.closePeer = peer.CloseEndpoint
@@ -58,7 +58,7 @@ func servePeerRig(t *testing.T, p *phoneHost) *peerRig {
 		defer cancel()
 		_ = peer.Shutdown(ctx)
 	})
-	return &peerRig{phoneHost: p, addr: ln.Addr().String(), peer: peer}
+	return &peerRig{companionHost: p, addr: ln.Addr().String(), peer: peer}
 }
 
 type peerClient struct {
@@ -169,37 +169,37 @@ func (r *peerRig) code(f railFleet) string {
 func (r *peerRig) pairOver(c *peerClient, f railFleet, headers map[string]string) (*http.Cookie, peerReply) {
 	r.t.Helper()
 	rep := c.do("POST", "/"+f.id+"/pair", url.Values{"code": {r.code(f)}, "name": {"Pixel"}}, headers)
-	var phone *http.Cookie
+	var companion *http.Cookie
 	for _, ck := range rep.Cookies {
 		if ck.MaxAge > 0 && strings.Contains(ck.Name, "hand_phone") {
-			phone = ck
+			companion = ck
 		}
 	}
-	return phone, rep
+	return companion, rep
 }
 
 func (r *peerRig) mustPair(c *peerClient, f railFleet) *http.Cookie {
 	r.t.Helper()
-	phone, rep := r.pairOver(c, f, nil)
-	if rep.Code != http.StatusSeeOther || phone == nil {
+	companion, rep := r.pairOver(c, f, nil)
+	if rep.Code != http.StatusSeeOther || companion == nil {
 		r.t.Fatalf("pair = %d:\n%s", rep.Code, rep.Body)
 	}
-	return phone
+	return companion
 }
 
 func TestAPeerWithTheSecretIsServedAsRemoteAndKeepsItsIdentity(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
-	phone := r.mustPair(c, a)
+	companion := r.mustPair(c, a)
 	if devices := r.devicesOf(a); len(devices) != 1 || devices[0].Login != "iroh:"+peerA {
 		t.Fatalf("the device is bound to %+v, want iroh:%s", devices, peerA)
 	}
-	home := c.do("GET", "/", nil, nil, phone)
+	home := c.do("GET", "/", nil, nil, companion)
 	if home.Code != http.StatusOK || !strings.Contains(home.Body, "alpha") || strings.Contains(home.Body, "bravo") {
 		t.Fatalf("a paired peer's / = %d and lists the fleets it is not paired with (bravo: %v)", home.Code, strings.Contains(home.Body, "bravo"))
 	}
-	if rep := c.do("GET", "/"+b.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+	if rep := c.do("GET", "/"+b.id+"/", nil, nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("the phone's cookie opens a fleet it is not paired with: %d", rep.Code)
 	}
 }
@@ -208,13 +208,13 @@ func TestAPairedPeerReachesTheWholeBoardWithControls(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	for _, path := range []string{"/" + f.id + "/", "/" + f.id + "/connect", "/" + f.id + "/tasks"} {
-		if rep := c.do("GET", path, nil, nil, phone); rep.Code != http.StatusOK {
+		if rep := c.do("GET", path, nil, nil, companion); rep.Code != http.StatusOK {
 			t.Fatalf("%s = %d", path, rep.Code)
 		}
 	}
-	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); !composeRe.MatchString(rep.Body) {
+	if rep := c.do("GET", "/"+f.id+"/", nil, nil, companion); !composeRe.MatchString(rep.Body) {
 		t.Fatalf("the supervisor composer is off for a paired peer:\n%s", rep.Body)
 	}
 }
@@ -222,10 +222,10 @@ func TestAPairedPeerReachesTheWholeBoardWithControls(t *testing.T) {
 func TestAPairedPeerThatEndsItsSendSideStillGetsTheAnswer(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
+	companion := r.mustPair(r.as(peerA), f)
 	c := r.as(peerA)
 	c.half = true
-	rep := c.do("GET", "/"+f.id+"/connect", nil, nil, phone)
+	rep := c.do("GET", "/"+f.id+"/connect", nil, nil, companion)
 	if rep.Code != http.StatusOK {
 		t.Fatalf("/connect after a half-close = %d:\n%s", rep.Code, rep.Body)
 	}
@@ -234,25 +234,25 @@ func TestAPairedPeerThatEndsItsSendSideStillGetsTheAnswer(t *testing.T) {
 func TestACookieOnlyWorksFromThePeerItWasPairedFor(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
-	if rep := r.as(peerA).do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+	companion := r.mustPair(r.as(peerA), f)
+	if rep := r.as(peerA).do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("the same peer on a new connection = %d", rep.Code)
 	}
 	for name, c := range map[string]*peerClient{"another peer": r.as(peerB), "no identity": r.anonymous()} {
-		if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+		if rep := c.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusForbidden {
 			t.Fatalf("the cookie opened the board for %s: %d", name, rep.Code)
 		}
 	}
-	if rec := r.send("GET", "/"+f.id+"/", nil, []*http.Cookie{phone}, nil); rec.Code != http.StatusForbidden {
+	if rec := r.send("GET", "/"+f.id+"/", nil, []*http.Cookie{companion}, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("the cookie opened the board over the main listener: %d", rec.Code)
 	}
-	if rec := r.send("GET", "/"+f.id+"/", nil, []*http.Cookie{phone}, map[string]string{"Tailscale-User-Login": "iroh:" + peerA, "X-Forwarded-For": "100.64.0.7"}); rec.Code != http.StatusForbidden {
+	if rec := r.send("GET", "/"+f.id+"/", nil, []*http.Cookie{companion}, map[string]string{"Tailscale-User-Login": "iroh:" + peerA, "X-Forwarded-For": "100.64.0.7"}); rec.Code != http.StatusForbidden {
 		t.Fatalf("a forged iroh login header on the main listener opened the board: %d", rec.Code)
 	}
 }
 
 func TestAForgedIrohLoginHeaderPairsWithNoLogin(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	p.pair(f, serving())
 	if devices := p.devicesOf(f); len(devices) != 1 || devices[0].Login != "" {
@@ -264,16 +264,16 @@ func TestARevokedPeerIsRefusedOnTheConnectionItAlreadyHolds(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
-	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+	companion := r.mustPair(c, f)
+	if rep := c.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("paired = %d", rep.Code)
 	}
-	r.revoke(f, phone)
+	r.revoke(f, companion)
 	if !c.closed() {
 		t.Fatal("revoke left the connection open")
 	}
 	again := r.as(peerA)
-	if rep := again.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+	if rep := again.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a revoked peer on a new connection = %d", rep.Code)
 	}
 }
@@ -282,8 +282,8 @@ func TestAPairedConnectionStillNeedsAPhoneCookieForEveryRequest(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
-	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+	companion := r.mustPair(c, f)
+	if rep := c.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("paired = %d", rep.Code)
 	}
 	for _, path := range []string{"/" + f.id + "/proof?nonce=x", "/" + f.id + "/", "/"} {
@@ -332,14 +332,14 @@ func TestThePeerListenerNeverTakesTheHostToken(t *testing.T) {
 	if rep := c.do("GET", "/"+a.id+"/pair?token="+a.token, nil, nil); len(rep.Cookies) != 0 {
 		t.Fatalf("the pair path took a token and set %d cookies", len(rep.Cookies))
 	}
-	phone := r.mustPair(c, a)
-	if rep := c.do("GET", "/"+b.id+"/?token="+b.token, nil, nil, phone); rep.Code != http.StatusForbidden || len(rep.Cookies) != 0 {
+	companion := r.mustPair(c, a)
+	if rep := c.do("GET", "/"+b.id+"/?token="+b.token, nil, nil, companion); rep.Code != http.StatusForbidden || len(rep.Cookies) != 0 {
 		t.Fatalf("a paired peer logged in to another fleet with its token: %d, %d cookies", rep.Code, len(rep.Cookies))
 	}
-	if rep := c.do("GET", "/"+b.id+"/connect", nil, nil, phone, r.host(b)); rep.Code != http.StatusForbidden {
+	if rep := c.do("GET", "/"+b.id+"/connect", nil, nil, companion, r.host(b)); rep.Code != http.StatusForbidden {
 		t.Fatalf("a paired peer opened another fleet with its host cookie: %d", rep.Code)
 	}
-	if rep := c.do("GET", "/"+a.id+"/connect", nil, nil, phone, r.host(a)); rep.Code != http.StatusOK || strings.Contains(rep.Body, "Show pairing code") {
+	if rep := c.do("GET", "/"+a.id+"/connect", nil, nil, companion, r.host(a)); rep.Code != http.StatusOK || strings.Contains(rep.Body, "Show pairing code") {
 		t.Fatalf("a host cookie beside the phone's gave the host's Phone page: %d", rep.Code)
 	}
 }
@@ -369,20 +369,20 @@ func TestClientSentProxyHeadersDoNothingOnThePeerListener(t *testing.T) {
 		"Tailscale-User-Name":    "Victim",
 		"Tailscale-Headers-Info": "x",
 	}
-	phone, rep := r.pairOver(r.as(peerA), f, spoof)
-	if rep.Code != http.StatusSeeOther || phone == nil {
+	companion, rep := r.pairOver(r.as(peerA), f, spoof)
+	if rep.Code != http.StatusSeeOther || companion == nil {
 		t.Fatalf("pair = %d", rep.Code)
 	}
-	if strings.HasPrefix(phone.Name, "__Host-") || phone.Secure {
-		t.Fatalf("a client-sent X-Forwarded-Proto made the cookie %q secure=%v", phone.Name, phone.Secure)
+	if strings.HasPrefix(companion.Name, "__Host-") || companion.Secure {
+		t.Fatalf("a client-sent X-Forwarded-Proto made the cookie %q secure=%v", companion.Name, companion.Secure)
 	}
 	if devices := r.devicesOf(f); len(devices) != 1 || devices[0].Login != "iroh:"+peerA {
 		t.Fatalf("the device is bound to %+v after a spoofed login header", devices)
 	}
-	if rep := r.as(peerB).do("GET", "/"+f.id+"/", nil, spoof, phone); rep.Code != http.StatusForbidden {
+	if rep := r.as(peerB).do("GET", "/"+f.id+"/", nil, spoof, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a spoofed login header opened the board for another peer: %d", rep.Code)
 	}
-	if rep := r.anonymous().do("GET", "/"+f.id+"/", nil, spoof, phone); rep.Code != http.StatusForbidden {
+	if rep := r.anonymous().do("GET", "/"+f.id+"/", nil, spoof, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a spoofed login header opened the board with no identity: %d", rep.Code)
 	}
 }
@@ -391,11 +391,11 @@ func TestAnAnonymousPeerPairsWithNoBindingAndNeverAsTheHost(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	f := r.fleets[0]
 	c := r.anonymous()
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	if devices := r.devicesOf(f); len(devices) != 1 || devices[0].Login != "" {
 		t.Fatalf("an anonymous pairing recorded %+v, want no login", devices)
 	}
-	if home := c.do("GET", "/", nil, nil, phone); strings.Contains(home.Body, "bravo") {
+	if home := c.do("GET", "/", nil, nil, companion); strings.Contains(home.Body, "bravo") {
 		t.Fatalf("an anonymous peer saw a fleet it is not paired with:\n%s", home.Body)
 	}
 }
@@ -487,7 +487,7 @@ func TestAPeerListenerRefusesAWrongOrMalformedPreface(t *testing.T) {
 }
 
 func TestAPeerWithAnEmptyBoardSecretGetsNoIdentity(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	peer := board.NewPeer(p.h, "")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -495,7 +495,7 @@ func TestAPeerWithAnEmptyBoardSecretGetsNoIdentity(t *testing.T) {
 	}
 	go func() { _ = peer.Serve(ln) }()
 	t.Cleanup(func() { _ = peer.Shutdown(context.Background()) })
-	r := &peerRig{phoneHost: p, addr: ln.Addr().String()}
+	r := &peerRig{companionHost: p, addr: ln.Addr().String()}
 	c := r.dial("HAND-PEER 1 " + peerA + " \n")
 	if _, err := c.send("GET", "/"+p.fleets[0].id+"/pair", nil, nil); err == nil {
 		t.Fatal("a board with no secret admitted a preface that carries none")
@@ -594,10 +594,10 @@ func TestAPairedConnectionHasNoCap(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	pad := map[string]string{"X-Pad": strings.Repeat("p", 8000)}
 	for i := 0; i < 100; i++ {
-		if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, pad, phone); err != nil || rep.Code != http.StatusOK {
+		if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, pad, companion); err != nil || rep.Code != http.StatusOK {
 			t.Fatalf("request %d = %v, %v", i+1, rep.Code, err)
 		}
 	}
@@ -633,12 +633,12 @@ func TestFunnelRefusalsCountAgainstTheUnpairedCap(t *testing.T) {
 func TestAPairedBrowserLiftsTheCapOnItsFirstRequestEvenForAnAsset(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
+	companion := r.mustPair(r.as(peerA), f)
 	page := r.as(peerA).do("GET", "/"+f.id+"/pair", nil, nil)
 	asset := staticRe.FindString(page.Body)
 	c := r.as(peerA)
 	for i := 1; i <= 60; i++ {
-		if rep := c.do("GET", asset, nil, nil, phone); rep.Code != http.StatusOK {
+		if rep := c.do("GET", asset, nil, nil, companion); rep.Code != http.StatusOK {
 			t.Fatalf("asset request %d with the phone's cookie = %d", i, rep.Code)
 		}
 	}
@@ -647,16 +647,16 @@ func TestAPairedBrowserLiftsTheCapOnItsFirstRequestEvenForAnAsset(t *testing.T) 
 func TestACookieOfARevokedOrOtherPeerLiftsNoCap(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
+	companion := r.mustPair(r.as(peerA), f)
 	page := r.as(peerA).do("GET", "/"+f.id+"/pair", nil, nil)
 	asset := staticRe.FindString(page.Body)
 	c := r.as(peerB)
 	for i := 1; i <= 32; i++ {
-		if rep := c.do("GET", asset, nil, nil, phone); rep.Code != http.StatusOK {
+		if rep := c.do("GET", asset, nil, nil, companion); rep.Code != http.StatusOK {
 			t.Fatalf("asset request %d = %d", i, rep.Code)
 		}
 	}
-	if rep := c.do("GET", asset, nil, nil, phone); rep.Code != http.StatusTooManyRequests {
+	if rep := c.do("GET", asset, nil, nil, companion); rep.Code != http.StatusTooManyRequests {
 		t.Fatalf("a cookie bound to another peer lifted the cap: %d", rep.Code)
 	}
 }
@@ -708,7 +708,7 @@ func TestTheBoardNeverSeesAClientSentProxyOrTailscaleHeaderOnThePeerListener(t *
 	}
 	go func() { _ = peer.Serve(ln) }()
 	t.Cleanup(func() { _ = peer.Shutdown(context.Background()) })
-	r := &peerRig{addr: ln.Addr().String(), phoneHost: &phoneHost{t: t}}
+	r := &peerRig{addr: ln.Addr().String(), companionHost: &companionHost{t: t}}
 	headers := map[string]string{
 		"X-Forwarded-For":            "203.0.113.9",
 		"X-Forwarded-Proto":          "https",
@@ -754,9 +754,9 @@ func TestAPairedPeerIsNotServedTheProofCheckOfAnyFleet(t *testing.T) {
 		t.Fatalf("the main listener's proof = %d", rec.Code)
 	}
 	c := r.as(peerA)
-	phone := r.mustPair(c, a)
+	companion := r.mustPair(c, a)
 	for _, f := range []railFleet{a, b} {
-		if rep := c.do("GET", "/"+f.id+"/proof?nonce=x", nil, nil, phone); rep.Code != http.StatusForbidden || proofRe.MatchString(rep.Body) {
+		if rep := c.do("GET", "/"+f.id+"/proof?nonce=x", nil, nil, companion); rep.Code != http.StatusForbidden || proofRe.MatchString(rep.Body) {
 			t.Fatalf("a paired peer asked %s for its proof: %d %q", f.name, rep.Code, rep.Body)
 		}
 	}
@@ -766,9 +766,9 @@ func TestAPeerPairedWithOneFleetSeesNothingOfAnotherThroughItsHostCookie(t *test
 	r := newPeerRig(t, "alpha", "bravo")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
-	phone := r.mustPair(c, a)
+	companion := r.mustPair(c, a)
 	for _, path := range []string{"/" + a.id + "/", "/" + a.id + "/connect", "/" + a.id + "/tasks", "/"} {
-		rep := c.do("GET", path, nil, nil, phone, r.host(b))
+		rep := c.do("GET", path, nil, nil, companion, r.host(b))
 		if rep.Code != http.StatusOK || strings.Contains(rep.Body, "bravo") || strings.Contains(rep.Body, b.id) {
 			t.Fatalf("%s with a host cookie of another fleet = %d and names it: %v", path, rep.Code, strings.Contains(rep.Body, "bravo"))
 		}
@@ -779,11 +779,11 @@ func TestAHostCookieOverAPeerCannotRevokeAnotherFleetsPhones(t *testing.T) {
 	r := newPeerRig(t, "alpha", "bravo")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
-	phone := r.mustPair(c, a)
-	r.phoneWith("Pixel B", b)
+	companion := r.mustPair(c, a)
+	r.companionWith("Pixel B", b)
 	label := r.labelOf(b, "Pixel B")
-	rep := c.do("POST", "/"+a.id+"/connect/revoke/in", url.Values{"csrf": {a.token}, "phone": {label}, "fleet": {b.id}}, nil, phone, r.host(a), r.host(b))
-	if got := holds(r.phoneHost, b); len(got) != 1 {
+	rep := c.do("POST", "/"+a.id+"/connect/revoke/in", url.Values{"csrf": {a.token}, "phone": {label}, "fleet": {b.id}}, nil, companion, r.host(a), r.host(b))
+	if got := holds(r.companionHost, b); len(got) != 1 {
 		t.Fatalf("a peer revoked a phone of another fleet: %d, %v", rep.Code, got)
 	}
 }
@@ -811,18 +811,18 @@ func TestARevokedPeerIsCappedAgainOnANewConnection(t *testing.T) {
 		r := newPeerRig(t, "alpha")
 		f := r.fleets[0]
 		c := r.as(peerA)
-		phone := r.mustPair(c, f)
+		companion := r.mustPair(c, f)
 		for i := 0; i < 40; i++ {
-			if rep := c.do("GET", "/"+f.id+"/pair", nil, nil, phone); rep.Code != http.StatusOK {
+			if rep := c.do("GET", "/"+f.id+"/pair", nil, nil, companion); rep.Code != http.StatusOK {
 				t.Fatalf("%s: paired request %d = %d", name, i+1, rep.Code)
 			}
 		}
-		r.revoke(f, phone)
+		r.revoke(f, companion)
 		if !c.closed() {
 			t.Fatalf("%s: revoke left the connection open", name)
 		}
 		again := r.as(peerA)
-		if rep := again.do("GET", strings.Replace(path, "%s", f.id, 1), nil, nil, phone); rep.Code == http.StatusTooManyRequests {
+		if rep := again.do("GET", strings.Replace(path, "%s", f.id, 1), nil, nil, companion); rep.Code == http.StatusTooManyRequests {
 			t.Fatalf("%s: the first request on the new connection was already capped", name)
 		}
 		capped := false
@@ -840,17 +840,17 @@ func TestARequestWithNoCookieDoesNotUnpairAConnection(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	pad := map[string]string{"X-Pad": strings.Repeat("p", 8000)}
 	for i := 0; i < 20; i++ {
-		if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, pad, phone); err != nil || rep.Code != http.StatusOK {
+		if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, pad, companion); err != nil || rep.Code != http.StatusOK {
 			t.Fatalf("request %d = %v, %v", i+1, rep.Code, err)
 		}
 	}
 	if rep := c.do("GET", "/sw.js", nil, nil); rep.Code != http.StatusForbidden {
 		t.Fatalf("a cookie-less worker request = %d", rep.Code)
 	}
-	if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, nil, phone); err != nil || rep.Code != http.StatusOK {
+	if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, nil, companion); err != nil || rep.Code != http.StatusOK {
 		t.Fatalf("the request after a cookie-less one = %v, %v", rep.Code, err)
 	}
 }
@@ -858,7 +858,7 @@ func TestARequestWithNoCookieDoesNotUnpairAConnection(t *testing.T) {
 func TestTheRequestThatProvesAPhoneIsServedPastTheCap(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
+	companion := r.mustPair(r.as(peerA), f)
 	c := r.as(peerA)
 	for i := 1; i <= 32; i++ {
 		if rep := c.do("GET", "/"+f.id+"/pair", nil, nil); rep.Code != http.StatusOK {
@@ -866,7 +866,7 @@ func TestTheRequestThatProvesAPhoneIsServedPastTheCap(t *testing.T) {
 		}
 	}
 	for i := 33; i <= 35; i++ {
-		if rep := c.do("GET", "/"+f.id+"/tasks", nil, nil, phone); rep.Code != http.StatusOK {
+		if rep := c.do("GET", "/"+f.id+"/tasks", nil, nil, companion); rep.Code != http.StatusOK {
 			t.Fatalf("request %d with the phone's cookie = %d", i, rep.Code)
 		}
 	}
@@ -875,15 +875,15 @@ func TestTheRequestThatProvesAPhoneIsServedPastTheCap(t *testing.T) {
 func TestAFunnelRequestWithAValidCookieLiftsNoCap(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
+	companion := r.mustPair(r.as(peerA), f)
 	funnel := map[string]string{"Tailscale-Funnel-Request": "?1"}
 	c := r.as(peerA)
 	for i := 1; i <= 32; i++ {
-		if rep := c.do("GET", "/"+f.id+"/pair", nil, funnel, phone); rep.Code != http.StatusForbidden {
+		if rep := c.do("GET", "/"+f.id+"/pair", nil, funnel, companion); rep.Code != http.StatusForbidden {
 			t.Fatalf("funnel request %d = %d", i, rep.Code)
 		}
 	}
-	if rep := c.do("GET", "/"+f.id+"/pair", nil, funnel, phone); rep.Code != http.StatusTooManyRequests {
+	if rep := c.do("GET", "/"+f.id+"/pair", nil, funnel, companion); rep.Code != http.StatusTooManyRequests {
 		t.Fatalf("a Funnel request with a valid cookie lifted the cap: %d", rep.Code)
 	}
 }
@@ -913,8 +913,8 @@ func TestRevokeClosesTheEndpointsConnectionsAndLeavesOnlyThePairPage(t *testing.
 			r := newPeerRig(t, "alpha")
 			f := r.fleets[0]
 			c := r.as(peerA)
-			phone := r.mustPair(c, f)
-			if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+			companion := r.mustPair(c, f)
+			if rep := c.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusOK {
 				t.Fatalf("a paired connection = %d", rep.Code)
 			}
 			devices := r.devicesOf(f)
@@ -923,7 +923,7 @@ func TestRevokeClosesTheEndpointsConnectionsAndLeavesOnlyThePairPage(t *testing.
 			}
 			label := devices[0].Phone
 			other := r.as(peerB)
-			otherPhone := r.mustPair(other, f)
+			otherCompanion := r.mustPair(other, f)
 			rec := r.send("POST", "/"+f.id+revoke.path, revoke.form(f, label), []*http.Cookie{r.host(f)}, nil)
 			if rec.Code != http.StatusSeeOther {
 				t.Fatalf("%s = %d:\n%s", revoke.path, rec.Code, rec.Body.String())
@@ -931,14 +931,14 @@ func TestRevokeClosesTheEndpointsConnectionsAndLeavesOnlyThePairPage(t *testing.
 			if !c.closed() {
 				t.Fatal("revoke left the endpoint's connection open")
 			}
-			if rep := other.do("GET", "/"+f.id+"/", nil, nil, otherPhone); rep.Code != http.StatusOK {
+			if rep := other.do("GET", "/"+f.id+"/", nil, nil, otherCompanion); rep.Code != http.StatusOK {
 				t.Fatalf("revoking one endpoint closed another: %d", rep.Code)
 			}
 			again := r.as(peerA)
-			if rep := again.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+			if rep := again.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusForbidden {
 				t.Fatalf("a revoked endpoint reached the board: %d", rep.Code)
 			}
-			if rep := again.do("GET", "/"+f.id+"/tasks", nil, nil, phone); rep.Code != http.StatusForbidden {
+			if rep := again.do("GET", "/"+f.id+"/tasks", nil, nil, companion); rep.Code != http.StatusForbidden {
 				t.Fatalf("a revoked endpoint reached the tasks: %d", rep.Code)
 			}
 			pair := again.do("GET", "/"+f.id+"/pair", nil, nil)
@@ -967,13 +967,13 @@ func TestRevokeClosesEveryConnectionOfAnEndpoint(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	first := r.as(peerA)
-	phone := r.mustPair(first, f)
+	companion := r.mustPair(first, f)
 	second := r.as(peerA)
-	if rep := second.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+	if rep := second.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("a second connection of the paired endpoint = %d", rep.Code)
 	}
 	other := r.as(peerB)
-	otherPhone := r.mustPair(other, f)
+	otherCompanion := r.mustPair(other, f)
 	label := ""
 	for _, d := range r.devicesOf(f) {
 		if d.Login == "iroh:"+peerA {
@@ -990,7 +990,7 @@ func TestRevokeClosesEveryConnectionOfAnEndpoint(t *testing.T) {
 	if !first.closed() || !second.closed() {
 		t.Fatal("revoke left a connection of the endpoint open")
 	}
-	if rep := other.do("GET", "/"+f.id+"/", nil, nil, otherPhone); rep.Code != http.StatusOK {
+	if rep := other.do("GET", "/"+f.id+"/", nil, nil, otherCompanion); rep.Code != http.StatusOK {
 		t.Fatalf("revoking one endpoint closed another: %d", rep.Code)
 	}
 }
@@ -999,14 +999,14 @@ func TestASignOutOverAPeerConnectionIsAcknowledged(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
-	page := c.do("GET", "/"+f.id+"/connect", nil, nil, phone)
+	companion := r.mustPair(c, f)
+	page := c.do("GET", "/"+f.id+"/connect", nil, nil, companion)
 	csrf := csrfRe.FindStringSubmatch(page.Body)
 	if csrf == nil {
 		t.Fatalf("the phone's own page holds no form token:\n%s", page.Body)
 	}
-	id := strings.SplitN(phone.Value, ".", 2)[0]
-	rep, err := c.send("POST", "/"+f.id+"/connect/revoke", url.Values{"csrf": {csrf[1]}, "id": {id}}, nil, phone)
+	id := strings.SplitN(companion.Value, ".", 2)[0]
+	rep, err := c.send("POST", "/"+f.id+"/connect/revoke", url.Values{"csrf": {csrf[1]}, "id": {id}}, nil, companion)
 	if err != nil {
 		t.Fatalf("signing out over the peer connection: %v", err)
 	}
@@ -1016,13 +1016,13 @@ func TestASignOutOverAPeerConnectionIsAcknowledged(t *testing.T) {
 	if !c.closed() {
 		t.Fatal("the sign-out left the phone's connection open")
 	}
-	if rep := r.as(peerA).do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+	if rep := r.as(peerA).do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("a signed-out phone reopened the board: %d", rep.Code)
 	}
 }
 
 func TestAHandAppCodePairsOverAPeerConnection(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	p.iroh = func() sidecar.Status {
 		return sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay}
@@ -1036,19 +1036,19 @@ func TestAHandAppCodePairsOverAPeerConnection(t *testing.T) {
 	}
 	c := r.as(peerA)
 	rep := c.do("POST", "/"+f.id+"/pair", url.Values{"code": {m[1]}, "name": {"Pixel"}}, nil)
-	var phone *http.Cookie
+	var companion *http.Cookie
 	for _, ck := range rep.Cookies {
 		if ck.MaxAge > 0 && strings.Contains(ck.Name, "hand_phone") {
-			phone = ck
+			companion = ck
 		}
 	}
-	if rep.Code != http.StatusSeeOther || phone == nil {
+	if rep.Code != http.StatusSeeOther || companion == nil {
 		t.Fatalf("pairing the minted app code = %d:\n%s", rep.Code, rep.Body)
 	}
 	if devices := r.devicesOf(f); len(devices) != 1 || devices[0].Login != "iroh:"+peerA {
 		t.Fatalf("the app pairing recorded %+v, want iroh:%s", devices, peerA)
 	}
-	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+	if rep := c.do("GET", "/"+f.id+"/", nil, nil, companion); rep.Code != http.StatusOK {
 		t.Fatalf("the app's paired connection = %d", rep.Code)
 	}
 }

@@ -360,7 +360,7 @@ func TestTheBoardNeverRunsAHarnessToReadTheModelLists(t *testing.T) {
 }
 
 func TestTheRefreshRowIsInTheOverflowMenuForTheHostOnly(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	row := `<form method="post" action="/models/refresh" data-fetch><input type="hidden" name="csrf" value="` + token + `"><button>Refresh models</button></form>`
 	idle := region(p.do("GET", "/", nil, host, nil).Body.String(), "console")
 	more := idle[strings.Index(idle, `id="more-menu"`):]
@@ -369,10 +369,10 @@ func TestTheRefreshRowIsInTheOverflowMenuForTheHostOnly(t *testing.T) {
 	running := region(p.do("GET", "/", nil, host, nil).Body.String(), "console")
 	more = running[strings.Index(running, `id="more-menu"`):]
 	contains(t, "running", more[:strings.Index(more, "</details>")], row)
-	phone := p.pair()
-	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, phone, viaServe).Body.String())[1]
-	lacks(t, "phone", region(p.do("GET", "/", nil, phone, viaServe).Body.String(), "console"), "/models/refresh", "Refresh models")
-	rec := p.do("POST", "/models/refresh", url.Values{"csrf": {own}, "harness": {"agy"}}, phone, map[string]string{"X-Hand-Fetch": "1", "X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"})
+	companion := p.pair()
+	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, companion, viaServe).Body.String())[1]
+	lacks(t, "phone", region(p.do("GET", "/", nil, companion, viaServe).Body.String(), "console"), "/models/refresh", "Refresh models")
+	rec := p.do("POST", "/models/refresh", url.Values{"csrf": {own}, "harness": {"agy"}}, companion, map[string]string{"X-Hand-Fetch": "1", "X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"})
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("a phone's refresh = %d", rec.Code)
 	}
@@ -389,7 +389,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 }
 
 func TestTheRefreshRunsInTheBackgroundOncePerHarnessAndInterval(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	bin, home, gate, log := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "gate"), filepath.Join(t.TempDir(), "log")
 	fakebin.Install(t, bin, "agy", "gated", map[string]string{"out": agyModels, "gate": gate, "log": log})
 	t.Cleanup(func() { _ = os.WriteFile(gate, nil, 0o600) })

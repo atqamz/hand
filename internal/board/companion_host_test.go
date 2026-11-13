@@ -19,9 +19,9 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var phoneEpoch = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+var companionEpoch = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 
-type phoneHost struct {
+type companionHost struct {
 	t         *testing.T
 	loopback  bool
 	fleets    []railFleet
@@ -43,12 +43,12 @@ type phoneHost struct {
 
 type counted struct {
 	http.Handler
-	p  *phoneHost
+	p  *companionHost
 	id string
 }
 
-func (c counted) PairPhone(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
-	return c.Handler.(board.Pairer).PairPhone(ctx, rd)
+func (c counted) PairCompanion(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
+	return c.Handler.(board.Pairer).PairCompanion(ctx, rd)
 }
 
 func (c counted) PhoneRecords(ctx context.Context) ([]board.PhoneRecord, error) {
@@ -75,30 +75,32 @@ type bare struct {
 	http.Handler
 }
 
-func (b bare) PhoneSession(r *http.Request) bool { return b.Handler.(board.Prover).PhoneSession(r) }
+func (b bare) CompanionSession(r *http.Request) bool {
+	return b.Handler.(board.Prover).CompanionSession(r)
+}
 
-func (c counted) PhoneSession(r *http.Request) bool {
+func (c counted) CompanionSession(r *http.Request) bool {
 	c.p.mu.Lock()
 	c.p.proofs[c.id]++
 	c.p.mu.Unlock()
-	return c.Handler.(board.Prover).PhoneSession(r)
+	return c.Handler.(board.Prover).CompanionSession(r)
 }
 
-func (p *phoneHost) clock() time.Time {
+func (p *companionHost) clock() time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.now
 }
 
-func (p *phoneHost) advance(d time.Duration) {
+func (p *companionHost) advance(d time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = p.now.Add(d)
 }
 
-func newPhoneHost(t *testing.T, loopback bool, names ...string) *phoneHost {
+func newCompanionHost(t *testing.T, loopback bool, names ...string) *companionHost {
 	t.Helper()
-	p := &phoneHost{t: t, loopback: loopback, now: phoneEpoch, down: map[string]bool{}, gone: map[string]bool{}, bare: map[string]bool{}, paths: map[string]string{}}
+	p := &companionHost{t: t, loopback: loopback, now: companionEpoch, down: map[string]bool{}, gone: map[string]bool{}, bare: map[string]bool{}, paths: map[string]string{}}
 	for i, name := range names {
 		path := filepath.Join(t.TempDir(), "hand.db")
 		st, err := state.Open(path, p.clock)
@@ -120,7 +122,7 @@ func newPhoneHost(t *testing.T, loopback bool, names ...string) *phoneHost {
 	return p
 }
 
-func (p *phoneHost) restart() {
+func (p *companionHost) restart() {
 	p.mu.Lock()
 	p.opened, p.proofs, p.lists, p.revokes = map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
 	p.mu.Unlock()
@@ -178,7 +180,7 @@ func (p *phoneHost) restart() {
 	})
 }
 
-func (p *phoneHost) send(method, path string, form url.Values, cookies []*http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
+func (p *companionHost) send(method, path string, form url.Values, cookies []*http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
 	p.t.Helper()
 	var body io.Reader
 	if form != nil {
@@ -203,11 +205,11 @@ func serving() map[string]string {
 	return map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"}
 }
 
-func (p *phoneHost) host(f railFleet) *http.Cookie {
+func (p *companionHost) host(f railFleet) *http.Cookie {
 	return &http.Cookie{Name: "hand_board_" + f.id, Value: f.token}
 }
 
-func (p *phoneHost) pair(f railFleet, headers map[string]string) *http.Cookie {
+func (p *companionHost) pair(f railFleet, headers map[string]string) *http.Cookie {
 	p.t.Helper()
 	rec := p.send("POST", "/"+f.id+"/connect/code", url.Values{"csrf": {f.token}, "base": {"https://host.example"}}, []*http.Cookie{p.host(f)}, nil)
 	m := codeRe.FindStringSubmatch(rec.Body.String())
@@ -227,15 +229,15 @@ func (p *phoneHost) pair(f railFleet, headers map[string]string) *http.Cookie {
 	return cookie
 }
 
-func (p *phoneHost) revoke(f railFleet, phone *http.Cookie) {
+func (p *companionHost) revoke(f railFleet, companion *http.Cookie) {
 	p.t.Helper()
-	id := strings.SplitN(phone.Value, ".", 2)[0]
+	id := strings.SplitN(companion.Value, ".", 2)[0]
 	rec := p.send("POST", "/"+f.id+"/connect/revoke", url.Values{"csrf": {f.token}, "id": {id}}, []*http.Cookie{p.host(f)}, nil)
 	if rec.Code != http.StatusSeeOther {
 		p.t.Fatalf("revoke %s = %d", f.name, rec.Code)
 	}
 }
 
-func phoneNamed(name string, c *http.Cookie) *http.Cookie {
+func companionNamed(name string, c *http.Cookie) *http.Cookie {
 	return &http.Cookie{Name: name, Value: c.Value}
 }

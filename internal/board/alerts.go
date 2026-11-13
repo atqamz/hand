@@ -103,7 +103,7 @@ func (b *Board) alertFeed(w http.ResponseWriter, r *http.Request) {
 			rows = rows[:min(len(rows), alertBatch)]
 			feed.Cursor = rows[len(rows)-1].Seq
 			if !b.stillSignedIn(ctx) {
-				b.failNeutral(w, http.StatusForbidden, sessionFaults(phoneGone, true))
+				b.failNeutral(w, http.StatusForbidden, sessionFaults(companionGone, true))
 				return
 			}
 			if stamp {
@@ -127,7 +127,7 @@ func (b *Board) alertFeed(w http.ResponseWriter, r *http.Request) {
 		case <-tick.C:
 		}
 		if !b.stillSignedIn(ctx) {
-			b.failNeutral(w, http.StatusForbidden, sessionFaults(phoneGone, true))
+			b.failNeutral(w, http.StatusForbidden, sessionFaults(companionGone, true))
 			return
 		}
 	}

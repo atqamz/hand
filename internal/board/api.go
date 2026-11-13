@@ -614,7 +614,7 @@ func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
 	}
 	out := APIPaired{Fleets: make([]APIPairedFleet, len(paired)), Missed: len(set) - len(paired)}
 	for i, p := range paired {
-		out.Fleets[i] = APIPairedFleet{ID: p.ID, Name: p.Name, CookieName: phoneCookieName(p.ID, false), CookieValue: strconv.FormatInt(p.Device, 10) + "." + rd.secret}
+		out.Fleets[i] = APIPairedFleet{ID: p.ID, Name: p.Name, CookieName: companionCookieName(p.ID, false), CookieValue: strconv.FormatInt(p.Device, 10) + "." + rd.secret}
 	}
 	b.apiOK(w, f, "", out)
 }

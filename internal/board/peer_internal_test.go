@@ -207,7 +207,7 @@ func TestAStalledBodyOnARefusedPathIsCutByTheBodyDeadline(t *testing.T) {
 
 type proving struct{ http.Handler }
 
-func (proving) PhoneSession(*http.Request) bool { return true }
+func (proving) CompanionSession(*http.Request) bool { return true }
 
 func TestAPairedRequestMayTakeLongerThanTheBodyDeadlineToSendItsBody(t *testing.T) {
 	old := peerBodyWait

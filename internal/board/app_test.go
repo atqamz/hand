@@ -29,9 +29,9 @@ var (
 
 func redactAppPage(page string) string { return appLinkRe.ReplaceAllString(page, "handboard://…") }
 
-func appRig(t *testing.T, st *sidecar.Status) (*phoneRig, string, func() string) {
+func appRig(t *testing.T, st *sidecar.Status) (*companionRig, string, func() string) {
 	t.Helper()
-	p := &phoneRig{t: t, fx: newFixture(t), now: phoneEpoch}
+	p := &companionRig{t: t, fx: newFixture(t), now: companionEpoch}
 	p.fx.options.Now = func() time.Time {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -49,11 +49,11 @@ func appRig(t *testing.T, st *sidecar.Status) (*phoneRig, string, func() string)
 	return p, f.ID, func() string { return p.do("GET", "/connect", nil, p.hostAt(f.ID), nil).Body.String() }
 }
 
-func (p *phoneRig) hostAt(id string) *http.Cookie {
+func (p *companionRig) hostAt(id string) *http.Cookie {
 	return &http.Cookie{Name: "hand_board_" + id, Value: token}
 }
 
-func (p *phoneRig) appCode(id string) (string, string) {
+func (p *companionRig) appCode(id string) (string, string) {
 	p.t.Helper()
 	rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.hostAt(id), nil)
 	body := rec.Body.String()
@@ -115,7 +115,7 @@ func TestAHandAppCodeExpiresAfterFiveMinutes(t *testing.T) {
 	}
 }
 
-func (p *phoneRig) tryPairAt(id, code string) *httptest.ResponseRecorder {
+func (p *companionRig) tryPairAt(id, code string) *httptest.ResponseRecorder {
 	p.t.Helper()
 	return p.do("POST", "/pair", url.Values{"code": {code}, "name": {"Pixel"}}, nil, nil)
 }
@@ -176,7 +176,7 @@ func TestTheHandAppFlowLogsNoCodeOrLink(t *testing.T) {
 }
 
 func TestThePhonePageHasTheHandAppCardAndNoInstallCard(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	p.iroh = func() sidecar.Status {
 		return sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay}
