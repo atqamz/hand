@@ -144,9 +144,9 @@ func TestOneCodePairsAPhoneWithTheFleetsTheHostChose(t *testing.T) {
 		{"two fleets", []int{0, 1}, []int{1}, nil, nil, http.StatusOK, []int{0, 1}, "", "Paired with alpha and beta."},
 		{"three fleets", []int{0, 1, 2}, []int{1, 2}, nil, nil, http.StatusOK, []int{0, 1, 2}, "", "Paired with alpha, beta and gamma."},
 		{"one of three unticked", []int{0, 1, 2}, []int{2}, nil, nil, http.StatusOK, []int{0, 2}, "", "Paired with alpha and gamma."},
-		{"one fleet down at redeem", []int{0, 1, 2}, []int{1, 2}, []int{1}, nil, http.StatusOK, []int{0, 2}, "1 fleet was not reachable. Pair it from its own Phone page.", "Paired with alpha and gamma."},
-		{"one fleet removed after the code was shown", []int{0, 1, 2}, []int{1, 2}, nil, []int{2}, http.StatusOK, []int{0, 1}, "1 fleet was not reachable. Pair it from its own Phone page.", "Paired with alpha and beta."},
-		{"every other fleet unreachable", []int{0, 1, 2}, []int{1, 2}, []int{1}, []int{2}, http.StatusOK, []int{0}, "2 fleets were not reachable. Pair them from their own Phone page.", "Paired with alpha."},
+		{"one fleet down at redeem", []int{0, 1, 2}, []int{1, 2}, []int{1}, nil, http.StatusOK, []int{0, 2}, "1 fleet was not reachable. Pair it from the Board's Phone page on the host.", "Paired with alpha and gamma."},
+		{"one fleet removed after the code was shown", []int{0, 1, 2}, []int{1, 2}, nil, []int{2}, http.StatusOK, []int{0, 1}, "1 fleet was not reachable. Pair it from the Board's Phone page on the host.", "Paired with alpha and beta."},
+		{"every other fleet unreachable", []int{0, 1, 2}, []int{1, 2}, []int{1}, []int{2}, http.StatusOK, []int{0}, "2 fleets were not reachable. Pair them from the Board's Phone page on the host.", "Paired with alpha."},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {

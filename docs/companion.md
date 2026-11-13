@@ -171,7 +171,7 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 
 **Grammar.** The scheme `handboard` and the host `open`, so it never collides with the pairing link, whose host is `c`. Then the fleet, which matches `^f[0-9a-f]{12}$`; then `/` and nothing, `task/tN`, `decision/dN` or `attempt/aN`, with N one to nine digits and no leading zero; then optionally `#rN`, only after `task/tN`, with the same rule for N. Everything is lowercase ASCII. No query, userinfo, port, percent escape or trailing slash is valid. Any other text is not an open link, and the parser gives no reason: it rejects.
 
-**The host.** The desktop window takes the same link as `hand-desktop --open LINK`, and the Linux alert's **Open** runs it. `go test ./internal/desktop` runs its parser over the same vectors, and a link with a `#rN` opens the report `rN` there.
+**The desktop window.** It takes the same link as `hand-desktop --open LINK`, and the Linux alert's **Open** runs it. `go test ./internal/desktop` runs its parser over the same vectors, and a link with a `#rN` opens the report `rN` there.
 
 **What it holds.** No token, no pairing code and no endpoint ID, because an alert service reads it and the app has one host per install. It names the fleet and an item, nothing more.
 
@@ -278,7 +278,7 @@ A name the Board refuses is `bad_name`: the app limits the field to 40 character
 - **The app never holds the sidecar's secret.** It is in `board.peer` on the host and the app is never given it. The device's secret is in an `HttpOnly` cookie that the web view sends. The app reads only the `hand_phone_<fleet id>` cookie, and may send it only on that fleet's own `/<fleet id>/alerts/feed` and `/<fleet id>/api/v1` requests (the [JSON API](api.md)). It may keep the secret in a file of its own sealed by a Keystore key, and nowhere else. It never logs it and never sends it to any other path or fleet. It must not read, copy or export any other cookie of the web view.
 - **Block screenshots, recents thumbnails and screen recording of the pairing screen and of the pair page** where the OS can (on Android, `FLAG_SECURE` on that screen), because the code is on it in clear.
 - **Keep the app's iroh key in the keystore.** Make 32 random bytes on first run and keep them encrypted under a non-exportable key of the Android Keystore (hardware-backed when the phone has it), in storage private to the app and excluded from backups and device-to-device transfer, so that a copy of the phone does not copy the identity. A reinstall makes a new key, which the Board treats as a new phone.
-- **One host per install.** Cookies are scoped to the host `localhost`, not a port, so a second host's Board would be sent the first one's cookies. Pairing a second host first clears the web view's cookies and storage and forgets the first.
+- **One host per install.** Cookies are scoped to the name `localhost`, not a port, so a second host's Board would be sent the first one's cookies. Pairing a second host first clears the web view's cookies and storage and forgets the first.
 - **Load only the proxy's origin** in the web view. Every other address opens in the system browser. Do not enable file access, content access, or a JavaScript bridge to the web view.
 - **Cleartext only to `localhost`.** The network security config allows cleartext to that name and to nothing else.
 - **Pace itself.** Follow the caps and the backoff above.

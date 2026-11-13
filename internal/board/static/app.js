@@ -1642,7 +1642,7 @@
 		}
 		title();
 		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-		const message = status === 403 ? (body.dataset.session === "phone" ? "Signed out: pair again from the Board" : "Log in again: hand open --print") : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "";
+		const message = status === 403 ? (body.dataset.session === "phone" ? "Signed out: pair again from the Board on the host" : "Log in again: hand open --print") : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "";
 		if (!message) {
 			link.textContent = "Reconnecting…";
 			return;

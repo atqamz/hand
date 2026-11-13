@@ -230,9 +230,9 @@ func (b *Board) phoneIdentify(r *http.Request) (session, sessionFault) {
 func sessionFaults(f sessionFault, viaProxy bool) string {
 	switch {
 	case f == phoneGone:
-		return "This phone is no longer paired with this fleet. Pair it again from the Board: Phone, in its menu."
+		return "This phone is no longer paired with this fleet. Pair it again from the Board on the host: Phone, in its menu."
 	case f == phoneOther:
-		return "This phone was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from the Board."
+		return "This phone was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from the Board on the host."
 	case viaProxy:
 		return "Pair this phone first: open this fleet's Board, choose Phone in its menu, and show a pairing code."
 	}
@@ -515,7 +515,7 @@ func (b *Board) fleetNames(ctx context.Context, set []string) []string {
 
 func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the code on the Board")
+		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the code on the Board on the host")
 		return
 	}
 	set, ok := b.chosenFleets(r)
@@ -541,7 +541,7 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the link on the Board")
+		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the link on the Board on the host")
 		return
 	}
 	var st sidecar.Status
@@ -592,7 +592,7 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	b.phones.mu.Unlock()
 	if s.Device != nil {
 		http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
-		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the Board: Phone, in its menu.")
+		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the Board on the host: Phone, in its menu.")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}

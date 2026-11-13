@@ -132,9 +132,9 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 				t.Fatalf("GET / = %d:\n%s", rec.Code, body)
 			}
 			if c.home == nil {
-				contains(t, c.what, body, "pair it on the fleet's Phone page")
+				contains(t, c.what, body, "pair it on the fleet's Phone page on the host")
 			} else {
-				lacks(t, c.what, body, "pair it on the fleet's Phone page", "No fleets yet")
+				lacks(t, c.what, body, "pair it on the fleet's Phone page on the host", "No fleets yet")
 			}
 			for i, f := range p.fleets {
 				if slices.Contains(c.home, i) {
@@ -153,11 +153,11 @@ func TestOnlyAProxyHidesTheFleetListAndAPhoneBringsItBack(t *testing.T) {
 		p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
 		phones := []*http.Cookie{p.pair(p.fleets[0], headers), p.pair(p.fleets[1], headers)}
 		bare := p.send("GET", "/", nil, nil, headers).Body.String()
-		contains(t, fmt.Sprint(headers), bare, "pair it on the fleet's Phone page")
+		contains(t, fmt.Sprint(headers), bare, "pair it on the fleet's Phone page on the host")
 		lacks(t, fmt.Sprint(headers), bare, "alpha", "bravo", "charlie")
 		listed := p.send("GET", "/", nil, phones, headers).Body.String()
 		contains(t, fmt.Sprint(headers), listed, `href="/`+p.fleets[0].id+`/"`, `href="/`+p.fleets[1].id+`/"`)
-		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the fleet's Phone page")
+		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the fleet's Phone page on the host")
 		direct := p.send("GET", "/", nil, phones, nil).Body.String()
 		contains(t, "direct", direct, "alpha", "bravo", "charlie")
 	}

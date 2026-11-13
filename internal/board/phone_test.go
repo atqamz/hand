@@ -845,7 +845,7 @@ func TestTheFleetListStaysHiddenFromAProxy(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		body := rec.Body.String()
-		if strings.Contains(body, "alpha") || strings.Contains(body, "bravo") || strings.Contains(body, f[0].id) || !strings.Contains(body, "pair it on the fleet's Phone page") {
+		if strings.Contains(body, "alpha") || strings.Contains(body, "bravo") || strings.Contains(body, f[0].id) || !strings.Contains(body, "pair it on the fleet's Phone page on the host") {
 			t.Fatalf("a proxied request (%v) sees the fleet list:\n%s", header, body)
 		}
 	}
