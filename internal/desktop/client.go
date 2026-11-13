@@ -39,6 +39,7 @@ type ReadModel interface {
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
 	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
+	PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (AttemptDetail, error)
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
 }
 
@@ -503,6 +504,19 @@ func (c *HTTPClient) PressKeys(ctx context.Context, fleet string, keys []string,
 	var out controlReply
 	_, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after, Ref: ref}, &out)
 	return out.control(), err
+}
+
+type attemptKeysRequest struct {
+	Key      string `json:"key"`
+	Revision int64  `json:"revision"`
+	After    int64  `json:"after"`
+	Screen   string `json:"screen,omitempty"`
+}
+
+func (c *HTTPClient) PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (AttemptDetail, error) {
+	var out AttemptDetail
+	_, err := c.post(ctx, fleet, "/attempt/"+url.PathEscape(ref)+"/keys", attemptKeysRequest{Key: key, Revision: revision, After: after, Screen: screen}, &out)
+	return out, err
 }
 
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {

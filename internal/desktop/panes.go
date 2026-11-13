@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"math"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 
@@ -192,18 +193,95 @@ func (a *App) blockedKeys(c *ui.Context, p palette, sup *Supervisor) {
 	}
 	ui.Row(c).Gap(8).Wrap().Children(func() {
 		ui.Text(c, "Keys").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(0, 8, 0, 0)
-		for _, key := range supervisorControlKeys {
-			label := key
-			if l, ok := supervisorKeyLabels[key]; ok {
-				label = l
-			}
-			if a.BusyAction == "key:"+key {
-				label = "Sending…"
-			}
-			if ui.Button(c.Key("key:"+key), label).Disabled(a.Busy || sup.Keys == nil).Clicked() {
-				a.Press(key)
-			}
+		a.keyButtons(c, p, supervisorKeyChoices(sup), a.Busy || sup.Keys == nil, func(choice keyChoice) {
+			a.Press(choice.Label, choice.Keys...)
+		})
+	})
+}
+
+type keyChoice struct {
+	Label  string
+	Keys   []string
+	Action string
+}
+
+func supervisorKeyChoices(sup *Supervisor) []keyChoice {
+	if sup.Ask != nil {
+		return askKeyChoices(sup.Ask)
+	}
+	return fixedKeyChoices("key:")
+}
+
+func fixedKeyChoices(prefix string) []keyChoice {
+	choices := make([]keyChoice, 0, len(supervisorControlKeys))
+	for _, key := range supervisorControlKeys {
+		label := key
+		if l, ok := supervisorKeyLabels[key]; ok {
+			label = l
 		}
+		choices = append(choices, keyChoice{Label: label, Keys: []string{key}, Action: prefix + key})
+	}
+	return choices
+}
+
+func askKeyChoices(ask *Ask) []keyChoice {
+	choices := make([]keyChoice, 0, len(ask.Options))
+	for _, option := range ask.Options {
+		choices = append(choices, keyChoice{
+			Label: option.Label, Keys: option.Keys, Action: "key:" + strings.Join(option.Keys, " "),
+		})
+	}
+	return choices
+}
+
+func workerKeyChoices(need Need) []keyChoice {
+	options := need.Options
+	if len(options) == 0 && need.Keys != nil {
+		options = need.Keys.Options
+	}
+	if len(options) == 0 {
+		return fixedKeyChoices("akey:" + need.Ref + ":")
+	}
+	choices := make([]keyChoice, 0, len(options))
+	for _, option := range options {
+		choices = append(choices, keyChoice{
+			Label: option.Label, Keys: option.Keys,
+			Action: "akey:" + need.Ref + ":" + strings.Join(option.Keys, " "),
+		})
+	}
+	return choices
+}
+
+func (a *App) keyRow(c *ui.Context, p palette, choices []keyChoice, disabled bool, act func(keyChoice)) {
+	ui.Row(c).Gap(6).Wrap().Children(func() {
+		a.keyButtons(c, p, choices, disabled, act)
+	})
+}
+
+func (a *App) keyButtons(c *ui.Context, p palette, choices []keyChoice, disabled bool, act func(keyChoice)) {
+	for _, choice := range choices {
+		option := choice
+		label := option.Label
+		if a.BusyAction == option.Action {
+			label = "Sending…"
+		}
+		button := ui.ButtonBase(c.Key(option.Action)).Height(kit.Control).MinWidth(42).
+			Padding(0, kit.Space10).Radius(kit.RadiusMD).BorderWidth(1, 1, 2, 1).
+			BorderColor(p.lineStrong).Background(p.bg).Justify(ui.Center).AlignItems(ui.Center).
+			Disabled(disabled || a.Busy).Cursor(ui.CursorPointer)
+		button.Children(func() {
+			ui.Text(c, label).Font("monospace").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).SingleLine()
+		})
+		if button.Clicked() && !disabled && !a.Busy {
+			act(option)
+		}
+	}
+}
+
+func (a *App) workerKeyButtons(c *ui.Context, p palette, need Need) {
+	enabled := need.Keys != nil
+	a.keyRow(c, p, workerKeyChoices(need), !enabled, func(choice keyChoice) {
+		a.pressWorker(need, choice)
 	})
 }
 

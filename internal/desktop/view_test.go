@@ -275,9 +275,14 @@ func TestAStaleAskPressIsRefusedAndTheAskStays(t *testing.T) {
 	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 6; nothing was sent"}
 	app := newApp(t, f)
 	tt := newTester(app)
+	before := f.count("status:" + fleetID)
 	click(t, tt, "Yes")
 	tt.Frame()
-	mustText(t, tt, "The action did not go through", "the screen changed since revision 6", "Do you want to proceed?", "Yes")
+	mustText(t, tt, "the screen moved; nothing was sent", "Do you want to proceed?", "Yes")
+	mustNotText(t, tt, "The action did not go through")
+	if f.count("status:"+fleetID) <= before {
+		t.Fatalf("the refusal re-read the status %d times, want more than %d", f.count("status:"+fleetID), before)
+	}
 }
 
 func TestTheBlockedPromptSitsBesideTheNeedsNotBehindThem(t *testing.T) {
@@ -381,7 +386,7 @@ func TestTheBoardScreenListsTheNeeds(t *testing.T) {
 		"Cookie fixed")
 }
 
-func TestABlockedNeedShowsItsTitleNotTheExcerptsRuleLine(t *testing.T) {
+func TestABlockedNeedShowsItsTitleAndItsScreen(t *testing.T) {
 	const rule = "────────────────────────"
 	f := goldenFixture(t)
 	st := f.status[fleetID]
@@ -390,8 +395,7 @@ func TestABlockedNeedShowsItsTitleNotTheExcerptsRuleLine(t *testing.T) {
 	f.status[fleetID] = st
 	tt := newTester(newApp(t, f))
 	click(t, tt, "Board")
-	mustText(t, tt, "Bash: rm -f x · Proceed?")
-	mustNotText(t, tt, rule)
+	mustText(t, tt, "Bash: rm -f x · Proceed?", rule+"\n Bash command\n  rm -f x")
 }
 
 func TestNeedsOpensADecisionInPlace(t *testing.T) {

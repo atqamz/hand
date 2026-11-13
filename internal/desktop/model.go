@@ -72,20 +72,30 @@ type TaskCounts struct {
 }
 
 type Need struct {
-	Kind      string `json:"kind"`
-	Ref       string `json:"ref,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Word      string `json:"word"`
-	Tone      string `json:"tone"`
-	Task      string `json:"task,omitempty"`
-	Decision  string `json:"decision,omitempty"`
-	Report    string `json:"report,omitempty"`
-	Attempt   string `json:"attempt,omitempty"`
-	Headline  string `json:"headline,omitempty"`
-	Status    string `json:"status,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	Excerpt   string `json:"excerpt,omitempty"`
-	Cut       bool   `json:"cut,omitempty"`
+	Kind      string      `json:"kind"`
+	Ref       string      `json:"ref,omitempty"`
+	Title     string      `json:"title,omitempty"`
+	Word      string      `json:"word"`
+	Tone      string      `json:"tone"`
+	Task      string      `json:"task,omitempty"`
+	Decision  string      `json:"decision,omitempty"`
+	Report    string      `json:"report,omitempty"`
+	Attempt   string      `json:"attempt,omitempty"`
+	Headline  string      `json:"headline,omitempty"`
+	Status    string      `json:"status,omitempty"`
+	CreatedAt string      `json:"created_at,omitempty"`
+	Excerpt   string      `json:"excerpt,omitempty"`
+	Cut       bool        `json:"cut,omitempty"`
+	DenyAt    string      `json:"deny_at,omitempty"`
+	Options   []AskOption `json:"options,omitempty"`
+	Keys      *NeedKeys   `json:"keys,omitempty"`
+}
+
+type NeedKeys struct {
+	Options  []AskOption `json:"options"`
+	Revision int64       `json:"revision"`
+	Digest   string      `json:"digest"`
+	Pressed  int64       `json:"pressed"`
 }
 
 type Needs struct {

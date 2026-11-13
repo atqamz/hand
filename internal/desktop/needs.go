@@ -401,6 +401,9 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 					meta()
 				}
 			}
+			if !wasSent && need.DenyAt != "" {
+				a.needCountdown(c, p, need)
+			}
 			if !inert {
 				chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
 				if open {
@@ -480,9 +483,9 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 			}
 			link(need.Decision)
 		case "blocked":
-			if sup := a.knownSupervisor(); sup != nil && sup.Blocked {
-				a.blockedKeys(c, p, sup)
-			}
+			a.blockedNeedBody(c, k, p, need)
+		case "worker":
+			a.workerNeedBody(c, p, need)
 		case "failure":
 			switch {
 			case a.attErr != "" && a.attTried == need.Attempt:
@@ -501,6 +504,274 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 			link(need.Attempt)
 		}
 	})
+}
+
+func (a *App) blockedNeedBody(c *ui.Context, k kit.Colors, p palette, need Need) {
+	sup := a.knownSupervisor()
+	var ask *Ask
+	if sup != nil && sup.Blocked {
+		ask = sup.Ask
+	}
+	if ask != nil && ask.Question != "" {
+		ui.Text(c, ask.Question).FontSize(kit.Body.Size).Bold()
+	}
+	a.screenExcerpt(c, p, need.Excerpt, need.Cut)
+	choices := supervisorKeyChoices(&Supervisor{Ask: ask})
+	enabled := sup != nil && sup.Blocked && sup.Keys != nil
+	a.keyRow(c, p, choices, !enabled, func(choice keyChoice) {
+		a.Press(choice.Label, choice.Keys...)
+	})
+	if sup != nil && sup.Blocked {
+		a.misread(c, p, need)
+	}
+}
+
+func (a *App) workerNeedBody(c *ui.Context, p palette, need Need) {
+	a.screenExcerpt(c, p, need.Excerpt, need.Cut)
+	a.workerKeyButtons(c, p, need)
+}
+
+func (a *App) screenExcerpt(c *ui.Context, p palette, text string, cut bool) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	if cut && !strings.HasSuffix(strings.TrimSpace(text), "…") {
+		text += "\n…"
+	}
+	ui.Column(c).Background(p.screen).Radius(kit.RadiusMD).Padding(10, 12).Border(1, p.line).Children(func() {
+		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.screenFG)
+	})
+}
+
+func (a *App) misread(c *ui.Context, p palette, need Need) {
+	ui.Collapsible(c, "Screen misread?", a.misreadFor(needKey(need)), func() {
+		ui.Column(c).Gap(kit.Space8).Children(func() {
+			ui.Text(c, "Types the queued messages, or else the wakes, into its prompt.").
+				FontSize(kit.Meta.Size).TextColor(p.neutral)
+			label := "Type queued messages anyway"
+			if a.BusyAction == "force" {
+				label = "Forcing…"
+			}
+			if ui.Button(c.Key("force:"+need.Ref), label).Disabled(a.Busy).Clicked() {
+				a.Supervise("force")
+			}
+		})
+	})
+}
+
+func (a *App) misreadFor(key string) *bool {
+	if a.misreadOpen == nil {
+		a.misreadOpen = map[string]*bool{}
+	}
+	if a.misreadOpen[key] == nil {
+		a.misreadOpen[key] = new(bool)
+	}
+	return a.misreadOpen[key]
+}
+
+func (a *App) pressWorker(need Need, choice keyChoice) {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || need.Keys == nil || len(choice.Keys) == 0 {
+		return
+	}
+	ref := need.Attempt
+	if ref == "" {
+		ref = need.Ref
+	}
+	guard := *need.Keys
+	model, fleet := a.Model, a.Fleet.ID
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	a.Busy, a.BusyAction = true, choice.Action
+	sent := sentKeyLabel(choice.Label)
+	applied := func() {
+		if id != a.loadID {
+			return
+		}
+		a.Busy, a.BusyAction = false, ""
+		a.markSent(ref, sent)
+		a.receipt = "Sent " + sent + " to " + ref
+		a.receiptKey = "akey:" + ref + ":" + sent
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy, a.BusyAction = false, ""
+		if isConflict(err) {
+			delete(a.sentNeeds, ref)
+			a.receipt = "the screen moved; nothing was sent"
+			a.receiptKey = "akey:" + ref
+			a.reopenNeed(need)
+			a.Reload()
+			return
+		}
+		a.ActionErr = friendly(err)
+		a.ActionWarn = false
+	}
+	fetch := func() {
+		_, err := model.PressAttemptKeys(ctx, fleet, ref, strings.Join(choice.Keys, " "), guard.Revision, guard.Pressed, guard.Digest)
+		cancel()
+		if err != nil {
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			applied()
+		} else {
+			post(applied)
+		}
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	post(func() {})
+	go fetch()
+}
+
+func sentKeyLabel(label string) string {
+	if fields := strings.Fields(label); len(fields) > 0 {
+		return fields[0]
+	}
+	return "key"
+}
+
+func (a *App) reopenNeed(n Need) {
+	if a.needChosen == nil {
+		a.needChosen = map[string]bool{}
+	}
+	a.needChosen[needKey(n)] = true
+	a.needClosedTop = ""
+}
+
+func (a *App) needCountdown(c *ui.Context, p palette, need Need) {
+	text, ok := denyText(need.DenyAt, a.now())
+	if !ok {
+		return
+	}
+	ui.Row(c).Height(kit.Badge).Padding(0, kit.Space6).Radius(kit.RadiusSM).
+		Background(p.bg).Border(1, p.line).AlignItems(ui.Center).Label("Auto-deny countdown").Children(func() {
+		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).Bold().TextColor(p.fail).FontFeatures("tnum")
+	})
+}
+
+func denyText(at string, now time.Time) (string, bool) {
+	deadline, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return "", false
+	}
+	left := deadline.Sub(now)
+	if left <= 0 {
+		return "denying…", true
+	}
+	secs := int((left + time.Second - 1) / time.Second)
+	return fmt.Sprintf("%d:%02d", secs/60, secs%60), true
+}
+
+func (a *App) resetDeny() {
+	a.denyGen++
+	if a.denyTimer != nil {
+		a.denyTimer()
+		a.denyTimer = nil
+	}
+	a.denyWatch = ""
+	a.denyFired = nil
+}
+
+func (a *App) watchDeny() {
+	a.pruneDeny()
+	next := a.nextDeny()
+	if next == "" || (a.Clock == nil && a.Post == nil) {
+		a.denyWatch = ""
+		if a.denyTimer != nil {
+			a.denyTimer()
+			a.denyTimer = nil
+		}
+		return
+	}
+	if next == a.denyWatch && a.denyTimer != nil {
+		return
+	}
+	a.denyWatch = next
+	if a.denyTimer != nil {
+		a.denyTimer()
+		a.denyTimer = nil
+	}
+	a.denyGen++
+	gen := a.denyGen
+	a.denyTimer = a.clock().After(time.Second, func() {
+		if a.Post != nil {
+			a.Post(func() { a.denyTick(gen) })
+			return
+		}
+		a.denyTick(gen)
+	})
+}
+
+func (a *App) pruneDeny() {
+	if len(a.denyFired) == 0 {
+		return
+	}
+	live := make(map[string]string, len(a.Status.Needs.Items))
+	for _, n := range a.Status.Needs.Items {
+		if n.DenyAt != "" {
+			live[n.Ref] = n.DenyAt
+		}
+	}
+	for ref, at := range a.denyFired {
+		if live[ref] != at {
+			delete(a.denyFired, ref)
+		}
+	}
+}
+
+func (a *App) nextDeny() string {
+	for _, n := range a.Status.Needs.Items {
+		if n.DenyAt != "" && a.denyFired[n.Ref] != n.DenyAt {
+			return n.DenyAt
+		}
+	}
+	return ""
+}
+
+func (a *App) denyTick(gen int) {
+	if gen != a.denyGen {
+		return
+	}
+	a.denyTimer = nil
+	a.denyWatch = ""
+	if a.denyFired == nil {
+		a.denyFired = map[string]string{}
+	}
+	now := a.now()
+	ref, deadline := "", ""
+	for _, n := range a.Status.Needs.Items {
+		if n.DenyAt == "" || a.denyFired[n.Ref] == n.DenyAt {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, n.DenyAt)
+		if err != nil || at.After(now) {
+			continue
+		}
+		ref, deadline = n.Ref, n.DenyAt
+		break
+	}
+	if ref != "" {
+		if a.Busy {
+			a.watchDeny()
+			return
+		}
+		a.denyFired[ref] = deadline
+		a.receipt = ref + " denied · refreshing"
+		a.receiptKey = "deny:" + ref
+		a.Reload()
+		return
+	}
+	a.watchDeny()
 }
 
 func (a *App) needReadError(c *ui.Context, p palette, key, msg string, retry func()) {
