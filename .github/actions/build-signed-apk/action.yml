@@ -29,13 +29,17 @@ runs:
       run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
     - name: Install the pinned toolchain
       shell: bash
+      working-directory: android
       run: rustup show active-toolchain || rustup toolchain install
     - shell: bash
+      working-directory: android
       run: rustup target add aarch64-linux-android
     - shell: bash
+      working-directory: android
       run: cargo install tauri-cli --version 2.12.4 --locked
     - name: Build the release APK
       shell: bash
+      working-directory: android
       env:
         NDK_VERSION: 27.3.13750724
       run: |
@@ -44,6 +48,7 @@ runs:
     - name: Sign the APK
       id: sign
       shell: bash
+      working-directory: android
       env:
         KEYSTORE_BASE64: ${{ inputs.keystore-base64 }}
         RELEASE_KEYSTORE_PASSWORD: ${{ inputs.keystore-password }}

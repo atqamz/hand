@@ -14,3 +14,11 @@ updates:
     directory: /iroh
     schedule:
       interval: daily
+  - package-ecosystem: cargo
+    directory: /android
+    schedule:
+      interval: daily
+  - package-ecosystem: gradle
+    directory: /android/src-tauri/gen/android
+    schedule:
+      interval: daily

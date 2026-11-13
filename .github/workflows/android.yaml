@@ -1,0 +1,297 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  TAURI_CLI_VERSION: "2.12.4"
+  DEBUG_KEY_SHA256: 083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da
+  HAND_SHA: a1e6d07d4f69653c080414f9b01ac8ed6ad0c335
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      android: ${{ steps.diff.outputs.android }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "android=true"
+            echo "android=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          computed=0
+          changed=""
+          if [ -n "${BASE_REF:-}" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+            changed=$(git diff --name-only "origin/$BASE_REF...HEAD") && computed=1
+          elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BEFORE" HEAD) && computed=1
+          fi
+          if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "HEAD^" >/dev/null; then
+            changed=$(git diff --name-only HEAD^ HEAD) && computed=1
+          fi
+          if [ "$computed" -eq 0 ]; then
+            changed=$(git ls-files)
+          fi
+          android=false
+          while IFS= read -r file; do
+            case "$file" in
+              android/* | .github/*) android=true ;;
+            esac
+          done <<<"$changed"
+          echo "android=$android"
+          echo "android=$android" >> "$GITHUB_OUTPUT"
+
+  android-actionlint:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.android == 'true'
+        with:
+          go-version: stable
+      - if: needs.changes.outputs.android == 'true'
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - if: needs.changes.outputs.android == 'true'
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - if: needs.changes.outputs.android == 'true'
+        run: actionlint
+
+  android-check:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NDK_VERSION: 27.3.13750724
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare the companion vectors
+        if: needs.changes.outputs.android == 'true'
+        working-directory: .
+        run: cmp docs/companion-vectors.json android/core/tests/companion-vectors.json
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        if: needs.changes.outputs.android == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        if: needs.changes.outputs.android == 'true'
+      - name: Install the NDK
+        if: needs.changes.outputs.android == 'true'
+        run: sdkmanager --install "ndk;$NDK_VERSION"
+      - name: Install the desktop web view libraries
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+      - name: Install the pinned toolchain
+        if: needs.changes.outputs.android == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - if: needs.changes.outputs.android == 'true'
+        run: rustup target add aarch64-linux-android
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: needs.changes.outputs.android == 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            android/target
+          key: check-${{ hashFiles('android/Cargo.lock', 'android/rust-toolchain.toml') }}
+          restore-keys: check-
+      - name: Build the pinned hand-iroh sidecar
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          git init "$RUNNER_TEMP/hand"
+          git -C "$RUNNER_TEMP/hand" remote add origin https://github.com/atqamz/hand.git
+          git -C "$RUNNER_TEMP/hand" fetch --depth=1 origin "$HAND_SHA"
+          git -C "$RUNNER_TEMP/hand" checkout --detach FETCH_HEAD
+          cargo build --locked --manifest-path "$RUNNER_TEMP/hand/iroh/Cargo.toml" --bin hand-iroh
+          echo "HAND_IROH_BIN=$RUNNER_TEMP/hand/iroh/target/debug/hand-iroh" >> "$GITHUB_ENV"
+      - if: needs.changes.outputs.android == 'true'
+        run: scripts/check-store-metadata.sh
+      - if: needs.changes.outputs.android == 'true'
+        run: cargo fmt --all --check
+      - if: needs.changes.outputs.android == 'true'
+        run: cargo test --locked --workspace
+      - name: Test the web view scripts
+        if: needs.changes.outputs.android == 'true'
+        run: node --test "src-tauri/tests/*.test.mjs"
+      - name: Clippy for Android
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          toolchain="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android24-clang"
+          cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings
+
+  android-apk:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: 27.3.13750724
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        if: needs.changes.outputs.android == 'true'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        if: needs.changes.outputs.android == 'true'
+      - name: Install the Android SDK packages
+        if: needs.changes.outputs.android == 'true'
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+      - name: Install the pinned toolchain
+        if: needs.changes.outputs.android == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - if: needs.changes.outputs.android == 'true'
+        run: rustup target add aarch64-linux-android
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: needs.changes.outputs.android == 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-tauri
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/target
+            android/src-tauri/gen/android/.gradle
+            android/src-tauri/gen/android/app/build
+          key: apk-${{ hashFiles('android/Cargo.lock', 'android/rust-toolchain.toml', 'android/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}-${{ env.TAURI_CLI_VERSION }}
+          restore-keys: apk-
+      - name: Install tauri-cli
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          if ! cargo tauri --version 2>/dev/null | grep -qx "tauri-cli $TAURI_CLI_VERSION"; then
+            cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+          fi
+      - name: Build the debug APK
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          cargo tauri android build --debug --apk --target aarch64
+      - name: Run the JVM tests and check the screen images
+        if: needs.changes.outputs.android == 'true'
+        run: ./gradlew :app:verifyPaparazziUniversalDebug
+        working-directory: android/src-tauri/gen/android
+      - name: Check the APK's signer
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          apk=src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs"
+          grep -qx "Signer #1 certificate SHA-256 digest: $DEBUG_KEY_SHA256" "$RUNNER_TEMP/certs"
+          test "$(grep -c "^Signer #.* certificate SHA-256 digest:" "$RUNNER_TEMP/certs")" -eq 1
+      - name: Build the unsigned release APK
+        if: needs.changes.outputs.android == 'true'
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          cargo tauri android build --apk --target aarch64
+      - name: Check that R8 kept what Rust calls
+        if: needs.changes.outputs.android == 'true'
+        run: scripts/check-jni-keep.sh src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: needs.changes.outputs.android == 'true'
+        with:
+          name: hand-android-debug-apk
+          path: android/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  main-apk:
+    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.android == 'true'
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the version, versionCode and pinned key
+        run: |
+          config=src-tauri/tauri.conf.json
+          version="$(jq -r .version "$config")"
+          [[ $version =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$ ]]
+          IFS=. read -r major minor patch <<<"$version"
+          test "$minor" -lt 1000
+          test "$patch" -lt 1000
+          test "$major" -lt 2100
+          expected=$((major * 1000000 + minor * 1000 + patch))
+          version_code="$(jq -r .bundle.android.versionCode "$config")"
+          test "$version_code" -eq "$expected"
+          [[ "$(cat release-key.sha256)" =~ ^[0-9a-f]{64}$ ]]
+          echo "versionName $version, versionCode $version_code, expected $expected"
+      - uses: ./.github/actions/build-signed-apk
+        id: build
+        with:
+          keystore-base64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          keystore-password: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      - name: Check the APK
+        run: |
+          apk="${{ steps.build.outputs.path }}"
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          config=src-tauri/tauri.conf.json
+          test "$("$apkanalyzer" manifest version-name "$apk")" = "$(jq -r .version "$config")"
+          test "$("$apkanalyzer" manifest version-code "$apk")" = "$(jq -r .bundle.android.versionCode "$config")"
+          scripts/check-jni-keep.sh "$apk"
+      - name: Report the APK
+        run: |
+          apk="${{ steps.build.outputs.path }}"
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          version_name="$("$apkanalyzer" manifest version-name "$apk")"
+          version_code="$("$apkanalyzer" manifest version-code "$apk")"
+          sha256="$(sha256sum "$apk" | cut -d' ' -f1)"
+          { echo "versionName $version_name"; echo "versionCode $version_code"; echo "sha256 $sha256"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          mv "$apk" "$RUNNER_TEMP/hand-android-main.apk"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hand-android-main-apk
+          path: ${{ runner.temp }}/hand-android-main.apk
+          if-no-files-found: error
+          retention-days: 7

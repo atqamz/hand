@@ -16,6 +16,9 @@
 'area: iroh':
   - changed-files:
       - any-glob-to-any-file: ['iroh/**']
+'area: android':
+  - changed-files:
+      - any-glob-to-any-file: ['android/**']
 'area: state':
   - changed-files:
       - any-glob-to-any-file: ['internal/state/**', 'internal/flock/**']
