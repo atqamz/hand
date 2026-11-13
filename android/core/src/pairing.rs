@@ -7,6 +7,7 @@ use crate::dialer::parse_target;
 use crate::link::{Link, Reject, parse_link_with};
 
 const LAPTOP_FILE: &str = "laptop";
+const RELAY_FILE: &str = "laptop-relay";
 
 pub const PAIRING_PENDING: &str = "Finish or dismiss the current pairing first";
 
@@ -124,11 +125,9 @@ impl Pairing {
         self.relay = None;
         self.in_flight = false;
         self.generation = self.generation.wrapping_add(1);
-        match fs::remove_file(self.dir.join(LAPTOP_FILE)) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
-        }
+        let laptop = remove_if_present(&self.dir.join(LAPTOP_FILE));
+        let relay = remove_if_present(&self.dir.join(RELAY_FILE));
+        laptop.and(relay)
     }
 
     pub fn take(&mut self) -> Option<Link> {
@@ -144,14 +143,19 @@ impl Pairing {
     }
 
     pub fn activate(&mut self, link: &Link) -> io::Result<()> {
-        let mut text = format!("{}\n", link.endpoint_id);
-        if let Some(relay) = &link.relay {
-            text.push_str(relay);
-            text.push('\n');
-        }
         self.active = Some(link.endpoint_id.clone());
         self.relay = link.relay.clone();
-        fs::write(self.dir.join(LAPTOP_FILE), text)
+        fs::write(
+            self.dir.join(LAPTOP_FILE),
+            format!("{}\n", link.endpoint_id),
+        )?;
+        match &link.relay {
+            Some(relay) => fs::write(
+                self.dir.join(RELAY_FILE),
+                format!("{}\n{}\n", link.endpoint_id, relay),
+            ),
+            None => remove_if_present(&self.dir.join(RELAY_FILE)),
+        }
     }
 }
 
@@ -163,12 +167,32 @@ pub(crate) fn read_laptop(dir: &Path) -> (Option<String>, Option<String>) {
     let Some(endpoint) = lines.next().map(str::trim).filter(|e| valid_endpoint(e)) else {
         return (None, None);
     };
-    let relay = lines
+    let legacy = lines
         .next()
         .map(str::trim)
         .filter(|relay| parse_target(endpoint, Some(relay)).is_ok())
         .map(str::to_owned);
+    let relay = read_relay(dir, endpoint).or(legacy);
     (Some(endpoint.to_owned()), relay)
+}
+
+fn read_relay(dir: &Path, endpoint: &str) -> Option<String> {
+    let text = fs::read_to_string(dir.join(RELAY_FILE)).ok()?;
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some(endpoint) {
+        return None;
+    }
+    let relay = lines.next().map(str::trim)?;
+    parse_target(endpoint, Some(relay)).ok()?;
+    Some(relay.to_owned())
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 fn valid_endpoint(endpoint: &str) -> bool {
@@ -223,6 +247,67 @@ mod tests {
             parse_target(again.active().unwrap(), again.active_relay()).unwrap(),
             first.target().unwrap()
         );
+    }
+
+    #[test]
+    fn a_relay_is_written_beside_a_one_line_laptop() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&relay_link(FIRST)).unwrap();
+        activate(&mut pairing);
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{FIRST}\n")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
+            format!("{FIRST}\nhttps://relay.example.test:7842/\n")
+        );
+    }
+
+    #[test]
+    fn a_two_line_laptop_file_from_a_previous_build_is_read_and_migrated() {
+        let dir = TempDir::new();
+        std::fs::write(
+            dir.path().join("laptop"),
+            format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
+        )
+        .unwrap();
+
+        let mut pairing = Pairing::new(dir.path());
+        assert_eq!(pairing.active(), Some(FIRST));
+        assert_eq!(
+            pairing.active_relay(),
+            Some("https://relay.example.test:7842/")
+        );
+
+        pairing.offer(&relay_link(FIRST)).unwrap();
+        activate(&mut pairing);
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
+            format!("{FIRST}\n")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
+            format!("{FIRST}\nhttps://relay.example.test:7842/\n")
+        );
+    }
+
+    #[test]
+    fn a_relay_file_for_another_laptop_is_not_read() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        std::fs::write(
+            dir.path().join("laptop-relay"),
+            format!("{SECOND}\nhttps://relay.example.test:7842/\n"),
+        )
+        .unwrap();
+
+        let pairing = Pairing::new(dir.path());
+        assert_eq!(pairing.active(), Some(FIRST));
+        assert_eq!(pairing.active_relay(), None);
     }
 
     #[test]
@@ -309,6 +394,7 @@ mod tests {
         pairing.forget().unwrap();
         assert!(pairing.active().is_none());
         assert!(pairing.active_relay().is_none());
+        assert!(!dir.path().join("laptop-relay").exists());
         let again = Pairing::new(dir.path());
         assert!(again.active().is_none());
         assert!(again.active_relay().is_none());
