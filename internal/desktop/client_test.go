@@ -643,6 +643,8 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		case "/api/v1/supervisor/start", "/api/v1/supervisor/resume", "/api/v1/supervisor/stop",
 			"/api/v1/supervisor/interrupt", "/api/v1/supervisor/force", "/api/v1/supervisor/keys":
 			name = "status"
+		case "/api/v1/attempt/a1/keys":
+			name = "attempt-running"
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, `{"error":{"status":404,"code":"not_found","message":"not found"}}`)
@@ -785,6 +787,29 @@ func TestHTTPClientPostsSupervisorControls(t *testing.T) {
 	}
 	if _, err := c.Supervise(ctx, fleetID, "stop", ""); err == nil {
 		t.Fatal("stop without the displayed supervisor was sent")
+	}
+}
+
+func TestHTTPClientPressesAWorkersKeys(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	screen := "0123456789abcdef0123456789abcdef"
+	ad, err := c.PressAttemptKeys(context.Background(), fleetID, "a1", "down enter", 9, 4, screen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ad.Attempt.Ref != "a1" {
+		t.Fatalf("attempt = %+v", ad.Attempt)
+	}
+	m.mu.Lock()
+	body, paths := m.body, append([]string(nil), m.paths...)
+	m.mu.Unlock()
+	if len(paths) != 1 || paths[0] != "POST /api/v1/attempt/a1/keys" {
+		t.Fatalf("requests = %v", paths)
+	}
+	if !strings.Contains(body, `"key":"down enter"`) || !strings.Contains(body, `"revision":9`) ||
+		!strings.Contains(body, `"after":4`) || !strings.Contains(body, `"screen":"`+screen+`"`) {
+		t.Fatalf("keys body = %q", body)
 	}
 }
 

@@ -86,6 +86,11 @@ type App struct {
 	needClosedTop string
 	ackDone       map[string]bool
 	sentNeeds     map[string]string
+	misreadOpen   map[string]*bool
+	denyTimer     func()
+	denyGen       int
+	denyWatch     string
+	denyFired     map[string]string
 	focusSend     bool
 	focusNote     bool
 	decTried      string
@@ -197,6 +202,7 @@ func (a *App) StartRefresh() {
 func (a *App) Close() {
 	a.polling, a.closed = false, true
 	a.resetPoll()
+	a.resetDeny()
 }
 
 func (a *App) SetMinimized(minimized bool) {
@@ -283,6 +289,8 @@ func (a *App) SelectFleet(id string) {
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
+	a.misreadOpen = nil
+	a.resetDeny()
 	a.focusSend, a.focusNote = false, false
 	a.decTried, a.decErr, a.attTried, a.attErr = "", "", "", ""
 	a.needAttempt = AttemptDetail{}
@@ -785,7 +793,7 @@ func (a *App) disarmStop() {
 	}
 }
 
-func (a *App) Press(keys ...string) {
+func (a *App) Press(label string, keys ...string) {
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
@@ -794,10 +802,71 @@ func (a *App) Press(keys ...string) {
 		return
 	}
 	guard, ref := *sup.Keys, sup.Ref
+	need := Need{Kind: "blocked", Ref: ref}
 	model, fleet := a.Model, a.Fleet.ID
-	a.runControl("key:"+strings.Join(keys, " "), func(ctx context.Context) (Control, error) {
-		return model.PressKeys(ctx, fleet, keys, guard.Revision, guard.Digest, guard.Pressed, ref)
-	})
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	a.Busy, a.BusyAction = true, "key:"+strings.Join(keys, " ")
+	sent := sentKeyLabel(label)
+	applied := func(c Control) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy, a.BusyAction = false, ""
+		if c.Stale {
+			a.ActionErr = "the press went through, but the fleet status could not be read; refresh to see it"
+			a.ActionWarn = true
+			return
+		}
+		a.Status = c.Status
+		a.watchDeny()
+		a.markSent(ref, sent)
+		a.receipt = "Sent " + sent + " to " + ref
+		a.receiptKey = "key:" + ref + ":" + sent
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy, a.BusyAction = false, ""
+		if isConflict(err) {
+			a.receipt = "the screen moved; nothing was sent"
+			a.receiptKey = "key:" + ref
+			a.reopenNeed(need)
+			a.Reload()
+			return
+		}
+		a.ActionErr = friendly(err)
+		a.ActionWarn = false
+	}
+	fetch := func() {
+		st, err := model.PressKeys(ctx, fleet, keys, guard.Revision, guard.Digest, guard.Pressed, ref)
+		cancel()
+		if err != nil {
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			applied(st)
+		} else {
+			post(func() { applied(st) })
+		}
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	post(func() {})
+	go fetch()
+}
+
+func isConflict(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && api.Status == 409
 }
 
 var supervisorControlKeys = []string{"enter", "esc", "up", "down", "1", "2", "3"}
@@ -840,6 +909,7 @@ func (a *App) runControl(name string, call func(context.Context) (Control, error
 			return
 		}
 		a.Status = c.Status
+		a.watchDeny()
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -1147,6 +1217,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
 		a.reconcileAcked()
+		a.watchDeny()
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
 		a.Timeline, a.pollTimeline = mergeTimeline(a.Timeline, p.Timeline), p.TimelineCursor
@@ -1317,6 +1388,7 @@ func (a *App) apply(l loaded) {
 	}
 	a.Status = l.Status
 	a.reconcileAcked()
+	a.watchDeny()
 	switch {
 	case l.TimelineOK && len(a.Timeline.Entries) == 0:
 		a.Timeline = l.Timeline

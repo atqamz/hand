@@ -49,6 +49,12 @@ type fixture struct {
 	keyRevision   int64
 	keyDigest     string
 	keyAfter      int64
+	attemptKey    string
+	attemptKeyRef string
+	attemptKeyRev int64
+	attemptKeyAft int64
+	attemptScreen string
+	attemptKeyErr error
 	stale         bool
 	stall         string
 	stallOnce     bool
@@ -363,6 +369,21 @@ func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revis
 	st, stale := f.status[id], f.keyStale
 	f.mu.Unlock()
 	return desktop.Control{Status: st, Stale: stale}, nil
+}
+
+func (f *fixture) PressAttemptKeys(ctx context.Context, id, ref, key string, revision, after int64, screen string) (desktop.AttemptDetail, error) {
+	f.note("akeys:" + ref + ":" + key)
+	f.mu.Lock()
+	f.attemptKey, f.attemptKeyRef, f.attemptKeyRev, f.attemptKeyAft, f.attemptScreen = key, ref, revision, after, screen
+	f.mu.Unlock()
+	f.stallAction()
+	if f.attemptKeyErr != nil {
+		return desktop.AttemptDetail{}, f.attemptKeyErr
+	}
+	if f.action != nil {
+		return desktop.AttemptDetail{}, f.action
+	}
+	return f.attempt[id], nil
 }
 
 func (f *fixture) dropNeed(id, ref string) {

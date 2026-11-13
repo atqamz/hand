@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -618,4 +619,264 @@ func TestNoAllClearWhileMoreNeedsWait(t *testing.T) {
 	tt.Frame()
 	mustNotText(t, tt, "All clear")
 	mustText(t, tt, "2 more waiting")
+}
+
+const (
+	screenDigest = "0123456789abcdef0123456789abcdef"
+	screenText   = "Bash command\n  rm -f $r/$f\nClaude Code will automatically deny this request in 1:59\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Tab to amend"
+)
+
+func meetNeed(kind string) desktop.Need {
+	options := []desktop.AskOption{{Label: "2 No", Keys: []string{"2"}}, {Label: "1 Yes", Keys: []string{"1"}}}
+	n := desktop.Need{
+		Kind: kind, Ref: "s1", Title: "Bash: rm -f $r/$f · Do you want to proceed?", Word: "BLOCKED", Tone: "fail",
+		Excerpt: screenText, DenyAt: "2026-11-09T12:01:30Z", Options: options,
+		Keys: &desktop.NeedKeys{Options: options, Revision: 6, Digest: screenDigest, Pressed: 2},
+	}
+	if kind == "worker" {
+		n.Ref, n.Attempt, n.Task = "a1", "a1", "t1"
+		n.Keys.Revision, n.Keys.Pressed = 9, 4
+	}
+	return n
+}
+
+func blockedScreen(t *testing.T, ask bool) *fixture {
+	t.Helper()
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Status, sup.Live, sup.Resumable, sup.Blocked = "running", true, false, true
+	sup.Keys = &desktop.Keys{Revision: 6, Digest: screenDigest, Pressed: 2}
+	if ask {
+		sup.Ask = &desktop.Ask{Question: "Do you want to proceed?", Options: meetNeed("blocked").Options}
+	}
+	st.Supervisor = &sup
+	st.AgentState, st.Pill, st.Line = "blocked", "failing", "blocked"
+	st.Needs.Items = append([]desktop.Need{meetNeed("blocked")}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	return f
+}
+
+func workerScreen(t *testing.T) *fixture {
+	t.Helper()
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	n := meetNeed("worker")
+	st.Needs.Items = append([]desktop.Need{n}, st.Needs.Items...)
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	return f
+}
+
+func TestAPressSendsTheGuardAndAppliesTheReturnedStatus(t *testing.T) {
+	f := blockedScreen(t, true)
+	fresh := f.status[fleetID]
+	sup := *fresh.Supervisor
+	sup.Keys = &desktop.Keys{Revision: 7, Digest: screenDigest, Pressed: 3}
+	fresh.Supervisor = &sup
+	f.keyStatus = &fresh
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "1 Yes")
+	if f.count("keys:1") != 1 {
+		t.Fatalf("key presses = %d, want 1", f.count("keys:1"))
+	}
+	f.mu.Lock()
+	keys, revision, digest, after, ref := append([]string(nil), f.keys...), f.keyRevision, f.keyDigest, f.keyAfter, f.keyRef
+	f.mu.Unlock()
+	if !slices.Equal(keys, []string{"1"}) || revision != 6 || digest != screenDigest || after != 2 || ref != "s1" {
+		t.Fatalf("pressed %q at revision %d digest %q after %d for %q", keys, revision, digest, after, ref)
+	}
+	if app.Status.Supervisor == nil || app.Status.Supervisor.Keys == nil || app.Status.Supervisor.Keys.Revision != 7 {
+		t.Fatalf("the returned status was not applied: %+v", app.Status.Supervisor)
+	}
+	tt.Frame()
+	mustText(t, tt, "Sent 1 · waiting…", "Sent 1 to s1")
+}
+
+func TestAStalePressReopensOnTheFreshScreen(t *testing.T) {
+	f := blockedScreen(t, true)
+	app := newApp(t, f)
+	tt := newTester(app)
+	mustText(t, tt, screenText)
+	fresh := f.status[fleetID]
+	fresh.Needs.Items = append([]desktop.Need(nil), fresh.Needs.Items...)
+	fresh.Needs.Items[0].Excerpt = "fresh screen after the move"
+	sup := *fresh.Supervisor
+	sup.Keys = &desktop.Keys{Revision: 8, Digest: screenDigest, Pressed: 5}
+	fresh.Supervisor = &sup
+	f.status[fleetID] = fresh
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 6; nothing was sent"}
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "the screen moved; nothing was sent", "fresh screen after the move")
+	if app.Status.Supervisor == nil || app.Status.Supervisor.Keys.Revision != 8 {
+		t.Fatalf("the fresh status was not read: %+v", app.Status.Supervisor)
+	}
+}
+
+func TestTheMisreadDisclosureTypesQueuedMessagesAnyway(t *testing.T) {
+	f := blockedScreen(t, true)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Screen misread?")
+	mustText(t, tt, "Types the queued messages, or else the wakes, into its prompt.")
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	click(t, tt, "Type queued messages anyway")
+	if f.count("control:force") != 1 {
+		t.Fatalf("force calls = %d, want 1", f.count("control:force"))
+	}
+	f.mu.Lock()
+	ref := f.controlRef
+	f.mu.Unlock()
+	if ref != "s1" {
+		t.Fatalf("force named %q, want s1", ref)
+	}
+}
+
+func TestTheCountdownTicksLocallyAndThenRefreshes(t *testing.T) {
+	f := blockedScreen(t, true)
+	clock := newFakeClock()
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = t.TempDir()
+	app.Clock = clock
+	app.Now = func() time.Time {
+		clock.mu.Lock()
+		defer clock.mu.Unlock()
+		return clock.now
+	}
+	app.Boot()
+	tt := newTester(app)
+	tt.Frame()
+	mustText(t, tt, "1:30")
+	reads := f.count("status:" + fleetID)
+	clock.Advance(30 * time.Second)
+	tt.Frame()
+	mustText(t, tt, "1:00")
+	if got := f.count("status:" + fleetID); got != reads {
+		t.Fatalf("the countdown read the board %d times, want %d", got, reads)
+	}
+	clock.Advance(60 * time.Second)
+	tt.Frame()
+	mustText(t, tt, "denying…", "s1 denied · refreshing")
+	if got := f.count("status:" + fleetID); got <= reads {
+		t.Fatalf("the denied screen did not refresh: %d reads, want more than %d", got, reads)
+	}
+}
+
+func TestAWorkerPressSendsItsOwnGuard(t *testing.T) {
+	f := workerScreen(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "2 No")
+	f.mu.Lock()
+	key, ref, revision, after, screen := f.attemptKey, f.attemptKeyRef, f.attemptKeyRev, f.attemptKeyAft, f.attemptScreen
+	f.mu.Unlock()
+	if key != "2" || ref != "a1" || revision != 9 || after != 4 || screen != screenDigest {
+		t.Fatalf("worker key %q for %q at revision %d after %d screen %q", key, ref, revision, after, screen)
+	}
+	tt.Frame()
+	mustText(t, tt, "Sent 2 · waiting…", "Sent 2 to a1")
+}
+
+func TestAStaleWorkerPressReopensOnTheFreshScreen(t *testing.T) {
+	f := workerScreen(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	fresh := f.status[fleetID]
+	fresh.Needs.Items = append([]desktop.Need(nil), fresh.Needs.Items...)
+	fresh.Needs.Items[0].Excerpt = "worker screen after the move"
+	fresh.Needs.Items[0].Keys = &desktop.NeedKeys{Options: fresh.Needs.Items[0].Keys.Options, Revision: 10, Digest: screenDigest, Pressed: 4}
+	f.status[fleetID] = fresh
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 9; nothing was sent"}
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "the screen moved; nothing was sent", "worker screen after the move")
+}
+
+func TestTheBlockedCardSwitchesBetweenAskOptionsAndTheFixedKeys(t *testing.T) {
+	ask := newTester(newApp(t, blockedScreen(t, true)))
+	if n := countText(t, ask, "1 Yes"); n != 2 {
+		t.Errorf("ask options shown %d times, want the card and the conversation", n)
+	}
+	mustNotText(t, ask, "Keys")
+	fixed := newTester(newApp(t, blockedScreen(t, false)))
+	enters := 0
+	for _, text := range fixed.Texts() {
+		if text == "Enter" {
+			enters++
+		}
+	}
+	if enters != 2 {
+		t.Errorf("fixed keys shown %d times, want the card and the conversation", enters)
+	}
+	mustNotText(t, fixed, "1 Yes")
+}
+
+func TestAScreensExcerptIsPlainText(t *testing.T) {
+	f := blockedScreen(t, true)
+	st := f.status[fleetID]
+	st.Needs.Items[0].Excerpt = "**not bold**\n- not a list"
+	f.status[fleetID] = st
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "**not bold**\n- not a list")
+}
+
+func TestAClippedExcerptMarksTheClip(t *testing.T) {
+	f := blockedScreen(t, true)
+	st := f.status[fleetID]
+	st.Needs.Items[0].Cut = true
+	f.status[fleetID] = st
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, screenText+"\n…")
+}
+
+func TestScenesBlockedStates(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		mode := map[bool]string{false: "light", true: "dark"}[dark]
+		open := func(t *testing.T, f *fixture, now time.Time) (*desktop.App, *ui.Tester) {
+			app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+			app.DraftDir = t.TempDir()
+			app.Now = func() time.Time { return now }
+			app.Boot()
+			return app, darkTester(app, dark)
+		}
+		now, _ := time.Parse(time.RFC3339, "2026-11-09T12:00:00Z")
+		_, ask := open(t, blockedScreen(t, true), now)
+		shot(t, ask, "needs-blocked-ask-"+mode)
+
+		_, fixed := open(t, blockedScreen(t, false), now)
+		shot(t, fixed, "needs-blocked-fixed-"+mode)
+
+		clipped := blockedScreen(t, true)
+		st := clipped.status[fleetID]
+		st.Needs.Items[0].Cut = true
+		clipped.status[fleetID] = st
+		_, clip := open(t, clipped, now)
+		shot(t, clip, "needs-blocked-clipped-"+mode)
+
+		late, _ := time.Parse(time.RFC3339, "2026-11-09T12:01:00Z")
+		_, count := open(t, blockedScreen(t, true), late)
+		shot(t, count, "needs-blocked-countdown-"+mode)
+
+		stale := blockedScreen(t, true)
+		fresh := stale.status[fleetID]
+		fresh.Needs.Items = append([]desktop.Need(nil), fresh.Needs.Items...)
+		fresh.Needs.Items[0].Excerpt = "Bash command\n  git push --force\nDo you want to proceed?"
+		sup := *fresh.Supervisor
+		sup.Keys = &desktop.Keys{Revision: 8, Digest: screenDigest, Pressed: 5}
+		fresh.Supervisor = &sup
+		stale.status[fleetID] = fresh
+		stale.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 6; nothing was sent"}
+		_, refused := open(t, stale, now)
+		click(t, refused, "1 Yes")
+		refused.Advance(300 * time.Millisecond)
+		refused.Frame()
+		shot(t, refused, "needs-blocked-stale-"+mode)
+
+		_, worker := open(t, workerScreen(t), now)
+		shot(t, worker, "needs-blocked-worker-"+mode)
+	}
 }

@@ -15,17 +15,21 @@ import (
 )
 
 type palette struct {
+	bg                                          ui.Color
 	line, lineStrong, panel, card, hover        ui.Color
 	fail, wait, pass, neutral, accent           ui.Color
 	failBG, waitBG, passBG, neutralBG, accentBG ui.Color
+	screen, screenFG                            ui.Color
 }
 
 func paletteFor(dark bool) palette {
 	k := kit.ColorsFor(dark)
 	return palette{
+		bg:   k.BG,
 		line: k.Line, lineStrong: k.LineStrong, panel: k.Panel, card: k.Card, hover: k.Hover,
 		fail: k.Fail, wait: k.Wait, pass: k.Pass, neutral: k.Neutral, accent: k.Accent,
 		failBG: k.FailBG, waitBG: k.WaitBG, passBG: k.PassBG, neutralBG: k.NeutralBG, accentBG: k.AccentBG,
+		screen: k.Screen, screenFG: k.ScreenFG,
 	}
 }
 
@@ -258,16 +262,9 @@ func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 	ui.Column(c).Gap(8).Padding(12).Radius(8).Background(p.card).Border(1, p.line).Children(func() {
 		ui.Text(c, sup.Ask.Question).FontSize(kit.Body.Size).Bold()
 		ui.Column(c).Gap(8).Children(func() {
-			for _, option := range sup.Ask.Options {
-				name := "key:" + strings.Join(option.Keys, " ")
-				label := option.Label
-				if a.BusyAction == name {
-					label = "Sending…"
-				}
-				if ui.Button(c.Key(name), label).Disabled(a.Busy || sup.Keys == nil).Clicked() {
-					a.Press(option.Keys...)
-				}
-			}
+			a.keyRow(c, p, askKeyChoices(sup.Ask), sup.Keys == nil, func(choice keyChoice) {
+				a.Press(choice.Label, choice.Keys...)
+			})
 		})
 	})
 }
