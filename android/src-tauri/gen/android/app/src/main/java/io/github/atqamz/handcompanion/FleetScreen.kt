@@ -118,6 +118,17 @@ private fun Tabs(state: FleetState, onTab: (Tab) -> Unit) {
 }
 
 @Composable
+internal fun Loading() {
+  Column(
+    Modifier.fillMaxSize().padding(32.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Text("Loading…", style = type.titleMedium)
+  }
+}
+
+@Composable
 private fun Placeholder(tab: Tab, onWeb: () -> Unit) {
   Column(
     Modifier.fillMaxSize().padding(32.dp),
@@ -146,15 +157,15 @@ fun FleetScreen(
     TopBar(id, state, onBack, onWeb)
     state.band?.let { BandView(it, onRetry) }
     Box(Modifier.weight(1f)) {
-      when {
-        state.unpaired ->
+      when (body(state)) {
+        Body.Unpaired ->
           Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
             Text("No longer paired", color = LocalHand.current.ink(Tone.Fail), style = type.titleMedium)
             Meta("Pair this phone again on the laptop's Board.")
           }
-        state.tab == null && state.band == null -> Unit
-        state.tab == Tab.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, choice)
-        else -> Placeholder(state.tab ?: Tab.Chat, onWeb)
+        Body.Loading -> Loading()
+        Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, choice)
+        Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
     }
     state.notice?.let {
