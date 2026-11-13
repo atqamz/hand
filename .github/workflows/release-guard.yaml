@@ -18,8 +18,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name || true)
-          test -n "$latest" || { echo "the repository has no latest release" >&2; exit 1; }
+          if latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>"$RUNNER_TEMP/latest.err"); then
+            :
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/latest.err"; then
+            echo "the repository has no latest release; nothing to guard"
+            exit 0
+          else
+            cat "$RUNNER_TEMP/latest.err" >&2
+            exit 1
+          fi
+          test -n "$latest" || { echo "the latest release has no tag" >&2; exit 1; }
           case "$latest" in
             v[0-9]*) echo "the latest release is $latest" ;;
             *)

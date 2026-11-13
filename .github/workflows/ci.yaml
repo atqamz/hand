@@ -15,7 +15,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       go: ${{ steps.diff.outputs.go }}
-      android: ${{ steps.diff.outputs.android }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,26 +33,22 @@ jobs:
           elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             changed=$(git diff --name-only "$BEFORE" HEAD) && computed=1
           fi
-          if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "HEAD^" >/dev/null; then
-            changed=$(git diff --name-only HEAD^ HEAD) && computed=1
+          if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "origin/main" >/dev/null; then
+            changed=$(git diff --name-only "origin/main...HEAD") && computed=1
+            [ -n "$changed" ] || computed=0
           fi
           if [ "$computed" -eq 0 ]; then
             changed=$(git ls-files)
           fi
           go=false
-          android=false
           while IFS= read -r file; do
             case "$file" in
-              android/*) android=true ;;
+              android/*) ;;
               *) go=true ;;
             esac
-            case "$file" in
-              .github/*) android=true ;;
-            esac
           done <<<"$changed"
-          echo "go=$go android=$android"
+          echo "go=$go"
           echo "go=$go" >> "$GITHUB_OUTPUT"
-          echo "android=$android" >> "$GITHUB_OUTPUT"
 
   test-linux:
     needs: changes

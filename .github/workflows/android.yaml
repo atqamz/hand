@@ -51,8 +51,9 @@ jobs:
           elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             changed=$(git diff --name-only "$BEFORE" HEAD) && computed=1
           fi
-          if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "HEAD^" >/dev/null; then
-            changed=$(git diff --name-only HEAD^ HEAD) && computed=1
+          if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "origin/main" >/dev/null; then
+            changed=$(git diff --name-only "origin/main...HEAD") && computed=1
+            [ -n "$changed" ] || computed=0
           fi
           if [ "$computed" -eq 0 ]; then
             changed=$(git ls-files)
@@ -99,7 +100,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Compare the companion vectors
-        if: needs.changes.outputs.android == 'true'
         working-directory: .
         run: cmp docs/companion-vectors.json android/core/tests/companion-vectors.json
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
@@ -241,7 +241,7 @@ jobs:
           retention-days: 14
 
   main-apk:
-    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.android == 'true'
+    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.android == 'true' && !startsWith(github.ref, 'refs/tags/')
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 60
