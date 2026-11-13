@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-18T01:55:46+00:00",
+  "generatedAt": "2026-11-13T19:04:10+00:00",
   "title": "Design System: Hand board",
   "extensions": {
     "source": "internal/board/static/board.css",
@@ -1413,7 +1413,7 @@
       {
         "name": "lift",
         "value": "0 8px 24px var(--shadow)",
-        "purpose": "The open model menu, the overflow menu and the toast."
+        "purpose": "The open model menu, the overflow menu, the toast and the viewer dialog."
       },
       {
         "name": "focus-frame",
@@ -1430,11 +1430,10 @@
       "test": "TestTheOnCallPalette",
       "selectors": [
         ".console-box",
-        ".menu",
+        ".menu-body",
         "#toast",
         ".keys button",
-        ".key",
-        "kbd"
+        "dialog.viewer"
       ]
     },
     "motion": [
@@ -1460,11 +1459,21 @@
       },
       {
         "name": "rail",
-        "value": "width .18s on the rail; the label button widens it to 232px",
+        "value": "width .18s cubic-bezier(.16,1,.3,1) on the rail; the label button widens it to 232px",
         "purpose": "The rail's labels opening over the page."
+      },
+      {
+        "name": "copy",
+        "value": "opacity .15s on the code copy button",
+        "purpose": "The copy button appearing on hover or focus."
+      },
+      {
+        "name": "latest",
+        "value": "opacity .15s, transform .15s and visibility 0s .15s; from translateY(8px) on the scroll to latest button",
+        "purpose": "The scroll to latest button appearing above the composer."
       }
     ],
-    "reducedMotion": "Under prefers-reduced-motion:reduce the lamp, the feed, the arrival wash, the disclose transition and the rail and separator transitions all stop (TestMotionHonoursReducedMotion).",
+    "reducedMotion": "Under prefers-reduced-motion:reduce the lamp, the feed, the arrival wash, the disclose transition, the rail and separator transitions and the copy and latest fades all stop (TestMotionHonoursReducedMotion).",
     "breakpoints": [
       {
         "name": "board",
@@ -1477,7 +1486,7 @@
         "purpose": "Three tabs (Needs, Tasks, Chat), one panel at a time, panels held to 880px and 760px columns; the menu button opens the rail as a sheet; no resizing."
       },
       {
-        "name": "phone",
+        "name": "narrow",
         "value": "(max-width:599px)",
         "purpose": "12px board padding; one-row masthead with the Needs count shown and the fleet id, model, queue, compactions and context bar hidden; the Interrupt label hidden; tabs in thirds."
       },
@@ -1492,7 +1501,7 @@
         "purpose": "The page flows; a 36px sticky masthead merges the tabs into its row; the composer sticks to the bottom; the text box stops at 30dvh."
       },
       {
-        "name": "short-phone",
+        "name": "short-narrow",
         "value": "(max-height:599px) and (max-width:599px)",
         "purpose": "The fleet name, model, queue and compactions hide from the masthead."
       },
@@ -1505,6 +1514,36 @@
         "name": "reduced-motion",
         "value": "(prefers-reduced-motion:reduce)",
         "purpose": "All motion stops."
+      },
+      {
+        "name": "masthead-wrap",
+        "value": "(min-width:600px) and (max-width:899px)",
+        "purpose": "The masthead's strip may drop under the fleet name; the brand caps at 20rem."
+      },
+      {
+        "name": "task-grid",
+        "value": "(max-width:999px)",
+        "purpose": "The task page's two columns become one and its aside moves above the main column."
+      },
+      {
+        "name": "viewer-wide",
+        "value": "(min-width:600px)",
+        "purpose": "dialog.viewer[data-wide] spans the window less 48px; below it the dialog is full screen."
+      },
+      {
+        "name": "doc-wide",
+        "value": "(max-width:699px)",
+        "purpose": "The document page's Wide toggle hides, where it would change nothing."
+      },
+      {
+        "name": "viewer-aside",
+        "value": "(min-width:1000px)",
+        "purpose": "A task or attempt page inside the viewer keeps its two columns and its aside sticks to the dialog's top."
+      },
+      {
+        "name": "two-line-row",
+        "value": "@container (width < 480px) on the work pane",
+        "purpose": "A collapsed Needs row takes two lines: the title, then the refs and time."
       }
     ],
     "containers": [
@@ -1531,12 +1570,7 @@
       {
         "name": "thread",
         "value": "880px",
-        "purpose": "Task, Tasks, decision, conversation, error and fleet-list pages; padding 20px 16px 48px; the masthead aligns to 848px (1120px and 1088px on the task page)."
-      },
-      {
-        "name": "two-line-row",
-        "value": "(max-width:479px) on the work pane",
-        "purpose": "A collapsed Needs row takes two lines: the title, then the refs and time."
+        "purpose": "Task, Tasks, decision, conversation, error and fleet-list pages; padding 20px 16px 48px with a 14px gap; the masthead aligns to 848px (1120px and 1088px on the task page)."
       },
       {
         "name": "measure",
@@ -1611,7 +1645,11 @@
         "chat",
         "fleets",
         "sidebar",
-        "menu"
+        "menu",
+        "phone",
+        "screen",
+        "back",
+        "close"
       ],
       "viewBox": "0 0 16 16",
       "strokeWidth": 1.5,
@@ -1634,6 +1672,7 @@
         "board",
         "tasks",
         "chat",
+        "phone",
         "fleets",
         "sidebar",
         "menu"
@@ -1767,7 +1806,7 @@
       "refersTo": "button",
       "description": "The default control: Mark read, New session, Cancel, Switch now, the keys of a blocked screen.",
       "html": "<button class=\"ds-btn\">Mark read</button>",
-      "css": ".ds-btn{font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line-strong,#848d99);border-radius:6px;background:var(--card,#f1f3f5);color:var(--fg,#15171c);cursor:pointer}.ds-btn:hover{background:var(--hover,#eaeef2)}.ds-btn:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}"
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;height:32px;font:400 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:0 12px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#ffffff);color:var(--fg,#15171c);cursor:pointer}.ds-btn:hover{background:var(--hover,#eef0f3)}.ds-btn:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}"
     },
     {
       "name": "Primary Button",
@@ -1775,7 +1814,7 @@
       "refersTo": "button-primary",
       "description": "The one committing button in a form: Send, Send answer, Resume, Start.",
       "html": "<button class=\"ds-btn-primary\">Answer</button>",
-      "css": ".ds-btn-primary{font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#19793b);color:var(--on-primary,#ffffff);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-btn-primary:disabled{opacity:.55;cursor:default}"
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;height:32px;font:600 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:0 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#ffffff);cursor:pointer}.ds-btn-primary:hover{background:color-mix(in srgb,var(--primary,#15171c) 86%,var(--bg,#ffffff))}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-btn-primary:disabled{opacity:.55;cursor:default}"
     },
     {
       "name": "Status Pill",
@@ -1783,7 +1822,7 @@
       "refersTo": "status-pill",
       "description": "The supervisor state in the masthead: an icon and a word on a pale fill; the working icon pulses.",
       "html": "<span class=\"ds-pill\" data-state=\"working\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><span>working</span></span> <span class=\"ds-pill\" data-state=\"ready\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.25 8.25l1.9 1.9 3.6-4\"/></svg><span>ready</span></span> <span class=\"ds-pill\" data-state=\"failing\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span>blocked</span></span> <span class=\"ds-pill\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-dasharray=\"2.2 2.2\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/></svg><span>stopped</span></span>",
-      "css": ".ds-pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill .ds-icon{flex:none;width:12px;height:12px}.ds-pill[data-state=ready]{background:var(--pass-bg,#e3f5e8);color:var(--pass,#19793b)}.ds-pill[data-state=working]{background:var(--accent-bg,#e8f0fc);color:var(--accent,#2457c5)}.ds-pill[data-state=working] .ds-icon{animation:ds-lamp 2s ease-in-out infinite}.ds-pill[data-state=failing]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}@keyframes ds-lamp{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.ds-pill .ds-icon{animation:none}}"
+      "css": ".ds-pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px 0 8px;border-radius:999px;background:var(--neutral-bg,#eef0f3);color:var(--neutral,#5b626e);font:600 12px/18px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill .ds-icon{flex:none;width:12px;height:12px}.ds-pill[data-state=ready]{background:var(--pass-bg,#e4f4e9);color:var(--pass,#1a7a3e)}.ds-pill[data-state=working]{background:var(--accent-bg,#ebf1fd);color:var(--accent,#2457c5)}.ds-pill[data-state=working] .ds-icon{animation:ds-lamp 2s ease-in-out infinite}.ds-pill[data-state=failing]{background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32)}@keyframes ds-lamp{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.ds-pill .ds-icon{animation:none}}"
     },
     {
       "name": "Masthead",
@@ -1791,23 +1830,23 @@
       "refersTo": "masthead",
       "description": "The 44px row on every page: the tinted mark and fleet name, then the status pill, the supervisor and model, and the context bar.",
       "html": "<header class=\"ds-masthead\"><a class=\"ds-brand\" href=\"#\"><svg class=\"ds-mark\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z\"/><path d=\"M8 3.3v1\"/><path d=\"M8 8l2.9-3.9\"/><path d=\"M8 7.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6z\" fill=\"currentColor\"/></svg><span class=\"ds-fleet\">fleet</span></a><span class=\"ds-spacer\"></span><span class=\"ds-strip\"><span class=\"ds-pill\" data-state=\"working\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><span>working</span></span><span class=\"ds-who\">s1 · opus high</span><span class=\"ds-ctx\"><span class=\"ds-meter\"><span></span></span><span>510K / 1M</span></span></span></header>",
-      "css": ".ds-masthead{--tint:#407acc;display:flex;align-items:center;gap:12px;min-height:44px;padding:0 16px;background:var(--bg,#ffffff);color:var(--fg,#15171c);border-top:3px solid var(--tint);border-bottom:1px solid var(--line,#e3e6ea);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--fg,#15171c);text-decoration:none}.ds-mark{flex:none;width:22px;height:22px;color:var(--tint)}.ds-fleet{font-size:16px;font-weight:600;line-height:24px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-spacer{flex:1}.ds-strip{display:flex;align-items:center;gap:10px;font-size:12px;line-height:20px;white-space:nowrap}.ds-who{color:var(--muted,#59616c);font-weight:600}.ds-ctx{display:inline-flex;align-items:center;gap:6px;color:var(--muted,#59616c);font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums}.ds-meter{display:inline-block;width:48px;height:6px;border-radius:3px;background:var(--line,#e3e6ea);overflow:hidden}.ds-meter>span{display:block;width:51%;height:100%;background:var(--accent,#2457c5)}.ds-pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--accent-bg,#e8f0fc);color:var(--accent,#2457c5);font-weight:600}.ds-pill .ds-icon{width:12px;height:12px}.ds-brand:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}"
+      "css": ".ds-masthead{--tint:#407acc;display:flex;align-items:center;gap:12px;min-height:44px;padding:0 16px;background:var(--bg,#ffffff);color:var(--fg,#15171c);border-top:3px solid var(--tint);border-bottom:1px solid var(--line,#e3e6ea);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--fg,#15171c);text-decoration:none}.ds-mark{flex:none;width:22px;height:22px;color:var(--tint)}.ds-fleet{font-size:15px;font-weight:600;line-height:22px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-spacer{flex:1}.ds-strip{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18px;white-space:nowrap}.ds-who{color:var(--muted,#5b626e);font-weight:600}.ds-ctx{display:inline-flex;align-items:center;gap:6px;color:var(--muted,#5b626e);font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums}.ds-meter{display:inline-block;width:48px;height:6px;border-radius:3px;background:var(--line,#e3e6ea);overflow:hidden}.ds-meter>span{display:block;width:51%;height:100%;background:var(--accent,#2457c5)}.ds-pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px 0 8px;border-radius:999px;background:var(--accent-bg,#ebf1fd);color:var(--accent,#2457c5);font-weight:600}.ds-pill .ds-icon{width:12px;height:12px}.ds-brand:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}"
     },
     {
       "name": "Rail",
       "kind": "nav",
       "refersTo": "rail",
-      "description": "The 56px icon rail from 900px: Board with the Needs count, Tasks, Conversation with the working dot, then the fleets. The current page is a tile on the ground; the current fleet has an ink bar at the edge.",
-      "html": "<nav class=\"ds-rail\" aria-label=\"Board\"><a href=\"#\" aria-current=\"page\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.75 2.75h10.5a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-8.5a1 1 0 0 1 1-1z\"/><path d=\"M9.75 2.75v10.5\"/></svg><span class=\"ds-n\" data-worst=\"fail\">3</span></a><a href=\"#\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 4h6.5M7 8h6.5M7 12h6.5\"/><path d=\"M2.25 4l1 1 1.75-2\"/><path d=\"M2.75 8h1.5M2.75 12h1.5\"/></svg></a><a href=\"#\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3.25 2.75h9.5a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5l-3 2.5v-2.5H3.25a1.5 1.5 0 0 1-1.5-1.5v-5.5a1.5 1.5 0 0 1 1.5-1.5z\"/></svg><span class=\"ds-dot\"></span></a><hr><a class=\"ds-fleet\" href=\"#\" aria-current=\"true\"><span class=\"ds-mark\"></span></a><a class=\"ds-fleet\" href=\"#\"><span class=\"ds-mark ds-other\"></span></a></nav>",
-      "css": ".ds-rail{display:flex;flex-direction:column;align-items:center;gap:2px;width:56px;padding:56px 0 12px;border:1px solid var(--line,#e3e6ea);border-width:0 1px 0 0;background:var(--panel,#f6f7f9);color:var(--muted,#5b626e);box-sizing:border-box}.ds-rail a{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid transparent;border-radius:6px;color:inherit;text-decoration:none}.ds-rail a:hover{background:var(--hover,#eef0f3);color:var(--fg,#15171c)}.ds-rail a:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-rail a[aria-current=page]{border-color:var(--line,#e3e6ea);background:var(--bg,#fff);color:var(--fg,#15171c)}.ds-rail hr{width:32px;margin:8px 0;border:0;border-top:1px solid var(--line,#e3e6ea)}.ds-rail .ds-fleet[aria-current]{color:var(--fg,#15171c)}.ds-rail .ds-fleet[aria-current]::before{content:\"\";position:absolute;left:-8px;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--fg,#15171c)}.ds-mark{width:18px;height:18px;border-radius:50%;background:#407acc}.ds-mark.ds-other{background:#25848d}.ds-n{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32);font:600 12px/18px system-ui,sans-serif;text-align:center;outline:2px solid var(--panel,#f6f7f9)}.ds-dot{position:absolute;top:9px;right:9px;width:6px;height:6px;border-radius:50%;background:var(--accent,#2457c5);outline:2px solid var(--panel,#f6f7f9)}.ds-icon{width:16px;height:16px}"
+      "description": "The 56px icon rail from 900px: Board with the Needs count, Tasks, Conversation with the working dot, the pairing page, then the fleets. The current page is a tile on the ground; the current fleet has an ink bar at the edge.",
+      "html": "<nav class=\"ds-rail\" aria-label=\"Board\"><a href=\"#\" aria-current=\"page\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.75 2.75h10.5a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-8.5a1 1 0 0 1 1-1z\"/><path d=\"M9.75 2.75v10.5\"/></svg><span class=\"ds-n\" data-tone=\"fail\">3</span></a><a href=\"#\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 4h6.5M7 8h6.5M7 12h6.5\"/><path d=\"M2.25 4l1 1 1.75-2\"/><path d=\"M2.75 8h1.5M2.75 12h1.5\"/></svg></a><a href=\"#\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3.25 2.75h9.5a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5l-3 2.5v-2.5H3.25a1.5 1.5 0 0 1-1.5-1.5v-5.5a1.5 1.5 0 0 1 1.5-1.5z\"/></svg><span class=\"ds-dot\"></span></a><hr><a class=\"ds-fleet\" href=\"#\" aria-current=\"true\"><span class=\"ds-mark\"></span></a><a class=\"ds-fleet\" href=\"#\"><span class=\"ds-mark ds-other\"></span></a></nav>",
+      "css": ".ds-rail{display:flex;flex-direction:column;align-items:center;gap:2px;width:56px;padding:0 7px 12px;border:1px solid var(--line,#e3e6ea);border-width:0 1px 0 0;background:var(--panel,#f6f7f9);color:var(--muted,#5b626e);box-sizing:border-box}.ds-rail a{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid transparent;border-radius:6px;color:inherit;text-decoration:none}.ds-rail a:hover{background:var(--hover,#eef0f3);color:var(--fg,#15171c)}.ds-rail a:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-rail a[aria-current=page]{border-color:var(--line,#e3e6ea);background:var(--bg,#fff);color:var(--fg,#15171c)}.ds-rail hr{width:32px;margin:8px 0;border:0;border-top:1px solid var(--line,#e3e6ea)}.ds-rail .ds-fleet[aria-current]{color:var(--fg,#15171c)}.ds-rail .ds-fleet[aria-current]::before{content:\"\";position:absolute;left:-8px;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--fg,#15171c)}.ds-mark{width:18px;height:18px;border-radius:50%;background:#407acc}.ds-mark.ds-other{background:#25848d}.ds-n{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32);font:600 12px/18px system-ui,sans-serif;text-align:center;outline:2px solid var(--panel,#f6f7f9)}.ds-dot{position:absolute;top:9px;right:9px;width:6px;height:6px;border-radius:50%;background:var(--accent,#2457c5);outline:2px solid var(--panel,#f6f7f9)}.ds-icon{width:16px;height:16px}"
     },
     {
       "name": "Tabs",
       "kind": "nav",
       "refersTo": "tab",
       "description": "Below 900px: Needs with its worst-toned count, Tasks, and Chat with the working dot, each a third of the width.",
-      "html": "<nav class=\"ds-tabs\"><a href=\"#\" aria-current=\"true\">Needs <span class=\"ds-n\" data-worst=\"fail\">1</span></a><a href=\"#\">Tasks</a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
-      "css": ".ds-tabs{display:flex;border-bottom:1px solid var(--line,#e3e6ea);background:var(--bg,#fff);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 12px;border-bottom:2px solid transparent;color:var(--muted,#5b626e);font-weight:600;text-decoration:none}.ds-tabs a:hover{color:var(--fg,#15171c)}.ds-tabs a[aria-current=true]{border-bottom-color:var(--fg,#15171c);color:var(--fg,#15171c)}.ds-tabs a:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-n{display:inline-block;min-width:20px;height:20px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--neutral-bg,#eef0f3);color:var(--neutral,#5b626e);font:600 12px/18px system-ui,sans-serif;text-align:center}.ds-n[data-worst=fail]{background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32)}.ds-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#2457c5)}"
+      "html": "<nav class=\"ds-tabs\"><a href=\"#\" aria-current=\"true\">Needs <span class=\"ds-n\" data-tone=\"fail\">1</span></a><a href=\"#\">Tasks</a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
+      "css": ".ds-tabs{display:flex;border-bottom:1px solid var(--line,#e3e6ea);background:var(--bg,#fff);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 12px;border-bottom:2px solid transparent;color:var(--muted,#5b626e);font-weight:600;text-decoration:none}.ds-tabs a:hover{color:var(--fg,#15171c)}.ds-tabs a[aria-current=true]{border-bottom-color:var(--fg,#15171c);color:var(--fg,#15171c)}.ds-tabs a:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-n{display:inline-block;min-width:20px;height:20px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--neutral-bg,#eef0f3);color:var(--neutral,#5b626e);font:600 12px/18px system-ui,sans-serif;text-align:center}.ds-n[data-tone=fail]{background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32)}.ds-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#2457c5)}"
     },
     {
       "name": "Needs Band And Items",
@@ -1815,55 +1854,79 @@
       "refersTo": "need-item",
       "description": "The signature component: one band head per severity word over calm one-line rows, with the top item open as a card whose header takes the tone's pale fill, here a blocked screen with its keys.",
       "html": "<div class=\"ds-band\" data-tone=\"fail\">Blocked</div><details class=\"ds-need\" data-tone=\"fail\" open><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span class=\"ds-headline\">Bash: run the test suite · Do you want to proceed?</span><span class=\"ds-countdown\">0:42</span><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg><span class=\"ds-slug\"><span class=\"ds-ref\">s1</span><time>12:41</time></span></summary><div class=\"ds-need-body\"><pre class=\"ds-screen\"><code>Do you want to proceed?\n  1. Yes\n❯ 2. No</code></pre><div class=\"ds-keys\"><button>2 No</button><button>Esc</button><button>1 Yes</button></div></div></details><div class=\"ds-band\" data-tone=\"wait\">Decision</div><details class=\"ds-need\" data-tone=\"wait\"><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.5 8h.01M8 8h.01M10.5 8h.01\"/></svg><span class=\"ds-headline\">Keep the old config format?</span><span class=\"ds-slug\"><span class=\"ds-ref\">d5</span><time>12:30</time></span><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg></summary></details>",
-      "css": ".ds-band{margin:20px 0 4px;padding:0 16px;color:var(--muted,#5b626e);font:600 12px/18px system-ui,sans-serif;letter-spacing:.02em}.ds-band[data-tone=fail]{color:var(--fail,#c42b32)}.ds-band[data-tone=wait]{color:var(--wait,#8a5b00)}.ds-need{background:var(--bg,#fff);color:var(--fg,#15171c);border-bottom:1px solid var(--line,#e3e6ea);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-need>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 16px;cursor:pointer;list-style:none}.ds-need>summary::-webkit-details-marker{display:none}.ds-need>summary:hover{background:var(--hover,#eef0f3)}.ds-need>summary:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-2px}.ds-need[data-tone=fail]>summary>.ds-icon:first-child{color:var(--fail,#c42b32)}.ds-need[data-tone=wait]>summary>.ds-icon:first-child{color:var(--wait,#8a5b00)}.ds-headline{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-slug{display:flex;gap:8px;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-ref{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.ds-countdown{height:20px;padding:0 8px;border-radius:999px;background:var(--bg,#fff);border:1px solid var(--line,#e3e6ea);color:var(--fail,#c42b32);font:600 12px/18px ui-monospace,monospace}.ds-need>summary>.ds-icon:last-of-type{color:var(--muted,#5b626e)}.ds-need[open]{margin:6px 0 10px;border:1px solid var(--line,#e3e6ea);border-radius:10px;overflow:hidden}.ds-need[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:2px 10px;padding:12px 15px 10px}.ds-need[open][data-tone=fail]>summary{background:var(--fail-bg,#fdeeee)}.ds-need[open]>summary>.ds-headline{font-size:15px;font-weight:600;line-height:22px;white-space:normal}.ds-need[open]>summary>.ds-slug{order:5;flex:1 0 100%;padding-left:26px}.ds-need-body{display:grid;gap:10px;padding:10px 15px 15px 41px}.ds-screen{margin:0;padding:10px 0 10px 12px;border-radius:6px;background:var(--screen,#111418);color:var(--screen-fg,#d8dde4);font:12px/18px ui-monospace,monospace;white-space:pre-wrap}.ds-keys{display:flex;flex-wrap:wrap;gap:6px}.ds-keys button{min-width:2.6em;height:32px;padding:0 10px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px ui-monospace,monospace;box-shadow:inset 0 -1px 0 var(--line,#e3e6ea)}.ds-icon{width:16px;height:16px;flex:none}"
+      "css": ".ds-band{margin:20px 0 4px;padding:0 16px;color:var(--muted,#5b626e);font:600 12px/18px system-ui,sans-serif;letter-spacing:.02em;text-transform:lowercase}.ds-band[data-tone=fail]{color:var(--fail,#c42b32)}.ds-band[data-tone=wait]{color:var(--wait,#8a5b00)}.ds-need{background:var(--bg,#fff);color:var(--fg,#15171c);border-bottom:1px solid var(--line,#e3e6ea);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-need>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 16px;cursor:pointer;list-style:none}.ds-need>summary::-webkit-details-marker{display:none}.ds-need>summary:hover{background:var(--hover,#eef0f3)}.ds-need>summary:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-2px}.ds-need[data-tone=fail]>summary>.ds-icon:first-child{color:var(--fail,#c42b32)}.ds-need[data-tone=wait]>summary>.ds-icon:first-child{color:var(--wait,#8a5b00)}.ds-headline{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-slug{display:flex;gap:8px;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-ref{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.ds-countdown{height:20px;padding:0 8px;border-radius:999px;background:var(--bg,#fff);border:1px solid var(--line,#e3e6ea);color:var(--fail,#c42b32);font:600 12px/18px ui-monospace,monospace}.ds-need>summary>.ds-icon:last-of-type{color:var(--muted,#5b626e)}.ds-need[open]{margin:6px 0 10px;border:1px solid var(--line,#e3e6ea);border-radius:10px;overflow:hidden}.ds-need[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:2px 10px;padding:12px 15px 10px}.ds-need[open][data-tone=fail]>summary{background:var(--fail-bg,#fdeeee)}.ds-need[open]>summary>.ds-headline{font-size:15px;font-weight:600;line-height:22px;white-space:normal}.ds-need[open]>summary>.ds-slug{order:5;flex:1 0 100%;padding-left:26px}.ds-need-body{display:grid;gap:10px;padding:10px 15px 15px 41px}.ds-screen{margin:0;padding:10px 0 10px 12px;border-radius:6px;background:var(--screen,#111418);color:var(--screen-fg,#d8dde4);font:12px/18px ui-monospace,monospace;white-space:pre-wrap}.ds-keys{display:flex;flex-wrap:wrap;gap:6px}.ds-keys button{min-width:2.6em;height:32px;padding:0 10px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px ui-monospace,monospace;box-shadow:inset 0 -1px 0 var(--line,#e3e6ea)}.ds-icon{width:16px;height:16px;flex:none}"
     },
     {
       "name": "Choice List",
       "kind": "custom",
       "refersTo": "choice-option",
       "description": "How a decision is answered: numbered options with their consequences in a bordered list, one marked Recommended, a note, and the one primary Send answer.",
-      "html": "<div class=\"ds-options\"><label class=\"ds-option\"><span class=\"ds-key\">1</span><span class=\"ds-text\"><span class=\"ds-label\">Keep 0.13.x <span class=\"ds-rec\">Recommended</span></span><span class=\"ds-note\">No migration; the old config keeps working.</span></span></label><label class=\"ds-option ds-picked\"><span class=\"ds-key\">2</span><span class=\"ds-text\"><span class=\"ds-label\">Track 0.14.x</span><span class=\"ds-note\">Gets the new watcher; needs a one-time update.</span></span></label><label class=\"ds-option\"><span class=\"ds-key\">3</span><span class=\"ds-text\"><span class=\"ds-label\">Other</span><span class=\"ds-note\">Write your own answer in the note.</span></span></label></div><textarea class=\"ds-textarea\" placeholder=\"Add a note (optional)\" rows=\"1\"></textarea><button class=\"ds-primary\">Send answer</button>",
-      "css": ".ds-options{display:grid;border:1px solid var(--line,#e3e6ea);border-radius:10px;background:var(--bg,#fff);overflow:hidden;font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-option{display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:12px;align-items:start;min-height:48px;padding:12px 14px;cursor:pointer}.ds-option+.ds-option{padding-top:11px;border-top:1px solid var(--line,#e3e6ea)}.ds-option:hover{background:var(--hover,#eef0f3)}.ds-key{display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--line-strong,#80889a);border-radius:50%;color:var(--muted,#5b626e);font:600 12px/1 ui-monospace,monospace}.ds-text{display:grid;gap:2px}.ds-label{font-weight:600;line-height:22px}.ds-rec{display:inline-block;height:20px;margin-left:8px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--pass-bg,#e4f4e9);color:var(--pass,#1a7a3e);font:600 12px/18px system-ui,sans-serif;vertical-align:1px}.ds-note{color:var(--muted,#5b626e)}.ds-picked{background:var(--accent-bg,#ebf1fd)}.ds-picked .ds-key{border-color:var(--accent,#2457c5);background:var(--accent,#2457c5);color:var(--bg,#fff)}.ds-textarea{display:block;width:100%;box-sizing:border-box;min-height:32px;margin-top:10px;padding:8px 10px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px/20px system-ui,sans-serif;resize:none}.ds-textarea:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-1px}.ds-primary{height:32px;margin-top:10px;padding:0 12px;border:0;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#fff);font:600 14px system-ui,sans-serif}"
+      "html": "<div class=\"ds-options\"><label class=\"ds-option\"><span class=\"ds-key\">1</span><span class=\"ds-text\"><span class=\"ds-label\">Keep 0.13.x <span class=\"ds-rec\">Recommended</span></span><span class=\"ds-note\">No migration; the old config keeps working.</span></span></label><label class=\"ds-option ds-picked\"><span class=\"ds-key\">2</span><span class=\"ds-text\"><span class=\"ds-label\">Track 0.14.x</span><span class=\"ds-note\">Gets the new watcher; needs a one-time update.</span></span></label><label class=\"ds-option\"><span class=\"ds-key\">3</span><span class=\"ds-text\"><span class=\"ds-label\">Other</span><span class=\"ds-note\">Write your own answer in the note.</span></span></label></div><textarea class=\"ds-textarea\" placeholder=\"Add a note (optional)\" rows=\"1\"></textarea><button class=\"ds-btn-primary\">Send answer</button>",
+      "css": ".ds-options{display:grid;border:1px solid var(--line,#e3e6ea);border-radius:10px;background:var(--bg,#fff);overflow:hidden;font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-option{display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:12px;align-items:start;min-height:48px;padding:12px 14px;cursor:pointer}.ds-option+.ds-option{padding-top:11px;border-top:1px solid var(--line,#e3e6ea)}.ds-option:hover{background:var(--hover,#eef0f3)}.ds-key{display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--line-strong,#80889a);border-radius:50%;color:var(--muted,#5b626e);font:600 12px/1 ui-monospace,monospace}.ds-text{display:grid;gap:2px}.ds-label{font-weight:600;line-height:22px}.ds-rec{display:inline-block;height:20px;margin-left:8px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--pass-bg,#e4f4e9);color:var(--pass,#1a7a3e);font:600 12px/18px system-ui,sans-serif;vertical-align:1px}.ds-note{color:var(--muted,#5b626e)}.ds-picked{background:var(--accent-bg,#ebf1fd)}.ds-picked .ds-key{border-color:var(--accent,#2457c5);background:var(--accent,#2457c5);color:var(--bg,#fff)}.ds-textarea{display:block;width:100%;box-sizing:border-box;min-height:32px;margin-top:10px;padding:8px 10px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px/20px system-ui,sans-serif;resize:none}.ds-textarea:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-1px}.ds-btn-primary{height:32px;margin-top:10px;padding:0 12px;border:0;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#fff);font:600 14px system-ui,sans-serif}"
     },
     {
       "name": "Task Row",
       "kind": "custom",
       "refersTo": "task-row",
-      "description": "One task in Tasks or one attempt on a task page: state icon, ref, title, right-aligned meta and a PR badge between hairlines.",
-      "html": "<ol class=\"ds-checks\"><li class=\"ds-check\" data-state=\"waiting\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.5 8h.01M8 8h.01M10.5 8h.01\"/></svg><a class=\"ds-ref\" href=\"#\">t12</a><span class=\"ds-title\">Split the report parser</span><span class=\"ds-meta\">a9 claude opus · blocked</span><a class=\"ds-chip\" href=\"#\">PR</a></li><li class=\"ds-check\" data-state=\"running\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><a class=\"ds-ref\" href=\"#\">t14</a><span class=\"ds-title\">Add the decision page</span><span class=\"ds-meta\">a11 codex · working</span></li></ol>",
-      "css": ".ds-checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line,#e3e6ea);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#15171c)}.ds-check{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line,#e3e6ea);white-space:nowrap}.ds-check .ds-icon{width:16px;height:16px}.ds-check[data-state=waiting] .ds-icon{color:var(--wait,#8f5e00)}.ds-check[data-state=running] .ds-icon{color:var(--pass,#19793b)}.ds-title{min-width:0;overflow:hidden;text-overflow:ellipsis}.ds-meta{justify-self:end;color:var(--muted,#59616c);font-size:12px;font-variant-numeric:tabular-nums}.ds-ref{padding:0 6px;border:1px solid var(--line,#e3e6ea);border-radius:6px;background:var(--card,#f1f3f5);color:var(--fg,#15171c);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}.ds-ref:hover{border-color:var(--accent,#2457c5);color:var(--accent,#2457c5)}.ds-chip{padding:0 7px;border:1px solid var(--line,#e3e6ea);border-radius:999px;color:var(--accent,#2457c5);font-size:12px;font-weight:600;line-height:18px;text-decoration:none}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px}"
+      "description": "One task in Tasks or one attempt on a task page: state icon, ref, title, meta line under the title and the deliverable as plain muted text, between hairlines.",
+      "html": "<ol class=\"ds-checks\"><li class=\"ds-check\" data-state=\"waiting\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.5 8h.01M8 8h.01M10.5 8h.01\"/></svg><a class=\"ds-ref\" href=\"#\">t12</a><span class=\"ds-title\">Split the report parser</span><span class=\"ds-meta\">a9 claude opus · blocked</span></li><li class=\"ds-check\" data-state=\"running\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><a class=\"ds-ref\" href=\"#\">t14</a><span class=\"ds-title\">Add the decision page</span><span class=\"ds-meta\">a11 codex · working</span></li></ol>",
+      "css": ".ds-checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line,#e3e6ea);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#15171c)}.ds-check{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto;align-items:center;gap:8px;min-height:48px;padding:4px;border-bottom:1px solid var(--line,#e3e6ea);white-space:nowrap}.ds-check .ds-icon{width:16px;height:16px}.ds-check[data-state=waiting] .ds-icon{color:var(--wait,#8a5b00)}.ds-check[data-state=running] .ds-icon{color:var(--pass,#1a7a3e)}.ds-title{min-width:0;overflow:hidden;text-overflow:ellipsis}.ds-meta{justify-self:end;color:var(--muted,#5b626e);font-size:12px;font-variant-numeric:tabular-nums}.ds-ref{color:inherit;font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}a.ds-ref{color:var(--accent,#2457c5)}a.ds-ref:hover{text-decoration:underline}.ds-badge{display:inline-flex;align-items:center;height:20px;min-width:20px;padding:0 8px;border:1px solid transparent;border-radius:999px;background:var(--tone-bg,var(--neutral-bg,#eef0f3));color:var(--tone,var(--neutral,#5b626e));font-size:12px;font-weight:600;line-height:18px;text-align:center;white-space:nowrap}.ds-badge[data-tone=fail]{--tone:var(--fail,#c42b32);--tone-bg:var(--fail-bg,#fdeeee)}.ds-badge[data-tone=wait]{--tone:var(--wait,#8a5b00);--tone-bg:var(--wait-bg,#fcf3dc)}.ds-badge[data-tone=link]{--tone:var(--accent,#2457c5);--tone-bg:transparent;border-color:var(--line,#e3e6ea)}.ds-badge[data-tone=link]:hover{border-color:var(--accent,#2457c5)}.ds-badge[data-tone=link][target=_blank]::after{content:'';display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}.ds-ref:focus-visible,.ds-badge:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px}"
     },
     {
       "name": "Conversation",
       "kind": "card",
       "refersTo": "msg-copy",
-      "description": "A supervisor reply on the pane under a head line, an operator bubble on the right on accent-bg, and a one-line Hand event with its ring.",
+      "description": "A supervisor reply in a bordered card bubble with its head line inside, an operator bubble on the right on accent-bg, and a one-line Hand event with its ring.",
       "html": "<div class=\"ds-thread\"><div class=\"ds-reply\"><div class=\"ds-head\"><b>s1</b><time>12:41</time></div><p>t12 is blocked on a Bash prompt; the attempt a9 waits in Needs.</p></div><p class=\"ds-hand\"><span class=\"ds-ring\"></span><span>pressed 2 (No) on s1's Bash prompt</span><time>12:42</time></p><div class=\"ds-you\"><div class=\"ds-head\"><b>you</b><time>12:43</time><span class=\"ds-delivery\">delivered 12:43</span></div><p>Run the tests without the network step.</p></div></div>",
-      "css": ".ds-thread{display:grid;gap:14px;max-width:760px;color:var(--fg,#15171c);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-head{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-head b{color:var(--fg,#15171c);font-weight:600}.ds-delivery{margin-left:auto}.ds-reply p,.ds-you p{margin:0;font-size:15px;line-height:24px;max-width:72ch}.ds-you{justify-self:end;max-width:88%;padding:10px 14px 12px;border-radius:10px 10px 4px 10px;background:var(--accent-bg,#ebf1fd)}.ds-you b{color:var(--accent,#2457c5)}.ds-hand{display:flex;align-items:center;gap:8px;margin:0;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-ring{width:8px;height:8px;border:1px solid var(--line-strong,#80889a);border-radius:50%;box-sizing:border-box}"
+      "css": ".ds-thread{display:grid;gap:14px;max-width:760px;color:var(--fg,#15171c);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-head{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-head b{color:var(--fg,#15171c);font-weight:600}.ds-delivery{margin-left:auto}.ds-reply{justify-self:start;max-width:calc(72ch + 30px);padding:9px 13px 11px;border:1px solid var(--line-strong,#80889a);border-radius:10px;background:var(--card,#f1f3f5)}.ds-reply p,.ds-you p{margin:0;font-size:15px;line-height:24px;max-width:72ch}.ds-you{justify-self:end;max-width:88%;padding:10px 14px 12px;border-radius:10px 10px 4px 10px;background:var(--accent-bg,#ebf1fd)}.ds-you b{color:var(--accent,#2457c5)}.ds-hand{display:flex;align-items:center;gap:8px;margin:0;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-ring{width:8px;height:8px;border:1px solid var(--line-strong,#80889a);border-radius:50%;box-sizing:border-box}"
     },
     {
       "name": "Composer",
       "kind": "input",
       "refersTo": "composer",
       "description": "One box under the timeline: the growing text box, then the hint and the send group (paperclip, key hint, Send).",
-      "html": "<div class=\"ds-composer\"><textarea placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><div class=\"ds-foot\"><span class=\"ds-hint\">s1 is working; your message queues.</span><span class=\"ds-send\"><kbd>Ctrl Enter</kbd><button class=\"ds-primary\">Send</button></span></div></div>",
-      "css": ".ds-composer{max-width:760px;padding:4px 4px 8px;border:1px solid var(--line-strong,#80889a);border-radius:10px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-composer:focus-within{border-color:var(--accent,#2457c5);box-shadow:0 0 0 1px var(--accent,#2457c5)}.ds-composer textarea{display:block;width:100%;min-height:44px;box-sizing:border-box;padding:8px 10px;border:0;background:transparent;color:inherit;font:inherit;resize:none;outline:0}.ds-foot{display:flex;align-items:center;gap:8px;padding:0 8px}.ds-hint{flex:1;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-send{display:flex;align-items:center;gap:8px}kbd{height:20px;padding:0 6px;box-sizing:border-box;border-radius:4px;border:1px solid var(--line,#e3e6ea);border-bottom-width:2px;color:var(--muted,#5b626e);font:12px/16px ui-monospace,monospace}.ds-primary{height:32px;padding:0 12px;border:0;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#fff);font:600 14px system-ui,sans-serif}"
+      "html": "<div class=\"ds-composer\"><textarea placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><div class=\"ds-foot\"><span class=\"ds-hint\">s1 is starting; your message waits.</span><span class=\"ds-send\"><kbd>Ctrl Enter</kbd><button class=\"ds-btn-primary\">Send</button></span></div></div>",
+      "css": ".ds-composer{max-width:760px;padding:4px 4px 8px;border:1px solid var(--line-strong,#80889a);border-radius:10px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-composer:focus-within{border-color:var(--accent,#2457c5);box-shadow:0 0 0 1px var(--accent,#2457c5)}.ds-composer textarea{display:block;width:100%;min-height:44px;box-sizing:border-box;padding:8px 10px;border:0;background:transparent;color:inherit;font:inherit;resize:none;outline:0}.ds-foot{display:flex;align-items:center;gap:8px;padding:0 8px}.ds-hint{flex:1;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-send{display:flex;align-items:center;gap:8px}kbd{height:20px;padding:0 6px;box-sizing:border-box;border-radius:4px;border:1px solid var(--line,#e3e6ea);border-bottom-width:2px;color:var(--muted,#5b626e);font:12px/16px ui-monospace,monospace}.ds-btn-primary{height:32px;padding:0 12px;border:0;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#fff);font:600 14px system-ui,sans-serif}"
     },
     {
       "name": "Separator",
       "kind": "custom",
       "refersTo": "separator",
       "description": "The drag strip on the supervisor pane's left edge: a hairline at rest, a 3px accent line and a grip on hover, focus or drag.",
-      "html": "<div class=\"ds-split\"><div class=\"ds-work\">Work pane</div><div class=\"ds-sep\" role=\"separator\" aria-orientation=\"vertical\" aria-label=\"Chat width\" tabindex=\"0\"></div><div class=\"ds-chat\">Supervisor pane</div></div>",
+      "html": "<div class=\"ds-split\"><div class=\"ds-work\">Work pane</div><div class=\"ds-sep\" role=\"separator\" aria-orientation=\"vertical\" aria-label=\"Chat width\" aria-valuemin=\"360\" aria-valuemax=\"900\" aria-valuenow=\"547\" aria-valuetext=\"547 pixels\" tabindex=\"0\"></div><div class=\"ds-chat\">Supervisor pane</div></div>",
       "css": ".ds-split{position:relative;display:grid;grid-template-columns:1fr 200px;height:96px;color:var(--muted,#5b626e);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-work,.ds-chat{display:grid;place-items:center}.ds-chat{border-left:1px solid var(--line,#e3e6ea);background:var(--panel,#f6f7f9)}.ds-sep{position:absolute;top:0;bottom:0;right:199px;width:10px;cursor:col-resize}.ds-sep::before{content:\"\";position:absolute;top:0;bottom:0;left:4px;width:3px;background:var(--accent,#2457c5);opacity:0}.ds-sep::after{content:\"\";position:absolute;top:calc(50% - 18px);left:2px;width:6px;height:36px;border-radius:3px;background:var(--line-strong,#80889a);opacity:0}.ds-sep:hover::before,.ds-sep:focus-visible::before,.ds-sep:hover::after,.ds-sep:focus-visible::after{opacity:1}.ds-sep:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-2px}"
     },
     {
       "name": "Refs, Badges and Counts",
       "kind": "chip",
       "refersTo": "ref",
-      "description": "A linked mono ref, a deliverable badge (PR) opening in a new tab, a severity badge on its pale fill, and the Needs head count in its worst tone.",
-      "html": "<span class=\"ds-row\"><a class=\"ds-ref\" href=\"#\">t12</a><a class=\"ds-chip\" href=\"#\">PR</a><span class=\"ds-code\" data-tone=\"wait\">DECISION</span><span class=\"ds-count\" data-worst=\"fail\">3</span></span>",
-      "css": ".ds-row{display:flex;align-items:center;gap:8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line,#e3e6ea);border-radius:6px;background:var(--card,#f1f3f5);color:var(--fg,#15171c);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}.ds-ref:hover{border-color:var(--accent,#2457c5);color:var(--accent,#2457c5)}.ds-chip{padding:0 7px;border:1px solid var(--line,#e3e6ea);border-radius:999px;color:var(--accent,#2457c5);font-size:12px;font-weight:600;line-height:18px;text-decoration:none}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-code{padding:0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font:700 12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;letter-spacing:.03em;text-transform:uppercase}.ds-code[data-tone=wait]{background:var(--wait-bg,#fcf3d9);color:var(--wait,#8f5e00)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--fg,#15171c);font-size:12px;font-weight:600;line-height:20px;text-align:center;font-variant-numeric:tabular-nums}.ds-count[data-worst=fail]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}"
+      "description": "A linked mono ref with no box, a deliverable badge opening in a new tab with its corner mark, a severity badge, and the Needs count in its worst tone.",
+      "html": "<span class=\"ds-row\"><a class=\"ds-ref\" href=\"#\">t12</a><a class=\"ds-badge\" data-tone=\"link\" href=\"#\">PR</a><span class=\"ds-code\" data-tone=\"wait\">DECISION</span><span class=\"ds-count\" data-tone=\"fail\">3</span></span>",
+      "css": ".ds-row{display:flex;align-items:center;gap:8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{color:inherit;font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}a.ds-ref{color:var(--accent,#2457c5)}a.ds-ref:hover{text-decoration:underline}.ds-badge{display:inline-flex;align-items:center;height:20px;min-width:20px;padding:0 8px;border:1px solid transparent;border-radius:999px;background:var(--tone-bg,var(--neutral-bg,#eef0f3));color:var(--tone,var(--neutral,#5b626e));font-size:12px;font-weight:600;line-height:18px;text-align:center;white-space:nowrap}.ds-badge[data-tone=fail]{--tone:var(--fail,#c42b32);--tone-bg:var(--fail-bg,#fdeeee)}.ds-badge[data-tone=wait]{--tone:var(--wait,#8a5b00);--tone-bg:var(--wait-bg,#fcf3dc)}.ds-badge[data-tone=link]{--tone:var(--accent,#2457c5);--tone-bg:transparent;border-color:var(--line,#e3e6ea)}.ds-badge[data-tone=link]:hover{border-color:var(--accent,#2457c5)}.ds-badge[data-tone=link][target=_blank]::after{content:'';display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}.ds-ref:focus-visible,.ds-badge:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-code{padding:0 6px;border-radius:999px;background:var(--neutral-bg,#eef0f3);color:var(--neutral,#5b626e);font:600 12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;letter-spacing:.03em;text-transform:uppercase}.ds-code[data-tone=wait]{background:var(--wait-bg,#fcf3dc);color:var(--wait,#8a5b00)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg,#eef0f3);color:var(--fg,#15171c);font-size:12px;font-weight:600;line-height:20px;text-align:center;font-variant-numeric:tabular-nums}.ds-count[data-tone=fail]{background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32)}"
+    },
+    {
+      "name": "Viewer Dialog",
+      "kind": "custom",
+      "refersTo": "menu",
+      "description": "The page of a thing opened in place: one dialog after the toast on every page, filled by app.js with the main of the page route it fetches, so the dialog shows what the page shows.",
+      "html": "<dialog class=\"ds-viewer\" aria-label=\"task/t12\"><div class=\"ds-viewer-top\"><button class=\"ds-back\" aria-label=\"Back\" disabled><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9.75 4.5L6 8l3.75 3.5\"/></svg></button><span class=\"ds-viewer-name\">task/t12</span><a class=\"ds-open\" href=\"#\">Open as a page</a><button class=\"ds-close\" aria-label=\"Close the viewer\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 4.5l7 7M11.5 4.5l-7 7\"/></svg></button></div><div class=\"ds-viewer-body\">Split the report parser</div></dialog>",
+      "css": ".ds-viewer{width:min(1200px,calc(100vw - 48px));height:calc(100dvh - 48px);padding:0;border:1px solid var(--line,#e3e6ea);border-radius:10px;background:var(--bg,#fff);color:var(--fg,#15171c);box-shadow:0 8px 24px var(--shadow,rgba(21,23,28,.12));overflow:hidden}.ds-viewer::backdrop{background:rgba(10,12,16,.32)}.ds-viewer-top{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 8px;border-bottom:1px solid var(--line,#e3e6ea);background:var(--panel,#f6f7f9)}.ds-viewer-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted,#5b626e);font:12px/18px ui-monospace,monospace}.ds-back,.ds-close{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c)}.ds-back:disabled{opacity:.55}.ds-open{display:inline-flex;align-items:center;height:32px;padding:0 12px;border:1px solid var(--line-strong,#80889a);border-radius:6px;color:var(--fg,#15171c);font-size:12px;font-weight:600;text-decoration:none}.ds-viewer-body{padding:20px;overflow:auto}"
+    },
+    {
+      "name": "Code Copy Button",
+      "kind": "button",
+      "refersTo": "code-copy",
+      "description": "The copy button app.js adds to every rendered code block: three icons on the block's own surface, shown on hover or focus and always on a coarse pointer.",
+      "html": "<div class=\"ds-code\"><pre><code>go test ./...</code></pre><button class=\"ds-copy\" type=\"button\" aria-label=\"Copy code\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5.75 5.75V3.5a1 1 0 0 1 1-1h5.5a1 1 0 0 1 1 1V9a1 1 0 0 1-1 1h-2.25\"/><path d=\"M2.75 6.75h6.5a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1h-6.5a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1z\"/></svg></button></div>",
+      "css": ".ds-code{position:relative;margin:0 0 8px;border-radius:6px;background:var(--card,#f1f3f5)}.ds-code>pre{margin:0;padding:10px calc(32px + 12px) 10px 12px;overflow-x:auto;border-radius:6px;background:var(--card,#f1f3f5);font:12px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.ds-copy{position:absolute;top:4px;right:4px;width:32px;height:32px;padding:0;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--card,#f1f3f5);color:var(--muted,#5b626e);opacity:0;cursor:pointer;transition:opacity .15s}.ds-code:hover .ds-copy,.ds-copy:focus-visible{opacity:1}.ds-copy:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px}.ds-copy[data-copied]{color:var(--pass,#1a7a3e)}@media (pointer:coarse){.ds-copy{opacity:1}}@media (prefers-reduced-motion:reduce){.ds-copy{transition:none}}"
+    },
+    {
+      "name": "Scroll To Latest",
+      "kind": "custom",
+      "refersTo": "latest-button",
+      "description": "The round button above the composer that returns the operator to the newest message, with the count of replies that arrived while they were away.",
+      "html": "<button class=\"ds-latest\" type=\"button\" aria-label=\"Scroll to latest, 3 new messages\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 3v10M4.5 9.5L8 13l3.5-3.5\"/></svg><span class=\"ds-badge\">3</span></button>",
+      "css": ".ds-latest{position:absolute;right:0;bottom:calc(100% + 12px);display:flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--line-strong,#80889a);border-radius:999px;background:var(--bg,#fff);color:var(--fg,#15171c)}.ds-latest>.ds-badge{position:absolute;top:-8px;right:-8px;--tone:var(--on-primary,#fff);--tone-bg:var(--primary,#15171c)}"
     }
   ],
   "narrative": {
@@ -1874,10 +1937,10 @@
       "A 56px icon rail and two panes from 900px, three tabs and a sheet below it: the work pane stays the widest thing on the page, and the chat is dragged to a remembered width inside fixed limits.",
       "One severity ramp orders Needs into bands, fills the open item's header, and colours the band heads and the Needs counts.",
       "Every state is a word plus an icon shape plus a colour, never colour alone.",
-      "The conversation is not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.",
+      "The conversation is not a stack of cards: the supervisor's replies are bordered `card` bubbles on the left with their head line inside, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.",
       "A decision is a choice list: numbered options with their consequences, one marked recommended, and a note.",
       "Acknowledge in place: a pressed key collapses its item to \"Sent 2 · waiting…\", and every action leaves a receipt, a Hand line and a link back.",
-      "Things open in a new tab and places in place; the composer's draft survives either.",
+      "Things open in the viewer dialog and places in place; the composer's draft survives either.",
       "A 44px masthead that answers the supervisor's state, model and context window.",
       "Five type sizes, tabular numerals for live figures, no web fonts, and a strict CSP."
     ],
@@ -1919,12 +1982,12 @@
       },
       {
         "name": "The Slim Rail Rule",
-        "body": "Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar, and the chat is dragged to size with no fold or widen mode (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).",
+        "body": "Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar, and the chat is dragged to size with no fold or widen mode (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSevenTabStopsBeforeTheMasthead`).",
         "section": "layout"
       },
       {
         "name": "The Proven Fleets Rule",
-        "body": "The rail lists the current fleet and, beside it, only the fleets whose login the browser sends and that fleet accepts. A fleet the browser holds no valid token for never has its name in the page, and no fleet's Needs count shows in another's rail. A network board lists only its own fleet (`TestTheRailListsOnlyTheFleetsTheViewerCanProve`, `TestTheCurrentFleetIsAlwaysListed`, `TestANetworkBoardListsOnlyItsOwnFleet`, `TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor`).",
+        "body": "The rail lists the current fleet and, beside it, only the fleets whose login the browser sends and that fleet accepts: the host session's token, or a companion's own pairing. A fleet the request holds no valid session for never has its name in the page, and no fleet's Needs count shows in another's rail. A page served without a session (the pairing page, a refusal) names no fleet at all. A network board lists only its own fleet (`TestTheRailListsOnlyTheFleetsTheViewerCanProve`, `TestTheCurrentFleetIsAlwaysListed`, `TestANetworkBoardListsOnlyItsOwnFleet`, `TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor`, `TestAPhoneListsExactlyTheFleetsItIsPairedWith`, `TestNoPageWithoutASessionNamesTheFleet`).",
         "section": "layout"
       },
       {
@@ -1933,13 +1996,13 @@
         "section": "layout"
       },
       {
-        "name": "The Things In New Tabs Rule",
-        "body": "From the Board, things open in a new tab and places navigate in place; outside links always open in a new tab. A thing is a task, attempt, report, decision, deliverable, image or outside page; a place is a fleet, the Board, Tasks, Conversation, a crumb, a pager step or an anchor. The fleet page's task rows, Needs links and refs in replies and Hand lines carry `target=\"_blank\" rel=\"noopener\"` (`TestAwayOpensLiveRefsInANewTab`); the Tasks page, the conversation page and the thread pages browse refs in place (`TestTheTasksPageBrowsesInPlace`, `TestTheLogAndThreadPagesKeepRefsInPlace`). Middle-click and Ctrl-click work everywhere.",
+        "name": "The Things In The Viewer Rule",
+        "body": "From the Board, things open in the viewer dialog over the page, places navigate in place, and an outside page or PR opens in a new tab. A thing is a task, attempt, report, decision, deliverable or document named by a path link; a place is a fleet, the Board, Tasks, Conversation, a crumb, a pager step or an anchor, and on the document page a folder row or a link to another document. The one route table in `app.js` (`route`, checked by `TestTheViewerRouteTable`) decides what a thing is: `/task/tN`, `/attempt/aN`, `/decision/dN`, `/ref/` followed by a t, a, d or r ref (a report's page is its task's page at the report's card, which `/ref/rN` resolves to), and `/doc/...`. Ctrl, Cmd, Shift and middle clicks, a page without the script and a failed fetch keep the link's own behaviour.",
         "section": "layout"
       },
       {
         "name": "The Flat Board Rule",
-        "body": "Resting surfaces carry a hairline and no shadow. `TestTheOnCallPalette` fails on any `box-shadow` outside the composer box, the menus, the toast, the keys and `kbd`.",
+        "body": "Resting surfaces carry a hairline and no shadow. `TestTheOnCallPalette` fails on any `box-shadow` outside the composer box, the menus, the toast, the viewer dialog, the keys and `kbd`.",
         "section": "elevation"
       },
       {
@@ -1956,6 +2019,21 @@
         "name": "The One Badge And One Row Rule",
         "body": "Every pill, count and tag is the one `.badge`, and every line of the task, attempt, event, decision and fleet lists is the one `.row`. A new component sets a slot or a tone on them; it never draws a third shape.",
         "section": "components"
+      },
+      {
+        "name": "The Copy Stays With The Code Rule",
+        "body": "A code block is copied from its own button, added by `app.js` and never by the renderer, which also serves the CLI. The button copies the block's text byte for byte, says what happened in words and in the live region, and is reachable by keyboard.",
+        "section": "components"
+      },
+      {
+        "name": "The One Rule Per Selector Rule",
+        "body": "`board.css` holds one rule for a selector in each scope, the top level or one `@media` or `@supports` block, so a property is set in one place and a later rule never patches an earlier one. `TestOneRulePerSelector` fails on a second rule for the same selector, with the whitespace and the order of a comma list ignored. Two blocks with the same condition are two scopes, so the repeated `@media (pointer:coarse)` and `@media (forced-colors:active)` blocks stay.",
+        "section": "components"
+      },
+      {
+        "name": "The Black On White Rule",
+        "body": "The QR code is the one picture the Board colours with literals, never with tokens: black modules on a white ground with a quiet zone of at least 4 modules, in the light and in the dark theme. A scanner needs the dark-on-light contrast whatever the page does, and a themed QR would fail it. The colours are `fill` attributes in the SVG; `board.css` holds no `#fff` or `#000` for it (`TestThePhonePagesStyleEveryPartTheyAdd`).",
+        "section": "components"
       }
     ],
     "dos": [
@@ -1966,11 +2044,11 @@
       "**Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.",
       "**Do** keep one primary button per form, and keep Stop behind a second press.",
       "**Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property and the rail tip's `top` through the CSSOM, which the CSP allows.",
-      "**Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash and the open and close transition."
+      "**Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash, the open and close transition, the copy button's fade and the scroll to latest button's fade."
     ],
     "donts": [
       "**Don't** use fail red for decisions, reports, links or ordinary states.",
-      "**Don't** put a shadow on a resting surface; only the open menus and the toast lift.",
+      "**Don't** put a shadow on a resting surface; only the open menus, the toast and the viewer dialog lift.",
       "**Don't** colour copy or fill a surface with the fleet tint.",
       "**Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.",
       "**Don't** load web fonts or images from the stylesheet.",
