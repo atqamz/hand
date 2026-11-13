@@ -623,10 +623,9 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
     _class: JClass<'local>,
 ) -> jboolean {
     let forgotten = catch_unwind(AssertUnwindSafe(|| {
-        forget_alerts().is_ok()
-            && core().is_none_or(|core| {
-                tauri::async_runtime::block_on(core.companion.forget_laptop()).is_ok()
-            })
+        core().is_none_or(|core| {
+            tauri::async_runtime::block_on(core.companion.forget_laptop(forget_alerts)).is_ok()
+        })
     }));
     jboolean::from(forgotten.unwrap_or(false))
 }

@@ -51,6 +51,14 @@ pub struct Companion {
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
     signals: std::sync::Arc<StdMutex<Option<UnboundedReceiver<Signal>>>>,
+    #[cfg(test)]
+    gate: std::sync::Arc<StdMutex<Option<std::sync::Arc<Gate>>>>,
+}
+
+#[cfg(test)]
+struct Gate {
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
 }
 
 impl Companion {
@@ -87,6 +95,8 @@ impl Companion {
             port: proxy.port(),
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
             signals: std::sync::Arc::new(StdMutex::new(Some(receiver))),
+            #[cfg(test)]
+            gate: std::sync::Arc::new(StdMutex::new(None)),
         })
     }
 
@@ -113,15 +123,25 @@ impl Companion {
     pub async fn open_board(&self) -> Result<Option<String>, ConfirmError> {
         let active = {
             let pairing = self.pairing.lock().unwrap();
-            pairing
-                .active()
-                .map(|active| (active.to_owned(), pairing.active_relay().map(str::to_owned)))
+            pairing.active().map(|active| {
+                (
+                    active.to_owned(),
+                    pairing.active_relay().map(str::to_owned),
+                    pairing.generation(),
+                )
+            })
         };
-        let Some((active, relay)) = active else {
+        let Some((active, relay, generation)) = active else {
             return Ok(None);
         };
         let target = parse_target(&active, relay.as_deref()).map_err(ConfirmError::Target)?;
+        #[cfg(test)]
+        self.pass_gate().await;
         self.dialer.set_target(Some(target)).await;
+        if self.pairing.lock().unwrap().generation() != generation {
+            self.dialer.set_target(None).await;
+            return Ok(None);
+        }
         self.dialer.attempt().await?;
         Ok(Some(proxy_url(self.port, "/")))
     }
@@ -141,10 +161,28 @@ impl Companion {
         self.signals.lock().unwrap().take()
     }
 
-    pub async fn forget_laptop(&self) -> io::Result<()> {
-        let forgotten = self.pairing.lock().unwrap().forget();
+    pub async fn forget_laptop(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        let forgotten = {
+            let mut pairing = self.pairing.lock().unwrap();
+            clear()?;
+            pairing.forget()
+        };
         self.dialer.set_target(None).await;
         forgotten
+    }
+
+    #[cfg(test)]
+    fn arm_gate(&self, gate: std::sync::Arc<Gate>) {
+        *self.gate.lock().unwrap() = Some(gate);
+    }
+
+    #[cfg(test)]
+    async fn pass_gate(&self) {
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.reached.notify_one();
+            gate.resume.notified().await;
+        }
     }
 
     pub async fn confirm(
@@ -259,14 +297,24 @@ impl Companion {
             if pairing.pending().is_some() {
                 return Err(OpenLinkError::Pending);
             }
-            pairing
-                .active()
-                .map(|active| (active.to_owned(), pairing.active_relay().map(str::to_owned)))
+            pairing.active().map(|active| {
+                (
+                    active.to_owned(),
+                    pairing.active_relay().map(str::to_owned),
+                    pairing.generation(),
+                )
+            })
         };
         let link = parse_open(text).ok_or(OpenLinkError::Rejected)?;
-        let (active, relay) = active.ok_or(OpenLinkError::NotPaired)?;
+        let (active, relay, generation) = active.ok_or(OpenLinkError::NotPaired)?;
         let target = parse_target(&active, relay.as_deref()).map_err(ConfirmError::Target)?;
+        #[cfg(test)]
+        self.pass_gate().await;
         self.dialer.set_target(Some(target)).await;
+        if self.pairing.lock().unwrap().generation() != generation {
+            self.dialer.set_target(None).await;
+            return Err(OpenLinkError::NotPaired);
+        }
         reach(link.fleet.clone()).await?;
         Ok(proxy_url(self.port, &link.path()))
     }
@@ -718,7 +766,7 @@ mod tests {
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
-        companion.forget_laptop().await.unwrap();
+        companion.forget_laptop(|| Ok(())).await.unwrap();
         let result = companion
             .settle(
                 &sessions,
@@ -734,6 +782,103 @@ mod tests {
         assert!(sessions.header().is_none());
         assert!(!dir.path().join("laptop").exists());
         assert!(companion.dialer.target().await.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_forget_that_lands_while_a_pairing_commits_leaves_no_store_laptop_or_target() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        let sessions =
+            Arc::new(Sessions::open(dir.path(), held(Some(old)), Arc::new(TestCipher)).unwrap());
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+        let (done, settled) = std::sync::mpsc::channel();
+        let pairing = {
+            let companion = companion.clone();
+            let sessions = sessions.clone();
+            tokio::spawn(async move {
+                let result = companion
+                    .settle(
+                        &sessions,
+                        &link,
+                        generation,
+                        answered("fa1b2c3d4e5f6"),
+                        || {},
+                    )
+                    .await;
+                let _ = done.send(());
+                result
+            })
+        };
+
+        let cleared = {
+            let sessions = sessions.clone();
+            companion
+                .forget_laptop(move || {
+                    let cleared = sessions.forget();
+                    let _ = settled.recv_timeout(Duration::from_secs(1));
+                    cleared
+                })
+                .await
+        };
+
+        let result = pairing.await.unwrap();
+        assert!(cleared.is_ok());
+        assert_eq!(result.err(), Some(PairError::NoPending));
+        assert!(sessions.header().is_none());
+        assert!(companion.pairing.lock().unwrap().active().is_none());
+        assert!(!dir.path().join("laptop").exists());
+        assert!(companion.dialer.target().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_forget_between_reading_a_laptop_and_dialing_it_leaves_no_target() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let gate = std::sync::Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        companion.arm_gate(gate.clone());
+        let opening = {
+            let companion = companion.clone();
+            tokio::spawn(async move { companion.open_board().await })
+        };
+        gate.reached.notified().await;
+        companion.forget_laptop(|| Ok(())).await.unwrap();
+        gate.resume.notify_one();
+
+        assert_eq!(opening.await.unwrap().unwrap(), None);
+        assert!(companion.dialer.target().await.is_none());
+        assert!(!dir.path().join("laptop").exists());
+    }
+
+    #[tokio::test]
+    async fn a_forget_between_reading_a_laptop_and_an_open_link_leaves_no_target() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let gate = std::sync::Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        companion.arm_gate(gate.clone());
+        let opening = {
+            let companion = companion.clone();
+            tokio::spawn(async move { companion.open_link_after(OPEN, |_| async { Ok(()) }).await })
+        };
+        gate.reached.notified().await;
+        companion.forget_laptop(|| Ok(())).await.unwrap();
+        gate.resume.notify_one();
+
+        assert!(matches!(
+            opening.await.unwrap(),
+            Err(OpenLinkError::NotPaired)
+        ));
+        assert!(companion.dialer.target().await.is_none());
+        assert!(!dir.path().join("laptop").exists());
     }
 
     #[tokio::test]

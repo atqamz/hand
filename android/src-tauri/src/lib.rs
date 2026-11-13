@@ -248,14 +248,24 @@ async fn forget_laptop(
         message: error.to_string(),
         retry: false,
     })?;
-    forget_alerts().map_err(|_| not_cleared())?;
+    let clear_failed = AtomicBool::new(false);
     state
         .companion()?
-        .forget_laptop()
+        .forget_laptop(|| {
+            let cleared = forget_alerts();
+            clear_failed.store(cleared.is_err(), Ordering::Relaxed);
+            cleared
+        })
         .await
-        .map_err(|error| Failure {
-            message: error.to_string(),
-            retry: false,
+        .map_err(|error| {
+            if clear_failed.load(Ordering::Relaxed) {
+                not_cleared()
+            } else {
+                Failure {
+                    message: error.to_string(),
+                    retry: false,
+                }
+            }
         })
 }
 
