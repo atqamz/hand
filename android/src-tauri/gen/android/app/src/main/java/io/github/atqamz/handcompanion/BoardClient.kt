@@ -101,11 +101,15 @@ sealed interface Poll<out T> {
 
 @Serializable private class SessionData(val csrf: String)
 
-private val json = Json { ignoreUnknownKeys = true }
+@Serializable private class MetaData(val features: List<String> = emptyList())
+
+@Serializable private class MetaEnvelope(val version: Int, val data: MetaData)
+
+internal val boardJson = Json { ignoreUnknownKeys = true }
 
 fun parseWire(text: String?): Raw =
   try {
-    val wire = json.parseToJsonElement(text.orEmpty()).jsonObject
+    val wire = boardJson.parseToJsonElement(text.orEmpty()).jsonObject
     wire["failure"]?.jsonPrimitive?.content?.let { throw failure(it) }
     Raw(wire.getValue("status").jsonPrimitive.int, wire.getValue("body").jsonPrimitive.content)
   } catch (error: BoardError) {
@@ -130,7 +134,7 @@ private fun failure(name: String): BoardError =
 private fun refusal(raw: Raw): BoardError {
   val detail =
     try {
-      json.decodeFromString<ErrorBody>(raw.body).error
+      boardJson.decodeFromString<ErrorBody>(raw.body).error
     } catch (_: Exception) {
       return BoardError.Other(raw.status, null, null)
     }
@@ -173,6 +177,29 @@ class BoardClient(
     return Poll.Changed(envelope)
   }
 
+  suspend fun features(): Set<String> {
+    val root =
+      try {
+        boardJson.parseToJsonElement(send(false, "/api/v1/meta", null).body).jsonObject
+      } catch (error: BoardError) {
+        throw error
+      } catch (_: Exception) {
+        throw BoardError.Malformed
+      }
+    val version =
+      try {
+        root["version"]?.jsonPrimitive?.int
+      } catch (_: Exception) {
+        null
+      } ?: throw BoardError.Malformed
+    if (version != API_VERSION) throw BoardError.UnsupportedVersion(version)
+    return try {
+      boardJson.decodeFromJsonElement(MetaEnvelope.serializer(), root).data.features.toSet()
+    } catch (_: Exception) {
+      throw BoardError.Malformed
+    }
+  }
+
   suspend fun <T> read(path: String, data: KSerializer<T>): Envelope<T> =
     decode(send(false, "/api/v1/${path.trimStart('/')}", null), data)
 
@@ -192,7 +219,7 @@ class BoardClient(
       if (root["data"].let { it is JsonObject && it["accepted"] == JsonPrimitive(true) }) {
         Write.Accepted
       } else {
-        Write.Updated(json.decodeFromJsonElement(Envelope.serializer(data), root))
+        Write.Updated(boardJson.decodeFromJsonElement(Envelope.serializer(data), root))
       }
     } catch (error: Exception) {
       throw BoardError.AppliedUnread(error)
@@ -222,7 +249,7 @@ class BoardClient(
   private fun parse(raw: Raw): JsonObject {
     val root: JsonObject =
       try {
-        json.parseToJsonElement(raw.body).jsonObject
+        boardJson.parseToJsonElement(raw.body).jsonObject
       } catch (_: Exception) {
         throw BoardError.Malformed
       }
@@ -246,7 +273,7 @@ class BoardClient(
   private fun <T> decode(raw: Raw, data: KSerializer<T>): Envelope<T> {
     val root = parse(raw)
     return try {
-      json.decodeFromJsonElement(Envelope.serializer(data), root)
+      boardJson.decodeFromJsonElement(Envelope.serializer(data), root)
     } catch (_: Exception) {
       throw BoardError.Malformed
     }

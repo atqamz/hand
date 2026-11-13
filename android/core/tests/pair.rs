@@ -63,6 +63,7 @@ async fn every_pair_vector_is_sent_as_the_contract_says_and_answered_as_it_says(
             status: answer.status,
             body: answer.body.clone(),
             hold: answer.hold,
+            after: answer.after,
             length: answer.length,
             headers: answer.headers.clone(),
             raw: None,

@@ -6,17 +6,27 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 enum class Tab {
@@ -233,6 +243,8 @@ private fun FleetState.filled(status: Status, name: String): FleetState {
 private const val NOTICE_MILLIS = 4_000L
 private const val SCREEN_MOVED = "The screen moved; nothing was sent."
 private const val SCREEN_DENIED = "The screen was denied."
+private const val LINK_SLOW_MILLIS = 5_000L
+private const val LIVE_FAILURES = 3
 
 private data class Receipt(val notice: Notice, val entry: String)
 
@@ -240,13 +252,17 @@ private fun FleetState.noticed(notice: Notice?): FleetState =
   copy(notice = notice, pressed = emptyMap())
 
 class FleetModel(
-  fleet: String,
+  private val fleet: String,
   name: String?,
   transport: Transport,
   private val laptop: () -> String?,
   private val clock: () -> String = { hhmm(Date()) },
   private val noticeMillis: Long = NOTICE_MILLIS,
-  private val nowMillis: () -> Long = { System.currentTimeMillis() }
+  private val nowMillis: () -> Long = { System.currentTimeMillis() },
+  private val bus: LiveBus = LiveBus.shared,
+  private val pollMillis: Long = POLL_MILLIS,
+  private val startLive: (String) -> Unit = { Core.live(it) },
+  private val stopLive: () -> Unit = { Core.unlive() }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetState(name = name))
   val state: StateFlow<FleetState> = mutableState
@@ -256,12 +272,154 @@ class FleetModel(
   private val tasksLock = Mutex()
   private var downSince: String? = null
   private var denied: Long? = null
+  private var supported: Boolean? = null
+  private var slow: Job? = null
+
+  suspend fun run() {
+    refresh()
+    if (state.value.unpaired) return
+    if (!eventsSupported()) return poll()
+    if (live()) poll()
+  }
 
   suspend fun poll(): Nothing {
     while (true) {
       refresh()
-      delay(POLL_MILLIS)
+      delay(pollMillis)
     }
+  }
+
+  private suspend fun eventsSupported(): Boolean {
+    if (supported == true) return true
+    val events =
+      try {
+        "events" in client.features()
+      } catch (error: BoardError) {
+        if (error == BoardError.Unpaired) {
+          mutableState.update { it.copy(unpaired = true, band = null) }
+        }
+        false
+      }
+    if (events) supported = true
+    return events
+  }
+
+  private suspend fun live(): Boolean {
+    var failures = 0
+    var fallback = false
+    coroutineScope {
+      val stopped = CompletableDeferred<Unit>()
+      val links = launch {
+        bus.links.collect { link ->
+          when (link.state) {
+            "live" -> {
+              failures = 0
+              slow?.cancel()
+              mutableState.update { if (it.band?.live == true) it.copy(band = null) else it }
+            }
+            "reconnecting" -> {
+              failures++
+              mutableState.update {
+                it.copy(band = Band("Reconnecting…", retry = false, live = true))
+              }
+              slow?.cancel()
+              slow = launch {
+                delay(LINK_SLOW_MILLIS)
+                mutableState.update { state ->
+                  if (state.band?.live != true) state
+                  else
+                    state.copy(
+                      band =
+                        Band(
+                          "Can't reach ${laptop() ?: "your laptop"} since " +
+                            hhmm(Date(link.since.coerceAtLeast(1))),
+                          "Check that the laptop is on, that Hand's Board is running, " +
+                            "and that this phone has internet.",
+                          retry = false,
+                          live = true
+                        )
+                    )
+                }
+              }
+              if (failures >= LIVE_FAILURES) stopped.complete(Unit)
+            }
+            "unpaired" -> {
+              mutableState.update { it.copy(unpaired = true, band = null) }
+              stopped.complete(Unit)
+            }
+          }
+        }
+      }
+      val events = launch {
+        bus.events.filter { it.fleet == fleet }.collect { reduce(it) }
+      }
+      try {
+        withContext(Dispatchers.IO) { startLive(fleet) }
+        stopped.await()
+        fallback = !state.value.unpaired
+      } finally {
+        links.cancel()
+        events.cancel()
+        slow?.cancel()
+        slow = null
+        withContext(NonCancellable + Dispatchers.IO) { stopLive() }
+        bus.reset()
+      }
+    }
+    return fallback
+  }
+
+  internal suspend fun reduce(event: LiveEvent) {
+    when (event.topic) {
+      "hello" -> {
+        val name =
+          try {
+            boardJson
+              .parseToJsonElement(event.json)
+              .jsonObject["fleet"]
+              ?.jsonObject
+              ?.get("name")
+              ?.jsonPrimitive
+              ?.content
+          } catch (_: Exception) {
+            null
+          }
+        if (name != null) mutableState.update { it.copy(name = name) }
+      }
+      "status" -> {
+        val status =
+          try {
+            boardJson.decodeFromString<Status>(event.json)
+          } catch (_: Exception) {
+            return
+          }
+        val known = state.value.name ?: fleet
+        mutableState.update { it.filled(status, known) }
+        arm()
+      }
+      "touched" -> if ("tasks" in topics(event.json)) reloadTasks()
+      "resync" -> {
+        val moved = topics(event.json)
+        if ("status" in moved) refresh()
+        if ("tasks" in moved && "status" !in moved) reloadTasks()
+      }
+    }
+  }
+
+  private fun topics(json: String): List<String> =
+    try {
+      boardJson
+        .parseToJsonElement(json)
+        .jsonObject["topics"]
+        ?.jsonArray
+        ?.mapNotNull { it.jsonPrimitive.content }
+        ?: emptyList()
+    } catch (_: Exception) {
+      emptyList()
+    }
+
+  private suspend fun reloadTasks() {
+    if (mutableState.value.tab == Tab.Tasks && !tasksLock.isLocked) loadTasks()
   }
 
   fun retry() {

@@ -36,7 +36,12 @@ data class FleetRow(
   val unreadable: Boolean = false
 )
 
-data class Band(val title: String, val body: String? = null, val retry: Boolean = true)
+data class Band(
+  val title: String,
+  val body: String? = null,
+  val retry: Boolean = true,
+  val live: Boolean = false
+)
 
 data class FleetsState(
   val laptop: String? = null,

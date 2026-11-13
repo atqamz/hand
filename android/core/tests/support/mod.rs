@@ -453,6 +453,7 @@ pub struct Reply {
     pub status: u16,
     pub body: Vec<u8>,
     pub hold: Duration,
+    pub after: Duration,
     pub length: Option<usize>,
     pub headers: Vec<(String, String)>,
     pub raw: Option<Vec<u8>>,
@@ -464,6 +465,7 @@ impl Reply {
             status: 200,
             body: body.into_bytes(),
             hold: Duration::ZERO,
+            after: Duration::ZERO,
             length: None,
             headers: Vec::new(),
             raw: None,
@@ -475,6 +477,7 @@ impl Reply {
             status,
             body: Vec::new(),
             hold: Duration::ZERO,
+            after: Duration::ZERO,
             length: None,
             headers: Vec::new(),
             raw: None,
@@ -483,6 +486,11 @@ impl Reply {
 
     pub fn held(mut self, hold: Duration) -> Self {
         self.hold = hold;
+        self
+    }
+
+    pub fn held_after(mut self, after: Duration) -> Self {
+        self.after = after;
         self
     }
 
@@ -620,6 +628,7 @@ async fn serve_feed(
         .collect();
     if let Some(raw) = &reply.raw {
         let _ = stream.write_all(raw).await;
+        tokio::time::sleep(reply.after).await;
         let _ = stream.shutdown().await;
         return;
     }
@@ -631,6 +640,7 @@ async fn serve_feed(
     let mut out = head.into_bytes();
     out.extend_from_slice(&reply.body);
     let _ = stream.write_all(&out).await;
+    tokio::time::sleep(reply.after).await;
     let _ = stream.shutdown().await;
 }
 

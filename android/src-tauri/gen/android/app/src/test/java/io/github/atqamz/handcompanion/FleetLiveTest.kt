@@ -1,0 +1,203 @@
+package io.github.atqamz.handcompanion
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+private const val FLEET = "f000000000003"
+
+private const val REPORT =
+  """{"kind":"report","ref":"r1","word":"REPORT","tone":"neutral","title":"Done","report":"r1"}"""
+
+private fun statusData(items: String = REPORT) =
+  """{"agent_state":"idle","composer_hint":"","pill":"ready","line":"ready",""" +
+    """"gauge":{"text":"","level":"","pct":0},"compactions":0,""" +
+    """"needs":{"waiting":1,"more":0,"worst_count":1,"items":[$items]},""" +
+    """"tasks":{"active":0,"inbox":0,"done":0,"abandoned":0},"projects":1}"""
+
+private fun statusAnswer(items: String = REPORT) =
+  Raw(
+    200,
+    """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c","data":""" +
+      statusData(items) +
+      "}"
+  )
+
+private class LiveBoard(
+  private val features: List<String> = listOf("events"),
+  private val answer: () -> Raw = { statusAnswer() }
+) : Transport {
+  val calls = mutableListOf<String>()
+  var liveStarted = false
+  var liveStopped = 0
+
+  override fun request(
+    fleet: String,
+    post: Boolean,
+    path: String,
+    csrf: String?,
+    body: String?
+  ): Raw {
+    calls += "${if (post) "POST" else "GET"} $path"
+    return when {
+      path == "/api/v1/meta" ->
+        Raw(
+          200,
+          """{"version":1,"generated_at":"x","data":{"version":"9.9.9","features":""" +
+            features.joinToString(",", "[", "]") { "\"$it\"" } +
+            "}}"
+        )
+      path.startsWith("/api/v1/status") -> answer()
+      path == "/api/v1/tasks" -> tasksAnswer(false)
+      path == "/api/v1/tasks?all=1" -> tasksAnswer(true)
+      else -> Raw(200, """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"data":{}}""")
+    }
+  }
+
+  private fun tasksAnswer(all: Boolean) =
+    Raw(
+      200,
+      """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c","data":""" +
+        """{"all":$all,"hidden":0,"finished_count":0,"groups":""" +
+        """[{"name":"Active","count":1,"tasks":""" +
+        """[{"ref":"t40","title":"Follow the stream","state":"running"}]}]}}"""
+    )
+
+  fun statusReads() = calls.count { it.startsWith("GET /api/v1/status") }
+}
+
+private fun model(board: LiveBoard, bus: LiveBus = LiveBus(8)) =
+  FleetModel(
+    FLEET,
+    "atlas",
+    board,
+    { "4d92…6ed6" },
+    { "12:41" },
+    bus = bus,
+    pollMillis = 20,
+    startLive = { board.liveStarted = true },
+    stopLive = { board.liveStopped++ }
+  )
+
+class FleetLiveTest {
+  @Test
+  fun anInlineStatusReplacesTheStateWithoutARead() = runBlocking {
+    val board = LiveBoard()
+    val model = model(board)
+    model.reduce(LiveEvent(FLEET, "status", statusData()))
+    val state = model.state.value
+    assertEquals(1, state.waiting)
+    assertEquals("atlas", state.name)
+    assertEquals(Tab.Needs, state.tab)
+    assertTrue(state.loaded)
+    assertEquals(Badge("ready", Tone.Pass), state.pill)
+    assertTrue(board.calls.isEmpty())
+  }
+
+  @Test
+  fun aHelloNamesTheFleet() = runBlocking {
+    val model = model(LiveBoard())
+    model.reduce(
+      LiveEvent(FLEET, "hello", """{"version":1,"fleet":{"id":"$FLEET","name":"hand"}}""")
+    )
+    assertEquals("hand", model.state.value.name)
+  }
+
+  @Test
+  fun aStatusResyncRereadsTheVisibleScreen() = runBlocking {
+    val board = LiveBoard()
+    val model = model(board)
+    model.reduce(LiveEvent(FLEET, "resync", """{"topics":["status"]}"""))
+    assertEquals(listOf("GET /api/v1/status"), board.calls)
+    assertTrue(model.state.value.loaded)
+  }
+
+  @Test
+  fun aResyncForAnotherScreenReadsNothing() = runBlocking {
+    val board = LiveBoard()
+    val model = model(board)
+    model.reduce(LiveEvent(FLEET, "resync", """{"topics":["tasks"]}"""))
+    model.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t4"]}"""))
+    assertTrue(board.calls.isEmpty())
+  }
+
+  @Test
+  fun aTasksHintRereadsTheOpenTasksTab() = runBlocking {
+    val board = LiveBoard()
+    val model = model(board)
+    model.select(Tab.Tasks)
+    model.reduce(LiveEvent(FLEET, "touched", """{"topics":["tasks"],"tasks":["t40"]}"""))
+    assertEquals(listOf("GET /api/v1/tasks"), board.calls)
+    assertEquals(
+      listOf("t40"),
+      model.state.value.tasks.groups.flatMap { it.tasks }.map { it.ref }
+    )
+  }
+
+  @Test
+  fun aTasksResyncWithStatusReadsBothOnce() = runBlocking {
+    val board = LiveBoard()
+    val model = model(board)
+    model.select(Tab.Tasks)
+    model.reduce(LiveEvent(FLEET, "resync", """{"topics":["status","tasks"]}"""))
+    assertEquals(listOf("GET /api/v1/status", "GET /api/v1/tasks"), board.calls)
+  }
+
+  @Test
+  fun aLaptopWithoutTheFeaturePollsInsteadOfOpeningAStream() = runBlocking {
+    val board = LiveBoard(features = listOf("fleets", "pair"))
+    val model = model(board)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (board.statusReads() < 3) delay(10) }
+    job.cancelAndJoin()
+    assertFalse(board.liveStarted)
+    assertEquals("GET /api/v1/meta", board.calls[1])
+    assertTrue(board.statusReads() >= 3)
+  }
+
+  @Test
+  fun threeFailedStreamsFallBackToThePoll() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(10_000) {
+      while (!board.liveStarted) delay(5)
+      while (board.statusReads() < 4) {
+        bus.link("reconnecting", 1_700_000_000_000)
+        delay(50)
+      }
+    }
+    job.cancelAndJoin()
+    assertTrue(board.liveStarted)
+    assertEquals(1, board.liveStopped)
+  }
+
+  @Test
+  fun anUnpairedStreamStopsWithoutFallingBackToThePoll() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(10_000) {
+      while (!board.liveStarted) delay(5)
+      while (!model.state.value.unpaired) {
+        bus.link("unpaired", 0)
+        delay(50)
+      }
+    }
+    val reads = board.statusReads()
+    delay(100)
+    job.cancelAndJoin()
+    assertTrue(model.state.value.unpaired)
+    assertEquals(reads, board.statusReads())
+    assertEquals(1, board.liveStopped)
+  }
+}

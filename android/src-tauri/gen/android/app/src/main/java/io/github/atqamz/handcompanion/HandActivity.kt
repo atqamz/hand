@@ -200,9 +200,10 @@ class HandActivity : ComponentActivity() {
           }
         }
         val fleet = open?.let(::fleetModel)
-        LaunchedEffect(open) {
+        val live = fleet != null && web == null
+        LaunchedEffect(open, live) {
           lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (fleet != null) fleet.poll() else model.poll()
+            if (live) fleet.run() else if (fleet == null) model.poll()
           }
         }
         LaunchedEffect(incoming, pairing.busy, pairing.done) {
