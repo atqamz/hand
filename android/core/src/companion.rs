@@ -253,6 +253,8 @@ impl Companion {
         paired: Vec<Paired>,
         replacing: impl FnOnce(),
     ) -> Result<Vec<Paired>, PairError> {
+        #[cfg(test)]
+        self.pass_gate().await;
         let target = link.target().map_err(|_| PairError::NoPending)?;
         {
             let mut pairing = self.pairing.lock().unwrap();
@@ -794,6 +796,11 @@ mod tests {
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
         let (done, settled) = std::sync::mpsc::channel();
+        let gate = Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        companion.arm_gate(gate.clone());
         let pairing = {
             let companion = companion.clone();
             let sessions = sessions.clone();
@@ -812,11 +819,13 @@ mod tests {
             })
         };
 
+        gate.reached.notified().await;
         let cleared = {
             let sessions = sessions.clone();
             companion
                 .forget_laptop(move || {
                     let cleared = sessions.forget();
+                    gate.resume.notify_one();
                     let _ = settled.recv_timeout(Duration::from_secs(1));
                     cleared
                 })
