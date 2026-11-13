@@ -118,7 +118,9 @@ val cargoDebug = tasks.register<CargoBuild>("cargoDebug") {
         cargoWorkspace.resolve("Cargo.toml"),
         cargoWorkspace.resolve("Cargo.lock"),
         cargoWorkspace.resolve("rust-toolchain.toml"),
+        cargoWorkspace.resolve("core/Cargo.toml"),
         cargoWorkspace.resolve("core/src"),
+        cargoWorkspace.resolve("src-tauri/Cargo.toml"),
         cargoWorkspace.resolve("src-tauri/src")
     )
     outputDirectory.set(layout.buildDirectory.dir("rustJniLibs/debug"))
@@ -137,7 +139,9 @@ val cargoRelease = tasks.register<CargoBuild>("cargoRelease") {
         cargoWorkspace.resolve("Cargo.toml"),
         cargoWorkspace.resolve("Cargo.lock"),
         cargoWorkspace.resolve("rust-toolchain.toml"),
+        cargoWorkspace.resolve("core/Cargo.toml"),
         cargoWorkspace.resolve("core/src"),
+        cargoWorkspace.resolve("src-tauri/Cargo.toml"),
         cargoWorkspace.resolve("src-tauri/src")
     )
     outputDirectory.set(layout.buildDirectory.dir("rustJniLibs/release"))
