@@ -138,6 +138,9 @@ func TestEnterOnAnOtherOptionWithoutANoteMakesNoRequest(t *testing.T) {
 	if n := f.count("answer:d1"); n != 0 {
 		t.Errorf("Enter posted the refused answer %d times", n)
 	}
+	if !tt.Focused("Note") {
+		t.Error("Enter did not reach the guard and focus the note")
+	}
 }
 
 func choiceOtherFixture(t *testing.T) *fixture {
