@@ -8,6 +8,7 @@ use crate::link::{Link, Reject, parse_link_with};
 
 const LAPTOP_FILE: &str = "laptop";
 const RELAY_FILE: &str = "laptop-relay";
+const RELAY_MARK: &str = "\t";
 
 pub const PAIRING_PENDING: &str = "Finish or dismiss the current pairing first";
 
@@ -145,9 +146,10 @@ impl Pairing {
     pub fn activate(&mut self, link: &Link) -> io::Result<()> {
         self.active = Some(link.endpoint_id.clone());
         self.relay = link.relay.clone();
+        let mark = if link.relay.is_some() { RELAY_MARK } else { "" };
         fs::write(
             self.dir.join(LAPTOP_FILE),
-            format!("{}\n", link.endpoint_id),
+            format!("{}{mark}\n", link.endpoint_id),
         )?;
         match &link.relay {
             Some(relay) => fs::write(
@@ -164,15 +166,24 @@ pub(crate) fn read_laptop(dir: &Path) -> (Option<String>, Option<String>) {
         return (None, None);
     };
     let mut lines = text.lines();
-    let Some(endpoint) = lines.next().map(str::trim).filter(|e| valid_endpoint(e)) else {
+    let Some(line) = lines.next() else {
         return (None, None);
     };
+    let endpoint = line.trim();
+    if !valid_endpoint(endpoint) {
+        return (None, None);
+    }
     let legacy = lines
         .next()
         .map(str::trim)
         .filter(|relay| parse_target(endpoint, Some(relay)).is_ok())
         .map(str::to_owned);
-    let relay = read_relay(dir, endpoint).or(legacy);
+    let relay = if line.ends_with(RELAY_MARK) {
+        read_relay(dir, endpoint).or(legacy)
+    } else {
+        let _ = remove_if_present(&dir.join(RELAY_FILE));
+        legacy
+    };
     (Some(endpoint.to_owned()), relay)
 }
 
@@ -250,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn a_relay_is_written_beside_a_one_line_laptop() {
+    fn a_relay_marks_its_one_line_laptop_and_is_written_beside_it() {
         let dir = TempDir::new();
         let mut pairing = Pairing::new(dir.path());
         pairing.offer(&relay_link(FIRST)).unwrap();
@@ -258,7 +269,7 @@ mod tests {
 
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{FIRST}\n")
+            format!("{FIRST}\t\n")
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
@@ -287,7 +298,7 @@ mod tests {
 
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{FIRST}\n")
+            format!("{FIRST}\t\n")
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
@@ -298,7 +309,7 @@ mod tests {
     #[test]
     fn a_relay_file_for_another_laptop_is_not_read() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\t\n")).unwrap();
         std::fs::write(
             dir.path().join("laptop-relay"),
             format!("{SECOND}\nhttps://relay.example.test:7842/\n"),
@@ -308,6 +319,29 @@ mod tests {
         let pairing = Pairing::new(dir.path());
         assert_eq!(pairing.active(), Some(FIRST));
         assert_eq!(pairing.active_relay(), None);
+    }
+
+    #[test]
+    fn a_relay_less_pairing_drops_the_relay_a_previous_one_left_beside_it() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&relay_link(FIRST)).unwrap();
+        activate(&mut pairing);
+
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        let rewritten = Pairing::new(dir.path());
+        assert_eq!(rewritten.active(), Some(FIRST));
+        assert_eq!(rewritten.active_relay(), None);
+        assert!(!dir.path().join("laptop-relay").exists());
+
+        let mut again = Pairing::new(dir.path());
+        again.offer(&relay_link(FIRST)).unwrap();
+        activate(&mut again);
+        let repaired = Pairing::new(dir.path());
+        assert_eq!(
+            repaired.active_relay(),
+            Some("https://relay.example.test:7842/")
+        );
     }
 
     #[test]
