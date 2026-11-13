@@ -19,6 +19,12 @@ func zoomRung(z float32) int {
 	if !(z > 0) {
 		z = zoomDefault
 	}
+	if z >= zoomFactor(zoomSteps[len(zoomSteps)-1]) {
+		return len(zoomSteps) - 1
+	}
+	if z <= zoomFactor(zoomSteps[0]) {
+		return 0
+	}
 	rung := 0
 	for i := range zoomSteps {
 		if math.Abs(float64(zoomFactor(zoomSteps[i])-z)) < math.Abs(float64(zoomFactor(zoomSteps[rung])-z)) {

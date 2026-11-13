@@ -141,6 +141,27 @@ func TestUnusablePreferencesValuesBootAt100OrTheLadderEnd(t *testing.T) {
 	}
 }
 
+func TestAnOutOfRangeZoomBootsAtTheLadderLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want float32
+	}{
+		{"far above", `{"zoom":1e9}`, 5},
+		{"far below", `{"zoom":-1e9}`, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(desktop.PrefsPath(dir), []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if app := booted(t, dir); app.Zoom != tc.want {
+				t.Fatalf("%s boots at %v, want %v", tc.body, app.Zoom, tc.want)
+			}
+		})
+	}
+}
+
 func TestAnOffLadderZoomSnapsToTheNearestRung(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(desktop.PrefsPath(dir), []byte(`{"zoom":1.33}`), 0o600); err != nil {
