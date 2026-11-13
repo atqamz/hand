@@ -29,7 +29,7 @@ Prerequisites:
 - Android SDK platform 37, build-tools 36.0.0 and the command-line tools.
 - NDK 27.3.13750724, with `NDK_HOME` pointing at it.
 - Rust 1.98.1, from `rust-toolchain.toml`, with the `aarch64-linux-android` target for a phone and the `x86_64-linux-android` target for an emulator.
-- `tauri-cli` 2.12.4 (also pinned in `.github/workflows/ci.yaml` and `.github/actions/build-signed-apk/action.yml`).
+- `tauri-cli` 2.12.4 (also pinned in `.github/workflows/android.yaml` and `.github/actions/build-signed-apk/action.yml`).
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
@@ -50,9 +50,9 @@ Measured on 2026-11-05 on Linux x86_64 with 22 cores and warm SDK, Gradle and ca
 
 ## Release build
 
-A tag `vMAJOR.MINOR.PATCH` builds an arm64-v8a APK, signs it and attaches it to a draft GitHub release. The version has one source, `src-tauri/tauri.conf.json`: `version` is `MAJOR.MINOR.PATCH` and `bundle.android.versionCode` is the literal `MAJOR*1000000 + MINOR*1000 + PATCH` (0.2.0 is 2000, and the file stays readable by F-Droid). Set both in the commit that the tag names. The job refuses a tag that disagrees with them, a major of 2100 or more, a minor or patch of 1000 or more, a `release-key.sha256` that is not exactly one line of 64 lowercase hex digits, and a signer that is not the one in `release-key.sha256`. Android refuses an update with a lower `versionCode`.
+A tag `android-vMAJOR.MINOR.PATCH` builds an arm64-v8a APK, signs it and attaches it to a draft GitHub release with `--latest=false`, so `hand update` keeps resolving Hand's own latest. The version has one source, `src-tauri/tauri.conf.json`: `version` is `MAJOR.MINOR.PATCH` and `bundle.android.versionCode` is the literal `MAJOR*1000000 + MINOR*1000 + PATCH` (0.2.0 is 2000, and the file stays readable by F-Droid). Set both in the commit that the tag names. The job refuses a tag that disagrees with them, a major of 2100 or more, a minor or patch of 1000 or more, a `release-key.sha256` that is not exactly one line of 64 lowercase hex digits, and a signer that is not the one in `release-key.sha256`. Android refuses an update with a lower `versionCode`.
 
-R8 is on. Rust finds `Core` and `AppHost` and the Tauri plugins by name, so `app/proguard-rules.pro` keeps `Core` and `AppHost` whole (without it R8 strips every `AppHost` method) and `.github/scripts/check-jni-keep.sh` reads `src-tauri/src` for each native, `call_method`, plugin class and plugin command and fails when the APK lacks one, when any of those four lists comes up empty, when `lib/arm64-v8a/libhand_android_lib.so` is missing or another ABI is present, and when the sources use a JNI lookup it does not follow (`find_class`, `new_object`, `get_field`, `get_method_id`, a static call). CI runs it on an unsigned release build of every pull request.
+R8 is on. Rust finds `Core` and `AppHost` and the Tauri plugins by name, so `app/proguard-rules.pro` keeps `Core` and `AppHost` whole (without it R8 strips every `AppHost` method) and `android/scripts/check-jni-keep.sh` reads `src-tauri/src` for each native, `call_method`, plugin class and plugin command and fails when the APK lacks one, when any of those four lists comes up empty, when `lib/arm64-v8a/libhand_android_lib.so` is missing or another ABI is present, and when the sources use a JNI lookup it does not follow (`find_class`, `new_object`, `get_field`, `get_method_id`, a static call). CI runs it on an unsigned release build of every pull request.
 
 The key is the app's identity for good and one key serves every channel. It lives only in the `release` environment's secrets, so a pull request or another job never sees it, and the build never does either: the APK is built with no secret in the environment, and the last step signs it with `apksigner`, the password in that step's environment and not on its command line. `RELEASE_KEYSTORE_*` are never repository-level or organization-level secrets.
 
@@ -75,22 +75,22 @@ cp release.jks /path/to/backup-one/ && cp release.jks /path/to/backup-two/
 keytool -list -keystore /path/to/backup-two/release.jks -storepass:env RELEASE_KEYSTORE_PASSWORD
 ```
 
-Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `v*` and to the `main` branch (the on-demand build in `main-apk.yaml` runs there), and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag or on `main` before approving a run: that ref carries its own copy of it.
+Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `android-v*` and to the `main` branch (the on-demand `main-apk` job in `android.yaml` runs there), and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag or on `main` before approving a run: that ref carries its own copy of it.
 
 ```sh
 reviewer=$(gh api users/atqamz --jq .id)
-gh api -X PUT repos/atqamz/hand-android/environments/release --input - <<EOF
+gh api -X PUT repos/atqamz/hand/environments/release --input - <<EOF
 {"reviewers":[{"type":"User","id":$reviewer}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
 EOF
-gh api -X POST repos/atqamz/hand-android/environments/release/deployment-branch-policies -f name='v*' -f type=tag
-gh api -X POST repos/atqamz/hand-android/environments/release/deployment-branch-policies -f name=main -f type=branch
+gh api -X POST repos/atqamz/hand/environments/release/deployment-branch-policies -f name='android-v*' -f type=tag
+gh api -X POST repos/atqamz/hand/environments/release/deployment-branch-policies -f name=main -f type=branch
 ```
 
 Store the two secrets in that environment, never at repository or organization level:
 
 ```sh
-base64 -w0 release.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo atqamz/hand-android
-printf '%s' "$RELEASE_KEYSTORE_PASSWORD" | gh secret set RELEASE_KEYSTORE_PASSWORD --env release --repo atqamz/hand-android
+base64 -w0 release.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo atqamz/hand
+printf '%s' "$RELEASE_KEYSTORE_PASSWORD" | gh secret set RELEASE_KEYSTORE_PASSWORD --env release --repo atqamz/hand
 ```
 
 To rotate the key, replace the fingerprint in `release-key.sha256` in a pull request. It is a public value:
@@ -107,10 +107,10 @@ Forget the password in this shell, then tag a commit of `main` whose CI is green
 
 ```sh
 unset RELEASE_KEYSTORE_PASSWORD
-git tag -s v0.1.0 -m v0.1.0 && git push origin v0.1.0
-gh release download v0.1.0 --repo atqamz/hand-android --pattern '*.apk' --dir /tmp/hand-android-release
+git tag -s android-v0.1.0 -m android-v0.1.0 && git push origin android-v0.1.0
+gh release download android-v0.1.0 --repo atqamz/hand --pattern '*.apk' --dir /tmp/hand-android-release
 adb install -r /tmp/hand-android-release/hand-android-0.1.0.apk
-gh release edit v0.1.0 --repo atqamz/hand-android --draft=false
+gh release edit android-v0.1.0 --repo atqamz/hand --draft=false --latest=false
 ```
 
 The first release-signed install replaces a debug-signed one only after `adb uninstall io.github.atqamz.handcompanion`: Android refuses a different signer, and the uninstall deletes the Keystore key and the iroh identity, so pair again once.
@@ -129,11 +129,11 @@ unset RELEASE_KEYSTORE_PASSWORD
 
 ### An APK from `main`
 
-The phone runs a release-signed build, and a debug APK cannot replace it, so testing `main` on the device needs the same key. `main-apk.yaml` is a `workflow_dispatch` that builds `main` only, on purpose: the `release` environment's branch policy matches the dispatch ref, and `./.github/actions/build-signed-apk` resolves from the checked-out tree, so an input ref would hand the release key to that ref's scripts, and a ref older than the action cannot build at all. It signs the same arm64 release APK with the same key, checks the signer, the `versionName`, the `versionCode` and the JNI keep rules, and uploads the artifact `hand-android-main-apk` for 7 days; the run summary carries its `versionName`, `versionCode` and sha256. It refuses a `versionCode` that does not follow from `version` or a `release-key.sha256` that is not 64 lowercase hex digits, both before the build, and attaches no release. `workflow_dispatch` reads the workflow from the default branch, so a change to it runs only after the merge.
+The phone runs a release-signed build, and a debug APK cannot replace it, so testing `main` on the device needs the same key. `main-apk` is a `workflow_dispatch` job in `android.yaml` that builds `main` only, on purpose: it refuses a tag ref, the `release` environment's branch policy matches the dispatch ref, and `./.github/actions/build-signed-apk` resolves from the checked-out tree, so an input ref would hand the release key to that ref's scripts, and a ref older than the action cannot build at all. It signs the same arm64 release APK with the same key, checks the signer, the `versionName`, the `versionCode` and the JNI keep rules, and uploads the artifact `hand-android-main-apk` for 7 days; the run summary carries its `versionName`, `versionCode` and sha256. It refuses a `versionCode` that does not follow from `version` or a `release-key.sha256` that is not 64 lowercase hex digits, both before the build, and attaches no release. `workflow_dispatch` reads the workflow from the default branch, so a change to it runs only after the merge.
 
 ```sh
-gh workflow run main-apk.yaml --repo atqamz/hand-android
-gh run download --repo atqamz/hand-android --name hand-android-main-apk --dir /tmp/hand-android-main
+gh workflow run android.yaml --repo atqamz/hand
+gh run download --repo atqamz/hand --name hand-android-main-apk --dir /tmp/hand-android-main
 adb install -r /tmp/hand-android-main/hand-android-main.apk
 ```
 
@@ -340,7 +340,7 @@ The package, the signing key, the iroh key, the `laptop` file and the web view's
 
 ## Store text
 
-F-Droid reads the store text from `fastlane/metadata/android/en-US/`: `title.txt` (at most 50 characters), `short_description.txt` (at most 80; no trailing dot is this project's rule, not F-Droid's), `full_description.txt` (at most 4000, F-Droid's simple HTML) and `images/icon.png` (512x512). Each release adds `changelogs/<versionCode>.txt` (at most 500 characters), named by the literal version code from `src-tauri/tauri.conf.json`. `.github/scripts/check-store-metadata.sh` checks the limits in CI. There are no screenshots or feature graphic yet.
+F-Droid reads the store text from `fastlane/metadata/android/en-US/`: `title.txt` (at most 50 characters), `short_description.txt` (at most 80; no trailing dot is this project's rule, not F-Droid's), `full_description.txt` (at most 4000, F-Droid's simple HTML) and `images/icon.png` (512x512). Each release adds `changelogs/<versionCode>.txt` (at most 500 characters), named by the literal version code from `src-tauri/tauri.conf.json`. `android/scripts/check-store-metadata.sh` checks the limits in CI. There are no screenshots or feature graphic yet.
 
 ## Contract with Hand
 
@@ -357,10 +357,10 @@ The wire contract is [Hand's Companion contract](https://github.com/atqamz/hand/
 
 ## Media
 
-Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand-android/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only.
+Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only.
 
-A clone without it is lighter: `git clone --single-branch --branch main https://github.com/atqamz/hand-android.git`, or the same with `--depth 1`. Measured after the media move: 3.5 MB of `.git` for a single-branch clone, 5.4 MB for a full clone.
+A clone without it is lighter: `git clone --single-branch --branch main https://github.com/atqamz/hand.git`, or the same with `--depth 1`.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md). The project is under the [MIT license](LICENSE).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md). The project is under the [MIT license](../LICENSE).

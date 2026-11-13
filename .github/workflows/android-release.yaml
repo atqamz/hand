@@ -1,0 +1,71 @@
+name: Android release
+
+on:
+  push:
+    tags: ["android-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tag against the version, the versionCode and the pinned key
+        run: |
+          set -eu
+          tag="$GITHUB_REF_NAME"
+          [[ $tag =~ ^android-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not an android release tag: $tag" >&2; exit 1; }
+          version="${tag#android-v}"
+          [[ $version =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$ ]]
+          IFS=. read -r major minor patch <<<"$version"
+          test "$minor" -lt 1000
+          test "$patch" -lt 1000
+          test "$major" -lt 2100
+          config=android/src-tauri/tauri.conf.json
+          test "$(jq -r .version "$config")" = "$version"
+          test "$(jq -r .bundle.android.versionCode "$config")" -eq $((major * 1000000 + minor * 1000 + patch))
+          [[ "$(cat android/release-key.sha256)" =~ ^[0-9a-f]{64}$ ]]
+          { echo "VERSION=$version"; echo "APK=hand-android-$version.apk"; } >> "$GITHUB_ENV"
+      - uses: ./.github/actions/build-signed-apk
+        id: build
+        with:
+          keystore-base64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          keystore-password: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      - name: Check the APK
+        working-directory: android
+        run: |
+          set -eu
+          apk="${{ steps.build.outputs.path }}"
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test "$("$apkanalyzer" manifest version-name "$apk")" = "$VERSION"
+          test "$("$apkanalyzer" manifest version-code "$apk")" = "$(jq -r .bundle.android.versionCode src-tauri/tauri.conf.json)"
+          scripts/check-jni-keep.sh "$apk"
+          mv "$apk" "$RUNNER_TEMP/$APK"
+      - name: Attach the APK to a draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --latest=false --title "$GITHUB_REF_NAME" --generate-notes "$RUNNER_TEMP/$APK"
+      - name: Check that the app release did not take the latest slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name || true)
+          if [ "$latest" = "$GITHUB_REF_NAME" ]; then
+            gh release edit "$GITHUB_REF_NAME" --latest=false
+            echo "hand update resolves to $GITHUB_REF_NAME now" >&2
+            exit 1
+          fi

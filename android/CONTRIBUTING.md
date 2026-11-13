@@ -1,6 +1,6 @@
 # Contributing
 
-Hand's Android Companion is a personal project under the [MIT license](LICENSE). Changes from others are welcome, and the maintainer decides every merge.
+Hand's Android Companion is a personal project under the [MIT license](../LICENSE). Changes from others are welcome, and the maintainer decides every merge.
 
 - For anything beyond a small fix, open an issue first and say what you want to change.
 - Send one pull request per change, and say in it what changed and why.
@@ -9,7 +9,7 @@ Hand's Android Companion is a personal project under the [MIT license](LICENSE).
 
 ## Sign off your commits
 
-Every commit in an outside pull request carries a `Signed-off-by: Name <email>` line. `git commit -s` adds it. It says you wrote the change, or have the right to send it, under the [Developer Certificate of Origin 1.1](https://developercertificate.org), and that it may be distributed under the MIT license in [`LICENSE`](LICENSE).
+Every commit in an outside pull request carries a `Signed-off-by: Name <email>` line. `git commit -s` adds it. It says you wrote the change, or have the right to send it, under the [Developer Certificate of Origin 1.1](https://developercertificate.org), and that it may be distributed under the MIT license in [`LICENSE`](../LICENSE).
 
 ## Review
 

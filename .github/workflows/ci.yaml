@@ -10,19 +10,67 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.diff.outputs.go }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          computed=0
+          changed=""
+          if [ -n "${BASE_REF:-}" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+            changed=$(git diff --name-only "origin/$BASE_REF...HEAD") && computed=1
+          elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BEFORE" HEAD) && computed=1
+          fi
+          if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "origin/main" >/dev/null; then
+            changed=$(git diff --name-only "origin/main...HEAD") && computed=1
+            [ -n "$changed" ] || computed=0
+          fi
+          if [ "$computed" -eq 0 ]; then
+            changed=$(git ls-files)
+          fi
+          go=false
+          while IFS= read -r file; do
+            case "$file" in
+              android/*) ;;
+              *) go=true ;;
+            esac
+          done <<<"$changed"
+          echo "go=$go"
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+
   test-linux:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.go == 'true'
         with:
           go-version-file: go.mod
       - run: node --check internal/board/static/app.js
+        if: needs.changes.outputs.go == 'true'
       - run: test -z "$(gofmt -l .)"
+        if: needs.changes.outputs.go == 'true'
       - run: go vet ./...
+        if: needs.changes.outputs.go == 'true'
       - run: GOOS=windows GOARCH=amd64 go vet ./...
+        if: needs.changes.outputs.go == 'true'
       - run: go test -race -timeout 20m ./...
+        if: needs.changes.outputs.go == 'true'
       - name: Install Luvus
+        if: needs.changes.outputs.go == 'true'
         run: |
           set -eu
           version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
@@ -49,6 +97,7 @@ jobs:
           chmod +x luvus
           echo "$dir" >> "$GITHUB_PATH"
       - name: Start a systemd user manager
+        if: needs.changes.outputs.go == 'true'
         continue-on-error: true
         run: |
           sudo loginctl enable-linger "$USER"
@@ -60,22 +109,29 @@ jobs:
           echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
           systemd-run --user --scope --collect --quiet true
       - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        if: needs.changes.outputs.go == 'true'
         env:
           HAND_LUVUS_IT: "1"
 
   test-macos:
+    needs: changes
     runs-on: macos-latest
     env:
       TMPDIR: /private/tmp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.go == 'true'
         with:
           go-version-file: go.mod
       - run: test -z "$(gofmt -l .)"
+        if: needs.changes.outputs.go == 'true'
       - run: go vet ./...
+        if: needs.changes.outputs.go == 'true'
       - run: go test -timeout 20m ./...
+        if: needs.changes.outputs.go == 'true'
       - name: Install Luvus
+        if: needs.changes.outputs.go == 'true'
         run: |
           set -eu
           version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
@@ -102,10 +158,12 @@ jobs:
           chmod +x luvus
           echo "$dir" >> "$GITHUB_PATH"
       - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        if: needs.changes.outputs.go == 'true'
         env:
           HAND_LUVUS_IT: "1"
 
   test-windows:
+    needs: changes
     runs-on: windows-latest
     env:
       CGO_ENABLED: "1"
@@ -113,10 +171,13 @@ jobs:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.go == 'true'
         with:
           go-version-file: go.mod
       - run: go vet ./...
+        if: needs.changes.outputs.go == 'true'
       - name: Lint install.ps1
+        if: needs.changes.outputs.go == 'true'
         shell: pwsh
         run: |
           Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
@@ -124,6 +185,7 @@ jobs:
           $found | Format-Table -AutoSize | Out-String | Write-Output
           if ($found) { exit 1 }
       - name: Install Luvus
+        if: needs.changes.outputs.go == 'true'
         shell: bash
         run: |
           set -eu
@@ -145,15 +207,18 @@ jobs:
           unzip -q "$name.zip"
           cygpath -w "$dir" >> "$GITHUB_PATH"
       - run: go test -timeout 30m ./...
+        if: needs.changes.outputs.go == 'true'
         env:
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
       - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        if: needs.changes.outputs.go == 'true'
         env:
           HAND_LUVUS_IT: "1"
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
       - name: Smoke the installer
+        if: needs.changes.outputs.go == 'true'
         shell: pwsh
         env:
           CGO_ENABLED: "0"
@@ -305,8 +370,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
   edge:
-    needs: [test-linux, test-macos, test-windows]
-    if: github.event_name == 'push'
+    needs: [changes, test-linux, test-macos, test-windows]
+    if: github.event_name == 'push' && needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
