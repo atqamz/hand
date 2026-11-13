@@ -60,7 +60,7 @@ jobs:
           android=false
           while IFS= read -r file; do
             case "$file" in
-              android/* | .github/*) android=true ;;
+              android/* | iroh/* | .github/*) android=true ;;
             esac
           done <<<"$changed"
           echo "android=$android"
