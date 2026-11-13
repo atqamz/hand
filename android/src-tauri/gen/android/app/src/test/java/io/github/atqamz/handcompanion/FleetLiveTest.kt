@@ -24,11 +24,11 @@ private fun blocked(deny: String) =
   """{"kind":"blocked","ref":"s1","title":"Allow Bash?","word":"BLOCKED","tone":"fail",""" +
     """"deny_at":"$deny"}"""
 
-private fun statusData(items: String = REPORT, now: String? = null) =
+private fun statusData(items: String = REPORT, now: String? = null, waiting: Int = 1) =
   """{${now?.let { """"now":"$it",""" } ?: ""}""" +
     """"agent_state":"idle","composer_hint":"","pill":"ready","line":"ready",""" +
     """"gauge":{"text":"","level":"","pct":0},"compactions":0,""" +
-    """"needs":{"waiting":1,"more":0,"worst_count":1,"items":[$items]},""" +
+    """"needs":{"waiting":$waiting,"more":0,"worst_count":1,"items":[$items]},""" +
     """"tasks":{"active":0,"inbox":0,"done":0,"abandoned":0},"projects":1}"""
 
 private fun statusAnswer(items: String = REPORT) =
@@ -104,6 +104,12 @@ private fun model(
     startLive = { board.liveStarted = true },
     stopLive = { board.liveStopped++ }
   )
+
+private suspend fun awaitFailures(model: FleetModel, count: Int) {
+  withTimeout(5_000) {
+    while (model.liveFailures.get() != count) delay(5)
+  }
+}
 
 class FleetLiveTest {
   @Test
@@ -216,6 +222,73 @@ class FleetLiveTest {
     }
     job.cancelAndJoin()
     assertEquals(1, board.liveStopped)
+  }
+
+  @Test
+  fun aStatusBetweenReconnectsKeepsTheStreamLive() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (!board.liveStarted) delay(5) }
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 1)
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 2)
+    bus.link("live", 0)
+    bus.publish(FLEET, "status", statusData(waiting = 0))
+    withTimeout(5_000) { while (model.state.value.waiting != 0) delay(5) }
+    assertEquals(0, model.liveFailures.get())
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 1)
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 2)
+    delay(200)
+    assertEquals(0, board.liveStopped)
+    assertEquals(1, board.statusReads())
+    job.cancelAndJoin()
+  }
+
+  @Test
+  fun aStatusResyncBetweenReconnectsKeepsTheStreamLive() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (!board.liveStarted) delay(5) }
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 1)
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 2)
+    bus.publish(FLEET, "resync", """{"topics":["status"]}""")
+    awaitFailures(model, 0)
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 1)
+    bus.link("reconnecting", 1_700_000_000_000)
+    awaitFailures(model, 2)
+    delay(200)
+    assertEquals(0, board.liveStopped)
+    job.cancelAndJoin()
+  }
+
+  @Test
+  fun aHealthyStreamWithThreeReconnectsDoesNotFallBack() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (!board.liveStarted) delay(5) }
+    for (waiting in 0..2) {
+      bus.link("reconnecting", 1_700_000_000_000)
+      awaitFailures(model, 1)
+      bus.publish(FLEET, "status", statusData(waiting = waiting))
+      withTimeout(5_000) { while (model.state.value.waiting != waiting) delay(5) }
+      awaitFailures(model, 0)
+    }
+    delay(200)
+    assertEquals(0, board.liveStopped)
+    assertEquals(1, board.statusReads())
+    job.cancelAndJoin()
   }
 
   @Test

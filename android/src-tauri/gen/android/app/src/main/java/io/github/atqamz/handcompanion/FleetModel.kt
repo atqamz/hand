@@ -276,6 +276,7 @@ class FleetModel(
   private var supported: Boolean? = null
   private var slow: Job? = null
   private var clockOffset: Long = 0
+  internal val liveFailures = AtomicInteger(0)
 
   suspend fun run() {
     refresh()
@@ -307,7 +308,7 @@ class FleetModel(
   }
 
   private suspend fun live(): Boolean {
-    val failures = AtomicInteger(0)
+    liveFailures.set(0)
     var fallback = false
     coroutineScope {
       val stopped = CompletableDeferred<Unit>()
@@ -319,7 +320,7 @@ class FleetModel(
               mutableState.update { if (it.band?.live == true) it.copy(band = null) else it }
             }
             "reconnecting" -> {
-              val count = failures.incrementAndGet()
+              val count = liveFailures.incrementAndGet()
               mutableState.update {
                 it.copy(band = Band("Reconnecting…", retry = false, live = true))
               }
@@ -354,7 +355,9 @@ class FleetModel(
       }
       val events = launch {
         bus.events.filter { it.fleet == fleet }.collect {
-          if (it.topic == "status") failures.set(0)
+          if (it.topic == "status" || (it.topic == "resync" && "status" in topics(it.json))) {
+            liveFailures.set(0)
+          }
           reduce(it)
         }
       }
