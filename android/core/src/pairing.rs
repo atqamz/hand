@@ -8,6 +8,7 @@ use crate::link::{Link, Reject, parse_link_with};
 
 const LAPTOP_FILE: &str = "laptop";
 const RELAY_FILE: &str = "laptop-relay";
+const RELAY_MARK: &str = "\t";
 
 pub const PAIRING_PENDING: &str = "Finish or dismiss the current pairing first";
 
@@ -43,7 +44,15 @@ impl OfferError {
 
 impl Pairing {
     pub fn new(dir: &Path) -> Self {
-        let (active, relay) = read_laptop(dir);
+        let saved = read_saved(dir);
+        let marked = saved.as_ref().is_some_and(|saved| saved.marked);
+        if saved.is_some() && !marked {
+            let _ = remove_if_present(&dir.join(RELAY_FILE));
+        }
+        let (active, relay) = match saved {
+            Some(saved) => (Some(saved.endpoint), saved.relay),
+            None => (None, None),
+        };
         Self {
             dir: dir.to_owned(),
             pending: None,
@@ -145,9 +154,10 @@ impl Pairing {
     pub fn activate(&mut self, link: &Link) -> io::Result<()> {
         self.active = Some(link.endpoint_id.clone());
         self.relay = link.relay.clone();
+        let mark = if link.relay.is_some() { RELAY_MARK } else { "" };
         fs::write(
             self.dir.join(LAPTOP_FILE),
-            format!("{}\n", link.endpoint_id),
+            format!("{}{mark}\n", link.endpoint_id),
         )?;
         match &link.relay {
             Some(relay) => fs::write(
@@ -159,21 +169,43 @@ impl Pairing {
     }
 }
 
+struct Saved {
+    endpoint: String,
+    relay: Option<String>,
+    marked: bool,
+}
+
 pub(crate) fn read_laptop(dir: &Path) -> (Option<String>, Option<String>) {
-    let Ok(text) = fs::read_to_string(dir.join(LAPTOP_FILE)) else {
-        return (None, None);
-    };
+    match read_saved(dir) {
+        Some(saved) => (Some(saved.endpoint), saved.relay),
+        None => (None, None),
+    }
+}
+
+fn read_saved(dir: &Path) -> Option<Saved> {
+    let text = fs::read_to_string(dir.join(LAPTOP_FILE)).ok()?;
     let mut lines = text.lines();
-    let Some(endpoint) = lines.next().map(str::trim).filter(|e| valid_endpoint(e)) else {
-        return (None, None);
-    };
+    let line = lines.next()?;
+    let endpoint = line.trim();
+    if !valid_endpoint(endpoint) {
+        return None;
+    }
     let legacy = lines
         .next()
         .map(str::trim)
         .filter(|relay| parse_target(endpoint, Some(relay)).is_ok())
         .map(str::to_owned);
-    let relay = read_relay(dir, endpoint).or(legacy);
-    (Some(endpoint.to_owned()), relay)
+    let marked = line.ends_with(RELAY_MARK);
+    let relay = if marked {
+        read_relay(dir, endpoint).or(legacy)
+    } else {
+        legacy
+    };
+    Some(Saved {
+        endpoint: endpoint.to_owned(),
+        relay,
+        marked,
+    })
 }
 
 fn read_relay(dir: &Path, endpoint: &str) -> Option<String> {
@@ -250,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn a_relay_is_written_beside_a_one_line_laptop() {
+    fn a_relay_marks_its_one_line_laptop_and_is_written_beside_it() {
         let dir = TempDir::new();
         let mut pairing = Pairing::new(dir.path());
         pairing.offer(&relay_link(FIRST)).unwrap();
@@ -258,7 +290,7 @@ mod tests {
 
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{FIRST}\n")
+            format!("{FIRST}\t\n")
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
@@ -287,7 +319,7 @@ mod tests {
 
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{FIRST}\n")
+            format!("{FIRST}\t\n")
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
@@ -298,7 +330,7 @@ mod tests {
     #[test]
     fn a_relay_file_for_another_laptop_is_not_read() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\t\n")).unwrap();
         std::fs::write(
             dir.path().join("laptop-relay"),
             format!("{SECOND}\nhttps://relay.example.test:7842/\n"),
@@ -308,6 +340,116 @@ mod tests {
         let pairing = Pairing::new(dir.path());
         assert_eq!(pairing.active(), Some(FIRST));
         assert_eq!(pairing.active_relay(), None);
+        assert!(dir.path().join("laptop-relay").exists());
+    }
+
+    #[test]
+    fn a_read_leaves_the_relay_file_to_the_startup_cleanup() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        std::fs::write(
+            dir.path().join("laptop-relay"),
+            format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
+        )
+        .unwrap();
+
+        assert_eq!(read_laptop(dir.path()), (Some(FIRST.to_owned()), None));
+        assert!(dir.path().join("laptop-relay").exists());
+
+        let rewritten = Pairing::new(dir.path());
+        assert_eq!(rewritten.active(), Some(FIRST));
+        assert_eq!(rewritten.active_relay(), None);
+        assert!(!dir.path().join("laptop-relay").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_data_dir_keeps_the_relay_file_it_refuses() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        std::fs::write(
+            dir.path().join("laptop-relay"),
+            format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let denied = std::fs::write(dir.path().join("probe"), b"").is_err();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        if !denied {
+            let _ = std::fs::remove_file(dir.path().join("probe"));
+            return;
+        }
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        let pairing = Pairing::new(dir.path());
+        assert_eq!(pairing.active(), Some(FIRST));
+        assert_eq!(pairing.active_relay(), None);
+        assert_eq!(read_laptop(dir.path()), (Some(FIRST.to_owned()), None));
+        assert!(dir.path().join("laptop-relay").exists());
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[test]
+    fn a_crlf_line_ending_keeps_the_relay_mark() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\t\r\n")).unwrap();
+        std::fs::write(
+            dir.path().join("laptop-relay"),
+            format!("{FIRST}\r\nhttps://relay.example.test:7842/\r\n"),
+        )
+        .unwrap();
+
+        let pairing = Pairing::new(dir.path());
+        assert_eq!(pairing.active(), Some(FIRST));
+        assert_eq!(
+            pairing.active_relay(),
+            Some("https://relay.example.test:7842/")
+        );
+        assert!(dir.path().join("laptop-relay").exists());
+    }
+
+    #[test]
+    fn a_space_after_or_before_the_newline_drops_the_relay() {
+        for laptop in [format!("{FIRST}\t \n"), format!("{FIRST} \n")] {
+            let dir = TempDir::new();
+            std::fs::write(dir.path().join("laptop"), laptop.as_bytes()).unwrap();
+            std::fs::write(
+                dir.path().join("laptop-relay"),
+                format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
+            )
+            .unwrap();
+
+            assert_eq!(read_laptop(dir.path()), (Some(FIRST.to_owned()), None));
+            assert!(dir.path().join("laptop-relay").exists());
+            let pairing = Pairing::new(dir.path());
+            assert_eq!(pairing.active(), Some(FIRST));
+            assert_eq!(pairing.active_relay(), None);
+            assert!(!dir.path().join("laptop-relay").exists());
+        }
+    }
+
+    #[test]
+    fn a_relay_less_pairing_drops_the_relay_a_previous_one_left_beside_it() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&relay_link(FIRST)).unwrap();
+        activate(&mut pairing);
+
+        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
+        let rewritten = Pairing::new(dir.path());
+        assert_eq!(rewritten.active(), Some(FIRST));
+        assert_eq!(rewritten.active_relay(), None);
+        assert!(!dir.path().join("laptop-relay").exists());
+
+        let mut again = Pairing::new(dir.path());
+        again.offer(&relay_link(FIRST)).unwrap();
+        activate(&mut again);
+        let repaired = Pairing::new(dir.path());
+        assert_eq!(
+            repaired.active_relay(),
+            Some("https://relay.example.test:7842/")
+        );
     }
 
     #[test]
