@@ -18,7 +18,7 @@ import (
 const (
 	siteURL   = "https://hand.atqamz.com"
 	repoURL   = "https://github.com/atqamz/hand"
-	companion = `<h3 id="hand-companion">Hand Companion</h3><p>Hand Companion is the Android app for a paired phone. It needs a Hand host running the board, because the phone reaches that host through Hand and the app does not run Hand itself. Its source is <a href="https://github.com/atqamz/hand-android" rel="noopener">atqamz/hand-android</a>.</p>`
+	companion = `<h3 id="hand-companion">Hand Companion</h3><p>Hand Companion is the Android app for a paired phone. It needs a Hand host running the board, because the phone reaches that host through Hand and the app does not run Hand itself. Its source is <a href="https://github.com/atqamz/hand/tree/main/android" rel="noopener">atqamz/hand's android/</a>.</p>`
 )
 
 type navItem struct {

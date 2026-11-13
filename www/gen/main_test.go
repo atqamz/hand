@@ -182,7 +182,7 @@ func TestTheHomePageCarriesTheNavAndTheVersion(t *testing.T) {
 		t.Error("the changelog does not say that it has no release data")
 	}
 	phone := pages["/phone/"]
-	for _, want := range []string{"Hand Companion", "Hand host", "hand-android"} {
+	for _, want := range []string{"Hand Companion", "Hand host", "https://github.com/atqamz/hand/tree/main/android"} {
 		if !strings.Contains(phone, want) {
 			t.Errorf("the phone page lacks %q", want)
 		}

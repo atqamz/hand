@@ -537,7 +537,7 @@ The Board's navigation: a 56px column of icons at the left edge from 900px, and 
 
 ### Hand's Android Companion
 
-The phone app that dials the host's [hand-iroh](#hand-iroh) endpoint ID and shows the Board in a web view. It is for Android only; the Android app is built outside this repository against the same [contract](#companion-contract). Hand's iOS Companion is deferred, and nothing targets iOS.
+The phone app that dials the host's [hand-iroh](#hand-iroh) endpoint ID and shows the Board in a web view. It is for Android only; the Android app is in `android/` of this repository, built against the same [contract](#companion-contract). Hand's iOS Companion is deferred, and nothing targets iOS.
 
 ### Peer listener
 

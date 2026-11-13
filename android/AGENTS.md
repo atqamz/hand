@@ -8,7 +8,7 @@ The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dial
 - No code comments. Names, types and tests carry what the code does. Keep only lines a tool reads, such as linter directives.
 - No dependency, abstraction, compatibility layer or configuration without a concrete need. The pull request that adds a dependency says why the standard library or an existing crate does not do. Pin Rust dependencies exactly (`=x.y.z`) and commit `Cargo.lock`.
 - Tests carry behaviour. Docs carry only what code cannot say: why, measurements, external constraints, failure modes, manual steps.
-- Before committing, run `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings` and `cargo test --locked --workspace` with `HAND_IROH_BIN` set to a sidecar built from the pinned Hand commit, as `README.md` says. A change to `src-tauri/` also builds the debug APK and runs `./gradlew :app:verifyPaparazziUniversalDebug` in `src-tauri/gen/android` (`README.md`).
+- Before committing, run `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings` and `cargo test --locked --workspace` with `HAND_IROH_BIN` set to a sidecar built from `iroh/` in this checkout, as `README.md` says. A change to `src-tauri/` also builds the debug APK and runs `./gradlew :app:verifyPaparazziUniversalDebug` in `src-tauri/gen/android` (`README.md`).
 - Commits are small, imperative, lowercase-first, without a trailing period. Never bypass hooks or signing.
 
 ## Layout
@@ -31,7 +31,7 @@ The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dial
 
 ## Contract with Hand
 
-Hand is the Board on the laptop. This app is the dialer of its `hand-iroh` sidecar, so every fact below is Hand's and changes there first. The contract is `docs/companion.md` with its vectors in `docs/companion-vectors.json`, in https://github.com/atqamz/hand. The app is built against Hand's `main` at `a1e6d07d4f69653c080414f9b01ac8ed6ad0c335`, which has the alert feed (PR #1203) and `POST /<fleet id>/api/v1/pair` (PR #1248); a newer head wins. `docs/phone.md` describes the peer listener and the sidecar. When one of them disagrees with this file, they win; fix this file.
+Hand is the Board on the laptop. This app is the dialer of its `hand-iroh` sidecar, so every fact below is Hand's and changes there first. The contract is `docs/companion.md` with its vectors in `docs/companion-vectors.json`, and the sidecar is `iroh/`, both beside this folder in one checkout: a change to either is tested against the other in the same pull request. `docs/phone.md` describes the peer listener and the sidecar. When one of them disagrees with this file, they win; fix this file.
 
 - Transport: iroh, pinned to the sidecar's version (`iroh = "=1.4.1"` there), ALPN `hand-board`. The app dials the laptop's endpoint ID, through a relay or directly. Endpoint IDs are not secrets and iroh admits any dialer that completes the handshake; the Board decides who is paired.
 - Streams: one bidirectional QUIC stream per loopback TCP connection, and bidirectional only: the sidecar allows no unidirectional stream. At most 12 streams are open on a connection, and new ones are accepted at 20 a second after a burst of 12. Finishing the send side is the upload's end of file, and the Board's end of file finishes the stream.

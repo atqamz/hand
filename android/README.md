@@ -52,7 +52,7 @@ Measured on 2026-11-05 on Linux x86_64 with 22 cores and warm SDK, Gradle and ca
 
 A tag `android-vMAJOR.MINOR.PATCH` builds an arm64-v8a APK, signs it and attaches it to a draft GitHub release with `--latest=false`, so `hand update` keeps resolving Hand's own latest. The version has one source, `src-tauri/tauri.conf.json`: `version` is `MAJOR.MINOR.PATCH` and `bundle.android.versionCode` is the literal `MAJOR*1000000 + MINOR*1000 + PATCH` (0.2.0 is 2000, and the file stays readable by F-Droid). Set both in the commit that the tag names. The job refuses a tag that disagrees with them, a major of 2100 or more, a minor or patch of 1000 or more, a `release-key.sha256` that is not exactly one line of 64 lowercase hex digits, and a signer that is not the one in `release-key.sha256`. Android refuses an update with a lower `versionCode`.
 
-R8 is on. Rust finds `Core` and `AppHost` and the Tauri plugins by name, so `app/proguard-rules.pro` keeps `Core` and `AppHost` whole (without it R8 strips every `AppHost` method) and `android/scripts/check-jni-keep.sh` reads `src-tauri/src` for each native, `call_method`, plugin class and plugin command and fails when the APK lacks one, when any of those four lists comes up empty, when `lib/arm64-v8a/libhand_android_lib.so` is missing or another ABI is present, and when the sources use a JNI lookup it does not follow (`find_class`, `new_object`, `get_field`, `get_method_id`, a static call). CI runs it on an unsigned release build of every pull request.
+R8 is on. Rust finds `Core` and `AppHost` and the Tauri plugins by name, so `app/proguard-rules.pro` keeps `Core` and `AppHost` whole (without it R8 strips every `AppHost` method) and `android/scripts/check-jni-keep.sh` reads `src-tauri/src` for each native, `call_method`, plugin class and plugin command and fails when the APK lacks one, when any of those four lists comes up empty, when `lib/arm64-v8a/libhand_android_lib.so` is missing or another ABI is present, and when the sources use a JNI lookup it does not follow (`find_class`, `new_object`, `get_field`, `get_method_id`, a static call). CI runs it on an unsigned release build whenever a change touches `android/`, `iroh/` or `.github/`.
 
 The key is the app's identity for good and one key serves every channel. It lives only in the `release` environment's secrets, so a pull request or another job never sees it, and the build never does either: the APK is built with no secret in the environment, and the last step signs it with `apksigner`, the password in that step's environment and not on its command line. `RELEASE_KEYSTORE_*` are never repository-level or organization-level secrets.
 
@@ -97,8 +97,8 @@ To rotate the key, replace the fingerprint in `release-key.sha256` in a pull req
 
 ```sh
 keytool -list -v -keystore release.jks -alias handcompanion -storepass:env RELEASE_KEYSTORE_PASSWORD \
-  | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d : | tr A-F a-f > /path/to/hand-android/release-key.sha256
-[[ "$(cat /path/to/hand-android/release-key.sha256)" =~ ^[0-9a-f]{64}$ ]] && echo ok
+  | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d : | tr A-F a-f > /path/to/hand/android/release-key.sha256
+[[ "$(cat /path/to/hand/android/release-key.sha256)" =~ ^[0-9a-f]{64}$ ]] && echo ok
 ```
 
 Print `ok` before you open the pull request: the file must hold one line of 64 lowercase hex digits (trailing newlines are ignored), and the job refuses anything else.
@@ -157,15 +157,13 @@ The app draws edge to edge. Tauri hands the web view over before it is attached,
 
 ## Host tests
 
-The unit tests run anywhere. The sidecar tests need a `hand-iroh` binary built from Hand. They start that real sidecar against a fixture Board on loopback; no phone, fleet, Board database or Luvus server is involved, and every key and secret is made by the test.
+The unit tests run anywhere. The sidecar tests need a `hand-iroh` binary built from `iroh/` in this checkout. They start that real sidecar against a fixture Board on loopback; no phone, fleet, Board database or Luvus server is involved, and every key and secret is made by the test.
 
-Build the sidecar at a pinned Hand commit, then run the workspace:
+Build the sidecar from `iroh/` beside this folder, then run the workspace:
 
 ```sh
-git clone https://github.com/atqamz/hand.git hand
-git -C hand checkout a1e6d07d4f69653c080414f9b01ac8ed6ad0c335
-cargo build --locked --manifest-path hand/iroh/Cargo.toml --bin hand-iroh
-HAND_IROH_BIN="$PWD/hand/iroh/target/debug/hand-iroh" cargo test --locked --workspace
+(cd ../iroh && cargo build --locked --bin hand-iroh)
+HAND_IROH_BIN="$PWD/../iroh/target/debug/hand-iroh" cargo test --locked --workspace
 ```
 
 Without `HAND_IROH_BIN` the 54 sidecar tests print a skip and return; CI always sets it. The suite proves a proxied HTTP request and response, half-close in both directions, stream codes 3, 4 and 5, connection codes 1 and 2, the 13th stream waiting, a stream opening only on its first byte, a Board that answers before it closes while the phone still sends, and a wrong secret ending a stream with no byte, and one HTTP request through the dialer (its single cookie, CSRF token and body, a chunked answer, a 304 and an error answer, a full laptop returning busy at the deadline, and the errors a Board or the sidecar can cause: lost, timed out, too large, malformed, no longer paired and the Board not running). It also covers the backoff after a full laptop, the sealed key's lifecycle (one key across runs with no temp file left, a create over an existing blob replacing it, a missing Keystore key making a new identity, a changed Keystore key and corrupt ciphertext stopping with an error and leaving the file alone, a Keystore error at the probe or at open that is not mistaken for a missing key, a plaintext of the wrong length, an interrupted rotation leaving no blob, ciphertext and folder permissions, and the plugin error codes checked against the Kotlin constants), the port kept across a restart, the relay hint, the pairing link parser over the contract's 13 valid and 73 invalid vectors, the open link parser over its 6 valid and 61 invalid, the confirmation text, the open URL, the pending link kept against a second one, the iroh key checked before the other fields, the clear-before-forget order of a second laptop, and a relaunch with an unreachable saved laptop failing with the laptop kept and named in the message.
@@ -344,7 +342,7 @@ F-Droid reads the store text from `fastlane/metadata/android/en-US/`: `title.txt
 
 ## Contract with Hand
 
-The wire contract is [Hand's Companion contract](https://github.com/atqamz/hand/blob/main/docs/companion.md), with its test vectors in `docs/companion-vectors.json`. It is built against Hand's `main` at `a1e6d07d4f69653c080414f9b01ac8ed6ad0c335`, which has the alert feed (PR #1203) and `POST /<fleet id>/api/v1/pair` (PR #1248); a newer head wins when they disagree. `core/tests/companion-vectors.json` is that file copied from the same commit, and `core/tests/vectors.rs` runs the parser over all 13 valid and 73 invalid pairing links and all 6 valid and 61 invalid open links as written. In short: iroh 1.4.1, ALPN `hand-board`, one bidirectional QUIC stream per loopback TCP connection, 12 open streams, one connection to a laptop, the phone's endpoint ID as its identity, and the close and reset codes 1 to 5. `AGENTS.md` carries the rules this repository follows.
+The wire contract is [Hand's Companion contract](../docs/companion.md), with its test vectors in [`docs/companion-vectors.json`](../docs/companion-vectors.json). The app is in `android/` and the sidecar it dials is in `iroh/`, in one checkout, so a change to either meets the other's tests in the same pull request. `core/tests/companion-vectors.json` is that file, compared with it on every run of `android-check` in `android.yaml`, and `core/tests/vectors.rs` runs the parser over all 13 valid and 73 invalid pairing links and all 6 valid and 61 invalid open links as written. In short: iroh 1.4.1, ALPN `hand-board`, one bidirectional QUIC stream per loopback TCP connection, 12 open streams, one connection to a laptop, the phone's endpoint ID as its identity, and the close and reset codes 1 to 5. `AGENTS.md` carries the rules this repository follows.
 
 ## Roadmap
 
@@ -357,7 +355,7 @@ The wire contract is [Hand's Companion contract](https://github.com/atqamz/hand/
 
 ## Media
 
-Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only.
+Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only. Images from before the app moved into `android/` stay in `atqamz/hand-android`'s `blob` branch, where the issues and pull requests that use them still link them.
 
 A clone without it is lighter: `git clone --single-branch --branch main https://github.com/atqamz/hand.git`, or the same with `--depth 1`.
 
