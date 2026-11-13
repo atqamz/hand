@@ -30,13 +30,9 @@ struct Core {
 
 struct State {
     core: Option<Arc<Core>>,
-    failure: Option<String>,
 }
 
-static STATE: Mutex<State> = Mutex::new(State {
-    core: None,
-    failure: None,
-});
+static STATE: Mutex<State> = Mutex::new(State { core: None });
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -315,14 +311,10 @@ fn start(
     })();
     match result {
         Ok(core) => {
-            state.failure = None;
             state.core = Some(Arc::new(core));
             Ok(())
         }
-        Err(message) => {
-            state.failure = Some(message.clone());
-            Err(message)
-        }
+        Err(message) => Err(message),
     }
 }
 

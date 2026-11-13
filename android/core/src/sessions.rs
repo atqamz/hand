@@ -497,6 +497,18 @@ mod tests {
         setup.jar.hold(&[NEWER, SECOND]);
         assert_eq!(sessions.header().as_deref(), Some(COOKIE));
         assert_eq!(setup.open().unwrap().header().as_deref(), Some(COOKIE));
+
+        for unshaped in [
+            format!("hand_phone_{FLEET}=x.{A}"),
+            format!("hand_phone_{FLEET}=8.short"),
+            format!("hand_phone_{FLEET}=8"),
+            format!("hand_phone_{FLEET}=.{A}"),
+        ] {
+            let setup = Setup::new(&[unshaped.as_str()]);
+            let sessions = setup.open().unwrap();
+            assert_eq!(sessions.header(), None, "{unshaped}");
+            assert_eq!(setup.open().unwrap().header(), None, "{unshaped}");
+        }
     }
 
     #[test]
