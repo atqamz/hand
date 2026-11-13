@@ -1216,6 +1216,15 @@ func TestBootWithoutABoard(t *testing.T) {
 	mustText(t, tt, "The board could not be read")
 }
 
+func hasTextNode(tt *ui.Tester, want string) bool {
+	for _, text := range tt.Texts() {
+		if text == want {
+			return true
+		}
+	}
+	return false
+}
+
 func countText(t *testing.T, tt *ui.Tester, want string) int {
 	t.Helper()
 	n := 0
