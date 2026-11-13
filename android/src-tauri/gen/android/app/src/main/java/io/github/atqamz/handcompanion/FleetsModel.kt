@@ -70,11 +70,15 @@ fun laptopId(file: File): String? =
 
 fun hhmm(date: Date) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
 
-fun localTime(iso: String): String? =
+fun localTime(iso: String): String? = epoch(iso)?.let { hhmm(Date(it)) }
+
+fun epoch(iso: String?): Long? =
   try {
-    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT)
-      .parse(iso.replace(Regex("\\.\\d+"), ""))
-      ?.let(::hhmm)
+    iso?.let {
+      SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT)
+        .parse(it.replace(Regex("\\.\\d+"), ""))
+        ?.time
+    }
   } catch (_: ParseException) {
     null
   }

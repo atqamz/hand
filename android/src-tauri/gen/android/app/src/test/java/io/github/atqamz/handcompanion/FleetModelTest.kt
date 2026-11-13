@@ -1,5 +1,6 @@
 package io.github.atqamz.handcompanion
 
+import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -31,33 +32,62 @@ private fun status(
   agentState: String = "idle",
   cleared: String? = null,
   summary: String? = null,
-  more: Int = 0
+  more: Int = 0,
+  supervisor: String? = null
 ): Raw {
   val clear = if (cleared == null) "" else """"cleared":"$cleared","summary":"$summary","""
   val needs =
     """{"waiting":${items.size},"more":$more,$clear"worst_count":${items.size},"items":[${items.joinToString(",")}]}"""
+  val guard = supervisor?.let { """"supervisor":$it,""" }.orEmpty()
   return Raw(
     200,
-    """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c","data":""" +
-      """{"agent_state":"$agentState","composer_hint":"","pill":"$pill","line":"$pill",""" +
+    """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c","data":{""" +
+      guard +
+      """"agent_state":"$agentState","composer_hint":"","pill":"$pill","line":"$pill",""" +
       """"gauge":{"text":"","level":"","pct":0},"compactions":0,"needs":$needs,""" +
       """"tasks":{"active":0,"inbox":0,"done":0,"abandoned":0},"projects":1}}"""
   )
 }
 
+private const val DIGEST = "f8c722e0710879ae811b2fe7ad0c8ba0"
+
+private fun supervisor(
+  revision: Long = 7,
+  pressed: Long = 0,
+  deny: String? = null
+): String =
+  """{"ref":"s1","harness":"claude","model":"sonnet","effort":"low","status":"running","live":true,""" +
+    """"pending":0,"resumable":false,"blocked":true,"keys":{"revision":$revision,"digest":"$DIGEST","pressed":$pressed}""" +
+    (deny?.let { ""","deny_at":"$it"""" } ?: "") +
+    "}"
+
+private fun blockedNeed(deny: String? = null): String =
+  """{"kind":"blocked","ref":"s1","title":"Allow Bash?","word":"BLOCKED","tone":"fail",""" +
+    """"excerpt":"Bash command\n   rm -f x"""" +
+    (deny?.let { ""","deny_at":"$it"""" } ?: "") +
+    "}"
+
 private fun refused(status: Int, code: String) =
   Raw(status, """{"error":{"code":"$code","message":"no"}}""")
 
-private class Board(var statusAnswer: () -> Raw, var ackAnswer: () -> Raw = { Raw(200, "{}") }) :
-  Transport {
+private class Board(
+  var statusAnswer: () -> Raw,
+  var ackAnswer: () -> Raw = { Raw(200, "{}") },
+  var keysAnswer: () -> Raw = { statusAnswer() },
+  var forceAnswer: () -> Raw = { statusAnswer() }
+) : Transport {
   val calls = mutableListOf<String>()
+  val posts = mutableListOf<Pair<String, String?>>()
 
   override fun request(fleet: String, post: Boolean, path: String, csrf: String?, body: String?): Raw {
     calls += "${if (post) "POST" else "GET"} $path"
+    if (post) posts += path to body
     return when {
       path.startsWith("/api/v1/status") -> statusAnswer()
       path == "/api/v1/session" ->
         Raw(200, """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"data":{"csrf":"tok"}}""")
+      path == "/api/v1/supervisor/keys" -> keysAnswer()
+      path == "/api/v1/supervisor/force" -> forceAnswer()
       else -> ackAnswer()
     }
   }
@@ -259,7 +289,7 @@ class FleetModelTest {
 
   @Test
   fun eachKindOpensWhereTheApiCanActOnIt() {
-    assertEquals(Opens.Row, opensOf(blocked))
+    assertEquals(Opens.Card, opensOf(blocked))
     assertEquals(Opens.Choice, opensOf(decision))
     assertEquals(Opens.Row, opensOf(failure))
     assertEquals(Opens.Card, opensOf(report))
@@ -278,7 +308,7 @@ class FleetModelTest {
   fun theFirstCardIsOpenAndATapMovesOrClosesIt() {
     val model = model(Board({ status(listOf(blocked, report, another)) }))
     runBlocking { model.refresh() }
-    assertEquals("report:r1", model.now().openKey())
+    assertEquals("blocked:b1", model.now().openKey())
     model.toggle("report:r2")
     assertEquals("report:r2", model.now().openKey())
     model.toggle("report:r2")
@@ -448,5 +478,152 @@ class FleetModelTest {
     val model = model(Board({ throw BoardError.Unpaired }))
     runBlocking { model.refresh() }
     assertTrue(model.now().unpaired)
+  }
+
+  @Test
+  fun aPressSendsTheGuardAndTheSupervisorRef() {
+    val board =
+      Board(
+        { status(listOf(blockedNeed()), supervisor = supervisor()) },
+        keysAnswer = { status(listOf(blockedNeed()), supervisor = supervisor(revision = 8, pressed = 1)) }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertEquals(Notice("s1", "Sent 2 to s1"), model.pressNow(listOf("2")))
+    }
+    assertEquals(listOf("POST /api/v1/supervisor/keys"), board.calls.filter { it.startsWith("POST") })
+    assertEquals(
+      """{"keys":["2"],"revision":7,"digest":"$DIGEST","after":0,"ref":"s1"}""",
+      board.posts.single().second
+    )
+    assertEquals(8L, model.now().supervisor?.keys?.revision)
+    assertEquals(1L, model.now().supervisor?.keys?.pressed)
+    assertEquals("Sent 2 · waiting…", model.now().pressed["blocked:s1"])
+    assertEquals("", model.now().open)
+  }
+
+  @Test
+  fun anOptionWithSeveralKeysSendsThemInOneBody() {
+    val board =
+      Board(
+        { status(listOf(blockedNeed()), supervisor = supervisor()) },
+        keysAnswer = { status(listOf(blockedNeed()), supervisor = supervisor(revision = 8, pressed = 1)) }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.pressNow(listOf("down", "enter"))
+    }
+    assertEquals(
+      """{"keys":["down","enter"],"revision":7,"digest":"$DIGEST","after":0,"ref":"s1"}""",
+      board.posts.single().second
+    )
+  }
+
+  @Test
+  fun aConflictReopensTheFreshScreenAndSendsNothingElse() {
+    var fresh = false
+    val board =
+      Board(
+        { status(listOf(blockedNeed()), supervisor = supervisor(revision = if (fresh) 8 else 7)) },
+        keysAnswer = {
+          fresh = true
+          refused(409, "conflict")
+        }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.pressNow(listOf("2"))
+    }
+    assertEquals("blocked:s1", model.now().open)
+    assertEquals(Notice("s1", "The screen moved; nothing was sent."), model.now().notice)
+    assertEquals(8L, model.now().supervisor?.keys?.revision)
+    assertEquals(1, board.calls.count { it == "POST /api/v1/supervisor/keys" })
+    assertTrue(model.now().pressed.isEmpty())
+  }
+
+  @Test
+  fun aPressWithNoSupervisorSendsNothing() {
+    val board = Board({ status(listOf(blockedNeed())) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertNull(model.pressNow(listOf("2")))
+    }
+    assertTrue(board.posts.isEmpty())
+  }
+
+  @Test
+  fun theForceBodyNamesTheSupervisorOnScreen() {
+    val board =
+      Board(
+        { status(listOf(blockedNeed()), supervisor = supervisor()) },
+        forceAnswer = { status(listOf(blockedNeed()), supervisor = supervisor(revision = 9)) }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.forceNow()
+    }
+    assertEquals(listOf("POST /api/v1/supervisor/force"), board.calls.filter { it.startsWith("POST") })
+    assertEquals("""{"ref":"s1"}""", board.posts.single().second)
+    assertEquals(9L, model.now().supervisor?.keys?.revision)
+    assertEquals(Notice("s1", "Typed the queued messages to s1."), model.now().notice)
+  }
+
+  @Test
+  fun aPressReceiptAndItsWaitingLineGoAwayOnTheirOwn() {
+    val board =
+      Board(
+        { status(listOf(blockedNeed()), supervisor = supervisor()) },
+        keysAnswer = { status(listOf(blockedNeed()), supervisor = supervisor(revision = 8, pressed = 1)) }
+      )
+    val model = FleetModel(FLEET, null, board, { null }, { "12:41" }, 50)
+    runBlocking {
+      model.refresh()
+      withTimeout(5_000) {
+        val expiry = launch(Dispatchers.IO) { model.pressAndExpire(listOf("2")) }
+        assertEquals("Sent 2 · waiting…", model.state.first { it.notice != null }.pressed["blocked:s1"])
+        model.state.first { it.notice == null }
+        expiry.join()
+      }
+    }
+    assertNull(model.now().notice)
+    assertTrue(model.now().pressed.isEmpty())
+  }
+
+  @Test
+  fun theCountdownTicksLocallyAndSaysWhenTheScreenWasDenied() {
+    val base = 1_700_000_000_000L
+    var clock = base
+    val board = Board({ status(listOf(blockedNeed(deny = Instant.ofEpochMilli(base + 61_000).toString())), supervisor = supervisor()) })
+    val model = FleetModel(FLEET, null, board, { null }, { "12:41" }, 4_000, { clock })
+    runBlocking {
+      model.refresh()
+      assertEquals("1:01", model.now().left)
+      val polls = board.calls.count { it.startsWith("GET /api/v1/status") }
+      clock += 60_000
+      assertNull(model.tickOnce())
+      assertEquals("0:01", model.now().left)
+      assertEquals(polls, board.calls.count { it.startsWith("GET /api/v1/status") })
+      clock += 1_000
+      assertEquals("The screen was denied.", model.tickOnce()?.text)
+      assertNull(model.now().left)
+      assertEquals(polls + 1, board.calls.count { it.startsWith("GET /api/v1/status") })
+    }
+  }
+
+  @Test
+  fun theSupervisorsDenyAtCountsWhenTheItemHasNone() {
+    val base = 1_700_000_000_000L
+    val deny = Instant.ofEpochMilli(base + 61_000).toString()
+    val board = Board({ status(listOf(blockedNeed()), supervisor = supervisor(deny = deny)) })
+    val model = FleetModel(FLEET, null, board, { null }, { "12:41" }, 4_000, { base })
+    runBlocking {
+      model.refresh()
+      assertEquals("1:01", model.now().left)
+    }
   }
 }

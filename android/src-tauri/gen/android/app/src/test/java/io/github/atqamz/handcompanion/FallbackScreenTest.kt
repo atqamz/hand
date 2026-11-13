@@ -120,13 +120,13 @@ class FallbackScreenTest {
   @Test
   fun fleetMenuLight() =
     shot(false) {
-      Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}) {} }
+      Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}) {} }
     }
 
   @Test
   fun fleetMenuDark() =
     shot(true) {
-      Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}) {} }
+      Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}) {} }
     }
 
   @Test fun listMenuLight() = shot(false) { Over(listOf("Forget this laptop" to {})) { fleets(connected) } }
@@ -147,7 +147,7 @@ class FallbackScreenTest {
   fun refusedLinkLight() =
     shot(false) {
       Box(Modifier.fillMaxSize()) {
-        FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}) {}
+        FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}) {}
         Snack("This is not a link Hand can open.", Modifier.align(Alignment.BottomCenter).padding(bottom = TABS_HEIGHT))
       }
     }
@@ -156,7 +156,7 @@ class FallbackScreenTest {
   fun refusedLinkDark() =
     shot(true) {
       Box(Modifier.fillMaxSize()) {
-        FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}) {}
+        FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}) {}
         Snack("This is not a link Hand can open.", Modifier.align(Alignment.BottomCenter).padding(bottom = TABS_HEIGHT))
       }
     }

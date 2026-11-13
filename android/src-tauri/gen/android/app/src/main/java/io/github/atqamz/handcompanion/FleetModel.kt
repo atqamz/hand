@@ -10,7 +10,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 enum class Tab {
   Needs,
@@ -49,14 +53,19 @@ data class FleetState(
   val summary: String? = null,
   val notice: Notice? = null,
   val unpaired: Boolean = false,
-  val band: Band? = null
+  val band: Band? = null,
+  val supervisor: Supervisor? = null,
+  val pressed: Map<String, String> = emptyMap(),
+  val pressing: Set<String> = emptySet(),
+  val deadline: Long? = null,
+  val left: String? = null
 )
 
 private fun opens(need: Need) =
   when (need.kind) {
-    "report" -> Opens.Card
+    "report",
+    "blocked" -> Opens.Card
     "decision" -> Opens.Choice
-    "blocked",
     "failure" -> Opens.Row
     else -> Opens.Web
   }
@@ -79,6 +88,14 @@ private fun refusal(ref: String, error: BoardError) =
     BoardError.Lost,
     BoardError.TimedOut -> "Not sure $ref was marked read."
     else -> "Could not mark $ref read."
+  }
+
+private fun pressRefusal(ref: String, error: BoardError) =
+  when (error) {
+    BoardError.Lost,
+    BoardError.TimedOut -> "Not sure the key reached $ref."
+    BoardError.Busy -> "Your laptop is busy. Try again."
+    else -> "Could not press a key on $ref."
   }
 
 enum class Body {
@@ -107,6 +124,16 @@ fun FleetState.openKey(): String? {
   }
 }
 
+fun FleetState.deadline(): Long? =
+  epoch(bands.flatMap { it.entries }.firstOrNull { it.key == openKey() }?.need?.denyAt ?: supervisor?.denyAt)
+
+fun remaining(deadline: Long, now: Long): String? {
+  val left = deadline - now
+  if (left <= 0) return null
+  val seconds = (left + 999) / 1000
+  return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+}
+
 private fun FleetState.filled(status: Status, name: String): FleetState {
   val needs = status.needs
   val first = if (needs.waiting > 0) Tab.Needs else Tab.Chat
@@ -125,11 +152,16 @@ private fun FleetState.filled(status: Status, name: String): FleetState {
     cleared = needs.cleared?.let(::localTime),
     summary = needs.summary,
     unpaired = false,
-    band = null
+    band = null,
+    supervisor = status.supervisor
   )
 }
 
 private const val NOTICE_MILLIS = 4_000L
+private const val SCREEN_MOVED = "The screen moved; nothing was sent."
+private const val SCREEN_DENIED = "The screen was denied."
+
+private data class Receipt(val notice: Notice, val entry: String)
 
 class FleetModel(
   fleet: String,
@@ -137,7 +169,8 @@ class FleetModel(
   transport: Transport,
   private val laptop: () -> String?,
   private val clock: () -> String = { hhmm(Date()) },
-  private val noticeMillis: Long = NOTICE_MILLIS
+  private val noticeMillis: Long = NOTICE_MILLIS,
+  private val nowMillis: () -> Long = { System.currentTimeMillis() }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetState(name = name))
   val state: StateFlow<FleetState> = mutableState
@@ -145,6 +178,7 @@ class FleetModel(
   private val client = BoardClient(fleet, transport)
   private val lock = Mutex()
   private var downSince: String? = null
+  private var denied: Long? = null
 
   suspend fun poll(): Nothing {
     while (true) {
@@ -173,10 +207,152 @@ class FleetModel(
   }
 
   suspend fun acknowledgeAndExpire(ref: String) {
-    acknowledge(ref)?.let {
-      delay(noticeMillis)
-      dismiss(it)
+    acknowledge(ref)?.let { expire(it) }
+  }
+
+  private suspend fun expire(notice: Notice, entry: String? = null) {
+    delay(noticeMillis)
+    mutableState.update {
+      val stale = it.notice !== notice
+      it.copy(
+        notice = if (stale) it.notice else null,
+        pressed = if (entry == null || stale) it.pressed else it.pressed - entry
+      )
     }
+  }
+
+  fun press(keys: List<String>) {
+    viewModelScope.launch { pressAndExpire(keys) }
+  }
+
+  suspend fun pressAndExpire(keys: List<String>) {
+    send(keys)?.let { expire(it.notice, it.entry) }
+  }
+
+  suspend fun pressNow(keys: List<String>): Notice? = send(keys)?.notice
+
+  private suspend fun send(keys: List<String>): Receipt? {
+    val state = mutableState.value
+    val supervisor = state.supervisor ?: return null
+    val guard = supervisor.keys ?: return null
+    val entry =
+      state.bands.flatMap { it.entries }.firstOrNull {
+        it.key == state.openKey() && it.need.kind == "blocked"
+      } ?: return null
+    if (entry.key in state.pressing) return null
+    mutableState.update { it.copy(notice = null, pressing = it.pressing + entry.key) }
+    val body = buildJsonObject {
+      put("keys", JsonArray(keys.map(::JsonPrimitive)))
+      put("revision", guard.revision)
+      put("digest", guard.digest)
+      put("after", guard.pressed)
+      put("ref", supervisor.ref)
+    }
+    try {
+      when (val sent = client.write("supervisor/keys", body.toString(), Status.serializer())) {
+        is Write.Updated -> apply(sent.envelope)
+        Write.Accepted -> refresh()
+      }
+      return pressed(entry, keys, supervisor.ref)
+    } catch (_: BoardError.AppliedUnread) {
+      refresh()
+      return pressed(entry, keys, supervisor.ref)
+    } catch (error: BoardError) {
+      if (error == BoardError.Unpaired) {
+        mutableState.update { it.copy(unpaired = true) }
+        return null
+      }
+      val notice =
+        if (error is BoardError.Conflict) Notice(supervisor.ref, SCREEN_MOVED)
+        else Notice(supervisor.ref, pressRefusal(supervisor.ref, error))
+      if (error is BoardError.Conflict) refresh()
+      mutableState.update { it.copy(open = entry.key, notice = notice) }
+      return Receipt(notice, entry.key)
+    } finally {
+      mutableState.update { it.copy(pressing = it.pressing - entry.key) }
+    }
+  }
+
+  private fun pressed(entry: Entry, keys: List<String>, ref: String): Receipt {
+    val keysText = keys.joinToString(" ")
+    val notice = Notice(ref, "Sent $keysText to $ref")
+    mutableState.update {
+      it.copy(
+        open = "",
+        pressed = it.pressed + (entry.key to "Sent $keysText · waiting…"),
+        notice = notice
+      )
+    }
+    return Receipt(notice, entry.key)
+  }
+
+  fun force() {
+    viewModelScope.launch { forceNow() }
+  }
+
+  suspend fun forceNow(): Notice? {
+    val supervisor = mutableState.value.supervisor ?: return null
+    mutableState.update { it.copy(notice = null) }
+    val body = buildJsonObject { put("ref", supervisor.ref) }
+    val typed = Notice(supervisor.ref, "Typed the queued messages to ${supervisor.ref}.")
+    val notice =
+      try {
+        when (val sent = client.write("supervisor/force", body.toString(), Status.serializer())) {
+          is Write.Updated -> apply(sent.envelope)
+          Write.Accepted -> refresh()
+        }
+        typed
+      } catch (_: BoardError.AppliedUnread) {
+        refresh()
+        typed
+      } catch (error: BoardError) {
+        if (error == BoardError.Unpaired) mutableState.update { it.copy(unpaired = true) }
+        Notice(
+          supervisor.ref,
+          when (error) {
+            is BoardError.Conflict -> "${supervisor.ref} moved; nothing was typed."
+            BoardError.Lost,
+            BoardError.TimedOut -> "Not sure the messages reached ${supervisor.ref}."
+            else -> "Could not type the queued messages."
+          }
+        )
+      }
+    mutableState.update { it.copy(notice = notice) }
+    return notice
+  }
+
+  fun tick() {
+    viewModelScope.launch { tickOnce()?.let { expire(it) } }
+  }
+
+  suspend fun tickOnce(): Notice? {
+    val state = mutableState.value
+    val deadline = state.deadline() ?: return null
+    val left = remaining(deadline, nowMillis())
+    if (left != null) {
+      mutableState.update { it.copy(left = left) }
+      return null
+    }
+    denied = deadline
+    val ref =
+      state.supervisor?.ref
+        ?: state.bands.flatMap { it.entries }.firstOrNull { it.need.kind == "blocked" }?.need?.ref
+    val notice = Notice(ref.orEmpty(), SCREEN_DENIED)
+    mutableState.update { it.copy(deadline = null, left = null, notice = notice) }
+    refresh()
+    return notice
+  }
+
+  private fun arm() {
+    val deadline = mutableState.value.deadline()?.takeIf { it != denied }
+    val left = deadline?.let { remaining(it, nowMillis()) }
+    if (deadline != null && left == null) denied = deadline
+    mutableState.update { it.copy(deadline = if (left == null) null else deadline, left = left) }
+  }
+
+  private fun apply(envelope: Envelope<Status>) {
+    mutableState.update { it.filled(envelope.data, it.name ?: envelope.fleet.name) }
+    arm()
   }
 
   suspend fun acknowledge(ref: String): Notice? {
@@ -206,8 +382,10 @@ class FleetModel(
       val now = clock()
       try {
         when (val poll = client.status()) {
-          is Poll.Changed ->
+          is Poll.Changed -> {
             mutableState.update { it.filled(poll.envelope.data, poll.envelope.fleet.name) }
+            arm()
+          }
           Poll.Unchanged -> mutableState.update { it.copy(unpaired = false, band = null) }
         }
         downSince = null

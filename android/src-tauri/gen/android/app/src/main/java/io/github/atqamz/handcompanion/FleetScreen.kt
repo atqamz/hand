@@ -151,6 +151,8 @@ fun FleetScreen(
   onToggle: (String) -> Unit,
   onMarkRead: (String) -> Unit,
   onWeb: () -> Unit,
+  onPress: (List<String>) -> Unit,
+  onForce: () -> Unit,
   choice: @Composable (String) -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -164,7 +166,7 @@ fun FleetScreen(
             Meta("Pair this phone again on the laptop's Board.")
           }
         Body.Loading -> Loading()
-        Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, choice)
+        Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, onPress, onForce, choice)
         Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
     }

@@ -303,6 +303,13 @@ class HandActivity : ComponentActivity() {
             )
           } else {
             val state by fleet.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.deadline) {
+              if (state.deadline == null) return@LaunchedEffect
+              while (true) {
+                delay(1_000)
+                fleet.tick()
+              }
+            }
             val page = web
             val shown = decision
             if (page != null) {
@@ -324,7 +331,9 @@ class HandActivity : ComponentActivity() {
                 fleet::select,
                 fleet::toggle,
                 fleet::markRead,
-                { web = "/${open}/" }
+                { web = "/${open}/" },
+                fleet::press,
+                fleet::force
               ) { ref ->
                 Choice(open.orEmpty(), ref) { decision = ref }
               }

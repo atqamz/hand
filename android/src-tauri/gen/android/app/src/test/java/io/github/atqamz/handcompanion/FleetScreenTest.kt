@@ -89,7 +89,8 @@ private val rows =
           need("nosup", "NO SUPERVISOR", "wait", "n1", "No supervisor is running", null, "2026-11-01T10:30:00Z")
         )
       ),
-    more = 2
+    more = 2,
+    open = ""
   )
 
 private val clear =
@@ -107,13 +108,70 @@ private val chat = several.copy(tab = Tab.Chat, working = true, pill = Badge("wo
 private val unreachable =
   FleetState(name = "atlas", band = band(BoardError.Unreachable, "4d92…6ed6", "12:41"))
 
+private const val DIGEST = "f8c722e0710879ae811b2fe7ad0c8ba0"
+
+private val screenText =
+  "Bash command\n   rm -f \$r/\$f\nClaude Code will automatically deny this request in 1:59\n" +
+    "Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Tab to amend"
+
+private val askCard =
+  Ask(
+    "Do you want to proceed?",
+    listOf(AskOption("2 No", listOf("2")), AskOption("1 Yes", listOf("1")))
+  )
+
+private fun blocked(
+  ask: Ask? = askCard,
+  cut: Boolean = false,
+  left: String? = null,
+  notice: Notice? = null
+): FleetState =
+  FleetState(
+    name = "atlas",
+    pill = Badge("blocked", Tone.Fail),
+    waiting = 1,
+    tone = Tone.Fail,
+    loaded = true,
+    tab = Tab.Needs,
+    bands =
+      bands(
+        listOf(
+          Need(
+            "blocked",
+            "s3",
+            "Bash: rm -f \$r/\$f · Do you want to proceed?",
+            "BLOCKED",
+            "fail",
+            excerpt = screenText,
+            cut = cut
+          )
+        )
+      ),
+    supervisor =
+      Supervisor(
+        "s3",
+        "claude",
+        "opus",
+        "high",
+        "running",
+        true,
+        0,
+        false,
+        blocked = true,
+        keys = Keys(7, DIGEST, 0),
+        ask = ask
+      ),
+    left = left,
+    notice = notice
+  )
+
 class FleetScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2000))
 
   private fun shot(dark: Boolean, id: String, state: FleetState) =
     paparazzi.snapshot {
-      HandTheme(dark) { FleetScreen(id, state, {}, {}, {}, {}, {}, {}) {} }
+      HandTheme(dark) { FleetScreen(id, state, {}, {}, {}, {}, {}, {}, {}, {}) {} }
     }
 
   @Test fun needsLight() = shot(false, "f000000000003", several)
@@ -149,4 +207,28 @@ class FleetScreenTest {
   @Test fun tabsLight() = shot(false, "f000000000003", chat)
 
   @Test fun tabsDark() = shot(true, "f000000000003", chat)
+
+  @Test fun blockedAskLight() = shot(false, "f000000000003", blocked())
+
+  @Test fun blockedAskDark() = shot(true, "f000000000003", blocked())
+
+  @Test fun blockedKeysLight() = shot(false, "f000000000003", blocked(ask = null))
+
+  @Test fun blockedKeysDark() = shot(true, "f000000000003", blocked(ask = null))
+
+  @Test fun blockedCutLight() = shot(false, "f000000000003", blocked(ask = null, cut = true))
+
+  @Test fun blockedCutDark() = shot(true, "f000000000003", blocked(ask = null, cut = true))
+
+  @Test fun blockedCountdownLight() = shot(false, "f000000000003", blocked(left = "1:59"))
+
+  @Test fun blockedCountdownDark() = shot(true, "f000000000003", blocked(left = "1:59"))
+
+  @Test
+  fun blockedStaleLight() =
+    shot(false, "f000000000003", blocked(notice = Notice("s3", "The screen moved; nothing was sent.")))
+
+  @Test
+  fun blockedStaleDark() =
+    shot(true, "f000000000003", blocked(notice = Notice("s3", "The screen moved; nothing was sent.")))
 }

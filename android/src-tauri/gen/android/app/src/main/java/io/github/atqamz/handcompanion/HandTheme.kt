@@ -37,6 +37,8 @@ class HandColors(
   val lineStrong: Color,
   val primary: Color,
   val onPrimary: Color,
+  val screen: Color,
+  val screenFg: Color,
   val tints: List<Color>,
   private val ink: Map<Tone, Color>,
   private val fill: Map<Tone, Color>
@@ -67,6 +69,8 @@ val LightHand =
     lineStrong = Color(0xFF80889A),
     primary = Color(0xFF15171C),
     onPrimary = Color(0xFFFFFFFF),
+    screen = Color(0xFF111418),
+    screenFg = Color(0xFFD8DDE4),
     tints =
       tints(
         0xFF407ACC, 0xFF736AD7, 0xFF9F58D3, 0xFFCA38BE, 0xFFCE4880, 0xFFCD4F44,
@@ -86,6 +90,8 @@ val DarkHand =
     lineStrong = Color(0xFF6B7482),
     primary = Color(0xFFE8EAEE),
     onPrimary = Color(0xFF111317),
+    screen = Color(0xFF08090B),
+    screenFg = Color(0xFFD8DDE4),
     tints =
       tints(
         0xFF5B8FE0, 0xFF8B82EA, 0xFFB06FE3, 0xFFD955CC, 0xFFE0628F, 0xFFE06A5E,
