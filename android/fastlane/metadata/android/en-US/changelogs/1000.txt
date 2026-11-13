@@ -1,0 +1,1 @@
+The first signed release. It pairs with your laptop over iroh, shows the Board and posts alerts for decisions, reports and blocked workers.

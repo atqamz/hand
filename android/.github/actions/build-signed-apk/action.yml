@@ -1,0 +1,59 @@
+name: Build and sign the release APK
+description: Builds the arm64 release APK with the pinned tools and signs it with the release key
+
+inputs:
+  keystore-base64:
+    description: The release keystore, base64 encoded
+    required: true
+  keystore-password:
+    description: The release keystore password
+    required: true
+
+outputs:
+  path:
+    description: The signed APK
+    value: ${{ steps.sign.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      with:
+        distribution: temurin
+        java-version: "21"
+    - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+    - name: Install the Android SDK packages
+      shell: bash
+      env:
+        NDK_VERSION: 27.3.13750724
+      run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+    - name: Install the pinned toolchain
+      shell: bash
+      run: rustup show active-toolchain || rustup toolchain install
+    - shell: bash
+      run: rustup target add aarch64-linux-android
+    - shell: bash
+      run: cargo install tauri-cli --version 2.12.4 --locked
+    - name: Build the release APK
+      shell: bash
+      env:
+        NDK_VERSION: 27.3.13750724
+      run: |
+        export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+        cargo tauri android build --apk --target aarch64
+    - name: Sign the APK
+      id: sign
+      shell: bash
+      env:
+        KEYSTORE_BASE64: ${{ inputs.keystore-base64 }}
+        RELEASE_KEYSTORE_PASSWORD: ${{ inputs.keystore-password }}
+      run: |
+        umask 077
+        trap 'rm -f "$RUNNER_TEMP/release.jks"' EXIT
+        printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+        "$apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias handcompanion --ks-pass env:RELEASE_KEYSTORE_PASSWORD --out "$RUNNER_TEMP/signed.apk" src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+        "$apksigner" verify --print-certs "$RUNNER_TEMP/signed.apk" | tee "$RUNNER_TEMP/certs"
+        grep -qxF "Signer #1 certificate SHA-256 digest: $(cat release-key.sha256)" "$RUNNER_TEMP/certs"
+        test "$(grep -c "^Signer #.* certificate SHA-256 digest:" "$RUNNER_TEMP/certs")" -eq 1
+        echo "path=$RUNNER_TEMP/signed.apk" >> "$GITHUB_OUTPUT"
