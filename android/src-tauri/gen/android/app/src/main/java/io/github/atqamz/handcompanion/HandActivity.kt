@@ -328,10 +328,15 @@ class HandActivity : ComponentActivity() {
                 state,
                 { open = null },
                 fleet::retry,
-                fleet::select,
+                { tab ->
+                  fleet.select(tab)
+                  if (tab == Tab.Tasks) fleet.openTasks()
+                },
                 fleet::toggle,
                 fleet::markRead,
                 { web = "/${open}/" },
+                { web = "/${open}/task/$it" },
+                fleet::showAll,
                 fleet::press,
                 fleet::force
               ) { ref ->

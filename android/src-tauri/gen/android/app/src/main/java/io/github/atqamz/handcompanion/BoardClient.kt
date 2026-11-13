@@ -176,6 +176,9 @@ class BoardClient(
   suspend fun <T> read(path: String, data: KSerializer<T>): Envelope<T> =
     decode(send(false, "/api/v1/${path.trimStart('/')}", null), data)
 
+  suspend fun tasks(all: Boolean): Envelope<Tasks> =
+    read(if (all) "tasks?all=1" else "tasks", Tasks.serializer())
+
   suspend fun <T> write(path: String, body: String?, data: KSerializer<T>): Write<T> {
     val raw =
       try {

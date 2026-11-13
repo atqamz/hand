@@ -64,11 +64,62 @@ private fun blockedNeed(deny: String? = null): String =
 private fun refused(status: Int, code: String) =
   Raw(status, """{"error":{"code":"$code","message":"no"}}""")
 
+private fun task(
+  ref: String,
+  state: String,
+  title: String = "Task $ref",
+  parent: String? = null,
+  waits: String? = null
+): String =
+  buildString {
+    append("""{"ref":"$ref","title":"$title","state":"$state"""")
+    if (parent != null) append(""","parent":"$parent"""")
+    if (waits != null) append(""","waits":$waits""")
+    append("}")
+  }
+
+private fun group(name: String, count: Int, rows: List<String>): String =
+  """{"name":"$name","count":$count,"tasks":[${rows.joinToString(",")}]}"""
+
+private const val TASK_WAITS = """{"due":"2026-11-14T09:00:00Z","note":"the laptop is away"}"""
+
+private fun finishedRows(extra: Boolean): List<String> =
+  listOf(
+    task("t38", "passing"),
+    task("t37", "passing"),
+    task("t35", "idle"),
+    task("t33", "passing"),
+    task("t32", "idle")
+  ) + if (extra) listOf(task("t31", "passing"), task("t30", "idle")) else emptyList()
+
+private fun tasksData(all: Boolean = false, hidden: Int = 0): Raw {
+  val finished =
+    if (all) {
+      listOf(
+        group("Done", 5, finishedRows(true).take(5)),
+        group("Abandoned", 2, finishedRows(true).drop(5))
+      )
+    } else {
+      listOf(group("Finished", 7, finishedRows(false)))
+    }
+  val groups =
+    listOf(
+      group("Active", 3, listOf(task("t41", "running"), task("t40", "waiting"), task("t39", "failing"))),
+      group("Inbox", 2, listOf(task("t43", "idle"), task("t44", "idle", waits = TASK_WAITS)))
+    ) + finished
+  return Raw(
+    200,
+    """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c","data":{"all":$all,""" +
+      """"hidden":$hidden,"finished_count":7,"groups":[${groups.joinToString(",")}]}}"""
+  )
+}
+
 private class Board(
   var statusAnswer: () -> Raw,
   var ackAnswer: () -> Raw = { Raw(200, "{}") },
   var keysAnswer: () -> Raw = { statusAnswer() },
-  var forceAnswer: () -> Raw = { statusAnswer() }
+  var forceAnswer: () -> Raw = { statusAnswer() },
+  var tasksAnswer: (Boolean) -> Raw = { all -> tasksData(all = all) }
 ) : Transport {
   val calls = mutableListOf<String>()
   val posts = mutableListOf<Pair<String, String?>>()
@@ -78,6 +129,8 @@ private class Board(
     if (post) posts += path to body
     return when {
       path.startsWith("/api/v1/status") -> statusAnswer()
+      path == "/api/v1/tasks" -> tasksAnswer(false)
+      path == "/api/v1/tasks?all=1" -> tasksAnswer(true)
       path == "/api/v1/session" ->
         Raw(200, """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"data":{"csrf":"tok"}}""")
       path == "/api/v1/supervisor/keys" -> keysAnswer()
@@ -626,5 +679,178 @@ class FleetModelTest {
       assertNull(model.now().left)
       assertEquals(polls + 1, board.calls.count { it.startsWith("GET /api/v1/status") })
     }
+  }
+
+  @Test
+  fun theTasksRequestNamesAllOnlyWhenTheFinishedGroupIsExpanded() {
+    val board = Board({ status(listOf(report)) })
+    val model = model(board)
+    model.select(Tab.Tasks)
+    runBlocking {
+      model.loadTasks()
+      model.loadTasks(all = true)
+    }
+    assertEquals(
+      listOf("GET /api/v1/tasks", "GET /api/v1/tasks?all=1"),
+      board.calls.filter { it.startsWith("GET /api/v1/tasks") }
+    )
+  }
+
+  @Test
+  fun theGroupsKeepTheBoardsOrderAndTheFinishedCountSurvivesTheFiveShown() {
+    val model = model(Board({ status(listOf(report)) }))
+    model.select(Tab.Tasks)
+    runBlocking { model.loadTasks() }
+    var tasks = model.now().tasks
+    assertEquals(listOf("Active", "Inbox", "Finished"), tasks.groups.map { it.name })
+    assertEquals(5, tasks.groups.last().tasks.size)
+    assertEquals(7, tasks.finished)
+    assertEquals(0, tasks.hidden)
+    runBlocking { model.loadTasks(all = true) }
+    tasks = model.now().tasks
+    assertEquals(listOf("Active", "Inbox", "Done", "Abandoned"), tasks.groups.map { it.name })
+    assertEquals(listOf(5, 2), tasks.groups.drop(2).map { it.tasks.size })
+    assertEquals(7, tasks.groups.drop(2).sumOf { it.tasks.size })
+    assertEquals(0, tasks.hidden)
+  }
+
+  @Test
+  fun aSubTaskTakesOneIndentAndSaysUnderOnlyWhenItsParentIsElsewhere() {
+    val group =
+      TaskGroup(
+        "Inbox",
+        4,
+        listOf(
+          TaskRow("t1", "Parent", "running"),
+          TaskRow("t2", "Child", "idle", parent = "t1"),
+          TaskRow("t3", "Grandchild", "idle", parent = "t2"),
+          TaskRow("t4", "Elsewhere", "idle", parent = "t9")
+        )
+      )
+    assertEquals(listOf(0, 1, 1, 0), lines(group).map { it.depth })
+    assertEquals(listOf(null, null, null, "t9"), lines(group).map { it.under })
+    assertEquals("idle · under t9", taskMeta(lines(group).last()))
+  }
+
+  @Test
+  fun waitsReadAsTheBoardWritesThem() {
+    assertEquals(
+      "Waits until Nov 14: the laptop is away",
+      waitsLine(TaskWaits("2026-11-14T09:00:00Z", "the laptop is away"))
+    )
+    assertEquals("Waits until Nov 14", waitsLine(TaskWaits("2026-11-14T09:00:00Z")))
+  }
+
+  @Test
+  fun theTaskBodyNamesLoadingFailedEmptyAndRows() {
+    assertEquals(TasksBody.Loading, tasksBody(TasksState()))
+    assertEquals(TasksBody.Failed, tasksBody(TasksState(failed = true)))
+    assertEquals(TasksBody.Empty, tasksBody(TasksState(loaded = true)))
+    assertEquals(
+      TasksBody.Rows,
+      tasksBody(TasksState(loaded = true, groups = listOf(TaskGroup("Active", 1, listOf(TaskRow("t1", "x", "idle"))))))
+    )
+    assertEquals(
+      TasksBody.Rows,
+      tasksBody(TasksState(loaded = true, failed = true, groups = listOf(TaskGroup("Active", 1, emptyList()))))
+    )
+  }
+
+  @Test
+  fun theFooterNamesTheFinishedCountAndHiddenIsShownInBothViews() {
+    assertEquals("Show all finished tasks (7)", tasksFooter(TasksState(loaded = true, finished = 7)))
+    assertNull(tasksFooter(TasksState(loaded = true, all = true, finished = 7)))
+    assertNull(tasksFooter(TasksState(loaded = true)))
+    assertEquals("12 more tasks are not shown", tasksHidden(TasksState(hidden = 12)))
+    assertEquals("1 more task is not shown", tasksHidden(TasksState(hidden = 1)))
+    assertEquals("12 more tasks are not shown", tasksHidden(TasksState(all = true, hidden = 12)))
+    assertNull(tasksHidden(TasksState(loaded = true)))
+  }
+
+  @Test
+  fun aFailedFirstReadShowsTheFailureBodyAndRecovers() {
+    var down = true
+    val board = Board({ status(listOf(report)) }, tasksAnswer = { if (down) throw BoardError.Lost else tasksData() })
+    val model = model(board)
+    model.select(Tab.Tasks)
+    runBlocking { model.loadTasks() }
+    assertTrue(model.now().tasks.failed)
+    assertFalse(model.now().tasks.loaded)
+    assertEquals(TasksBody.Failed, tasksBody(model.now().tasks))
+    assertNull(model.now().band)
+    down = false
+    runBlocking { model.loadTasks() }
+    assertFalse(model.now().tasks.failed)
+    assertTrue(model.now().tasks.loaded)
+  }
+
+  @Test
+  fun aFailedReloadKeepsTheRowsAndSaysSoInTheBand() {
+    var down = false
+    val board = Board({ status(listOf(report)) }, tasksAnswer = { if (down) throw BoardError.Lost else tasksData() })
+    val model = model(board)
+    model.select(Tab.Tasks)
+    runBlocking { model.loadTasks() }
+    val kept = model.now().tasks
+    down = true
+    runBlocking { model.loadTasks() }
+    val failed = model.now().tasks
+    assertTrue(failed.failed)
+    assertTrue(failed.loaded)
+    assertEquals(kept.groups, failed.groups)
+    assertEquals(TasksBody.Rows, tasksBody(failed))
+    assertEquals("The Board's answer could not be read.", model.now().band?.title)
+    down = false
+    runBlocking { model.loadTasks() }
+    assertFalse(model.now().tasks.failed)
+  }
+
+  @Test
+  fun aFailedShowAllKeepsTheFiveRowsAndTheAction() {
+    val board =
+      Board(
+        { status(listOf(report)) },
+        tasksAnswer = { all -> if (all) throw BoardError.Lost else tasksData() }
+      )
+    val model = model(board)
+    model.select(Tab.Tasks)
+    runBlocking { model.loadTasks() }
+    val kept = model.now().tasks
+    runBlocking { model.loadTasks(all = true) }
+    val failed = model.now().tasks
+    assertFalse(failed.all)
+    assertTrue(failed.failed)
+    assertEquals(kept.groups, failed.groups)
+    assertEquals("Show all finished tasks (7)", tasksFooter(failed))
+    assertEquals(TasksBody.Rows, tasksBody(failed))
+    assertTrue(model.now().band != null)
+    runBlocking { model.loadTasks() }
+    assertFalse(model.now().tasks.failed)
+  }
+
+  @Test
+  fun thePollReadsTasksOnlyWhileTheTasksTabIsVisible() {
+    val board = Board({ status(listOf(report)) })
+    val model = model(board)
+    runBlocking { model.refresh() }
+    assertEquals(0, board.calls.count { it.startsWith("GET /api/v1/tasks") })
+    model.select(Tab.Tasks)
+    runBlocking { model.refresh() }
+    assertEquals(1, board.calls.count { it.startsWith("GET /api/v1/tasks") })
+    model.select(Tab.Chat)
+    runBlocking { model.refresh() }
+    assertEquals(1, board.calls.count { it.startsWith("GET /api/v1/tasks") })
+  }
+
+  @Test
+  fun aTabsContentStaysWhenAnotherTabIsChosen() {
+    val model = model(Board({ status(listOf(report)) }))
+    model.select(Tab.Tasks)
+    runBlocking { model.loadTasks() }
+    val kept = model.now().tasks
+    model.select(Tab.Needs)
+    assertEquals(kept, model.now().tasks)
+    model.select(Tab.Tasks)
+    assertEquals(kept, model.now().tasks)
   }
 }

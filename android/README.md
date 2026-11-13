@@ -2,7 +2,7 @@
 
 Reach a Hand Board from an Android phone over iroh.
 
-Status: the app keeps an iroh key, takes a `handboard://` pairing link from an intent, a paste or a QR scan, pairs natively and draws the fleet list, Needs, a Decision, pairing and the web fallback in Jetpack Compose. A page with no native screen still opens in a plain `WebView` through a loopback proxy at `http://localhost:PORT`, where the Board's cookie login, forms and event stream work unchanged. The signed release build exists (see Release build) and nothing is published yet. A foreground service polls Hand's alert feed and posts each alert as a notification, with the app open or not; it is built and passes its host and JVM tests, and its device check is still to do (see Alerts on the phone).
+Status: the app keeps an iroh key, takes a `handboard://` pairing link from an intent, a paste or a QR scan, pairs natively and draws the fleet list, Needs, Tasks, a Decision, pairing and the web fallback in Jetpack Compose. A page with no native screen still opens in a plain `WebView` through a loopback proxy at `http://localhost:PORT`, where the Board's cookie login, forms and event stream work unchanged. The signed release build exists (see Release build) and nothing is published yet. A foreground service polls Hand's alert feed and posts each alert as a notification, with the app open or not; it is built and passes its host and JVM tests, and its device check is still to do (see Alerts on the phone).
 
 ## What it is
 
@@ -42,7 +42,7 @@ cd src-tauri/gen/android
 
 The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`. `apksigner verify --print-certs` reports the fingerprint above. For an emulator, build with `./gradlew :app:assembleDebug -PrustTarget=x86_64` and install the same path with `adb install -r`.
 
-`cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility), of the Board client, of the landing routes, of the pairing model, of the manifest and of the fleet list. `./gradlew :app:verifyPaparazziUniversalDebug` runs the same tests and also compares the rendered screens with the stored images; CI runs that one.
+`cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility), of the Board client, of the landing routes, of the pairing model, of the manifest, of the fleet list and of the Tasks list. `./gradlew :app:verifyPaparazziUniversalDebug` runs the same tests and also compares the rendered screens with the stored images; CI runs that one.
 
 Measured on 2026-11-13 on Linux x86_64 with 22 cores and warm SDK and Gradle caches, a cold Rust target: 1m8s for the `aarch64` debug APK with iroh compiled, and 110,411,370 B. The same build at the base commit, with Tauri, was 152,223,196 B, so removing Tauri moved −41,811,826 B: 40,716,744 B of it from `lib/arm64-v8a/libhand_android_lib.so` (134,457,848 to 93,741,104 B), 2,332,132 B from dex, and 2,370 B of bundled `tauri.conf.json`. The SDK, NDK, JDK, Gradle and Rust caches took about 12 GB.
 
