@@ -193,7 +193,9 @@ class HandActivity : ComponentActivity() {
   ) {
     val model = remember(fleet, ref) { taskModel(fleet, ref) }
     val state by model.state.collectAsStateWithLifecycle()
-    LaunchedEffect(model) { model.run() }
+    LaunchedEffect(model) {
+      lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.run() }
+    }
     TaskScreen(fleet, ref, state, onBack, model::retry, model::markRead, onTarget, onWeb)
   }
 
