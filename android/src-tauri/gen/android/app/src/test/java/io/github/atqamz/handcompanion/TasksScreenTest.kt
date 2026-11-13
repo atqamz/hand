@@ -11,7 +11,7 @@ private fun task(
   state: String,
   parent: String? = null,
   waits: TaskWaits? = null
-) = TaskRow(ref, title, state, parent ?: "", waits)
+) = TaskRow(ref, title, state, parent = parent ?: "", waits = waits)
 
 private fun finishedTasks(extra: Boolean) =
   listOf(

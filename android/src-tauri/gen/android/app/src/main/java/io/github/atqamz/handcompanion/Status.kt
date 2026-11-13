@@ -71,6 +71,7 @@ data class TaskRow(
   val ref: String,
   val title: String,
   val state: String,
+  val status: String = "",
   val parent: String = "",
   val waits: TaskWaits? = null
 )
