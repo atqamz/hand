@@ -163,6 +163,19 @@ private fun blocked(
     notice = notice
   )
 
+private val reconnecting = several.copy(band = Band("Reconnecting…", retry = false, live = true))
+
+private val liveLost =
+  several.copy(
+    band =
+      Band(
+        "Can't reach 4d92…6ed6 since 12:41",
+        "Check that the laptop is on, that Hand's Board is running, and that this phone has internet.",
+        retry = false,
+        live = true
+      )
+  )
+
 class FleetScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2000))
@@ -197,6 +210,14 @@ class FleetScreenTest {
   @Test fun failedFirstFrameLight() = shot(false, "f000000000003", unreachable)
 
   @Test fun failedFirstFrameDark() = shot(true, "f000000000003", unreachable)
+
+  @Test fun reconnectingLight() = shot(false, "f000000000003", reconnecting)
+
+  @Test fun reconnectingDark() = shot(true, "f000000000003", reconnecting)
+
+  @Test fun liveLostLight() = shot(false, "f000000000003", liveLost)
+
+  @Test fun liveLostDark() = shot(true, "f000000000003", liveLost)
 
   @Test fun allClearLight() = shot(false, "f000000000005", clear)
 

@@ -6,6 +6,7 @@ mod dialer;
 mod http;
 mod key;
 mod link;
+mod live;
 mod open;
 mod pair;
 mod pairing;
@@ -29,6 +30,7 @@ pub use key::{CipherError, KeyCipher, key_path, load_or_create as load_or_create
 pub use link::{
     LINK_NEEDS_UPDATE, LINK_REJECTED, Link, MAX_LEN, Reject, parse_link, parse_link_with,
 };
+pub use live::{Cancel, Live, LiveEnd, LiveSink, WATCHDOG as LIVE_WATCHDOG};
 pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, open_paired, parse_open};
 pub use pair::{NAME_MAX, PairError, parse_answer, redeem, valid_name};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};

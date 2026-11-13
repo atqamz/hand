@@ -37,6 +37,14 @@ class AppHost(private val context: Context) {
     link: String?
   ): Boolean = Notifier.post(context, alertSpec(fleetId, fleetName, kind, reference, text, link))
 
+  fun live(fleet: String, topic: String, json: String) {
+    LiveBus.shared.publish(fleet, topic, json)
+  }
+
+  fun link(fleet: String, state: String, since: Long) {
+    LiveBus.shared.link(fleet, state, since)
+  }
+
   fun clearCookies(): Boolean {
     val done = CountDownLatch(1)
     val storage = AtomicBoolean(true)

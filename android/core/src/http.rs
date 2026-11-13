@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use iroh::endpoint::ReadError;
-use tokio::time::{Instant, timeout_at};
+use tokio::time::{Instant, timeout, timeout_at};
 
 use crate::alerts::{fleet_cookie, valid_cookie_value};
 use crate::codes;
-use crate::dialer::{Dialer, Notice, OpenError};
+use crate::dialer::{Dialer, Notice, OpenError, StreamRecv, StreamSend};
 use crate::open::valid_fleet;
 use crate::proxy::unpaired_403;
 
@@ -116,6 +116,28 @@ impl Request {
         Self::new(Method::Post, fleet, "/api/v1/pair", None, None, body)
     }
 
+    pub fn host(
+        method: Method,
+        fleet: &str,
+        path: &str,
+        cookies: &str,
+    ) -> Result<Self, RequestError> {
+        if method != Method::Get || path != "/api/v1/meta" {
+            return Err(RequestError::Malformed);
+        }
+        let cookie = fleet_cookie(cookies, fleet).ok_or(RequestError::Unpaired)?;
+        let bytes = format!(
+            "GET {path} HTTP/1.1\r\nHost: localhost\r\nCookie: {cookie}\r\nConnection: close\r\n\r\n"
+        )
+        .into_bytes();
+        Ok(Self {
+            bytes,
+            timeout: REQUEST_TIMEOUT,
+            max_body: MAX_BODY,
+            by_length: false,
+        })
+    }
+
     pub fn within(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -195,6 +217,282 @@ fn read_failure(error: &ReadError, dialer: &Dialer) -> RequestError {
         }
         Some(codes::STREAM_IDLE) => RequestError::TimedOut,
         _ => RequestError::Lost,
+    }
+}
+
+pub const MAX_EVENT: usize = 256 * 1024;
+const MAX_EVENT_NAME: usize = 64;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SseEvent {
+    pub name: String,
+    pub data: String,
+}
+
+pub struct SseStream {
+    send: Option<StreamSend>,
+    recv: StreamRecv,
+    body: StreamBody,
+}
+
+impl SseStream {
+    pub async fn open(
+        dialer: &Dialer,
+        request: &Request,
+        watchdog: Duration,
+    ) -> Result<Self, RequestError> {
+        let (send, mut recv) = timeout(watchdog, dialer.open_with(&request.bytes))
+            .await
+            .map_err(|_| RequestError::TimedOut)?
+            .map_err(RequestError::from)?;
+        let mut input = Vec::new();
+        let mut chunk = [0u8; 16 * 1024];
+        let end = loop {
+            if let Some(end) = find(&input, b"\r\n\r\n") {
+                break end;
+            }
+            if input.len() >= MAX_HEAD {
+                return Err(RequestError::Malformed);
+            }
+            let read = timeout(watchdog, recv.read(&mut chunk))
+                .await
+                .map_err(|_| RequestError::TimedOut)?
+                .map_err(|error| read_failure(&error, dialer))?;
+            if read == 0 {
+                return Err(RequestError::Lost);
+            }
+            input.extend_from_slice(&chunk[..read]);
+        };
+        if unpaired_403(&input[..end]) {
+            return Err(RequestError::Unpaired);
+        }
+        let head = parse_head(&input[..end]).ok_or(RequestError::Malformed)?;
+        if head.status != 200 || !event_stream(&head) {
+            return Err(RequestError::Malformed);
+        }
+        let tail = input.split_off(end + 4);
+        let mut body = StreamBody::new(&head);
+        body.feed(&tail)?;
+        Ok(Self {
+            send: Some(send),
+            recv,
+            body,
+        })
+    }
+
+    pub async fn next(&mut self, watchdog: Duration) -> Result<SseEvent, RequestError> {
+        loop {
+            if let Some(event) = self.body.next_event()? {
+                return Ok(event);
+            }
+            if self.body.done() {
+                return Err(RequestError::Lost);
+            }
+            let mut chunk = [0u8; 16 * 1024];
+            let read = timeout(watchdog, self.recv.read(&mut chunk))
+                .await
+                .map_err(|_| RequestError::TimedOut)?
+                .map_err(|_| RequestError::Lost)?;
+            if read == 0 {
+                return Err(RequestError::Lost);
+            }
+            self.body.feed(&chunk[..read])?;
+        }
+    }
+}
+
+impl Drop for SseStream {
+    fn drop(&mut self) {
+        self.recv.stop();
+        if let Some(send) = self.send.as_mut() {
+            send.reset();
+        }
+    }
+}
+
+fn event_stream(head: &Head) -> bool {
+    head.content_type.as_deref().is_some_and(|value| {
+        value
+            .split(';')
+            .next()
+            .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("text/event-stream"))
+    })
+}
+
+#[derive(Clone, Copy)]
+enum BodyStage {
+    Size,
+    Data(usize),
+    DataEnd,
+    Trailers,
+    Length(usize),
+    Close,
+    Done,
+}
+
+struct StreamBody {
+    input: Vec<u8>,
+    body: Vec<u8>,
+    stage: BodyStage,
+}
+
+impl StreamBody {
+    fn new(head: &Head) -> Self {
+        let stage = if head.chunked {
+            BodyStage::Size
+        } else if let Some(length) = head.length {
+            if length == 0 {
+                BodyStage::Done
+            } else {
+                BodyStage::Length(length)
+            }
+        } else {
+            BodyStage::Close
+        };
+        Self {
+            input: Vec::new(),
+            body: Vec::new(),
+            stage,
+        }
+    }
+
+    fn done(&self) -> bool {
+        matches!(self.stage, BodyStage::Done)
+    }
+
+    fn feed(&mut self, data: &[u8]) -> Result<(), RequestError> {
+        self.input.extend_from_slice(data);
+        loop {
+            match self.stage {
+                BodyStage::Size => {
+                    let Some(end) = find(&self.input, b"\r\n") else {
+                        if self.input.len() > MAX_LINE {
+                            return Err(RequestError::Malformed);
+                        }
+                        break;
+                    };
+                    let line = std::str::from_utf8(&self.input[..end])
+                        .map_err(|_| RequestError::Malformed)?;
+                    let digits = line.split(';').next().unwrap_or_default();
+                    if digits.is_empty()
+                        || digits.len() > 16
+                        || !digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    {
+                        return Err(RequestError::Malformed);
+                    }
+                    let size =
+                        usize::from_str_radix(digits, 16).map_err(|_| RequestError::Malformed)?;
+                    self.input.drain(..end + 2);
+                    self.stage = if size == 0 {
+                        BodyStage::Trailers
+                    } else if size > MAX_EVENT {
+                        return Err(RequestError::TooLarge);
+                    } else {
+                        BodyStage::Data(size)
+                    };
+                }
+                BodyStage::Data(left) => {
+                    let take = left.min(self.input.len());
+                    self.body.extend(self.input.drain(..take));
+                    if take < left {
+                        self.stage = BodyStage::Data(left - take);
+                        return Ok(());
+                    }
+                    self.stage = BodyStage::DataEnd;
+                }
+                BodyStage::DataEnd => {
+                    if self.input.len() < 2 {
+                        return Ok(());
+                    }
+                    if !self.input.starts_with(b"\r\n") {
+                        return Err(RequestError::Malformed);
+                    }
+                    self.input.drain(..2);
+                    self.stage = BodyStage::Size;
+                }
+                BodyStage::Trailers => {
+                    let Some(end) = find(&self.input, b"\r\n") else {
+                        if self.input.len() > MAX_HEAD {
+                            return Err(RequestError::Malformed);
+                        }
+                        break;
+                    };
+                    let empty = end == 0;
+                    self.input.drain(..end + 2);
+                    if empty {
+                        self.stage = BodyStage::Done;
+                        break;
+                    }
+                }
+                BodyStage::Length(left) => {
+                    let take = left.min(self.input.len());
+                    self.body.extend(self.input.drain(..take));
+                    if take < left {
+                        self.stage = BodyStage::Length(left - take);
+                        return Ok(());
+                    }
+                    self.stage = BodyStage::Done;
+                }
+                BodyStage::Close => {
+                    self.body.append(&mut self.input);
+                    return Ok(());
+                }
+                BodyStage::Done => break,
+            }
+        }
+        Ok(())
+    }
+
+    fn next_event(&mut self) -> Result<Option<SseEvent>, RequestError> {
+        loop {
+            let lf = find(&self.body, b"\n\n").map(|end| (end, 2));
+            let crlf = find(&self.body, b"\r\n\r\n").map(|end| (end, 4));
+            let delimiter = match (lf, crlf) {
+                (Some(lf), Some(crlf)) => Some(if lf.0 <= crlf.0 { lf } else { crlf }),
+                (lf, crlf) => lf.or(crlf),
+            };
+            let Some((end, length)) = delimiter else {
+                return if self.body.len() > MAX_EVENT {
+                    Err(RequestError::TooLarge)
+                } else {
+                    Ok(None)
+                };
+            };
+            let block: Vec<u8> = self.body.drain(..end + length).collect();
+            let text = std::str::from_utf8(&block[..end]).map_err(|_| RequestError::Malformed)?;
+            let mut name = String::new();
+            let mut data = String::new();
+            for line in text.split('\n') {
+                let line = line.strip_suffix('\r').unwrap_or(line);
+                if line.is_empty() || line.starts_with(':') {
+                    continue;
+                }
+                let (field, value) = line.split_once(':').unwrap_or((line, ""));
+                let value = value.strip_prefix(' ').unwrap_or(value);
+                match field {
+                    "event" if name.is_empty() => {
+                        name = value
+                            .chars()
+                            .filter(|c| !c.is_control())
+                            .take(MAX_EVENT_NAME)
+                            .collect()
+                    }
+                    "data" => {
+                        if !data.is_empty() {
+                            data.push('\n');
+                        }
+                        data.push_str(value);
+                    }
+                    _ => {}
+                }
+            }
+            if data.len() > MAX_EVENT {
+                return Err(RequestError::TooLarge);
+            }
+            if !name.is_empty() {
+                return Ok(Some(SseEvent { name, data }));
+            }
+        }
     }
 }
 
@@ -862,5 +1160,167 @@ mod tests {
             RequestError::from(OpenError::NotConfigured),
             RequestError::NoLaptop
         );
+    }
+
+    #[test]
+    fn a_meta_request_is_host_level_and_names_the_fleets_cookie() {
+        let request = Request::host(Method::Get, FLEET, "/api/v1/meta", COOKIES).unwrap();
+        assert_eq!(
+            text(&request),
+            "GET /api/v1/meta HTTP/1.1\r\nHost: localhost\r\nCookie: hand_phone_f0123456789ab=abc.def\r\nConnection: close\r\n\r\n"
+        );
+        for (method, path, cookies) in [
+            (Method::Post, "/api/v1/meta", COOKIES),
+            (Method::Get, "/api/v1/status", COOKIES),
+            (Method::Get, "/api/v1/meta", "a=b"),
+        ] {
+            assert!(
+                Request::host(method, FLEET, path, cookies).is_err(),
+                "{path}"
+            );
+        }
+    }
+
+    fn stream_head(wire: &[u8]) -> Head {
+        let end = find(wire, b"\r\n\r\n").unwrap();
+        parse_head(&wire[..end]).unwrap()
+    }
+
+    fn event(name: &str, data: &str) -> String {
+        format!("event: {name}\ndata: {data}\n\n")
+    }
+
+    fn chunk(text: &str) -> String {
+        format!("{:x}\r\n{text}\r\n", text.len())
+    }
+
+    #[test]
+    fn an_sse_body_is_read_bytewise_into_its_events() {
+        let wire = chunk(&event("hello", r#"{"version":1}"#))
+            + &chunk(&event("beat", ""))
+            + &chunk(&event("touched", r#"{"topics":["tasks"],"tasks":["t40"]}"#))
+            + "0\r\n\r\n";
+        let head = stream_head(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n",
+        );
+        let mut body = StreamBody::new(&head);
+        for byte in wire.as_bytes() {
+            body.feed(&[*byte]).unwrap();
+        }
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "hello".to_owned(),
+                data: r#"{"version":1}"#.to_owned()
+            })
+        );
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "beat".to_owned(),
+                data: String::new()
+            })
+        );
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "touched".to_owned(),
+                data: r#"{"topics":["tasks"],"tasks":["t40"]}"#.to_owned()
+            })
+        );
+        assert_eq!(body.next_event().unwrap(), None);
+        assert!(body.done());
+    }
+
+    #[test]
+    fn an_event_split_across_chunks_and_a_crlf_delimiter_both_parse() {
+        let wire = "7\r\nevent: \r\n7\r\nstatus\n\r\n1\r\n\n\r\n0\r\n\r\n";
+        let head = stream_head(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n",
+        );
+        let mut body = StreamBody::new(&head);
+        for piece in wire.as_bytes().chunks(3) {
+            body.feed(piece).unwrap();
+        }
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "status".to_owned(),
+                data: String::new()
+            })
+        );
+        let crlf =
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 32\r\n\r\n";
+        let head = stream_head(crlf);
+        let mut body = StreamBody::new(&head);
+        body.feed(b"event: status\r\ndata: {\"a\"").unwrap();
+        body.feed(b":1}\r\n\r\n").unwrap();
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "status".to_owned(),
+                data: r#"{"a":1}"#.to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn a_comment_block_before_an_event_is_skipped_in_the_same_feed() {
+        let head = stream_head(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+        let mut body = StreamBody::new(&head);
+        body.feed(b": keepalive\n\nevent: status\ndata: {}\n\n")
+            .unwrap();
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "status".to_owned(),
+                data: "{}".to_owned()
+            })
+        );
+        assert_eq!(body.next_event().unwrap(), None);
+    }
+
+    #[test]
+    fn the_earlier_of_a_lf_and_a_crlf_terminator_ends_the_event() {
+        let head = stream_head(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+        let mut body = StreamBody::new(&head);
+        body.feed(b"event: first\r\ndata: one\r\n\r\nevent: second\ndata: two\n\n")
+            .unwrap();
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "first".to_owned(),
+                data: "one".to_owned()
+            })
+        );
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "second".to_owned(),
+                data: "two".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn an_event_over_the_cap_or_a_broken_chunk_is_refused() {
+        let head = stream_head(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n",
+        );
+        let mut body = StreamBody::new(&head);
+        assert_eq!(
+            body.feed(format!("{:x}\r\n", MAX_EVENT + 1).as_bytes()),
+            Err(RequestError::TooLarge)
+        );
+        let head = stream_head(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+        let mut body = StreamBody::new(&head);
+        let endless = format!("event: status\ndata: {}", "x".repeat(MAX_EVENT));
+        body.feed(endless.as_bytes()).unwrap();
+        assert_eq!(body.next_event(), Err(RequestError::TooLarge));
+        let head = stream_head(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n",
+        );
+        let mut body = StreamBody::new(&head);
+        assert_eq!(body.feed(b"2\r\nhiXX"), Err(RequestError::Malformed));
     }
 }

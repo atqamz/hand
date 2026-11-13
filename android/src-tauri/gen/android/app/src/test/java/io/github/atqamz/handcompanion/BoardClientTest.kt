@@ -542,6 +542,35 @@ class BoardClientTest {
     assertEquals("Allow Bash?", answer.data.supervisor?.ask?.question)
   }
 
+  @Test
+  fun theFeaturesComeFromTheHostsMetaAnswer() {
+    val script =
+      Script(
+        Raw(
+          200,
+          """{"version":1,"generated_at":"2026-11-14T03:12:00Z","data":{"version":"9.9.9","features":["events","fleets","pair"]}}"""
+        )
+      )
+    val features = runBlocking { client(script).features() }
+    assertEquals(setOf("events", "fleets", "pair"), features)
+    assertEquals(Call(FLEET, false, "/api/v1/meta", null, null), script.calls.single())
+  }
+
+  @Test
+  fun aMetaAnswerOfAnotherVersionOrShapeIsMalformed() {
+    for (body in
+      listOf(
+        """{"data":{"features":[]}}""",
+        """{"version":1}""",
+        """{"version":1,"data":{"features":"events"}}"""
+      )) {
+      assertSame(body, BoardError.Malformed, failure { client(Script(Raw(200, body))).features() })
+    }
+    val unsupported =
+      failure { client(Script(Raw(200, """{"version":2,"data":{"features":[]}}"""))).features() }
+    assertTrue(unsupported is BoardError.UnsupportedVersion)
+  }
+
   private fun failure(call: suspend () -> Any?): BoardError =
     try {
       runBlocking { call() }

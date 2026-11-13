@@ -7,12 +7,12 @@ use std::ptr;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use hand_android_core::{
-    Alert, AlertSink, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher, Method,
-    OPEN_REJECTED, PairError, RESCAN, Request, RequestError, Response, Sessions, Supervisor,
-    open_paired, paired_fleets,
+    Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
+    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Request, RequestError, Response,
+    Sessions, Supervisor, open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
-use jni::sys::{jboolean, jstring};
+use jni::sys::{jboolean, jlong, jstring};
 use jni::{JNIEnv, JavaVM};
 
 const PROBE: i32 = 0;
@@ -26,6 +26,44 @@ struct Core {
     alerts: Arc<Alerts>,
     sessions: Arc<Sessions<HostJar>>,
     host: Arc<Host>,
+    live: Mutex<Option<RunningLive>>,
+}
+
+struct RunningLive {
+    task: tokio::task::JoinHandle<()>,
+    cancel: Cancel,
+}
+
+impl RunningLive {
+    fn stop(self) {
+        self.cancel.cancel();
+        self.task.abort();
+    }
+}
+
+impl Core {
+    fn start_live(&self, fleet: &str) {
+        let mut slot = self.live.lock().unwrap();
+        if let Some(running) = slot.take() {
+            running.stop();
+        }
+        let live = Live::new(self.companion.dialer());
+        let sessions = self.sessions.clone();
+        let sink = HostLive(self.host.clone());
+        let cancel = Cancel::default();
+        let token = cancel.clone();
+        let id = fleet.to_owned();
+        let task = runtime().spawn(async move {
+            let _ = live.run(&id, &sessions, &sink, &token).await;
+        });
+        *slot = Some(RunningLive { task, cancel });
+    }
+
+    fn stop_live(&self) {
+        if let Some(running) = self.live.lock().unwrap().take() {
+            running.stop();
+        }
+    }
 }
 
 struct State {
@@ -49,6 +87,7 @@ pub fn forget_alerts() -> io::Result<()> {
     let Some(core) = core else {
         return Ok(());
     };
+    core.stop_live();
     core.alerts.forget_all();
     let cleared = core.sessions.forget();
     let _ = core.host.stop_service();
@@ -174,6 +213,55 @@ impl Host {
             )?
             .v()
         })
+    }
+
+    fn live(&self, fleet: &str, topic: &str, json: &str) -> io::Result<()> {
+        self.call(|env| {
+            let fleet = env.new_string(fleet)?;
+            let topic = env.new_string(topic)?;
+            let json = env.new_string(json)?;
+            env.call_method(
+                &self.object,
+                "live",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                &[
+                    JValue::Object(&fleet),
+                    JValue::Object(&topic),
+                    JValue::Object(&json),
+                ],
+            )?
+            .v()
+        })
+    }
+
+    fn link(&self, fleet: &str, state: &str, since: u64) -> io::Result<()> {
+        self.call(|env| {
+            let fleet = env.new_string(fleet)?;
+            let state = env.new_string(state)?;
+            env.call_method(
+                &self.object,
+                "link",
+                "(Ljava/lang/String;Ljava/lang/String;J)V",
+                &[
+                    JValue::Object(&fleet),
+                    JValue::Object(&state),
+                    JValue::Long(since as jlong),
+                ],
+            )?
+            .v()
+        })
+    }
+}
+
+struct HostLive(Arc<Host>);
+
+impl LiveSink for HostLive {
+    fn live(&self, fleet: &str, topic: &str, json: &str) -> io::Result<()> {
+        self.0.live(fleet, topic, json)
+    }
+
+    fn link(&self, fleet: &str, state: &str, since: u64) -> io::Result<()> {
+        self.0.link(fleet, state, since)
     }
 }
 
@@ -307,6 +395,7 @@ fn start(
             alerts,
             sessions,
             host,
+            live: Mutex::new(None),
         })
     })();
     match result {
@@ -400,6 +489,31 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_live<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    fleet: JString<'local>,
+) {
+    let fleet = match text(&mut env, &fleet) {
+        Ok(Some(fleet)) => fleet,
+        _ => return,
+    };
+    if let Some(core) = core() {
+        core.start_live(&fleet);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unlive<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        core.stop_live();
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_resume<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -443,14 +557,18 @@ fn send(
     };
     let cookies = core.sessions.header().unwrap_or_default();
     let method = if post { Method::Post } else { Method::Get };
-    let request = Request::new(
-        method,
-        &fleet,
-        &path,
-        Some(&cookies),
-        csrf.as_deref(),
-        &body,
-    )?;
+    let request = if path == "/api/v1/meta" {
+        Request::host(method, &fleet, &path, &cookies)?
+    } else {
+        Request::new(
+            method,
+            &fleet,
+            &path,
+            Some(&cookies),
+            csrf.as_deref(),
+            &body,
+        )?
+    };
     runtime().block_on(core.companion.request(&request))
 }
 
@@ -506,7 +624,10 @@ fn paired(name: &str) -> serde_json::Value {
     let Some(core) = core() else {
         return failed(PairError::NoPending);
     };
-    let stop_feeds = || core.alerts.forget_all();
+    let stop_feeds = || {
+        core.alerts.forget_all();
+        core.stop_live();
+    };
     match runtime().block_on(core.companion.pair(&core.sessions, name, stop_feeds)) {
         Ok(fleets) => serde_json::json!({
             "fleets": fleets.iter().map(|fleet| serde_json::json!({ "id": fleet.id, "name": fleet.name })).collect::<Vec<_>>(),
