@@ -1,6 +1,6 @@
 {
   "contract": 1,
-  "note": "Normative test vectors for the Companion contract in docs/companion.md. A copy of this file is checked by the app's own tests. Entries are only ever added within a contract version.",
+  "note": "Normative test vectors for the Companion contract in docs/companion.md. The app's tests read this file by path. Entries are only ever added within a contract version.",
   "wire": {
     "alpn": "hand-board",
     "streams_per_connection": 12,

@@ -61,6 +61,7 @@ jobs:
           while IFS= read -r file; do
             case "$file" in
               android/* | iroh/* | .github/*) android=true ;;
+              docs/companion-vectors.json) android=true ;;
             esac
           done <<<"$changed"
           echo "android=$android"
