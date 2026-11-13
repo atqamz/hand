@@ -327,7 +327,7 @@ The wire contract is [Hand's Companion contract](../docs/companion.md), with its
 
 ## Media
 
-Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only. Images from before the app moved into `android/` stay in `atqamz/hand-android`'s `blob` branch, where the issues and pull requests that use them still link them.
+Screenshots for issues and pull requests live on the `blob` branch of this repository, at `<PR number>/<file>`, and bodies link them as `https://github.com/atqamz/hand/raw/blob/<PR number>/<file>`. The branch is append-only: it refuses force-pushes and deletion, and it is never merged into `main`, which shares no history with it. It holds images only. Images from before the app moved into `android/` are no longer hosted, so a body that needs one uploads it here first.
 
 A clone without it is lighter: `git clone --single-branch --branch main https://github.com/atqamz/hand.git`, or the same with `--depth 1`.
 
