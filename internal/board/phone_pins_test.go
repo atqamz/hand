@@ -100,7 +100,7 @@ func TestThePhoneScriptPinsItsFlow(t *testing.T) {
 		`field.value = localStorage.getItem(addressKey) || field.value`,
 		`if (typed && typed !== detected) localStorage.setItem(addressKey, typed);`,
 		`else localStorage.removeItem(addressKey);`,
-		`body.dataset.session === "phone" ? "Signed out: pair again from the Board on the host" : "Log in again: hand open --print"`,
+		`body.dataset.session === "phone" ? "Signed out: pair again from the host's Board" : "Log in again: hand open --print"`,
 		`{ path: "Path", link: "Link" }[b.dataset.copy]`)
 	lacks(t, "app.js", js, `location.hash = `, `location.search`, `eval(`, "document.write")
 	if n := strings.Count(js, "const pairForm ="); n != 1 {

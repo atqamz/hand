@@ -2,7 +2,7 @@
 {{if .Paired}}<header class="thread-head"><h2 class="thread-title">Phone paired</h2></header>
 <section class="card pair-card"><div class="part-body">
 <p>Paired with {{.PairedWith}}.</p>
-{{if .Missed}}<p class="doc-notice">{{if eq .Missed 1}}1 fleet was{{else}}{{.Missed}} fleets were{{end}} not reachable. Pair {{if eq .Missed 1}}it{{else}}them{{end}} from the Board's Phone page on the host.</p>{{end}}
+{{if .Missed}}<p class="doc-notice">{{if eq .Missed 1}}1 fleet was{{else}}{{.Missed}} fleets were{{end}} not reachable. Pair {{if eq .Missed 1}}it{{else}}them{{end}} from the host's Board, on its Phone page.</p>{{end}}
 <ul class="devices">{{range .Paired}}<li class="device"><span class="dev-text"><span class="dev-name">{{.Name}}</span></span><form method="get" action="/{{.ID}}/"><button class="primary" aria-label="Open {{.Name}}">Open</button></form></li>{{end}}</ul>
 </div></section>
 {{else}}<header class="thread-head"><h2 class="thread-title">Pair this phone</h2></header>
