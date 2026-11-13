@@ -2,17 +2,26 @@ package io.github.atqamz.handcompanion
 
 import java.net.URI
 import java.net.URISyntaxException
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val NINETY_DAYS = 90 * 24 * 60 * 60
 private val BROWSER = setOf("http", "https", "mailto", "tel")
 
 const val NOT_PAIRED_HERE = "This phone is not paired with this fleet."
 const val COOKIE_REFUSED = "Can't set the saved login for the web Board. Close this and try again."
+const val BOARD_TIMED_OUT = "The web Board took too long to open. Try again."
+const val OPEN_MILLIS = 30_000L
 
 sealed interface Page {
-  data class Failed(val message: String) : Page
+  data class Failed(val message: String, val retry: Boolean = false) : Page
 
   data class Ready(val url: String, val port: Int) : Page
 }
@@ -28,6 +37,33 @@ fun interface Cookies {
 }
 
 suspend fun openBoard(
+  path: String,
+  fallback: (String) -> String?,
+  cookies: Cookies,
+  timeoutMillis: Long = OPEN_MILLIS
+): Page {
+  val answer = CompletableDeferred<Page>()
+  val worker =
+    CoroutineScope(coroutineContext.minusKey(Job))
+      .launch(start = CoroutineStart.UNDISPATCHED) {
+        try {
+          answer.complete(openPage(path, fallback, cookies))
+        } catch (error: Throwable) {
+          answer.completeExceptionally(error)
+        }
+      }
+  try {
+    return withTimeoutOrNull(timeoutMillis) { answer.await() }
+      ?: run {
+        answer.cancel()
+        Page.Failed(BOARD_TIMED_OUT, retry = true)
+      }
+  } finally {
+    worker.cancel()
+  }
+}
+
+private suspend fun openPage(
   path: String,
   fallback: (String) -> String?,
   cookies: Cookies

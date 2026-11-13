@@ -80,6 +80,16 @@ class FallbackScreenTest {
 
   @Test fun webLoadingDark() = shot(true, webLoading)
 
+  private val webTimedOut: @Composable () -> Unit = {
+    FallbackScreen("f000000000003", "atlas", "/f000000000003/task/t40#r91", {}) {
+      BoardBody(Page.Failed(BOARD_TIMED_OUT, retry = true), {}, onRetry = {}) {}
+    }
+  }
+
+  @Test fun webTimedOutLight() = shot(false, webTimedOut)
+
+  @Test fun webTimedOutDark() = shot(true, webTimedOut)
+
   @Test
   fun fleetMenuLight() =
     shot(false) {

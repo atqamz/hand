@@ -1,6 +1,13 @@
 package io.github.atqamz.handcompanion
 
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +19,27 @@ private class Jar(private val events: MutableList<String>, private val stores: B
   override suspend fun set(url: String, cookie: String): Boolean {
     events += "$url $cookie"
     return stores
+  }
+}
+
+private class NeverJar : Cookies {
+  override suspend fun set(url: String, cookie: String): Boolean = suspendCoroutine<Boolean> {}
+}
+
+private class LateJar : Cookies {
+  private var waiting: Continuation<Boolean>? = null
+  val reached = CompletableDeferred<Unit>()
+  var resumed = false
+
+  override suspend fun set(url: String, cookie: String): Boolean {
+    reached.complete(Unit)
+    val stored = suspendCoroutine { waiting = it }
+    resumed = true
+    return stored
+  }
+
+  fun resolve() {
+    waiting?.resume(true)
   }
 }
 
@@ -99,5 +127,42 @@ class FallbackTest {
     for (url in stay) assertEquals(url, Nav.Stay, navigation(url, port))
     for (url in browser) assertEquals(url, Nav.Browser, navigation(url, port))
     for (url in drop) assertEquals(url, Nav.Drop, navigation(url, port))
+  }
+
+  @Test(timeout = 2_000)
+  fun anOpenThatNeverAnswersGivesTheTimeoutPageWithRetry() {
+    val page =
+      runBlocking {
+        openBoard(
+          "/$FLEET/",
+          { """{"port":50123,"cookie":"$COOKIE"}""" },
+          NeverJar(),
+          timeoutMillis = 50
+        )
+      }
+    assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
+  }
+
+  @Test(timeout = 3_000)
+  fun aPageThatResolvesAfterTheTimeoutDoesNotReplaceIt() = runBlocking {
+    var page: Page? = null
+    val jar = LateJar()
+    val opener = launch {
+      page =
+        openBoard(
+          "/$FLEET/",
+          { """{"port":50123,"cookie":"$COOKIE"}""" },
+          jar,
+          timeoutMillis = 500
+        )
+    }
+    withTimeout(1_000) { jar.reached.await() }
+    withTimeout(2_000) { while (page == null) delay(5) }
+    assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
+    jar.resolve()
+    opener.join()
+    withTimeout(1_000) { while (!jar.resumed) delay(5) }
+    delay(50)
+    assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
   }
 }
