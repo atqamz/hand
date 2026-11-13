@@ -50,6 +50,7 @@ pub struct Companion {
     dialer: Dialer,
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
+    store: std::sync::Arc<StdMutex<()>>,
     signals: std::sync::Arc<StdMutex<Option<UnboundedReceiver<Signal>>>>,
     #[cfg(test)]
     gate: std::sync::Arc<StdMutex<Option<std::sync::Arc<Gate>>>>,
@@ -94,6 +95,7 @@ impl Companion {
             dialer,
             port: proxy.port(),
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
+            store: std::sync::Arc::new(StdMutex::new(())),
             signals: std::sync::Arc::new(StdMutex::new(Some(receiver))),
             #[cfg(test)]
             gate: std::sync::Arc::new(StdMutex::new(None)),
@@ -163,9 +165,9 @@ impl Companion {
 
     pub async fn forget_laptop(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
         let forgotten = {
-            let mut pairing = self.pairing.lock().unwrap();
+            let _store = self.store.lock().unwrap();
             clear()?;
-            pairing.forget()
+            self.pairing.lock().unwrap().forget()
         };
         self.dialer.set_target(None).await;
         forgotten
@@ -257,6 +259,7 @@ impl Companion {
         self.pass_gate().await;
         let target = link.target().map_err(|_| PairError::NoPending)?;
         {
+            let _store = self.store.lock().unwrap();
             let mut pairing = self.pairing.lock().unwrap();
             if pairing.generation() != generation {
                 return Err(PairError::NoPending);
@@ -838,6 +841,52 @@ mod tests {
         assert!(sessions.header().is_none());
         assert!(companion.pairing.lock().unwrap().active().is_none());
         assert!(!dir.path().join("laptop").exists());
+        assert!(companion.dialer.target().await.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_forget_that_is_clearing_does_not_stop_an_offer_or_a_cancel() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let forgetting = {
+            let companion = companion.clone();
+            tokio::spawn(async move {
+                companion
+                    .forget_laptop(move || {
+                        let _ = entered.send(());
+                        released
+                            .recv_timeout(Duration::from_secs(30))
+                            .map_err(|_| io::Error::other("the clear was not answered"))
+                    })
+                    .await
+            })
+        };
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (offered, offer_rx) = std::sync::mpsc::channel();
+        let tapping = {
+            let companion = companion.clone();
+            std::thread::spawn(move || {
+                let tap = companion.offer_link(LINK);
+                companion.cancel_pairing();
+                let _ = offered.send(tap);
+            })
+        };
+        let tapped = offer_rx.recv_timeout(Duration::from_secs(2));
+        let _ = release.send(());
+        tapping.join().unwrap();
+        let forgotten = forgetting.await.unwrap();
+        assert!(forgotten.is_ok());
+        assert_eq!(
+            tapped.expect("the offer and the cancel waited behind the clear"),
+            Ok(Offer {
+                laptop: "4d92…6ed6".to_owned(),
+                replaces: false,
+            })
+        );
+        assert!(companion.pending_offer().is_none());
+        assert!(companion.pairing.lock().unwrap().active().is_none());
         assert!(companion.dialer.target().await.is_none());
     }
 
