@@ -22,7 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-private fun stateGlyph(state: String) =
+internal fun stateGlyph(state: String) =
   when (state) {
     "failing" -> HandIcons.Failure
     "waiting" -> HandIcons.Waiting

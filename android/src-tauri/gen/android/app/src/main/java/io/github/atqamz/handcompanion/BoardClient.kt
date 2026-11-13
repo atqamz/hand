@@ -203,6 +203,13 @@ class BoardClient(
   suspend fun <T> read(path: String, data: KSerializer<T>): Envelope<T> =
     decode(send(false, "/api/v1/${path.trimStart('/')}", null), data)
 
+  suspend fun <T> readSince(path: String, since: String?, data: KSerializer<T>): Poll<T> {
+    val suffix = since?.let { "?since=" + URLEncoder.encode(it, "UTF-8") }.orEmpty()
+    val raw = send(false, "/api/v1/${path.trimStart('/')}$suffix", null)
+    if (raw.status == 304) return Poll.Unchanged
+    return Poll.Changed(decode(raw, data))
+  }
+
   suspend fun tasks(all: Boolean): Envelope<Tasks> =
     read(if (all) "tasks?all=1" else "tasks", Tasks.serializer())
 

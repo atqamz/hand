@@ -1,6 +1,7 @@
 package io.github.atqamz.handcompanion
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -26,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -173,6 +175,30 @@ class HandActivity : ComponentActivity() {
     DecisionScreen(ref, state, onBack, model::pick, model::edit, model::send, model::reload)
   }
 
+  private fun taskModel(fleet: String, ref: String): TaskModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { TaskModel(fleet, ref, CoreTransport) }
+      }
+    )["$fleet/$ref", TaskModel::class.java]
+
+  @Composable
+  private fun Task(
+    fleet: String,
+    ref: String,
+    onBack: () -> Unit,
+    onTarget: (ThreadTarget) -> Unit,
+    onWeb: () -> Unit
+  ) {
+    val model = remember(fleet, ref) { taskModel(fleet, ref) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) {
+      lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.run() }
+    }
+    TaskScreen(fleet, ref, state, onBack, model::retry, model::markRead, onTarget, onWeb)
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -187,6 +213,8 @@ class HandActivity : ComponentActivity() {
         var open by rememberSaveable { mutableStateOf<String?>(null) }
         var decision by rememberSaveable { mutableStateOf<String?>(null) }
         var web by rememberSaveable { mutableStateOf<String?>(null) }
+        var taskPath by rememberSaveable { mutableStateOf("") }
+        val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
         val pairing by pair.state.collectAsStateWithLifecycle()
@@ -221,6 +249,7 @@ class HandActivity : ComponentActivity() {
             scanning = false
             decision = null
             web = null
+            taskPath = ""
             open = id
           }
           model.say(null)
@@ -229,6 +258,7 @@ class HandActivity : ComponentActivity() {
               open = null
               decision = null
               web = null
+              taskPath = ""
               scanning = false
               adding = true
               pair.offer(to.link)
@@ -291,6 +321,7 @@ class HandActivity : ComponentActivity() {
               {
                 model.say(null)
                 fleetModel(it).enter()
+                taskPath = ""
                 open = it
               },
               model::ask,
@@ -313,6 +344,7 @@ class HandActivity : ComponentActivity() {
             }
             val page = web
             val shown = decision
+            val thread = currentTask(taskPath)
             if (page != null) {
               key(page) {
                 FallbackScreen(open.orEmpty(), state.name, page, { web = null }) {
@@ -322,30 +354,50 @@ class HandActivity : ComponentActivity() {
             } else if (shown != null) {
               BackHandler { decision = null }
               Decision(open.orEmpty(), shown) { decision = null }
+            } else if (thread != null) {
+              val back = { taskPath = popTask(taskPath) }
+              BackHandler(onBack = back)
+              val target: (ThreadTarget) -> Unit = { to ->
+                when (to) {
+                  is ThreadTarget.Task -> taskPath = pushTask(taskPath, to.ref)
+                  is ThreadTarget.Decision -> decision = to.ref
+                  is ThreadTarget.Web -> web = to.path
+                  is ThreadTarget.Browser ->
+                    try {
+                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(to.url)))
+                    } catch (_: ActivityNotFoundException) {}
+                  ThreadTarget.None -> Unit
+                }
+              }
+              holder.SaveableStateProvider("task:$open:$thread") {
+                Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
+              }
             } else {
               BackHandler { open = null }
-              FleetScreen(
-                open.orEmpty(),
-                state,
-                { open = null },
-                fleet::retry,
-                { tab ->
-                  fleet.select(tab)
-                  if (tab == Tab.Tasks) fleet.openTasks()
-                },
-                fleet::toggle,
-                fleet::markRead,
-                { web = "/${open}/" },
-                { web = "/${open}/task/$it" },
-                fleet::showAll,
-                fleet::press,
-                fleet::force
-              ) { ref ->
-                Choice(open.orEmpty(), ref) { decision = ref }
+              holder.SaveableStateProvider("fleet:$open") {
+                FleetScreen(
+                  open.orEmpty(),
+                  state,
+                  { open = null },
+                  fleet::retry,
+                  { tab ->
+                    fleet.select(tab)
+                    if (tab == Tab.Tasks) fleet.openTasks()
+                  },
+                  fleet::toggle,
+                  fleet::markRead,
+                  { web = "/${open}/" },
+                  { taskPath = pushTask("", it) },
+                  fleet::showAll,
+                  fleet::press,
+                  fleet::force
+                ) { ref ->
+                  Choice(open.orEmpty(), ref) { decision = ref }
+                }
               }
             }
           }
-          val tabs = fleet != null && web == null && decision == null
+          val tabs = fleet != null && web == null && decision == null && currentTask(taskPath) == null
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
           }
