@@ -1,12 +1,8 @@
+# Ignore everything; only the paths below are tracked.
 *
+
+# Top-level files
 !/.gitignore
-!/.impeccable/
-/.impeccable/*
-!/.impeccable/surfaces/
-!/.impeccable/surfaces/**
-!/.impeccable/design.json
-!/.github/
-!/.github/**
 !/.gitattributes
 !/AGENTS.md
 !/CONTRIBUTING.md
@@ -15,30 +11,62 @@
 !/PRODUCT.md
 !/README.md
 !/SECURITY.md
-!/docs/
-!/docs/**
 !/go.mod
 !/go.sum
 !/main.go
 !/install.sh
 !/install.ps1
 !/install_test.go
+
+# Trees
 !/internal/
 !/internal/**
 !/cmd/
 !/cmd/**
-!/iroh/
-!/iroh/**
-/iroh/target/
-/iroh/dist/
 !/skills/
 !/skills/**
+!/docs/
+!/docs/**
 !/www/
 !/www/**
+!/iroh/
+!/iroh/**
+!/android/
+!/android/**
+
+# Agent harnesses
+!/.github/
+!/.github/**
+!/.claude/
+!/.claude/**
+!/.codex/
+!/.codex/**
+!/.dsh/
+!/.dsh/**
+!/.gemini/
+!/.gemini/**
+!/.grok/
+!/.grok/**
+!/.omp/
+!/.omp/**
+!/.opencode/
+!/.opencode/**
+
+# Impeccable artifacts: the folder is entered, its children are ignored
+# except the ones named here.
+!/.impeccable/
+/.impeccable/*
+!/.impeccable/surfaces/
+!/.impeccable/surfaces/**
+!/.impeccable/design.json
+!/.impeccable/config.json
+
+# Never tracked, even inside the trees above.
+/iroh/target/
+/iroh/dist/
 /www/dist/
 *.db
 *.db-*
 *.lock
 !/iroh/Cargo.lock
-!/android/
-!/android/**
+!/android/Cargo.lock

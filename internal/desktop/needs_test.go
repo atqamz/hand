@@ -394,7 +394,9 @@ func TestAFailedStatusAfterMarkReadKeepsTheReportRead(t *testing.T) {
 	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	mustText(t, tt, "17")
+	if !hasTextNode(tt, "17") {
+		t.Fatalf("the waiting count is not shown in %q", tt.Texts())
+	}
 	click(t, tt, "Cookie fixed")
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -413,7 +415,9 @@ func TestAFailedStatusAfterMarkReadKeepsTheReportRead(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "r1 marked read", "View a2", "16")
 	mustNotText(t, tt, "Mark read")
-	mustNotText(t, tt, "17")
+	if hasTextNode(tt, "17") {
+		t.Errorf("the stale waiting count is still shown in %q", tt.Texts())
+	}
 	if n := countText(t, tt, "16"); n != 2 {
 		t.Errorf("the waiting count is shown %d times, want once in Needs and once in the rail", n)
 	}
