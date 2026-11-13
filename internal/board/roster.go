@@ -125,7 +125,7 @@ func (b *Board) phoneEntries(ctx context.Context, own []PhoneRecord) ([]phoneEnt
 		byLabel[r.Phone] = e
 		out = append(out, e)
 	}
-	for _, l := range b.laptopFleets(ctx) {
+	for _, l := range b.hostFleets(ctx) {
 		records := own
 		if !l.Current {
 			var err error
@@ -189,7 +189,7 @@ func (b *Board) connectRevokePhone(everywhere bool) http.HandlerFunc {
 			b.fail(w, http.StatusBadRequest, "no phone was named")
 			return
 		}
-		targets, note := b.laptopFleets(ctx), revokeNote{Action: "everywhere", Phone: label, Button: "Revoke everywhere"}
+		targets, note := b.hostFleets(ctx), revokeNote{Action: "everywhere", Phone: label, Button: "Revoke everywhere"}
 		if !everywhere {
 			id := r.PostFormValue("fleet")
 			i := slices.IndexFunc(targets, func(l railLink) bool { return l.ID == id })

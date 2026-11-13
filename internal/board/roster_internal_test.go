@@ -85,7 +85,7 @@ func (s *rosterStub) RevokePhone(_ context.Context, rv *Revocation) (int, error)
 	return 1, nil
 }
 
-func TestTheHostChecksTheLaptopsLoginAgainForEveryFleetAndEveryCall(t *testing.T) {
+func TestTheHostChecksTheHostsLoginAgainForEveryFleetAndEveryCall(t *testing.T) {
 	const here, there, other = "f000000000001", "f000000000002", "f000000000003"
 	good := strings.Repeat("a", 32)
 	stub := &rosterStub{}
@@ -214,7 +214,7 @@ func TestEveryFleetOfARevokeEverywhereGetsItsOwnDeadline(t *testing.T) {
 	r := httptest.NewRequest("POST", "/connect/revoke/everywhere", strings.NewReader(url.Values{"csrf": {token}, "phone": {label}}.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: cookieFor("/" + id), Value: token})
-	ctx := context.WithValue(r.Context(), laptopKey{}, func() []FleetLink { return others })
+	ctx := context.WithValue(r.Context(), hostKey{}, func() []FleetLink { return others })
 	ctx = context.WithValue(ctx, revokeKey{}, revoke)
 	rec := httptest.NewRecorder()
 	b.ServeHTTP(rec, r.WithContext(ctx))

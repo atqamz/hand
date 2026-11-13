@@ -426,10 +426,10 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	b.mux.ServeHTTP(w, r)
 }
 
-func actor(ctx context.Context, laptop string) string {
+func actor(ctx context.Context, host string) string {
 	s, _ := ctx.Value(sessionKey{}).(session)
 	if s.Device == nil {
-		return laptop
+		return host
 	}
 	name := strings.TrimSpace(strings.Map(func(r rune) rune {
 		if !unicode.IsGraphic(r) || r == '(' || r == ')' {
@@ -609,7 +609,7 @@ func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
 			b.apiFailErr(w, failed)
 			return
 		}
-		b.apiFail(w, http.StatusInternalServerError, "internal", "No fleet could be paired, and the code is spent. Show a new code on your laptop.")
+		b.apiFail(w, http.StatusInternalServerError, "internal", "No fleet could be paired, and the code is spent. Show a new code on the Board.")
 		return
 	}
 	out := APIPaired{Fleets: make([]APIPairedFleet, len(paired)), Missed: len(set) - len(paired)}

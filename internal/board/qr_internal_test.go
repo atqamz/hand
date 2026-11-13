@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const pairingLink = "https://laptop.tailnet.example/f00000000e012/pair#K7QM3-XRD2P"
+const pairingLink = "https://host.tailnet.example/f00000000e012/pair#K7QM3-XRD2P"
 
 func qrMasked(t *testing.T, text string, mask int) *qrCode {
 	t.Helper()
@@ -260,7 +260,7 @@ func TestQRPenaltyScoresOfEachMask(t *testing.T) {
 		scores [8]int
 	}{
 		{"a", [8]int{1246, 1244, 1068, 1122, 1100, 1028, 1133, 1207}},
-		{pairingLink, [8]int{1731, 1683, 1427, 1460, 1669, 1637, 1715, 1638}},
+		{pairingLink, [8]int{1702, 1624, 1389, 1446, 1531, 1588, 1632, 1618}},
 		{strings.Repeat("0123456789", 14), [8]int{2721, 3484, 2198, 2504, 2725, 2768, 2620, 2649}},
 		{strings.Repeat("x", 213), [8]int{2082, 2566, 2454, 2867, 3725, 2689, 2834, 2919}},
 	} {

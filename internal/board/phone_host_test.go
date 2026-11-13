@@ -203,13 +203,13 @@ func serving() map[string]string {
 	return map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"}
 }
 
-func (p *phoneHost) laptop(f railFleet) *http.Cookie {
+func (p *phoneHost) host(f railFleet) *http.Cookie {
 	return &http.Cookie{Name: "hand_board_" + f.id, Value: f.token}
 }
 
 func (p *phoneHost) pair(f railFleet, headers map[string]string) *http.Cookie {
 	p.t.Helper()
-	rec := p.send("POST", "/"+f.id+"/connect/code", url.Values{"csrf": {f.token}, "base": {"https://laptop.example"}}, []*http.Cookie{p.laptop(f)}, nil)
+	rec := p.send("POST", "/"+f.id+"/connect/code", url.Values{"csrf": {f.token}, "base": {"https://host.example"}}, []*http.Cookie{p.host(f)}, nil)
 	m := codeRe.FindStringSubmatch(rec.Body.String())
 	if m == nil {
 		p.t.Fatalf("no code for %s = %d:\n%s", f.name, rec.Code, rec.Body.String())
@@ -230,7 +230,7 @@ func (p *phoneHost) pair(f railFleet, headers map[string]string) *http.Cookie {
 func (p *phoneHost) revoke(f railFleet, phone *http.Cookie) {
 	p.t.Helper()
 	id := strings.SplitN(phone.Value, ".", 2)[0]
-	rec := p.send("POST", "/"+f.id+"/connect/revoke", url.Values{"csrf": {f.token}, "id": {id}}, []*http.Cookie{p.laptop(f)}, nil)
+	rec := p.send("POST", "/"+f.id+"/connect/revoke", url.Values{"csrf": {f.token}, "id": {id}}, []*http.Cookie{p.host(f)}, nil)
 	if rec.Code != http.StatusSeeOther {
 		p.t.Fatalf("revoke %s = %d", f.name, rec.Code)
 	}

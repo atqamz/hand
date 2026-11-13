@@ -19,7 +19,7 @@ func TestHostHandoverInterruptsOnlyTheNamedLiveAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := s.LastEventSeq(ctx)
-	if err := s.HostHandover(ctx, "fleet.took_over", "from laptop", "moved", []int64{a.ID, 999}); err != nil {
+	if err := s.HostHandover(ctx, "fleet.took_over", "from bench", "moved", []int64{a.ID, 999}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Attempt(ctx, a.ID)
@@ -36,7 +36,7 @@ func TestHostHandoverInterruptsOnlyTheNamedLiveAttempts(t *testing.T) {
 			kinds = append(kinds, e.Kind+" "+e.Detail)
 		}
 	}
-	if len(kinds) != 2 || kinds[0] != "attempt.interrupted "+AttemptRef(a.ID)+": moved" || kinds[1] != "fleet.took_over from laptop" {
+	if len(kinds) != 2 || kinds[0] != "attempt.interrupted "+AttemptRef(a.ID)+": moved" || kinds[1] != "fleet.took_over from bench" {
 		t.Fatalf("events = %q", kinds)
 	}
 	again := before + 2
@@ -58,7 +58,7 @@ func TestHostHandoverFailsALaunchingAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.HostHandover(ctx, "fleet.took_over", "from laptop", "moved", []int64{a.ID}); err != nil {
+	if err := s.HostHandover(ctx, "fleet.took_over", "from bench", "moved", []int64{a.ID}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Attempt(ctx, a.ID)

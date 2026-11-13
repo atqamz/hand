@@ -204,7 +204,7 @@ func TestThePairAPIKeepsTheAPIsRefusalsForForwardedFunnelAndNetworkAddressReques
 }
 
 func codeOf(p *phoneHost, f railFleet) string {
-	return p.codeOf(p.mint(f, []*http.Cookie{p.laptop(f)}))
+	return p.codeOf(p.mint(f, []*http.Cookie{p.host(f)}))
 }
 
 func TestOnlyThePairPathIsOpenToAnUnpairedPeerOnTheAPI(t *testing.T) {

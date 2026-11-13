@@ -349,7 +349,7 @@ func TestTheBoardNeverRunsAHarnessToReadTheModelLists(t *testing.T) {
 		get(t, h, path)
 	}
 	req := httptest.NewRequest("GET", "/models/refresh", nil)
-	req.AddCookie(laptop)
+	req.AddCookie(host)
 	if rec := httptest.NewRecorder(); func() int { h.ServeHTTP(rec, req); return rec.Code }() != http.StatusMethodNotAllowed {
 		t.Fatal("GET /models/refresh does not answer 405")
 	}
@@ -359,14 +359,14 @@ func TestTheBoardNeverRunsAHarnessToReadTheModelLists(t *testing.T) {
 	}
 }
 
-func TestTheRefreshRowIsInTheOverflowMenuForTheLaptopOnly(t *testing.T) {
+func TestTheRefreshRowIsInTheOverflowMenuForTheHostOnly(t *testing.T) {
 	p := newPhoneRig(t)
 	row := `<form method="post" action="/models/refresh" data-fetch><input type="hidden" name="csrf" value="` + token + `"><button>Refresh models</button></form>`
-	idle := region(p.do("GET", "/", nil, laptop, nil).Body.String(), "console")
+	idle := region(p.do("GET", "/", nil, host, nil).Body.String(), "console")
 	more := idle[strings.Index(idle, `id="more-menu"`):]
 	contains(t, "no supervisor", more[:strings.Index(more, "</details>")], row)
 	p.fx.supervisor(t, state.AttemptRunning, "gen-1")
-	running := region(p.do("GET", "/", nil, laptop, nil).Body.String(), "console")
+	running := region(p.do("GET", "/", nil, host, nil).Body.String(), "console")
 	more = running[strings.Index(running, `id="more-menu"`):]
 	contains(t, "running", more[:strings.Index(more, "</details>")], row)
 	phone := p.pair()
@@ -401,7 +401,7 @@ func TestTheRefreshRunsInTheBackgroundOncePerHarnessAndInterval(t *testing.T) {
 	fetch := map[string]string{"X-Hand-Fetch": "1"}
 	refresh := func(form url.Values) (int, string, string) {
 		form.Set("csrf", token)
-		rec := p.do("POST", "/models/refresh", form, laptop, fetch)
+		rec := p.do("POST", "/models/refresh", form, host, fetch)
 		msg, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error"))
 		receipt, _ := url.PathUnescape(rec.Header().Get("X-Hand-Receipt"))
 		return rec.Code, receipt, msg
@@ -441,7 +441,7 @@ func TestTheRefreshRunsInTheBackgroundOncePerHarnessAndInterval(t *testing.T) {
 	if code, _, _ := refresh(url.Values{"harness": {"opencode"}}); code != http.StatusBadRequest {
 		t.Fatalf("refreshing opencode = %d", code)
 	}
-	if rec := p.do("GET", "/models/refresh", nil, laptop, nil); rec.Code != http.StatusMethodNotAllowed {
+	if rec := p.do("GET", "/models/refresh", nil, host, nil); rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET refresh = %d", rec.Code)
 	}
 	if b, _ := os.ReadFile(log); strings.Count(string(b), "models") != 2 {

@@ -19,7 +19,7 @@
 <div class="part-body">
 <form class="pair-form" method="post" action="{{.Base}}/connect/code" data-address>{{template "csrf" .Token}}
 <label for="base">Address the phone opens</label>
-<input id="base" name="base" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="{{.Address}}" placeholder="https://laptop.example"{{with .AddressError}} aria-invalid="true" aria-describedby="base-error"{{end}}>
+<input id="base" name="base" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="{{.Address}}" placeholder="https://host.example"{{with .AddressError}} aria-invalid="true" aria-describedby="base-error"{{end}}>
 {{with .AddressError}}<p class="field-error" id="base-error">{{.}}</p>{{end}}
 {{with .Choices}}<fieldset class="pair-fleets"><legend>Fleets this phone may open</legend>
 {{range .}}<label class="pair-fleet"><input type="checkbox" name="fleet" value="{{.ID}}"{{if .Ticked}} checked{{end}}{{if .Current}} disabled{{end}}><span>{{.Name}}{{if .Current}} (this fleet){{end}}</span></label>

@@ -23,8 +23,8 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 		home    []int
 	}{
 		{"no cookie", false, 0, 403, func(p *phoneHost) ([]*http.Cookie, map[string]string) { return nil, op }, nil, nil},
-		{"laptop session only", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
-			return []*http.Cookie{p.laptop(p.fleets[0]), p.laptop(p.fleets[1])}, op
+		{"host session only", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
+			return []*http.Cookie{p.host(p.fleets[0]), p.host(p.fleets[1])}, op
 		}, []int{0, 1}, nil},
 		{"phone paired with one fleet", false, 0, 200, func(p *phoneHost) ([]*http.Cookie, map[string]string) {
 			return []*http.Cookie{p.pair(p.fleets[0], op)}, op
@@ -163,13 +163,13 @@ func TestOnlyAProxyHidesTheFleetListAndAPhoneBringsItBack(t *testing.T) {
 	}
 }
 
-func TestALaptopSessionNeverOpensTheListForAProxy(t *testing.T) {
+func TestAHostSessionNeverOpensTheListForAProxy(t *testing.T) {
 	op := serving()
 	p := newPhoneHost(t, true, "alpha", "bravo", "charlie")
 	phone := p.pair(p.fleets[0], op)
-	body := p.send("GET", "/", nil, []*http.Cookie{p.laptop(p.fleets[2])}, op).Body.String()
-	lacks(t, "laptop only", body, "alpha", "bravo", "charlie")
-	body = p.send("GET", "/", nil, []*http.Cookie{phone, p.laptop(p.fleets[2])}, op).Body.String()
+	body := p.send("GET", "/", nil, []*http.Cookie{p.host(p.fleets[2])}, op).Body.String()
+	lacks(t, "host only", body, "alpha", "bravo", "charlie")
+	body = p.send("GET", "/", nil, []*http.Cookie{phone, p.host(p.fleets[2])}, op).Body.String()
 	contains(t, "both", body, "alpha")
 	lacks(t, "both", body, "bravo", "charlie")
 }

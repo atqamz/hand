@@ -13,7 +13,7 @@ func TestADeviceNameCannotSpoofTheActorLabel(t *testing.T) {
 		t.Fatalf("actor = %q, want %q", got, want)
 	}
 	if got := actor(context.Background(), "operator (desktop)"); got != "operator (desktop)" {
-		t.Fatalf("laptop actor = %q", got)
+		t.Fatalf("host actor = %q", got)
 	}
 }
 

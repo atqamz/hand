@@ -251,9 +251,9 @@ async function afterwards(box, s) {
   const marker = box.read('board.pid') ?? '';
   matches(marker, new RegExp(`^\\d+ \\S+ ${escape(bin)}\\s*$`, 'm'), `${name}: board.pid names the updated binary`);
   if (running.board && !s.known) equal(Number(marker.split(' ')[0]) !== running.boardPid, true, `${name}: the Board is a new process`);
-  const laptop = new Client(link.origin);
-  await laptop.get(`${link.pathname}${link.search}`);
-  const page = await laptop.get(`/${id}/`);
+  const host = new Client(link.origin);
+  await host.get(`${link.pathname}${link.search}`);
+  const page = await host.get(`/${id}/`);
   equal(page.status, 200, `${name}: the Board serves the fleet from the updated binary`);
   matches(page.text, /Add a CSV export/, `${name}: the Board shows the migrated tasks`);
   if (running.watcher) {
@@ -314,9 +314,9 @@ async function restore(box, s, backup) {
 
   fs.rmSync(box.file('board.iroh'), { force: true });
   const link = await startBoard(box);
-  const laptop = new Client(link.origin);
-  await laptop.get(`${link.pathname}${link.search}`);
-  equal((await laptop.get(`/${s.id}/`)).status, 200, `${name}: the previous Board serves the restored fleet`);
+  const host = new Client(link.origin);
+  await host.get(`${link.pathname}${link.search}`);
+  equal((await host.get(`/${s.id}/`)).status, 200, `${name}: the previous Board serves the restored fleet`);
   const pid = Number(box.read('board.pid').split(' ')[0]);
   process.kill(pid);
   for (let i = 0; i < 100 && box.read('board.pid') !== null; i++) {

@@ -38,11 +38,11 @@ func TestJudgeHost(t *testing.T) {
 		{"this host, earlier boot, nothing holds the lock", marker("desk", "boot-a", time.Second), true, held(false), fleet.HostTakeOver},
 		{"this host, earlier boot, a watcher holds the lock", marker("desk", "boot-a", time.Second), true, held(true), fleet.HostOurs},
 		{"this host, earlier boot, the lock cannot be read", marker("desk", "boot-a", time.Hour), true, func() (bool, error) { return false, errors.New("denied") }, fleet.HostOurs},
-		{"other host, fresh", marker("laptop", "boot-x", 5*time.Second), true, held(false), fleet.HostRefuse},
-		{"other host, at the limit", marker("laptop", "boot-x", fleet.HostStale), true, held(false), fleet.HostRefuse},
-		{"other host, past the limit", marker("laptop", "boot-x", fleet.HostStale+time.Second), true, held(false), fleet.HostTakeOver},
-		{"other host, clock ahead of ours", marker("laptop", "boot-x", -10*time.Minute), true, held(false), fleet.HostRefuse},
-		{"other host, lock held here", marker("laptop", "boot-x", time.Hour), true, held(true), fleet.HostTakeOver},
+		{"other host, fresh", marker("bench", "boot-x", 5*time.Second), true, held(false), fleet.HostRefuse},
+		{"other host, at the limit", marker("bench", "boot-x", fleet.HostStale), true, held(false), fleet.HostRefuse},
+		{"other host, past the limit", marker("bench", "boot-x", fleet.HostStale+time.Second), true, held(false), fleet.HostTakeOver},
+		{"other host, clock ahead of ours", marker("bench", "boot-x", -10*time.Minute), true, held(false), fleet.HostRefuse},
+		{"other host, lock held here", marker("bench", "boot-x", time.Hour), true, held(true), fleet.HostTakeOver},
 	} {
 		if got := fleet.JudgeHost(c.m, c.found, self, hostNow, c.held); got != c.want {
 			t.Errorf("%s: verdict %v, want %v", c.name, got, c.want)

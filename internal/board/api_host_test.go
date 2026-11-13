@@ -61,10 +61,10 @@ func jsonKind(raw json.RawMessage) string {
 
 func cookies(cs ...*http.Cookie) []*http.Cookie { return cs }
 
-func TestFleetsListsWhatALaptopSessionProves(t *testing.T) {
+func TestFleetsListsWhatAHostSessionProves(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
-	rec := p.send("GET", "/api/v1/fleets", nil, cookies(p.laptop(a), p.laptop(b)), nil)
+	rec := p.send("GET", "/api/v1/fleets", nil, cookies(p.host(a), p.host(b)), nil)
 	if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("fleets = %d:\n%s", rec.Code, rec.Body)
 	}
@@ -75,7 +75,7 @@ func TestFleetsListsWhatALaptopSessionProves(t *testing.T) {
 	if body := rec.Body.String(); strings.Contains(body, c.id) || strings.Contains(body, "gamma") {
 		t.Fatalf("an unproven fleet is listed:\n%s", body)
 	}
-	one := fleetItems(t, p.send("GET", "/api/v1/fleets", nil, cookies(p.laptop(c)), nil).Body.String())
+	one := fleetItems(t, p.send("GET", "/api/v1/fleets", nil, cookies(p.host(c)), nil).Body.String())
 	if !slices.Equal(fleetItemIDs(one), []string{c.id}) {
 		t.Fatalf("one cookie lists %v", fleetItemIDs(one))
 	}
@@ -128,7 +128,7 @@ func TestFleetsSummaryMatchesStatus(t *testing.T) {
 	if _, err := a.st.Ask(context.Background(), task.ID, "Keep the old cookie name?"); err != nil {
 		t.Fatal(err)
 	}
-	both := cookies(p.laptop(a), p.laptop(b))
+	both := cookies(p.host(a), p.host(b))
 	items := fleetItems(t, p.send("GET", "/api/v1/fleets", nil, both, nil).Body.String())
 	for i, f := range []railFleet{a, b} {
 		var env struct{ Data board.APIStatus }
@@ -162,7 +162,7 @@ func TestFleetsPinsTheNeedsNames(t *testing.T) {
 	if _, err := b.st.AddTask(context.Background(), "hand", "Read the queue", ""); err != nil {
 		t.Fatal(err)
 	}
-	body := p.send("GET", "/api/v1/fleets", nil, cookies(p.laptop(a), p.laptop(b)), nil).Body.String()
+	body := p.send("GET", "/api/v1/fleets", nil, cookies(p.host(a), p.host(b)), nil).Body.String()
 	var got struct {
 		Data struct {
 			Fleets []struct {
@@ -203,7 +203,7 @@ func TestFleetsLogsAFailedFleetOncePerState(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	both := cookies(p.laptop(a), p.laptop(b))
+	both := cookies(p.host(a), p.host(b))
 	p.down[b.id] = true
 	for range 2 {
 		p.send("GET", "/api/v1/fleets", nil, both, nil)
@@ -225,7 +225,7 @@ func TestFleetsLogsAFailedFleetOncePerState(t *testing.T) {
 func TestFleetsTreatsABrokenFleetAsTheRailDoes(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	both := cookies(p.laptop(a), p.laptop(b))
+	both := cookies(p.host(a), p.host(b))
 	p.down[b.id] = true
 	items := fleetItems(t, p.send("GET", "/api/v1/fleets", nil, both, nil).Body.String())
 	if len(items) != 2 || items[0].Unavailable || !items[1].Unavailable || items[1].Name != "beta" || items[1].APIFleetSummary != nil {
@@ -245,7 +245,7 @@ func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
 	}
 	p.restart()
 	var env struct{ Data board.APIMeta }
-	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.laptop(a)), nil)
+	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.host(a)), nil)
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("meta = %d, %v:\n%s", rec.Code, err, rec.Body)
 	}
@@ -269,7 +269,7 @@ func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
 func TestEveryFeatureIsNamedInTheAPIDocs(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha")
 	var env struct{ Data board.APIMeta }
-	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.laptop(p.fleets[0])), nil)
+	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.host(p.fleets[0])), nil)
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestFleetsAndMetaRefuseWhatEveryAPIReadRefuses(t *testing.T) {
 		"funnel":      {"Tailscale-Funnel-Request": "?1"},
 	} {
 		for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
-			rec := p.send("GET", path, nil, cookies(p.laptop(a)), headers)
+			rec := p.send("GET", path, nil, cookies(p.host(a)), headers)
 			testAPIError(t, rec, http.StatusForbidden, "forbidden")
 			if strings.Contains(rec.Body.String(), a.id) {
 				t.Fatalf("%s %s names a fleet", name, path)
@@ -302,7 +302,7 @@ func TestFleetsAndMetaRefuseWhatEveryAPIReadRefuses(t *testing.T) {
 	}
 	net := newPhoneHost(t, false, "alpha")
 	for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
-		testAPIError(t, net.send("GET", path, nil, cookies(net.laptop(net.fleets[0])), nil), http.StatusForbidden, "forbidden")
+		testAPIError(t, net.send("GET", path, nil, cookies(net.host(net.fleets[0])), nil), http.StatusForbidden, "forbidden")
 	}
 }
 
@@ -310,12 +310,12 @@ func TestFleetsAndMetaTakeOnlyReads(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha")
 	a := p.fleets[0]
 	for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
-		rec := p.send("POST", path, nil, cookies(p.laptop(a)), nil)
+		rec := p.send("POST", path, nil, cookies(p.host(a)), nil)
 		testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
 		if rec.Header().Get("Allow") != "GET, HEAD" {
 			t.Fatalf("POST %s Allow = %q", path, rec.Header().Get("Allow"))
 		}
-		if rec := p.send("HEAD", path, nil, cookies(p.laptop(a)), nil); rec.Code != http.StatusOK {
+		if rec := p.send("HEAD", path, nil, cookies(p.host(a)), nil); rec.Code != http.StatusOK {
 			t.Fatalf("HEAD %s = %d", path, rec.Code)
 		}
 	}
