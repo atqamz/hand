@@ -619,3 +619,5 @@ Hand 0.7 ([`0.7`](https://github.com/atqamz/hand/blob/0.7/docs/vocabulary.md)) u
 - **Worker** is recognised by its worktree's path. `HAND_ROLE=worker` is gone.
 - **Report** was a scout's file, `data/<id>/report.md`. It is now a record of any attempt, with a status, and it is read and acknowledged through Hand.
 - **Plan**, **decision** and **supervisor input** are new records with their own refs.
+
+Scratch branch for the CI gate check; deleted, not for review.
