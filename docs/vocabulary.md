@@ -553,7 +553,7 @@ The `HAND-PEER 1 <endpoint id> <secret>` line a peer writes before its HTTP on t
 
 ### Companion
 
-The app that pairs to a host: Hand's Android app today, and the desktop window later. A companion redeemed a [pairing code](#pairing-code) and holds the cookie the fleet set for it. It opens the fleets it is paired with on the board, and on a `--peer-addr` connection its cookie is bound to the peer ID in the [peer preface](#peer-preface).
+The app that pairs to a host: Hand's Android app. A companion redeemed a [pairing code](#pairing-code) and holds the cookie the fleet set for it. It opens the fleets it is paired with on the board, and on a `--peer-addr` connection its cookie is bound to the peer ID in the [peer preface](#peer-preface).
 
 ### Pairing code
 
