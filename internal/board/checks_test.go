@@ -61,7 +61,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 			t.Fatalf("%s state = %q, want %q (%v)", ref, got, state, rows)
 		}
 	}
-	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
+	contains(t, "running row", rows["t1"], "Running work", `a1 <span class="model">codex gpt-6-luna</span>`, `href="https://github.com/atqamz/hand/pull/7"`)
 	contains(t, "running row", rows["t1"], `<a class="check-title" title="Running work" href="/task/t1" target="_blank" rel="noopener">Running work</a>`, `<span class="check-body">`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
@@ -70,6 +70,50 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 	if got, _, _ := strings.Cut(all["t4"], "|"); got != "passing" {
 		t.Fatalf("done task under ?all=1 = %q", all["t4"])
 	}
+}
+
+func TestATaskRowShowsTheShortModel(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	started := func(taskID int64, harness, model, effort string) {
+		t.Helper()
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: harness, Model: model, Effort: effort, Argv: []string{"/bin/" + harness, "x"}}, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "3", PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started(active(t, st, "Import the app tree").ID, "omp", "commandcode/deepseek/deepseek-v4.1-flash", "high")
+	started(active(t, st, "Scope the research").ID, "claude", "claude-sonnet-4-5", "low")
+	started(active(t, st, "Start opencode").ID, "opencode", "", "")
+	started(active(t, st, "Start opencode with an effort").ID, "opencode", "", "high")
+	started(active(t, st, "Import the whole provider").ID, "omp", "commandcode/", "high")
+	started(active(t, st, "Invite a lookalike").ID, "omp", "omphalos-1", "high")
+	started(active(t, st, "Repeat the claude harness").ID, "claude", "claude/", "low")
+	started(active(t, st, "Repeat the omp harness").ID, "omp", "omp/", "high")
+	h := board.New(st, token, board.Options{})
+	rows := checks(get(t, h, "/"))
+	contains(t, "long model row", rows["t1"],
+		`a1 <span class="model">omp deepseek-v4.1-flash</span></span><span class="meta"> · running</span>`)
+	contains(t, "repeated harness row", rows["t2"],
+		`a2 <span class="model">claude-sonnet-4-5</span></span><span class="meta"> · running</span>`)
+	contains(t, "empty model row", rows["t3"],
+		`a3 <span class="model">opencode</span></span><span class="meta"> · running</span>`)
+	contains(t, "empty model with effort row", rows["t4"],
+		`a4 <span class="model">opencode</span></span><span class="meta"> · running</span>`)
+	contains(t, "trailing slash model row", rows["t5"],
+		`a5 <span class="model">omp commandcode/</span></span><span class="meta"> · running</span>`)
+	contains(t, "lookalike harness row", rows["t6"],
+		`a6 <span class="model">omp omphalos-1</span></span><span class="meta"> · running</span>`)
+	contains(t, "trailing slash claude row", rows["t7"],
+		`a7 <span class="model">claude</span></span><span class="meta"> · running</span>`)
+	contains(t, "trailing slash omp row", rows["t8"],
+		`a8 <span class="model">omp</span></span><span class="meta"> · running</span>`)
+	lacks(t, "task rows", region(get(t, h, "/"), "tasks"), `<span class="model"></span>`)
+	lacks(t, "long model row", rows["t1"], "commandcode/deepseek/deepseek-v4.1-flash")
+	contains(t, "task page", get(t, h, "/task/t1"), "omp commandcode/deepseek/deepseek-v4.1-flash high")
 }
 
 func TestTimelineCommentsAndEvents(t *testing.T) {
@@ -95,6 +139,7 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 func TestTheWholeTaskRowIsTheLink(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css, ".task-row{position:relative;min-height:var(--row-lg)}", `.task-row .check-title::after{content:"";position:absolute;inset:0}`, ".task-row :is(.ref,.badge,a.file){position:relative;z-index:1}", ".check-sub{display:flex;align-items:baseline;gap:var(--space-8);min-width:0}", ".check-sub .meta{min-width:0;overflow:hidden;text-overflow:ellipsis}", ".check-sub :is(.badge,.file){flex:none;max-width:24ch}", ".row{display:flex;align-items:center;gap:var(--space-8);")
+	contains(t, "board.css phone block", block(t, css, "@media (max-width:599px){"), ".check-sub{flex-wrap:wrap;row-gap:var(--space-2)}")
 }
 
 func TestAttemptRowsKeepTheirOwnLayout(t *testing.T) {

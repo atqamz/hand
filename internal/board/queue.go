@@ -413,6 +413,26 @@ type check struct {
 
 func (c check) Indent() int { return min(c.Depth, 3) }
 
+func (c check) Model() string {
+	a := c.Attempt
+	if a == nil {
+		return ""
+	}
+	name := a.Model
+	if i := strings.LastIndex(name, "/"); i >= 0 && i < len(name)-1 {
+		name = name[i+1:]
+	}
+	if name == "" {
+		return a.Harness
+	}
+	short := strings.TrimSuffix(name, "/")
+	model, harness := strings.ToLower(short), strings.ToLower(a.Harness)
+	if model == harness || strings.HasPrefix(model, harness+"-") {
+		return short
+	}
+	return a.Harness + " " + name
+}
+
 func (f facts) check(t state.Task) check {
 	c := check{Task: t, State: "idle", FinishedAt: t.FinishedAt}
 	if d, ok := f.delivered[t.ID]; ok {

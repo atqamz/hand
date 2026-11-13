@@ -539,7 +539,8 @@ dialog.viewer[open] .text-bar{top:-12px}
 .others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}
 .console{padding:var(--space-8) var(--space-12)}.console>.pending{flex:1 1 100%}.sup-ref{display:none}
 .sup>.timeline{padding:var(--space-12) calc(var(--space-12) - var(--sb)) var(--space-12) var(--space-12)}
-.console-box,.sup>.hint.read-only{margin:0 var(--space-12) var(--space-12)}}
+.console-box,.sup>.hint.read-only{margin:0 var(--space-12) var(--space-12)}
+.check-sub{flex-wrap:wrap;row-gap:var(--space-2)}}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
 .code>.copy{opacity:1}
 .wait>summary{min-height:var(--sheet)}

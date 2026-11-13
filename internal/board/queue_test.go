@@ -483,7 +483,7 @@ func TestTasksRowsNameTheAgentState(t *testing.T) {
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Pick one"); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "tasks row", region(get(t, fx.handler(), "/"), "tasks"), "a1 claude sonnet · blocked")
+	contains(t, "tasks row", region(get(t, fx.handler(), "/"), "tasks"), `a1 <span class="model">claude sonnet</span></span><span class="meta"> · blocked</span>`)
 }
 
 func TestTheQueueNamesItsWorstItem(t *testing.T) {
@@ -619,7 +619,7 @@ func TestARepeatedQuietTurnKeepsTheWorkerQuiet(t *testing.T) {
 		}
 	}
 	page := get(t, fx.handler(), "/")
-	contains(t, "tasks row", region(page, "tasks"), "a1 claude sonnet · quiet")
+	contains(t, "tasks row", region(page, "tasks"), `a1 <span class="model">claude sonnet</span></span><span class="meta"> · quiet</span>`)
 	if kinds, _, _ := waits(page); !slices.Contains(kinds, "quiet") {
 		t.Fatalf("a worker quiet for two turns left Needs: %q", kinds)
 	}
@@ -636,7 +636,7 @@ func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 	fx.options.Now = func() time.Time { return time.Date(2026, 9, 26, 0, 1, 0, 0, time.UTC) }
 	body := get(t, fx.handler(), "/")
 	contains(t, "limited item", region(body, "queue"), `data-kind="limited"`, "LIMITED", "You&#39;ve hit your session limit · resets 6:10am (Asia/Jakarta)", "a1 on t1 “Fix login” stopped at a usage limit.")
-	contains(t, "tasks row", region(body, "tasks"), "a1 claude sonnet · limited")
+	contains(t, "tasks row", region(body, "tasks"), `a1 <span class="model">claude sonnet</span></span><span class="meta"> · limited</span>`)
 	fx.mu.Lock()
 	fx.panes["3"] = "working"
 	fx.mu.Unlock()

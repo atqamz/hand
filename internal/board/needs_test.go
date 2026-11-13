@@ -84,7 +84,7 @@ func TestTasksAreOneLinePerTask(t *testing.T) {
 	if n := strings.Count(tasks, `<li class="row check task-row"`); n != 2 {
 		t.Fatalf("task rows = %d:\n%s", n, tasks)
 	}
-	contains(t, "tasks", tasks, `<a class="ref" tabindex="-1" href="/task/t1" target="_blank" rel="noopener">t1</a><span class="check-body"><a class="check-title" title="Fix login" href="/task/t1" target="_blank" rel="noopener">Fix login</a><span class="check-sub"><span class="meta">a1 codex gpt-6-luna · running</span></span></span>`)
+	contains(t, "tasks", tasks, `<a class="ref" tabindex="-1" href="/task/t1" target="_blank" rel="noopener">t1</a><span class="check-body"><a class="check-title" title="Fix login" href="/task/t1" target="_blank" rel="noopener">Fix login</a><span class="check-sub"><span class="meta">a1 <span class="model">codex gpt-6-luna</span></span><span class="meta"> · running</span></span></span>`)
 }
 
 var newsroom = regexp.MustCompile(`(?i)\b(wire|flash|bulletin|urgent|routine|service|dispatch|dispatches|news budget|tray)\b|NO\. \d`)
@@ -213,7 +213,7 @@ func TestTasksGroupUnderActiveAndInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	tasks := region(get(t, fx.handler(), "/"), "tasks")
-	contains(t, "tasks", tasks, `<h3 class="group">Active <span class="badge">2</span></h3>`, `<h3 class="group">Inbox <span class="badge">1</span></h3>`, `<a class="check-title" title="Fix login" href="/task/t1" target="_blank" rel="noopener">Fix login</a><span class="check-sub"><span class="meta">a1 claude sonnet · blocked</span></span>`)
+	contains(t, "tasks", tasks, `<h3 class="group">Active <span class="badge">2</span></h3>`, `<h3 class="group">Inbox <span class="badge">1</span></h3>`, `<a class="check-title" title="Fix login" href="/task/t1" target="_blank" rel="noopener">Fix login</a><span class="check-sub"><span class="meta">a1 <span class="model">claude sonnet</span></span><span class="meta"> · blocked</span></span>`)
 	lacks(t, "tasks", tasks, "A1 CLAUDE")
 }
 
