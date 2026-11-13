@@ -90,12 +90,16 @@ impl<J: Jar> Sessions<J> {
         self.unfinished.store(true, Ordering::SeqCst);
     }
 
-    fn import(&self, data: &mut Data) {
+    fn import(&self, data: &mut Data) -> io::Result<()> {
         if !self.pending_import.swap(false, Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
-        let Ok(cookies) = self.jar.cookies() else {
-            return;
+        let cookies = match self.jar.cookies() {
+            Ok(cookies) => cookies,
+            Err(error) => {
+                self.pending_import.store(true, Ordering::SeqCst);
+                return Err(error);
+            }
         };
         let mut next = Data::default();
         import(
@@ -105,11 +109,12 @@ impl<J: Jar> Sessions<J> {
         );
         *data = next.clone();
         let _ = self.commit(data, next);
+        Ok(())
     }
 
     pub fn header(&self) -> Option<String> {
         let mut data = self.data.lock().unwrap();
-        self.import(&mut data);
+        let _ = self.import(&mut data);
         let header = data
             .laptops
             .iter()
@@ -152,7 +157,7 @@ impl<J: Jar> Sessions<J> {
         replacing: impl FnOnce(),
     ) -> io::Result<()> {
         let mut data = self.data.lock().unwrap();
-        self.import(&mut data);
+        self.import(&mut data)?;
         let mut next = data.clone();
         let replaces = next
             .laptops
@@ -507,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_jar_leaves_the_store_unwritten_for_the_next_start() {
+    fn an_unreadable_jar_leaves_the_store_unwritten_until_the_next_read() {
         let setup = Setup::new(&[COOKIE]);
         setup.jar.fail_read.store(true, Ordering::SeqCst);
         let sessions = setup.open().unwrap();
@@ -516,8 +521,47 @@ mod tests {
         assert!(!setup.file().exists());
 
         setup.jar.fail_read.store(false, Ordering::SeqCst);
-        assert_eq!(sessions.header(), None);
+        assert_eq!(sessions.header().as_deref(), Some(COOKIE));
+        assert!(setup.file().exists());
         assert_eq!(setup.open().unwrap().header().as_deref(), Some(COOKIE));
+    }
+
+    #[test]
+    fn a_failed_jar_read_is_retried_and_a_pairing_keeps_the_legacy_fleets() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        setup.jar.fail_read.store(true, Ordering::SeqCst);
+
+        assert_eq!(sessions.header(), None);
+        assert!(!setup.file().exists());
+
+        setup.jar.fail_read.store(false, Ordering::SeqCst);
+        sessions
+            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+
+        let expected = vec![
+            format!("hand_phone_{FLEET}=7.{A}"),
+            format!("hand_phone_{OTHER}=9.{C}"),
+        ];
+        assert_eq!(header_of(&sessions), expected);
+        assert_eq!(header_of(&setup.open().unwrap()), expected);
+        assert!(setup.jar.cookies().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_pairing_that_cannot_read_the_jar_fails_before_writing_or_clearing() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        setup.jar.fail_read.store(true, Ordering::SeqCst);
+
+        let result = sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {});
+
+        assert!(result.is_err());
+        assert!(!setup.file().exists());
+        assert!(!setup.dir.path().join(DIR).join(STAGED).exists());
+        setup.jar.fail_read.store(false, Ordering::SeqCst);
+        assert_eq!(setup.jar.cookies().unwrap().as_deref(), Some(COOKIE));
     }
 
     #[test]

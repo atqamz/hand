@@ -433,6 +433,8 @@ impl From<io::Error> for StartError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
     use crate::http::Method;
     use crate::key::CipherError;
@@ -562,6 +564,19 @@ mod tests {
 
         fn clear(&self) -> io::Result<()> {
             *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    struct UnreadableJar(Arc<AtomicBool>);
+
+    impl Jar for UnreadableJar {
+        fn cookies(&self) -> io::Result<Option<String>> {
+            Err(io::Error::other("the jar is unreadable"))
+        }
+
+        fn clear(&self) -> io::Result<()> {
+            self.0.store(true, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -942,6 +957,32 @@ mod tests {
 
         assert_eq!(late.err(), Some(PairError::NotSaved));
         assert!(!dir.path().join("laptop").exists());
+    }
+
+    #[tokio::test]
+    async fn a_pairing_whose_jar_cannot_be_read_returns_not_saved_and_changes_nothing() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let jar = UnreadableJar(cleared.clone());
+        let sessions = Sessions::open(dir.path(), jar, Arc::new(TestCipher)).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+
+        let late = companion
+            .settle(
+                &sessions,
+                &link,
+                generation,
+                answered("fa1b2c3d4e5f6"),
+                || {},
+            )
+            .await;
+
+        assert_eq!(late.err(), Some(PairError::NotSaved));
+        assert!(!cleared.load(Ordering::SeqCst));
+        assert!(!dir.path().join("laptop").exists());
+        assert!(!dir.path().join("sessions/sessions.sealed").exists());
     }
 
     #[tokio::test]
