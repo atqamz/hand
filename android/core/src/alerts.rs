@@ -177,6 +177,9 @@ impl Feed {
                     return Stop::CookieGone;
                 }
                 Err(Failure::BoardGone) => {
+                    if self.generation() != generation {
+                        return Stop::Forgotten;
+                    }
                     if refused_before {
                         let _ = fs::remove_file(&path);
                     } else {

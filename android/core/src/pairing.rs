@@ -3,6 +3,7 @@ use std::io;
 use std::mem;
 use std::path::{Path, PathBuf};
 
+use crate::dialer::parse_target;
 use crate::link::{Link, Reject, parse_link_with};
 
 const LAPTOP_FILE: &str = "laptop";
@@ -14,6 +15,8 @@ pub struct Pairing {
     pending: Option<Link>,
     in_flight: bool,
     active: Option<String>,
+    relay: Option<String>,
+    generation: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,11 +42,14 @@ impl OfferError {
 
 impl Pairing {
     pub fn new(dir: &Path) -> Self {
+        let (active, relay) = read_laptop(dir);
         Self {
             dir: dir.to_owned(),
             pending: None,
             in_flight: false,
-            active: read_laptop(dir),
+            active,
+            relay,
+            generation: 0,
         }
     }
 
@@ -84,6 +90,14 @@ impl Pairing {
         self.active.as_deref()
     }
 
+    pub fn active_relay(&self) -> Option<&str> {
+        self.relay.as_deref()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn replaces(&self) -> bool {
         let Some(pending) = &self.pending else {
             return false;
@@ -107,6 +121,9 @@ impl Pairing {
 
     pub fn forget(&mut self) -> io::Result<()> {
         self.active = None;
+        self.relay = None;
+        self.in_flight = false;
+        self.generation = self.generation.wrapping_add(1);
         match fs::remove_file(self.dir.join(LAPTOP_FILE)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -127,20 +144,31 @@ impl Pairing {
     }
 
     pub fn activate(&mut self, link: &Link) -> io::Result<()> {
-        fs::write(
-            self.dir.join(LAPTOP_FILE),
-            format!("{}\n", link.endpoint_id),
-        )?;
+        let mut text = format!("{}\n", link.endpoint_id);
+        if let Some(relay) = &link.relay {
+            text.push_str(relay);
+            text.push('\n');
+        }
         self.active = Some(link.endpoint_id.clone());
-        Ok(())
+        self.relay = link.relay.clone();
+        fs::write(self.dir.join(LAPTOP_FILE), text)
     }
 }
 
-pub(crate) fn read_laptop(dir: &Path) -> Option<String> {
-    fs::read_to_string(dir.join(LAPTOP_FILE))
-        .ok()
-        .map(|text| text.trim().to_owned())
-        .filter(|endpoint| valid_endpoint(endpoint))
+pub(crate) fn read_laptop(dir: &Path) -> (Option<String>, Option<String>) {
+    let Ok(text) = fs::read_to_string(dir.join(LAPTOP_FILE)) else {
+        return (None, None);
+    };
+    let mut lines = text.lines();
+    let Some(endpoint) = lines.next().map(str::trim).filter(|e| valid_endpoint(e)) else {
+        return (None, None);
+    };
+    let relay = lines
+        .next()
+        .map(str::trim)
+        .filter(|relay| parse_target(endpoint, Some(relay)).is_ok())
+        .map(str::to_owned);
+    (Some(endpoint.to_owned()), relay)
 }
 
 fn valid_endpoint(endpoint: &str) -> bool {
@@ -169,6 +197,32 @@ mod tests {
 
     fn link(endpoint: &str) -> String {
         format!("handboard://c#v=1&e={endpoint}&f=f0123456789ab&c=K7QM3XRD2P")
+    }
+
+    fn relay_link(endpoint: &str) -> String {
+        format!(
+            "handboard://c#v=1&e={endpoint}&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A7842%2F"
+        )
+    }
+
+    #[test]
+    fn a_laptops_relay_is_kept_with_it_and_read_again() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&relay_link(FIRST)).unwrap();
+        let first = pairing.pending().cloned().unwrap();
+        pairing.activate(&first).unwrap();
+
+        let again = Pairing::new(dir.path());
+        assert_eq!(again.active(), Some(FIRST));
+        assert_eq!(
+            again.active_relay(),
+            Some("https://relay.example.test:7842/")
+        );
+        assert_eq!(
+            parse_target(again.active().unwrap(), again.active_relay()).unwrap(),
+            first.target().unwrap()
+        );
     }
 
     #[test]
@@ -250,11 +304,47 @@ mod tests {
     fn forgetting_removes_the_laptop_from_disk() {
         let dir = TempDir::new();
         let mut pairing = Pairing::new(dir.path());
-        pairing.offer(&link(FIRST)).unwrap();
+        pairing.offer(&relay_link(FIRST)).unwrap();
         activate(&mut pairing);
         pairing.forget().unwrap();
         assert!(pairing.active().is_none());
-        assert!(Pairing::new(dir.path()).active().is_none());
+        assert!(pairing.active_relay().is_none());
+        let again = Pairing::new(dir.path());
+        assert!(again.active().is_none());
+        assert!(again.active_relay().is_none());
+    }
+
+    #[test]
+    fn a_link_taken_before_a_forget_does_not_come_back() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&link(FIRST)).unwrap();
+        let taken = pairing.take().unwrap();
+        let generation = pairing.generation();
+
+        pairing.forget().unwrap();
+
+        assert_eq!(pairing.generation(), generation + 1);
+        pairing.restore(taken);
+        assert!(pairing.pending().is_none());
+    }
+
+    #[test]
+    fn a_laptop_file_that_cannot_be_written_still_changes_the_active_laptop() {
+        let dir = TempDir::new();
+        let mut pairing = Pairing::new(dir.path());
+        pairing.offer(&link(FIRST)).unwrap();
+        activate(&mut pairing);
+        pairing.clear_pending();
+        std::fs::remove_file(dir.path().join("laptop")).unwrap();
+        std::fs::create_dir(dir.path().join("laptop")).unwrap();
+
+        let offer = pairing.offer(&link(SECOND)).unwrap();
+        assert!(offer.replaces);
+        let second = pairing.pending().cloned().unwrap();
+        assert!(pairing.activate(&second).is_err());
+
+        assert_eq!(pairing.active(), Some(SECOND));
     }
 
     #[test]
