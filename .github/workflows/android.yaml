@@ -19,7 +19,6 @@ env:
   CARGO_INCREMENTAL: "0"
   TAURI_CLI_VERSION: "2.12.4"
   DEBUG_KEY_SHA256: 083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da
-  HAND_SHA: a1e6d07d4f69653c080414f9b01ac8ed6ad0c335
 
 jobs:
   changes:
@@ -130,17 +129,17 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             android/target
-          key: check-${{ hashFiles('android/Cargo.lock', 'android/rust-toolchain.toml') }}
+            iroh/target
+          key: check-${{ hashFiles('android/Cargo.lock', 'android/rust-toolchain.toml', 'iroh/Cargo.lock', 'iroh/rust-toolchain.toml') }}
           restore-keys: check-
-      - name: Build the pinned hand-iroh sidecar
+      - name: Build the hand-iroh sidecar from iroh/
         if: needs.changes.outputs.android == 'true'
+        working-directory: iroh
         run: |
-          git init "$RUNNER_TEMP/hand"
-          git -C "$RUNNER_TEMP/hand" remote add origin https://github.com/atqamz/hand.git
-          git -C "$RUNNER_TEMP/hand" fetch --depth=1 origin "$HAND_SHA"
-          git -C "$RUNNER_TEMP/hand" checkout --detach FETCH_HEAD
-          cargo build --locked --manifest-path "$RUNNER_TEMP/hand/iroh/Cargo.toml" --bin hand-iroh
-          echo "HAND_IROH_BIN=$RUNNER_TEMP/hand/iroh/target/debug/hand-iroh" >> "$GITHUB_ENV"
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --locked --bin hand-iroh
+          target/debug/hand-iroh --version
+          echo "HAND_IROH_BIN=$GITHUB_WORKSPACE/iroh/target/debug/hand-iroh" >> "$GITHUB_ENV"
       - if: needs.changes.outputs.android == 'true'
         run: scripts/check-store-metadata.sh
       - if: needs.changes.outputs.android == 'true'
