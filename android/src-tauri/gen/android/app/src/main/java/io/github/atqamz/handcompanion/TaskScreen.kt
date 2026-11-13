@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-private fun SectionHead(text: String) {
+internal fun SectionHead(text: String) {
   Text(
     text,
     Modifier.fillMaxWidth().padding(16.dp, 20.dp, 16.dp, 4.dp).semantics { heading() },
@@ -163,7 +163,7 @@ private fun Waiting(report: TaskReport, task: String, fleet: String, onTarget: (
 }
 
 @Composable
-private fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (ThreadTarget) -> Unit) {
+internal fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (ThreadTarget) -> Unit) {
   val hand = LocalHand.current
   val target = deliverableTarget(deliverable, fleet)
   val badge = if (deliverable.kind == "file") fileBadge(deliverable.ref) else deliverable.kind.uppercase()
@@ -202,7 +202,7 @@ private fun PlanCard(plan: TaskPlan) {
 }
 
 @Composable
-private fun ReportCard(
+internal fun ReportCard(
   report: TaskReport,
   task: String,
   fleet: String,
@@ -317,7 +317,7 @@ private fun AttemptRow(attempt: TaskAttempt, task: String, fleet: String, onTarg
 }
 
 @Composable
-private fun EventRow(event: TaskEvent) {
+internal fun EventRow(event: TaskEvent) {
   val hand = LocalHand.current
   Row(
     Modifier.fillMaxWidth().padding(16.dp, 8.dp),

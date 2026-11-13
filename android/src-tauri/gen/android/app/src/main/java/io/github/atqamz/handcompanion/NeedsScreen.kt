@@ -246,6 +246,7 @@ fun NeedsScreen(
   onWeb: () -> Unit,
   onPress: (List<String>) -> Unit,
   onForce: () -> Unit,
+  onAttempt: (String) -> Unit,
   choice: @Composable (String) -> Unit
 ) {
   if (state.bands.isEmpty()) return AllClear(state)
@@ -264,6 +265,7 @@ fun NeedsScreen(
       items(band.entries, key = { it.key }) { entry ->
         val expands = entry.opens == Opens.Card || entry.opens == Opens.Choice
         val ref = entry.need.ref.orEmpty()
+        val attempt = entry.need.attempt?.takeIf(String::isNotEmpty)
         val sent = state.pressed[entry.key]
         when {
           expands && entry.key == open ->
@@ -289,8 +291,11 @@ fun NeedsScreen(
               }
             }
           expands -> NeedRow(entry, state.supervisor, sent) { onToggle(entry.key) }
-          entry.opens == Opens.Web -> NeedRow(entry, state.supervisor, sent, onWeb)
-          else -> NeedRow(entry, state.supervisor, sent, null)
+          entry.opens == Opens.Web ->
+            NeedRow(entry, state.supervisor, sent) {
+              if (attempt != null) onAttempt(attempt) else onWeb()
+            }
+          else -> NeedRow(entry, state.supervisor, sent, attempt?.let { { onAttempt(it) } })
         }
       }
     }

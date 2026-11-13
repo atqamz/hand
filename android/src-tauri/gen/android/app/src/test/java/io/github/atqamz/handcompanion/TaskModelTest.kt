@@ -426,7 +426,7 @@ class TaskModelTest {
   fun theRefRoutingTableKeepsBuiltScreensNativeAndTheRestOnTheBoard() {
     assertEquals(ThreadTarget.Task("t40"), refTarget("t40", "t40", FLEET))
     assertEquals(ThreadTarget.Decision("d12"), refTarget("d12", "t40", FLEET))
-    assertEquals(ThreadTarget.Web("/$FLEET/attempt/a62"), refTarget("a62", "t40", FLEET))
+    assertEquals(ThreadTarget.Attempt("a62"), refTarget("a62", "t40", FLEET))
     assertEquals(ThreadTarget.Web("/$FLEET/task/t40#r90"), refTarget("r90", "t40", FLEET))
     assertEquals(ThreadTarget.None, refTarget("s1", "t40", FLEET))
     val report = TaskReport("r90", "t40", "a62", "progress", "s", "b", "2026-11-11T11:31:00Z")
