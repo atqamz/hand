@@ -6,6 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -274,6 +275,7 @@ class FleetModel(
   private var denied: Long? = null
   private var supported: Boolean? = null
   private var slow: Job? = null
+  private var clockOffset: Long = 0
 
   suspend fun run() {
     refresh()
@@ -305,7 +307,7 @@ class FleetModel(
   }
 
   private suspend fun live(): Boolean {
-    var failures = 0
+    val failures = AtomicInteger(0)
     var fallback = false
     coroutineScope {
       val stopped = CompletableDeferred<Unit>()
@@ -313,12 +315,11 @@ class FleetModel(
         bus.links.collect { link ->
           when (link.state) {
             "live" -> {
-              failures = 0
               slow?.cancel()
               mutableState.update { if (it.band?.live == true) it.copy(band = null) else it }
             }
             "reconnecting" -> {
-              failures++
+              val count = failures.incrementAndGet()
               mutableState.update {
                 it.copy(band = Band("Reconnecting…", retry = false, live = true))
               }
@@ -341,17 +342,21 @@ class FleetModel(
                     )
                 }
               }
-              if (failures >= LIVE_FAILURES) stopped.complete(Unit)
+              if (count >= LIVE_FAILURES) stopped.complete(Unit)
             }
             "unpaired" -> {
               mutableState.update { it.copy(unpaired = true, band = null) }
               stopped.complete(Unit)
             }
+            "stopped" -> stopped.complete(Unit)
           }
         }
       }
       val events = launch {
-        bus.events.filter { it.fleet == fleet }.collect { reduce(it) }
+        bus.events.filter { it.fleet == fleet }.collect {
+          if (it.topic == "status") failures.set(0)
+          reduce(it)
+        }
       }
       try {
         withContext(Dispatchers.IO) { startLive(fleet) }
@@ -372,6 +377,7 @@ class FleetModel(
   internal suspend fun reduce(event: LiveEvent) {
     when (event.topic) {
       "hello" -> {
+        trackClock(event.json)
         val name =
           try {
             boardJson
@@ -387,6 +393,7 @@ class FleetModel(
         if (name != null) mutableState.update { it.copy(name = name) }
       }
       "status" -> {
+        trackClock(event.json)
         val status =
           try {
             boardJson.decodeFromString<Status>(event.json)
@@ -405,6 +412,18 @@ class FleetModel(
       }
     }
   }
+
+  private fun trackClock(json: String) {
+    val now =
+      try {
+        boardJson.parseToJsonElement(json).jsonObject["now"]?.jsonPrimitive?.content
+      } catch (_: Exception) {
+        null
+      }
+    epoch(now)?.let { clockOffset = it - nowMillis() }
+  }
+
+  private fun boardNow() = nowMillis() + clockOffset
 
   private fun topics(json: String): List<String> =
     try {
@@ -603,7 +622,7 @@ class FleetModel(
   suspend fun tickOnce(): Notice? {
     val state = mutableState.value
     val deadline = state.deadline() ?: return null
-    val left = remaining(deadline, nowMillis())
+    val left = remaining(deadline, boardNow())
     if (left != null) {
       mutableState.update { it.copy(left = left) }
       return null
@@ -620,7 +639,7 @@ class FleetModel(
 
   private fun arm() {
     val deadline = mutableState.value.deadline()?.takeIf { it != denied }
-    val left = deadline?.let { remaining(it, nowMillis()) }
+    val left = deadline?.let { remaining(it, boardNow()) }
     if (deadline != null && left == null) denied = deadline
     mutableState.update { it.copy(deadline = if (left == null) null else deadline, left = left) }
   }

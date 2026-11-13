@@ -34,9 +34,19 @@ struct RunningLive {
     cancel: Cancel,
 }
 
+impl RunningLive {
+    fn stop(self) {
+        self.cancel.cancel();
+        self.task.abort();
+    }
+}
+
 impl Core {
     fn start_live(&self, fleet: &str) {
-        self.stop_live();
+        let mut slot = self.live.lock().unwrap();
+        if let Some(running) = slot.take() {
+            running.stop();
+        }
         let live = Live::new(self.companion.dialer());
         let sessions = self.sessions.clone();
         let sink = HostLive(self.host.clone());
@@ -46,13 +56,12 @@ impl Core {
         let task = runtime().spawn(async move {
             let _ = live.run(&id, &sessions, &sink, &token).await;
         });
-        *self.live.lock().unwrap() = Some(RunningLive { task, cancel });
+        *slot = Some(RunningLive { task, cancel });
     }
 
     fn stop_live(&self) {
         if let Some(running) = self.live.lock().unwrap().take() {
-            running.cancel.cancel();
-            running.task.abort();
+            running.stop();
         }
     }
 }

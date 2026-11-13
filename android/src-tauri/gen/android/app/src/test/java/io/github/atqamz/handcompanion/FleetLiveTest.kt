@@ -1,5 +1,9 @@
 package io.github.atqamz.handcompanion
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -16,8 +20,13 @@ private const val FLEET = "f000000000003"
 private const val REPORT =
   """{"kind":"report","ref":"r1","word":"REPORT","tone":"neutral","title":"Done","report":"r1"}"""
 
-private fun statusData(items: String = REPORT) =
-  """{"agent_state":"idle","composer_hint":"","pill":"ready","line":"ready",""" +
+private fun blocked(deny: String) =
+  """{"kind":"blocked","ref":"s1","title":"Allow Bash?","word":"BLOCKED","tone":"fail",""" +
+    """"deny_at":"$deny"}"""
+
+private fun statusData(items: String = REPORT, now: String? = null) =
+  """{${now?.let { """"now":"$it",""" } ?: ""}""" +
+    """"agent_state":"idle","composer_hint":"","pill":"ready","line":"ready",""" +
     """"gauge":{"text":"","level":"","pct":0},"compactions":0,""" +
     """"needs":{"waiting":1,"more":0,"worst_count":1,"items":[$items]},""" +
     """"tasks":{"active":0,"inbox":0,"done":0,"abandoned":0},"projects":1}"""
@@ -73,13 +82,23 @@ private class LiveBoard(
   fun statusReads() = calls.count { it.startsWith("GET /api/v1/status") }
 }
 
-private fun model(board: LiveBoard, bus: LiveBus = LiveBus(8)) =
+private fun rfc3339(millis: Long): String =
+  SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT)
+    .apply { timeZone = TimeZone.getTimeZone("UTC") }
+    .format(Date(millis))
+
+private fun model(
+  board: LiveBoard,
+  bus: LiveBus = LiveBus(8),
+  nowMillis: () -> Long = { System.currentTimeMillis() }
+) =
   FleetModel(
     FLEET,
     "atlas",
     board,
     { "4d92…6ed6" },
     { "12:41" },
+    nowMillis = nowMillis,
     bus = bus,
     pollMillis = 20,
     startLive = { board.liveStarted = true },
@@ -178,6 +197,57 @@ class FleetLiveTest {
     job.cancelAndJoin()
     assertTrue(board.liveStarted)
     assertEquals(1, board.liveStopped)
+  }
+
+  @Test
+  fun aFlappingStreamFallsBackAfterThreeFailedConnections() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    var live = true
+    withTimeout(10_000) {
+      while (!board.liveStarted) delay(5)
+      while (board.statusReads() < 4) {
+        bus.link(if (live) "live" else "reconnecting", 1_700_000_000_000)
+        live = !live
+        delay(30)
+      }
+    }
+    job.cancelAndJoin()
+    assertEquals(1, board.liveStopped)
+  }
+
+  @Test
+  fun aStoppedLinkFallsBackToThePoll() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(10_000) {
+      while (!board.liveStarted) delay(5)
+      while (board.statusReads() < 3) {
+        bus.link("stopped", 0)
+        delay(30)
+      }
+    }
+    job.cancelAndJoin()
+    assertEquals(1, board.liveStopped)
+  }
+
+  @Test
+  fun theBlockedCountdownUsesTheBoardsClock() = runBlocking {
+    val phone = 1_700_000_000_000L
+    val boardNow = phone + 60_000
+    val model = model(LiveBoard(), nowMillis = { phone })
+    model.reduce(
+      LiveEvent(
+        FLEET,
+        "status",
+        statusData(blocked(rfc3339(boardNow + 60_000)), now = rfc3339(boardNow))
+      )
+    )
+    assertEquals("1:00", model.state.value.left)
   }
 
   @Test

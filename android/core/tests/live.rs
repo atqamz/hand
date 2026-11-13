@@ -206,6 +206,29 @@ async fn every_sse_event_crosses_with_the_api_json_and_the_fleets_cookie() {
 }
 
 #[tokio::test]
+async fn a_run_that_ends_without_a_stream_emits_a_stopped_link() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, |_, _| {
+        Reply::raw(&sse(&[], false)).held_after(Duration::from_secs(30))
+    })
+    .await;
+    let cancel = Cancel::default();
+    cancel.cancel();
+    let end = harness
+        .live()
+        .run(FLEET, &Cookies, &harness.sink, &cancel)
+        .await;
+    assert_eq!(end, LiveEnd::Stopped);
+    let links = harness.sink.links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].0, "stopped");
+    assert!(links[0].1 > 0);
+    assert!(harness.board.seen().is_empty());
+}
+
+#[tokio::test]
 async fn a_silent_stream_is_dropped_after_the_watchdog_and_reconnects_for_a_snapshot() {
     let Some(bin) = sidecar_bin() else {
         return;

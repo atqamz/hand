@@ -85,27 +85,42 @@ impl Live {
         sink: &impl LiveSink,
         cancel: &Cancel,
     ) -> LiveEnd {
-        let mut backoff = Backoff::default();
         let mut healthy = now_millis();
+        let end = self
+            .run_streams(fleet, cookies, sink, cancel, &mut healthy)
+            .await;
+        let _ = sink.link(
+            match end {
+                LiveEnd::Stopped => "stopped",
+                LiveEnd::Unpaired => "unpaired",
+            },
+            healthy,
+        );
+        end
+    }
+
+    async fn run_streams(
+        &self,
+        fleet: &str,
+        cookies: &impl CookieSource,
+        sink: &impl LiveSink,
+        cancel: &Cancel,
+        healthy: &mut u64,
+    ) -> LiveEnd {
+        let mut backoff = Backoff::default();
         loop {
             if cancel.is_cancelled() {
                 return LiveEnd::Stopped;
             }
             let started = Instant::now();
-            match self
-                .attempt(fleet, cookies, sink, cancel, &mut healthy)
-                .await
-            {
+            match self.attempt(fleet, cookies, sink, cancel, healthy).await {
                 Ok(()) | Err(Attempt::Stopped) => return LiveEnd::Stopped,
-                Err(Attempt::Unpaired) => {
-                    let _ = sink.link("unpaired", healthy);
-                    return LiveEnd::Unpaired;
-                }
+                Err(Attempt::Unpaired) => return LiveEnd::Unpaired,
                 Err(Attempt::Lost) => {
                     if started.elapsed() >= BACKOFF_RESET {
                         backoff.reset();
                     }
-                    if sink.link("reconnecting", healthy).is_err() {
+                    if sink.link("reconnecting", *healthy).is_err() {
                         return LiveEnd::Stopped;
                     }
                     tokio::select! {

@@ -241,7 +241,10 @@ impl SseStream {
         request: &Request,
         watchdog: Duration,
     ) -> Result<Self, RequestError> {
-        let (send, mut recv) = dialer.open_with(&request.bytes).await?;
+        let (send, mut recv) = timeout(watchdog, dialer.open_with(&request.bytes))
+            .await
+            .map_err(|_| RequestError::TimedOut)?
+            .map_err(RequestError::from)?;
         let mut input = Vec::new();
         let mut chunk = [0u8; 16 * 1024];
         let end = loop {
@@ -441,9 +444,12 @@ impl StreamBody {
     }
 
     fn next_event(&mut self) -> Result<Option<SseEvent>, RequestError> {
-        let delimiter = find(&self.body, b"\n\n")
-            .map(|end| (end, 2))
-            .or_else(|| find(&self.body, b"\r\n\r\n").map(|end| (end, 4)));
+        let lf = find(&self.body, b"\n\n").map(|end| (end, 2));
+        let crlf = find(&self.body, b"\r\n\r\n").map(|end| (end, 4));
+        let delimiter = match (lf, crlf) {
+            (Some(lf), Some(crlf)) => Some(if lf.0 <= crlf.0 { lf } else { crlf }),
+            (lf, crlf) => lf.or(crlf),
+        };
         let Some((end, length)) = delimiter else {
             return if self.body.len() > MAX_EVENT {
                 Err(RequestError::TooLarge)
@@ -1250,6 +1256,28 @@ mod tests {
             Some(SseEvent {
                 name: "status".to_owned(),
                 data: r#"{"a":1}"#.to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn the_earlier_of_a_lf_and_a_crlf_terminator_ends_the_event() {
+        let head = stream_head(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+        let mut body = StreamBody::new(&head);
+        body.feed(b"event: first\r\ndata: one\r\n\r\nevent: second\ndata: two\n\n")
+            .unwrap();
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "first".to_owned(),
+                data: "one".to_owned()
+            })
+        );
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "second".to_owned(),
+                data: "two".to_owned()
             })
         );
     }
