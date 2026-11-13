@@ -108,6 +108,9 @@ func TestAnOtherOptionWithoutANoteMakesNoRequest(t *testing.T) {
 	click(t, tt, "Keep the old cookie name?")
 	f.action = &desktop.APIError{Status: 400, Code: "bad_request", Message: "write your answer: that option asks for one"}
 	click(t, tt, "Other")
+	if !tt.Focused("Note") {
+		t.Error("clicking an other option did not focus its note")
+	}
 	click(t, tt, "Send answer")
 	tt.Frame()
 	mustText(t, tt, "Write your answer: that option asks for one.", "Send answer")
@@ -192,6 +195,22 @@ func TestAnAnsweredDecisionSaysSentUntilTheStatusRemovesIt(t *testing.T) {
 	menu(t, tt, "Refresh now")
 	mustNotText(t, tt, "Sent 1 · waiting…")
 	mustNotText(t, tt, "Keep the old cookie name?")
+}
+
+func TestAClickedChoiceSendsOnEnter(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "No, rename it")
+	if !tt.Focused("Send answer") {
+		t.Fatal("clicking a choice left the focus on the choice, not Send answer")
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if f.count("answer:d1") != 1 || f.choice != "2. No, rename it" {
+		t.Fatalf("Enter sent %d answers, choice %q", f.count("answer:d1"), f.choice)
+	}
 }
 
 func TestNumberKeysPickAnOptionAndEnterSends(t *testing.T) {

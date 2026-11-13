@@ -512,6 +512,16 @@ func (a *App) needReadError(c *ui.Context, p palette, key, msg string, retry fun
 	})
 }
 
+func (a *App) pickChoice(value string, options []Option) {
+	a.AnswerChoice = value
+	for _, o := range options {
+		if o.Value == value {
+			a.focusSend, a.focusNote = !o.Other, o.Other
+			return
+		}
+	}
+}
+
 func (a *App) answerNeedsNote(choice, note string) bool {
 	if strings.TrimSpace(note) != "" {
 		return false
@@ -546,7 +556,7 @@ func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetai
 				})
 			}
 			if picked := kit.ChoiceList(c, k, options); picked != "" && !a.Busy {
-				a.AnswerChoice = picked
+				a.pickChoice(picked, d.Options)
 			}
 		} else {
 			ui.Column(c).Gap(6).Children(func() {
@@ -631,8 +641,7 @@ func (a *App) choiceKeys(c *ui.Context, d DecisionDetail) {
 		want := fmt.Sprint(i + 1)
 		for _, o := range d.Options {
 			if o.Key == want {
-				a.AnswerChoice = o.Value
-				a.focusSend, a.focusNote = !o.Other, o.Other
+				a.pickChoice(o.Value, d.Options)
 				break
 			}
 		}
