@@ -84,8 +84,13 @@ fun WebBoard(path: String, onClose: () -> Unit) {
   val page by produceState<Page?>(null, path) { value = openBoard(path, Core::fallback, WebCookies) }
   var view by remember { mutableStateOf<WebView?>(null) }
   BackHandler { view?.takeIf(WebView::canGoBack)?.goBack() ?: onClose() }
+  BoardBody(page, onClose) { view = it }
+}
+
+@Composable
+internal fun BoardBody(page: Page?, onClose: () -> Unit, onView: (WebView) -> Unit) {
   when (val shown = page) {
-    null -> Unit
+    null -> Loading()
     is Page.Failed ->
       Text(
         shown.message,
@@ -131,7 +136,7 @@ fun WebBoard(path: String, onClose: () -> Unit) {
                 }
               }
             loadUrl(shown.url)
-            view = this
+            onView(this)
           }
         },
         Modifier.fillMaxSize(),

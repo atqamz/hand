@@ -41,7 +41,7 @@ private val rows =
     )
   )
 
-private val connected = FleetsState("4d92…6ed6", rows)
+private val connected = FleetsState("4d92…6ed6", rows, loaded = true)
 
 private val unreachable =
   FleetsState(
@@ -50,8 +50,11 @@ private val unreachable =
     Band(
       "Can't reach 4d92…6ed6 since 12:41",
       "Check that the laptop is on, that Hand's Board is running, and that this phone has internet."
-    )
+    ),
+    loaded = true
   )
+
+private val loading = FleetsState()
 
 class FleetsScreenTest {
   @get:Rule
@@ -67,4 +70,8 @@ class FleetsScreenTest {
   @Test fun unreachableLight() = shot(false, unreachable)
 
   @Test fun unreachableDark() = shot(true, unreachable)
+
+  @Test fun loadingLight() = shot(false, loading)
+
+  @Test fun loadingDark() = shot(true, loading)
 }

@@ -282,8 +282,12 @@ fun FleetsScreen(
       )
     }
     HorizontalDivider(color = line)
-    LazyColumn {
-      items(state.rows, key = { it.id }) { Fleet(it, state.band?.retry == true, onOpen) }
+    when (fleetsBody(state)) {
+      FleetsBody.Loading -> Loading()
+      FleetsBody.Rows ->
+        LazyColumn {
+          items(state.rows, key = { it.id }) { Fleet(it, state.band?.retry == true, onOpen) }
+        }
     }
   }
   if (state.asking) ForgetDialog(state, onForget) { onAsk(false) }

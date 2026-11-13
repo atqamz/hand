@@ -104,6 +104,9 @@ private val clear =
 
 private val chat = several.copy(tab = Tab.Chat, working = true, pill = Badge("working", Tone.Accent))
 
+private val unreachable =
+  FleetState(name = "atlas", band = band(BoardError.Unreachable, "4d92…6ed6", "12:41"))
+
 class FleetScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2000))
@@ -127,9 +130,17 @@ class FleetScreenTest {
 
   @Test fun notLoadedLight() = shot(false, "f000000000003", FleetState(name = "atlas", tab = Tab.Needs))
 
+  @Test fun tappedBeforeAnswerLight() = shot(false, "f000000000003", FleetState(name = "atlas", tab = Tab.Tasks))
+
+  @Test fun tappedBeforeAnswerDark() = shot(true, "f000000000003", FleetState(name = "atlas", tab = Tab.Tasks))
+
   @Test fun firstFrameLight() = shot(false, "f000000000003", FleetState(name = "atlas"))
 
   @Test fun firstFrameDark() = shot(true, "f000000000003", FleetState(name = "atlas"))
+
+  @Test fun failedFirstFrameLight() = shot(false, "f000000000003", unreachable)
+
+  @Test fun failedFirstFrameDark() = shot(true, "f000000000003", unreachable)
 
   @Test fun allClearLight() = shot(false, "f000000000005", clear)
 

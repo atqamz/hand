@@ -129,7 +129,6 @@ fun NeedsScreen(
   onWeb: () -> Unit,
   choice: @Composable (String) -> Unit
 ) {
-  if (!state.loaded) return Loading()
   if (state.bands.isEmpty()) return AllClear(state)
   val open = state.openKey()
   LazyColumn(Modifier.fillMaxSize()) {

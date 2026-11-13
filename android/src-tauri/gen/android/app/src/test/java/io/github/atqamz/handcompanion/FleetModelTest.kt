@@ -165,6 +165,18 @@ class FleetModelTest {
   }
 
   @Test
+  fun aTappedTabBeforeTheFirstAnswerStillShowsLoading() {
+    assertEquals(Body.Loading, body(FleetState(name = "atlas", tab = Tab.Tasks)))
+    assertEquals(Body.Loading, body(FleetState(name = "atlas", tab = Tab.Needs)))
+  }
+
+  @Test
+  fun aFailedFirstRequestShowsLoadingUnderTheBand() {
+    val band = Band("Can't reach 4d92…6ed6 since 12:41")
+    assertEquals(Body.Loading, body(FleetState(name = "atlas", band = band)))
+  }
+
+  @Test
   fun theBodyFollowsTheAnswerAndThePairing() {
     assertEquals(Body.Needs, body(FleetState(loaded = true, tab = Tab.Needs)))
     assertEquals(Body.Placeholder, body(FleetState(loaded = true, tab = Tab.Chat)))

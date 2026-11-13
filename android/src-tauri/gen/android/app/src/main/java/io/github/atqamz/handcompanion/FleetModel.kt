@@ -91,7 +91,7 @@ enum class Body {
 fun body(state: FleetState) =
   when {
     state.unpaired -> Body.Unpaired
-    state.tab == null && state.band == null -> Body.Loading
+    !state.loaded -> Body.Loading
     state.tab == Tab.Needs -> Body.Needs
     else -> Body.Placeholder
   }

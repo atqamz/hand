@@ -44,8 +44,17 @@ data class FleetsState(
   val band: Band? = null,
   val alertsOff: Boolean = false,
   val asking: Boolean = false,
-  val notice: String? = null
+  val notice: String? = null,
+  val loaded: Boolean = false
 )
+
+enum class FleetsBody {
+  Loading,
+  Rows
+}
+
+fun fleetsBody(state: FleetsState) =
+  if (state.loaded) FleetsBody.Rows else FleetsBody.Loading
 
 const val FORGET_FAILED = "Can't clear the saved login. Try again."
 
@@ -216,6 +225,7 @@ class FleetsModel(
         it.copy(
           laptop = who,
           rows = rows,
+          loaded = true,
           band = failure?.let { band(it, who, downSince) } ?: UNSAVED.takeIf { unsaved }
         )
       }
