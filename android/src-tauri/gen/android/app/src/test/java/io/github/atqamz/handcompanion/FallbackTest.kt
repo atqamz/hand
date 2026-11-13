@@ -4,6 +4,8 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -179,6 +181,16 @@ class FallbackTest {
     withTimeout(1_000) { jar.reached.await() }
     opener.join()
     assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
+    assertEquals(listOf("setCookie"), jar.events)
+  }
+
+  @Test(timeout = 3_000)
+  fun cancellingTheBridgeReleasesTheParkedCall() = runBlocking {
+    val jar = SpyJar()
+    val job = CoroutineScope(Dispatchers.Default).launch { storeCookie(jar, COOKIE_URL, COOKIE) }
+    withTimeout(1_000) { jar.reached.await() }
+    job.cancel()
+    withTimeout(1_000) { job.join() }
     assertEquals(listOf("setCookie"), jar.events)
   }
 
