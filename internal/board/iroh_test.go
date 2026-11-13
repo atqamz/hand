@@ -9,9 +9,9 @@ import (
 
 const irohEndpoint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-func irohRig(t *testing.T, st *sidecar.Status) *phoneRig {
+func irohRig(t *testing.T, st *sidecar.Status) *companionRig {
 	t.Helper()
-	p := &phoneRig{t: t, fx: newFixture(t)}
+	p := &companionRig{t: t, fx: newFixture(t)}
 	if st != nil {
 		p.fx.options.Iroh = func() sidecar.Status { return *st }
 	}

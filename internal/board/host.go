@@ -61,7 +61,7 @@ func (b *Board) fleetsFrom(ctx context.Context, key any) []railLink {
 	return kept
 }
 
-type Prover interface{ PhoneSession(r *http.Request) bool }
+type Prover interface{ CompanionSession(r *http.Request) bool }
 
 type HostOptions struct {
 	Loopback bool
@@ -141,7 +141,7 @@ func (h *Host) list(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{"Title": "fleets", "Loopback": loopback}
 	var paired map[string]bool
 	if !loopback && h.o.Loopback && h.o.List != nil {
-		paired = h.phoneFleets(r, "")
+		paired = h.companionFleets(r, "")
 	}
 	if loopback || len(paired) > 0 {
 		fleets, err := h.o.List()
@@ -209,8 +209,8 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Host) phoneFleets(r *http.Request, current string) map[string]bool {
-	prefix := phoneName + "_"
+func (h *Host) companionFleets(r *http.Request, current string) map[string]bool {
+	prefix := companionName + "_"
 	if secure(r) {
 		prefix = hostCookie + prefix
 	}
@@ -221,21 +221,21 @@ func (h *Host) phoneFleets(r *http.Request, current string) map[string]bool {
 			continue
 		}
 		tried[id] = true
-		if h.phoneProves(id, r) {
+		if h.companionProves(id, r) {
 			proven[id] = true
 		}
 	}
 	return proven
 }
 
-func (h *Host) phoneProves(id string, r *http.Request) bool {
+func (h *Host) companionProves(id string, r *http.Request) bool {
 	f, err := h.handler(id)
 	if err != nil {
 		return false
 	}
 	defer f.busy.Done()
 	p, ok := f.h.(Prover)
-	return ok && p.PhoneSession(r)
+	return ok && p.CompanionSession(r)
 }
 
 func (h *Host) tokenFleets(current string, r *http.Request) map[string]bool {
@@ -338,7 +338,7 @@ func (h *Host) pairIn(ctx context.Context, rd *Redeemed, id string) (Paired, err
 	if !ok {
 		return Paired{}, state.ErrNotFound
 	}
-	got, err := p.PairPhone(ctx, rd)
+	got, err := p.PairCompanion(ctx, rd)
 	if err != nil {
 		log.Printf("board: pairing with fleet %s failed: %v", id, err)
 	}
@@ -348,7 +348,7 @@ func (h *Host) pairIn(ctx context.Context, rd *Redeemed, id string) (Paired, err
 func (h *Host) signedIn(current string, r *http.Request) func() []FleetLink {
 	return sync.OnceValue(func() []FleetLink {
 		proven := h.tokenFleets(current, r)
-		for id := range h.phoneFleets(r, current) {
+		for id := range h.companionFleets(r, current) {
 			proven[id] = true
 		}
 		if len(proven) == 1 {

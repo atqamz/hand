@@ -56,7 +56,7 @@ func neutralRequests(prefix string, f railFleet, forged string, cookies map[stri
 }
 
 func TestNoPageWithoutASessionNamesTheFleet(t *testing.T) {
-	p := newPhoneHost(t, true, nameMarker, "bravo")
+	p := newCompanionHost(t, true, nameMarker, "bravo")
 	f := p.fleets[0]
 	op := serving()
 	old := p.pair(f, op)

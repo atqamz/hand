@@ -109,16 +109,16 @@ func TestThePhoneScriptPinsItsFlow(t *testing.T) {
 }
 
 func TestThePhonePagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
-	p := newPhoneRig(t)
+	p := newCompanionRig(t)
 	code := p.code()
-	phone := p.pair()
+	companion := p.pair()
 	pages := map[string]string{
 		"pair":     p.do("GET", "/pair", nil, nil, viaServe).Body.String(),
 		"pair bad": p.tryPair("AAAAA-AAAAA", "100.64.0.7").Body.String(),
 		"connect":  p.do("GET", "/connect", nil, host, nil).Body.String(),
 		"code":     p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://host.tailnet.example"}}, host, nil).Body.String(),
-		"phone":    p.do("GET", "/connect", nil, phone, viaServe).Body.String(),
-		"revoked":  p.do("GET", "/", nil, &http.Cookie{Name: phone.Name, Value: "1." + strings.Repeat("0", 64)}, viaServe).Body.String(),
+		"phone":    p.do("GET", "/connect", nil, companion, viaServe).Body.String(),
+		"revoked":  p.do("GET", "/", nil, &http.Cookie{Name: companion.Name, Value: "1." + strings.Repeat("0", 64)}, viaServe).Body.String(),
 		"funnel":   p.do("GET", "/", nil, host, map[string]string{"Tailscale-Funnel-Request": "?1"}).Body.String(),
 	}
 	_ = code
@@ -143,6 +143,6 @@ func TestThePhonePagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
 	}
 	contains(t, "connect", pages["connect"], `<button aria-label="Revoke Pixel">Revoke</button>`, `class="device"`)
 	for _, name := range []string{"pair", "pair bad", "phone", "revoked", "funnel"} {
-		lacks(t, name+" page", pages[name], token, phone.Value, strings.SplitN(phone.Value, ".", 2)[1])
+		lacks(t, name+" page", pages[name], token, companion.Value, strings.SplitN(companion.Value, ".", 2)[1])
 	}
 }

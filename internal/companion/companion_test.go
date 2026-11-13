@@ -495,8 +495,7 @@ func TestAFleetOfTheRightLengthAndHeadIsRejectedForItsTail(t *testing.T) {
 
 func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	v := load(t)
-	const forward, args, phone, peer = "iroh/src/forward.rs", "iroh/src/args.rs", "internal/board/phone.go", "internal/board/peer.go"
-	const emit = "internal/board/companion.go"
+	const forward, args, pair, peer = "iroh/src/forward.rs", "iroh/src/args.rs", "internal/board/companion.go", "internal/board/peer.go"
 	code := func(name string) string {
 		return `pub const ` + name + `: VarInt = VarInt::from_u32\((\d+)\);`
 	}
@@ -519,10 +518,10 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 		{"connections per source", v.Wire.ConnectionsPerSource, forward, `per_source: (\d+),\n`, 1},
 		{"max connections", v.Wire.MaxConnectionsDefault, args, `MAX_CONNECTIONS_DEFAULT: usize = (\d+);`, 1},
 		{"idle seconds", v.Wire.IdleSecondsDefault, args, `IDLE_DEFAULT: Duration = Duration::from_secs\((\d+)\);`, 1},
-		{"code seconds", v.Board.CodeSeconds, phone, `pairLife\s+= (\d+) \* time\.Minute`, 60},
-		{"wrong tries per minute", v.Board.WrongTriesPerMinute, phone, `addrFails\s+= (\d+)\n`, 1},
-		{"wrong tries before all codes cancel", v.Board.WrongTriesBeforeBurn, phone, `pairFails\s+= (\d+)\n`, 1},
-		{"phone days", v.Board.PhoneDays, phone, `phoneLife\s+= (\d+) \* 24 \* time\.Hour`, 1},
+		{"code seconds", v.Board.CodeSeconds, pair, `pairLife\s+= (\d+) \* time\.Minute`, 60},
+		{"wrong tries per minute", v.Board.WrongTriesPerMinute, pair, `addrFails\s+= (\d+)\n`, 1},
+		{"wrong tries before all codes cancel", v.Board.WrongTriesBeforeBurn, pair, `pairFails\s+= (\d+)\n`, 1},
+		{"phone days", v.Board.PhoneDays, pair, `companionLife\s+= (\d+) \* 24 \* time\.Hour`, 1},
 		{"unpaired requests", v.Board.UnpairedRequests, peer, `peerRequests\s+= (\d+)\n`, 1},
 		{"unpaired bytes", v.Board.UnpairedBytes, peer, `peerBytes\s+= (\d+) << 10`, 1024},
 		{"unpaired body seconds", v.Board.UnpairedBodySeconds, peer, `peerBodyWait\s+= (\d+) \* time\.Second`, 1},
@@ -536,10 +535,10 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	if want := match(t, forward, `pub const ALPN: &\[u8\] = b"([^"]+)";`); v.Wire.ALPN != want {
 		t.Errorf("ALPN: the file says %q, the code says %q", v.Wire.ALPN, want)
 	}
-	if want := match(t, phone, `codeChars\s+= "([^"]+)"`); v.Board.CodeAlphabet != want || want != codeAlphabet || len(want) != 32 {
+	if want := match(t, pair, `codeChars\s+= "([^"]+)"`); v.Board.CodeAlphabet != want || want != codeAlphabet || len(want) != 32 {
 		t.Errorf("code alphabet: the file says %q, the code says %q", v.Board.CodeAlphabet, want)
 	}
-	if want := number(t, phone, `func newCode\(\) string \{\s+buf := make\(\[\]byte, (\d+)\)`, 1); v.Board.CodeLength != want {
+	if want := number(t, pair, `func newCode\(\) string \{\s+buf := make\(\[\]byte, (\d+)\)`, 1); v.Board.CodeLength != want {
 		t.Errorf("code length: the file says %d, the code says %d", v.Board.CodeLength, want)
 	}
 	if !codeRe.MatchString(strings.Repeat("0", v.Board.CodeLength)) {
@@ -558,14 +557,14 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	if login := strings.TrimSuffix(v.Board.DeviceLogin, "<endpoint id>"); !strings.Contains(string(read(t, peer)), `"`+login+`" + c.id`) {
 		t.Errorf("the Board does not build the device login %q", v.Board.DeviceLogin)
 	}
-	if want := number(t, emit, `appLinkMax\s+= (\d+)`, 1); v.Link.MaxBytes != want {
+	if want := number(t, pair, `appLinkMax\s+= (\d+)`, 1); v.Link.MaxBytes != want {
 		t.Errorf("app link cap: the file says %d, the code says %d", v.Link.MaxBytes, want)
 	}
-	if want := match(t, emit, regexp.QuoteMeta("appRelayRe = regexp.MustCompile(`")+"([^`]+)"+regexp.QuoteMeta("`)")); want != relayRe.String() {
+	if want := match(t, pair, regexp.QuoteMeta("appRelayRe = regexp.MustCompile(`")+"([^`]+)"+regexp.QuoteMeta("`)")); want != relayRe.String() {
 		t.Errorf("relay rule: the board says %q, the parser says %q", want, relayRe)
 	}
 	cond := "(" + regexp.QuoteMeta("if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~' {") + ")"
-	if board, ref := match(t, emit, cond), match(t, "internal/companion/companion_test.go", cond); board != ref {
+	if board, ref := match(t, pair, cond), match(t, "internal/companion/companion_test.go", cond); board != ref {
 		t.Errorf("escape alphabet: the board has %q, the parser has %q", board, ref)
 	}
 }

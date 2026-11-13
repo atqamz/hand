@@ -10,7 +10,7 @@ import (
 var retiredMarkers = []string{"data-worker", `rel="manifest"`, `rel="apple-touch-icon"`, "data-install", "manifest-src", "worker-src", "serviceWorker"}
 
 func TestTheManifestAndTheOfflinePageAreGone(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	for name, headers := range map[string]map[string]string{"loopback": nil, "proxied https": serving()} {
 		for _, path := range []string{"/manifest.webmanifest", "/offline", "/" + f.id + "/offline", "/" + f.id + "/manifest.webmanifest"} {
@@ -26,7 +26,7 @@ func TestTheManifestAndTheOfflinePageAreGone(t *testing.T) {
 }
 
 func TestOnlyTheSelfRemovingWorkerIsServed(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	for name, headers := range map[string]map[string]string{"loopback": nil, "proxied https": serving()} {
 		rec := p.send("GET", "/sw.js", nil, nil, headers)
 		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/javascript") {
@@ -50,13 +50,13 @@ func TestOnlyTheSelfRemovingWorkerIsServed(t *testing.T) {
 }
 
 func TestNoPageOffersTheApp(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	https := serving()
-	phone := p.pair(f, https)
+	companion := p.pair(f, https)
 	for name, headers := range map[string]map[string]string{"loopback": nil, "proxied https": https} {
 		for _, path := range []string{"/", "/" + f.id + "/", "/" + f.id + "/connect", "/" + f.id + "/tasks", "/" + f.id + "/pair"} {
-			rec := p.send("GET", path, nil, []*http.Cookie{p.host(f), phone}, headers)
+			rec := p.send("GET", path, nil, []*http.Cookie{p.host(f), companion}, headers)
 			whole := wholeResponse(rec)
 			for _, bad := range retiredMarkers {
 				if strings.Contains(whole, bad) {
@@ -76,7 +76,7 @@ func TestNoPageOffersTheApp(t *testing.T) {
 }
 
 func TestTheScriptNoLongerRegistersAWorker(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	page := p.send("GET", "/"+f.id+"/", nil, []*http.Cookie{p.host(f)}, nil).Body.String()
 	app := regexp.MustCompile(`/static/app\.[0-9a-f]{12}\.js`).FindString(page)

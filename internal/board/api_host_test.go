@@ -62,7 +62,7 @@ func jsonKind(raw json.RawMessage) string {
 func cookies(cs ...*http.Cookie) []*http.Cookie { return cs }
 
 func TestFleetsListsWhatAHostSessionProves(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha", "beta", "gamma")
+	p := newCompanionHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
 	rec := p.send("GET", "/api/v1/fleets", nil, cookies(p.host(a), p.host(b)), nil)
 	if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" {
@@ -88,21 +88,21 @@ func TestFleetsListsOnlyTheFleetsAPairedPhoneHolds(t *testing.T) {
 	r := newPeerRig(t, "alpha", "beta")
 	a, b := r.fleets[0], r.fleets[1]
 	c := r.as(peerA)
-	phoneA := r.mustPair(c, a)
-	rep := c.do("GET", "/api/v1/fleets", nil, nil, phoneA)
+	companionA := r.mustPair(c, a)
+	rep := c.do("GET", "/api/v1/fleets", nil, nil, companionA)
 	if got := fleetItems(t, rep.Body); rep.Code != http.StatusOK || !slices.Equal(fleetItemIDs(got), []string{a.id}) {
 		t.Fatalf("one pairing = %d, %v:\n%s", rep.Code, fleetItemIDs(got), rep.Body)
 	}
 	if strings.Contains(rep.Body, b.id) || strings.Contains(rep.Body, "beta") {
 		t.Fatalf("a phone paired with alpha learns of beta:\n%s", rep.Body)
 	}
-	borrowed := phoneNamed("hand_phone_"+b.id, phoneA)
-	rep = c.do("GET", "/api/v1/fleets", nil, nil, phoneA, borrowed)
+	borrowed := companionNamed("hand_phone_"+b.id, companionA)
+	rep = c.do("GET", "/api/v1/fleets", nil, nil, companionA, borrowed)
 	if got := fleetItemIDs(fleetItems(t, rep.Body)); !slices.Equal(got, []string{a.id}) || strings.Contains(rep.Body, b.id) {
 		t.Fatalf("alpha's secret under beta's name lists %v:\n%s", got, rep.Body)
 	}
-	phoneB := r.mustPair(c, b)
-	rep = c.do("GET", "/api/v1/fleets", nil, nil, phoneA, phoneB)
+	companionB := r.mustPair(c, b)
+	rep = c.do("GET", "/api/v1/fleets", nil, nil, companionA, companionB)
 	if got := fleetItemIDs(fleetItems(t, rep.Body)); !slices.Equal(got, []string{a.id, b.id}) {
 		t.Fatalf("two pairings list %v:\n%s", got, rep.Body)
 	}
@@ -111,7 +111,7 @@ func TestFleetsListsOnlyTheFleetsAPairedPhoneHolds(t *testing.T) {
 func TestFleetsRefusesAPhonePairedWithoutItsOwnKey(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	a := r.fleets[0]
-	bare := phoneNamed("hand_phone_"+a.id, r.pair(a, serving()))
+	bare := companionNamed("hand_phone_"+a.id, r.pair(a, serving()))
 	rep := r.as(peerA).do("GET", "/api/v1/fleets", nil, nil, bare)
 	if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"forbidden"`) || strings.Contains(rep.Body, a.id) {
 		t.Fatalf("a keyless phone over the peer = %d:\n%s", rep.Code, rep.Body)
@@ -122,7 +122,7 @@ func TestFleetsRefusesAPhonePairedWithoutItsOwnKey(t *testing.T) {
 }
 
 func TestFleetsSummaryMatchesStatus(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha", "beta")
+	p := newCompanionHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	task := active(t, a.st, "Fix login")
 	if _, err := a.st.Ask(context.Background(), task.ID, "Keep the old cookie name?"); err != nil {
@@ -150,7 +150,7 @@ func TestFleetsSummaryMatchesStatus(t *testing.T) {
 }
 
 func TestFleetsPinsTheNeedsNames(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha", "beta")
+	p := newCompanionHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	task := active(t, a.st, "Fix login")
 	if _, err := a.st.Ask(context.Background(), task.ID, "Keep the old cookie name?"); err != nil {
@@ -201,7 +201,7 @@ func TestFleetsLogsAFailedFleetOncePerState(t *testing.T) {
 	var logged bytes.Buffer
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	p := newPhoneHost(t, true, "alpha", "beta")
+	p := newCompanionHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	both := cookies(p.host(a), p.host(b))
 	p.down[b.id] = true
@@ -223,7 +223,7 @@ func TestFleetsLogsAFailedFleetOncePerState(t *testing.T) {
 }
 
 func TestFleetsTreatsABrokenFleetAsTheRailDoes(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha", "beta")
+	p := newCompanionHost(t, true, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
 	both := cookies(p.host(a), p.host(b))
 	p.down[b.id] = true
@@ -238,7 +238,7 @@ func TestFleetsTreatsABrokenFleetAsTheRailDoes(t *testing.T) {
 }
 
 func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	a := p.fleets[0]
 	p.iroh = func() sidecar.Status {
 		return sidecar.Status{State: sidecar.Ready, ID: strings.Repeat("e", 64), Relay: "https://relay.example"}
@@ -267,7 +267,7 @@ func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
 }
 
 func TestEveryFeatureIsNamedInTheAPIDocs(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	var env struct{ Data board.APIMeta }
 	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.host(p.fleets[0])), nil)
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -285,7 +285,7 @@ func TestEveryFeatureIsNamedInTheAPIDocs(t *testing.T) {
 }
 
 func TestFleetsAndMetaRefuseWhatEveryAPIReadRefuses(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	a := p.fleets[0]
 	for name, headers := range map[string]map[string]string{
 		"forwarded":   {"X-Forwarded-For": "100.64.0.7"},
@@ -300,14 +300,14 @@ func TestFleetsAndMetaRefuseWhatEveryAPIReadRefuses(t *testing.T) {
 			}
 		}
 	}
-	net := newPhoneHost(t, false, "alpha")
+	net := newCompanionHost(t, false, "alpha")
 	for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
 		testAPIError(t, net.send("GET", path, nil, cookies(net.host(net.fleets[0])), nil), http.StatusForbidden, "forbidden")
 	}
 }
 
 func TestFleetsAndMetaTakeOnlyReads(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	a := p.fleets[0]
 	for _, path := range []string{"/api/v1/fleets", "/api/v1/meta"} {
 		rec := p.send("POST", path, nil, cookies(p.host(a)), nil)

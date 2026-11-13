@@ -31,9 +31,9 @@ type feedBody struct {
 	}
 }
 
-func alertHost(t *testing.T, names ...string) *phoneHost {
+func alertHost(t *testing.T, names ...string) *companionHost {
 	t.Helper()
-	p := newPhoneHost(t, true, names...)
+	p := newCompanionHost(t, true, names...)
 	p.tick = 10 * time.Millisecond
 	p.restart()
 	return p
@@ -60,7 +60,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) feedBody {
 	return out
 }
 
-func (p *phoneHost) feed(f railFleet, query string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+func (p *companionHost) feed(f railFleet, query string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	p.t.Helper()
 	if len(cookies) == 0 {
 		cookies = []*http.Cookie{p.host(f)}
@@ -217,10 +217,10 @@ func TestTheNextPollAcknowledgesWhatTheLastOneFetched(t *testing.T) {
 		t.Fatalf("alerts = %+v, %v", rows, err)
 	}
 	third, first := rows[0], rows[2]
-	if !first.FetchedAt.Equal(phoneEpoch) || !first.AckedAt.Equal(phoneEpoch.Add(3*time.Second)) || !rows[1].AckedAt.Equal(phoneEpoch.Add(3*time.Second)) {
+	if !first.FetchedAt.Equal(companionEpoch) || !first.AckedAt.Equal(companionEpoch.Add(3*time.Second)) || !rows[1].AckedAt.Equal(companionEpoch.Add(3*time.Second)) {
 		t.Fatalf("first = %+v, second = %+v", first, rows[1])
 	}
-	if !third.FetchedAt.Equal(phoneEpoch) || !third.AckedAt.IsZero() {
+	if !third.FetchedAt.Equal(companionEpoch) || !third.AckedAt.IsZero() {
 		t.Fatalf("third = %+v", third)
 	}
 }
@@ -271,8 +271,8 @@ func TestARevokedPhoneIsRefusedWhileItsPollIsHeld(t *testing.T) {
 	p := alertHost(t, "alpha")
 	f := p.fleets[0]
 	raise(t, f, 1)
-	phone := p.pair(f, nil)
-	if got := decode(t, p.feed(f, "?after=1", phone)); got.Cursor != 1 {
+	companion := p.pair(f, nil)
+	if got := decode(t, p.feed(f, "?after=1", companion)); got.Cursor != 1 {
 		t.Fatalf("a paired phone's poll = %+v", got)
 	}
 	var rec *httptest.ResponseRecorder
@@ -280,10 +280,10 @@ func TestARevokedPhoneIsRefusedWhileItsPollIsHeld(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		rec = p.feed(f, "?after=1&wait=25", phone)
+		rec = p.feed(f, "?after=1&wait=25", companion)
 	}()
 	time.Sleep(150 * time.Millisecond)
-	p.revoke(f, phone)
+	p.revoke(f, companion)
 	within(t, 3*time.Second, "the held poll after the revoke", wg.Wait)
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Header().Get("X-Hand-Error"), "no%20longer%20paired") || strings.Contains(rec.Body.String(), `"alerts"`) {
 		t.Fatalf("held poll after revoke = %d, %q:\n%s", rec.Code, rec.Header().Get("X-Hand-Error"), rec.Body.String())
@@ -292,7 +292,7 @@ func TestARevokedPhoneIsRefusedWhileItsPollIsHeld(t *testing.T) {
 
 func TestAnUnpairedPhoneAndAnotherFleetsCookieGetNoFeed(t *testing.T) {
 	r := func() *peerRig {
-		p := newPhoneHost(t, true, "alpha", "bravo")
+		p := newCompanionHost(t, true, "alpha", "bravo")
 		p.tick = 10 * time.Millisecond
 		p.restart()
 		return servePeerRig(t, p)
@@ -305,8 +305,8 @@ func TestAnUnpairedPhoneAndAnotherFleetsCookieGetNoFeed(t *testing.T) {
 		t.Fatalf("an unpaired phone = %d:\n%s", rep.Code, rep.Body)
 	}
 	c := r.as(peerA)
-	phone := r.mustPair(c, a)
-	if rep := c.do("GET", path(b), nil, nil, phone); rep.Code != http.StatusForbidden || strings.Contains(rep.Body, `"alerts"`) {
+	companion := r.mustPair(c, a)
+	if rep := c.do("GET", path(b), nil, nil, companion); rep.Code != http.StatusForbidden || strings.Contains(rep.Body, `"alerts"`) {
 		t.Fatalf("another fleet's cookie = %d:\n%s", rep.Code, rep.Body)
 	}
 	if rep := c.do("GET", path(a), nil, nil, r.host(a)); rep.Code != http.StatusForbidden || strings.Contains(rep.Body, `"alerts"`) {
@@ -315,23 +315,23 @@ func TestAnUnpairedPhoneAndAnotherFleetsCookieGetNoFeed(t *testing.T) {
 	if rep := c.do("GET", path(a)+"&token="+a.token, nil, nil); rep.Code != http.StatusForbidden {
 		t.Fatalf("a token link over the peer listener = %d", rep.Code)
 	}
-	if rep := r.as(peerB).do("GET", path(a), nil, nil, phone); rep.Code != http.StatusForbidden {
+	if rep := r.as(peerB).do("GET", path(a), nil, nil, companion); rep.Code != http.StatusForbidden {
 		t.Fatalf("the cookie from another peer = %d", rep.Code)
 	}
 }
 
 func TestAPairedPeerGetsTheFeedWithALengthAndNoSecret(t *testing.T) {
-	p := newPhoneHost(t, true, "alpha")
+	p := newCompanionHost(t, true, "alpha")
 	p.tick = 10 * time.Millisecond
 	p.restart()
 	r := servePeerRig(t, p)
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	if err := f.st.RecordAlert(context.Background(), "attempt.limited", "a4", "a4 limited: resets at 3pm", "handboard://open/"+f.id+"/attempt/a4"); err != nil {
 		t.Fatal(err)
 	}
-	rep := c.do("GET", "/"+f.id+"/alerts/feed?after=0&wait=25", nil, map[string]string{"Connection": "close"}, phone)
+	rep := c.do("GET", "/"+f.id+"/alerts/feed?after=0&wait=25", nil, map[string]string{"Connection": "close"}, companion)
 	if rep.Code != http.StatusOK || rep.Header.Get("Content-Length") != strconv.Itoa(len(rep.Body)) || len(rep.Header.Values("Transfer-Encoding")) != 0 {
 		t.Fatalf("feed = %d, %v:\n%s", rep.Code, rep.Header, rep.Body)
 	}
@@ -343,7 +343,7 @@ func TestAPairedPeerGetsTheFeedWithALengthAndNoSecret(t *testing.T) {
 	if len(item) != 6 {
 		t.Fatalf("alert fields = %v", item)
 	}
-	for _, secret := range []string{phone.Value, f.token, peerA, peerSecret, "/homes", "hand_phone"} {
+	for _, secret := range []string{companion.Value, f.token, peerA, peerSecret, "/homes", "hand_phone"} {
 		if strings.Contains(rep.Body, secret) {
 			t.Fatalf("the feed holds %q:\n%s", secret, rep.Body)
 		}
@@ -450,14 +450,14 @@ func TestAFeedPollWhoseSendSideEndedIsHeldAndAnsweredNormally(t *testing.T) {
 	r := servePeerRig(t, alertHost(t, "alpha"))
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	c.half = true
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		_ = f.st.RecordAlert(context.Background(), "attempt.failed", "a9", "a9 failed: boom", "handboard://open/"+f.id+"/attempt/a9")
 	}()
 	start := time.Now()
-	rep := c.do("GET", "/"+f.id+"/alerts/feed?after=0&wait=25", nil, map[string]string{"Connection": "close"}, phone)
+	rep := c.do("GET", "/"+f.id+"/alerts/feed?after=0&wait=25", nil, map[string]string{"Connection": "close"}, companion)
 	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, `"a9"`) {
 		t.Fatalf("held poll after a half-close = %d:\n%s", rep.Code, rep.Body)
 	}
@@ -470,9 +470,9 @@ func TestAFeedPollWhosePeerResetsTheConnectionIsCanceled(t *testing.T) {
 	r := servePeerRig(t, alertHost(t, "alpha"))
 	f := r.fleets[0]
 	c := r.as(peerA)
-	phone := r.mustPair(c, f)
+	companion := r.mustPair(c, f)
 	d := r.as(peerA)
-	req := "GET /" + f.id + "/alerts/feed?after=0&wait=25 HTTP/1.1\r\nHost: localhost\r\nCookie: " + phone.Name + "=" + phone.Value + "\r\n\r\n"
+	req := "GET /" + f.id + "/alerts/feed?after=0&wait=25 HTTP/1.1\r\nHost: localhost\r\nCookie: " + companion.Name + "=" + companion.Value + "\r\n\r\n"
 	if _, err := io.WriteString(d.conn, d.line+req); err != nil {
 		t.Fatal(err)
 	}
@@ -491,9 +491,9 @@ func TestAFeedPollWhosePeerResetsTheConnectionIsCanceled(t *testing.T) {
 func TestAnEventStreamIsEndedByItsPeersPlainClose(t *testing.T) {
 	r := servePeerRig(t, alertHost(t, "alpha"))
 	f := r.fleets[0]
-	phone := r.mustPair(r.as(peerA), f)
+	companion := r.mustPair(r.as(peerA), f)
 	d := r.as(peerA)
-	req := "GET /" + f.id + "/events?page= HTTP/1.1\r\nHost: localhost\r\nCookie: " + phone.Name + "=" + phone.Value + "\r\n\r\n"
+	req := "GET /" + f.id + "/events?page= HTTP/1.1\r\nHost: localhost\r\nCookie: " + companion.Name + "=" + companion.Value + "\r\n\r\n"
 	if _, err := io.WriteString(d.conn, d.line+req); err != nil {
 		t.Fatal(err)
 	}
