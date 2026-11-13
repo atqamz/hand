@@ -21,7 +21,7 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 		Radius(kit.RadiusLG).Background(k.BG).Border(1, k.LineStrong)
 	box.Children(func() {
 		a.latest(c, k)
-		ui.TextAreaBase(c, &a.Draft).Label("Message the supervisor").Placeholder("Message the supervisor").
+		message := ui.TextAreaBase(c, &a.Draft).Label("Message the supervisor").Placeholder("Message the supervisor").
 			Lines(2, 8).MinHeight(kit.Tap).Padding(kit.Space8, kit.Space10).Disabled(a.Busy).
 			TextColor(k.FG).PlaceholderColor(k.Muted).
 			OnChange(func() { a.saveDraft() }).
@@ -34,6 +34,10 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 				a.Send()
 				return true
 			})
+		if a.focusComposer {
+			message.Focus()
+			a.focusComposer = false
+		}
 		if a.DraftErr != "" {
 			ui.Text(c, a.DraftErr).FontSize(kit.Meta.Size).TextColor(p.fail).Padding(0, kit.Space10)
 		}

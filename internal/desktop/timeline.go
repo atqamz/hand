@@ -70,55 +70,95 @@ func timelineRows(newest []Entry) []row {
 
 func applyTimelineUpsert(have Timeline, ev TimelineEvent) Timeline {
 	if ev.Snapshot {
-		have = Timeline{Live: ev.Live, Note: ev.Note, Working: ev.Working, Older: max(ev.To-len(ev.Entries), 0)}
-		have.Entries = append([]Entry(nil), ev.Entries...)
-		return have
+		return Timeline{
+			Live: ev.Live, Note: ev.Note, Working: ev.Working,
+			Older: max(ev.To-len(ev.Entries), 0), Entries: append([]Entry(nil), ev.Entries...),
+		}
 	}
+	have.Entries = mergeTimelineEntries(have.Entries, ev)
+	have.Live, have.Note, have.Working = ev.Live, ev.Note, ev.Working
+	return have
+}
+
+func mergeTimelineEntries(have []Entry, ev TimelineEvent) []Entry {
 	drop := make(map[string]bool, len(ev.Drop))
 	for _, key := range ev.Drop {
 		drop[key] = true
 	}
-	kept := have.Entries[:0:0]
-	for _, e := range have.Entries {
+	kept := have[:0:0]
+	for _, e := range have {
 		if !drop[entryKey(e)] {
 			kept = append(kept, e)
 		}
 	}
-	have.Entries = kept
-	if ev.Working != nil {
-		have.Working = ev.Working
-	}
+	have = kept
 	for _, e := range ev.Entries {
 		key := entryKey(e)
 		at, _ := parseAt(e.At)
 		replaced := false
-		for i := range have.Entries {
-			if entryKey(have.Entries[i]) != key {
+		for i := range have {
+			if entryKey(have[i]) != key {
 				continue
 			}
 			if e.Key == "" {
-				e.Key = have.Entries[i].Key
+				e.Key = have[i].Key
 			}
-			have.Entries[i] = e
+			have[i] = e
 			replaced = true
 			break
 		}
 		if replaced {
 			continue
 		}
-		pos := len(have.Entries)
-		for i := range have.Entries {
-			other, ok := parseAt(have.Entries[i].At)
+		pos := len(have)
+		for i := range have {
+			other, ok := parseAt(have[i].At)
 			if ok && at.After(other) {
 				pos = i
 				break
 			}
 		}
-		have.Entries = append(have.Entries, Entry{})
-		copy(have.Entries[pos+1:], have.Entries[pos:])
-		have.Entries[pos] = e
+		have = append(have, Entry{})
+		copy(have[pos+1:], have[pos:])
+		have[pos] = e
 	}
 	return have
+}
+
+func (a *App) ApplyTimelineEvent(ev TimelineEvent) {
+	if ev.Snapshot {
+		a.Timeline = applyTimelineUpsert(a.Timeline, ev)
+		a.timelineTo = ev.To
+		return
+	}
+	if ev.From != a.timelineTo {
+		if !a.Loading {
+			a.Reload()
+		}
+		return
+	}
+	a.Timeline = applyTimelineUpsert(a.Timeline, ev)
+	a.timelineTo = ev.To
+}
+
+func (a *App) speakLatest(c *ui.Context) {
+	n := a.latestNew
+	if n == 0 {
+		a.latestCount, a.latestSpoken, a.latestSince = 0, 0, time.Time{}
+		return
+	}
+	if n != a.latestCount {
+		a.latestCount, a.latestSince = n, a.now()
+	}
+	if n == a.latestSpoken || a.latestSince.IsZero() || a.now().Sub(a.latestSince) < time.Second {
+		return
+	}
+	a.latestSpoken = n
+	if n == 1 {
+		c.Announce("1 new message")
+		return
+	}
+	c.Announce(fmt.Sprintf("%d new messages", n))
 }
 
 func newSupervisorReplies(have, next Timeline) int {
@@ -329,6 +369,12 @@ func (a *App) bubble(c *ui.Context, p palette, measure, column float32, r row, y
 func (a *App) working(c *ui.Context, p palette) {
 	w := a.Timeline.Working
 	if w == nil {
+		if a.Timeline.Live {
+			ui.Row(c).FillWidth().Padding(kit.Space10, 0).Children(func() {
+				ui.Spacer(c)
+				ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
+			})
+		}
 		return
 	}
 	ui.Row(c).FillWidth().Gap(kit.Space8).Padding(kit.Space10, 0).AlignItems(ui.Start).Children(func() {
@@ -345,6 +391,7 @@ func (a *App) working(c *ui.Context, p palette) {
 func (a *App) away() bool { return a.scroll.MaxY-a.scroll.Y > awayBy }
 
 func (a *App) latest(c *ui.Context, k kit.Colors) {
+	a.speakLatest(c)
 	box := ui.Box(c).Absolute().Top(-kit.Control-13).Right(-1).Size(kit.Control, kit.Control)
 	box.Children(func() {
 		if !a.away() {
@@ -366,6 +413,9 @@ func (a *App) latest(c *ui.Context, k kit.Colors) {
 			})
 		b.Children(func() { ui.Icon(c, kit.Icon("down")).TextColor(k.FG) })
 		if b.Clicked() {
+			if b.Focused() {
+				a.focusComposer = true
+			}
 			a.latestNew = 0
 			a.scroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
 		}

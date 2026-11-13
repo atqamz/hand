@@ -127,22 +127,27 @@ type App struct {
 
 	Err string
 	// Stale is the last auto-refresh failure; empty when the board answers.
-	Stale     string
-	errStatus bool
-	errScreen bool
-	writer    *draftWriter
-	md        markdown.Options
-	loadID    int
-	cancel    context.CancelFunc
-	stop      context.CancelFunc
-	gen       int
-	back      []backStep
-	stopTimer func()
-	stopGen   int
-	stopRef   string
-	scroll    ui.ScrollState
-	wakesOpen map[string]bool
-	latestNew int
+	Stale         string
+	errStatus     bool
+	errScreen     bool
+	writer        *draftWriter
+	md            markdown.Options
+	loadID        int
+	cancel        context.CancelFunc
+	stop          context.CancelFunc
+	gen           int
+	back          []backStep
+	stopTimer     func()
+	stopGen       int
+	stopRef       string
+	scroll        ui.ScrollState
+	wakesOpen     map[string]bool
+	latestNew     int
+	latestCount   int
+	latestSpoken  int
+	latestSince   time.Time
+	focusComposer bool
+	timelineTo    int
 
 	polling    bool
 	closed     bool
@@ -440,7 +445,8 @@ func (a *App) Older() {
 			return
 		}
 		a.OlderErr = ""
-		merged := applyTimelineUpsert(a.Timeline, TimelineEvent{Entries: tl.Entries})
+		merged := a.Timeline
+		merged.Entries = mergeTimelineEntries(merged.Entries, TimelineEvent{Entries: tl.Entries})
 		merged.Older = tl.Older
 		a.Timeline = merged
 	}
@@ -1098,6 +1104,7 @@ func (a *App) resetPoll() {
 	a.pollBusy = false
 	a.reads, a.pollSkipped = [3]readState{}, [3]bool{}
 	a.pollStatus, a.pollScreenFor, a.pollScreenCursor, a.pollTimeline = "", "", "", ""
+	a.timelineTo = 0
 	a.Stale = ""
 }
 
@@ -1229,6 +1236,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 			a.latestNew = 0
 		}
 		a.Timeline, a.pollTimeline = next, p.TimelineCursor
+		a.timelineTo = p.Timeline.Older + len(p.Timeline.Entries)
 	}
 	if a.Fleet.ID == fleet {
 		a.TimelineErr = a.reads[readTimeline].err
@@ -1405,6 +1413,9 @@ func (a *App) apply(l loaded) {
 		a.Timeline = l.Timeline
 	case l.TimelineOK:
 		a.Timeline = mergeTimeline(a.Timeline, l.Timeline)
+	}
+	if l.TimelineOK {
+		a.timelineTo = l.Timeline.Older + len(l.Timeline.Entries)
 	}
 	switch l.Screen {
 	case BoardScreen:

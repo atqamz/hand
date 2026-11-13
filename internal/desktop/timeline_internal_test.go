@@ -106,6 +106,19 @@ func TestATimelineUpsertReplacesByKeyAndDropsWhatLeft(t *testing.T) {
 	}
 }
 
+func TestAnEventCarriesItsLiveNoteAndWorking(t *testing.T) {
+	working := &Working{Ref: "s1", Since: "2026-11-01T12:00:00Z", On: "since the turn began"}
+	got := applyTimelineUpsert(Timeline{Note: "old"}, TimelineEvent{
+		Live: true, Note: "watching", Working: working,
+	})
+	if !got.Live || got.Note != "watching" || got.Working != working {
+		t.Fatalf("event = %+v, want its live, note and working", got)
+	}
+	if stopped := applyTimelineUpsert(got, TimelineEvent{Live: true, Note: "stopped"}); stopped.Working != nil {
+		t.Fatalf("a null working left %+v, want no working row", stopped.Working)
+	}
+}
+
 func TestASnapshotReplacesTheHeldPage(t *testing.T) {
 	have := Timeline{Older: 40, Entries: []Entry{{Role: "hand", Key: "k", At: "2026-11-01T04:00:00Z", Text: "held"}}}
 	got := applyTimelineUpsert(have, TimelineEvent{

@@ -1,7 +1,9 @@
 package desktop_test
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -80,7 +82,10 @@ func TestScenesTheConversationAsTheBoardDrawsIt(t *testing.T) {
 			tt := sized(t, app, 1100, 760, dark)
 			mustText(t, tt, "Message from you", "Message from s1", "run the tests", "delivered 12:05",
 				"typed anyway 12:04", "status?", "queued", "3 wakes", "12:00–12:02", "Sat, Oct 31",
-				"s1 working", "· 8m · last output 2m ago · since the turn began", "live")
+				"s1 working", "· 8m · last output 2m ago · since the turn began")
+			if !hasTextNode(tt, "live") {
+				t.Fatal("no live badge")
+			}
 			mustNotText(t, tt, "a1 started")
 			mustNotText(t, tt, "Fri, Oct 30")
 			if at, ok := tt.Find("12:06"); ok {
@@ -143,7 +148,10 @@ func TestScenesScrolledUpTheLatestButtonReturnsToTheNewestEntry(t *testing.T) {
 func TestTheWorkingLineCountsOnTheWindowsClock(t *testing.T) {
 	app, now := talk(t)
 	tt := sized(t, app, 1100, 760, false)
-	mustText(t, tt, "· 4m · last output 2m ago", "s1 working", "live")
+	mustText(t, tt, "· 4m · last output 2m ago", "s1 working")
+	if !hasTextNode(tt, "live") {
+		t.Fatal("the working row has no live badge")
+	}
 	*now = now.Add(3 * time.Minute)
 	tt.Frame()
 	mustText(t, tt, "· 7m · last output 5m ago")
@@ -261,6 +269,16 @@ func TestLongRepliesHoldTheMeasureAndTheColumn(t *testing.T) {
 	}
 }
 
+func TestLiveShowsWithoutATurn(t *testing.T) {
+	app, _ := talk(t)
+	app.Timeline.Working = nil
+	app.Timeline.Live = true
+	tt := sized(t, app, 1100, 760, false)
+	if !hasTextNode(tt, "live") {
+		t.Fatalf("live is true with no turn, and the conversation has no live badge in %q", tt.Texts())
+	}
+}
+
 func TestTheModelShowsOnlyWhenItChanged(t *testing.T) {
 	app, _ := talk(t)
 	app.Timeline = desktop.Timeline{Entries: []desktop.Entry{
@@ -292,6 +310,102 @@ func TestTheOperatorHeadEndsWithItsDeliveryState(t *testing.T) {
 	if at.X >= delivery.X {
 		t.Errorf("the head puts the time at %.0f after the delivery state at %.0f", at.X, delivery.X)
 	}
+}
+
+func TestTheLatestCountIsSpokenOnceItHolds(t *testing.T) {
+	app, now := talk(t)
+	tt := sized(t, app, 1100, 760, false)
+	chat, _ := tt.Find("Supervisor")
+	for range 4 {
+		tt.Scroll(chat.X+100, 300, 0, -400)
+		tt.Frame()
+	}
+	desktop.SetLatestNew(app, 2)
+	tt.Frame()
+	for _, said := range tt.Announcements() {
+		if said == "2 new messages" {
+			t.Fatal("the count was spoken before it had held")
+		}
+	}
+	*now = now.Add(time.Second)
+	tt.Frame()
+	said := tt.Announcements()
+	if len(said) != 1 || said[0] != "2 new messages" {
+		t.Fatalf("announcements = %q, want the count once", said)
+	}
+	tt.Frame()
+	for _, again := range tt.Announcements() {
+		if again == "2 new messages" {
+			t.Fatal("the count was spoken again on a later frame")
+		}
+	}
+}
+
+func TestTheLatestButtonMovesTheFocusToTheMessageBoxOnAKeyboardClick(t *testing.T) {
+	app, _ := talk(t)
+	tt := sized(t, app, 1100, 760, false)
+	chat, _ := tt.Find("Supervisor")
+	for range 4 {
+		tt.Scroll(chat.X+100, 300, 0, -400)
+		tt.Frame()
+	}
+	found := false
+	for range 40 {
+		tt.Key(0, ui.KeyTab)
+		tt.Frame()
+		if tt.Focused("Scroll to latest message") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("Tab never reached the latest button")
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if !tt.Focused("Message the supervisor") {
+		t.Fatal("a keyboard activation left the focus on the button, not the message box")
+	}
+}
+
+func TestAGapEventReadsThePageOnce(t *testing.T) {
+	f := goldenFixture(t)
+	m := &timedReader{ReadModel: f}
+	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	reads := m.reads
+	before := append([]desktop.Entry(nil), app.Timeline.Entries...)
+	app.ApplyTimelineEvent(desktop.TimelineEvent{From: 99, To: 100, Entries: []desktop.Entry{
+		{Role: "hand", At: "2026-11-02T09:00:00Z", Text: "not applied"},
+	}})
+	if m.reads != reads+1 {
+		t.Fatalf("%d page reads for a gap, want one", m.reads-reads)
+	}
+	if !reflect.DeepEqual(app.Timeline.Entries, before) {
+		t.Fatal("a gap event was applied before the page was read")
+	}
+	app.ApplyTimelineEvent(desktop.TimelineEvent{From: 3, To: 4, Entries: []desktop.Entry{
+		{Role: "hand", At: "2026-11-02T09:00:00Z", Text: "applied"},
+	}})
+	if m.reads != reads+1 {
+		t.Fatalf("%d page reads for a matched event, want none more", m.reads-reads)
+	}
+	if len(app.Timeline.Entries) != 4 || app.Timeline.Entries[0].Text != "applied" {
+		t.Fatalf("matched event left %+v", app.Timeline.Entries)
+	}
+}
+
+type timedReader struct {
+	desktop.ReadModel
+	reads int
+}
+
+func (m *timedReader) Timeline(ctx context.Context, id string, before int) (desktop.Timeline, error) {
+	m.reads++
+	return m.ReadModel.Timeline(ctx, id, before)
 }
 
 func TestTheLatestButtonKeepsTheKeyboardFocusOnAPointerClick(t *testing.T) {
