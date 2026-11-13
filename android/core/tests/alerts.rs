@@ -1086,7 +1086,7 @@ async fn forgetting_while_the_cookie_read_blocks_posts_no_unpaired_notice() {
 }
 
 #[tokio::test]
-async fn the_feed_sends_the_stored_cookie_and_stops_when_the_jar_loses_an_imported_fleet() {
+async fn the_feed_sends_the_imported_cookie_and_keeps_it_when_the_jar_changes() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
@@ -1106,8 +1106,12 @@ async fn the_feed_sends_the_stored_cookie_and_stops_when_the_jar_loses_an_import
     }
 
     jar.set(None);
-    let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert!(wait_for(|| harness.board.seen().len() >= 5).await);
 
-    assert_eq!(stop, Stop::CookieGone);
-    assert_eq!(harness.sink.unpaired().len(), 1);
+    assert!(!task.is_finished());
+    assert!(harness.sink.unpaired().is_empty());
+    for request in harness.board.seen() {
+        assert_eq!(request.cookie.as_deref(), Some(stored.as_str()));
+    }
+    task.abort();
 }

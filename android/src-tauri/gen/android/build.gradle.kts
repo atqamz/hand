@@ -18,8 +18,3 @@ allprojects {
         mavenCentral()
     }
 }
-
-tasks.register("clean").configure {
-    delete("build")
-}
-

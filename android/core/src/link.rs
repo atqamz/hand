@@ -7,7 +7,6 @@ use crate::dialer::parse_target;
 pub const MAX_LEN: usize = 213;
 pub const LINK_REJECTED: &str = "This is not a Hand pairing code. Show a new one on your laptop.";
 pub const LINK_NEEDS_UPDATE: &str = "This code needs a newer Hand app. Update the app.";
-pub const CAMERA_REFUSED: &str = "Allow the camera to scan the code, or paste the link.";
 
 const CODE_ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const UNRESERVED: &[u8] = b"-._~";

@@ -13,4 +13,3 @@ local.properties
 .idea/
 .vscode/
 .DS_Store
-/src-tauri/gen/schemas/

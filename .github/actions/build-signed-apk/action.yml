@@ -27,6 +27,11 @@ runs:
       env:
         NDK_VERSION: 27.3.13750724
       run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+    - name: Point Gradle at the NDK
+      shell: bash
+      env:
+        NDK_VERSION: 27.3.13750724
+      run: echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
     - name: Install the pinned toolchain
       shell: bash
       working-directory: android
@@ -34,17 +39,10 @@ runs:
     - shell: bash
       working-directory: android
       run: rustup target add aarch64-linux-android
-    - shell: bash
-      working-directory: android
-      run: cargo install tauri-cli --version 2.12.4 --locked
     - name: Build the release APK
       shell: bash
-      working-directory: android
-      env:
-        NDK_VERSION: 27.3.13750724
-      run: |
-        export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
-        cargo tauri android build --apk --target aarch64
+      working-directory: android/src-tauri/gen/android
+      run: ./gradlew :app:assembleUniversalRelease
     - name: Sign the APK
       id: sign
       shell: bash

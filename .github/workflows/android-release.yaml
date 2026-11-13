@@ -34,9 +34,9 @@ jobs:
           test "$minor" -lt 1000
           test "$patch" -lt 1000
           test "$major" -lt 2100
-          config=android/src-tauri/tauri.conf.json
-          test "$(jq -r .version "$config")" = "$version"
-          test "$(jq -r .bundle.android.versionCode "$config")" -eq $((major * 1000000 + minor * 1000 + patch))
+          version_file=android/version.properties
+          test "$(sed -n 's/^version=//p' "$version_file")" = "$version"
+          test "$(sed -n 's/^versionCode=//p' "$version_file")" -eq $((major * 1000000 + minor * 1000 + patch))
           [[ "$(cat android/release-key.sha256)" =~ ^[0-9a-f]{64}$ ]]
           { echo "VERSION=$version"; echo "APK=hand-android-$version.apk"; } >> "$GITHUB_ENV"
       - uses: ./.github/actions/build-signed-apk
@@ -51,7 +51,7 @@ jobs:
           apk="${{ steps.build.outputs.path }}"
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test "$("$apkanalyzer" manifest version-name "$apk")" = "$VERSION"
-          test "$("$apkanalyzer" manifest version-code "$apk")" = "$(jq -r .bundle.android.versionCode src-tauri/tauri.conf.json)"
+          test "$("$apkanalyzer" manifest version-code "$apk")" = "$(sed -n 's/^versionCode=//p' version.properties)"
           scripts/check-jni-keep.sh "$apk"
           mv "$apk" "$RUNNER_TEMP/$APK"
       - name: Attach the APK to a draft GitHub release

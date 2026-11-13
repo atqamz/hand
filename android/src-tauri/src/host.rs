@@ -4,8 +4,7 @@ use std::mem;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use hand_android_core::{
     Alert, AlertSink, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher, Method,
@@ -38,17 +37,15 @@ static STATE: Mutex<State> = Mutex::new(State {
     core: None,
     failure: None,
 });
-static OWNS_CONTEXT: AtomicBool = AtomicBool::new(false);
+static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("the core runtime builds")
+});
 
-pub fn companion() -> Result<Arc<Companion>, String> {
-    let state = STATE.lock().unwrap();
-    match &state.core {
-        Some(core) => Ok(core.companion.clone()),
-        None => Err(state
-            .failure
-            .clone()
-            .unwrap_or_else(|| "the core was not started".to_owned())),
-    }
+fn runtime() -> &'static tokio::runtime::Runtime {
+    &RUNTIME
 }
 
 pub fn forget_alerts() -> io::Result<()> {
@@ -264,7 +261,6 @@ fn ensure_context(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
         );
     }
     mem::forget(global);
-    OWNS_CONTEXT.store(true, Ordering::SeqCst);
     Ok(())
 }
 
@@ -297,16 +293,17 @@ fn start(
         if sessions.quarantined() {
             let _ = host.unreadable();
         }
-        let companion = tauri::async_runtime::block_on(Companion::start(CompanionConfig {
-            data_dir: data_dir.clone(),
-            cipher,
-        }))
-        .map(Arc::new)
-        .map_err(|error| format!("the phone's key could not start the companion: {error}"))?;
+        let companion = runtime()
+            .block_on(Companion::start(CompanionConfig {
+                data_dir: data_dir.clone(),
+                cipher,
+            }))
+            .map(Arc::new)
+            .map_err(|error| format!("the phone's key could not start the companion: {error}"))?;
         let feed = Feed::new(companion.dialer(), data_dir.join("alerts"));
         let alerts = Supervisor::new(feed, sessions.clone(), HostSink(host.clone()), RESCAN);
         let restored = companion.clone();
-        tauri::async_runtime::spawn(async move {
+        runtime().spawn(async move {
             let _ = restored.open_board().await;
         });
         Ok(Core {
@@ -342,16 +339,6 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_nativeStart<'loc
         Err(message) => env
             .new_string(message)
             .map_or(ptr::null_mut(), |text| text.into_raw()),
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_releaseContext<'local>(
-    _env: JNIEnv<'local>,
-    _class: JClass<'local>,
-) {
-    if OWNS_CONTEXT.swap(false, Ordering::SeqCst) {
-        unsafe { ndk_context::release_android_context() };
     }
 }
 
@@ -400,7 +387,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_watch<'local>(
         .as_ref()
         .map(|core| core.alerts.clone());
     if let Some(alerts) = alerts {
-        tauri::async_runtime::block_on(async move { alerts.start() });
+        runtime().block_on(async move { alerts.start() });
     }
 }
 
@@ -417,6 +404,16 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
         .map(|core| core.alerts.clone());
     if let Some(alerts) = alerts {
         alerts.stop();
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_resume<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        runtime().block_on(core.companion.reconnect_on_resume());
     }
 }
 
@@ -462,7 +459,7 @@ fn send(
         csrf.as_deref(),
         &body,
     )?;
-    tauri::async_runtime::block_on(core.companion.request(&request))
+    runtime().block_on(core.companion.request(&request))
 }
 
 #[unsafe(no_mangle)]
@@ -518,7 +515,7 @@ fn paired(name: &str) -> serde_json::Value {
         return failed(PairError::NoPending);
     };
     let stop_feeds = || core.alerts.forget_all();
-    match tauri::async_runtime::block_on(core.companion.pair(&core.sessions, name, stop_feeds)) {
+    match runtime().block_on(core.companion.pair(&core.sessions, name, stop_feeds)) {
         Ok(fleets) => serde_json::json!({
             "fleets": fleets.iter().map(|fleet| serde_json::json!({ "id": fleet.id, "name": fleet.name })).collect::<Vec<_>>(),
         }),
@@ -624,7 +621,9 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
 ) -> jboolean {
     let forgotten = catch_unwind(AssertUnwindSafe(|| {
         core().is_none_or(|core| {
-            tauri::async_runtime::block_on(core.companion.forget_laptop(forget_alerts)).is_ok()
+            runtime()
+                .block_on(core.companion.forget_laptop(forget_alerts))
+                .is_ok()
         })
     }));
     jboolean::from(forgotten.unwrap_or(false))

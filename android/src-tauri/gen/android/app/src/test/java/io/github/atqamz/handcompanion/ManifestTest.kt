@@ -45,20 +45,10 @@ class ManifestTest {
   }
 
   @Test
-  fun theTauriActivityIsNeitherALauncherNorALinkTarget() {
-    for (activity in activities.filter { it.named(".MainActivity") }) {
-      assertFalse(filterWith(activity, "android.intent.action.MAIN"))
-      assertTrue(hosts(activity).isEmpty())
-    }
+  fun handActivityIsTheOnlyActivity() {
+    assertEquals(listOf(".HandActivity"), activities.map { it.getAttributeNS(ANDROID, "name") })
+    assertTrue(root.children("activity-alias").isEmpty())
     assertEquals(1, activities.count { filterWith(it, "android.intent.category.LAUNCHER") })
-  }
-
-  @Test
-  fun theOldLauncherNameStillOpensHandActivityWithoutBeingALauncher() {
-    val alias = root.children("activity-alias").single { it.named(".MainActivity") }
-    assertEquals(".HandActivity", alias.getAttributeNS(ANDROID, "targetActivity"))
-    assertEquals("true", alias.getAttributeNS(ANDROID, "exported"))
-    assertTrue(alias.children("intent-filter").isEmpty())
   }
 
   @Test
