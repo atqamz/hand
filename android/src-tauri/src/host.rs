@@ -234,14 +234,19 @@ impl Host {
         })
     }
 
-    fn link(&self, state: &str, since: u64) -> io::Result<()> {
+    fn link(&self, fleet: &str, state: &str, since: u64) -> io::Result<()> {
         self.call(|env| {
+            let fleet = env.new_string(fleet)?;
             let state = env.new_string(state)?;
             env.call_method(
                 &self.object,
                 "link",
-                "(Ljava/lang/String;J)V",
-                &[JValue::Object(&state), JValue::Long(since as jlong)],
+                "(Ljava/lang/String;Ljava/lang/String;J)V",
+                &[
+                    JValue::Object(&fleet),
+                    JValue::Object(&state),
+                    JValue::Long(since as jlong),
+                ],
             )?
             .v()
         })
@@ -255,8 +260,8 @@ impl LiveSink for HostLive {
         self.0.live(fleet, topic, json)
     }
 
-    fn link(&self, state: &str, since: u64) -> io::Result<()> {
-        self.0.link(state, since)
+    fn link(&self, fleet: &str, state: &str, since: u64) -> io::Result<()> {
+        self.0.link(fleet, state, since)
     }
 }
 

@@ -17,7 +17,7 @@ data class LiveEvent(
   val gap: Boolean = false
 )
 
-data class LinkState(val state: String, val since: Long)
+data class LinkState(val fleet: String, val state: String, val since: Long)
 
 class LiveBus(capacity: Int = 64) {
   companion object {
@@ -49,8 +49,8 @@ class LiveBus(capacity: Int = 64) {
   }
 
   @Synchronized
-  fun link(state: String, since: Long) {
-    mutableLink.tryEmit(LinkState(state, since))
+  fun link(fleet: String, state: String, since: Long) {
+    mutableLink.tryEmit(LinkState(fleet, state, since))
   }
 
   @Synchronized

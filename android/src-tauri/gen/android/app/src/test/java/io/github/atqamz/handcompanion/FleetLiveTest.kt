@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -196,7 +197,7 @@ class FleetLiveTest {
     withTimeout(10_000) {
       while (!board.liveStarted) delay(5)
       while (board.statusReads() < 4) {
-        bus.link("reconnecting", 1_700_000_000_000)
+        bus.link(FLEET, "reconnecting", 1_700_000_000_000)
         delay(50)
       }
     }
@@ -215,7 +216,7 @@ class FleetLiveTest {
     withTimeout(10_000) {
       while (!board.liveStarted) delay(5)
       while (board.statusReads() < 4) {
-        bus.link(if (live) "live" else "reconnecting", 1_700_000_000_000)
+        bus.link(FLEET, if (live) "live" else "reconnecting", 1_700_000_000_000)
         live = !live
         delay(30)
       }
@@ -225,23 +226,45 @@ class FleetLiveTest {
   }
 
   @Test
+  fun aLinkForAnotherFleetDoesNotTouchTheModel() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (!board.liveStarted) delay(5) }
+    val other = "f999999999999"
+    bus.link(other, "unpaired", 0)
+    bus.link(other, "reconnecting", 1_700_000_000_000)
+    bus.link(other, "stopped", 0)
+    delay(200)
+    assertFalse(model.state.value.unpaired)
+    assertNull(model.state.value.band)
+    assertEquals(1, board.statusReads())
+    assertEquals(0, board.liveStopped)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
+    withTimeout(5_000) { while (model.state.value.band == null) delay(5) }
+    assertEquals("Reconnecting…", model.state.value.band?.title)
+    job.cancelAndJoin()
+  }
+
+  @Test
   fun aStatusBetweenReconnectsKeepsTheStreamLive() = runBlocking {
     val board = LiveBoard()
     val bus = LiveBus(8)
     val model = model(board, bus)
     val job = launch(Dispatchers.Default) { model.run() }
     withTimeout(5_000) { while (!board.liveStarted) delay(5) }
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 1)
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 2)
-    bus.link("live", 0)
+    bus.link(FLEET, "live", 0)
     bus.publish(FLEET, "status", statusData(waiting = 0))
     withTimeout(5_000) { while (model.state.value.waiting != 0) delay(5) }
     assertEquals(0, model.liveFailures.get())
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 1)
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 2)
     delay(200)
     assertEquals(0, board.liveStopped)
@@ -256,15 +279,15 @@ class FleetLiveTest {
     val model = model(board, bus)
     val job = launch(Dispatchers.Default) { model.run() }
     withTimeout(5_000) { while (!board.liveStarted) delay(5) }
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 1)
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 2)
     bus.publish(FLEET, "resync", """{"topics":["status"]}""")
     awaitFailures(model, 0)
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 1)
-    bus.link("reconnecting", 1_700_000_000_000)
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
     awaitFailures(model, 2)
     delay(200)
     assertEquals(0, board.liveStopped)
@@ -279,7 +302,7 @@ class FleetLiveTest {
     val job = launch(Dispatchers.Default) { model.run() }
     withTimeout(5_000) { while (!board.liveStarted) delay(5) }
     for (waiting in 0..2) {
-      bus.link("reconnecting", 1_700_000_000_000)
+      bus.link(FLEET, "reconnecting", 1_700_000_000_000)
       awaitFailures(model, 1)
       bus.publish(FLEET, "status", statusData(waiting = waiting))
       withTimeout(5_000) { while (model.state.value.waiting != waiting) delay(5) }
@@ -300,7 +323,7 @@ class FleetLiveTest {
     withTimeout(10_000) {
       while (!board.liveStarted) delay(5)
       while (board.statusReads() < 3) {
-        bus.link("stopped", 0)
+        bus.link(FLEET, "stopped", 0)
         delay(30)
       }
     }
@@ -332,7 +355,7 @@ class FleetLiveTest {
     withTimeout(10_000) {
       while (!board.liveStarted) delay(5)
       while (!model.state.value.unpaired) {
-        bus.link("unpaired", 0)
+        bus.link(FLEET, "unpaired", 0)
         delay(50)
       }
     }

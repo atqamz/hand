@@ -88,11 +88,15 @@ class LiveBusTest {
         bus.links.onSubscription { ready.complete(Unit) }.take(2).toList(seen)
       }
     ready.await()
-    bus.link("live", 0)
-    bus.link("reconnecting", 1_700_000_000_000)
+    val other = "f999999999999"
+    bus.link(FLEET, "live", 0)
+    bus.link(other, "reconnecting", 1_700_000_000_000)
     collector.join()
     assertEquals(
-      listOf(LinkState("live", 0), LinkState("reconnecting", 1_700_000_000_000)),
+      listOf(
+        LinkState(FLEET, "live", 0),
+        LinkState(other, "reconnecting", 1_700_000_000_000)
+      ),
       seen
     )
   }

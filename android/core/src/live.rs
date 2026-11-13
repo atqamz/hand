@@ -50,7 +50,7 @@ pub enum LiveEnd {
 pub trait LiveSink: Sync {
     fn live(&self, fleet: &str, topic: &str, json: &str) -> io::Result<()>;
 
-    fn link(&self, state: &str, since: u64) -> io::Result<()>;
+    fn link(&self, fleet: &str, state: &str, since: u64) -> io::Result<()>;
 }
 
 #[derive(Clone)]
@@ -90,6 +90,7 @@ impl Live {
             .run_streams(fleet, cookies, sink, cancel, &mut healthy)
             .await;
         let _ = sink.link(
+            fleet,
             match end {
                 LiveEnd::Stopped => "stopped",
                 LiveEnd::Unpaired => "unpaired",
@@ -120,7 +121,7 @@ impl Live {
                     if started.elapsed() >= BACKOFF_RESET {
                         backoff.reset();
                     }
-                    if sink.link("reconnecting", *healthy).is_err() {
+                    if sink.link(fleet, "reconnecting", *healthy).is_err() {
                         return LiveEnd::Stopped;
                     }
                     tokio::select! {
@@ -151,10 +152,16 @@ impl Live {
                 _ => Attempt::Lost,
             },
         )?;
-        let mut stream = SseStream::open(&self.dialer, &request, self.watchdog)
-            .await
-            .map_err(failure)?;
-        if sink.link("live", 0).is_err() {
+        let mut stream = tokio::select! {
+            result = SseStream::open(&self.dialer, &request, self.watchdog) => {
+                result.map_err(failure)?
+            }
+            _ = cancel.cancelled() => return Err(Attempt::Stopped),
+        };
+        if cancel.is_cancelled() {
+            return Err(Attempt::Stopped);
+        }
+        if sink.link(fleet, "live", 0).is_err() {
             return Err(Attempt::Stopped);
         }
         loop {

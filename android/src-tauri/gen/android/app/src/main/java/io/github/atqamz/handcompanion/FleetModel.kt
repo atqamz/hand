@@ -313,7 +313,7 @@ class FleetModel(
     coroutineScope {
       val stopped = CompletableDeferred<Unit>()
       val links = launch {
-        bus.links.collect { link ->
+        bus.links.filter { it.fleet == fleet }.collect { link ->
           when (link.state) {
             "live" -> {
               slow?.cancel()

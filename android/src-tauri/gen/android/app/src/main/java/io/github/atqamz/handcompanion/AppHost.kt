@@ -41,8 +41,8 @@ class AppHost(private val context: Context) {
     LiveBus.shared.publish(fleet, topic, json)
   }
 
-  fun link(state: String, since: Long) {
-    LiveBus.shared.link(state, since)
+  fun link(fleet: String, state: String, since: Long) {
+    LiveBus.shared.link(fleet, state, since)
   }
 
   fun clearCookies(): Boolean {

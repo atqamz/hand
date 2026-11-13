@@ -37,7 +37,7 @@ struct Sink(Arc<Mutex<Record>>);
 #[derive(Default)]
 struct Record {
     events: Vec<(String, String, String)>,
-    links: Vec<(String, u64)>,
+    links: Vec<(String, String, u64)>,
 }
 
 impl Sink {
@@ -45,7 +45,7 @@ impl Sink {
         self.0.lock().unwrap().events.clone()
     }
 
-    fn links(&self) -> Vec<(String, u64)> {
+    fn links(&self) -> Vec<(String, String, u64)> {
         self.0.lock().unwrap().links.clone()
     }
 }
@@ -60,8 +60,12 @@ impl LiveSink for Sink {
         Ok(())
     }
 
-    fn link(&self, state: &str, since: u64) -> io::Result<()> {
-        self.0.lock().unwrap().links.push((state.to_owned(), since));
+    fn link(&self, fleet: &str, state: &str, since: u64) -> io::Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .links
+            .push((fleet.to_owned(), state.to_owned(), since));
         Ok(())
     }
 }
@@ -202,7 +206,8 @@ async fn every_sse_event_crosses_with_the_api_json_and_the_fleets_cookie() {
     );
     assert_eq!(events[4].2, "");
     assert_eq!(events[5].2, r#"{"topics":["status"]}"#);
-    assert_eq!(harness.sink.links()[0].0, "live");
+    assert_eq!(harness.sink.links()[0].0, FLEET);
+    assert_eq!(harness.sink.links()[0].1, "live");
 }
 
 #[tokio::test]
@@ -223,9 +228,56 @@ async fn a_run_that_ends_without_a_stream_emits_a_stopped_link() {
     assert_eq!(end, LiveEnd::Stopped);
     let links = harness.sink.links();
     assert_eq!(links.len(), 1);
-    assert_eq!(links[0].0, "stopped");
-    assert!(links[0].1 > 0);
+    assert_eq!(links[0].0, FLEET);
+    assert_eq!(links[0].1, "stopped");
+    assert!(links[0].2 > 0);
     assert!(harness.board.seen().is_empty());
+}
+
+#[tokio::test]
+async fn a_cancel_during_a_held_open_returns_stopped_and_emits_no_live() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, |_, _| {
+        Reply::raw(&sse(&[("hello", json!({"version": 1}).to_string())], false))
+            .held_after(Duration::from_secs(30))
+    })
+    .await;
+    let mut held = Vec::new();
+    for _ in 0..STREAMS_PER_CONNECTION {
+        let opened = timeout(
+            Duration::from_secs(5),
+            harness
+                .dialer
+                .open_with(b"GET /f0123456789ab/api/v1/events HTTP/1.1\r\n\r\n"),
+        )
+        .await
+        .expect("a held stream did not open")
+        .expect("a held stream failed");
+        held.push(opened);
+        assert!(wait_for(|| harness.board.seen().len() >= held.len()).await);
+    }
+
+    let cancel = Cancel::default();
+    let token = cancel.clone();
+    let sink = harness.sink.clone();
+    let live = harness.live();
+    let task = tokio::spawn(async move { live.run(FLEET, &Cookies, &sink, &token).await });
+    sleep(Duration::from_millis(200)).await;
+    let started = Instant::now();
+    cancel.cancel();
+    let end = timeout(Duration::from_secs(2), task)
+        .await
+        .expect("the live run did not stop")
+        .expect("the live task panicked");
+    assert_eq!(end, LiveEnd::Stopped);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    let links = harness.sink.links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].0, FLEET);
+    assert_eq!(links[0].1, "stopped");
+    assert_eq!(harness.board.seen().len(), STREAMS_PER_CONNECTION);
 }
 
 #[tokio::test]
@@ -262,10 +314,14 @@ async fn a_silent_stream_is_dropped_after_the_watchdog_and_reconnects_for_a_snap
     assert!(
         wait_for(|| {
             let links = harness.sink.links();
-            links.iter().filter(|(state, _)| state == "live").count() >= 2
-                && links
-                    .iter()
-                    .any(|(state, since)| state == "reconnecting" && *since > 0)
+            links
+                .iter()
+                .filter(|(fleet, state, _)| fleet == FLEET && state == "live")
+                .count()
+                >= 2
+                && links.iter().any(|(fleet, state, since)| {
+                    fleet == FLEET && state == "reconnecting" && *since > 0
+                })
         })
         .await
     );
@@ -277,14 +333,17 @@ async fn a_silent_stream_is_dropped_after_the_watchdog_and_reconnects_for_a_snap
     assert_eq!(seen[1].target, format!("/{FLEET}/api/v1/events"));
     assert!(!seen[1].target.contains("since"));
     let links = harness.sink.links();
-    let first_live = links.iter().position(|(state, _)| state == "live").unwrap();
+    let first_live = links
+        .iter()
+        .position(|(fleet, state, _)| fleet == FLEET && state == "live")
+        .unwrap();
     let reconnect = links
         .iter()
-        .position(|(state, _)| state == "reconnecting")
+        .position(|(fleet, state, _)| fleet == FLEET && state == "reconnecting")
         .unwrap();
     let second_live = links
         .iter()
-        .rposition(|(state, _)| state == "live")
+        .rposition(|(fleet, state, _)| fleet == FLEET && state == "live")
         .unwrap();
     assert!(first_live < reconnect && reconnect < second_live);
     assert!(wait_for(|| harness.sink.events().len() >= 5).await);
@@ -325,7 +384,7 @@ async fn four_feeds_and_one_live_hold_five_streams_and_a_thirteenth_waits() {
             .sink
             .links()
             .iter()
-            .any(|(state, _)| state == "live"))
+            .any(|(fleet, state, _)| fleet == FLEET && state == "live"))
         .await
     );
     assert_eq!(harness.board.seen().len(), 5);

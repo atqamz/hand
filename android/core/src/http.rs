@@ -444,51 +444,55 @@ impl StreamBody {
     }
 
     fn next_event(&mut self) -> Result<Option<SseEvent>, RequestError> {
-        let lf = find(&self.body, b"\n\n").map(|end| (end, 2));
-        let crlf = find(&self.body, b"\r\n\r\n").map(|end| (end, 4));
-        let delimiter = match (lf, crlf) {
-            (Some(lf), Some(crlf)) => Some(if lf.0 <= crlf.0 { lf } else { crlf }),
-            (lf, crlf) => lf.or(crlf),
-        };
-        let Some((end, length)) = delimiter else {
-            return if self.body.len() > MAX_EVENT {
-                Err(RequestError::TooLarge)
-            } else {
-                Ok(None)
+        loop {
+            let lf = find(&self.body, b"\n\n").map(|end| (end, 2));
+            let crlf = find(&self.body, b"\r\n\r\n").map(|end| (end, 4));
+            let delimiter = match (lf, crlf) {
+                (Some(lf), Some(crlf)) => Some(if lf.0 <= crlf.0 { lf } else { crlf }),
+                (lf, crlf) => lf.or(crlf),
             };
-        };
-        let block: Vec<u8> = self.body.drain(..end + length).collect();
-        let text = std::str::from_utf8(&block[..end]).map_err(|_| RequestError::Malformed)?;
-        let mut name = String::new();
-        let mut data = String::new();
-        for line in text.split('\n') {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            if line.is_empty() || line.starts_with(':') {
-                continue;
-            }
-            let (field, value) = line.split_once(':').unwrap_or((line, ""));
-            let value = value.strip_prefix(' ').unwrap_or(value);
-            match field {
-                "event" if name.is_empty() => {
-                    name = value
-                        .chars()
-                        .filter(|c| !c.is_control())
-                        .take(MAX_EVENT_NAME)
-                        .collect()
+            let Some((end, length)) = delimiter else {
+                return if self.body.len() > MAX_EVENT {
+                    Err(RequestError::TooLarge)
+                } else {
+                    Ok(None)
+                };
+            };
+            let block: Vec<u8> = self.body.drain(..end + length).collect();
+            let text = std::str::from_utf8(&block[..end]).map_err(|_| RequestError::Malformed)?;
+            let mut name = String::new();
+            let mut data = String::new();
+            for line in text.split('\n') {
+                let line = line.strip_suffix('\r').unwrap_or(line);
+                if line.is_empty() || line.starts_with(':') {
+                    continue;
                 }
-                "data" => {
-                    if !data.is_empty() {
-                        data.push('\n');
+                let (field, value) = line.split_once(':').unwrap_or((line, ""));
+                let value = value.strip_prefix(' ').unwrap_or(value);
+                match field {
+                    "event" if name.is_empty() => {
+                        name = value
+                            .chars()
+                            .filter(|c| !c.is_control())
+                            .take(MAX_EVENT_NAME)
+                            .collect()
                     }
-                    data.push_str(value);
+                    "data" => {
+                        if !data.is_empty() {
+                            data.push('\n');
+                        }
+                        data.push_str(value);
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+            if data.len() > MAX_EVENT {
+                return Err(RequestError::TooLarge);
+            }
+            if !name.is_empty() {
+                return Ok(Some(SseEvent { name, data }));
             }
         }
-        if data.len() > MAX_EVENT {
-            return Err(RequestError::TooLarge);
-        }
-        Ok((!name.is_empty()).then_some(SseEvent { name, data }))
     }
 }
 
@@ -1258,6 +1262,22 @@ mod tests {
                 data: r#"{"a":1}"#.to_owned()
             })
         );
+    }
+
+    #[test]
+    fn a_comment_block_before_an_event_is_skipped_in_the_same_feed() {
+        let head = stream_head(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+        let mut body = StreamBody::new(&head);
+        body.feed(b": keepalive\n\nevent: status\ndata: {}\n\n")
+            .unwrap();
+        assert_eq!(
+            body.next_event().unwrap(),
+            Some(SseEvent {
+                name: "status".to_owned(),
+                data: "{}".to_owned()
+            })
+        );
+        assert_eq!(body.next_event().unwrap(), None);
     }
 
     #[test]
