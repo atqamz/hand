@@ -160,6 +160,18 @@ class FleetModelTest {
   }
 
   @Test
+  fun openingAFleetShowsLoadingBeforeTheFirstAnswer() {
+    assertEquals(Body.Loading, body(FleetState(name = "atlas")))
+  }
+
+  @Test
+  fun theBodyFollowsTheAnswerAndThePairing() {
+    assertEquals(Body.Needs, body(FleetState(loaded = true, tab = Tab.Needs)))
+    assertEquals(Body.Placeholder, body(FleetState(loaded = true, tab = Tab.Chat)))
+    assertEquals(Body.Unpaired, body(FleetState(unpaired = true)))
+  }
+
+  @Test
   fun adjacentItemsOfTheSameWordShareABandInTheBoardsOrder() {
     val items = listOf(blocked, worker, failure, decision, report, another)
     val model = model(Board({ status(items) }))

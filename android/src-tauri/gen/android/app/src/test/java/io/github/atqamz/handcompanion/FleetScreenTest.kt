@@ -127,6 +127,10 @@ class FleetScreenTest {
 
   @Test fun notLoadedLight() = shot(false, "f000000000003", FleetState(name = "atlas", tab = Tab.Needs))
 
+  @Test fun firstFrameLight() = shot(false, "f000000000003", FleetState(name = "atlas"))
+
+  @Test fun firstFrameDark() = shot(true, "f000000000003", FleetState(name = "atlas"))
+
   @Test fun allClearLight() = shot(false, "f000000000005", clear)
 
   @Test fun allClearDark() = shot(true, "f000000000005", clear)

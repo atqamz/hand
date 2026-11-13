@@ -81,6 +81,21 @@ private fun refusal(ref: String, error: BoardError) =
     else -> "Could not mark $ref read."
   }
 
+enum class Body {
+  Loading,
+  Unpaired,
+  Needs,
+  Placeholder
+}
+
+fun body(state: FleetState) =
+  when {
+    state.unpaired -> Body.Unpaired
+    state.tab == null && state.band == null -> Body.Loading
+    state.tab == Tab.Needs -> Body.Needs
+    else -> Body.Placeholder
+  }
+
 fun FleetState.openKey(): String? {
   val entries = bands.flatMap { it.entries }
   val cards = entries.filter { it.opens == Opens.Card }.map { it.key }
