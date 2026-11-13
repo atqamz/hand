@@ -196,6 +196,7 @@ func (a *App) Boot() {
 func (a *App) StartRefresh() {
 	a.polling, a.closed = true, false
 	a.armPoll()
+	a.watchDeny()
 }
 
 // Close stops the auto-refresh loop and cancels a poll in flight.
@@ -830,6 +831,7 @@ func (a *App) Press(label string, keys ...string) {
 		}
 		a.Busy, a.BusyAction = false, ""
 		if isConflict(err) {
+			delete(a.sentNeeds, ref)
 			a.receipt = "the screen moved; nothing was sent"
 			a.receiptKey = "key:" + ref
 			a.reopenNeed(need)

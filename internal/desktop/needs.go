@@ -598,6 +598,7 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 		}
 		a.Busy, a.BusyAction = false, ""
 		if isConflict(err) {
+			delete(a.sentNeeds, ref)
 			a.receipt = "the screen moved; nothing was sent"
 			a.receiptKey = "akey:" + ref
 			a.reopenNeed(need)
@@ -684,16 +685,21 @@ func (a *App) resetDeny() {
 func (a *App) watchDeny() {
 	a.pruneDeny()
 	next := a.nextDeny()
-	if next == a.denyWatch {
+	if next == "" || (a.Clock == nil && a.Post == nil) {
+		a.denyWatch = ""
+		if a.denyTimer != nil {
+			a.denyTimer()
+			a.denyTimer = nil
+		}
+		return
+	}
+	if next == a.denyWatch && a.denyTimer != nil {
 		return
 	}
 	a.denyWatch = next
 	if a.denyTimer != nil {
 		a.denyTimer()
 		a.denyTimer = nil
-	}
-	if next == "" || (a.Clock == nil && a.Post == nil) {
-		return
 	}
 	a.denyGen++
 	gen := a.denyGen

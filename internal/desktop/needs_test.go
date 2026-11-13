@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -879,4 +880,73 @@ func TestScenesBlockedStates(t *testing.T) {
 		_, worker := open(t, workerScreen(t), now)
 		shot(t, worker, "needs-blocked-worker-"+mode)
 	}
+}
+
+type pollUnchanged struct{ desktop.ReadModel }
+
+func (pollUnchanged) Poll(context.Context, string, desktop.Screen, string, desktop.PollCursors) (desktop.Poll, error) {
+	return desktop.Poll{StatusRead: true, ScreenRead: true, TimelineRead: true}, nil
+}
+
+func TestTheCountdownArmsWhenTheWindowInstallsPost(t *testing.T) {
+	f := blockedScreen(t, true)
+	clock := newFakeClock()
+	app := desktop.New(func() (desktop.ReadModel, error) { return pollUnchanged{f}, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	reads := f.count("status:" + fleetID)
+	app.Clock = clock
+	app.Now = func() time.Time {
+		clock.mu.Lock()
+		defer clock.mu.Unlock()
+		return clock.now
+	}
+	app.Post = func(fn func()) { fn() }
+	app.StartRefresh()
+	app.Post = nil
+	tt := newTester(app)
+	tt.Frame()
+	clock.Advance(2 * time.Second)
+	tt.Frame()
+	if got := f.count("status:" + fleetID); got != reads {
+		t.Fatalf("the first poll read the status again: %d reads, want %d", got, reads)
+	}
+	clock.Advance(2 * time.Minute)
+	tt.Frame()
+	mustText(t, tt, "s1 denied · refreshing")
+	if got := f.count("status:" + fleetID); got != reads+1 {
+		t.Fatalf("the denied screen re-read the status %d times, want %d", got, reads+1)
+	}
+	clock.Advance(10 * time.Second)
+	tt.Frame()
+	if got := f.count("status:" + fleetID); got != reads+1 {
+		t.Fatalf("the stale status re-read again: %d reads, want %d", got, reads+1)
+	}
+}
+
+func TestARefusedSecondPressClearsTheSentRow(t *testing.T) {
+	f := blockedScreen(t, true)
+	sent := f.status[fleetID]
+	sup := *sent.Supervisor
+	sup.Keys = &desktop.Keys{Revision: 7, Digest: screenDigest, Pressed: 3}
+	sent.Supervisor = &sup
+	f.keyStatus = &sent
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "Sent 1 · waiting…")
+
+	fresh := f.status[fleetID]
+	fresh.Needs.Items = append([]desktop.Need(nil), fresh.Needs.Items...)
+	fresh.Needs.Items[0].Excerpt = "screen after the second press"
+	next := *fresh.Supervisor
+	next.Keys = &desktop.Keys{Revision: 8, Digest: screenDigest, Pressed: 5}
+	fresh.Supervisor = &next
+	f.status[fleetID] = fresh
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 7; nothing was sent"}
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "the screen moved; nothing was sent", "screen after the second press")
+	mustNotText(t, tt, "Sent 1 · waiting…")
 }
