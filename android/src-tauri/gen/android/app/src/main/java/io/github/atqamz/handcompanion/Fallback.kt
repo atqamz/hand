@@ -44,15 +44,12 @@ interface CookieJar {
   fun flush()
 }
 
-suspend fun storeCookie(jar: CookieJar, url: String, cookie: String): Boolean =
-  suspendCancellableCoroutine { done ->
-    jar.setCookie(url, cookie) { stored ->
-      if (done.isActive) {
-        jar.flush()
-        done.resume(stored)
-      }
-    }
-  }
+suspend fun storeCookie(jar: CookieJar, url: String, cookie: String): Boolean {
+  val stored =
+    suspendCancellableCoroutine { done -> jar.setCookie(url, cookie) { done.resume(it) } }
+  withContext(Dispatchers.IO) { jar.flush() }
+  return stored
+}
 
 suspend fun openBoard(
   path: String,
