@@ -27,7 +27,7 @@ func ChoiceList(c *ui.Context, k Colors, choices []Choice) (picked string) {
 				row.Background(k.AccentBG)
 			}
 			if i > 0 {
-				row.BorderWidth(1, 0, 0, 0).BorderColor(k.Line)
+				row.Padding(Space12-1, Space14, Space12).BorderWidth(1, 0, 0, 0).BorderColor(k.Line)
 			}
 			if !choice.Disabled {
 				row.Cursor(ui.CursorPointer)
