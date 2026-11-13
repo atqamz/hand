@@ -85,6 +85,9 @@ type App struct {
 	needTop       string
 	needClosedTop string
 	ackDone       map[string]bool
+	sentNeeds     map[string]string
+	focusSend     bool
+	focusNote     bool
 	decTried      string
 	decGen        int
 	decErr        string
@@ -279,7 +282,8 @@ func (a *App) SelectFleet(id string) {
 	a.scroll.Y = math.MaxFloat32
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
-	a.needChosen, a.needTop, a.needClosedTop, a.ackDone = nil, "", "", nil
+	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
+	a.focusSend, a.focusNote = false, false
 	a.decTried, a.decErr, a.attTried, a.attErr = "", "", "", ""
 	a.needAttempt = AttemptDetail{}
 	a.TimelineErr, a.OlderErr = "", ""
@@ -453,6 +457,12 @@ func (a *App) Answer() {
 		return
 	}
 	choice, note := a.AnswerChoice, a.AnswerNote
+	if a.answerNeedsNote(choice, note) {
+		a.receipt = noteRequiredText
+		a.receiptKey = "answer:" + ref
+		a.focusNote = true
+		return
+	}
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID
@@ -463,6 +473,7 @@ func (a *App) Answer() {
 		}
 		a.Busy = false
 		a.Decision = d
+		a.markSent(ref, sentLabel(choice))
 		a.receipt = a.answerReceipt(ref)
 		a.receiptKey = "answer:" + ref
 	}
@@ -479,8 +490,9 @@ func (a *App) Answer() {
 			return
 		}
 		a.Busy = false
-		a.ActionErr = friendly(err)
-		a.ActionWarn = false
+		a.receipt = friendly(err)
+		a.receiptKey = "answer:" + ref
+		a.Reload()
 	}
 	stale := func(err error) {
 		if id != a.loadID {

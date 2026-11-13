@@ -834,23 +834,25 @@ func TestAnswerDecisionWithANote(t *testing.T) {
 	mustText(t, tt, "answered", "2.", "No, rename it", "the old name is in the docs")
 }
 
-func TestAFailedAnswerKeepsTheScreen(t *testing.T) {
+func TestARefusedAnswerKeepsTheItemOpenAndSaysWhy(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
+	before := f.count("status:" + fleetID)
 	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "decision d1 is answered"}
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
-	mustText(t, tt, "The action did not go through", "decision d1 is answered",
-		"Keep the old cookie name?", "Send answer")
+	tt.Frame()
+	mustText(t, tt, "decision d1 is answered", "Keep the old cookie name?", "Yes, keep it", "Send answer")
+	mustNotText(t, tt, "The action did not go through")
+	if f.count("status:"+fleetID) <= before {
+		t.Error("the refusal did not refresh the fleet")
+	}
 	if app.Screen != desktop.BoardScreen || app.Decision.Decision.Ref != "d1" {
 		t.Fatalf("the error left %v %q", app.Screen, app.Decision.Decision.Ref)
 	}
-	click(t, tt, "Dismiss")
-	mustNotText(t, tt, "The action did not go through")
-	mustText(t, tt, "Keep the old cookie name?")
 }
 
 func TestAckReport(t *testing.T) {
@@ -1525,7 +1527,7 @@ func TestACSRFRefusalShowsTheBoardMessage(t *testing.T) {
 	mustNotText(t, tt, "the board's API answers only on its loopback address")
 }
 
-func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
+func TestAStaleStatusLeavesTheAnswerSent(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
@@ -1534,10 +1536,13 @@ func TestAStaleStatusDoesNotHideTheAnswer(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
 	click(t, tt, "Send answer")
-	mustText(t, tt, "Answer", "Yes, keep it", "the answer was saved, but the fleet status could not be read", "the board is restarting")
+	mustText(t, tt, "Sent 1 · waiting…", "the answer was saved, but the fleet status could not be read", "the board is restarting")
 	mustNotText(t, tt, "Send answer")
 	if app.Busy {
 		t.Fatal("the window is still busy after the answer was saved")
+	}
+	if app.Decision.Decision.Status != "answered" {
+		t.Errorf("the decision is %q, want answered", app.Decision.Decision.Status)
 	}
 	mustText(t, tt, "Refresh")
 }
@@ -1552,10 +1557,10 @@ func TestAnOtherOptionAsksForItsNote(t *testing.T) {
 	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Other")
-	mustText(t, tt, "That option needs a note.")
+	mustText(t, tt, "Write your answer: that option asks for one.")
 	click(t, tt, "Note")
 	tt.Type("my own answer")
-	mustNotText(t, tt, "That option needs a note.")
+	mustNotText(t, tt, "Write your answer: that option asks for one.")
 }
 
 func TestBackClearsTheAnswerDraft(t *testing.T) {
@@ -1730,7 +1735,6 @@ func TestAFailedAnswerOrReadDoesNotMove(t *testing.T) {
 	f.action = errors.New("boom")
 	click(t, tt, "Send answer")
 	mustText(t, tt, "Send answer")
-	click(t, tt, "Dismiss")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Mark read")
 	mustText(t, tt, "Mark read")
