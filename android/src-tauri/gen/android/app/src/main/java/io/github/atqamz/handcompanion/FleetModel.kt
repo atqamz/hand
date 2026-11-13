@@ -2,7 +2,10 @@ package io.github.atqamz.handcompanion
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,7 +61,8 @@ data class FleetState(
   val pressed: Map<String, String> = emptyMap(),
   val pressing: Set<String> = emptySet(),
   val deadline: Long? = null,
-  val left: String? = null
+  val left: String? = null,
+  val tasks: TasksState = TasksState()
 )
 
 private fun opens(need: Need) =
@@ -98,10 +102,78 @@ private fun pressRefusal(ref: String, error: BoardError) =
     else -> "Could not press a key on $ref."
   }
 
+data class TasksState(
+  val loaded: Boolean = false,
+  val all: Boolean = false,
+  val groups: List<TaskGroup> = emptyList(),
+  val hidden: Int = 0,
+  val finished: Int = 0,
+  val failed: Boolean = false
+)
+
+data class TaskLine(val task: TaskRow, val depth: Int, val under: String? = null)
+
+fun lines(group: TaskGroup): List<TaskLine> {
+  val seen = mutableSetOf<String>()
+  return group.tasks.map { task ->
+    val parent = task.parent.takeIf { it.isNotEmpty() && it != task.ref }
+    val nested = parent != null && parent in seen
+    seen += task.ref
+    TaskLine(task, if (nested) 1 else 0, parent.takeIf { !nested })
+  }
+}
+
+enum class TasksBody {
+  Loading,
+  Failed,
+  Empty,
+  Rows
+}
+
+fun tasksBody(tasks: TasksState) =
+  when {
+    tasks.failed && tasks.groups.isEmpty() -> TasksBody.Failed
+    !tasks.loaded -> TasksBody.Loading
+    tasks.groups.isEmpty() -> TasksBody.Empty
+    else -> TasksBody.Rows
+  }
+
+fun tasksFooter(tasks: TasksState): String? =
+  when {
+    !tasks.all && tasks.finished > 0 -> "Show all finished tasks (${tasks.finished})"
+    tasks.all && tasks.hidden > 0 ->
+      "${tasks.hidden} more ${if (tasks.hidden == 1) "task is" else "tasks are"} not shown"
+    else -> null
+  }
+
+fun tasksFooterActs(tasks: TasksState) = !tasks.all && tasks.finished > 0
+
+fun dueDay(due: String): String =
+  epoch(due)?.let {
+    SimpleDateFormat("MMM d", Locale.ENGLISH)
+      .apply { timeZone = TimeZone.getTimeZone("UTC") }
+      .format(Date(it))
+  } ?: due
+
+fun waitsLine(waits: TaskWaits): String {
+  val due = "Waits until ${dueDay(waits.due)}"
+  return if (waits.note.isEmpty()) due else "$due: ${waits.note}"
+}
+
+fun stateTone(state: String) =
+  when (state) {
+    "failing" -> Tone.Fail
+    "waiting" -> Tone.Wait
+    "running",
+    "passing" -> Tone.Pass
+    else -> Tone.Neutral
+  }
+
 enum class Body {
   Loading,
   Unpaired,
   Needs,
+  Tasks,
   Placeholder
 }
 
@@ -110,6 +182,7 @@ fun body(state: FleetState) =
     state.unpaired -> Body.Unpaired
     !state.loaded -> Body.Loading
     state.tab == Tab.Needs -> Body.Needs
+    state.tab == Tab.Tasks -> Body.Tasks
     else -> Body.Placeholder
   }
 
@@ -182,6 +255,7 @@ class FleetModel(
 
   private val client = BoardClient(fleet, transport)
   private val lock = Mutex()
+  private val tasksLock = Mutex()
   private var downSince: String? = null
   private var denied: Long? = null
 
@@ -193,10 +267,48 @@ class FleetModel(
   }
 
   fun retry() {
-    if (!lock.isLocked) viewModelScope.launch { refresh() }
+    if (!lock.isLocked && !tasksLock.isLocked) viewModelScope.launch { refresh() }
   }
 
   fun select(tab: Tab) = mutableState.update { it.copy(tab = tab) }
+
+  fun openTasks() {
+    if (mutableState.value.tasks.loaded || tasksLock.isLocked) return
+    viewModelScope.launch { loadTasks() }
+  }
+
+  fun showAll() {
+    if (tasksLock.isLocked) return
+    viewModelScope.launch { loadTasks(all = true) }
+  }
+
+  suspend fun loadTasks(all: Boolean = mutableState.value.tasks.all) =
+    tasksLock.withLock {
+      mutableState.update { it.copy(tasks = it.tasks.copy(all = all)) }
+      try {
+        val tasks = client.tasks(all).data
+        mutableState.update {
+          it.copy(
+            unpaired = false,
+            tasks =
+              TasksState(
+                loaded = true,
+                all = tasks.all,
+                groups = tasks.groups,
+                hidden = tasks.hidden,
+                finished = tasks.finishedCount
+              )
+          )
+        }
+      } catch (error: BoardError) {
+        mutableState.update {
+          it.copy(
+            unpaired = it.unpaired || error == BoardError.Unpaired,
+            tasks = it.tasks.copy(failed = true)
+          )
+        }
+      }
+    }
 
   fun enter() =
     mutableState.update { if (it.tab == Tab.Chat && it.waiting > 0) it.copy(tab = Tab.Needs) else it }
@@ -385,6 +497,7 @@ class FleetModel(
   suspend fun refresh() =
     lock.withLock {
       val now = clock()
+      var reachable = false
       try {
         when (val poll = client.status()) {
           is Poll.Changed -> {
@@ -394,6 +507,7 @@ class FleetModel(
           Poll.Unchanged -> mutableState.update { it.copy(unpaired = false, band = null) }
         }
         downSince = null
+        reachable = true
       } catch (error: BoardError) {
         when (error) {
           BoardError.Unpaired -> mutableState.update { it.copy(unpaired = true, band = null) }
@@ -404,5 +518,6 @@ class FleetModel(
           else -> mutableState.update { it.copy(band = Band("The Board's answer could not be read.")) }
         }
       }
+      if (reachable && mutableState.value.tab == Tab.Tasks) loadTasks()
     }
 }

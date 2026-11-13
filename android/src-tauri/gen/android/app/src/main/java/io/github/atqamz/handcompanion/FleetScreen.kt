@@ -151,6 +151,8 @@ fun FleetScreen(
   onToggle: (String) -> Unit,
   onMarkRead: (String) -> Unit,
   onWeb: () -> Unit,
+  onTask: (String) -> Unit,
+  onShowAll: () -> Unit,
   onPress: (List<String>) -> Unit,
   onForce: () -> Unit,
   choice: @Composable (String) -> Unit
@@ -167,6 +169,7 @@ fun FleetScreen(
           }
         Body.Loading -> Loading()
         Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, onPress, onForce, choice)
+        Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry)
         Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
     }

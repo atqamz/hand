@@ -64,6 +64,27 @@ data class Needs(
 @Serializable
 data class TaskCounts(val active: Int, val inbox: Int, val done: Int, val abandoned: Int)
 
+@Serializable data class TaskWaits(val due: String, val note: String = "")
+
+@Serializable
+data class TaskRow(
+  val ref: String,
+  val title: String,
+  val state: String,
+  val parent: String = "",
+  val waits: TaskWaits? = null
+)
+
+@Serializable data class TaskGroup(val name: String, val count: Int, val tasks: List<TaskRow>)
+
+@Serializable
+data class Tasks(
+  val all: Boolean = false,
+  val hidden: Int = 0,
+  @SerialName("finished_count") val finishedCount: Int = 0,
+  val groups: List<TaskGroup> = emptyList()
+)
+
 @Serializable
 data class Status(
   val supervisor: Supervisor? = null,
