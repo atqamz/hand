@@ -118,8 +118,7 @@ The first release-signed install replaces a debug-signed one only after `adb uni
 Gradle makes `app-universal-release-unsigned.apk`. Sign it with the same command as the job, the password taken from the environment (read it with `read -rsp` after the build, so the build never sees it, and `unset` it afterwards):
 
 ```sh
-cd src-tauri/gen/android
-./gradlew :app:assembleUniversalRelease
+(cd src-tauri/gen/android && ./gradlew :app:assembleUniversalRelease)
 read -rsp 'Release key password: ' RELEASE_KEYSTORE_PASSWORD && export RELEASE_KEYSTORE_PASSWORD
 apksigner sign --ks /path/to/release.jks --ks-key-alias handcompanion --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
   --out hand-android.apk src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
@@ -159,7 +158,7 @@ HAND_IROH_BIN="$PWD/../iroh/target/debug/hand-iroh" cargo test --locked --worksp
 
 Without `HAND_IROH_BIN` the 54 sidecar tests print a skip and return; CI always sets it. The suite proves a proxied HTTP request and response, half-close in both directions, stream codes 3, 4 and 5, connection codes 1 and 2, the 13th stream waiting, a stream opening only on its first byte, a Board that answers before it closes while the phone still sends, and a wrong secret ending a stream with no byte, and one HTTP request through the dialer (its single cookie, CSRF token and body, a chunked answer, a 304 and an error answer, a full laptop returning busy at the deadline, and the errors a Board or the sidecar can cause: lost, timed out, too large, malformed, no longer paired and the Board not running). It also covers the backoff after a full laptop, the sealed key's lifecycle (one key across runs with no temp file left, a create over an existing blob replacing it, a missing Keystore key making a new identity, a changed Keystore key and corrupt ciphertext stopping with an error and leaving the file alone, a Keystore error at the probe or at open that is not mistaken for a missing key, a plaintext of the wrong length, an interrupted rotation leaving no blob, ciphertext and folder permissions, and the plugin error codes checked against the Kotlin constants), the port kept across a restart, the relay hint, the pairing link parser over the contract's 13 valid and 73 invalid vectors, the open link parser over its 6 valid and 61 invalid, the confirmation text, the open URL, the pending link kept against a second one, the iroh key checked before the other fields, the clear-before-forget order of a second laptop, and a relaunch with an unreachable saved laptop failing with the laptop kept and named in the message.
 
-The workspace runs 192 tests, 54 of them against the sidecar. Measured on 2026-11-07 on the same host, debug builds through loopback: slowest time to first byte of three proxied requests 70-76 ms; the first stream after a full laptop connected 1.10-1.21 s after the request, which is the 1-second backoff. The camera preview, the permission dialog and the native scanner overlay are device-only; the host tests do not open a camera.
+The workspace runs 195 tests, 54 of them against the sidecar. Measured on 2026-11-07 on the same host, debug builds through loopback: slowest time to first byte of three proxied requests 70-76 ms; the first stream after a full laptop connected 1.10-1.21 s after the request, which is the 1-second backoff. The camera preview, the permission dialog and the native scanner overlay are device-only; the host tests do not open a camera.
 
 The standard checks are:
 
