@@ -24,9 +24,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,23 +81,31 @@ private object WebCookies : Cookies {
 
 @Composable
 fun WebBoard(path: String, onClose: () -> Unit) {
-  val page by produceState<Page?>(null, path) { value = openBoard(path, Core::fallback, WebCookies) }
+  var page by remember { mutableStateOf<Page?>(null) }
+  var attempt by remember { mutableStateOf(0) }
   var view by remember { mutableStateOf<WebView?>(null) }
+  LaunchedEffect(path, attempt) {
+    page = null
+    page = openBoard(path, Core::fallback, WebCookies)
+  }
   BackHandler { view?.takeIf(WebView::canGoBack)?.goBack() ?: onClose() }
-  BoardBody(page, onClose) { view = it }
+  BoardBody(page, onClose, onRetry = { page = null; attempt++ }) { view = it }
 }
 
 @Composable
-internal fun BoardBody(page: Page?, onClose: () -> Unit, onView: (WebView) -> Unit) {
+internal fun BoardBody(
+  page: Page?,
+  onClose: () -> Unit,
+  onRetry: () -> Unit = {},
+  onView: (WebView) -> Unit
+) {
   when (val shown = page) {
     null -> Loading()
     is Page.Failed ->
-      Text(
-        shown.message,
-        Modifier.padding(16.dp),
-        color = LocalHand.current.ink(Tone.Fail),
-        style = type.bodyMedium
-      )
+      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(shown.message, color = LocalHand.current.ink(Tone.Fail), style = type.bodyMedium)
+        if (shown.retry) Action("Retry", onRetry)
+      }
     is Page.Ready ->
       AndroidView(
         {

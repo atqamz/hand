@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 
@@ -79,6 +80,42 @@ class FallbackScreenTest {
   @Test fun webLoadingLight() = shot(false, webLoading)
 
   @Test fun webLoadingDark() = shot(true, webLoading)
+
+  private val notPairedHere: Page =
+    runBlocking { openBoard("/f000000000003/", { "{}" }, Cookies { _, _ -> true }) }
+
+  private val cookieRefused: Page =
+    runBlocking {
+      openBoard(
+        "/f000000000003/",
+        { """{"port":50123,"cookie":"hand_phone_f000000000003=7.0"}""" },
+        Cookies { _, _ -> false }
+      )
+    }
+
+  private fun failed(page: Page): @Composable () -> Unit = {
+    FallbackScreen("f000000000003", "atlas", "/f000000000003/task/t40#r91", {}) {
+      BoardBody(page, {}, onRetry = {}) {}
+    }
+  }
+
+  @Test fun notPairedHereLight() = shot(false, failed(notPairedHere))
+
+  @Test fun notPairedHereDark() = shot(true, failed(notPairedHere))
+
+  @Test fun cookieRefusedLight() = shot(false, failed(cookieRefused))
+
+  @Test fun cookieRefusedDark() = shot(true, failed(cookieRefused))
+
+  private val webTimedOut: @Composable () -> Unit = {
+    FallbackScreen("f000000000003", "atlas", "/f000000000003/task/t40#r91", {}) {
+      BoardBody(Page.Failed(BOARD_TIMED_OUT, retry = true), {}, onRetry = {}) {}
+    }
+  }
+
+  @Test fun webTimedOutLight() = shot(false, webTimedOut)
+
+  @Test fun webTimedOutDark() = shot(true, webTimedOut)
 
   @Test
   fun fleetMenuLight() =
