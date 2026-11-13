@@ -23,8 +23,67 @@ func needHasBody(n Need) bool {
 	return n.Attempt != "" || n.Excerpt != "" || n.Status != ""
 }
 
+func (a *App) markSent(ref, label string) {
+	if ref == "" {
+		return
+	}
+	if a.sentNeeds == nil {
+		a.sentNeeds = map[string]string{}
+	}
+	a.sentNeeds[ref] = "Sent " + label + " · waiting…"
+}
+
+func sentLabel(choice string) string {
+	head, _, _ := strings.Cut(strings.TrimSpace(choice), ".")
+	if head = strings.TrimSpace(head); head == "" {
+		return "answer"
+	}
+	return head
+}
+
+func (a *App) sentNeed(n Need) (string, bool) {
+	for _, ref := range []string{n.Decision, n.Ref} {
+		if ref == "" {
+			continue
+		}
+		if sent, ok := a.sentNeeds[ref]; ok {
+			return sent, true
+		}
+	}
+	return "", false
+}
+
+func (a *App) reconcileSent() {
+	if len(a.sentNeeds) == 0 {
+		return
+	}
+	live := make(map[string]bool, 2*len(a.Status.Needs.Items))
+	for _, n := range a.Status.Needs.Items {
+		if n.Decision != "" {
+			live[n.Decision] = true
+		}
+		if n.Ref != "" {
+			live[n.Ref] = true
+		}
+	}
+	for ref := range a.sentNeeds {
+		if !live[ref] {
+			delete(a.sentNeeds, ref)
+		}
+	}
+}
+
+func (a *App) needOpens(n Need) bool {
+	if !needHasBody(n) {
+		return false
+	}
+	_, sent := a.sentNeed(n)
+	return !sent
+}
+
 func (a *App) visibleNeeds() []Need {
 	items := a.Status.Needs.Items
+	a.reconcileSent()
 	if len(a.ackDone) == 0 {
 		return items
 	}
@@ -69,19 +128,19 @@ func (a *App) openNeed(items []Need) string {
 	top := needKey(items[0])
 	if top != a.needTop {
 		a.needTop = top
-		if needHasBody(items[0]) {
+		if a.needOpens(items[0]) {
 			a.needChosen, a.needClosedTop = nil, ""
 		}
 	}
 	for _, n := range items {
-		if a.needChosen[needKey(n)] && needHasBody(n) {
+		if a.needChosen[needKey(n)] && a.needOpens(n) {
 			return needKey(n)
 		}
 	}
 	if closed, ok := a.needChosen[top]; ok && !closed {
 		return ""
 	}
-	if top == a.needClosedTop || !needHasBody(items[0]) {
+	if top == a.needClosedTop || !a.needOpens(items[0]) {
 		return ""
 	}
 	return top
@@ -131,7 +190,7 @@ func (a *App) nextNeed(done string) {
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	items := a.visibleNeeds()
 	for _, n := range items {
-		if needRef(n) != done && needHasBody(n) {
+		if needRef(n) != done && a.needOpens(n) {
 			a.needChosen = map[string]bool{needKey(n): true}
 			return
 		}
@@ -232,6 +291,7 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 	}
 	open := a.openNeed(items)
 	a.syncAnswer(items, open)
+	a.choiceKeysFor(c, items, open)
 	top := needKey(items[0])
 	ui.Column(c).Children(func() {
 		prev, afterOpen := "", false
@@ -273,7 +333,8 @@ func (a *App) allClear(c *ui.Context, k kit.Colors) {
 }
 
 func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top string, first, afterOpen, open bool) {
-	inert := !needHasBody(need)
+	sent, wasSent := a.sentNeed(need)
+	inert := !needHasBody(need) || wasSent
 	open = open && !inert
 	bg, ink := toneColors(need.Tone, p)
 	refs := []string{need.Ref}
@@ -331,7 +392,11 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 				})
 			} else {
 				ui.Text(c, title).FontSize(kit.Body.Size).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
-				meta()
+				if wasSent {
+					ui.Text(c, sent).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+				} else {
+					meta()
+				}
 			}
 			if !inert {
 				chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
@@ -402,7 +467,7 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 				if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
 					a.markdown(c, body)
 				}
-				a.answerForm(c, p, d, false)
+				a.answerForm(c, k, p, d, false)
 				if d.Decision.Answer != "" {
 					ui.Text(c, "Answer").FontSize(kit.Meta.Size).Bold().TextColor(k.Muted)
 					a.markdown(c, d.Decision.Answer)
@@ -444,7 +509,7 @@ func (a *App) needReadError(c *ui.Context, p palette, key, msg string, retry fun
 	})
 }
 
-func (a *App) answerForm(c *ui.Context, p palette, d DecisionDetail, heading bool) {
+func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetail, heading bool) {
 	open := d.Decision.Status == "open"
 	other := false
 	for _, o := range d.Options {
@@ -456,38 +521,46 @@ func (a *App) answerForm(c *ui.Context, p palette, d DecisionDetail, heading boo
 		if heading {
 			a.section(c, p, "Options")
 		}
-		ui.Column(c).Gap(6).Children(func() {
+		if open {
+			options := make([]kit.Choice, 0, len(d.Options))
 			for _, o := range d.Options {
-				option := o
-				selected := a.AnswerChoice == option.Value
-				bg, border := p.card, p.line
-				if selected {
-					bg, border = p.passBG, p.pass
-				}
-				el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
-					Radius(8).Background(bg).Border(1, border).Disabled(!open || a.Busy)
-				if open && !a.Busy {
-					el.Cursor(ui.CursorPointer)
-				}
-				el.Children(func() {
-					ui.Text(c, option.Key).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(18)
-					ui.Column(c).Gap(2).Grow(1).Children(func() {
-						ui.Row(c).Gap(8).Children(func() {
-							ui.Text(c, option.Label).FontSize(kit.Body.Size).Bold()
-							if option.Recommended {
-								ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
+				options = append(options, kit.Choice{
+					Value: o.Value, Key: o.Key, Label: o.Label, Note: o.Note,
+					Recommended: o.Recommended, Long: o.Long,
+					Picked: a.AnswerChoice == o.Value, Disabled: a.Busy,
+				})
+			}
+			if picked := kit.ChoiceList(c, k, options); picked != "" && !a.Busy {
+				a.AnswerChoice = picked
+			}
+		} else {
+			ui.Column(c).Gap(6).Children(func() {
+				for _, o := range d.Options {
+					option := o
+					selected := a.AnswerChoice == option.Value
+					bg, border := p.card, p.line
+					if selected {
+						bg, border = p.passBG, p.pass
+					}
+					el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
+						Radius(8).Background(bg).Border(1, border).Disabled(true)
+					el.Children(func() {
+						ui.Text(c, option.Key).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(18)
+						ui.Column(c).Gap(2).Grow(1).Children(func() {
+							ui.Row(c).Gap(8).Children(func() {
+								ui.Text(c, option.Label).FontSize(kit.Body.Size).Bold()
+								if option.Recommended {
+									ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
+								}
+							})
+							if option.Note != "" {
+								ui.Text(c, option.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
 							}
 						})
-						if option.Note != "" {
-							ui.Text(c, option.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
-						}
 					})
-				})
-				if open && el.Clicked() && !a.Busy {
-					a.AnswerChoice = option.Value
 				}
-			}
-		})
+			})
+		}
 	}
 	if open {
 		placeholder := "Your answer"
@@ -497,19 +570,74 @@ func (a *App) answerForm(c *ui.Context, p palette, d DecisionDetail, heading boo
 		if other {
 			placeholder = "Write your answer (required)"
 		}
-		ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
+		note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
 			Disabled(a.Busy)
+		if a.focusNote {
+			note.Focus()
+			a.focusNote = false
+		}
 		if other && strings.TrimSpace(a.AnswerNote) == "" {
 			ui.Text(c, "That option needs a note.").FontSize(kit.Meta.Size).TextColor(p.fail)
 		}
-		ui.Row(c).Gap(8).Children(func() {
-			label := "Send answer"
-			if a.Busy {
-				label = "Sending…"
+		a.sendAnswer(c, k)
+	}
+}
+
+func (a *App) sendAnswer(c *ui.Context, k kit.Colors) {
+	label := "Send answer"
+	if a.Busy {
+		label = "Sending…"
+	}
+	b := ui.ButtonBase(c.Key("send-answer")).Height(kit.Control).Padding(0, kit.Space12).
+		Radius(kit.RadiusMD).Background(k.Primary).Justify(ui.Center).AlignItems(ui.Center).
+		Disabled(a.Busy).Cursor(ui.CursorPointer).Label(label)
+	b.Children(func() {
+		ui.Text(c, label).FontSize(kit.Body.Size).Bold().TextColor(k.OnPrimary).SingleLine()
+	})
+	if a.focusSend {
+		b.Focus()
+		a.focusSend = false
+	}
+	if b.Clicked() {
+		a.Answer()
+	}
+}
+
+var choiceDigits = [...]ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9}
+
+func (a *App) choiceKeys(c *ui.Context, d DecisionDetail) {
+	if a.Busy || d.Decision.Status != "open" || len(d.Options) == 0 {
+		return
+	}
+	for i, key := range choiceDigits {
+		if !c.Shortcut(0, key) {
+			continue
+		}
+		want := fmt.Sprint(i + 1)
+		for _, o := range d.Options {
+			if o.Key == want {
+				a.AnswerChoice = o.Value
+				a.focusSend, a.focusNote = !o.Other, o.Other
+				break
 			}
-			if ui.Button(c.Key("send-answer"), label).Disabled(a.Busy).Clicked() {
-				a.Answer()
-			}
-		})
+		}
+	}
+	if a.AnswerChoice != "" && c.Shortcut(0, ui.KeyEnter) {
+		a.Answer()
+	}
+}
+
+func (a *App) choiceKeysFor(c *ui.Context, items []Need, open string) {
+	if open == "" {
+		return
+	}
+	for _, n := range items {
+		if needKey(n) != open || n.Kind != "decision" {
+			continue
+		}
+		if a.Decision.Decision.Ref == n.Decision {
+			a.choiceKeys(c, a.Decision)
+		}
+		return
 	}
 }

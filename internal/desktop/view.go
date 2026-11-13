@@ -184,7 +184,7 @@ func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {
 			case a.Screen == AttemptScreen:
 				a.attemptScreen(c, p)
 			case a.Screen == DecisionScreen:
-				a.decisionScreen(c, p)
+				a.decisionScreen(c, k, p)
 			case a.Screen == ReportScreen:
 				a.reportScreen(c, p)
 			}
@@ -412,8 +412,9 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 	}
 }
 
-func (a *App) decisionScreen(c *ui.Context, p palette) {
+func (a *App) decisionScreen(c *ui.Context, k kit.Colors, p palette) {
 	d := a.Decision
+	a.choiceKeys(c, d)
 	a.detailHeader(c, p, d.Decision.Ref, d.Decision.Headline)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, d.Decision.Pill)
@@ -429,7 +430,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 			a.markdown(c, body)
 		}
 	}
-	a.answerForm(c, p, d, true)
+	a.answerForm(c, k, p, d, true)
 	if d.Decision.Answer != "" {
 		a.paragraph(c, p, "Answer", d.Decision.Answer)
 	}
