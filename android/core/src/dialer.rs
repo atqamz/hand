@@ -100,6 +100,14 @@ struct Inner {
     generation: AtomicU64,
     lost: AtomicU32,
     board_unreachable: AtomicU32,
+    #[cfg(test)]
+    gate: StdMutex<Option<Arc<Gate>>>,
+}
+
+#[cfg(test)]
+struct Gate {
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
 }
 
 struct State {
@@ -126,6 +134,8 @@ impl Dialer {
                 generation: AtomicU64::new(0),
                 lost: AtomicU32::new(0),
                 board_unreachable: AtomicU32::new(0),
+                #[cfg(test)]
+                gate: StdMutex::new(None),
             }),
         }
     }
@@ -191,6 +201,8 @@ impl Dialer {
             .await
             {
                 Ok(Ok(connection)) => {
+                    #[cfg(test)]
+                    self.inner.pass_gate().await;
                     let Some(connection) = self.inner.keep(connection, &target).await else {
                         continue;
                     };
@@ -296,6 +308,8 @@ impl Dialer {
             .await;
             match attempted {
                 Ok(Ok(connection)) => {
+                    #[cfg(test)]
+                    self.inner.pass_gate().await;
                     let Some(connection) = self.inner.keep(connection, &target).await else {
                         continue;
                     };
@@ -352,6 +366,15 @@ fn connect_error(error: &ConnectError) -> Option<&ConnectionError> {
 }
 
 impl Inner {
+    #[cfg(test)]
+    async fn pass_gate(&self) {
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.reached.notify_one();
+            gate.resume.notified().await;
+        }
+    }
+
     fn next_delay(&self) -> Duration {
         self.backoff.lock().unwrap().next_delay()
     }
@@ -607,6 +630,61 @@ mod tests {
         assert!(dialer.inner.keep(connection, &addr).await.is_none());
         assert!(dialer.live().await.is_none());
         assert_eq!(dialer.target().await, Some(other.addr()));
+    }
+
+    fn serve(server: Endpoint, accepted: Arc<AtomicU32>) {
+        tokio::spawn(async move {
+            while let Some(incoming) = server.accept().await {
+                let Ok(connecting) = incoming.accept() else {
+                    continue;
+                };
+                let Ok(Ok(connection)) = timeout(Duration::from_secs(5), connecting).await else {
+                    continue;
+                };
+                accepted.fetch_add(1, Ordering::Relaxed);
+                tokio::spawn(async move {
+                    connection.closed().await;
+                });
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn a_handshake_refused_for_a_replaced_target_is_redialed_on_the_new_one() {
+        let first = local().await;
+        let second = local().await;
+        let first_addr = first.addr();
+        let second_addr = second.addr();
+        let dialer = Dialer::new(local().await, Some(first_addr));
+        let second_connections = Arc::new(AtomicU32::new(0));
+        serve(first, Arc::new(AtomicU32::new(0)));
+        serve(second, second_connections.clone());
+        let gate = Arc::new(Gate {
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        *dialer.inner.gate.lock().unwrap() = Some(gate.clone());
+        let attempt = {
+            let dialer = dialer.clone();
+            tokio::spawn(async move { dialer.attempt().await })
+        };
+
+        gate.reached.notified().await;
+        dialer.set_target(Some(second_addr.clone())).await;
+        gate.resume.notify_one();
+
+        let connection = attempt.await.unwrap().unwrap();
+        assert_eq!(dialer.target().await, Some(second_addr));
+        assert_eq!(
+            dialer.live().await.unwrap().stable_id(),
+            connection.stable_id()
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while second_connections.load(Ordering::Relaxed) == 0 {
+            assert!(Instant::now() < deadline, "the new target was never dialed");
+            sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(second_connections.load(Ordering::Relaxed), 1);
     }
 
     #[test]
