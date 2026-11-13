@@ -21,7 +21,8 @@ fn link() -> Link {
 }
 
 fn vectors() -> Vec<Value> {
-    let data: Value = serde_json::from_str(include_str!("companion-vectors.json")).unwrap();
+    let data: Value =
+        serde_json::from_str(include_str!("../../../docs/companion-vectors.json")).unwrap();
     data["pair"]["exchanges"].as_array().unwrap().clone()
 }
 

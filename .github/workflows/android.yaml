@@ -46,12 +46,12 @@ jobs:
           computed=0
           changed=""
           if [ -n "${BASE_REF:-}" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
-            changed=$(git diff --name-only "origin/$BASE_REF...HEAD") && computed=1
+            changed=$(git diff --no-renames --name-only "origin/$BASE_REF...HEAD") && computed=1
           elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            changed=$(git diff --name-only "$BEFORE" HEAD) && computed=1
+            changed=$(git diff --no-renames --name-only "$BEFORE" HEAD) && computed=1
           fi
           if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "origin/main" >/dev/null; then
-            changed=$(git diff --name-only "origin/main...HEAD") && computed=1
+            changed=$(git diff --no-renames --name-only "origin/main...HEAD") && computed=1
             [ -n "$changed" ] || computed=0
           fi
           if [ "$computed" -eq 0 ]; then
@@ -61,6 +61,7 @@ jobs:
           while IFS= read -r file; do
             case "$file" in
               android/* | iroh/* | .github/*) android=true ;;
+              docs/companion-vectors.json) android=true ;;
             esac
           done <<<"$changed"
           echo "android=$android"
@@ -98,9 +99,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Compare the companion vectors
-        working-directory: .
-        run: cmp docs/companion-vectors.json android/core/tests/companion-vectors.json
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         if: needs.changes.outputs.android == 'true'
         with:

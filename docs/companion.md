@@ -1,6 +1,6 @@
 # The Android Companion contract
 
-The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests copy it.
+The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests read it by path.
 
 **Status.** Three kinds of statement share this page, and each says which it is:
 
@@ -288,7 +288,7 @@ A name the Board refuses is `bad_name`: the app limits the field to 40 character
 
 [`companion-vectors.json`](companion-vectors.json) holds 13 valid and 73 invalid links, each with the result a conforming parser gives: the fields and the path to open, or the reason. It also holds the numbers of the wire and of the Board's pairing rules, under the keys `wire` and `board`. Under `pair` it holds the request, the answer and each refusal of `POST /api/v1/pair`, which `go test ./internal/board` replays against a Board. `go test ./internal/companion` runs a reference parser against the file, and reads the numbers back out of `iroh/src/` and `internal/board/`, so a change of code and a stale file cannot both pass.
 
-The app copies the file into its own tests and runs its parser over every vector as written: trimming whitespace is the caller's job and happens before the parser, so a vector with a leading space is rejected as `characters`. A valid vector whose `canonical` is true is also what a Board emits: an emitter must reproduce its `link` from its `parsed` fields. The reference parser checks shape only: an ID of 64 hexadecimal characters is valid in it even where the app's iroh library refuses it as a key.
+The app's tests read the file by path and run its parser over every vector as written: trimming whitespace is the caller's job and happens before the parser, so a vector with a leading space is rejected as `characters`. A valid vector whose `canonical` is true is also what a Board emits: an emitter must reproduce its `link` from its `parsed` fields. The reference parser checks shape only: an ID of 64 hexadecimal characters is valid in it even where the app's iroh library refuses it as a key.
 
 ## Versions
 

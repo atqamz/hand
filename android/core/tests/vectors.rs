@@ -2,7 +2,7 @@ use hand_android_core::{NAME_MAX, PairError, parse_answer, parse_link, parse_ope
 use serde_json::Value;
 
 fn vectors() -> Value {
-    serde_json::from_str(include_str!("companion-vectors.json")).unwrap()
+    serde_json::from_str(include_str!("../../../docs/companion-vectors.json")).unwrap()
 }
 
 #[test]
