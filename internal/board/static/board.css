@@ -198,7 +198,7 @@ pre.screen::-webkit-scrollbar-thumb{background:var(--screen-thumb);border-radius
 .depth-3{--indent:3}
 .depth-mark{font-family:var(--mono)}
 .check-sub{display:flex;align-items:baseline;gap:var(--space-8);min-width:0}
-.check-sub .meta{min-width:0}
+.check-sub .meta{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .check-sub .waits{overflow:hidden;text-overflow:ellipsis}
 .check-sub :is(.badge,.file){flex:none;max-width:24ch}
 .badge.project{overflow:hidden;max-width:24ch;text-overflow:ellipsis}
