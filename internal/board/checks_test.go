@@ -72,7 +72,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 	}
 }
 
-func TestATaskRowShowsTheShortModelAndKeepsTheWholeOneInItsTitle(t *testing.T) {
+func TestATaskRowShowsTheShortModel(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
 	started := func(taskID int64, harness, model, effort string) {
@@ -87,12 +87,27 @@ func TestATaskRowShowsTheShortModelAndKeepsTheWholeOneInItsTitle(t *testing.T) {
 	}
 	started(active(t, st, "Import the app tree").ID, "omp", "commandcode/deepseek/deepseek-v4.1-flash", "high")
 	started(active(t, st, "Scope the research").ID, "claude", "claude-sonnet-4-5", "low")
-	rows := checks(get(t, board.New(st, token, board.Options{}), "/"))
+	started(active(t, st, "Start opencode").ID, "opencode", "", "")
+	started(active(t, st, "Start opencode with an effort").ID, "opencode", "", "high")
+	started(active(t, st, "Import the whole provider").ID, "omp", "commandcode/", "high")
+	started(active(t, st, "Invite a lookalike").ID, "omp", "omphalos-1", "high")
+	h := board.New(st, token, board.Options{})
+	rows := checks(get(t, h, "/"))
 	contains(t, "long model row", rows["t1"],
-		`<span class="meta" title="omp commandcode/deepseek/deepseek-v4.1-flash high">a1 <span class="model">omp deepseek-v4.1-flash</span></span><span class="meta">· running</span>`)
+		`a1 <span class="model">omp deepseek-v4.1-flash</span></span><span class="meta"> · running</span>`)
 	contains(t, "repeated harness row", rows["t2"],
-		`title="claude claude-sonnet-4-5 low">a2 <span class="model">claude-sonnet-4-5</span></span>`)
-	lacks(t, "repeated harness row", rows["t2"], `<span class="model">claude claude-sonnet-4-5</span>`, `<span class="model">commandcode/`)
+		`a2 <span class="model">claude-sonnet-4-5</span></span><span class="meta"> · running</span>`)
+	contains(t, "empty model row", rows["t3"],
+		`a3 <span class="model">opencode</span></span><span class="meta"> · running</span>`)
+	contains(t, "empty model with effort row", rows["t4"],
+		`a4 <span class="model">opencode</span></span><span class="meta"> · running</span>`)
+	contains(t, "trailing slash model row", rows["t5"],
+		`a5 <span class="model">omp commandcode/</span></span><span class="meta"> · running</span>`)
+	contains(t, "lookalike harness row", rows["t6"],
+		`a6 <span class="model">omp omphalos-1</span></span><span class="meta"> · running</span>`)
+	lacks(t, "task rows", region(get(t, h, "/"), "tasks"), `<span class="model"></span>`)
+	lacks(t, "long model row", rows["t1"], "commandcode/deepseek/deepseek-v4.1-flash")
+	contains(t, "task page", get(t, h, "/task/t1"), "omp commandcode/deepseek/deepseek-v4.1-flash high")
 }
 
 func TestTimelineCommentsAndEvents(t *testing.T) {

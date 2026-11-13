@@ -59,7 +59,7 @@ func TestTaskRowsNameTheirProjectWhenTheFleetHasSeveral(t *testing.T) {
 	fx := twoProjects(t)
 	tasks := region(get(t, fx.handler(), "/"), "tasks")
 	contains(t, "tasks", tasks,
-		`<a class="check-title" title="Fix login" href="/task/t1" target="_blank" rel="noopener">Fix login</a><span class="check-sub">`+badge("hand")+`<span class="meta" title="codex gpt-6-luna low">a1 <span class="model">codex gpt-6-luna</span></span><span class="meta">· running</span></span>`,
+		`<a class="check-title" title="Fix login" href="/task/t1" target="_blank" rel="noopener">Fix login</a><span class="check-sub">`+badge("hand")+`<span class="meta">a1 <span class="model">codex gpt-6-luna</span></span><span class="meta"> · running</span></span>`,
 		`<a class="check-title" title="Write docs" href="/task/t2" target="_blank" rel="noopener">Write docs</a><span class="check-sub">`+badge("docs")+`</span></span>`,
 		badge(longProject))
 	if n := strings.Count(tasks, `class="badge project"`); n != 3 {
