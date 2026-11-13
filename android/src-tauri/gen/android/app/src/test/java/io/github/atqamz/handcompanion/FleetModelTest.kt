@@ -51,15 +51,9 @@ private fun status(
 
 private const val DIGEST = "f8c722e0710879ae811b2fe7ad0c8ba0"
 
-private fun supervisor(
-  revision: Long = 7,
-  pressed: Long = 0,
-  deny: String? = null
-): String =
+private fun supervisor(revision: Long = 7, pressed: Long = 0): String =
   """{"ref":"s1","harness":"claude","model":"sonnet","effort":"low","status":"running","live":true,""" +
-    """"pending":0,"resumable":false,"blocked":true,"keys":{"revision":$revision,"digest":"$DIGEST","pressed":$pressed}""" +
-    (deny?.let { ""","deny_at":"$it"""" } ?: "") +
-    "}"
+    """"pending":0,"resumable":false,"blocked":true,"keys":{"revision":$revision,"digest":"$DIGEST","pressed":$pressed}}"""
 
 private fun blockedNeed(deny: String? = null): String =
   """{"kind":"blocked","ref":"s1","title":"Allow Bash?","word":"BLOCKED","tone":"fail",""" +
@@ -595,6 +589,25 @@ class FleetModelTest {
   }
 
   @Test
+  fun aReplacedReceiptClearsTheWaitingLine() {
+    val board =
+      Board(
+        { status(listOf(blockedNeed()), supervisor = supervisor()) },
+        keysAnswer = { status(listOf(blockedNeed()), supervisor = supervisor(revision = 8, pressed = 1)) },
+        forceAnswer = { status(listOf(blockedNeed()), supervisor = supervisor(revision = 9)) }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.pressNow(listOf("2"))
+      assertEquals("Sent 2 · waiting…", model.now().pressed["blocked:s1"])
+      model.forceNow()
+    }
+    assertEquals(Notice("s1", "Typed the queued messages to s1."), model.now().notice)
+    assertTrue(model.now().pressed.isEmpty())
+  }
+
+  @Test
   fun theCountdownTicksLocallyAndSaysWhenTheScreenWasDenied() {
     val base = 1_700_000_000_000L
     var clock = base
@@ -612,18 +625,6 @@ class FleetModelTest {
       assertEquals("The screen was denied.", model.tickOnce()?.text)
       assertNull(model.now().left)
       assertEquals(polls + 1, board.calls.count { it.startsWith("GET /api/v1/status") })
-    }
-  }
-
-  @Test
-  fun theSupervisorsDenyAtCountsWhenTheItemHasNone() {
-    val base = 1_700_000_000_000L
-    val deny = Instant.ofEpochMilli(base + 61_000).toString()
-    val board = Board({ status(listOf(blockedNeed()), supervisor = supervisor(deny = deny)) })
-    val model = FleetModel(FLEET, null, board, { null }, { "12:41" }, 4_000, { base })
-    runBlocking {
-      model.refresh()
-      assertEquals("1:01", model.now().left)
     }
   }
 }

@@ -33,7 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
@@ -155,7 +157,13 @@ private fun Misread(ref: String, onForce: () -> Unit) {
   var open by remember(ref) { mutableStateOf(false) }
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Row(
-      Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 4.dp),
+      Modifier.fillMaxWidth()
+        .clickable { open = !open }
+        .semantics {
+          role = Role.Button
+          stateDescription = if (open) "Expanded" else "Collapsed"
+        }
+        .padding(vertical = 4.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -180,8 +188,7 @@ private fun BlockedBody(
   supervisor: Supervisor?,
   pressing: Boolean,
   onPress: (List<String>) -> Unit,
-  onForce: () -> Unit,
-  onWeb: () -> Unit
+  onForce: () -> Unit
 ) {
   val hand = LocalHand.current
   need.excerpt?.let {
@@ -194,11 +201,9 @@ private fun BlockedBody(
       Text(it, color = hand.screenFg, style = HandMono)
     }
   }
-  if (need.cut) Action("Open web Board", onWeb)
   val ask = supervisor?.ask
   val enabled = supervisor?.keys != null && !pressing
   if (ask != null) {
-    Text(ask.question, style = type.titleMedium)
     KeyRow(ask.options.map { it.label to it.keys }, enabled, onPress)
   } else {
     KeyRow(FIXED_KEYS.map { it to listOf(it) }, enabled, onPress)
@@ -276,8 +281,7 @@ fun NeedsScreen(
                     state.supervisor,
                     entry.key in state.pressing,
                     onPress,
-                    onForce,
-                    onWeb
+                    onForce
                   )
                 entry.opens == Opens.Card ->
                   ReportBody(entry.need, ref in state.marking, { onMarkRead(ref) }, onWeb)

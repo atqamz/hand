@@ -124,8 +124,10 @@ fun FleetState.openKey(): String? {
   }
 }
 
-fun FleetState.deadline(): Long? =
-  epoch(bands.flatMap { it.entries }.firstOrNull { it.key == openKey() }?.need?.denyAt ?: supervisor?.denyAt)
+fun FleetState.deadline(): Long? {
+  val entry = bands.flatMap { it.entries }.firstOrNull { it.key == openKey() }
+  return if (entry?.need?.kind == "blocked") epoch(entry.need.denyAt) else null
+}
 
 fun remaining(deadline: Long, now: Long): String? {
   val left = deadline - now
@@ -162,6 +164,9 @@ private const val SCREEN_MOVED = "The screen moved; nothing was sent."
 private const val SCREEN_DENIED = "The screen was denied."
 
 private data class Receipt(val notice: Notice, val entry: String)
+
+private fun FleetState.noticed(notice: Notice?): FleetState =
+  copy(notice = notice, pressed = emptyMap())
 
 class FleetModel(
   fleet: String,
@@ -200,7 +205,7 @@ class FleetModel(
     mutableState.update { it.copy(open = if (it.openKey() == key) "" else key) }
 
   fun dismiss(notice: Notice) =
-    mutableState.update { if (it.notice === notice) it.copy(notice = null) else it }
+    mutableState.update { if (it.notice === notice) it.noticed(null) else it }
 
   fun markRead(ref: String) {
     viewModelScope.launch { acknowledgeAndExpire(ref) }
@@ -240,7 +245,7 @@ class FleetModel(
         it.key == state.openKey() && it.need.kind == "blocked"
       } ?: return null
     if (entry.key in state.pressing) return null
-    mutableState.update { it.copy(notice = null, pressing = it.pressing + entry.key) }
+    mutableState.update { it.noticed(null).copy(pressing = it.pressing + entry.key) }
     val body = buildJsonObject {
       put("keys", JsonArray(keys.map(::JsonPrimitive)))
       put("revision", guard.revision)
@@ -266,7 +271,7 @@ class FleetModel(
         if (error is BoardError.Conflict) Notice(supervisor.ref, SCREEN_MOVED)
         else Notice(supervisor.ref, pressRefusal(supervisor.ref, error))
       if (error is BoardError.Conflict) refresh()
-      mutableState.update { it.copy(open = entry.key, notice = notice) }
+      mutableState.update { it.noticed(notice).copy(open = entry.key) }
       return Receipt(notice, entry.key)
     } finally {
       mutableState.update { it.copy(pressing = it.pressing - entry.key) }
@@ -279,7 +284,7 @@ class FleetModel(
     mutableState.update {
       it.copy(
         open = "",
-        pressed = it.pressed + (entry.key to "Sent $keysText · waiting…"),
+        pressed = mapOf(entry.key to "Sent $keysText · waiting…"),
         notice = notice
       )
     }
@@ -292,7 +297,7 @@ class FleetModel(
 
   suspend fun forceNow(): Notice? {
     val supervisor = mutableState.value.supervisor ?: return null
-    mutableState.update { it.copy(notice = null) }
+    mutableState.update { it.noticed(null) }
     val body = buildJsonObject { put("ref", supervisor.ref) }
     val typed = Notice(supervisor.ref, "Typed the queued messages to ${supervisor.ref}.")
     val notice =
@@ -317,7 +322,7 @@ class FleetModel(
           }
         )
       }
-    mutableState.update { it.copy(notice = notice) }
+    mutableState.update { it.noticed(notice) }
     return notice
   }
 
@@ -338,7 +343,7 @@ class FleetModel(
       state.supervisor?.ref
         ?: state.bands.flatMap { it.entries }.firstOrNull { it.need.kind == "blocked" }?.need?.ref
     val notice = Notice(ref.orEmpty(), SCREEN_DENIED)
-    mutableState.update { it.copy(deadline = null, left = null, notice = notice) }
+    mutableState.update { it.noticed(notice).copy(deadline = null, left = null) }
     refresh()
     return notice
   }
@@ -357,7 +362,7 @@ class FleetModel(
 
   suspend fun acknowledge(ref: String): Notice? {
     if (mutableState.value.marking.contains(ref)) return null
-    mutableState.update { it.copy(notice = null, marking = it.marking + ref) }
+    mutableState.update { it.noticed(null).copy(marking = it.marking + ref) }
     val notice =
       try {
         client.write("report/$ref/ack", null, JsonElement.serializer())
@@ -373,7 +378,7 @@ class FleetModel(
       }
     if (notice != null) mutableState.update { it.copy(marking = it.marking - ref) }
     refresh()
-    mutableState.update { it.copy(notice = notice) }
+    mutableState.update { it.noticed(notice) }
     return notice
   }
 

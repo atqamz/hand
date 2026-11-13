@@ -122,7 +122,6 @@ private val askCard =
 
 private fun blocked(
   ask: Ask? = askCard,
-  cut: Boolean = false,
   left: String? = null,
   notice: Notice? = null
 ): FleetState =
@@ -142,8 +141,7 @@ private fun blocked(
             "Bash: rm -f \$r/\$f · Do you want to proceed?",
             "BLOCKED",
             "fail",
-            excerpt = screenText,
-            cut = cut
+            excerpt = screenText
           )
         )
       ),
@@ -215,10 +213,6 @@ class FleetScreenTest {
   @Test fun blockedKeysLight() = shot(false, "f000000000003", blocked(ask = null))
 
   @Test fun blockedKeysDark() = shot(true, "f000000000003", blocked(ask = null))
-
-  @Test fun blockedCutLight() = shot(false, "f000000000003", blocked(ask = null, cut = true))
-
-  @Test fun blockedCutDark() = shot(true, "f000000000003", blocked(ask = null, cut = true))
 
   @Test fun blockedCountdownLight() = shot(false, "f000000000003", blocked(left = "1:59"))
 

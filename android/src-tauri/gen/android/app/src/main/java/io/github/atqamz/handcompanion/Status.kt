@@ -26,8 +26,7 @@ data class Supervisor(
   val ask: Ask? = null,
   val held: Boolean = false,
   val switching: String? = null,
-  val reason: String? = null,
-  @SerialName("deny_at") val denyAt: String? = null
+  val reason: String? = null
 )
 
 @Serializable
