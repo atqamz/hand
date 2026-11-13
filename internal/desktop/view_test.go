@@ -1557,10 +1557,10 @@ func TestAnOtherOptionAsksForItsNote(t *testing.T) {
 	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Other")
-	mustText(t, tt, "That option needs a note.")
+	mustText(t, tt, "Write your answer: that option asks for one.")
 	click(t, tt, "Note")
 	tt.Type("my own answer")
-	mustNotText(t, tt, "That option needs a note.")
+	mustNotText(t, tt, "Write your answer: that option asks for one.")
 }
 
 func TestBackClearsTheAnswerDraft(t *testing.T) {

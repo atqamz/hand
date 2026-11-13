@@ -457,6 +457,12 @@ func (a *App) Answer() {
 		return
 	}
 	choice, note := a.AnswerChoice, a.AnswerNote
+	if a.answerNeedsNote(choice, note) {
+		a.receipt = noteRequiredText
+		a.receiptKey = "answer:" + ref
+		a.focusNote = true
+		return
+	}
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID

@@ -11,7 +11,10 @@ import (
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
-const receiptFor = 4 * time.Second
+const (
+	receiptFor       = 4 * time.Second
+	noteRequiredText = "Write your answer: that option asks for one."
+)
 
 func needKey(n Need) string { return n.Kind + ":" + n.Ref }
 
@@ -509,6 +512,18 @@ func (a *App) needReadError(c *ui.Context, p palette, key, msg string, retry fun
 	})
 }
 
+func (a *App) answerNeedsNote(choice, note string) bool {
+	if strings.TrimSpace(note) != "" {
+		return false
+	}
+	for _, o := range a.Decision.Options {
+		if o.Value == choice {
+			return o.Other
+		}
+	}
+	return false
+}
+
 func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetail, heading bool) {
 	open := d.Decision.Status == "open"
 	other := false
@@ -577,7 +592,7 @@ func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetai
 			a.focusNote = false
 		}
 		if other && strings.TrimSpace(a.AnswerNote) == "" {
-			ui.Text(c, "That option needs a note.").FontSize(kit.Meta.Size).TextColor(p.fail)
+			ui.Text(c, noteRequiredText).FontSize(kit.Meta.Size).TextColor(p.fail)
 		}
 		a.sendAnswer(c, k)
 	}

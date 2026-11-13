@@ -101,11 +101,8 @@ func TestTheChoiceListAnswersInPlaceWithAChoiceAndANote(t *testing.T) {
 	}
 }
 
-func TestAnOtherOptionWithoutANoteIsRefusedInTheReceipt(t *testing.T) {
-	f := goldenFixture(t)
-	d := f.decision[fleetID]
-	d.Options = append(d.Options, desktop.Option{Key: "3", Label: "Other", Note: "write your own", Value: "3. Other", Other: true})
-	f.decision[fleetID] = d
+func TestAnOtherOptionWithoutANoteMakesNoRequest(t *testing.T) {
+	f := choiceOtherFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Keep the old cookie name?")
@@ -113,10 +110,57 @@ func TestAnOtherOptionWithoutANoteIsRefusedInTheReceipt(t *testing.T) {
 	click(t, tt, "Other")
 	click(t, tt, "Send answer")
 	tt.Frame()
-	mustText(t, tt, "write your answer: that option asks for one", "That option needs a note.", "Send answer")
+	mustText(t, tt, "Write your answer: that option asks for one.", "Send answer")
 	mustNotText(t, tt, "Sent 3 · waiting…")
+	if n := f.count("answer:d1"); n != 0 {
+		t.Errorf("the refused answer was posted %d times", n)
+	}
+	if !tt.Focused("Note") {
+		t.Error("the note does not have the focus")
+	}
 	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("the refusal left the Board screen for %v", app.Screen)
+	}
+}
+
+func TestEnterOnAnOtherOptionWithoutANoteMakesNoRequest(t *testing.T) {
+	f := choiceOtherFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	app.OpenRef("d1")
+	app.AnswerChoice = "3. Other"
+	f.action = &desktop.APIError{Status: 400, Code: "bad_request", Message: "write your answer: that option asks for one"}
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	mustText(t, tt, "Write your answer: that option asks for one.", "Send answer")
+	mustNotText(t, tt, "Sent 3 · waiting…")
+	if n := f.count("answer:d1"); n != 0 {
+		t.Errorf("Enter posted the refused answer %d times", n)
+	}
+}
+
+func choiceOtherFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := goldenFixture(t)
+	d := f.decision[fleetID]
+	d.Options = append(d.Options, desktop.Option{Key: "3", Label: "Other", Note: "write your own", Value: "3. Other", Other: true})
+	f.decision[fleetID] = d
+	return f
+}
+
+func TestAnEmptyAnswerIsRefusedInTheReceipt(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Keep the old cookie name?")
+	f.action = &desktop.APIError{Status: 400, Code: "bad_request", Message: "pick an option or write an answer"}
+	click(t, tt, "Send answer")
+	tt.Frame()
+	mustText(t, tt, "pick an option or write an answer", "Send answer")
+	mustNotText(t, tt, "Sent")
+	if n := f.count("answer:d1"); n != 1 {
+		t.Errorf("the empty answer was posted %d times, want one server refusal", n)
 	}
 }
 
