@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -365,64 +366,50 @@ private fun TaskContent(
   val hand = LocalHand.current
   LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
     item(key = "head") { TaskHead(detail, onTarget) }
-    if (detail.openDecisions.isNotEmpty() || detail.unread.isNotEmpty()) {
-      item(key = "waiting") {
-        detail.openDecisions.forEach { Waiting(it, onTarget) }
-        detail.unread.forEach { Waiting(it, ref, fleet, onTarget) }
-      }
-    }
+    items(detail.openDecisions, key = { "decision:${it.ref}" }) { Waiting(it, onTarget) }
+    items(detail.unread, key = { "unread:${it.ref}" }) { Waiting(it, ref, fleet, onTarget) }
     if (detail.delivered.isNotEmpty()) {
-      item(key = "delivered") {
-        SectionHead("Delivered")
-        detail.delivered.forEach { Delivered(it, fleet, onTarget) }
-      }
+      item(key = "delivered-head") { SectionHead("Delivered") }
+      items(detail.delivered, key = { "delivered:${it.kind}:${it.ref}" }) { Delivered(it, fleet, onTarget) }
     }
     if (detail.children.isNotEmpty()) {
-      item(key = "children") {
-        SectionHead("Sub-tasks")
-        detail.children.forEach { ChildRow(it, onTarget) }
-      }
+      item(key = "children-head") { SectionHead("Sub-tasks") }
+      items(detail.children, key = { "child:${it.ref}" }) { ChildRow(it, onTarget) }
     }
     detail.plan?.let { plan ->
-      item(key = "plan") {
-        SectionHead("Plan")
-        PlanCard(plan)
-      }
+      item(key = "plan-head") { SectionHead("Plan") }
+      item(key = "plan") { PlanCard(plan) }
     }
     if (detail.reports.isNotEmpty()) {
-      item(key = "reports") {
-        SectionHead("Reports")
-        detail.reports.forEach { report ->
-          ReportCard(
-            report,
-            ref,
-            fleet,
-            report.ref in state.marking,
-            state.errors[report.ref],
-            onMarkRead,
-            onTarget
-          )
-        }
-        if (detail.moreReports) Box(Modifier.padding(16.dp, 4.dp)) { Meta("Older reports are not shown.") }
+      item(key = "reports-head") { SectionHead("Reports") }
+      items(detail.reports, key = { "report:${it.ref}" }) { report ->
+        ReportCard(
+          report,
+          ref,
+          fleet,
+          report.ref in state.marking,
+          state.errors[report.ref],
+          onMarkRead,
+          onTarget
+        )
+      }
+      if (detail.moreReports) item(key = "reports-more") {
+        Box(Modifier.padding(16.dp, 4.dp)) { Meta("Older reports are not shown.") }
       }
     }
     if (detail.decisions.isNotEmpty()) {
-      item(key = "decisions") {
-        SectionHead("Decisions")
-        detail.decisions.forEach { DecisionRow(it, onTarget) }
-      }
+      item(key = "decisions-head") { SectionHead("Decisions") }
+      items(detail.decisions, key = { "decision-row:${it.ref}" }) { DecisionRow(it, onTarget) }
     }
     if (detail.attempts.isNotEmpty()) {
-      item(key = "attempts") {
-        SectionHead("Attempts")
-        detail.attempts.forEach { AttemptRow(it, ref, fleet, onTarget) }
-      }
+      item(key = "attempts-head") { SectionHead("Attempts") }
+      items(detail.attempts, key = { "attempt:${it.ref}" }) { AttemptRow(it, ref, fleet, onTarget) }
     }
     if (detail.events.isNotEmpty()) {
-      item(key = "events") {
-        SectionHead("Events")
-        detail.events.forEach { EventRow(it) }
-        if (detail.moreEvents) Box(Modifier.padding(16.dp, 4.dp)) { Meta("Only the latest 50 events are shown.") }
+      item(key = "events-head") { SectionHead("Events") }
+      items(detail.events, key = { "event:${it.seq}" }) { EventRow(it) }
+      if (detail.moreEvents) item(key = "events-more") {
+        Box(Modifier.padding(16.dp, 4.dp)) { Meta("Only the latest 50 events are shown.") }
       }
     }
     state.notice?.let { text ->
