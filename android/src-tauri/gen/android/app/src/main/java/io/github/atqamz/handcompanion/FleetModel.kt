@@ -139,14 +139,12 @@ fun tasksBody(tasks: TasksState) =
   }
 
 fun tasksFooter(tasks: TasksState): String? =
-  when {
-    !tasks.all && tasks.finished > 0 -> "Show all finished tasks (${tasks.finished})"
-    tasks.all && tasks.hidden > 0 ->
-      "${tasks.hidden} more ${if (tasks.hidden == 1) "task is" else "tasks are"} not shown"
-    else -> null
-  }
+  "Show all finished tasks (${tasks.finished})".takeIf { !tasks.all && tasks.finished > 0 }
 
-fun tasksFooterActs(tasks: TasksState) = !tasks.all && tasks.finished > 0
+fun tasksHidden(tasks: TasksState): String? =
+  tasks.hidden.takeIf { it > 0 }?.let {
+    "$it more ${if (it == 1) "task is" else "tasks are"} not shown"
+  }
 
 fun dueDay(due: String): String =
   epoch(due)?.let {
@@ -284,7 +282,6 @@ class FleetModel(
 
   suspend fun loadTasks(all: Boolean = mutableState.value.tasks.all) =
     tasksLock.withLock {
-      mutableState.update { it.copy(tasks = it.tasks.copy(all = all)) }
       try {
         val tasks = client.tasks(all).data
         mutableState.update {
@@ -304,6 +301,9 @@ class FleetModel(
         mutableState.update {
           it.copy(
             unpaired = it.unpaired || error == BoardError.Unpaired,
+            band =
+              if (it.tasks.groups.isNotEmpty()) Band("The Board's answer could not be read.")
+              else it.band,
             tasks = it.tasks.copy(failed = true)
           )
         }
@@ -518,6 +518,6 @@ class FleetModel(
           else -> mutableState.update { it.copy(band = Band("The Board's answer could not be read.")) }
         }
       }
-      if (reachable && mutableState.value.tab == Tab.Tasks) loadTasks()
+      if (reachable && mutableState.value.tab == Tab.Tasks && !tasksLock.isLocked) loadTasks()
     }
 }

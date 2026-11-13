@@ -76,7 +76,15 @@ private fun TaskLineRow(line: TaskLine, onOpen: (String) -> Unit) {
     Column(Modifier.weight(1f)) {
       Text(line.task.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = type.bodyLarge)
       val meta = taskMeta(line)
-      if (meta.isNotEmpty()) Meta(meta)
+      if (meta.isNotEmpty()) {
+        Text(
+          meta,
+          color = hand.muted,
+          style = type.bodySmall,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
+        )
+      }
     }
   }
 }
@@ -108,11 +116,11 @@ private fun TaskList(tasks: TasksState, onOpen: (String) -> Unit, onShowAll: () 
       item(key = "group:${group.name}") { GroupHead(group) }
       items(lines(group), key = { "task:${it.task.ref}" }) { TaskLineRow(it, onOpen) }
     }
+    tasksHidden(tasks)?.let { label ->
+      item(key = "tasks-hidden") { Box(Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)) { Meta(label) } }
+    }
     tasksFooter(tasks)?.let { label ->
-      item(key = "tasks-footer") {
-        if (tasksFooterActs(tasks)) Action(label, onShowAll, Modifier.padding(16.dp))
-        else Box(Modifier.padding(16.dp)) { Meta(label) }
-      }
+      item(key = "tasks-footer") { Action(label, onShowAll, Modifier.padding(16.dp)) }
     }
   }
 }

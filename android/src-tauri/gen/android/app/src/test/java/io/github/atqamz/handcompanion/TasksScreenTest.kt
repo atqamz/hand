@@ -58,6 +58,14 @@ private val subTaskGroups =
     TaskGroup("Inbox", 1, listOf(task("t43", "Write the release notes for 0.15", "idle", parent = "t40")))
   )
 
+private val allGroups =
+  listOf(
+    TaskGroup("Active", 600, taskGroups[0].tasks),
+    taskGroups[1],
+    TaskGroup("Done", 5, finishedTasks(true).take(5)),
+    TaskGroup("Abandoned", 2, finishedTasks(true).drop(5))
+  )
+
 private fun tasks(
   groups: List<TaskGroup> = taskGroups,
   all: Boolean = false,
@@ -93,12 +101,10 @@ class TasksScreenTest {
   @Test fun tasksSubTasksDark() = shot(true, tasks(subTaskGroups))
 
   @Test
-  fun tasksAllLight() =
-    shot(false, tasks(taskGroups.dropLast(1) + TaskGroup("Finished", 7, finishedTasks(true)), all = true, hidden = 12))
+  fun tasksAllLight() = shot(false, tasks(allGroups, all = true, hidden = 597))
 
   @Test
-  fun tasksAllDark() =
-    shot(true, tasks(taskGroups.dropLast(1) + TaskGroup("Finished", 7, finishedTasks(true)), all = true, hidden = 12))
+  fun tasksAllDark() = shot(true, tasks(allGroups, all = true, hidden = 597))
 
   @Test fun tasksEmptyLight() = shot(false, tasks(groups = emptyList()))
 
