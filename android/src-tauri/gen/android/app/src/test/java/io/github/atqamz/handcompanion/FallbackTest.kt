@@ -43,6 +43,26 @@ private class LateJar : Cookies {
   }
 }
 
+private class SpyJar : CookieJar {
+  val events = mutableListOf<String>()
+  val reached = CompletableDeferred<Unit>()
+  private var waiting: ((Boolean) -> Unit)? = null
+
+  override fun setCookie(url: String, cookie: String, done: (Boolean) -> Unit) {
+    events += "setCookie"
+    waiting = done
+    reached.complete(Unit)
+  }
+
+  override fun flush() {
+    events += "flush"
+  }
+
+  fun answer() {
+    waiting?.invoke(true)
+  }
+}
+
 class FallbackTest {
   @Test
   fun theFleetsCookieIsSetFromTheStoreBeforeThePageIsGiven() {
@@ -140,6 +160,48 @@ class FallbackTest {
           timeoutMillis = 50
         )
       }
+    assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
+  }
+
+  @Test(timeout = 2_000)
+  fun aBridgeThatNeverAnswersGivesTheTimeoutPageWithRetry() = runBlocking {
+    var page: Page? = null
+    val jar = SpyJar()
+    val opener = launch {
+      page =
+        openBoard(
+          "/$FLEET/",
+          { """{"port":50123,"cookie":"$COOKIE"}""" },
+          Cookies { url, cookie -> storeCookie(jar, url, cookie) },
+          timeoutMillis = 100
+        )
+    }
+    withTimeout(1_000) { jar.reached.await() }
+    opener.join()
+    assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
+    assertEquals(listOf("setCookie"), jar.events)
+  }
+
+  @Test(timeout = 3_000)
+  fun aCookieThatArrivesAfterTheDeadlineWritesNothing() = runBlocking {
+    var page: Page? = null
+    val jar = SpyJar()
+    val opener = launch {
+      page =
+        openBoard(
+          "/$FLEET/",
+          { """{"port":50123,"cookie":"$COOKIE"}""" },
+          Cookies { url, cookie -> storeCookie(jar, url, cookie) },
+          timeoutMillis = 100
+        )
+    }
+    withTimeout(1_000) { jar.reached.await() }
+    opener.join()
+    assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
+    assertEquals(listOf("setCookie"), jar.events)
+    jar.answer()
+    delay(50)
+    assertEquals(listOf("setCookie"), jar.events)
     assertEquals(Page.Failed(BOARD_TIMED_OUT, retry = true), page)
   }
 

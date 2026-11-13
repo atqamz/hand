@@ -3,12 +3,14 @@ package io.github.atqamz.handcompanion
 import java.net.URI
 import java.net.URISyntaxException
 import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -35,6 +37,22 @@ enum class Nav {
 fun interface Cookies {
   suspend fun set(url: String, cookie: String): Boolean
 }
+
+interface CookieJar {
+  fun setCookie(url: String, cookie: String, done: (Boolean) -> Unit)
+
+  fun flush()
+}
+
+suspend fun storeCookie(jar: CookieJar, url: String, cookie: String): Boolean =
+  suspendCancellableCoroutine { done ->
+    jar.setCookie(url, cookie) { stored ->
+      if (done.isActive) {
+        jar.flush()
+        done.resume(stored)
+      }
+    }
+  }
 
 suspend fun openBoard(
   path: String,

@@ -33,8 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 @Composable
 fun FallbackScreen(
@@ -68,15 +66,15 @@ fun FallbackScreen(
   }
 }
 
+private object AndroidCookies : CookieJar {
+  override fun setCookie(url: String, cookie: String, done: (Boolean) -> Unit) =
+    CookieManager.getInstance().setCookie(url, cookie) { stored -> done(stored) }
+
+  override fun flush() = CookieManager.getInstance().flush()
+}
+
 private object WebCookies : Cookies {
-  override suspend fun set(url: String, cookie: String) =
-    suspendCoroutine { done ->
-      val manager = CookieManager.getInstance()
-      manager.setCookie(url, cookie) { stored ->
-        manager.flush()
-        done.resume(stored)
-      }
-    }
+  override suspend fun set(url: String, cookie: String) = storeCookie(AndroidCookies, url, cookie)
 }
 
 @Composable
