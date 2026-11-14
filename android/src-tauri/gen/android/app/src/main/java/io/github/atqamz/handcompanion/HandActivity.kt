@@ -203,12 +203,24 @@ class HandActivity : ComponentActivity() {
     ViewModelProvider(
       this,
       viewModelFactory {
-        initializer { ChatModel(fleet, CoreTransport) }
+        initializer {
+          ChatModel(
+            fleet,
+            CoreTransport,
+            PrefsComposerDrafts(applicationContext.getSharedPreferences("drafts", MODE_PRIVATE))
+          )
+        }
       }
     )["$fleet/chat", ChatModel::class.java]
 
   @Composable
-  private fun Chat(fleet: String, onTarget: (ThreadTarget) -> Unit) {
+  private fun Chat(
+    fleet: String,
+    hint: String,
+    hintBlocked: Boolean,
+    onTarget: (ThreadTarget) -> Unit,
+    onHint: () -> Unit
+  ) {
     val model = remember(fleet) { chatModel(fleet) }
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) {
@@ -221,7 +233,12 @@ class HandActivity : ComponentActivity() {
       model::retry,
       model::retryOlder,
       model::scrolled,
-      onTarget
+      onTarget,
+      hint = hint,
+      hintBlocked = hintBlocked,
+      onHint = onHint,
+      onEdit = model::edit,
+      onSend = model::send
     )
   }
 
@@ -504,7 +521,14 @@ class HandActivity : ComponentActivity() {
                   fleet::press,
                   fleet::force,
                   { threads = pushTask(threads, it) },
-                  chat = { Chat(open.orEmpty(), target) },
+                  chat = {
+                    Chat(
+                      open.orEmpty(),
+                      state.hint,
+                      state.hintBlocked,
+                      target
+                    ) { fleet.select(Tab.Needs) }
+                  },
                   choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } }
                 )
               }

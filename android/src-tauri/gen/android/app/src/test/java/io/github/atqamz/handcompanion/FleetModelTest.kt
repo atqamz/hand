@@ -34,7 +34,8 @@ private fun status(
   cleared: String? = null,
   summary: String? = null,
   more: Int = 0,
-  supervisor: String? = null
+  supervisor: String? = null,
+  hint: String = ""
 ): Raw {
   val clear = if (cleared == null) "" else """"cleared":"$cleared","summary":"$summary","""
   val needs =
@@ -44,7 +45,7 @@ private fun status(
     200,
     """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c","data":{""" +
       guard +
-      """"agent_state":"$agentState","composer_hint":"","pill":"$pill","line":"$pill",""" +
+      """"agent_state":"$agentState","composer_hint":"$hint","pill":"$pill","line":"$pill",""" +
       """"gauge":{"text":"","level":"","pct":0},"compactions":0,"needs":$needs,""" +
       """"tasks":{"active":0,"inbox":0,"done":0,"abandoned":0},"projects":1}}"""
   )
@@ -225,6 +226,32 @@ class FleetModelTest {
     runBlocking { calm.refresh() }
     assertFalse(calm.now().working)
     assertEquals(Tone.Neutral, calm.now().tone)
+  }
+
+  @Test
+  fun theComposerHintIsTheApisWordsInEveryState() {
+    val cases =
+      listOf(
+        Triple("none", "s1 is starting; your message waits.", false),
+        Triple("none", "s1 stopped: rate limited; your message waits.", false),
+        Triple("none", "No supervisor is running; your message waits.", false),
+        Triple("none", "Luvus restarted; your message waits.", false),
+        Triple("blocked", "s1 is waiting on a screen in Needs; your message waits too.", true),
+        Triple("working", "s1 switches to opus high after this turn; your message waits.", false),
+        Triple(
+          "blocked",
+          "s1 did not answer the resume note; your message waits. Switch to another model from the model menu.",
+          true
+        ),
+        Triple("ready", "", false),
+        Triple("working", "", false)
+      )
+    for ((agent, hint, blocked) in cases) {
+      val model = model(Board({ status(emptyList(), agentState = agent, hint = hint) }))
+      runBlocking { model.refresh() }
+      assertEquals(hint, model.now().hint)
+      assertEquals(blocked, model.now().hintBlocked)
+    }
   }
 
   @Test

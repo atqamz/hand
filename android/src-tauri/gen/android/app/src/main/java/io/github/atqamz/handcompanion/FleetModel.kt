@@ -69,6 +69,8 @@ data class FleetState(
   val notice: Notice? = null,
   val unpaired: Boolean = false,
   val band: Band? = null,
+  val hint: String = "",
+  val hintBlocked: Boolean = false,
   val supervisor: Supervisor? = null,
   val pressed: Map<String, String> = emptyMap(),
   val pressing: Set<String> = emptySet(),
@@ -240,6 +242,8 @@ private fun FleetState.filled(status: Status, name: String): FleetState {
     summary = needs.summary,
     unpaired = false,
     band = null,
+    hint = status.composerHint,
+    hintBlocked = status.agentState == "blocked",
     supervisor = status.supervisor
   )
 }

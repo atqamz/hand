@@ -1086,6 +1086,31 @@ func TestAPIMutationGolden(t *testing.T) {
 	}
 }
 
+func TestAPIDeliveredGolden(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	claudeLog(t, fx, []string{
+		rec("user", ago(20), "status?", 0),
+		rec("assistant", ago(19), "All good.", 0),
+		rec("user", ago(20), "hello from the desktop", 0),
+	})
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		if len(call) == 4 && call[2] == "--text" {
+			_, err := fx.st.AddSupervisorInput(ctx, call[3])
+			return "", err
+		}
+		return "", nil
+	}
+	h := fx.handler()
+	rec := apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello from the desktop"}, token, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/message = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if err := fx.st.DeliverSupervisorInput(context.Background(), 1, false); err != nil {
+		t.Fatal(err)
+	}
+	checkAPIGolden(t, h, "message-delivered", "/api/v1/timeline")
+}
+
 func TestAPICursorFollowsTheData(t *testing.T) {
 	clock := frozen
 	fx := apiFixture(t, func() time.Time { return clock })

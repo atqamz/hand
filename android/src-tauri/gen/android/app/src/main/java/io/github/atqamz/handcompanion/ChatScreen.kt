@@ -17,6 +17,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -35,14 +39,18 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -66,8 +75,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -123,14 +134,7 @@ private fun Pulse() {
 @Composable
 private fun MessageHead(entry: TimelineEntry, mine: Boolean, zone: TimeZone) {
   val hand = LocalHand.current
-  val delivery =
-    when {
-      entry.queued || entry.delivery == "queued" -> "queued"
-      entry.delivery.isNotEmpty() && entry.delivered.isNotEmpty() ->
-        "${entry.delivery} ${chatClock(entry.delivered, zone)}"
-      entry.delivery.isNotEmpty() -> entry.delivery
-      else -> ""
-    }
+  val delivery = deliveryWords(entry, zone)
   Row(
     Modifier.fillMaxWidth().padding(bottom = 4.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -569,6 +573,116 @@ internal fun ChatContent(
 private fun ChatRow.isHandLine() = this is ChatRow.Hand || this is ChatRow.Wakes
 
 @Composable
+private fun rememberDraftField(initial: String): MutableState<TextFieldValue> =
+  rememberSaveable(stateSaver = TextFieldValue.Saver) {
+    mutableStateOf(TextFieldValue(initial))
+  }
+
+@Composable
+internal fun ChatComposer(
+  hint: String,
+  blocked: Boolean,
+  sending: Boolean,
+  error: String,
+  note: String,
+  draft: String,
+  input: MutableState<TextFieldValue>,
+  onEdit: (TextFieldValue) -> Unit,
+  onSend: () -> Unit,
+  onHint: () -> Unit
+) {
+  val hand = LocalHand.current
+  val configuration = LocalConfiguration.current
+  val coarse = configuration.touchscreen != Configuration.TOUCHSCREEN_NOTOUCH
+  val accent = hand.ink(Tone.Accent)
+  val interactions = remember { MutableInteractionSource() }
+  val focused by interactions.collectIsFocusedAsState()
+  val shape = RoundedCornerShape(10.dp)
+  val maxText = (configuration.screenHeightDp * 0.4f).dp
+  LaunchedEffect(draft) {
+    if (input.value.text != draft) input.value = TextFieldValue(draft, TextRange(draft.length))
+  }
+  Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Box {
+      Column(
+        Modifier.fillMaxWidth()
+          .background(hand.bg, shape)
+          .border(1.dp, if (focused) accent else hand.lineStrong, shape)
+          .padding(4.dp, 4.dp, 4.dp, 8.dp)
+      ) {
+        BasicTextField(
+          value = input.value,
+          onValueChange = onEdit,
+          modifier =
+            Modifier.fillMaxWidth()
+              .padding(horizontal = 10.dp, vertical = 8.dp)
+              .heightIn(min = 44.dp, max = maxText),
+          textStyle = type.bodyMedium.copy(color = hand.fg),
+          cursorBrush = SolidColor(accent),
+          interactionSource = interactions,
+          decorationBox = { field ->
+            if (input.value.text.isEmpty()) {
+              Box {
+                Text("Message the supervisor", color = hand.muted, style = type.bodyMedium)
+                field()
+              }
+            } else {
+              field()
+            }
+          }
+        )
+        Row(
+          Modifier.fillMaxWidth().padding(start = 10.dp, end = 6.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+          when {
+            error.isNotEmpty() ->
+              Text(error, Modifier.weight(1f), color = hand.ink(Tone.Fail), style = type.bodySmall)
+            hint.isNotEmpty() ->
+              Text(
+                hint,
+                Modifier.weight(1f)
+                  .then(if (blocked) Modifier.clickable(onClick = onHint) else Modifier),
+                color = if (blocked) accent else hand.muted,
+                style = type.bodySmall
+              )
+            else -> Spacer(Modifier.weight(1f))
+          }
+          Button(
+            onSend,
+            enabled = input.value.text.isNotBlank() && !sending,
+            modifier = Modifier.heightIn(min = if (coarse) 44.dp else 32.dp),
+            shape = RoundedCornerShape(6.dp),
+            colors =
+              ButtonDefaults.buttonColors(
+                containerColor = hand.primary,
+                contentColor = hand.onPrimary,
+                disabledContainerColor = hand.primary.copy(alpha = 0.55f),
+                disabledContentColor = hand.onPrimary.copy(alpha = 0.55f)
+              ),
+            contentPadding = PaddingValues(horizontal = 20.dp)
+          ) {
+            Text("Send", style = type.labelLarge)
+          }
+        }
+      }
+      if (note.isNotEmpty()) {
+        Text(
+          note,
+          Modifier.align(Alignment.TopEnd)
+            .offset(y = (-9).dp)
+            .background(hand.bg)
+            .padding(horizontal = 6.dp),
+          color = hand.muted,
+          style = type.bodySmall
+        )
+      }
+    }
+  }
+}
+
+@Composable
 fun ChatScreen(
   fleet: String,
   state: ChatState,
@@ -578,7 +692,13 @@ fun ChatScreen(
   onScrolled: (Boolean) -> Unit,
   onTarget: (ThreadTarget) -> Unit,
   zone: TimeZone = TimeZone.getDefault(),
-  expand: Set<String> = emptySet()
+  expand: Set<String> = emptySet(),
+  hint: String = "",
+  hintBlocked: Boolean = false,
+  onHint: () -> Unit = {},
+  onEdit: (String) -> Unit = {},
+  onSend: () -> Unit = {},
+  input: MutableState<TextFieldValue> = rememberDraftField(state.draft)
 ) {
   var openText by rememberSaveable { mutableStateOf(expand.joinToString("\u0000")) }
   val open = remember(openText) {
@@ -595,17 +715,36 @@ fun ChatScreen(
       chatBody(state) == ChatBody.Failed -> ChatFailed(onRetry)
       chatBody(state) == ChatBody.Loading -> Loading()
       else ->
-        ChatContent(
-          fleet,
-          state,
-          zone,
-          open,
-          toggle,
-          onOlder,
-          onRetryOlder,
-          onScrolled,
-          onTarget
-        )
+        Column(Modifier.fillMaxSize()) {
+          Box(Modifier.weight(1f)) {
+            ChatContent(
+              fleet,
+              state,
+              zone,
+              open,
+              toggle,
+              onOlder,
+              onRetryOlder,
+              onScrolled,
+              onTarget
+            )
+          }
+          ChatComposer(
+            hint = hint,
+            blocked = hintBlocked,
+            sending = state.sending,
+            error = state.sendError,
+            note = state.draftNote,
+            draft = state.draft,
+            input = input,
+            onEdit = { value ->
+              input.value = value
+              onEdit(value.text)
+            },
+            onSend = onSend,
+            onHint = onHint
+          )
+        }
     }
   }
 }
