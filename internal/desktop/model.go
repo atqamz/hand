@@ -134,6 +134,7 @@ type Shot struct {
 
 type Entry struct {
 	Role      string  `json:"role"`
+	Key       string  `json:"key,omitempty"`
 	At        string  `json:"at,omitempty"`
 	Text      string  `json:"text,omitempty"`
 	No        int     `json:"no,omitempty"`
@@ -162,6 +163,17 @@ type Timeline struct {
 	Note    string   `json:"note,omitempty"`
 	Working *Working `json:"working,omitempty"`
 	Entries []Entry  `json:"entries"`
+}
+
+type TimelineEvent struct {
+	Entries  []Entry  `json:"entries"`
+	Drop     []string `json:"drop,omitempty"`
+	Working  *Working `json:"working"`
+	Live     bool     `json:"live"`
+	Note     string   `json:"note,omitempty"`
+	From     int      `json:"from,omitempty"`
+	To       int      `json:"to,omitempty"`
+	Snapshot bool     `json:"snapshot,omitempty"`
 }
 
 type Deliverable struct {

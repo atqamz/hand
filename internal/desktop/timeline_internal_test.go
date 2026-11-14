@@ -81,6 +81,74 @@ func TestTheWorkingTextNamesTheTurnTheLastOutputAndWhatItWorksOn(t *testing.T) {
 	}
 }
 
+func TestATimelineUpsertReplacesByKeyAndDropsWhatLeft(t *testing.T) {
+	have := Timeline{Entries: []Entry{
+		{Role: "operator", Key: "i7", Input: 7, At: "2026-11-01T04:46:00Z", Text: "hi", Queued: true},
+		{Role: "supervisor", Key: "supervisor/2026-11-01T04:43:00Z", At: "2026-11-01T04:43:00Z", Text: "mid"},
+		{Role: "hand", Key: "hand/2026-11-01T04:39:00Z", At: "2026-11-01T04:39:00Z", Text: "old"},
+	}}
+	got := applyTimelineUpsert(have, TimelineEvent{
+		Entries: []Entry{
+			{Role: "operator", Key: "i7", Input: 7, At: "2026-11-01T04:46:00Z", Text: "hi", Delivery: "delivered"},
+			{Role: "supervisor", Key: "supervisor/2026-11-01T04:45:00Z", At: "2026-11-01T04:45:00Z", Text: "new"},
+		},
+		Drop: []string{"hand/2026-11-01T04:39:00Z"},
+	})
+	var gotText []string
+	for _, e := range got.Entries {
+		gotText = append(gotText, e.Text)
+	}
+	if want := []string{"hi", "new", "mid"}; !slices.Equal(gotText, want) {
+		t.Fatalf("entries = %q, want %q: a changed entry keeps its place, a new one goes in by time, drop removes", gotText, want)
+	}
+	if got.Entries[0].Delivery != "delivered" {
+		t.Fatalf("the keyed entry kept its old fields: %+v", got.Entries[0])
+	}
+}
+
+func TestAnEventCarriesItsLiveNoteAndWorking(t *testing.T) {
+	working := &Working{Ref: "s1", Since: "2026-11-01T12:00:00Z", On: "since the turn began"}
+	got := applyTimelineUpsert(Timeline{Note: "old"}, TimelineEvent{
+		Live: true, Note: "watching", Working: working,
+	})
+	if !got.Live || got.Note != "watching" || got.Working != working {
+		t.Fatalf("event = %+v, want its live, note and working", got)
+	}
+	if stopped := applyTimelineUpsert(got, TimelineEvent{Live: true, Note: "stopped"}); stopped.Working != nil {
+		t.Fatalf("a null working left %+v, want no working row", stopped.Working)
+	}
+}
+
+func TestASnapshotReplacesTheHeldPage(t *testing.T) {
+	have := Timeline{Older: 40, Entries: []Entry{{Role: "hand", Key: "k", At: "2026-11-01T04:00:00Z", Text: "held"}}}
+	got := applyTimelineUpsert(have, TimelineEvent{
+		Snapshot: true, Live: true, To: 12,
+		Entries: []Entry{{Role: "supervisor", Key: "s", At: "2026-11-01T05:00:00Z", Text: "snapshot"}},
+	})
+	if len(got.Entries) != 1 || got.Entries[0].Text != "snapshot" || !got.Live || got.Older != 11 {
+		t.Fatalf("snapshot = %+v, want only its page and its range", got)
+	}
+}
+
+func TestARepliesArrivingWhileUpAreCounted(t *testing.T) {
+	have := Timeline{Entries: []Entry{
+		{Role: "supervisor", At: "2026-11-01T04:41:00Z", Text: "seen"},
+		{Role: "operator", Input: 2, At: "2026-11-01T04:40:00Z", Text: "mine"},
+	}}
+	next := Timeline{Entries: []Entry{
+		{Role: "supervisor", At: "2026-11-01T04:43:00Z", Text: "one"},
+		{Role: "supervisor", At: "2026-11-01T04:42:00Z", Text: "two"},
+		{Role: "operator", Input: 3, At: "2026-11-01T04:42:30Z", Text: "mine too"},
+		{Role: "supervisor", At: "2026-11-01T04:41:00Z", Text: "seen"},
+	}}
+	if got := newSupervisorReplies(have, next); got != 2 {
+		t.Fatalf("counted %d replies, want only the two the operator has not seen", got)
+	}
+	if got := newSupervisorReplies(Timeline{}, next); got != 0 {
+		t.Fatalf("counted %d on the first page, want none", got)
+	}
+}
+
 func TestAFoldedWakeNamesItsFirstAndLastMinute(t *testing.T) {
 	old := time.Local
 	time.Local = time.UTC
