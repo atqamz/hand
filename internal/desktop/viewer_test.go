@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -41,6 +43,15 @@ func viewFixture(t *testing.T) *fixture {
 	}
 	td.Reports = reports
 	td.Unread = []desktop.Report{reports[0], reports[2]}
+	f.task[fleetID] = td
+	return f
+}
+
+func viewFixtureNoDecisions(t *testing.T) *fixture {
+	t.Helper()
+	f := viewFixture(t)
+	td := f.task[fleetID]
+	td.Decisions = nil
 	f.task[fleetID] = td
 	return f
 }
@@ -288,6 +299,99 @@ func TestOpenAsAPageRunsHandOpen(t *testing.T) {
 	}
 }
 
+func TestAFailedOpenAsAPageShowsInTheViewer(t *testing.T) {
+	hand := installFakeHand(t)
+	t.Setenv("FAKE_HAND_FAIL", "the board did not start")
+	f := viewFixture(t)
+	f.fleets[0].Home = hand.home
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Fix login")
+	click(t, tt, "Open as a page")
+	tt.Frame()
+	mustText(t, tt, "The browser did not open", "the board did not start")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("the failure left the viewer on %v %q", app.Screen, app.Ref)
+	}
+	click(t, tt, "Dismiss")
+	mustNotText(t, tt, "The browser did not open")
+	if app.Screen != desktop.TaskScreen {
+		t.Fatalf("dismissing the failure closed the viewer: %v", app.Screen)
+	}
+}
+
+func TestAnOpenInFlightShowsInTheViewer(t *testing.T) {
+	hand := installFakeHand(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	t.Setenv("FAKE_HAND_GATE", gate)
+	f := viewFixture(t)
+	f.fleets[0].Home = hand.home
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Fix login")
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	click(t, tt, "Open as a page")
+	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("hand never started")
+		}
+	}
+	tt.Frame()
+	mustText(t, tt, "Opening in the browser…")
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for app.OpenBusy {
+		waitPost(t, posted)()
+	}
+	tt.Frame()
+	mustNotText(t, tt, "Opening in the browser…")
+	if app.OpenErr != "" {
+		t.Fatalf("OpenErr = %q", app.OpenErr)
+	}
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("the run left the viewer on %v %q", app.Screen, app.Ref)
+	}
+}
+
+func TestAFailedDocumentOpenShowsInTheViewer(t *testing.T) {
+	hand := installFakeHand(t)
+	t.Setenv("FAKE_HAND_FAIL", "the document did not open")
+	f := viewFixture(t)
+	f.fleets[0].Home = hand.home
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Fix login")
+	click(t, tt, "open /"+fleetID+"/doc/reports/t1/design.md")
+	tt.Frame()
+	mustText(t, tt, "The browser did not open", "the document did not open")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("the failure left the viewer on %v %q", app.Screen, app.Ref)
+	}
+}
+
+func TestABoardDeliverableOpensInTheViewer(t *testing.T) {
+	f := viewFixture(t)
+	td := f.task[fleetID]
+	td.Delivered = append(append([]desktop.Deliverable(nil), td.Delivered...),
+		desktop.Deliverable{Ref: "t3", Kind: "link", Href: "/" + fleetID + "/task/t3"})
+	f.task[fleetID] = td
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Fix login")
+	click(t, tt, "open t3")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t3" {
+		t.Fatalf("the Board deliverable left the viewer on %v %q", app.Screen, app.Ref)
+	}
+	if app.OpenErr != "" {
+		t.Fatalf("the Board deliverable ran hand: %q", app.OpenErr)
+	}
+	if got := tt.OpenedURLs(); len(got) != 0 {
+		t.Fatalf("the Board deliverable reached the browser: %q", got)
+	}
+}
+
 func TestTheTaskPageKeepsTwoColumnsFrom1000(t *testing.T) {
 	app := newApp(t, viewFixture(t))
 	tt := newTesterAt(app, 1000, 900)
@@ -334,7 +438,7 @@ func TestTheListsCarryAHairlineAboveTheirFirstRow(t *testing.T) {
 	click(t, tt, "Fix login")
 	img := tt.Image()
 	line := kit.ColorsFor(false).Line
-	for _, text := range []string{"DECISION", "Rename the helper?", "a1"} {
+	for _, text := range []string{"Rename the helper?", "decision asked"} {
 		r, ok := tt.Find(text)
 		if !ok {
 			t.Fatalf("no %q", text)
@@ -348,6 +452,50 @@ func TestTheListsCarryAHairlineAboveTheirFirstRow(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("no hairline above the first row at %q", text)
+		}
+	}
+}
+
+func TestTheWaitingListSharesTheHeadsRule(t *testing.T) {
+	app := newApp(t, viewFixture(t))
+	tt := newTesterAt(app, 1100, 1600)
+	click(t, tt, "Fix login")
+	badge, ok := tt.Find("DECISION")
+	if !ok {
+		t.Fatal("no waiting row")
+	}
+	img := tt.Image()
+	line := kit.ColorsFor(false).Line
+	var at []int
+	for y := int(badge.Y) - 40; y < int(badge.Y); y++ {
+		if rgbIs(img.RGBAAt(int(badge.X)+4, y), line) {
+			at = append(at, y)
+		}
+	}
+	if len(at) != 1 {
+		t.Fatalf("the band above the waiting list has hairlines at %v, want the head's rule alone", at)
+	}
+}
+
+func TestATaskWithNoDecisionsDrawsNoList(t *testing.T) {
+	app := newApp(t, viewFixtureNoDecisions(t))
+	tt := newTesterAt(app, 1100, 1600)
+	click(t, tt, "Fix login")
+	mustText(t, tt, "No decisions yet.")
+	quiet, ok := tt.Find("No decisions yet.")
+	if !ok {
+		t.Fatal("no No decisions yet.")
+	}
+	events, ok := tt.Find("Events")
+	if !ok {
+		t.Fatal("no Events head")
+	}
+	img := tt.Image()
+	for y := int(quiet.Y+quiet.H) + 1; y < int(events.Y); y++ {
+		for _, x := range []int{60, 300, 600} {
+			if rgbIs(img.RGBAAt(x, y), kit.ColorsFor(false).Line) {
+				t.Fatalf("a list's hairline at %d,%d under No decisions yet.", x, y)
+			}
 		}
 	}
 }
@@ -487,16 +635,16 @@ func TestMarkReadIsDisabledWhileInFlight(t *testing.T) {
 	}
 	click(t, tt, "Mark read r2")
 	click(t, tt, "Mark read r1")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the acknowledgement never started")
+	}
 	if got := f.count("ack:r1"); got != 1 {
 		t.Fatalf("%d acknowledgements of r1 while in flight, want 1", got)
 	}
 	if got := f.count("ack:r2"); got != 0 {
 		t.Fatalf("%d acknowledgements of r2 while r1 is in flight, want 0", got)
-	}
-	select {
-	case <-f.actionEntered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the acknowledgement never started")
 	}
 	close(f.actionBlock)
 	waitPost(t, posted)()
@@ -621,29 +769,47 @@ func TestTheViewerKeepsTheTasksRegionLive(t *testing.T) {
 	mustText(t, tt, "Fix login, finished elsewhere")
 }
 
-func TestAPushStartsAtTheTopOfBothScrolls(t *testing.T) {
-	app := newApp(t, viewFixture(t))
+func TestAPushBackAndCloseStartBothScrollsAtTheTop(t *testing.T) {
+	f := viewFixture(t)
+	app := newApp(t, f)
 	tt := newTesterAt(app, 1100, 420)
 	app.OpenRef("t1")
-	tt.Frame()
-	tt.Scroll(400, 300, 0, 320)
-	tt.Frame()
-	if y, max := desktop.ViewerScroll(app); max == 0 || y == 0 {
-		t.Fatalf("the page does not scroll: y=%v max=%v", y, max)
+	scrollBoth := func() {
+		tt.Frame()
+		tt.Scroll(400, 300, 0, 320)
+		tt.Frame()
+		if y, max := desktop.ViewerScroll(app); max == 0 || y == 0 {
+			t.Fatalf("the page does not scroll: y=%v max=%v", y, max)
+		}
+		tt.Scroll(900, 300, 0, 320)
+		tt.Frame()
+		if y, max := desktop.AsideScroll(app); max == 0 || y == 0 {
+			t.Fatalf("the aside does not scroll: y=%v max=%v", y, max)
+		}
 	}
-	tt.Scroll(900, 300, 0, 320)
-	tt.Frame()
-	if y, max := desktop.AsideScroll(app); max == 0 || y == 0 {
-		t.Fatalf("the aside does not scroll: y=%v max=%v", y, max)
+	assertTop := func(what string) {
+		tt.Frame()
+		if y, _ := desktop.ViewerScroll(app); y != 0 {
+			t.Errorf("%s starts the page scroll at %v, want the top", what, y)
+		}
+		if y, _ := desktop.AsideScroll(app); y != 0 {
+			t.Errorf("%s starts the aside at %v, want the top", what, y)
+		}
 	}
+	scrollBoth()
+	td := f.task[fleetID]
+	td.Task.Ref = "t3"
+	f.task[fleetID] = td
 	app.OpenRef("t3")
-	tt.Frame()
-	if y, _ := desktop.ViewerScroll(app); y != 0 {
-		t.Errorf("a pushed page starts the page scroll at %v, want the top", y)
-	}
-	if y, _ := desktop.AsideScroll(app); y != 0 {
-		t.Errorf("a pushed page starts the aside at %v, want the top", y)
-	}
+	assertTop("a pushed page")
+	scrollBoth()
+	app.Back()
+	assertTop("Back")
+	app.OpenRef("t3")
+	assertTop("a pushed page")
+	scrollBoth()
+	app.CloseViewer()
+	assertTop("the close")
 }
 
 func TestClosingAfterTheOpenerVanishesFocusesTheBoard(t *testing.T) {

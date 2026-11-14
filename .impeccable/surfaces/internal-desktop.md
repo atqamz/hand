@@ -18,7 +18,7 @@ related_targets:
   - Needs: bands by severity in the page's order, each headed by its word in the band's tone; 44px rows with the kind's icon, refs and time; the top item open as a card with its band's toned header, any row opening in place and closing again, one open at a time; a report opens to its excerpt and Mark read, a failure to its attempt's reason, a decision to the Board's choice list, its recommended badge and consequence lines, a note and a primary Send answer; a sent answer collapses the row to "Sent <option> · waiting…" until the next status removes it, a picked `other` with no note is refused before the request with the Board's sentence and the note focused, and a server refusal keeps it open with the reason in the receipt; a kind with nothing to show stays inert; after Mark read or an answer a receipt toast shows for 4 seconds and the next item opens; nothing waiting shows All clear, when it cleared and the summary;
   - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: one box with a two-row message field, the status's hint, the Ctrl Enter key hint and Send;
   - Tasks: the grouped task list, and each task's page in the viewer;
-  - the pages of a task, an attempt, a decision and a report, opened in the viewer over the Board, with Back through them and the close button, Escape or the backdrop for the whole stack;
+  - the pages of a task, an attempt, a decision and a report, opened in the viewer over the Board, with Back through them and the close button, Escape or the backdrop for the whole stack; an open run shows "Opening in the browser…" under the strip and its failure there with Dismiss, as does a document that fails to open;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status, its tasks list and the open page's data poll while the window is open (see Refresh).
@@ -83,6 +83,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
 | `17-open-link.png` | the viewer opened from a `handboard://open/` link, on a decision's page |
 | `18-overflow-menu.png` | the pane head's menu: Refresh now and Open in browser |
+| `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
 | `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
 | `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 860×700 and 1100×760 in both themes |
 | `22-resumable-1100x760-<light or dark>.png` | the head of a supervisor that can be resumed: Resume, with New session in the menu |

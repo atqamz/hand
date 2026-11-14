@@ -33,6 +33,15 @@ func (a *App) OpenBoardPath(dest string) {
 	a.runOpen(args...)
 }
 
+func (a *App) openBoardPage(dest string) bool {
+	ref, ok := boardViewerRef(a.Fleet.ID, dest)
+	if !ok {
+		return false
+	}
+	a.OpenRef(ref)
+	return true
+}
+
 func (a *App) OpenScreen() { a.runOpen("screen") }
 
 func (a *App) OpenPhone() { a.runOpen("phone") }
@@ -122,6 +131,36 @@ func failureLine(out []byte, err error) string {
 }
 
 var boardKinds = map[string]byte{"task": 't', "decision": 'd', "report": 'r', "attempt": 'a'}
+
+func boardViewerRef(fleet, dest string) (string, bool) {
+	if args, ok := boardOpenArgs(fleet, dest); ok && len(args) == 1 {
+		if refDigits(args[0]) {
+			return args[0], true
+		}
+		return "", false
+	}
+	u, err := url.Parse(dest)
+	if err != nil || fleet == "" {
+		return "", false
+	}
+	rest, ok := strings.CutPrefix(u.Path, "/"+fleet+"/ref/")
+	if !ok || !refDigits(rest) {
+		return "", false
+	}
+	return rest, true
+}
+
+func refDigits(ref string) bool {
+	if len(ref) < 2 || !strings.ContainsRune("tdar", rune(ref[0])) {
+		return false
+	}
+	for _, r := range ref[1:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
 
 func boardOpenArgs(fleet, dest string) ([]string, bool) {
 	u, err := url.Parse(dest)

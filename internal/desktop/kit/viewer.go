@@ -23,6 +23,7 @@ type ViewerOptions struct {
 	OnBack  func()
 	OnClose func()
 	OnOpen  func()
+	Notice  func(*ui.Context)
 	Body    func(*ui.Context)
 }
 
@@ -39,6 +40,9 @@ func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 			Shadow(0, 8, 24, 0, k.Shadow).Children(func() {
 			ui.Column(c).FillHeight().Children(func() {
 				viewerTop(c, k, v)
+				if v.Notice != nil {
+					v.Notice(c)
+				}
 				v.Body(c)
 			})
 		})

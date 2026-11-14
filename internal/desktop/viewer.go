@@ -18,6 +18,13 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,
 		OnOpen:  a.OpenInBrowser,
+		Notice: func(nc *ui.Context) {
+			if a.OpenBusy || a.OpenErr != "" {
+				ui.Box(nc).Padding(kit.Space10, kit.Space20, 0).Children(func() {
+					a.openCard(nc, p)
+				})
+			}
+		},
 		Body: func(*ui.Context) {
 			a.viewerBody(c, k, p)
 		},
@@ -191,7 +198,7 @@ func (a *App) taskWaiting(c *ui.Context, p palette) {
 	if len(t.OpenDecisions) == 0 && len(t.Unread) == 0 {
 		return
 	}
-	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
+	ui.Column(c).Gap(0).Children(func() {
 		for _, d := range t.OpenDecisions {
 			a.waitingRow(c, p, "DECISION", "wait", d.Ref, d.Headline, d.Ref)
 		}
@@ -271,12 +278,13 @@ func (a *App) taskSections(c *ui.Context, p palette) {
 	a.mainHead(c, "Decisions")
 	if len(t.Decisions) == 0 {
 		a.quiet(c, p, "No decisions yet.")
+	} else {
+		ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
+			for _, d := range t.Decisions {
+				a.decisionLine(c, p, d)
+			}
+		})
 	}
-	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
-		for _, d := range t.Decisions {
-			a.decisionLine(c, p, d)
-		}
-	})
 	a.mainHead(c, "Events")
 	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 		for _, e := range t.Events {
@@ -437,10 +445,11 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 	ui.Column(c).Gap(kit.Space2).Children(func() {
 		dest, board := a.deliveredTarget(d)
 		open := func() {
-			if board {
-				a.OpenBoardPath(dest)
-			} else {
+			switch {
+			case !board:
 				c.OpenURL(dest)
+			case !a.openBoardPage(dest):
+				a.OpenBoardPath(dest)
 			}
 		}
 		switch {
@@ -457,7 +466,7 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 		case d.Kind == "file":
 			ui.Text(c, taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
 				TextColor(p.neutral)
-		case dest != "" && !board:
+		case dest != "":
 			el := ui.ButtonBase(c.Key("aside-link:" + strconv.Itoa(i))).
 				AlignSelf(ui.Start).Cursor(ui.CursorPointer).Label("open " + d.Ref)
 			el.Children(func() {

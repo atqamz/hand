@@ -249,6 +249,15 @@ func (a *App) errorCard(c *ui.Context, p palette) {
 }
 
 func (a *App) openCard(c *ui.Context, p palette) {
+	if a.OpenBusy {
+		ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.card).
+			Border(1, p.line).Children(func() {
+			ui.Text(c, "Opening in the browser…").FontSize(kit.Title.Size).Bold()
+			ui.Text(c, "`hand open` is starting this page.").FontSize(kit.Meta.Size).
+				TextColor(p.neutral)
+		})
+		return
+	}
 	if a.OpenErr == "" {
 		return
 	}
