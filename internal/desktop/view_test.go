@@ -408,7 +408,7 @@ func TestNeedsOpensADecisionInPlace(t *testing.T) {
 		t.Fatalf("a Needs row left the Board screen for %v", app.Screen)
 	}
 	click(t, tt, "Open d1")
-	mustText(t, tt, "Options", "Open task")
+	mustText(t, tt, "Options", "for Fix login")
 }
 
 func TestTheConversationShowsItsEntriesAndTheWorkingLine(t *testing.T) {
@@ -796,13 +796,16 @@ func TestAttemptScreen(t *testing.T) {
 	mustText(t, tt, "Brief", "x", "20m", "Cookie fixed", "Reports")
 }
 
-func TestReportScreen(t *testing.T) {
+func TestAReportCardCarriesTheTasksMarkReadAndBody(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open r1")
-	mustText(t, tt, "r1", "Cookie fixed", "All tests pass.", "Open task", "Mark read")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("the report opened %v %q, want the task", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "Fleets / golden / t1", "report r1", "Cookie fixed", "All tests pass.", "Mark read r1")
 }
 
 func TestAnswerDecision(t *testing.T) {
@@ -820,7 +823,7 @@ func TestAnswerDecision(t *testing.T) {
 	if f.choice != "1. Yes, keep it" || f.answerNote != "" {
 		t.Fatalf("sent choice %q note %q", f.choice, f.answerNote)
 	}
-	mustText(t, tt, "answered", "Answer", "1.", "Yes, keep it")
+	mustText(t, tt, "answered", "Your answer", "Yes, keep it", "Answered by operator (desktop)")
 	mustNotText(t, tt, "Send answer")
 }
 
@@ -838,7 +841,7 @@ func TestAnswerDecisionWithANote(t *testing.T) {
 	if f.choice != "2. No, rename it" || f.answerNote != "the old name is in the docs" {
 		t.Fatalf("sent choice %q note %q", f.choice, f.answerNote)
 	}
-	mustText(t, tt, "answered", "2.", "No, rename it", "the old name is in the docs")
+	mustText(t, tt, "answered", "Your answer", "No, rename it", "the old name is in the docs")
 }
 
 func TestARefusedAnswerKeepsTheItemOpenAndSaysWhy(t *testing.T) {
@@ -852,8 +855,8 @@ func TestARefusedAnswerKeepsTheItemOpenAndSaysWhy(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
 	tt.Frame()
-	mustText(t, tt, "decision d1 is answered", "Keep the old cookie name?", "Yes, keep it", "Send answer")
-	mustNotText(t, tt, "The action did not go through")
+	mustText(t, tt, "The action did not go through", "decision d1 is answered",
+		"Keep the old cookie name?", "Yes, keep it", "Send answer")
 	if f.count("status:"+fleetID) <= before {
 		t.Error("the refusal did not refresh the fleet")
 	}
@@ -866,15 +869,14 @@ func TestAckReport(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
-	app.OpenRef("t1")
 	app.OpenRef("r1")
 	tt.Frame()
-	click(t, tt, "Mark read")
+	click(t, tt, "Mark read r1")
 	if f.count("ack:r1") != 1 {
 		t.Fatalf("ack calls = %d, want 1", f.count("ack:r1"))
 	}
-	mustText(t, tt, "Read by operator (desktop)", "Read")
-	if app.Report.Report.AckedAt == "" {
+	mustText(t, tt, "read by operator (desktop)")
+	if app.Task.Reports[0].AckedAt == "" {
 		t.Fatal("the report is not acknowledged in the window")
 	}
 }
@@ -943,7 +945,7 @@ func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 	click(t, tt, "Board")
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Open d1")
-	click(t, tt, "Open task")
+	click(t, tt, "for Fix login")
 	mustText(t, tt, "plan p1")
 	click(t, tt, "Back")
 	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
@@ -992,7 +994,10 @@ func TestBackFromAnAttemptReportReturnsToTheAttempt(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Fix login")
 	click(t, tt, "attempt a1")
-	click(t, tt, "report r1")
+	click(t, tt, "open report r1")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("the report opened %v %q, want its task", app.Screen, app.Ref)
+	}
 	mustText(t, tt, "All tests pass.")
 	click(t, tt, "Back")
 	if app.Screen != desktop.AttemptScreen || app.Ref != "a1" {
@@ -1002,19 +1007,26 @@ func TestBackFromAnAttemptReportReturnsToTheAttempt(t *testing.T) {
 	mustNotText(t, tt, "The board could not be read")
 }
 
-func TestBackFromAReportsTaskReturnsToTheReport(t *testing.T) {
+func TestBackToATaskAtAReportsCardKeepsTheCard(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	tt := newTester(app)
+	tt := newTesterAt(app, 1100, 900)
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open r1")
-	click(t, tt, "Open task")
-	mustText(t, tt, "plan p1")
-	click(t, tt, "Back")
-	if app.Screen != desktop.ReportScreen || app.Ref != "r1" {
-		t.Fatalf("Back left %v %q, want the report r1", app.Screen, app.Ref)
+	click(t, tt, "from a1")
+	if app.Screen != desktop.AttemptScreen || app.Ref != "a1" {
+		t.Fatalf("from a1 left %v %q", app.Screen, app.Ref)
 	}
-	mustText(t, tt, "All tests pass.")
+	app.Back()
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || desktop.PageReport(app) != "r1" {
+		t.Fatalf("Back left %v %q at %q, want the task at r1's card",
+			app.Screen, app.Ref, desktop.PageReport(app))
+	}
+	if target := desktop.ScrollTarget(app); target != "r1" {
+		t.Fatalf("Back restored the target %q, want r1", target)
+	}
+	tt.Frame()
+	mustText(t, tt, "report r1", "All tests pass.")
 	mustNotText(t, tt, "The board could not be read")
 }
 
@@ -1608,8 +1620,8 @@ func TestBackClearsTheAnswerDraft(t *testing.T) {
 	if app.AnswerNote != "" {
 		t.Fatalf("opening the decision kept the draft %q", app.AnswerNote)
 	}
-	click(t, tt, "Open task")
-	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "for Fix login")
+	click(t, tt, "Answer d1")
 	if app.AnswerNote != "" {
 		t.Fatalf("opening a decision kept the draft %q", app.AnswerNote)
 	}

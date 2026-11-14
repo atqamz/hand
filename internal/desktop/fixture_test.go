@@ -217,6 +217,7 @@ func (f *fixture) Decision(ctx context.Context, id, ref string) (desktop.Decisio
 }
 
 func (f *fixture) Report(ctx context.Context, id, ref string) (desktop.ReportDetail, error) {
+	f.note("report:" + ref)
 	if f.fail != nil {
 		return desktop.ReportDetail{}, f.fail
 	}
@@ -269,8 +270,6 @@ func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, re
 		p.ScreenFresh, p.Attempt = true, f.attempt[id]
 	case desktop.DecisionScreen:
 		p.ScreenFresh, p.Decision = true, f.decision[id]
-	case desktop.ReportScreen:
-		p.ScreenFresh, p.Report = true, f.report[id]
 	}
 	return p, nil
 }

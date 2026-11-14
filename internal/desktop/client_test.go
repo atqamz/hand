@@ -904,8 +904,6 @@ func TestPollReadsOnlyTheOpenScreensData(t *testing.T) {
 			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Attempt.Attempt.Ref == "a1" }},
 		{screen: desktop.DecisionScreen, ref: "d1", path: "/api/v1/decision/d1", data: `{"decision":{"ref":"d1"}}`,
 			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Decision.Decision.Ref == "d1" }},
-		{screen: desktop.ReportScreen, ref: "r1", path: "/api/v1/report/r1", data: `{"report":{"ref":"r1"}}`,
-			seen: func(p desktop.Poll) bool { return p.ScreenFresh && p.Report.Report.Ref == "r1" }},
 	}
 	data := map[string]string{}
 	for _, tc := range cases {

@@ -474,11 +474,7 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 				if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
 					a.markdown(c, body)
 				}
-				a.answerForm(c, k, p, d, false)
-				if d.Decision.Answer != "" {
-					ui.Text(c, "Answer").FontSize(kit.Meta.Size).Bold().TextColor(k.Muted)
-					a.markdown(c, d.Decision.Answer)
-				}
+				a.answerForm(c, k, p, d)
 			default:
 				ui.Text(c, "Reading "+need.Decision+"…").FontSize(kit.Body.Size).TextColor(k.Muted)
 			}
@@ -806,8 +802,11 @@ func (a *App) answerNeedsNote(choice, note string) bool {
 	return false
 }
 
-func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetail, heading bool) {
-	open := d.Decision.Status == "open"
+func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetail) {
+	if d.Decision.Status != "open" {
+		a.answeredDecision(c, k, p, d)
+		return
+	}
 	other := false
 	for _, o := range d.Options {
 		if a.AnswerChoice == o.Value && o.Other {
@@ -815,69 +814,38 @@ func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetai
 		}
 	}
 	if len(d.Options) > 0 {
-		if heading {
-			a.section(c, p, "Options")
-		}
-		if open {
-			options := make([]kit.Choice, 0, len(d.Options))
-			for _, o := range d.Options {
-				options = append(options, kit.Choice{
-					Value: o.Value, Key: o.Key, Label: o.Label, Note: o.Note,
-					Recommended: o.Recommended, Long: o.Long,
-					Picked: a.AnswerChoice == o.Value, Disabled: a.Busy,
-				})
-			}
-			if picked := kit.ChoiceList(c, k, options); picked != "" && !a.Busy {
-				a.pickChoice(picked, d.Options)
-			}
-		} else {
-			ui.Column(c).Gap(6).Children(func() {
-				for _, o := range d.Options {
-					option := o
-					selected := a.AnswerChoice == option.Value
-					bg, border := p.card, p.line
-					if selected {
-						bg, border = p.passBG, p.pass
-					}
-					el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
-						Radius(8).Background(bg).Border(1, border).Disabled(true)
-					el.Children(func() {
-						ui.Text(c, option.Key).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(18)
-						ui.Column(c).Gap(2).Grow(1).Children(func() {
-							ui.Row(c).Gap(8).Children(func() {
-								ui.Text(c, option.Label).FontSize(kit.Body.Size).Bold()
-								if option.Recommended {
-									ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
-								}
-							})
-							if option.Note != "" {
-								ui.Text(c, option.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
-							}
-						})
-					})
-				}
+		options := make([]kit.Choice, 0, len(d.Options))
+		for _, o := range d.Options {
+			options = append(options, kit.Choice{
+				Value: o.Value, Key: o.Key, Label: shownText(o.Label), Note: shownText(o.Note),
+				Recommended: o.Recommended, Long: o.Long,
+				Picked: a.AnswerChoice == o.Value, Disabled: a.Busy,
 			})
 		}
+		if picked := kit.ChoiceList(c, k, options); picked != "" && !a.Busy {
+			a.pickChoice(picked, d.Options)
+		}
 	}
-	if open {
-		placeholder := "Your answer"
-		if len(d.Options) > 0 {
-			placeholder = "Add a note (optional)"
-		}
-		if other {
-			placeholder = "Write your answer (required)"
-		}
-		note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
-			Disabled(a.Busy)
-		if a.focusNote {
-			note.Focus()
-			a.focusNote = false
-		}
-		if other && strings.TrimSpace(a.AnswerNote) == "" {
-			ui.Text(c, noteRequiredText).FontSize(kit.Meta.Size).TextColor(p.fail)
-		}
-		a.sendAnswer(c, k)
+	placeholder := "Your answer"
+	if len(d.Options) > 0 {
+		placeholder = "Add a note (optional)"
 	}
+	if other {
+		placeholder = "Write your answer (required)"
+	}
+	note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder)
+	if len(d.Options) > 0 {
+		note = note.Lines(1, 1).MinHeight(kit.Control)
+	}
+	note = note.Disabled(a.Busy)
+	if a.focusNote {
+		note.Focus()
+		a.focusNote = false
+	}
+	if other && strings.TrimSpace(a.AnswerNote) == "" {
+		ui.Text(c, noteRequiredText).FontSize(kit.Meta.Size).TextColor(p.fail)
+	}
+	a.sendAnswer(c, k)
 }
 
 func (a *App) sendAnswer(c *ui.Context, k kit.Colors) {
@@ -885,37 +853,48 @@ func (a *App) sendAnswer(c *ui.Context, k kit.Colors) {
 	if a.Busy {
 		label = "Sending…"
 	}
-	b := ui.ButtonBase(c.Key("send-answer")).Height(kit.Control).Padding(0, kit.Space12).
-		Radius(kit.RadiusMD).Background(k.Primary).Justify(ui.Center).AlignItems(ui.Center).
-		Disabled(a.Busy).Cursor(ui.CursorPointer).Label(label)
-	b.Children(func() {
-		ui.Text(c, label).FontSize(kit.Body.Size).Bold().TextColor(k.OnPrimary).SingleLine()
+	ui.Row(c).Children(func() {
+		b := ui.ButtonBase(c.Key("send-answer")).Height(kit.Control).Padding(0, kit.Space12).
+			Radius(kit.RadiusMD).Background(k.Primary).Justify(ui.Center).AlignItems(ui.Center).
+			Disabled(a.Busy).Cursor(ui.CursorPointer).Label(label)
+		b.Children(func() {
+			ui.Text(c, label).FontSize(kit.Body.Size).Bold().TextColor(k.OnPrimary).SingleLine()
+		})
+		if a.focusSend {
+			b.Focus()
+			a.focusSend = false
+		}
+		if b.Clicked() {
+			a.Answer()
+		}
 	})
-	if a.focusSend {
-		b.Focus()
-		a.focusSend = false
-	}
-	if b.Clicked() {
-		a.Answer()
-	}
 }
 
-var choiceDigits = [...]ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9}
+func choicePress(key string) (ui.Key, bool, bool) {
+	if len(key) != 1 {
+		return 0, false, false
+	}
+	switch r := rune(key[0]); {
+	case r >= '0' && r <= '9':
+		return ui.Key0 + ui.Key(r-'0'), false, true
+	case r >= 'A' && r <= 'Z':
+		return ui.KeyA + ui.Key(r-'A'), true, true
+	}
+	return 0, false, false
+}
 
 func (a *App) choiceKeys(c *ui.Context, d DecisionDetail) {
 	if a.Busy || d.Decision.Status != "open" || len(d.Options) == 0 {
 		return
 	}
-	for i, key := range choiceDigits {
-		if !c.Shortcut(0, key) {
+	for _, o := range d.Options {
+		key, shifted, ok := choicePress(o.Key)
+		if !ok {
 			continue
 		}
-		want := fmt.Sprint(i + 1)
-		for _, o := range d.Options {
-			if o.Key == want {
-				a.pickChoice(o.Value, d.Options)
-				break
-			}
+		if c.Shortcut(0, key) || shifted && c.Shortcut(ui.Shift, key) {
+			a.pickChoice(o.Value, d.Options)
+			break
 		}
 	}
 	if a.AnswerChoice != "" && c.Shortcut(0, ui.KeyEnter) {

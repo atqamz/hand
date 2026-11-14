@@ -926,17 +926,45 @@ func TestPollWaitsWhileTheScreenLoads(t *testing.T) {
 	app := newApp(t, f)
 	clock := newFakeClock()
 	app.Clock = clock
-	app.Loading = true
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
 	app.StartRefresh()
+	app.Reload()
+	runPosted(t, posted)
+	if !app.Loading {
+		t.Fatal("the load is not marked while its fetch runs")
+	}
 	clock.Advance(desktop.FocusedRefresh)
 	if got := f.count("poll:" + fleetID); got != 0 {
 		t.Fatalf("a poll overlapped a load: %d polls", got)
 	}
-	app.Loading = false
-	clock.Advance(desktop.FocusedRefresh)
-	if got := f.count("poll:" + fleetID); got != 1 {
-		t.Fatalf("polls after the load = %d, want 1", got)
+	for app.Loading {
+		runPosted(t, posted)
 	}
+	clock.Advance(desktop.FocusedRefresh)
+	pumpUntil(t, posted, func() bool { return f.count("poll:"+fleetID) > 0 })
+}
+
+func TestAFailedReportLookupDoesNotStallThePoll(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.StartRefresh()
+	app.OpenRef("t1")
+	runPosted(t, posted)
+	app.OpenRef("r9")
+	if app.Loading {
+		t.Fatal("the dropped load left Loading set")
+	}
+	pumpUntil(t, posted, func() bool { return f.count("report:r9") == 1 })
+	tt := newTester(app)
+	tt.Frame()
+	mustText(t, tt, "The report could not be read")
+	clock.Advance(desktop.FocusedRefresh)
+	pumpUntil(t, posted, func() bool { return f.count("poll:"+fleetID) > 0 })
 }
 
 func TestRefreshKeepsTimelineHistory(t *testing.T) {
