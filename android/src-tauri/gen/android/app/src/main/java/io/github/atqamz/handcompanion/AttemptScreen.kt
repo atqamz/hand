@@ -100,7 +100,7 @@ private fun BriefBox(text: String, open: Boolean, onToggle: () -> Unit) {
         .focusable()
         .padding(12.dp)
     ) {
-      Text(text, style = HandMono)
+      Text(shown(text), style = HandMono)
     }
     Text(
       if (open) "Show less" else "Show the whole brief",
@@ -126,7 +126,7 @@ private fun TurnRow(turn: AttemptTurn) {
       localTime(turn.at)?.let { Meta(it) }
       if (turn.queued) Chip("queued", Tone.Neutral, 20)
     }
-    Text(turn.text, style = type.bodyLarge)
+    Text(shown(turn.text), style = type.bodyLarge)
   }
   HorizontalDivider(color = hand.line)
 }
@@ -170,8 +170,12 @@ private fun AttemptContent(
         Box(Modifier.padding(16.dp, 4.dp)) { Meta(TRANSCRIPT_MORE) }
       }
     }
-    if (detail.reports.isNotEmpty()) {
-      item(key = "reports-head") { SectionHead("Reports") }
+    item(key = "reports-head") { SectionHead("Reports") }
+    if (detail.reports.isEmpty()) {
+      item(key = "reports-empty") {
+        Box(Modifier.padding(16.dp, 4.dp)) { Meta("No reports yet.") }
+      }
+    } else {
       items(detail.reports, key = { "report:${it.ref}" }) { report ->
         ReportCard(
           report,
@@ -191,12 +195,10 @@ private fun AttemptContent(
       item(key = "delivered-head") { SectionHead("Delivered") }
       items(detail.delivered, key = { "delivered:${it.kind}:${it.ref}" }) { Delivered(it, fleet, onTarget) }
     }
-    if (detail.events.isNotEmpty()) {
-      item(key = "events-head") { SectionHead("Events") }
-      items(detail.events, key = { "event:${it.seq}" }) { EventRow(it) }
-      if (detail.moreEvents) item(key = "events-more") {
-        Box(Modifier.padding(16.dp, 4.dp)) { Meta(EVENTS_MORE) }
-      }
+    item(key = "events-head") { SectionHead("Events") }
+    items(detail.events, key = { "event:${it.seq}" }) { EventRow(it) }
+    if (detail.moreEvents) item(key = "events-more") {
+      Box(Modifier.padding(16.dp, 4.dp)) { Meta(EVENTS_MORE) }
     }
     state.notice?.let { text ->
       item(key = "notice") {

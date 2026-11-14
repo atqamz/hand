@@ -8,14 +8,13 @@ import org.junit.Test
 private const val FLEET = "f000000000003"
 
 private val attempt =
-  TaskAttempt(
+  AttemptRecord(
     ref = "a62",
     task = "t40",
-    harness = "codex",
+    harness = "copilot",
     model = "gpt-5",
     effort = "high",
     status = "running",
-    state = "running",
     branch = "hand/t40-a62",
     createdAt = "2026-11-11T11:10:00Z"
   )
@@ -52,9 +51,17 @@ private val turns =
     )
   )
 
+private val events =
+  listOf(
+    TaskEvent(10, "2026-11-11T11:10:00Z", "attempt.launching", "", "t40"),
+    TaskEvent(21, "2026-11-11T11:31:00Z", "decision.asked", "d12 asked", "t40"),
+    TaskEvent(30, "2026-11-11T11:31:00Z", "attempt.reported", "a62 reported r90", "t40")
+  )
+
 private fun detail(
   state: String = "running",
   status: String = "running",
+  harness: String = "copilot",
   transcript: AttemptTranscript =
     AttemptTranscript(
       shown = true,
@@ -63,27 +70,26 @@ private fun detail(
       answered = "gpt-5",
       turns = turns
     ),
-  unread: Boolean = true,
-  moreReports: Boolean = false
+  reports: Boolean = true,
+  withEvents: Boolean = true,
+  endedAt: String = ""
 ) =
   AttemptDetail(
-    attempt = attempt.copy(status = status, state = state),
+    attempt = attempt.copy(harness = harness, status = status, endedAt = endedAt),
     task = task,
     state = state,
     brief = brief,
     modelNote = "Asked for high effort; ran with medium.",
     duration = if (state == "running") "21m" else "21m 04s",
     reports =
-      if (unread) listOf(report)
-      else listOf(report.copy(ackedAt = "2026-11-11T12:00:00Z", ackedBy = "phone (Pixel 8)")),
-    moreReports = moreReports,
-    events =
-      listOf(
-        TaskEvent(30, "2026-11-11T11:31:00Z", "attempt.reported", "a62 reported r90", "t40"),
-        TaskEvent(21, "2026-11-11T11:31:00Z", "decision.asked", "d12 asked", "t40"),
-        TaskEvent(10, "2026-11-11T11:10:00Z", "attempt.launched", "codex high", "t40")
-      ),
-    moreEvents = true,
+      when {
+        !reports -> emptyList()
+        state == "running" -> listOf(report)
+        else -> listOf(report.copy(ackedAt = "2026-11-11T12:00:00Z", ackedBy = "phone (Pixel 8)"))
+      },
+    moreReports = false,
+    events = if (withEvents) events else emptyList(),
+    moreEvents = false,
     delivered = listOf(TaskDeliverable("plan-t40.md", "file", "/doc/plan-t40.md")),
     transcript = transcript
   )
@@ -121,7 +127,14 @@ class AttemptScreenTest {
     shot(
       false,
       state(
-        detail(state = "idle", status = "done", transcript = AttemptTranscript(), unread = false)
+        detail(
+          state = "idle",
+          status = "exited",
+          transcript = AttemptTranscript(),
+          reports = false,
+          withEvents = false,
+          endedAt = "2026-11-11T11:31:04Z"
+        )
       )
     )
 
@@ -130,7 +143,14 @@ class AttemptScreenTest {
     shot(
       true,
       state(
-        detail(state = "idle", status = "done", transcript = AttemptTranscript(), unread = false)
+        detail(
+          state = "idle",
+          status = "exited",
+          transcript = AttemptTranscript(),
+          reports = false,
+          withEvents = false,
+          endedAt = "2026-11-11T11:31:04Z"
+        )
       )
     )
 

@@ -257,7 +257,7 @@ internal fun ReportCard(
         localTime(report.createdAt)?.let { Meta(it) }
       }
     }
-    if (report.body.isNotEmpty()) Text(report.body, Modifier.padding(12.dp), style = type.bodyMedium)
+    if (report.body.isNotEmpty()) Text(shown(report.body), Modifier.padding(12.dp), style = type.bodyMedium)
     error?.let { Problem(it) }
   }
 }
@@ -331,7 +331,7 @@ internal fun EventRow(event: TaskEvent) {
     )
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(eventWords(event.kind), style = type.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-      if (event.detail.isNotEmpty()) Text(event.detail, color = hand.muted, style = type.bodySmall)
+      if (event.detail.isNotEmpty()) Text(shown(event.detail), color = hand.muted, style = type.bodySmall)
     }
   }
   HorizontalDivider(color = hand.line)

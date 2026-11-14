@@ -37,8 +37,8 @@ private fun detail(
   acked: Boolean = false
 ): String {
   val attempt =
-    """{"ref":"a62","task":"t40","harness":"codex","model":"gpt-5","effort":"high",""" +
-      """"status":"$status","state":"$state","branch":"hand/t40-a62",""" +
+    """{"ref":"a62","task":"t40","harness":"copilot","model":"gpt-5","effort":"high",""" +
+      """"status":"$status","branch":"hand/t40-a62",""" +
       """"created_at":"2026-11-11T11:10:00Z"""" +
       (if (status == "running") "" else ""","ended_at":"2026-11-11T11:31:00Z"""") +
       "}"
@@ -60,6 +60,9 @@ private fun read(data: String) =
 
 private fun refused(status: Int, code: String, message: String) =
   Raw(status, """{"error":{"status":$status,"code":"$code","message":"$message"}}""")
+
+private fun golden(name: String): String =
+  checkNotNull(AttemptModelTest::class.java.classLoader?.getResource("api/$name.json")).readText()
 
 private class AttemptBoard(
   var detailAnswer: (String?) -> Raw = { answer(detail()) },
@@ -103,8 +106,13 @@ private class AttemptBoard(
   }
 }
 
-private fun model(board: AttemptBoard, bus: LiveBus = LiveBus(8), pollMillis: Long = 5_000) =
-  AttemptModel(FLEET, "a62", board, bus, pollMillis)
+private fun model(
+  board: AttemptBoard,
+  bus: LiveBus = LiveBus(8),
+  pollMillis: Long = 5_000,
+  fleet: String = FLEET,
+  ref: String = "a62"
+) = AttemptModel(fleet, ref, board, bus, pollMillis)
 
 private fun reads(board: AttemptBoard) = board.calls.count { it.startsWith("GET /api/v1/attempt") }
 
@@ -156,7 +164,7 @@ class AttemptModelTest {
     val attempt = model(AttemptBoard())
     attempt.load()
     val detail = attempt.state.value.detail ?: error("no detail")
-    assertEquals("codex · gpt-5 · high", attemptTitle(detail.attempt))
+    assertEquals("copilot · gpt-5 · high", attemptTitle(detail.attempt))
     assertEquals("running", detail.attempt.status)
     assertEquals("running", detail.state)
     assertEquals("21m", detail.duration)
@@ -416,6 +424,81 @@ class AttemptModelTest {
   }
 
   @Test
+  fun theGoldenRunningAnswerDecodesEndToEnd() = runBlocking {
+    val attempt =
+      model(
+        AttemptBoard(detailAnswer = { Raw(200, golden("attempt-running")) }),
+        fleet = "f00000000e0aa",
+        ref = "a1"
+      )
+    attempt.load()
+    val detail = attempt.state.value.detail ?: error("no detail")
+    assertEquals("a1", detail.attempt.ref)
+    assertEquals("t1", detail.task.ref)
+    assertEquals("claude · sonnet · low", attemptTitle(detail.attempt))
+    assertEquals("running", detail.attempt.status)
+    assertEquals("running", detail.state)
+    assertEquals("hand/f00000000e0aa/t1-a1", detail.attempt.branch)
+    assertEquals("20m", detail.duration)
+    assertEquals("x", detail.brief)
+    assertEquals(listOf("r1"), detail.reports.map { it.ref })
+    assertEquals("https://github.com/example/hand/pull/42", detail.delivered.single().ref)
+    assertEquals(listOf(8L, 9L, 10L), detail.events.map { it.seq })
+    assertFalse(detail.transcript.shown)
+  }
+
+  @Test
+  fun theGoldenFailedAnswerDecodesEndToEnd() = runBlocking {
+    val attempt =
+      model(
+        AttemptBoard(detailAnswer = { Raw(200, golden("attempt-failed")) }),
+        fleet = "f00000000e0aa",
+        ref = "a2"
+      )
+    attempt.load()
+    val detail = attempt.state.value.detail ?: error("no detail")
+    assertEquals("a2", detail.attempt.ref)
+    assertEquals("failed", detail.attempt.status)
+    assertEquals("failing", detail.state)
+    assertEquals("<1m", detail.duration)
+    assertEquals("2026-11-01T04:40:00Z", detail.attempt.endedAt)
+    assertTrue(detail.reports.isEmpty())
+    assertEquals(listOf(14L, 15L), detail.events.map { it.seq })
+    assertTrue(detail.delivered.isEmpty())
+  }
+
+  @Test
+  fun aTransientFailureIsClearedByTheNextUnchangedRead() = runBlocking {
+    var fail = false
+    val board =
+      AttemptBoard(
+        detailAnswer = { since ->
+          when {
+            fail -> refused(500, "internal", "boom")
+            since == null -> answer(detail(), "c1")
+            else -> Raw(304, "")
+          }
+        }
+      )
+    val attempt = model(board)
+    attempt.load()
+    fail = true
+    attempt.load()
+    assertEquals("The Board's answer could not be read.", attempt.state.value.notice)
+    fail = false
+    attempt.load()
+    assertNull(attempt.state.value.notice)
+  }
+
+  @Test
+  fun shownNamesControlAndBidiCharacters() {
+    assertEquals("aU+001B[31mbU+001B[0m", shown("a\u001B[31mb\u001B[0m"))
+    assertEquals("U+202ExU+2066", shown("\u202Ex\u2066"))
+    assertEquals("U+200Fleft", shown("\u200Fleft"))
+    assertEquals("one\ntwo\tthree", shown("one\r\ntwo\tthree"))
+  }
+
+  @Test
   fun theBodyNamesLoadingFailedRefusedAndContent() {
     assertEquals(AttemptBody.Loading, attemptBody(AttemptState()))
     assertEquals(AttemptBody.Failed, attemptBody(AttemptState(loading = false, failed = true)))
@@ -427,7 +510,7 @@ class AttemptModelTest {
           loading = false,
           detail =
             AttemptDetail(
-              TaskAttempt("a62", "t40", "codex", status = "running", state = "running", createdAt = ""),
+              AttemptRecord("a62", "t40", "copilot", status = "running", createdAt = ""),
               TaskInfo("t40", "Title"),
               "running"
             )

@@ -37,8 +37,22 @@ data class AttemptTranscript(
 )
 
 @Serializable
+data class AttemptRecord(
+  val ref: String,
+  val task: String,
+  val harness: String,
+  val model: String = "",
+  val effort: String = "",
+  val status: String,
+  val reason: String = "",
+  val branch: String = "",
+  @SerialName("created_at") val createdAt: String,
+  @SerialName("ended_at") val endedAt: String = ""
+)
+
+@Serializable
 data class AttemptDetail(
-  val attempt: TaskAttempt,
+  val attempt: AttemptRecord,
   val task: TaskInfo,
   val state: String,
   val brief: String = "",
@@ -180,7 +194,8 @@ class AttemptModel(
           )
         }
       }
-      Poll.Unchanged -> mutableState.update { it.copy(loading = false, failed = false) }
+      Poll.Unchanged ->
+        mutableState.update { it.copy(loading = false, failed = false, notice = null) }
     }
   }
 

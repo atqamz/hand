@@ -162,7 +162,13 @@ fun reportTone(status: String) =
 fun eventWords(kind: String) = kind.replace('.', ' ').replace('_', ' ')
 
 fun attemptTitle(attempt: TaskAttempt) =
-  listOf(attempt.harness, attempt.model, attempt.effort)
+  attemptTitle(attempt.harness, attempt.model, attempt.effort)
+
+fun attemptTitle(attempt: AttemptRecord) =
+  attemptTitle(attempt.harness, attempt.model, attempt.effort)
+
+private fun attemptTitle(harness: String, model: String, effort: String) =
+  listOf(harness, model, effort)
     .filter(String::isNotEmpty)
     .joinToString(" · ")
 
