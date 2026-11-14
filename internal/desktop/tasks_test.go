@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 func taskFixture(t *testing.T) *fixture {
@@ -87,7 +89,7 @@ func TestTaskRowsAreFortyEightHigh(t *testing.T) {
 
 func TestTheTaskIconFollowsItsState(t *testing.T) {
 	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
-	for _, want := range []string{"state waiting", "state failure", "state running", "state idle", "state passing"} {
+	for _, want := range []string{"state waiting", "state failing", "state running", "state idle", "state passing"} {
 		if _, ok := tt.Find(want); !ok {
 			t.Errorf("no icon for %q in %q", want, tt.Texts())
 		}
@@ -170,7 +172,7 @@ func TestASubTaskIsIndentedUnderItsParent(t *testing.T) {
 	if !ok {
 		t.Fatal("no icon on the parent")
 	}
-	child, ok := tt.Find("state failure")
+	child, ok := tt.Find("state failing")
 	if !ok {
 		t.Fatal("no icon on the sub-task")
 	}
@@ -242,4 +244,216 @@ func TestADeepSubTaskSaysItsDepth(t *testing.T) {
 	if got := deep.X - root.X; got != 60 {
 		t.Errorf("the fourth-level sub-task is indented %.0f, want 60 (three steps)", got)
 	}
+}
+
+func TestTheTaskRowOpensItsTask(t *testing.T) {
+	app := newApp(t, taskFixture(t))
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	click(t, tt, "task t1")
+	tt.Frame()
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("clicking the row went to screen %v ref %q", app.Screen, app.Ref)
+	}
+}
+
+func TestAMissingSlotLeavesNoGap(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	wide := strings.Repeat("a wide title that has to be cut ", 8)
+	ts.Groups = []desktop.TaskGroup{{Name: "Active", Count: 2, Tasks: []desktop.TaskRow{
+		{Ref: "t20", Title: wide + "with a badge", Project: "web", Status: "active", State: "idle",
+			Delivered: &desktop.Deliverable{Ref: "https://github.com/example/hand/pull/7", Kind: "PR"}},
+		{Ref: "t21", Title: wide + "with no badge", Project: "web", Status: "active", State: "idle"},
+	}}}
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	with, ok := tt.Find(wide + "with a badge")
+	if !ok {
+		t.Fatal("no truncated title with a badge")
+	}
+	without, ok := tt.Find(wide + "with no badge")
+	if !ok {
+		t.Fatal("no truncated title with no badge")
+	}
+	if without.W <= with.W {
+		t.Errorf("the title with no tail is %.0f wide, the one with a tail %.0f: the tail's slot is still there", without.W, with.W)
+	}
+
+	ts.Groups[0].Tasks = append(ts.Groups[0].Tasks[:0],
+		desktop.TaskRow{Ref: "t22", Title: "A bare row", Project: "web", Status: "active", State: "idle"},
+		desktop.TaskRow{Ref: "t23", Title: "A row with a meta line", Project: "web", Status: "inbox", State: "waiting",
+			Waits: &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z", Note: "the API freeze"}},
+	)
+	ts.Groups[0].Count = 2
+	f.tasks[fleetID] = ts
+	tt = sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	bare, ok := tt.Find("task t22")
+	if !ok {
+		t.Fatal("no bare row")
+	}
+	bareTitle, ok := tt.Find("A bare row")
+	if !ok {
+		t.Fatal("no bare title")
+	}
+	meta, ok := tt.Find("task t23")
+	if !ok {
+		t.Fatal("no row with a meta line")
+	}
+	metaTitle, ok := tt.Find("A row with a meta line")
+	if !ok {
+		t.Fatal("no title over a meta line")
+	}
+	if got, want := bareTitle.Y-bare.Y, metaTitle.Y-meta.Y; got <= want {
+		t.Errorf("the bare title sits %.0f below its row, the title over a meta line %.0f: an empty meta line is reserved", got, want)
+	}
+}
+
+func TestTheWaitsLineIsCutWithAnEllipsis(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	note := strings.Repeat("the vendor will answer ", 12)
+	ts.Groups = []desktop.TaskGroup{{Name: "Inbox", Count: 1, Tasks: []desktop.TaskRow{{
+		Ref: "t30", Title: "Wait on the vendor", Project: "web", Status: "inbox", State: "waiting",
+		Waits: &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z", Note: note, Status: "waiting", Waits: true},
+	}}}}
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	row, ok := tt.Find("task t30")
+	if !ok {
+		t.Fatal("no waiting row")
+	}
+	line, ok := tt.Find("Waits until Nov 20: " + note)
+	if !ok {
+		t.Fatalf("no waits line in %q", tt.Texts())
+	}
+	if line.X+line.W > row.X+row.W {
+		t.Errorf("the waits line ends at %.0f, past its row at %.0f", line.X+line.W, row.X+row.W)
+	}
+	if line.W >= row.W {
+		t.Errorf("the waits line is %.0f wide in a %.0f row: nothing was cut", line.W, row.W)
+	}
+}
+
+func TestTheDeliverableSitsAtTheTailOfItsRow(t *testing.T) {
+	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
+	row, ok := tt.Find("task t1")
+	if !ok {
+		t.Fatal("no task t1")
+	}
+	badge, ok := tt.Find("deliverable PR")
+	if !ok {
+		t.Fatal("no deliverable badge")
+	}
+	if badge.X < row.X+row.W/2 {
+		t.Errorf("the deliverable is at %.0f in a row starting at %.0f and %.0f wide, not at the tail", badge.X, row.X, row.W)
+	}
+	if slack := row.X + row.W - badge.X - badge.W; slack > kit.Space10 {
+		t.Errorf("the deliverable leaves %.0f px before the row's end, want its 4 px padding", slack)
+	}
+}
+
+func TestAnEmptyTaskGroupShowsNoHead(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	ts.Groups = append([]desktop.TaskGroup{{Name: "Empty", Count: 0}}, ts.Groups...)
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	mustNotText(t, tt, "group Empty")
+}
+
+func TestALiveStateChangeRepaintsTheRow(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	ts.Groups = ts.Groups[:1]
+	ts.Groups[0].Tasks = ts.Groups[0].Tasks[:1]
+	ts.Groups[0].Count = 1
+	f.tasks[fleetID] = ts
+	app := newApp(t, f)
+	app.Clock = newFakeClock()
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.Show(desktop.BoardScreen)
+	settle(t, posted)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	mustText(t, tt, "state waiting")
+
+	f.mu.Lock()
+	ts = f.tasks[fleetID]
+	ts.Groups[0].Tasks[0].State = "passing"
+	ts.Groups[0].Tasks[0].Attempt = nil
+	f.tasks[fleetID] = ts
+	f.mu.Unlock()
+
+	app.StartRefresh()
+	app.Clock.(*fakeClock).Advance(desktop.FocusedRefresh)
+	pumpUntil(t, posted, func() bool { return app.Tasks.Groups[0].Tasks[0].State == "passing" })
+	tt.Frame()
+	mustText(t, tt, "state passing")
+	mustNotText(t, tt, "state waiting")
+	app.Close()
+}
+
+func TestTheProjectBadgeNamesTheWholeProjectOnHover(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	long := strings.Repeat("project-", 10)
+	ts.Groups[0].Tasks[0].Project = long
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	badge, ok := tt.Find("project " + long)
+	if !ok {
+		t.Fatalf("no project badge in %q", tt.Texts())
+	}
+	tt.Move(badge.X+badge.W/2, badge.Y+badge.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if _, ok := tt.Find(long); !ok {
+		t.Errorf("resting on the badge shows no tooltip with the whole name, in %q", tt.Texts())
+	}
+}
+
+func TestScenesTasksProjectsAndLongRows(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		mode := map[bool]string{false: "light", true: "dark"}[dark]
+		t.Run("one-project-"+mode, func(t *testing.T) {
+			f := goldenFixture(t)
+			st := f.status[fleetID]
+			st.Needs = desktop.Needs{}
+			f.status[fleetID] = st
+			tt := sized(t, newApp(t, f), windowWidth, windowHeight, dark)
+			mustText(t, tt, "Active", "Fix login")
+			mustNotText(t, tt, "project hand")
+			shotSized(t, tt, "34-tasks-one-project-1100x760-"+mode, windowWidth, windowHeight)
+		})
+		t.Run("long-"+mode, func(t *testing.T) {
+			tt := sized(t, newApp(t, taskLongFixture(t)), windowWidth, windowHeight, dark)
+			mustText(t, tt, "A wide task title", "Waits until Nov 20:")
+			shotSized(t, tt, "35-tasks-long-1100x760-"+mode, windowWidth, windowHeight)
+		})
+	}
+}
+
+func taskLongFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	ts.Groups = []desktop.TaskGroup{{Name: "Active", Count: 2, Tasks: []desktop.TaskRow{
+		{
+			Ref:     "t1",
+			Title:   "A wide task title that runs past the width of the work pane and has to be cut with an ellipsis at its end",
+			Project: "platform-migration-and-the-very-long-project-name",
+			Status:  "active", State: "waiting",
+			Attempt:   &desktop.Attempt{Ref: "a1", Task: "t1", Harness: "claude", Model: "sonnet", Status: "running"},
+			Delivered: &desktop.Deliverable{Ref: "https://github.com/example/hand/pull/42", Kind: "PR"},
+		},
+		{
+			Ref: "t2", Title: "A sub-task with a waiting vendor",
+			Project: "platform-migration-and-the-very-long-project-name",
+			Status:  "active", State: "failing", Parent: "t1",
+			Waits: &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z",
+				Note: "the vendor answers the questionnaire about the migration", Status: "waiting", Waits: true},
+		},
+	}}}
+	f.tasks[fleetID] = ts
+	return f
 }
