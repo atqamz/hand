@@ -5,12 +5,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const (
 	maxPrefs        = 1 << 10
 	firstH          = 760
 	MinWindowHeight = 480
+	prefsDelay      = 300 * time.Millisecond
 )
 
 func PrefsPath(drafts string) string {
@@ -115,5 +117,39 @@ func (a *App) SetWindowSize(w, h int) {
 		return
 	}
 	a.WindowW, a.WindowH = w, h
-	a.savePrefs()
+	a.settlePrefs()
+}
+
+func (a *App) settlePrefs() {
+	if a.prefsTimer != nil {
+		a.prefsTimer()
+		a.prefsTimer = nil
+	}
+	if a.Post == nil {
+		a.savePrefs()
+		return
+	}
+	a.prefsGen++
+	gen := a.prefsGen
+	a.prefsTimer = a.clock().After(prefsDelay, func() {
+		post := a.Post
+		if post == nil {
+			return
+		}
+		post(func() {
+			if gen != a.prefsGen {
+				return
+			}
+			a.prefsTimer = nil
+			a.savePrefs()
+		})
+	})
+}
+
+func (a *App) flushPrefs() {
+	if a.prefsTimer != nil {
+		a.prefsTimer()
+		a.prefsTimer = nil
+	}
+	a.prefsGen++
 }

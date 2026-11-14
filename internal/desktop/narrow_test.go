@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -263,6 +264,44 @@ func TestTheWindowSizeSurvivesARestartAndFitsTheScreen(t *testing.T) {
 	}
 }
 
+func TestAResizeBurstWritesThePreferencesOnce(t *testing.T) {
+	dir := t.TempDir()
+	app := booted(t, dir)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	for _, size := range [][2]int{{1200, 800}, {1210, 810}, {1234, 812}} {
+		app.SetWindowSize(size[0], size[1])
+	}
+	if _, err := os.Stat(desktop.PrefsPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("the burst wrote the preferences before it settled: %v", err)
+	}
+	clock.Advance(299 * time.Millisecond)
+	if len(posted) != 0 {
+		t.Fatalf("the burst posted a save %d ms into the delay", 299)
+	}
+	clock.Advance(time.Millisecond)
+	if len(posted) != 1 {
+		t.Fatalf("the burst posted %d saves, want one", len(posted))
+	}
+	(<-posted)()
+	raw, err := os.ReadFile(desktop.PrefsPath(dir))
+	if err != nil {
+		t.Fatalf("no preferences file after the burst: %v", err)
+	}
+	var stored struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil || stored.Width != 1234 || stored.Height != 812 {
+		t.Fatalf("preferences hold %q, want 1234x812", raw)
+	}
+	if w, h := app.WindowSize(1920, 1055); w != 1234 || h != 812 {
+		t.Fatalf("the window holds %dx%d, want 1234x812", w, h)
+	}
+}
+
 func TestAPreferencesFileThatCannotBeReadLeavesTheDefaults(t *testing.T) {
 	dir := t.TempDir()
 	check := func(app *desktop.App) {
@@ -278,6 +317,7 @@ func TestAPreferencesFileThatCannotBeReadLeavesTheDefaults(t *testing.T) {
 	for _, raw := range []string{
 		`{not json`,
 		`{"zoom":1.5,"chat":700,`,
+		`{"zoom":1.5,"chat":"x"}`,
 		`{"zoom":1.5}` + strings.Repeat(" ", 1<<10),
 	} {
 		if err := os.WriteFile(desktop.PrefsPath(dir), []byte(raw), 0o600); err != nil {
@@ -313,10 +353,84 @@ func TestAnOpenedRefOpensTheTabThatHoldsIt(t *testing.T) {
 	if app.Tab != "needs" {
 		t.Fatalf("a decision from Needs left the tab on %q, want needs", app.Tab)
 	}
+	click(t, tt, "Close the viewer")
+	click(t, tt, "Chat")
 	app.OpenRef("r9")
 	tt.Frame()
-	if app.Tab != "needs" {
+	if app.Tab != "chat" {
 		t.Fatalf("a ref no panel holds left the tab on %q, want it unchanged", app.Tab)
+	}
+}
+
+func TestADeepLinkIntoARunningWindowSelectsTheTabThatHoldsIt(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	mustText(t, tt, "Message the supervisor")
+	settle := func() {
+		t.Helper()
+		for app.Loading {
+			waitPost(t, posted)()
+		}
+	}
+	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t4"); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	tt.Frame()
+	if app.Tab != "tasks" {
+		t.Fatalf("a task deep link into the running window left the tab on %q, want tasks", app.Tab)
+	}
+	if _, ok := tt.Find("Close the viewer"); !ok {
+		t.Fatal("the link opened no viewer")
+	}
+	click(t, tt, "Close the viewer")
+	settle()
+	tt.Frame()
+	if app.Tab != "tasks" {
+		t.Fatalf("closing the viewer left the tab on %q, want tasks", app.Tab)
+	}
+	mustText(t, tt, "Tasks", "Fix login")
+	mustNotText(t, tt, "Message the supervisor")
+}
+
+func TestOpeningATaskKeepsTheWorkPanesScrollAboveTheBreakpoint(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := sized(t, app, 1440, 900, false)
+	tt.Scroll(300, 400, 0, 400)
+	before, max := desktop.BoardScroll(app)
+	if before == 0 || max == 0 {
+		t.Fatalf("the work pane does not scroll at 1440: y=%v max=%v", before, max)
+	}
+	click(t, tt, "task t4")
+	tt.Frame()
+	if app.Tab != "tasks" {
+		t.Fatalf("opening t4 left the tab on %q, want tasks", app.Tab)
+	}
+	if got, _ := desktop.BoardScroll(app); got != before {
+		t.Errorf("opening a task moved the work pane from %v to %v", before, got)
+	}
+	click(t, tt, "Close the viewer")
+	tt.Frame()
+	if got, _ := desktop.BoardScroll(app); got != before {
+		t.Errorf("closing the task moved the work pane from %v to %v", before, got)
+	}
+}
+
+func TestPickingATabResetsTheWorkPanesScroll(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := sized(t, app, 880, 480, false)
+	click(t, tt, "Tasks")
+	tt.Scroll(400, 400, 0, 400)
+	if y, m := desktop.BoardScroll(app); y == 0 {
+		t.Fatalf("the narrow Tasks tab does not scroll at 880x480: max %v", m)
+	}
+	click(t, tt, "Needs")
+	tt.Frame()
+	if y, _ := desktop.BoardScroll(app); y != 0 {
+		t.Fatalf("picking a tab left the work pane at %v, want the top", y)
 	}
 }
 
@@ -339,6 +453,15 @@ func TestScenesNarrow(t *testing.T) {
 			tt := sized(t, newApp(t, goldenFixture(t)), tc.width, tc.height, dark)
 			if tc.tab != "" {
 				click(t, tt, tc.tab)
+			}
+			if _, ok := tt.Find("Tabs"); !ok {
+				t.Fatalf("%s: the masthead draws no tabs at %d px", tc.name, tc.width)
+			}
+			if _, ok := tt.Find("Pages and fleets"); ok {
+				t.Fatalf("%s: the rail is drawn at %d px", tc.name, tc.width)
+			}
+			if _, ok := tt.Find("Divider"); ok {
+				t.Fatalf("%s: the divider is drawn at %d px", tc.name, tc.width)
 			}
 			shotSized(t, tt, tc.name+"-"+theme, tc.width, tc.height)
 		}

@@ -85,6 +85,9 @@ type App struct {
 	WindowH     int
 	sheetOpen   bool
 	narrow      bool
+	tabFor      string
+	prefsTimer  func()
+	prefsGen    int
 	paneW       float32
 	chatH       float32
 	StopArmed   bool
@@ -264,6 +267,7 @@ func (a *App) StartRefresh() {
 // Close stops the auto-refresh loop and cancels a poll in flight.
 func (a *App) Close() {
 	a.flushDraft()
+	a.flushPrefs()
 	a.savePrefs()
 	a.polling, a.closed = false, true
 	a.resetPoll()
@@ -387,6 +391,7 @@ func (a *App) SelectFleet(id string) {
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
+	a.tabFor = ""
 	a.scroll.Y = math.MaxFloat32
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.openerRef, a.boardFocus = "", false
@@ -470,6 +475,7 @@ const viewerStackMax = 20
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
+	a.tabFor = ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
 	if s == BoardScreen {
@@ -515,7 +521,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == s && a.Ref == ref && a.pageReport == report {
 		return
 	}
-	a.pickTab(a.tabHolding(ref))
+	a.tabFor = ref
 	if a.Screen == BoardScreen {
 		a.openerRef = opener
 		a.viewerFocus = true
@@ -1437,10 +1443,10 @@ func (a *App) Reload() {
 	}
 	id, ctx, cancel := a.nextLoad()
 	a.setErr("")
-	post := a.Post
+	post, withTasks := a.Post, a.tabFor != ""
 	if post == nil {
 		a.Loading = false
-		l := fetch(a.Model, ctx, a.Fleet.ID, a.Screen, a.Ref)
+		l := fetch(a.Model, ctx, a.Fleet.ID, a.Screen, a.Ref, withTasks)
 		cancel()
 		a.apply(l)
 		return
@@ -1449,7 +1455,7 @@ func (a *App) Reload() {
 	post(func() {})
 	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
 	go func() {
-		l := fetch(model, ctx, fleet, screen, ref)
+		l := fetch(model, ctx, fleet, screen, ref, withTasks)
 		cancel()
 		post(func() {
 			if id != a.loadID {
@@ -1832,9 +1838,10 @@ type loaded struct {
 
 	TimelineOK  bool
 	TimelineErr string
+	TasksOK     bool
 }
 
-func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string) loaded {
+func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string, withTasks bool) loaded {
 	l := loaded{Screen: screen}
 	st, err := model.Status(ctx, fleet)
 	if err != nil {
@@ -1847,9 +1854,14 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	if ctx.Err() != nil {
 		return l
 	}
-	switch screen {
-	case BoardScreen:
+	if screen == BoardScreen || withTasks {
 		l.Tasks, err = model.Tasks(ctx, fleet, true)
+		l.TasksOK = err == nil
+		if err != nil && ctx.Err() == nil {
+			l.Err = friendly(err)
+		}
+	}
+	switch screen {
 	case TaskScreen:
 		l.Task, err = model.Task(ctx, fleet, ref)
 	case AttemptScreen:
@@ -1896,14 +1908,19 @@ func (a *App) apply(l loaded) {
 		a.timelineTo = l.Timeline.Older + len(l.Timeline.Entries)
 	}
 	switch l.Screen {
-	case BoardScreen:
-		a.Tasks = l.Tasks
 	case TaskScreen:
 		a.applyTask(l.Task)
 	case AttemptScreen:
 		a.Attempt = l.Attempt
 	case DecisionScreen:
 		a.Decision = l.Decision
+	}
+	if l.TasksOK {
+		a.Tasks = l.Tasks
+	}
+	if ref := a.tabFor; ref != "" {
+		a.tabFor = ""
+		a.pickTab(a.tabHolding(ref))
 	}
 }
 

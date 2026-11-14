@@ -221,7 +221,12 @@ func (a *App) pickTab(tab string) {
 		return
 	}
 	a.Tab = tab
+}
+
+func (a *App) chooseTab(tab string) {
+	a.tabFor = ""
 	a.boardScroll = ui.ScrollState{}
+	a.pickTab(tab)
 }
 
 // tabHolding is the tab an opened ref lives in: the Needs item that names
@@ -260,7 +265,7 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 				{Key: tabChat, Label: "Chat", Current: a.tab() == tabChat, Dot: a.Status.AgentState == "working"},
 			}
 		}
-		kit.MastheadTabs(c, k, a.Fleet.ID, name, a.toggleSheet, func() { a.mastheadStrip(c, k, p) }, tabs, a.pickTab)
+		kit.MastheadTabs(c, k, a.Fleet.ID, name, a.toggleSheet, func() { a.mastheadStrip(c, k, p) }, tabs, a.chooseTab)
 		return
 	}
 	kit.Masthead(c, k, a.Fleet.ID, name, func() { a.mastheadStrip(c, k, p) })

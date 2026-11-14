@@ -98,11 +98,11 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `29-composer-draft-<light or dark>.png` | a typed message with the draft note over the box's top edge |
 | `30-composer-focused-<light or dark>.png` | the box with the focus: the accent border and 1 px accent ring |
 | `31-composer-default-<light or dark>.png` | Send as a default button beside the Resume control in the pane head, the head having no other primary |
-| `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
-| `33-zoom-150-<light or dark>.png` | the same with 150% requested at 1100 px: the window draws it at 128% so the work pane keeps its 440 px |
+| `32-zoom-125-<light or dark>.png` | the two panes at 1440×900 at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
+| `33-zoom-150-<light or dark>.png` | the same at 1440×900 with 150% requested and drawn: both panes stay above 900 content px |
 | `36-composer-key-1440x900-<light or dark>.png` | the foot row at 1440 px, where the pane is over 520: the Ctrl Enter keycap 8 px from the primary Send |
 | `39-narrow-needs-880x760-<light or dark>.png` | the breakpoint's Needs tab: the masthead with its menu button, the three tabs, the Needs bands in the 880 px column, no rail and no divider |
-| `40-narrow-tasks-880x760-<light or dark>.png` | the Tasks tab: the search field, then the grouped task list, no page head |
+| `40-narrow-tasks-880x760-<light or dark>.png` | the Tasks tab: the search field across the head as the Board draws it below 900, then the grouped task list, no page head |
 | `41-narrow-chat-820x700-<light or dark>.png` | the Chat tab: the pane head, the conversation and the composer in the 760 px column, full height |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
