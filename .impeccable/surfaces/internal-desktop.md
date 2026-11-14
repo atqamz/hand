@@ -17,11 +17,11 @@ related_targets:
   - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button, and the status's hint on the composer's foot; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
   - Needs: bands by severity in the page's order, each headed by its word in the band's tone; 44px rows with the kind's icon, refs and time; the top item open as a card with its band's toned header, any row opening in place and closing again, one open at a time; a report opens to its excerpt and Mark read, a failure to its attempt's reason, a decision to the Board's choice list, its recommended badge and consequence lines, a note and a primary Send answer; a sent answer collapses the row to "Sent <option> · waiting…" until the next status removes it, a picked `other` with no note is refused before the request with the Board's sentence and the note focused, and a server refusal keeps it open with the reason in the receipt; a kind with nothing to show stays inert; after Mark read or an answer a receipt toast shows for 4 seconds and the next item opens; nothing waiting shows All clear, when it cleared and the summary;
   - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: one box with a two-row message field, the status's hint, the Ctrl Enter key hint and Send;
-  - Tasks: the grouped task list, and each task's detail;
-  - the detail of a task, an attempt, a decision and a report, opened in the left pane with Back;
+  - Tasks: the grouped task list, and each task's page in the viewer;
+  - the pages of a task, an attempt, a decision and a report, opened in the viewer over the Board, with Back through them and the close button, Escape or the backdrop for the whole stack; an open run shows "Opening in the browser…" under the strip and its failure there with Dismiss, as does a document that fails to open;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
-  - auto-refresh: the selected fleet's status and the open screen's data poll while the window is open (see Refresh).
+  - auto-refresh: the selected fleet's status, its tasks list and the open page's data poll while the window is open (see Refresh).
 - **Not in v1:** any other write (attachments, because the API sends text only; a model switch, because the API has no route for it), the document viewer, phone pairing, the archive's search, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
 - **Mode:** Operate.
 
@@ -70,7 +70,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 |---|---|
 | `01-fleet-switch.png` | the rail after a switch, the second fleet's masthead |
 | `02-panes.png` | the two panes: Needs and Tasks, the supervisor's head, its conversation and its composer |
-| `06-detail.png` | a task's plan, delivered PR, decisions, reports, attempts and events |
+| `06-detail.png` | a task's page in the viewer over the Board: its head, waiting rows, goal and plan, reports, decisions, events and the aside |
 | `07-empty.png` | All clear, no tasks, and no supervisor: the head offers Open in browser |
 | `08-error.png` | a token the board refuses, with Retry |
 | `09-decision-answer.png` | an open decision with an option chosen and the note field |
@@ -79,8 +79,9 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `12-composer-error.png` | a failed send, its error and the text it kept |
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
-| `15-delivered.png` | a task's Delivered list: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
+| `15-delivered.png` | the viewer's Delivered aside in a task's page: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
 | `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
+| `17-open-link.png` | the viewer opened from a `handboard://open/` link, on a decision's page |
 | `18-overflow-menu.png` | the pane head's menu: Refresh now and Open in browser |
 | `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
 | `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
@@ -98,6 +99,9 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
 | `33-zoom-150-<light or dark>.png` | the same with 150% requested at 1100 px: the window draws it at 128% so the work pane keeps its 440 px |
 | `36-composer-key-1440x900-<light or dark>.png` | the foot row at 1440 px, where the pane is over 520: the Ctrl Enter keycap 8 px from the primary Send |
+| `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
+| `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
+| `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |
 
 The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. It is 90 px at rest and 94 px while the hint wraps to a second line; the text box is borderless, at least 44 px, and grows with its text up to 40% of the window before it scrolls. The hint sits on the foot's left in muted meta and wraps rather than truncating; the blocked hint is the Board's accent link, which opens its item in Needs. The key hint reads Ctrl Enter, or ⌘ Enter on Apple hardware, and hides while the chat pane is under 520 px, the Board's container rule. The Board also hides it on a coarse pointer, which MyGo v0.7.4 does not report, so the window cannot yet tell; and since the window refuses to start off Linux, the ⌘ Enter branch is unexercised in a shipped binary. When the key hint shows it sits 8 px from Send, the Board's `.send` gap, and the hint 12 px from it. The draft note over the box's top-right corner says "Draft saved 14:32", or "Draft restored" after a restore, and is set on the save that lands, 300 ms after the last keystroke; it is hidden with no stored draft. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
 
@@ -129,7 +133,7 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 ## Refresh
 
-The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks only for the status, the conversation and the open screen's data (the tasks list, or the opened task, attempt, decision or report), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
+The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks for the status, the conversation, the tasks list and the open screen's data (the tasks list alone, or the opened task, attempt, decision or report with the tasks list), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
 
 | Window state | Interval |
 |---|---|

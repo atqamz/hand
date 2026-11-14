@@ -13,6 +13,7 @@ import (
 
 const (
 	receiptFor       = 4 * time.Second
+	errorFor         = 8 * time.Second
 	noteRequiredText = "Write your answer: that option asks for one."
 )
 

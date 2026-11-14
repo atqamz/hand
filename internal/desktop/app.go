@@ -95,6 +95,7 @@ type App struct {
 	needTop       string
 	needClosedTop string
 	ackDone       map[string]bool
+	ackRef        string
 	sentNeeds     map[string]string
 	misreadOpen   map[string]*bool
 	denyTimer     func()
@@ -112,6 +113,10 @@ type App struct {
 	needAttempt   AttemptDetail
 	receipt       string
 	receiptKey    string
+	notice        string
+	noticeTitle   string
+	noticeKey     string
+	noticeError   bool
 	answerRef     string
 
 	AnswerChoice string
@@ -160,6 +165,13 @@ type App struct {
 	stopGen       int
 	stopRef       string
 	scroll        ui.ScrollState
+	viewerScroll  ui.ScrollState
+	asideScroll   ui.ScrollState
+	boardScroll   ui.ScrollState
+	viewerPage    ui.Handle
+	viewerFocus   bool
+	openerRef     string
+	boardFocus    bool
 	wakesOpen     map[string]bool
 	latestNew     int
 	latestCount   int
@@ -184,18 +196,20 @@ type App struct {
 	pollCancel context.CancelFunc
 	pollBusy   bool
 
-	reads            [3]readState
-	pollSkipped      [3]bool
+	reads            [4]readState
+	pollSkipped      [4]bool
 	pollStatus       string
 	pollScreenFor    string
 	pollScreenCursor string
 	pollTimeline     string
+	pollTasks        string
 }
 
 const (
 	readStatus = iota
 	readScreen
 	readTimeline
+	readTasks
 )
 
 type readState struct {
@@ -360,6 +374,8 @@ func (a *App) SelectFleet(id string) {
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
 	a.scroll.Y = math.MaxFloat32
+	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.openerRef, a.boardFocus = "", false
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
@@ -435,12 +451,21 @@ func (a *App) install(f found, keep bool) {
 	a.applyPending()
 }
 
+const viewerStackMax = 20
+
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerFocus = false
+	if s == BoardScreen {
+		a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	}
 	a.Reload()
 }
 
+// OpenRef opens the page of a ref: over the Board it is the viewer's first
+// page, and inside the viewer it pushes one deeper. The stack is capped at
+// 20 pages, so the next link replaces the top one.
 func (a *App) OpenRef(ref string) {
 	if ref == "" || a.Fleet.ID == "" {
 		return
@@ -449,10 +474,53 @@ func (a *App) OpenRef(ref string) {
 	if !ok {
 		return
 	}
-	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
+	if a.Screen == s && a.Ref == ref {
+		return
+	}
+	if a.Screen == BoardScreen {
+		a.openerRef = ref
+		a.viewerFocus = true
+	}
+	if a.Screen != BoardScreen && len(a.back) < viewerStackMax-1 {
+		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
+	}
 	a.Screen, a.Ref = s, ref
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.Reload()
+}
+
+// CloseViewer closes the whole stack in one step, as Escape, the close
+// button and a click on the backdrop do.
+func (a *App) CloseViewer() {
+	if a.Screen == BoardScreen {
+		return
+	}
+	if a.openerRef != "" && !a.liveRef(a.openerRef) {
+		a.boardFocus = true
+	}
+	a.openerRef = ""
+	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.viewerFocus = false
+	a.Reload()
+}
+
+func (a *App) liveRef(ref string) bool {
+	for _, n := range a.Status.Needs.Items {
+		if needRef(n) == ref {
+			return true
+		}
+	}
+	for _, g := range a.Tasks.Groups {
+		for _, r := range g.Tasks {
+			if r.Ref == ref {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func refScreen(ref string) (Screen, bool) {
@@ -470,7 +538,7 @@ func refScreen(ref string) (Screen, bool) {
 }
 
 func (a *App) next(done string) {
-	if a.Ref != done || len(a.back) == 0 || a.back[len(a.back)-1].Screen != BoardScreen {
+	if a.Ref != done || len(a.back) > 0 {
 		return
 	}
 	for _, need := range a.Status.Needs.Items {
@@ -484,23 +552,26 @@ func (a *App) next(done string) {
 		if s, ok := refScreen(ref); ok {
 			a.Screen, a.Ref = s, ref
 			a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+			a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+			a.viewerFocus = true
 			a.Reload()
 			return
 		}
 		break
 	}
-	a.Back()
+	a.CloseViewer()
 }
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
-		a.Show(BoardScreen)
 		return
 	}
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref = step.Screen, step.Ref
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.viewerFocus = true
 	a.Reload()
 }
 
@@ -648,14 +719,13 @@ func (a *App) Ack(ref string) {
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
+	a.ackRef = ref
 	report := func(r ReportDetail) {
 		if id != a.loadID {
 			return
 		}
-		a.Busy = false
-		if screen == ReportScreen {
-			a.Report = r
-		}
+		a.Busy, a.ackRef = false, ""
+		a.applyAck(ref, r.Report)
 		a.receipt = ref + " marked read"
 		a.receiptKey = "ack:" + ref
 		if a.ackDone == nil {
@@ -679,16 +749,27 @@ func (a *App) Ack(ref string) {
 		if id != a.loadID {
 			return
 		}
-		a.Busy = false
-		a.ActionErr = friendly(err)
-		a.ActionWarn = false
+		a.Busy, a.ackRef = false, ""
+		var unread *AppliedUnread
+		if errors.As(err, &unread) {
+			a.noticeTitle = "The answer could not be read"
+			a.notice = "the card refreshes itself"
+		} else {
+			a.noticeTitle = "The action did not go through"
+			a.notice = friendly(err)
+		}
+		a.noticeKey = "ack:" + ref
+		a.noticeError = true
+		a.Reload()
 	}
 	stale := func(err error) {
 		if id != a.loadID {
 			return
 		}
-		a.ActionErr = "the report was acknowledged, but the fleet status could not be read: " + friendly(err)
-		a.ActionWarn = true
+		a.noticeTitle = "The report was acknowledged"
+		a.notice = "the fleet status could not be read: " + friendly(err)
+		a.noticeKey = "ack-stale:" + ref
+		a.noticeError = false
 	}
 	fetch := func() {
 		r, err := model.AckReport(ctx, fleet, ref)
@@ -728,6 +809,37 @@ func (a *App) Ack(ref string) {
 	}
 	post(func() {})
 	go fetch()
+}
+
+// applyAck writes a report's new state where the window shows it, so the
+// card reads "read by" before the next poll.
+func (a *App) applyAck(ref string, r Report) {
+	if a.Report.Report.Ref == ref {
+		a.Report.Report = r
+	}
+	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
+	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
+	kept := a.Task.Unread[:0:0]
+	for _, u := range a.Task.Unread {
+		if u.Ref != ref {
+			kept = append(kept, u)
+		}
+	}
+	a.Task.Unread = kept
+	a.viewerFocus = a.viewerOpen()
+}
+
+func ackedReports(have []Report, ref string, r Report) []Report {
+	if len(have) == 0 {
+		return have
+	}
+	out := slices.Clone(have)
+	for i := range out {
+		if out[i].Ref == ref {
+			out[i] = r
+		}
+	}
+	return out
 }
 
 func (a *App) Send() {
@@ -1175,6 +1287,7 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	a.loadID++
 	a.Busy = false
 	a.BusyAction = ""
+	a.ackRef = ""
 	a.ActionErr = ""
 	a.ActionWarn = false
 	a.OpenErr = ""
@@ -1229,8 +1342,9 @@ func (a *App) resetPoll() {
 		a.pollCancel = nil
 	}
 	a.pollBusy = false
-	a.reads, a.pollSkipped = [3]readState{}, [3]bool{}
+	a.reads, a.pollSkipped = [4]readState{}, [4]bool{}
 	a.pollStatus, a.pollScreenFor, a.pollScreenCursor, a.pollTimeline = "", "", "", ""
+	a.pollTasks = ""
 	a.timelineTo = 0
 	a.Stale = ""
 }
@@ -1268,13 +1382,17 @@ func (a *App) pollOnce(gen, tick int) {
 	load := a.loadID
 	key := pollScreenID(screen, ref)
 	since := PollCursors{Worker: slices.ContainsFunc(a.Status.Needs.Items, func(n Need) bool { return n.Kind == "worker" })}
-	cursors := [3]*ReadCursor{&since.Status, &since.Screen, &since.Timeline}
-	held := [3]string{a.pollStatus, "", a.pollTimeline}
+	cursors := [4]*ReadCursor{&since.Status, &since.Screen, &since.Timeline, &since.Tasks}
+	held := [4]string{a.pollStatus, "", a.pollTimeline, a.pollTasks}
 	if a.pollScreenFor == key {
 		held[readScreen] = a.pollScreenCursor
 	}
 	for i, rc := range cursors {
 		rs := &a.reads[i]
+		if i == readTasks && screen == BoardScreen {
+			a.pollSkipped[i] = true
+			continue
+		}
 		a.pollSkipped[i] = rs.skip > 0
 		switch {
 		case rs.skip > 0:
@@ -1287,7 +1405,7 @@ func (a *App) pollOnce(gen, tick int) {
 			rc.Since = held[i]
 		}
 	}
-	if a.pollSkipped == [3]bool{true, true, true} {
+	if a.pollSkipped == [4]bool{true, true, true, true} {
 		a.armPoll()
 		return
 	}
@@ -1330,8 +1448,8 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if errors.Is(err, context.Canceled) {
 		return
 	}
-	errs := [3]error{p.StatusErr, p.ScreenErr, p.TimelineErr}
-	read := [3]bool{p.StatusRead, p.ScreenRead, p.TimelineRead}
+	errs := [4]error{p.StatusErr, p.ScreenErr, p.TimelineErr, p.TasksErr}
+	read := [4]bool{p.StatusRead, p.ScreenRead, p.TimelineRead, p.TasksRead}
 	for i := range a.reads {
 		switch {
 		case read[i]:
@@ -1345,15 +1463,24 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 			a.failRead(i, e)
 		}
 	}
+	if screen == BoardScreen && p.ScreenRead {
+		a.reads[readTasks] = readState{}
+	}
 	a.Stale = a.reads[readStatus].err
 	if a.Stale == "" {
 		a.Stale = a.reads[readScreen].err
+	}
+	if a.Stale == "" {
+		a.Stale = a.reads[readTasks].err
 	}
 	statusFresh, screenFresh := false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
 		a.reconcileAcked()
 		a.watchDeny()
+	}
+	if a.Fleet.ID == fleet && p.TasksFresh {
+		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
 		next := mergeTimeline(a.Timeline, p.Timeline)
@@ -1391,6 +1518,9 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 	case BoardScreen:
 		a.Tasks = p.Tasks
 	case TaskScreen:
+		if a.Task.Task.Ref == p.Task.Task.Ref && ackedBetween(a.Task.Reports, p.Task.Reports) {
+			a.viewerFocus = true
+		}
 		a.Task = p.Task
 	case AttemptScreen:
 		a.Attempt = p.Attempt
@@ -1400,6 +1530,21 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 		a.Report = p.Report
 	}
 	a.pollScreenFor, a.pollScreenCursor = key, p.ScreenCursor
+}
+
+// ackedBetween reports whether a report that was unread in have is read in
+// next: its Mark read button is gone from the page.
+func ackedBetween(have, next []Report) bool {
+	was := make(map[string]bool, len(have))
+	for _, r := range have {
+		was[r.Ref] = r.AckedAt != ""
+	}
+	for _, r := range next {
+		if r.AckedAt != "" && !was[r.Ref] {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeTimeline(have, next Timeline) Timeline {
@@ -1547,7 +1692,7 @@ func (a *App) apply(l loaded) {
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
 	a.auth = l.Auth
 	a.TimelineErr = l.TimelineErr
-	a.Stale, a.reads = l.Err, [3]readState{}
+	a.Stale, a.reads = l.Err, [4]readState{}
 	for i := range a.reads {
 		a.reads[i].fresh = l.Err != "" || i == readTimeline && l.TimelineErr != ""
 	}

@@ -49,8 +49,8 @@ type ReadCursor struct {
 }
 
 type PollCursors struct {
-	Status, Screen, Timeline ReadCursor
-	Worker                   bool
+	Status, Screen, Timeline, Tasks ReadCursor
+	Worker                          bool
 }
 
 type Poll struct {
@@ -63,12 +63,16 @@ type Poll struct {
 	ScreenRead     bool
 	ScreenErr      error
 	ScreenCursor   string
+	TasksFresh     bool
+	TasksRead      bool
+	TasksErr       error
+	TasksCursor    string
+	Tasks          Tasks
 	TimelineFresh  bool
 	TimelineRead   bool
 	TimelineErr    error
 	TimelineCursor string
 	Timeline       Timeline
-	Tasks          Tasks
 	Task           TaskDetail
 	Attempt        AttemptDetail
 	Decision       DecisionDetail
@@ -314,9 +318,12 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 	var p Poll
 	p.StatusFresh, p.StatusCursor, p.StatusRead, p.StatusErr = c.pollRead(ctx, fleet, token, "/status", since.Status, since.Worker, &p.Status)
 	p.ScreenFresh, p.ScreenCursor, p.ScreenRead, p.ScreenErr = c.pollRead(ctx, fleet, token, pollPath(screen, ref), since.Screen, false, pollData(screen, &p))
+	if screen != BoardScreen {
+		p.TasksFresh, p.TasksCursor, p.TasksRead, p.TasksErr = c.pollRead(ctx, fleet, token, "/tasks?all=1", since.Tasks, false, &p.Tasks)
+	}
 	p.TimelineFresh, p.TimelineCursor, p.TimelineRead, p.TimelineErr = c.pollRead(ctx, fleet, token, "/timeline", since.Timeline, false, &p.Timeline)
 	if ctx.Err() != nil {
-		return p, errors.Join(p.StatusErr, p.ScreenErr, p.TimelineErr)
+		return p, errors.Join(p.StatusErr, p.ScreenErr, p.TasksErr, p.TimelineErr)
 	}
 	return p, nil
 }
@@ -568,7 +575,11 @@ func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any
 		return Envelope{}, err
 	}
 	defer res.Body.Close()
-	return c.decode(res, fleet, path, out)
+	env, err := c.decode(res, fleet, path, out)
+	if err != nil && res.StatusCode == http.StatusOK {
+		return Envelope{}, &AppliedUnread{Err: err}
+	}
+	return env, err
 }
 
 func (c *HTTPClient) prepare(ctx context.Context, fleet string) (string, error) {

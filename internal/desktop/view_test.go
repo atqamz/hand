@@ -779,17 +779,20 @@ func TestTasksOpenTheirDetail(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "Tasks", "Fix login", "Write docs", "Active", "Inbox")
 	click(t, tt, "Fix login")
-	mustText(t, tt, "Fix login", "1.", "reproduce", "Plan · p1", "Cookie fixed",
+	mustText(t, tt, "Fleets / golden / t1", "1.", "reproduce", "plan p1", "Cookie fixed",
 		"Keep the old cookie name?", "a1")
-	click(t, tt, "Back")
+	click(t, tt, "Close the viewer")
 	mustText(t, tt, "Write docs")
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("the close left %v", app.Screen)
+	}
 }
 
 func TestAttemptScreen(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	click(t, tt, "a1")
+	click(t, tt, "attempt a1")
 	mustText(t, tt, "Brief", "x", "20m", "Cookie fixed", "Reports")
 }
 
@@ -922,15 +925,15 @@ func TestBackFromAttemptRestoresTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	click(t, tt, "a1")
+	click(t, tt, "attempt a1")
 	mustText(t, tt, "Brief")
 	click(t, tt, "Back")
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("Back left %v %q, want the task t1", app.Screen, app.Ref)
 	}
-	mustText(t, tt, "Plan · p1")
+	mustText(t, tt, "plan p1")
 	mustNotText(t, tt, "The board could not be read")
-	click(t, tt, "Back")
+	click(t, tt, "Close the viewer")
 	mustText(t, tt, "Write docs")
 }
 
@@ -941,31 +944,32 @@ func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
 	click(t, tt, "Keep the old cookie name?")
 	click(t, tt, "Open d1")
 	click(t, tt, "Open task")
-	mustText(t, tt, "Plan · p1")
+	mustText(t, tt, "plan p1")
 	click(t, tt, "Back")
 	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
 		t.Fatalf("Back left %v %q, want the decision d1", app.Screen, app.Ref)
 	}
 	mustText(t, tt, "Options", "d1")
-	click(t, tt, "Back")
+	click(t, tt, "Close the viewer")
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("Back left %v, want the Board screen", app.Screen)
+		t.Fatalf("the close left %v, want the Board screen", app.Screen)
 	}
 	mustText(t, tt, "Failed")
 	mustNotText(t, tt, "The board could not be read")
 }
 
-func TestBackFromATaskReportReturnsToTheTask(t *testing.T) {
+func TestBackFromAReportReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
-	click(t, tt, "Fix login")
-	click(t, tt, "Cookie fixed")
+	app.OpenRef("t1")
+	app.OpenRef("r1")
+	tt.Frame()
 	mustText(t, tt, "All tests pass.")
 	click(t, tt, "Back")
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("Back left %v %q, want the task t1", app.Screen, app.Ref)
 	}
-	mustText(t, tt, "Plan · p1")
+	mustText(t, tt, "plan p1")
 	mustNotText(t, tt, "The board could not be read")
 }
 
@@ -973,13 +977,13 @@ func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Open d1")
 	mustText(t, tt, "Options")
 	click(t, tt, "Back")
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("Back left %v %q, want the task t1", app.Screen, app.Ref)
 	}
-	mustText(t, tt, "Plan · p1")
+	mustText(t, tt, "plan p1")
 	mustNotText(t, tt, "The board could not be read")
 }
 
@@ -987,8 +991,8 @@ func TestBackFromAnAttemptReportReturnsToTheAttempt(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	click(t, tt, "a1")
-	click(t, tt, "Cookie fixed")
+	click(t, tt, "attempt a1")
+	click(t, tt, "report r1")
 	mustText(t, tt, "All tests pass.")
 	click(t, tt, "Back")
 	if app.Screen != desktop.AttemptScreen || app.Ref != "a1" {
@@ -1005,7 +1009,7 @@ func TestBackFromAReportsTaskReturnsToTheReport(t *testing.T) {
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open r1")
 	click(t, tt, "Open task")
-	mustText(t, tt, "Plan · p1")
+	mustText(t, tt, "plan p1")
 	click(t, tt, "Back")
 	if app.Screen != desktop.ReportScreen || app.Ref != "r1" {
 		t.Fatalf("Back left %v %q, want the report r1", app.Screen, app.Ref)
@@ -1045,7 +1049,7 @@ func TestAHungBoardDoesNotFreezeTheWindow(t *testing.T) {
 	f.block, f.entered = make(chan struct{}), make(chan struct{}, 1)
 	menu(t, tt, "Refresh now")
 	waitPost(t, posted)()
-	mustText(t, tt, "Reading the board")
+	mustText(t, tt, "Needs", "s1 working")
 	waitPost(t, posted)()
 	select {
 	case <-f.entered:
@@ -1069,7 +1073,7 @@ func TestAFailedFetchShowsTheErrorOffTheRenderPath(t *testing.T) {
 	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
 	menu(t, tt, "Refresh now")
 	waitPost(t, posted)()
-	mustText(t, tt, "Reading the board")
+	mustText(t, tt, "Needs", "s1 working")
 	waitPost(t, posted)()
 	waitPost(t, posted)()
 	waitPost(t, posted)()
@@ -1369,17 +1373,18 @@ func TestASupersededReloadStartsNoDetailRequest(t *testing.T) {
 	mustText(t, tt, "Conversation")
 }
 
-func TestBackStaysOnTheErrorCard(t *testing.T) {
+func TestAPageThatFailsShowsTheErrorInTheViewer(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
-	menu(t, tt, "Refresh now")
-	mustText(t, tt, "The board could not be read", "the board is restarting")
-	click(t, tt, "Back")
-	if app.Screen != desktop.BoardScreen || app.Ref != "" {
-		t.Fatalf("Back left %v %q, want the tasks list", app.Screen, app.Ref)
+	f.taskErr = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	app.Retry()
+	tt.Frame()
+	mustText(t, tt, "The page could not be read", "the board is restarting")
+	click(t, tt, "Close")
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("the close left %v", app.Screen)
 	}
 }
 
@@ -1407,10 +1412,12 @@ func TestTaskShowsDecisionHistory(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Fix login")
 	mustText(t, tt, "Rename the helper?", "Yes")
-	if n := countText(t, tt, "Keep the old cookie name?"); n != 1 {
-		t.Fatalf("the open decision is shown %d times, want its one open row", n)
+	click(t, tt, "Answer d1")
+	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
+		t.Fatalf("the waiting row opened %v %q, want d1", app.Screen, app.Ref)
 	}
-	click(t, tt, "Rename the helper?")
+	click(t, tt, "Back")
+	click(t, tt, "Open d0")
 	if app.Screen != desktop.DecisionScreen || app.Ref != "d0" {
 		t.Fatalf("the history row opened %v %q, want d0", app.Screen, app.Ref)
 	}
@@ -1426,7 +1433,7 @@ func TestAnOmittedTranscriptIsNoticed(t *testing.T) {
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	click(t, tt, "a1")
+	click(t, tt, "attempt a1")
 	mustText(t, tt, "the last turn", "Only the latest 50 entries are shown.")
 }
 
