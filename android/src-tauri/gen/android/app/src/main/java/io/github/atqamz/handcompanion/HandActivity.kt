@@ -199,6 +199,32 @@ class HandActivity : ComponentActivity() {
       }
     )["$fleet/$ref", ReportModel::class.java]
 
+  private fun chatModel(fleet: String): ChatModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { ChatModel(fleet, CoreTransport) }
+      }
+    )["$fleet/chat", ChatModel::class.java]
+
+  @Composable
+  private fun Chat(fleet: String, onTarget: (ThreadTarget) -> Unit) {
+    val model = remember(fleet) { chatModel(fleet) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) {
+      lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.run() }
+    }
+    ChatScreen(
+      fleet,
+      state,
+      model::loadOlder,
+      model::retry,
+      model::retryOlder,
+      model::scrolled,
+      onTarget
+    )
+  }
+
   @Composable
   private fun Attempt(
     fleet: String,
@@ -477,10 +503,10 @@ class HandActivity : ComponentActivity() {
                   fleet::showAll,
                   fleet::press,
                   fleet::force,
-                  { threads = pushTask(threads, it) }
-                ) { ref ->
-                  Choice(open.orEmpty(), ref) { decision = ref }
-                }
+                  { threads = pushTask(threads, it) },
+                  chat = { Chat(open.orEmpty(), target) },
+                  choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } }
+                )
               }
             }
           }

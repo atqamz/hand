@@ -62,6 +62,21 @@ internal fun LazyListScope.markdown(
 }
 
 @Composable
+internal fun MarkdownBody(
+  blocks: List<MdBlock>,
+  fleet: String,
+  onTarget: (ThreadTarget) -> Unit
+) {
+  Column(Modifier.fillMaxWidth()) {
+    blocks.forEach { block ->
+      Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+        MarkdownBlock(block, fleet, onTarget)
+      }
+    }
+  }
+}
+
+@Composable
 private fun MarkdownBlock(
   block: MdBlock,
   fleet: String,
