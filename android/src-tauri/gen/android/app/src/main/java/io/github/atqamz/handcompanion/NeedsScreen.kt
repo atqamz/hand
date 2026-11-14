@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -83,7 +82,7 @@ private fun NeedRow(entry: Entry, supervisor: Supervisor?, sent: String?, onClic
       Icon(
         HandIcons.Chevron,
         null,
-        Modifier.size(16.dp).rotate(if (entry.opens == Opens.Web) -90f else 0f),
+        Modifier.size(16.dp).rotate(if (entry.opens == Opens.Web || entry.opens == Opens.Report) -90f else 0f),
         hand.muted
       )
     }
@@ -212,17 +211,6 @@ private fun BlockedBody(
 }
 
 @Composable
-private fun ReportBody(need: Need, marking: Boolean, onMarkRead: () -> Unit, onWeb: () -> Unit) {
-  need.excerpt?.let { Text(it, style = type.bodyMedium) }
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    Button(onMarkRead, enabled = !marking, shape = MaterialTheme.shapes.medium) {
-      Text("Mark read")
-    }
-    if (need.cut) Action("Open web Board", onWeb, Modifier.height(40.dp))
-  }
-}
-
-@Composable
 private fun AllClear(state: FleetState) {
   val hand = LocalHand.current
   Column(
@@ -242,7 +230,7 @@ private fun AllClear(state: FleetState) {
 fun NeedsScreen(
   state: FleetState,
   onToggle: (String) -> Unit,
-  onMarkRead: (String) -> Unit,
+  onReport: (String) -> Unit,
   onWeb: () -> Unit,
   onPress: (List<String>) -> Unit,
   onForce: () -> Unit,
@@ -285,12 +273,12 @@ fun NeedsScreen(
                     onPress,
                     onForce
                   )
-                entry.opens == Opens.Card ->
-                  ReportBody(entry.need, ref in state.marking, { onMarkRead(ref) }, onWeb)
                 else -> choice(ref)
               }
             }
           expands -> NeedRow(entry, state.supervisor, sent) { onToggle(entry.key) }
+          entry.opens == Opens.Report ->
+            NeedRow(entry, state.supervisor, sent) { onReport(ref) }
           entry.opens == Opens.Web ->
             NeedRow(entry, state.supervisor, sent) {
               if (attempt != null) onAttempt(attempt) else onWeb()

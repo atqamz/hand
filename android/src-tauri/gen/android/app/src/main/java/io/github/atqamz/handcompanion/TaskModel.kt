@@ -109,7 +109,12 @@ data class TaskDetail(
   val children: List<TaskRow> = emptyList()
 )
 
-@Serializable data class ReportDetail(val report: TaskReport, val task: TaskInfo)
+@Serializable
+data class ReportDetail(
+  val report: TaskReport,
+  val task: TaskInfo,
+  val delivered: List<TaskDeliverable> = emptyList()
+)
 
 data class TaskState(
   val detail: TaskDetail? = null,
@@ -188,6 +193,8 @@ sealed interface ThreadTarget {
 
   data class Attempt(val ref: String) : ThreadTarget
 
+  data class Report(val ref: String) : ThreadTarget
+
   data class Web(val path: String) : ThreadTarget
 
   data class Browser(val url: String) : ThreadTarget
@@ -195,20 +202,33 @@ sealed interface ThreadTarget {
   data object None : ThreadTarget
 }
 
-private fun isRef(ref: String, letter: Char) =
+internal fun isRef(ref: String, letter: Char) =
   ref.length > 1 && ref[0] == letter && ref.drop(1).all(Char::isDigit)
 
-fun refTarget(ref: String, task: String, fleet: String): ThreadTarget =
+fun refTarget(ref: String): ThreadTarget =
   when {
     isRef(ref, 't') -> ThreadTarget.Task(ref)
     isRef(ref, 'd') -> ThreadTarget.Decision(ref)
     isRef(ref, 'a') -> ThreadTarget.Attempt(ref)
-    isRef(ref, 'r') -> ThreadTarget.Web("/$fleet/task/$task#$ref")
+    isRef(ref, 'r') -> ThreadTarget.Report(ref)
     else -> ThreadTarget.None
   }
 
-fun reportTarget(report: TaskReport, task: String, fleet: String) =
-  refTarget(report.ref, report.task.ifEmpty { task }, fleet)
+fun reportTarget(report: TaskReport) = refTarget(report.ref)
+
+fun pathTarget(path: String, fleet: String): ThreadTarget {
+  val value = path.removePrefix("file:")
+  if (value.isEmpty() || value.startsWith("/") || value.startsWith("~/") || DRIVE.containsMatchIn(value)) {
+    return ThreadTarget.None
+  }
+  val escaped =
+    value.split('/').joinToString("/") {
+      java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
+    }
+  return ThreadTarget.Web("/$fleet/doc/$escaped")
+}
+
+private val DRIVE = Regex("^[A-Za-z]:[\\\\/]")
 
 fun deliverableTarget(deliverable: TaskDeliverable, fleet: String): ThreadTarget =
   when (deliverable.kind) {
@@ -272,21 +292,25 @@ class TaskModel(
     }
   }
 
-  suspend fun load() =
-    lock.withLock {
-      try {
-        apply(client.readSince("task/$ref", cursor, TaskDetail.serializer()))
-      } catch (_: BoardError.BadCursor) {
-        cursor = null
+  suspend fun load() {
+    do {
+      pending = false
+      lock.withLock {
         try {
-          apply(client.readSince("task/$ref", null, TaskDetail.serializer()))
+          apply(client.readSince("task/$ref", cursor, TaskDetail.serializer()))
+        } catch (_: BoardError.BadCursor) {
+          cursor = null
+          try {
+            apply(client.readSince("task/$ref", null, TaskDetail.serializer()))
+          } catch (error: BoardError) {
+            failed(error)
+          }
         } catch (error: BoardError) {
           failed(error)
         }
-      } catch (error: BoardError) {
-        failed(error)
       }
-    }
+    } while (pending)
+  }
 
   private fun apply(poll: Poll<TaskDetail>) {
     when (poll) {
@@ -357,10 +381,6 @@ class TaskModel(
       return
     }
     load()
-    while (pending) {
-      pending = false
-      load()
-    }
   }
 
   private fun touched(json: String): Boolean {

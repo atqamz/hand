@@ -149,7 +149,7 @@ fun FleetScreen(
   onRetry: () -> Unit,
   onTab: (Tab) -> Unit,
   onToggle: (String) -> Unit,
-  onMarkRead: (String) -> Unit,
+  onReport: (String) -> Unit,
   onWeb: () -> Unit,
   onTask: (String) -> Unit,
   onShowAll: () -> Unit,
@@ -169,7 +169,7 @@ fun FleetScreen(
             Meta("Pair this phone again on the laptop's Board.")
           }
         Body.Loading -> Loading()
-        Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, onPress, onForce, onAttempt, choice)
+        Body.Needs -> NeedsScreen(state, onToggle, onReport, onWeb, onPress, onForce, onAttempt, choice)
         Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry)
         Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }

@@ -74,6 +74,13 @@ object HandIcons {
       Shape("M6.25 6.25h3.5v3.5h-3.5z")
     )
   val Chevron = icon("chevron", Shape("M4 6l4 4 4-4"))
+  val Copy =
+    icon(
+      "copy",
+      Shape("M5.5 7A1.5 1.5 0 0 1 7 5.5h6A1.5 1.5 0 0 1 14.5 7v6a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 13z"),
+      Shape("M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5")
+    )
+  val Copied = icon("copied", Shape("M3 8.5l3.5 3.5L13 4.5"))
   val Needs = icon("needs", Shape("M2.75 3.25h10.5v9.5H2.75z"), Shape("M8 3.25v9.5"))
   val Tasks = icon("tasks", Shape("M6 4.5h7.5M6 8h7.5M6 11.5h7.5M2.5 4.5h.01M2.5 8h.01M2.5 11.5h.01"))
   val Chat = icon("chat", Shape("M2.5 3.25h11v7.5H8L5 13.5v-2.75H2.5z"))

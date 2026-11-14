@@ -40,6 +40,7 @@ enum class Opens {
   Card,
   Choice,
   Row,
+  Report,
   Web
 }
 
@@ -78,7 +79,7 @@ data class FleetState(
 
 private fun opens(need: Need) =
   when (need.kind) {
-    "report",
+    "report" -> Opens.Report
     "blocked" -> Opens.Card
     "decision" -> Opens.Choice
     "failure" -> Opens.Row

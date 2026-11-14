@@ -62,14 +62,11 @@ private val several =
     loaded = true,
     tab = Tab.Needs,
     bands = bands(needs),
-    open = "report:r91"
+    open = "blocked:s3"
   )
 
-private val cut =
-  several.copy(
-    bands = bands(needs.map { if (it.ref == "r91") it.copy(cut = true) else it }),
-    notice = Notice("r92", "r92 is already read.")
-  )
+private val notice =
+  several.copy(notice = Notice("r92", "r92 is already read."))
 
 private val rows =
   FleetState(
@@ -193,9 +190,9 @@ class FleetScreenTest {
 
   @Test fun needsRowsDark() = shot(true, "f000000000003", rows)
 
-  @Test fun cutLight() = shot(false, "f000000000003", cut)
+  @Test fun noticeLight() = shot(false, "f000000000003", notice)
 
-  @Test fun cutDark() = shot(true, "f000000000003", cut)
+  @Test fun noticeDark() = shot(true, "f000000000003", notice)
 
   @Test fun notLoadedLight() = shot(false, "f000000000003", FleetState(name = "atlas", tab = Tab.Needs))
 

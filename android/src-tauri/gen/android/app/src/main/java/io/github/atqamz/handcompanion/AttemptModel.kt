@@ -163,21 +163,25 @@ class AttemptModel(
     }
   }
 
-  suspend fun load() =
-    lock.withLock {
-      try {
-        apply(client.readSince("attempt/$ref", cursor, AttemptDetail.serializer()))
-      } catch (_: BoardError.BadCursor) {
-        cursor = null
+  suspend fun load() {
+    do {
+      pending = false
+      lock.withLock {
         try {
-          apply(client.readSince("attempt/$ref", null, AttemptDetail.serializer()))
+          apply(client.readSince("attempt/$ref", cursor, AttemptDetail.serializer()))
+        } catch (_: BoardError.BadCursor) {
+          cursor = null
+          try {
+            apply(client.readSince("attempt/$ref", null, AttemptDetail.serializer()))
+          } catch (error: BoardError) {
+            failed(error)
+          }
         } catch (error: BoardError) {
           failed(error)
         }
-      } catch (error: BoardError) {
-        failed(error)
       }
-    }
+    } while (pending)
+  }
 
   private fun apply(poll: Poll<AttemptDetail>) {
     when (poll) {
@@ -249,10 +253,6 @@ class AttemptModel(
       return
     }
     load()
-    while (pending) {
-      pending = false
-      load()
-    }
   }
 
   private fun touched(json: String): Boolean {

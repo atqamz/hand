@@ -138,11 +138,11 @@ private fun Waiting(decision: TaskDecision, onTarget: (ThreadTarget) -> Unit) {
 }
 
 @Composable
-private fun Waiting(report: TaskReport, task: String, fleet: String, onTarget: (ThreadTarget) -> Unit) {
+private fun Waiting(report: TaskReport, onTarget: (ThreadTarget) -> Unit) {
   val hand = LocalHand.current
   Row(
     Modifier.fillMaxWidth()
-      .clickable { onTarget(reportTarget(report, task, fleet)) }
+      .clickable { onTarget(reportTarget(report)) }
       .heightIn(min = 52.dp)
       .padding(16.dp, 10.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -204,8 +204,6 @@ private fun PlanCard(plan: TaskPlan) {
 @Composable
 internal fun ReportCard(
   report: TaskReport,
-  task: String,
-  fleet: String,
   marking: Boolean,
   error: String?,
   onMarkRead: (String) -> Unit,
@@ -228,13 +226,14 @@ internal fun ReportCard(
       Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
           report.ref,
-          Modifier.clickable { onTarget(reportTarget(report, task, fleet)) },
+          Modifier.clickable { onTarget(reportTarget(report)) },
           color = hand.muted,
           style = HandMono
         )
         Text(
           report.summary,
-          Modifier.weight(1f),
+          Modifier.weight(1f)
+            .clickable { onTarget(reportTarget(report)) },
           maxLines = 2,
           overflow = TextOverflow.Ellipsis,
           style = type.titleMedium
@@ -249,7 +248,7 @@ internal fun ReportCard(
         Meta("from ")
         Text(
           report.attempt,
-          Modifier.clickable { onTarget(refTarget(report.attempt, task, fleet)) },
+          Modifier.clickable { onTarget(refTarget(report.attempt)) },
           color = hand.ink(Tone.Accent),
           style = HandMono
         )
@@ -294,7 +293,7 @@ private fun AttemptRow(attempt: TaskAttempt, task: String, fleet: String, onTarg
   val hand = LocalHand.current
   Row(
     Modifier.fillMaxWidth()
-      .clickable { onTarget(refTarget(attempt.ref, task, fleet)) }
+      .clickable { onTarget(refTarget(attempt.ref)) }
       .heightIn(min = 52.dp)
       .padding(16.dp, 8.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -370,7 +369,7 @@ private fun TaskContent(
   LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
     item(key = "head") { TaskHead(detail, onTarget) }
     items(detail.openDecisions, key = { "decision:${it.ref}" }) { Waiting(it, onTarget) }
-    items(detail.unread, key = { "unread:${it.ref}" }) { Waiting(it, ref, fleet, onTarget) }
+    items(detail.unread, key = { "unread:${it.ref}" }) { Waiting(it, onTarget) }
     if (detail.delivered.isNotEmpty()) {
       item(key = "delivered-head") { SectionHead("Delivered") }
       items(detail.delivered, key = { "delivered:${it.kind}:${it.ref}" }) { Delivered(it, fleet, onTarget) }
@@ -388,8 +387,6 @@ private fun TaskContent(
       items(detail.reports, key = { "report:${it.ref}" }) { report ->
         ReportCard(
           report,
-          ref,
-          fleet,
           report.ref in state.marking,
           state.errors[report.ref],
           onMarkRead,
