@@ -400,6 +400,79 @@ func TestAReportThatArrivesInAPollScrollsToItsCard(t *testing.T) {
 	}
 }
 
+func ackedElsewhere(f *fixture) {
+	td := f.task[fleetID]
+	td.Unread = nil
+	f.task[fleetID] = td
+	f.report[fleetID] = desktop.ReportDetail{
+		Task: td.Task,
+		Report: desktop.Report{
+			Ref: "r99", Task: "t1", Attempt: "a1", Status: "done",
+			Summary:   "Older than the window",
+			Body:      "Older than the window\n\nstill unread",
+			CreatedAt: "2026-10-01T04:40:00Z",
+			AckedAt:   "2026-11-01T05:00:00Z", AckedBy: "operator (desktop)",
+		},
+	}
+}
+
+func TestAPollRefreshesAPageReportAckedElsewhere(t *testing.T) {
+	f := manyReportFixture(t)
+	td := f.task[fleetID]
+	td.Unread = []desktop.Report{{
+		Ref: "r99", Task: "t1", Attempt: "a1", Status: "progress",
+		Summary:   "Older than the window",
+		Body:      "Older than the window\n\nstill unread",
+		CreatedAt: "2026-10-01T04:40:00Z",
+	}}
+	f.task[fleetID] = td
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("t1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	mustText(t, tt, "Mark read r99")
+	ackedElsewhere(f)
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "read by operator (desktop)")
+	mustNotText(t, tt, "Mark read r99")
+	if got := f.count("report:r99"); got != 1 {
+		t.Fatalf("the window read the acknowledged report %d times, want 1", got)
+	}
+}
+
+func TestBackRefreshesAPageReportAckedElsewhere(t *testing.T) {
+	f := manyReportFixture(t)
+	td := f.task[fleetID]
+	td.Unread = []desktop.Report{{
+		Ref: "r99", Task: "t1", Attempt: "a1", Status: "progress",
+		Summary:   "Older than the window",
+		Body:      "Older than the window\n\nstill unread",
+		CreatedAt: "2026-10-01T04:40:00Z",
+	}}
+	f.task[fleetID] = td
+	app := newApp(t, f)
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("t1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	app.OpenRef("a1")
+	ackedElsewhere(f)
+	app.Back()
+	tt.Frame()
+	mustText(t, tt, "read by operator (desktop)")
+	mustNotText(t, tt, "Mark read r99")
+	if got := f.count("report:r99"); got != 1 {
+		t.Fatalf("the window read the acknowledged report %d times, want 1", got)
+	}
+}
+
 func TestAReportLinkReadsItsTaskWhenNoPageHoldsIt(t *testing.T) {
 	f := goldenFixture(t)
 	st := f.status[fleetID]

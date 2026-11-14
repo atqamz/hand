@@ -138,16 +138,17 @@ type App struct {
 	draftFleet    string
 	draftText     string
 
-	Status       Status
-	Timeline     Timeline
-	Tasks        Tasks
-	Task         TaskDetail
-	Attempt      AttemptDetail
-	Decision     DecisionDetail
-	pageReport   string
-	pageTarget   Report
-	pageTargetOK bool
-	scrollTo     string
+	Status          Status
+	Timeline        Timeline
+	Tasks           Tasks
+	Task            TaskDetail
+	Attempt         AttemptDetail
+	Decision        DecisionDetail
+	pageReport      string
+	pageTarget      Report
+	pageTargetOK    bool
+	pageTargetCheck bool
+	scrollTo        string
 
 	Err      string
 	Starting bool
@@ -378,7 +379,7 @@ func (a *App) SelectFleet(id string) {
 		a.Fleet = f
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
-	a.pageReport, a.pageTarget, a.pageTargetOK, a.scrollTo = "", Report{}, false, ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.scrollTo = "", Report{}, false, false, ""
 	a.scroll.Y = math.MaxFloat32
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.openerRef, a.boardFocus = "", false
@@ -461,7 +462,7 @@ const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
-	a.pageReport, a.pageTarget, a.pageTargetOK, a.scrollTo = "", Report{}, false, ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.scrollTo = "", Report{}, false, false, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
 	if s == BoardScreen {
@@ -516,7 +517,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 			Target: a.pageTarget, HasTarget: a.pageTargetOK})
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
-	a.pageTarget, a.pageTargetOK = Report{}, false
+	a.pageTarget, a.pageTargetOK, a.pageTargetCheck = Report{}, false, false
 	if target != nil {
 		a.pageTarget, a.pageTargetOK = *target, true
 	}
@@ -559,25 +560,86 @@ func (a *App) pageReportCard() (Report, bool) {
 	if ref == "" {
 		return Report{}, false
 	}
-	for _, r := range a.Task.Reports {
-		if r.Ref == ref {
-			return Report{}, false
-		}
+	if _, ok := reportIn(a.Task.Reports, ref); ok {
+		return Report{}, false
+	}
+	if r, ok := reportIn(a.Task.Unread, ref); ok {
+		return r, true
 	}
 	if a.pageTargetOK && a.pageTarget.Ref == ref {
 		return a.pageTarget, true
 	}
-	for _, r := range a.Task.Unread {
-		if r.Ref == ref {
-			return r, true
-		}
-	}
-	for _, r := range a.Attempt.Reports {
+	return Report{}, false
+}
+
+func reportIn(list []Report, ref string) (Report, bool) {
+	for _, r := range list {
 		if r.Ref == ref {
 			return r, true
 		}
 	}
 	return Report{}, false
+}
+
+func (a *App) applyTask(t TaskDetail) {
+	ref := a.pageReport
+	was := a.pageTargetCheck
+	a.pageTargetCheck = false
+	if a.pageTargetOK && ref != "" {
+		if _, ok := reportIn(a.Task.Unread, ref); ok {
+			was = true
+		} else if _, ok := reportIn(a.Task.Reports, ref); ok {
+			was = true
+		}
+	}
+	a.Task = t
+	if !a.pageTargetOK || ref == "" || a.pageTarget.Ref != ref {
+		return
+	}
+	if r, ok := reportIn(t.Unread, ref); ok {
+		a.pageTarget = r
+		return
+	}
+	if r, ok := reportIn(t.Reports, ref); ok {
+		a.pageTarget = r
+		return
+	}
+	if was {
+		a.refreshPageReport(ref)
+	}
+}
+
+func (a *App) refreshPageReport(ref string) {
+	if a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	post := a.Post
+	model, fleet := a.Model, a.Fleet.ID
+	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
+	apply := func(r Report, err error) {
+		if a.Fleet.ID != fleet || a.pageReport != ref {
+			return
+		}
+		if err != nil {
+			a.pageTarget, a.pageTargetOK = Report{}, false
+			return
+		}
+		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = r, true, false
+	}
+	fetch := func() {
+		r, err := model.Report(ctx, fleet, ref)
+		cancel()
+		if post == nil {
+			apply(r.Report, err)
+			return
+		}
+		post(func() { apply(r.Report, err) })
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	go fetch()
 }
 
 func (a *App) loadReportTask(ref string) {
@@ -624,7 +686,7 @@ func (a *App) CloseViewer() {
 	}
 	a.openerRef = ""
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
-	a.pageReport, a.pageTarget, a.pageTargetOK, a.scrollTo = "", Report{}, false, ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.scrollTo = "", Report{}, false, false, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
@@ -667,6 +729,7 @@ func (a *App) Back() {
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
 	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
+	a.pageTargetCheck = step.HasTarget
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = true
@@ -918,7 +981,7 @@ func (a *App) applyAck(ref string, r Report) {
 	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
 	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
 	if ref == a.pageReport {
-		a.pageTarget, a.pageTargetOK = r, true
+		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = r, true, false
 	}
 	kept := a.Task.Unread[:0:0]
 	for _, u := range a.Task.Unread {
@@ -1623,7 +1686,7 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 		if a.Task.Task.Ref == p.Task.Task.Ref && ackedBetween(a.Task.Reports, p.Task.Reports) {
 			a.viewerFocus = true
 		}
-		a.Task = p.Task
+		a.applyTask(p.Task)
 	case AttemptScreen:
 		a.Attempt = p.Attempt
 	case DecisionScreen:
@@ -1812,7 +1875,7 @@ func (a *App) apply(l loaded) {
 	case BoardScreen:
 		a.Tasks = l.Tasks
 	case TaskScreen:
-		a.Task = l.Task
+		a.applyTask(l.Task)
 	case AttemptScreen:
 		a.Attempt = l.Attempt
 	case DecisionScreen:
