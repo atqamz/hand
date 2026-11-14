@@ -1,5 +1,7 @@
 package io.github.atqamz.handcompanion
 
+import android.view.View
+import android.view.ViewGroup
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import androidx.compose.foundation.layout.Box
@@ -9,11 +11,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.node.RootForTest
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.util.TimeZone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -295,21 +307,32 @@ class ChatScreenTest {
     dark: Boolean,
     state: ChatState,
     input: androidx.compose.runtime.MutableState<TextFieldValue>,
-    hint: String
+    hint: String,
+    height: Dp? = null,
+    seen: (List<SemanticsNode>) -> Unit = {}
   ) {
+    val view = LocalView.current
     HandTheme(dark) {
-      ChatScreen(
-        FLEET,
-        state,
-        onOlder = {},
-        onRetry = {},
-        onRetryOlder = {},
-        onScrolled = {},
-        onTarget = {},
-        zone = UTC,
-        hint = hint,
-        input = input
-      )
+      Box(
+        (if (height == null) Modifier else Modifier.height(height))
+          .drawWithContent {
+            drawContent()
+            seen(semanticsTree(view))
+          }
+      ) {
+        ChatScreen(
+          FLEET,
+          state,
+          onOlder = {},
+          onRetry = {},
+          onRetryOlder = {},
+          onScrolled = {},
+          onTarget = {},
+          zone = UTC,
+          hint = hint,
+          input = input
+        )
+      }
     }
   }
 
@@ -326,35 +349,79 @@ class ChatScreenTest {
       )
     for (dark in listOf(false, true)) {
       val name = if (dark) "Dark" else "Light"
+      var tree: List<SemanticsNode> = emptyList()
       paparazzi.snapshot("caretBefore$name") {
-        caretScene(dark, before, input, "")
-      }
-      assertEquals(TextFieldValue(said, caret), input.value)
-      paparazzi.snapshot("caretAfter$name") {
-        caretScene(dark, after, input, "s1 is starting; your message waits.")
-      }
-      assertEquals(TextFieldValue(said, caret), input.value)
-      paparazzi.snapshot("caretResized$name") {
-        HandTheme(dark) {
-          Box(Modifier.height(420.dp)) {
-            ChatScreen(
-              FLEET,
-              after,
-              onOlder = {},
-              onRetry = {},
-              onRetryOlder = {},
-              onScrolled = {},
-              onTarget = {},
-              zone = UTC,
-              hint = "s1 is starting; your message waits.",
-              input = input
-            )
-          }
+        caretScene(dark, before, input, "") {
+          tree = it
         }
       }
       assertEquals(TextFieldValue(said, caret), input.value)
+      assertComposer(tree, said)
+      paparazzi.snapshot("caretEmpty$name") {
+        caretScene(dark, pageState(), mutableStateOf(TextFieldValue("")), "") {
+          tree = it
+        }
+      }
+      assertComposer(tree, "")
+      paparazzi.snapshot("caretAfter$name") {
+        caretScene(dark, after, input, "s1 is starting; your message waits.") {
+          tree = it
+        }
+      }
+      assertEquals(TextFieldValue(said, caret), input.value)
+      assertComposer(tree, said)
+      paparazzi.snapshot("caretResized$name") {
+        caretScene(dark, after, input, "s1 is starting; your message waits.", 420.dp) {
+          tree = it
+        }
+      }
+      assertEquals(TextFieldValue(said, caret), input.value)
+      assertComposer(tree, said)
     }
   }
+}
+
+private fun rootForTest(view: View): RootForTest? =
+  when (view) {
+    is RootForTest -> view
+    is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { rootForTest(view.getChildAt(it)) }
+    else -> null
+  }
+
+// Paparazzi's merged tree drops the composer's Text nodes; the unmerged one holds them.
+private fun semanticsTree(view: View): List<SemanticsNode> {
+  val root = rootForTest(view) ?: return emptyList()
+  val nodes = mutableListOf<SemanticsNode>()
+  fun walk(node: SemanticsNode) {
+    nodes += node
+    node.children.forEach(::walk)
+  }
+  walk(root.semanticsOwner.unmergedRootSemanticsNode)
+  return nodes
+}
+
+private fun SemanticsNode.texts(): List<String> =
+  config.getOrElseNullable(SemanticsProperties.Text) { null }?.map { it.text }.orEmpty()
+
+private fun assertComposer(tree: List<SemanticsNode>, draft: String) {
+  val send =
+    tree.firstOrNull { it.config.getOrElseNullable(SemanticsProperties.Role) { null } == Role.Button }
+      ?: error("no Send button in the composer's tree")
+  assertTrue("the Send button says Send", tree.any { "Send" in it.texts() })
+  if (draft.isEmpty()) {
+    assertTrue("Send is disabled on an empty box", send.config.contains(SemanticsProperties.Disabled))
+    assertTrue(
+      "the empty box shows its placeholder",
+      tree.any { "Message the supervisor" in it.texts() }
+    )
+  } else {
+    assertFalse("Send is enabled with text", send.config.contains(SemanticsProperties.Disabled))
+    assertTrue("Send takes a tap with text", send.config.contains(SemanticsActions.OnClick))
+  }
+  val field =
+    tree.firstOrNull { it.config.contains(SemanticsProperties.EditableText) }
+      ?: error("no field in the composer's tree")
+  assertEquals(draft, field.config.getOrElseNullable(SemanticsProperties.EditableText) { null }?.text)
 }
 
 private val said = "Also check that the relay page names the new cookie."

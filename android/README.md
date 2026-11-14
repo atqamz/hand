@@ -244,7 +244,8 @@ row, where the hint sits; an answer that cannot be read still empties the box an
 conversation again, because the message is in. The hint is `Status.composer_hint` verbatim, follows
 the fleet's `status` event or the 5-second poll and needs no timer of its own; while `agent_state`
 is `blocked` it takes the accent and opens Needs. The draft is one per fleet in the app's private
-`drafts` preferences file: written 300 ms after the last keystroke and when the Chat screen stops,
+`drafts` preferences file: written 300 ms after the last keystroke (each keystroke restarts the
+wait) and when the Chat screen stops,
 restored only into an empty box, dropped by a successful send or by emptying the box by hand, kept by
 a failed send, and ignored once it is 30 days old. Each entry's key is `<fleet id>@<saved at, epoch
 ms>` and its value is the draft text alone; a decision's note lives in the same file under

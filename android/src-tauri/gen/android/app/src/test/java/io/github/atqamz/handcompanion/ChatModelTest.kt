@@ -5,13 +5,22 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -47,6 +56,13 @@ private fun entry(
 
 private fun timeline(older: Int, vararg entries: String) =
   envelope("""{"live":true,"older":$older,"entries":[${entries.joinToString(",")}]}""")
+
+private fun deliveredEntry(): String {
+  val data = boardJson.parseToJsonElement(golden("message-delivered")).jsonObject.getValue("data")
+  return data.jsonObject.getValue("entries").jsonArray
+    .first { it.jsonObject["input"]?.jsonPrimitive?.longOrNull == 1L }
+    .toString()
+}
 
 private class ComposingDrafts(initial: Map<String, Pair<String, Long>> = emptyMap()) : ComposerDrafts {
   val saved = mutableMapOf<String, Pair<String, Long>>()
@@ -969,6 +985,23 @@ class ChatModelTest {
   }
 
   @Test
+  fun anAcceptedSendEmptiesTheBoxAndTheStoreAndReadsAgain() = runBlocking {
+    val board = ChatBoard(messageAnswer = { Raw(200, envelope("""{"accepted":true}""")) })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    val reads = board.reads()
+    chat.edit("sent, then accepted")
+    chat.sendNow()
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.draftNote)
+    assertFalse(chat.state.value.sending)
+    assertEquals(1, board.posts.size)
+    assertEquals(reads + 1, board.reads())
+  }
+
+  @Test
   fun aQueuedMessageReadsQueuedUntilTheStreamSaysDelivered() = runBlocking {
     val board = ChatBoard(timelineAnswer = { Raw(200, golden("message-sent")) })
     val chat = model(board)
@@ -980,25 +1013,34 @@ class ChatModelTest {
       LiveEvent(
         FLEET,
         "timeline",
-        """{"snapshot":false,"from":4,"to":4,"older":0,"live":true,"entries":[""" +
-          entry(
-            "i1",
-            "operator",
-            "2026-11-01T04:40:00Z",
-            "hello from the desktop",
-            input = 1,
-            delivery = "delivered",
-            delivered = "2026-11-01T04:45:00Z"
-          ) +
-          "]}"
+        """{"snapshot":false,"from":4,"to":4,"older":0,"live":true,"entries":[${deliveredEntry()}]}"""
       )
     )
     val state = chat.state.value
     val delivered = state.page.first { it.key == "i1" }.entry
     assertFalse(delivered.queued)
-    assertEquals("delivered 04:45", deliveryWords(delivered, UTC))
+    assertEquals("delivered 04:40", deliveryWords(delivered, UTC))
+    assertEquals("hello from the desktop", delivered.text)
+    assertEquals("2026-11-01T04:40:00Z", delivered.delivered)
     assertEquals(4, state.page.size)
     assertEquals("i1", state.page[0].key)
+  }
+
+  @Test
+  fun aDeliveredTimelineReadsTheBoardsReceipt() = runBlocking {
+    val board = ChatBoard(timelineAnswer = { Raw(200, golden("message-delivered")) })
+    val chat = model(board)
+    chat.load()
+    val state = chat.state.value
+    val delivered = state.page.first { it.key == "i1" }.entry
+    assertEquals("operator", delivered.role)
+    assertEquals("hello from the desktop", delivered.text)
+    assertEquals(1L, delivered.input)
+    assertEquals("delivered", delivered.delivery)
+    assertEquals("2026-11-01T04:40:00Z", delivered.delivered)
+    assertFalse(delivered.queued)
+    assertEquals("delivered 04:40", deliveryWords(delivered, UTC))
+    assertEquals(4, state.page.size)
   }
 
   @Test
@@ -1032,6 +1074,44 @@ class ChatModelTest {
     eventually("the draft is written once") { drafts.writes == 1 }
     assertEquals("ab", drafts.text())
     delay(150)
+    assertEquals(1, drafts.writes)
+    job.cancelAndJoin()
+  }
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  @Test
+  fun theDraftWriteLandsTheWindowAfterTheLastKeystroke() = runTest {
+    val drafts = ComposingDrafts()
+    val start = 1_760_000_000_000L
+    val chat =
+      ChatModel(
+        FLEET,
+        ChatBoard(),
+        drafts,
+        LiveBus(32),
+        5_000,
+        { start + testScheduler.currentTime },
+        DRAFT_MILLIS,
+        StandardTestDispatcher(testScheduler)
+      )
+    val job = launch { chat.run() }
+    runCurrent()
+    assertFalse(chat.state.value.loading)
+    chat.edit("a")
+    runCurrent()
+    advanceTimeBy(40)
+    chat.edit("ab")
+    runCurrent()
+    advanceTimeBy(DRAFT_MILLIS - 1)
+    runCurrent()
+    assertEquals("the window restarted on the second keystroke", 0, drafts.writes)
+    advanceTimeBy(1)
+    runCurrent()
+    assertEquals(1, drafts.writes)
+    assertEquals("ab", drafts.text())
+    assertEquals(start + 40 + DRAFT_MILLIS, drafts.saved[FLEET]?.second)
+    advanceTimeBy(DRAFT_MILLIS + 100)
+    runCurrent()
     assertEquals(1, drafts.writes)
     job.cancelAndJoin()
   }

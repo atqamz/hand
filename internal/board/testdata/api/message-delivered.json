@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQAxN2Q0N2ZkM2VmZmUwNWFi.ocHh4LwqRtqBDQcQWZo_GA",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "live": true,
+    "older": 0,
+    "working": {
+      "ref": "s1",
+      "since": "2026-11-01T04:40:00Z",
+      "on": "on your message from",
+      "from": "2026-11-01T04:40:00Z",
+      "last": "2026-11-01T04:41:00Z",
+      "input": 1
+    },
+    "entries": [
+      {
+        "role": "supervisor",
+        "at": "2026-11-01T04:41:00Z",
+        "text": "All good.",
+        "no": 2,
+        "ref": "s1",
+        "model": "sonnet low"
+      },
+      {
+        "role": "hand",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "s1 started · claude sonnet low",
+        "ref": "s1"
+      },
+      {
+        "role": "operator",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "hello from the desktop",
+        "no": 3,
+        "ref": "s1",
+        "delivery": "delivered",
+        "delivered": "2026-11-01T04:40:00Z",
+        "input": 1
+      },
+      {
+        "role": "operator",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "status?",
+        "no": 1,
+        "ref": "s1"
+      }
+    ]
+  }
+}
+

@@ -7,6 +7,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -330,12 +333,13 @@ class ChatModel(
   private val bus: LiveBus = LiveBus.shared,
   private val pollMillis: Long = POLL_MILLIS,
   private val nowMillis: () -> Long = { System.currentTimeMillis() },
-  private val draftMillis: Long = DRAFT_MILLIS
+  private val draftMillis: Long = DRAFT_MILLIS,
+  io: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(ChatState(now = nowMillis()))
   val state: StateFlow<ChatState> = mutableState
 
-  private val client = BoardClient(fleet, transport)
+  private val client = BoardClient(fleet, transport, io)
   private val lock = Mutex()
   private val olderLock = Mutex()
   private val edits = Channel<Unit>(Channel.CONFLATED)
@@ -397,7 +401,7 @@ class ChatModel(
   private suspend fun saveDrafts() {
     while (true) {
       edits.receive()
-      do delay(draftMillis) while (edits.tryReceive().isSuccess)
+      while (withTimeoutOrNull(draftMillis) { edits.receive() } != null) {}
       saveDraft()
     }
   }
