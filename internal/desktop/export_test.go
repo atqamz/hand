@@ -1,6 +1,8 @@
 package desktop
 
-import "time"
+import (
+	"time"
+)
 
 func SetOpenTimeout(d time.Duration) func() {
 	old := openTimeout
@@ -9,6 +11,10 @@ func SetOpenTimeout(d time.Duration) func() {
 }
 
 var LocalRoot = localRoot
+
+func DraftNote(a *App) string { return a.draftNote() }
+
+func NeedChosen(a *App, key string) bool { return a.needChosen[key] }
 
 func SetLatestNew(a *App, n int) { a.latestNew = n }
 

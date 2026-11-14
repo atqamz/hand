@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ const (
 	UnfocusedRefresh  = 5 * time.Second
 	maxRefreshBackoff = 60 * time.Second
 	StopWindow        = 4 * time.Second
+	draftDelay        = 300 * time.Millisecond
 )
 
 // Clock schedules the auto-refresh tick; nil uses the wall clock.
@@ -48,6 +50,9 @@ type App struct {
 	Connect func() (ReadModel, error)
 	Model   ReadModel
 	Context context.Context
+	// Apple marks Apple hardware, where the send key reads ⌘ Enter; the
+	// desktop starts only on Linux, so no shipped window sets it.
+	Apple bool
 	// NameTimeout limits each fleet's name lookup; zero means two seconds.
 	NameTimeout time.Duration
 	// Clock schedules the auto-refresh tick; nil uses the wall clock.
@@ -115,7 +120,14 @@ type App struct {
 	TaskQuery string
 	DraftDir  string
 	DraftErr  string
+	SendErr   string
 	draftAt   time.Time
+
+	draftRestored bool
+	draftTimer    func()
+	draftGen      int
+	draftFleet    string
+	draftText     string
 
 	Status   Status
 	Timeline Timeline
@@ -189,7 +201,7 @@ type found struct {
 }
 
 func New(connect func() (ReadModel, error)) *App {
-	return &App{Connect: connect, Context: context.Background(), Zoom: zoomDefault}
+	return &App{Connect: connect, Context: context.Background(), Zoom: zoomDefault, Apple: runtime.GOOS == "darwin"}
 }
 
 func (a *App) Boot() {
@@ -207,9 +219,13 @@ func (a *App) StartRefresh() {
 
 // Close stops the auto-refresh loop and cancels a poll in flight.
 func (a *App) Close() {
+	a.flushDraft()
 	a.polling, a.closed = false, true
 	a.resetPoll()
 	a.resetDeny()
+	if a.writer != nil {
+		a.writer.Flush()
+	}
 }
 
 func (a *App) SetMinimized(minimized bool) {
@@ -217,6 +233,9 @@ func (a *App) SetMinimized(minimized bool) {
 		return
 	}
 	a.Minimized = minimized
+	if minimized {
+		a.flushDraft()
+	}
 	if !a.pollBusy {
 		a.armPoll()
 	}
@@ -287,6 +306,8 @@ func (a *App) fleetByID(id string) (Fleet, bool) {
 }
 
 func (a *App) SelectFleet(id string) {
+	a.flushDraft()
+	was := a.Fleet.ID
 	a.resetPoll()
 	if f, ok := a.fleetByID(id); ok {
 		a.Fleet = f
@@ -306,16 +327,19 @@ func (a *App) SelectFleet(id string) {
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
 	a.OpenBusy = false
-	a.DraftErr, a.Busy, a.BusyAction = "", false, ""
+	a.DraftErr, a.SendErr, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()
 	}
-	a.Draft = a.drafts().Load(a.Fleet.ID)
-	a.draftAt = time.Time{}
+	if was != a.Fleet.ID || a.Draft == "" {
+		a.Draft = a.drafts().Load(a.Fleet.ID)
+		a.draftAt, a.draftRestored = time.Time{}, a.Draft != ""
+	}
 	if a.writer != nil {
 		if u, ok := a.writer.unsaved(a.Fleet.ID); ok {
 			a.Draft = u.text
 			a.DraftErr = "the draft was not saved: " + friendly(u.err)
+			a.draftRestored = false
 		}
 	}
 	if a.OnFleet != nil {
@@ -652,14 +676,15 @@ func (a *App) Send() {
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" || strings.TrimSpace(text) == "" {
 		return
 	}
+	a.flushDraft()
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	model, fleet, writer := a.Model, a.Fleet.ID, a.draftWriter()
 	a.Busy = true
-	a.DraftErr = ""
+	a.DraftErr, a.SendErr = "", ""
 	applied := func(sent Sent) {
 		if a.Fleet.ID == fleet && a.Draft == text {
-			a.Draft, a.draftAt = "", time.Time{}
+			a.Draft, a.draftAt, a.draftRestored = "", time.Time{}, false
 		}
 		if id != a.loadID {
 			return
@@ -689,8 +714,7 @@ func (a *App) Send() {
 			return
 		}
 		a.Busy = false
-		a.ActionErr = friendly(err)
-		a.ActionWarn = false
+		a.SendErr = friendly(err)
 	}
 	stale := func(err error) {
 		if id != a.loadID {
@@ -968,13 +992,57 @@ func (a *App) saveDraft() {
 		return
 	}
 	if a.Draft == "" {
-		a.draftAt = time.Time{}
+		a.draftAt, a.draftRestored = time.Time{}, false
 	}
-	a.draftWriter().Save(a.Fleet.ID, a.Draft)
+	if a.Post == nil {
+		a.draftWriter().Save(a.Fleet.ID, a.Draft)
+		return
+	}
+	a.draftGen++
+	gen, fleet, text := a.draftGen, a.Fleet.ID, a.Draft
+	a.draftFleet, a.draftText = fleet, text
+	if a.draftTimer != nil {
+		a.draftTimer()
+	}
+	a.draftTimer = a.clock().After(draftDelay, func() {
+		post := a.Post
+		if post == nil {
+			return
+		}
+		post(func() { a.landDraft(gen) })
+	})
 }
 
-// FlushDrafts waits until every queued draft write has run.
+func (a *App) landDraft(gen int) {
+	if gen != a.draftGen {
+		return
+	}
+	a.draftTimer = nil
+	fleet, text := a.draftFleet, a.draftText
+	a.draftFleet, a.draftText = "", ""
+	if fleet != "" {
+		a.draftWriter().Save(fleet, text)
+	}
+}
+
+func (a *App) flushDraft() {
+	if a.draftTimer != nil {
+		a.draftTimer()
+		a.draftTimer = nil
+	}
+	if a.draftFleet == "" {
+		return
+	}
+	a.draftGen++
+	fleet, text := a.draftFleet, a.draftText
+	a.draftFleet, a.draftText = "", ""
+	a.draftWriter().Save(fleet, text)
+}
+
+// FlushDrafts writes the draft still waiting for its quiet moment and waits
+// until every queued draft write has run.
 func (a *App) FlushDrafts() {
+	a.flushDraft()
 	if a.writer != nil {
 		a.writer.Flush()
 	}
@@ -1001,11 +1069,11 @@ func (a *App) applyDraftSave(fleet, text string) {
 	}
 	a.DraftErr = ""
 	if a.Draft == "" {
-		a.draftAt = time.Time{}
+		a.draftAt, a.draftRestored = time.Time{}, false
 		return
 	}
 	if a.Draft == text {
-		a.draftAt = a.now()
+		a.draftAt, a.draftRestored = a.now(), false
 	}
 }
 

@@ -183,7 +183,7 @@ func (a *App) controls(c *ui.Context, k kit.Colors, sup *Supervisor) {
 		}
 	case sup.Live:
 		ui.Text(c, "starting…").FontSize(kit.Body.Size).TextColor(k.Muted)
-	case sup.Resumable:
+	case headShowsResume(sup):
 		if button("resume", "Resume", "Resuming…", nil, look{ui.Transparent, k.OnPrimary, k.Primary}) {
 			a.Supervise("resume")
 		}
@@ -192,6 +192,12 @@ func (a *App) controls(c *ui.Context, k kit.Colors, sup *Supervisor) {
 			a.Supervise("start")
 		}
 	}
+}
+
+// headShowsResume is the head's Resume rule and the composer's default-Send
+// rule: both key on the form the head actually draws.
+func headShowsResume(sup *Supervisor) bool {
+	return sup != nil && sup.Status != "running" && !sup.Live && sup.Resumable
 }
 
 func (a *App) blockedKeys(c *ui.Context, p palette, sup *Supervisor) {
