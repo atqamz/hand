@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -491,6 +492,83 @@ func TestAClosedViewerDropsTheDeepLinksOwedTab(t *testing.T) {
 			}
 			mustText(t, tt, "Message the supervisor")
 		})
+	}
+}
+
+func TestAFailedTasksReadLeavesTheOpenTaskPageAlone(t *testing.T) {
+	f := goldenFixture(t)
+	td := f.task[fleetID]
+	td.Task.Ref = "t4"
+	f.task[fleetID] = td
+	app := newApp(t, f)
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	f.tasksErr = errors.New("the tasks read failed")
+	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t4"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if app.Screen != desktop.TaskScreen || app.Ref != "t4" {
+		t.Fatalf("the link landed on %v %q", app.Screen, app.Ref)
+	}
+	if app.Err != "" {
+		t.Fatalf("a failed Tasks read set the page error: %q", app.Err)
+	}
+	mustText(t, tt, "Fleets / golden / t4")
+	mustNotText(t, tt, "The page could not be read")
+}
+
+func TestAPendingTabWaitsForTheTasksReadThatFailed(t *testing.T) {
+	f := goldenFixture(t)
+	td := f.task[fleetID]
+	td.Task.Ref = "t4"
+	f.task[fleetID] = td
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	f.tasksErr = errors.New("the tasks read failed")
+	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t4"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if app.Tab != "chat" {
+		t.Fatalf("a failed Tasks read moved the tab to %q, want chat", app.Tab)
+	}
+	mustText(t, tt, "Fleets / golden / t4")
+	f.tasksErr = nil
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	if app.Tab != "tasks" {
+		t.Fatalf("the poll that restored Tasks left the tab on %q, want tasks", app.Tab)
+	}
+}
+
+func TestTheOpenCardKeepsTheChatColumnsMeasure(t *testing.T) {
+	f := goldenFixture(t)
+	f.fleets[0].Home = "/fleet"
+	app := newApp(t, f)
+	t.Setenv("PATH", t.TempDir())
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	app.OpenInBrowser()
+	tt.Frame()
+	if app.OpenErr == "" {
+		t.Fatal("the failed open left no card")
+	}
+	card, ok := tt.Find("Open feedback")
+	if !ok {
+		t.Fatal("no open card")
+	}
+	composer, ok := tt.Find("Composer")
+	if !ok {
+		t.Fatal("no composer")
+	}
+	if card.X != composer.X || card.W != composer.W {
+		t.Fatalf("the open card runs %.0f…%.0f, the chat column %.0f…%.0f",
+			card.X, card.X+card.W, composer.X, composer.X+composer.W)
 	}
 }
 

@@ -232,10 +232,8 @@ func (a *App) chooseTab(tab string) {
 // tabHolding is the tab an opened ref lives in: the Needs item that names
 // it, else the Tasks row, else the tab already shown.
 func (a *App) tabHolding(ref string) string {
-	for _, n := range a.Status.Needs.Items {
-		if r := needRef(n); r != "" && (r == ref || n.Task == ref) {
-			return tabNeeds
-		}
+	if a.needHolds(ref) {
+		return tabNeeds
 	}
 	for _, g := range a.Tasks.Groups {
 		for _, r := range g.Tasks {
@@ -245,6 +243,33 @@ func (a *App) tabHolding(ref string) string {
 		}
 	}
 	return a.tab()
+}
+
+func (a *App) needHolds(ref string) bool {
+	for _, n := range a.Status.Needs.Items {
+		if r := needRef(n); r != "" && (r == ref || n.Task == ref) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveTab picks the tab an opened ref is owed once the collection that
+// holds it is known: Needs with the status, Tasks only after a read that
+// succeeded, so a failed one leaves the reference for the next load.
+func (a *App) resolveTab(tasksOK bool) {
+	ref := a.tabFor
+	if ref == "" {
+		return
+	}
+	switch {
+	case tasksOK:
+		a.tabFor = ""
+		a.pickTab(a.tabHolding(ref))
+	case a.needHolds(ref):
+		a.tabFor = ""
+		a.pickTab(tabNeeds)
+	}
 }
 
 func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
@@ -303,7 +328,9 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 	if !a.boardShown() {
 		ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 			ui.Column(c).Gap(16).Children(func() {
-				a.openCard(c, p)
+				if a.Screen == BoardScreen {
+					a.openCard(c, p)
+				}
 				switch {
 				case a.Starting || a.StartErr != "" || a.auth || a.noFleets:
 					a.stateCard(c, k, p)
@@ -331,8 +358,12 @@ func (a *App) narrowPanes(c *ui.Context, k kit.Colors, p palette) {
 	box.Children(func() {
 		w, _ := c.Size()
 		m := max(float32(kit.Space20), (w-kit.Measure)/2)
-		if a.openFeedback() {
-			ui.Column(c).Padding(kit.Space20, m, 0).Children(func() { a.openCard(c, p) })
+		if a.Screen == BoardScreen && a.openFeedback() {
+			card := m
+			if a.tab() == tabChat {
+				card = composerMargin(w)
+			}
+			ui.Column(c).Padding(kit.Space20, card, 0).Children(func() { a.openCard(c, p) })
 		}
 		if a.tab() == tabChat {
 			a.chatPane(c, k, p)
@@ -370,7 +401,9 @@ func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {
 	}
 	page.Children(func() {
 		ui.Column(c).Gap(16).Selectable().Children(func() {
-			a.openCard(c, p)
+			if a.Screen == BoardScreen {
+				a.openCard(c, p)
+			}
 			switch {
 			case a.Err != "" && !a.errScreen:
 				a.errorCard(c, p)
@@ -407,7 +440,7 @@ func (a *App) openCard(c *ui.Context, p palette) {
 		return
 	}
 	if a.OpenBusy {
-		ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.card).
+		ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.card).
 			Border(1, p.line).Children(func() {
 			ui.Text(c, "Opening in the browser…").FontSize(kit.Title.Size).Bold()
 			ui.Text(c, "`hand open` is starting this page.").FontSize(kit.Meta.Size).
@@ -415,7 +448,7 @@ func (a *App) openCard(c *ui.Context, p palette) {
 		})
 		return
 	}
-	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
+	ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
 		ui.Text(c, "The browser did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
 		ui.Text(c, a.OpenErr).FontSize(kit.Meta.Size)

@@ -1673,6 +1673,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
+		a.resolveTab(true)
 	}
 	if a.Fleet.ID == fleet && p.TimelineFresh {
 		next := mergeTimeline(a.Timeline, p.Timeline)
@@ -1859,7 +1860,7 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	if screen == BoardScreen || withTasks {
 		l.Tasks, err = model.Tasks(ctx, fleet, true)
 		l.TasksOK = err == nil
-		if err != nil && ctx.Err() == nil {
+		if err != nil && ctx.Err() == nil && screen == BoardScreen {
 			l.Err = friendly(err)
 		}
 	}
@@ -1920,10 +1921,7 @@ func (a *App) apply(l loaded) {
 	if l.TasksOK {
 		a.Tasks = l.Tasks
 	}
-	if ref := a.tabFor; ref != "" {
-		a.tabFor = ""
-		a.pickTab(a.tabHolding(ref))
-	}
+	a.resolveTab(l.TasksOK)
 }
 
 func (a *App) setErr(msg string) {
