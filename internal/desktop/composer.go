@@ -144,7 +144,13 @@ func (a *App) draftNote() string {
 	return "Draft saved " + a.draftAt.Format("15:04")
 }
 
-func (a *App) startFormInHead() bool { return a.FormInHead }
+func (a *App) startFormInHead() bool {
+	if a.FormInHead {
+		return true
+	}
+	sup := a.Status.Supervisor
+	return sup != nil && sup.Resumable
+}
 
 func (a *App) sendStyle(k kit.Colors) (bg, fg, edge ui.Color, bold bool) {
 	if a.startFormInHead() {

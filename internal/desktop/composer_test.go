@@ -501,6 +501,14 @@ func TestSendIsPrimaryUntilAFormIsInTheHead(t *testing.T) {
 		if bg != k.BG || fg != k.FG || edge != k.LineStrong || bold {
 			t.Errorf("dark=%v: Send with a form is %v on %v with edge %v bold=%v, want default", dark, fg, bg, edge, bold)
 		}
+
+		resumable := newApp(t, statusWith(t, func(sup *desktop.Supervisor) {
+			sup.Status, sup.Live, sup.Resumable = "interrupted", false, true
+		}))
+		bg, fg, edge, bold = desktop.SendStyle(resumable, dark)
+		if bg != k.BG || fg != k.FG || edge != k.LineStrong || bold {
+			t.Errorf("dark=%v: Send beside Resume is %v on %v with edge %v bold=%v, want default", dark, fg, bg, edge, bold)
+		}
 	}
 }
 
