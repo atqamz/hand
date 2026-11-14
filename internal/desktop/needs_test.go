@@ -420,7 +420,7 @@ func TestAFailedStatusAfterMarkReadKeepsTheReportRead(t *testing.T) {
 	if hasTextNode(tt, "17") {
 		t.Errorf("the stale waiting count is still shown in %q", tt.Texts())
 	}
-	if n := countText(t, tt, "16"); n != 2 {
+	if n := countNode(t, tt, "16"); n != 2 {
 		t.Errorf("the waiting count is shown %d times, want once in Needs and once in the rail", n)
 	}
 }
