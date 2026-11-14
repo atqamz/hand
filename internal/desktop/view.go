@@ -151,7 +151,7 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
-	if a.Model == nil || a.Fleet.ID == "" || a.auth {
+	if a.Model == nil || a.Fleet.ID == "" || a.auth || a.Starting || a.StartErr != "" {
 		ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 			ui.Column(c).Gap(16).Children(func() {
 				a.openCard(c, p)

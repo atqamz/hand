@@ -17,20 +17,25 @@ import (
 )
 
 type startSpy struct {
-	mu    sync.Mutex
-	calls int
-	home  string
-	block chan struct{}
-	line  string
-	err   error
+	mu       sync.Mutex
+	calls    int
+	home     string
+	block    chan struct{}
+	line     string
+	err      error
+	firstErr error
 }
 
 func (s *startSpy) run(ctx context.Context, home string) (string, error) {
 	s.mu.Lock()
 	s.calls++
 	s.home = home
-	block, line, err := s.block, s.line, s.err
+	block, line, err, firstErr := s.block, s.line, s.err, s.firstErr
+	first := s.calls == 1
 	s.mu.Unlock()
+	if first && firstErr != nil {
+		return "", firstErr
+	}
 	if block != nil {
 		select {
 		case <-block:
@@ -233,6 +238,129 @@ func TestTheNoFleetsCardSaysHowToMakeOne(t *testing.T) {
 	if spy.count() != 0 {
 		t.Fatalf("starts = %d, want 0", spy.count())
 	}
+}
+
+func TestLookAgainStartsTheBoardOnceAFleetExists(t *testing.T) {
+	f := goldenFixture(t)
+	var mu sync.Mutex
+	fleetMade := false
+	connect := func() (desktop.ReadModel, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !fleetMade {
+			return nil, desktop.ErrNoBoard
+		}
+		return offlineModel{f}, nil
+	}
+	spy := &startSpy{firstErr: desktop.ErrNoFleets}
+	app := startApp(t, connect, spy.run)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	app.StartRefresh()
+	spy.waitStarts(t, 1)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "No fleet on this computer yet.")
+	mu.Lock()
+	fleetMade = true
+	mu.Unlock()
+	click(t, tt, "Look again")
+	spy.waitStarts(t, 2)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	for settle := time.Now().Add(500 * time.Millisecond); time.Now().Before(settle); {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if got := spy.count(); got != 2 {
+		t.Fatalf("starts = %d, want the one before the fleet and the one Look again ran", got)
+	}
+}
+
+func TestARequestedFleetWaitsForTheBoard(t *testing.T) {
+	f := goldenFixture(t)
+	var mu sync.Mutex
+	up := false
+	connect := func() (desktop.ReadModel, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !up {
+			return nil, desktop.ErrNoBoard
+		}
+		return f, nil
+	}
+	spy := &startSpy{}
+	app := startApp(t, connect, spy.run)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	app.OpenFleet("second")
+	mu.Lock()
+	up = true
+	mu.Unlock()
+	app.StartRefresh()
+	spy.waitStarts(t, 1)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if app.Fleet.ID != secondID {
+		t.Fatalf("fleet = %q, want the requested %q", app.Fleet.ID, secondID)
+	}
+}
+
+func TestARequestedLinkWaitsForTheBoard(t *testing.T) {
+	f := goldenFixture(t)
+	var mu sync.Mutex
+	up := false
+	connect := func() (desktop.ReadModel, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !up {
+			return nil, desktop.ErrNoBoard
+		}
+		return f, nil
+	}
+	spy := &startSpy{}
+	app := startApp(t, connect, spy.run)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t1"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	up = true
+	mu.Unlock()
+	app.StartRefresh()
+	spy.waitStarts(t, 1)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if app.Fleet.ID != fleetID || app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("opened %q %v %q, want %q %v t1", app.Fleet.ID, app.Screen, app.Ref, fleetID, desktop.TaskScreen)
+	}
+}
+
+func TestTheStartCardsStayWhenAFleetIsSelected(t *testing.T) {
+	app := startApp(t, func() (desktop.ReadModel, error) { return goldenFixture(t), nil }, (&startSpy{}).run)
+	app.Post = func(func()) {}
+	tt := newTester(app)
+	tt.Frame()
+	if app.Fleet.ID != fleetID {
+		t.Fatalf("fleet = %q, want %q", app.Fleet.ID, fleetID)
+	}
+	app.Starting = true
+	tt.Frame()
+	mustText(t, tt, "Starting the Board…")
+	mustNotText(t, tt, "Fix login")
+	app.Starting = false
+	const last = "hand board: listen tcp 127.0.0.1:7777: bind: address already in use"
+	app.StartErr = last
+	tt.Frame()
+	mustText(t, tt, "The Board did not start.", last, "Try again")
 }
 
 func TestStartBoardStartsOnlyWhenNothingAnswers(t *testing.T) {

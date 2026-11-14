@@ -171,6 +171,8 @@ type App struct {
 	noFleets      bool
 	wantStart     bool
 	autoStarted   bool
+	pendingFleet  string
+	pendingLink   string
 	copiedKey     string
 	copiedAt      time.Time
 
@@ -301,13 +303,38 @@ func (a *App) Refresh() {
 }
 
 func (a *App) OpenFleet(ref string) {
-	for _, f := range a.Fleets {
-		if f.ID == ref || f.Name == ref {
-			a.SelectFleet(f.ID)
-			return
-		}
+	if f, ok := a.findFleet(ref); ok {
+		a.SelectFleet(f.ID)
+		return
+	}
+	if a.Model == nil || len(a.Fleets) == 0 {
+		a.pendingFleet = ref
+		return
 	}
 	a.setErr(fmt.Sprintf("no registered fleet is named %q", ref))
+}
+
+func (a *App) findFleet(ref string) (Fleet, bool) {
+	for _, f := range a.Fleets {
+		if f.ID == ref || f.Name == ref {
+			return f, true
+		}
+	}
+	return Fleet{}, false
+}
+
+func (a *App) applyPending() {
+	if a.Model == nil || len(a.Fleets) == 0 {
+		return
+	}
+	if ref := a.pendingFleet; ref != "" {
+		a.pendingFleet = ""
+		a.OpenFleet(ref)
+	}
+	if link := a.pendingLink; link != "" {
+		a.pendingLink = ""
+		_ = a.OpenLink(link)
+	}
 }
 
 func (a *App) hasFleet(id string) bool {
@@ -405,6 +432,7 @@ func (a *App) install(f found, keep bool) {
 	default:
 		a.SelectFleet(a.Fleets[0].ID)
 	}
+	a.applyPending()
 }
 
 func (a *App) Show(s Screen) {

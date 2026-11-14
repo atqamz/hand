@@ -194,7 +194,7 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 			noFleetsCommand, "Look again finds a fleet you just made.",
 			func() {
 				if button(c, k, "start:look", "Look again", true) {
-					a.Refresh()
+					a.TryStart()
 				}
 				copyButton("fleets:copy", "Copy the command", noFleetsCommand)
 			})
