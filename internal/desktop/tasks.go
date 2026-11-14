@@ -23,6 +23,9 @@ func (a *App) tasksScreen(c *ui.Context, p palette) {
 	}
 	ui.Column(c).Gap(0).Children(func() {
 		for _, group := range a.Tasks.Groups {
+			if len(group.Tasks) == 0 {
+				continue
+			}
 			a.taskGroup(c, p, group)
 		}
 		if n := a.Tasks.Hidden; n > 0 {
@@ -60,7 +63,8 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 		Padding(kit.Space4, kit.Space4, kit.Space4, kit.Space4+indent).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("task " + r.Ref)
 	el.Children(func() {
-		ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p)).Label("state " + stateIconName(r.State))
+		ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p)).
+			Label("state " + stateWord(r.State))
 		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent).SingleLine()
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
@@ -78,7 +82,8 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string, depth int) {
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).MinWidth(0).Children(func() {
 		if a.Status.Projects > 1 && r.Project != "" {
-			ui.Badge(c, taskProject(r.Project)).Background(p.neutralBG).TextColor(p.neutral).Label("project " + r.Project)
+			ui.Badge(c, taskProject(r.Project)).Background(p.neutralBG).TextColor(p.neutral).
+				Label("project " + r.Project).Tooltip(r.Project).Shrink(0)
 		}
 		if r.Attempt != nil {
 			ui.Text(c, taskAttemptLine(r)).FontSize(kit.Meta.Size).TextColor(p.neutral).
@@ -113,11 +118,11 @@ func (a *App) taskDeliverable(c *ui.Context, p palette, d Deliverable) {
 			color = p.accent
 		}
 		ui.Text(c, "file: "+taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
-			TextColor(color).SingleLine()
+			TextColor(color).SingleLine().MaxWidth(200).Shrink(0).Tooltip(d.Ref)
 		return
 	}
 	ui.Badge(c, d.Kind).Background(ui.Transparent).TextColor(p.accent).Border(1, p.line).
-		Label("deliverable " + d.Kind)
+		Label("deliverable " + d.Kind).Shrink(0)
 }
 
 func taskAttemptLine(r TaskRow) string {
