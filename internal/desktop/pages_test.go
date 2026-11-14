@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -122,13 +123,13 @@ func TestTheAttemptBriefScrollsInsideItsFocusedBox(t *testing.T) {
 		t.Fatal("the brief box is not a focus stop")
 	}
 	for range 12 {
-		if tt.Focused("The brief") {
+		if tt.Focused("The brief") && !tt.Focused("The page") {
 			break
 		}
 		tt.Key(0, ui.KeyTab)
 	}
-	if !tt.Focused("The brief") {
-		t.Fatal("Tab never reached the brief box")
+	if tt.Focused("The page") || !tt.Focused("The brief") {
+		t.Fatal("Tab never reached the brief box itself")
 	}
 	tt.Scroll(brief.X+8, brief.Y+8, 0, 240)
 	tt.Frame()
@@ -541,6 +542,129 @@ func TestAReportFromTheAttemptSnapshotReadsItsAckOnFirstLoad(t *testing.T) {
 	mustNotText(t, tt, "Mark read r99")
 	if got := f.count("report:r99"); got != 1 {
 		t.Fatalf("the window read the acknowledged report %d times, want 1", got)
+	}
+}
+
+type ackDuringReportRead struct {
+	desktop.ReadModel
+	app  *desktop.App
+	read bool
+}
+
+func (m *ackDuringReportRead) Report(ctx context.Context, fleet, ref string) (desktop.ReportDetail, error) {
+	d, err := m.ReadModel.Report(ctx, fleet, ref)
+	if err != nil || m.read {
+		return d, err
+	}
+	m.read = true
+	m.app.Ack(ref)
+	return d, nil
+}
+
+type failingReportRead struct {
+	desktop.ReadModel
+	fails int
+	reads int
+}
+
+func (m *failingReportRead) Report(ctx context.Context, fleet, ref string) (desktop.ReportDetail, error) {
+	m.reads++
+	if m.fails > 0 {
+		m.fails--
+		return desktop.ReportDetail{}, errors.New("the board did not answer")
+	}
+	return m.ReadModel.Report(ctx, fleet, ref)
+}
+
+func reportPageApp(t *testing.T, model desktop.ReadModel) *desktop.App {
+	t.Helper()
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	if app.Err != "" {
+		t.Fatalf("boot: %s", app.Err)
+	}
+	return app
+}
+
+func TestAnAckDuringThePageReadKeepsTheAckedCard(t *testing.T) {
+	f := manyReportFixture(t)
+	td := f.task[fleetID]
+	ad := f.attempt[fleetID]
+	ad.Reports = []desktop.Report{{
+		Ref: "r99", Task: "t1", Attempt: "a1", Status: "progress",
+		Summary:   "Older than the window",
+		Body:      "Older than the window\n\nstill unread",
+		CreatedAt: "2026-10-01T04:40:00Z",
+	}}
+	f.attempt[fleetID] = ad
+	f.report[fleetID] = desktop.ReportDetail{Task: td.Task, Report: ad.Reports[0]}
+	model := &ackDuringReportRead{ReadModel: f}
+	app := reportPageApp(t, model)
+	model.app = app
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("a1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	if got := f.count("report:r99"); got != 1 {
+		t.Fatalf("the window read the report %d times, want 1", got)
+	}
+	if got := f.count("ack:r99"); got != 1 {
+		t.Fatalf("the ack landed %d times during the read, want 1", got)
+	}
+	mustText(t, tt, "read by operator (desktop)")
+	mustNotText(t, tt, "Mark read r99")
+}
+
+func TestAFailedPageReadKeepsTheCardAndRetries(t *testing.T) {
+	f := manyReportFixture(t)
+	td := f.task[fleetID]
+	ad := f.attempt[fleetID]
+	ad.Reports = []desktop.Report{{
+		Ref: "r99", Task: "t1", Attempt: "a1", Status: "progress",
+		Summary:   "Still unread",
+		Body:      "Still unread\n\nfrom the attempt",
+		CreatedAt: "2026-10-01T04:40:00Z",
+	}}
+	f.attempt[fleetID] = ad
+	f.report[fleetID] = desktop.ReportDetail{
+		Task: td.Task,
+		Report: desktop.Report{
+			Ref: "r99", Task: "t1", Attempt: "a1", Status: "done",
+			Summary:   "Read after the retry",
+			Body:      "Read after the retry\n\nfrom the board",
+			CreatedAt: "2026-11-02T04:40:00Z",
+		},
+	}
+	model := &failingReportRead{ReadModel: f, fails: 1}
+	app := reportPageApp(t, model)
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("a1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	if model.reads != 1 {
+		t.Fatalf("the window read the report %d times, want 1", model.reads)
+	}
+	if _, ok := tt.Find("report r99"); !ok {
+		t.Fatal("no r99 card after the failed read")
+	}
+	if !tt.HasText("from the attempt") {
+		t.Fatalf("the card dropped the target: %q", tt.Texts())
+	}
+	app.Retry()
+	tt.Frame()
+	if model.reads != 2 {
+		t.Fatalf("Retry read the report %d times in all, want 2", model.reads)
+	}
+	if !tt.HasText("from the board") || tt.HasText("from the attempt") {
+		t.Fatalf("the card did not take the read's report: %q", tt.Texts())
+	}
+	app.Retry()
+	tt.Frame()
+	if model.reads != 2 {
+		t.Fatalf("the window read the report %d times after it had its answer", model.reads)
 	}
 }
 

@@ -148,6 +148,8 @@ type App struct {
 	pageTarget      Report
 	pageTargetOK    bool
 	pageTargetCheck bool
+	pageTargetRetry bool
+	pageTargetGen   int
 	scrollTo        string
 
 	Err      string
@@ -517,7 +519,8 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 			Target: a.pageTarget, HasTarget: a.pageTargetOK})
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
-	a.pageTarget, a.pageTargetOK, a.pageTargetCheck = Report{}, false, false
+	a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.pageTargetRetry = Report{}, false, false, false
+	a.pageTargetGen++
 	if target != nil {
 		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = *target, true, true
 	}
@@ -583,8 +586,8 @@ func reportIn(list []Report, ref string) (Report, bool) {
 
 func (a *App) applyTask(t TaskDetail) {
 	ref := a.pageReport
-	was := a.pageTargetCheck
-	a.pageTargetCheck = false
+	was := a.pageTargetCheck || a.pageTargetRetry
+	a.pageTargetCheck, a.pageTargetRetry = false, false
 	if a.pageTargetOK && ref != "" {
 		if _, ok := reportIn(a.Task.Unread, ref); ok {
 			was = true
@@ -597,11 +600,11 @@ func (a *App) applyTask(t TaskDetail) {
 		return
 	}
 	if r, ok := reportIn(t.Unread, ref); ok {
-		a.pageTarget = r
+		a.pageTarget, a.pageTargetGen = r, a.pageTargetGen+1
 		return
 	}
 	if r, ok := reportIn(t.Reports, ref); ok {
-		a.pageTarget = r
+		a.pageTarget, a.pageTargetGen = r, a.pageTargetGen+1
 		return
 	}
 	if was {
@@ -614,14 +617,14 @@ func (a *App) refreshPageReport(ref string) {
 		return
 	}
 	post := a.Post
-	model, fleet := a.Model, a.Fleet.ID
+	model, fleet, gen := a.Model, a.Fleet.ID, a.pageTargetGen
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(r Report, err error) {
-		if a.Fleet.ID != fleet || a.pageReport != ref {
+		if a.Fleet.ID != fleet || a.pageReport != ref || a.pageTargetGen != gen {
 			return
 		}
 		if err != nil {
-			a.pageTarget, a.pageTargetOK = Report{}, false
+			a.pageTargetRetry = true
 			return
 		}
 		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = r, true, false
@@ -730,6 +733,8 @@ func (a *App) Back() {
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
 	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
 	a.pageTargetCheck = step.HasTarget
+	a.pageTargetRetry = false
+	a.pageTargetGen++
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = true
@@ -981,7 +986,8 @@ func (a *App) applyAck(ref string, r Report) {
 	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
 	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
 	if ref == a.pageReport {
-		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = r, true, false
+		a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.pageTargetRetry = r, true, false, false
+		a.pageTargetGen++
 	}
 	kept := a.Task.Unread[:0:0]
 	for _, u := range a.Task.Unread {
