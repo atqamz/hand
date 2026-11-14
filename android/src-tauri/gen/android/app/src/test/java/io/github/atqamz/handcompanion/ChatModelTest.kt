@@ -5,13 +5,22 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,22 +49,50 @@ private fun entry(
   input: Long = 0,
   ref: String = "",
   delivery: String = "",
-  delivered: String = ""
+  delivered: String = "",
+  queued: Boolean = false
 ) =
-  """{"key":"$key","role":"$role","at":"$at","text":"$text","no":$no,"input":$input,"ref":"$ref","delivery":"$delivery","delivered":"$delivered"}"""
+  """{"key":"$key","role":"$role","at":"$at","text":"$text","no":$no,"input":$input,"ref":"$ref","delivery":"$delivery","delivered":"$delivered","queued":$queued}"""
 
 private fun timeline(older: Int, vararg entries: String) =
   envelope("""{"live":true,"older":$older,"entries":[${entries.joinToString(",")}]}""")
 
+private fun deliveredEntry(): String {
+  val data = boardJson.parseToJsonElement(golden("message-delivered")).jsonObject.getValue("data")
+  return data.jsonObject.getValue("entries").jsonArray
+    .first { it.jsonObject["input"]?.jsonPrimitive?.longOrNull == 1L }
+    .toString()
+}
+
+private class ComposingDrafts(initial: Map<String, Pair<String, Long>> = emptyMap()) : ComposerDrafts {
+  val saved = mutableMapOf<String, Pair<String, Long>>()
+  var writes = 0
+
+  init {
+    saved.putAll(initial)
+  }
+
+  override fun read(fleet: String, now: Long) = saved[fleet]?.first.orEmpty()
+
+  override fun write(fleet: String, text: String, now: Long) {
+    writes++
+    if (text.isEmpty()) saved.remove(fleet) else saved[fleet] = text to now
+  }
+
+  fun text(fleet: String = FLEET) = saved[fleet]?.first.orEmpty()
+}
+
 private class ChatBoard(
   var timelineAnswer: (String?) -> Raw = { Raw(200, golden("timeline")) },
   var olderAnswer: (Int) -> Raw = { Raw(200, timeline(70)) },
+  var messageAnswer: (String?) -> Raw = { Raw(200, golden("message-sent")) },
   private val features: List<String> = listOf("events"),
   private val readGate: CompletableDeferred<Unit>? = null,
   private val gateAfter: Int = 0
 ) : Transport {
   private val reads = AtomicInteger()
   val calls = CopyOnWriteArrayList<String>()
+  val posts = CopyOnWriteArrayList<String?>()
 
   override fun request(
     fleet: String,
@@ -66,6 +103,10 @@ private class ChatBoard(
   ): Raw {
     calls += "${if (post) "POST" else "GET"} $path"
     return when {
+      post -> {
+        posts += body
+        messageAnswer(body)
+      }
       path.startsWith("/api/v1/timeline?before=") ->
         olderAnswer(path.substringAfter("before=").toInt())
       path.startsWith("/api/v1/timeline") -> {
@@ -93,8 +134,10 @@ private class ChatBoard(
 private fun model(
   board: ChatBoard,
   bus: LiveBus = LiveBus(32),
-  now: Long = 1_760_000_000_000
-) = ChatModel(FLEET, board, bus, 5_000, { now })
+  now: Long = 1_760_000_000_000,
+  drafts: ComposerDrafts = ComposingDrafts(),
+  draftMillis: Long = DRAFT_MILLIS
+) = ChatModel(FLEET, board, drafts, bus, 5_000, { now }, draftMillis)
 
 private fun timelineReads(board: ChatBoard) =
   board.calls.filter { it.startsWith("GET /api/v1/timeline") }
@@ -811,7 +854,7 @@ class ChatModelTest {
       """{"live":true,"older":0,"working":{"ref":"s1","since":"2026-11-01T04:40:00Z","on":"since the turn began","last":"2026-11-01T04:41:00Z"},"entries":[]}"""
     val board =
       ChatBoard(features = emptyList(), timelineAnswer = { Raw(200, envelope(working)) })
-    val chat = ChatModel(FLEET, board, LiveBus(8), 60_000, { clock })
+    val chat = ChatModel(FLEET, board, ComposingDrafts(), LiveBus(8), 60_000, { clock })
     val job = launch(Dispatchers.Default) { chat.run() }
     eventually("the working line is read") { chat.state.value.working != null }
     clock += 5_000
@@ -840,5 +883,297 @@ class ChatModelTest {
     chat.load()
     assertEquals(3, board.reads())
     assertNull(chat.state.value.refused)
+  }
+
+  @Test
+  fun theSendPostsTheTextOnceAndWaitsForTheAnswer() = runBlocking {
+    val gate = CompletableDeferred<Unit>()
+    val board =
+      ChatBoard(
+        messageAnswer = {
+          kotlinx.coroutines.runBlocking { gate.await() }
+          Raw(200, golden("message-sent"))
+        }
+      )
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    val said = "please look at the cookie rename"
+    chat.edit(said)
+    val sending = launch(Dispatchers.Default) { chat.sendNow() }
+    try {
+      eventually("the message is in flight") { chat.state.value.sending }
+      eventually("the message is posted") { board.posts.isNotEmpty() }
+      eventually("the draft is flushed before the post") { drafts.text() == said }
+      assertEquals(said, chat.state.value.draft)
+      assertEquals(3, chat.state.value.page.size)
+      assertTrue(chat.state.value.page.none { it.entry.text == said })
+      assertEquals("""{"text":"$said"}""", board.posts.single())
+      val second = launch(Dispatchers.Default) { chat.sendNow() }
+      second.join()
+      assertEquals(1, board.posts.size)
+      chat.edit("please look again")
+    } finally {
+      gate.complete(Unit)
+    }
+    sending.join()
+    assertEquals("please look again", chat.state.value.draft)
+    assertEquals("please look again", drafts.text())
+    assertFalse(chat.state.value.sending)
+    assertTrue(chat.state.value.page.any { it.key == "i1" })
+  }
+
+  @Test
+  fun theSendAnswerReplacesTheConversationAndEmptiesTheBox() = runBlocking {
+    val board = ChatBoard()
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("hello from the phone")
+    chat.sendNow()
+    val state = chat.state.value
+    assertEquals("", state.draft)
+    assertEquals("", state.draftNote)
+    assertEquals("", drafts.text())
+    assertFalse(state.sending)
+    assertEquals("", state.sendError)
+    assertEquals(4, state.page.size)
+    val sent = state.page.first { it.key == "i1" }.entry
+    assertTrue(sent.queued)
+    assertEquals("queued", deliveryWords(sent, UTC))
+  }
+
+  @Test
+  fun aFailedSendKeepsTheTextAndTheBoardsWords() = runBlocking {
+    val words = "invalid: message is 17001 bytes; the most is 16384"
+    val board = ChatBoard(messageAnswer = { refused(400, "bad_request", words) })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("too long")
+    chat.sendNow()
+    val state = chat.state.value
+    assertEquals("too long", state.draft)
+    assertEquals("too long", drafts.text())
+    assertEquals(words, state.sendError)
+    assertFalse(state.sending)
+    assertEquals(3, state.page.size)
+
+    val down = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val retried = model(down, drafts = ComposingDrafts())
+    retried.load()
+    retried.edit("did it arrive?")
+    retried.sendNow()
+    assertEquals("did it arrive?", retried.state.value.draft)
+    assertEquals("Not sure the message was sent.", retried.state.value.sendError)
+  }
+
+  @Test
+  fun anAnswerThatCannotBeReadStillEmptiesTheBox() = runBlocking {
+    val board = ChatBoard(messageAnswer = { Raw(200, "not an envelope") })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    val reads = board.reads()
+    chat.edit("sent but unreadable")
+    chat.sendNow()
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.sendError)
+    assertFalse(chat.state.value.sending)
+    assertTrue(board.reads() > reads)
+  }
+
+  @Test
+  fun anAcceptedSendEmptiesTheBoxAndTheStoreAndReadsAgain() = runBlocking {
+    val board = ChatBoard(messageAnswer = { Raw(200, envelope("""{"accepted":true}""")) })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    val reads = board.reads()
+    chat.edit("sent, then accepted")
+    chat.sendNow()
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.draftNote)
+    assertFalse(chat.state.value.sending)
+    assertEquals(1, board.posts.size)
+    assertEquals(reads + 1, board.reads())
+  }
+
+  @Test
+  fun aQueuedMessageReadsQueuedUntilTheStreamSaysDelivered() = runBlocking {
+    val board = ChatBoard(timelineAnswer = { Raw(200, golden("message-sent")) })
+    val chat = model(board)
+    chat.load()
+    val queued = chat.state.value.page.first { it.key == "i1" }.entry
+    assertTrue(queued.queued)
+    assertEquals("queued", deliveryWords(queued, UTC))
+    chat.reduce(
+      LiveEvent(
+        FLEET,
+        "timeline",
+        """{"snapshot":false,"from":4,"to":4,"older":0,"live":true,"entries":[${deliveredEntry()}]}"""
+      )
+    )
+    val state = chat.state.value
+    val delivered = state.page.first { it.key == "i1" }.entry
+    assertFalse(delivered.queued)
+    assertEquals("delivered 04:40", deliveryWords(delivered, UTC))
+    assertEquals("hello from the desktop", delivered.text)
+    assertEquals("2026-11-01T04:40:00Z", delivered.delivered)
+    assertEquals(4, state.page.size)
+    assertEquals("i1", state.page[0].key)
+  }
+
+  @Test
+  fun aDeliveredTimelineReadsTheBoardsReceipt() = runBlocking {
+    val board = ChatBoard(timelineAnswer = { Raw(200, golden("message-delivered")) })
+    val chat = model(board)
+    chat.load()
+    val state = chat.state.value
+    val delivered = state.page.first { it.key == "i1" }.entry
+    assertEquals("operator", delivered.role)
+    assertEquals("hello from the desktop", delivered.text)
+    assertEquals(1L, delivered.input)
+    assertEquals("delivered", delivered.delivery)
+    assertEquals("2026-11-01T04:40:00Z", delivered.delivered)
+    assertFalse(delivered.queued)
+    assertEquals("delivered 04:40", deliveryWords(delivered, UTC))
+    assertEquals(4, state.page.size)
+  }
+
+  @Test
+  fun theDeliveryWordsAreTheBoards() {
+    val sent =
+      TimelineEntry(
+        role = "operator",
+        delivery = "delivered",
+        delivered = "2026-11-01T07:19:00Z"
+      )
+    assertEquals("delivered 07:19", deliveryWords(sent, UTC))
+    assertEquals("queued", deliveryWords(sent.copy(queued = true), UTC))
+    assertEquals(
+      "queued",
+      deliveryWords(sent.copy(delivery = "queued", queued = false), UTC)
+    )
+    assertEquals("", deliveryWords(sent.copy(delivery = "", delivered = ""), UTC))
+  }
+
+  @Test
+  fun aDraftIsWrittenAfterTheLastKeystroke() = runBlocking {
+    val drafts = ComposingDrafts()
+    val chat = model(ChatBoard(), drafts = drafts, draftMillis = 100)
+    val job = launch(Dispatchers.Default) { chat.run() }
+    eventually("the page is read") { !chat.state.value.loading }
+    chat.edit("a")
+    delay(40)
+    chat.edit("ab")
+    delay(40)
+    assertEquals(0, drafts.writes)
+    eventually("the draft is written once") { drafts.writes == 1 }
+    assertEquals("ab", drafts.text())
+    delay(150)
+    assertEquals(1, drafts.writes)
+    job.cancelAndJoin()
+  }
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  @Test
+  fun theDraftWriteLandsTheWindowAfterTheLastKeystroke() = runTest {
+    val drafts = ComposingDrafts()
+    val start = 1_760_000_000_000L
+    val chat =
+      ChatModel(
+        FLEET,
+        ChatBoard(),
+        drafts,
+        LiveBus(32),
+        5_000,
+        { start + testScheduler.currentTime },
+        DRAFT_MILLIS,
+        StandardTestDispatcher(testScheduler)
+      )
+    val job = launch { chat.run() }
+    runCurrent()
+    assertFalse(chat.state.value.loading)
+    chat.edit("a")
+    runCurrent()
+    advanceTimeBy(40)
+    chat.edit("ab")
+    runCurrent()
+    advanceTimeBy(DRAFT_MILLIS - 1)
+    runCurrent()
+    assertEquals("the window restarted on the second keystroke", 0, drafts.writes)
+    advanceTimeBy(1)
+    runCurrent()
+    assertEquals(1, drafts.writes)
+    assertEquals("ab", drafts.text())
+    assertEquals(start + 40 + DRAFT_MILLIS, drafts.saved[FLEET]?.second)
+    advanceTimeBy(DRAFT_MILLIS + 100)
+    runCurrent()
+    assertEquals(1, drafts.writes)
+    job.cancelAndJoin()
+  }
+
+  @Test
+  fun aStoredDraftIsRestoredOnlyIntoAnEmptyBox() = runBlocking {
+    val drafts = ComposingDrafts(mapOf(FLEET to ("half a thought" to 1_760_000_000_000)))
+    val chat = model(ChatBoard(), drafts = drafts)
+    chat.restoreDraft()
+    assertEquals("half a thought", chat.state.value.draft)
+    assertEquals("Draft restored", chat.state.value.draftNote)
+    val typed = model(ChatBoard(), drafts = drafts)
+    typed.edit("mine")
+    typed.restoreDraft()
+    assertEquals("mine", typed.state.value.draft)
+    assertEquals("", typed.state.value.draftNote)
+  }
+
+  @Test
+  fun emptyingTheBoxByHandDropsTheStoredDraft() = runBlocking {
+    val drafts = ComposingDrafts()
+    val chat = model(ChatBoard(), drafts = drafts, draftMillis = 50)
+    val job = launch(Dispatchers.Default) { chat.run() }
+    eventually("the page is read") { !chat.state.value.loading }
+    chat.edit("gone")
+    eventually("the draft is written") { drafts.text() == "gone" }
+    chat.edit("")
+    eventually("the stored draft is dropped") { drafts.text() == "" }
+    job.cancelAndJoin()
+  }
+
+  @Test
+  fun leavingTheScreenFlushesTheDraft() = runBlocking {
+    val drafts = ComposingDrafts()
+    val chat = model(ChatBoard(), drafts = drafts, draftMillis = 10_000)
+    val job = launch(Dispatchers.Default) { chat.run() }
+    eventually("the page is read") { !chat.state.value.loading }
+    chat.edit("half written")
+    job.cancelAndJoin()
+    assertEquals("half written", drafts.text())
+  }
+
+  @Test
+  fun aDraftOlderThanThirtyDaysIsDropped() {
+    val day = 24L * 60 * 60 * 1000
+    val all = mapOf(draftKey(FLEET, 1_000L) to "old")
+    assertEquals("", liveDraft(all, FLEET, 1_000L + 30 * day, DRAFT_TTL_MILLIS))
+    assertEquals("old", liveDraft(all, FLEET, 1_000L + 29 * day, DRAFT_TTL_MILLIS))
+  }
+
+  @Test
+  fun theDraftFileKeepsOneTextPerFleet() {
+    val other = "f000000000009"
+    val all =
+      mapOf(
+        draftKey(FLEET, 5L) to "mine",
+        draftKey(other, 5L) to "theirs",
+        "$FLEET/d12" to "a decision note"
+      )
+    assertEquals(listOf(draftKey(FLEET, 5L)), fleetDraftKeys(all, FLEET))
+    assertEquals("mine", liveDraft(all, FLEET, 6L, DRAFT_TTL_MILLIS))
+    assertEquals("theirs", liveDraft(all, other, 6L, DRAFT_TTL_MILLIS))
+    assertEquals("", liveDraft(all, "f00000000000f", 6L, DRAFT_TTL_MILLIS))
   }
 }
