@@ -162,7 +162,13 @@ fun reportTone(status: String) =
 fun eventWords(kind: String) = kind.replace('.', ' ').replace('_', ' ')
 
 fun attemptTitle(attempt: TaskAttempt) =
-  listOf(attempt.harness, attempt.model, attempt.effort)
+  attemptTitle(attempt.harness, attempt.model, attempt.effort)
+
+fun attemptTitle(attempt: AttemptRecord) =
+  attemptTitle(attempt.harness, attempt.model, attempt.effort)
+
+private fun attemptTitle(harness: String, model: String, effort: String) =
+  listOf(harness, model, effort)
     .filter(String::isNotEmpty)
     .joinToString(" · ")
 
@@ -180,6 +186,8 @@ sealed interface ThreadTarget {
 
   data class Decision(val ref: String) : ThreadTarget
 
+  data class Attempt(val ref: String) : ThreadTarget
+
   data class Web(val path: String) : ThreadTarget
 
   data class Browser(val url: String) : ThreadTarget
@@ -194,7 +202,7 @@ fun refTarget(ref: String, task: String, fleet: String): ThreadTarget =
   when {
     isRef(ref, 't') -> ThreadTarget.Task(ref)
     isRef(ref, 'd') -> ThreadTarget.Decision(ref)
-    isRef(ref, 'a') -> ThreadTarget.Web("/$fleet/attempt/$ref")
+    isRef(ref, 'a') -> ThreadTarget.Attempt(ref)
     isRef(ref, 'r') -> ThreadTarget.Web("/$fleet/task/$task#$ref")
     else -> ThreadTarget.None
   }

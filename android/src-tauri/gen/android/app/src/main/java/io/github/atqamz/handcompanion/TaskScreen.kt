@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-private fun SectionHead(text: String) {
+internal fun SectionHead(text: String) {
   Text(
     text,
     Modifier.fillMaxWidth().padding(16.dp, 20.dp, 16.dp, 4.dp).semantics { heading() },
@@ -163,7 +163,7 @@ private fun Waiting(report: TaskReport, task: String, fleet: String, onTarget: (
 }
 
 @Composable
-private fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (ThreadTarget) -> Unit) {
+internal fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (ThreadTarget) -> Unit) {
   val hand = LocalHand.current
   val target = deliverableTarget(deliverable, fleet)
   val badge = if (deliverable.kind == "file") fileBadge(deliverable.ref) else deliverable.kind.uppercase()
@@ -202,7 +202,7 @@ private fun PlanCard(plan: TaskPlan) {
 }
 
 @Composable
-private fun ReportCard(
+internal fun ReportCard(
   report: TaskReport,
   task: String,
   fleet: String,
@@ -257,7 +257,7 @@ private fun ReportCard(
         localTime(report.createdAt)?.let { Meta(it) }
       }
     }
-    if (report.body.isNotEmpty()) Text(report.body, Modifier.padding(12.dp), style = type.bodyMedium)
+    if (report.body.isNotEmpty()) Text(shown(report.body), Modifier.padding(12.dp), style = type.bodyMedium)
     error?.let { Problem(it) }
   }
 }
@@ -317,7 +317,7 @@ private fun AttemptRow(attempt: TaskAttempt, task: String, fleet: String, onTarg
 }
 
 @Composable
-private fun EventRow(event: TaskEvent) {
+internal fun EventRow(event: TaskEvent) {
   val hand = LocalHand.current
   Row(
     Modifier.fillMaxWidth().padding(16.dp, 8.dp),
@@ -331,7 +331,7 @@ private fun EventRow(event: TaskEvent) {
     )
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(eventWords(event.kind), style = type.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-      if (event.detail.isNotEmpty()) Text(event.detail, color = hand.muted, style = type.bodySmall)
+      if (event.detail.isNotEmpty()) Text(shown(event.detail), color = hand.muted, style = type.bodySmall)
     }
   }
   HorizontalDivider(color = hand.line)

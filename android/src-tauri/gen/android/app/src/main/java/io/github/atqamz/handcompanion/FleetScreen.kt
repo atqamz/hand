@@ -155,6 +155,7 @@ fun FleetScreen(
   onShowAll: () -> Unit,
   onPress: (List<String>) -> Unit,
   onForce: () -> Unit,
+  onAttempt: (String) -> Unit,
   choice: @Composable (String) -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -168,7 +169,7 @@ fun FleetScreen(
             Meta("Pair this phone again on the laptop's Board.")
           }
         Body.Loading -> Loading()
-        Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, onPress, onForce, choice)
+        Body.Needs -> NeedsScreen(state, onToggle, onMarkRead, onWeb, onPress, onForce, onAttempt, choice)
         Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry)
         Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
