@@ -519,7 +519,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
 	a.pageTarget, a.pageTargetOK, a.pageTargetCheck = Report{}, false, false
 	if target != nil {
-		a.pageTarget, a.pageTargetOK = *target, true
+		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = *target, true, true
 	}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}

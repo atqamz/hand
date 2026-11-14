@@ -97,6 +97,13 @@ func installFakeHand(t *testing.T) fakeHand {
 	return fakeHand{log: log, home: home}
 }
 
+func (h fakeHand) reset(t *testing.T) {
+	t.Helper()
+	if err := os.Remove(h.log); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 func (h fakeHand) calls(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(h.log)
@@ -159,6 +166,7 @@ func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
 		{"task after a report", func() { app.OpenRef("t1"); app.OpenRef("r1"); app.Back() }, false, []string{"open", "t1"}},
 	} {
 		t.Run(tc.screen, func(t *testing.T) {
+			hand.reset(t)
 			tc.open()
 			tt.Frame()
 			if tc.menu {

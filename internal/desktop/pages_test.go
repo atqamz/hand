@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,48 @@ func TestTheAttemptPageKeepsTheTasksTwoColumns(t *testing.T) {
 	details, _ := tt.Find("Details")
 	if reports.X > 60 || details.X > 60 || details.Y >= reports.Y {
 		t.Fatalf("reports at %v and details at %v, want one column with the aside after", reports, details)
+	}
+}
+
+func TestTheAttemptBriefScrollsInsideItsFocusedBox(t *testing.T) {
+	f := goldenFixture(t)
+	short := f.attempt[fleetID]
+	short.Brief = "a short brief"
+	f.attempt[fleetID] = short
+	shortApp := newApp(t, f)
+	shortTT := newTesterAt(shortApp, 1100, 900)
+	shortApp.OpenRef("a1")
+	shortTT.Frame()
+	_, shortMax := desktop.ViewerScroll(shortApp)
+
+	long := goldenFixture(t)
+	ad := long.attempt[fleetID]
+	ad.Brief = strings.Repeat("0123456789abcdef0123456789abcde\n", 512)
+	long.attempt[fleetID] = ad
+	app := newApp(t, long)
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("a1")
+	tt.Frame()
+	if _, max := desktop.ViewerScroll(app); max-shortMax > 400 {
+		t.Fatalf("a 16 KiB brief scrolled the page to %v, up from %v for a short one", max, shortMax)
+	}
+	brief, ok := tt.Find("The brief")
+	if !ok {
+		t.Fatal("the brief box is not a focus stop")
+	}
+	for range 12 {
+		if tt.Focused("The brief") {
+			break
+		}
+		tt.Key(0, ui.KeyTab)
+	}
+	if !tt.Focused("The brief") {
+		t.Fatal("Tab never reached the brief box")
+	}
+	tt.Scroll(brief.X+8, brief.Y+8, 0, 240)
+	tt.Frame()
+	if y, _ := desktop.ViewerScroll(app); y != 0 {
+		t.Fatalf("a wheel over the brief moved the page to %v", y)
 	}
 }
 
@@ -473,6 +516,34 @@ func TestBackRefreshesAPageReportAckedElsewhere(t *testing.T) {
 	}
 }
 
+func TestAReportFromTheAttemptSnapshotReadsItsAckOnFirstLoad(t *testing.T) {
+	f := manyReportFixture(t)
+	ad := f.attempt[fleetID]
+	ad.Reports = []desktop.Report{{
+		Ref: "r99", Task: "t1", Attempt: "a1", Status: "progress",
+		Summary:   "Older than the window",
+		Body:      "Older than the window\n\nstill unread",
+		CreatedAt: "2026-10-01T04:40:00Z",
+	}}
+	f.attempt[fleetID] = ad
+	ackedElsewhere(f)
+	app := newApp(t, f)
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("a1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || desktop.PageReport(app) != "r99" {
+		t.Fatalf("the report opened %v %q at %q, want the task t1 at r99",
+			app.Screen, app.Ref, desktop.PageReport(app))
+	}
+	mustText(t, tt, "read by operator (desktop)")
+	mustNotText(t, tt, "Mark read r99")
+	if got := f.count("report:r99"); got != 1 {
+		t.Fatalf("the window read the acknowledged report %d times, want 1", got)
+	}
+}
+
 func TestAReportLinkReadsItsTaskWhenNoPageHoldsIt(t *testing.T) {
 	f := goldenFixture(t)
 	st := f.status[fleetID]
@@ -631,6 +702,7 @@ func TestTheAttemptAndDecisionPagesShowControlCharacters(t *testing.T) {
 	ad.ModelNote = "note\u202Ehere"
 	ad.Attempt.Reason = "reason\u202Ehere"
 	ad.Attempt.EndedAt = "not\u202Ea time"
+	ad.Transcript.Answered = "operator\u202Eanswered"
 	ad.Transcript.Turns[0].Text = "turn\u202Etext"
 	ad.Events[0].Detail = "event\u202Etext"
 	f.attempt[fleetID] = ad
@@ -648,7 +720,7 @@ func TestTheAttemptAndDecisionPagesShowControlCharacters(t *testing.T) {
 	app.OpenRef("a1")
 	tt.Frame()
 	mustText(t, tt, "noteU+202Ehere", "reasonU+202Ehere", "notU+202Ea time",
-		"turnU+202Etext", "eventU+202Etext")
+		"operatorU+202Eanswered", "turnU+202Etext", "eventU+202Etext")
 	mustNotText(t, tt, "turn\u202Etext")
 	app.OpenRef("d1")
 	tt.Frame()

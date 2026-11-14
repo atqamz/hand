@@ -137,7 +137,7 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 ## Refresh
 
-The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks for the status, the conversation, the tasks list and the open screen's data (the tasks list alone, or the opened task, attempt, decision or report with the tasks list), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
+The selected fleet refreshes itself, off the render path: a timer posts a tick to the window's loop, which reads in a goroutine and applies the answer on the window's thread. It asks for the status, the conversation, the tasks list and the open screen's data (the tasks list alone, or the opened task, attempt or decision with the tasks list), never every fleet and never a write, and sends each endpoint's last change cursor as `?since=`.
 
 | Window state | Interval |
 |---|---|

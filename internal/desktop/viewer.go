@@ -635,9 +635,13 @@ func (a *App) warnLine(c *ui.Context, p palette, text string) {
 	ui.Text(c, shownText(text)).FontSize(kit.Body.Size).TextColor(p.wait)
 }
 
+// briefMax is board.css's 24em .brief box at the window's 12px mono.
+var briefMax = 24 * kit.Meta.Size
+
 func (a *App) preBox(c *ui.Context, p palette, text string) {
-	ui.Box(c).Padding(kit.Space10, kit.Space12).Border(1, p.line).Radius(kit.RadiusLG).
-		Background(p.card).Children(func() {
+	ui.Scroll(c).MaxHeight(briefMax).Padding(kit.Space10, kit.Space12).
+		Border(1, p.line).Radius(kit.RadiusLG).Background(p.card).
+		Focusable().Label("The brief").Children(func() {
 		ui.Text(c, shownText(text)).Font("monospace").FontSize(kit.Meta.Size).
 			FixedLineHeight(kit.Meta.Line)
 	})
