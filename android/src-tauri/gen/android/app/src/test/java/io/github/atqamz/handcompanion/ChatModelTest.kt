@@ -649,6 +649,21 @@ class ChatModelTest {
   }
 
   @Test
+  fun theWorkingTimersTickWithoutTheEventStream() = runBlocking {
+    var clock = 1_760_000_000_000L
+    val working =
+      """{"live":true,"older":0,"working":{"ref":"s1","since":"2026-11-01T04:40:00Z","on":"since the turn began","last":"2026-11-01T04:41:00Z"},"entries":[]}"""
+    val board =
+      ChatBoard(features = emptyList(), timelineAnswer = { Raw(200, envelope(working)) })
+    val chat = ChatModel(FLEET, board, LiveBus(8), 60_000, { clock })
+    val job = launch(Dispatchers.Default) { chat.run() }
+    eventually("the working line is read") { chat.state.value.working != null }
+    clock += 5_000
+    eventually("the timer moved") { chat.state.value.now == clock }
+    job.cancelAndJoin()
+  }
+
+  @Test
   fun theHandLinesWordsDropTheWakePrefixAndTheEventDots() {
     assertEquals("decision answered d11", handWords("wake: decision.answered d11"))
     assertEquals("attempt failed a5", handWords("wake: attempt.failed a5:"))
