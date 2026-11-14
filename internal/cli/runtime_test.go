@@ -249,6 +249,7 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 	select {
 	case <-term.done:
 	case <-time.After(workerReap):
+		return nil, fakeuhp.Fail{Code: "close_timeout", Message: "the terminal tree did not exit within " + workerReap.String() + "; root process " + strconv.Itoa(term.cmd.Process.Pid) + " survived"}
 	}
 	rt.mu.Lock()
 	hook := rt.onClose
@@ -614,6 +615,11 @@ func workersGone(t *testing.T, pids string) {
 	if err != nil {
 		return
 	}
+	type worker struct {
+		pid    int
+		marker string
+	}
+	var waiting []worker
 	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
@@ -624,14 +630,24 @@ func workersGone(t *testing.T, pids string) {
 			continue
 		}
 		reapPID(pid)
-		deadline := time.Now().Add(workerReap)
-		for workerAlive(pid, fields[1]) {
-			if time.Now().After(deadline) {
-				t.Errorf("worker %d outlived its terminal and a second kill, so its worktree stays locked", pid)
-				return
+		waiting = append(waiting, worker{pid: pid, marker: fields[1]})
+	}
+	deadline := time.Now().Add(workerReap)
+	for len(waiting) > 0 {
+		kept := waiting[:0]
+		for _, w := range waiting {
+			if workerAlive(w.pid, w.marker) {
+				kept = append(kept, w)
 			}
-			time.Sleep(10 * time.Millisecond)
 		}
+		waiting = kept
+		if len(waiting) == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, w := range waiting {
+		t.Errorf("worker %d outlived its terminal and a second kill, so its worktree stays locked", w.pid)
 	}
 }
 
@@ -649,7 +665,7 @@ func worktreesGone(t *testing.T, dir string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Errorf("worktrees are still in use after every worker exited: %v", err)
+			t.Errorf("worktrees are still in use after the worker reap: %v", err)
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
