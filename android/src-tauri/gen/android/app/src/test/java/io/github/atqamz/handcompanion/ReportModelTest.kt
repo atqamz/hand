@@ -101,6 +101,9 @@ class ReportModelTest {
     assertEquals("done", detail.report.status)
     assertEquals("Cookie fixed", detail.report.summary)
     assertTrue(detail.report.body.startsWith("Cookie fixed\nPR:"))
+    assertEquals("PR: https://github.com/example/hand/pull/42\n\nAll tests pass.", reportRest(detail.report.body))
+    assertEquals("", reportRest("Cookie fixed"))
+    assertEquals("", reportRest(""))
     assertEquals("2026-11-01T04:40:00Z", detail.report.createdAt)
     assertEquals("", detail.report.ackedAt)
     assertEquals("t1", detail.task.ref)
@@ -176,6 +179,29 @@ class ReportModelTest {
   }
 
   @Test
+  fun aTransientFailureIsClearedByTheNextUnchangedRead() = runBlocking {
+    var fail = false
+    val board =
+      ReportBoard(
+        detailAnswer = { since ->
+          when {
+            fail -> refused(500, "internal", "boom")
+            since == null -> Raw(200, golden("report"))
+            else -> Raw(304, "")
+          }
+        }
+      )
+    val report = model(board)
+    report.load()
+    fail = true
+    report.load()
+    assertEquals("The Board's answer could not be read.", report.state.value.notice)
+    fail = false
+    report.load()
+    assertNull(report.state.value.notice)
+  }
+
+  @Test
   fun markReadPostsTheAckAndTheDockReadsReadBy() = runBlocking {
     val board = ReportBoard()
     val report = model(board)
@@ -187,6 +213,29 @@ class ReportModelTest {
     assertFalse(state.marking)
     assertEquals("operator (desktop)", state.detail?.report?.ackedBy)
     assertEquals("read by operator (desktop)", reportRead(state.detail!!.report))
+  }
+
+  @Test
+  fun theReadAfterAnAckKeepsTheReadCursorAndAnswersUnchanged() = runBlocking {
+    val board =
+      ReportBoard(
+        detailAnswer = { since ->
+          when (since) {
+            null -> Raw(200, golden("report"))
+            CURSOR -> Raw(304, "")
+            else -> Raw(200, golden("report"))
+          }
+        }
+      )
+    val report = model(board)
+    report.load()
+    assertNull(report.acknowledge())
+    report.load()
+    assertEquals(
+      listOf("GET /api/v1/report/r1?since=$CURSOR"),
+      reportReads(board).takeLast(1)
+    )
+    assertEquals("operator (desktop)", report.state.value.detail?.report?.ackedBy)
   }
 
   @Test
@@ -303,6 +352,22 @@ class ReportModelTest {
   }
 
   @Test
+  fun aHintDuringAReadQueuesOneMoreRead() = runBlocking {
+    val gate = CompletableDeferred<Unit>()
+    val board = ReportBoard(readGate = gate)
+    val report = model(board)
+    val job = launch(Dispatchers.IO) { report.load() }
+    withTimeout(5_000) { while (reads(board) < 1) delay(5) }
+    report.reduce(LiveEvent(GOLDEN, "touched", """{"reports":["r1"]}"""))
+    assertEquals(1, reads(board))
+    gate.complete(Unit)
+    job.join()
+    withTimeout(5_000) { while (reads(board) < 2) delay(5) }
+    delay(50)
+    assertEquals(2, reads(board))
+  }
+
+  @Test
   fun theEventStreamIsFilteredToThisFleet() = runBlocking {
     val board = ReportBoard()
     val bus = LiveBus(8)
@@ -339,8 +404,12 @@ class ReportModelTest {
     assertEquals(ThreadTarget.Report("r1"), refTarget("r1"))
     assertEquals(ThreadTarget.None, refTarget("s1"))
     assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a.md"), pathTarget("reports/a.md", FLEET))
-    assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a%20b.md"), pathTarget("/reports/a b.md", FLEET))
-    assertEquals(ThreadTarget.Web("/$FLEET/doc/fleet/a.md"), pathTarget("file:///fleet/a.md", FLEET))
+    assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a%20b.md"), pathTarget("reports/a b.md", FLEET))
+    assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a.md"), pathTarget("file:reports/a.md", FLEET))
     assertEquals(ThreadTarget.None, pathTarget("file://", FLEET))
+    assertEquals(ThreadTarget.None, pathTarget("/reports/a.md", FLEET))
+    assertEquals(ThreadTarget.None, pathTarget("~/reports/a.md", FLEET))
+    assertEquals(ThreadTarget.None, pathTarget("C:\\reports\\a.md", FLEET))
+    assertEquals(ThreadTarget.None, pathTarget("//host/reports/a.md", FLEET))
   }
 }

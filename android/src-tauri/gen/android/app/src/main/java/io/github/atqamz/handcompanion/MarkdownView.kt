@@ -229,7 +229,7 @@ private fun CodeBlock(text: String) {
 }
 
 @Composable
-private fun annotated(
+internal fun annotated(
   spans: List<MdInline>,
   fleet: String,
   onTarget: (ThreadTarget) -> Unit

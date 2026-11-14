@@ -34,13 +34,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-private fun ReportHead(detail: ReportDetail, onTarget: (ThreadTarget) -> Unit) {
+private fun ReportHead(detail: ReportDetail, fleet: String, onTarget: (ThreadTarget) -> Unit) {
   val hand = LocalHand.current
   val report = detail.report
   val task = detail.task
   val tone = reportTone(report.status)
   Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    Text(report.summary, style = type.headlineMedium)
+    Text(annotated(markdownInline(shown(report.summary)), fleet, onTarget), style = type.headlineMedium)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
       Chip(report.status.ifEmpty { "report" }, tone, 24, glyph(tone))
       Meta("from ")
@@ -123,10 +123,10 @@ private fun ReportContent(
   val detail = state.detail ?: return
   val hand = LocalHand.current
   val report = detail.report
-  val blocks = remember(report.body) { markdown(report.body) }
+  val blocks = remember(report.body) { markdown(reportRest(report.body)) }
   Column(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
-      item(key = "head") { ReportHead(detail, onTarget) }
+      item(key = "head") { ReportHead(detail, fleet, onTarget) }
       markdown(blocks, fleet, onTarget)
       if (detail.delivered.isNotEmpty()) {
         item(key = "delivered-head") { SectionHead("Delivered") }

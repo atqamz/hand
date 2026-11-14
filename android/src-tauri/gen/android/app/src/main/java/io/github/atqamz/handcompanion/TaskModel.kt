@@ -202,7 +202,7 @@ sealed interface ThreadTarget {
   data object None : ThreadTarget
 }
 
-private fun isRef(ref: String, letter: Char) =
+internal fun isRef(ref: String, letter: Char) =
   ref.length > 1 && ref[0] == letter && ref.drop(1).all(Char::isDigit)
 
 fun refTarget(ref: String): ThreadTarget =
@@ -217,14 +217,18 @@ fun refTarget(ref: String): ThreadTarget =
 fun reportTarget(report: TaskReport) = refTarget(report.ref)
 
 fun pathTarget(path: String, fleet: String): ThreadTarget {
-  val value = path.removePrefix("file:").trimStart('/')
-  if (value.isEmpty()) return ThreadTarget.None
+  val value = path.removePrefix("file:")
+  if (value.isEmpty() || value.startsWith("/") || value.startsWith("~/") || DRIVE.containsMatchIn(value)) {
+    return ThreadTarget.None
+  }
   val escaped =
     value.split('/').joinToString("/") {
       java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
     }
   return ThreadTarget.Web("/$fleet/doc/$escaped")
 }
+
+private val DRIVE = Regex("^[A-Za-z]:[\\\\/]")
 
 fun deliverableTarget(deliverable: TaskDeliverable, fleet: String): ThreadTarget =
   when (deliverable.kind) {
@@ -288,21 +292,25 @@ class TaskModel(
     }
   }
 
-  suspend fun load() =
-    lock.withLock {
-      try {
-        apply(client.readSince("task/$ref", cursor, TaskDetail.serializer()))
-      } catch (_: BoardError.BadCursor) {
-        cursor = null
+  suspend fun load() {
+    do {
+      pending = false
+      lock.withLock {
         try {
-          apply(client.readSince("task/$ref", null, TaskDetail.serializer()))
+          apply(client.readSince("task/$ref", cursor, TaskDetail.serializer()))
+        } catch (_: BoardError.BadCursor) {
+          cursor = null
+          try {
+            apply(client.readSince("task/$ref", null, TaskDetail.serializer()))
+          } catch (error: BoardError) {
+            failed(error)
+          }
         } catch (error: BoardError) {
           failed(error)
         }
-      } catch (error: BoardError) {
-        failed(error)
       }
-    }
+    } while (pending)
+  }
 
   private fun apply(poll: Poll<TaskDetail>) {
     when (poll) {
@@ -373,10 +381,6 @@ class TaskModel(
       return
     }
     load()
-    while (pending) {
-      pending = false
-      load()
-    }
   }
 
   private fun touched(json: String): Boolean {

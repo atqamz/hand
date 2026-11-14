@@ -10,6 +10,8 @@ private const val FLEET = "f000000000003"
 private val task =
   TaskInfo(ref = "t41", title = "Rename the session cookie", project = "hand", status = "active")
 
+private const val SUMMARY = "**Cookie** rename: done"
+
 private const val BODY =
   "The session cookie is now `hand_board_<fleet id>` everywhere. The old name is still read " +
     "for one release and never written.\n\n" +
@@ -26,21 +28,21 @@ private val delivered =
     TaskDeliverable("docs/board.md", "file", "/doc/docs/board.md")
   )
 
-private fun report(acked: Boolean = false) =
+private fun report(acked: Boolean = false, content: String = BODY) =
   TaskReport(
     ref = "r91",
     task = "t41",
     attempt = "a63",
     status = "done",
-    summary = "Cookie rename: done",
-    body = BODY,
+    summary = SUMMARY,
+    body = "$SUMMARY\n\n$content",
     createdAt = "2026-11-11T11:48:00Z",
     ackedAt = if (acked) "2026-11-11T12:00:00Z" else "",
     ackedBy = if (acked) "phone (Pixel 8)" else ""
   )
 
-private fun detail(body: String = BODY, acked: Boolean = false) =
-  ReportDetail(report(acked).copy(body = body), task, delivered)
+private fun detail(content: String = BODY, acked: Boolean = false) =
+  ReportDetail(report(acked, content), task, delivered)
 
 private fun state(
   detail: ReportDetail? = detail(),
@@ -48,8 +50,9 @@ private fun state(
   failed: Boolean = false,
   refused: String? = null,
   marking: Boolean = false,
-  error: String? = null
-) = ReportState(detail, loading, failed, refused, false, marking, error)
+  error: String? = null,
+  unpaired: Boolean = false
+) = ReportState(detail, loading, failed, refused, unpaired, marking, error)
 
 class ReportScreenTest {
   @get:Rule
@@ -75,7 +78,7 @@ class ReportScreenTest {
       false,
       state(
         detail(
-          body = BODY + "\n\n" + (1..8).joinToString("\n\n") {
+          content = BODY + "\n\n" + (1..8).joinToString("\n\n") {
             "Paragraph $it keeps the report long enough to scroll under the docked action. " +
               "It carries `code`, **strong** and a link to https://example.com/x."
           }
@@ -88,7 +91,7 @@ class ReportScreenTest {
       true,
       state(
         detail(
-          body = BODY + "\n\n" + (1..8).joinToString("\n\n") {
+          content = BODY + "\n\n" + (1..8).joinToString("\n\n") {
             "Paragraph $it keeps the report long enough to scroll under the docked action. " +
               "It carries `code`, **strong** and a link to https://example.com/x."
           }
@@ -117,4 +120,8 @@ class ReportScreenTest {
   @Test fun refusedLight() = shot(false, state(detail = null, refused = "not found: report r99"))
 
   @Test fun refusedDark() = shot(true, state(detail = null, refused = "not found: report r99"))
+
+  @Test fun unpairedLight() = shot(false, state(detail = null, loading = false, unpaired = true))
+
+  @Test fun unpairedDark() = shot(true, state(detail = null, loading = false, unpaired = true))
 }

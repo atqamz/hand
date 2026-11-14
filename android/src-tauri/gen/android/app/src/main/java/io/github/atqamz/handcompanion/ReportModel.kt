@@ -46,6 +46,12 @@ fun reportRead(report: TaskReport): String? =
     "read by ${report.ackedBy.ifEmpty { "the Board" }}"
   }
 
+fun reportRest(body: String): String {
+  val text = body.trim()
+  val at = text.indexOf('\n')
+  return if (at < 0) "" else text.substring(at + 1).trim()
+}
+
 private fun readRefusal(ref: String, error: BoardError) =
   when (error) {
     is BoardError.Conflict -> "$ref is already read."
@@ -93,21 +99,25 @@ class ReportModel(
     }
   }
 
-  suspend fun load() =
-    lock.withLock {
-      try {
-        apply(client.readSince("report/$ref", cursor, ReportDetail.serializer()))
-      } catch (_: BoardError.BadCursor) {
-        cursor = null
+  suspend fun load() {
+    do {
+      pending = false
+      lock.withLock {
         try {
-          apply(client.readSince("report/$ref", null, ReportDetail.serializer()))
+          apply(client.readSince("report/$ref", cursor, ReportDetail.serializer()))
+        } catch (_: BoardError.BadCursor) {
+          cursor = null
+          try {
+            apply(client.readSince("report/$ref", null, ReportDetail.serializer()))
+          } catch (error: BoardError) {
+            failed(error)
+          }
         } catch (error: BoardError) {
           failed(error)
         }
-      } catch (error: BoardError) {
-        failed(error)
       }
-    }
+    } while (pending)
+  }
 
   private fun apply(poll: Poll<ReportDetail>) {
     when (poll) {
@@ -124,7 +134,8 @@ class ReportModel(
           )
         }
       }
-      Poll.Unchanged -> mutableState.update { it.copy(loading = false, failed = false) }
+      Poll.Unchanged ->
+        mutableState.update { it.copy(loading = false, failed = false, notice = null) }
     }
   }
 
@@ -178,10 +189,6 @@ class ReportModel(
       return
     }
     load()
-    while (pending) {
-      pending = false
-      load()
-    }
   }
 
   private fun touched(json: String): Boolean {
@@ -228,7 +235,6 @@ class ReportModel(
     return try {
       when (val written = client.write("report/$ref/ack", null, ReportDetail.serializer())) {
         is Write.Updated -> {
-          cursor = written.envelope.cursor
           mutableState.update {
             it.copy(
               detail = written.envelope.data,
