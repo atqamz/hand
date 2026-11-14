@@ -587,8 +587,9 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	fx := &attemptFixture{h: newHarness(t)}
 	fx.h.home = home
 	t.Cleanup(func() {
-		workersGone(t, filepath.Join(bin, "pids"))
-		worktreesGone(t, filepath.Join(fx.h.vars["SECONDHAND_HOME"], "worktrees"))
+		pids := filepath.Join(bin, "pids")
+		workersGone(t, pids)
+		worktreesGone(t, pids, filepath.Join(fx.h.vars["SECONDHAND_HOME"], "worktrees"))
 	})
 	fx.repo = gitRepo(t)
 	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
@@ -609,29 +610,45 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 
 const workerReap = 5 * time.Second
 
-func workersGone(t *testing.T, pids string) {
-	t.Helper()
+type recordedWorker struct {
+	pid    int
+	marker string
+}
+
+func recordedWorkers(pids string) []recordedWorker {
 	b, err := os.ReadFile(pids)
 	if err != nil {
-		return
+		return nil
 	}
-	type worker struct {
-		pid    int
-		marker string
-	}
-	var waiting []worker
+	var out []recordedWorker
 	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			continue
 		}
 		pid, err := strconv.Atoi(fields[0])
-		if err != nil || !workerAlive(pid, fields[1]) {
+		if err != nil {
 			continue
 		}
-		reapPID(pid)
-		waiting = append(waiting, worker{pid: pid, marker: fields[1]})
+		out = append(out, recordedWorker{pid: pid, marker: fields[1]})
 	}
+	return out
+}
+
+func reapWorkers(pids string) []recordedWorker {
+	var killed []recordedWorker
+	for _, w := range recordedWorkers(pids) {
+		if workerAlive(w.pid, w.marker) {
+			reapPID(w.pid)
+			killed = append(killed, w)
+		}
+	}
+	return killed
+}
+
+func workersGone(t *testing.T, pids string) {
+	t.Helper()
+	waiting := reapWorkers(pids)
 	deadline := time.Now().Add(workerReap)
 	for len(waiting) > 0 {
 		kept := waiting[:0]
@@ -656,7 +673,7 @@ func workerAlive(pid int, marker string) bool {
 	return err == nil && m == marker
 }
 
-func worktreesGone(t *testing.T, dir string) {
+func worktreesGone(t *testing.T, pids, dir string) {
 	t.Helper()
 	deadline := time.Now().Add(workerReap)
 	for {
@@ -665,9 +682,13 @@ func worktreesGone(t *testing.T, dir string) {
 			return
 		}
 		if time.Now().After(deadline) {
+			for _, w := range reapWorkers(pids) {
+				t.Errorf("worker %d outlived its terminal and a second kill, so its worktree stays locked", w.pid)
+			}
 			t.Errorf("worktrees are still in use after the worker reap: %v", err)
 			return
 		}
+		reapWorkers(pids)
 		time.Sleep(10 * time.Millisecond)
 	}
 }
