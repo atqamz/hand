@@ -1,11 +1,9 @@
 package desktop
 
 import (
-	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -320,210 +318,8 @@ func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 
 var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
 
-func (a *App) attemptScreen(c *ui.Context, p palette) {
-	at := a.Attempt
-	ui.Row(c).Gap(8).Children(func() {
-		statusPill(c, p, at.State)
-		ui.Text(c, fmt.Sprintf("%s %s %s", at.Attempt.Harness, at.Attempt.Model, at.Attempt.Effort)).FontSize(kit.Body.Size)
-		ui.Text(c, at.Attempt.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		if at.Duration != "" {
-			ui.Text(c, at.Duration).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		}
-	})
-	if at.Attempt.Branch != "" {
-		ui.Text(c, at.Attempt.Branch).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-	}
-	if at.Attempt.Reason != "" {
-		a.paragraph(c, p, "Reason", at.Attempt.Reason)
-	}
-	if at.Brief != "" {
-		a.paragraph(c, p, "Brief", at.Brief)
-	}
-	if at.ModelNote != "" {
-		a.paragraph(c, p, "Model", at.ModelNote)
-	}
-	a.delivered(c, p, at.Delivered)
-	if len(at.Reports) > 0 {
-		a.section(c, p, "Reports")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, report := range at.Reports {
-				a.reportRow(c, p, report)
-			}
-		})
-		if at.MoreReports {
-			more(c, p, "Only the latest 50 reports are shown.")
-		}
-	}
-	if at.Transcript.Shown {
-		a.section(c, p, "Transcript")
-		if at.Transcript.Model != "" {
-			ui.Text(c, at.Transcript.Model).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		}
-		for _, turn := range at.Transcript.Turns {
-			ui.Column(c).Gap(2).Padding(6, 0, 8).Children(func() {
-				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, turn.Role).FontSize(kit.Meta.Size).Bold().TextColor(p.neutral)
-					ui.Text(c, stamp(turn.At)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-					if turn.Queued {
-						ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
-					}
-				})
-				a.markdown(c, turn.Text)
-			})
-		}
-		if at.Transcript.More {
-			more(c, p, "Only the latest 50 entries are shown.")
-		}
-	} else if at.Transcript.Note != "" {
-		a.section(c, p, "Transcript")
-		ui.Text(c, at.Transcript.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
-	}
-	if len(at.Events) > 0 {
-		a.section(c, p, "Events")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, event := range at.Events {
-				a.eventRow(c, p, event)
-			}
-		})
-		if at.MoreEvents {
-			more(c, p, "Only the latest 50 events are shown.")
-		}
-	}
-}
-
-func (a *App) decisionScreen(c *ui.Context, k kit.Colors, p palette) {
-	d := a.Decision
-	a.choiceKeys(c, d)
-	ui.Row(c).Gap(8).Children(func() {
-		statusPill(c, p, d.Decision.Pill)
-		ui.Text(c, d.Decision.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, d.Task.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, d.Task.Title).FontSize(kit.Body.Size).SingleLine().Grow(1)
-		if ui.Button(c.Key("open-task"), "Open task").Clicked() {
-			a.OpenRef(d.Task.Ref)
-		}
-	})
-	if d.Decision.Question != "" && d.Decision.Question != d.Decision.Headline {
-		if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
-			a.markdown(c, body)
-		}
-	}
-	a.answerForm(c, k, p, d, true)
-	if d.Decision.Answer != "" {
-		a.paragraph(c, p, "Answer", d.Decision.Answer)
-	}
-	a.section(c, p, "Task")
-	ui.Textf(c, "%s · %s", d.Task.Ref, d.Task.Title).FontSize(kit.Body.Size)
-}
-
-func (a *App) reportScreen(c *ui.Context, p palette) {
-	r := a.Report
-	ui.Row(c).Gap(8).Children(func() {
-		_, statusFg := toneColors(r.Report.Status, p)
-		ui.Badge(c, r.Report.Status).Background(p.neutralBG).TextColor(statusFg)
-		ui.Text(c, r.Report.Attempt).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, r.Report.Task).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, stamp(r.Report.CreatedAt)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Spacer(c)
-		if r.Report.AckedAt == "" {
-			label := "Mark read"
-			if a.Busy {
-				label = "Marking read…"
-			}
-			if ui.Button(c.Key("ack-report"), label).Disabled(a.Busy).Clicked() {
-				a.Ack(r.Report.Ref)
-			}
-		} else {
-			ui.Textf(c, "Read by %s", r.Report.AckedBy).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		}
-		if ui.Button(c.Key("open-task"), "Open task").Clicked() {
-			a.OpenRef(r.Task.Ref)
-		}
-	})
-	a.delivered(c, p, r.Delivered)
-	a.markdown(c, r.Report.Body)
-	if r.Report.AckedAt != "" {
-		ui.Textf(c, "Read %s", stamp(r.Report.AckedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral)
-	}
-}
-
-func (a *App) section(c *ui.Context, p palette, title string) {
-	section(c, p, title)
-}
-
 func more(c *ui.Context, p palette, text string) {
 	ui.Text(c, text).FontSize(kit.Meta.Size).TextColor(p.neutral)
-}
-
-func section(c *ui.Context, p palette, title string) {
-	ui.Text(c, title).FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(0, 0, 2)
-}
-
-func (a *App) paragraph(c *ui.Context, p palette, title, body string) {
-	ui.Column(c).Gap(6).Children(func() {
-		section(c, p, title)
-		a.markdown(c, body)
-	})
-}
-
-func (a *App) reportRow(c *ui.Context, p palette, r Report) {
-	el := ui.ButtonBase(c.Key("report:"+r.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("report " + r.Ref)
-	el.Children(func() {
-		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, r.Summary).FontSize(kit.Body.Size).SingleLine().Grow(1)
-		_, statusFg := toneColors(r.Status, p)
-		ui.Badge(c, r.Status).Background(p.neutralBG).TextColor(statusFg)
-	})
-	if el.Clicked() {
-		a.OpenRef(r.Ref)
-	}
-}
-
-func (a *App) eventRow(c *ui.Context, p palette, e Event) {
-	ui.Row(c).Gap(8).Padding(3, 0).Children(func() {
-		ui.Text(c, stamp(e.At)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(112)
-		ui.Text(c, e.Kind).Font("monospace").FontSize(kit.Meta.Size)
-		if e.Detail != "" {
-			ui.Text(c, e.Detail).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine().Grow(1)
-		}
-	})
-}
-
-func (a *App) delivered(c *ui.Context, p palette, ds []Deliverable) {
-	if len(ds) == 0 {
-		return
-	}
-	a.section(c, p, "Delivered")
-	ui.Column(c).Gap(2).Children(func() {
-		for i, d := range ds {
-			a.deliveredRow(c, p, i, d)
-		}
-	})
-}
-
-func (a *App) deliveredRow(c *ui.Context, p palette, i int, d Deliverable) {
-	dest, board := a.deliveredTarget(d)
-	if dest == "" {
-		ui.Row(c).Gap(8).Children(func() {
-			ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
-			ui.Text(c, d.Ref).Font("monospace").FontSize(kit.Meta.Size)
-		})
-		return
-	}
-	el := ui.ButtonBase(c.Key("delivered:"+strconv.Itoa(i))).Gap(8).Padding(2, 0).Cursor(ui.CursorPointer)
-	el.Children(func() {
-		ui.Badge(c, d.Kind).Background(p.accentBG).TextColor(p.accent)
-		ui.Text(c, d.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent)
-		ui.Spacer(c)
-	})
-	if el.Clicked() {
-		if board {
-			a.OpenBoardPath(dest)
-		} else {
-			c.OpenURL(dest)
-		}
-	}
 }
 
 func (a *App) deliveredTarget(d Deliverable) (string, bool) {
@@ -718,7 +514,7 @@ func fleetName(f Fleet) string {
 func stamp(at string) string {
 	t, ok := parseAt(at)
 	if !ok {
-		return at
+		return shownText(at)
 	}
 	return t.Local().Format("Jan 2, 15:04")
 }

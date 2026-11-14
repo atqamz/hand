@@ -10,6 +10,7 @@ type Choice struct {
 	Recommended bool
 	Long        bool
 	Picked      bool
+	Answer      bool
 	Disabled    bool
 }
 
@@ -51,7 +52,10 @@ func ChoiceList(c *ui.Context, k Colors, choices []Choice) (picked string) {
 						if !choice.Long {
 							label.Bold()
 						}
-						if choice.Recommended {
+						switch {
+						case choice.Answer:
+							ui.Badge(c, "Your answer").Background(k.AccentBG).TextColor(k.Accent)
+						case choice.Recommended:
 							ui.Badge(c, "Recommended").Background(k.PassBG).TextColor(k.Pass)
 						}
 					})

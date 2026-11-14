@@ -97,6 +97,13 @@ func installFakeHand(t *testing.T) fakeHand {
 	return fakeHand{log: log, home: home}
 }
 
+func (h fakeHand) reset(t *testing.T) {
+	t.Helper()
+	if err := os.Remove(h.log); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 func (h fakeHand) calls(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(h.log)
@@ -156,8 +163,10 @@ func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
 		{"attempt", func() { app.OpenRef("a1") }, false, []string{"open", "a1"}},
 		{"decision", func() { app.OpenRef("d1") }, false, []string{"open", "d1"}},
 		{"report", func() { app.OpenRef("r1") }, false, []string{"open", "r1"}},
+		{"task after a report", func() { app.OpenRef("t1"); app.OpenRef("r1"); app.Back() }, false, []string{"open", "t1"}},
 	} {
 		t.Run(tc.screen, func(t *testing.T) {
+			hand.reset(t)
 			tc.open()
 			tt.Frame()
 			if tc.menu {
@@ -374,13 +383,8 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 			tt.Frame()
 			mustText(t, tt, "Delivered", "PR", "outside.pdf", "my design.md")
 
-			if screen.name == "task" {
-				click(t, tt, "open https://github.com/atqamz/hand/pull/7")
-				click(t, tt, "open https://docs.example.com/q3")
-			} else {
-				click(t, tt, "https://github.com/atqamz/hand/pull/7")
-				click(t, tt, "https://docs.example.com/q3")
-			}
+			click(t, tt, "open https://github.com/atqamz/hand/pull/7")
+			click(t, tt, "open https://docs.example.com/q3")
 			want := []string{"https://github.com/atqamz/hand/pull/7", "https://docs.example.com/q3"}
 			if got := tt.OpenedURLs(); !slices.Equal(got, want) {
 				t.Fatalf("opened %q, want %q", got, want)
@@ -389,11 +393,7 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 				t.Fatalf("hand ran for a link: %q", got)
 			}
 
-			if screen.name == "task" {
-				click(t, tt, "open "+docHref)
-			} else {
-				click(t, tt, "my design.md")
-			}
+			click(t, tt, "open "+docHref)
 			hand.want(t, "open", "--doc", "reports/t1/my design.md")
 			if got := tt.OpenedURLs(); len(got) != len(want) {
 				t.Fatalf("a fleet file reached the browser directly: %q", got)
