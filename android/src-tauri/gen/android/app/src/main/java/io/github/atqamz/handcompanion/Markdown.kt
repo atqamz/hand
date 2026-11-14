@@ -53,11 +53,20 @@ data class MdItem(val lead: List<MdInline>, val blocks: List<MdBlock>)
 fun markdown(text: String, options: MarkdownOptions = MarkdownOptions()): List<MdBlock> =
   MarkdownParser(options).document(text)
 
-fun markdownInline(text: String): List<MdInline> =
-  MarkdownParser(PLAIN).inline(
-    text.split(Regex("\\s+")).filter(String::isNotEmpty).joinToString(" "),
-    false
-  )
+fun markdownInline(text: String): List<MdInline> {
+  val joined = StringBuilder(text.length)
+  var space = false
+  for (c in text) {
+    if (c.isWhitespace() || Character.isSpaceChar(c)) {
+      space = joined.isNotEmpty()
+    } else {
+      if (space) joined.append(' ')
+      space = false
+      joined.append(c)
+    }
+  }
+  return MarkdownParser(PLAIN).inline(joined.toString(), false)
+}
 
 private class MarkdownParser(private val options: MarkdownOptions) {
   private var left = MAX_PATHS
@@ -519,10 +528,45 @@ internal fun linkUrl(raw: String): String? {
   if (end == start) return null
   val authority = raw.substring(start, end)
   if (authority.any { it == ' ' || it in "\"<>\\^`{|}" }) return null
+  if (!validAuthority(authority)) return null
   val host = encodeUrl(authority, HOST_SAFE) ?: return null
   val tail = encodeUrl(raw.substring(end), TAIL_SAFE) ?: return null
   return scheme.lowercase() + "://" + host + tail
 }
+
+private fun validAuthority(authority: String): Boolean {
+  val at = authority.lastIndexOf('@')
+  if (at >= 0 && !validUserinfo(authority.substring(0, at))) return false
+  return validHostPort(if (at < 0) authority else authority.substring(at + 1))
+}
+
+private fun validUserinfo(text: String): Boolean =
+  text.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it in "-._~:!$&'()*+,;=%@" }
+
+private fun validHostPort(value: String): Boolean {
+  if (value.startsWith("[")) {
+    val close = value.lastIndexOf(']')
+    if (close < 0 || !validPort(value.substring(close + 1))) return false
+    val inner = value.substring(1, close)
+    if (':' !in inner || inner.any { it !in "0123456789abcdefABCDEF:.%" }) return false
+    return try {
+      java.net.InetAddress.getByName(inner.substringBefore('%'))
+      true
+    } catch (_: Exception) {
+      false
+    }
+  }
+  if ('[' in value) return false
+  val colon = value.indexOf(':')
+  if (colon >= 0) {
+    if (value.indexOf(':', colon + 1) >= 0) return false
+    if (!validPort(value.substring(colon))) return false
+  }
+  return value.isNotEmpty()
+}
+
+private fun validPort(port: String): Boolean =
+  port.isEmpty() || port[0] == ':' && port.drop(1).all { it in '0'..'9' }
 
 private fun encodeUrl(value: String, safe: String): String? {
   val out = StringBuilder(value.length)

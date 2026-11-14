@@ -303,6 +303,7 @@ class MarkdownTest {
   fun theTitleRendersInlineAsTheBoardDoes() {
     assertEquals("<strong>Cookie</strong> rename: done", inlines(markdownInline("**Cookie** rename: done")))
     assertEquals("a b", inlines(markdownInline("a\n  b")))
+    assertEquals("a b", inlines(markdownInline("a\u00A0b")))
     assertEquals("x****y", inlines(markdownInline("x****y")))
   }
 
@@ -316,7 +317,11 @@ class MarkdownTest {
       "//evil.io/x",
       "/relative",
       "mailto:a@b.c",
-      "https:///nohost"
+      "https:///nohost",
+      "https://@/x",
+      "https://user@/x",
+      "https://a.io:bad/x",
+      "https://[]"
     )) {
       val blocks = markdown("[x]($url)", MarkdownOptions(refs = false, paths = false, filePaths = false))
       assertEquals("unsafe link $url linked", "<p>[x](${escape(url)})</p>", html(blocks))
@@ -377,6 +382,8 @@ class MarkdownTest {
         "<p><a href=\"https://a.io/a%20b\" target=\"_blank\" rel=\"noopener noreferrer\">x</a></p>",
       "[x](https://例え.jp/x)" to
         "<p><a href=\"https://%E4%BE%8B%E3%81%88.jp/x\" target=\"_blank\" rel=\"noopener noreferrer\">x</a></p>",
+      "[x](https://[::1]/x)" to
+        "<p><a href=\"https://[::1]/x\" target=\"_blank\" rel=\"noopener noreferrer\">x</a></p>",
       "x****y" to "<p>x****y</p>",
       "~~~~" to "<p>~~~~</p>",
       "``" to "<p>``</p>",
