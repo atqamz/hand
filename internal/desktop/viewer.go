@@ -566,8 +566,10 @@ func (a *App) taskSections(c *ui.Context, p palette) {
 		a.quiet(c, p, "No reports yet.")
 	}
 	target := a.scrollTo
-	a.scrollTo = ""
 	for _, r := range t.Reports {
+		if r.Ref == target {
+			a.scrollTo = ""
+		}
 		a.reportCard(c, p, r, r.Ref == target)
 	}
 	if t.MoreReports {

@@ -1344,6 +1344,7 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(a.Context)
 	a.cancel = cancel
 	a.loadID++
+	a.Loading = false
 	a.Busy = false
 	a.BusyAction = ""
 	a.ackRef = ""
