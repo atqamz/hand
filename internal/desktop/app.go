@@ -705,6 +705,7 @@ func (a *App) CloseViewer() {
 		a.boardFocus = true
 	}
 	a.openerRef = ""
+	a.tabFor = ""
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
@@ -747,6 +748,7 @@ func (a *App) Back() {
 	}
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
+	a.tabFor = ""
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
 	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
 	a.pageTargetNeed = pageTargetSettled

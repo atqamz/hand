@@ -302,6 +302,57 @@ func TestAResizeBurstWritesThePreferencesOnce(t *testing.T) {
 	}
 }
 
+func TestCloseFlushesThePendingResizeOnceAndLeavesNoTimer(t *testing.T) {
+	dir := t.TempDir()
+	app := booted(t, dir)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	app.SetWindowSize(1200, 800)
+	app.SetWindowSize(1300, 850)
+	app.Close()
+	if got := clock.delay(); got != 0 {
+		t.Fatalf("closing left a timer with %v to run", got)
+	}
+	if len(posted) != 0 {
+		t.Fatalf("closing posted %d saves, want the flush to write inline", len(posted))
+	}
+	raw, err := os.ReadFile(desktop.PrefsPath(dir))
+	if err != nil {
+		t.Fatalf("no preferences file after the close: %v", err)
+	}
+	var stored struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil || stored.Width != 1300 || stored.Height != 850 {
+		t.Fatalf("preferences hold %q, want 1300x850", raw)
+	}
+}
+
+func TestASavePostedBeforeCloseDoesNotWriteAfterIt(t *testing.T) {
+	dir := t.TempDir()
+	app := booted(t, dir)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	app.SetWindowSize(1300, 850)
+	clock.Advance(300 * time.Millisecond)
+	if len(posted) != 1 {
+		t.Fatalf("the resize posted %d saves, want one", len(posted))
+	}
+	app.Close()
+	if err := os.Remove(desktop.PrefsPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	(<-posted)()
+	if _, err := os.Stat(desktop.PrefsPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("a save posted before the close wrote after the window was gone: %v", err)
+	}
+}
+
 func TestAPreferencesFileThatCannotBeReadLeavesTheDefaults(t *testing.T) {
 	dir := t.TempDir()
 	check := func(app *desktop.App) {
@@ -394,6 +445,53 @@ func TestADeepLinkIntoARunningWindowSelectsTheTabThatHoldsIt(t *testing.T) {
 	}
 	mustText(t, tt, "Tasks", "Fix login")
 	mustNotText(t, tt, "Message the supervisor")
+}
+
+func TestAClosedViewerDropsTheDeepLinksOwedTab(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before func(app *desktop.App)
+		open   func(app *desktop.App) error
+		undo   func(app *desktop.App)
+		screen desktop.Screen
+	}{
+		{"close", func(app *desktop.App) {}, func(app *desktop.App) error {
+			return app.OpenLink("handboard://open/" + fleetID + "/task/t4")
+		}, func(app *desktop.App) { app.CloseViewer() }, desktop.BoardScreen},
+		{"back", func(app *desktop.App) { app.OpenRef("d1") }, func(app *desktop.App) error {
+			app.OpenRef("t4")
+			return nil
+		}, func(app *desktop.App) { app.Back() }, desktop.DecisionScreen},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newApp(t, goldenFixture(t))
+			posted := make(chan func(), 16)
+			app.Post = func(fn func()) { posted <- fn }
+			tt := sized(t, app, 880, 760, false)
+			settle := func() {
+				t.Helper()
+				for app.Loading {
+					waitPost(t, posted)()
+				}
+			}
+			tc.before(app)
+			settle()
+			click(t, tt, "Chat")
+			if err := tc.open(app); err != nil {
+				t.Fatal(err)
+			}
+			tc.undo(app)
+			settle()
+			tt.Frame()
+			if app.Screen != tc.screen {
+				t.Fatalf("the undo left the screen on %v, want %v", app.Screen, tc.screen)
+			}
+			if app.Tab != "chat" {
+				t.Fatalf("a deep link undone before its load left the tab on %q, want chat", app.Tab)
+			}
+			mustText(t, tt, "Message the supervisor")
+		})
+	}
 }
 
 func TestOpeningATaskKeepsTheWorkPanesScrollAboveTheBreakpoint(t *testing.T) {

@@ -292,6 +292,44 @@ func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
 	}
 }
 
+func TestTheNarrowChatTabShowsTheBrowserOpenFeedback(t *testing.T) {
+	hand := installFakeHand(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	t.Setenv("FAKE_HAND_GATE", gate)
+	app := homedApp(t, hand.home)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	mustText(t, tt, "Message the supervisor")
+	menu(t, tt, "Open in browser")
+	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("hand never started")
+		}
+	}
+	tt.Frame()
+	mustText(t, tt, "Opening in the browser…", "`hand open` is starting this page.")
+	mustText(t, tt, "Message the supervisor")
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for app.OpenBusy {
+		waitPost(t, posted)()
+	}
+	tt.Frame()
+	mustNotText(t, tt, "Opening in the browser…")
+
+	t.Setenv("FAKE_HAND_FAIL", "the board did not start")
+	menu(t, tt, "Open in browser")
+	for app.OpenBusy {
+		waitPost(t, posted)()
+	}
+	tt.Frame()
+	mustText(t, tt, "The browser did not open", "the board did not start")
+	mustText(t, tt, "Message the supervisor")
+}
+
 func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
 	hand := installFakeHand(t)
 	gate := filepath.Join(t.TempDir(), "gate")

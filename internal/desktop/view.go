@@ -329,12 +329,15 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 func (a *App) narrowPanes(c *ui.Context, k kit.Colors, p palette) {
 	box := ui.Column(c).Grow(1).MinHeight(0)
 	box.Children(func() {
+		w, _ := c.Size()
+		m := max(float32(kit.Space20), (w-kit.Measure)/2)
+		if a.openFeedback() {
+			ui.Column(c).Padding(kit.Space20, m, 0).Children(func() { a.openCard(c, p) })
+		}
 		if a.tab() == tabChat {
 			a.chatPane(c, k, p)
 			return
 		}
-		w, _ := c.Size()
-		m := max(float32(kit.Space20), (w-kit.Measure)/2)
 		page := ui.Scroll(c).Key("board-scroll").Grow(1).Padding(kit.Space20, m, 32).TrackScroll(&a.boardScroll).
 			Focusable().FocusRing(false).Label("The board")
 		if a.boardFocus {
@@ -343,7 +346,6 @@ func (a *App) narrowPanes(c *ui.Context, k kit.Colors, p palette) {
 		}
 		page.Children(func() {
 			ui.Column(c).Gap(kit.Space16).Selectable().Children(func() {
-				a.openCard(c, p)
 				switch {
 				case a.Err != "" && !a.errScreen:
 					a.errorCard(c, p)
@@ -396,7 +398,14 @@ func (a *App) errorCard(c *ui.Context, p palette) {
 	})
 }
 
+func (a *App) openFeedback() bool {
+	return a.OpenBusy || a.OpenErr != ""
+}
+
 func (a *App) openCard(c *ui.Context, p palette) {
+	if !a.openFeedback() {
+		return
+	}
 	if a.OpenBusy {
 		ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.card).
 			Border(1, p.line).Children(func() {
@@ -404,9 +413,6 @@ func (a *App) openCard(c *ui.Context, p palette) {
 			ui.Text(c, "`hand open` is starting this page.").FontSize(kit.Meta.Size).
 				TextColor(p.neutral)
 		})
-		return
-	}
-	if a.OpenErr == "" {
 		return
 	}
 	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
