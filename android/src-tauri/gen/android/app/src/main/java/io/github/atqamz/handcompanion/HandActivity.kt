@@ -282,9 +282,7 @@ class HandActivity : ComponentActivity() {
         var open by rememberSaveable { mutableStateOf<String?>(null) }
         var decision by rememberSaveable { mutableStateOf<String?>(null) }
         var web by rememberSaveable { mutableStateOf<String?>(null) }
-        var taskPath by rememberSaveable { mutableStateOf("") }
-        var attempt by rememberSaveable { mutableStateOf<String?>(null) }
-        var report by rememberSaveable { mutableStateOf<String?>(null) }
+        var threads by rememberSaveable { mutableStateOf("") }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
@@ -320,9 +318,7 @@ class HandActivity : ComponentActivity() {
             scanning = false
             decision = null
             web = null
-            taskPath = ""
-            attempt = null
-            report = null
+            threads = ""
             open = id
           }
           model.say(null)
@@ -331,9 +327,7 @@ class HandActivity : ComponentActivity() {
               open = null
               decision = null
               web = null
-              taskPath = ""
-              attempt = null
-              report = null
+              threads = ""
               scanning = false
               adding = true
               pair.offer(to.link)
@@ -396,9 +390,7 @@ class HandActivity : ComponentActivity() {
               {
                 model.say(null)
                 fleetModel(it).enter()
-                taskPath = ""
-                attempt = null
-                report = null
+                threads = ""
                 open = it
               },
               model::ask,
@@ -421,29 +413,17 @@ class HandActivity : ComponentActivity() {
             }
             val page = web
             val shown = decision
-            val attemptRef = attempt
-            val reportRef = report
-            val thread = currentTask(taskPath)
+            val place = currentTask(threads)
+            val attemptRef = place?.takeIf { isRef(it, 'a') }
+            val reportRef = place?.takeIf { isRef(it, 'r') }
+            val thread = place?.takeIf { isRef(it, 't') }
             val target: (ThreadTarget) -> Unit = { to ->
               when (to) {
-                is ThreadTarget.Task -> {
-                  if (currentTask(taskPath) != to.ref) taskPath = pushTask(taskPath, to.ref)
-                  attempt = null
-                  report = null
-                }
-                is ThreadTarget.Decision -> {
-                  decision = to.ref
-                  report = null
-                }
-                is ThreadTarget.Attempt -> {
-                  attempt = to.ref
-                  report = null
-                }
-                is ThreadTarget.Report -> report = to.ref
-                is ThreadTarget.Web -> {
-                  web = to.path
-                  report = null
-                }
+                is ThreadTarget.Task -> if (place != to.ref) threads = pushTask(threads, to.ref)
+                is ThreadTarget.Decision -> decision = to.ref
+                is ThreadTarget.Attempt -> if (place != to.ref) threads = pushTask(threads, to.ref)
+                is ThreadTarget.Report -> if (place != to.ref) threads = pushTask(threads, to.ref)
+                is ThreadTarget.Web -> web = to.path
                 is ThreadTarget.Browser ->
                   try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(to.url)))
@@ -451,6 +431,7 @@ class HandActivity : ComponentActivity() {
                 ThreadTarget.None -> Unit
               }
             }
+            val back = { threads = popTask(threads) }
             if (page != null) {
               key(page) {
                 FallbackScreen(open.orEmpty(), state.name, page, { web = null }) {
@@ -461,19 +442,18 @@ class HandActivity : ComponentActivity() {
               BackHandler { decision = null }
               Decision(open.orEmpty(), shown) { decision = null }
             } else if (reportRef != null) {
-              BackHandler { report = null }
+              BackHandler(onBack = back)
               holder.SaveableStateProvider("report:$open:$reportRef") {
-                Report(open.orEmpty(), reportRef, { report = null }, target) { web = it }
+                Report(open.orEmpty(), reportRef, back, target) { web = it }
               }
             } else if (attemptRef != null) {
-              BackHandler { attempt = null }
+              BackHandler(onBack = back)
               holder.SaveableStateProvider("attempt:$open:$attemptRef") {
-                Attempt(open.orEmpty(), attemptRef, { attempt = null }, target) {
+                Attempt(open.orEmpty(), attemptRef, back, target) {
                   web = "/${open}/attempt/$attemptRef"
                 }
               }
             } else if (thread != null) {
-              val back = { taskPath = popTask(taskPath) }
               BackHandler(onBack = back)
               holder.SaveableStateProvider("task:$open:$thread") {
                 Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
@@ -491,13 +471,13 @@ class HandActivity : ComponentActivity() {
                     if (tab == Tab.Tasks) fleet.openTasks()
                   },
                   fleet::toggle,
-                  { report = it },
+                  { threads = pushTask(threads, it) },
                   { web = "/${open}/" },
-                  { taskPath = pushTask("", it) },
+                  { threads = pushTask(threads, it) },
                   fleet::showAll,
                   fleet::press,
                   fleet::force,
-                  { attempt = it }
+                  { threads = pushTask(threads, it) }
                 ) { ref ->
                   Choice(open.orEmpty(), ref) { decision = ref }
                 }
@@ -505,8 +485,7 @@ class HandActivity : ComponentActivity() {
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && attempt == null && report == null &&
-              currentTask(taskPath) == null
+            fleet != null && web == null && decision == null && currentTask(threads) == null
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
           }

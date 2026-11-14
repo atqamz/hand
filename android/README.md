@@ -241,7 +241,7 @@ tone, and the project, parent, waits and updated time; `goal` is lead text, not 
 and **Mark read** until `acked_at` is set, when it reads "read by …" from the `ReportDetail` the
 ack answered. A second tap while the ack is in flight is ignored; a refusal keeps the button and
 says so under the card, and nothing on the screen is cleared. A task, sub-task, decision, attempt or report ref opens
-its native screen; a repository path and a delivered file with a `/doc/...` href open the web
+its native screen; a fleet-relative repository path and a delivered file with a `/doc/...` href open the web
 fallback (a file outside the fleet stays plain text), and a PR or other link opens the browser. `LiveBus` hints that name this task or one of its sub-tasks, or a
 report, decision or attempt the detail holds, re-read it; a hint naming anything else does not, and
 a hint during a read queues one more read for when it finishes. A laptop whose `meta.features` lacks
@@ -251,22 +251,26 @@ saved state, so Back from a task returns to the Tasks tab with its list and scro
 a failure after the detail was shown keeps it.
 
 `ReportScreen` reads `GET /api/v1/report/{rN}` once when it opens, with the envelope's cursor on
-later reads; a `304` keeps what is shown and a `bad_cursor` drops the cursor and reads full. The
-head is the summary in the Board's title, the state chip, "from aN" with the attempt's native route,
-the time, and the task ref with its title. The body is the Markdown subset below; then Delivered,
-where a PR opens the browser and a file opens the web fallback. **Mark read** is docked at the foot
-and posts `report/{rN}/ack` under the same single-flight, `AppliedUnread` and refusal rules as a
-task's card; once `acked_at` is set the dock reads "read by …" from that answer. `touched` and
-`resync` hints naming this report, or `reports` with no refs, re-read it, the fleet filter drops
-other fleets' events, and the read stops when the screen leaves. A `404` shows the Board's words
-with **Back**; a first failure shows **Retry**.
+later reads; a `304` keeps what is shown and clears a stale notice, and a `bad_cursor` drops the
+cursor and reads full. The head is the summary through the Board's inline title, drawn once: the
+body's first line is the title and the Markdown below is the body's rest, as on the Board's card.
+Then the state chip, "from aN" with the attempt's native route, the time, and the task ref with its
+title. Then Delivered, where a PR opens the browser and a file opens the web fallback. **Mark read**
+is docked at the foot and posts `report/{rN}/ack` under the same single-flight, `AppliedUnread` and
+refusal rules as a task's card; once `acked_at` is set the dock reads "read by …" from that answer,
+and the read after the ack still sends the read cursor. `touched` and `resync` hints naming this
+report, or `reports` with no refs, re-read it, the fleet filter drops other fleets' events, and the
+read stops when the screen leaves. A `404` shows the Board's words with **Back**; a first failure
+shows **Retry**. Back returns to the screen that opened the report, and a report's own `aN` or `tN`
+link returns to the report on Back.
 
 The Markdown parser follows `internal/markdown`: paragraphs with a line break inside, `#` to `######`
 heads drawn at the Board's two levels, unordered and numbered lists with six levels of nesting that
 keep their written numbers, inline code, fenced code on the panel fill behind a **Copy code** button,
 quotes, tables whose columns align and scroll sideways, emphasis, strikethrough, safe `http`/`https`
 links, refs and paths. HTML, images and anything the parser cannot close stay text. A ref opens its
-native screen; a path opens the fleet's `/doc/` fallback until N8; a link opens the browser. The
+native screen; a fleet-relative path opens the `/doc/` fallback until N8, while an absolute, `~/` or
+drive path stays text because the phone does not know the fleet home; a link opens the browser. The
 table lives in `refTarget` and `pathTarget`, and the parser's cases are the Board's own test table.
 
 `HandTheme` holds the Board's colours (static, light and dark, no dynamic colour), its five type sizes, its radii and the icons as vectors, including the terminal's own background and ink. It sets every field of the Material colour scheme from those colours, and `HandThemeTest` pins each one, so no component can show Material's baseline purple. Each fleet's mark takes the Board's tint, the FNV-1a hash of the fleet ID modulo 12.
@@ -275,10 +279,11 @@ A decision row in Needs opens in place to its choice list, and **Open dN** (or a
 
 A blocked supervisor's item is a card: its last lines in the terminal box, **Screen misread?** with **Type queued messages anyway**, and one button per option of `supervisor.ask` in the Board's order, or the fixed `enter`, `esc`, `up`, `down`, `1`, `2` and `3` keys when there is no ask. Every press posts `{"keys", "revision", "digest", "after", "ref"}` from the latest `Status.supervisor.keys`; its `Status` answer is applied first, the row reads "Sent 2 · waiting…" and a receipt names the supervisor for 4 seconds. A `409` reopens the card on the refreshed screen and says nothing was sent. A `deny_at` on the blocked item counts down locally, one second at a time, and when it passes the screen says it was denied and refreshes.
 
-`app/src/test/snapshots` holds the stored images of the fleet list and of the fleet list before its first answer (`loadingLight`, `loadingDark`), the unreachable band, Decision with a recommended option, an `other` option with its note and its answered state, Needs with a decision open in place, Needs with several bands and one open report, Needs with only rows, a cut report, the blocked supervisor with its ask options, its fixed keys, its countdown and a stale refusal, a tab that has not loaded (`notLoadedLight`), a first frame after a failed request with the band above `Loading…` (`failedFirstFrameLight`, `failedFirstFrameDark`), the live band while the stream reconnects (`reconnectingLight`, `reconnectingDark`) and after it gives up (`liveLostLight`, `liveLostDark`), a tapped tab before the first answer (`tappedBeforeAnswerLight`, `tappedBeforeAnswerDark`), Task with its waiting rows and every section, the same with nothing waiting, a sub-task, a task with
+`app/src/test/snapshots` holds the stored images of the fleet list and of the fleet list before its first answer (`loadingLight`, `loadingDark`), the unreachable band, Decision with a recommended option, an `other` option with its note and its answered state, Needs with a decision open in place, Needs with several bands and the blocked card open, Needs with only rows, a read refusal notice, the blocked supervisor with its ask options, its fixed keys, its countdown and a stale refusal, a tab that has not loaded (`notLoadedLight`), a first frame after a failed request with the band above `Loading…` (`failedFirstFrameLight`, `failedFirstFrameDark`), the live band while the stream reconnects (`reconnectingLight`, `reconnectingDark`) and after it gives up (`liveLostLight`, `liveLostDark`), a tapped tab before the first answer (`tappedBeforeAnswerLight`, `tappedBeforeAnswerDark`), Task with its waiting rows and every section, the same with nothing waiting, a sub-task, a task with
 sub-tasks, an inbox task, the card after Mark read, its loading frame and its error with Retry, each
 light and dark, a report with a list, a code block, a table and a quote before and after Mark read,
-its long body, its marking frame, its loading frame and its error with Retry, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the phone is not paired with the fleet (`notPairedHereLight`, `notPairedHereDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
+its long body, its marking frame, a refused Mark read, its loading frame, its refused ref, its error
+with Retry and its not-paired frame, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the phone is not paired with the fleet (`notPairedHereLight`, `notPairedHereDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
 
 ## Native pairing
 
