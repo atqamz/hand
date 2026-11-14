@@ -13,8 +13,11 @@ import (
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
-// ErrNoFleets says a start found no fleet to run in, so the window shows how
-// to make one instead of a command's failure.
+const (
+	noFleetsCommand = "cd ~/work && hand init"
+	copyReceipt     = 1500 * time.Millisecond
+)
+
 var ErrNoFleets = errors.New("no fleet on this computer yet")
 
 var (
@@ -89,7 +92,6 @@ func boardAnswers(ctx context.Context, root string) bool {
 	return true
 }
 
-// TryStart runs the start again after the window said it did not start.
 func (a *App) TryStart() {
 	if a.Start == nil {
 		a.Refresh()
@@ -130,7 +132,7 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 	card := func(label string, tone ui.Color, meta, title, body, command, foot string, buttons func()) {
 		ui.Column(c).MaxWidth(840).AlignSelf(ui.Center).Border(1, k.Line).Radius(kit.RadiusLG).
 			Clip().Background(k.BG).Children(func() {
-			ui.Row(c).Background(k.Panel).Height(kit.Row).Padding(0, 15).Gap(kit.Space10).
+			ui.Row(c).Background(k.Card).Height(kit.Row).Padding(0, 15).Gap(kit.Space10).
 				AlignItems(ui.Center).Children(func() {
 				ui.Text(c, label).FontSize(kit.Meta.Size).Bold().TextColor(tone)
 				ui.Text(c, meta).FontSize(kit.Meta.Size).TextColor(k.Muted)
@@ -153,8 +155,13 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 		})
 	}
 	copyButton := func(key, label, text string) {
+		if a.copiedKey == key && !a.copiedAt.IsZero() && c.Now().Sub(a.copiedAt) < copyReceipt {
+			label = "Copied"
+		}
 		if button(c, k, key, label, false) {
 			c.WriteClipboard(text)
+			a.copiedKey, a.copiedAt = key, c.Now()
+			c.After(copyReceipt)
 		}
 	}
 	switch {
@@ -184,12 +191,12 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 	case a.noFleets:
 		card("Fleets", k.Muted, "none yet", "No fleet on this computer yet.",
 			"A fleet is a folder with its own supervisor. Make one in a terminal:",
-			"cd ~/work && hand init", "Look again finds a fleet you just made.",
+			noFleetsCommand, "Look again finds a fleet you just made.",
 			func() {
 				if button(c, k, "start:look", "Look again", true) {
 					a.Refresh()
 				}
-				copyButton("fleets:copy", "Copy the command", "hand init")
+				copyButton("fleets:copy", "Copy the command", noFleetsCommand)
 			})
 	default:
 		a.errorCard(c, p)

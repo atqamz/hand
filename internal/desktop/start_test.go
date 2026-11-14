@@ -223,16 +223,7 @@ func TestTheDidNotStartCardShowsTheLastLineAndTriesAgain(t *testing.T) {
 
 func TestTheNoFleetsCardSaysHowToMakeOne(t *testing.T) {
 	spy := &startSpy{}
-	f := &fixture{
-		status:   map[string]desktop.Status{},
-		timeline: map[string]desktop.Timeline{},
-		tasks:    map[string]desktop.Tasks{},
-		task:     map[string]desktop.TaskDetail{},
-		attempt:  map[string]desktop.AttemptDetail{},
-		decision: map[string]desktop.DecisionDetail{},
-		report:   map[string]desktop.ReportDetail{},
-	}
-	app := startApp(t, func() (desktop.ReadModel, error) { return f, nil }, spy.run)
+	app := startApp(t, func() (desktop.ReadModel, error) { return noFleetsFixture(), nil }, spy.run)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
 	tt := newTester(app)
@@ -273,6 +264,131 @@ func TestStartBoardStartsOnlyWhenNothingAnswers(t *testing.T) {
 	if !errors.Is(err, desktop.ErrNoFleets) || line != "" {
 		t.Fatalf("a dead address: %q %v", line, err)
 	}
+}
+
+func TestStartBoardRunsTheVerbInTheFleetFolder(t *testing.T) {
+	hand := installFakeHand(t)
+	root := t.TempDir()
+	fleet, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fleet, "hand.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "index"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index", fleetID), []byte(fleet+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "SECONDHAND_HOME" {
+			return root
+		}
+		return ""
+	}
+	start := desktop.StartBoard(getenv)
+	if line, err := start(context.Background(), ""); err != nil || line != "" {
+		t.Fatalf("start = %q %v", line, err)
+	}
+	hand.wantIn(t, fleet, "board", "start")
+
+	t.Setenv("FAKE_HAND_FAIL", "the board cannot start")
+	line, err := start(context.Background(), "")
+	if err == nil || line != "the board cannot start" {
+		t.Fatalf("start = %q %v", line, err)
+	}
+
+	t.Setenv("FAKE_HAND_FAIL", "")
+	t.Setenv("FAKE_HAND_SLEEP", "1")
+	restore := desktop.SetBoardStartTimeout(150 * time.Millisecond)
+	defer restore()
+	line, err = start(context.Background(), "")
+	if err == nil || line != "`hand board start` did not finish in time" {
+		t.Fatalf("start = %q %v", line, err)
+	}
+}
+
+func TestStartBoardDoesNotStartWhenTheProofFails(t *testing.T) {
+	hand := installFakeHand(t)
+	root := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	if err := writeAddr(root, srv); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "SECONDHAND_HOME" {
+			return root
+		}
+		return ""
+	}
+	if line, err := desktop.StartBoard(getenv)(context.Background(), ""); err != nil || line != "" {
+		t.Fatalf("start = %q %v", line, err)
+	}
+	if got := hand.calls(t); len(got) != 0 {
+		t.Fatalf("the verb ran: %q", got)
+	}
+}
+
+func TestABoardThatStopsAfterBootStartsOnce(t *testing.T) {
+	f := goldenFixture(t)
+	var mu sync.Mutex
+	connects := 0
+	connect := func() (desktop.ReadModel, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		connects++
+		if connects == 1 {
+			return f, nil
+		}
+		return offlineModel{f}, nil
+	}
+	spy := &startSpy{}
+	app := startApp(t, connect, spy.run)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	app.StartRefresh()
+	tt.Frame()
+	mustText(t, tt, "golden", "Fix login")
+	app.Refresh()
+	deadline := time.After(5 * time.Second)
+	for spy.count() < 1 {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(10 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("the window never started the board: %q", tt.Texts())
+		}
+	}
+	for settle := time.Now().Add(500 * time.Millisecond); time.Now().Before(settle); {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if got := spy.count(); got != 1 {
+		t.Fatalf("starts = %d, want 1", got)
+	}
+}
+
+func TestTheCopyButtonSaysCopied(t *testing.T) {
+	app := startApp(t, func() (desktop.ReadModel, error) { return noFleetsFixture(), nil }, (&startSpy{}).run)
+	app.Post = func(func()) {}
+	tt := newTester(app)
+	tt.Frame()
+	click(t, tt, "Copy the command")
+	mustText(t, tt, "Copied")
+	mustNotText(t, tt, "Copy the command")
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	mustText(t, tt, "Copy the command")
 }
 
 func TestScenesStartingTheBoard(t *testing.T) {
@@ -316,16 +432,7 @@ func TestScenesNoFleets(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		theme := map[bool]string{false: "light", true: "dark"}[dark]
 		t.Run(theme, func(t *testing.T) {
-			f := &fixture{
-				status:   map[string]desktop.Status{},
-				timeline: map[string]desktop.Timeline{},
-				tasks:    map[string]desktop.Tasks{},
-				task:     map[string]desktop.TaskDetail{},
-				attempt:  map[string]desktop.AttemptDetail{},
-				decision: map[string]desktop.DecisionDetail{},
-				report:   map[string]desktop.ReportDetail{},
-			}
-			app := startApp(t, func() (desktop.ReadModel, error) { return f, nil }, (&startSpy{}).run)
+			app := startApp(t, func() (desktop.ReadModel, error) { return noFleetsFixture(), nil }, (&startSpy{}).run)
 			app.Post = func(func()) {}
 			tt := darkTester(app, dark)
 			mustText(t, tt, "No fleet on this computer yet.", "cd ~/work && hand init")

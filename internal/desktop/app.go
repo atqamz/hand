@@ -142,8 +142,7 @@ type App struct {
 	Decision DecisionDetail
 	Report   ReportDetail
 
-	Err string
-	// Starting is true while Start runs; StartErr is its last line on failure.
+	Err      string
 	Starting bool
 	StartErr string
 	// Stale is the last auto-refresh failure; empty when the board answers.
@@ -172,6 +171,8 @@ type App struct {
 	noFleets      bool
 	wantStart     bool
 	autoStarted   bool
+	copiedKey     string
+	copiedAt      time.Time
 
 	polling    bool
 	closed     bool
@@ -276,6 +277,7 @@ func (a *App) Refresh() {
 		f := discover(connect, dctx, wait)
 		stop()
 		a.install(f, true)
+		a.maybeStart()
 		return
 	}
 	a.gen++
@@ -293,6 +295,7 @@ func (a *App) Refresh() {
 			}
 			a.Loading = false
 			a.install(f, true)
+			a.maybeStart()
 		})
 	}()
 }

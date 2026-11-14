@@ -10,6 +10,12 @@ func SetOpenTimeout(d time.Duration) func() {
 	return func() { openTimeout = old }
 }
 
+func SetBoardStartTimeout(d time.Duration) func() {
+	old := boardStartTimeout
+	boardStartTimeout = d
+	return func() { boardStartTimeout = old }
+}
+
 var LocalRoot = localRoot
 
 func DraftNote(a *App) string { return a.draftNote() }
