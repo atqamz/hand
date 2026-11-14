@@ -154,14 +154,20 @@ func TestBoardStartWaitsTenSecondsByDefault(t *testing.T) {
 		t.Fatalf("the bound is %s, want 10s", *cli.BoardWait)
 	}
 	fx := openWithoutBoard(t)
-	stop := filepath.Join(t.TempDir(), "stop")
-	slow := fakebin.Install(t, t.TempDir(), "slow", "linger", map[string]string{"stop": stop})
+	stop, done := filepath.Join(t.TempDir(), "stop"), filepath.Join(t.TempDir(), "done")
+	slow := fakebin.Install(t, t.TempDir(), "slow", "linger", map[string]string{"stop": stop, "done": done})
 	*cli.WatchExe = func() (string, error) { return slow, nil }
 	wait := *cli.BoardWait
 	*cli.BoardWait = 300 * time.Millisecond
 	t.Cleanup(func() {
 		*cli.BoardWait = wait
 		_ = os.WriteFile(stop, nil, 0o600)
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if _, err := os.Stat(done); err == nil {
+				return
+			}
+		}
+		t.Errorf("the slow board did not stop")
 	})
 	_, errOut, code := fx.h.run("board", "start")
 	if code != 3 || !strings.Contains(errOut, "the board did not answer within 300ms") {
