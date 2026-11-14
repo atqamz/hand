@@ -75,7 +75,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `08-error.png` | a token the board refuses, with Retry |
 | `09-decision-answer.png` | an open decision with an option chosen and the note field |
 | `10-report-ack.png` | a report with its Ack |
-| `11-composer.png` | a typed message in the Board's one composer box, with the key hint and Send |
+| `11-composer.png` | a typed message in the Board's one composer box, with Send; the chat pane is 418 px here, so the key hint is hidden |
 | `12-composer-error.png` | a failed send, its error and the text it kept |
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
@@ -94,11 +94,12 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `28-composer-hint-<light or dark>.png` | the composer with a blocked supervisor's two-line hint on its foot, the box 94 px high |
 | `29-composer-draft-<light or dark>.png` | a typed message with the draft note over the box's top edge |
 | `30-composer-focused-<light or dark>.png` | the box with the focus: the accent border and 1 px accent ring |
-| `31-composer-default-<light or dark>.png` | Send as a default button while a Start form or the Resume control is in the pane head |
+| `31-composer-default-<light or dark>.png` | Send as a default button beside the Resume control in the pane head, the head having no other primary |
 | `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
 | `33-zoom-150-<light or dark>.png` | the same with 150% requested at 1100 px: the window draws it at 128% so the work pane keeps its 440 px |
+| `36-composer-key-1440x900-<light or dark>.png` | the foot row at 1440 px, where the pane is over 520: the Ctrl Enter keycap 8 px from the primary Send |
 
-The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. It is 90 px at rest and 94 px while the hint wraps to a second line; the text box is borderless, at least 44 px, and grows with its text up to 40% of the window before it scrolls. The hint sits on the foot's left in muted meta and wraps rather than truncating; the blocked hint opens its item in Needs. The key hint reads Ctrl Enter, or ⌘ Enter on Apple hardware, and hides on a coarse pointer or while the chat pane is under 520 px. The draft note over the box's top-right corner says "Draft saved 14:32", or "Draft restored" after a restore, and is set on the save that lands, 300 ms after the last keystroke; it is hidden with no stored draft. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
+The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. It is 90 px at rest and 94 px while the hint wraps to a second line; the text box is borderless, at least 44 px, and grows with its text up to 40% of the window before it scrolls. The hint sits on the foot's left in muted meta and wraps rather than truncating; the blocked hint is the Board's accent link, which opens its item in Needs. The key hint reads Ctrl Enter, or ⌘ Enter on Apple hardware, and hides while the chat pane is under 520 px, the Board's container rule. The Board also hides it on a coarse pointer, which MyGo v0.7.4 does not report, so the window cannot yet tell; and since the window refuses to start off Linux, the ⌘ Enter branch is unexercised in a shipped binary. When the key hint shows it sits 8 px from Send, the Board's `.send` gap, and the hint 12 px from it. The draft note over the box's top-right corner says "Draft saved 14:32", or "Draft restored" after a restore, and is set on the save that lands, 300 ms after the last keystroke; it is hidden with no stored draft. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
 
 The day divider prints the day in the entries' own clock (`Sat, Oct 31`), not the Board's server-side UTC badge (`Sat 31 Oct UTC`): every entry prints a local time, so a UTC divider would draw the day a whole offset away from the entries under it. A deliberate deviation from the Board.
 

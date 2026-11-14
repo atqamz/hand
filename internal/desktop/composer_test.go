@@ -2,6 +2,8 @@ package desktop_test
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"strings"
 	"testing"
 	"time"
@@ -62,12 +64,28 @@ func TestScenesTheComposerFocused(t *testing.T) {
 			theme = "dark"
 		}
 		t.Run(theme, func(t *testing.T) {
+			k := colorsFor(dark)
 			app := newApp(t, goldenFixture(t))
 			app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
 			tt := sized(t, app, 1100, 760, dark)
+			rest := composerBox(t, tt)
+			if got := tt.Image().RGBAAt(int(rest.X+rest.W/2), int(rest.Y)); !sameInk(got, k.LineStrong) {
+				t.Errorf("the resting box's top edge is %v, want the control edge %v", got, k.LineStrong)
+			}
 			click(t, tt, "Message the supervisor")
 			tt.Type("what next?")
 			tt.Frame()
+			box := composerBox(t, tt)
+			img := tt.Image()
+			if got := img.RGBAAt(int(box.X+box.W/2), int(box.Y)); !sameInk(got, k.Accent) {
+				t.Errorf("the focused box's border is %v, want the accent %v", got, k.Accent)
+			}
+			if got := img.RGBAAt(int(box.X+box.W/2), int(box.Y)-1); !sameInk(got, k.Accent) {
+				t.Errorf("the ring above the focused box is %v, want the accent %v", got, k.Accent)
+			}
+			if box.H != 90 {
+				t.Errorf("the focused box is %.0f high, want 90", box.H)
+			}
 			shotSized(t, tt, "30-composer-focused-"+theme, 1100, 760)
 		})
 	}
@@ -122,16 +140,74 @@ func TestScenesTheComposerSendDefault(t *testing.T) {
 			theme = "dark"
 		}
 		t.Run(theme, func(t *testing.T) {
-			app := newApp(t, goldenFixture(t))
+			k := colorsFor(dark)
+			app := newApp(t, resumableFixture(t))
 			app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
-			app.FormInHead = true
 			tt := sized(t, app, 1100, 760, dark)
+			mustText(t, tt, "Resume")
 			click(t, tt, "Message the supervisor")
-			tt.Type("a message while a form is open")
+			tt.Type("a message")
 			tt.Frame()
+			send, ok := tt.Find("Send")
+			if !ok {
+				t.Fatal("no Send")
+			}
+			img := tt.Image()
+			if got := img.RGBAAt(int(send.X)+4, int(send.Y+send.H/2)); !sameInk(got, k.BG) {
+				t.Errorf("Send's fill is %v, want the ground %v", got, k.BG)
+			}
+			if got := img.RGBAAt(int(send.X+send.W/2), int(send.Y)); !sameInk(got, k.LineStrong) {
+				t.Errorf("Send's edge is %v, want the control edge %v", got, k.LineStrong)
+			}
+			if box := composerBox(t, tt); box.H != 90 {
+				t.Errorf("the box with Send default is %.0f high, want 90", box.H)
+			}
 			shotSized(t, tt, "31-composer-default-"+theme, 1100, 760)
 		})
 	}
+}
+
+func TestScenesTheComposerKeyHint(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := "light"
+		if dark {
+			theme = "dark"
+		}
+		t.Run(theme, func(t *testing.T) {
+			app := newApp(t, goldenFixture(t))
+			app.Apple = false // the scene pins Ctrl Enter, which macOS's GOOS proxy would turn into ⌘
+			app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
+			tt := sized(t, app, 1440, 900, dark)
+			if chat := 1440 - chatLeft(t, tt); chat < 520 {
+				t.Fatalf("the pane is %.0f wide, want at least 520 for the key", chat)
+			}
+			click(t, tt, "Message the supervisor")
+			tt.Type("look at the rename")
+			tt.Frame()
+			mustText(t, tt, "Ctrl Enter")
+			key, ok := tt.Find("Ctrl Enter")
+			if !ok {
+				t.Fatal("no key hint")
+			}
+			send, _ := tt.Find("Send")
+			if gap := send.X - (key.X + key.W); gap != 8 {
+				t.Errorf("the key at %v and Send at %v are %.0f apart, want 8", key, send, gap)
+			}
+			shotSized(t, tt, "36-composer-key-1440x900-"+theme, 1440, 900)
+		})
+	}
+}
+
+func resumableFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := statusWith(t, func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "interrupted", false, true })
+	st := f.status[fleetID]
+	st.AgentState, st.Pill, st.Line = "idle", "idle", "interrupted"
+	f.status[fleetID] = st
+	tl := f.timeline[fleetID]
+	tl.Live, tl.Working = false, nil
+	f.timeline[fleetID] = tl
+	return f
 }
 
 func blockedComposerFixture(t *testing.T) *fixture {
@@ -231,28 +307,51 @@ func TestTheBlockedHintOpensItsItem(t *testing.T) {
 }
 
 func TestTheSendKeyHintFollowsTheHardwareAndThePane(t *testing.T) {
-	wide := func(apple, coarse bool) *ui.Tester {
+	wide := func(apple bool) (*ui.Tester, *desktop.App) {
 		app := newApp(t, goldenFixture(t))
-		app.Apple, app.Coarse = apple, coarse
-		return sized(t, app, 1440, 900, false)
+		app.Apple = apple
+		return sized(t, app, 1440, 900, false), app
 	}
-	tt := wide(false, false)
+	tt, app := wide(false)
 	mustText(t, tt, "Ctrl Enter")
 	mustNotText(t, tt, "⌘ Enter")
 
-	tt = wide(true, false)
+	tt, app = wide(true)
 	mustText(t, tt, "⌘ Enter")
 	mustNotText(t, tt, "Ctrl Enter")
-
-	tt = wide(false, true)
-	mustNotText(t, tt, "Ctrl Enter")
-	mustNotText(t, tt, "⌘ Enter")
 
 	narrow := sized(t, newApp(t, goldenFixture(t)), 1100, 760, false)
 	mustNotText(t, narrow, "Ctrl Enter")
 	mustNotText(t, narrow, "⌘ Enter")
 	if chat := 1100 - chatLeft(t, narrow); chat >= 520 {
 		t.Fatalf("the pane is %.0f wide, want under 520 for the hidden key", chat)
+	}
+
+	tt, app = wide(false)
+	drag := func(to float32) {
+		div, ok := tt.Find("Divider")
+		if !ok {
+			t.Fatal("no divider")
+		}
+		x, y := div.X+div.W/2, float32(400)
+		tt.Press(x, y)
+		tt.Move(to, y)
+		tt.Release(to, y)
+		tt.Frame()
+		tt.Frame()
+	}
+	drag(950)
+	if chat := 1440 - chatLeft(t, tt); chat >= 520 {
+		t.Fatalf("the dragged pane is %.0f wide, want under 520", chat)
+	}
+	mustNotText(t, tt, "Ctrl Enter")
+	drag(900)
+	if chat := 1440 - chatLeft(t, tt); chat < 520 {
+		t.Fatalf("the dragged pane is %.0f wide, want the key back over 520", chat)
+	}
+	mustText(t, tt, "Ctrl Enter")
+	if app.Chat < 520 {
+		t.Fatalf("the remembered chat width is %.0f, want over 520", app.Chat)
 	}
 }
 
@@ -355,15 +454,14 @@ func TestTheDraftWaitsForItsQuietMoment(t *testing.T) {
 		t.Fatalf("the draft was written after 299ms: %q", got)
 	}
 	clock.Advance(time.Millisecond)
-	app.FlushDrafts()
+	waitDraft(t, posted, dir, "abc")
 	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "abc" {
 		t.Fatalf("the draft after 300ms = %q", got)
 	}
-	pump(t, posted, func() bool { return desktop.DraftNote(app) != "" })
 
 	tt.Type("d")
 	app.SetMinimized(true)
-	app.FlushDrafts()
+	waitDraft(t, posted, dir, "abcd")
 	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "abcd" {
 		t.Fatalf("hiding the window left %q", got)
 	}
@@ -374,6 +472,22 @@ func TestTheDraftWaitsForItsQuietMoment(t *testing.T) {
 		t.Fatalf("closing the window left %q", got)
 	}
 	pump(t, posted, func() bool { return desktop.DraftNote(app) != "" })
+}
+
+// waitDraft pumps the window's posted work until the draft file holds want,
+// so the trigger under test is what wrote it.
+func waitDraft(t *testing.T, posted <-chan func(), dir, want string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for (desktop.Drafts{Dir: dir}).Load(fleetID) != want {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(10 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("the draft file never held %q", want)
+		}
+	}
 }
 
 func TestADraftIsRestoredOnlyIntoAnEmptyBox(t *testing.T) {
@@ -488,28 +602,76 @@ func TestTheHintFollowsTheStatusOnThePollTick(t *testing.T) {
 	}
 }
 
-func TestSendIsPrimaryUntilAFormIsInTheHead(t *testing.T) {
+func TestSendIsPrimaryUntilTheHeadShowsResume(t *testing.T) {
+	cases := []struct {
+		name    string
+		fixture func(*testing.T) *fixture
+		primary bool
+	}{
+		{"working", goldenFixture, true},
+		{"running but unreachable", func(t *testing.T) *fixture {
+			return statusWith(t, func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "running", false, true })
+		}, true},
+		{"resume in the head", resumableFixture, false},
+	}
 	for _, dark := range []bool{false, true} {
+		theme := "light"
+		if dark {
+			theme = "dark"
+		}
 		k := colorsFor(dark)
-		app := newApp(t, goldenFixture(t))
-		bg, fg, edge, bold := desktop.SendStyle(app, dark)
-		if bg != k.Primary || fg != k.OnPrimary || edge.A != 0 || !bold {
-			t.Errorf("dark=%v: Send is %v on %v with edge %v bold=%v, want primary", dark, fg, bg, edge, bold)
-		}
-		app.FormInHead = true
-		bg, fg, edge, bold = desktop.SendStyle(app, dark)
-		if bg != k.BG || fg != k.FG || edge != k.LineStrong || bold {
-			t.Errorf("dark=%v: Send with a form is %v on %v with edge %v bold=%v, want default", dark, fg, bg, edge, bold)
-		}
-
-		resumable := newApp(t, statusWith(t, func(sup *desktop.Supervisor) {
-			sup.Status, sup.Live, sup.Resumable = "interrupted", false, true
-		}))
-		bg, fg, edge, bold = desktop.SendStyle(resumable, dark)
-		if bg != k.BG || fg != k.FG || edge != k.LineStrong || bold {
-			t.Errorf("dark=%v: Send beside Resume is %v on %v with edge %v bold=%v, want default", dark, fg, bg, edge, bold)
+		for _, c := range cases {
+			t.Run(c.name+"/"+theme, func(t *testing.T) {
+				tt := sized(t, newApp(t, c.fixture(t)), 1100, 760, dark)
+				click(t, tt, "Message the supervisor")
+				tt.Type("x")
+				tt.Frame()
+				send, ok := tt.Find("Send")
+				if !ok {
+					t.Fatal("no Send")
+				}
+				bg, edge := k.BG, k.LineStrong
+				if c.primary {
+					bg, edge = k.Primary, k.Primary
+				}
+				img := tt.Image()
+				if got := img.RGBAAt(int(send.X)+4, int(send.Y+send.H/2)); !sameInk(got, bg) {
+					t.Errorf("Send's fill is %v, want %v", got, bg)
+				}
+				if got := img.RGBAAt(int(send.X+send.W/2), int(send.Y)); !sameInk(got, edge) {
+					t.Errorf("Send's edge is %v, want %v", got, edge)
+				}
+				if c.primary {
+					return
+				}
+				rest := sized(t, newApp(t, goldenFixture(t)), 1100, 760, dark)
+				click(t, rest, "Message the supervisor")
+				rest.Type("x")
+				rest.Frame()
+				primary, _ := rest.Find("Send")
+				ink, want := inkCount(img, send, bg), inkCount(rest.Image(), primary, k.Primary)
+				if ink*10 < want*9 {
+					t.Errorf("the default Send's label has %d ink pixels against the primary's %d, want the same weight", ink, want)
+				}
+			})
 		}
 	}
+}
+
+func sameInk(got color.RGBA, want ui.Color) bool {
+	return got.R == want.R && got.G == want.G && got.B == want.B
+}
+
+func inkCount(img *image.RGBA, r ui.Rect, bg ui.Color) int {
+	ink := 0
+	for y := int(r.Y) + 2; y < int(r.Y+r.H)-2; y++ {
+		for x := int(r.X) + 2; x < int(r.X+r.W)-2; x++ {
+			if !sameInk(img.RGBAAt(x, y), bg) {
+				ink++
+			}
+		}
+	}
+	return ink
 }
 
 func colorsFor(dark bool) kit.Colors { return kit.ColorsFor(dark) }
@@ -535,6 +697,13 @@ func TestTheTextBoxGrowsToFortyPercentThenScrolls(t *testing.T) {
 			}
 			if grown.H < tc.max-20 {
 				t.Errorf("the text box is %.0f high, want about %.0f", grown.H, tc.max)
+			}
+			box := composerBox(t, tt)
+			if bottom := box.Y + box.H; bottom > float32(tc.height) {
+				t.Errorf("the grown composer ends at %.0f in a %d px window", bottom, tc.height)
+			}
+			if gap := float32(tc.height) - (box.Y + box.H); gap < 15 || gap > 17 {
+				t.Errorf("the grown composer ends %.0f px above the bottom, want 16", gap)
 			}
 		})
 	}

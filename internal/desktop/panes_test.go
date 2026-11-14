@@ -353,13 +353,7 @@ func TestScenesBlockedAndResumableHeads(t *testing.T) {
 			tt := sized(t, newApp(t, askFixture(t)), size[0], size[1], dark)
 			shotSized(t, tt, fmt.Sprintf("21-blocked-%dx%d-%s", size[0], size[1], theme), size[0], size[1])
 		}
-		f := statusWith(t, func(s *desktop.Supervisor) { s.Status, s.Live, s.Resumable = "interrupted", false, true })
-		st := f.status[fleetID]
-		st.AgentState, st.Pill, st.Line = "idle", "idle", "interrupted"
-		f.status[fleetID] = st
-		tl := f.timeline[fleetID]
-		tl.Live, tl.Working = false, nil
-		f.timeline[fleetID] = tl
+		f := resumableFixture(t)
 		tt := sized(t, newApp(t, f), 1100, 760, dark)
 		shotSized(t, tt, "22-resumable-1100x760-"+theme, 1100, 760)
 	}

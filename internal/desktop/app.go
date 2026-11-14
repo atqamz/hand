@@ -50,13 +50,9 @@ type App struct {
 	Connect func() (ReadModel, error)
 	Model   ReadModel
 	Context context.Context
-	// Apple marks Apple hardware, where the send key reads ⌘ Enter.
+	// Apple marks Apple hardware, where the send key reads ⌘ Enter; the
+	// desktop starts only on Linux, so no shipped window sets it.
 	Apple bool
-	// Coarse marks a coarse pointer, which hides the send key hint.
-	Coarse bool
-	// FormInHead says a Start or Resume form occupies the pane head, which
-	// turns Send from the primary button into a default one.
-	FormInHead bool
 	// NameTimeout limits each fleet's name lookup; zero means two seconds.
 	NameTimeout time.Duration
 	// Clock schedules the auto-refresh tick; nil uses the wall clock.

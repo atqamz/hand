@@ -54,11 +54,13 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 			})
 		}
 		ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Padding(0, kit.Space6, 0, kit.Space10).Children(func() {
-			a.composerHint(c, p)
-			if key := a.sendKeyHint(pane); key != "" {
-				kit.Keycap(c, k, key)
-			}
-			a.sendButton(c, k)
+			a.composerHint(c, k, p)
+			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
+				if key := a.sendKeyHint(pane); key != "" {
+					kit.Keycap(c, k, key)
+				}
+				a.sendButton(c, k)
+			})
 		})
 		if note := a.draftNote(); note != "" {
 			ui.Text(c, note).Absolute().Top(draftNoteTop).Right(draftNoteX).
@@ -78,7 +80,7 @@ func composerLines(viewport float32) int {
 	return max(lines, 1)
 }
 
-func (a *App) composerHint(c *ui.Context, p palette) {
+func (a *App) composerHint(c *ui.Context, k kit.Colors, p palette) {
 	hint := a.Status.ComposerHint
 	if hint == "" {
 		ui.Spacer(c).Grow(1)
@@ -87,8 +89,8 @@ func (a *App) composerHint(c *ui.Context, p palette) {
 	if a.blockedHint() {
 		link := ui.ButtonBase(c.Key("composer:blocked")).Grow(1).MinWidth(0).Cursor(ui.CursorPointer).Label(hint)
 		link.Children(func() {
-			ui.Text(c, hint).FontSize(kit.Meta.Size).LineHeight(1.5).TextColor(p.neutral).
-				MinWidth(0).Grow(1).Wrap().DottedUnderline()
+			ui.Text(c, hint).FontSize(kit.Meta.Size).LineHeight(1.5).TextColor(k.Accent).
+				MinWidth(0).Grow(1).Wrap()
 		})
 		if link.Clicked() {
 			a.openBlockedNeed()
@@ -122,7 +124,7 @@ func (a *App) openBlockedNeed() {
 }
 
 func (a *App) sendKeyHint(pane float32) string {
-	if a.Coarse || pane < 520 {
+	if pane < 520 {
 		return ""
 	}
 	if a.Apple {
@@ -145,18 +147,14 @@ func (a *App) draftNote() string {
 }
 
 func (a *App) startFormInHead() bool {
-	if a.FormInHead {
-		return true
-	}
-	sup := a.Status.Supervisor
-	return sup != nil && sup.Resumable
+	return a.known() && headShowsResume(a.Status.Supervisor)
 }
 
-func (a *App) sendStyle(k kit.Colors) (bg, fg, edge ui.Color, bold bool) {
+func (a *App) sendStyle(k kit.Colors) (bg, fg, edge ui.Color) {
 	if a.startFormInHead() {
-		return k.BG, k.FG, k.LineStrong, false
+		return k.BG, k.FG, k.LineStrong
 	}
-	return k.Primary, k.OnPrimary, ui.Transparent, true
+	return k.Primary, k.OnPrimary, ui.Transparent
 }
 
 func (a *App) sendButton(c *ui.Context, k kit.Colors) {
@@ -164,7 +162,7 @@ func (a *App) sendButton(c *ui.Context, k kit.Colors) {
 	if a.Busy {
 		label = "Sending…"
 	}
-	bg, fg, edge, bold := a.sendStyle(k)
+	bg, fg, edge := a.sendStyle(k)
 	disabled := a.Busy || strings.TrimSpace(a.Draft) == ""
 	b := ui.ButtonBase(c.Key("composer:send")).Height(kit.Control).Padding(0, kit.Space12).
 		Radius(kit.RadiusMD).Background(bg).Border(1, edge).Justify(ui.Center).AlignItems(ui.Center).
@@ -176,10 +174,7 @@ func (a *App) sendButton(c *ui.Context, k kit.Colors) {
 		b.Opacity(.6)
 	}
 	b.Children(func() {
-		text := ui.Text(c, label).FontSize(kit.Body.Size).TextColor(fg).SingleLine()
-		if bold {
-			text.Bold()
-		}
+		ui.Text(c, label).FontSize(kit.Body.Size).TextColor(fg).Bold().SingleLine()
 	})
 	if b.Clicked() {
 		a.Send()
