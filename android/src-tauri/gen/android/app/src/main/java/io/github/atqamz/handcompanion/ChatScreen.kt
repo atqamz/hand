@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -71,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import java.util.TimeZone
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -325,9 +327,15 @@ private fun LatestButton(count: Int, onLatest: () -> Unit) {
   val coarse =
     LocalConfiguration.current.touchscreen != Configuration.TOUCHSCREEN_NOTOUCH
   val control = if (coarse) 44.dp else 32.dp
+  var spoken by remember { mutableStateOf(count) }
+  LaunchedEffect(count) {
+    if (spoken == count) return@LaunchedEffect
+    delay(1_000)
+    spoken = count
+  }
   val label =
-    if (count > 0) {
-      "Scroll to latest, $count new message${if (count == 1) "" else "s"}"
+    if (spoken > 0) {
+      "Scroll to latest, $spoken new message${if (spoken == 1) "" else "s"}"
     } else {
       "Scroll to latest message"
     }
@@ -440,7 +448,7 @@ private fun ChatUnpaired() {
 }
 
 @Composable
-private fun ChatContent(
+internal fun ChatContent(
   fleet: String,
   state: ChatState,
   zone: TimeZone,
@@ -449,7 +457,8 @@ private fun ChatContent(
   onOlder: () -> Unit,
   onRetryOlder: () -> Unit,
   onScrolled: (Boolean) -> Unit,
-  onTarget: (ThreadTarget) -> Unit
+  onTarget: (ThreadTarget) -> Unit,
+  list: LazyListState = rememberLazyListState()
 ) {
   val hand = LocalHand.current
   val rows = remember(state.page, state.older, zone) {
@@ -459,7 +468,6 @@ private fun ChatContent(
     ChatEmpty(state.note)
     return
   }
-  val list = rememberLazyListState()
   val scope = rememberCoroutineScope()
   val reduce = reducedMotion()
   val threshold = with(LocalDensity.current) { 48.dp.roundToPx() }

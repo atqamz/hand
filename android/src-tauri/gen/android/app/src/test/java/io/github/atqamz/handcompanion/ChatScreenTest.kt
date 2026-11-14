@@ -2,7 +2,11 @@ package io.github.atqamz.handcompanion
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import java.util.TimeZone
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -92,6 +96,28 @@ private fun pageState(
     now = NOW
   )
 
+private val longConversation =
+  (0 until 60).map { index ->
+    val hour = (index / 60).toString().padStart(2, '0')
+    val minute = (index % 60).toString().padStart(2, '0')
+    TimelineEntry(
+      role = "supervisor",
+      at = "2026-11-01T$hour:$minute:00Z",
+      no = 20 + index,
+      ref = "s1",
+      text = "Reply $index."
+    )
+  }
+
+private val newestReply =
+  TimelineEntry(
+    role = "supervisor",
+    at = "2026-11-02T12:00:00Z",
+    no = 120,
+    ref = "s1",
+    text = "The newest reply."
+  )
+
 class ChatScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 3200))
@@ -175,4 +201,30 @@ class ChatScreenTest {
 
   @Test fun refusedDark() =
     shot(true, ChatState(loading = false, refused = "Controls are off", now = NOW))
+
+  @Composable
+  private fun pinnedScene(dark: Boolean, list: LazyListState, state: ChatState) {
+    HandTheme(dark) {
+      ChatContent(FLEET, state, UTC, emptySet(), {}, {}, {}, {}, {}, list)
+    }
+  }
+
+  @Test
+  fun aPageHeadChangePinsTheListInsideTheBand() {
+    for (dark in listOf(false, true)) {
+      val list = LazyListState(0, 30)
+      val state = mutableStateOf(pageState(entries = longConversation))
+      paparazzi.snapshot(if (dark) "bandDark" else "bandLight") {
+        pinnedScene(dark, list, state.value)
+      }
+      assertEquals(0, list.firstVisibleItemIndex)
+      assertEquals(30, list.firstVisibleItemScrollOffset)
+      state.value = pageState(entries = listOf(newestReply) + longConversation)
+      paparazzi.snapshot(if (dark) "pinnedDark" else "pinnedLight") {
+        pinnedScene(dark, list, state.value)
+      }
+      assertEquals(0, list.firstVisibleItemIndex)
+      assertEquals(0, list.firstVisibleItemScrollOffset)
+    }
+  }
 }
