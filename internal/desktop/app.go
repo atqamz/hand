@@ -608,11 +608,11 @@ func (a *App) applyTask(t TaskDetail) {
 		return
 	}
 	if was {
-		a.refreshPageReport(ref)
+		a.refreshPageReport(ref, true)
 	}
 }
 
-func (a *App) refreshPageReport(ref string) {
+func (a *App) refreshPageReport(ref string, rearm bool) {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
@@ -624,7 +624,7 @@ func (a *App) refreshPageReport(ref string) {
 			return
 		}
 		if err != nil {
-			a.pageTargetRetry = true
+			a.pageTargetRetry = rearm
 			return
 		}
 		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = r, true, false
@@ -1669,6 +1669,10 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenFresh {
 		a.setScreen(screen, key, &p)
 		screenFresh = true
+	}
+	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && !p.ScreenFresh && a.pageTargetRetry && a.pageReport != "" {
+		a.pageTargetRetry = false
+		a.refreshPageReport(a.pageReport, false)
 	}
 	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
 		a.setErr("")

@@ -576,6 +576,16 @@ func (m *failingReportRead) Report(ctx context.Context, fleet, ref string) (desk
 	return m.ReadModel.Report(ctx, fleet, ref)
 }
 
+type notModifiedPoll struct {
+	desktop.ReadModel
+}
+
+func (m *notModifiedPoll) Poll(ctx context.Context, fleet string, screen desktop.Screen, ref string, since desktop.PollCursors) (desktop.Poll, error) {
+	p, err := m.ReadModel.Poll(ctx, fleet, screen, ref, since)
+	p.ScreenFresh, p.ScreenRead = false, false
+	return p, err
+}
+
 func reportPageApp(t *testing.T, model desktop.ReadModel) *desktop.App {
 	t.Helper()
 	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
@@ -665,6 +675,93 @@ func TestAFailedPageReadKeepsTheCardAndRetries(t *testing.T) {
 	tt.Frame()
 	if model.reads != 2 {
 		t.Fatalf("the window read the report %d times after it had its answer", model.reads)
+	}
+}
+
+func retriedPageReportFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := manyReportFixture(t)
+	td := f.task[fleetID]
+	ad := f.attempt[fleetID]
+	ad.Reports = []desktop.Report{{
+		Ref: "r99", Task: "t1", Attempt: "a1", Status: "progress",
+		Summary:   "Still unread",
+		Body:      "Still unread\n\nfrom the attempt",
+		CreatedAt: "2026-10-01T04:40:00Z",
+	}}
+	f.attempt[fleetID] = ad
+	f.report[fleetID] = desktop.ReportDetail{
+		Task: td.Task,
+		Report: desktop.Report{
+			Ref: "r99", Task: "t1", Attempt: "a1", Status: "done",
+			Summary:   "Read after the retry",
+			Body:      "Read after the retry\n\nfrom the board",
+			CreatedAt: "2026-11-02T04:40:00Z",
+			AckedAt:   "2026-11-01T05:00:00Z", AckedBy: "operator (desktop)",
+		},
+	}
+	return f
+}
+
+func TestA304PollRetriesAFailedPageRead(t *testing.T) {
+	f := retriedPageReportFixture(t)
+	model := &failingReportRead{ReadModel: &notModifiedPoll{ReadModel: f}, fails: 1}
+	app := reportPageApp(t, model)
+	clock := newFakeClock()
+	app.Clock = clock
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("a1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	if model.reads != 1 {
+		t.Fatalf("the window read the report %d times before the poll, want 1", model.reads)
+	}
+	mustText(t, tt, "from the attempt", "Mark read r99")
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	if model.reads != 2 {
+		t.Fatalf("the 304 poll read the report %d times in all, want 2", model.reads)
+	}
+	mustText(t, tt, "from the board", "read by operator (desktop)")
+	mustNotText(t, tt, "Mark read r99")
+	for range 3 {
+		clock.Advance(desktop.FocusedRefresh)
+		tt.Frame()
+	}
+	if model.reads != 2 {
+		t.Fatalf("a quiet board read the report %d times after the retry, want 2", model.reads)
+	}
+}
+
+func TestAFailedRetryOnA304PollStopsReading(t *testing.T) {
+	f := retriedPageReportFixture(t)
+	model := &failingReportRead{ReadModel: &notModifiedPoll{ReadModel: f}, fails: 2}
+	app := reportPageApp(t, model)
+	clock := newFakeClock()
+	app.Clock = clock
+	tt := newTesterAt(app, 1100, 900)
+	app.OpenRef("a1")
+	tt.Frame()
+	app.OpenRef("r99")
+	tt.Frame()
+	if model.reads != 1 {
+		t.Fatalf("the window read the report %d times before the poll, want 1", model.reads)
+	}
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	if model.reads != 2 {
+		t.Fatalf("the 304 poll read the report %d times in all, want 2", model.reads)
+	}
+	mustText(t, tt, "from the attempt", "Mark read r99")
+	for range 4 {
+		clock.Advance(desktop.FocusedRefresh)
+		tt.Frame()
+	}
+	if model.reads != 2 {
+		t.Fatalf("a failing retry kept reading the report on 304 polls: %d reads, want 2", model.reads)
 	}
 }
 
