@@ -63,7 +63,7 @@ func TestTheChatKeepsTheBoardsLimits(t *testing.T) {
 	for _, tc := range []struct {
 		width      int
 		chat, work float32
-	}{{900, 400, 444}, {1100, 418, 626}, {1440, 547.2, 836.8}, {2400, 720, 1624}, {800, 364, 440}} {
+	}{{900, 400, 444}, {1100, 418, 626}, {1440, 547.2, 836.8}, {2400, 720, 1624}} {
 		tt := sized(t, newApp(t, goldenFixture(t)), tc.width, 700, false)
 		drawn := drawnZoom(1, tc.width)
 		logical := float32(tc.width) / drawn
@@ -181,6 +181,13 @@ func inPane(t *testing.T, tt *ui.Tester, width, height int, names ...string) {
 	}
 }
 
+func chatTab(t *testing.T, tt *ui.Tester, width int) {
+	t.Helper()
+	if width < kit.BoardWidth {
+		click(t, tt, "Chat")
+	}
+}
+
 func TestTheBlockedKeysStayInsideTheChatPane(t *testing.T) {
 	for _, width := range []int{780, 860, 1100} {
 		f := blockedFixture(t)
@@ -190,6 +197,7 @@ func TestTheBlockedKeysStayInsideTheChatPane(t *testing.T) {
 		}
 		f.tasks[fleetID] = tasks
 		tt := sized(t, newApp(t, f), width, 700, false)
+		chatTab(t, tt, width)
 		inPane(t, tt, width, 700, "Enter", "Esc", "↑", "↓", "1", "2", "3", "Message the supervisor", "Send")
 		first, ok := tt.Find("status?")
 		keys, _ := tt.Find("3")
@@ -211,6 +219,7 @@ func TestALongAskCannotEatTheChatPane(t *testing.T) {
 	st.Supervisor = &sup
 	f.status[fleetID] = st
 	tt := sized(t, newApp(t, f), 780, 480, false)
+	chatTab(t, tt, 780)
 	inPane(t, tt, 780, 480, "Message the supervisor", "Send")
 	msg, _ := tt.Find("Message the supervisor")
 	if msg.Y < 250 {
@@ -273,6 +282,7 @@ func TestALongDraftErrorKeepsTheComposerInsideThePane(t *testing.T) {
 		app := newApp(t, goldenFixture(t))
 		app.DraftErr = "the draft was not saved: " + strings.Repeat("x", 600)
 		tt := sized(t, app, width, 700, false)
+		chatTab(t, tt, width)
 		inPane(t, tt, width, 700, "Send")
 	}
 }
@@ -332,6 +342,7 @@ func TestScenesBlockedAndResumableHeads(t *testing.T) {
 		}
 		for _, size := range [][2]int{{860, 700}, {1100, 760}} {
 			tt := sized(t, newApp(t, askFixture(t)), size[0], size[1], dark)
+			chatTab(t, tt, size[0])
 			shotSized(t, tt, fmt.Sprintf("21-blocked-%dx%d-%s", size[0], size[1], theme), size[0], size[1])
 		}
 		f := resumableFixture(t)
@@ -382,10 +393,10 @@ func TestOlderMessagesSurviveOpeningATask(t *testing.T) {
 
 func TestTheLabelledRailStaysClosedWhereTheWorkPaneWouldShrink(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	tt := sized(t, app, 860, 700, false)
+	tt := sized(t, app, 900, 700, false)
 	click(t, tt, "Show labels")
 	if app.RailOpen {
-		t.Fatal("the rail opened in an 860 px window")
+		t.Fatal("the rail opened in a 900 px window")
 	}
 	wide := sized(t, newApp(t, goldenFixture(t)), 1100, 700, false)
 	click(t, wide, "Show labels")
@@ -454,12 +465,12 @@ func TestSendingKeepsTheOlderMessagesLoaded(t *testing.T) {
 func TestARailLeftOpenInATooNarrowWindowCollapses(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	app.RailOpen = true
-	tt := sized(t, app, 860, 700, false)
+	tt := sized(t, app, 900, 700, false)
 	if app.RailOpen {
-		t.Fatal("the rail stayed open in an 860 px window")
+		t.Fatal("the rail stayed open in a 900 px window")
 	}
 	mustText(t, tt, "Show labels")
-	inPane(t, tt, 860, 700, "Send")
+	inPane(t, tt, 900, 700, "Send")
 	left := chatLeft(t, tt)
 	if work := left - kit.RailWidth; work < 440 {
 		t.Errorf("the work pane is %.0f wide after the collapse, want at least 440", work)

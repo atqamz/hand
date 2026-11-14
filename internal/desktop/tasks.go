@@ -11,7 +11,9 @@ import (
 
 func (a *App) tasksScreen(c *ui.Context, p palette) {
 	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Tasks").FontSize(kit.Display.Size).Bold()
+		if !a.narrow {
+			ui.Text(c, "Tasks").FontSize(kit.Display.Size).Bold()
+		}
 		ui.Spacer(c)
 		if ui.SearchField(c, &a.TaskQuery).Label("Search tasks").Placeholder("Search tasks in the browser").Width(240).Submitted() {
 			a.SearchTasks()

@@ -64,6 +64,15 @@ func boardTheme(dark bool) *ui.Theme {
 func (a *App) View(c *ui.Context) {
 	c.SetZoom(a.drawnZoom(c))
 	a.zoomKeys(c)
+	if w, _ := c.Size(); w > 0 {
+		a.narrow = w < kit.BoardWidth
+	}
+	if a.Tab == "" && a.known() {
+		a.Tab = a.defaultTab()
+	}
+	if a.sheetOpen && !a.narrow {
+		a.sheetOpen = false
+	}
 	dark := c.Theme().Dark
 	p, k := paletteFor(dark), kit.ColorsFor(dark)
 	c.SetTheme(boardTheme(dark))
@@ -82,12 +91,17 @@ func (a *App) View(c *ui.Context) {
 		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
 	}
 	ui.Row(c).Fill().Children(func() {
-		a.rail(c, k, p)
+		if !a.narrow {
+			a.rail(c, k, p)
+		}
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			a.masthead(c, k, p)
 			a.body(c, k, p)
 		})
 	})
+	if a.narrow && a.sheetOpen {
+		a.sheet(c, k, p)
+	}
 	if a.viewerOpen() {
 		a.viewer(c, k, p)
 	}
@@ -121,37 +135,111 @@ func (a *App) viewerOpen() bool {
 }
 
 func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
+	kit.Rail(c, k, a.RailOpen, a.toggleRail, func() {
+		a.nav(c, k, p, a.RailOpen, func(n kit.NavItem) bool { return kit.Nav(c, k, n) })
+	})
+}
+
+func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(kit.NavItem) bool) {
 	bg, fg := toneColors(a.Status.Needs.Worst, p)
 	if a.Status.Needs.Worst == "" {
 		bg, fg = p.neutralBG, p.neutral
 	}
-	item := func(n kit.NavItem) bool {
-		n.Open = a.RailOpen
-		return kit.Nav(c, k, n)
+	draw := func(n kit.NavItem) bool {
+		n.Open = open
+		return item(n)
 	}
-	kit.Rail(c, k, a.RailOpen, a.toggleRail, func() {
-		if item(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: true,
-			Count: a.waitingNeeds(), CountBG: bg, CountFG: fg}) {
-			a.Show(BoardScreen)
+	if draw(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: true,
+		Count: a.waitingNeeds(), CountBG: bg, CountFG: fg}) {
+		a.Show(BoardScreen)
+	}
+	draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Inert: true})
+	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
+	if draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
+		a.OpenScreen()
+	}
+	if draw(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone"}) {
+		a.OpenPhone()
+	}
+	if len(a.Fleets) > 0 {
+		kit.RailHead(c, k, open, "Fleets")
+	}
+	for _, f := range a.Fleets {
+		fleet := f
+		if draw(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: fleet.ID == a.Fleet.ID}) {
+			a.SelectFleet(fleet.ID)
 		}
-		item(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Inert: true})
-		item(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
-		if item(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
-			a.OpenScreen()
+	}
+}
+
+func (a *App) sheet(c *ui.Context, k kit.Colors, p palette) {
+	open, picked := true, false
+	dismissed := kit.NavSheet(c, k, &open, func() {
+		a.nav(c, k, p, true, func(n kit.NavItem) bool {
+			if !kit.Nav(c, k, n) {
+				return false
+			}
+			picked = true
+			return true
+		})
+	})
+	if dismissed || picked || !open {
+		a.sheetOpen = false
+	}
+}
+
+func (a *App) toggleSheet() {
+	a.sheetOpen = !a.sheetOpen && a.narrow
+}
+
+func (a *App) boardShown() bool {
+	return a.Model != nil && a.Fleet.ID != "" && !a.auth && !a.Starting && a.StartErr == ""
+}
+
+const (
+	tabNeeds = "needs"
+	tabTasks = "tasks"
+	tabChat  = "chat"
+)
+
+func (a *App) defaultTab() string {
+	if a.waitingNeeds() > 0 {
+		return tabNeeds
+	}
+	return tabChat
+}
+
+func (a *App) tab() string {
+	if a.Tab == "" {
+		return a.defaultTab()
+	}
+	return a.Tab
+}
+
+func (a *App) pickTab(tab string) {
+	if tab != tabNeeds && tab != tabTasks && tab != tabChat || a.Tab == tab {
+		return
+	}
+	a.Tab = tab
+	a.boardScroll = ui.ScrollState{}
+}
+
+// tabHolding is the tab an opened ref lives in: the Needs item that names
+// it, else the Tasks row, else the tab already shown.
+func (a *App) tabHolding(ref string) string {
+	for _, n := range a.Status.Needs.Items {
+		if r := needRef(n); r != "" && (r == ref || n.Task == ref) {
+			return tabNeeds
 		}
-		if item(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone"}) {
-			a.OpenPhone()
-		}
-		if len(a.Fleets) > 0 {
-			kit.RailHead(c, k, a.RailOpen, "Fleets")
-		}
-		for _, f := range a.Fleets {
-			fleet := f
-			if item(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: fleet.ID == a.Fleet.ID}) {
-				a.SelectFleet(fleet.ID)
+	}
+	for _, g := range a.Tasks.Groups {
+		for _, r := range g.Tasks {
+			if r.Ref == ref {
+				return tabTasks
 			}
 		}
-	})
+	}
+	return a.tab()
 }
 
 func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
@@ -159,37 +247,55 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 	if name == "" {
 		name = "Hand"
 	}
-	kit.Masthead(c, k, a.Fleet.ID, name, func() {
-		ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {
-			if a.Model != nil && a.Fleet.ID != "" {
-				statusPill(c, p, a.Status.Pill)
-				if sup := a.Status.Supervisor; sup != nil && sup.Pending > 0 {
-					ui.Textf(c, "%d queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
+	if a.narrow {
+		var tabs []kit.Tab
+		if a.boardShown() {
+			bg, fg := toneColors(a.Status.Needs.Worst, p)
+			if a.Status.Needs.Worst == "" {
+				bg, fg = p.neutralBG, p.neutral
+			}
+			tabs = []kit.Tab{
+				{Key: tabNeeds, Label: "Needs", Current: a.tab() == tabNeeds, Count: a.waitingNeeds(), CountBG: bg, CountFG: fg},
+				{Key: tabTasks, Label: "Tasks", Current: a.tab() == tabTasks},
+				{Key: tabChat, Label: "Chat", Current: a.tab() == tabChat, Dot: a.Status.AgentState == "working"},
+			}
+		}
+		kit.MastheadTabs(c, k, a.Fleet.ID, name, a.toggleSheet, func() { a.mastheadStrip(c, k, p) }, tabs, a.pickTab)
+		return
+	}
+	kit.Masthead(c, k, a.Fleet.ID, name, func() { a.mastheadStrip(c, k, p) })
+}
+
+func (a *App) mastheadStrip(c *ui.Context, k kit.Colors, p palette) {
+	ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {
+		if a.Model != nil && a.Fleet.ID != "" {
+			statusPill(c, p, a.Status.Pill)
+			if sup := a.Status.Supervisor; sup != nil && sup.Pending > 0 {
+				ui.Textf(c, "%d queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			}
+			if g := a.Status.Gauge; g.Text != "" {
+				_, fg := toneColors(g.Level, p)
+				if g.Level == "" {
+					fg = p.accent
 				}
-				if g := a.Status.Gauge; g.Text != "" {
-					_, fg := toneColors(g.Level, p)
-					if g.Level == "" {
-						fg = p.accent
-					}
-					kit.ContextBar(c, k, g.Pct, fg)
-					text := ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
-					if g.Level != "" {
-						text.TextColor(fg)
-					}
-					if g.Level == "fail" {
-						text.Bold()
-					}
+				kit.ContextBar(c, k, g.Pct, fg)
+				text := ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
+				if g.Level != "" {
+					text.TextColor(fg)
+				}
+				if g.Level == "fail" {
+					text.Bold()
 				}
 			}
-			if a.Stale != "" {
-				ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).Tooltip(a.Stale)
-			}
-		})
+		}
+		if a.Stale != "" {
+			ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).Tooltip(a.Stale)
+		}
 	})
 }
 
 func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
-	if a.Model == nil || a.Fleet.ID == "" || a.auth || a.Starting || a.StartErr != "" {
+	if !a.boardShown() {
 		ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 			ui.Column(c).Gap(16).Children(func() {
 				a.openCard(c, p)
@@ -208,7 +314,44 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	}
 	a.actionCard(c, p)
+	if a.narrow {
+		a.narrowPanes(c, k, p)
+		return
+	}
 	a.panes(c, k, p)
+}
+
+func (a *App) narrowPanes(c *ui.Context, k kit.Colors, p palette) {
+	box := ui.Column(c).Grow(1).MinHeight(0)
+	box.Children(func() {
+		if a.tab() == tabChat {
+			a.chatPane(c, k, p)
+			return
+		}
+		w, _ := c.Size()
+		m := max(float32(kit.Space20), (w-kit.Measure)/2)
+		page := ui.Scroll(c).Key("board-scroll").Grow(1).Padding(kit.Space20, m, 32).TrackScroll(&a.boardScroll).
+			Focusable().FocusRing(false).Label("The board")
+		if a.boardFocus {
+			a.boardFocus = false
+			page.Focus()
+		}
+		page.Children(func() {
+			ui.Column(c).Gap(kit.Space16).Selectable().Children(func() {
+				a.openCard(c, p)
+				switch {
+				case a.Err != "" && !a.errScreen:
+					a.errorCard(c, p)
+				case a.Loading && a.Status.Pill == "" && len(a.Tasks.Groups) == 0:
+					a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
+				case a.tab() == tabNeeds:
+					a.needsScreen(c, k, p)
+				default:
+					a.tasksScreen(c, p)
+				}
+			})
+		})
+	})
 }
 
 func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {

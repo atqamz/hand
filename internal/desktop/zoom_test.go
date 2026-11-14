@@ -32,7 +32,7 @@ func booted(t *testing.T, drafts string) *desktop.App {
 
 func TestTheZoomKeysStepTheLadder(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	tt := newTester(app)
+	tt := sized(t, app, 1440, 900, false)
 	for _, step := range []struct {
 		mods ui.Modifiers
 		key  ui.Key
@@ -49,7 +49,7 @@ func TestTheZoomKeysStepTheLadder(t *testing.T) {
 		if math.Abs(float64(app.Zoom-step.want)) > 1e-6 {
 			t.Fatalf("after Ctrl+%v zoom is %v, want %v", step.key, app.Zoom, step.want)
 		}
-		drawn := drawnZoom(step.want, windowWidth)
+		drawn := drawnZoom(step.want, 1440)
 		rail, ok := tt.Find("Pages and fleets")
 		if !ok || math.Abs(float64(rail.W/drawn)-kit.RailWidth) > 0.01 {
 			t.Fatalf("the rail is %v at requested zoom %v (drawn %v), want %d logical px", rail.W, step.want, drawn, kit.RailWidth)
@@ -208,6 +208,21 @@ func TestANarrowWindowLowersTheDrawnZoom(t *testing.T) {
 			if !strings.Contains(string(raw), `"zoom":1.5`) {
 				t.Fatalf("preferences hold %q, want the requested 1.5", raw)
 			}
+			mast, ok := tt.Find("Masthead")
+			wantMast := float32(48)
+			if float32(tc.width)/tc.drawn < kit.BoardWidth {
+				wantMast = 48 + kit.TabHeight
+			}
+			if !ok || math.Abs(float64(mast.H/tc.drawn-wantMast)) > .01 {
+				t.Fatalf("the masthead is %v at drawn zoom %v, want %v logical px", mast, tc.drawn, wantMast)
+			}
+			if float32(tc.width)/tc.drawn < kit.BoardWidth {
+				if _, ok := tt.Find("Pages and fleets"); ok {
+					t.Fatal("a rail below the Board's width")
+				}
+				mustText(t, tt, "Tabs", "Chat")
+				return
+			}
 			rail, ok := tt.Find("Pages and fleets")
 			if !ok {
 				t.Fatal("no rail")
@@ -239,11 +254,12 @@ func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 				theme = "dark"
 			}
 			t.Run(fmt.Sprintf("%.0f%%-%s", zoom*100, theme), func(t *testing.T) {
+				const width, height = 1440, 900
 				app := newApp(t, goldenFixture(t))
-				tt := sized(t, app, windowWidth, windowHeight, dark)
+				tt := sized(t, app, width, height, dark)
 				app.Zoom = zoom
 				tt.Frame()
-				drawn := drawnZoom(zoom, windowWidth)
+				drawn := drawnZoom(zoom, width)
 				mustText(t, tt, "Needs", "Tasks", "Supervisor", "More", "Fix login", "Message")
 
 				rail, ok := tt.Find("Pages and fleets")
@@ -251,14 +267,14 @@ func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 					t.Fatalf("the rail is %v at requested zoom %v (drawn %v), want %d logical px from the left", rail, zoom, drawn, kit.RailWidth)
 				}
 				head, ok := tt.Find("Supervisor")
-				if !ok || head.X <= rail.W || math.Abs(float64(head.X+head.W-float32(windowWidth))) > 1 {
-					t.Fatalf("the chat pane is %v in a %d px window", head, windowWidth)
+				if !ok || head.X <= rail.W || math.Abs(float64(head.X+head.W-width)) > 1 {
+					t.Fatalf("the chat pane is %v in a %d px window", head, width)
 				}
 				if work := (head.X - rail.W) / drawn; work < 440 {
 					t.Fatalf("the work pane is %v logical px at requested zoom %v, under the Board's 440", work, zoom)
 				}
 				message := composerRect(t, tt)
-				left, right := (message.X-head.X)/drawn, (float32(windowWidth)-message.X-message.W)/drawn
+				left, right := (message.X-head.X)/drawn, (width-message.X-message.W)/drawn
 				if left < 16-0.01 || right < 16-0.01 {
 					t.Fatalf("the composer has %v and %v logical px beside it, want at least 16", left, right)
 				}
@@ -267,11 +283,11 @@ func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 				}
 				for _, s := range []string{"Needs", "Tasks", "Supervisor", "Send", "More", "Composer"} {
 					r, ok := tt.Find(s)
-					if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > float32(windowWidth) || r.Y+r.H > float32(windowHeight) {
-						t.Errorf("%q is at %v, outside the %dx%d window", s, r, windowWidth, windowHeight)
+					if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > width || r.Y+r.H > height {
+						t.Errorf("%q is at %v, outside the %dx%d window", s, r, width, height)
 					}
 				}
-				shot(t, tt, fmt.Sprintf("%d-zoom-%.0f-%s", tc.scene, zoom*100, theme))
+				shotSized(t, tt, fmt.Sprintf("%d-zoom-%.0f-%s", tc.scene, zoom*100, theme), width, height)
 
 				if zoom != 1.25 {
 					return

@@ -44,11 +44,23 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 		a.RailOpen = false
 		c.Invalidate()
 	}
-	work := total - chatWidth(a.Chat, total, total+rail)
+	work := max(total-chatWidth(a.Chat, total, total+rail), 0)
+	if total < minChat+minWork {
+		box.Children(func() {
+			ui.Row(c).Grow(1).Children(func() {
+				ui.Column(c).Width(work).Shrink(1).Clip().Children(func() { a.workPane(c, k, p) })
+				ui.Column(c).Grow(1).MinWidth(0).Children(func() { a.chatPane(c, k, p) })
+			})
+		})
+		return
+	}
 	box.Children(func() {
 		split := ui.Split(c, &work, func() { a.workPane(c, k, p) }, func() { a.chatPane(c, k, p) }).Grow(1)
 		if split.Changed() {
-			a.Chat = chatWidth(total-work, total, total+rail)
+			if chat := chatWidth(total-work, total, total+rail); chat != a.Chat {
+				a.Chat = chat
+				a.savePrefs()
+			}
 		}
 	})
 }
@@ -57,11 +69,15 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 	pane := ui.Column(c).Fill().Background(k.Panel)
 	width := pane.Bounds().W
 	if width <= 0 {
-		rail := float32(kit.RailWidth)
-		if a.RailOpen {
-			rail = kit.RailWidthOpen
+		if a.narrow {
+			width, _ = c.Size()
+		} else {
+			rail := float32(kit.RailWidth)
+			if a.RailOpen {
+				rail = kit.RailWidthOpen
+			}
+			width = chatWidth(a.Chat, a.paneW, a.paneW+rail)
 		}
-		width = chatWidth(a.Chat, a.paneW, a.paneW+rail)
 	}
 	pane.Children(func() {
 		a.paneHead(c, k, p)

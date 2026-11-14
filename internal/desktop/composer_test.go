@@ -715,6 +715,7 @@ func TestTheComposerHoldsTheBoardsWidth(t *testing.T) {
 			app := newApp(t, goldenFixture(t))
 			app.Chat = 1200
 			tt := sized(t, app, width, 760, false)
+			chatTab(t, tt, width)
 			drawn := drawnZoom(1, width)
 			box := composerBox(t, tt)
 			if box.W/drawn > 760.5 {

@@ -80,6 +80,11 @@ type App struct {
 	RailOpen    bool
 	Chat        float32
 	Zoom        float32
+	Tab         string
+	WindowW     int
+	WindowH     int
+	sheetOpen   bool
+	narrow      bool
 	paneW       float32
 	chatH       float32
 	StopArmed   bool
@@ -259,6 +264,7 @@ func (a *App) StartRefresh() {
 // Close stops the auto-refresh loop and cancels a poll in flight.
 func (a *App) Close() {
 	a.flushDraft()
+	a.savePrefs()
 	a.polling, a.closed = false, true
 	a.resetPoll()
 	a.resetDeny()
@@ -509,6 +515,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == s && a.Ref == ref && a.pageReport == report {
 		return
 	}
+	a.pickTab(a.tabHolding(ref))
 	if a.Screen == BoardScreen {
 		a.openerRef = opener
 		a.viewerFocus = true

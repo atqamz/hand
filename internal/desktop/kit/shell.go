@@ -11,6 +11,10 @@ const (
 	RailWidth     = 56
 	RailWidthOpen = 232
 	ContextWidth  = 48
+	BoardWidth    = 900
+	Measure       = 880
+	TabHeight     = 40
+	SheetWidth    = 300
 	railPad       = 7
 )
 
@@ -158,17 +162,101 @@ func Keycap(c *ui.Context, k Colors, text string) {
 }
 
 func Masthead(c *ui.Context, k Colors, id, name string, trailing func()) {
-	tint := k.Tint[TintOf(id)]
 	ui.Column(c).Height(Mast).BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Label("Masthead").Children(func() {
-		ui.Box(c).Height(3).Background(tint)
-		ui.Row(c).Grow(1).Padding(0, Space24).Gap(Space12).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, Icon("mark")).Size(22, 22).TextColor(tint)
-			ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
-			if id != "" {
-				ui.Text(c, id).Font("monospace").FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
+		ui.Box(c).Height(3).Background(k.Tint[TintOf(id)])
+		mastheadRow(c, k, id, name, Space24, nil, trailing)
+	})
+}
+
+type Tab struct {
+	Key, Label       string
+	Current          bool
+	Count            int
+	CountBG, CountFG ui.Color
+	Dot              bool
+}
+
+func MenuButton(c *ui.Context, k Colors) bool {
+	b := ui.ButtonBase(c.Key("nav:menu")).Size(Row, Row).Radius(RadiusMD).
+		Background(ui.Transparent).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Label("Menu")
+	b.Children(func() { ui.Icon(c, Icon("menu")).TextColor(k.Muted) })
+	return b.Clicked()
+}
+
+func MastheadTabs(c *ui.Context, k Colors, id, name string, onMenu func(), trailing func(), tabs []Tab, pick func(string)) {
+	h := float32(Mast)
+	if len(tabs) > 0 {
+		h += TabHeight
+	}
+	ui.Column(c).Height(h).BorderWidth(0, 0, 1, 0).BorderColor(k.Line).
+		Label("Masthead").Children(func() {
+		ui.Box(c).Height(3).Background(k.Tint[TintOf(id)])
+		mastheadRow(c, k, id, name, Space12, onMenu, trailing)
+		if len(tabs) > 0 {
+			Tabs(c, k, tabs, pick)
+		}
+	})
+}
+
+func mastheadRow(c *ui.Context, k Colors, id, name string, pad float32, onMenu, trailing func()) {
+	tint := k.Tint[TintOf(id)]
+	ui.Row(c).Grow(1).Padding(0, pad).Gap(Space12).AlignItems(ui.Center).Children(func() {
+		if onMenu != nil && MenuButton(c, k) {
+			onMenu()
+		}
+		ui.Icon(c, Icon("mark")).Size(22, 22).TextColor(tint)
+		ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
+		if id != "" {
+			ui.Text(c, id).Font("monospace").FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
+		}
+		ui.Spacer(c)
+		trailing()
+	})
+}
+
+func Tabs(c *ui.Context, k Colors, tabs []Tab, pick func(string)) {
+	ui.Row(c).Height(TabHeight).BorderWidth(1, 0, 0, 0).BorderColor(k.Line).Label("Tabs").Children(func() {
+		for _, t := range tabs {
+			tab := t
+			fg := k.Muted
+			if tab.Current {
+				fg = k.FG
 			}
-			ui.Spacer(c)
-			trailing()
+			el := ui.ButtonBase(c.Key(tab.Key)).Grow(1).Height(TabHeight).
+				Justify(ui.Center).AlignItems(ui.Center).Gap(Space6).
+				Background(k.BG).Cursor(ui.CursorPointer).Label(tab.Label)
+			el.Children(func() {
+				ui.Text(c, tab.Label).FontSize(Body.Size).Bold().TextColor(fg).SingleLine()
+				if tab.Count > 0 {
+					countPill(c, fmt.Sprint(tab.Count), tab.CountBG, tab.CountFG)
+				}
+				if tab.Dot {
+					ui.Box(c).Size(6, 6).Radius(RadiusPill).Background(k.Accent).Label("Working")
+				}
+				if tab.Current {
+					ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(2).Background(k.FG)
+				}
+			})
+			if el.Clicked() && pick != nil {
+				pick(tab.Key)
+			}
+		}
+	})
+}
+
+func NavSheet(c *ui.Context, k Colors, open *bool, body func()) bool {
+	el := ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		backdrop.Background(k.Backdrop).AlignItems(ui.Start)
+		w, _ := c.Size()
+		panel.Absolute().Left(0).Top(0).Bottom(0).Width(min(SheetWidth, w*.86)).
+			Background(k.Panel).BorderWidth(0, 1, 0, 0).BorderColor(k.Line).
+			Label("Pages and fleets")
+		panel.Children(func() {
+			ui.Scroll(c).Grow(1).Padding(Space16, Space12, Space16, Space16).Children(func() {
+				ui.Column(c).Gap(Space2).Children(body)
+			})
 		})
 	})
+	return el.Dismissed()
 }

@@ -8,7 +8,7 @@ import (
 
 const (
 	zoomDefault    = 1
-	minWindowWidth = 860
+	MinWindowWidth = 860
 )
 
 var zoomSteps = []int{25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500}
@@ -41,7 +41,7 @@ func zoomStep(z float32, steps int) float32 {
 
 func (a *App) drawnZoom(c *ui.Context) float32 {
 	if w, _ := c.Size(); w > 0 {
-		return min(a.Zoom, w*c.Zoom()/minWindowWidth)
+		return min(a.Zoom, w*c.Zoom()/MinWindowWidth)
 	}
 	return a.Zoom
 }

@@ -278,13 +278,15 @@ func (a *App) loadNeedAttempt(ref string) {
 func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 	needs := a.Status.Needs
 	items := a.visibleNeeds()
-	ui.Row(c).Gap(10).Children(func() {
-		ui.Text(c, "Needs").FontSize(kit.Display.Size).Bold()
-		if n := a.waitingNeeds(); n > 0 {
-			bg, fg := toneColors(needs.Worst, p)
-			ui.Badge(c, fmt.Sprint(n)).Background(bg).TextColor(fg)
-		}
-	})
+	if !a.narrow {
+		ui.Row(c).Gap(10).Children(func() {
+			ui.Text(c, "Needs").FontSize(kit.Display.Size).Bold()
+			if n := a.waitingNeeds(); n > 0 {
+				bg, fg := toneColors(needs.Worst, p)
+				ui.Badge(c, fmt.Sprint(n)).Background(bg).TextColor(fg)
+			}
+		})
+	}
 	if len(items) == 0 {
 		if n := a.waitingNeeds(); n > 0 {
 			ui.Textf(c, "%d more waiting", n).FontSize(kit.Meta.Size).TextColor(k.Muted)

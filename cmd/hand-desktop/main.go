@@ -103,8 +103,11 @@ func main() {
 		}
 	}
 	mygo.App.WhenReady(func() {
+		area := mygo.Screen.PrimaryDisplay().WorkArea
+		width, height := app.WindowSize(int(area.Width), int(area.Height))
 		win = mygo.NewWindow(mygo.WindowOptions{
-			Title: windowTitle(app.Fleet), Width: 1100, Height: 760, MinWidth: 860, MinHeight: 480,
+			Title: windowTitle(app.Fleet), Width: width, Height: height,
+			MinWidth: desktop.MinWindowWidth, MinHeight: desktop.MinWindowHeight,
 			Content: ui.View(app.View),
 		})
 		app.Post = win.Update
@@ -113,6 +116,13 @@ func main() {
 		win.OnBlur(func() { app.SetFocused(false) })
 		win.OnMinimize(func() { app.SetMinimized(true) })
 		win.OnRestore(func() { app.SetMinimized(false) })
+		win.OnResize(func() {
+			if win.IsMaximized() || win.IsFullScreen() {
+				return
+			}
+			w, h := win.Size()
+			app.SetWindowSize(w, h)
+		})
 		win.OnClosed(func() { app.Close() })
 		for _, args := range early {
 			handoff(app, args)

@@ -838,7 +838,11 @@ The page of a thing opened in place: one `<dialog class="viewer" id="viewer">` a
 
 ## The Desktop Window
 
-`hand-desktop` is a second client of the same fleet, not a second design system. Its brief is [`.impeccable/surfaces/internal-desktop.md`](.impeccable/surfaces/internal-desktop.md): the window reads the Board's JSON API, and it reuses this file's colours, five type sizes, severity ramp, word-and-shape rule, tabular refs and flat resting surfaces. Its rail item, row, pill and badge are the shapes defined here, drawn with MyGo primitives; v1 adds no colour and no component beyond MyGo's text area. The fourteen scenes in `docs/images/desktop/` are its screens; the tests write them with `DESKTOP_SHOTS` set to their folder.
+`hand-desktop` is a second client of the same fleet, not a second design system. Its brief is [`.impeccable/surfaces/internal-desktop.md`](.impeccable/surfaces/internal-desktop.md): the window reads the Board's JSON API, and it reuses this file's colours, five type sizes, severity ramp, word-and-shape rule, tabular refs and flat resting surfaces. Its rail item, row, pill and badge are the shapes defined here, drawn with MyGo primitives; v1 adds no colour and no component beyond MyGo's text area. The scenes in `docs/images/desktop/` are its screens; the tests write them with `DESKTOP_SHOTS` set to their folder.
+
+- **The breakpoint:** from 900px and wider the window draws the rail, the two panes and the separator as the Board does; below it the rail is gone, the masthead's menu button opens the rail's own items as a left sheet, and the fleet page is the Board's three tabs, one full-height panel each, held to the 880px work column and the 760px conversation column. Nothing resizes below 900px.
+- **The tab:** a window has no URL, so the tab is the window's remembered choice, seeded once from this file's rule (Needs when anything waits, else Chat) and never moved by a live update. An opened ref selects the tab that holds it: a Needs item, a task the Tasks list holds, else the tab stays.
+- **The remembered width and size:** the divider's width and the window's size live in `prefs.json` beside the drafts, with the zoom. The width is the one `--chat` value of the Chat Width Clamp Rule, clamped by the room at every frame; the size is restored on start and clamped to the monitor's work area, so a size from a larger display cannot put the window off screen.
 
 ## Do's and Don'ts
 
