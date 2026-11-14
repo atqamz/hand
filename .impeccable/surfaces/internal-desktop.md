@@ -94,7 +94,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `28-composer-hint-<light or dark>.png` | the composer with a blocked supervisor's two-line hint on its foot, the box 94 px high |
 | `29-composer-draft-<light or dark>.png` | a typed message with the draft note over the box's top edge |
 | `30-composer-focused-<light or dark>.png` | the box with the focus: the accent border and 1 px accent ring |
-| `31-composer-default-<light or dark>.png` | Send as a default button while a Start or Resume form is in the pane head |
+| `31-composer-default-<light or dark>.png` | Send as a default button while a Start form or the Resume control is in the pane head |
 | `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
 | `33-zoom-150-<light or dark>.png` | the same with 150% requested at 1100 px: the window draws it at 128% so the work pane keeps its 440 px |
 
