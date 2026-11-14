@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -246,7 +247,11 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 	if !exited(term) {
 		killGroup(term.cmd)
 	}
-	<-term.done
+	select {
+	case <-term.done:
+	case <-time.After(workerReap):
+		return nil, fakeuhp.Fail{Code: "close_timeout", Message: "the terminal tree did not exit within " + workerReap.String() + "; root process " + strconv.Itoa(term.cmd.Process.Pid) + " survived"}
+	}
 	rt.mu.Lock()
 	hook := rt.onClose
 	rt.mu.Unlock()
@@ -483,7 +488,10 @@ func (rt *fakeRuntime) exitAll() {
 		if !exited(term) {
 			killGroup(term.cmd)
 		}
-		<-term.done
+		select {
+		case <-term.done:
+		case <-time.After(workerReap):
+		}
 	}
 }
 
@@ -509,6 +517,63 @@ func (rt *fakeRuntime) isClosed(id string) bool {
 		}
 	}
 	return false
+}
+
+func TestACloseThatOutlivesTheReapFailsOpen(t *testing.T) {
+	reap := workerReap
+	workerReap = 50 * time.Millisecond
+	t.Cleanup(func() { workerReap = reap })
+
+	rt := startRuntime(t, fakeuhp.ShortSocket(t))
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^$")
+	cmd.Env = environment(os.Environ(), "HAND_TEST_AS_HAND=", "HAND_TEST_HOLD=")
+	proc.NewGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("root process: %v", err)
+	}
+	term := &fakeTerm{id: "term-1", pane: "2", cmd: cmd, done: make(chan struct{})}
+	rt.mu.Lock()
+	rt.terms = append(rt.terms, term)
+	rt.mu.Unlock()
+
+	stream, err := luvus.Client{Socket: rt.srv.Socket}.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	eventually(t, func() bool { return rt.srv.Subscribers() == 1 })
+
+	params, err := json.Marshal(map[string]any{"server_generation": rt.srv.Generation(), "terminal_id": term.id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := rt.close(params)
+	var fail fakeuhp.Fail
+	if !errors.As(err, &fail) || fail.Code != "close_timeout" {
+		t.Fatalf("close = %v, %v; want a close_timeout failure", answer, err)
+	}
+	if pid := strconv.Itoa(cmd.Process.Pid); !strings.Contains(fail.Message, pid) {
+		t.Fatalf("close_timeout does not name the root process %d: %q", cmd.Process.Pid, fail.Message)
+	}
+	if answer != nil {
+		t.Fatalf("a timed-out close answered %v", answer)
+	}
+	if rt.isClosed(term.id) {
+		t.Fatal("a timed-out close marked the terminal closed")
+	}
+
+	rt.srv.Publish("test.sentinel", map[string]any{})
+	ev, err := stream.Next()
+	if err != nil || ev.Event != "test.sentinel" {
+		t.Fatalf("first event after the timeout = %+v, %v; want the sentinel and no pane.closed", ev, err)
+	}
 }
 
 type attemptFixture struct {
@@ -556,12 +621,16 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 func fakeBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for name, listing := range map[string]string{"claude": "on -p", "codex": "on debug", "opencode": "on models"} {
-		fakebin.Install(t, dir, name, "fake", map[string]string{"on --version": "fake 1.0\n", listing: "", "on api": "", "sleep": "300s"})
+	withPids := func(m map[string]string) map[string]string {
+		m["pidout"] = filepath.Join(dir, "pids")
+		return m
 	}
-	fakebin.Install(t, dir, "agy", "fake", map[string]string{"on --version": "fake 1.0\n", "on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"})
-	fakebin.Install(t, dir, "copilot", "fake", map[string]string{"on --version": "fake 1.0\n", "on help": copilotHelp, "sleep": "300s"})
-	fakebin.Install(t, dir, "omp", "fake", map[string]string{"on --version": "omp/18.16.0\n", "on models": ompModels, "sleep": "300s"})
+	for name, listing := range map[string]string{"claude": "on -p", "codex": "on debug", "opencode": "on models"} {
+		fakebin.Install(t, dir, name, "fake", withPids(map[string]string{"on --version": "fake 1.0\n", listing: "", "on api": "", "sleep": "300s"}))
+	}
+	fakebin.Install(t, dir, "agy", "fake", withPids(map[string]string{"on --version": "fake 1.0\n", "on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"}))
+	fakebin.Install(t, dir, "copilot", "fake", withPids(map[string]string{"on --version": "fake 1.0\n", "on help": copilotHelp, "sleep": "300s"}))
+	fakebin.Install(t, dir, "omp", "fake", withPids(map[string]string{"on --version": "omp/18.16.0\n", "on models": ompModels, "sleep": "300s"}))
 	return dir
 }
 
@@ -572,13 +641,19 @@ func newAttemptFixture(t *testing.T) *attemptFixture {
 
 func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	t.Helper()
+	bin := fakeBin(t)
 	fx := &attemptFixture{h: newHarness(t)}
 	fx.h.home = home
+	t.Cleanup(func() {
+		pids := filepath.Join(bin, "pids")
+		workersGone(t, pids)
+		worktreesGone(t, pids, filepath.Join(fx.h.vars["SECONDHAND_HOME"], "worktrees"))
+	})
 	fx.repo = gitRepo(t)
 	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
 	fx.rt.env = []string{"SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"]}
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
-	fx.h.vars["PATH"] = fakeBin(t)
+	fx.h.vars["PATH"] = bin
 	fx.h.vars["HOME"] = t.TempDir()
 	fx.brief = filepath.Join(t.TempDir(), "brief.md")
 	if err := os.WriteFile(fx.brief, []byte("Fix the login bug, commit, then stop."), 0o644); err != nil {
@@ -589,6 +664,91 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	fx.h.ok("task", "add", "app", "Fix login")
 	fx.h.ok("task", "start", "t1")
 	return fx
+}
+
+var workerReap = 5 * time.Second
+
+type recordedWorker struct {
+	pid    int
+	marker string
+}
+
+func recordedWorkers(pids string) []recordedWorker {
+	b, err := os.ReadFile(pids)
+	if err != nil {
+		return nil
+	}
+	var out []recordedWorker
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		out = append(out, recordedWorker{pid: pid, marker: fields[1]})
+	}
+	return out
+}
+
+func reapWorkers(pids string) []recordedWorker {
+	var killed []recordedWorker
+	for _, w := range recordedWorkers(pids) {
+		if workerAlive(w.pid, w.marker) {
+			reapPID(w.pid)
+			killed = append(killed, w)
+		}
+	}
+	return killed
+}
+
+func workersGone(t *testing.T, pids string) {
+	t.Helper()
+	waiting := reapWorkers(pids)
+	deadline := time.Now().Add(workerReap)
+	for len(waiting) > 0 {
+		kept := waiting[:0]
+		for _, w := range waiting {
+			if workerAlive(w.pid, w.marker) {
+				kept = append(kept, w)
+			}
+		}
+		waiting = kept
+		if len(waiting) == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, w := range waiting {
+		t.Errorf("worker %d outlived its terminal and a second kill, so its worktree stays locked", w.pid)
+	}
+}
+
+func workerAlive(pid int, marker string) bool {
+	m, err := luvus.ProcStartMarker(pid)
+	return err == nil && m == marker
+}
+
+func worktreesGone(t *testing.T, pids, dir string) {
+	t.Helper()
+	deadline := time.Now().Add(workerReap)
+	for {
+		err := os.RemoveAll(dir)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			for _, w := range reapWorkers(pids) {
+				t.Errorf("worker %d outlived its terminal and a second kill, so its worktree stays locked", w.pid)
+			}
+			t.Errorf("worktrees are still in use after the worker reap: %v", err)
+			return
+		}
+		reapWorkers(pids)
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (fx *attemptFixture) start() string {

@@ -21,6 +21,7 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/luvus"
 )
 
 var handRepo, _ = filepath.Abs("/home/me/hand")
@@ -368,6 +369,10 @@ func listerMain(args []string) int {
 
 func fakeMain(args []string) int {
 	p := fakebin.Params()
+	if out := p["pidout"]; out != "" {
+		marker, _ := luvus.ProcStartMarker(os.Getpid())
+		fakebin.Append(out, strconv.Itoa(os.Getpid())+" "+marker)
+	}
 	if len(args) > 0 {
 		if out, ok := p["on "+args[0]]; ok {
 			fmt.Print(out)
