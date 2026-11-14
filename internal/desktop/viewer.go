@@ -89,8 +89,9 @@ func (a *App) readingPage(c *ui.Context, p palette) {
 }
 
 func (a *App) pageScroll(c *ui.Context, body func()) {
-	page := ui.Scroll(c).Grow(1).MinHeight(0).Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32).
+	ui.Scroll(c).Grow(1).MinHeight(0).Padding(kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
+		Bind(&a.viewerPage).
 		Children(func() {
 			ui.Column(c).Gap(kit.Space16).Selectable().Children(func() {
 				body()
@@ -98,7 +99,7 @@ func (a *App) pageScroll(c *ui.Context, body func()) {
 		})
 	if a.viewerFocus {
 		a.viewerFocus = false
-		page.Focus()
+		a.viewerPage.Focus(c)
 	}
 }
 
@@ -123,7 +124,7 @@ func (a *App) taskPage(c *ui.Context, k kit.Colors, p palette, wide bool) {
 		ui.Row(c).Grow(1).MinHeight(0).Gap(kit.ViewerAsideGap).Children(func() {
 			a.taskMain(c, k, p, false)
 			ui.Scroll(c).Width(kit.ViewerAside).FillHeight().
-				Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32, 0).TrackScroll(&a.asideScroll).
+				Padding(kit.Space16, kit.Space20, 32, 0).TrackScroll(&a.asideScroll).
 				Children(func() {
 					ui.Column(c).Gap(kit.Space14).Selectable().Children(func() { a.taskAside(c, p) })
 				})
@@ -134,8 +135,9 @@ func (a *App) taskPage(c *ui.Context, k kit.Colors, p palette, wide bool) {
 }
 
 func (a *App) taskMain(c *ui.Context, k kit.Colors, p palette, asideFirst bool) {
-	page := ui.Scroll(c).Grow(1).FillHeight().MinHeight(0).Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32).
+	ui.Scroll(c).Grow(1).FillHeight().MinHeight(0).Padding(kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
+		Bind(&a.viewerPage).
 		Children(func() {
 			ui.Column(c).Gap(kit.Space14).Selectable().Children(func() {
 				a.actionCard(c, p)
@@ -149,7 +151,7 @@ func (a *App) taskMain(c *ui.Context, k kit.Colors, p palette, asideFirst bool) 
 		})
 	if a.viewerFocus {
 		a.viewerFocus = false
-		page.Focus()
+		a.viewerPage.Focus(c)
 	}
 }
 
@@ -158,18 +160,21 @@ func (a *App) taskHead(c *ui.Context, p palette) {
 	ui.Column(c).Gap(kit.Space6).Children(func() {
 		ui.Text(c, "Fleets / "+shownText(fleetName(a.Fleet))+" / "+shownText(t.Task.Ref)).
 			FontSize(kit.Body.Size).TextColor(p.neutral).SingleLine()
-		ui.Text(c, shownText(t.Task.Title)).FontSize(kit.Display.Size).Bold()
+		ui.Text(c, shownText(t.Task.Title)).FontSize(kit.Display.Size).
+			FixedLineHeight(kit.Display.Line).FontWeight(600)
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 			bg, fg := toneColors(t.Pill, p)
 			ui.Badge(c, shownText(t.Task.Status)).Background(bg).TextColor(fg)
 			if t.Task.Project != "" {
-				ui.Text(c, shownText(t.Task.Project)).FontSize(kit.Body.Size).SingleLine()
+				ui.Text(c, shownText(t.Task.Project)).FontSize(kit.Meta.Size).
+					FixedLineHeight(kit.Meta.Line).SingleLine()
 			}
 			if t.Task.Parent != "" {
 				ui.Text(c, "Sub-task of "+shownText(t.Task.Parent)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 			if t.Plan != nil {
-				ui.Text(c, "plan "+shownText(t.Plan.Ref)).FontSize(kit.Body.Size)
+				ui.Text(c, "plan "+shownText(t.Plan.Ref)).FontSize(kit.Meta.Size).
+					FixedLineHeight(kit.Meta.Line)
 			}
 			if t.Waits != nil {
 				ui.Text(c, taskWaitsLine(*t.Waits)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
@@ -186,7 +191,7 @@ func (a *App) taskWaiting(c *ui.Context, p palette) {
 	if len(t.OpenDecisions) == 0 && len(t.Unread) == 0 {
 		return
 	}
-	ui.Column(c).Gap(0).Children(func() {
+	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 		for _, d := range t.OpenDecisions {
 			a.waitingRow(c, p, "DECISION", "wait", d.Ref, d.Headline, d.Ref)
 		}
@@ -267,13 +272,13 @@ func (a *App) taskSections(c *ui.Context, p palette) {
 	if len(t.Decisions) == 0 {
 		a.quiet(c, p, "No decisions yet.")
 	}
-	ui.Column(c).Gap(0).Children(func() {
+	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 		for _, d := range t.Decisions {
 			a.decisionLine(c, p, d)
 		}
 	})
 	a.mainHead(c, "Events")
-	ui.Column(c).Gap(0).Children(func() {
+	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 		for _, e := range t.Events {
 			ui.Row(c).Gap(kit.Space12).AlignItems(ui.Start).Padding(kit.Space6, kit.Space4).
 				BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
@@ -299,7 +304,8 @@ func (a *App) quiet(c *ui.Context, p palette, text string) {
 }
 
 func (a *App) reportCard(c *ui.Context, p palette, r Report) {
-	bg, fg := toneColors(reportTone(r.Status), p)
+	bg, _ := toneColors(reportTone(r.Status), p)
+	badgeBG, badgeFG := toneColors(reportBadgeTone(r.Status), p)
 	ui.Column(c).Border(1, p.line).Radius(kit.RadiusLG).Clip().
 		Label("report " + r.Ref).Children(func() {
 		ui.Column(c).Gap(kit.Space2).Padding(kit.Space6, kit.Space12).
@@ -322,7 +328,7 @@ func (a *App) reportCard(c *ui.Context, p palette, r Report) {
 						a.OpenRef(r.Attempt)
 					}
 				}
-				ui.Badge(c, shownText(r.Status)).Background(bg).TextColor(fg)
+				ui.Badge(c, shownText(r.Status)).Background(badgeBG).TextColor(badgeFG)
 				ui.Text(c, stamp(r.CreatedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral).
 					FontFeatures("tnum")
 			})
@@ -333,6 +339,10 @@ func (a *App) reportCard(c *ui.Context, p palette, r Report) {
 			})
 		}
 	})
+}
+
+func (a *App) ackDisabled(ref string) bool {
+	return a.Busy && a.ackRef == ref
 }
 
 func (a *App) ackControl(c *ui.Context, p palette, r Report) {
@@ -347,7 +357,7 @@ func (a *App) ackControl(c *ui.Context, p palette, r Report) {
 	}
 	el := ui.ButtonBase(c.Key("ack:"+r.Ref)).Height(kit.Control).Padding(0, kit.Space12).
 		Border(1, p.lineStrong).Radius(kit.RadiusMD).Cursor(ui.CursorPointer).
-		Label("Mark read " + r.Ref).Disabled(a.Busy)
+		Label("Mark read " + r.Ref).Disabled(a.ackDisabled(r.Ref))
 	el.Children(func() {
 		ui.Text(c, label).FontSize(kit.Body.Size)
 	})
@@ -565,6 +575,13 @@ func reportTone(status string) string {
 		return "fail"
 	}
 	return "neutral"
+}
+
+func reportBadgeTone(status string) string {
+	if status == "progress" {
+		return "wait"
+	}
+	return reportTone(status)
 }
 
 func restBody(s string) string {

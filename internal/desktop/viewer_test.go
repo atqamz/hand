@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"slices"
 	"testing"
 	"time"
 
@@ -67,6 +68,25 @@ func TestTheViewerBoxAndItsBackdrop(t *testing.T) {
 	if got := img.RGBAAt(30, 745); got.R > 200 {
 		t.Errorf("below the box is %v, want the backdrop", got)
 	}
+	first := 24
+	for ; first < 60; first++ {
+		if img.RGBAAt(first, 25).R > 200 {
+			break
+		}
+	}
+	if first < 28 || first > 31 {
+		t.Errorf("the box's corner turns the panel in at x=%d on the second row, want about 28 for a 10px radius", first)
+	}
+	if got := img.RGBAAt(500, 68); !rgbIs(got, kit.ColorsFor(false).Panel) {
+		t.Errorf("the strip's last row is %v, want the panel", got)
+	}
+	if got := img.RGBAAt(500, 69); !rgbIs(got, kit.ColorsFor(false).Line) {
+		t.Errorf("the strip's hairline is %v at y=69, want the line", got)
+	}
+	near, far := img.RGBAAt(500, 742), img.RGBAAt(500, 756)
+	if near.R+4 > far.R {
+		t.Errorf("the lift under the box is %v near and %v far, want darker near", near, far)
+	}
 	closeR, ok := tt.Find("Close the viewer")
 	if !ok || int(closeR.X+closeR.W) != 1067 {
 		t.Fatalf("the box's right edge is %v, want 1076", closeR)
@@ -91,7 +111,8 @@ func TestTheViewerBoxIsCappedAt1200(t *testing.T) {
 }
 
 func TestTheBackdropBlocksThePage(t *testing.T) {
-	app := newApp(t, viewFixture(t))
+	f := viewFixture(t)
+	app := newApp(t, f)
 	tt := newTester(app)
 	tt.Scroll(300, 420, 0, 160)
 	before, max := desktop.BoardScroll(app)
@@ -111,9 +132,17 @@ func TestTheBackdropBlocksThePage(t *testing.T) {
 			}
 		}
 	}
-	tt.ClickAt(8, 300)
+	screen, ok := tt.Find("Screen")
+	if !ok {
+		t.Fatal("no Screen in the rail behind the viewer")
+	}
+	tt.ClickAt(8, screen.Y+screen.H/2)
+	tt.Frame()
+	if app.OpenErr != "" {
+		t.Fatalf("a click on the backdrop reached the rail behind: %q", app.OpenErr)
+	}
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("a click on the page behind left the viewer on %v", app.Screen)
+		t.Fatalf("a click on the backdrop left the viewer on %v, want it closed", app.Screen)
 	}
 }
 
@@ -126,6 +155,14 @@ func TestFocusMovesIntoTheViewerAndComesBack(t *testing.T) {
 	}
 	if tt.Focused("task t1") {
 		t.Fatal("the focus stayed on the task row behind the viewer")
+	}
+	tt.Key(ui.Shift, ui.KeyTab)
+	if !tt.Focused("Close the viewer") {
+		t.Fatal("Tab back from the body did not reach the strip before the page")
+	}
+	tt.Key(ui.Shift, ui.KeyTab)
+	if !tt.Focused("Open as a page") {
+		t.Fatal("the strip's Open as a page follows Close in the focus order")
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
@@ -173,6 +210,16 @@ func TestBackStepsOnePageAndStopsAtTheFirst(t *testing.T) {
 	app := newApp(t, viewFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Fix login")
+	back, ok := tt.Find("Back")
+	if !ok {
+		t.Fatal("no Back")
+	}
+	tt.Press(back.X+back.W/2, back.Y+back.H/2)
+	tt.Release(back.X+back.W/2, back.Y+back.H/2)
+	tt.Frame()
+	if tt.Focused("Back") {
+		t.Fatal("Back on the first page is enabled: it took the focus")
+	}
 	click(t, tt, "Back")
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("Back left the first page for %v %q", app.Screen, app.Ref)
@@ -266,6 +313,45 @@ func TestTheTaskPageKeepsTwoColumnsFrom1000(t *testing.T) {
 	}
 }
 
+func TestTheTaskHeadUsesTheBoardsSlugType(t *testing.T) {
+	app := newApp(t, viewFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Fix login")
+	for _, text := range []string{"hand", "plan p1"} {
+		r, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("no %q in the task head", text)
+		}
+		if r.H != kit.Meta.Line {
+			t.Errorf("%q is %.0f high, want the Board's 12/18 slug", text, r.H)
+		}
+	}
+}
+
+func TestTheListsCarryAHairlineAboveTheirFirstRow(t *testing.T) {
+	app := newApp(t, viewFixture(t))
+	tt := newTesterAt(app, 1100, 1600)
+	click(t, tt, "Fix login")
+	img := tt.Image()
+	line := kit.ColorsFor(false).Line
+	for _, text := range []string{"DECISION", "Rename the helper?", "a1"} {
+		r, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("no %q", text)
+		}
+		found := false
+		for y := int(r.Y) - 1; y >= int(r.Y)-14; y-- {
+			if rgbIs(img.RGBAAt(int(r.X)+2, y), line) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no hairline above the first row at %q", text)
+		}
+	}
+}
+
 func TestTheWaitingRowsCarryTheirCodes(t *testing.T) {
 	app := newApp(t, viewFixture(t))
 	tt := newTester(app)
@@ -301,6 +387,15 @@ func TestReportCardsCarryTheirTone(t *testing.T) {
 			t.Errorf("the %s card's header is %v, want %v", ref, got, want)
 		}
 	}
+	for status, want := range map[string]ui.Color{"done": k.PassBG, "stuck": k.FailBG, "progress": k.WaitBG} {
+		r, ok := tt.Find(status)
+		if !ok {
+			t.Fatalf("no %s badge", status)
+		}
+		if got := tt.Image().RGBAAt(int(r.X)+2, int(r.Y)+2); !rgbIs(got, want) {
+			t.Errorf("the %s badge is %v, want %v", status, got, want)
+		}
+	}
 }
 
 func TestMarkReadFromTheCardLeavesItsReceipt(t *testing.T) {
@@ -320,32 +415,53 @@ func TestMarkReadFromTheCardLeavesItsReceipt(t *testing.T) {
 	}
 }
 
-func TestARefusedMarkReadSaysWhyAndKeepsTheButton(t *testing.T) {
+func TestARefusedMarkReadShowsInTheToastAtTheScrollItActedAt(t *testing.T) {
 	f := viewFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Fix login")
-	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "report r1 is already acknowledged"}
-	click(t, tt, "Mark read r1")
-	mustText(t, tt, "The action did not go through", "report r1 is already acknowledged")
-	if _, ok := tt.Find("Mark read r1"); !ok {
+	tt.Scroll(400, 400, 0, 240)
+	tt.Frame()
+	button, ok := tt.Find("Mark read r2")
+	if !ok || button.Y < 0 || button.Y+button.H > windowHeight {
+		t.Fatalf("the r2 button is at %v, not on screen after the scroll", button)
+	}
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "report r2 is already acknowledged"}
+	tt.ClickAt(button.X+button.W/2, button.Y+button.H/2)
+	tt.Frame()
+	refusal, ok := tt.Find("The action did not go through")
+	if !ok {
+		t.Fatal("the refusal is not in the toast")
+	}
+	if refusal.Y < 0 || refusal.Y+refusal.H > windowHeight {
+		t.Fatalf("the refusal is at %v, outside the scroll position the click acted at", refusal)
+	}
+	mustText(t, tt, "report r2 is already acknowledged", "Blocked on the docs")
+	if _, ok := tt.Find("Mark read r2"); !ok {
 		t.Fatal("the refusal removed the Mark read button")
 	}
-	mustNotText(t, tt, "r1 marked read")
+	mustNotText(t, tt, "r2 marked read")
 }
 
-func TestAnUnreadAnswerKeepsTheButton(t *testing.T) {
+func TestAnUnreadAnswerSaysSoAndTheCardCatchesUp(t *testing.T) {
 	f := viewFixture(t)
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Fix login")
 	f.action = &desktop.AppliedUnread{Err: errors.New("the board's /report/r1/ack data: unexpected end of JSON input")}
+	td := f.task[fleetID]
+	td.Reports = append([]desktop.Report(nil), td.Reports...)
+	td.Reports[0].AckedAt, td.Reports[0].AckedBy = "2026-11-01T05:00:00Z", "operator (desktop)"
+	td.Unread = nil
+	f.task[fleetID] = td
 	click(t, tt, "Mark read r1")
-	mustText(t, tt, "The action did not go through", "unexpected end of JSON input")
-	if _, ok := tt.Find("Mark read r1"); !ok {
-		t.Fatal("an unread answer removed the Mark read button")
+	tt.Frame()
+	mustText(t, tt, "The answer could not be read", "the card refreshes itself", "read by operator (desktop)")
+	mustNotText(t, tt, "The action did not go through")
+	mustNotText(t, tt, "unexpected end of JSON input")
+	if _, ok := tt.Find("Mark read r1"); ok {
+		t.Fatal("the refreshed card still shows the Mark read button")
 	}
-	mustNotText(t, tt, "r1 marked read")
 }
 
 func TestMarkReadIsDisabledWhileInFlight(t *testing.T) {
@@ -356,11 +472,26 @@ func TestMarkReadIsDisabledWhileInFlight(t *testing.T) {
 	posted := make(chan func(), 16)
 	app.Post = func(fn func()) { posted <- fn }
 	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	tt.Scroll(400, 400, 0, 200)
+	tt.Frame()
+	if r, ok := tt.Find("Mark read r2"); !ok || r.H == 0 {
+		t.Fatalf("the second card is not on screen: %v", r)
+	}
 	click(t, tt, "Mark read r1")
 	mustText(t, tt, "Marking read…")
+	if !desktop.AckDisabled(app, "r1") {
+		t.Fatal("the card in flight is not disabled")
+	}
+	if desktop.AckDisabled(app, "r2") || desktop.AckDisabled(app, "r3") {
+		t.Fatal("a card besides the one in flight is disabled")
+	}
+	click(t, tt, "Mark read r2")
 	click(t, tt, "Mark read r1")
 	if got := f.count("ack:r1"); got != 1 {
-		t.Fatalf("%d acknowledgements while in flight, want 1", got)
+		t.Fatalf("%d acknowledgements of r1 while in flight, want 1", got)
+	}
+	if got := f.count("ack:r2"); got != 0 {
+		t.Fatalf("%d acknowledgements of r2 while r1 is in flight, want 0", got)
 	}
 	select {
 	case <-f.actionEntered:
@@ -464,6 +595,84 @@ func TestThePollFollowsTheTaskAndReturnsToTheBoard(t *testing.T) {
 	}
 }
 
+func TestTheViewerKeepsTheTasksRegionLive(t *testing.T) {
+	f := viewFixture(t)
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	tt := newTester(app)
+	click(t, tt, "Fix login")
+	ts := f.tasks[fleetID]
+	ts.Groups = append([]desktop.TaskGroup(nil), ts.Groups...)
+	ts.Groups[0].Tasks = append([]desktop.TaskRow(nil), ts.Groups[0].Tasks...)
+	ts.Groups[0].Tasks[0].Title = "Fix login, finished elsewhere"
+	f.tasks[fleetID] = ts
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	if f.pollScreen != desktop.TaskScreen || f.pollRef != "t1" {
+		t.Fatalf("the open viewer stopped asking for its task: %v %q", f.pollScreen, f.pollRef)
+	}
+	if got := app.Tasks.Groups[0].Tasks[0].Title; got != "Fix login, finished elsewhere" {
+		t.Fatalf("the poll did not hold the new task while the viewer is open: %q", got)
+	}
+	click(t, tt, "Close the viewer")
+	tt.Frame()
+	mustText(t, tt, "Fix login, finished elsewhere")
+}
+
+func TestAPushStartsAtTheTopOfBothScrolls(t *testing.T) {
+	app := newApp(t, viewFixture(t))
+	tt := newTesterAt(app, 1100, 420)
+	app.OpenRef("t1")
+	tt.Frame()
+	tt.Scroll(400, 300, 0, 320)
+	tt.Frame()
+	if y, max := desktop.ViewerScroll(app); max == 0 || y == 0 {
+		t.Fatalf("the page does not scroll: y=%v max=%v", y, max)
+	}
+	tt.Scroll(900, 300, 0, 320)
+	tt.Frame()
+	if y, max := desktop.AsideScroll(app); max == 0 || y == 0 {
+		t.Fatalf("the aside does not scroll: y=%v max=%v", y, max)
+	}
+	app.OpenRef("t3")
+	tt.Frame()
+	if y, _ := desktop.ViewerScroll(app); y != 0 {
+		t.Errorf("a pushed page starts the page scroll at %v, want the top", y)
+	}
+	if y, _ := desktop.AsideScroll(app); y != 0 {
+		t.Errorf("a pushed page starts the aside at %v, want the top", y)
+	}
+}
+
+func TestClosingAfterTheOpenerVanishesFocusesTheBoard(t *testing.T) {
+	f := viewFixture(t)
+	app := newApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	tt := newTester(app)
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Open d1")
+	st := f.status[fleetID]
+	st.Needs.Items = slices.DeleteFunc(append([]desktop.Need(nil), st.Needs.Items...),
+		func(n desktop.Need) bool { return n.Ref == "d1" })
+	st.Needs.Waiting = len(st.Needs.Items)
+	f.status[fleetID] = st
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustNotText(t, tt, "Open d1")
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("Escape left the viewer on %v", app.Screen)
+	}
+	if !tt.Focused("The board") {
+		t.Fatal("the focus went nowhere when the opener was gone")
+	}
+}
+
 func TestScenesViewer(t *testing.T) {
 	type scene struct {
 		name string
@@ -531,12 +740,23 @@ func TestBoardTextShowsControlCharacters(t *testing.T) {
 	td.Task.Title = "Fix \u202Elogin\u202C"
 	td.Task.Goal = "a\x00b"
 	td.Task.Project = "han\u200Ed"
+	td.Reports = append([]desktop.Report(nil), td.Reports...)
+	td.Reports[0].Summary = "sum\u202Emary"
+	if td.Plan != nil {
+		plan := *td.Plan
+		plan.Body = "plan\u202Ebody"
+		td.Plan = &plan
+	}
+	td.Delivered = append([]desktop.Deliverable(nil), td.Delivered...)
+	td.Delivered[0].Ref = "https://example.com/\u202Epath"
 	td.Events = append([]desktop.Event(nil), td.Events...)
 	td.Events[0].Detail = "x\u2066y"
 	f.task[fleetID] = td
 	app := newApp(t, f)
-	tt := newTester(app)
+	tt := newTesterAt(app, 1100, 1600)
 	click(t, tt, "Fix login")
-	mustText(t, tt, "Fix U+202EloginU+202C", "aU+0000b", "hanU+200Ed", "xU+2066y")
+	mustText(t, tt, "Fix U+202EloginU+202C", "aU+0000b", "hanU+200Ed", "sumU+202Emary",
+		"planU+202Ebody", "https://example.com/U+202Epath", "xU+2066y")
 	mustNotText(t, tt, "Fix \u202Elogin")
+	mustNotText(t, tt, "sum\u202Emary")
 }

@@ -951,8 +951,14 @@ func TestPollReadsOnlyTheOpenScreensData(t *testing.T) {
 			t.Fatalf("poll screen %d sent no status", tc.screen)
 		}
 		want := []string{"/api/v1/status", tc.path, "/api/v1/timeline"}
+		if tc.screen != desktop.BoardScreen {
+			want = []string{"/api/v1/status", tc.path, "/api/v1/tasks?all=1", "/api/v1/timeline"}
+		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("poll screen %d read %v, want %v", tc.screen, got, want)
+		}
+		if tc.screen != desktop.BoardScreen && (!p.TasksFresh || p.Tasks.FinishedCount != 7) {
+			t.Fatalf("poll screen %d did not decode the tasks list: %+v", tc.screen, p.Tasks)
 		}
 		if tc.seen == nil {
 			if p.ScreenFresh {

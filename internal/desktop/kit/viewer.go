@@ -26,11 +26,8 @@ type ViewerOptions struct {
 	Body    func(*ui.Context)
 }
 
-// Viewer draws the Board's viewer over the window: a 32% black backdrop
-// and a box at most 1200 wide, 24 from each edge, on the ground with a
-// hairline, 10px corners and the lift shadow. It reports whether a click
-// outside the box or Escape dismissed it; focus moves into the box and
-// back to the opener when it closes.
+// Viewer draws the Board's viewer: the backdrop, the box and its strip.
+// It reports whether a click outside the box or Escape dismissed it.
 func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 	open := true
 	el := ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
@@ -41,8 +38,8 @@ func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 			Radius(RadiusLG).Clip().Label(v.Name).
 			Shadow(0, 8, 24, 0, k.Shadow).Children(func() {
 			ui.Column(c).FillHeight().Children(func() {
-				v.Body(c)
 				viewerTop(c, k, v)
+				v.Body(c)
 			})
 		})
 	})
@@ -50,8 +47,7 @@ func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 }
 
 func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {
-	ui.Row(c).Absolute().Top(0).Left(0).Right(0).
-		MinHeight(Control+12).Padding(Space6, Space8).Gap(Space8).
+	ui.Row(c).MinHeight(ViewerTop).Padding(Space6, Space8).Gap(Space8).
 		AlignItems(ui.Center).Background(k.Panel).
 		BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Children(func() {
 		back := ui.ButtonBase(c.Key("viewer:back")).Size(Control, Control).Radius(RadiusMD).

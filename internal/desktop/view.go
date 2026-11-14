@@ -73,6 +73,16 @@ func (a *App) View(c *ui.Context) {
 		c.AddToast(ui.Toast{ID: a.receiptKey, Title: a.receipt, Timeout: receiptFor})
 		a.receipt, a.receiptKey = "", ""
 	}
+	if a.notice != "" {
+		timeout := receiptFor
+		kind := ""
+		if a.noticeError {
+			timeout, kind = errorFor, "error"
+		}
+		c.AddToast(ui.Toast{ID: a.noticeKey, Title: a.noticeTitle, Description: a.notice,
+			Type: kind, Timeout: timeout})
+		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
+	}
 	ui.Row(c).Fill().Children(func() {
 		a.rail(c, k, p)
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
@@ -83,6 +93,29 @@ func (a *App) View(c *ui.Context) {
 	if a.viewerOpen() {
 		a.viewer(c, k, p)
 	}
+	a.toasts(c, k, p)
+}
+
+func (a *App) toasts(c *ui.Context, k kit.Colors, p palette) {
+	ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
+		viewport.Padding(kit.Space16).Gap(kit.Space8).AlignItems(ui.End)
+		for _, t := range toasts {
+			parts := ui.ToastBase(c, t)
+			border := p.line
+			if t.Type == "error" {
+				border = p.fail
+			}
+			parts.Root.Column().Gap(kit.Space2).MaxWidth(28*kit.Body.Size).
+				Padding(kit.Space10, kit.Space14).Radius(kit.RadiusLG).
+				Background(p.bg).Border(1, border).
+				Shadow(0, 8, 24, 0, k.Shadow).Children(func() {
+				ui.Text(c, t.Title).FontSize(kit.Body.Size).Bold().TextColor(k.FG)
+				if t.Description != "" {
+					ui.Text(c, t.Description).FontSize(kit.Body.Size).TextColor(k.Muted)
+				}
+			})
+		}
+	})
 }
 
 func (a *App) viewerOpen() bool {
@@ -179,21 +212,26 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {
-	ui.Scroll(c).Key("board-scroll").Grow(1).Padding(20, 20, 32).TrackScroll(&a.boardScroll).
-		Children(func() {
-			ui.Column(c).Gap(16).Selectable().Children(func() {
-				a.openCard(c, p)
-				switch {
-				case a.Err != "" && !a.errScreen:
-					a.errorCard(c, p)
-				case a.Loading && a.Status.Pill == "" && len(a.Tasks.Groups) == 0:
-					a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
-				default:
-					a.needsScreen(c, k, p)
-					a.tasksScreen(c, p)
-				}
-			})
+	page := ui.Scroll(c).Key("board-scroll").Grow(1).Padding(20, 20, 32).TrackScroll(&a.boardScroll).
+		Focusable().FocusRing(false).Label("The board")
+	if a.boardFocus {
+		a.boardFocus = false
+		page.Focus()
+	}
+	page.Children(func() {
+		ui.Column(c).Gap(16).Selectable().Children(func() {
+			a.openCard(c, p)
+			switch {
+			case a.Err != "" && !a.errScreen:
+				a.errorCard(c, p)
+			case a.Loading && a.Status.Pill == "" && len(a.Tasks.Groups) == 0:
+				a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
+			default:
+				a.needsScreen(c, k, p)
+				a.tasksScreen(c, p)
+			}
 		})
+	})
 }
 
 func (a *App) errorCard(c *ui.Context, p palette) {
