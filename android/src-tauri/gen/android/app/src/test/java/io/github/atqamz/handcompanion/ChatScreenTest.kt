@@ -2,9 +2,16 @@ package io.github.atqamz.handcompanion
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -78,7 +85,12 @@ private fun pageState(
   olderLoading: Boolean = false,
   olderFailed: Boolean = false,
   loading: Boolean = false,
-  failed: Boolean = false
+  failed: Boolean = false,
+  draft: String = "",
+  draftNote: String = "",
+  sending: Boolean = false,
+  sendError: String = "",
+  now: Long = NOW
 ) =
   ChatState(
     page = pageKeys(entries),
@@ -93,7 +105,11 @@ private fun pageState(
     olderFailed = olderFailed,
     aboveBottom = aboveBottom,
     newReplies = newReplies,
-    now = NOW
+    draft = draft,
+    draftNote = draftNote,
+    sending = sending,
+    sendError = sendError,
+    now = now
   )
 
 private val longConversation =
@@ -126,7 +142,10 @@ class ChatScreenTest {
     dark: Boolean,
     state: ChatState,
     expand: Set<String> = emptySet(),
-    zone: TimeZone = UTC
+    zone: TimeZone = UTC,
+    hint: String = "",
+    hintBlocked: Boolean = false,
+    input: androidx.compose.runtime.MutableState<TextFieldValue>? = null
   ) =
     paparazzi.snapshot {
       HandTheme(dark) {
@@ -139,7 +158,10 @@ class ChatScreenTest {
           onScrolled = {},
           onTarget = {},
           zone = zone,
-          expand = expand
+          expand = expand,
+          hint = hint,
+          hintBlocked = hintBlocked,
+          input = input ?: remember(state.draft) { mutableStateOf(TextFieldValue(state.draft)) }
         )
       }
     }
@@ -227,4 +249,115 @@ class ChatScreenTest {
       assertEquals(0, list.firstVisibleItemScrollOffset)
     }
   }
+
+  @Test fun composerEmptyLight() = shot(false, pageState())
+
+  @Test fun composerEmptyDark() = shot(true, pageState())
+
+  @Test fun composerTextLight() = shot(false, pageState(draft = said))
+
+  @Test fun composerTextDark() = shot(true, pageState(draft = said))
+
+  @Test fun composerSendingLight() = shot(false, pageState(draft = said, sending = true))
+
+  @Test fun composerSendingDark() = shot(true, pageState(draft = said, sending = true))
+
+  @Test
+  fun composerFailedLight() =
+    shot(false, pageState(draft = said, sendError = overLimit))
+
+  @Test
+  fun composerFailedDark() =
+    shot(true, pageState(draft = said, sendError = overLimit))
+
+  @Test
+  fun composerHintLight() = shot(false, pageState(draft = said), hint = switchHint)
+
+  @Test
+  fun composerHintDark() = shot(true, pageState(draft = said), hint = switchHint)
+
+  @Test
+  fun composerBlockedLight() =
+    shot(false, pageState(draft = said), hint = blockedHint, hintBlocked = true)
+
+  @Test
+  fun composerBlockedDark() =
+    shot(true, pageState(draft = said), hint = blockedHint, hintBlocked = true)
+
+  @Test
+  fun composerNoteLight() = shot(false, pageState(draft = said, draftNote = "Draft saved 12:40"))
+
+  @Test
+  fun composerNoteDark() = shot(true, pageState(draft = said, draftNote = "Draft saved 12:40"))
+
+  @Composable
+  private fun caretScene(
+    dark: Boolean,
+    state: ChatState,
+    input: androidx.compose.runtime.MutableState<TextFieldValue>,
+    hint: String
+  ) {
+    HandTheme(dark) {
+      ChatScreen(
+        FLEET,
+        state,
+        onOlder = {},
+        onRetry = {},
+        onRetryOlder = {},
+        onScrolled = {},
+        onTarget = {},
+        zone = UTC,
+        hint = hint,
+        input = input
+      )
+    }
+  }
+
+  @Test
+  fun theComposerKeepsTheCaretThroughALiveUpdateAndAResize() {
+    val caret = TextRange(5)
+    val input = mutableStateOf(TextFieldValue(said, caret))
+    val before = pageState(draft = said)
+    val after =
+      pageState(
+        entries = listOf(newestReply) + conversation,
+        draft = said,
+        now = NOW + 5_000
+      )
+    for (dark in listOf(false, true)) {
+      val name = if (dark) "Dark" else "Light"
+      paparazzi.snapshot("caretBefore$name") {
+        caretScene(dark, before, input, "")
+      }
+      assertEquals(TextFieldValue(said, caret), input.value)
+      paparazzi.snapshot("caretAfter$name") {
+        caretScene(dark, after, input, "s1 is starting; your message waits.")
+      }
+      assertEquals(TextFieldValue(said, caret), input.value)
+      paparazzi.snapshot("caretResized$name") {
+        HandTheme(dark) {
+          Box(Modifier.height(420.dp)) {
+            ChatScreen(
+              FLEET,
+              after,
+              onOlder = {},
+              onRetry = {},
+              onRetryOlder = {},
+              onScrolled = {},
+              onTarget = {},
+              zone = UTC,
+              hint = "s1 is starting; your message waits.",
+              input = input
+            )
+          }
+        }
+      }
+      assertEquals(TextFieldValue(said, caret), input.value)
+    }
+  }
 }
+
+private val said = "Also check that the relay page names the new cookie."
+private val switchHint = "s1 switches to opus high after this turn; your message waits."
+private val blockedHint = "s1 is waiting on a screen in Needs; your message waits too."
+private val overLimit = "invalid: message is 17001 bytes; the most is 16384"

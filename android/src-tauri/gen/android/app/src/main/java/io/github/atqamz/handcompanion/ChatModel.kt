@@ -1,11 +1,13 @@
 package io.github.atqamz.handcompanion
 
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,9 +18,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 @Serializable
 data class TimelineEntry(
@@ -95,6 +99,10 @@ data class ChatState(
   val olderFailed: Boolean = false,
   val aboveBottom: Boolean = false,
   val newReplies: Int = 0,
+  val draft: String = "",
+  val draftNote: String = "",
+  val sending: Boolean = false,
+  val sendError: String = "",
   val now: Long = 0
 )
 
@@ -158,6 +166,15 @@ fun chatClock(iso: String, zone: TimeZone): String {
   val at = epoch(iso) ?: return iso
   return SimpleDateFormat("HH:mm", Locale.ROOT).apply { timeZone = zone }.format(Date(at))
 }
+
+fun deliveryWords(entry: TimelineEntry, zone: TimeZone = TimeZone.getDefault()): String =
+  when {
+    entry.queued || entry.delivery == "queued" -> "queued"
+    entry.delivery.isNotEmpty() && entry.delivered.isNotEmpty() ->
+      "${entry.delivery} ${chatClock(entry.delivered, zone)}"
+    entry.delivery.isNotEmpty() -> entry.delivery
+    else -> ""
+  }
 
 sealed interface ChatRow {
   val key: String
@@ -255,12 +272,65 @@ fun pinned(firstIndex: Int, offset: Int, threshold: Int) =
 fun latestCount(current: Int, above: Boolean, added: List<TimelineEntry>) =
   if (!above) 0 else current + added.count { it.role == "supervisor" }
 
+const val DRAFT_MILLIS = 300L
+const val DRAFT_TTL_MILLIS = 30L * 24 * 60 * 60 * 1000
+
+interface ComposerDrafts {
+  fun read(fleet: String, now: Long): String
+
+  fun write(fleet: String, text: String, now: Long)
+}
+
+fun draftKey(fleet: String, at: Long) = "$fleet@$at"
+
+fun draftSavedAt(key: String, fleet: String): Long? {
+  val prefix = "$fleet@"
+  if (!key.startsWith(prefix)) return null
+  return key.removePrefix(prefix).toLongOrNull()
+}
+
+fun fleetDraftKeys(all: Map<String, Any?>, fleet: String): List<String> =
+  all.keys.filter { draftSavedAt(it, fleet) != null }
+
+fun liveDraft(all: Map<String, Any?>, fleet: String, now: Long, ttl: Long): String {
+  val newest =
+    all.entries
+      .mapNotNull { (key, value) -> draftSavedAt(key, fleet)?.let { at -> at to (value as? String) } }
+      .filter { it.second != null }
+      .maxByOrNull { it.first } ?: return ""
+  if (now - newest.first >= ttl) return ""
+  return newest.second.orEmpty()
+}
+
+class PrefsComposerDrafts(
+  private val prefs: SharedPreferences,
+  private val ttl: Long = DRAFT_TTL_MILLIS
+) : ComposerDrafts {
+  override fun read(fleet: String, now: Long): String {
+    val all = prefs.all
+    val held = liveDraft(all, fleet, now, ttl)
+    val keys = fleetDraftKeys(all, fleet)
+    if (held.isEmpty() && keys.isNotEmpty()) prefs.edit().apply { keys.forEach { remove(it) } }.apply()
+    return held
+  }
+
+  override fun write(fleet: String, text: String, now: Long) {
+    val keys = fleetDraftKeys(prefs.all, fleet)
+    prefs.edit().apply {
+      keys.forEach { remove(it) }
+      if (text.isNotEmpty()) putString(draftKey(fleet, now), text)
+    }.apply()
+  }
+}
+
 class ChatModel(
   private val fleet: String,
   transport: Transport,
+  private val drafts: ComposerDrafts,
   private val bus: LiveBus = LiveBus.shared,
   private val pollMillis: Long = POLL_MILLIS,
-  private val nowMillis: () -> Long = { System.currentTimeMillis() }
+  private val nowMillis: () -> Long = { System.currentTimeMillis() },
+  private val draftMillis: Long = DRAFT_MILLIS
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(ChatState(now = nowMillis()))
   val state: StateFlow<ChatState> = mutableState
@@ -268,19 +338,116 @@ class ChatModel(
   private val client = BoardClient(fleet, transport)
   private val lock = Mutex()
   private val olderLock = Mutex()
+  private val edits = Channel<Unit>(Channel.CONFLATED)
   @Volatile private var cursor: String? = null
   @Volatile private var supported: Boolean? = null
   @Volatile private var pending = false
 
   suspend fun run() {
     pending = false
-    load()
-    if (mutableState.value.unpaired || mutableState.value.refused != null) return
-    val supported = eventsSupported()
-    if (mutableState.value.unpaired) return
-    coroutineScope {
-      launch { tick() }
-      if (!supported) poll() else bus.events.filter { it.fleet == fleet }.collect(::reduce)
+    restoreDraft()
+    try {
+      load()
+      if (mutableState.value.unpaired || mutableState.value.refused != null) return
+      val supported = eventsSupported()
+      if (mutableState.value.unpaired) return
+      coroutineScope {
+        launch { tick() }
+        launch { saveDrafts() }
+        if (!supported) poll() else bus.events.filter { it.fleet == fleet }.collect(::reduce)
+      }
+    } finally {
+      flushDraft()
+    }
+  }
+
+  fun restoreDraft() {
+    val held = drafts.read(fleet, nowMillis())
+    if (held.isEmpty()) return
+    mutableState.update {
+      if (it.draft.isNotEmpty()) it else it.copy(draft = held, draftNote = "Draft restored")
+    }
+  }
+
+  fun edit(text: String) {
+    mutableState.update { it.copy(draft = text, sendError = "") }
+    edits.trySend(Unit)
+  }
+
+  fun flushDraft() {
+    val text = mutableState.value.draft
+    drafts.write(fleet, text, nowMillis())
+    noteSaved(text)
+  }
+
+  private fun noteSaved(text: String) {
+    val at = nowMillis()
+    mutableState.update {
+      if (it.draft != text) it
+      else it.copy(draftNote = if (text.isEmpty()) "" else "Draft saved " + hhmm(Date(at)))
+    }
+  }
+
+  private fun saveDraft() {
+    val text = mutableState.value.draft
+    drafts.write(fleet, text, nowMillis())
+    noteSaved(text)
+  }
+
+  private suspend fun saveDrafts() {
+    while (true) {
+      edits.receive()
+      do delay(draftMillis) while (edits.tryReceive().isSuccess)
+      saveDraft()
+    }
+  }
+
+  fun send() {
+    if (mutableState.value.sending) return
+    viewModelScope.launch { sendNow() }
+  }
+
+  suspend fun sendNow() {
+    val state = mutableState.value
+    if (state.sending || state.draft.isBlank()) return
+    val text = state.draft
+    mutableState.update { it.copy(sending = true, sendError = "") }
+    flushDraft()
+    val body = buildJsonObject { put("text", text) }.toString()
+    try {
+      when (val sent = client.write("message", body, TimelineData.serializer())) {
+        is Write.Updated -> {
+          cursor = sent.envelope.cursor
+          fill(sent.envelope.data)
+        }
+        Write.Accepted -> reread()
+      }
+      accepted(text)
+    } catch (_: BoardError.AppliedUnread) {
+      accepted(text)
+      reread()
+    } catch (error: BoardError) {
+      mutableState.update {
+        if (error == BoardError.Unpaired) it.copy(unpaired = true, sending = false)
+        else it.copy(sending = false, sendError = sendWords(error))
+      }
+      if (error == BoardError.Lost || error == BoardError.TimedOut) reread()
+    } finally {
+      mutableState.update { it.copy(sending = false) }
+    }
+  }
+
+  private fun accepted(sent: String) {
+    val held = mutableState.value.draft
+    if (held == sent) {
+      drafts.write(fleet, "", nowMillis())
+      mutableState.update {
+        if (it.draft == sent) it.copy(draft = "", draftNote = "", sending = false)
+        else it.copy(sending = false)
+      }
+    } else {
+      drafts.write(fleet, held, nowMillis())
+      mutableState.update { it.copy(sending = false) }
     }
   }
 
@@ -569,6 +736,17 @@ class ChatModel(
     }
     load()
   }
+
+  private fun sendWords(error: BoardError): String =
+    when (error) {
+      BoardError.Lost,
+      BoardError.TimedOut -> "Not sure the message was sent."
+      BoardError.Busy -> "Your laptop is busy. Try again."
+      BoardError.Unreachable,
+      BoardError.NoLaptop -> "Your laptop is not reachable."
+      BoardError.BoardNotRunning -> "The Board is not running."
+      else -> error.message?.takeIf(String::isNotBlank) ?: "Could not send the message."
+    }
 
   private fun topics(json: String): List<String> =
     try {
