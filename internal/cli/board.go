@@ -39,6 +39,9 @@ func cmdBoard(r *runner, args []string) error {
 	if len(args) > 0 && args[0] == "stop" {
 		return cmdBoardStop(r, args[1:])
 	}
+	if len(args) > 0 && args[0] == "start" {
+		return cmdBoardStart(r, args[1:])
+	}
 	fs := flags("board")
 	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a phone on the LAN")
 	peerAddr := fs.String("peer-addr", "", "a second loopback address for a local tunnel or sidecar; every request on it counts as remote; off by default")

@@ -1101,11 +1101,10 @@ func TestEmptyStates(t *testing.T) {
 func TestErrorState(t *testing.T) {
 	app := newApp(t, errorFixture())
 	tt := newTester(app)
-	mustText(t, tt, "The board could not be read",
-		"the board did not accept this fleet's token; open the fleet once with `hand open`")
+	mustText(t, tt, "The Board refused this window.", "hand open")
 	mustNotText(t, tt, "Back")
-	click(t, tt, "Retry")
-	mustText(t, tt, "The board could not be read")
+	click(t, tt, "Try again")
+	mustText(t, tt, "The Board refused this window.")
 }
 
 func TestScenes(t *testing.T) {

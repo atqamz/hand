@@ -151,11 +151,13 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
-	if a.Model == nil || a.Fleet.ID == "" {
+	if a.Model == nil || a.Fleet.ID == "" || a.auth {
 		ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 			ui.Column(c).Gap(16).Children(func() {
 				a.openCard(c, p)
 				switch {
+				case a.Starting || a.StartErr != "" || a.auth || a.noFleets:
+					a.stateCard(c, k, p)
 				case a.Err != "":
 					a.errorCard(c, p)
 				case a.Loading:

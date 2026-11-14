@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"runtime"
 	"slices"
 	"strings"
@@ -48,6 +49,10 @@ func (wallClock) After(d time.Duration, fn func()) (stop func()) {
 
 type App struct {
 	Connect func() (ReadModel, error)
+	// Start runs the verb that starts a Board when none answers, in the fleet
+	// folder home (empty means the first fleet on this computer). Nil starts
+	// nothing. It returns the command's last line on failure.
+	Start   func(ctx context.Context, home string) (string, error)
 	Model   ReadModel
 	Context context.Context
 	// Apple marks Apple hardware, where the send key reads ⌘ Enter; the
@@ -138,6 +143,9 @@ type App struct {
 	Report   ReportDetail
 
 	Err string
+	// Starting is true while Start runs; StartErr is its last line on failure.
+	Starting bool
+	StartErr string
 	// Stale is the last auto-refresh failure; empty when the board answers.
 	Stale         string
 	errStatus     bool
@@ -160,6 +168,10 @@ type App struct {
 	latestSince   time.Time
 	focusComposer bool
 	timelineTo    int
+	auth          bool
+	noFleets      bool
+	wantStart     bool
+	autoStarted   bool
 
 	polling    bool
 	closed     bool
@@ -195,9 +207,11 @@ type backStep struct {
 }
 
 type found struct {
-	Model  ReadModel
-	Fleets []Fleet
-	Err    string
+	Model   ReadModel
+	Fleets  []Fleet
+	Err     error
+	Offline bool
+	Auth    bool
 }
 
 func New(connect func() (ReadModel, error)) *App {
@@ -215,6 +229,7 @@ func (a *App) StartRefresh() {
 	a.polling, a.closed = true, false
 	a.armPoll()
 	a.watchDeny()
+	a.maybeStart()
 }
 
 // Close stops the auto-refresh loop and cancels a poll in flight.
@@ -266,6 +281,7 @@ func (a *App) Refresh() {
 	a.gen++
 	gen := a.gen
 	a.setErr("")
+	a.auth = false
 	a.Loading = true
 	post(func() {})
 	go func() {
@@ -350,18 +366,30 @@ func (a *App) SelectFleet(id string) {
 }
 
 func (a *App) install(f found, keep bool) {
-	a.setErr(f.Err)
+	a.setErr("")
+	a.auth = f.Auth
+	if f.Err != nil {
+		a.setErr(friendly(f.Err))
+	}
 	if f.Model == nil {
 		a.resetPoll()
 		a.Model, a.Fleets = nil, nil
+		a.wantStart = !a.autoStarted && a.Start != nil && (errors.Is(f.Err, ErrNoBoard) || f.Offline)
 		return
 	}
 	a.Model, a.Fleets = f.Model, f.Fleets
+	a.noFleets = len(a.Fleets) == 0
+	if f.Offline && a.Start != nil && !a.autoStarted {
+		a.resetPoll()
+		a.Fleet = Fleet{}
+		a.wantStart = true
+		a.setErr("no board is answering; start it with `hand board start` in a fleet")
+		return
+	}
 	switch {
 	case len(a.Fleets) == 0:
 		a.resetPoll()
 		a.Fleet = Fleet{}
-		a.setErr("no fleets are registered; run `hand init` in a folder to make one")
 	case a.hasFleet(a.Fleet.ID) && keep:
 		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
 		if a.OnFleet != nil {
@@ -1391,25 +1419,46 @@ func (a *App) nameTimeout() time.Duration {
 func discover(connect func() (ReadModel, error), ctx context.Context, wait time.Duration) found {
 	m, err := connect()
 	if err != nil {
-		return found{Err: err.Error()}
+		return found{Err: err, Offline: errors.Is(err, ErrNoBoard)}
 	}
 	fleets := m.Fleets()
+	f := found{Model: m, Fleets: fleets}
 	for i := range fleets {
 		if ctx.Err() != nil {
 			break
 		}
 		lookup, cancel := context.WithTimeout(ctx, wait)
-		if name, err := m.Name(lookup, fleets[i].ID); err == nil && name != "" {
-			fleets[i].Name = name
-		}
+		name, err := m.Name(lookup, fleets[i].ID)
 		cancel()
+		switch {
+		case err == nil && name != "":
+			fleets[i].Name = name
+		case isAuth(err):
+			f.Auth = true
+		case isOffline(err):
+			f.Offline = true
+		}
 	}
-	return found{Model: m, Fleets: fleets}
+	return f
+}
+
+func isAuth(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && api.Status == http.StatusUnauthorized
+}
+
+func isOffline(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var api *APIError
+	return !errors.As(err, &api)
 }
 
 type loaded struct {
 	Screen   Screen
 	StatusOK bool
+	Auth     bool
 	Status   Status
 	Timeline Timeline
 	Tasks    Tasks
@@ -1428,7 +1477,7 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	st, err := model.Status(ctx, fleet)
 	if err != nil {
 		if ctx.Err() == nil {
-			l.Err = friendly(err)
+			l.Err, l.Auth = friendly(err), isAuth(err)
 		}
 		return l
 	}
@@ -1465,6 +1514,7 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 
 func (a *App) apply(l loaded) {
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
+	a.auth = l.Auth
 	a.TimelineErr = l.TimelineErr
 	a.Stale, a.reads = l.Err, [3]readState{}
 	for i := range a.reads {

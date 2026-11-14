@@ -31,15 +31,24 @@ func (r *runner) startService(ctx context.Context, s spawnSpec) (bool, error) {
 		return false, err
 	}
 	env := luvus.Scrub(r.env.Environ())
+	path := r.env.Getenv("PATH")
+	for _, kv := range s.env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+		}
+	}
 	if run, ok := luvus.UserManager(env); ok {
 		args := []string{"--user", "--unit=" + s.unit, "--collect", "-p", "Restart=on-failure", "-p", "RestartSec=5", "-p", "RestartPreventExitStatus=3"}
 		for _, p := range s.props {
 			args = append(args, "-p", p)
 		}
 		for _, kv := range s.env {
+			if strings.HasPrefix(kv, "PATH=") {
+				continue
+			}
 			args = append(args, "--setenv="+kv)
 		}
-		args = append(args, "--setenv=PATH="+r.env.Getenv("PATH"))
+		args = append(args, "--setenv=PATH="+path)
 		for _, name := range []string{"SECONDHAND_HOME", "LUVUS_HOME", "HAND_LUVUS_SOCKET", "HOME"} {
 			if v := r.env.Getenv(name); v != "" {
 				args = append(args, "--setenv="+name+"="+v)
@@ -68,7 +77,7 @@ func (r *runner) startService(ctx context.Context, s spawnSpec) (bool, error) {
 	defer log.Close()
 	cmd := exec.Command(exe, s.args...)
 	cmd.Dir = s.dir
-	cmd.Env = append(env, s.env...)
+	cmd.Env = withEnv(env, s.env...)
 	cmd.Stdout, cmd.Stderr = log, log
 	proc.Detach(cmd)
 	from, _ := log.Seek(0, io.SeekEnd)
@@ -101,4 +110,22 @@ func lastLine(path string, from int64) string {
 		return ": " + last
 	}
 	return ""
+}
+
+func withEnv(env []string, kv ...string) []string {
+	out := append([]string(nil), env...)
+	for _, pair := range kv {
+		name, _, _ := strings.Cut(pair, "=")
+		found := false
+		for i, e := range out {
+			if n, _, _ := strings.Cut(e, "="); n == name {
+				out[i], found = pair, true
+				break
+			}
+		}
+		if !found {
+			out = append(out, pair)
+		}
+	}
+	return out
 }

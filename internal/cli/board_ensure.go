@@ -84,12 +84,17 @@ func (r *runner) startBoard(ctx context.Context, up func() (bool, error)) error 
 	if recordedIroh(r.root) {
 		args = append(args, "--iroh")
 	}
+	childEnv := []string(nil)
+	if path := r.boardStartPath(); path != "" {
+		childEnv = []string{"PATH=" + path}
+	}
 	_, err := r.startService(ctx, spawnSpec{
 		unit:    boardUnit,
 		log:     log,
 		dir:     r.root,
 		args:    args,
 		props:   props,
+		env:     childEnv,
 		running: up,
 		await:   await,
 	})
