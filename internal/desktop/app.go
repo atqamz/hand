@@ -1665,7 +1665,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if a.Stale == "" {
 		a.Stale = a.reads[readTasks].err
 	}
-	statusFresh, screenFresh := false, false
+	statusFresh, tasksFresh, screenFresh := false, false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
 		a.reconcileAcked()
@@ -1673,8 +1673,9 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
-		a.resolveTab(true)
+		tasksFresh = true
 	}
+	a.resolveTab(tasksFresh)
 	if a.Fleet.ID == fleet && p.TimelineFresh {
 		next := mergeTimeline(a.Timeline, p.Timeline)
 		if a.away() {

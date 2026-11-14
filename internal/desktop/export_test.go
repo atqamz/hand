@@ -34,6 +34,8 @@ func ViewerScroll(a *App) (y, maxY float32) { return a.viewerScroll.Y, a.viewerS
 
 func PageReport(a *App) string { return a.pageReport }
 
+func TabFor(a *App) string { return a.tabFor }
+
 func ScrollTarget(a *App) string { return a.scrollTo }
 
 func AsideScroll(a *App) (y, maxY float32) { return a.asideScroll.Y, a.asideScroll.MaxY }

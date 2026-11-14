@@ -366,6 +366,9 @@ func (a *App) narrowPanes(c *ui.Context, k kit.Colors, p palette) {
 			ui.Column(c).Padding(kit.Space20, card, 0).Children(func() { a.openCard(c, p) })
 		}
 		if a.tab() == tabChat {
+			if a.Err != "" && !a.errScreen {
+				ui.Column(c).Padding(kit.Space20, composerMargin(w), 0).Children(func() { a.errorCard(c, p) })
+			}
 			a.chatPane(c, k, p)
 			return
 		}

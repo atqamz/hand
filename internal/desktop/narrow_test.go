@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -543,6 +544,92 @@ func TestAPendingTabWaitsForTheTasksReadThatFailed(t *testing.T) {
 	tt.Frame()
 	if app.Tab != "tasks" {
 		t.Fatalf("the poll that restored Tasks left the tab on %q, want tasks", app.Tab)
+	}
+}
+
+type statusOnlyPoll struct {
+	desktop.ReadModel
+	status desktop.Status
+}
+
+func (p *statusOnlyPoll) Poll(context.Context, string, desktop.Screen, string, desktop.PollCursors) (desktop.Poll, error) {
+	return desktop.Poll{StatusFresh: true, StatusRead: true, ScreenRead: true, TimelineRead: true, Status: p.status}, nil
+}
+
+func TestAPendingTabResolvesWhenStatusNamesTheNeed(t *testing.T) {
+	f := goldenFixture(t)
+	model := &statusOnlyPoll{ReadModel: f}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	clock := newFakeClock()
+	app.Clock = clock
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	f.tasksErr = errors.New("the tasks read failed")
+	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t4"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if app.Tab != "chat" || desktop.TabFor(app) != "t4" {
+		t.Fatalf("a failed Tasks read left the tab on %q at %q, want chat at t4",
+			app.Tab, desktop.TabFor(app))
+	}
+	st := f.status[fleetID]
+	st.Needs.Items = append(st.Needs.Items, desktop.Need{Kind: "decision", Ref: "d9",
+		Decision: "d9", Task: "t4", Title: "A need for t4", Word: "DECISION", Tone: "wait"})
+	st.Needs.Waiting = len(st.Needs.Items)
+	model.status = st
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	if app.Tab != "needs" {
+		t.Fatalf("a fresh Status naming the need left the tab on %q, want needs", app.Tab)
+	}
+	if got := desktop.TabFor(app); got != "" {
+		t.Fatalf("the resolved tab kept the owed ref %q", got)
+	}
+}
+
+func TestTheBoardErrorCardShowsOnNarrowChat(t *testing.T) {
+	f := goldenFixture(t)
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	app := newApp(t, f)
+	tt := sized(t, app, 880, 760, false)
+	tt.Frame()
+	mustText(t, tt, "The board could not be read", "the board is restarting", "Message the supervisor")
+	st := f.status[fleetID]
+	st.Needs.Items, st.Needs.Waiting = nil, 0
+	f.status[fleetID] = st
+	f.fail = nil
+	click(t, tt, "Retry")
+	tt.Frame()
+	mustNotText(t, tt, "The board could not be read")
+	mustNotText(t, tt, "the board is restarting")
+	mustText(t, tt, "Message the supervisor")
+}
+
+func TestAFleetSwitchDropsAnOwedTab(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := sized(t, app, 880, 760, false)
+	click(t, tt, "Chat")
+	f.tasksErr = errors.New("the tasks read failed")
+	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t4"); err != nil {
+		t.Fatal(err)
+	}
+	if app.Tab != "chat" || desktop.TabFor(app) != "t4" {
+		t.Fatalf("the link left the tab on %q at %q, want chat at t4",
+			app.Tab, desktop.TabFor(app))
+	}
+	f.tasksErr = nil
+	app.SelectFleet(secondID)
+	tt.Frame()
+	if app.Tab != "chat" {
+		t.Fatalf("the fleet switch moved the tab to %q", app.Tab)
+	}
+	if got := desktop.TabFor(app); got != "" {
+		t.Fatalf("the fleet switch kept the owed ref %q", got)
 	}
 }
 
