@@ -84,12 +84,29 @@ func newBoardStartFixture(t *testing.T) *boardStartFixture {
 		_ = os.WriteFile(bf.stop, nil, 0o600)
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(bf.done); err == nil {
+				removeWhenFree(t, fx.h.vars["SECONDHAND_HOME"])
 				return
 			}
 		}
 		t.Errorf("the fake board did not stop")
 	})
 	return bf
+}
+
+// The fake holds its folder until it exits, which Windows will not delete
+// under; retry until that exit releases it.
+func removeWhenFree(t *testing.T, dir string) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		err := os.RemoveAll(dir)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("the board's folder stayed locked: %v", err)
+			return
+		}
+	}
 }
 
 func starts(t *testing.T, path string) int {
@@ -164,6 +181,7 @@ func TestBoardStartWaitsTenSecondsByDefault(t *testing.T) {
 		_ = os.WriteFile(stop, nil, 0o600)
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(done); err == nil {
+				removeWhenFree(t, fx.h.vars["SECONDHAND_HOME"])
 				return
 			}
 		}
@@ -208,6 +226,26 @@ func TestBoardStartUsesTheRecordedPath(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "PATH=/opt/recorded/bin") {
 		t.Fatalf("the board's env = %q", b)
+	}
+}
+
+func TestOpenUsesTheCallersPathNotTheRecordedOne(t *testing.T) {
+	fx := openWithoutBoard(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	fx.h.vars["PATH"] = "/opt/caller/bin"
+	if err := os.WriteFile(filepath.Join(root, "board.path"), []byte("/opt/recorded/bin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "env")
+	env := fakebin.Install(t, t.TempDir(), "env", "env", map[string]string{"out": out})
+	*cli.WatchExe = func() (string, error) { return env, nil }
+	_, _, _ = fx.h.run("open", "--print")
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "PATH=/opt/caller/bin") || strings.Contains(string(b), "/opt/recorded/bin") {
+		t.Fatalf("hand open gave the board %q", b)
 	}
 }
 

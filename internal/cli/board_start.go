@@ -27,7 +27,7 @@ func cmdBoardStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := r.ensureBoard(r.ctx(), token); err != nil {
+	if err := r.ensureBoardWithPath(r.ctx(), token, true); err != nil {
 		return err
 	}
 	var d toon.Doc
@@ -43,18 +43,4 @@ func recordedBoardPath(root string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
-}
-
-func (r *runner) boardStartPath() string {
-	path := recordedBoardPath(r.root)
-	if r.terminal() {
-		if current := r.env.Getenv("PATH"); current != "" {
-			path = current
-			_ = writeFile(r.root, boardPathFile(r.root), current+"\n")
-		}
-	}
-	if path == "" {
-		path = r.env.Getenv("PATH")
-	}
-	return path
 }

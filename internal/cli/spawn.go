@@ -116,16 +116,13 @@ func withEnv(env []string, kv ...string) []string {
 	out := append([]string(nil), env...)
 	for _, pair := range kv {
 		name, _, _ := strings.Cut(pair, "=")
-		found := false
-		for i, e := range out {
-			if n, _, _ := strings.Cut(e, "="); n == name {
-				out[i], found = pair, true
-				break
+		kept := out[:0]
+		for _, e := range out {
+			if n, _, _ := strings.Cut(e, "="); n != name {
+				kept = append(kept, e)
 			}
 		}
-		if !found {
-			out = append(out, pair)
-		}
+		out = append(kept, pair)
 	}
 	return out
 }

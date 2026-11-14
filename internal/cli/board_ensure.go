@@ -19,6 +19,10 @@ const boardUnit = "secondhand-board"
 var boardStartWait = 10 * time.Second
 
 func (r *runner) ensureBoard(ctx context.Context, token string) error {
+	return r.ensureBoardWithPath(ctx, token, false)
+}
+
+func (r *runner) ensureBoardWithPath(ctx context.Context, token string, recorded bool) error {
 	up := func() (bool, error) {
 		_, err := boardAddr(ctx, r.root, r.fleet.ID, token)
 		if errors.Is(err, state.ErrNotFound) {
@@ -37,13 +41,13 @@ func (r *runner) ensureBoard(ctx context.Context, token string) error {
 	if ok, err := up(); ok || err != nil {
 		return err
 	}
-	if err := r.startBoard(ctx, up); err != nil {
+	if err := r.startBoard(ctx, up, recorded); err != nil {
 		return fmt.Errorf("%w: no board is running and starting one failed: %v; %s", state.ErrNotFound, err, boardHint)
 	}
 	return nil
 }
 
-func (r *runner) startBoard(ctx context.Context, up func() (bool, error)) error {
+func (r *runner) startBoard(ctx context.Context, up func() (bool, error), recorded bool) error {
 	log := filepath.Join(r.root, "board.log")
 	await := func(ctx context.Context, look string) error {
 		deadline := time.Now().Add(boardStartWait)
@@ -59,6 +63,11 @@ func (r *runner) startBoard(ctx context.Context, up func() (bool, error)) error 
 				return ctx.Err()
 			case <-time.After(100 * time.Millisecond):
 			}
+		}
+	}
+	if r.terminal() {
+		if current := r.env.Getenv("PATH"); current != "" {
+			_ = writeFile(r.root, boardPathFile(r.root), current+"\n")
 		}
 	}
 	env := luvus.Scrub(r.env.Environ())
@@ -85,8 +94,14 @@ func (r *runner) startBoard(ctx context.Context, up func() (bool, error)) error 
 		args = append(args, "--iroh")
 	}
 	childEnv := []string(nil)
-	if path := r.boardStartPath(); path != "" {
-		childEnv = []string{"PATH=" + path}
+	if recorded {
+		path := recordedBoardPath(r.root)
+		if path == "" {
+			path = r.env.Getenv("PATH")
+		}
+		if path != "" {
+			childEnv = []string{"PATH=" + path}
+		}
 	}
 	_, err := r.startService(ctx, spawnSpec{
 		unit:    boardUnit,

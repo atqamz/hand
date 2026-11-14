@@ -63,6 +63,9 @@ func TestBoardStartStartsATransientUnitWithTheRecordedPath(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	got, _ := os.ReadFile(log)
+	if n := strings.Count(string(got), "--setenv=PATH="); n != 1 {
+		t.Fatalf("--setenv=PATH= appears %d times in %q", n, got)
+	}
 	if !strings.Contains(string(got), "--setenv=PATH=/opt/recorded/bin") || strings.Contains(string(got), "--user start") {
 		t.Fatalf("calls = %q", got)
 	}
