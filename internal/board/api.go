@@ -45,6 +45,8 @@ type APIEnvelope struct {
 	Fleet       APIFleet `json:"fleet"`
 	Cursor      string   `json:"cursor"`
 	GeneratedAt string   `json:"generated_at"`
+	Receipt     string   `json:"receipt,omitempty"`
+	Warn        string   `json:"warn,omitempty"`
 	Data        any      `json:"data"`
 }
 
@@ -52,6 +54,7 @@ type APIError struct {
 	Status  int    `json:"status"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Warn    string `json:"warn,omitempty"`
 }
 
 type APIErrorResponse struct {
@@ -109,23 +112,34 @@ type APITaskCounts struct {
 }
 
 type APINeed struct {
-	Kind      string         `json:"kind"`
-	Ref       string         `json:"ref,omitempty"`
-	Title     string         `json:"title,omitempty"`
-	Word      string         `json:"word"`
-	Tone      string         `json:"tone"`
-	Task      string         `json:"task,omitempty"`
-	Decision  string         `json:"decision,omitempty"`
-	Report    string         `json:"report,omitempty"`
-	Attempt   string         `json:"attempt,omitempty"`
-	Headline  string         `json:"headline,omitempty"`
-	Status    string         `json:"status,omitempty"`
-	CreatedAt string         `json:"created_at,omitempty"`
-	Excerpt   string         `json:"excerpt,omitempty"`
-	Cut       bool           `json:"cut,omitempty"`
-	DenyAt    string         `json:"deny_at,omitempty"`
-	Options   []APIAskOption `json:"options,omitempty"`
-	Keys      *APINeedKeys   `json:"keys,omitempty"`
+	Kind        string          `json:"kind"`
+	Ref         string          `json:"ref,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Word        string          `json:"word"`
+	Tone        string          `json:"tone"`
+	Task        string          `json:"task,omitempty"`
+	Project     string          `json:"project,omitempty"`
+	Decision    string          `json:"decision,omitempty"`
+	Report      string          `json:"report,omitempty"`
+	Attempt     string          `json:"attempt,omitempty"`
+	AttemptMeta *APINeedAttempt `json:"attempt_meta,omitempty"`
+	Reason      string          `json:"reason,omitempty"`
+	Headline    string          `json:"headline,omitempty"`
+	Status      string          `json:"status,omitempty"`
+	CreatedAt   string          `json:"created_at,omitempty"`
+	Excerpt     string          `json:"excerpt,omitempty"`
+	Cut         bool            `json:"cut,omitempty"`
+	DenyAt      string          `json:"deny_at,omitempty"`
+	Options     []APIAskOption  `json:"options,omitempty"`
+	Keys        *APINeedKeys    `json:"keys,omitempty"`
+}
+
+type APINeedAttempt struct {
+	Ref     string `json:"ref"`
+	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"`
+	Status  string `json:"status"`
+	EndedAt string `json:"ended_at,omitempty"`
 }
 
 type APINeedKeys struct {
@@ -512,16 +526,64 @@ type apiControlBody struct {
 	Ref string `json:"ref"`
 }
 
-// APIControlAccepted is a control's answer when it ran but the status could
-// not be read back; the client warns and refreshes instead of reporting failure.
-type APIControlAccepted struct {
+// APIAccepted is an action's answer when it went through but its result could
+// not be read back; the answer's warn says so and the client refreshes.
+type APIAccepted struct {
 	Accepted bool `json:"accepted"`
 }
 
-// APIMessageAccepted is the message mutation's answer when the board queued
-// the text but could not read the conversation back.
-type APIMessageAccepted struct {
-	Accepted bool `json:"accepted"`
+const (
+	apiStatusUnread       = "the action went through, but the status could not be read"
+	apiConversationUnread = "the message was sent, but the conversation could not be read"
+	apiAnswerUnread       = "the answer was saved, but its decision could not be read"
+	apiAckUnread          = "the report was marked read, but its detail could not be read"
+	apiPressUnread        = "the press went through, but the attempt could not be read"
+)
+
+// apiReply is what an action's answer says next to its data: the Board's own
+// words for a receipt and for a warning, carried as the X-Hand-Receipt and
+// X-Hand-Warn headers the page's toast reads and as the same fields in JSON.
+type apiReply struct {
+	receipt string
+	warn    string
+}
+
+func (r apiReply) send(w http.ResponseWriter) {
+	if r.receipt != "" {
+		w.Header().Set("X-Hand-Receipt", url.PathEscape(r.receipt))
+	}
+	if r.warn != "" {
+		w.Header().Set("X-Hand-Warn", url.PathEscape(r.warn))
+	}
+}
+
+func (r apiReply) and(warn string) apiReply {
+	switch {
+	case warn == "":
+	case r.warn == "":
+		r.warn = warn
+	default:
+		r.warn += "; " + warn
+	}
+	return r
+}
+
+func (r apiReply) unread(what string, err error) apiReply {
+	return r.and(what + ": " + Scrub(err.Error()) + "; refresh to see it")
+}
+
+func apiReplyOf(w http.ResponseWriter) (receipt, warn string) {
+	un := func(name string) string {
+		v := w.Header().Get(name)
+		if v == "" {
+			return ""
+		}
+		if u, err := url.PathUnescape(v); err == nil {
+			return u
+		}
+		return v
+	}
+	return un("X-Hand-Receipt"), un("X-Hand-Warn")
 }
 
 func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
@@ -563,7 +625,11 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiDecisionData(ctx, id) })
+	receipt := state.DecisionRef(id) + " answered · no supervisor is running; it waits"
+	if ref, running := b.supRef(ctx); running {
+		receipt = state.DecisionRef(id) + " answered · " + ref + " reads it now"
+	}
+	b.apiMutationOK(w, ctx, apiReply{receipt: receipt}, apiAnswerUnread, func() (any, error) { return b.apiDecisionData(ctx, id) })
 }
 
 func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
@@ -633,7 +699,7 @@ func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiReportData(ctx, id) })
+	b.apiMutationOK(w, ctx, apiReply{receipt: state.ReportRef(id) + " marked read"}, apiAckUnread, func() (any, error) { return b.apiReportData(ctx, id) })
 }
 
 func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
@@ -675,15 +741,20 @@ func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	if _, err := b.o.Control(ctx, "supervisor", "send", "--text", text); err != nil {
+	warn, err := b.o.Control(ctx, "supervisor", "send", "--text", text)
+	reply := apiReply{warn: warn}
+	if err != nil {
+		reply.send(w)
 		b.apiFailErr(w, err)
 		return
 	}
 	tl, err := b.apiTimelineData(ctx, url.Values{})
 	if err != nil {
-		b.apiOK(w, f, "", APIMessageAccepted{Accepted: true})
+		reply.unread(apiConversationUnread, err).send(w)
+		b.apiOK(w, f, "", APIAccepted{Accepted: true})
 		return
 	}
+	reply.send(w)
 	b.apiOK(w, f, "", tl)
 }
 
@@ -718,11 +789,23 @@ func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string
 		b.apiFailErr(w, err)
 		return
 	}
-	if _, err := b.o.Control(ctx, args...); err != nil {
+	receipt := "Starting the supervisor…"
+	sup, _ := b.supRef(ctx)
+	switch action {
+	case "stop":
+		receipt = sup + " stopping"
+	case "interrupt":
+		receipt = "Interrupt sent to " + sup
+	case "force":
+		receipt = "Typed into " + sup
+	}
+	warn, err := b.o.Control(ctx, args...)
+	if err != nil {
+		apiReply{warn: warn}.send(w)
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiControlOK(w, f, ctx)
+	b.apiControlOK(w, f, ctx, apiReply{receipt: receipt, warn: warn})
 }
 
 func (b *Board) apiControlRef(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -748,12 +831,14 @@ func (b *Board) apiControlRef(w http.ResponseWriter, r *http.Request) (string, b
 	return in.Ref, true
 }
 
-func (b *Board) apiControlOK(w http.ResponseWriter, f state.Fleet, ctx context.Context) {
+func (b *Board) apiControlOK(w http.ResponseWriter, f state.Fleet, ctx context.Context, reply apiReply) {
 	out, err := b.apiStatusData(ctx)
 	if err != nil {
-		b.apiOK(w, f, "", APIControlAccepted{Accepted: true})
+		reply.unread(apiStatusUnread, err).send(w)
+		b.apiOK(w, f, "", APIAccepted{Accepted: true})
 		return
 	}
+	reply.send(w)
 	b.apiOK(w, f, "", out)
 }
 
@@ -797,11 +882,14 @@ func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
-	if _, err := b.o.Control(ctx, append(args, in.Keys...)...); err != nil {
+	sup, _ := b.supRef(ctx)
+	warn, err := b.o.Control(ctx, append(args, in.Keys...)...)
+	if err != nil {
+		apiReply{warn: warn}.send(w)
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiControlOK(w, f, ctx)
+	b.apiControlOK(w, f, ctx, apiReply{receipt: "Sent " + strings.Join(in.Keys, " ") + " to " + sup, warn: warn})
 }
 
 func (b *Board) apiAttemptKeys(w http.ResponseWriter, r *http.Request) {
@@ -850,11 +938,13 @@ func (b *Board) apiAttemptKeys(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--screen", in.Screen)
 	}
 	args = append(args, "--after", strconv.FormatInt(*in.After, 10), state.AttemptRef(id))
-	if _, err := b.o.Control(ctx, append(args, keys...)...); err != nil {
+	warn, err := b.o.Control(ctx, append(args, keys...)...)
+	if err != nil {
+		apiReply{warn: warn}.send(w)
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiAttemptData(ctx, id) })
+	b.apiMutationOK(w, ctx, apiReply{receipt: "Sent " + strings.Join(keys, " ") + " to " + state.AttemptRef(id), warn: warn}, apiPressUnread, func() (any, error) { return b.apiAttemptData(ctx, id) })
 }
 
 // apiMessageText rejects the text a JSON decoder would quietly change: invalid
@@ -906,17 +996,20 @@ func surrogatesPaired(raw []byte) bool {
 	return true
 }
 
-func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, data func() (any, error)) {
+func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, reply apiReply, unread string, data func() (any, error)) {
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
+		apiReply{warn: reply.warn}.send(w)
 		b.apiFailErr(w, err)
 		return
 	}
 	out, err := data()
 	if err != nil {
-		b.apiFailErr(w, err)
+		reply.unread(unread, err).send(w)
+		b.apiOK(w, f, "", APIAccepted{Accepted: true})
 		return
 	}
+	reply.send(w)
 	b.apiOK(w, f, "", out)
 }
 
@@ -1139,20 +1232,24 @@ func (b *Board) apiSend(w http.ResponseWriter, f state.Fleet, since, cursor stri
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
+	receipt, warn := apiReplyOf(w)
 	_ = json.NewEncoder(w).Encode(APIEnvelope{
 		Version:     apiVersion,
 		Fleet:       APIFleet{ID: f.ID, Name: f.Name},
 		Cursor:      cursor,
 		GeneratedAt: b.now().UTC().Format(time.RFC3339Nano),
+		Receipt:     receipt,
+		Warn:        warn,
 		Data:        json.RawMessage(raw),
 	})
 }
 
 func (b *Board) apiFail(w http.ResponseWriter, status int, code, msg string) {
+	_, warn := apiReplyOf(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(APIErrorResponse{Error: APIError{Status: status, Code: code, Message: Scrub(msg)}})
+	_ = json.NewEncoder(w).Encode(APIErrorResponse{Error: APIError{Status: status, Code: code, Message: Scrub(msg), Warn: warn}})
 }
 
 func (b *Board) apiFailErr(w http.ResponseWriter, err error) {
@@ -1537,6 +1634,7 @@ func apiNeed(w waiting) APINeed {
 	}
 	if w.Task.ID != 0 {
 		out.Task = state.TaskRef(w.Task.ID)
+		out.Project = w.Task.Project
 	}
 	if w.Decision != nil {
 		out.Decision = state.DecisionRef(w.Decision.ID)
@@ -1552,6 +1650,16 @@ func apiNeed(w waiting) APINeed {
 		out.Excerpt, out.Cut = w.Excerpt, w.Cut
 	} else if w.Attempt != nil {
 		out.Attempt = state.AttemptRef(w.Attempt.ID)
+	}
+	if w.Attempt != nil {
+		out.AttemptMeta = &APINeedAttempt{
+			Ref:     state.AttemptRef(w.Attempt.ID),
+			Harness: w.Attempt.Harness,
+			Model:   w.Attempt.Model,
+			Status:  w.Attempt.Status,
+			EndedAt: w.Attempt.EndedAt,
+		}
+		out.Reason = Scrub(w.Attempt.Reason)
 	}
 	return out
 }

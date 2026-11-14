@@ -117,6 +117,8 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 
 `supervisor` is absent when no supervisor exists. A `blocked` or `worker` item carries `deny_at` (RFC 3339) only while its screen shows an automatic-deny countdown of up to 999 minutes; otherwise it is absent. `needs.items` follows the page's order and carries the same `kind`, `ref`, `word` and `tone` (`blocked`, `worker`, `failure`, `limited`, `nosup`, `stalled`, `resume`, `decision`, `report`, `quiet`, `long`, `kept`, `artifacts`). `cleared` and `summary` appear when the page shows "All clear". For a `limited` item, `title` is absent because it comes from a terminal screen; use `ref`, `kind` and the attempt or supervisor detail instead. A `blocked` or `worker` item carries its screen as the Board prints it, only when the Board has read one: `excerpt` is the screen's last 20 lines as the Board shows them, unredacted; `title` is the Board's own title for the item, always present for these two kinds, even when the parser rejects the screen; `options` are the keys the Board offers for the screen (the numbered answers and `esc`, and for a worker also the entries of a `◯`/`◉` list, from the same parser), each a `label` and the `keys` that press it (`["2"]`, or `["down", "enter"]`), a label clipped to 60 characters like `ask`, absent when the Board offers none or when the parser returns more than 8; `deny_at` is as above. An item with a screen to guard carries `keys`: the same buttons under `options` (the parsed options when they fit those bounds, else the Board's fixed seven-key toolbar) plus the guard a press needs, `revision`, `digest` and `pressed`, exactly the three values `supervisor.keys` carries for a blocked supervisor. A `blocked` item always carries it; a `worker` carries it once the Board has read its screen. Those lines can show a command, a path or a prompt's text, as the Board does. The full screen and the supervisor's screen page stay out of the API, and `excerpt` is not `cut`, which belongs to a report. A `stalled` title leaves out how long the supervisor has been idle, so a client does not show a count that a `304` would freeze.
 
+An item the Board draws from an attempt carries that attempt's slug line: `attempt_meta` holds `ref`, `harness`, `model`, `status` and `ended_at`, the same values the Board prints beside the item's ref, with the attempt object's omission rules (`model` and `ended_at` absent when empty). For a `failure`, `kept`, `quiet`, `limited`, `long` or `worker` item these are the words the summary line shows; a `report` item keeps `attempt` as its attempt's ref and carries the report's `status` and `created_at` instead, and has no `attempt_meta`. `reason` is that attempt's reason, scrubbed like every attempt reason, absent when it has none; a `failure` shows it in place of its body. `project` is the item's task project, absent when the item has no task; the Board draws it as a badge on a decision or a report when the fleet has more than one project. All three are absent from a `nosup`, `stalled`, `artifacts` or `resume` item; a `resume` item's supervisor words are `Status.supervisor`'s.
+
 While the supervisor's pane is blocked, `supervisor` also carries `"blocked": true` and a `keys` object:
 
 ```json
@@ -178,6 +180,27 @@ The stream ends when the client closes, when the session is revoked, and when th
 
 Each carries the cookie and `X-Hand-CSRF`, and answers one envelope with the updated object. A mutation ignores `?since=` and never answers `304`.
 
+### Receipts and warnings
+
+An action's answer says what the Board's toast would say, in two places: the envelope's `receipt` and `warn` fields, and the `X-Hand-Receipt` and `X-Hand-Warn` headers. The headers hold the same words URL path-escaped, as the Board's own forms send them, so a reader that decodes the header gets the field's string; a field is absent, and its header empty, when the Board has nothing to say. A failed action carries no receipt, because it did not happen, but it carries its `warn` on the header and in the error object's `warn`.
+
+`receipt` is the Board's success words:
+
+| Action | `receipt` |
+|---|---|
+| `POST /decision/{dN}/answer` | `d1 answered · s1 reads it now`, or `d1 answered · no supervisor is running; it waits` |
+| `POST /report/{rN}/ack` | `r1 marked read` |
+| `POST /supervisor/start`, `resume` | `Starting the supervisor…` |
+| `POST /supervisor/stop` | `s1 stopping` |
+| `POST /supervisor/interrupt` | `Interrupt sent to s1` |
+| `POST /supervisor/force` | `Typed into s1` |
+| `POST /supervisor/keys` | `Sent down enter to s1` |
+| `POST /attempt/{aN}/keys` | `Sent enter to a1` |
+
+The supervisor named is the one the Board's own button would name, read before the control runs. Sending a message carries no receipt, because the Board's composer shows none: the answer's timeline is the confirmation. Pairing carries none either.
+
+`warn` is the caveat the Board shows beside the receipt, for 12 seconds rather than 4: the warning the control printed while it succeeded (an unverified model, for one), joined with `; ` when several apply, and the caveat of a write that went through but whose result could not be read, `{"accepted": true}`, which says `the action went through, but the status could not be read: <reason>; refresh to see it` for a control or a key press, and `the message was sent, but the conversation could not be read: <reason>; refresh to see it` for a message. A client shows `receipt` for 4 seconds, `warn` for 12, and both together as `receipt; warn`, as the Board's `app.js` does. A client that shows no toast ignores both.
+
 ### Sending a message
 
 `POST /api/v1/message` takes one JSON object:
@@ -188,7 +211,7 @@ Each carries the cookie and `X-Hand-CSRF`, and answers one envelope with the upd
 
 It has the fleet page's composer semantics: the board normalizes CRLF to LF and runs the same `CheckMessage` the form does, so whitespace-only text, more than 16 KiB, invalid UTF-8, a control character other than a newline or tab, and text that starts with Hand's own envelope prefix are refused. A JSON decoder would replace an invalid UTF-8 byte or an unpaired surrogate escape with U+FFFD, so the board refuses those before decoding the text. The board then runs the supervisor's send path (`supervisor send --text`) and answers the `Timeline` the GET serves, so a client replaces its conversation with the returned data instead of polling for the message. A queued message has `queued: true` and `delivery: "queued"`; a delivered one carries the delivery the GET reports.
 
-If the board queued the message but cannot read the conversation back, it still answers `200`, with `{"accepted": true}` as its data. The message is in, so a client must not send it again: it clears its draft and refreshes the timeline instead.
+If the board queued the message but cannot read the conversation back, it still answers `200`, with `{"accepted": true}` as its data and the caveat in `warn`. The message is in, so a client must not send it again: it shows the warn, clears its draft and refreshes the timeline instead.
 
 - `400 bad_request`: an empty or invalid message, or a body that is not a JSON object.
 - `403 forbidden`: the board has its controls off.
@@ -218,7 +241,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 
 `POST /api/v1/report/{rN}/ack` takes no body. It sets `acked_at` and `acked_by` (`operator (desktop)`, or `phone (<device name>)` for a paired phone) and answers the updated `ReportDetail`. An unknown ref is `404`; a report already acknowledged is `409 conflict`.
 
-A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read.
+A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read. When the answer or the ack went through but the board could not read it back, the answer is `200` with `{"accepted": true}` and the caveat in `warn`: the change is in, so a client does not send it again, shows the warn and refreshes the detail instead.
 
 ### Pairing a phone
 
@@ -299,7 +322,7 @@ Both paths take the refusals of every read: a request through a proxy or Funnel,
 - **stop** and **interrupt** need a running supervisor; anything else is `409 conflict`.
 - **force** is the blocked screen's "Type queued messages anyway": it types the queued messages, or else the wakes, into the prompt. It follows the CLI: a supervisor that is not blocked gets its queued input delivered normally, still only to the named supervisor, and the answer is still `200`.
 
-Start and resume take no body. When a control ran but the board could not read the status back, the answer is `200` with `{"accepted": true}` instead of a `Status`: the action went through, so a client warns that the status is stale and asks for a refresh rather than reporting a failed action. It keeps the screen it has and needs no second read to report the outcome.
+Start and resume take no body. When a control ran but the board could not read the status back, the answer is `200` with `{"accepted": true}` instead of a `Status`, and its `warn` says so: the action went through, so a client shows that warning and asks for a refresh rather than reporting a failed action. It keeps the screen it has and needs no second read to report the outcome.
 
 - `400 bad_request`: stop, interrupt or force without one JSON object, or with a ref that is not `sN`.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
@@ -337,7 +360,7 @@ Start and resume take no body. When a control ran but the board could not read t
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired phone.
 - `404 not_found`: the attempt is not in this fleet.
 - `409 conflict`: the screen changed since the given revision or digest, another key was pressed after `after`, or the attempt is not running; nothing was sent.
-- `200` with the updated `AttemptDetail`.
+- `200` with the updated `AttemptDetail`, or `{"accepted": true}` with the caveat in `warn` when the press went through but the attempt could not be read back.
 
 **The keys decision.** The API never returns a screen. While the supervisor is blocked, `Status.supervisor.keys` carries the revision, digest and pressed sequence the guard needs, and `Status.supervisor.ask` carries the question and option labels the Board's Ask card already shows the operator on the same loopback session, so it adds no new disclosure. A client shows one button per option when `ask` is present, and the fixed seven-key toolbar only when it is absent (a screen the parser does not understand). A worker has no `ask`: the Board's Ask card covers the supervisor's screen only. Its item carries the `excerpt`, `title`, `options` and `keys` above, and a press goes to `/api/v1/attempt/{aN}/keys`.
 
@@ -348,6 +371,8 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 ```json
 {"error": {"status": 404, "code": "not_found", "message": "not found: task t999"}}
 ```
+
+`warn` is present only on a failed action that carried a warning, with the same words as the `X-Hand-Warn` header ([Receipts and warnings](#receipts-and-warnings)).
 
 | Status | `code` | When |
 |---|---|---|
@@ -364,7 +389,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `404` | `not_found` | an unknown route or ref |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
 | `409` | `conflict` | a state conflict while reading or acting |
-| `413` | `too_large` | a request too large for the board; no v1 endpoint answers it yet, because those that take a body answer `bad_request` |
+| `413` | `too_large` | a request larger than the board's post limit, refused by the page's guard before the route runs; a v1 action reads at most 64 KiB of JSON and answers `bad_request` above that |
 | `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |

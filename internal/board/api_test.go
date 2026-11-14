@@ -127,6 +127,8 @@ func apiInto[T any](t *testing.T, h http.Handler, path string) (board.APIEnvelop
 		Fleet       board.APIFleet  `json:"fleet"`
 		Cursor      string          `json:"cursor"`
 		GeneratedAt string          `json:"generated_at"`
+		Receipt     string          `json:"receipt"`
+		Warn        string          `json:"warn"`
 		Data        json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -136,7 +138,7 @@ func apiInto[T any](t *testing.T, h http.Handler, path string) (board.APIEnvelop
 	if err := json.Unmarshal(env.Data, &data); err != nil {
 		t.Fatalf("GET %s data: %v:\n%s", path, err, env.Data)
 	}
-	return board.APIEnvelope{Version: env.Version, Fleet: env.Fleet, Cursor: env.Cursor, GeneratedAt: env.GeneratedAt, Data: data}, data
+	return board.APIEnvelope{Version: env.Version, Fleet: env.Fleet, Cursor: env.Cursor, GeneratedAt: env.GeneratedAt, Receipt: env.Receipt, Warn: env.Warn, Data: data}, data
 }
 
 func testAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) board.APIError {
@@ -207,6 +209,8 @@ func apiBody[T any](t *testing.T, rec *httptest.ResponseRecorder) (board.APIEnve
 		Fleet       board.APIFleet  `json:"fleet"`
 		Cursor      string          `json:"cursor"`
 		GeneratedAt string          `json:"generated_at"`
+		Receipt     string          `json:"receipt"`
+		Warn        string          `json:"warn"`
 		Data        json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -216,7 +220,7 @@ func apiBody[T any](t *testing.T, rec *httptest.ResponseRecorder) (board.APIEnve
 	if err := json.Unmarshal(env.Data, &data); err != nil {
 		t.Fatalf("POST data: %v:\n%s", err, env.Data)
 	}
-	return board.APIEnvelope{Version: env.Version, Fleet: env.Fleet, Cursor: env.Cursor, GeneratedAt: env.GeneratedAt, Data: data}, data
+	return board.APIEnvelope{Version: env.Version, Fleet: env.Fleet, Cursor: env.Cursor, GeneratedAt: env.GeneratedAt, Receipt: env.Receipt, Warn: env.Warn, Data: data}, data
 }
 
 func TestAPIGolden(t *testing.T) {
@@ -548,6 +552,7 @@ func TestAPISendMessageIsAcceptedWhenTheTimelineCannotBeRead(t *testing.T) {
 		Version int             `json:"version"`
 		Fleet   board.APIFleet  `json:"fleet"`
 		Cursor  string          `json:"cursor"`
+		Warn    string          `json:"warn"`
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -561,6 +566,12 @@ func TestAPISendMessageIsAcceptedWhenTheTimelineCannotBeRead(t *testing.T) {
 	}
 	if env.Cursor == "" || env.Fleet.Name != "golden" {
 		t.Fatalf("envelope = %+v", env)
+	}
+	if !strings.HasPrefix(env.Warn, "the message was sent, but the conversation could not be read: ") || !strings.HasSuffix(env.Warn, "; refresh to see it") {
+		t.Fatalf("warn = %q", env.Warn)
+	}
+	if header := apiUnescape(t, rec, "X-Hand-Warn"); header != env.Warn {
+		t.Fatalf("X-Hand-Warn = %q, JSON warn = %q", header, env.Warn)
 	}
 	pending, err := fx.st.PendingSupervisorInputs(context.Background())
 	if err != nil {
@@ -637,6 +648,15 @@ func TestAPISupervisorControlIsAcceptedWhenTheStatusCannotBeRead(t *testing.T) {
 			}](t, rec)
 			if !got.Accepted || env.Cursor == "" || env.Fleet.Name != "golden" {
 				t.Fatalf("answer = %+v, envelope = %+v", got, env)
+			}
+			if !strings.HasPrefix(env.Warn, "the action went through, but the status could not be read: ") || !strings.HasSuffix(env.Warn, "; refresh to see it") {
+				t.Fatalf("warn = %q", env.Warn)
+			}
+			if env.Receipt == "" {
+				t.Fatal("an applied control carries no receipt")
+			}
+			if header := apiUnescape(t, rec, "X-Hand-Warn"); header != env.Warn {
+				t.Fatalf("X-Hand-Warn = %q, JSON warn = %q", header, env.Warn)
 			}
 		})
 	}
@@ -985,6 +1005,199 @@ func TestAPIAttemptKeysRefusals(t *testing.T) {
 	}
 	if a.Status != state.AttemptRunning {
 		t.Fatalf("the fixture worker is %s", a.Status)
+	}
+}
+
+func TestANeedCarriesTheOpenItemsSlugData(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	byRef := map[string]board.APINeed{}
+	for _, n := range st.Needs.Items {
+		byRef[n.Ref] = n
+	}
+	failure, ok := byRef["a2"]
+	if !ok {
+		t.Fatalf("no failure item on a2 in %+v", st.Needs.Items)
+	}
+	meta := failure.AttemptMeta
+	if meta == nil || meta.Ref != "a2" || meta.Harness != "codex" || meta.Model != "gpt-6-luna" || meta.Status != "failed" {
+		t.Fatalf("attempt_meta = %+v", meta)
+	}
+	if at, err := time.Parse(time.RFC3339Nano, meta.EndedAt); err != nil || at.IsZero() {
+		t.Fatalf("ended_at = %q (%v)", meta.EndedAt, err)
+	}
+	if want := "launch did not finish: the worktree already exists at a path that is not ours"; failure.Reason != want {
+		t.Fatalf("reason = %q, want %q", failure.Reason, want)
+	}
+	if failure.Project != "hand" {
+		t.Fatalf("project = %q", failure.Project)
+	}
+	if failure.Attempt != "a2" {
+		t.Fatalf("the attempt ref changed to %q", failure.Attempt)
+	}
+	decision := byRef["d1"]
+	if decision.AttemptMeta != nil || decision.Reason != "" || decision.Project != "hand" {
+		t.Fatalf("decision item = %+v", decision)
+	}
+	report := byRef["r1"]
+	if report.Attempt != "a1" || report.AttemptMeta != nil || report.Reason != "" || report.Project != "hand" || report.Status != "done" {
+		t.Fatalf("report item = %+v", report)
+	}
+	rec := request(h, "GET", "/api/v1/status", nil, true)
+	var root struct {
+		Data struct {
+			Needs struct {
+				Items []map[string]json.RawMessage `json:"items"`
+			} `json:"needs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &root); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range root.Data.Needs.Items {
+		var ref string
+		_ = json.Unmarshal(item["ref"], &ref)
+		_, hasMeta := item["attempt_meta"]
+		_, hasReason := item["reason"]
+		_, hasProject := item["project"]
+		if ref == "a2" {
+			if !hasMeta || !hasReason || !hasProject {
+				t.Fatalf("failure item = %v", item)
+			}
+			continue
+		}
+		if hasMeta || hasReason {
+			t.Fatalf("%s carries slug data it has none of: %v", ref, item)
+		}
+		if ref == "d1" && !hasProject {
+			t.Fatalf("decision item has no project: %v", item)
+		}
+	}
+}
+
+func apiUnescape(t *testing.T, rec *httptest.ResponseRecorder, name string) string {
+	t.Helper()
+	v := rec.Header().Get(name)
+	if v == "" {
+		return ""
+	}
+	got, err := url.PathUnescape(v)
+	if err != nil {
+		t.Fatalf("%s = %q: %v", name, v, err)
+	}
+	return got
+}
+
+func TestEveryActionAnswersWithTheBoardsReceipt(t *testing.T) {
+	for _, c := range []struct {
+		name, path string
+		body       any
+		want       string
+	}{
+		{"answer", "/api/v1/decision/d1/answer", map[string]string{"choice": "1. Yes, keep it", "note": "the docs keep the old name"}, "d1 answered · s1 reads it now"},
+		{"ack", "/api/v1/report/r1/ack", nil, "r1 marked read"},
+		{"start", "/api/v1/supervisor/start", nil, "Starting the supervisor…"},
+		{"resume", "/api/v1/supervisor/resume", nil, "Starting the supervisor…"},
+		{"stop", "/api/v1/supervisor/stop", map[string]string{"ref": "s1"}, "s1 stopping"},
+		{"interrupt", "/api/v1/supervisor/interrupt", map[string]string{"ref": "s1"}, "Interrupt sent to s1"},
+		{"force", "/api/v1/supervisor/force", map[string]string{"ref": "s1"}, "Typed into s1"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			rec := apiPost(t, fx.handler(), c.path, c.body, token, true)
+			env, _ := apiBody[any](t, rec)
+			if env.Receipt != c.want {
+				t.Fatalf("receipt = %q, want %q", env.Receipt, c.want)
+			}
+			if got := apiUnescape(t, rec, "X-Hand-Receipt"); got != env.Receipt {
+				t.Fatalf("X-Hand-Receipt = %q, JSON receipt = %q", got, env.Receipt)
+			}
+			if env.Warn != "" || rec.Header().Get("X-Hand-Warn") != "" {
+				t.Fatalf("warn = %q, header %q", env.Warn, rec.Header().Get("X-Hand-Warn"))
+			}
+		})
+	}
+}
+
+func TestAKeysAnswerCarriesTheBoardsReceipt(t *testing.T) {
+	t.Run("supervisor", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		fx.status, fx.screen = "blocked", "Allow Bash?\n❯ 1. Yes\n  2. No"
+		h := fx.handler()
+		_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+		keys := st.Supervisor.Keys
+		rec := apiPost(t, h, "/api/v1/supervisor/keys",
+			map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed, "ref": "s1"}, token, true)
+		env, _ := apiBody[any](t, rec)
+		if want := "Sent down enter to s1"; env.Receipt != want {
+			t.Fatalf("receipt = %q, want %q", env.Receipt, want)
+		}
+		if got := apiUnescape(t, rec, "X-Hand-Receipt"); got != env.Receipt {
+			t.Fatalf("X-Hand-Receipt = %q, JSON receipt = %q", got, env.Receipt)
+		}
+	})
+	t.Run("worker", func(t *testing.T) {
+		fx := newFixture(t)
+		fx.screen = "Allow?\n❯ 1. Yes\n  2. No"
+		blockedWorker(t, fx, "Fix login")
+		h := fx.handler()
+		_, item := needItem(t, h, "worker")
+		rec := apiPost(t, h, "/api/v1/attempt/a1/keys",
+			map[string]any{"key": "enter", "revision": item.Keys.Revision, "after": item.Keys.Pressed, "screen": item.Keys.Digest}, token, true)
+		env, _ := apiBody[any](t, rec)
+		if want := "Sent enter to a1"; env.Receipt != want {
+			t.Fatalf("receipt = %q, want %q", env.Receipt, want)
+		}
+		if got := apiUnescape(t, rec, "X-Hand-Receipt"); got != env.Receipt {
+			t.Fatalf("X-Hand-Receipt = %q, JSON receipt = %q", got, env.Receipt)
+		}
+	})
+}
+
+func TestAnActionsAnswerCarriesTheBoardsWarning(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.warn = "claude model acme-opus is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models; starting anyway"
+	rec := apiPost(t, fx.handler(), "/api/v1/supervisor/start", nil, token, true)
+	env, _ := apiBody[board.APIStatus](t, rec)
+	if env.Warn != fx.warn {
+		t.Fatalf("warn = %q, want %q", env.Warn, fx.warn)
+	}
+	if env.Receipt != "Starting the supervisor…" {
+		t.Fatalf("receipt = %q", env.Receipt)
+	}
+	if got := apiUnescape(t, rec, "X-Hand-Warn"); got != env.Warn {
+		t.Fatalf("X-Hand-Warn = %q, JSON warn = %q", got, env.Warn)
+	}
+}
+
+func TestAFailedActionStillCarriesItsWarning(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.warn = "the screen moved under the press; nothing was sent"
+	fx.fail = fmt.Errorf("%w: the screen changed since revision 7; nothing was sent", state.ErrConflict)
+	rec := apiPost(t, fx.handler(), "/api/v1/supervisor/interrupt", map[string]string{"ref": "s1"}, token, true)
+	got := testAPIError(t, rec, http.StatusConflict, "conflict")
+	if got.Warn != fx.warn {
+		t.Fatalf("error warn = %q, want %q", got.Warn, fx.warn)
+	}
+	if header := apiUnescape(t, rec, "X-Hand-Warn"); header != got.Warn {
+		t.Fatalf("X-Hand-Warn = %q, JSON warn = %q", header, got.Warn)
+	}
+	if rec.Header().Get("X-Hand-Receipt") != "" {
+		t.Fatalf("a failed action carries a receipt: %q", rec.Header().Get("X-Hand-Receipt"))
+	}
+}
+
+func TestASentMessageCarriesNoReceipt(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	rec := apiPost(t, fx.handler(), "/api/v1/message", map[string]string{"text": "hello"}, token, true)
+	env, _ := apiBody[board.APITimeline](t, rec)
+	if env.Receipt != "" || rec.Header().Get("X-Hand-Receipt") != "" {
+		t.Fatalf("message receipt = %q, header %q", env.Receipt, rec.Header().Get("X-Hand-Receipt"))
 	}
 }
 
