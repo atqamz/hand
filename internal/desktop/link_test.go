@@ -110,7 +110,7 @@ func TestOpenLinkLandsOnTheRef(t *testing.T) {
 		"task":     {"task/t1", desktop.TaskScreen, "t1"},
 		"decision": {"decision/d1", desktop.DecisionScreen, "d1"},
 		"attempt":  {"attempt/a1", desktop.AttemptScreen, "a1"},
-		"report":   {"task/t1#r1", desktop.ReportScreen, "r1"},
+		"report":   {"task/t1#r1", desktop.TaskScreen, "t1"},
 		"fleet":    {"", desktop.BoardScreen, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -185,5 +185,5 @@ func TestAnOpenedRefRenders(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt := newTester(app)
-	mustText(t, tt, "second", "d1", "Options", "Yes, keep it", "No, rename it", "Open task")
+	mustText(t, tt, "second", "d1", "Options", "Yes, keep it", "No, rename it", "for Fix login")
 }

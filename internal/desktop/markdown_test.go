@@ -12,7 +12,7 @@ const reportBody = "Result:\n\n| Check | Outcome |\n|---|---|\n| lint | green |\
 
 func reportApp(t *testing.T, body string) (*desktop.App, *ui.Tester) {
 	t.Helper()
-	return reportAppAt(t, body, "")
+	return reportAppAt(t, "Result\n\n"+body, "")
 }
 
 func reportAppAt(t *testing.T, body, home string) (*desktop.App, *ui.Tester) {
@@ -22,6 +22,10 @@ func reportAppAt(t *testing.T, body, home string) (*desktop.App, *ui.Tester) {
 	rd := f.report[fleetID]
 	rd.Report.Body = body
 	f.report[fleetID] = rd
+	td := f.task[fleetID]
+	td.Reports = append([]desktop.Report(nil), td.Reports...)
+	td.Reports[0].Body = body
+	f.task[fleetID] = td
 	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
@@ -29,8 +33,8 @@ func reportAppAt(t *testing.T, body, home string) (*desktop.App, *ui.Tester) {
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open r1")
-	if app.Screen != desktop.ReportScreen {
-		t.Fatalf("screen = %v, want the report", app.Screen)
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("screen = %v %q, want the task at r1's card", app.Screen, app.Ref)
 	}
 	return app, tt
 }
@@ -83,7 +87,7 @@ func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hand := installFakeHand(t)
-			_, tt := reportAppAt(t, "Open [the link]("+tc.dest+") now", hand.home)
+			_, tt := reportAppAt(t, "Result\n\nOpen [the link]("+tc.dest+") now", hand.home)
 			click(t, tt, "the link")
 			got := tt.OpenedURLs()
 			if tc.want == "" {
@@ -121,7 +125,7 @@ func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
 	} {
 		t.Run(tc.dest, func(t *testing.T) {
 			hand := installFakeHand(t)
-			app, tt := reportAppAt(t, "Open [the link]("+tc.dest+") now", hand.home)
+			app, tt := reportAppAt(t, "Result\n\nOpen [the link]("+tc.dest+") now", hand.home)
 			click(t, tt, "the link")
 			if got := tt.OpenedURLs(); len(got) != 0 {
 				t.Fatalf("opened %q in the browser directly", got)

@@ -474,11 +474,7 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 				if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
 					a.markdown(c, body)
 				}
-				a.answerForm(c, k, p, d, false)
-				if d.Decision.Answer != "" {
-					ui.Text(c, "Answer").FontSize(kit.Meta.Size).Bold().TextColor(k.Muted)
-					a.markdown(c, d.Decision.Answer)
-				}
+				a.answerForm(c, k, p, d)
 			default:
 				ui.Text(c, "Reading "+need.Decision+"…").FontSize(kit.Body.Size).TextColor(k.Muted)
 			}
@@ -806,8 +802,11 @@ func (a *App) answerNeedsNote(choice, note string) bool {
 	return false
 }
 
-func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetail, heading bool) {
-	open := d.Decision.Status == "open"
+func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetail) {
+	if d.Decision.Status != "open" {
+		a.answeredDecision(c, k, p, d)
+		return
+	}
 	other := false
 	for _, o := range d.Options {
 		if a.AnswerChoice == o.Value && o.Other {
@@ -815,69 +814,35 @@ func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetai
 		}
 	}
 	if len(d.Options) > 0 {
-		if heading {
-			a.section(c, p, "Options")
-		}
-		if open {
-			options := make([]kit.Choice, 0, len(d.Options))
-			for _, o := range d.Options {
-				options = append(options, kit.Choice{
-					Value: o.Value, Key: o.Key, Label: o.Label, Note: o.Note,
-					Recommended: o.Recommended, Long: o.Long,
-					Picked: a.AnswerChoice == o.Value, Disabled: a.Busy,
-				})
-			}
-			if picked := kit.ChoiceList(c, k, options); picked != "" && !a.Busy {
-				a.pickChoice(picked, d.Options)
-			}
-		} else {
-			ui.Column(c).Gap(6).Children(func() {
-				for _, o := range d.Options {
-					option := o
-					selected := a.AnswerChoice == option.Value
-					bg, border := p.card, p.line
-					if selected {
-						bg, border = p.passBG, p.pass
-					}
-					el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
-						Radius(8).Background(bg).Border(1, border).Disabled(true)
-					el.Children(func() {
-						ui.Text(c, option.Key).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).Width(18)
-						ui.Column(c).Gap(2).Grow(1).Children(func() {
-							ui.Row(c).Gap(8).Children(func() {
-								ui.Text(c, option.Label).FontSize(kit.Body.Size).Bold()
-								if option.Recommended {
-									ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
-								}
-							})
-							if option.Note != "" {
-								ui.Text(c, option.Note).FontSize(kit.Meta.Size).TextColor(p.neutral)
-							}
-						})
-					})
-				}
+		options := make([]kit.Choice, 0, len(d.Options))
+		for _, o := range d.Options {
+			options = append(options, kit.Choice{
+				Value: o.Value, Key: o.Key, Label: shownText(o.Label), Note: shownText(o.Note),
+				Recommended: o.Recommended, Long: o.Long,
+				Picked: a.AnswerChoice == o.Value, Disabled: a.Busy,
 			})
 		}
+		if picked := kit.ChoiceList(c, k, options); picked != "" && !a.Busy {
+			a.pickChoice(picked, d.Options)
+		}
 	}
-	if open {
-		placeholder := "Your answer"
-		if len(d.Options) > 0 {
-			placeholder = "Add a note (optional)"
-		}
-		if other {
-			placeholder = "Write your answer (required)"
-		}
-		note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
-			Disabled(a.Busy)
-		if a.focusNote {
-			note.Focus()
-			a.focusNote = false
-		}
-		if other && strings.TrimSpace(a.AnswerNote) == "" {
-			ui.Text(c, noteRequiredText).FontSize(kit.Meta.Size).TextColor(p.fail)
-		}
-		a.sendAnswer(c, k)
+	placeholder := "Your answer"
+	if len(d.Options) > 0 {
+		placeholder = "Add a note (optional)"
 	}
+	if other {
+		placeholder = "Write your answer (required)"
+	}
+	note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
+		Disabled(a.Busy)
+	if a.focusNote {
+		note.Focus()
+		a.focusNote = false
+	}
+	if other && strings.TrimSpace(a.AnswerNote) == "" {
+		ui.Text(c, noteRequiredText).FontSize(kit.Meta.Size).TextColor(p.fail)
+	}
+	a.sendAnswer(c, k)
 }
 
 func (a *App) sendAnswer(c *ui.Context, k kit.Colors) {

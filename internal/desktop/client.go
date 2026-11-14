@@ -76,7 +76,6 @@ type Poll struct {
 	Task           TaskDetail
 	Attempt        AttemptDetail
 	Decision       DecisionDetail
-	Report         ReportDetail
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -348,16 +347,12 @@ func pollPath(screen Screen, ref string) string {
 		return "/attempt/" + url.PathEscape(ref)
 	case DecisionScreen:
 		return "/decision/" + url.PathEscape(ref)
-	case ReportScreen:
-		return "/report/" + url.PathEscape(ref)
 	}
 	return "/tasks?all=1"
 }
 
 func pollData(screen Screen, p *Poll) any {
 	switch screen {
-	case BoardScreen:
-		return &p.Tasks
 	case TaskScreen:
 		return &p.Task
 	case AttemptScreen:
@@ -365,7 +360,7 @@ func pollData(screen Screen, p *Poll) any {
 	case DecisionScreen:
 		return &p.Decision
 	}
-	return &p.Report
+	return &p.Tasks
 }
 
 func (c *HTTPClient) pollAs(ctx context.Context, fleet, token, path, since string, out any) (bool, string, error) {

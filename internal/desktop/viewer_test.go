@@ -273,10 +273,10 @@ func TestTheStripNamesThePage(t *testing.T) {
 	if got := desktop.ViewerName(app); got != "Fix login" {
 		t.Fatalf("the task page is named %q", got)
 	}
-	for _, ref := range []string{"a1", "r1", "d1"} {
+	for ref, want := range map[string]string{"a1": "claude sonnet low", "r1": "Fix login", "d1": "Keep the old cookie name?"} {
 		app.OpenRef(ref)
-		if got := desktop.ViewerName(app); got != ref {
-			t.Fatalf("the %s page is named %q", ref, got)
+		if got := desktop.ViewerName(app); got != want {
+			t.Fatalf("the %s page is named %q, want %q", ref, got, want)
 		}
 	}
 	app.OpenRef("t9")
@@ -873,6 +873,33 @@ func TestScenesViewer(t *testing.T) {
 		{"stack", func(t *testing.T, f *fixture, app *desktop.App, tt *ui.Tester) func() {
 			click(t, tt, "Fix login")
 			click(t, tt, "attempt a1")
+			return nil
+		}},
+		{"attempt", func(t *testing.T, f *fixture, app *desktop.App, tt *ui.Tester) func() {
+			withAttemptTranscript(f)
+			app.OpenRef("a1")
+			return nil
+		}},
+		{"decision", func(t *testing.T, f *fixture, app *desktop.App, tt *ui.Tester) func() {
+			d := f.decision[fleetID]
+			d.Body = "CI broke when luvus 0.15 changed the output of luvus session list.\n\n" + d.Body
+			d.Options[0].Recommended = true
+			d.Options[0].Note = "the output keeps its shape"
+			d.Options[1].Note = "the release notes change with it"
+			f.decision[fleetID] = d
+			app.OpenRef("d1")
+			return nil
+		}},
+		{"answered", func(t *testing.T, f *fixture, app *desktop.App, tt *ui.Tester) func() {
+			withAnsweredDecision(f)
+			app.OpenRef("d1")
+			return nil
+		}},
+		{"report", func(t *testing.T, f *fixture, app *desktop.App, tt *ui.Tester) func() {
+			click(t, tt, "Fix login")
+			tt.Scroll(400, 400, 0, 160)
+			tt.Frame()
+			click(t, tt, "open report r3")
 			return nil
 		}},
 	}

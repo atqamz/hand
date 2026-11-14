@@ -22,7 +22,6 @@ const (
 	TaskScreen
 	AttemptScreen
 	DecisionScreen
-	ReportScreen
 )
 
 // The auto-refresh intervals: short while the window has keyboard focus,
@@ -139,13 +138,14 @@ type App struct {
 	draftFleet    string
 	draftText     string
 
-	Status   Status
-	Timeline Timeline
-	Tasks    Tasks
-	Task     TaskDetail
-	Attempt  AttemptDetail
-	Decision DecisionDetail
-	Report   ReportDetail
+	Status     Status
+	Timeline   Timeline
+	Tasks      Tasks
+	Task       TaskDetail
+	Attempt    AttemptDetail
+	Decision   DecisionDetail
+	pageReport string
+	scrollTo   string
 
 	Err      string
 	Starting bool
@@ -221,6 +221,7 @@ type readState struct {
 type backStep struct {
 	Screen Screen
 	Ref    string
+	Report string
 }
 
 type found struct {
@@ -373,6 +374,7 @@ func (a *App) SelectFleet(id string) {
 		a.Fleet = f
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.pageReport, a.scrollTo = "", ""
 	a.scroll.Y = math.MaxFloat32
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.openerRef, a.boardFocus = "", false
@@ -385,7 +387,7 @@ func (a *App) SelectFleet(id string) {
 	a.decTried, a.decErr, a.attTried, a.attErr = "", "", "", ""
 	a.needAttempt = AttemptDetail{}
 	a.TimelineErr, a.OlderErr = "", ""
-	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
+	a.Task, a.Attempt, a.Decision = TaskDetail{}, AttemptDetail{}, DecisionDetail{}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
 	a.OpenBusy = false
@@ -455,6 +457,7 @@ const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
+	a.pageReport, a.scrollTo = "", ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
 	if s == BoardScreen {
@@ -465,29 +468,111 @@ func (a *App) Show(s Screen) {
 
 // OpenRef opens the page of a ref: over the Board it is the viewer's first
 // page, and inside the viewer it pushes one deeper. The stack is capped at
-// 20 pages, so the next link replaces the top one.
+// 20 pages, so the next link replaces the top one. A report has no page of
+// its own: its ref opens the task page at the report's card.
 func (a *App) OpenRef(ref string) {
 	if ref == "" || a.Fleet.ID == "" {
+		return
+	}
+	if strings.HasPrefix(ref, "r") {
+		a.openReport(ref)
 		return
 	}
 	s, ok := refScreen(ref)
 	if !ok {
 		return
 	}
-	if a.Screen == s && a.Ref == ref {
+	a.openPage(s, ref, "", ref)
+}
+
+// openReport opens a report where the Board draws it: on its task's page,
+// scrolled to the report's card. The page address is the task and the
+// report's ref, so Back steps to the page the report was read from.
+func (a *App) openReport(ref string) {
+	if ref == "" || a.Fleet.ID == "" {
+		return
+	}
+	if task := a.reportTask(ref); task != "" {
+		a.openPage(TaskScreen, task, ref, ref)
+		return
+	}
+	a.loadReportTask(ref)
+}
+
+func (a *App) openPage(s Screen, ref, report, opener string) {
+	if a.Screen == s && a.Ref == ref && a.pageReport == report {
 		return
 	}
 	if a.Screen == BoardScreen {
-		a.openerRef = ref
+		a.openerRef = opener
 		a.viewerFocus = true
 	}
 	if a.Screen != BoardScreen && len(a.back) < viewerStackMax-1 {
-		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
+		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport})
 	}
-	a.Screen, a.Ref = s, ref
+	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.Reload()
+}
+
+func (a *App) reportTask(ref string) string {
+	for _, n := range a.Status.Needs.Items {
+		if n.Report == ref || n.Ref == ref && n.Kind == "report" {
+			if n.Task != "" {
+				return n.Task
+			}
+		}
+	}
+	for _, r := range a.Task.Unread {
+		if r.Ref == ref {
+			return a.Task.Task.Ref
+		}
+	}
+	for _, r := range a.Task.Reports {
+		if r.Ref == ref {
+			return a.Task.Task.Ref
+		}
+	}
+	for _, r := range a.Attempt.Reports {
+		if r.Ref == ref {
+			return a.Attempt.Task.Ref
+		}
+	}
+	return ""
+}
+
+func (a *App) loadReportTask(ref string) {
+	if a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet := a.Model, a.Fleet.ID
+	done := func(r ReportDetail, err error) {
+		if id != a.loadID {
+			return
+		}
+		if err != nil {
+			a.noticeTitle = "The report could not be read"
+			a.notice = friendly(err)
+			a.noticeKey = "report-open:" + ref
+			a.noticeError = true
+			return
+		}
+		a.openPage(TaskScreen, r.Task.Ref, ref, ref)
+	}
+	if post == nil {
+		r, err := model.Report(ctx, fleet, ref)
+		cancel()
+		done(r, err)
+		return
+	}
+	go func() {
+		r, err := model.Report(ctx, fleet, ref)
+		cancel()
+		post(func() { done(r, err) })
+	}()
 }
 
 // CloseViewer closes the whole stack in one step, as Escape, the close
@@ -501,6 +586,7 @@ func (a *App) CloseViewer() {
 	}
 	a.openerRef = ""
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.pageReport, a.scrollTo = "", ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
@@ -531,35 +617,8 @@ func refScreen(ref string) (Screen, bool) {
 		return AttemptScreen, true
 	case 'd':
 		return DecisionScreen, true
-	case 'r':
-		return ReportScreen, true
 	}
 	return 0, false
-}
-
-func (a *App) next(done string) {
-	if a.Ref != done || len(a.back) > 0 {
-		return
-	}
-	for _, need := range a.Status.Needs.Items {
-		ref := needRef(need)
-		if ref == done {
-			continue
-		}
-		if ref == "" {
-			break
-		}
-		if s, ok := refScreen(ref); ok {
-			a.Screen, a.Ref = s, ref
-			a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
-			a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
-			a.viewerFocus = true
-			a.Reload()
-			return
-		}
-		break
-	}
-	a.CloseViewer()
 }
 
 func (a *App) Back() {
@@ -568,7 +627,7 @@ func (a *App) Back() {
 	}
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
-	a.Screen, a.Ref = step.Screen, step.Ref
+	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = true
@@ -651,7 +710,6 @@ func (a *App) Answer() {
 			return
 		}
 		a.Status = st
-		a.next(ref)
 		a.nextNeed(ref)
 	}
 	failed := func(err error) {
@@ -659,8 +717,16 @@ func (a *App) Answer() {
 			return
 		}
 		a.Busy = false
-		a.receipt = friendly(err)
-		a.receiptKey = "answer:" + ref
+		var unread *AppliedUnread
+		if errors.As(err, &unread) {
+			a.noticeTitle = "The answer could not be read"
+			a.notice = "the card refreshes itself"
+		} else {
+			a.noticeTitle = "The action did not go through"
+			a.notice = friendly(err)
+		}
+		a.noticeKey = "answer:" + ref
+		a.noticeError = true
 		a.Reload()
 	}
 	stale := func(err error) {
@@ -714,7 +780,6 @@ func (a *App) Ack(ref string) {
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" || ref == "" {
 		return
 	}
-	screen := a.Screen
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID
@@ -740,9 +805,6 @@ func (a *App) Ack(ref string) {
 		}
 		a.Status = st
 		a.reconcileAcked()
-		if screen == ReportScreen {
-			a.next(ref)
-		}
 		a.nextNeed(ref)
 	}
 	failed := func(err error) {
@@ -814,9 +876,6 @@ func (a *App) Ack(ref string) {
 // applyAck writes a report's new state where the window shows it, so the
 // card reads "read by" before the next poll.
 func (a *App) applyAck(ref string, r Report) {
-	if a.Report.Report.Ref == ref {
-		a.Report.Report = r
-	}
 	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
 	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
 	kept := a.Task.Unread[:0:0]
@@ -1526,8 +1585,6 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 		a.Attempt = p.Attempt
 	case DecisionScreen:
 		a.Decision = p.Decision
-	case ReportScreen:
-		a.Report = p.Report
 	}
 	a.pollScreenFor, a.pollScreenCursor = key, p.ScreenCursor
 }
@@ -1641,7 +1698,6 @@ type loaded struct {
 	Task     TaskDetail
 	Attempt  AttemptDetail
 	Decision DecisionDetail
-	Report   ReportDetail
 	Err      string
 
 	TimelineOK  bool
@@ -1670,8 +1726,6 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 		l.Attempt, err = model.Attempt(ctx, fleet, ref)
 	case DecisionScreen:
 		l.Decision, err = model.Decision(ctx, fleet, ref)
-	case ReportScreen:
-		l.Report, err = model.Report(ctx, fleet, ref)
 	}
 	if err != nil && ctx.Err() == nil {
 		l.Err = friendly(err)
@@ -1720,8 +1774,6 @@ func (a *App) apply(l loaded) {
 		a.Attempt = l.Attempt
 	case DecisionScreen:
 		a.Decision = l.Decision
-	case ReportScreen:
-		a.Report = l.Report
 	}
 }
 
