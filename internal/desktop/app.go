@@ -157,6 +157,7 @@ type App struct {
 	viewerScroll  ui.ScrollState
 	asideScroll   ui.ScrollState
 	boardScroll   ui.ScrollState
+	viewerFocus   bool
 	wakesOpen     map[string]bool
 	latestNew     int
 	latestCount   int
@@ -385,6 +386,7 @@ const viewerStackMax = 20
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerFocus = false
 	if s == BoardScreen {
 		a.viewerScroll = ui.ScrollState{}
 	}
@@ -423,6 +425,7 @@ func (a *App) CloseViewer() {
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll = ui.ScrollState{}
+	a.viewerFocus = false
 	a.Reload()
 }
 
@@ -456,6 +459,7 @@ func (a *App) next(done string) {
 			a.Screen, a.Ref = s, ref
 			a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 			a.viewerScroll = ui.ScrollState{}
+			a.viewerFocus = true
 			a.Reload()
 			return
 		}
@@ -473,6 +477,7 @@ func (a *App) Back() {
 	a.Screen, a.Ref = step.Screen, step.Ref
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll = ui.ScrollState{}
+	a.viewerFocus = true
 	a.Reload()
 }
 
@@ -716,6 +721,7 @@ func (a *App) applyAck(ref string, r Report) {
 		}
 	}
 	a.Task.Unread = kept
+	a.viewerFocus = a.viewerOpen()
 }
 
 func ackedReports(have []Report, ref string, r Report) []Report {
@@ -1393,6 +1399,9 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 	case BoardScreen:
 		a.Tasks = p.Tasks
 	case TaskScreen:
+		if a.Task.Task.Ref == p.Task.Task.Ref && ackedBetween(a.Task.Reports, p.Task.Reports) {
+			a.viewerFocus = true
+		}
 		a.Task = p.Task
 	case AttemptScreen:
 		a.Attempt = p.Attempt
@@ -1402,6 +1411,21 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 		a.Report = p.Report
 	}
 	a.pollScreenFor, a.pollScreenCursor = key, p.ScreenCursor
+}
+
+// ackedBetween reports whether a report that was unread in have is read in
+// next: its Mark read button is gone from the page.
+func ackedBetween(have, next []Report) bool {
+	was := make(map[string]bool, len(have))
+	for _, r := range have {
+		was[r.Ref] = r.AckedAt != ""
+	}
+	for _, r := range next {
+		if r.AckedAt != "" && !was[r.Ref] {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeTimeline(have, next Timeline) Timeline {

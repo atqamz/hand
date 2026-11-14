@@ -89,13 +89,17 @@ func (a *App) readingPage(c *ui.Context, p palette) {
 }
 
 func (a *App) pageScroll(c *ui.Context, body func()) {
-	ui.Scroll(c).Grow(1).MinHeight(0).Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32).
+	page := ui.Scroll(c).Grow(1).MinHeight(0).Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
 		Children(func() {
 			ui.Column(c).Gap(kit.Space16).Selectable().Children(func() {
 				body()
 			})
 		})
+	if a.viewerFocus {
+		a.viewerFocus = false
+		page.Focus()
+	}
 }
 
 func (a *App) viewerError(c *ui.Context, p palette) {
@@ -130,7 +134,7 @@ func (a *App) taskPage(c *ui.Context, k kit.Colors, p palette, wide bool) {
 }
 
 func (a *App) taskMain(c *ui.Context, k kit.Colors, p palette, asideFirst bool) {
-	ui.Scroll(c).Grow(1).FillHeight().MinHeight(0).Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32).
+	page := ui.Scroll(c).Grow(1).FillHeight().MinHeight(0).Padding(kit.ViewerTop+kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
 		Children(func() {
 			ui.Column(c).Gap(kit.Space14).Selectable().Children(func() {
@@ -143,6 +147,10 @@ func (a *App) taskMain(c *ui.Context, k kit.Colors, p palette, asideFirst bool) 
 				a.taskSections(c, p)
 			})
 		})
+	if a.viewerFocus {
+		a.viewerFocus = false
+		page.Focus()
+	}
 }
 
 func (a *App) taskHead(c *ui.Context, p palette) {
