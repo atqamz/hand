@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -518,6 +519,63 @@ func (rt *fakeRuntime) isClosed(id string) bool {
 	return false
 }
 
+func TestACloseThatOutlivesTheReapFailsOpen(t *testing.T) {
+	reap := workerReap
+	workerReap = 50 * time.Millisecond
+	t.Cleanup(func() { workerReap = reap })
+
+	rt := startRuntime(t, fakeuhp.ShortSocket(t))
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^$")
+	cmd.Env = environment(os.Environ(), "HAND_TEST_AS_HAND=", "HAND_TEST_HOLD=")
+	proc.NewGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("root process: %v", err)
+	}
+	term := &fakeTerm{id: "term-1", pane: "2", cmd: cmd, done: make(chan struct{})}
+	rt.mu.Lock()
+	rt.terms = append(rt.terms, term)
+	rt.mu.Unlock()
+
+	stream, err := luvus.Client{Socket: rt.srv.Socket}.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	eventually(t, func() bool { return rt.srv.Subscribers() == 1 })
+
+	params, err := json.Marshal(map[string]any{"server_generation": rt.srv.Generation(), "terminal_id": term.id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := rt.close(params)
+	var fail fakeuhp.Fail
+	if !errors.As(err, &fail) || fail.Code != "close_timeout" {
+		t.Fatalf("close = %v, %v; want a close_timeout failure", answer, err)
+	}
+	if pid := strconv.Itoa(cmd.Process.Pid); !strings.Contains(fail.Message, pid) {
+		t.Fatalf("close_timeout does not name the root process %d: %q", cmd.Process.Pid, fail.Message)
+	}
+	if answer != nil {
+		t.Fatalf("a timed-out close answered %v", answer)
+	}
+	if rt.isClosed(term.id) {
+		t.Fatal("a timed-out close marked the terminal closed")
+	}
+
+	rt.srv.Publish("test.sentinel", map[string]any{})
+	ev, err := stream.Next()
+	if err != nil || ev.Event != "test.sentinel" {
+		t.Fatalf("first event after the timeout = %+v, %v; want the sentinel and no pane.closed", ev, err)
+	}
+}
+
 type attemptFixture struct {
 	h     *harness
 	rt    *fakeRuntime
@@ -608,7 +666,7 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	return fx
 }
 
-const workerReap = 5 * time.Second
+var workerReap = 5 * time.Second
 
 type recordedWorker struct {
 	pid    int
