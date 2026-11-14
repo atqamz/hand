@@ -274,10 +274,11 @@ class ChatModel(
     pending = false
     load()
     if (mutableState.value.unpaired || mutableState.value.refused != null) return
-    if (!eventsSupported()) return poll()
+    val supported = eventsSupported()
+    if (mutableState.value.unpaired) return
     coroutineScope {
       launch { tick() }
-      bus.events.filter { it.fleet == fleet }.collect(::reduce)
+      if (!supported) poll() else bus.events.filter { it.fleet == fleet }.collect(::reduce)
     }
   }
 
