@@ -177,6 +177,9 @@ func TestBoardStartSurfacesTheBoardsLastLine(t *testing.T) {
 	if code != 3 {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
+	if token := fx.token(t); strings.Contains(errOut, token) {
+		t.Fatalf("the failure printed the token: %q", errOut)
+	}
 	lines := strings.Split(strings.TrimSpace(errOut), "\n")
 	if last := lines[len(lines)-1]; !strings.Contains(last, "board cannot start") {
 		t.Fatalf("last line = %q of %q", last, errOut)
