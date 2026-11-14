@@ -25,6 +25,7 @@ private val decision = need("decision", "DECISION", "wait", ""","title":"Pin it?
 private val report =
   need("report", "REPORT", "neutral", ""","title":"Done","report":"r1","excerpt":"All tests pass."""")
 private val another = report.replace("r1", "r2")
+private val blocked2 = blocked.replace("b1", "b2")
 
 private fun status(
   items: List<String>,
@@ -339,7 +340,7 @@ class FleetModelTest {
     assertEquals(Opens.Card, opensOf(blocked))
     assertEquals(Opens.Choice, opensOf(decision))
     assertEquals(Opens.Row, opensOf(failure))
-    assertEquals(Opens.Card, opensOf(report))
+    assertEquals(Opens.Report, opensOf(report))
     assertEquals(Opens.Web, opensOf(worker))
     assertEquals(Opens.Web, opensOf(need("artifacts", "OLD FILES", "neutral")))
   }
@@ -353,20 +354,20 @@ class FleetModelTest {
 
   @Test
   fun theFirstCardIsOpenAndATapMovesOrClosesIt() {
-    val model = model(Board({ status(listOf(blocked, report, another)) }))
+    val model = model(Board({ status(listOf(blocked, blocked2, report)) }))
     runBlocking { model.refresh() }
     assertEquals("blocked:b1", model.now().openKey())
-    model.toggle("report:r2")
-    assertEquals("report:r2", model.now().openKey())
-    model.toggle("report:r2")
+    model.toggle("blocked:b2")
+    assertEquals("blocked:b2", model.now().openKey())
+    model.toggle("blocked:b2")
     assertNull(model.now().openKey())
   }
 
   @Test
   fun aDecisionOpensInPlaceInsteadOfTheFirstCard() {
-    val model = model(Board({ status(listOf(decision, report)) }))
+    val model = model(Board({ status(listOf(decision, blocked)) }))
     runBlocking { model.refresh() }
-    assertEquals("report:r1", model.now().openKey())
+    assertEquals("blocked:b1", model.now().openKey())
     model.toggle("decision:d1")
     assertEquals("decision:d1", model.now().openKey())
     model.toggle("decision:d1")
@@ -375,13 +376,13 @@ class FleetModelTest {
 
   @Test
   fun whenTheOpenCardLeavesTheFirstCardOpens() {
-    var items = listOf(report, decision, another)
+    var items = listOf(blocked, blocked2, decision)
     val model = model(Board({ status(items) }))
     runBlocking { model.refresh() }
-    model.toggle("report:r2")
-    items = listOf(decision, report)
+    model.toggle("blocked:b2")
+    items = listOf(decision, blocked)
     runBlocking { model.refresh() }
-    assertEquals("report:r1", model.now().openKey())
+    assertEquals("blocked:b1", model.now().openKey())
   }
 
   @Test

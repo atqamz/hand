@@ -179,8 +179,6 @@ private fun AttemptContent(
       items(detail.reports, key = { "report:${it.ref}" }) { report ->
         ReportCard(
           report,
-          detail.task.ref,
-          fleet,
           report.ref in state.marking,
           state.errors[report.ref],
           onMarkRead,

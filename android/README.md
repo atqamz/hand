@@ -2,7 +2,7 @@
 
 Reach a Hand Board from an Android phone over iroh.
 
-Status: the app keeps an iroh key, takes a `handboard://` pairing link from an intent, a paste or a QR scan, pairs natively and draws the fleet list, Needs, Tasks, a Task, an Attempt, a Decision, pairing and the web fallback in Jetpack Compose. A fleet screen follows the Board's `/api/v1/events` stream while it is open and falls back to the 5-second `status` poll when the Board's `meta.features` lacks `events` or the stream keeps failing. An attempt reads its detail every 5 seconds while its state is `running`, because a transcript moves without a board version, and stops once the state is finished. A page with no native screen still opens in a plain `WebView` through a loopback proxy at `http://localhost:PORT`, where the Board's cookie login, forms and event stream work unchanged. The signed release build exists (see Release build) and nothing is published yet. A foreground service polls Hand's alert feed and posts each alert as a notification, with the app open or not; it is built and passes its host and JVM tests, and its device check is still to do (see Alerts on the phone).
+Status: the app keeps an iroh key, takes a `handboard://` pairing link from an intent, a paste or a QR scan, pairs natively and draws the fleet list, Needs, Tasks, a Task, an Attempt, a Report, a Decision, pairing and the web fallback in Jetpack Compose. A report body is drawn as the Board's Markdown subset: paragraphs, `###` and `####` heads, lists, inline code, fenced code with a copy button, quotes and tables that scroll sideways. A fleet screen follows the Board's `/api/v1/events` stream while it is open and falls back to the 5-second `status` poll when the Board's `meta.features` lacks `events` or the stream keeps failing. An attempt reads its detail every 5 seconds while its state is `running`, because a transcript moves without a board version, and stops once the state is finished. A page with no native screen still opens in a plain `WebView` through a loopback proxy at `http://localhost:PORT`, where the Board's cookie login, forms and event stream work unchanged. The signed release build exists (see Release build) and nothing is published yet. A foreground service polls Hand's alert feed and posts each alert as a notification, with the app open or not; it is built and passes its host and JVM tests, and its device check is still to do (see Alerts on the phone).
 
 ## What it is
 
@@ -42,7 +42,7 @@ cd src-tauri/gen/android
 
 The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`. `apksigner verify --print-certs` reports the fingerprint above. For an emulator, build with `./gradlew :app:assembleDebug -PrustTarget=x86_64` and install the same path with `adb install -r`.
 
-`cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility), of the Board client, of the landing routes, of the pairing model, of the manifest, of the fleet list, of the Tasks list, of the task detail and of the attempt detail. `./gradlew :app:verifyPaparazziUniversalDebug` runs the same tests and also compares the rendered screens with the stored images; CI runs that one.
+`cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM tests of the notification inputs (kind to channel, tag, tap URI, lock-screen visibility), of the Board client, of the landing routes, of the pairing model, of the manifest, of the fleet list, of the Tasks list, of the task detail, of the attempt detail and of the report detail. The Markdown parser is tested against the cases of `internal/markdown/markdown_test.go`. `./gradlew :app:verifyPaparazziUniversalDebug` runs the same tests and also compares the rendered screens with the stored images; CI runs that one.
 
 Measured on 2026-11-13 on Linux x86_64 with 22 cores and warm SDK and Gradle caches, a cold Rust target: 1m8s for the `aarch64` debug APK with iroh compiled, and 110,411,370 B. The same build at the base commit, with Tauri, was 152,223,196 B, so removing Tauri moved −41,811,826 B: 40,716,744 B of it from `lib/arm64-v8a/libhand_android_lib.so` (134,457,848 to 93,741,104 B), 2,332,132 B from dex, and 2,370 B of bundled `tauri.conf.json`. The SDK, NDK, JDK, Gradle and Rust caches took about 12 GB.
 
@@ -221,7 +221,7 @@ Read at the device run, not settled by tests:
 
 `write` reads the CSRF token from `GET /api/v1/session` once and keeps it in memory. A `csrf_required` refusal means the Board changed nothing, so it reads the token again and sends once more; any other refusal is final and no write is sent twice. A `200` answers `Write.Updated` with the fresh object, or `Write.Accepted` for `{"accepted": true}`, which means the action went in and the read-back failed: the screen refreshes and never sends again. A `200` that cannot be read is `AppliedUnread`, never a "not sent" error. `Lost` and `TimedOut` on a write can follow bytes that reached the Board, so a caller treats them as maybe sent, never as not sent; only an API error (the Board refused), `Busy`, `Unreachable`, `NoLaptop`, `Unpaired` and `BoardNotRunning` say the Board changed nothing, and `Malformed` and `TooLarge` can follow an answer. The models ignore unknown fields.
 
-The JVM tests read Hand's golden answers from `app/src/test/resources/api`, copied from `internal/board/testdata/api` at Hand commit `0063ff18f3fdbdd3b2221e391611dec08937163b`: the four that carry a `Status`. Copy them again when Hand changes them. The JNI method has no host test.
+The JVM tests read Hand's golden answers from `app/src/test/resources/api`, copied from `internal/board/testdata/api`: the `Status`, attempt and report answers they decode. Copy them again when Hand changes them; a report answer must keep every field the model requires. The JNI method has no host test.
 
 `Core.live(fleet)` starts one `Live` loop for the fleet on screen (`core/src/live.rs`): `Dialer::open_with` writes `GET /<fleet>/api/v1/events` and keeps the send half open, and the head must be `200` with `Content-Type: text/event-stream`. `core/src/http.rs` decodes the chunked body into server-sent events one at a time (name and data lines, any split, at most 256 KiB an event) and `Live` forwards each as `AppHost.live(fleet, topic, json)` with the API's own JSON untouched; `AppHost.link(fleet, state, since)` carries `live`, `reconnecting`, `stopped` or `unpaired`, with `since` the last healthy byte in epoch milliseconds. No byte for 35 seconds is a lost stream (the pages' own rule), `Dialer::open_with` is bounded by the same watchdog so a stream waiting on the connection's permit cannot hang the loop, and the loop reconnects with the dialer's backoff, 1, 2, 4, 8, 16, 30 seconds with 25 % jitter, reset after a stream lasted 10 seconds. A reconnect sends no cursor: Hand's merged stream has no `?since=`, so the Board answers `hello`, `status` and a snapshot `timeline` again, and a client treats a `timeline` whose `from` is not the `to` it holds as a gap. `Core.unlive` cancels the loop and drops the stream, so leaving the fleet frees its one of the 12 connection streams. A loop that ends emits a terminal `stopped` link, or `unpaired` for a revoked session; the view model falls back to the poll on `stopped` and stops on `unpaired`. `LiveBus` keeps the last 64 events and drops the oldest (a dropped event is a snapshot, a hint, or a delta with a gap check) and tracks each fleet's timeline `to` to flag a gap. `FleetModel` applies a `status` event inline with no request, resets its failure count on a `status` event or a `resync` that names `status` (a successful head alone is not evidence), counts `deny_at` against the stream's `now` offset, re-reads `status` on a `resync` with the `status` topic, and re-reads `tasks` on a `touched` with the `tasks` topic while the Tasks tab is open; the 5-second poll is the fallback when `meta.features` lacks `events`, after three `reconnecting` links without a `status`, or on a `stopped` link. `Core.request` sends `/api/v1/meta` at the host level with one fleet cookie, which is how the feature check works.
 
@@ -240,15 +240,34 @@ answer leaves empty has no heading. The head shows the task's title, its `status
 tone, and the project, parent, waits and updated time; `goal` is lead text, not a section. A report card shows its ref, summary, "from aN", state and time,
 and **Mark read** until `acked_at` is set, when it reads "read by …" from the `ReportDetail` the
 ack answered. A second tap while the ack is in flight is ignored; a refusal keeps the button and
-says so under the card, and nothing on the screen is cleared. A task, sub-task or decision ref opens
-its native screen; an attempt or report ref, and a delivered file with a `/doc/...` href, open the
-web fallback (a file outside the fleet stays plain text), and a PR or other link opens the browser. `LiveBus` hints that name this task or one of its sub-tasks, or a
+says so under the card, and nothing on the screen is cleared. A task, sub-task, decision, attempt or report ref opens
+its native screen; a repository path and a delivered file with a `/doc/...` href open the web
+fallback (a file outside the fleet stays plain text), and a PR or other link opens the browser. `LiveBus` hints that name this task or one of its sub-tasks, or a
 report, decision or attempt the detail holds, re-read it; a hint naming anything else does not, and
 a hint during a read queues one more read for when it finishes. A laptop whose `meta.features` lacks
 `events` polls the detail every 5 seconds while the screen is shown, and the read stops when the
 screen leaves. The fleet route keeps its
 saved state, so Back from a task returns to the Tasks tab with its list and scroll where they were. A `404` shows the Board's own message with **Back**; a first failure shows **Retry**;
 a failure after the detail was shown keeps it.
+
+`ReportScreen` reads `GET /api/v1/report/{rN}` once when it opens, with the envelope's cursor on
+later reads; a `304` keeps what is shown and a `bad_cursor` drops the cursor and reads full. The
+head is the summary in the Board's title, the state chip, "from aN" with the attempt's native route,
+the time, and the task ref with its title. The body is the Markdown subset below; then Delivered,
+where a PR opens the browser and a file opens the web fallback. **Mark read** is docked at the foot
+and posts `report/{rN}/ack` under the same single-flight, `AppliedUnread` and refusal rules as a
+task's card; once `acked_at` is set the dock reads "read by …" from that answer. `touched` and
+`resync` hints naming this report, or `reports` with no refs, re-read it, the fleet filter drops
+other fleets' events, and the read stops when the screen leaves. A `404` shows the Board's words
+with **Back**; a first failure shows **Retry**.
+
+The Markdown parser follows `internal/markdown`: paragraphs with a line break inside, `#` to `######`
+heads drawn at the Board's two levels, unordered and numbered lists with six levels of nesting that
+keep their written numbers, inline code, fenced code on the panel fill behind a **Copy code** button,
+quotes, tables whose columns align and scroll sideways, emphasis, strikethrough, safe `http`/`https`
+links, refs and paths. HTML, images and anything the parser cannot close stay text. A ref opens its
+native screen; a path opens the fleet's `/doc/` fallback until N8; a link opens the browser. The
+table lives in `refTarget` and `pathTarget`, and the parser's cases are the Board's own test table.
 
 `HandTheme` holds the Board's colours (static, light and dark, no dynamic colour), its five type sizes, its radii and the icons as vectors, including the terminal's own background and ink. It sets every field of the Material colour scheme from those colours, and `HandThemeTest` pins each one, so no component can show Material's baseline purple. Each fleet's mark takes the Board's tint, the FNV-1a hash of the fleet ID modulo 12.
 
@@ -258,7 +277,8 @@ A blocked supervisor's item is a card: its last lines in the terminal box, **Scr
 
 `app/src/test/snapshots` holds the stored images of the fleet list and of the fleet list before its first answer (`loadingLight`, `loadingDark`), the unreachable band, Decision with a recommended option, an `other` option with its note and its answered state, Needs with a decision open in place, Needs with several bands and one open report, Needs with only rows, a cut report, the blocked supervisor with its ask options, its fixed keys, its countdown and a stale refusal, a tab that has not loaded (`notLoadedLight`), a first frame after a failed request with the band above `Loading…` (`failedFirstFrameLight`, `failedFirstFrameDark`), the live band while the stream reconnects (`reconnectingLight`, `reconnectingDark`) and after it gives up (`liveLostLight`, `liveLostDark`), a tapped tab before the first answer (`tappedBeforeAnswerLight`, `tappedBeforeAnswerDark`), Task with its waiting rows and every section, the same with nothing waiting, a sub-task, a task with
 sub-tasks, an inbox task, the card after Mark read, its loading frame and its error with Retry, each
-light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the phone is not paired with the fleet (`notPairedHereLight`, `notPairedHereDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
+light and dark, a report with a list, a code block, a table and a quote before and after Mark read,
+its long body, its marking frame, its loading frame and its error with Retry, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the phone is not paired with the fleet (`notPairedHereLight`, `notPairedHereDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
 
 ## Native pairing
 

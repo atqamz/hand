@@ -191,6 +191,14 @@ class HandActivity : ComponentActivity() {
       }
     )["$fleet/$ref", AttemptModel::class.java]
 
+  private fun reportModel(fleet: String, ref: String): ReportModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { ReportModel(fleet, ref, CoreTransport) }
+      }
+    )["$fleet/$ref", ReportModel::class.java]
+
   @Composable
   private fun Attempt(
     fleet: String,
@@ -215,6 +223,33 @@ class HandActivity : ComponentActivity() {
       onTarget,
       onWeb
     )
+  }
+
+  @Composable
+  private fun Report(
+    fleet: String,
+    ref: String,
+    onBack: () -> Unit,
+    onTarget: (ThreadTarget) -> Unit,
+    onWeb: (String) -> Unit
+  ) {
+    val model = remember(fleet, ref) { reportModel(fleet, ref) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) {
+      lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.run() }
+    }
+    ReportScreen(
+      fleet,
+      ref,
+      state,
+      onBack,
+      model::retry,
+      model::markRead,
+      onTarget
+    ) {
+      val task = state.detail?.task?.ref
+      onWeb(if (task == null) "/$fleet" else "/$fleet/task/$task#$ref")
+    }
   }
 
   @Composable
@@ -249,6 +284,7 @@ class HandActivity : ComponentActivity() {
         var web by rememberSaveable { mutableStateOf<String?>(null) }
         var taskPath by rememberSaveable { mutableStateOf("") }
         var attempt by rememberSaveable { mutableStateOf<String?>(null) }
+        var report by rememberSaveable { mutableStateOf<String?>(null) }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
@@ -286,6 +322,7 @@ class HandActivity : ComponentActivity() {
             web = null
             taskPath = ""
             attempt = null
+            report = null
             open = id
           }
           model.say(null)
@@ -296,6 +333,7 @@ class HandActivity : ComponentActivity() {
               web = null
               taskPath = ""
               attempt = null
+              report = null
               scanning = false
               adding = true
               pair.offer(to.link)
@@ -360,6 +398,7 @@ class HandActivity : ComponentActivity() {
                 fleetModel(it).enter()
                 taskPath = ""
                 attempt = null
+                report = null
                 open = it
               },
               model::ask,
@@ -383,16 +422,28 @@ class HandActivity : ComponentActivity() {
             val page = web
             val shown = decision
             val attemptRef = attempt
+            val reportRef = report
             val thread = currentTask(taskPath)
             val target: (ThreadTarget) -> Unit = { to ->
               when (to) {
                 is ThreadTarget.Task -> {
                   if (currentTask(taskPath) != to.ref) taskPath = pushTask(taskPath, to.ref)
                   attempt = null
+                  report = null
                 }
-                is ThreadTarget.Decision -> decision = to.ref
-                is ThreadTarget.Attempt -> attempt = to.ref
-                is ThreadTarget.Web -> web = to.path
+                is ThreadTarget.Decision -> {
+                  decision = to.ref
+                  report = null
+                }
+                is ThreadTarget.Attempt -> {
+                  attempt = to.ref
+                  report = null
+                }
+                is ThreadTarget.Report -> report = to.ref
+                is ThreadTarget.Web -> {
+                  web = to.path
+                  report = null
+                }
                 is ThreadTarget.Browser ->
                   try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(to.url)))
@@ -409,6 +460,11 @@ class HandActivity : ComponentActivity() {
             } else if (shown != null) {
               BackHandler { decision = null }
               Decision(open.orEmpty(), shown) { decision = null }
+            } else if (reportRef != null) {
+              BackHandler { report = null }
+              holder.SaveableStateProvider("report:$open:$reportRef") {
+                Report(open.orEmpty(), reportRef, { report = null }, target) { web = it }
+              }
             } else if (attemptRef != null) {
               BackHandler { attempt = null }
               holder.SaveableStateProvider("attempt:$open:$attemptRef") {
@@ -435,7 +491,7 @@ class HandActivity : ComponentActivity() {
                     if (tab == Tab.Tasks) fleet.openTasks()
                   },
                   fleet::toggle,
-                  fleet::markRead,
+                  { report = it },
                   { web = "/${open}/" },
                   { taskPath = pushTask("", it) },
                   fleet::showAll,
@@ -449,7 +505,7 @@ class HandActivity : ComponentActivity() {
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && attempt == null &&
+            fleet != null && web == null && decision == null && attempt == null && report == null &&
               currentTask(taskPath) == null
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
