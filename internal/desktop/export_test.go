@@ -1,6 +1,12 @@
 package desktop
 
-import "time"
+import (
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"github.com/atqamz/hand/internal/desktop/kit"
+)
 
 func SetOpenTimeout(d time.Duration) func() {
 	old := openTimeout
@@ -9,6 +15,14 @@ func SetOpenTimeout(d time.Duration) func() {
 }
 
 var LocalRoot = localRoot
+
+func SendStyle(a *App, dark bool) (bg, fg, edge ui.Color, bold bool) {
+	return a.sendStyle(kit.ColorsFor(dark))
+}
+
+func DraftNote(a *App) string { return a.draftNote() }
+
+func NeedChosen(a *App, key string) bool { return a.needChosen[key] }
 
 func SetLatestNew(a *App, n int) { a.latestNew = n }
 

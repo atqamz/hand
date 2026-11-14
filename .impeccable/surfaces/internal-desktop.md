@@ -90,15 +90,15 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `24-conversation-unfolded-<light or dark>.png` | the same with the wake group unfolded |
 | `25-conversation-scrolled-<light or dark>.png` | scrolled up, with the button that returns to the newest entry |
 | `26-tasks-1100x760-<light or dark>.png` | a task list as the Board draws it: 48 px rows with a state icon, the meta line, project and deliverable badges, a sub-task indented under its parent, and the group heads |
-| `27-composer-empty-<light or dark>.png` | the composer as the Board draws it: one box with the control edge, the placeholder, the key hint and Send |
-| `28-composer-hint-<light or dark>.png` | the composer with the status's hint on its foot |
-| `29-composer-draft-<light or dark>.png` | a typed message with the focused box and the draft note at its top edge |
-| `30-composer-sent-<light or dark>.png` | the composer after a send: the new message in the conversation, the box empty again |
-| `31-composer-failed-<light or dark>.png` | a failed send: the action's error card and the text the box kept |
+| `27-composer-empty-<light or dark>.png` | the composer at rest: one box with the control edge and the placeholder, 90 px high, Send primary |
+| `28-composer-hint-<light or dark>.png` | the composer with a blocked supervisor's two-line hint on its foot, the box 94 px high |
+| `29-composer-draft-<light or dark>.png` | a typed message with the draft note over the box's top edge |
+| `30-composer-focused-<light or dark>.png` | the box with the focus: the accent border and 1 px accent ring |
+| `31-composer-default-<light or dark>.png` | Send as a default button while a Start or Resume form is in the pane head |
 | `32-zoom-125-<light or dark>.png` | the two panes at 125%: text and layout scaled together, the composer still inside the chat pane's margins |
 | `33-zoom-150-<light or dark>.png` | the same with 150% requested at 1100 px: the window draws it at 128% so the work pane keeps its 440 px |
 
-The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. The hint sits on the foot's left and the draft note over the box's top-right corner, as the Board places it; the note is set on every save and cleared when the box empties. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
+The composer is the Board's one box, centred to a 760 px measure with a 16 px margin below it: 1 px `line-strong`, radius `r-lg`, background `bg`, padding 4/4/8, the accent border and a 1 px accent ring while anything inside has the focus. It is 90 px at rest and 94 px while the hint wraps to a second line; the text box is borderless, at least 44 px, and grows with its text up to 40% of the window before it scrolls. The hint sits on the foot's left in muted meta and wraps rather than truncating; the blocked hint opens its item in Needs. The key hint reads Ctrl Enter, or ⌘ Enter on Apple hardware, and hides on a coarse pointer or while the chat pane is under 520 px. The draft note over the box's top-right corner says "Draft saved 14:32", or "Draft restored" after a restore, and is set on the save that lands, 300 ms after the last keystroke; it is hidden with no stored draft. There is no Clear button, as on the Board. A network board is refused before the composer is drawn, so the Board's read-only line never shows here, and the status carries no flag for it.
 
 The day divider prints the day in the entries' own clock (`Sat, Oct 31`), not the Board's server-side UTC badge (`Sat 31 Oct UTC`): every entry prints a local time, so a UTC divider would draw the day a whole offset away from the entries under it. A deliberate deviation from the Board.
 
