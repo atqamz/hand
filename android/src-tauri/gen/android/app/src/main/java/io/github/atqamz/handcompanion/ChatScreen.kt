@@ -427,7 +427,6 @@ private fun ChatContent(
   onScrolled: (Boolean) -> Unit,
   onTarget: (ThreadTarget) -> Unit
 ) {
-  val hand = LocalHand.current
   val rows = remember(state.page, state.older, zone) {
     chatRows(displayEntries(state.page, state.older), zone)
   }
