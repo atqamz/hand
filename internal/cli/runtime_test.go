@@ -246,7 +246,10 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 	if !exited(term) {
 		killGroup(term.cmd)
 	}
-	<-term.done
+	select {
+	case <-term.done:
+	case <-time.After(workerReap):
+	}
 	rt.mu.Lock()
 	hook := rt.onClose
 	rt.mu.Unlock()
@@ -483,7 +486,10 @@ func (rt *fakeRuntime) exitAll() {
 		if !exited(term) {
 			killGroup(term.cmd)
 		}
-		<-term.done
+		select {
+		case <-term.done:
+		case <-time.After(workerReap):
+		}
 	}
 }
 
@@ -556,12 +562,16 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 func fakeBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for name, listing := range map[string]string{"claude": "on -p", "codex": "on debug", "opencode": "on models"} {
-		fakebin.Install(t, dir, name, "fake", map[string]string{"on --version": "fake 1.0\n", listing: "", "on api": "", "sleep": "300s"})
+	withPids := func(m map[string]string) map[string]string {
+		m["pidout"] = filepath.Join(dir, "pids")
+		return m
 	}
-	fakebin.Install(t, dir, "agy", "fake", map[string]string{"on --version": "fake 1.0\n", "on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"})
-	fakebin.Install(t, dir, "copilot", "fake", map[string]string{"on --version": "fake 1.0\n", "on help": copilotHelp, "sleep": "300s"})
-	fakebin.Install(t, dir, "omp", "fake", map[string]string{"on --version": "omp/18.16.0\n", "on models": ompModels, "sleep": "300s"})
+	for name, listing := range map[string]string{"claude": "on -p", "codex": "on debug", "opencode": "on models"} {
+		fakebin.Install(t, dir, name, "fake", withPids(map[string]string{"on --version": "fake 1.0\n", listing: "", "on api": "", "sleep": "300s"}))
+	}
+	fakebin.Install(t, dir, "agy", "fake", withPids(map[string]string{"on --version": "fake 1.0\n", "on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"}))
+	fakebin.Install(t, dir, "copilot", "fake", withPids(map[string]string{"on --version": "fake 1.0\n", "on help": copilotHelp, "sleep": "300s"}))
+	fakebin.Install(t, dir, "omp", "fake", withPids(map[string]string{"on --version": "omp/18.16.0\n", "on models": ompModels, "sleep": "300s"}))
 	return dir
 }
 
@@ -572,13 +582,18 @@ func newAttemptFixture(t *testing.T) *attemptFixture {
 
 func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	t.Helper()
+	bin := fakeBin(t)
 	fx := &attemptFixture{h: newHarness(t)}
 	fx.h.home = home
+	t.Cleanup(func() {
+		workersGone(t, filepath.Join(bin, "pids"))
+		worktreesGone(t, filepath.Join(fx.h.vars["SECONDHAND_HOME"], "worktrees"))
+	})
 	fx.repo = gitRepo(t)
 	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
 	fx.rt.env = []string{"SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"]}
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
-	fx.h.vars["PATH"] = fakeBin(t)
+	fx.h.vars["PATH"] = bin
 	fx.h.vars["HOME"] = t.TempDir()
 	fx.brief = filepath.Join(t.TempDir(), "brief.md")
 	if err := os.WriteFile(fx.brief, []byte("Fix the login bug, commit, then stop."), 0o644); err != nil {
@@ -589,6 +604,56 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	fx.h.ok("task", "add", "app", "Fix login")
 	fx.h.ok("task", "start", "t1")
 	return fx
+}
+
+const workerReap = 5 * time.Second
+
+func workersGone(t *testing.T, pids string) {
+	t.Helper()
+	b, err := os.ReadFile(pids)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || !workerAlive(pid, fields[1]) {
+			continue
+		}
+		reapPID(pid)
+		deadline := time.Now().Add(workerReap)
+		for workerAlive(pid, fields[1]) {
+			if time.Now().After(deadline) {
+				t.Errorf("worker %d outlived its terminal and a second kill, so its worktree stays locked", pid)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func workerAlive(pid int, marker string) bool {
+	m, err := luvus.ProcStartMarker(pid)
+	return err == nil && m == marker
+}
+
+func worktreesGone(t *testing.T, dir string) {
+	t.Helper()
+	deadline := time.Now().Add(workerReap)
+	for {
+		err := os.RemoveAll(dir)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("worktrees are still in use after every worker exited: %v", err)
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (fx *attemptFixture) start() string {
