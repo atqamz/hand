@@ -343,6 +343,10 @@ class MarkdownTest {
       "<p><a href=\"https://a.io\" target=\"_blank\" rel=\"noopener noreferrer\">/fleet/a.md</a></p>",
       paths("[/fleet/a.md](https://a.io)")
     )
+    assertEquals(
+      "<p><a href=\"https://a.io\" target=\"_blank\" rel=\"noopener noreferrer\">t12</a></p>",
+      refs("[t12](https://a.io)")
+    )
   }
 
   private companion object {

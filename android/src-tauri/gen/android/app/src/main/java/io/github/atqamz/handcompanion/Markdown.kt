@@ -350,7 +350,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
     if (end < 0) return ParsedLink(null, true)
     val url = rest.substring(mid + 2, end)
     if (!safe(url)) return ParsedLink(null, false)
-    val children = inline(rest.substring(1, mid), false)
+    val children = MarkdownParser(PLAIN).inline(rest.substring(1, mid), false)
     return ParsedLink(MdLink(url, children) to end + 1, false)
   }
 
@@ -371,6 +371,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
 }
 
 private val ALIGN = Regex("^:?-+:?$")
+private val PLAIN = MarkdownOptions(refs = false, paths = false, filePaths = false)
 
 private fun merge(spans: List<MdInline>): List<MdInline> {
   val out = mutableListOf<MdInline>()
