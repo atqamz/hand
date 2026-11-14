@@ -138,19 +138,18 @@ type App struct {
 	draftFleet    string
 	draftText     string
 
-	Status          Status
-	Timeline        Timeline
-	Tasks           Tasks
-	Task            TaskDetail
-	Attempt         AttemptDetail
-	Decision        DecisionDetail
-	pageReport      string
-	pageTarget      Report
-	pageTargetOK    bool
-	pageTargetCheck bool
-	pageTargetRetry bool
-	pageTargetGen   int
-	scrollTo        string
+	Status         Status
+	Timeline       Timeline
+	Tasks          Tasks
+	Task           TaskDetail
+	Attempt        AttemptDetail
+	Decision       DecisionDetail
+	pageReport     string
+	pageTarget     Report
+	pageTargetOK   bool
+	pageTargetNeed pageTargetNeed
+	pageTargetGen  int
+	scrollTo       string
 
 	Err      string
 	Starting bool
@@ -381,7 +380,7 @@ func (a *App) SelectFleet(id string) {
 		a.Fleet = f
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
-	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.scrollTo = "", Report{}, false, false, ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.scroll.Y = math.MaxFloat32
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.openerRef, a.boardFocus = "", false
@@ -464,7 +463,7 @@ const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
-	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.scrollTo = "", Report{}, false, false, ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
 	if s == BoardScreen {
@@ -519,10 +518,10 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 			Target: a.pageTarget, HasTarget: a.pageTargetOK})
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
-	a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.pageTargetRetry = Report{}, false, false, false
+	a.pageTarget, a.pageTargetOK, a.pageTargetNeed = Report{}, false, pageTargetSettled
 	a.pageTargetGen++
 	if target != nil {
-		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = *target, true, true
+		a.pageTarget, a.pageTargetOK, a.pageTargetNeed = *target, true, pageTargetOwed
 	}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
@@ -558,6 +557,14 @@ func (a *App) reportTask(ref string) (string, *Report) {
 	return "", nil
 }
 
+type pageTargetNeed int
+
+const (
+	pageTargetSettled pageTargetNeed = iota
+	pageTargetOwed
+	pageTargetOwedAfterLoad
+)
+
 func (a *App) pageReportCard() (Report, bool) {
 	ref := a.pageReport
 	if ref == "" {
@@ -586,33 +593,34 @@ func reportIn(list []Report, ref string) (Report, bool) {
 
 func (a *App) applyTask(t TaskDetail) {
 	ref := a.pageReport
-	was := a.pageTargetCheck || a.pageTargetRetry
-	a.pageTargetCheck, a.pageTargetRetry = false, false
-	if a.pageTargetOK && ref != "" {
-		if _, ok := reportIn(a.Task.Unread, ref); ok {
-			was = true
-		} else if _, ok := reportIn(a.Task.Reports, ref); ok {
-			was = true
-		}
+	if a.pageTargetNeed == pageTargetOwedAfterLoad {
+		a.pageTargetNeed = pageTargetOwed
 	}
+	_, unreadBefore := reportIn(a.Task.Unread, ref)
+	_, reportsBefore := reportIn(a.Task.Reports, ref)
+	dropped := a.pageTargetOK && ref != "" && (unreadBefore || reportsBefore)
 	a.Task = t
 	if !a.pageTargetOK || ref == "" || a.pageTarget.Ref != ref {
+		a.pageTargetNeed = pageTargetSettled
 		return
 	}
 	if r, ok := reportIn(t.Unread, ref); ok {
 		a.pageTarget, a.pageTargetGen = r, a.pageTargetGen+1
+		a.pageTargetNeed = pageTargetSettled
 		return
 	}
 	if r, ok := reportIn(t.Reports, ref); ok {
 		a.pageTarget, a.pageTargetGen = r, a.pageTargetGen+1
+		a.pageTargetNeed = pageTargetSettled
 		return
 	}
-	if was {
-		a.refreshPageReport(ref, true)
+	if dropped || a.pageTargetNeed == pageTargetOwed {
+		a.pageTargetNeed = pageTargetOwed
+		a.refreshPageReport(ref)
 	}
 }
 
-func (a *App) refreshPageReport(ref string, rearm bool) {
+func (a *App) refreshPageReport(ref string) {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
@@ -620,14 +628,10 @@ func (a *App) refreshPageReport(ref string, rearm bool) {
 	model, fleet, gen := a.Model, a.Fleet.ID, a.pageTargetGen
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(r Report, err error) {
-		if a.Fleet.ID != fleet || a.pageReport != ref || a.pageTargetGen != gen {
+		if a.Fleet.ID != fleet || a.pageReport != ref || a.pageTargetGen != gen || err != nil {
 			return
 		}
-		if err != nil {
-			a.pageTargetRetry = rearm
-			return
-		}
-		a.pageTarget, a.pageTargetOK, a.pageTargetCheck = r, true, false
+		a.pageTarget, a.pageTargetOK, a.pageTargetNeed = r, true, pageTargetSettled
 	}
 	fetch := func() {
 		r, err := model.Report(ctx, fleet, ref)
@@ -689,7 +693,7 @@ func (a *App) CloseViewer() {
 	}
 	a.openerRef = ""
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
-	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.scrollTo = "", Report{}, false, false, ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
@@ -732,8 +736,10 @@ func (a *App) Back() {
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
 	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
-	a.pageTargetCheck = step.HasTarget
-	a.pageTargetRetry = false
+	a.pageTargetNeed = pageTargetSettled
+	if step.HasTarget {
+		a.pageTargetNeed = pageTargetOwed
+	}
 	a.pageTargetGen++
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
@@ -986,7 +992,7 @@ func (a *App) applyAck(ref string, r Report) {
 	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
 	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
 	if ref == a.pageReport {
-		a.pageTarget, a.pageTargetOK, a.pageTargetCheck, a.pageTargetRetry = r, true, false, false
+		a.pageTarget, a.pageTargetOK, a.pageTargetNeed = r, true, pageTargetSettled
 		a.pageTargetGen++
 	}
 	kept := a.Task.Unread[:0:0]
@@ -1670,9 +1676,10 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.setScreen(screen, key, &p)
 		screenFresh = true
 	}
-	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && !p.ScreenFresh && a.pageTargetRetry && a.pageReport != "" {
-		a.pageTargetRetry = false
-		a.refreshPageReport(a.pageReport, false)
+	if a.Fleet.ID == fleet && a.Screen == screen && a.Ref == ref && p.ScreenRead && !p.ScreenFresh &&
+		a.pageTargetOK && a.pageTargetNeed == pageTargetOwed && a.pageReport != "" {
+		a.pageTargetNeed = pageTargetOwedAfterLoad
+		a.refreshPageReport(a.pageReport)
 	}
 	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
 		a.setErr("")
