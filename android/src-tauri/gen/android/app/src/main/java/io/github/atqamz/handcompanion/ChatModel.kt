@@ -249,6 +249,9 @@ fun workingWords(
 fun aboveBottom(firstIndex: Int, offset: Int, threshold: Int) =
   firstIndex != 0 || offset > threshold
 
+fun pinned(firstIndex: Int, offset: Int, threshold: Int) =
+  !aboveBottom(firstIndex, offset, threshold)
+
 fun latestCount(current: Int, above: Boolean, added: List<TimelineEntry>) =
   if (!above) 0 else current + added.count { it.role == "supervisor" }
 
@@ -268,7 +271,6 @@ class ChatModel(
   @Volatile private var cursor: String? = null
   @Volatile private var supported: Boolean? = null
   @Volatile private var pending = false
-  @Volatile private var gapReading = false
 
   suspend fun run() {
     pending = false
@@ -343,9 +345,11 @@ class ChatModel(
 
   private fun fill(data: TimelineData) {
     val page = pageKeys(data.entries)
-    val held = page.mapTo(HashSet()) { it.identity }
+    val fetched = page.mapTo(HashSet()) { it.identity }
     mutableState.update { state ->
-      val older = state.older.filterNot { it.identity in held }
+      val older = state.older.filterNot { it.identity in fetched }
+      val known = state.page.mapTo(HashSet()) { it.identity }
+      val added = data.entries.filter { it.role == "supervisor" && entryIdentity(it) !in known }
       state.copy(
         page = page,
         older = older,
@@ -359,6 +363,7 @@ class ChatModel(
         refused = null,
         unpaired = false,
         olderFailed = false,
+        newReplies = latestCount(state.newReplies, state.aboveBottom, added),
         now = nowMillis()
       )
     }
@@ -408,29 +413,46 @@ class ChatModel(
       }
     val held = mutableState.value.to
     if (held != null) {
-      if (data.to < held) return
+      if (data.to < held) {
+        if (!data.snapshot) applyInPlace(data)
+        return
+      }
       if (data.to == held && !data.snapshot && data.from != held) return
     }
     if (data.snapshot) {
       replace(data)
       return
     }
-    if (event.gap || (held != null && data.from != held)) {
+    if (held == null) {
+      reread()
+      return
+    }
+    if (event.gap || data.from != held) {
       reread()
       return
     }
     delta(data)
   }
 
-  private suspend fun reread() {
-    if (gapReading) return
-    gapReading = true
-    try {
-      cursor = null
-      if (lock.isLocked) pending = true else load()
-    } finally {
-      gapReading = false
+  private fun applyInPlace(data: TimelineEvent) {
+    mutableState.update { state ->
+      val held = state.page.mapTo(HashSet()) { it.key }
+      if (data.entries.isEmpty() ||
+        data.entries.any { it.key.isEmpty() || it.key !in held }
+      ) {
+        state
+      } else {
+        state.copy(
+          page = mergeEntries(state.page, data.entries.map { ChatEntry(it.key, it) }),
+          now = nowMillis()
+        )
+      }
     }
+  }
+
+  private suspend fun reread() {
+    cursor = null
+    if (lock.isLocked) pending = true else load()
   }
 
   private fun eventEntries(entries: List<TimelineEntry>) =

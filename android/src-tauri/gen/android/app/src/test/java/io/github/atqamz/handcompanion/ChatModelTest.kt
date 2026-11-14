@@ -38,9 +38,11 @@ private fun entry(
   text: String,
   no: Int = 0,
   input: Long = 0,
-  ref: String = ""
+  ref: String = "",
+  delivery: String = "",
+  delivered: String = ""
 ) =
-  """{"key":"$key","role":"$role","at":"$at","text":"$text","no":$no,"input":$input,"ref":"$ref"}"""
+  """{"key":"$key","role":"$role","at":"$at","text":"$text","no":$no,"input":$input,"ref":"$ref","delivery":"$delivery","delivered":"$delivered"}"""
 
 private fun timeline(older: Int, vararg entries: String) =
   envelope("""{"live":true,"older":$older,"entries":[${entries.joinToString(",")}]}""")
@@ -557,6 +559,160 @@ class ChatModelTest {
         listOf(TimelineEntry(role = "supervisor"), TimelineEntry(role = "operator"))
       )
     )
+  }
+
+  @Test
+  fun thePageStaysPinnedWithinFortyEightPixelsOfTheBottom() {
+    val threshold = 144
+    assertTrue(pinned(0, 0, threshold))
+    assertTrue(pinned(0, 144, threshold))
+    assertFalse(pinned(0, 145, threshold))
+    assertFalse(pinned(1, 0, threshold))
+  }
+
+  @Test
+  fun theOlderCountIsTheCursorOfTheOlderPage() = runBlocking {
+    val board =
+      ChatBoard(
+        timelineAnswer = {
+          Raw(
+            200,
+            timeline(
+              7,
+              entry("i9", "operator", "2026-11-02T10:00:00Z", "newest", input = 9)
+            )
+          )
+        },
+        olderAnswer = { Raw(200, timeline(0)) }
+      )
+    val chat = model(board)
+    chat.load()
+    assertEquals(7, chat.state.value.before)
+    assertEquals(8, chat.state.value.to)
+    chat.older()
+    assertEquals(listOf("GET /api/v1/timeline?before=7"), board.calls.filter { "before=" in it })
+  }
+
+  @Test
+  fun aDeltaBelowTheHeldCountUpdatesACoveredEntry() = runBlocking {
+    val board = ChatBoard()
+    val chat = model(board)
+    chat.load()
+    val reads = board.reads()
+    val key = "operator@2026-11-01T04:40:00Z"
+    chat.reduce(
+      LiveEvent(
+        FLEET,
+        "timeline",
+        """{"snapshot":false,"from":2,"to":2,"older":0,"live":true,"entries":[""" +
+          entry(
+            key,
+            "operator",
+            "2026-11-01T04:40:00Z",
+            "status?",
+            no = 1,
+            delivery = "delivered",
+            delivered = "2026-11-01T04:41:00Z"
+          ) +
+          "]}"
+      )
+    )
+    val state = chat.state.value
+    assertEquals(3, state.to)
+    assertEquals(reads, board.reads())
+    assertEquals("delivered", state.page.first { it.key == key }.entry.delivery)
+    chat.reduce(
+      LiveEvent(
+        FLEET,
+        "timeline",
+        """{"snapshot":false,"from":2,"to":2,"older":0,"live":true,"entries":[""" +
+          entry(
+            "supervisor@2026-11-01T04:50:00Z",
+            "supervisor",
+            "2026-11-01T04:50:00Z",
+            "New",
+            no = 3,
+            ref = "s1"
+          ) +
+          "]}"
+      )
+    )
+    assertEquals(3, chat.state.value.page.size)
+  }
+
+  @Test
+  fun aDeltaWithoutAHeldPageReadsThePage() = runBlocking {
+    val board = ChatBoard()
+    val chat = model(board)
+    assertEquals(0, board.reads())
+    chat.reduce(
+      LiveEvent(
+        FLEET,
+        "timeline",
+        """{"snapshot":false,"from":0,"to":1,"older":0,"live":true,"entries":[""" +
+          entry(
+            "supervisor@2026-11-01T04:41:00Z",
+            "supervisor",
+            "2026-11-01T04:41:00Z",
+            "Hi",
+            no = 1,
+            ref = "s1"
+          ) +
+          "]}"
+      )
+    )
+    assertEquals(1, board.reads())
+    assertEquals(3, chat.state.value.page.size)
+    assertEquals(3, chat.state.value.to)
+  }
+
+  @Test
+  fun aFullReadCountsTheSupervisorRepliesItAdds() = runBlocking {
+    val added =
+      timeline(
+        0,
+        entry(
+          "supervisor@2026-11-01T04:50:00Z",
+          "supervisor",
+          "2026-11-01T04:50:00Z",
+          "Newest",
+          no = 3,
+          ref = "s1"
+        ),
+        entry(
+          "supervisor@2026-11-01T04:41:00Z",
+          "supervisor",
+          "2026-11-01T04:41:00Z",
+          "All good.",
+          no = 2,
+          ref = "s1"
+        ),
+        entry(
+          "hand@2026-11-01T04:40:00Z",
+          "hand",
+          "2026-11-01T04:40:00Z",
+          "s1 started · claude sonnet low",
+          ref = "s1"
+        ),
+        entry(
+          "operator@2026-11-01T04:40:00Z",
+          "operator",
+          "2026-11-01T04:40:00Z",
+          "status?",
+          no = 1
+        )
+      )
+    val board =
+      ChatBoard(timelineAnswer = { since ->
+        if (since == null) Raw(200, golden("timeline")) else Raw(200, added)
+      })
+    val chat = model(board)
+    chat.load()
+    chat.scrolled(true)
+    chat.load()
+    assertEquals(1, chat.state.value.newReplies)
+    chat.load()
+    assertEquals(1, chat.state.value.newReplies)
   }
 
   @Test

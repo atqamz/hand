@@ -1,6 +1,14 @@
 package io.github.atqamz.handcompanion
 
+import android.content.res.Configuration
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -22,7 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,9 +56,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -124,7 +136,7 @@ private fun MessageHead(entry: TimelineEntry, mine: Boolean, zone: TimeZone) {
   ) {
     Text(
       if (mine) "you" else entry.ref.ifEmpty { "supervisor" },
-      color = if (mine) hand.ink(Tone.Accent) else hand.fg,
+      color = if (mine) hand.ink(Tone.Accent) else hand.muted,
       fontWeight = FontWeight.SemiBold,
       style = type.bodySmall
     )
@@ -310,6 +322,9 @@ private fun ChatRowView(
 @Composable
 private fun LatestButton(count: Int, onLatest: () -> Unit) {
   val hand = LocalHand.current
+  val coarse =
+    LocalConfiguration.current.touchscreen != Configuration.TOUCHSCREEN_NOTOUCH
+  val control = if (coarse) 44.dp else 32.dp
   val label =
     if (count > 0) {
       "Scroll to latest, $count new message${if (count == 1) "" else "s"}"
@@ -318,12 +333,15 @@ private fun LatestButton(count: Int, onLatest: () -> Unit) {
     }
   val button: @Composable () -> Unit = {
     Box(
-      Modifier.size(48.dp)
+      Modifier.size(control)
         .clip(CircleShape)
         .background(hand.bg)
         .border(1.dp, hand.lineStrong, CircleShape)
         .clickable(onClick = onLatest)
-        .semantics { contentDescription = label },
+        .semantics {
+          contentDescription = label
+          liveRegion = LiveRegionMode.Polite
+        },
       contentAlignment = Alignment.Center
     ) {
       Icon(HandIcons.Down, null, Modifier.size(20.dp), hand.fg)
@@ -333,7 +351,10 @@ private fun LatestButton(count: Int, onLatest: () -> Unit) {
     BadgedBox(
       badge = {
         Badge(containerColor = hand.primary, contentColor = hand.onPrimary) {
-          Text(if (count > 99) "99+" else "$count")
+          Text(
+            if (count > 99) "99+" else "$count",
+            Modifier.clearAndSetSemantics {}
+          )
         }
       }
     ) {
@@ -442,14 +463,25 @@ private fun ChatContent(
   val scope = rememberCoroutineScope()
   val reduce = reducedMotion()
   val threshold = with(LocalDensity.current) { 48.dp.roundToPx() }
+  val rise = with(LocalDensity.current) { 8.dp.roundToPx() }
   val report = rememberUpdatedState(onScrolled)
   val older = rememberUpdatedState(onOlder)
+  val head = state.page.firstOrNull()?.key
+  val footer =
+    state.olderLoading || state.olderFailed || (state.note.isNotEmpty() && rows.isNotEmpty())
   LaunchedEffect(list, threshold) {
     snapshotFlow {
       aboveBottom(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset, threshold)
     }
       .distinctUntilChanged()
       .collect { report.value(it) }
+  }
+  LaunchedEffect(list, head, threshold) {
+    if (head != null &&
+      pinned(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset, threshold)
+    ) {
+      list.scrollToItem(0)
+    }
   }
   LaunchedEffect(list, state.before, state.olderLoading, state.olderFailed) {
     if (state.before <= 0 || state.olderLoading || state.olderFailed) return@LaunchedEffect
@@ -467,20 +499,35 @@ private fun ChatContent(
       state = list,
       reverseLayout = true,
       contentPadding = PaddingValues(16.dp, 12.dp),
-      verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom)
+      verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom)
     ) {
       state.working?.let { working ->
         item(key = "working") {
-          WorkingLine(working, state.live, state.now, zone)
+          Box(Modifier.padding(top = 14.dp)) {
+            WorkingLine(working, state.live, state.now, zone)
+          }
         }
       }
-      items(rows, key = { it.key }) { row ->
-        ChatRowView(row, fleet, zone, open, onToggle, onTarget)
+      itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
+        val above = rows.getOrNull(index + 1)
+        val gap =
+          when {
+            above != null -> if (row.isHandLine() && above.isHandLine()) 6.dp else 14.dp
+            footer -> 14.dp
+            else -> 0.dp
+          }
+        Box(Modifier.padding(top = gap)) {
+          ChatRowView(row, fleet, zone, open, onToggle, onTarget)
+        }
       }
       if (state.olderLoading) {
-        item(key = "older-loading") { OlderLoading() }
+        item(key = "older-loading") {
+          Box(Modifier.padding(top = 14.dp)) { OlderLoading() }
+        }
       } else if (state.olderFailed) {
-        item(key = "older-failed") { OlderRetry(onRetryOlder) }
+        item(key = "older-failed") {
+          Box(Modifier.padding(top = 14.dp)) { OlderRetry(onRetryOlder) }
+        }
       }
       if (state.note.isNotEmpty() && rows.isNotEmpty()) {
         item(key = "chat-note") { Meta(state.note) }
@@ -492,19 +539,26 @@ private fun ChatContent(
         .height(16.dp)
         .background(Brush.verticalGradient(listOf(hand.bg, Color.Transparent)))
     )
-    if (state.aboveBottom) {
-      Box(
-        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)
-      ) {
-        LatestButton(state.newReplies) {
-          scope.launch {
-            if (reduce) list.scrollToItem(0) else list.animateScrollToItem(0)
-          }
+    AnimatedVisibility(
+      visible = state.aboveBottom,
+      modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp),
+      enter =
+        if (reduce) EnterTransition.None
+        else fadeIn(tween(150)) + slideInVertically(tween(150)) { rise },
+      exit =
+        if (reduce) ExitTransition.None
+        else fadeOut(tween(150)) + slideOutVertically(tween(150)) { rise }
+    ) {
+      LatestButton(state.newReplies) {
+        scope.launch {
+          if (reduce) list.scrollToItem(0) else list.animateScrollToItem(0)
         }
       }
     }
   }
 }
+
+private fun ChatRow.isHandLine() = this is ChatRow.Hand || this is ChatRow.Wakes
 
 @Composable
 fun ChatScreen(
