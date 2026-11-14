@@ -111,15 +111,20 @@ func (h fakeHand) calls(t *testing.T) []string {
 
 func (h fakeHand) want(t *testing.T, argv ...string) {
 	t.Helper()
+	h.wantIn(t, h.home, argv...)
+}
+
+func (h fakeHand) wantIn(t *testing.T, dir string, argv ...string) {
+	t.Helper()
 	got := h.calls(t)
 	if len(got) != 2 {
 		t.Fatalf("hand ran %q, want one call", got)
 	}
 	wd, err := filepath.EvalSymlinks(got[0])
-	if err != nil || wd != h.home {
-		t.Fatalf("hand ran in %q, want %q", got[0], h.home)
+	if err != nil || wd != dir {
+		t.Fatalf("hand ran in %q, want %q", got[0], dir)
 	}
-	want := strings.Join(append([]string{"--home", h.home}, argv...), " ")
+	want := strings.Join(append([]string{"--home", dir}, argv...), " ")
 	if got[1] != want {
 		t.Fatalf("hand ran with %q, want %q", got[1], want)
 	}

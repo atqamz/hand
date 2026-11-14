@@ -496,6 +496,18 @@ func errorFixture() *fixture {
 	}}
 }
 
+func noFleetsFixture() *fixture {
+	return &fixture{
+		status:   map[string]desktop.Status{},
+		timeline: map[string]desktop.Timeline{},
+		tasks:    map[string]desktop.Tasks{},
+		task:     map[string]desktop.TaskDetail{},
+		attempt:  map[string]desktop.AttemptDetail{},
+		decision: map[string]desktop.DecisionDetail{},
+		report:   map[string]desktop.ReportDetail{},
+	}
+}
+
 func newApp(t *testing.T, f *fixture) *desktop.App {
 	t.Helper()
 	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })

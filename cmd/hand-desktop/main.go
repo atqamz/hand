@@ -79,6 +79,7 @@ func main() {
 		return
 	}
 	app := desktop.New(func() (desktop.ReadModel, error) { return desktop.NewLocal(os.Getenv) })
+	app.Start = desktop.StartBoard(os.Getenv)
 	app.DraftDir = desktop.DraftDir(os.Getenv)
 	app.Boot()
 	if opts.fleet != "" {

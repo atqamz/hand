@@ -44,7 +44,7 @@ Then run `hand init` in a folder of its own, then `hand open`: init pins Luvus, 
 
 `hand update` moves to a newer release. `hand doctor` checks your setup and prints a fix for each problem.
 
-On Linux amd64 and arm64, `hand update` also installs `hand-desktop` next to `hand`: start it while a board runs for the native window. It needs a display and no cgo, a launcher entry opens it from any XDG launcher, and `hand doctor` has a `desktop` row and a `desktop entry` row for it. macOS and Windows use the board in a browser.
+On Linux amd64 and arm64, `hand update` also installs `hand-desktop` next to `hand`: start it for the native window, which starts the board itself with `hand board start` when none answers and never stops one. It needs a display and no cgo, a launcher entry opens it from any XDG launcher, and `hand doctor` has a `desktop` row and a `desktop entry` row for it. macOS and Windows use the board in a browser.
 
 For the rolling `edge` build of `main`, or a pinned release such as `v0.14.0`, set `HAND_INSTALL_VERSION` first: `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_VERSION=edge sh -c "$s"`, or `$env:HAND_INSTALL_VERSION = 'edge'` before the PowerShell line. Releases after v0.11.0 and the edge build also get a build attestation, best effort: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` checks who built a download.
 

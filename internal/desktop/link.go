@@ -51,7 +51,8 @@ func (a *App) OpenLink(link string) error {
 		a.setErr(err.Error())
 		return err
 	}
-	if a.Model == nil {
+	if a.Model == nil || len(a.Fleets) == 0 {
+		a.pendingLink = link
 		return nil
 	}
 	if !a.hasFleet(l.Fleet) {
