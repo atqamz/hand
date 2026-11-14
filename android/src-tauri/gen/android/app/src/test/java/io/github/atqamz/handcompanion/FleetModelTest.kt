@@ -257,7 +257,7 @@ class FleetModelTest {
   @Test
   fun theBodyFollowsTheAnswerAndThePairing() {
     assertEquals(Body.Needs, body(FleetState(loaded = true, tab = Tab.Needs)))
-    assertEquals(Body.Placeholder, body(FleetState(loaded = true, tab = Tab.Chat)))
+    assertEquals(Body.Chat, body(FleetState(loaded = true, tab = Tab.Chat)))
     assertEquals(Body.Unpaired, body(FleetState(unpaired = true)))
   }
 

@@ -88,7 +88,7 @@ class TasksScreenTest {
   private fun shot(dark: Boolean, state: FleetState) =
     paparazzi.snapshot {
       HandTheme(dark) {
-        FleetScreen("f000000000003", state, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) {}
+        FleetScreen("f000000000003", state, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, chat = {}) {}
       }
     }
 

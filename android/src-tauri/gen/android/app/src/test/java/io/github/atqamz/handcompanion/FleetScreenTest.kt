@@ -179,7 +179,7 @@ class FleetScreenTest {
 
   private fun shot(dark: Boolean, id: String, state: FleetState) =
     paparazzi.snapshot {
-      HandTheme(dark) { FleetScreen(id, state, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) {} }
+      HandTheme(dark) { FleetScreen(id, state, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, chat = { Loading() }) {} }
     }
 
   @Test fun needsLight() = shot(false, "f000000000003", several)

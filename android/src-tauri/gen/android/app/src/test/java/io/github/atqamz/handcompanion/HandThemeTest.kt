@@ -89,6 +89,7 @@ class HandThemeTest {
       listOf(Tone.Fail, Tone.Wait, Tone.Pass, Tone.Accent, Tone.Neutral).map(hand::ink)
     )
     assertEquals(colors(0x111418, 0xD8DDE4), listOf(hand.screen, hand.screenFg))
+    assertEquals(colors(0xF1F3F5), listOf(hand.card))
     assertEquals(
       colors(0xFDEEEE, 0xFCF3DC, 0xE4F4E9, 0xEBF1FD, 0xEEF0F3),
       listOf(Tone.Fail, Tone.Wait, Tone.Pass, Tone.Accent, Tone.Neutral).map(hand::fill)
@@ -123,6 +124,7 @@ class HandThemeTest {
       listOf(Tone.Fail, Tone.Wait, Tone.Pass, Tone.Accent, Tone.Neutral).map(hand::ink)
     )
     assertEquals(colors(0x08090B, 0xD8DDE4), listOf(hand.screen, hand.screenFg))
+    assertEquals(colors(0x1B1F25), listOf(hand.card))
     assertEquals(
       colors(0x2C1719, 0x2A2212, 0x13281B, 0x172238, 0x1E232A),
       listOf(Tone.Fail, Tone.Wait, Tone.Pass, Tone.Accent, Tone.Neutral).map(hand::fill)

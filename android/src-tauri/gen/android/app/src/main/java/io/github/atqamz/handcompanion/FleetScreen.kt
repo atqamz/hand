@@ -156,6 +156,7 @@ fun FleetScreen(
   onPress: (List<String>) -> Unit,
   onForce: () -> Unit,
   onAttempt: (String) -> Unit,
+  chat: @Composable () -> Unit,
   choice: @Composable (String) -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -171,6 +172,7 @@ fun FleetScreen(
         Body.Loading -> Loading()
         Body.Needs -> NeedsScreen(state, onToggle, onReport, onWeb, onPress, onForce, onAttempt, choice)
         Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry)
+        Body.Chat -> chat()
         Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
     }

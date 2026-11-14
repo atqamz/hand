@@ -184,6 +184,7 @@ enum class Body {
   Unpaired,
   Needs,
   Tasks,
+  Chat,
   Placeholder
 }
 
@@ -193,6 +194,7 @@ fun body(state: FleetState) =
     !state.loaded -> Body.Loading
     state.tab == Tab.Needs -> Body.Needs
     state.tab == Tab.Tasks -> Body.Tasks
+    state.tab == Tab.Chat -> Body.Chat
     else -> Body.Placeholder
   }
 
