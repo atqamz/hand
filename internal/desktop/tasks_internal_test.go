@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -46,6 +47,20 @@ func TestATaskStateTakesTheBoardsToneAndIcon(t *testing.T) {
 			if tc.state == "" && word != "idle" {
 				t.Errorf("dark=%v: no state says %q, want idle", dark, word)
 			}
+		}
+	}
+}
+
+func TestTaskProjectKeepsTwentyFourCharacters(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"web", "web"},
+		{strings.Repeat("a", 24), strings.Repeat("a", 24)},
+		{strings.Repeat("a", 25), strings.Repeat("a", 23) + "…"},
+		{strings.Repeat("é", 25), strings.Repeat("é", 23) + "…"},
+	}
+	for _, tc := range cases {
+		if got := taskProject(tc.in); got != tc.want {
+			t.Errorf("taskProject(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

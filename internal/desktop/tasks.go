@@ -69,13 +69,10 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
 			if (a.Status.Projects > 1 && r.Project != "") || r.Attempt != nil || r.Waits != nil ||
-				under != "" || r.Children > 0 || depth > 3 {
+				r.Delivered != nil || under != "" || r.Children > 0 || depth > 3 {
 				a.taskSubline(c, p, r, under, depth)
 			}
 		})
-		if r.Delivered != nil {
-			a.taskDeliverable(c, p, *r.Delivered)
-		}
 	})
 	if el.Clicked() {
 		a.OpenRef(r.Ref)
@@ -95,6 +92,9 @@ func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string, dep
 		if r.Waits != nil {
 			ui.Text(c, taskWaitsLine(*r.Waits)).FontSize(kit.Meta.Size).TextColor(p.neutral).
 				FixedLineHeight(18).SingleLine().MinWidth(0)
+		}
+		if r.Delivered != nil {
+			a.taskDeliverable(c, p, *r.Delivered)
 		}
 		if depth > 3 {
 			ui.Textf(c, "depth %d", depth).FontSize(kit.Meta.Size).TextColor(p.neutral).
@@ -118,7 +118,7 @@ func (a *App) taskDeliverable(c *ui.Context, p palette, d Deliverable) {
 			color = p.accent
 		}
 		ui.Text(c, "file: "+taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
-			TextColor(color).SingleLine().MaxWidth(200).Shrink(0)
+			TextColor(color).SingleLine().MaxWidth(200).Shrink(0).Tooltip(d.Ref)
 		return
 	}
 	ui.Badge(c, d.Kind).Background(ui.Transparent).TextColor(p.accent).Border(1, p.line).

@@ -8,6 +8,7 @@ import (
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/kit"
+	"github.com/egoist/mygo/ui"
 )
 
 func taskFixture(t *testing.T) *fixture {
@@ -141,6 +142,10 @@ func TestTheProjectBadgeIsCappedAtTwentyFourCharacters(t *testing.T) {
 	if !ok {
 		t.Fatalf("no %q", "project "+long)
 	}
+	cut := string([]rune(long)[:23]) + "…"
+	if _, ok := tt.Find(cut); !ok {
+		t.Errorf("the badge draws %q, want the 24-character %q", tt.Texts(), cut)
+	}
 	if b.W > 200 {
 		t.Errorf("the project badge is %.0f wide, want at most 200 for a %d-character name", b.W, len(long))
 	}
@@ -259,34 +264,13 @@ func TestTheTaskRowOpensItsTask(t *testing.T) {
 func TestAMissingSlotLeavesNoGap(t *testing.T) {
 	f := taskFixture(t)
 	ts := f.tasks[fleetID]
-	wide := strings.Repeat("a wide title that has to be cut ", 8)
 	ts.Groups = []desktop.TaskGroup{{Name: "Active", Count: 2, Tasks: []desktop.TaskRow{
-		{Ref: "t20", Title: wide + "with a badge", Project: "web", Status: "active", State: "idle",
-			Delivered: &desktop.Deliverable{Ref: "https://github.com/example/hand/pull/7", Kind: "PR"}},
-		{Ref: "t21", Title: wide + "with no badge", Project: "web", Status: "active", State: "idle"},
+		{Ref: "t22", Title: "A bare row", Project: "web", Status: "active", State: "idle"},
+		{Ref: "t23", Title: "A row with a meta line", Project: "web", Status: "inbox", State: "waiting",
+			Waits: &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z", Note: "the API freeze"}},
 	}}}
 	f.tasks[fleetID] = ts
 	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
-	with, ok := tt.Find(wide + "with a badge")
-	if !ok {
-		t.Fatal("no truncated title with a badge")
-	}
-	without, ok := tt.Find(wide + "with no badge")
-	if !ok {
-		t.Fatal("no truncated title with no badge")
-	}
-	if without.W <= with.W {
-		t.Errorf("the title with no tail is %.0f wide, the one with a tail %.0f: the tail's slot is still there", without.W, with.W)
-	}
-
-	ts.Groups[0].Tasks = append(ts.Groups[0].Tasks[:0],
-		desktop.TaskRow{Ref: "t22", Title: "A bare row", Project: "web", Status: "active", State: "idle"},
-		desktop.TaskRow{Ref: "t23", Title: "A row with a meta line", Project: "web", Status: "inbox", State: "waiting",
-			Waits: &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z", Note: "the API freeze"}},
-	)
-	ts.Groups[0].Count = 2
-	f.tasks[fleetID] = ts
-	tt = sized(t, newApp(t, f), windowWidth, windowHeight, false)
 	bare, ok := tt.Find("task t22")
 	if !ok {
 		t.Fatal("no bare row")
@@ -332,23 +316,43 @@ func TestTheWaitsLineIsCutWithAnEllipsis(t *testing.T) {
 	if line.W >= row.W {
 		t.Errorf("the waits line is %.0f wide in a %.0f row: nothing was cut", line.W, row.W)
 	}
+	if line.H > kit.Meta.Line {
+		t.Errorf("the waits line is %.0f high, want one %.0f px line: it wrapped instead of being cut", line.H, kit.Meta.Line)
+	}
 }
 
-func TestTheDeliverableSitsAtTheTailOfItsRow(t *testing.T) {
-	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
-	row, ok := tt.Find("task t1")
+func TestTheDeliverableEndsTheMetaLine(t *testing.T) {
+	f := taskFixture(t)
+	ts := f.tasks[fleetID]
+	ts.Groups[0].Tasks[0].Waits = &desktop.Waits{Ref: "w1", Due: "2026-11-20T00:00:00Z", Note: "the API freeze"}
+	f.tasks[fleetID] = ts
+	tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+	title, ok := tt.Find("Fix login")
 	if !ok {
-		t.Fatal("no task t1")
+		t.Fatal("no title")
+	}
+	attempt, ok := tt.Find("a1 claude sonnet · working")
+	if !ok {
+		t.Fatal("no attempt")
+	}
+	waits, ok := tt.Find("Waits until Nov 20: the API freeze")
+	if !ok {
+		t.Fatal("no waits line")
 	}
 	badge, ok := tt.Find("deliverable PR")
 	if !ok {
 		t.Fatal("no deliverable badge")
 	}
-	if badge.X < row.X+row.W/2 {
-		t.Errorf("the deliverable is at %.0f in a row starting at %.0f and %.0f wide, not at the tail", badge.X, row.X, row.W)
+	if !(attempt.X < waits.X && waits.X < badge.X) {
+		t.Errorf("the meta line runs attempt %.0f, waits %.0f, deliverable %.0f: want that order", attempt.X, waits.X, badge.X)
 	}
-	if slack := row.X + row.W - badge.X - badge.W; slack > kit.Space10 {
-		t.Errorf("the deliverable leaves %.0f px before the row's end, want its 4 px padding", slack)
+	for name, r := range map[string]ui.Rect{"attempt": attempt, "waits": waits, "deliverable": badge} {
+		if r.Y < attempt.Y-2 || r.Y > attempt.Y+2 {
+			t.Errorf("%s is at y=%.0f, off the meta line at y=%.0f", name, r.Y, attempt.Y)
+		}
+	}
+	if title.Y+title.H > attempt.Y+1 {
+		t.Errorf("the meta line at y=%.0f is not under the title ending at %.0f", attempt.Y, title.Y+title.H)
 	}
 }
 
@@ -393,6 +397,49 @@ func TestALiveStateChangeRepaintsTheRow(t *testing.T) {
 	app.Close()
 }
 
+func TestTheTaskSlotsRunInTheBoardsOrder(t *testing.T) {
+	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
+	icon, ok := tt.Find("state waiting")
+	if !ok {
+		t.Fatal("no state icon")
+	}
+	ref, ok := tt.Find("t1")
+	if !ok {
+		t.Fatal("no ref")
+	}
+	title, ok := tt.Find("Fix login")
+	if !ok {
+		t.Fatal("no title")
+	}
+	meta, ok := tt.Find("web")
+	if !ok {
+		t.Fatal("no project badge at the start of the meta line")
+	}
+	if !(icon.X < ref.X && ref.X < title.X) {
+		t.Errorf("the slots run icon %.0f, ref %.0f, body %.0f: want icon, ref, body", icon.X, ref.X, title.X)
+	}
+	if meta.X < title.X || meta.X-title.X > 8 {
+		t.Errorf("the meta line starts at %.0f, the title at %.0f: they share the body column", meta.X, title.X)
+	}
+	if title.Y >= meta.Y {
+		t.Errorf("the title is at y=%.0f, the meta line at y=%.0f: the meta line goes under the title", title.Y, meta.Y)
+	}
+}
+
+func TestTheFileChipNamesItsWholePathOnHover(t *testing.T) {
+	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
+	chip, ok := tt.Find("file: design.md")
+	if !ok {
+		t.Fatalf("no file chip in %q", tt.Texts())
+	}
+	tt.Move(chip.X+chip.W/2, chip.Y+chip.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if _, ok := tt.Find("reports/t1/design.md"); !ok {
+		t.Errorf("resting on the chip shows no tooltip with the whole path, in %q", tt.Texts())
+	}
+}
+
 func TestTheProjectBadgeNamesTheWholeProjectOnHover(t *testing.T) {
 	f := taskFixture(t)
 	ts := f.tasks[fleetID]
@@ -428,6 +475,8 @@ func TestScenesTasksProjectsAndLongRows(t *testing.T) {
 		t.Run("long-"+mode, func(t *testing.T) {
 			tt := sized(t, newApp(t, taskLongFixture(t)), windowWidth, windowHeight, dark)
 			mustText(t, tt, "A wide task title", "Waits until Nov 20:")
+			cut := string([]rune("platform-migration-and-the-very-long-project-name")[:23]) + "…"
+			mustText(t, tt, cut)
 			shotSized(t, tt, "35-tasks-long-1100x760-"+mode, windowWidth, windowHeight)
 		})
 	}
