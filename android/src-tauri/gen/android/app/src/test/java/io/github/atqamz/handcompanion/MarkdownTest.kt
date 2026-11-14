@@ -300,6 +300,13 @@ class MarkdownTest {
   }
 
   @Test
+  fun theTitleRendersInlineAsTheBoardDoes() {
+    assertEquals("<strong>Cookie</strong> rename: done", inlines(markdownInline("**Cookie** rename: done")))
+    assertEquals("a b", inlines(markdownInline("a\n  b")))
+    assertEquals("x****y", inlines(markdownInline("x****y")))
+  }
+
+  @Test
   fun unsafeLinksNeverBecomeLinks() {
     for (url in listOf(
       "javascript:alert(1)",
@@ -366,6 +373,13 @@ class MarkdownTest {
       "see https://x.io/a?b=1&c=2." to
         "<p>see <a href=\"https://x.io/a?b=1&amp;c=2\" target=\"_blank\" rel=\"noopener noreferrer\">https://x.io/a?b=1&amp;c=2</a>.</p>",
       "snake_case_name and a_b" to "<p>snake_case_name and a_b</p>",
+      "[x](https://a.io/a b)" to
+        "<p><a href=\"https://a.io/a%20b\" target=\"_blank\" rel=\"noopener noreferrer\">x</a></p>",
+      "[x](https://例え.jp/x)" to
+        "<p><a href=\"https://%E4%BE%8B%E3%81%88.jp/x\" target=\"_blank\" rel=\"noopener noreferrer\">x</a></p>",
+      "x****y" to "<p>x****y</p>",
+      "~~~~" to "<p>~~~~</p>",
+      "``" to "<p>``</p>",
       "`**not bold**`" to "<p><code>**not bold**</code></p>",
       "#not a heading" to "<p>#not a heading</p>",
       "" to ""

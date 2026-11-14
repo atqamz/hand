@@ -1,7 +1,5 @@
 package io.github.atqamz.handcompanion
 
-import java.net.URI
-
 private const val MAX_LIST_DEPTH = 6
 private const val MAX_PATHS = 50
 private const val FILE_PREFIX = "file:"
@@ -54,6 +52,12 @@ data class MdItem(val lead: List<MdInline>, val blocks: List<MdBlock>)
 
 fun markdown(text: String, options: MarkdownOptions = MarkdownOptions()): List<MdBlock> =
   MarkdownParser(options).document(text)
+
+fun markdownInline(text: String): List<MdInline> =
+  MarkdownParser(PLAIN).inline(
+    text.split(Regex("\\s+")).filter(String::isNotEmpty).joinToString(" "),
+    false
+  )
 
 private class MarkdownParser(private val options: MarkdownOptions) {
   private var left = MAX_PATHS
@@ -234,7 +238,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
     return lines.map { if (it.isBlank()) "" else it.substring(cut) }
   }
 
-  private fun inline(text: String, links: Boolean): List<MdInline> {
+  internal fun inline(text: String, links: Boolean): List<MdInline> {
     val out = mutableListOf<MdInline>()
     val dead = mutableSetOf<String>()
     var i = 0
@@ -262,7 +266,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
       rest[0] == '`' && "`" !in dead -> {
         val j = rest.indexOf('`', 1)
         when {
-          j > 0 -> {
+          j > 1 -> {
             val value = rest.substring(1, j)
             MdCode(value, path(value, true, links)) to j + 1
           }
@@ -275,7 +279,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
       rest.startsWith("~~") -> {
         if ("~~" !in dead) {
           val j = rest.indexOf("~~", 2)
-          if (j > 0) {
+          if (j > 2) {
             MdStrike(inline(rest.substring(2, j), links)) to j + 2
           } else {
             if (j < 0) dead += "~~"
@@ -286,7 +290,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
       rest.startsWith("**") -> {
         if ("**" !in dead) {
           val j = rest.indexOf("**", 2)
-          if (j > 0) {
+          if (j > 2) {
             MdStrong(inline(rest.substring(2, j), links)) to j + 2
           } else {
             if (j < 0) dead += "**"
@@ -320,8 +324,8 @@ private class MarkdownParser(private val options: MarkdownOptions) {
         (rest.startsWith("http://") || rest.startsWith("https://")) &&
         (index == 0 || !word(text[index - 1]) && text[index - 1] != '/') -> {
         val url = token(rest)
-        if (url.isNotEmpty() && safe(url)) MdLink(url, listOf(MdText(url))) to url.length
-        else null to 0
+        val href = if (url.isEmpty()) null else linkUrl(url)
+        if (href != null) MdLink(href, listOf(MdText(url))) to url.length else null to 0
       }
       room(links) &&
         (pathLike(rest) || options.filePaths && rest.startsWith(FILE_PREFIX)) &&
@@ -348,8 +352,7 @@ private class MarkdownParser(private val options: MarkdownOptions) {
     if (mid < 1) return ParsedLink(null, false)
     val end = rest.indexOf(')', mid + 2)
     if (end < 0) return ParsedLink(null, true)
-    val url = rest.substring(mid + 2, end)
-    if (!safe(url)) return ParsedLink(null, false)
+    val url = linkUrl(rest.substring(mid + 2, end)) ?: return ParsedLink(null, false)
     val children = MarkdownParser(PLAIN).inline(rest.substring(1, mid), false)
     return ParsedLink(MdLink(url, children) to end + 1, false)
   }
@@ -497,14 +500,59 @@ private fun token(rest: String): String {
   return text
 }
 
-internal fun safe(raw: String): Boolean =
-  try {
-    val url = URI(raw)
-    (url.scheme?.lowercase() == "http" || url.scheme?.lowercase() == "https") &&
-      !url.host.isNullOrEmpty()
-  } catch (_: Exception) {
-    false
+private val LINK_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*$")
+private const val HEX = "0123456789ABCDEF"
+private const val HOST_SAFE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~!$&'()*+,;=:[]@%"
+private const val TAIL_SAFE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~:/?#[]@!$&'()*+,;=%"
+
+internal fun linkUrl(raw: String): String? {
+  if (raw.isEmpty() || raw.any { it.code < 0x20 || it.code == 0x7f }) return null
+  val colon = raw.indexOf(':')
+  if (colon <= 0) return null
+  val scheme = raw.substring(0, colon)
+  if (!LINK_SCHEME.matches(scheme)) return null
+  if (!scheme.equals("http", true) && !scheme.equals("https", true)) return null
+  if (!raw.startsWith("//", colon + 1)) return null
+  val start = colon + 3
+  var end = start
+  while (end < raw.length && raw[end] !in "/?#") end++
+  if (end == start) return null
+  val authority = raw.substring(start, end)
+  if (authority.any { it == ' ' || it in "\"<>\\^`{|}" }) return null
+  val host = encodeUrl(authority, HOST_SAFE) ?: return null
+  val tail = encodeUrl(raw.substring(end), TAIL_SAFE) ?: return null
+  return scheme.lowercase() + "://" + host + tail
+}
+
+private fun encodeUrl(value: String, safe: String): String? {
+  val out = StringBuilder(value.length)
+  var i = 0
+  while (i < value.length) {
+    val c = value[i]
+    when {
+      c == '%' -> {
+        if (i + 2 >= value.length || !value[i + 1].isHexDigit() || !value[i + 2].isHexDigit()) return null
+        out.append(value, i, i + 3)
+        i += 3
+      }
+      c.code in 0x20..0x7e && c in safe -> {
+        out.append(c)
+        i++
+      }
+      else -> {
+        val code = value.codePointAt(i)
+        for (byte in String(Character.toChars(code)).toByteArray(Charsets.UTF_8)) {
+          val b = byte.toInt() and 0xff
+          out.append('%').append(HEX[b shr 4]).append(HEX[b and 0x0f])
+        }
+        i += Character.charCount(code)
+      }
+    }
   }
+  return out.toString()
+}
+
+private fun Char.isHexDigit() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
 private fun refLength(rest: String): Int {
   var n = 1
