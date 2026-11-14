@@ -47,6 +47,16 @@ func (s *startSpy) count() int {
 	return s.calls
 }
 
+func (s *startSpy) waitStarts(t *testing.T, want int) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if s.count() >= want {
+			return
+		}
+	}
+	t.Fatalf("starts = %d, want %d", s.count(), want)
+}
+
 func startApp(t *testing.T, connect func() (desktop.ReadModel, error), start func(context.Context, string) (string, error)) *desktop.App {
 	t.Helper()
 	app := desktop.New(connect)
@@ -79,11 +89,9 @@ func TestTheWindowStartsTheBoardWhenNoneIsRunning(t *testing.T) {
 	app.Post = func(fn func()) { posted <- fn }
 	tt := newTester(app)
 	app.StartRefresh()
+	spy.waitStarts(t, 1)
 	tt.Frame()
 	mustText(t, tt, "Starting the Board…")
-	if spy.count() != 1 {
-		t.Fatalf("starts = %d, want 1", spy.count())
-	}
 	deadline := time.After(5 * time.Second)
 	for !tt.HasText("Fix login") {
 		select {
@@ -105,11 +113,9 @@ func TestTheWindowStartsTheBoardWhenTheProofDoesNotAnswer(t *testing.T) {
 	app.Post = func(fn func()) { posted <- fn }
 	tt := newTester(app)
 	app.StartRefresh()
+	spy.waitStarts(t, 1)
 	tt.Frame()
 	mustText(t, tt, "Starting the Board…")
-	if spy.count() != 1 {
-		t.Fatalf("starts = %d, want 1", spy.count())
-	}
 	waitPost(t, posted)()
 	tt.Frame()
 	if spy.count() != 1 {
