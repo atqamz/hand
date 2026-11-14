@@ -568,7 +568,11 @@ func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any
 		return Envelope{}, err
 	}
 	defer res.Body.Close()
-	return c.decode(res, fleet, path, out)
+	env, err := c.decode(res, fleet, path, out)
+	if err != nil && res.StatusCode == http.StatusOK {
+		return Envelope{}, &AppliedUnread{Err: err}
+	}
+	return env, err
 }
 
 func (c *HTTPClient) prepare(ctx context.Context, fleet string) (string, error) {

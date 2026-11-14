@@ -136,8 +136,12 @@ func TestOpenLinkInTheShownFleetKeepsItsFleet(t *testing.T) {
 		t.Fatalf("fleet %s, screen %d, ref %q", app.Fleet.ID, app.Screen, app.Ref)
 	}
 	app.Back()
+	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
+		t.Fatalf("Back left the first page on %v %q", app.Screen, app.Ref)
+	}
+	app.CloseViewer()
 	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("back left on screen %d", app.Screen)
+		t.Fatalf("the close left on screen %d", app.Screen)
 	}
 }
 

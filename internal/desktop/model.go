@@ -24,6 +24,14 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Message }
 
+// AppliedUnread reports a write the board took, whose answer the window
+// could not read. The write may have gone in, so a caller refreshes
+// instead of sending it again.
+type AppliedUnread struct{ Err error }
+
+func (e *AppliedUnread) Error() string { return e.Err.Error() }
+func (e *AppliedUnread) Unwrap() error { return e.Err }
+
 type APIErrorResponse struct {
 	Error APIError `json:"error"`
 }
@@ -241,6 +249,7 @@ type Task struct {
 	Goal       string `json:"goal,omitempty"`
 	Project    string `json:"project"`
 	Status     string `json:"status"`
+	Parent     string `json:"parent,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
 	FinishedAt string `json:"finished_at,omitempty"`
@@ -305,6 +314,7 @@ type TaskDetail struct {
 	Attempts      []AttemptRow  `json:"attempts"`
 	Events        []Event       `json:"events"`
 	MoreEvents    bool          `json:"more_events"`
+	Children      []TaskRow     `json:"children,omitempty"`
 }
 
 type Turn struct {

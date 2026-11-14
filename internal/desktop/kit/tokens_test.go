@@ -22,12 +22,13 @@ var lengths = map[string]float32{
 	"row-sm": RowSM, "row": Row, "tap": Tap, "row-lg": RowLG, "sheet": Sheet,
 }
 
-var unmirrored = []string{"backdrop", "doc-bg", "pane", "screen-fade", "screen-fade-fg", "screen-fade-fg-clear", "screen-thumb", "veil"}
+var unmirrored = []string{"doc-bg", "pane", "screen-fade", "screen-fade-fg", "screen-fade-fg-clear", "screen-thumb", "veil"}
 
 var (
 	declaration = regexp.MustCompile(`--([a-z0-9-]+):([^;}]+)`)
 	tintRule    = regexp.MustCompile(`\.tint-(\d+)\{--tint:(#[0-9a-f]{6})\}`)
 	rgbaValue   = regexp.MustCompile(`^rgba\((\d+),(\d+),(\d+),(\.?\d+)\)$`)
+	slashValue  = regexp.MustCompile(`^rgb\((\d+) (\d+) (\d+) / (\.?\d+)\)$`)
 )
 
 func boardCSS(t *testing.T) (light, dark string) {
@@ -70,8 +71,12 @@ func rootTokens(t *testing.T, block string) map[string]string {
 
 func cssColor(t *testing.T, v string) ui.Color {
 	t.Helper()
+	n := func(s string) uint8 { x, _ := strconv.Atoi(s); return uint8(x) }
 	if m := rgbaValue.FindStringSubmatch(v); m != nil {
-		n := func(s string) uint8 { x, _ := strconv.Atoi(s); return uint8(x) }
+		a, _ := strconv.ParseFloat(m[4], 32)
+		return ui.RGBA(n(m[1]), n(m[2]), n(m[3]), float32(a))
+	}
+	if m := slashValue.FindStringSubmatch(v); m != nil {
 		a, _ := strconv.ParseFloat(m[4], 32)
 		return ui.RGBA(n(m[1]), n(m[2]), n(m[3]), float32(a))
 	}

@@ -33,6 +33,7 @@ type fixture struct {
 	report        map[string]desktop.ReportDetail
 	fail          error
 	action        error
+	taskErr       error
 	keepNeeds     bool
 	actionBlock   chan struct{}
 	actionEntered chan struct{}
@@ -69,6 +70,8 @@ type fixture struct {
 	pollExited    chan struct{}
 	pollDone      chan struct{}
 	pollErr       error
+	pollScreen    desktop.Screen
+	pollRef       string
 	mu            sync.Mutex
 	calls         map[string]int
 }
@@ -157,6 +160,9 @@ func (f *fixture) Task(ctx context.Context, id, ref string) (desktop.TaskDetail,
 	if f.fail != nil {
 		return desktop.TaskDetail{}, f.fail
 	}
+	if f.taskErr != nil {
+		return desktop.TaskDetail{}, f.taskErr
+	}
 	d, ok := f.task[id]
 	if !ok || (ref != "" && d.Task.Ref != ref) {
 		return desktop.TaskDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: task " + ref}
@@ -223,6 +229,9 @@ func (f *fixture) Report(ctx context.Context, id, ref string) (desktop.ReportDet
 
 func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, ref string, since desktop.PollCursors) (desktop.Poll, error) {
 	f.note("poll:" + id)
+	f.mu.Lock()
+	f.pollScreen, f.pollRef = screen, ref
+	f.mu.Unlock()
 	if f.pollBlock != nil {
 		if f.pollEntered != nil {
 			f.pollEntered <- struct{}{}

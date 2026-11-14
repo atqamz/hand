@@ -142,18 +142,24 @@ func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
 	for _, tc := range []struct {
 		screen string
 		open   func()
+		menu   bool
 		argv   []string
 	}{
-		{"panes", func() {}, []string{"open"}},
-		{"Board", func() { click(t, tt, "Board") }, []string{"open"}},
-		{"task", func() { app.OpenRef("t1") }, []string{"open", "t1"}},
-		{"attempt", func() { app.OpenRef("a1") }, []string{"open", "a1"}},
-		{"decision", func() { app.OpenRef("d1") }, []string{"open", "d1"}},
-		{"report", func() { app.OpenRef("r1") }, []string{"open", "r1"}},
+		{"panes", func() {}, true, []string{"open"}},
+		{"Board", func() { click(t, tt, "Board") }, true, []string{"open"}},
+		{"task", func() { app.OpenRef("t1") }, false, []string{"open", "t1"}},
+		{"attempt", func() { app.OpenRef("a1") }, false, []string{"open", "a1"}},
+		{"decision", func() { app.OpenRef("d1") }, false, []string{"open", "d1"}},
+		{"report", func() { app.OpenRef("r1") }, false, []string{"open", "r1"}},
 	} {
 		t.Run(tc.screen, func(t *testing.T) {
 			tc.open()
-			menu(t, tt, "Open in browser")
+			tt.Frame()
+			if tc.menu {
+				menu(t, tt, "Open in browser")
+			} else {
+				click(t, tt, "Open as a page")
+			}
 			hand.want(t, tc.argv...)
 			if app.OpenErr != "" {
 				t.Fatalf("OpenErr = %q", app.OpenErr)
@@ -363,8 +369,13 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 			tt.Frame()
 			mustText(t, tt, "Delivered", "PR", "outside.pdf", "my design.md")
 
-			click(t, tt, "https://github.com/atqamz/hand/pull/7")
-			click(t, tt, "https://docs.example.com/q3")
+			if screen.name == "task" {
+				click(t, tt, "open https://github.com/atqamz/hand/pull/7")
+				click(t, tt, "open https://docs.example.com/q3")
+			} else {
+				click(t, tt, "https://github.com/atqamz/hand/pull/7")
+				click(t, tt, "https://docs.example.com/q3")
+			}
 			want := []string{"https://github.com/atqamz/hand/pull/7", "https://docs.example.com/q3"}
 			if got := tt.OpenedURLs(); !slices.Equal(got, want) {
 				t.Fatalf("opened %q, want %q", got, want)
@@ -373,7 +384,11 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 				t.Fatalf("hand ran for a link: %q", got)
 			}
 
-			click(t, tt, "my design.md")
+			if screen.name == "task" {
+				click(t, tt, "open "+docHref)
+			} else {
+				click(t, tt, "my design.md")
+			}
 			hand.want(t, "open", "--doc", "reports/t1/my design.md")
 			if got := tt.OpenedURLs(); len(got) != len(want) {
 				t.Fatalf("a fleet file reached the browser directly: %q", got)
@@ -396,24 +411,19 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 
 func TestSameNamedDeliveredFilesOpenTheirOwnDocument(t *testing.T) {
 	hand := installFakeHand(t)
+	first := "/" + fleetID + "/doc/reports/t1/design.md"
+	second := "/" + fleetID + "/doc/reports/t2/design.md"
 	ds := []desktop.Deliverable{
-		{Ref: "design.md", Kind: "file", Href: "/" + fleetID + "/doc/reports/t1/design.md"},
-		{Ref: "design.md", Kind: "file", Href: "/" + fleetID + "/doc/reports/t2/design.md"},
+		{Ref: "design.md", Kind: "file", Href: first},
+		{Ref: "design.md", Kind: "file", Href: second},
 	}
 	app := deliveredApp(t, hand.home, ds...)
 	tt := newTester(app)
 	app.OpenRef("t1")
 	tt.Frame()
-	first, ok := tt.Find("design.md")
-	if !ok {
-		t.Fatal("design.md not on screen")
-	}
-	tt.ClickAt(first.X+1, first.Y+first.H/2)
+	click(t, tt, "open "+first)
 	hand.want(t, "open", "--doc", "reports/t1/design.md")
-	for dy := first.H; dy < first.H*4 && len(hand.calls(t)) == 0; dy++ {
-		tt.ClickAt(first.X+1, first.Y+first.H/2+dy)
-		time.Sleep(20 * time.Millisecond)
-	}
+	click(t, tt, "open "+second)
 	hand.want(t, "open", "--doc", "reports/t2/design.md")
 }
 

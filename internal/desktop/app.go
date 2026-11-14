@@ -90,6 +90,7 @@ type App struct {
 	needTop       string
 	needClosedTop string
 	ackDone       map[string]bool
+	ackRef        string
 	sentNeeds     map[string]string
 	misreadOpen   map[string]*bool
 	denyTimer     func()
@@ -153,6 +154,9 @@ type App struct {
 	stopGen       int
 	stopRef       string
 	scroll        ui.ScrollState
+	viewerScroll  ui.ScrollState
+	asideScroll   ui.ScrollState
+	boardScroll   ui.ScrollState
 	wakesOpen     map[string]bool
 	latestNew     int
 	latestCount   int
@@ -376,12 +380,20 @@ func (a *App) install(f found, keep bool) {
 	}
 }
 
+const viewerStackMax = 20
+
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	if s == BoardScreen {
+		a.viewerScroll = ui.ScrollState{}
+	}
 	a.Reload()
 }
 
+// OpenRef opens the page of a ref: over the Board it is the viewer's first
+// page, and inside the viewer it pushes one deeper. The stack is capped at
+// 20 pages, so the next link replaces the top one.
 func (a *App) OpenRef(ref string) {
 	if ref == "" || a.Fleet.ID == "" {
 		return
@@ -390,9 +402,27 @@ func (a *App) OpenRef(ref string) {
 	if !ok {
 		return
 	}
-	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
+	if a.Screen == s && a.Ref == ref {
+		return
+	}
+	if a.Screen != BoardScreen && len(a.back) < viewerStackMax-1 {
+		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
+	}
 	a.Screen, a.Ref = s, ref
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerScroll = ui.ScrollState{}
+	a.Reload()
+}
+
+// CloseViewer closes the whole stack in one step, as Escape, the close
+// button and a click on the backdrop do.
+func (a *App) CloseViewer() {
+	if a.Screen == BoardScreen {
+		return
+	}
+	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerScroll = ui.ScrollState{}
 	a.Reload()
 }
 
@@ -411,7 +441,7 @@ func refScreen(ref string) (Screen, bool) {
 }
 
 func (a *App) next(done string) {
-	if a.Ref != done || len(a.back) == 0 || a.back[len(a.back)-1].Screen != BoardScreen {
+	if a.Ref != done || len(a.back) > 0 {
 		return
 	}
 	for _, need := range a.Status.Needs.Items {
@@ -425,23 +455,24 @@ func (a *App) next(done string) {
 		if s, ok := refScreen(ref); ok {
 			a.Screen, a.Ref = s, ref
 			a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+			a.viewerScroll = ui.ScrollState{}
 			a.Reload()
 			return
 		}
 		break
 	}
-	a.Back()
+	a.CloseViewer()
 }
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
-		a.Show(BoardScreen)
 		return
 	}
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref = step.Screen, step.Ref
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
+	a.viewerScroll = ui.ScrollState{}
 	a.Reload()
 }
 
@@ -589,14 +620,13 @@ func (a *App) Ack(ref string) {
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
+	a.ackRef = ref
 	report := func(r ReportDetail) {
 		if id != a.loadID {
 			return
 		}
-		a.Busy = false
-		if screen == ReportScreen {
-			a.Report = r
-		}
+		a.Busy, a.ackRef = false, ""
+		a.applyAck(ref, r.Report)
 		a.receipt = ref + " marked read"
 		a.receiptKey = "ack:" + ref
 		if a.ackDone == nil {
@@ -620,7 +650,7 @@ func (a *App) Ack(ref string) {
 		if id != a.loadID {
 			return
 		}
-		a.Busy = false
+		a.Busy, a.ackRef = false, ""
 		a.ActionErr = friendly(err)
 		a.ActionWarn = false
 	}
@@ -669,6 +699,36 @@ func (a *App) Ack(ref string) {
 	}
 	post(func() {})
 	go fetch()
+}
+
+// applyAck writes a report's new state where the window shows it, so the
+// card reads "read by" before the next poll.
+func (a *App) applyAck(ref string, r Report) {
+	if a.Report.Report.Ref == ref {
+		a.Report.Report = r
+	}
+	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
+	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
+	kept := a.Task.Unread[:0:0]
+	for _, u := range a.Task.Unread {
+		if u.Ref != ref {
+			kept = append(kept, u)
+		}
+	}
+	a.Task.Unread = kept
+}
+
+func ackedReports(have []Report, ref string, r Report) []Report {
+	if len(have) == 0 {
+		return have
+	}
+	out := slices.Clone(have)
+	for i := range out {
+		if out[i].Ref == ref {
+			out[i] = r
+		}
+	}
+	return out
 }
 
 func (a *App) Send() {
@@ -1116,6 +1176,7 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	a.loadID++
 	a.Busy = false
 	a.BusyAction = ""
+	a.ackRef = ""
 	a.ActionErr = ""
 	a.ActionWarn = false
 	a.OpenErr = ""

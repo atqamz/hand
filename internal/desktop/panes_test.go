@@ -301,25 +301,6 @@ func TestTheComposerHintFollowsTheSupervisorsState(t *testing.T) {
 	}
 }
 
-func TestTheRailsInertItemsLeaveAnOpenDetailAlone(t *testing.T) {
-	f := goldenFixture(t)
-	app := newApp(t, f)
-	tt := newTester(app)
-	app.OpenRef("t1")
-	tt.Frame()
-	reads := f.count("status:" + fleetID)
-	for _, item := range []string{"Tasks", "Conversation", "Screen", "Phone"} {
-		click(t, tt, item)
-	}
-	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || f.count("status:"+fleetID) != reads {
-		t.Fatalf("an inert rail item changed the screen to %v %q or reloaded it", app.Screen, app.Ref)
-	}
-	click(t, tt, "Board")
-	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("Board left the window on %v", app.Screen)
-	}
-}
-
 func TestAFailedTimelineReadStaysInTheChatPane(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)

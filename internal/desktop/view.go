@@ -80,6 +80,13 @@ func (a *App) View(c *ui.Context) {
 			a.body(c, k, p)
 		})
 	})
+	if a.viewerOpen() {
+		a.viewer(c, k, p)
+	}
+}
+
+func (a *App) viewerOpen() bool {
+	return a.Model != nil && a.Fleet.ID != "" && a.Screen != BoardScreen
 }
 
 func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
@@ -92,7 +99,7 @@ func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
 		return kit.Nav(c, k, n)
 	}
 	kit.Rail(c, k, a.RailOpen, a.toggleRail, func() {
-		if item(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: a.Screen == BoardScreen || a.Screen == DecisionScreen || a.Screen == ReportScreen,
+		if item(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: true,
 			Count: a.waitingNeeds(), CountBG: bg, CountFG: fg}) {
 			a.Show(BoardScreen)
 		}
@@ -172,28 +179,21 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {
-	ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
-		ui.Column(c).Gap(16).Selectable().Children(func() {
-			a.openCard(c, p)
-			switch {
-			case a.Err != "":
-				a.errorCard(c, p)
-			case a.Loading:
-				a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
-			case a.Screen == BoardScreen:
-				a.needsScreen(c, k, p)
-				a.tasksScreen(c, p)
-			case a.Screen == TaskScreen:
-				a.taskScreen(c, p)
-			case a.Screen == AttemptScreen:
-				a.attemptScreen(c, p)
-			case a.Screen == DecisionScreen:
-				a.decisionScreen(c, k, p)
-			case a.Screen == ReportScreen:
-				a.reportScreen(c, p)
-			}
+	ui.Scroll(c).Key("board-scroll").Grow(1).Padding(20, 20, 32).TrackScroll(&a.boardScroll).
+		Children(func() {
+			ui.Column(c).Gap(16).Selectable().Children(func() {
+				a.openCard(c, p)
+				switch {
+				case a.Err != "" && !a.errScreen:
+					a.errorCard(c, p)
+				case a.Loading && a.Status.Pill == "" && len(a.Tasks.Groups) == 0:
+					a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer.")
+				default:
+					a.needsScreen(c, k, p)
+					a.tasksScreen(c, p)
+				}
+			})
 		})
-	})
 }
 
 func (a *App) errorCard(c *ui.Context, p palette) {
@@ -271,75 +271,8 @@ func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
 
 var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
 
-func (a *App) taskScreen(c *ui.Context, p palette) {
-	t := a.Task
-	a.detailHeader(c, p, t.Task.Ref, t.Task.Title)
-	ui.Row(c).Gap(8).Children(func() {
-		statusPill(c, p, t.Pill)
-		ui.Text(c, t.Task.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
-		if t.Task.Project != "" && a.Status.Projects > 1 {
-			ui.Badge(c, t.Task.Project).Background(p.neutralBG).TextColor(p.neutral)
-		}
-		ui.Text(c, stamp(t.Task.CreatedAt)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-	})
-	if t.Task.Goal != "" {
-		a.paragraph(c, p, "Goal", t.Task.Goal)
-	}
-	if t.Plan != nil {
-		a.paragraph(c, p, fmt.Sprintf("Plan · %s", t.Plan.Ref), t.Plan.Body)
-	}
-	a.delivered(c, p, t.Delivered)
-	if len(t.OpenDecisions) > 0 {
-		a.section(c, p, "Open decisions")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, d := range t.OpenDecisions {
-				a.decisionRow(c, p, d)
-			}
-		})
-	}
-	if history := closedDecisions(t.Decisions, t.OpenDecisions); len(history) > 0 {
-		a.section(c, p, "Decisions")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, d := range history {
-				a.decisionRow(c, p, d)
-			}
-		})
-	}
-	if len(t.Reports) > 0 {
-		a.section(c, p, "Reports")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, report := range t.Reports {
-				a.reportRow(c, p, report)
-			}
-		})
-		if t.MoreReports {
-			more(c, p, "Only the latest 50 reports are shown.")
-		}
-	}
-	if len(t.Attempts) > 0 {
-		a.section(c, p, "Attempts")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, attempt := range t.Attempts {
-				a.attemptRow(c, p, attempt)
-			}
-		})
-	}
-	if len(t.Events) > 0 {
-		a.section(c, p, "Events")
-		ui.Column(c).Gap(0).Children(func() {
-			for _, event := range t.Events {
-				a.eventRow(c, p, event)
-			}
-		})
-		if t.MoreEvents {
-			more(c, p, "Only the latest 50 events are shown.")
-		}
-	}
-}
-
 func (a *App) attemptScreen(c *ui.Context, p palette) {
 	at := a.Attempt
-	a.detailHeader(c, p, at.Attempt.Ref, at.Task.Title)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, at.State)
 		ui.Text(c, fmt.Sprintf("%s %s %s", at.Attempt.Harness, at.Attempt.Model, at.Attempt.Effort)).FontSize(kit.Body.Size)
@@ -412,7 +345,6 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 func (a *App) decisionScreen(c *ui.Context, k kit.Colors, p palette) {
 	d := a.Decision
 	a.choiceKeys(c, d)
-	a.detailHeader(c, p, d.Decision.Ref, d.Decision.Headline)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, d.Decision.Pill)
 		ui.Text(c, d.Decision.Status).FontSize(kit.Meta.Size).TextColor(p.neutral)
@@ -437,7 +369,6 @@ func (a *App) decisionScreen(c *ui.Context, k kit.Colors, p palette) {
 
 func (a *App) reportScreen(c *ui.Context, p palette) {
 	r := a.Report
-	a.detailHeader(c, p, r.Report.Ref, r.Report.Summary)
 	ui.Row(c).Gap(8).Children(func() {
 		_, statusFg := toneColors(r.Report.Status, p)
 		ui.Badge(c, r.Report.Status).Background(p.neutralBG).TextColor(statusFg)
@@ -467,16 +398,6 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 	}
 }
 
-func (a *App) detailHeader(c *ui.Context, p palette, ref, title string) {
-	ui.Row(c).Gap(10).Children(func() {
-		if ui.Button(c.Key("back"), "Back").Clicked() {
-			a.Back()
-		}
-		ui.Text(c, ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, title).FontSize(kit.Display.Size).Bold().SingleLine().Grow(1)
-	})
-}
-
 func (a *App) section(c *ui.Context, p palette, title string) {
 	section(c, p, title)
 }
@@ -496,39 +417,9 @@ func (a *App) paragraph(c *ui.Context, p palette, title, body string) {
 	})
 }
 
-func closedDecisions(all, open []Decision) []Decision {
-	shown := make(map[string]bool, len(open))
-	for _, d := range open {
-		shown[d.Ref] = true
-	}
-	var out []Decision
-	for _, d := range all {
-		if d.Status != "open" && !shown[d.Ref] {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
-func (a *App) decisionRow(c *ui.Context, p palette, d Decision) {
-	el := ui.ButtonBase(c.Key("decision:"+d.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
-	el.Children(func() {
-		ui.Text(c, d.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, d.Headline).FontSize(kit.Body.Size).SingleLine().Grow(1)
-		if d.Answer != "" {
-			ui.Text(c, firstLine(d.Answer)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
-		}
-		statusPill(c, p, d.Pill)
-	})
-	if el.Clicked() {
-		a.OpenRef(d.Ref)
-	}
-}
-
 func (a *App) reportRow(c *ui.Context, p palette, r Report) {
 	el := ui.ButtonBase(c.Key("report:"+r.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
+		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("report " + r.Ref)
 	el.Children(func() {
 		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
 		ui.Text(c, r.Summary).FontSize(kit.Body.Size).SingleLine().Grow(1)
@@ -537,19 +428,6 @@ func (a *App) reportRow(c *ui.Context, p palette, r Report) {
 	})
 	if el.Clicked() {
 		a.OpenRef(r.Ref)
-	}
-}
-
-func (a *App) attemptRow(c *ui.Context, p palette, at AttemptRow) {
-	el := ui.ButtonBase(c.Key("attempt:"+at.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
-	el.Children(func() {
-		ui.Text(c, at.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-		ui.Text(c, attemptMeta(&at.Attempt)).FontSize(kit.Body.Size).Grow(1).SingleLine()
-		ui.Text(c, stateWord(at.State)).FontSize(kit.Meta.Size).TextColor(stateColor(at.State, p))
-	})
-	if el.Clicked() {
-		a.OpenRef(at.Ref)
 	}
 }
 
@@ -678,17 +556,6 @@ func stateWord(state string) string {
 	return state
 }
 
-func attemptMeta(a *Attempt) string {
-	if a == nil {
-		return ""
-	}
-	parts := []string{a.Harness}
-	if a.Model != "" {
-		parts = append(parts, a.Model)
-	}
-	return strings.Join(parts, " ")
-}
-
 func needLabel(need Need) string {
 	switch {
 	case need.Title != "":
@@ -759,11 +626,6 @@ func roleColor(e Entry, p palette) ui.Color {
 	return p.neutral
 }
 
-func firstLine(s string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	return line
-}
-
 var (
 	optionLine  = regexp.MustCompile(`^\s*(\d+|[A-Z])[.)]\s+(.+)$`)
 	recommended = regexp.MustCompile(`(?i)\s*\(recommended\)`)
@@ -813,6 +675,19 @@ func stamp(at string) string {
 }
 
 func (a *App) markdown(c *ui.Context, src string) {
+	a.markdownAt(c, src, nil)
+}
+
+// markdownCopy renders a plan or a report body in the Board's Copy type:
+// 15px on a 24px line, filling its card.
+func (a *App) markdownCopy(c *ui.Context, src string) {
+	a.markdownAt(c, src, &markdown.Theme{
+		FontSize:   kit.Message.Size,
+		LineHeight: kit.Message.Line / kit.Message.Size,
+	})
+}
+
+func (a *App) markdownAt(c *ui.Context, src string, theme *markdown.Theme) {
 	a.md.ShareSelection = true
 	a.md.OnLink = func(dest string) {
 		target, board := a.linkTarget(dest)
@@ -823,7 +698,9 @@ func (a *App) markdown(c *ui.Context, src string) {
 			c.OpenURL(target)
 		}
 	}
+	a.md.Theme = theme
 	markdown.View(c, src, &a.md)
+	a.md.Theme = nil
 }
 
 func (a *App) linkTarget(dest string) (string, bool) {
