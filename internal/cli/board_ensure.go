@@ -23,6 +23,11 @@ func (r *runner) ensureBoard(ctx context.Context, token string) error {
 }
 
 func (r *runner) ensureBoardWithPath(ctx context.Context, token string, recorded bool) error {
+	if r.terminal() {
+		if current := r.env.Getenv("PATH"); current != "" {
+			_ = writeFile(r.root, boardPathFile(r.root), current+"\n")
+		}
+	}
 	up := func() (bool, error) {
 		_, err := boardAddr(ctx, r.root, r.fleet.ID, token)
 		if errors.Is(err, state.ErrNotFound) {
@@ -63,11 +68,6 @@ func (r *runner) startBoard(ctx context.Context, up func() (bool, error), record
 				return ctx.Err()
 			case <-time.After(100 * time.Millisecond):
 			}
-		}
-	}
-	if r.terminal() {
-		if current := r.env.Getenv("PATH"); current != "" {
-			_ = writeFile(r.root, boardPathFile(r.root), current+"\n")
 		}
 	}
 	env := luvus.Scrub(r.env.Environ())

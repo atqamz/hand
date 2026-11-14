@@ -262,3 +262,21 @@ func TestOpeningFromATerminalRecordsThePath(t *testing.T) {
 		t.Fatalf("board.path = %q, want %q", got, want)
 	}
 }
+
+func TestOpeningFromATerminalRecordsThePathWhenTheBoardAnswers(t *testing.T) {
+	fx := newOpenFixture(t)
+	fx.h.tty = true
+	fx.h.vars["PATH"] = "/opt/terminal/bin"
+	root := fx.h.vars["SECONDHAND_HOME"]
+	if err := os.WriteFile(filepath.Join(root, "board.path"), []byte("/opt/stale/bin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.ok("open", "--print")
+	b, err := os.ReadFile(filepath.Join(root, "board.path"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(b)), "/opt/terminal/bin"; got != want {
+		t.Fatalf("board.path = %q, want %q", got, want)
+	}
+}
