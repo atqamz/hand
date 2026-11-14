@@ -138,14 +138,16 @@ type App struct {
 	draftFleet    string
 	draftText     string
 
-	Status     Status
-	Timeline   Timeline
-	Tasks      Tasks
-	Task       TaskDetail
-	Attempt    AttemptDetail
-	Decision   DecisionDetail
-	pageReport string
-	scrollTo   string
+	Status       Status
+	Timeline     Timeline
+	Tasks        Tasks
+	Task         TaskDetail
+	Attempt      AttemptDetail
+	Decision     DecisionDetail
+	pageReport   string
+	pageTarget   Report
+	pageTargetOK bool
+	scrollTo     string
 
 	Err      string
 	Starting bool
@@ -219,9 +221,11 @@ type readState struct {
 }
 
 type backStep struct {
-	Screen Screen
-	Ref    string
-	Report string
+	Screen    Screen
+	Ref       string
+	Report    string
+	Target    Report
+	HasTarget bool
 }
 
 type found struct {
@@ -374,7 +378,7 @@ func (a *App) SelectFleet(id string) {
 		a.Fleet = f
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
-	a.pageReport, a.scrollTo = "", ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.scrollTo = "", Report{}, false, ""
 	a.scroll.Y = math.MaxFloat32
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.openerRef, a.boardFocus = "", false
@@ -457,7 +461,7 @@ const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
-	a.pageReport, a.scrollTo = "", ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.scrollTo = "", Report{}, false, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
 	if s == BoardScreen {
@@ -482,7 +486,7 @@ func (a *App) OpenRef(ref string) {
 	if !ok {
 		return
 	}
-	a.openPage(s, ref, "", ref)
+	a.openPage(s, ref, "", nil, ref)
 }
 
 // openReport opens a report where the Board draws it: on its task's page,
@@ -492,14 +496,14 @@ func (a *App) openReport(ref string) {
 	if ref == "" || a.Fleet.ID == "" {
 		return
 	}
-	if task := a.reportTask(ref); task != "" {
-		a.openPage(TaskScreen, task, ref, ref)
+	if task, report := a.reportTask(ref); task != "" {
+		a.openPage(TaskScreen, task, ref, report, ref)
 		return
 	}
 	a.loadReportTask(ref)
 }
 
-func (a *App) openPage(s Screen, ref, report, opener string) {
+func (a *App) openPage(s Screen, ref, report string, target *Report, opener string) {
 	if a.Screen == s && a.Ref == ref && a.pageReport == report {
 		return
 	}
@@ -508,38 +512,72 @@ func (a *App) openPage(s Screen, ref, report, opener string) {
 		a.viewerFocus = true
 	}
 	if a.Screen != BoardScreen && len(a.back) < viewerStackMax-1 {
-		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport})
+		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
+			Target: a.pageTarget, HasTarget: a.pageTargetOK})
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
+	a.pageTarget, a.pageTargetOK = Report{}, false
+	if target != nil {
+		a.pageTarget, a.pageTargetOK = *target, true
+	}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.Reload()
 }
 
-func (a *App) reportTask(ref string) string {
+func (a *App) reportTask(ref string) (string, *Report) {
 	for _, n := range a.Status.Needs.Items {
 		if n.Report == ref || n.Ref == ref && n.Kind == "report" {
 			if n.Task != "" {
-				return n.Task
+				return n.Task, nil
 			}
 		}
 	}
 	for _, r := range a.Task.Unread {
 		if r.Ref == ref {
-			return a.Task.Task.Ref
+			report := r
+			return a.Task.Task.Ref, &report
 		}
 	}
 	for _, r := range a.Task.Reports {
 		if r.Ref == ref {
-			return a.Task.Task.Ref
+			report := r
+			return a.Task.Task.Ref, &report
 		}
 	}
 	for _, r := range a.Attempt.Reports {
 		if r.Ref == ref {
-			return a.Attempt.Task.Ref
+			report := r
+			return a.Attempt.Task.Ref, &report
 		}
 	}
-	return ""
+	return "", nil
+}
+
+func (a *App) pageReportCard() (Report, bool) {
+	ref := a.pageReport
+	if ref == "" {
+		return Report{}, false
+	}
+	for _, r := range a.Task.Reports {
+		if r.Ref == ref {
+			return Report{}, false
+		}
+	}
+	if a.pageTargetOK && a.pageTarget.Ref == ref {
+		return a.pageTarget, true
+	}
+	for _, r := range a.Task.Unread {
+		if r.Ref == ref {
+			return r, true
+		}
+	}
+	for _, r := range a.Attempt.Reports {
+		if r.Ref == ref {
+			return r, true
+		}
+	}
+	return Report{}, false
 }
 
 func (a *App) loadReportTask(ref string) {
@@ -560,7 +598,7 @@ func (a *App) loadReportTask(ref string) {
 			a.noticeError = true
 			return
 		}
-		a.openPage(TaskScreen, r.Task.Ref, ref, ref)
+		a.openPage(TaskScreen, r.Task.Ref, ref, &r.Report, ref)
 	}
 	if post == nil {
 		r, err := model.Report(ctx, fleet, ref)
@@ -586,7 +624,7 @@ func (a *App) CloseViewer() {
 	}
 	a.openerRef = ""
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
-	a.pageReport, a.scrollTo = "", ""
+	a.pageReport, a.pageTarget, a.pageTargetOK, a.scrollTo = "", Report{}, false, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
@@ -628,6 +666,7 @@ func (a *App) Back() {
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
+	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = true
@@ -878,6 +917,9 @@ func (a *App) Ack(ref string) {
 func (a *App) applyAck(ref string, r Report) {
 	a.Task.Reports = ackedReports(a.Task.Reports, ref, r)
 	a.Attempt.Reports = ackedReports(a.Attempt.Reports, ref, r)
+	if ref == a.pageReport {
+		a.pageTarget, a.pageTargetOK = r, true
+	}
 	kept := a.Task.Unread[:0:0]
 	for _, u := range a.Task.Unread {
 		if u.Ref != ref {

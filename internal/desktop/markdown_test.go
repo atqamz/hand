@@ -168,7 +168,6 @@ func TestEveryMarkdownBearingTextRendersTables(t *testing.T) {
 	td.Plan = &desktop.Plan{Ref: "p1", Body: "Plan" + table}
 	f.task[fleetID] = td
 	ad := f.attempt[fleetID]
-	ad.Brief = "Brief" + table
 	ad.Transcript = desktop.Transcript{Shown: true, Turns: []desktop.Turn{{Role: "worker", At: "2026-10-31T04:41:00Z", Text: "Turn" + table}}}
 	f.attempt[fleetID] = ad
 	dd := f.decision[fleetID]

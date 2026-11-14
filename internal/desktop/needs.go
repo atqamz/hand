@@ -833,8 +833,11 @@ func (a *App) answerForm(c *ui.Context, k kit.Colors, p palette, d DecisionDetai
 	if other {
 		placeholder = "Write your answer (required)"
 	}
-	note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
-		Disabled(a.Busy)
+	note := ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder)
+	if len(d.Options) > 0 {
+		note = note.Lines(1, 1).MinHeight(kit.Control)
+	}
+	note = note.Disabled(a.Busy)
 	if a.focusNote {
 		note.Focus()
 		a.focusNote = false
@@ -850,37 +853,48 @@ func (a *App) sendAnswer(c *ui.Context, k kit.Colors) {
 	if a.Busy {
 		label = "Sending…"
 	}
-	b := ui.ButtonBase(c.Key("send-answer")).Height(kit.Control).Padding(0, kit.Space12).
-		Radius(kit.RadiusMD).Background(k.Primary).Justify(ui.Center).AlignItems(ui.Center).
-		Disabled(a.Busy).Cursor(ui.CursorPointer).Label(label)
-	b.Children(func() {
-		ui.Text(c, label).FontSize(kit.Body.Size).Bold().TextColor(k.OnPrimary).SingleLine()
+	ui.Row(c).Children(func() {
+		b := ui.ButtonBase(c.Key("send-answer")).Height(kit.Control).Padding(0, kit.Space12).
+			Radius(kit.RadiusMD).Background(k.Primary).Justify(ui.Center).AlignItems(ui.Center).
+			Disabled(a.Busy).Cursor(ui.CursorPointer).Label(label)
+		b.Children(func() {
+			ui.Text(c, label).FontSize(kit.Body.Size).Bold().TextColor(k.OnPrimary).SingleLine()
+		})
+		if a.focusSend {
+			b.Focus()
+			a.focusSend = false
+		}
+		if b.Clicked() {
+			a.Answer()
+		}
 	})
-	if a.focusSend {
-		b.Focus()
-		a.focusSend = false
-	}
-	if b.Clicked() {
-		a.Answer()
-	}
 }
 
-var choiceDigits = [...]ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9}
+func choicePress(key string) (ui.Key, bool, bool) {
+	if len(key) != 1 {
+		return 0, false, false
+	}
+	switch r := rune(key[0]); {
+	case r >= '0' && r <= '9':
+		return ui.Key0 + ui.Key(r-'0'), false, true
+	case r >= 'A' && r <= 'Z':
+		return ui.KeyA + ui.Key(r-'A'), true, true
+	}
+	return 0, false, false
+}
 
 func (a *App) choiceKeys(c *ui.Context, d DecisionDetail) {
 	if a.Busy || d.Decision.Status != "open" || len(d.Options) == 0 {
 		return
 	}
-	for i, key := range choiceDigits {
-		if !c.Shortcut(0, key) {
+	for _, o := range d.Options {
+		key, shifted, ok := choicePress(o.Key)
+		if !ok {
 			continue
 		}
-		want := fmt.Sprint(i + 1)
-		for _, o := range d.Options {
-			if o.Key == want {
-				a.pickChoice(o.Value, d.Options)
-				break
-			}
+		if c.Shortcut(0, key) || shifted && c.Shortcut(ui.Shift, key) {
+			a.pickChoice(o.Value, d.Options)
+			break
 		}
 	}
 	if a.AnswerChoice != "" && c.Shortcut(0, ui.KeyEnter) {

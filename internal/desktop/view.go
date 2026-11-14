@@ -514,7 +514,7 @@ func fleetName(f Fleet) string {
 func stamp(at string) string {
 	t, ok := parseAt(at)
 	if !ok {
-		return at
+		return shownText(at)
 	}
 	return t.Local().Format("Jan 2, 15:04")
 }

@@ -32,6 +32,10 @@ func AckDisabled(a *App, ref string) bool { return a.ackDisabled(ref) }
 
 func ViewerScroll(a *App) (y, maxY float32) { return a.viewerScroll.Y, a.viewerScroll.MaxY }
 
+func PageReport(a *App) string { return a.pageReport }
+
+func ScrollTarget(a *App) string { return a.scrollTo }
+
 func AsideScroll(a *App) (y, maxY float32) { return a.asideScroll.Y, a.asideScroll.MaxY }
 
 func BoardScroll(a *App) (y, maxY float32) { return a.boardScroll.Y, a.boardScroll.MaxY }

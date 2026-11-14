@@ -102,7 +102,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |
-| `viewer-attempt-<width>x<height>-<light or dark>.png` | an attempt's page: the head, its model note, the toned report cards, the brief, the transcript with a queued turn, the events and the facts aside with the branch and duration |
+| `viewer-attempt-<width>x<height>-<light or dark>.png` | an attempt's page: the head, its model note, the toned report cards, the brief, the transcript with a queued turn, the timeline and the facts aside with the branch and duration |
 | `viewer-decision-<width>x<height>-<light or dark>.png` | an open decision's page: the head, the question, the choice list with the recommended option and its consequence, the note and Send answer |
 | `viewer-answered-<width>x<height>-<light or dark>.png` | an answered decision: the chosen option marked "Your answer", the note card with its time, and no form |
 | `viewer-report-<width>x<height>-<light or dark>.png` | a report's ref opened its task at the report's card, the page scrolled to it |

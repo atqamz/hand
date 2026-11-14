@@ -155,7 +155,8 @@ func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
 		{"task", func() { app.OpenRef("t1") }, false, []string{"open", "t1"}},
 		{"attempt", func() { app.OpenRef("a1") }, false, []string{"open", "a1"}},
 		{"decision", func() { app.OpenRef("d1") }, false, []string{"open", "d1"}},
-		{"report", func() { app.OpenRef("r1") }, false, []string{"open", "t1"}},
+		{"report", func() { app.OpenRef("r1") }, false, []string{"open", "r1"}},
+		{"task after a report", func() { app.OpenRef("t1"); app.OpenRef("r1"); app.Back() }, false, []string{"open", "t1"}},
 	} {
 		t.Run(tc.screen, func(t *testing.T) {
 			tc.open()

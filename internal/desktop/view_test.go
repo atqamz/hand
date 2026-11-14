@@ -1017,10 +1017,15 @@ func TestBackToATaskAtAReportsCardKeepsTheCard(t *testing.T) {
 	if app.Screen != desktop.AttemptScreen || app.Ref != "a1" {
 		t.Fatalf("from a1 left %v %q", app.Screen, app.Ref)
 	}
-	click(t, tt, "Back")
-	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
-		t.Fatalf("Back left %v %q, want the task at r1's card", app.Screen, app.Ref)
+	app.Back()
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || desktop.PageReport(app) != "r1" {
+		t.Fatalf("Back left %v %q at %q, want the task at r1's card",
+			app.Screen, app.Ref, desktop.PageReport(app))
 	}
+	if target := desktop.ScrollTarget(app); target != "r1" {
+		t.Fatalf("Back restored the target %q, want r1", target)
+	}
+	tt.Frame()
 	mustText(t, tt, "report r1", "All tests pass.")
 	mustNotText(t, tt, "The board could not be read")
 }

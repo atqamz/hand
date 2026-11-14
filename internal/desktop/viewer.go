@@ -261,8 +261,6 @@ func (a *App) attemptHead(c *ui.Context, p palette) {
 			if task.Clicked() {
 				a.OpenRef(at.Task.Ref)
 			}
-			ui.Text(c, stamp(at.Attempt.CreatedAt)).FontSize(kit.Meta.Size).
-				TextColor(p.neutral).FontFeatures("tnum")
 		})
 		ui.Box(c).Height(1).Background(p.line)
 	})
@@ -284,36 +282,54 @@ func (a *App) attemptAside(c *ui.Context, p palette) {
 
 func (a *App) attemptFacts(c *ui.Context, p palette) {
 	at := a.Attempt
-	facts := []struct{ label, value string }{
-		{"Harness", shownText(at.Attempt.Harness)},
-		{"Model", shownText(at.Attempt.Model)},
-		{"Effort", shownText(at.Attempt.Effort)},
-		{"Started", stamp(at.Attempt.CreatedAt)},
-		{"Stopped", stamp(at.Attempt.EndedAt)},
-		{"Duration", shownText(at.Duration)},
-		{"Branch", shownText(at.Attempt.Branch)},
+	facts := []factRow{
+		{"Harness", shownText(at.Attempt.Harness), ""},
+		{"Model", shownText(at.Attempt.Model), ""},
+		{"Effort", shownText(at.Attempt.Effort), ""},
+		{"Answered by", shownText(at.Transcript.Answered), ""},
+		{"Started", stamp(at.Attempt.CreatedAt), ""},
 	}
+	if at.Attempt.EndedAt != "" {
+		facts = append(facts,
+			factRow{"Stopped", stamp(at.Attempt.EndedAt), ""},
+			factRow{"Duration", shownText(at.Duration), ""})
+	} else {
+		facts = append(facts, factRow{"Running for", shownText(at.Duration), ""})
+	}
+	facts = append(facts,
+		factRow{"Continues", shownText(at.Attempt.Continues), at.Attempt.Continues},
+		factRow{"Branch", shownText(at.Attempt.Branch), ""})
 	ui.Column(c).Gap(kit.Space4).Children(func() {
 		for _, fact := range facts {
 			if fact.value == "" {
 				continue
 			}
-			label, value := fact.label, fact.value
+			label, value, open := fact.label, fact.value, fact.open
 			ui.Row(c).Gap(kit.Space12).AlignItems(ui.Start).Children(func() {
 				ui.Text(c, label).FontSize(kit.Meta.Size).TextColor(p.neutral).Width(88)
-				ui.Text(c, value).FontSize(kit.Meta.Size).Grow(1).MinWidth(0)
+				if open == "" {
+					ui.Text(c, value).FontSize(kit.Meta.Size).Grow(1).MinWidth(0)
+					return
+				}
+				el := ui.ButtonBase(c.Key("attempt-fact:" + open)).Cursor(ui.CursorPointer).
+					Label(label + " " + open)
+				el.Children(func() {
+					ui.Text(c, value).FontSize(kit.Meta.Size).TextColor(p.accent).SingleLine()
+				})
+				if el.Clicked() {
+					a.OpenRef(open)
+				}
 			})
 		}
 	})
 }
 
+type factRow struct{ label, value, open string }
+
 func (a *App) attemptSections(c *ui.Context, p palette) {
 	at := a.Attempt
 	if at.ModelNote != "" {
-		ui.Box(c).Padding(kit.Space10, kit.Space12).Radius(kit.RadiusLG).
-			Background(p.waitBG).Children(func() {
-			ui.Text(c, shownText(at.ModelNote)).FontSize(kit.Body.Size).TextColor(p.wait)
-		})
+		a.warnLine(c, p, at.ModelNote)
 	}
 	a.mainHead(c, "Reports")
 	if len(at.Reports) == 0 {
@@ -323,13 +339,14 @@ func (a *App) attemptSections(c *ui.Context, p palette) {
 		a.reportCard(c, p, r, false)
 	}
 	if at.MoreReports {
-		more(c, p, "Only the latest 50 reports are shown.")
+		more(c, p, "Older reports are not shown; run hand report list --attempt "+
+			at.Attempt.Ref+" --limit 500.")
 	}
 	a.mainHead(c, "Brief")
 	if at.Brief == "" {
 		a.quiet(c, p, "No brief is recorded for this attempt.")
 	} else {
-		a.markdown(c, shownText(at.Brief))
+		a.preBox(c, p, at.Brief)
 	}
 	if at.Transcript.Shown || at.Transcript.Note != "" {
 		a.mainHead(c, "Transcript")
@@ -343,7 +360,7 @@ func (a *App) attemptSections(c *ui.Context, p palette) {
 		}
 	case at.Transcript.Shown:
 		if at.Transcript.Model != "" {
-			ui.Text(c, shownText(at.Transcript.Model)).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			a.warnLine(c, p, at.Transcript.Model)
 		}
 		for _, turn := range at.Transcript.Turns {
 			ui.Column(c).Gap(kit.Space2).Padding(0, 0, kit.Space8).Children(func() {
@@ -367,7 +384,7 @@ func (a *App) attemptSections(c *ui.Context, p palette) {
 			a.quiet(c, p, shownText(note))
 		}
 	}
-	a.mainHead(c, "Events")
+	a.mainHead(c, "Timeline")
 	a.events(c, p, at.Events)
 	if at.MoreEvents {
 		more(c, p, "Only the latest 50 events are shown.")
@@ -468,23 +485,31 @@ func (a *App) answeredDecision(c *ui.Context, k kit.Colors, p palette, d Decisio
 			a.quiet(c, p, line)
 			return
 		}
-		ui.Column(c).Gap(kit.Space6).Padding(kit.Space10, kit.Space12).Border(1, p.line).
-			Radius(kit.RadiusLG).Children(func() {
-			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "you").FontSize(kit.Meta.Size).Bold().TextColor(p.accent)
-				meta := "note"
-				if by := d.Decision.AnsweredBy; by != "" && by != "operator" {
-					meta += " by " + shownText(by)
-				}
-				ui.Text(c, meta).FontSize(kit.Meta.Size).TextColor(p.neutral)
-				ui.Spacer(c)
-				if at := stamp(d.Decision.ClosedAt); at != "" {
-					ui.Text(c, at).FontSize(kit.Meta.Size).TextColor(p.neutral).
-						FontFeatures("tnum")
-				}
+		ui.Row(c).Justify(ui.End).Children(func() {
+			ui.Column(c).MaxWidthPercent(75).Border(1, p.accentBG).Radius(kit.RadiusLG).
+				Background(p.accentBG).Clip().Children(func() {
+				ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Padding(kit.Space6, kit.Space12).
+					BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
+					ui.Text(c, "you").FontSize(kit.Meta.Size).Bold().TextColor(p.accent)
+					meta := "answered"
+					if key != "" {
+						meta = "note"
+					}
+					if by := d.Decision.AnsweredBy; by != "" && by != "operator" {
+						meta += " by " + shownText(by)
+					}
+					ui.Text(c, meta).FontSize(kit.Meta.Size).TextColor(p.neutral)
+					ui.Spacer(c)
+					if at := stamp(d.Decision.ClosedAt); at != "" {
+						ui.Text(c, at).FontSize(kit.Meta.Size).TextColor(p.neutral).
+							FontFeatures("tnum")
+					}
+				})
+				ui.Box(c).Padding(kit.Space10, kit.Space12).Children(func() {
+					ui.Text(c, shownText(note)).FontSize(kit.Message.Size).
+						FixedLineHeight(kit.Message.Line)
+				})
 			})
-			ui.Text(c, shownText(note)).FontSize(kit.Message.Size).
-				FixedLineHeight(kit.Message.Line)
 		})
 	})
 }
@@ -572,6 +597,12 @@ func (a *App) taskSections(c *ui.Context, p palette) {
 		}
 		a.reportCard(c, p, r, r.Ref == target)
 	}
+	if r, ok := a.pageReportCard(); ok {
+		if r.Ref == target {
+			a.scrollTo = ""
+		}
+		a.reportCard(c, p, r, r.Ref == target)
+	}
 	if t.MoreReports {
 		more(c, p, "Only the latest 50 reports are shown.")
 	}
@@ -598,6 +629,18 @@ func (a *App) mainHead(c *ui.Context, title string) {
 
 func (a *App) quiet(c *ui.Context, p palette, text string) {
 	ui.Text(c, text).FontSize(kit.Body.Size).TextColor(p.neutral)
+}
+
+func (a *App) warnLine(c *ui.Context, p palette, text string) {
+	ui.Text(c, shownText(text)).FontSize(kit.Body.Size).TextColor(p.wait)
+}
+
+func (a *App) preBox(c *ui.Context, p palette, text string) {
+	ui.Box(c).Padding(kit.Space10, kit.Space12).Border(1, p.line).Radius(kit.RadiusLG).
+		Background(p.card).Children(func() {
+		ui.Text(c, shownText(text)).Font("monospace").FontSize(kit.Meta.Size).
+			FixedLineHeight(kit.Meta.Line)
+	})
 }
 
 func (a *App) reportCard(c *ui.Context, p palette, r Report, target bool) {

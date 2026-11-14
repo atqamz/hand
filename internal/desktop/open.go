@@ -17,7 +17,13 @@ var openTimeout = 30 * time.Second
 
 func (a *App) OpenInBrowser() {
 	switch a.Screen {
-	case TaskScreen, AttemptScreen, DecisionScreen:
+	case TaskScreen:
+		if a.pageReport != "" {
+			a.runOpen(a.pageReport)
+			return
+		}
+		a.runOpen(a.Ref)
+	case AttemptScreen, DecisionScreen:
 		a.runOpen(a.Ref)
 	default:
 		a.runOpen()
