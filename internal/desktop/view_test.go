@@ -1238,6 +1238,17 @@ func countText(t *testing.T, tt *ui.Tester, want string) int {
 	return n
 }
 
+func countNode(t *testing.T, tt *ui.Tester, want string) int {
+	t.Helper()
+	n := 0
+	for _, text := range tt.Texts() {
+		if text == want {
+			n++
+		}
+	}
+	return n
+}
+
 func TestEachFleetGetsItsOwnNameLookup(t *testing.T) {
 	f := goldenFixture(t)
 	f.stall = fleetID
