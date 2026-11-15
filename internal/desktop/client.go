@@ -81,8 +81,9 @@ type Poll struct {
 // Control is a supervisor control's answer. Stale is true when the board ran
 // the action but could not read the status back, so the screen must refresh.
 type Control struct {
-	Status Status
-	Stale  bool
+	Status        Status
+	Stale         bool
+	Receipt, Warn string
 }
 
 // Sent is a message the board accepted. Fresh is false when the board queued
@@ -96,21 +97,24 @@ type Sent struct {
 // saved the answer but could not read it back, and the board's warning.
 type Answered struct {
 	DecisionDetail
-	Warn string
+	Warn    string
+	Receipt string
 }
 
 // Acked is a report's reply: the report's detail, empty when the board marked
 // it read but could not read it back, and the board's warning.
 type Acked struct {
 	ReportDetail
-	Warn string
+	Warn    string
+	Receipt string
 }
 
 // Pressed is an attempt's key press reply: the attempt's detail, empty when
 // the board sent the keys but could not read it back, and the board's warning.
 type Pressed struct {
 	AttemptDetail
-	Warn string
+	Warn    string
+	Receipt string
 }
 
 const (
@@ -460,13 +464,13 @@ type answerRequest struct {
 func (c *HTTPClient) AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error) {
 	var out DecisionDetail
 	env, err := c.post(ctx, fleet, "/decision/"+url.PathEscape(ref)+"/answer", answerRequest{Choice: choice, Note: note}, &out)
-	return Answered{DecisionDetail: out, Warn: env.Warn}, err
+	return Answered{DecisionDetail: out, Warn: env.Warn, Receipt: env.Receipt}, err
 }
 
 func (c *HTTPClient) AckReport(ctx context.Context, fleet, ref string) (Acked, error) {
 	var out ReportDetail
 	env, err := c.post(ctx, fleet, "/report/"+url.PathEscape(ref)+"/ack", nil, &out)
-	return Acked{ReportDetail: out, Warn: env.Warn}, err
+	return Acked{ReportDetail: out, Warn: env.Warn, Receipt: env.Receipt}, err
 }
 
 type messageRequest struct {
@@ -511,8 +515,10 @@ func (c *HTTPClient) Supervise(ctx context.Context, fleet, action, ref string) (
 		body = controlRequest{Ref: ref}
 	}
 	var out controlReply
-	_, err := c.post(ctx, fleet, "/supervisor/"+action, body, &out)
-	return out.control(), err
+	env, err := c.post(ctx, fleet, "/supervisor/"+action, body, &out)
+	ctl := out.control()
+	ctl.Receipt, ctl.Warn = env.Receipt, env.Warn
+	return ctl, err
 }
 
 type keysRequest struct {
@@ -525,8 +531,10 @@ type keysRequest struct {
 
 func (c *HTTPClient) PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error) {
 	var out controlReply
-	_, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after, Ref: ref}, &out)
-	return out.control(), err
+	env, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after, Ref: ref}, &out)
+	ctl := out.control()
+	ctl.Receipt, ctl.Warn = env.Receipt, env.Warn
+	return ctl, err
 }
 
 type attemptKeysRequest struct {
@@ -539,7 +547,7 @@ type attemptKeysRequest struct {
 func (c *HTTPClient) PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (Pressed, error) {
 	var out AttemptDetail
 	env, err := c.post(ctx, fleet, "/attempt/"+url.PathEscape(ref)+"/keys", attemptKeysRequest{Key: key, Revision: revision, After: after, Screen: screen}, &out)
-	return Pressed{AttemptDetail: out, Warn: env.Warn}, err
+	return Pressed{AttemptDetail: out, Warn: env.Warn, Receipt: env.Receipt}, err
 }
 
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {

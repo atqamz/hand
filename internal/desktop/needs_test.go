@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -168,6 +169,180 @@ func TestTheTopNeedStartsOpenAndClosesAgain(t *testing.T) {
 	mustText(t, tt, "View a2")
 }
 
+func when(at string) string {
+	parsed, _ := time.Parse(time.RFC3339, at)
+	return parsed.Local().Format("Jan 2, 15:04")
+}
+
+func TestTheOpenItemsSlugLineCarriesTheAttemptsWords(t *testing.T) {
+	const ended = "2026-11-01T04:40:00Z"
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Projects = 2
+		st.Needs.Items = []desktop.Need{
+			{Kind: "failure", Ref: "a2", Title: "Failing run", Word: "FAILED", Tone: "fail",
+				Task: "t2", Project: "hand", Attempt: "a2", Reason: "the launch found an old worktree",
+				AttemptMeta: &desktop.NeedAttempt{Ref: "a2", Harness: "codex", Model: "gpt-6-luna", Status: "failed", EndedAt: ended}},
+			{Kind: "report", Ref: "r1", Title: "Cookie fixed", Word: "REPORT", Tone: "neutral",
+				Task: "t1", Project: "hand", Report: "r1", Attempt: "a1", Status: "done",
+				CreatedAt: ended, Excerpt: "All tests pass."},
+		}
+	})
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "FAILED", "a2", "t2", "codex gpt-6-luna · failed", when(ended), "the launch found an old worktree")
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "REPORT", "r1", "t1", "project hand", "a1 · done", when(ended))
+}
+
+func TestASlugLineLeavesNoGapForAFieldTheBoardOmitted(t *testing.T) {
+	f := needsWith(t, func(st *desktop.Status) {
+		st.Needs.Items = []desktop.Need{{
+			Kind: "failure", Ref: "a2", Title: "Failing run", Word: "FAILED", Tone: "fail",
+			Task: "t2", Attempt: "a2", Reason: "no model on this attempt",
+			AttemptMeta: &desktop.NeedAttempt{Ref: "a2", Harness: "codex", Status: "failed"},
+		}}
+	})
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "codex · failed")
+	mustNotText(t, tt, "codex  ·")
+	mustNotText(t, tt, "failed ·")
+}
+
+func TestTheProjectBadgeFollowsTheBoardsMultiRule(t *testing.T) {
+	item := func(kind string) desktop.Need {
+		n := desktop.Need{Kind: kind, Ref: "r1", Title: "A thing", Word: "REPORT", Tone: "neutral",
+			Task: "t1", Project: "hand", Report: "r1", Attempt: "a1", Status: "done",
+			CreatedAt: "2026-11-01T04:40:00Z", Excerpt: "All tests pass."}
+		switch kind {
+		case "decision":
+			n = desktop.Need{Kind: "decision", Ref: "d1", Title: "A question", Word: "DECISION", Tone: "wait",
+				Task: "t1", Project: "hand", Decision: "d1", Headline: "A question", Status: "open",
+				CreatedAt: "2026-11-01T04:40:00Z"}
+		case "failure":
+			n = desktop.Need{Kind: "failure", Ref: "a2", Title: "Failing run", Word: "FAILED", Tone: "fail",
+				Task: "t2", Project: "hand", Attempt: "a2", Reason: "it failed",
+				AttemptMeta: &desktop.NeedAttempt{Ref: "a2", Harness: "codex", Status: "failed"}}
+		}
+		return n
+	}
+	for _, c := range []struct {
+		name, kind string
+		projects   int
+		want       bool
+	}{
+		{"one project", "decision", 1, false},
+		{"decision", "decision", 2, true},
+		{"report", "report", 2, true},
+		{"failure", "failure", 2, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := needsWith(t, func(st *desktop.Status) {
+				st.Projects = c.projects
+				st.Needs.Items = []desktop.Need{item(c.kind)}
+			})
+			f.tasks[fleetID] = desktop.Tasks{}
+			tt := newTester(newApp(t, f))
+			if c.want {
+				mustText(t, tt, "project hand")
+			} else {
+				mustNotText(t, tt, "project hand")
+			}
+		})
+	}
+}
+
+func TestAResumeItemShowsTheSupervisorsLineAndEnd(t *testing.T) {
+	const ended = "2026-11-01T04:41:00Z"
+	f := needsWith(t, func(st *desktop.Status) {
+		sup := *st.Supervisor
+		sup.Status, sup.Live, sup.Resumable, sup.EndedAt = "interrupted", false, true, ended
+		st.Supervisor = &sup
+		st.Needs.Items = []desktop.Need{{
+			Kind: "resume", Ref: "s1", Title: "The supervisor stopped unexpectedly", Word: "RESUME", Tone: "fail",
+		}}
+	})
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "claude sonnet · interrupted", when(ended), "Resume", "New session")
+	next, ok := tt.Find("New session")
+	if !ok {
+		t.Fatal("no New session button")
+	}
+	tt.ClickAt(next.X-kit.Space8-40, next.Y+next.H/2)
+	if f.count("control:resume") != 1 {
+		t.Fatalf("resume ran %d times", f.count("control:resume"))
+	}
+	tt.Frame()
+	mustText(t, tt, "Starting the supervisor…")
+}
+
+func TestAFailureShowsItsReasonWithoutReadingTheAttempt(t *testing.T) {
+	f := goldenFixture(t)
+	f.attemptRefs = nil
+	delete(f.attempt, fleetID)
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "launch did not finish: the worktree already exists at a path that is not ours")
+	mustNotText(t, tt, "Reading a2…")
+	mustNotText(t, tt, "not found: attempt a2")
+	if got := f.count("attempt:a2"); got != 0 {
+		t.Errorf("the window read a2 %d times for its reason", got)
+	}
+}
+
+func TestTheReceiptToastIsTheBoardsWords(t *testing.T) {
+	const receipt = "d1 answered · no supervisor is running; it waits"
+	f := goldenFixture(t)
+	f.receipt = receipt
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	mustText(t, tt, receipt)
+	mustNotText(t, tt, "d1 answered · s1 reads it now")
+}
+
+func TestAPressedKeysToastIsTheBoardsReceiptInTheWarnTone(t *testing.T) {
+	f := blockedScreen(t, true)
+	const receipt = "Sent 1 to s1"
+	const warn = "s1 is on a model it has not verified; refresh to see it"
+	f.receipt, f.warn = receipt, warn
+	tt := newTester(newApp(t, f))
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, receipt, warn)
+	r, ok := tt.Find(receipt)
+	if !ok {
+		t.Fatal("no receipt toast")
+	}
+	img, tone := tt.Image(), kit.ColorsFor(false).Wait
+	edged := false
+	for y := int(r.Y) - 40; y < int(r.Y) && !edged; y++ {
+		run := 0
+		for x := int(r.X); x < int(r.X+r.W) && run < 50; x++ {
+			if sameInk(img.RGBAAt(x, y), tone) {
+				run++
+			} else {
+				run = 0
+			}
+		}
+		edged = run >= 50
+	}
+	if !edged {
+		t.Errorf("the warn toast has no %v top border above %q", tone, receipt)
+	}
+}
+
+func TestASupervisorControlSaysTheBoardsReceipt(t *testing.T) {
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "running", true, false, false, nil
+	})
+	f.receipt = "s1 stopping"
+	app := newApp(t, f)
+	tt := newTester(app)
+	stop(t, tt)
+	tt.Frame()
+	mustText(t, tt, "s1 stopping")
+}
+
 func TestAFailureShowsTheAttemptsReason(t *testing.T) {
 	const reason = "launch did not finish: the worktree already exists at a path that is not ours"
 	mustText(t, newTester(newApp(t, goldenFixture(t))), reason, "View a2")
@@ -175,13 +350,24 @@ func TestAFailureShowsTheAttemptsReason(t *testing.T) {
 
 func TestAFailedAttemptReadOffersRetry(t *testing.T) {
 	f := goldenFixture(t)
-	refs := f.attemptRefs
+	saved := f.attemptRefs
 	f.attemptRefs = nil
+	noReason(t, f)
 	tt := newTester(newApp(t, f))
 	mustText(t, tt, "not found: attempt a2", "Retry")
-	f.attemptRefs = refs
+	f.attemptRefs = saved
 	click(t, tt, "Retry")
 	mustText(t, tt, "launch did not finish: the worktree already exists at a path that is not ours")
+}
+
+func noReason(t *testing.T, f *fixture) {
+	t.Helper()
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need(nil), st.Needs.Items...)
+	for i := range st.Needs.Items {
+		st.Needs.Items[i].Reason = ""
+	}
+	f.status[fleetID] = st
 }
 
 func TestAFailedDecisionReadOffersRetry(t *testing.T) {
@@ -239,7 +425,7 @@ func TestAReportOpenCardShowsItsAttemptAndStatus(t *testing.T) {
 	tt := newTester(newApp(t, goldenFixture(t)))
 	click(t, tt, "Cookie fixed")
 	at, _ := time.Parse(time.RFC3339, "2026-11-01T04:40:00Z")
-	mustText(t, tt, "r1 t1 a1 · done", at.Local().Format("Jan 2, 15:04"))
+	mustText(t, tt, "r1", "t1", "a1 · done", at.Local().Format("Jan 2, 15:04"))
 }
 
 func TestACutExcerptReadsMore(t *testing.T) {
@@ -299,26 +485,6 @@ func TestTheReceiptToastAppearsAndGoes(t *testing.T) {
 	tt.Advance(2 * time.Second)
 	tt.Frame()
 	mustNotText(t, tt, "r1 marked read")
-}
-
-func TestAnAnswersReceiptNamesTheSupervisorOrSaysItWaits(t *testing.T) {
-	for _, c := range []struct {
-		name   string
-		change func(*desktop.Supervisor)
-		want   string
-	}{
-		{"running", func(*desktop.Supervisor) {}, "d1 answered · s1 reads it now"},
-		{"stopped", func(s *desktop.Supervisor) { s.Status, s.Live = "stopped", false }, "d1 answered · no supervisor is running; it waits"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			tt := newTester(newApp(t, statusWith(t, c.change)))
-			click(t, tt, "Keep the old cookie name?")
-			click(t, tt, "Yes, keep it")
-			click(t, tt, "Send answer")
-			tt.Frame()
-			mustText(t, tt, c.want)
-		})
-	}
 }
 
 func TestAFailedMarkReadShowsNoReceipt(t *testing.T) {
@@ -516,6 +682,7 @@ func TestAnEarlierAttemptReadCannotReplaceTheNewerOne(t *testing.T) {
 		reason = "launch did not finish: the worktree already exists at a path that is not ours"
 	)
 	f := goldenFixture(t)
+	noReason(t, f)
 	f.attemptIn = make(chan chan error, 8)
 	app := newApp(t, f)
 	posted := make(chan func(), 8)
@@ -967,4 +1134,66 @@ func TestARefusedSecondPressClearsTheSentRow(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "the screen moved; nothing was sent", "screen after the second press")
 	mustNotText(t, tt, "Sent 1 · waiting…")
+}
+
+func TestScenesTheOpenSlugAndTheReceipts(t *testing.T) {
+	const ended = "2026-11-09T12:00:00Z"
+	report := func(t *testing.T) *fixture {
+		t.Helper()
+		return needsWith(t, func(st *desktop.Status) {
+			st.Projects = 2
+			st.Needs.Items = []desktop.Need{{
+				Kind: "report", Ref: "r1", Title: "Cookie fixed", Word: "REPORT", Tone: "neutral",
+				Task: "t1", Project: "hand", Report: "r1", Attempt: "a1", Status: "done",
+				CreatedAt: ended, Excerpt: "PR: https://github.com/example/hand/pull/42\n\nAll tests pass.",
+			}}
+		})
+	}
+	resume := func(t *testing.T) *fixture {
+		t.Helper()
+		return needsWith(t, func(st *desktop.Status) {
+			sup := *st.Supervisor
+			sup.Status, sup.Live, sup.Resumable, sup.EndedAt = "interrupted", false, true, ended
+			st.Supervisor = &sup
+			st.AgentState, st.Pill, st.Line = "idle", "idle", "interrupted"
+			st.Needs.Items = []desktop.Need{{
+				Kind: "resume", Ref: "s1", Title: "The supervisor stopped unexpectedly", Word: "RESUME", Tone: "fail",
+			}}
+		})
+	}
+	warn := func(t *testing.T) *fixture {
+		t.Helper()
+		f := goldenFixture(t)
+		f.warn = "the answer was saved, but its decision could not be read: the store went away; refresh to see it"
+		f.accepted = true
+		return f
+	}
+	for _, dark := range []bool{false, true} {
+		mode := map[bool]string{false: "light", true: "dark"}[dark]
+		for _, size := range [][2]int{{1100, 760}, {1440, 900}} {
+			size := size
+			scene := func(name string) string {
+				return fmt.Sprintf("needs-%s-%dx%d-%s", name, size[0], size[1], mode)
+			}
+			tt := sized(t, newApp(t, report(t)), size[0], size[1], dark)
+			mustText(t, tt, "project hand")
+			shotSized(t, tt, scene("slug-report"), size[0], size[1])
+
+			failure := sized(t, newApp(t, goldenFixture(t)), size[0], size[1], dark)
+			mustText(t, failure, "launch did not finish: the worktree already exists at a path that is not ours")
+			shotSized(t, failure, scene("slug-failure"), size[0], size[1])
+
+			resumed := sized(t, newApp(t, resume(t)), size[0], size[1], dark)
+			mustText(t, resumed, "claude sonnet · interrupted")
+			shotSized(t, resumed, scene("slug-resume"), size[0], size[1])
+
+			warned := sized(t, newApp(t, warn(t)), size[0], size[1], dark)
+			click(t, warned, "Keep the old cookie name?")
+			click(t, warned, "Yes, keep it")
+			click(t, warned, "Send answer")
+			warned.Frame()
+			mustText(t, warned, "d1 answered · s1 reads it now")
+			shotSized(t, warned, scene("slug-warn"), size[0], size[1])
+		}
+	}
 }

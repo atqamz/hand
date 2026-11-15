@@ -77,6 +77,7 @@ type fixture struct {
 	calls         map[string]int
 	accepted      bool
 	warn          string
+	receipt       string
 }
 
 func (f *fixture) count(name string) int {
@@ -293,13 +294,16 @@ func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note stri
 	f.note("answer:" + ref)
 	f.mu.Lock()
 	f.choice, f.answerNote = choice, note
+	receipt := f.receipt
+	sup := f.status[id].Supervisor
 	f.mu.Unlock()
+	receipt = answerReceipt(receipt, ref, sup)
 	f.stallAction()
 	if f.action != nil {
 		return desktop.Answered{}, f.action
 	}
 	if f.accepted {
-		return desktop.Answered{Warn: f.warn}, nil
+		return desktop.Answered{Warn: f.warn, Receipt: receipt}, nil
 	}
 	d, ok := f.decision[id]
 	if !ok || (ref != "" && d.Decision.Ref != ref) {
@@ -312,17 +316,33 @@ func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note stri
 	d.Decision.ClosedAt = "2026-11-01T05:00:00Z"
 	f.decision[id] = d
 	f.dropNeed(id, d.Decision.Ref)
-	return desktop.Answered{DecisionDetail: d, Warn: f.warn}, nil
+	return desktop.Answered{DecisionDetail: d, Warn: f.warn, Receipt: receipt}, nil
+}
+
+func answerReceipt(override, ref string, sup *desktop.Supervisor) string {
+	if override != "" {
+		return override
+	}
+	if sup != nil && sup.Status == "running" {
+		return ref + " answered · " + sup.Ref + " reads it now"
+	}
+	return ref + " answered · no supervisor is running; it waits"
 }
 
 func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.Acked, error) {
 	f.note("ack:" + ref)
+	f.mu.Lock()
+	receipt := f.receipt
+	f.mu.Unlock()
+	if receipt == "" {
+		receipt = ref + " marked read"
+	}
 	f.stallAction()
 	if f.action != nil {
 		return desktop.Acked{}, f.action
 	}
 	if f.accepted {
-		return desktop.Acked{Warn: f.warn}, nil
+		return desktop.Acked{Warn: f.warn, Receipt: receipt}, nil
 	}
 	d, ok := f.report[id]
 	if !ok || (ref != "" && d.Report.Ref != ref) {
@@ -332,7 +352,7 @@ func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.Acked,
 	d.Report.AckedBy = "operator (desktop)"
 	f.report[id] = d
 	f.dropNeed(id, d.Report.Ref)
-	return desktop.Acked{ReportDetail: d, Warn: f.warn}, nil
+	return desktop.Acked{ReportDetail: d, Warn: f.warn, Receipt: receipt}, nil
 }
 
 func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Sent, error) {
@@ -356,7 +376,10 @@ func (f *fixture) Supervise(ctx context.Context, id, action, ref string) (deskto
 	f.note("control:" + action)
 	f.mu.Lock()
 	f.controlRef = ref
+	override := f.receipt
+	sup := f.status[id].Supervisor
 	f.mu.Unlock()
+	receipt := controlReceipt(override, action, sup)
 	f.stallAction()
 	if f.action != nil {
 		return desktop.Control{}, f.action
@@ -366,18 +389,42 @@ func (f *fixture) Supervise(ctx context.Context, id, action, ref string) (deskto
 		st := *f.controlStatus
 		f.status[id] = st
 		f.mu.Unlock()
-		return desktop.Control{Status: st}, nil
+		return desktop.Control{Status: st, Receipt: receipt, Warn: f.warn}, nil
 	}
 	st, stale := f.status[id], f.controlStale
 	f.mu.Unlock()
-	return desktop.Control{Status: st, Stale: stale}, nil
+	return desktop.Control{Status: st, Stale: stale, Receipt: receipt, Warn: f.warn}, nil
+}
+
+func controlReceipt(override, action string, sup *desktop.Supervisor) string {
+	if override != "" {
+		return override
+	}
+	name := "s1"
+	if sup != nil && sup.Ref != "" {
+		name = sup.Ref
+	}
+	switch action {
+	case "stop":
+		return name + " stopping"
+	case "interrupt":
+		return "Interrupt sent to " + name
+	case "force":
+		return "Typed into " + name
+	}
+	return "Starting the supervisor…"
 }
 
 func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revision int64, digest string, after int64, ref string) (desktop.Control, error) {
 	f.note("keys:" + strings.Join(keys, " "))
 	f.mu.Lock()
 	f.keys, f.keyRevision, f.keyDigest, f.keyAfter, f.keyRef = append([]string(nil), keys...), revision, digest, after, ref
+	override := f.receipt
 	f.mu.Unlock()
+	receipt := override
+	if receipt == "" {
+		receipt = "Sent " + strings.Join(keys, " ") + " to " + ref
+	}
 	f.stallAction()
 	if f.action != nil {
 		return desktop.Control{}, f.action
@@ -387,18 +434,23 @@ func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revis
 		st := *f.keyStatus
 		f.status[id] = st
 		f.mu.Unlock()
-		return desktop.Control{Status: st}, nil
+		return desktop.Control{Status: st, Receipt: receipt, Warn: f.warn}, nil
 	}
 	st, stale := f.status[id], f.keyStale
 	f.mu.Unlock()
-	return desktop.Control{Status: st, Stale: stale}, nil
+	return desktop.Control{Status: st, Stale: stale, Receipt: receipt, Warn: f.warn}, nil
 }
 
 func (f *fixture) PressAttemptKeys(ctx context.Context, id, ref, key string, revision, after int64, screen string) (desktop.Pressed, error) {
 	f.note("akeys:" + ref + ":" + key)
 	f.mu.Lock()
 	f.attemptKey, f.attemptKeyRef, f.attemptKeyRev, f.attemptKeyAft, f.attemptScreen = key, ref, revision, after, screen
+	override := f.receipt
 	f.mu.Unlock()
+	receipt := override
+	if receipt == "" {
+		receipt = "Sent " + key + " to " + ref
+	}
 	f.stallAction()
 	if f.attemptKeyErr != nil {
 		return desktop.Pressed{}, f.attemptKeyErr
@@ -407,9 +459,9 @@ func (f *fixture) PressAttemptKeys(ctx context.Context, id, ref, key string, rev
 		return desktop.Pressed{}, f.action
 	}
 	if f.accepted {
-		return desktop.Pressed{Warn: f.warn}, nil
+		return desktop.Pressed{Warn: f.warn, Receipt: receipt}, nil
 	}
-	return desktop.Pressed{AttemptDetail: f.attempt[id], Warn: f.warn}, nil
+	return desktop.Pressed{AttemptDetail: f.attempt[id], Warn: f.warn, Receipt: receipt}, nil
 }
 
 func (f *fixture) dropNeed(id, ref string) {

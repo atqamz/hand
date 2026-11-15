@@ -833,9 +833,7 @@ func (a *App) Answer() {
 			a.Decision = ans.DecisionDetail
 		}
 		a.markSent(ref, sentLabel(choice))
-		a.receipt = a.answerReceipt(ref)
-		a.receiptKey = "answer:" + ref
-		a.receiptWarn = ans.Warn
+		a.showReceipt(ans.Receipt, ans.Warn, "answer:"+ref)
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -925,9 +923,7 @@ func (a *App) Ack(ref string) {
 		if r.Report.Ref != "" {
 			a.applyAck(ref, r.Report)
 		}
-		a.receipt = ref + " marked read"
-		a.receiptKey = "ack:" + ref
-		a.receiptWarn = r.Warn
+		a.showReceipt(r.Receipt, r.Warn, "ack:"+ref)
 		if a.ackDone == nil {
 			a.ackDone = map[string]bool{}
 		}
@@ -1213,16 +1209,13 @@ func (a *App) Press(label string, keys ...string) {
 			return
 		}
 		a.Busy, a.BusyAction = false, ""
+		a.markSent(ref, sent)
+		a.showReceipt(c.Receipt, c.Warn, "key:"+ref+":"+sent)
 		if c.Stale {
-			a.ActionErr = "the press went through, but the fleet status could not be read; refresh to see it"
-			a.ActionWarn = true
 			return
 		}
 		a.Status = c.Status
 		a.watchDeny()
-		a.markSent(ref, sent)
-		a.receipt = "Sent " + sent + " to " + ref
-		a.receiptKey = "key:" + ref + ":" + sent
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -1304,9 +1297,8 @@ func (a *App) runControl(name string, call func(context.Context) (Control, error
 			return
 		}
 		a.Busy, a.BusyAction = false, ""
+		a.showReceipt(c.Receipt, c.Warn, "control:"+name)
 		if c.Stale {
-			a.ActionErr = "the action went through, but the fleet status could not be read; refresh to see it"
-			a.ActionWarn = true
 			return
 		}
 		a.Status = c.Status
