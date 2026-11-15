@@ -50,6 +50,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Reserve the Windows exception stack (golang/go#81238)
+        if: runner.os == 'Windows'
+        run: sh .github/scripts/windows-stack-reserve.sh
       - name: Test the window headless
         run: go test ./internal/desktop
       - name: Build cgo-free and check the stamp it reports
