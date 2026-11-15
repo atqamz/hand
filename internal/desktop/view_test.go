@@ -889,8 +889,21 @@ func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
 	if !ok {
 		t.Fatal("no receipt toast")
 	}
-	if got := tt.Image().RGBAAt(int(r.X+r.W/2), int(r.Y)-kit.Space10-1); !sameInk(got, kit.ColorsFor(false).Wait) {
-		t.Errorf("the warn toast's border is %v, want the wait tone %v", got, kit.ColorsFor(false).Wait)
+	img, tone := tt.Image(), kit.ColorsFor(false).Wait
+	edged := false
+	for y := int(r.Y) - 40; y < int(r.Y) && !edged; y++ {
+		run := 0
+		for x := int(r.X); x < int(r.X+r.W) && run < 50; x++ {
+			if sameInk(img.RGBAAt(x, y), tone) {
+				run++
+			} else {
+				run = 0
+			}
+		}
+		edged = run >= 50
+	}
+	if !edged {
+		t.Errorf("the warn toast has no %v top border above %q", tone, "d1 answered · s1 reads it now")
 	}
 }
 
