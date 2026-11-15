@@ -146,6 +146,34 @@ private val newestReply =
     text = "The newest reply."
   )
 
+private val runningSupervisor =
+  Supervisor(
+    ref = "s1",
+    harness = "claude",
+    model = "opus",
+    effort = "high",
+    status = "running",
+    live = true,
+    pending = 0,
+    resumable = false
+  )
+
+private val stoppedSupervisor =
+  runningSupervisor.copy(status = "stopped", live = false, resumable = true)
+
+private val runningHead = chatHead(runningSupervisor, "working")
+private val stoppedHead = chatHead(stoppedSupervisor, "idle")
+private val noEarlierHead =
+  chatHead(null, "idle", note = HeadNote(NO_EARLIER_SUPERVISOR, Tone.Fail))
+private val unreachableHead =
+  chatHead(
+    runningSupervisor,
+    "working",
+    reachable = false,
+    reason = "Can't reach 4d92…6ed6 since 12:41"
+  )
+private val armedHead = chatHead(runningSupervisor, "working", stopArmed = true)
+
 class ChatScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 3200))
@@ -157,6 +185,7 @@ class ChatScreenTest {
     zone: TimeZone = UTC,
     hint: String = "",
     hintBlocked: Boolean = false,
+    head: ChatHead = runningHead,
     input: androidx.compose.runtime.MutableState<TextFieldValue>? = null
   ) =
     paparazzi.snapshot {
@@ -173,6 +202,7 @@ class ChatScreenTest {
           expand = expand,
           hint = hint,
           hintBlocked = hintBlocked,
+          head = head,
           input = input ?: remember(state.draft) { mutableStateOf(TextFieldValue(state.draft)) }
         )
       }
@@ -181,6 +211,48 @@ class ChatScreenTest {
   @Test fun conversationLight() = shot(false, pageState())
 
   @Test fun conversationDark() = shot(true, pageState())
+
+  @Test fun headEndedLight() = shot(false, pageState(), head = stoppedHead)
+
+  @Test fun headEndedDark() = shot(true, pageState(), head = stoppedHead)
+
+  @Test fun headNoEarlierLight() = shot(false, pageState(), head = noEarlierHead)
+
+  @Test fun headNoEarlierDark() = shot(true, pageState(), head = noEarlierHead)
+
+  @Test fun headUnreachableLight() = shot(false, pageState(), head = unreachableHead)
+
+  @Test fun headUnreachableDark() = shot(true, pageState(), head = unreachableHead)
+
+  @Test fun headStopArmedLight() = shot(false, pageState(), head = armedHead)
+
+  @Test fun headStopArmedDark() = shot(true, pageState(), head = armedHead)
+
+  @Test
+  fun headReceiptWarnLight() =
+    shot(
+      false,
+      pageState(),
+      head =
+        chatHead(
+          runningSupervisor,
+          "working",
+          note = HeadNote("Interrupt sent to s1", Tone.Neutral, "starting anyway")
+        )
+    )
+
+  @Test
+  fun headReceiptWarnDark() =
+    shot(
+      true,
+      pageState(),
+      head =
+        chatHead(
+          runningSupervisor,
+          "working",
+          note = HeadNote("Interrupt sent to s1", Tone.Neutral, "starting anyway")
+        )
+    )
 
   @Test
   fun wakesExpandedLight() {
@@ -330,6 +402,7 @@ class ChatScreenTest {
           onTarget = {},
           zone = UTC,
           hint = hint,
+          head = runningHead,
           input = input
         )
       }
@@ -405,8 +478,9 @@ private fun SemanticsNode.texts(): List<String> =
 
 private fun assertComposer(tree: List<SemanticsNode>, draft: String) {
   val send =
-    tree.firstOrNull { it.config.getOrElseNullable(SemanticsProperties.Role) { null } == Role.Button }
-      ?: error("no Send button in the composer's tree")
+    tree.lastOrNull {
+      it.config.getOrElseNullable(SemanticsProperties.Role) { null } == Role.Button
+    } ?: error("no Send button in the composer's tree")
   assertTrue("the Send button says Send", tree.any { "Send" in it.texts() })
   if (draft.isEmpty()) {
     assertTrue("Send is disabled on an empty box", send.config.contains(SemanticsProperties.Disabled))

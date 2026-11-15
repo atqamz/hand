@@ -16,7 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 const val API_VERSION = 1
 
-sealed class BoardError(message: String? = null) : Exception(message) {
+sealed class BoardError(message: String? = null, open val warn: String? = null) : Exception(message) {
   data object Busy : BoardError()
 
   data object NoLaptop : BoardError()
@@ -37,33 +37,42 @@ sealed class BoardError(message: String? = null) : Exception(message) {
 
   class UnsupportedVersion(val version: Int) : BoardError("API version $version")
 
-  class AppliedUnread(cause: Throwable) : BoardError("the Board answered 200 but the answer was not read") {
+  class AppliedUnread(
+    cause: Throwable,
+    val receipt: String? = null,
+    warn: String? = null
+  ) : BoardError("the Board answered 200 but the answer was not read", warn) {
     init {
       initCause(cause)
     }
   }
 
-  class BadRequest(message: String?) : BoardError(message)
+  class BadRequest(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class BadCursor(message: String?) : BoardError(message)
+  class BadCursor(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class Unauthorized(message: String?) : BoardError(message)
+  class Unauthorized(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class Forbidden(message: String?) : BoardError(message)
+  class Forbidden(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class CsrfRequired(message: String?) : BoardError(message)
+  class CsrfRequired(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class NotFound(message: String?) : BoardError(message)
+  class NotFound(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class MethodNotAllowed(message: String?) : BoardError(message)
+  class MethodNotAllowed(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class Conflict(message: String?) : BoardError(message)
+  class Conflict(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class Internal(message: String?) : BoardError(message)
+  class Internal(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class NoSpace(message: String?) : BoardError(message)
+  class NoSpace(message: String?, warn: String? = null) : BoardError(message, warn)
 
-  class Other(val status: Int, val code: String?, message: String?) : BoardError(message)
+  class Other(
+    val status: Int,
+    val code: String?,
+    message: String?,
+    warn: String? = null
+  ) : BoardError(message, warn)
 }
 
 class Raw(val status: Int, val body: String)
@@ -80,13 +89,15 @@ class Envelope<T>(
   val fleet: FleetRef,
   val cursor: String? = null,
   @SerialName("generated_at") val generatedAt: String? = null,
+  val receipt: String? = null,
+  val warn: String? = null,
   val data: T
 )
 
 sealed interface Write<out T> {
   class Updated<T>(val envelope: Envelope<T>) : Write<T>
 
-  data object Accepted : Write<Nothing>
+  class Accepted(val receipt: String? = null, val warn: String? = null) : Write<Nothing>
 }
 
 sealed interface Poll<out T> {
@@ -97,7 +108,11 @@ sealed interface Poll<out T> {
 
 @Serializable private class ErrorBody(val error: ErrorDetail)
 
-@Serializable private class ErrorDetail(val code: String, val message: String? = null)
+@Serializable private class ErrorDetail(
+  val code: String,
+  val message: String? = null,
+  val warn: String? = null
+)
 
 @Serializable private class SessionData(val csrf: String)
 
@@ -139,18 +154,19 @@ private fun refusal(raw: Raw): BoardError {
       return BoardError.Other(raw.status, null, null)
     }
   val message = detail.message
+  val warn = detail.warn
   return when (detail.code) {
-    "bad_request" -> BoardError.BadRequest(message)
-    "bad_cursor" -> BoardError.BadCursor(message)
-    "unauthorized" -> BoardError.Unauthorized(message)
-    "forbidden" -> BoardError.Forbidden(message)
-    "csrf_required" -> BoardError.CsrfRequired(message)
-    "not_found" -> BoardError.NotFound(message)
-    "method_not_allowed" -> BoardError.MethodNotAllowed(message)
-    "conflict" -> BoardError.Conflict(message)
-    "internal" -> BoardError.Internal(message)
-    "no_space" -> BoardError.NoSpace(message)
-    else -> BoardError.Other(raw.status, detail.code, message)
+    "bad_request" -> BoardError.BadRequest(message, warn)
+    "bad_cursor" -> BoardError.BadCursor(message, warn)
+    "unauthorized" -> BoardError.Unauthorized(message, warn)
+    "forbidden" -> BoardError.Forbidden(message, warn)
+    "csrf_required" -> BoardError.CsrfRequired(message, warn)
+    "not_found" -> BoardError.NotFound(message, warn)
+    "method_not_allowed" -> BoardError.MethodNotAllowed(message, warn)
+    "conflict" -> BoardError.Conflict(message, warn)
+    "internal" -> BoardError.Internal(message, warn)
+    "no_space" -> BoardError.NoSpace(message, warn)
+    else -> BoardError.Other(raw.status, detail.code, message, warn)
   }
 }
 
@@ -221,15 +237,19 @@ class BoardClient(
         csrf = null
         sendWrite(path, body)
       }
+    var receipt: String? = null
+    var warn: String? = null
     return try {
       val root = parse(raw)
+      receipt = field(root, "receipt")
+      warn = field(root, "warn")
       if (root["data"].let { it is JsonObject && it["accepted"] == JsonPrimitive(true) }) {
-        Write.Accepted
+        Write.Accepted(receipt, warn)
       } else {
         Write.Updated(boardJson.decodeFromJsonElement(Envelope.serializer(data), root))
       }
     } catch (error: Exception) {
-      throw BoardError.AppliedUnread(error)
+      throw BoardError.AppliedUnread(error, receipt, warn)
     }
   }
 
@@ -252,6 +272,13 @@ class BoardClient(
     if (raw.status != 200 && raw.status != 304) throw refusal(raw)
     return raw
   }
+
+  private fun field(root: JsonObject, name: String): String? =
+    try {
+      root[name]?.jsonPrimitive?.content?.takeIf(String::isNotEmpty)
+    } catch (_: Exception) {
+      null
+    }
 
   private fun parse(raw: Raw): JsonObject {
     val root: JsonObject =

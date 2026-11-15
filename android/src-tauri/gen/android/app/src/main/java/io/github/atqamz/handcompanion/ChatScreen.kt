@@ -14,6 +14,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,6 +48,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -573,6 +575,122 @@ internal fun ChatContent(
 private fun ChatRow.isHandLine() = this is ChatRow.Hand || this is ChatRow.Wakes
 
 @Composable
+private fun HeadChip(
+  control: HeadControl,
+  primary: Boolean,
+  armed: Boolean,
+  enabled: Boolean,
+  onClick: (HeadControl) -> Unit
+) {
+  val hand = LocalHand.current
+  val coarse = LocalConfiguration.current.touchscreen != Configuration.TOUCHSCREEN_NOTOUCH
+  val height = if (coarse) 44.dp else 32.dp
+  val shape = MaterialTheme.shapes.medium
+  val fill =
+    when {
+      control == HeadControl.Interrupt -> hand.fill(Tone.Fail)
+      control == HeadControl.Stop && armed -> hand.fill(Tone.Fail)
+      primary -> hand.primary
+      else -> Color.Transparent
+    }
+  val ink =
+    when {
+      control == HeadControl.Interrupt -> hand.ink(Tone.Fail)
+      control == HeadControl.Stop && armed -> hand.ink(Tone.Fail)
+      primary -> hand.onPrimary
+      else -> hand.fg
+    }
+  val edge =
+    when {
+      control == HeadControl.Interrupt || (control == HeadControl.Stop && armed) -> hand.ink(Tone.Fail)
+      primary -> Color.Transparent
+      else -> hand.lineStrong
+    }
+  val label =
+    if (control == HeadControl.Stop && armed) "Press again to stop" else control.label
+  val modifier = Modifier.heightIn(min = height)
+  val colors =
+    ButtonDefaults.buttonColors(
+      containerColor = if (fill == Color.Transparent) hand.bg else fill,
+      contentColor = ink,
+      disabledContainerColor =
+        (if (fill == Color.Transparent) hand.bg else fill).copy(alpha = 0.55f),
+      disabledContentColor = ink.copy(alpha = 0.55f)
+    )
+  val content: @Composable () -> Unit = {
+    if (control == HeadControl.Interrupt) {
+      Icon(HandIcons.Stop, null, Modifier.size(12.dp), ink)
+      Spacer(Modifier.size(6.dp))
+    }
+    Text(label, style = type.labelLarge)
+  }
+  if (primary) {
+    Button(
+      { onClick(control) },
+      modifier,
+      enabled = enabled,
+      shape = shape,
+      colors = colors,
+      contentPadding = PaddingValues(horizontal = 16.dp)
+    ) { content() }
+  } else {
+    OutlinedButton(
+      { onClick(control) },
+      modifier,
+      enabled = enabled,
+      shape = shape,
+      border = BorderStroke(1.dp, if (enabled) edge else edge.copy(alpha = 0.55f)),
+      colors = colors,
+      contentPadding = PaddingValues(horizontal = 14.dp)
+    ) { content() }
+  }
+}
+
+@Composable
+private fun ChatHeadBar(head: ChatHead, onControl: (HeadControl) -> Unit) {
+  val hand = LocalHand.current
+  Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Row(
+      Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      Text(
+        head.title,
+        Modifier.weight(1f),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        style = type.titleMedium
+      )
+      head.controls.forEach { control ->
+        HeadChip(
+          control,
+          primary =
+            (control == HeadControl.Resume) ||
+              (control == HeadControl.Start && HeadControl.Resume !in head.controls),
+          armed = control == HeadControl.Stop && head.stopArmed,
+          enabled = head.enabled,
+          onClick = onControl
+        )
+      }
+    }
+    head.reason?.let { Meta(it) }
+    head.note?.let { note ->
+      if (note.text.isNotEmpty()) {
+        Text(
+          note.text,
+          color = if (note.tone == Tone.Neutral) hand.fg else hand.ink(note.tone),
+          style = type.bodySmall
+        )
+      }
+      note.warn?.takeIf(String::isNotEmpty)?.let {
+        Text(it, color = hand.ink(Tone.Wait), style = type.bodySmall)
+      }
+    }
+  }
+}
+
+@Composable
 private fun rememberDraftField(initial: String): MutableState<TextFieldValue> =
   rememberSaveable(stateSaver = TextFieldValue.Saver) {
     mutableStateOf(TextFieldValue(initial))
@@ -589,7 +707,8 @@ internal fun ChatComposer(
   input: MutableState<TextFieldValue>,
   onEdit: (TextFieldValue) -> Unit,
   onSend: () -> Unit,
-  onHint: () -> Unit
+  onHint: () -> Unit,
+  primary: Boolean = true
 ) {
   val hand = LocalHand.current
   val configuration = LocalConfiguration.current
@@ -649,21 +768,40 @@ internal fun ChatComposer(
               )
             else -> Spacer(Modifier.weight(1f))
           }
-          Button(
-            onSend,
-            enabled = input.value.text.isNotBlank() && !sending,
-            modifier = Modifier.heightIn(min = if (coarse) 44.dp else 32.dp),
-            shape = RoundedCornerShape(6.dp),
-            colors =
-              ButtonDefaults.buttonColors(
-                containerColor = hand.primary,
-                contentColor = hand.onPrimary,
-                disabledContainerColor = hand.primary.copy(alpha = 0.55f),
-                disabledContentColor = hand.onPrimary.copy(alpha = 0.55f)
-              ),
-            contentPadding = PaddingValues(horizontal = 20.dp)
-          ) {
+          val sendShape = RoundedCornerShape(6.dp)
+          val sendModifier = Modifier.heightIn(min = if (coarse) 44.dp else 32.dp)
+          val send: @Composable () -> Unit = {
             Text("Send", style = type.labelLarge)
+          }
+          if (primary) {
+            Button(
+              onSend,
+              enabled = input.value.text.isNotBlank() && !sending,
+              modifier = sendModifier,
+              shape = sendShape,
+              colors =
+                ButtonDefaults.buttonColors(
+                  containerColor = hand.primary,
+                  contentColor = hand.onPrimary,
+                  disabledContainerColor = hand.primary.copy(alpha = 0.55f),
+                  disabledContentColor = hand.onPrimary.copy(alpha = 0.55f)
+                ),
+              contentPadding = PaddingValues(horizontal = 20.dp)
+            ) { send() }
+          } else {
+            OutlinedButton(
+              onSend,
+              enabled = input.value.text.isNotBlank() && !sending,
+              modifier = sendModifier,
+              shape = sendShape,
+              border = BorderStroke(1.dp, hand.lineStrong),
+              colors =
+                ButtonDefaults.outlinedButtonColors(
+                  contentColor = hand.fg,
+                  disabledContentColor = hand.fg.copy(alpha = 0.55f)
+                ),
+              contentPadding = PaddingValues(horizontal = 20.dp)
+            ) { send() }
           }
         }
       }
@@ -698,6 +836,8 @@ fun ChatScreen(
   onHint: () -> Unit = {},
   onEdit: (String) -> Unit = {},
   onSend: () -> Unit = {},
+  head: ChatHead,
+  onControl: (HeadControl) -> Unit = {},
   input: MutableState<TextFieldValue> = rememberDraftField(state.draft)
 ) {
   var openText by rememberSaveable { mutableStateOf(expand.joinToString("\u0000")) }
@@ -716,6 +856,7 @@ fun ChatScreen(
       chatBody(state) == ChatBody.Loading -> Loading()
       else ->
         Column(Modifier.fillMaxSize()) {
+          ChatHeadBar(head, onControl)
           Box(Modifier.weight(1f)) {
             ChatContent(
               fleet,
@@ -742,7 +883,8 @@ fun ChatScreen(
               onEdit(value.text)
             },
             onSend = onSend,
-            onHint = onHint
+            onHint = onHint,
+            primary = head.sendPrimary
           )
         }
     }

@@ -58,6 +58,7 @@ data class FleetState(
   val waiting: Int = 0,
   val tone: Tone = Tone.Neutral,
   val working: Boolean = false,
+  val agentState: String = "",
   val loaded: Boolean = false,
   val tab: Tab? = null,
   val bands: List<NeedsBand> = emptyList(),
@@ -69,9 +70,13 @@ data class FleetState(
   val notice: Notice? = null,
   val unpaired: Boolean = false,
   val band: Band? = null,
+  val reachable: Boolean = true,
   val hint: String = "",
   val hintBlocked: Boolean = false,
   val supervisor: Supervisor? = null,
+  val controlBusy: HeadControl? = null,
+  val stopArmedUntil: Long? = null,
+  val headNote: HeadNote? = null,
   val pressed: Map<String, String> = emptyMap(),
   val pressing: Set<String> = emptySet(),
   val deadline: Long? = null,
@@ -244,7 +249,10 @@ private fun FleetState.filled(status: Status, name: String): FleetState {
     band = null,
     hint = status.composerHint,
     hintBlocked = status.agentState == "blocked",
-    supervisor = status.supervisor
+    supervisor = status.supervisor,
+    agentState = status.agentState,
+    reachable = true,
+    stopArmedUntil = if (supervisor == status.supervisor) stopArmedUntil else null
   )
 }
 
@@ -270,7 +278,9 @@ class FleetModel(
   private val bus: LiveBus = LiveBus.shared,
   private val pollMillis: Long = POLL_MILLIS,
   private val startLive: (String) -> Unit = { Core.live(it) },
-  private val stopLive: () -> Unit = { Core.unlive() }
+  private val stopLive: () -> Unit = { Core.unlive() },
+  private val receiptMillis: Long = RECEIPT_MILLIS,
+  private val warnMillis: Long = WARN_MILLIS
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetState(name = name))
   val state: StateFlow<FleetState> = mutableState
@@ -324,7 +334,10 @@ class FleetModel(
           when (link.state) {
             "live" -> {
               slow?.cancel()
-              mutableState.update { if (it.band?.live == true) it.copy(band = null) else it }
+              mutableState.update {
+                if (it.band?.live == true) it.copy(band = null, reachable = true)
+                else it.copy(reachable = true)
+              }
             }
             "reconnecting" -> {
               val count = liveFailures.incrementAndGet()
@@ -346,7 +359,8 @@ class FleetModel(
                             "and that this phone has internet.",
                           retry = false,
                           live = true
-                        )
+                        ),
+                      reachable = false
                     )
                 }
               }
@@ -555,7 +569,7 @@ class FleetModel(
     try {
       when (val sent = client.write("supervisor/keys", body.toString(), Status.serializer())) {
         is Write.Updated -> apply(sent.envelope)
-        Write.Accepted -> refresh()
+        is Write.Accepted -> refresh()
       }
       return pressed(entry, keys, supervisor.ref)
     } catch (_: BoardError.AppliedUnread) {
@@ -603,7 +617,7 @@ class FleetModel(
       try {
         when (val sent = client.write("supervisor/force", body.toString(), Status.serializer())) {
           is Write.Updated -> apply(sent.envelope)
-          Write.Accepted -> refresh()
+          is Write.Accepted -> refresh()
         }
         typed
       } catch (_: BoardError.AppliedUnread) {
@@ -627,6 +641,112 @@ class FleetModel(
 
   fun tick() {
     viewModelScope.launch { tickOnce()?.let { expire(it) } }
+  }
+
+  fun interrupt() {
+    viewModelScope.launch { controlAndExpire(HeadControl.Interrupt) }
+  }
+
+  fun resume() {
+    viewModelScope.launch { controlAndExpire(HeadControl.Resume) }
+  }
+
+  fun start() {
+    viewModelScope.launch { controlAndExpire(HeadControl.Start) }
+  }
+
+  fun stop() {
+    viewModelScope.launch {
+      val note = controlNow(HeadControl.Stop)
+      if (note != null) {
+        expireHead(note)
+        return@launch
+      }
+      val until = mutableState.value.stopArmedUntil ?: return@launch
+      delay(STOP_ARM_MILLIS)
+      mutableState.update {
+        if (it.stopArmedUntil == until) it.copy(stopArmedUntil = null) else it
+      }
+    }
+  }
+
+  suspend fun controlAndExpire(action: HeadControl): HeadNote? {
+    val note = controlNow(action) ?: return null
+    expireHead(note)
+    return note
+  }
+
+  suspend fun controlNow(action: HeadControl, now: Long = nowMillis()): HeadNote? {
+    val held = mutableState.value
+    if (held.controlBusy != null) return null
+    val supervisor = held.supervisor
+    if (action != HeadControl.Start && supervisor == null) return null
+    if (action == HeadControl.Stop) {
+      val press = stopPress(held.stopArmedUntil, now)
+      if (!press.send) {
+        mutableState.update { it.copy(stopArmedUntil = press.armedUntil) }
+        return null
+      }
+    }
+    mutableState.update { it.copy(controlBusy = action, stopArmedUntil = null, headNote = null) }
+    val note =
+      try {
+        val body = controlBody(action, supervisor?.ref.orEmpty())
+        when (val sent = client.write(controlPath(action), body, Status.serializer())) {
+          is Write.Updated -> {
+            apply(sent.envelope)
+            controlNote(sent.envelope.receipt, sent.envelope.warn)
+          }
+          is Write.Accepted -> {
+            refresh()
+            controlNote(sent.receipt, sent.warn)
+          }
+        }
+      } catch (error: BoardError.AppliedUnread) {
+        refresh()
+        controlNote(error.receipt, error.warn)
+      } catch (error: BoardError) {
+        if (error == BoardError.Unpaired) {
+          mutableState.update { it.copy(unpaired = true) }
+          null
+        } else {
+          if (error is BoardError.Conflict ||
+            error is BoardError.NotFound ||
+            error in LAPTOP_LEVEL
+          ) {
+            refresh()
+          }
+          HeadNote(
+            headFailure(action, error, supervisor?.ref, held.supervisor == null),
+            Tone.Fail,
+            error.warn
+          )
+        }
+      } finally {
+        mutableState.update { it.copy(controlBusy = null) }
+      }
+    if (note != null) mutableState.update { it.copy(headNote = note) }
+    return note
+  }
+
+  private fun controlNote(receipt: String?, warn: String?): HeadNote? =
+    if (receipt.isNullOrEmpty() && warn.isNullOrEmpty()) null
+    else HeadNote(receipt.orEmpty(), Tone.Neutral, warn)
+
+  private suspend fun expireHead(note: HeadNote) {
+    delay(receiptMillis)
+    if (note.warn == null) {
+      mutableState.update { if (it.headNote == note) it.copy(headNote = null) else it }
+      return
+    }
+    mutableState.update {
+      if (it.headNote == note) it.copy(headNote = note.copy(text = "")) else it
+    }
+    if (warnMillis <= receiptMillis) return
+    delay(warnMillis - receiptMillis)
+    mutableState.update {
+      if (it.headNote == note.copy(text = "")) it.copy(headNote = null) else it
+    }
   }
 
   suspend fun tickOnce(): Notice? {
@@ -684,27 +804,29 @@ class FleetModel(
   suspend fun refresh() =
     lock.withLock {
       val now = clock()
-      var reachable = false
+      var answered = false
       try {
         when (val poll = client.status()) {
           is Poll.Changed -> {
             mutableState.update { it.filled(poll.envelope.data, poll.envelope.fleet.name) }
             arm()
           }
-          Poll.Unchanged -> mutableState.update { it.copy(unpaired = false, band = null) }
+          Poll.Unchanged ->
+            mutableState.update { it.copy(unpaired = false, band = null, reachable = true) }
         }
         downSince = null
-        reachable = true
+        answered = true
       } catch (error: BoardError) {
         when (error) {
-          BoardError.Unpaired -> mutableState.update { it.copy(unpaired = true, band = null) }
+          BoardError.Unpaired ->
+            mutableState.update { it.copy(unpaired = true, band = null, reachable = false) }
           in LAPTOP_LEVEL -> {
             downSince = if (error in UNREACHABLE) downSince ?: now else null
-            mutableState.update { it.copy(band = band(error, laptop(), downSince)) }
+            mutableState.update { it.copy(band = band(error, laptop(), downSince), reachable = false) }
           }
           else -> mutableState.update { it.copy(band = Band("The Board's answer could not be read.")) }
         }
       }
-      if (reachable && mutableState.value.tab == Tab.Tasks && !tasksLock.isLocked) loadTasks()
+      if (answered && mutableState.value.tab == Tab.Tasks && !tasksLock.isLocked) loadTasks()
     }
 }

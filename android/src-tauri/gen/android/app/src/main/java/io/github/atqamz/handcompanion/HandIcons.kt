@@ -59,6 +59,11 @@ object HandIcons {
     )
   val Passing = icon("passing", Shape(RING), Shape("M5.25 8.25l1.9 1.9 3.6-4"))
   val Idle = icon("idle", Shape(dashedRing()))
+  val Stop =
+    icon(
+      "stop",
+      Shape("M5 4h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z", fill = true, stroke = false)
+    )
   val Waiting =
     icon(
       "waiting",

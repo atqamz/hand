@@ -218,8 +218,10 @@ class HandActivity : ComponentActivity() {
     fleet: String,
     hint: String,
     hintBlocked: Boolean,
+    head: ChatHead,
     onTarget: (ThreadTarget) -> Unit,
-    onHint: () -> Unit
+    onHint: () -> Unit,
+    onControl: (HeadControl) -> Unit
   ) {
     val model = remember(fleet) { chatModel(fleet) }
     val state by model.state.collectAsStateWithLifecycle()
@@ -238,7 +240,9 @@ class HandActivity : ComponentActivity() {
       hintBlocked = hintBlocked,
       onHint = onHint,
       onEdit = model::edit,
-      onSend = model::send
+      onSend = model::send,
+      head = head,
+      onControl = onControl
     )
   }
 
@@ -526,8 +530,17 @@ class HandActivity : ComponentActivity() {
                       open.orEmpty(),
                       state.hint,
                       state.hintBlocked,
-                      target
-                    ) { fleet.select(Tab.Needs) }
+                      state.head(),
+                      target,
+                      { fleet.select(Tab.Needs) }
+                    ) { control ->
+                      when (control) {
+                        HeadControl.Interrupt -> fleet.interrupt()
+                        HeadControl.Stop -> fleet.stop()
+                        HeadControl.Resume -> fleet.resume()
+                        HeadControl.Start -> fleet.start()
+                      }
+                    }
                   },
                   choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } }
                 )
