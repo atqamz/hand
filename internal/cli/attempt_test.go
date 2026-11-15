@@ -444,7 +444,12 @@ func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
 		t.Fatalf("fresh launching = %q", show)
 	}
 	fx.h.now = fx.h.now.Add(3 * time.Minute)
-	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") || !strings.Contains(show, "launch did not finish") {
+	var show string
+	eventually(t, func() bool {
+		show = fx.h.ok("attempt", "show", "a1")
+		return strings.Contains(show, "status: failed")
+	})
+	if !strings.Contains(show, "launch did not finish") {
 		t.Fatalf("stale launching = %q", show)
 	}
 	if !fx.rt.isClosed(orphan) {
