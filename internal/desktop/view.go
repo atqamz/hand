@@ -79,7 +79,7 @@ func (a *App) View(c *ui.Context) {
 	if a.receipt != "" || a.receiptWarn != "" {
 		t := ui.Toast{ID: a.receiptKey, Title: a.receipt, Timeout: receiptFor}
 		if a.receiptWarn != "" {
-			t.Type = "warn"
+			t.Type, t.Timeout = "warn", receiptWarnFor
 			if t.Title == "" {
 				t.Title = a.receiptWarn
 			} else {

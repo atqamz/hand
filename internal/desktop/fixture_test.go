@@ -78,6 +78,7 @@ type fixture struct {
 	accepted      bool
 	warn          string
 	receipt       string
+	dropReceipt   bool
 }
 
 func (f *fixture) count(name string) int {
@@ -296,14 +297,18 @@ func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note stri
 	f.choice, f.answerNote = choice, note
 	receipt := f.receipt
 	sup := f.status[id].Supervisor
+	warn, drop := f.warn, f.dropReceipt
 	f.mu.Unlock()
 	receipt = answerReceipt(receipt, ref, sup)
+	if drop {
+		receipt = ""
+	}
 	f.stallAction()
 	if f.action != nil {
 		return desktop.Answered{}, f.action
 	}
 	if f.accepted {
-		return desktop.Answered{Warn: f.warn, Receipt: receipt}, nil
+		return desktop.Answered{Warn: warn, Receipt: receipt}, nil
 	}
 	d, ok := f.decision[id]
 	if !ok || (ref != "" && d.Decision.Ref != ref) {
@@ -316,7 +321,7 @@ func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note stri
 	d.Decision.ClosedAt = "2026-11-01T05:00:00Z"
 	f.decision[id] = d
 	f.dropNeed(id, d.Decision.Ref)
-	return desktop.Answered{DecisionDetail: d, Warn: f.warn, Receipt: receipt}, nil
+	return desktop.Answered{DecisionDetail: d, Warn: warn, Receipt: receipt}, nil
 }
 
 func answerReceipt(override, ref string, sup *desktop.Supervisor) string {

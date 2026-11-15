@@ -912,6 +912,39 @@ func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
 	}
 }
 
+func TestAWarnWithNoReceiptBecomesTheToastsTitle(t *testing.T) {
+	const warn = "the answer was saved, but its decision could not be read: the store went away; refresh to see it"
+	f := goldenFixture(t)
+	f.accepted, f.warn, f.dropReceipt = true, warn, true
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	if _, ok := tt.Find(warn); !ok {
+		t.Fatalf("a warn with no receipt is not the toast's title; the window shows %q", tt.Texts())
+	}
+	mustNotText(t, tt, "d1 answered · no supervisor is running; it waits")
+}
+
+func TestASuccessfulAnswerWithNoReceiptShowsNoToast(t *testing.T) {
+	f := goldenFixture(t)
+	f.dropReceipt = true
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	if n := f.count("answer:d1"); n != 1 {
+		t.Fatalf("the answer ran %d times", n)
+	}
+	mustNotText(t, tt, "d1 answered · no supervisor is running; it waits")
+	if desktop.ShowReceiptKept(app, "", "", "answer:d1") {
+		t.Fatal("showReceipt kept a toast for an action with no receipt and no warn")
+	}
+}
+
 func TestAnAckWithNoDetailKeepsTheReportAndShowsTheWarn(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)

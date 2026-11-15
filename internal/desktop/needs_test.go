@@ -296,7 +296,9 @@ func TestTheReceiptToastIsTheBoardsWords(t *testing.T) {
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
 	tt.Frame()
-	mustText(t, tt, receipt)
+	if _, ok := tt.Find(receipt); !ok {
+		t.Fatalf("no toast whose title is exactly %q; the window shows %q", receipt, tt.Texts())
+	}
 	mustNotText(t, tt, "d1 answered · s1 reads it now")
 }
 
@@ -480,11 +482,41 @@ func TestTheReceiptToastAppearsAndGoes(t *testing.T) {
 	click(t, tt, "Mark read")
 	tt.Frame()
 	mustText(t, tt, "r1 marked read")
-	tt.Advance(3 * time.Second)
+	tt.Advance(4*time.Second - time.Millisecond)
 	mustText(t, tt, "r1 marked read")
-	tt.Advance(2 * time.Second)
+	tt.Advance(2 * time.Millisecond)
 	tt.Frame()
 	mustNotText(t, tt, "r1 marked read")
+}
+
+func TestAnErrorToastStaysTheBoardsEightSeconds(t *testing.T) {
+	f := goldenFixture(t)
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "decision d1 is answered"}
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	mustText(t, tt, "The action did not go through")
+	tt.Advance(8*time.Second - time.Millisecond)
+	mustText(t, tt, "The action did not go through")
+	tt.Advance(2 * time.Millisecond)
+	tt.Frame()
+	mustNotText(t, tt, "The action did not go through")
+}
+
+func TestAWarnToastStaysTheBoardsTwelveSeconds(t *testing.T) {
+	f := blockedScreen(t, true)
+	f.receipt, f.warn = "Sent 1 to s1", "s1 is on a model it has not verified; refresh to see it"
+	tt := newTester(newApp(t, f))
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "Sent 1 to s1")
+	tt.Advance(12*time.Second - time.Millisecond)
+	mustText(t, tt, "Sent 1 to s1")
+	tt.Advance(2 * time.Millisecond)
+	tt.Frame()
+	mustNotText(t, tt, "Sent 1 to s1")
 }
 
 func TestAFailedMarkReadShowsNoReceipt(t *testing.T) {
