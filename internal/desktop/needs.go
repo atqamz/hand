@@ -28,14 +28,19 @@ func needHasBody(n Need) bool {
 	return n.Attempt != "" || n.Excerpt != "" || n.Status != ""
 }
 
-func (a *App) markSent(ref, label string) {
+type sentRecord struct {
+	label  string
+	digest string
+}
+
+func (a *App) markSent(ref, digest, label string) {
 	if ref == "" {
 		return
 	}
 	if a.sentNeeds == nil {
-		a.sentNeeds = map[string]string{}
+		a.sentNeeds = map[string]sentRecord{}
 	}
-	a.sentNeeds[ref] = "Sent " + label + " · waiting…"
+	a.sentNeeds[ref] = sentRecord{label: "Sent " + label + " · waiting…", digest: digest}
 }
 
 func sentLabel(choice string) string {
@@ -47,12 +52,16 @@ func sentLabel(choice string) string {
 }
 
 func (a *App) sentNeed(n Need) (string, bool) {
+	digest := ""
+	if n.Keys != nil {
+		digest = n.Keys.Digest
+	}
 	for _, ref := range []string{n.Decision, n.Ref} {
 		if ref == "" {
 			continue
 		}
-		if sent, ok := a.sentNeeds[ref]; ok {
-			return sent, true
+		if s, ok := a.sentNeeds[ref]; ok && (s.digest == "" || s.digest == digest) {
+			return s.label, true
 		}
 	}
 	return "", false
@@ -62,17 +71,22 @@ func (a *App) reconcileSent() {
 	if len(a.sentNeeds) == 0 {
 		return
 	}
-	live := make(map[string]bool, 2*len(a.Status.Needs.Items))
+	live := make(map[string]string, 2*len(a.Status.Needs.Items))
 	for _, n := range a.Status.Needs.Items {
+		digest := ""
+		if n.Keys != nil {
+			digest = n.Keys.Digest
+		}
 		if n.Decision != "" {
-			live[n.Decision] = true
+			live[n.Decision] = digest
 		}
 		if n.Ref != "" {
-			live[n.Ref] = true
+			live[n.Ref] = digest
 		}
 	}
-	for ref := range a.sentNeeds {
-		if !live[ref] {
+	for ref, s := range a.sentNeeds {
+		digest, ok := live[ref]
+		if !ok || s.digest != "" && s.digest != digest {
 			delete(a.sentNeeds, ref)
 		}
 	}
@@ -668,7 +682,7 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 			return
 		}
 		a.Busy, a.BusyAction = false, ""
-		a.markSent(ref, sent)
+		a.markSent(ref, guard.Digest, sent)
 		a.showReceipt(p.Receipt, p.Warn, "akey:"+ref+":"+sent)
 	}
 	failed := func(err error) {

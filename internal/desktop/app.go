@@ -103,7 +103,7 @@ type App struct {
 	needClosedTop string
 	ackDone       map[string]bool
 	ackRef        string
-	sentNeeds     map[string]string
+	sentNeeds     map[string]sentRecord
 	misreadOpen   map[string]*bool
 	denyTimer     func()
 	denyGen       int
@@ -832,7 +832,7 @@ func (a *App) Answer() {
 		if ans.Decision.Ref != "" {
 			a.Decision = ans.DecisionDetail
 		}
-		a.markSent(ref, sentLabel(choice))
+		a.markSent(ref, "", sentLabel(choice))
 		a.showReceipt(ans.Receipt, ans.Warn, "answer:"+ref)
 	}
 	status := func(st Status) {
@@ -1209,7 +1209,7 @@ func (a *App) Press(label string, keys ...string) {
 			return
 		}
 		a.Busy, a.BusyAction = false, ""
-		a.markSent(ref, sent)
+		a.markSent(ref, guard.Digest, sent)
 		a.showReceipt(c.Receipt, c.Warn, "key:"+ref+":"+sent)
 		if c.Stale {
 			return

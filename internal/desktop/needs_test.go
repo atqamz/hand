@@ -1168,6 +1168,59 @@ func TestARefusedSecondPressClearsTheSentRow(t *testing.T) {
 	mustNotText(t, tt, "Sent 1 · waiting…")
 }
 
+const nextDigest = "fedcba9876543210fedcba9876543210"
+
+func laterPrompt(t *testing.T, f *fixture, revision int64, digest, excerpt string) {
+	t.Helper()
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need(nil), st.Needs.Items...)
+	st.Needs.Items[0].Keys = &desktop.NeedKeys{Options: st.Needs.Items[0].Keys.Options, Revision: revision, Digest: digest}
+	st.Needs.Items[0].Excerpt = excerpt
+	sup := *st.Supervisor
+	sup.Keys = &desktop.Keys{Revision: revision, Digest: digest}
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+}
+
+func TestASentRecordDoesNotCoverTheNextPromptOnTheSameSupervisor(t *testing.T) {
+	f := blockedScreen(t, true)
+	sent := f.status[fleetID]
+	sup := *sent.Supervisor
+	sup.Keys = &desktop.Keys{Revision: 7, Digest: screenDigest, Pressed: 3}
+	sent.Supervisor = &sup
+	f.keyStatus = &sent
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "Sent 1 · waiting…")
+
+	laterPrompt(t, f, 12, nextDigest, "the screen asks again")
+	app.Reload()
+	tt.Frame()
+	mustNotText(t, tt, "Sent 1 · waiting…")
+	mustText(t, tt, "the screen asks again")
+}
+
+func TestASentRecordHoldsWhileTheSamePromptStaysListed(t *testing.T) {
+	f := blockedScreen(t, true)
+	sent := f.status[fleetID]
+	sup := *sent.Supervisor
+	sup.Keys = &desktop.Keys{Revision: 7, Digest: screenDigest, Pressed: 3}
+	sent.Supervisor = &sup
+	f.keyStatus = &sent
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustText(t, tt, "Sent 1 · waiting…")
+
+	laterPrompt(t, f, 9, screenDigest, screenText)
+	app.Reload()
+	tt.Frame()
+	mustText(t, tt, "Sent 1 · waiting…")
+}
+
 func TestScenesTheOpenSlugAndTheReceipts(t *testing.T) {
 	const ended = "2026-11-09T12:00:00Z"
 	report := func(t *testing.T) *fixture {
