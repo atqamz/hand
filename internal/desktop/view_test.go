@@ -885,6 +885,13 @@ func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
 	}
 	mustNotText(t, tt, "Reading d1…")
 	mustText(t, tt, "d1 answered · s1 reads it now", warn)
+	r, ok := tt.Find("d1 answered · s1 reads it now")
+	if !ok {
+		t.Fatal("no receipt toast")
+	}
+	if got := tt.Image().RGBAAt(int(r.X+r.W/2), int(r.Y)-kit.Space10-1); !sameInk(got, kit.ColorsFor(false).Wait) {
+		t.Errorf("the warn toast's border is %v, want the wait tone %v", got, kit.ColorsFor(false).Wait)
+	}
 }
 
 func TestAnAckWithNoDetailKeepsTheReportAndShowsTheWarn(t *testing.T) {
@@ -902,6 +909,9 @@ func TestAnAckWithNoDetailKeepsTheReportAndShowsTheWarn(t *testing.T) {
 	}
 	if app.Task.Reports[0].AckedAt != "" {
 		t.Fatalf("the accepted ack applied its empty report: %+v", app.Task.Reports[0])
+	}
+	if app.Task.Reports[0].Ref != "r1" {
+		t.Fatalf("a zero detail replaced the report: %+v", app.Task.Reports[0])
 	}
 	mustText(t, tt, "r1 marked read", warn)
 }
