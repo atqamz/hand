@@ -299,6 +299,55 @@ func TestOpenAsAPageRunsHandOpen(t *testing.T) {
 	}
 }
 
+func TestTheOpenCardIsInTheTreeOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		width int
+	}{{"wide", 1100}, {"narrow", 880}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := goldenFixture(t)
+			f.fleets[0].Home = "/fleet"
+			app := newApp(t, f)
+			t.Setenv("PATH", t.TempDir())
+			tt := sized(t, app, tc.width, 760, false)
+			count := func() int {
+				n := 0
+				for _, s := range tt.Texts() {
+					if s == "Open feedback" {
+						n++
+					}
+				}
+				return n
+			}
+			app.OpenRef("t1")
+			tt.Frame()
+			click(t, tt, "Open as a page")
+			tt.Frame()
+			if app.OpenErr == "" || app.Screen != desktop.TaskScreen {
+				t.Fatalf("OpenErr = %q on screen %v", app.OpenErr, app.Screen)
+			}
+			if got := count(); got != 1 {
+				t.Fatalf("the frame holds %d open cards with the viewer open, want 1", got)
+			}
+			mustText(t, tt, "The browser did not open")
+			click(t, tt, "Close the viewer")
+			tt.Frame()
+			if app.Screen != desktop.BoardScreen || app.OpenErr != "" {
+				t.Fatalf("closing the viewer left %v with OpenErr %q", app.Screen, app.OpenErr)
+			}
+			app.OpenInBrowser()
+			tt.Frame()
+			if app.OpenErr == "" {
+				t.Fatal("the Board's failed open left no card")
+			}
+			if got := count(); got != 1 {
+				t.Fatalf("the frame holds %d open cards with the viewer closed, want 1", got)
+			}
+			mustText(t, tt, "The browser did not open")
+		})
+	}
+}
+
 func TestAFailedOpenAsAPageShowsInTheViewer(t *testing.T) {
 	hand := installFakeHand(t)
 	t.Setenv("FAKE_HAND_FAIL", "the board did not start")

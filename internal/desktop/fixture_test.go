@@ -34,6 +34,7 @@ type fixture struct {
 	fail          error
 	action        error
 	taskErr       error
+	tasksErr      error
 	keepNeeds     bool
 	actionBlock   chan struct{}
 	actionEntered chan struct{}
@@ -152,6 +153,9 @@ func (f *fixture) Tasks(ctx context.Context, id string, all bool) (desktop.Tasks
 	f.note("tasks")
 	if f.fail != nil {
 		return desktop.Tasks{}, f.fail
+	}
+	if f.tasksErr != nil {
+		return desktop.Tasks{}, f.tasksErr
 	}
 	return f.tasks[id], nil
 }
