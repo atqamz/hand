@@ -58,18 +58,10 @@ class ChatHeadTest {
   }
 
   @Test
-  fun noEarlierSupervisorOffersStartNewAndAnswersNoEarlier() {
+  fun noSupervisorOffersOnlyStartNew() {
     assertEquals(listOf(HeadControl.Start), headControls(null, "idle"))
     assertEquals("No supervisor", supervisorWords(null))
     assertFalse(chatHead(null, "idle").sendPrimary)
-    assertEquals(
-      NO_EARLIER_SUPERVISOR,
-      headFailure(HeadControl.Start, BoardError.Conflict("no earlier"), null, noEarlier = true)
-    )
-    assertEquals(
-      "The supervisor moved; nothing was started.",
-      headFailure(HeadControl.Start, BoardError.Conflict("no earlier"), "s1", noEarlier = false)
-    )
   }
 
   @Test
@@ -129,16 +121,29 @@ class ChatHeadTest {
 
   @Test
   fun eachRefusalHasItsOwnSentence() {
-    assertEquals(NOTHING_TO_RESUME, headFailure(HeadControl.Resume, BoardError.NotFound("x"), null, false))
-    assertEquals(CONTROLS_OFF, headFailure(HeadControl.Resume, BoardError.Forbidden("x"), null, false))
+    val conflict = "conflict: no supervisor is running; start one"
+    assertEquals(NOTHING_TO_RESUME, headFailure(HeadControl.Resume, BoardError.NotFound("x")))
+    assertEquals(CONTROLS_OFF, headFailure(HeadControl.Resume, BoardError.Forbidden("x")))
+    assertEquals(conflict, headFailure(HeadControl.Stop, BoardError.Conflict(conflict)))
     assertEquals(
-      "s1 moved; nothing was sent.",
-      headFailure(HeadControl.Stop, BoardError.Conflict("x"), "s1", false)
+      "The Board refused it; nothing was sent.",
+      headFailure(HeadControl.Start, BoardError.Conflict(null))
     )
+    assertEquals(CONTROL_UNREACHABLE, headFailure(HeadControl.Stop, BoardError.Unreachable))
+  }
+
+  @Test
+  fun aNoteLivesTheReceiptTheRefusalOrTheWarnLength() {
+    assertEquals(RECEIPT_MILLIS, headNoteMillis(HeadNote("s1 stopping")))
     assertEquals(
-      CONTROL_UNREACHABLE,
-      headFailure(HeadControl.Stop, BoardError.Unreachable, "s1", false)
+      ERROR_MILLIS,
+      headNoteMillis(HeadNote("conflict: no supervisor is running", Tone.Fail))
     )
+    assertEquals(WARN_MILLIS, headNoteMillis(HeadNote("s1 stopping", warn = "starting anyway")))
+    assertEquals(WARN_MILLIS, headNoteMillis(HeadNote("conflict: no", Tone.Fail, "starting anyway")))
+    assertEquals(4_000L, RECEIPT_MILLIS)
+    assertEquals(8_000L, ERROR_MILLIS)
+    assertEquals(12_000L, WARN_MILLIS)
   }
 
   @Test

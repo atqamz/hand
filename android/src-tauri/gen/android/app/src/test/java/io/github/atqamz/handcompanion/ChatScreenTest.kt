@@ -164,7 +164,15 @@ private val stoppedSupervisor =
 private val runningHead = chatHead(runningSupervisor, "working")
 private val stoppedHead = chatHead(stoppedSupervisor, "idle")
 private val noEarlierHead =
-  chatHead(null, "idle", note = HeadNote(NO_EARLIER_SUPERVISOR, Tone.Fail))
+  chatHead(
+    null,
+    "idle",
+    note =
+      HeadNote(
+        "conflict: there is no earlier supervisor to copy; start the first one with `hand supervisor start`",
+        Tone.Fail
+      )
+  )
 private val unreachableHead =
   chatHead(
     runningSupervisor,

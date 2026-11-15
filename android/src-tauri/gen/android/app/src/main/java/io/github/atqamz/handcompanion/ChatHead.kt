@@ -10,7 +10,12 @@ enum class HeadControl(val label: String) {
   Start("Start new")
 }
 
-data class HeadNote(val text: String, val tone: Tone = Tone.Neutral, val warn: String? = null)
+data class HeadNote(
+  val text: String,
+  val tone: Tone = Tone.Neutral,
+  val warn: String? = null,
+  val token: Long = 0
+)
 
 data class ChatHead(
   val title: String,
@@ -29,10 +34,9 @@ data class ChatHead(
 
 const val STOP_ARM_MILLIS = 4_000L
 const val RECEIPT_MILLIS = 4_000L
+const val ERROR_MILLIS = 8_000L
 const val WARN_MILLIS = 12_000L
 
-const val NO_EARLIER_SUPERVISOR =
-  "No earlier supervisor to copy. Start the first one on the laptop."
 const val NOTHING_TO_RESUME = "There is nothing to resume."
 const val CONTROLS_OFF = "The Board's controls are off."
 const val CONTROL_UNREACHABLE = "Your laptop is not reachable."
@@ -115,13 +119,22 @@ fun controlBody(control: HeadControl, ref: String): String? =
     HeadControl.Start -> null
   }
 
-fun headFailure(control: HeadControl, error: BoardError, ref: String?, noEarlier: Boolean): String =
+fun headNoteMillis(
+  note: HeadNote,
+  receiptMillis: Long = RECEIPT_MILLIS,
+  errorMillis: Long = ERROR_MILLIS,
+  warnMillis: Long = WARN_MILLIS
+): Long =
   when {
-    error is BoardError.Conflict && control == HeadControl.Start && noEarlier -> NO_EARLIER_SUPERVISOR
-    error is BoardError.Conflict && control == HeadControl.Start ->
-      "The supervisor moved; nothing was started."
+    note.warn != null -> warnMillis
+    note.tone == Tone.Fail -> errorMillis
+    else -> receiptMillis
+  }
+
+fun headFailure(control: HeadControl, error: BoardError): String =
+  when {
     error is BoardError.Conflict ->
-      "${ref ?: "The supervisor"} moved; nothing was sent."
+      error.message?.takeIf(String::isNotBlank) ?: "The Board refused it; nothing was sent."
     error is BoardError.NotFound && control == HeadControl.Resume -> NOTHING_TO_RESUME
     error is BoardError.Forbidden -> CONTROLS_OFF
     error == BoardError.Unreachable || error == BoardError.NoLaptop -> CONTROL_UNREACHABLE

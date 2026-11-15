@@ -3,6 +3,7 @@ package io.github.atqamz.handcompanion
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -10,6 +11,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,8 +66,8 @@ private fun blockedNeed(deny: String? = null): String =
     (deny?.let { ""","deny_at":"$it"""" } ?: "") +
     "}"
 
-private fun refused(status: Int, code: String) =
-  Raw(status, """{"error":{"code":"$code","message":"no"}}""")
+private fun refused(status: Int, code: String, message: String = "no") =
+  Raw(status, """{"error":{"code":"$code","message":"$message"}}""")
 
 private fun task(
   ref: String,
@@ -771,12 +773,12 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      assertEquals(
-        HeadNote("Interrupt sent to s1", Tone.Neutral, warn),
-        model.controlNow(HeadControl.Interrupt)
-      )
+      val note = model.controlNow(HeadControl.Interrupt)
+      assertEquals("Interrupt sent to s1", note?.text)
+      assertEquals(Tone.Neutral, note?.tone)
+      assertEquals(warn, note?.warn)
+      assertEquals(note, model.now().headNote)
     }
-    assertEquals(HeadNote("Interrupt sent to s1", Tone.Neutral, warn), model.now().headNote)
   }
 
   @Test
@@ -804,19 +806,45 @@ class FleetModelTest {
   }
 
   @Test
-  fun aStartWithNoEarlierSupervisorSaysToStartItOnTheLaptop() {
+  fun aConflictKeepsTheBoardsOwnSentence() {
+    val stopped = "conflict: no supervisor is running; start one"
+    val running = "conflict: supervisor s1 is running"
+    runBlocking {
+      val stopBoard =
+        Board({ runStatus() }, controlAnswer = { refused(409, "conflict", stopped) })
+      val stopModel = model(stopBoard)
+      stopModel.refresh()
+      stopModel.controlNow(HeadControl.Stop, now = 1_000)
+      stopModel.controlNow(HeadControl.Stop, now = 2_000)
+      assertEquals(stopped, stopModel.now().headNote?.text)
+
+      val startBoard =
+        Board(
+          { status(emptyList(), "ready", "idle") },
+          controlAnswer = { refused(409, "conflict", running) }
+        )
+      val startModel = model(startBoard)
+      startModel.refresh()
+      startModel.controlNow(HeadControl.Start, now = 1_000)
+      assertEquals(running, startModel.now().headNote?.text)
+      assertEquals(Tone.Fail, startModel.now().headNote?.tone)
+    }
+  }
+
+  @Test
+  fun aConflictWithNoSentenceStaysNeutral() {
     val board =
       Board(
-        { status(emptyList(), "ready", "idle") },
-        controlAnswer = { refused(409, "conflict") }
+        { runStatus() },
+        controlAnswer = { Raw(409, """{"error":{"code":"conflict"}}""") }
       )
     val model = model(board)
     runBlocking {
       model.refresh()
-      model.controlNow(HeadControl.Start, now = 1_000)
+      model.controlNow(HeadControl.Stop, now = 1_000)
+      model.controlNow(HeadControl.Stop, now = 2_000)
     }
-    assertEquals(NO_EARLIER_SUPERVISOR, model.now().headNote?.text)
-    assertEquals(Tone.Fail, model.now().headNote?.tone)
+    assertEquals("The Board refused it; nothing was sent.", model.now().headNote?.text)
   }
 
   @Test
@@ -834,12 +862,38 @@ class FleetModelTest {
       withTimeout(5_000) {
         val first = launch(Dispatchers.IO) { model.controlNow(HeadControl.Interrupt) }
         model.state.first { it.controlBusy != null }
-        assertNull(model.controlNow(HeadControl.Stop))
+        val second = async(Dispatchers.IO) { model.controlNow(HeadControl.Interrupt) }
         gate.complete(Unit)
+        assertNull(second.await())
         first.join()
       }
     }
     assertEquals(listOf("/api/v1/supervisor/interrupt"), board.posts.map { it.first })
+  }
+
+  @Test
+  fun theStopArmExpiresAndTheNextPressOnlyArmsAgain() {
+    val board =
+      Board({ runStatus() }, controlAnswer = { answered(runStatus(), "s1 stopping") })
+    val model =
+      FleetModel(
+        FLEET,
+        null,
+        board,
+        { null },
+        { "12:41" },
+        nowMillis = { 0L },
+        stopArmMillis = 50
+      )
+    runBlocking {
+      model.refresh()
+      val press = launch(Dispatchers.IO) { model.stopNow() }
+      withTimeout(5_000) { model.state.first { it.stopArmedUntil != null } }
+      withTimeout(5_000) { press.join() }
+      assertNull(model.now().stopArmedUntil)
+      assertNull(model.controlNow(HeadControl.Stop, now = 50))
+      assertTrue(board.posts.isEmpty())
+    }
   }
 
   @Test
@@ -872,6 +926,7 @@ class FleetModelTest {
         4_000,
         { 0L },
         receiptMillis = 50,
+        errorMillis = 75,
         warnMillis = 100
       )
     runBlocking {
@@ -882,12 +937,39 @@ class FleetModelTest {
           "Interrupt sent to s1",
           model.state.first { it.headNote != null }.headNote?.text
         )
-        model.state.first { it.headNote?.text == "" && it.headNote?.warn == warn }
+        assertEquals(warn, model.now().headNote?.warn)
         model.state.first { it.headNote == null }
         expiry.join()
       }
     }
     assertNull(model.now().headNote)
+  }
+
+  @Test
+  fun anOlderReceiptTimerLeavesANewerIdenticalReceiptAlone() {
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = { answered(runStatus(), "Interrupt sent to s1") }
+      )
+    val model =
+      FleetModel(
+        FLEET,
+        null,
+        board,
+        { null },
+        { "12:41" },
+        receiptMillis = 1_000
+      )
+    runBlocking {
+      model.refresh()
+      val earlier = launch(Dispatchers.IO) { model.controlAndExpire(HeadControl.Interrupt) }
+      withTimeout(5_000) { model.state.first { it.headNote != null } }
+      val newer = model.controlNow(HeadControl.Interrupt)
+      assertNotNull(newer)
+      withTimeout(5_000) { earlier.join() }
+      assertEquals(newer, model.now().headNote)
+    }
   }
 
   @Test

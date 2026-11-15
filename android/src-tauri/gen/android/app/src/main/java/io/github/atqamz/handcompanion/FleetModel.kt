@@ -7,6 +7,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -280,7 +281,9 @@ class FleetModel(
   private val startLive: (String) -> Unit = { Core.live(it) },
   private val stopLive: () -> Unit = { Core.unlive() },
   private val receiptMillis: Long = RECEIPT_MILLIS,
-  private val warnMillis: Long = WARN_MILLIS
+  private val errorMillis: Long = ERROR_MILLIS,
+  private val warnMillis: Long = WARN_MILLIS,
+  private val stopArmMillis: Long = STOP_ARM_MILLIS
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetState(name = name))
   val state: StateFlow<FleetState> = mutableState
@@ -294,6 +297,7 @@ class FleetModel(
   private var slow: Job? = null
   private var clockOffset: Long = 0
   internal val liveFailures = AtomicInteger(0)
+  private val noteTokens = AtomicLong(0)
 
   suspend fun run() {
     refresh()
@@ -656,17 +660,19 @@ class FleetModel(
   }
 
   fun stop() {
-    viewModelScope.launch {
-      val note = controlNow(HeadControl.Stop)
-      if (note != null) {
-        expireHead(note)
-        return@launch
-      }
-      val until = mutableState.value.stopArmedUntil ?: return@launch
-      delay(STOP_ARM_MILLIS)
-      mutableState.update {
-        if (it.stopArmedUntil == until) it.copy(stopArmedUntil = null) else it
-      }
+    viewModelScope.launch { stopNow() }
+  }
+
+  suspend fun stopNow() {
+    val note = controlNow(HeadControl.Stop)
+    if (note != null) {
+      expireHead(note)
+      return
+    }
+    val until = mutableState.value.stopArmedUntil ?: return
+    delay(stopArmMillis)
+    mutableState.update {
+      if (it.stopArmedUntil == until) it.copy(stopArmedUntil = null) else it
     }
   }
 
@@ -682,7 +688,7 @@ class FleetModel(
     val supervisor = held.supervisor
     if (action != HeadControl.Start && supervisor == null) return null
     if (action == HeadControl.Stop) {
-      val press = stopPress(held.stopArmedUntil, now)
+      val press = stopPress(held.stopArmedUntil, now, stopArmMillis)
       if (!press.send) {
         mutableState.update { it.copy(stopArmedUntil = press.armedUntil) }
         return null
@@ -716,10 +722,10 @@ class FleetModel(
           ) {
             refresh()
           }
-          HeadNote(
-            headFailure(action, error, supervisor?.ref, held.supervisor == null),
+          newHeadNote(
+            headFailure(action, error),
             Tone.Fail,
-            error.warn
+            error.warn?.takeIf(String::isNotEmpty)
           )
         }
       } finally {
@@ -729,23 +735,19 @@ class FleetModel(
     return note
   }
 
-  private fun controlNote(receipt: String?, warn: String?): HeadNote? =
-    if (receipt.isNullOrEmpty() && warn.isNullOrEmpty()) null
-    else HeadNote(receipt.orEmpty(), Tone.Neutral, warn)
+  private fun controlNote(receipt: String?, warn: String?): HeadNote? {
+    val shownWarn = warn?.takeIf(String::isNotEmpty)
+    return if (receipt.isNullOrEmpty() && shownWarn == null) null
+    else newHeadNote(receipt.orEmpty(), Tone.Neutral, shownWarn)
+  }
+
+  private fun newHeadNote(text: String, tone: Tone, warn: String?): HeadNote =
+    HeadNote(text, tone, warn, noteTokens.incrementAndGet())
 
   private suspend fun expireHead(note: HeadNote) {
-    delay(receiptMillis)
-    if (note.warn == null) {
-      mutableState.update { if (it.headNote == note) it.copy(headNote = null) else it }
-      return
-    }
+    delay(headNoteMillis(note, receiptMillis, errorMillis, warnMillis))
     mutableState.update {
-      if (it.headNote == note) it.copy(headNote = note.copy(text = "")) else it
-    }
-    if (warnMillis <= receiptMillis) return
-    delay(warnMillis - receiptMillis)
-    mutableState.update {
-      if (it.headNote == note.copy(text = "")) it.copy(headNote = null) else it
+      if (it.headNote?.token == note.token) it.copy(headNote = null) else it
     }
   }
 

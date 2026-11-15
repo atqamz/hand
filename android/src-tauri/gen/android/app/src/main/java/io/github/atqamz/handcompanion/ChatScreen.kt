@@ -588,7 +588,6 @@ private fun HeadChip(
   val shape = MaterialTheme.shapes.medium
   val fill =
     when {
-      control == HeadControl.Interrupt -> hand.fill(Tone.Fail)
       control == HeadControl.Stop && armed -> hand.fill(Tone.Fail)
       primary -> hand.primary
       else -> Color.Transparent
@@ -598,6 +597,7 @@ private fun HeadChip(
       control == HeadControl.Interrupt -> hand.ink(Tone.Fail)
       control == HeadControl.Stop && armed -> hand.ink(Tone.Fail)
       primary -> hand.onPrimary
+      control == HeadControl.Stop -> hand.muted
       else -> hand.fg
     }
   val edge =
@@ -660,7 +660,7 @@ private fun ChatHeadBar(head: ChatHead, onControl: (HeadControl) -> Unit) {
         Modifier.weight(1f),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        style = type.titleMedium
+        style = type.labelLarge
       )
       head.controls.forEach { control ->
         HeadChip(
@@ -857,6 +857,7 @@ fun ChatScreen(
       else ->
         Column(Modifier.fillMaxSize()) {
           ChatHeadBar(head, onControl)
+          HorizontalDivider(color = LocalHand.current.line)
           Box(Modifier.weight(1f)) {
             ChatContent(
               fleet,
