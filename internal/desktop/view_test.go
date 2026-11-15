@@ -356,12 +356,16 @@ func TestASupervisorControlWarnsWhenTheStatusCannotBeRead(t *testing.T) {
 		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "running", true, false, false, nil
 	})
 	f.controlStale = true
+	f.warn = "the action went through, but the status could not be read: the store went away; refresh to see it"
 	app := newApp(t, f)
 	before := f.count("status:" + fleetID)
 	tt := newTester(app)
 	stop(t, tt)
 	tt.Frame()
-	mustText(t, tt, "The action went through", "the fleet status could not be read", "sonnet · low")
+	mustText(t, tt, "s1 stopping", f.warn)
+	if app.ActionErr != "" {
+		t.Errorf("a warn that the board sent became the window's own banner: %q", app.ActionErr)
+	}
 	if app.Status.Supervisor == nil || app.Status.Supervisor.Status != "running" || app.Busy {
 		t.Fatalf("status = %+v, busy = %v", app.Status.Supervisor, app.Busy)
 	}
@@ -874,6 +878,7 @@ func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
 	tt.Frame()
 	warn := "the answer was saved, but its decision could not be read: the store went away; refresh to see it"
 	f.accepted, f.warn = true, warn
+	f.receipt = "d1 answered · no supervisor is running; it waits"
 	click(t, tt, "Yes, keep it")
 	click(t, tt, "Send answer")
 	tt.Frame()
@@ -884,8 +889,8 @@ func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
 		t.Fatalf("the accepted answer replaced the decision: %+v", app.Decision.Decision)
 	}
 	mustNotText(t, tt, "Reading d1…")
-	mustText(t, tt, "d1 answered · s1 reads it now", warn)
-	r, ok := tt.Find("d1 answered · s1 reads it now")
+	mustText(t, tt, "d1 answered · no supervisor is running; it waits", warn)
+	r, ok := tt.Find("d1 answered · no supervisor is running; it waits")
 	if !ok {
 		t.Fatal("no receipt toast")
 	}
@@ -903,7 +908,40 @@ func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
 		edged = run >= 50
 	}
 	if !edged {
-		t.Errorf("the warn toast has no %v top border above %q", tone, "d1 answered · s1 reads it now")
+		t.Errorf("the warn toast has no %v top border above %q", tone, "d1 answered · no supervisor is running; it waits")
+	}
+}
+
+func TestAWarnWithNoReceiptBecomesTheToastsTitle(t *testing.T) {
+	const warn = "the answer was saved, but its decision could not be read: the store went away; refresh to see it"
+	f := goldenFixture(t)
+	f.accepted, f.warn, f.dropReceipt = true, warn, true
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	if _, ok := tt.Find(warn); !ok {
+		t.Fatalf("a warn with no receipt is not the toast's title; the window shows %q", tt.Texts())
+	}
+	mustNotText(t, tt, "d1 answered · no supervisor is running; it waits")
+}
+
+func TestASuccessfulAnswerWithNoReceiptShowsNoToast(t *testing.T) {
+	f := goldenFixture(t)
+	f.dropReceipt = true
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	if n := f.count("answer:d1"); n != 1 {
+		t.Fatalf("the answer ran %d times", n)
+	}
+	mustNotText(t, tt, "d1 answered · no supervisor is running; it waits")
+	if desktop.ShowReceiptKept(app, "", "", "answer:d1") {
+		t.Fatal("showReceipt kept a toast for an action with no receipt and no warn")
 	}
 }
 

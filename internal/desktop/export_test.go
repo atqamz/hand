@@ -45,3 +45,8 @@ func BoardScroll(a *App) (y, maxY float32) { return a.boardScroll.Y, a.boardScro
 func ChatWidth(pref, total, viewport float32) float32 { return chatWidth(pref, total, viewport) }
 
 func SheetOpen(a *App) bool { return a.sheetOpen }
+
+func ShowReceiptKept(a *App, receipt, warn, key string) bool {
+	a.showReceipt(receipt, warn, key)
+	return a.receiptKey != ""
+}

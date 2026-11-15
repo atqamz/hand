@@ -13,6 +13,7 @@ type Envelope struct {
 	Fleet       Fleet           `json:"fleet"`
 	Cursor      string          `json:"cursor"`
 	GeneratedAt string          `json:"generated_at"`
+	Receipt     string          `json:"receipt,omitempty"`
 	Warn        string          `json:"warn,omitempty"`
 	Data        json.RawMessage `json:"data"`
 }
@@ -43,6 +44,7 @@ type Supervisor struct {
 	Model     string `json:"model,omitempty"`
 	Effort    string `json:"effort,omitempty"`
 	Status    string `json:"status"`
+	EndedAt   string `json:"ended_at,omitempty"`
 	Live      bool   `json:"live"`
 	Pending   int    `json:"pending"`
 	Resumable bool   `json:"resumable"`
@@ -81,23 +83,34 @@ type TaskCounts struct {
 }
 
 type Need struct {
-	Kind      string      `json:"kind"`
-	Ref       string      `json:"ref,omitempty"`
-	Title     string      `json:"title,omitempty"`
-	Word      string      `json:"word"`
-	Tone      string      `json:"tone"`
-	Task      string      `json:"task,omitempty"`
-	Decision  string      `json:"decision,omitempty"`
-	Report    string      `json:"report,omitempty"`
-	Attempt   string      `json:"attempt,omitempty"`
-	Headline  string      `json:"headline,omitempty"`
-	Status    string      `json:"status,omitempty"`
-	CreatedAt string      `json:"created_at,omitempty"`
-	Excerpt   string      `json:"excerpt,omitempty"`
-	Cut       bool        `json:"cut,omitempty"`
-	DenyAt    string      `json:"deny_at,omitempty"`
-	Options   []AskOption `json:"options,omitempty"`
-	Keys      *NeedKeys   `json:"keys,omitempty"`
+	Kind        string       `json:"kind"`
+	Ref         string       `json:"ref,omitempty"`
+	Title       string       `json:"title,omitempty"`
+	Word        string       `json:"word"`
+	Tone        string       `json:"tone"`
+	Task        string       `json:"task,omitempty"`
+	Project     string       `json:"project,omitempty"`
+	Decision    string       `json:"decision,omitempty"`
+	Report      string       `json:"report,omitempty"`
+	Attempt     string       `json:"attempt,omitempty"`
+	AttemptMeta *NeedAttempt `json:"attempt_meta,omitempty"`
+	Reason      string       `json:"reason,omitempty"`
+	Headline    string       `json:"headline,omitempty"`
+	Status      string       `json:"status,omitempty"`
+	CreatedAt   string       `json:"created_at,omitempty"`
+	Excerpt     string       `json:"excerpt,omitempty"`
+	Cut         bool         `json:"cut,omitempty"`
+	DenyAt      string       `json:"deny_at,omitempty"`
+	Options     []AskOption  `json:"options,omitempty"`
+	Keys        *NeedKeys    `json:"keys,omitempty"`
+}
+
+type NeedAttempt struct {
+	Ref     string `json:"ref"`
+	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"`
+	Status  string `json:"status"`
+	EndedAt string `json:"ended_at,omitempty"`
 }
 
 type NeedKeys struct {

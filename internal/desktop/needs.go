@@ -13,6 +13,7 @@ import (
 
 const (
 	receiptFor       = 4 * time.Second
+	receiptWarnFor   = 12 * time.Second
 	errorFor         = 8 * time.Second
 	noteRequiredText = "Write your answer: that option asks for one."
 )
@@ -21,20 +22,25 @@ func needKey(n Need) string { return n.Kind + ":" + n.Ref }
 
 func needHasBody(n Need) bool {
 	switch n.Kind {
-	case "blocked", "decision", "report":
+	case "blocked", "decision", "report", "resume":
 		return true
 	}
 	return n.Attempt != "" || n.Excerpt != "" || n.Status != ""
 }
 
-func (a *App) markSent(ref, label string) {
+type sentRecord struct {
+	label  string
+	digest string
+}
+
+func (a *App) markSent(ref, digest, label string) {
 	if ref == "" {
 		return
 	}
 	if a.sentNeeds == nil {
-		a.sentNeeds = map[string]string{}
+		a.sentNeeds = map[string]sentRecord{}
 	}
-	a.sentNeeds[ref] = "Sent " + label + " · waiting…"
+	a.sentNeeds[ref] = sentRecord{label: "Sent " + label + " · waiting…", digest: digest}
 }
 
 func sentLabel(choice string) string {
@@ -46,12 +52,16 @@ func sentLabel(choice string) string {
 }
 
 func (a *App) sentNeed(n Need) (string, bool) {
+	digest := ""
+	if n.Keys != nil {
+		digest = n.Keys.Digest
+	}
 	for _, ref := range []string{n.Decision, n.Ref} {
 		if ref == "" {
 			continue
 		}
-		if sent, ok := a.sentNeeds[ref]; ok {
-			return sent, true
+		if s, ok := a.sentNeeds[ref]; ok && (s.digest == "" || s.digest == digest) {
+			return s.label, true
 		}
 	}
 	return "", false
@@ -61,17 +71,22 @@ func (a *App) reconcileSent() {
 	if len(a.sentNeeds) == 0 {
 		return
 	}
-	live := make(map[string]bool, 2*len(a.Status.Needs.Items))
+	live := make(map[string]string, 2*len(a.Status.Needs.Items))
 	for _, n := range a.Status.Needs.Items {
+		digest := ""
+		if n.Keys != nil {
+			digest = n.Keys.Digest
+		}
 		if n.Decision != "" {
-			live[n.Decision] = true
+			live[n.Decision] = digest
 		}
 		if n.Ref != "" {
-			live[n.Ref] = true
+			live[n.Ref] = digest
 		}
 	}
-	for ref := range a.sentNeeds {
-		if !live[ref] {
+	for ref, s := range a.sentNeeds {
+		digest, ok := live[ref]
+		if !ok || s.digest != "" && s.digest != digest {
 			delete(a.sentNeeds, ref)
 		}
 	}
@@ -204,11 +219,11 @@ func (a *App) nextNeed(done string) {
 	}
 }
 
-func (a *App) answerReceipt(ref string) string {
-	if sup := a.Status.Supervisor; sup != nil && sup.Status == "running" {
-		return ref + " answered · " + sup.Ref + " reads it now"
+func (a *App) showReceipt(receipt, warn, key string) {
+	if receipt == "" && warn == "" {
+		return
 	}
-	return ref + " answered · no supervisor is running; it waits"
+	a.receipt, a.receiptKey, a.receiptWarn = receipt, key, warn
 }
 
 func (a *App) loadNeedDecision(ref string) {
@@ -373,18 +388,9 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 			if open {
 				icon.Margin(3, 0, 0)
 			}
-			meta := func() {
-				line := slug
-				if open && need.Kind == "report" {
-					if need.Attempt != "" {
-						line += " " + need.Attempt
-					}
-					if need.Status != "" {
-						line += " · " + need.Status
-					}
-				}
-				if line != "" {
-					ui.Text(c, line).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+			closed := func() {
+				if slug != "" {
+					ui.Text(c, slug).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 				if need.CreatedAt != "" {
 					ui.Text(c, stamp(need.CreatedAt)).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
@@ -394,14 +400,14 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 			if open {
 				ui.Column(c).Grow(1).MinWidth(0).Gap(kit.Space2).Children(func() {
 					ui.Text(c, title).FontSize(kit.Title.Size).Bold()
-					ui.Row(c).Gap(kit.Space10).Children(meta)
+					a.needSlug(c, k, p, need, bg, ink)
 				})
 			} else {
 				ui.Text(c, title).FontSize(kit.Body.Size).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 				if wasSent {
 					ui.Text(c, sent).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				} else {
-					meta()
+					closed()
 				}
 			}
 			if !wasSent && need.DenyAt != "" {
@@ -423,12 +429,82 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 	})
 }
 
+func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, ink ui.Color) {
+	slug := k.Muted
+	switch need.Tone {
+	case "fail", "wait":
+		slug = ink.Mix(k.FG, 0.45)
+	}
+	meta := func(line string) {
+		if line == "" {
+			return
+		}
+		ui.Text(c, line).FontSize(kit.Meta.Size).TextColor(slug).SingleLine()
+	}
+	ref := func(text string) {
+		if text == "" {
+			return
+		}
+		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).TextColor(slug).SingleLine()
+	}
+	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
+		if need.Word != "" {
+			ui.Badge(c, need.Word).Background(bg).TextColor(ink)
+		}
+		ref(need.Ref)
+		if need.Task != need.Ref {
+			ref(need.Task)
+		}
+		if a.Status.Projects > 1 && need.Project != "" && (need.Kind == "decision" || need.Kind == "report") {
+			ui.Badge(c, taskProject(need.Project)).Background(p.neutralBG).TextColor(p.neutral).
+				Label("project " + need.Project).Tooltip(need.Project).Shrink(0)
+		}
+		switch {
+		case need.Decision != "":
+			meta(at(need.CreatedAt))
+		case need.Report != "":
+			meta(joined(need.Attempt, need.Status))
+			meta(at(need.CreatedAt))
+		case need.Kind == "resume":
+			sup := a.Status.Supervisor
+			if sup == nil {
+				return
+			}
+			meta(joined(strings.TrimSpace(sup.Harness+" "+sup.Model), sup.Status))
+			meta(at(sup.EndedAt))
+		case need.AttemptMeta != nil:
+			m := need.AttemptMeta
+			meta(joined(strings.TrimSpace(m.Harness+" "+m.Model), m.Status))
+			meta(at(m.EndedAt))
+		}
+	})
+}
+
+func joined(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			kept = append(kept, part)
+		}
+	}
+	return strings.Join(kept, " · ")
+}
+
+func at(stampAt string) string {
+	if stampAt == "" {
+		return ""
+	}
+	return stamp(stampAt)
+}
+
 func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 	switch need.Kind {
 	case "decision":
 		a.loadNeedDecision(need.Decision)
 	case "failure":
-		a.loadNeedAttempt(need.Attempt)
+		if need.Reason == "" {
+			a.loadNeedAttempt(need.Attempt)
+		}
 	}
 	ui.Column(c).Gap(kit.Space10).Padding(kit.Space10, 15, 15, 41).Children(func() {
 		link := func(ref string) {
@@ -487,6 +563,8 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 			a.workerNeedBody(c, p, need)
 		case "failure":
 			switch {
+			case need.Reason != "":
+				ui.Text(c, need.Reason).FontSize(kit.Body.Size).TextColor(k.Muted)
 			case a.attErr != "" && a.attTried == need.Attempt:
 				a.needReadError(c, p, "retry-attempt:"+need.Attempt, a.attErr, func() { a.attTried, a.attErr = "", "" })
 			case a.needAttempt.Attempt.Ref == need.Attempt:
@@ -499,8 +577,25 @@ func (a *App) needBody(c *ui.Context, k kit.Colors, p palette, need Need) {
 				}
 			}
 			link(need.Attempt)
+		case "resume":
+			a.resumeNeedBody(c, need)
 		default:
 			link(need.Attempt)
+		}
+	})
+}
+
+func (a *App) resumeNeedBody(c *ui.Context, need Need) {
+	label := "Resume"
+	if a.Busy {
+		label = "Resuming…"
+	}
+	ui.Row(c).Gap(kit.Space8).Children(func() {
+		if ui.Button(c.Key("sup-resume:"+need.Ref), label).Disabled(a.Busy).Clicked() {
+			a.Supervise("resume")
+		}
+		if ui.Button(c.Key("sup-start:"+need.Ref), "New session").Disabled(a.Busy).Clicked() {
+			a.Supervise("start")
 		}
 	})
 }
@@ -587,10 +682,8 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 			return
 		}
 		a.Busy, a.BusyAction = false, ""
-		a.markSent(ref, sent)
-		a.receipt = "Sent " + sent + " to " + ref
-		a.receiptKey = "akey:" + ref + ":" + sent
-		a.receiptWarn = p.Warn
+		a.markSent(ref, guard.Digest, sent)
+		a.showReceipt(p.Receipt, p.Warn, "akey:"+ref+":"+sent)
 	}
 	failed := func(err error) {
 		if id != a.loadID {

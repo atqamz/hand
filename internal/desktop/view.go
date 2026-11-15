@@ -76,10 +76,15 @@ func (a *App) View(c *ui.Context) {
 	dark := c.Theme().Dark
 	p, k := paletteFor(dark), kit.ColorsFor(dark)
 	c.SetTheme(boardTheme(dark))
-	if a.receipt != "" {
+	if a.receipt != "" || a.receiptWarn != "" {
 		t := ui.Toast{ID: a.receiptKey, Title: a.receipt, Timeout: receiptFor}
 		if a.receiptWarn != "" {
-			t.Description, t.Type = a.receiptWarn, "warn"
+			t.Type, t.Timeout = "warn", receiptWarnFor
+			if t.Title == "" {
+				t.Title = a.receiptWarn
+			} else {
+				t.Description = a.receiptWarn
+			}
 		}
 		c.AddToast(t)
 		a.receipt, a.receiptKey, a.receiptWarn = "", "", ""

@@ -642,8 +642,11 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 			name = "report-acked"
 		case "/api/v1/message":
 			name = "message-sent"
-		case "/api/v1/supervisor/start", "/api/v1/supervisor/resume", "/api/v1/supervisor/stop",
-			"/api/v1/supervisor/interrupt", "/api/v1/supervisor/force", "/api/v1/supervisor/keys":
+		case "/api/v1/supervisor/start", "/api/v1/supervisor/resume":
+			name = "supervisor-started"
+		case "/api/v1/supervisor/keys":
+			name = "supervisor-keys"
+		case "/api/v1/supervisor/stop", "/api/v1/supervisor/interrupt", "/api/v1/supervisor/force":
 			name = "status"
 		case "/api/v1/attempt/a1/keys":
 			name = "attempt-running"
@@ -707,6 +710,43 @@ func TestHTTPClientAnswersAndAcks(t *testing.T) {
 	}
 	if rd.Report.AckedBy != "operator (desktop)" || rd.Report.AckedAt == "" {
 		t.Fatalf("report = %+v", rd.Report)
+	}
+}
+
+func TestHTTPClientReadsTheBoardsReceipts(t *testing.T) {
+	srv, _ := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+	ans, err := c.AnswerDecision(ctx, fleetID, "d1", "1. Yes, keep it", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Receipt != "d1 answered · s1 reads it now" {
+		t.Fatalf("answer receipt = %q", ans.Receipt)
+	}
+	ack, err := c.AckReport(ctx, fleetID, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Receipt != "r1 marked read" {
+		t.Fatalf("ack receipt = %q", ack.Receipt)
+	}
+	keys, err := c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, screenDigest, 2, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys.Receipt != "Sent down enter to s1" {
+		t.Fatalf("keys receipt = %q", keys.Receipt)
+	}
+	start, err := c.Supervise(ctx, fleetID, "start", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start.Receipt != "Starting the supervisor…" {
+		t.Fatalf("start receipt = %q", start.Receipt)
+	}
+	if pressed, err := c.PressAttemptKeys(ctx, fleetID, "a1", "enter", 9, 4, screenDigest); err != nil || pressed.Receipt != "" {
+		t.Fatalf("attempt keys receipt = %q, %v", pressed.Receipt, err)
 	}
 }
 
