@@ -498,7 +498,12 @@ class BoardClientTest {
     )
     val blocked = data.needs.items.first()
     assertEquals("blocked", blocked.kind)
-    assertNull(blocked.title)
+    val options =
+      listOf(AskOption("2 No", listOf("2")), AskOption("Esc", listOf("esc")), AskOption("1 Yes", listOf("1")))
+    assertEquals("Allow Bash?", blocked.title)
+    assertEquals("Allow Bash?\n❯ 1. Yes\n  2. No", blocked.excerpt)
+    assertEquals(options, blocked.options)
+    assertEquals(NeedKeys(options, 7, "f8c722e0710879ae811b2fe7ad0c8ba0", 0), blocked.keys)
     assertEquals("blocked", data.needs.worst)
     assertEquals("blocked", data.agentState)
   }

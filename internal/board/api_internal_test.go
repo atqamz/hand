@@ -2,12 +2,14 @@ package board
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,9 +117,13 @@ func TestAWriteWhoseDetailCannotBeReadStillSucceeds(t *testing.T) {
 	if _, err := st.CreateFleet(context.Background(), "test"); err != nil {
 		t.Fatal(err)
 	}
+	fleet, err := st.Fleet(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	b := &Board{st: st, token: "0123456789abcdef0123456789abcdef"}
 	rec := httptest.NewRecorder()
-	b.apiMutationOK(rec, context.Background(), apiReply{receipt: "r1 marked read"}, apiAckUnread,
+	b.apiMutationOK(rec, fleet, context.Background(), apiReply{receipt: "r1 marked read"}, apiAckUnread,
 		func() (any, error) { return nil, errors.New("the store went away") })
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d:\n%s", rec.Code, rec.Body.String())
@@ -140,6 +146,70 @@ func TestAWriteWhoseDetailCannotBeReadStillSucceeds(t *testing.T) {
 	}
 	if header, _ := url.PathUnescape(rec.Header().Get("X-Hand-Warn")); header != got.Warn {
 		t.Fatalf("X-Hand-Warn = %q, JSON warn = %q", header, got.Warn)
+	}
+}
+
+func TestAnAnswerWhoseFleetCannotBeReadWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "hand.db")
+	st, err := state.Open(path, func() time.Time { return time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddProject(ctx, "hand", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask(ctx, "hand", "Cookie", "keep the docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := st.Ask(ctx, task.ID, "Keep the old cookie name?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`DROP TABLE fleet`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b := &Board{st: st, token: "0123456789abcdef0123456789abcdef"}
+	req := httptest.NewRequest("POST", "/api/v1/decision/"+state.DecisionRef(d.ID)+"/answer", strings.NewReader(`{"choice":"1. Yes"}`))
+	req.SetPathValue("id", state.DecisionRef(d.ID))
+	req = req.WithContext(context.WithValue(ctx, sessionKey{}, session{CSRF: "csrf"}))
+	req.Header.Set("X-Hand-CSRF", "csrf")
+	rec := httptest.NewRecorder()
+	b.apiAnswer(rec, req)
+	var got struct {
+		Receipt string   `json:"receipt"`
+		Error   APIError `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusInternalServerError || got.Error.Code != "internal" {
+		t.Fatalf("answer = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(got.Error.Message, "no such table: fleet") {
+		t.Fatalf("error = %+v", got.Error)
+	}
+	if got.Receipt != "" || rec.Header().Get("X-Hand-Receipt") != "" {
+		t.Fatalf("a failed answer carries a receipt: %q, %q", got.Receipt, rec.Header().Get("X-Hand-Receipt"))
+	}
+	open, err := st.Decision(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if open.Status != state.DecisionOpen || open.Answer != "" {
+		t.Fatalf("the answer was written: %+v", open)
 	}
 }
 

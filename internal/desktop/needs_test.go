@@ -786,6 +786,20 @@ func TestAWorkerPressSendsItsOwnGuard(t *testing.T) {
 	mustText(t, tt, "Sent 2 · waiting…", "Sent 2 to a1")
 }
 
+func TestAWorkerPressWithNoDetailShowsTheWarn(t *testing.T) {
+	f := workerScreen(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	warn := "the press went through, but the attempt could not be read: the store went away; refresh to see it"
+	f.accepted, f.warn = true, warn
+	click(t, tt, "2 No")
+	tt.Frame()
+	if app.Busy {
+		t.Fatal("the window is still sending")
+	}
+	mustText(t, tt, "Sent 2 to a1", warn)
+}
+
 func TestAStaleWorkerPressReopensOnTheFreshScreen(t *testing.T) {
 	f := workerScreen(t)
 	app := newApp(t, f)

@@ -112,6 +112,7 @@ type App struct {
 	needAttempt   AttemptDetail
 	receipt       string
 	receiptKey    string
+	receiptWarn   string
 	notice        string
 	noticeTitle   string
 	noticeKey     string
@@ -808,15 +809,18 @@ func (a *App) Answer() {
 	post := a.Post
 	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
-	detail := func(d DecisionDetail) {
+	detail := func(ans Answered) {
 		if id != a.loadID {
 			return
 		}
 		a.Busy = false
-		a.Decision = d
+		if ans.Decision.Ref != "" {
+			a.Decision = ans.DecisionDetail
+		}
 		a.markSent(ref, sentLabel(choice))
 		a.receipt = a.answerReceipt(ref)
 		a.receiptKey = "answer:" + ref
+		a.receiptWarn = ans.Warn
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -850,7 +854,7 @@ func (a *App) Answer() {
 		a.ActionWarn = true
 	}
 	fetch := func() {
-		d, err := model.AnswerDecision(ctx, fleet, ref, choice, note)
+		ans, err := model.AnswerDecision(ctx, fleet, ref, choice, note)
 		if err != nil {
 			cancel()
 			if post == nil {
@@ -861,9 +865,9 @@ func (a *App) Answer() {
 			return
 		}
 		if post == nil {
-			detail(d)
+			detail(ans)
 		} else {
-			post(func() { detail(d) })
+			post(func() { detail(ans) })
 		}
 		st, serr := model.Status(ctx, fleet)
 		cancel()
@@ -898,14 +902,17 @@ func (a *App) Ack(ref string) {
 	model, fleet := a.Model, a.Fleet.ID
 	a.Busy = true
 	a.ackRef = ref
-	report := func(r ReportDetail) {
+	report := func(r Acked) {
 		if id != a.loadID {
 			return
 		}
 		a.Busy, a.ackRef = false, ""
-		a.applyAck(ref, r.Report)
+		if r.Report.Ref != "" {
+			a.applyAck(ref, r.Report)
+		}
 		a.receipt = ref + " marked read"
 		a.receiptKey = "ack:" + ref
+		a.receiptWarn = r.Warn
 		if a.ackDone == nil {
 			a.ackDone = map[string]bool{}
 		}

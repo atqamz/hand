@@ -865,6 +865,47 @@ func TestARefusedAnswerKeepsTheItemOpenAndSaysWhy(t *testing.T) {
 	}
 }
 
+func TestAnAnswerWithNoDetailKeepsTheDecisionAndShowsTheWarn(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	app.OpenRef("t1")
+	app.OpenRef("d1")
+	tt.Frame()
+	warn := "the answer was saved, but its decision could not be read: the store went away; refresh to see it"
+	f.accepted, f.warn = true, warn
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	tt.Frame()
+	if app.Busy {
+		t.Fatal("the window is still reading")
+	}
+	if app.Decision.Decision.Ref != "d1" || app.Decision.Decision.Status != "open" {
+		t.Fatalf("the accepted answer replaced the decision: %+v", app.Decision.Decision)
+	}
+	mustNotText(t, tt, "Reading d1…")
+	mustText(t, tt, "d1 answered · s1 reads it now", warn)
+}
+
+func TestAnAckWithNoDetailKeepsTheReportAndShowsTheWarn(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	app.OpenRef("r1")
+	tt.Frame()
+	warn := "the report was marked read, but its detail could not be read: the store went away; refresh to see it"
+	f.accepted, f.warn = true, warn
+	click(t, tt, "Mark read r1")
+	tt.Frame()
+	if app.Busy {
+		t.Fatal("the window is still reading")
+	}
+	if app.Task.Reports[0].AckedAt != "" {
+		t.Fatalf("the accepted ack applied its empty report: %+v", app.Task.Reports[0])
+	}
+	mustText(t, tt, "r1 marked read", warn)
+}
+
 func TestAckReport(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)

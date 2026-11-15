@@ -74,6 +74,8 @@ type fixture struct {
 	pollRef       string
 	mu            sync.Mutex
 	calls         map[string]int
+	accepted      bool
+	warn          string
 }
 
 func (f *fixture) count(name string) int {
@@ -283,18 +285,21 @@ func (f *fixture) stallAction() {
 	}
 }
 
-func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note string) (desktop.DecisionDetail, error) {
+func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note string) (desktop.Answered, error) {
 	f.note("answer:" + ref)
 	f.mu.Lock()
 	f.choice, f.answerNote = choice, note
 	f.mu.Unlock()
 	f.stallAction()
 	if f.action != nil {
-		return desktop.DecisionDetail{}, f.action
+		return desktop.Answered{}, f.action
+	}
+	if f.accepted {
+		return desktop.Answered{Warn: f.warn}, nil
 	}
 	d, ok := f.decision[id]
 	if !ok || (ref != "" && d.Decision.Ref != ref) {
-		return desktop.DecisionDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: decision " + ref}
+		return desktop.Answered{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: decision " + ref}
 	}
 	d.Decision.Status = "answered"
 	d.Decision.Pill = "passing"
@@ -303,24 +308,27 @@ func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note stri
 	d.Decision.ClosedAt = "2026-11-01T05:00:00Z"
 	f.decision[id] = d
 	f.dropNeed(id, d.Decision.Ref)
-	return d, nil
+	return desktop.Answered{DecisionDetail: d, Warn: f.warn}, nil
 }
 
-func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.ReportDetail, error) {
+func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.Acked, error) {
 	f.note("ack:" + ref)
 	f.stallAction()
 	if f.action != nil {
-		return desktop.ReportDetail{}, f.action
+		return desktop.Acked{}, f.action
+	}
+	if f.accepted {
+		return desktop.Acked{Warn: f.warn}, nil
 	}
 	d, ok := f.report[id]
 	if !ok || (ref != "" && d.Report.Ref != ref) {
-		return desktop.ReportDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: report " + ref}
+		return desktop.Acked{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: report " + ref}
 	}
 	d.Report.AckedAt = "2026-11-01T05:00:00Z"
 	d.Report.AckedBy = "operator (desktop)"
 	f.report[id] = d
 	f.dropNeed(id, d.Report.Ref)
-	return d, nil
+	return desktop.Acked{ReportDetail: d, Warn: f.warn}, nil
 }
 
 func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Sent, error) {
@@ -382,19 +390,22 @@ func (f *fixture) PressKeys(ctx context.Context, id string, keys []string, revis
 	return desktop.Control{Status: st, Stale: stale}, nil
 }
 
-func (f *fixture) PressAttemptKeys(ctx context.Context, id, ref, key string, revision, after int64, screen string) (desktop.AttemptDetail, error) {
+func (f *fixture) PressAttemptKeys(ctx context.Context, id, ref, key string, revision, after int64, screen string) (desktop.Pressed, error) {
 	f.note("akeys:" + ref + ":" + key)
 	f.mu.Lock()
 	f.attemptKey, f.attemptKeyRef, f.attemptKeyRev, f.attemptKeyAft, f.attemptScreen = key, ref, revision, after, screen
 	f.mu.Unlock()
 	f.stallAction()
 	if f.attemptKeyErr != nil {
-		return desktop.AttemptDetail{}, f.attemptKeyErr
+		return desktop.Pressed{}, f.attemptKeyErr
 	}
 	if f.action != nil {
-		return desktop.AttemptDetail{}, f.action
+		return desktop.Pressed{}, f.action
 	}
-	return f.attempt[id], nil
+	if f.accepted {
+		return desktop.Pressed{Warn: f.warn}, nil
+	}
+	return desktop.Pressed{AttemptDetail: f.attempt[id], Warn: f.warn}, nil
 }
 
 func (f *fixture) dropNeed(id, ref string) {

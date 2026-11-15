@@ -622,6 +622,11 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "write your answer: that option asks for one")
 		return
 	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
 	if _, err := b.st.Answer(ctx, id, answer, actor(ctx, "operator (desktop)")); err != nil {
 		b.apiFailErr(w, err)
 		return
@@ -630,7 +635,7 @@ func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
 	if ref, running := b.supRef(ctx); running {
 		receipt = state.DecisionRef(id) + " answered · " + ref + " reads it now"
 	}
-	b.apiMutationOK(w, ctx, apiReply{receipt: receipt}, apiAnswerUnread, func() (any, error) { return b.apiDecisionData(ctx, id) })
+	b.apiMutationOK(w, f, ctx, apiReply{receipt: receipt}, apiAnswerUnread, func() (any, error) { return b.apiDecisionData(ctx, id) })
 }
 
 func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
@@ -696,11 +701,16 @@ func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {
 		b.apiFailErr(w, err)
 		return
 	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
 	if _, err := b.st.AckReport(ctx, id, actor(ctx, "operator (desktop)")); err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, apiReply{receipt: state.ReportRef(id) + " marked read"}, apiAckUnread, func() (any, error) { return b.apiReportData(ctx, id) })
+	b.apiMutationOK(w, f, ctx, apiReply{receipt: state.ReportRef(id) + " marked read"}, apiAckUnread, func() (any, error) { return b.apiReportData(ctx, id) })
 }
 
 func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
@@ -939,13 +949,18 @@ func (b *Board) apiAttemptKeys(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--screen", in.Screen)
 	}
 	args = append(args, "--after", strconv.FormatInt(*in.After, 10), state.AttemptRef(id))
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
 	warn, err := b.o.Control(ctx, append(args, keys...)...)
 	if err != nil {
 		apiReply{warn: warn}.send(w)
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, apiReply{receipt: "Sent " + strings.Join(keys, " ") + " to " + state.AttemptRef(id), warn: warn}, apiPressUnread, func() (any, error) { return b.apiAttemptData(ctx, id) })
+	b.apiMutationOK(w, f, ctx, apiReply{receipt: "Sent " + strings.Join(keys, " ") + " to " + state.AttemptRef(id), warn: warn}, apiPressUnread, func() (any, error) { return b.apiAttemptData(ctx, id) })
 }
 
 // apiMessageText rejects the text a JSON decoder would quietly change: invalid
@@ -997,13 +1012,7 @@ func surrogatesPaired(raw []byte) bool {
 	return true
 }
 
-func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, reply apiReply, unread string, data func() (any, error)) {
-	f, err := b.st.Fleet(ctx)
-	if err != nil {
-		apiReply{warn: reply.warn}.send(w)
-		b.apiFailErr(w, err)
-		return
-	}
+func (b *Board) apiMutationOK(w http.ResponseWriter, f state.Fleet, ctx context.Context, reply apiReply, unread string, data func() (any, error)) {
 	out, err := data()
 	if err != nil {
 		reply.unread(unread, err).send(w)

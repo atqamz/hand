@@ -584,6 +584,8 @@ type mutations struct {
 	// controlAccepted answers a supervisor control with the accepted envelope
 	// the board sends when it ran the action but could not read the status.
 	controlAccepted bool
+	unread          bool
+	warn            string
 	body            string
 	csrf            []string
 	paths           []string
@@ -656,11 +658,12 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		}
 		m.mu.Lock()
 		m.body = string(b)
-		accepted, control := m.accepted, m.controlAccepted
+		accepted, control, unread, warn := m.accepted, m.controlAccepted, m.unread, m.warn
 		m.mu.Unlock()
-		if (name == "message-sent" && accepted) || (name == "status" && control) {
+		if (name == "message-sent" && accepted) || (name == "status" && control) ||
+			((name == "decision-answered" || name == "report-acked" || name == "attempt-running") && unread) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","data":{"accepted":true}}`)
+			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","warn":"`+warn+`","data":{"accepted":true}}`)
 			return
 		}
 		data, err := os.ReadFile(filepath.Join("..", "board", "testdata", "api", name+".json"))
@@ -810,6 +813,57 @@ func TestHTTPClientPressesAWorkersKeys(t *testing.T) {
 	if !strings.Contains(body, `"key":"down enter"`) || !strings.Contains(body, `"revision":9`) ||
 		!strings.Contains(body, `"after":4`) || !strings.Contains(body, `"screen":"`+screen+`"`) {
 		t.Fatalf("keys body = %q", body)
+	}
+}
+
+func TestHTTPClientReportsAnAnswerItCouldNotReadBack(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.mu.Lock()
+	m.unread, m.warn = true, "the answer was saved, but its decision could not be read: the store went away; refresh to see it"
+	m.mu.Unlock()
+	ans, err := goldenClient(t, srv.URL).AnswerDecision(context.Background(), fleetID, "d1", "1. Yes, keep it", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Decision.Ref != "" || ans.Body != "" || len(ans.Options) != 0 {
+		t.Fatalf("answer = %+v", ans)
+	}
+	if ans.Warn != m.warn {
+		t.Fatalf("warn = %q, want %q", ans.Warn, m.warn)
+	}
+}
+
+func TestHTTPClientReportsAnAckItCouldNotReadBack(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.mu.Lock()
+	m.unread, m.warn = true, "the report was marked read, but its detail could not be read: the store went away; refresh to see it"
+	m.mu.Unlock()
+	ack, err := goldenClient(t, srv.URL).AckReport(context.Background(), fleetID, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Report.Ref != "" || len(ack.Delivered) != 0 {
+		t.Fatalf("ack = %+v", ack)
+	}
+	if ack.Warn != m.warn {
+		t.Fatalf("warn = %q, want %q", ack.Warn, m.warn)
+	}
+}
+
+func TestHTTPClientReportsAnAttemptItCouldNotReadBack(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.mu.Lock()
+	m.unread, m.warn = true, "the press went through, but the attempt could not be read: the store went away; refresh to see it"
+	m.mu.Unlock()
+	pressed, err := goldenClient(t, srv.URL).PressAttemptKeys(context.Background(), fleetID, "a1", "down enter", 9, 4, "0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pressed.Attempt.Ref != "" || len(pressed.Reports) != 0 {
+		t.Fatalf("pressed = %+v", pressed)
+	}
+	if pressed.Warn != m.warn {
+		t.Fatalf("warn = %q, want %q", pressed.Warn, m.warn)
 	}
 }
 

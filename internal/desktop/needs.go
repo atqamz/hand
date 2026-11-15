@@ -580,7 +580,7 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 	post := a.Post
 	a.Busy, a.BusyAction = true, choice.Action
 	sent := sentKeyLabel(choice.Label)
-	applied := func() {
+	applied := func(p Pressed) {
 		if id != a.loadID {
 			return
 		}
@@ -588,6 +588,7 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 		a.markSent(ref, sent)
 		a.receipt = "Sent " + sent + " to " + ref
 		a.receiptKey = "akey:" + ref + ":" + sent
+		a.receiptWarn = p.Warn
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -606,7 +607,7 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 		a.ActionWarn = false
 	}
 	fetch := func() {
-		_, err := model.PressAttemptKeys(ctx, fleet, ref, strings.Join(choice.Keys, " "), guard.Revision, guard.Pressed, guard.Digest)
+		pressed, err := model.PressAttemptKeys(ctx, fleet, ref, strings.Join(choice.Keys, " "), guard.Revision, guard.Pressed, guard.Digest)
 		cancel()
 		if err != nil {
 			if post == nil {
@@ -617,9 +618,9 @@ func (a *App) pressWorker(need Need, choice keyChoice) {
 			return
 		}
 		if post == nil {
-			applied()
+			applied(pressed)
 		} else {
-			post(applied)
+			post(func() { applied(pressed) })
 		}
 	}
 	if post == nil {
