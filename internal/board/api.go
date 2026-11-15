@@ -77,6 +77,7 @@ type APISupervisor struct {
 	Model     string   `json:"model,omitempty"`
 	Effort    string   `json:"effort,omitempty"`
 	Status    string   `json:"status"`
+	EndedAt   string   `json:"ended_at,omitempty"`
 	Live      bool     `json:"live"`
 	Pending   int      `json:"pending"`
 	Resumable bool     `json:"resumable"`
@@ -1536,6 +1537,7 @@ func apiSupervisor(v supervisorView, pressed int64) *APISupervisor {
 		Model:     v.Sup.Model,
 		Effort:    v.Sup.Effort,
 		Status:    v.Sup.Status,
+		EndedAt:   v.Sup.EndedAt,
 		Live:      v.Sup.Live(),
 		Pending:   v.Pending,
 		Resumable: v.Resumable,

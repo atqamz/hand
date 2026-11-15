@@ -80,6 +80,32 @@ func TestANeedWithoutAnAttemptOmitsItsSlugData(t *testing.T) {
 	}
 }
 
+func TestANeedOmitsAnAttemptsEmptyModelAndEndTime(t *testing.T) {
+	raw, err := json.Marshal(apiNeed(waiting{
+		Kind: "kept", Ref: "a3", Title: "Stopped", Task: state.Task{ID: 3, Project: "hand"},
+		Attempt: &state.Attempt{ID: 3, TaskID: 3, Harness: "agy", Status: state.AttemptRunning},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		AttemptMeta map[string]json.RawMessage `json:"attempt_meta"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"model", "ended_at"} {
+		if _, ok := got.AttemptMeta[key]; ok {
+			t.Fatalf("an attempt with no model or end time carries %s: %s", key, raw)
+		}
+	}
+	for _, key := range []string{"ref", "harness", "status"} {
+		if _, ok := got.AttemptMeta[key]; !ok {
+			t.Fatalf("attempt_meta has no %s: %s", key, raw)
+		}
+	}
+}
+
 func TestAWriteWhoseDetailCannotBeReadStillSucceeds(t *testing.T) {
 	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC) })
 	if err != nil {
@@ -109,7 +135,7 @@ func TestAWriteWhoseDetailCannotBeReadStillSucceeds(t *testing.T) {
 	if !got.Data.Accepted || got.Receipt != "r1 marked read" {
 		t.Fatalf("answer = %+v", got)
 	}
-	if want := apiAckUnread + ": the store went away; refresh to see it"; got.Warn != want {
+	if want := "the report was marked read, but its detail could not be read: the store went away; refresh to see it"; got.Warn != want {
 		t.Fatalf("warn = %q, want %q", got.Warn, want)
 	}
 	if header, _ := url.PathUnescape(rec.Header().Get("X-Hand-Warn")); header != got.Warn {

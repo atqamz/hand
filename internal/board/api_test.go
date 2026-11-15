@@ -662,6 +662,88 @@ func TestAPISupervisorControlIsAcceptedWhenTheStatusCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestAControlsWarningStaysAheadOfTheUnreadCaveat(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	warn := "claude model acme-opus is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models; starting anyway"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fx.options.Control = func(context.Context, ...string) (string, error) {
+		cancel()
+		return warn, nil
+	}
+	req := httptest.NewRequest("POST", "/api/v1/supervisor/interrupt", strings.NewReader(`{"ref":"s1"}`))
+	req = req.WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hand-CSRF", token)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	fx.handler().ServeHTTP(rec, req)
+	env, got := apiBody[struct {
+		Accepted bool `json:"accepted"`
+	}](t, rec)
+	if !got.Accepted {
+		t.Fatalf("answer = %+v", got)
+	}
+	if want := warn + "; the action went through, but the status could not be read: "; !strings.HasPrefix(env.Warn, want) || !strings.HasSuffix(env.Warn, "; refresh to see it") {
+		t.Fatalf("warn = %q, want %q…", env.Warn, want)
+	}
+	if header := apiUnescape(t, rec, "X-Hand-Warn"); header != env.Warn {
+		t.Fatalf("X-Hand-Warn = %q, JSON warn = %q", header, env.Warn)
+	}
+}
+
+func TestAResumeItemsSupervisorCarriesItsEndTime(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	sup, ok, err := fx.st.LatestSupervisor(ctx)
+	if err != nil || !ok {
+		t.Fatalf("latest supervisor: %v", err)
+	}
+	ended, err := fx.st.EndSupervisor(ctx, sup.ID, state.AttemptInterrupted, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if st.Supervisor == nil || st.Supervisor.EndedAt != ended.EndedAt || st.Supervisor.EndedAt == "" {
+		t.Fatalf("supervisor = %+v, want ended_at %q", st.Supervisor, ended.EndedAt)
+	}
+	var resume *board.APINeed
+	for i := range st.Needs.Items {
+		if st.Needs.Items[i].Kind == "resume" {
+			resume = &st.Needs.Items[i]
+		}
+	}
+	if resume == nil || resume.Ref != st.Supervisor.Ref {
+		t.Fatalf("resume item = %+v, supervisor = %+v", resume, st.Supervisor)
+	}
+	var root struct {
+		Data struct {
+			Supervisor map[string]json.RawMessage `json:"supervisor"`
+		} `json:"data"`
+	}
+	rec := request(h, "GET", "/api/v1/status", nil, true)
+	if err := json.Unmarshal(rec.Body.Bytes(), &root); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := root.Data.Supervisor["ended_at"]; !ok {
+		t.Fatalf("a resume item's supervisor has no ended_at: %s", rec.Body.String())
+	}
+	running := apiFixture(t, func() time.Time { return frozen })
+	rec = request(running.handler(), "GET", "/api/v1/status", nil, true)
+	var plain struct {
+		Data struct {
+			Supervisor map[string]json.RawMessage `json:"supervisor"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &plain); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := plain.Data.Supervisor["ended_at"]; ok {
+		t.Fatalf("a running supervisor carries ended_at: %s", rec.Body.String())
+	}
+}
+
 func TestAPISupervisorControlRefusals(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
