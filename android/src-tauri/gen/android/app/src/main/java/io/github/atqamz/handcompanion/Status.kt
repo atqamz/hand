@@ -12,6 +12,14 @@ import kotlinx.serialization.Serializable
 @Serializable data class Keys(val revision: Long, val digest: String, val pressed: Long)
 
 @Serializable
+data class NeedKeys(
+  val options: List<AskOption>,
+  val revision: Long,
+  val digest: String,
+  val pressed: Long
+)
+
+@Serializable
 data class Supervisor(
   val ref: String,
   val harness: String,
@@ -46,7 +54,8 @@ data class Need(
   val excerpt: String? = null,
   val cut: Boolean = false,
   @SerialName("deny_at") val denyAt: String? = null,
-  val options: List<AskOption>? = null
+  val options: List<AskOption>? = null,
+  val keys: NeedKeys? = null
 )
 
 @Serializable

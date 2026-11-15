@@ -34,12 +34,12 @@ type ReadModel interface {
 	Attempt(ctx context.Context, fleet, ref string) (AttemptDetail, error)
 	Decision(ctx context.Context, fleet, ref string) (DecisionDetail, error)
 	Report(ctx context.Context, fleet, ref string) (ReportDetail, error)
-	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error)
-	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
+	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error)
+	AckReport(ctx context.Context, fleet, ref string) (Acked, error)
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
 	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
-	PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (AttemptDetail, error)
+	PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (Pressed, error)
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
 }
 
@@ -90,6 +90,27 @@ type Control struct {
 type Sent struct {
 	Timeline Timeline
 	Fresh    bool
+}
+
+// Answered is an answer's reply: the decision's detail, empty when the board
+// saved the answer but could not read it back, and the board's warning.
+type Answered struct {
+	DecisionDetail
+	Warn string
+}
+
+// Acked is a report's reply: the report's detail, empty when the board marked
+// it read but could not read it back, and the board's warning.
+type Acked struct {
+	ReportDetail
+	Warn string
+}
+
+// Pressed is an attempt's key press reply: the attempt's detail, empty when
+// the board sent the keys but could not read it back, and the board's warning.
+type Pressed struct {
+	AttemptDetail
+	Warn string
 }
 
 const (
@@ -436,16 +457,16 @@ type answerRequest struct {
 	Note   string `json:"note"`
 }
 
-func (c *HTTPClient) AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error) {
+func (c *HTTPClient) AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error) {
 	var out DecisionDetail
-	_, err := c.post(ctx, fleet, "/decision/"+url.PathEscape(ref)+"/answer", answerRequest{Choice: choice, Note: note}, &out)
-	return out, err
+	env, err := c.post(ctx, fleet, "/decision/"+url.PathEscape(ref)+"/answer", answerRequest{Choice: choice, Note: note}, &out)
+	return Answered{DecisionDetail: out, Warn: env.Warn}, err
 }
 
-func (c *HTTPClient) AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error) {
+func (c *HTTPClient) AckReport(ctx context.Context, fleet, ref string) (Acked, error) {
 	var out ReportDetail
-	_, err := c.post(ctx, fleet, "/report/"+url.PathEscape(ref)+"/ack", nil, &out)
-	return out, err
+	env, err := c.post(ctx, fleet, "/report/"+url.PathEscape(ref)+"/ack", nil, &out)
+	return Acked{ReportDetail: out, Warn: env.Warn}, err
 }
 
 type messageRequest struct {
@@ -515,10 +536,10 @@ type attemptKeysRequest struct {
 	Screen   string `json:"screen,omitempty"`
 }
 
-func (c *HTTPClient) PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (AttemptDetail, error) {
+func (c *HTTPClient) PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (Pressed, error) {
 	var out AttemptDetail
-	_, err := c.post(ctx, fleet, "/attempt/"+url.PathEscape(ref)+"/keys", attemptKeysRequest{Key: key, Revision: revision, After: after, Screen: screen}, &out)
-	return out, err
+	env, err := c.post(ctx, fleet, "/attempt/"+url.PathEscape(ref)+"/keys", attemptKeysRequest{Key: key, Revision: revision, After: after, Screen: screen}, &out)
+	return Pressed{AttemptDetail: out, Warn: env.Warn}, err
 }
 
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {

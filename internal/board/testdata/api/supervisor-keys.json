@@ -4,8 +4,9 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQBkMWMwZTU1MDJhNTMwMjUx.WJwfWWaT4bakDr--wYZldQ",
+  "cursor": "ZjAwMDAwMDAwZTBhYQA1OTcxMmFmMmQyYWY4MTAz.q0f6l6L9dUihSzWR-jgZBg",
   "generated_at": "2026-11-01T05:00:00Z",
+  "receipt": "Sent down enter to s1",
   "data": {
     "supervisor": {
       "ref": "s1",
@@ -117,7 +118,16 @@
           "word": "FAILED",
           "tone": "fail",
           "task": "t2",
-          "attempt": "a2"
+          "project": "hand",
+          "attempt": "a2",
+          "attempt_meta": {
+            "ref": "a2",
+            "harness": "codex",
+            "model": "gpt-6-luna",
+            "status": "failed",
+            "ended_at": "2026-11-01T04:40:00Z"
+          },
+          "reason": "launch did not finish: the worktree already exists at a path that is not ours"
         },
         {
           "kind": "decision",
@@ -126,6 +136,7 @@
           "word": "DECISION",
           "tone": "wait",
           "task": "t1",
+          "project": "hand",
           "decision": "d1",
           "headline": "Keep the old cookie name?",
           "status": "open",
@@ -138,6 +149,7 @@
           "word": "REPORT",
           "tone": "neutral",
           "task": "t1",
+          "project": "hand",
           "report": "r1",
           "attempt": "a1",
           "status": "done",
@@ -151,6 +163,7 @@
           "word": "REPORT",
           "tone": "neutral",
           "task": "t3",
+          "project": "hand",
           "report": "r2",
           "attempt": "a3",
           "status": "progress",

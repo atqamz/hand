@@ -13,6 +13,7 @@ type Envelope struct {
 	Fleet       Fleet           `json:"fleet"`
 	Cursor      string          `json:"cursor"`
 	GeneratedAt string          `json:"generated_at"`
+	Warn        string          `json:"warn,omitempty"`
 	Data        json.RawMessage `json:"data"`
 }
 

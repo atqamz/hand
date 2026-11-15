@@ -77,8 +77,12 @@ func (a *App) View(c *ui.Context) {
 	p, k := paletteFor(dark), kit.ColorsFor(dark)
 	c.SetTheme(boardTheme(dark))
 	if a.receipt != "" {
-		c.AddToast(ui.Toast{ID: a.receiptKey, Title: a.receipt, Timeout: receiptFor})
-		a.receipt, a.receiptKey = "", ""
+		t := ui.Toast{ID: a.receiptKey, Title: a.receipt, Timeout: receiptFor}
+		if a.receiptWarn != "" {
+			t.Description, t.Type = a.receiptWarn, "warn"
+		}
+		c.AddToast(t)
+		a.receipt, a.receiptKey, a.receiptWarn = "", "", ""
 	}
 	if a.notice != "" {
 		timeout := receiptFor
@@ -114,8 +118,11 @@ func (a *App) toasts(c *ui.Context, k kit.Colors, p palette) {
 		for _, t := range toasts {
 			parts := ui.ToastBase(c, t)
 			border := p.line
-			if t.Type == "error" {
+			switch t.Type {
+			case "error":
 				border = p.fail
+			case "warn":
+				border = p.wait
 			}
 			parts.Root.Column().Gap(kit.Space2).MaxWidth(28*kit.Body.Size).
 				Padding(kit.Space10, kit.Space14).Radius(kit.RadiusLG).
