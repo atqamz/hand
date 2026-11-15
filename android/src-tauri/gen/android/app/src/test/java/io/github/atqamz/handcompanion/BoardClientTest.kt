@@ -249,7 +249,9 @@ class BoardClientTest {
     val session = envelope("s", """{"csrf":"tok"}""")
     val script = Script(session, envelope("w", """{"accepted":true}"""))
     val result = runBlocking { client(script).write("message", """{"text":"hi"}""", Status.serializer()) }
-    assertSame(Write.Accepted, result)
+    val accepted = result as Write.Accepted
+    assertNull(accepted.receipt)
+    assertNull(accepted.warn)
     assertEquals(2, script.calls.size)
   }
 
@@ -258,6 +260,74 @@ class BoardClientTest {
     val script = Script(envelope("s", """{"csrf":"tok"}"""), envelope("w", status("failing")))
     val result = runBlocking { client(script).write("message", "{}", Status.serializer()) }
     assertEquals("failing", (result as Write.Updated).envelope.data.pill)
+  }
+
+  @Test
+  fun aReceiptAndAWarnAreReadFromTheAnswer() {
+    val warn = "claude model acme-opus is not an alias; starting anyway"
+    val answer =
+      Raw(
+        200,
+        """{"version":1,"fleet":{"id":"$FLEET","name":"golden"},"cursor":"w",""" +
+          """"receipt":"s1 stopping","warn":"$warn","data":${status("working")}}"""
+      )
+    val script = Script(envelope("s", """{"csrf":"tok"}"""), answer)
+    val result =
+      runBlocking { client(script).write("supervisor/stop", """{"ref":"s1"}""", Status.serializer()) }
+    val written = (result as Write.Updated).envelope
+    assertEquals("s1 stopping", written.receipt)
+    assertEquals(warn, written.warn)
+  }
+
+  @Test
+  fun anAcceptedAnswerKeepsItsReceiptAndWarn() {
+    val answer =
+      Raw(
+        200,
+        """{"version":1,"fleet":{"id":"$FLEET","name":"golden"},"cursor":"w",""" +
+          """"receipt":"Interrupt sent to s1","warn":"the action went through, but the status """ +
+          """could not be read: lost; refresh to see it","data":{"accepted":true}}"""
+      )
+    val script = Script(envelope("s", """{"csrf":"tok"}"""), answer)
+    val result = runBlocking { client(script).write("supervisor/interrupt", "{}", Status.serializer()) }
+    val accepted = result as Write.Accepted
+    assertEquals("Interrupt sent to s1", accepted.receipt)
+    assertTrue(accepted.warn.orEmpty().startsWith("the action went through"))
+  }
+
+  @Test
+  fun aFailedActionKeepsTheWarnTheErrorCarries() {
+    val raw =
+      Raw(
+        409,
+        """{"error":{"status":409,"code":"conflict","message":"the supervisor moved",""" +
+          """"warn":"nothing was sent"}}"""
+      )
+    val script = Script(envelope("s", """{"csrf":"tok"}"""), raw)
+    val error =
+      failure { client(script).write("supervisor/stop", """{"ref":"s1"}""", Status.serializer()) }
+    assertTrue(error is BoardError.Conflict)
+    assertEquals("the supervisor moved", error.message)
+    assertEquals("nothing was sent", error.warn)
+  }
+
+  @Test
+  fun aControlSendsTheRefAndTheCsrfHeader() {
+    val script = Script(envelope("s", """{"csrf":"tok"}"""), envelope("w"))
+    runBlocking { client(script).write("supervisor/stop", """{"ref":"s1"}""", Status.serializer()) }
+    assertEquals(
+      Call(FLEET, true, "/api/v1/supervisor/stop", "tok", """{"ref":"s1"}"""),
+      script.calls[1]
+    )
+  }
+
+  @Test
+  fun anOlderBoardWithNoReceiptOrWarnStillWorks() {
+    val script = Script(envelope("s", """{"csrf":"tok"}"""), envelope("w", """{"accepted":true}"""))
+    val result = runBlocking { client(script).write("supervisor/start", null, Status.serializer()) }
+    val accepted = result as Write.Accepted
+    assertNull(accepted.receipt)
+    assertNull(accepted.warn)
   }
 
   @Test

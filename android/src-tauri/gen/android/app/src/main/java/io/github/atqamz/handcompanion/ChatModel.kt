@@ -424,7 +424,7 @@ class ChatModel(
           cursor = sent.envelope.cursor
           fill(sent.envelope.data)
         }
-        Write.Accepted -> reread()
+        is Write.Accepted -> reread()
       }
       accepted(text)
     } catch (_: BoardError.AppliedUnread) {

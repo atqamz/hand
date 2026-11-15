@@ -1,7 +1,9 @@
 package io.github.atqamz.handcompanion
 
 import java.time.Instant
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -9,6 +11,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,8 +66,8 @@ private fun blockedNeed(deny: String? = null): String =
     (deny?.let { ""","deny_at":"$it"""" } ?: "") +
     "}"
 
-private fun refused(status: Int, code: String) =
-  Raw(status, """{"error":{"code":"$code","message":"no"}}""")
+private fun refused(status: Int, code: String, message: String = "no") =
+  Raw(status, """{"error":{"code":"$code","message":"$message"}}""")
 
 private fun task(
   ref: String,
@@ -121,7 +124,9 @@ private class Board(
   var ackAnswer: () -> Raw = { Raw(200, "{}") },
   var keysAnswer: () -> Raw = { statusAnswer() },
   var forceAnswer: () -> Raw = { statusAnswer() },
-  var tasksAnswer: (Boolean) -> Raw = { all -> tasksData(all = all) }
+  var controlAnswer: (String) -> Raw = { statusAnswer() },
+  var tasksAnswer: (Boolean) -> Raw = { all -> tasksData(all = all) },
+  private val gate: CompletableDeferred<Unit>? = null
 ) : Transport {
   val calls = mutableListOf<String>()
   val posts = mutableListOf<Pair<String, String?>>()
@@ -137,6 +142,10 @@ private class Board(
         Raw(200, """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"data":{"csrf":"tok"}}""")
       path == "/api/v1/supervisor/keys" -> keysAnswer()
       path == "/api/v1/supervisor/force" -> forceAnswer()
+      path.startsWith("/api/v1/supervisor/") -> {
+        gate?.let { runBlocking { it.await() } }
+        controlAnswer(path.substringAfterLast('/'))
+      }
       else -> ackAnswer()
     }
   }
@@ -147,6 +156,38 @@ private fun ack(report: String = "r1") =
     200,
     """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"data":{"report":"$report"}}"""
   )
+
+private fun dataOf(raw: Raw): String = raw.body.substringAfter("\"data\":").removeSuffix("}")
+
+private fun answered(
+  data: Raw,
+  receipt: String? = null,
+  warn: String? = null
+): Raw {
+  val fields =
+    (receipt?.let { """"receipt":"$it",""" } ?: "") +
+      (warn?.let { """"warn":"$it",""" } ?: "")
+  return Raw(
+    200,
+    """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"w",""" +
+      fields +
+      """"data":${dataOf(data)}}"""
+  )
+}
+
+private fun supervisorJson(
+  status: String = "running",
+  live: Boolean = true,
+  resumable: Boolean = false,
+  blocked: Boolean = false
+) =
+  """{"ref":"s1","harness":"claude","model":"sonnet","effort":"low","status":"$status",""" +
+    """"live":$live,"pending":0,"resumable":$resumable,"blocked":$blocked}"""
+
+private fun runStatus(
+  supervisor: String = supervisorJson(),
+  agentState: String = "working"
+) = status(emptyList(), "working", agentState, supervisor = supervisor)
 
 private fun model(board: Board, name: String? = null) =
   FleetModel(FLEET, name, board, { "4d92…6ed6" }, { "12:41" })
@@ -646,6 +687,289 @@ class FleetModelTest {
     assertEquals("""{"ref":"s1"}""", board.posts.single().second)
     assertEquals(9L, model.now().supervisor?.keys?.revision)
     assertEquals(Notice("s1", "Typed the queued messages to s1."), model.now().notice)
+  }
+
+  @Test
+  fun eachControlPostsItsPathAndTheBodyTheBoardExpects() {
+    val board = Board({ runStatus() }, controlAnswer = { answered(runStatus()) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.controlNow(HeadControl.Start)
+      model.controlNow(HeadControl.Resume)
+      model.controlNow(HeadControl.Interrupt)
+      assertNull(model.controlNow(HeadControl.Stop, now = 1_000))
+      assertEquals(5_000L, model.now().stopArmedUntil)
+      model.controlNow(HeadControl.Stop, now = 2_000)
+    }
+    assertEquals(
+      listOf(
+        "/api/v1/supervisor/start" to "",
+        "/api/v1/supervisor/resume" to "",
+        "/api/v1/supervisor/interrupt" to """{"ref":"s1"}""",
+        "/api/v1/supervisor/stop" to """{"ref":"s1"}"""
+      ),
+      board.posts
+    )
+  }
+
+  @Test
+  fun theFirstStopPressOnlyArmsAndTheSecondSendsOnce() {
+    val board = Board({ runStatus() }, controlAnswer = { answered(runStatus()) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertNull(model.controlNow(HeadControl.Stop, now = 1_000))
+      assertTrue(board.posts.isEmpty())
+      model.controlNow(HeadControl.Stop, now = 2_000)
+      assertNull(model.controlNow(HeadControl.Stop, now = 3_000))
+    }
+    assertEquals(listOf("/api/v1/supervisor/stop" to """{"ref":"s1"}"""), board.posts)
+  }
+
+  @Test
+  fun anotherControlDisarmsStop() {
+    val board = Board({ runStatus() }, controlAnswer = { answered(runStatus()) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.controlNow(HeadControl.Stop, now = 1_000)
+      model.controlNow(HeadControl.Interrupt)
+    }
+    assertNull(model.now().stopArmedUntil)
+    assertEquals(listOf("/api/v1/supervisor/interrupt" to """{"ref":"s1"}"""), board.posts)
+  }
+
+  @Test
+  fun aRefreshThatMovesTheSupervisorDisarmsStop() {
+    var running = true
+    val board =
+      Board(
+        {
+          if (running) runStatus()
+          else runStatus(supervisorJson(status = "stopped", live = false, resumable = true))
+        },
+        controlAnswer = { answered(runStatus()) }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.controlNow(HeadControl.Stop, now = 1_000)
+      assertEquals(5_000L, model.now().stopArmedUntil)
+      running = false
+      model.refresh()
+    }
+    assertNull(model.now().stopArmedUntil)
+  }
+
+  @Test
+  fun theReceiptAndWarnLandInTheHead() {
+    val warn = "claude model acme-opus is not an alias; starting anyway"
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = { answered(runStatus(), "Interrupt sent to s1", warn) }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      val note = model.controlNow(HeadControl.Interrupt)
+      assertEquals("Interrupt sent to s1", note?.text)
+      assertEquals(Tone.Neutral, note?.tone)
+      assertEquals(warn, note?.warn)
+      assertEquals(note, model.now().headNote)
+    }
+  }
+
+  @Test
+  fun anAcceptedControlKeepsItsWarnAndAsksForAFreshStatus() {
+    val warn = "the action went through, but the status could not be read: lost; refresh to see it"
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = {
+          Raw(
+            200,
+            """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"w",""" +
+              """"receipt":"Starting the supervisor…","warn":"$warn","data":{"accepted":true}}"""
+          )
+        }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      val before = board.calls.count { it.startsWith("GET /api/v1/status") }
+      model.controlNow(HeadControl.Resume)
+      assertEquals(before + 1, board.calls.count { it.startsWith("GET /api/v1/status") })
+    }
+    assertEquals(warn, model.now().headNote?.warn)
+  }
+
+  @Test
+  fun aConflictKeepsTheBoardsOwnSentence() {
+    val stopped = "conflict: no supervisor is running; start one"
+    val running = "conflict: supervisor s1 is running"
+    runBlocking {
+      val stopBoard =
+        Board({ runStatus() }, controlAnswer = { refused(409, "conflict", stopped) })
+      val stopModel = model(stopBoard)
+      stopModel.refresh()
+      stopModel.controlNow(HeadControl.Stop, now = 1_000)
+      stopModel.controlNow(HeadControl.Stop, now = 2_000)
+      assertEquals(stopped, stopModel.now().headNote?.text)
+
+      val startBoard =
+        Board(
+          { status(emptyList(), "ready", "idle") },
+          controlAnswer = { refused(409, "conflict", running) }
+        )
+      val startModel = model(startBoard)
+      startModel.refresh()
+      startModel.controlNow(HeadControl.Start, now = 1_000)
+      assertEquals(running, startModel.now().headNote?.text)
+      assertEquals(Tone.Fail, startModel.now().headNote?.tone)
+    }
+  }
+
+  @Test
+  fun aConflictWithNoSentenceStaysNeutral() {
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = { Raw(409, """{"error":{"code":"conflict"}}""") }
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.controlNow(HeadControl.Stop, now = 1_000)
+      model.controlNow(HeadControl.Stop, now = 2_000)
+    }
+    assertEquals("The Board refused it; nothing was sent.", model.now().headNote?.text)
+  }
+
+  @Test
+  fun noControlRunsWhileAnotherIsInFlight() {
+    val gate = CompletableDeferred<Unit>()
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = { answered(runStatus(), "Interrupt sent to s1") },
+        gate = gate
+      )
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      withTimeout(5_000) {
+        val first = launch(Dispatchers.IO) { model.controlNow(HeadControl.Interrupt) }
+        model.state.first { it.controlBusy != null }
+        val second = async(Dispatchers.IO) { model.controlNow(HeadControl.Interrupt) }
+        gate.complete(Unit)
+        assertNull(second.await())
+        first.join()
+      }
+    }
+    assertEquals(listOf("/api/v1/supervisor/interrupt"), board.posts.map { it.first })
+  }
+
+  @Test
+  fun theStopArmExpiresAndTheNextPressOnlyArmsAgain() {
+    val board =
+      Board({ runStatus() }, controlAnswer = { answered(runStatus(), "s1 stopping") })
+    val model =
+      FleetModel(
+        FLEET,
+        null,
+        board,
+        { null },
+        { "12:41" },
+        nowMillis = { 0L },
+        stopArmMillis = 50
+      )
+    runBlocking {
+      model.refresh()
+      val press = launch(Dispatchers.IO) { model.stopNow() }
+      withTimeout(5_000) { model.state.first { it.stopArmedUntil != null } }
+      withTimeout(5_000) { press.join() }
+      assertNull(model.now().stopArmedUntil)
+      assertNull(model.controlNow(HeadControl.Stop, now = 50))
+      assertTrue(board.posts.isEmpty())
+    }
+  }
+
+  @Test
+  fun aControlWithNoSupervisorSendsNothing() {
+    val board = Board({ status(emptyList(), "ready", "idle") })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertNull(model.controlNow(HeadControl.Interrupt))
+      assertNull(model.controlNow(HeadControl.Resume))
+    }
+    assertTrue(board.posts.isEmpty())
+  }
+
+  @Test
+  fun aReceiptAndItsWarnGoAwayOnTheirOwn() {
+    val warn = "starting anyway"
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = { answered(runStatus(), "Interrupt sent to s1", warn) }
+      )
+    val model =
+      FleetModel(
+        FLEET,
+        null,
+        board,
+        { null },
+        { "12:41" },
+        4_000,
+        { 0L },
+        receiptMillis = 50,
+        errorMillis = 75,
+        warnMillis = 100
+      )
+    runBlocking {
+      model.refresh()
+      withTimeout(5_000) {
+        val expiry = launch(Dispatchers.IO) { model.controlAndExpire(HeadControl.Interrupt) }
+        assertEquals(
+          "Interrupt sent to s1",
+          model.state.first { it.headNote != null }.headNote?.text
+        )
+        assertEquals(warn, model.now().headNote?.warn)
+        model.state.first { it.headNote == null }
+        expiry.join()
+      }
+    }
+    assertNull(model.now().headNote)
+  }
+
+  @Test
+  fun anOlderReceiptTimerLeavesANewerIdenticalReceiptAlone() {
+    val board =
+      Board(
+        { runStatus() },
+        controlAnswer = { answered(runStatus(), "Interrupt sent to s1") }
+      )
+    val model =
+      FleetModel(
+        FLEET,
+        null,
+        board,
+        { null },
+        { "12:41" },
+        receiptMillis = 1_000
+      )
+    runBlocking {
+      model.refresh()
+      val earlier = launch(Dispatchers.IO) { model.controlAndExpire(HeadControl.Interrupt) }
+      withTimeout(5_000) { model.state.first { it.headNote != null } }
+      val newer = model.controlNow(HeadControl.Interrupt)
+      assertNotNull(newer)
+      withTimeout(5_000) { earlier.join() }
+      assertEquals(newer, model.now().headNote)
+    }
   }
 
   @Test

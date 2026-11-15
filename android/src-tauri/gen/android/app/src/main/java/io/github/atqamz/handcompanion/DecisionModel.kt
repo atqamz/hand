@@ -162,7 +162,7 @@ class DecisionModel(
     try {
       when (val sent = client.write("decision/$ref/answer", body.toString(), DecisionDetail.serializer())) {
         is Write.Updated -> mutableState.update { it.copy(detail = sent.envelope.data) }
-        Write.Accepted -> load()
+        is Write.Accepted -> load()
       }
       sentAnswer()
     } catch (_: BoardError.AppliedUnread) {

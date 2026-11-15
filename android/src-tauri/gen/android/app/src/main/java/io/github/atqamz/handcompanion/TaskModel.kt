@@ -443,7 +443,7 @@ class TaskModel(
           applyRead(written.envelope.data.report)
           null
         }
-        Write.Accepted -> {
+        is Write.Accepted -> {
           load()
           null
         }

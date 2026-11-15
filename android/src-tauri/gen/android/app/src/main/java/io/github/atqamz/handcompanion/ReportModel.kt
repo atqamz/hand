@@ -247,7 +247,7 @@ class ReportModel(
           }
           null
         }
-        Write.Accepted -> {
+        is Write.Accepted -> {
           load()
           null
         }
