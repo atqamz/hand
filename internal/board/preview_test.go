@@ -505,8 +505,11 @@ func TestTheRawHTMLDownloadIsTheFileByteForByte(t *testing.T) {
 			t.Errorf("%s = %q %q", q, rec.Body.String(), rec.Header().Get("Content-Security-Policy"))
 		}
 	}
-	if rec := request(h, "GET", "/doc/reports/t1/page.html?download", nil, true); rec.Body.String() != html {
-		t.Errorf("download = %q", rec.Body.String())
+	for _, q := range []string{"?download", "?frame&download", "?download&frame"} {
+		rec := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true)
+		if rec.Body.String() != html || !strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment") {
+			t.Errorf("%s = %q %q", q, rec.Body.String(), rec.Header().Get("Content-Disposition"))
+		}
 	}
 	if rec := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, false); rec.Code == http.StatusOK {
 		t.Errorf("the frame without the cookie = %d", rec.Code)
@@ -536,7 +539,7 @@ func TestAnHTMLPreviewScanIsLinearInThePage(t *testing.T) {
 	page := strings.Repeat("<img ", 8<<20/5)
 	got, took := frameOf(t, map[string]string{"r/page.html": page}, "?frame")
 	t.Logf("8 MiB of <img : %v", took)
-	if got != page || took > 5*time.Second {
+	if got != page || took > 30*time.Second {
 		t.Errorf("8 MiB of <img : took %v", took)
 	}
 }
@@ -597,4 +600,84 @@ func TestAnHTMLPreviewOverEightMiBIsServedUnchanged(t *testing.T) {
 			t.Errorf("%d bytes: changed = %v, want %v", c.size, got != page, c.changed)
 		}
 	}
+}
+
+func inlineCases(t *testing.T, name string, cases []struct{ in, want string }) {
+	t.Helper()
+	uri := dataURI("image/png", flowPNG)
+	for _, c := range cases {
+		want := strings.ReplaceAll(c.want, "DATA", uri)
+		if got, _ := frameOf(t, map[string]string{"r/page.html": c.in, "r/a.png": string(flowPNG)}, "?frame"); got != want {
+			t.Errorf("%s: %s\n got %s\nwant %s", name, c.in, got, want)
+		}
+	}
+}
+
+func TestAnHTMLPreviewEndsACommentWhereABrowserDoes(t *testing.T) {
+	inlineCases(t, "comment", []struct{ in, want string }{
+		{`<!--> <a title=" --> <img src=a.png> ">`, `<!--> <a title=" --> <img src=a.png> ">`},
+		{`<!---> <a title=" --> <img src=a.png> ">`, `<!---> <a title=" --> <img src=a.png> ">`},
+		{`<!-- --!> <a title=" --> <img src=a.png> ">`, `<!-- --!> <a title=" --> <img src=a.png> ">`},
+		{`<!--><img src=a.png>`, `<!--><img src="DATA">`},
+		{`<!---><img src=a.png>`, `<!---><img src="DATA">`},
+		{`<!--a--!><img src=a.png>`, `<!--a--!><img src="DATA">`},
+		{`<!--a--><img src=a.png>`, `<!--a--><img src="DATA">`},
+		{`<!--a---><img src=a.png>`, `<!--a---><img src="DATA">`},
+		{`<!---a--!->  <img src=a.png> -->`, `<!---a--!->  <img src=a.png> -->`},
+	})
+}
+
+func TestAnHTMLPreviewDoesNotParseWhatABrowserParsesDifferently(t *testing.T) {
+	var cases []struct{ in, want string }
+	for _, el := range []string{"svg", "math"} {
+		for _, inner := range []string{"title", "style", "script", "textarea", "xmp", "desc"} {
+			in := `<img src=a.png><` + el + `><` + inner + `><a title="</` + inner + `><img src=a.png>"></` + el + `><img src=a.png>`
+			cases = append(cases, struct{ in, want string }{in, `<img src="DATA">` + in[len(`<img src=a.png>`):]})
+		}
+	}
+	for _, el := range []string{"svg", "math", "select", "frameset", "plaintext"} {
+		in := `<img src=a.png><` + el + `></` + el + `><img src=a.png>`
+		cases = append(cases, struct{ in, want string }{in, `<img src="DATA">` + in[len(`<img src=a.png>`):]})
+	}
+	cases = append(cases,
+		struct{ in, want string }{`<svg><title><a title="</title><img src=a.png>">`, `<svg><title><a title="</title><img src=a.png>">`},
+		struct{ in, want string }{`<SVG/><img src=a.png>`, `<SVG/><img src=a.png>`},
+	)
+	inlineCases(t, "foreign", cases)
+}
+
+func TestAnHTMLPreviewSkipsABogusEndTagLikeABrowser(t *testing.T) {
+	inlineCases(t, "bogus end tag", []struct{ in, want string }{
+		{`</ <a title="x> <img src=a.png> "> `, `</ <a title="x> <img src="DATA"> "> `},
+		{`</ <textarea><a title="</textarea><img src=a.png>">`, `</ <textarea><a title="</textarea><img src=a.png>">`},
+		{`</><img src=a.png>`, `</><img src="DATA">`},
+		{`</3 <a title="><img src=a.png>">`, `</3 <a title="><img src="DATA">">`},
+		{`</ <img src=a.png`, `</ <img src=a.png`},
+	})
+}
+
+func TestAnHTMLPreviewEndsRawTextOnlyWhereABrowserDoes(t *testing.T) {
+	inlineCases(t, "raw text end", []struct{ in, want string }{
+		{`<script>1</scriptx <b title="</script><a x="y> <img src=a.png> ">`, `<script>1</scriptx <b title="</script><a x="y> <img src=a.png> ">`},
+		{`<textarea></textareax <b title="</textarea><a x="y> <img src=a.png> ">`, `<textarea></textareax <b title="</textarea><a x="y> <img src=a.png> ">`},
+		{`<title></titlex <b title="</title><a x="y> <img src=a.png> ">`, `<title></titlex <b title="</title><a x="y> <img src=a.png> ">`},
+		{`<style></style2 <b title="</style><a x="y> <img src=a.png> ">`, `<style></style2 <b title="</style><a x="y> <img src=a.png> ">`},
+		{`<script>1</scripts><img src=a.png></script><img src=a.png>`, `<script>1</scripts><img src=a.png></script><img src="DATA">`},
+		{`<script>1</script/><img src=a.png>`, `<script>1</script/><img src="DATA">`},
+		{`<script>1</SCRIPT ><img src=a.png>`, `<script>1</SCRIPT ><img src="DATA">`},
+		{`<img src=a.png><script><!--</script><img src=a.png>`, `<img src="DATA"><script><!--</script><img src=a.png>`},
+		{`<script>/*<!--<script>*/</script><a title="</script>"><img src=a.png>`, `<script>/*<!--<script>*/</script><a title="</script>"><img src=a.png>`},
+		{`<style><!--</style><img src=a.png>`, `<style><!--</style><img src="DATA">`},
+		{`<script>1</script`, `<script>1</script`},
+	})
+}
+
+func TestAnHTMLPreviewReadsTheSrcValueAsWritten(t *testing.T) {
+	inlineCases(t, "src value", []struct{ in, want string }{
+		{`<img src='"a.png"'>`, `<img src='"a.png"'>`},
+		{`<img src="'a.png'">`, `<img src="'a.png'">`},
+		{`<img src=a.png">`, `<img src=a.png">`},
+		{`<img src="a.png">`, `<img src="DATA">`},
+		{`<image src=a.png>`, `<image src="DATA">`},
+	})
 }

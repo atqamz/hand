@@ -253,7 +253,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	image = image && imageLike.MatchString(name)
 	text := textHead(head)
 	q := r.URL.Query()
-	if q.Has("raw") || q.Has("frame") {
+	if q.Has("raw") || q.Has("frame") && !q.Has("download") {
 		b.raw(w, r, f, fi, rel, sniffed, head)
 		return
 	}

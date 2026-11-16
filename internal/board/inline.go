@@ -18,7 +18,10 @@ const (
 	htmlSpace      = " \t\n\f\r"
 )
 
-var rawText = []string{"script", "style", "textarea", "title", "xmp", "noembed", "noframes", "iframe"}
+var (
+	rawText  = []string{"script", "style", "textarea", "title", "xmp", "noembed", "noframes", "iframe"}
+	unparsed = []string{"svg", "math", "select", "frameset", "plaintext"}
+)
 
 type inlined struct {
 	home, dir string
@@ -62,13 +65,13 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 		i += j
 		switch {
 		case bytes.HasPrefix(low[i:], []byte("<!--")):
-			end := bytes.Index(low[i+4:], []byte("-->"))
+			end := commentEnd(low[i+4:])
 			if end < 0 {
 				i = len(h)
 			} else {
-				i += 4 + end + 3
+				i += 4 + end
 			}
-		case bytes.HasPrefix(low[i:], []byte("<!")), bytes.HasPrefix(low[i:], []byte("<?")):
+		case bytes.HasPrefix(low[i:], []byte("<!")), bytes.HasPrefix(low[i:], []byte("<?")), bytes.HasPrefix(low[i:], []byte("</")) && !atTagStart(low[i:]):
 			end := bytes.IndexByte(h[i:], '>')
 			if end < 0 {
 				i = len(h)
@@ -87,7 +90,11 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 				i = len(h)
 				break
 			}
-			if !closing && string(name) == "img" {
+			if !closing && slices.Contains(unparsed, string(name)) {
+				i = len(h)
+				break
+			}
+			if !closing && (string(name) == "img" || string(name) == "image") {
 				if v, vs, ve, ok := imgSrc(h[i:i+end], attrs); ok {
 					if uri := n.uri(v); uri != "" {
 						out.Write(h[last : i+vs])
@@ -98,7 +105,8 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 			}
 			i += end
 			if !closing && slices.Contains(rawText, string(name)) {
-				if at := bytes.Index(low[i:], []byte("</"+string(name))); at < 0 {
+				at := rawEnd(low[i:], string(name))
+				if at < 0 || string(name) == "script" && bytes.Contains(low[i:i+at], []byte("<!--")) {
 					i = len(h)
 				} else {
 					i += at
@@ -113,6 +121,39 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 	}
 	out.Write(h[last:])
 	return out.Bytes()
+}
+
+func commentEnd(low []byte) int {
+	if bytes.HasPrefix(low, []byte(">")) {
+		return 1
+	}
+	if bytes.HasPrefix(low, []byte("->")) {
+		return 2
+	}
+	dash, bang := bytes.Index(low, []byte("-->")), bytes.Index(low, []byte("--!>"))
+	switch {
+	case dash < 0 && bang < 0:
+		return -1
+	case dash < 0 || bang >= 0 && bang < dash:
+		return bang + 4
+	}
+	return dash + 3
+}
+
+func rawEnd(low []byte, name string) int {
+	closer := []byte("</" + name)
+	for from := 0; from < len(low); {
+		at := bytes.Index(low[from:], closer)
+		if at < 0 {
+			return -1
+		}
+		at += from
+		if next := at + len(closer); next < len(low) && strings.IndexByte(htmlSpace+"/>", low[next]) >= 0 {
+			return at
+		}
+		from = at + 1
+	}
+	return -1
 }
 
 func atTagStart(low []byte) bool {
@@ -189,7 +230,10 @@ func imgSrc(t []byte, attrs []imgAttr) (v string, vs, ve int, ok bool) {
 		}
 		v, vs, ve, ok = string(t[a.vs:a.ve]), a.vs, a.ve, true
 	}
-	return strings.Trim(v, `"'`), vs, ve, ok
+	if len(v) > 1 && (v[0] == '"' || v[0] == '\'') {
+		v = v[1 : len(v)-1]
+	}
+	return v, vs, ve, ok
 }
 
 func (n *inlined) uri(v string) string {
