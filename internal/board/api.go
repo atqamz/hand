@@ -58,6 +58,7 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/timeline", func(b *Board) http.HandlerFunc { return b.apiTimeline }},
 	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
 	{http.MethodGet, "/tasks/search", func(b *Board) http.HandlerFunc { return b.apiTaskSearch }},
+	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
 	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
@@ -620,7 +621,9 @@ func apiRouteMatch(pattern, path string) bool {
 		return path == ""
 	}
 	ps, qs := strings.Split(pattern, "/"), strings.Split(path, "/")
-	if len(ps) != len(qs) {
+	if rest := strings.HasSuffix(pattern, "...}"); rest && len(qs) >= len(ps) {
+		qs = append(qs[:len(ps)-1], "x")
+	} else if len(ps) != len(qs) {
 		return false
 	}
 	for i, s := range ps {

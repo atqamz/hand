@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA0MjQyZGNmYjg4YjJkYzg5.2Vd8ueqXIke_2OLQ9pTd-g",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "path": "reports/t1/design.md",
+    "name": "design.md",
+    "kind": "markdown",
+    "text": true,
+    "size": 303,
+    "at": "2026-10-30T08:15:00Z",
+    "prev": {
+      "name": "data.tsv",
+      "path": "reports/t1/data.tsv"
+    },
+    "next": {
+      "name": "flow.png",
+      "path": "reports/t1/flow.png"
+    },
+    "folder_page": 1
+  }
+}
+

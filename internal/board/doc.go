@@ -94,6 +94,31 @@ func isMarkdown(name string) bool {
 	return ext == ".md" || ext == ".markdown"
 }
 
+func docKind(head []byte, sniffed string, size int64, name string) string {
+	ext := strings.ToLower(path.Ext(name))
+	_, image := imageExt[sniffed]
+	text := textHead(head)
+	switch m := media(sniffed, name); {
+	case image && imageLike.MatchString(name):
+		return "image"
+	case m != "":
+		return strings.SplitN(m, "/", 2)[0]
+	case isPDF(head, name):
+		return "pdf"
+	case !text:
+		return "binary"
+	case isMarkdown(name) && size <= maxMarkdown:
+		return "markdown"
+	case isHTML(name):
+		return "html"
+	case ext == ".svg":
+		return "svg"
+	case ext == ".csv" || ext == ".tsv":
+		return ext[1:]
+	}
+	return "text"
+}
+
 func docURL(base, rel string) string {
 	return base + "/doc/" + (&url.URL{Path: rel}).EscapedPath()
 }
@@ -208,26 +233,43 @@ func (b *Board) linkDigest() uint64 {
 
 type crumb struct{ Name, Href string }
 
-func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	root, real, _, err := Resolve(b.o.Home, r.PathValue("path"))
-	var f *os.File
-	var fi fs.FileInfo
+const notText = "This file is not text, so the Board does not show it; download it to open it."
+
+func openDoc(home, rel string) (root, real string, f *os.File, fi fs.FileInfo, err error) {
+	root, real, _, err = Resolve(home, rel)
 	if err == nil {
-		f, fi, err = openSame(b.o.Home, r.PathValue("path"), root, real)
+		f, fi, err = openSame(home, rel, root, real)
 	}
+	return root, real, f, fi, err
+}
+
+func docRefusal(err error) (int, string) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
-		b.fail(w, http.StatusNotFound, "there is no file or folder at this path")
-		return
+		return http.StatusNotFound, "there is no file or folder at this path"
 	case errors.Is(err, errChanged):
-		b.fail(w, http.StatusConflict, err.Error())
-		return
+		return http.StatusConflict, err.Error()
 	case errors.Is(err, errHidden), errors.Is(err, errOutside), errors.Is(err, errKind):
-		b.fail(w, http.StatusForbidden, err.Error())
-		return
-	case err != nil:
-		b.fail(w, http.StatusForbidden, "the Board cannot read this path")
+		return http.StatusForbidden, err.Error()
+	}
+	return http.StatusForbidden, "the Board cannot read this path"
+}
+
+func readHead(f io.Reader) ([]byte, error) {
+	head := make([]byte, headBytes)
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return head[:n], nil
+}
+
+func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	root, real, f, fi, err := openDoc(b.o.Home, r.PathValue("path"))
+	if err != nil {
+		status, msg := docRefusal(err)
+		b.fail(w, status, msg)
 		return
 	}
 	defer f.Close()
@@ -241,13 +283,11 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		b.render(w, http.StatusOK, "doc.html", data)
 		return
 	}
-	head := make([]byte, headBytes)
-	n, err := io.ReadFull(f, head)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+	head, err := readHead(f)
+	if err != nil {
 		b.failErr(w, err)
 		return
 	}
-	head = head[:n]
 	sniffed := http.DetectContentType(head)
 	_, image := imageExt[sniffed]
 	image = image && imageLike.MatchString(name)
@@ -305,7 +345,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	case isPDF(head, name):
 		data["Frame"] = map[string]string{"Src": self + "?raw", "Kind": "pdf"}
 	case !text:
-		data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
+		data["Notice"] = notText
 	case !asText && isMarkdown(name) && fi.Size() <= maxMarkdown:
 		md, err := io.ReadAll(io.NewSectionReader(f, 0, maxMarkdown))
 		if err != nil {
@@ -315,7 +355,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		if !utf8.Valid(md) || bytes.IndexByte(md, 0) >= 0 {
 			delete(data, "Views")
 			delete(data, "Remember")
-			data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
+			data["Notice"] = notText
 			break
 		}
 		data["Body"] = markdown.RenderDoc(string(md), b.o.Base, b.refTitle(ctx), b.local())

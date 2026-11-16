@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA4MzY3Y2IyYmQ4ODQwZjFk.qMc4JFeeYYTdxhNGa-PLXg",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "path": "reports/t1",
+    "name": "t1",
+    "kind": "folder",
+    "at": "2026-10-30T08:15:00Z",
+    "entries": [
+      {
+        "name": "sub",
+        "path": "reports/t1/sub",
+        "kind": "folder",
+        "label": "DIR",
+        "dir": true,
+        "image": false,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "api.md",
+        "path": "reports/t1/api.md",
+        "kind": "file",
+        "label": "MD",
+        "dir": false,
+        "image": false,
+        "size": 6,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "blob.bin",
+        "path": "reports/t1/blob.bin",
+        "kind": "file",
+        "label": "BIN",
+        "dir": false,
+        "image": false,
+        "size": 10,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "clip.mp4",
+        "path": "reports/t1/clip.mp4",
+        "kind": "file",
+        "label": "MP4",
+        "dir": false,
+        "image": false,
+        "size": 24,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "data.csv",
+        "path": "reports/t1/data.csv",
+        "kind": "file",
+        "label": "CSV",
+        "dir": false,
+        "image": false,
+        "size": 8,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "data.tsv",
+        "path": "reports/t1/data.tsv",
+        "kind": "file",
+        "label": "TSV",
+        "dir": false,
+        "image": false,
+        "size": 8,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "design.md",
+        "path": "reports/t1/design.md",
+        "kind": "file",
+        "label": "MD",
+        "dir": false,
+        "image": false,
+        "size": 303,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "flow.png",
+        "path": "reports/t1/flow.png",
+        "kind": "file",
+        "label": "PNG",
+        "dir": false,
+        "image": true,
+        "size": 40,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "logo.svg",
+        "path": "reports/t1/logo.svg",
+        "kind": "file",
+        "label": "SVG",
+        "dir": false,
+        "image": false,
+        "size": 67,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "notes.txt",
+        "path": "reports/t1/notes.txt",
+        "kind": "file",
+        "label": "TXT",
+        "dir": false,
+        "image": false,
+        "size": 14,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "page.html",
+        "path": "reports/t1/page.html",
+        "kind": "file",
+        "label": "HTML",
+        "dir": false,
+        "image": false,
+        "size": 42,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "song.mp3",
+        "path": "reports/t1/song.mp3",
+        "kind": "file",
+        "label": "MP3",
+        "dir": false,
+        "image": false,
+        "size": 14,
+        "at": "2026-10-30T08:15:00Z"
+      },
+      {
+        "name": "spec.pdf",
+        "path": "reports/t1/spec.pdf",
+        "kind": "file",
+        "label": "PDF",
+        "dir": false,
+        "image": false,
+        "size": 31,
+        "at": "2026-10-30T08:15:00Z"
+      }
+    ],
+    "page": 1,
+    "page_size": 500,
+    "total": 13,
+    "pages": 1
+  }
+}
+
