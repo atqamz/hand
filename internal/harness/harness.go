@@ -58,9 +58,6 @@ func ValidServed(model, effort string) bool {
 	return modelToken.MatchString(model) && (effort == "" || effortToken.MatchString(effort))
 }
 
-// Warn is what a harness's own rules make of a spec: the sentence the board
-// prints, and whether every part of it rests on a model list Hand could not
-// read, which is the only warning a caller may start on rather than refuse.
 type Warn struct {
 	Text   string
 	Unread bool
@@ -99,8 +96,6 @@ func Check(s Spec, env Env) (Warn, error) {
 	return joinWarns(checkAgy(s, env)), nil
 }
 
-// joinWarns is one warning for the board's banner: every sentence, then the
-// suffix that says the spec still starts.
 func joinWarns(warns []Warn) Warn {
 	if len(warns) == 0 {
 		return Warn{}
@@ -135,9 +130,6 @@ func checkClaude(s Spec, env Env) []Warn {
 	return warns
 }
 
-// claudeList is the list claude's names are checked against: the cached one
-// when it read, else the built-in aliases, in which case anything else is a
-// name Hand could not check.
 func claudeList(env Env) (Listing, bool) {
 	if l, ok := load("claude", env); ok && len(l.Models) > 0 {
 		return l, false

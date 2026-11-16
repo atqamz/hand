@@ -3177,8 +3177,6 @@ var (
 	kotlinValName    = regexp.MustCompile(`\bval\s+([A-Za-z_][A-Za-z0-9_]*)`)
 )
 
-// kotlinParams is the parameter list of one data class in the phone's
-// Status.kt, each parameter as written between its commas.
 func kotlinParams(t *testing.T, class string) []string {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("..", "..", "android", "src-tauri", "gen", "android", "app", "src", "main", "java", "io", "github", "atqamz", "handcompanion", "Status.kt"))
@@ -3211,8 +3209,6 @@ func kotlinParams(t *testing.T, class string) []string {
 	return nil
 }
 
-// phoneRequired is what the phone's decoder cannot leave out of an answer: the
-// parameters of a data class that carry no default, named as the JSON key.
 func phoneRequired(t *testing.T, class string) []string {
 	t.Helper()
 	var out []string
