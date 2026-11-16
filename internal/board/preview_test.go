@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -694,4 +695,37 @@ func TestAnHTMLPreviewIsLeftAloneOnlyForARealBaseElement(t *testing.T) {
 		{`<img src="a.png"><svg></svg><base href=/x/>`, `<img src="a.png"><svg></svg><base href=/x/>`},
 		{`<img src="a.png"><base href=`, `<img src="a.png"><base href=`},
 	})
+}
+
+func TestAnHTMLPreviewScanIsLinearOnEveryShape(t *testing.T) {
+	units := []string{
+		"<!---->", "<!-- -->", "<!--x-->", "<!--a--!>", "<!-->", "<!--->", "<!--a---->", "<!--<!-->", "</ x>", "</>", "<!x>", "<?x?>", "<!DOCTYPE html>",
+		"<script></script>", "<textarea></textarea>", "<title></title>", "<style></style>", "<xmp></xmp>", "<iframe></iframe>", "<noscript></noscript>",
+		"<a b c>", "<a b=c>", "<a b='c'>", `<a b="c">`, "<a/>", "<img/>", "<img src=a.png>", "<img src='a.png'>", `<img src="a.png" alt="x">`, "<image src=a.png>", "<p>text</p>",
+		"<img ", `<img a='`, `<img a="`, `<img a="b" c='`, "<a ", "</a ", "<a/b/c/d/", "<", "<<", "<!", "<?", "</", "<!-- ", "<script>", "<script><script>", "<textarea>", "<xmp>", "<title>",
+		"<style>", "<noscript>", "<iframe>", "<script>x</scriptx", "<script></script", "<TeXtArEa>", "<IMG SRC='", `'"`, `<a b='c'd"e`, "<a =", "<a ======", "<a b=c/", "<img src=", "<img a ",
+		"<svg>", "<math>", "<select>", "<frameset>", "<plaintext>", "<script><!--", "<base ", "<a src src src ", "<img src src ",
+	}
+	for _, unit := range units {
+		page := strings.Repeat(unit, (1<<20)/len(unit))
+		got, took := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
+		t.Logf("%q: %v", unit, took)
+		if took > 2*time.Second || got == "" || !strings.Contains(unit, "a.png") && got != page {
+			t.Errorf("%q x %d: took %v, unchanged %v", unit, len(page)/len(unit), took, got == page)
+		}
+	}
+}
+
+func TestAnHTMLPreviewKeepsNoMoreThanTheSrcOfATag(t *testing.T) {
+	const limit = 160 << 20
+	for _, unit := range []string{"<a b c ", "<a ", "<a x=y ", `<a x="y" `, "<a src src ", "<a b c d e f g h i j k l m n o p>"} {
+		h, _ := viewer(t, map[string]string{"r/page.html": strings.Repeat(unit, (8<<20)/len(unit))})
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		rec := request(h, "GET", "/doc/r/page.html?frame", nil, true)
+		runtime.ReadMemStats(&after)
+		if got := after.TotalAlloc - before.TotalAlloc; rec.Code != http.StatusOK || got > limit {
+			t.Errorf("%q: %d MiB allocated, limit %d MiB", unit, got>>20, limit>>20)
+		}
+	}
 }

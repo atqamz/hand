@@ -35,7 +35,6 @@ type inlineEntry struct {
 }
 
 type imgAttr struct {
-	name   string
 	vs, ve int
 }
 
@@ -135,14 +134,20 @@ func commentEnd(low []byte) int {
 	if bytes.HasPrefix(low, []byte("->")) {
 		return 2
 	}
-	dash, bang := bytes.Index(low, []byte("-->")), bytes.Index(low, []byte("--!>"))
-	switch {
-	case dash < 0 && bang < 0:
-		return -1
-	case dash < 0 || bang >= 0 && bang < dash:
-		return bang + 4
+	for from := 0; ; {
+		at := bytes.Index(low[from:], []byte("--"))
+		if at < 0 {
+			return -1
+		}
+		at += from
+		if bytes.HasPrefix(low[at+2:], []byte(">")) {
+			return at + 3
+		}
+		if bytes.HasPrefix(low[at+2:], []byte("!>")) {
+			return at + 4
+		}
+		from = at + 1
 	}
-	return dash + 3
 }
 
 func rawEnd(low []byte, name string) int {
@@ -196,7 +201,8 @@ func parseTag(t []byte, start int) (end int, attrs []imgAttr, ok bool) {
 		for i < len(t) && strings.IndexByte(htmlSpace+"/>=", t[i]) < 0 {
 			i++
 		}
-		a := imgAttr{name: string(asciiLower(t[s:i]))}
+		src := len(t[s:i]) == 3 && t[s]|0x20 == 's' && t[s+1]|0x20 == 'r' && t[s+2]|0x20 == 'c'
+		var a imgAttr
 		for i < len(t) && strings.IndexByte(htmlSpace, t[i]) >= 0 {
 			i++
 		}
@@ -220,21 +226,18 @@ func parseTag(t []byte, start int) (end int, attrs []imgAttr, ok bool) {
 			}
 			a.ve = i
 		}
-		attrs = append(attrs, a)
+		if src && len(attrs) < 2 {
+			attrs = append(attrs, a)
+		}
 	}
 	return 0, nil, false
 }
 
 func imgSrc(t []byte, attrs []imgAttr) (v string, vs, ve int, ok bool) {
-	for _, a := range attrs {
-		if a.name != "src" {
-			continue
-		}
-		if ok || a.ve == 0 {
-			return "", 0, 0, false
-		}
-		v, vs, ve, ok = string(t[a.vs:a.ve]), a.vs, a.ve, true
+	if len(attrs) != 1 || attrs[0].ve == 0 {
+		return "", 0, 0, false
 	}
+	v, vs, ve, ok = string(t[attrs[0].vs:attrs[0].ve]), attrs[0].vs, attrs[0].ve, true
 	if len(v) > 1 && (v[0] == '"' || v[0] == '\'') {
 		v = v[1 : len(v)-1]
 	}
