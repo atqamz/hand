@@ -501,6 +501,7 @@ type APIModels struct {
 	ModelNote  string       `json:"model_note,omitempty"`
 	Switching  string       `json:"switching,omitempty"`
 	Drop       string       `json:"drop,omitempty"`
+	DropRef    string       `json:"drop_ref,omitempty"`
 	Switchable bool         `json:"switchable,omitempty"`
 	Resumable  bool         `json:"resumable,omitempty"`
 }
@@ -1735,6 +1736,7 @@ func (b *Board) apiModelsData(ctx context.Context) (APIModels, error) {
 		Harnesses:  make([]APIHarness, 0, len(sv.StartHarnesses)),
 		Switchable: sv.Switchable,
 		Drop:       sv.Drop,
+		DropRef:    sv.DropRef,
 		Resumable:  sv.Resumable,
 		ModelNote:  sv.ModelNote,
 	}

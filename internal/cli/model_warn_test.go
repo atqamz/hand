@@ -1,12 +1,18 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestSupervisorStartWarnsAboutAnUnverifiedModelAndLaunchesIt(t *testing.T) {
@@ -75,6 +81,65 @@ func TestAStaleRefLeavesThePendingSwitchAlone(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	has(t, "show", h.ok("supervisor", "show"), "switch: opus high")
+}
+
+func TestSupervisorSwitchChecksItsRefUnderTheDeliveryLock(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	ctx := context.Background()
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	lock, err := os.OpenFile(filepath.Join(h.home, "locks", "supervisor.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Close() }()
+	if _, err := flock.Lock(lock, true); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		out, errOut string
+		code        int
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, errOut, code := h.run("supervisor", "switch", "--expect", "s1", "--model", "opus", "--effort", "high")
+		done <- result{out, errOut, code}
+	}()
+	var first state.Supervisor
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		latest, found, err := st.LatestSupervisor(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found && latest.Switching() {
+			first = latest
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the switch never reached its pending write")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := st.EndSupervisor(ctx, first.ID, state.AttemptStopped, "stopped between the check and the delivery"); err != nil {
+		t.Fatal(err)
+	}
+	next, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}, Session: "ses_hand0123456789abcdef01234567"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, next.ID, state.Terminal{ServerGeneration: "gen-old", TerminalID: "t9", PaneID: "9", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = lock.Close()
+	got := <-done
+	want := state.SupervisorRef(first.ID) + " is on screen, but " + state.SupervisorRef(next.ID) + " is running now; refresh and try again"
+	if got.code != 3 || !strings.Contains(got.errOut, want) {
+		t.Fatalf("switch = %q %q, code %d; want %q", got.out, got.errOut, got.code, want)
+	}
 }
 
 func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {

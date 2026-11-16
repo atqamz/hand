@@ -2956,14 +2956,25 @@ func TestAPIModelsCarriesTheNoteThePendingSwitchAndTheDrop(t *testing.T) {
 		_, models := apiInto[board.APIModels](t, r.fx.handler(), "/api/v1/models")
 		return models
 	}
-	if models := read(); models.ModelNote != "Asked for local/m2 deep, running local/m9 default." || models.Switching != "local/m3 fast" || models.Drop != "" || !models.Switchable {
-		t.Fatalf("live: note %q, switching %q, drop %q, switchable %v", models.ModelNote, models.Switching, models.Drop, models.Switchable)
+	old := state.SupervisorRef(sup.ID)
+	if models := read(); models.ModelNote != "Asked for local/m2 deep, running local/m9 default." || models.Switching != "local/m3 fast" || models.Drop != "" || models.DropRef != "" || !models.Switchable {
+		t.Fatalf("live: note %q, switching %q, drop %q, drop ref %q, switchable %v", models.ModelNote, models.Switching, models.Drop, models.DropRef, models.Switchable)
 	}
 	if _, err := r.fx.st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "stopped from the Board"); err != nil {
 		t.Fatal(err)
 	}
-	if models := read(); models.Drop != "local/m3 fast" || models.ModelNote != "" || models.Switchable {
-		t.Fatalf("ended: note %q, switching %q, drop %q, switchable %v", models.ModelNote, models.Switching, models.Drop, models.Switchable)
+	if models := read(); models.Drop != "local/m3 fast" || models.DropRef != old || models.ModelNote != "" || models.Switchable {
+		t.Fatalf("ended: note %q, switching %q, drop %q, drop ref %q, switchable %v", models.ModelNote, models.Switching, models.Drop, models.DropRef, models.Switchable)
+	}
+	failed, err := r.fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "opus", Effort: "high", Argv: []string{"/bin/claude", "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.fx.st.EndSupervisor(ctx, failed.ID, state.AttemptFailed, "no pty"); err != nil {
+		t.Fatal(err)
+	}
+	if models := read(); models.Drop != "local/m3 fast" || models.DropRef != old {
+		t.Fatalf("failed replacement: drop %q, drop ref %q", models.Drop, models.DropRef)
 	}
 }
 

@@ -539,7 +539,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		if _, err := st.SetSupervisorSwitch(ctx, sup.ID, spec.Model, spec.Effort); err != nil {
 			return err
 		}
-		why, err := r.deliver(ctx, st, c, caps, true, "")
+		why, err := r.deliver(ctx, st, c, caps, true, *expect)
 		if err != nil {
 			return err
 		}
