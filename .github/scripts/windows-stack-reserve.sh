@@ -7,7 +7,7 @@
 set -eu
 
 goroot=${1:-$(go env GOROOT)}
-if [ "$#" -eq 0 ] && [ "$(go env GOOS)" != windows ]; then
+if [ -z "${1:-}" ] && [ "$(go env GOOS)" != windows ]; then
 	echo "windows-stack-reserve: $(go env GOOS) does not dispatch exceptions on the goroutine stack; nothing to do"
 	exit 0
 fi
@@ -19,16 +19,20 @@ if [ ! -f "$stack" ]; then
 	echo "windows-stack-reserve: $goroot is not a Go toolchain" >&2
 	exit 1
 fi
+stripped=$(mktemp "${TMPDIR:-/tmp}/windows-stack-reserve.XXXXXX")
+trap 'rm -f "$stripped"' EXIT HUP INT TERM
 # Go comments keep a `/* … */` declaration shape alive across lines, so the
 # marker reads the code with comments removed; a `//` or `/* */` mention of the
 # name must not skip the patch.
-if awk '{ code = ""; for (i = 1; i <= length($0); i++) {
+awk '{ code = ""; for (i = 1; i <= length($0); i++) {
 	if (block) { if (substr($0, i, 2) == "*/") { block = 0; i++ } continue }
 	if (substr($0, i, 2) == "/*") { block = 1; i++; continue }
 	if (substr($0, i, 2) == "//") break
 	code = code substr($0, i, 1) }
-	print code }' "$stack" | grep -Eq \
-	'^[[:space:]]*(var|const)[[:space:]]+stackSystemReserve([[:space:]]|=|$)|^[[:space:]]*stackSystemReserve[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*='; then
+print code }' "$stack" >"$stripped"
+if grep -Eq \
+	'^[[:space:]]*(var|const)[[:space:]]+stackSystemReserve([[:space:]]|=|$)|^[[:space:]]*stackSystemReserve[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=' \
+	"$stripped"; then
 	echo "windows-stack-reserve: $(go env GOVERSION) sizes the reserve from the host"
 	exit 0
 fi
@@ -46,7 +50,7 @@ if ! grep -q 'goos\.IsWindows\*16384' "$stack"; then
 	echo "windows-stack-reserve: $stack still reserves 4096" >&2
 	exit 1
 fi
-if [ "$#" -eq 0 ]; then
+if [ -z "${1:-}" ]; then
 	# A toolchain the edit does not fit fails here, not halfway through the tests.
 	go list -export -f '{{.Export}}' runtime >/dev/null
 fi
