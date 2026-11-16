@@ -43,6 +43,19 @@ func TestSupervisorStartPrintsNoWarnForAVerifiedModel(t *testing.T) {
 	}
 }
 
+func TestSupervisorStartLeavesTheEffortToTheHarness(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	out := h.ok("supervisor", "start", "--harness", "claude", "--model", "sonnet")
+	has(t, "start", out, "status: running")
+	if strings.Contains(out, "warn") {
+		t.Fatalf("start = %q", out)
+	}
+	argv := rt.lastCreate().Command
+	if !slices.Contains(argv, "sonnet") || slices.ContainsFunc(argv, func(a string) bool { return strings.Contains(a, "--effort") }) {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
 func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {
 	for _, c := range []struct {
 		args []string
@@ -50,7 +63,8 @@ func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {
 	}{
 		{[]string{"--harness", "claude", "--model", "my model", "--effort", "high"}, `claude model "my model"`},
 		{[]string{"--harness", "claude", "--model", "-x", "--effort", "high"}, `claude model "-x"`},
-		{[]string{"--harness", "claude", "--model", "opus"}, "claude effort"},
+		{[]string{"--harness", "claude", "--model", "opus", "--effort", "Very High"}, "claude effort"},
+		{[]string{"--harness", "claude", "--effort", "high"}, "claude model"},
 		{[]string{"--harness", "codex", "--model", "gpt-6-luna", "--effort", "--max"}, "codex effort"},
 		{[]string{"--harness", "agy", "--model", "gemini-3.8-flash-low", "--effort", "high"}, "agy names the effort"},
 		{[]string{"--harness", "opencode", "--model", "acme/acme-coder-1#deep"}, "provider/id"},

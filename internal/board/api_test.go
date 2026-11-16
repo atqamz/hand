@@ -396,6 +396,26 @@ func TestAPIAnswerRefusals(t *testing.T) {
 	}
 }
 
+func TestAPIAllowsOnlyTheMethodsEachPathTakes(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	for _, c := range []struct{ method, path, allow string }{
+		{"PUT", "/api/v1/models/refresh", "POST"},
+		{"PUT", "/api/v1/supervisor/switch", "POST"},
+		{"PUT", "/api/v1/supervisor/start", "POST"},
+		{"PUT", "/api/v1/models", "GET, HEAD"},
+	} {
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+		if got := rec.Header().Get("Allow"); got != c.allow {
+			t.Fatalf("%s %s Allow = %q, want %q", c.method, c.path, got, c.allow)
+		}
+	}
+}
+
 func TestAPIAckReport(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
@@ -2866,6 +2886,39 @@ func TestAPIModelsServesTheBoardsOwnMenu(t *testing.T) {
 	}
 }
 
+func TestAPIModelsCarriesTheNoteThePendingSwitchAndTheDrop(t *testing.T) {
+	r := newModelRig(t)
+	r.all(t)
+	ctx := context.Background()
+	sup, err := r.fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Model: "local/m2", Effort: "deep", Argv: []string{"/bin/opencode", "x"}, Session: "ses_hand0123456789abcdef01234567"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.fx.st.SetSupervisorModel(ctx, sup.ID, "local/m9", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.fx.st.SetSupervisorSwitch(ctx, sup.ID, "local/m3", "fast"); err != nil {
+		t.Fatal(err)
+	}
+	read := func() board.APIModels {
+		t.Helper()
+		_, models := apiInto[board.APIModels](t, r.fx.handler(), "/api/v1/models")
+		return models
+	}
+	if models := read(); models.ModelNote != "Asked for local/m2 deep, running local/m9 default." || models.Switching != "local/m3 fast" || models.Drop != "" || !models.Switchable {
+		t.Fatalf("live: note %q, switching %q, drop %q, switchable %v", models.ModelNote, models.Switching, models.Drop, models.Switchable)
+	}
+	if _, err := r.fx.st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "stopped from the Board"); err != nil {
+		t.Fatal(err)
+	}
+	if models := read(); models.Drop != "local/m3 fast" || models.ModelNote != "" || models.Switchable {
+		t.Fatalf("ended: note %q, switching %q, drop %q, switchable %v", models.ModelNote, models.Switching, models.Drop, models.Switchable)
+	}
+}
+
 func TestAPIStartWithAHarnessModelAndEffort(t *testing.T) {
 	r := newModelRig(t)
 	r.all(t)
@@ -2881,6 +2934,19 @@ func TestAPIStartWithAHarnessModelAndEffort(t *testing.T) {
 	}
 	if env.Receipt != "Starting the supervisor…" || env.Warn != "" {
 		t.Fatalf("receipt %q, warn %q", env.Receipt, env.Warn)
+	}
+	for _, c := range []struct {
+		body map[string]string
+		argv []string
+	}{
+		{map[string]string{"harness": "claude", "model": "opus"}, []string{"supervisor", "start", "--harness", "claude", "--model", "opus"}},
+		{map[string]string{"harness": "codex", "model": "gpt-6-luna"}, []string{"supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna"}},
+		{map[string]string{"harness": "opencode"}, []string{"supervisor", "start", "--harness", "opencode"}},
+	} {
+		env, _ := apiBody[board.APIStatus](t, apiPost(t, h, "/api/v1/supervisor/start", c.body, token, true))
+		if !slices.Equal(calls[len(calls)-1], c.argv) || env.Warn != "" {
+			t.Fatalf("%v: start called %q, want %q; warn %q", c.body, calls[len(calls)-1], c.argv, env.Warn)
+		}
 	}
 	_, again := apiInto[board.APIStatus](t, h, "/api/v1/status")
 	a, _ := json.Marshal(st)
@@ -2905,6 +2971,9 @@ func TestAPIStartWithAHarnessModelAndEffort(t *testing.T) {
 	refuse(map[string]string{"harness": "copilot", "model": "gpt-6-luna"}, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp")
 	refuse(map[string]string{"harness": "claude", "model": "nope", "effort": "high"}, "claude model nope is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list")
 	refuse(map[string]string{"harness": "claude", "model": "opus", "effort": "ultra"}, "claude model opus: effort ultra is not one of low, medium, high, xhigh, max")
+	refuse(map[string]string{"harness": "claude", "model": "opus", "effort": "Very High"}, `claude effort "Very High" must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter`)
+	refuse(map[string]string{"harness": "codex", "effort": "high"}, `codex model "" must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit`)
+	refuse(map[string]string{"harness": "claude"}, `claude model "" must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit`)
 	refuse(map[string]string{"harness": "claude", "model": "a b"}, `claude model "a b" must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit`)
 	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/start", `{"harness":"claude"} {}`, token, true), http.StatusBadRequest, "bad_request")
 	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/start", `{"harness":1}`, token, true), http.StatusBadRequest, "bad_request")
@@ -2917,6 +2986,17 @@ func TestAPIStartWithAHarnessModelAndEffort(t *testing.T) {
 		t.Fatalf("warn = %q, want %q", env.Warn, want)
 	}
 	if want := []string{"supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"}; !slices.Equal(calls[len(calls)-1], want) {
+		t.Fatalf("start called %q, want %q", calls[len(calls)-1], want)
+	}
+
+	if err := os.Remove(filepath.Join(r.home, "models", "claude.json")); err != nil {
+		t.Fatal(err)
+	}
+	env, _ = apiBody[board.APIStatus](t, apiPost(t, h, "/api/v1/supervisor/start", map[string]string{"harness": "claude", "model": "gpt-6-luna"}, token, true))
+	if want := "claude model gpt-6-luna is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list; starting anyway"; env.Warn != want {
+		t.Fatalf("warn = %q, want %q", env.Warn, want)
+	}
+	if want := []string{"supervisor", "start", "--harness", "claude", "--model", "gpt-6-luna"}; !slices.Equal(calls[len(calls)-1], want) {
 		t.Fatalf("start called %q, want %q", calls[len(calls)-1], want)
 	}
 }
@@ -3092,13 +3172,89 @@ func goldenData(t *testing.T, name string) map[string]json.RawMessage {
 	return env.Data
 }
 
+var (
+	kotlinSerialName = regexp.MustCompile(`@SerialName\("([^"]+)"\)`)
+	kotlinValName    = regexp.MustCompile(`\bval\s+([A-Za-z_][A-Za-z0-9_]*)`)
+)
+
+// kotlinParams is the parameter list of one data class in the phone's
+// Status.kt, each parameter as written between its commas.
+func kotlinParams(t *testing.T, class string) []string {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join("..", "..", "android", "src-tauri", "gen", "android", "app", "src", "main", "java", "io", "github", "atqamz", "handcompanion", "Status.kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := "data class " + class + "("
+	at := strings.Index(string(src), head)
+	if at < 0 {
+		t.Fatalf("Status.kt has no data class %s", class)
+	}
+	rest, depth, start := string(src)[at+len(head):], 1, 0
+	var out []string
+	for i, r := range rest {
+		switch r {
+		case '(', '<', '[':
+			depth++
+		case ')', '>', ']':
+			depth--
+			if depth == 0 {
+				return append(out, rest[start:i])
+			}
+		case ',':
+			if depth == 1 {
+				out, start = append(out, rest[start:i]), i+1
+			}
+		}
+	}
+	t.Fatalf("Status.kt's data class %s has no closing paren", class)
+	return nil
+}
+
+// phoneRequired is what the phone's decoder cannot leave out of an answer: the
+// parameters of a data class that carry no default, named as the JSON key.
+func phoneRequired(t *testing.T, class string) []string {
+	t.Helper()
+	var out []string
+	for _, param := range kotlinParams(t, class) {
+		param = strings.TrimSpace(param)
+		if param == "" || strings.Contains(param, " = ") {
+			continue
+		}
+		if m := kotlinSerialName.FindStringSubmatch(param); m != nil {
+			out = append(out, m[1])
+		} else if m := kotlinValName.FindStringSubmatch(param); m != nil {
+			out = append(out, m[1])
+		} else {
+			t.Fatalf("%s parameter %q names no field", class, param)
+		}
+	}
+	return out
+}
+
 func TestThePhoneDecodesTheNewAnswersWithoutAChange(t *testing.T) {
-	phoneStatus := []string{"agent_state", "composer_hint", "pill", "line", "gauge", "compactions", "needs", "tasks", "projects"}
+	status := phoneRequired(t, "Status")
+	if !slices.Contains(status, "agent_state") || !slices.Contains(status, "compactions") || slices.Contains(status, "supervisor") {
+		t.Fatalf("Status.kt's required keys = %q", status)
+	}
+	supervisor := phoneRequired(t, "Supervisor")
+	if !slices.Contains(supervisor, "ref") || slices.Contains(supervisor, "keys") {
+		t.Fatalf("Status.kt's required supervisor keys = %q", supervisor)
+	}
 	for _, name := range []string{"supervisor-started-with-choice", "supervisor-switched"} {
 		data := goldenData(t, name)
-		for _, k := range phoneStatus {
+		for _, k := range status {
 			if _, ok := data[k]; !ok {
 				t.Fatalf("%s: the phone's Status has no %s", name, k)
+			}
+		}
+		var sup map[string]json.RawMessage
+		if err := json.Unmarshal(data["supervisor"], &sup); err != nil {
+			t.Fatalf("%s: supervisor is not one object: %v", name, err)
+		}
+		for _, k := range supervisor {
+			if _, ok := sup[k]; !ok {
+				t.Fatalf("%s: the phone's Supervisor has no %s", name, k)
 			}
 		}
 	}
@@ -3107,7 +3263,7 @@ func TestThePhoneDecodesTheNewAnswersWithoutAChange(t *testing.T) {
 		if _, ok := data["harnesses"]; !ok {
 			t.Fatalf("%s carries no harnesses", name)
 		}
-		for _, k := range append(phoneStatus, "supervisor") {
+		for _, k := range append([]string{"supervisor"}, status...) {
 			if _, ok := data[k]; ok {
 				t.Fatalf("%s carries a Status field, %s, so a phone would read it as one", name, k)
 			}

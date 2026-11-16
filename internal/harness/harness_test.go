@@ -120,7 +120,7 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"other vendor", Spec{"claude", "glm-5", "high"}, Env{}, warn, "starting anyway"},
 		{"unknown effort", Spec{"claude", "sonnet", "ultra"}, Env{}, warn, "effort ultra"},
 		{"empty model", Spec{"claude", "", "low"}, Env{}, refuse, "claude model"},
-		{"empty effort", Spec{"claude", "sonnet", ""}, Env{}, refuse, "claude effort"},
+		{"empty effort", Spec{"claude", "sonnet", ""}, Env{}, ok, ""},
 		{"space", Spec{"claude", "my model", "low"}, Env{}, refuse, "claude model"},
 		{"flag", Spec{"claude", "-x", "low"}, Env{}, refuse, "claude model"},
 		{"nul", Spec{"claude", "a\x00b", "low"}, Env{}, refuse, "claude model"},
@@ -152,7 +152,7 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"claude vanished", Spec{"claude", "old-gw", "low"}, claudeListed, warn, "model old-gw is no longer listed by claude"},
 		{"claude absent from the list", Spec{"claude", "acme-sonnet", "low"}, claudeListed, warn, "claude model acme-sonnet is not an alias"},
 		{"codex empty model", Spec{"codex", "", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
-		{"codex empty effort", Spec{"codex", "gpt-6-luna", ""}, Env{CodexHome: cached}, refuse, "codex effort"},
+		{"codex empty effort", Spec{"codex", "gpt-6-luna", ""}, Env{CodexHome: cached}, ok, ""},
 		{"codex model with a space", Spec{"codex", "gpt 6", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
 		{"codex flag model", Spec{"codex", "--oss", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
 		{"codex effort with an equals sign", Spec{"codex", "gpt-6-luna", "low=1"}, Env{CodexHome: cached}, refuse, "codex effort"},
@@ -219,12 +219,44 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 	for _, row := range rows {
 		got, err := Check(row.spec, row.env)
 		switch {
-		case row.kind == refuse && (!errors.Is(err, state.ErrInvalid) || got != "" || !strings.Contains(err.Error(), row.text)):
-			t.Errorf("%s: warn %q, err %v; want a refusal naming %q", row.name, got, err, row.text)
-		case row.kind == warn && (err != nil || !strings.Contains(got, row.text) || !strings.HasSuffix(got, "starting anyway") || !strings.Contains(got, row.spec.Harness) || !strings.Contains(got, strings.TrimSpace(row.spec.Model))):
-			t.Errorf("%s: warn %q, err %v; want a warning naming %q", row.name, got, err, row.text)
-		case row.kind == ok && (err != nil || got != ""):
-			t.Errorf("%s: warn %q, err %v; want a clean pass", row.name, got, err)
+		case row.kind == refuse && (!errors.Is(err, state.ErrInvalid) || got.Text != "" || !strings.Contains(err.Error(), row.text)):
+			t.Errorf("%s: warn %q, err %v; want a refusal naming %q", row.name, got.Text, err, row.text)
+		case row.kind == warn && (err != nil || !strings.Contains(got.Text, row.text) || !strings.HasSuffix(got.Text, "starting anyway") || !strings.Contains(got.Text, row.spec.Harness) || !strings.Contains(got.Text, strings.TrimSpace(row.spec.Model))):
+			t.Errorf("%s: warn %q, err %v; want a warning naming %q", row.name, got.Text, err, row.text)
+		case row.kind == ok && (err != nil || got.Text != ""):
+			t.Errorf("%s: warn %q, err %v; want a clean pass", row.name, got.Text, err)
+		}
+	}
+}
+
+func TestCheckSaysWhenItCouldNotReadTheModelList(t *testing.T) {
+	codexCache := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codexCache, "models_cache.json"), []byte(cache), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claudeListed := seeded(t, Listing{Harness: "claude", Models: []Model{{Name: "acme-opus", Source: SourceCustom, Unverified: true}}})
+	for _, row := range []struct {
+		name   string
+		spec   Spec
+		env    Env
+		text   string
+		unread bool
+	}{
+		{"claude without its list", Spec{"claude", "gpt-6-luna", "high"}, seeded(t), "is not an alias", true},
+		{"claude with its list", Spec{"claude", "gpt-6-luna", "high"}, claudeListed, "is not an alias", false},
+		{"claude with its list and a name in it", Spec{"claude", "acme-opus", "high"}, claudeListed, "", false},
+		{"codex without its cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: t.TempDir()}, "could not be checked", true},
+		{"codex with its cache", Spec{"codex", "acme-coder-1", "low"}, Env{CodexHome: codexCache}, "is not in codex's model list", false},
+		{"opencode without its list", Spec{"opencode", "local/m2", "deep"}, seeded(t), "could not be checked", true},
+		{"agy without its list", Spec{"agy", "gemini-9", ""}, seeded(t), "could not be checked", true},
+		{"omp without its list", Spec{"omp", "commandcode/plain", ""}, seeded(t), "could not be checked", true},
+	} {
+		got, err := Check(row.spec, row.env)
+		if err != nil {
+			t.Fatalf("%s: %v", row.name, err)
+		}
+		if !strings.Contains(got.Text, row.text) || got.Unread != row.unread {
+			t.Fatalf("%s: warn %+v, want %q unread=%v", row.name, got, row.text, row.unread)
 		}
 	}
 }

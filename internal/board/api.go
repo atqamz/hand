@@ -595,10 +595,7 @@ const (
 	apiModelsUnread       = "the refresh started, but the model lists could not be read"
 )
 
-const (
-	couldNotCheck  = "could not be checked"
-	startingAnyway = "; starting anyway"
-)
+const startingAnyway = "; starting anyway"
 
 // apiReply is what an action's answer says next to its data: the Board's own
 // words for a receipt and for a warning, carried as the X-Hand-Receipt and
@@ -895,20 +892,16 @@ func (b *Board) apiStart(w http.ResponseWriter, r *http.Request) {
 			b.apiRejected(w, err)
 			return
 		}
-		if m != "" || e != "" {
-			why, err := harness.Check(spec, b.o.Harness)
-			if err != nil {
-				b.apiRejected(w, err)
-				return
-			}
-			switch {
-			case why == "" || strings.Contains(why, couldNotCheck):
-				warn = why
-			default:
-				b.apiFail(w, http.StatusBadRequest, "bad_request", strings.TrimSuffix(why, startingAnyway))
-				return
-			}
+		why, err := harness.Check(spec, b.o.Harness)
+		if err != nil {
+			b.apiRejected(w, err)
+			return
 		}
+		if why.Text != "" && !why.Unread {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", strings.TrimSuffix(why.Text, startingAnyway))
+			return
+		}
+		warn = why.Text
 		args = append(args, "--harness", h)
 		if m != "" {
 			args = append(args, "--model", m)
@@ -1548,8 +1541,6 @@ func apiCode(status int) string {
 		return "conflict"
 	case http.StatusRequestEntityTooLarge:
 		return "too_large"
-	case http.StatusTooManyRequests:
-		return "rate_limited"
 	case http.StatusInsufficientStorage:
 		return "no_space"
 	}

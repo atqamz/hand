@@ -506,7 +506,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		default:
 			spec.Model, spec.Effort = cmp.Or(*model, spec.Model), cmp.Or(*effort, spec.Effort)
 		}
-		warn, err := harness.Check(spec, r.harnessEnv())
+		checked, err := harness.Check(spec, r.harnessEnv())
 		if err != nil {
 			return err
 		}
@@ -514,9 +514,9 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			if err := r.opencodeListed(spec.Model); err != nil {
 				return err
 			}
-			warn, _ = harness.Check(spec, r.harnessEnv())
+			checked, _ = harness.Check(spec, r.harnessEnv())
 		}
-		r.warn(warn)
+		r.warn(checked.Text)
 		if harness.Resolves(spec.Model, sup.Model) && (spec.Effort == sup.Effort || spec.Effort == "default" && sup.Effort == "") {
 			return fmt.Errorf("%w: supervisor %s already runs %s", state.ErrConflict, ref, strings.Join(strings.Fields(sup.Model+" "+sup.Effort), " "))
 		}
@@ -659,7 +659,7 @@ func harnessBin(r *runner, spec harness.Spec) (string, error) {
 
 func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
 	env := r.harnessEnv()
-	warn, err := harness.Check(spec, env)
+	checked, err := harness.Check(spec, env)
 	if err != nil {
 		return "", "", err
 	}
@@ -675,7 +675,7 @@ func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
 	case err != nil:
 		return "", "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, installText(spec.Harness))
 	}
-	return bin, warn, nil
+	return bin, checked.Text, nil
 }
 
 func installText(name string) string {
