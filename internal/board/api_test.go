@@ -382,6 +382,48 @@ func TestAPITaskSearchDaysGolden(t *testing.T) {
 	}
 }
 
+var (
+	pageFound  = regexp.MustCompile(`<p class="found" role="status">(\d+) tasks?</p>`)
+	pageGroups = regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`)
+)
+
+func searchMatchesThePage(t *testing.T, h http.Handler, q url.Values) board.APITaskSearch {
+	t.Helper()
+	body := get(t, h, "/tasks?"+q.Encode())
+	_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?"+q.Encode())
+	var rows []string
+	for _, g := range got.Groups {
+		for _, row := range g.Tasks {
+			rows = append(rows, row.Title)
+		}
+	}
+	var want []string
+	for _, title := range titles(body) {
+		want = append(want, html.UnescapeString(title))
+	}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("%q rows = %q, page = %q", q.Encode(), rows, want)
+	}
+	total := pageFound.FindStringSubmatch(body)
+	if total == nil || total[1] != strconv.Itoa(got.Total) {
+		t.Fatalf("%q total = %v, API = %d", q.Encode(), total, got.Total)
+	}
+	headings := pageGroups.FindAllStringSubmatch(body, -1)
+	if len(headings) != len(got.Groups) {
+		t.Fatalf("%q groups = %v, API = %+v", q.Encode(), headings, got.Groups)
+	}
+	for i, g := range got.Groups {
+		if headings[i][1] != g.Name || headings[i][2] != strconv.Itoa(g.Count) {
+			t.Fatalf("%q group %d = %v, API = %q/%d", q.Encode(), i, headings[i], g.Name, g.Count)
+		}
+	}
+	if got.Q != q.Get("q") || got.Status != q.Get("status") || got.Project != q.Get("project") ||
+		got.Since != q.Get("since") || got.Until != q.Get("until") {
+		t.Fatalf("%q echo = %q/%q/%q/%q/%q", q.Encode(), got.Q, got.Status, got.Project, got.Since, got.Until)
+	}
+	return got
+}
+
 func TestAPITasksSearchMatchesThePage(t *testing.T) {
 	fx, now := apiSearchFixture(t)
 	ctx := context.Background()
@@ -411,43 +453,46 @@ func TestAPITasksSearchMatchesThePage(t *testing.T) {
 	finish(open("hand", "Fix login", time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 4, 9, 0, 0, 0, time.UTC))
 	finish(open("docs", "Fix guide", time.Date(2026, 10, 2, 11, 0, 0, 0, time.UTC)), state.StatusAbandoned, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC))
 	open("hand", "Fix search", time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC))
+	finish(open("hand", "Fix 100% now", time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 2, 13, 0, 0, 0, time.UTC))
+	finish(open("docs", "Fix a_b", time.Date(2026, 10, 2, 13, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC))
+	open("hand", "Fix O'Brien", time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC))
+	finish(open("docs", "Fix R&D", time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC)), state.StatusAbandoned, time.Date(2026, 10, 2, 16, 0, 0, 0, time.UTC))
+	finish(open("hand", "Fix “curly” docs", time.Date(2026, 10, 2, 17, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 2, 18, 0, 0, 0, time.UTC))
+	finish(open("hand", "Fix boundary late", time.Date(2026, 10, 5, 20, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 5, 23, 59, 0, 0, time.UTC))
+	finish(open("docs", "Fix boundary early", time.Date(2026, 10, 5, 22, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 6, 0, 1, 0, 0, time.UTC))
 	*now = time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
 	if _, err := fx.st.AddTask(ctx, "hand", "Fix inbox", ""); err != nil {
 		t.Fatal(err)
 	}
 	h := fx.handler()
-	found := regexp.MustCompile(`<p class="found" role="status">(\d+) tasks?</p>`)
-	groups := regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`)
-	for _, q := range []string{
-		"", "?q=fix", "?q=fix&status=all", "?q=fix&status=finished", "?q=fix&status=done",
-		"?q=fix&status=abandoned", "?q=fix&status=active", "?q=fix&status=inbox",
-		"?q=fix&project=docs", "?q=login&since=2026-10-04", "?q=login&until=2026-10-03",
-		"?q=t4", "?status=all",
+	for _, q := range []url.Values{
+		{},
+		{"q": {"fix"}},
+		{"q": {"fix"}, "status": {"all"}},
+		{"q": {"fix"}, "status": {"finished"}},
+		{"q": {"fix"}, "status": {"done"}},
+		{"q": {"fix"}, "status": {"abandoned"}},
+		{"q": {"fix"}, "status": {"active"}},
+		{"q": {"fix"}, "status": {"inbox"}},
+		{"q": {"fix"}, "project": {"docs"}},
+		{"q": {"login"}, "since": {"2026-10-04"}},
+		{"q": {"login"}, "until": {"2026-10-03"}},
+		{"q": {"t4"}},
+		{"status": {"all"}},
+		{"status": {"finished"}},
+		{"q": {"fix"}, "status": {"finished"}, "project": {"hand"}, "since": {"2026-10-01"}, "until": {"2026-10-07"}},
+		{"q": {"100%"}},
+		{"q": {"a_b"}},
+		{"q": {"O'Brien"}},
+		{"q": {"R&D"}},
+		{"q": {"“curly”"}},
+		{"since": {"2026-10-05"}, "until": {"2026-10-01"}},
+		{"q": {"boundary"}},
+		{"q": {"boundary"}, "since": {"2026-10-06"}},
+		{"q": {"boundary"}, "until": {"2026-10-05"}},
+		{"q": {"boundary"}, "since": {"2026-10-05"}, "until": {"2026-10-06"}},
 	} {
-		page := get(t, h, "/tasks"+q)
-		_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search"+q)
-		var gotTitles []string
-		for _, g := range got.Groups {
-			for _, row := range g.Tasks {
-				gotTitles = append(gotTitles, row.Title)
-			}
-		}
-		if want := titles(page); !slices.Equal(gotTitles, want) {
-			t.Fatalf("%q rows = %q, page = %q", q, gotTitles, want)
-		}
-		total := found.FindStringSubmatch(page)
-		if total == nil || total[1] != strconv.Itoa(got.Total) {
-			t.Fatalf("%q total = %v, API = %d", q, total, got.Total)
-		}
-		headings := groups.FindAllStringSubmatch(page, -1)
-		if len(headings) != len(got.Groups) {
-			t.Fatalf("%q groups = %v, API = %+v", q, headings, got.Groups)
-		}
-		for i, g := range got.Groups {
-			if headings[i][1] != g.Name || headings[i][2] != strconv.Itoa(g.Count) {
-				t.Fatalf("%q group %d = %v, API = %q/%d", q, i, headings[i], g.Name, g.Count)
-			}
-		}
+		searchMatchesThePage(t, h, q)
 	}
 }
 
@@ -493,24 +538,54 @@ func TestAPITasksSearchPages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	*now = base.Add(200 * time.Minute)
+	parent, err := fx.st.AddTask(ctx, "hand", "Parent chore", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, parent.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, parent.ID, state.StatusDone); err != nil {
+		t.Fatal(err)
+	}
+	*now = base.Add(30 * time.Minute)
+	child, err := fx.st.AddTaskUnder(ctx, parent.ID, "hand", "Child chore", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, child.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, child.ID, state.StatusDone); err != nil {
+		t.Fatal(err)
+	}
 	h := fx.handler()
+	seen := map[string]board.APITaskSearchRow{}
 	for page, want := range map[int]struct {
 		first string
 		count int
-	}{1: {"Chore 119", 50}, 2: {"Chore 069", 50}, 3: {"Chore 019", 20}} {
-		_, got := apiInto[board.APITaskSearch](t, h, fmt.Sprintf("/api/v1/tasks/search?page=%d", page))
+	}{1: {"Parent chore", 50}, 2: {"Chore 070", 50}, 3: {"Chore 021", 22}} {
+		got := searchMatchesThePage(t, h, url.Values{"page": {strconv.Itoa(page)}})
 		var titles []string
 		for _, g := range got.Groups {
 			for _, row := range g.Tasks {
 				titles = append(titles, row.Title)
+				seen[row.Ref] = row
 			}
 		}
-		if got.Page != page || got.PageSize != 50 || got.Total != 120 || got.Pages != 3 || len(titles) != want.count || titles[0] != want.first {
+		if got.Page != page || got.PageSize != 50 || got.Total != 122 || got.Pages != 3 || len(titles) != want.count || titles[0] != want.first {
 			t.Fatalf("page %d = %+v, first %q, %d rows", page, got, titles[0], len(titles))
 		}
 	}
+	if row := seen[state.TaskRef(parent.ID)]; row.Title != "Parent chore" || row.Parent != "" || row.Children != 1 {
+		t.Fatalf("parent row = %+v", row)
+	}
+	if row := seen[state.TaskRef(child.ID)]; row.Title != "Child chore" || row.Parent != state.TaskRef(parent.ID) || row.Children != 0 {
+		t.Fatalf("child row = %+v", row)
+	}
 	_, past := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?page=4")
-	if past.Page != 4 || past.Total != 120 || past.Pages != 3 || len(past.Groups) != 0 {
+	if past.Page != 4 || past.Total != 122 || past.Pages != 3 || len(past.Groups) != 0 {
 		t.Fatalf("page 4 = %+v", past)
 	}
 }

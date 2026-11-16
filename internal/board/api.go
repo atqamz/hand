@@ -1483,14 +1483,6 @@ func (b *Board) apiTaskSearchQuery(w http.ResponseWriter, q url.Values) bool {
 			return false
 		}
 	}
-	for _, d := range []string{"since", "until"} {
-		if s := q.Get(d); s != "" {
-			if _, err := time.Parse(time.DateOnly, s); err != nil {
-				b.apiFail(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("%s %q is not a date; want YYYY-MM-DD", d, s))
-				return false
-			}
-		}
-	}
 	if s := q.Get("page"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 || n > maxArchivePage {
