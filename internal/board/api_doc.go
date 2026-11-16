@@ -3,6 +3,7 @@ package board
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -201,11 +202,15 @@ func (b *Board) apiWindow(w http.ResponseWriter, r *http.Request, f *os.File, fi
 	out := APIDocWindow{Path: rel, Name: path.Base(rel), From: first, Lines: []string{}}
 	br := bufio.NewReaderSize(ctxReader{ctx, io.NewSectionReader(f, start, fi.Size()-start)}, 64<<10)
 	var buf []byte
-	var used int64
-	for len(out.Lines) < n && used < window {
+	var used, sent int64
+	for len(out.Lines) < n {
 		l, err := readLine(br, buf)
 		buf = l.text
 		if l.hasData {
+			enc, _ := json.Marshal(string(l.text))
+			if sent += int64(len(enc)) + 1; sent > window && len(out.Lines) > 0 {
+				break
+			}
 			used += int64(l.read)
 			if l.cut > 0 {
 				out.Cut = append(out.Cut, APIDocCut{Line: first + len(out.Lines), Bytes: l.cut})

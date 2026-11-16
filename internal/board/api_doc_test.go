@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -427,7 +428,7 @@ func TestAPIDocWindowCapsLinesAndBytes(t *testing.T) {
 		t.Fatalf("lines cap = %d lines, next %d", len(capped.Lines), capped.Next)
 	}
 	_, wide := apiInto[board.APIDocWindow](t, h, "/api/v1/doc/reports/t1/wide.txt?lines=2000")
-	if len(wide.Lines) != 21 || wide.Next != 22 {
+	if len(wide.Lines) != 20 || wide.Next != 21 {
 		t.Fatalf("byte cap = %d lines, next %d", len(wide.Lines), wide.Next)
 	}
 }
@@ -681,6 +682,77 @@ func TestAPIDocWindowStopsWhenTheClientIsGone(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Body.Len() != 0 {
 			t.Errorf("%s read and answered for a gone client:\n%.200s", p, rec.Body)
+		}
+	}
+}
+
+func TestAPIDocWindowAnswerStaysWithinTheByteBound(t *testing.T) {
+	head := strings.Repeat("h", 9000) + "\n"
+	h, _ := apiDocBoard(t, map[string]string{
+		"reports/t1/control.txt": head + strings.Repeat(strings.Repeat("\x01", 256<<10)+"\n", 40),
+		"reports/t1/latin.txt":   head + strings.Repeat(strings.Repeat("\xe9", 256<<10)+"\n", 40),
+		"reports/t1/angle.txt":   head + strings.Repeat(strings.Repeat("<", 256<<10)+"\n", 40),
+	})
+	for _, name := range []string{"control.txt", "latin.txt", "angle.txt"} {
+		rec := request(h, "GET", "/api/v1/doc/reports/t1/"+name+"?from=1&lines=2000", nil, true)
+		if rec.Code != http.StatusOK || rec.Body.Len() > 4<<20+4<<10 {
+			t.Fatalf("%s answered %d with %d bytes", name, rec.Code, rec.Body.Len())
+		}
+		var env struct{ Data board.APIDocWindow }
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(env.Data.Lines); got >= 40 || got < 3 || env.Data.Next != got+1 || name != "latin.txt" && got != 3 {
+			t.Errorf("%s = %d lines, next %d", name, got, env.Data.Next)
+		}
+	}
+}
+
+type cancelAfter struct {
+	context.Context
+	calls, limit atomic.Int64
+}
+
+func (c *cancelAfter) Err() error {
+	if c.calls.Add(1) > c.limit.Load() {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestAPIDocWindowStopsReadingWhenTheClientLeavesMidRead(t *testing.T) {
+	h, _ := apiDocBoard(t, map[string]string{"reports/t1/flat.txt": strings.Repeat("x", 32<<20)})
+	run := func(limit int64) (*cancelAfter, *httptest.ResponseRecorder) {
+		ctx := &cancelAfter{Context: context.Background()}
+		ctx.limit.Store(limit)
+		req := httptest.NewRequest("GET", "/api/v1/doc/reports/t1/flat.txt?from=1", nil).WithContext(ctx)
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return ctx, rec
+	}
+	if ctx, rec := run(50); rec.Body.Len() != 0 || ctx.calls.Load() > 60 {
+		t.Errorf("a client that left mid-read got %d bytes and %d context checks", rec.Body.Len(), ctx.calls.Load())
+	}
+	if ctx, rec := run(1 << 40); rec.Code != http.StatusOK || ctx.calls.Load() < 100 {
+		t.Errorf("a live read checked the context %d times (status %d): the test cannot tell a read from a scan", ctx.calls.Load(), rec.Code)
+	}
+}
+
+func TestAPIDocEmptyValuesAreAsAbsent(t *testing.T) {
+	files := manyFiles(501, "reports/many")
+	files["reports/t1/notes.txt"] = "one\ntwo\nthree\n"
+	h, _ := apiDocBoard(t, files)
+	_, folder := apiInto[board.APIDocFolder](t, h, "/api/v1/doc/reports/many?page=")
+	_, plain := apiInto[board.APIDocFolder](t, h, "/api/v1/doc/reports/many")
+	if folder.Page != 1 || len(folder.Entries) != 500 || folder.Total != plain.Total || folder.Pages != plain.Pages {
+		t.Errorf("?page= = page %d of %d, %d entries", folder.Page, folder.Pages, len(folder.Entries))
+	}
+	_, want := apiInto[board.APIDocWindow](t, h, "/api/v1/doc/reports/t1/notes.txt?from=1&lines=500")
+	for _, q := range []string{"?from=", "?lines=", "?from=&lines="} {
+		_, got := apiInto[board.APIDocWindow](t, h, "/api/v1/doc/reports/t1/notes.txt"+q)
+		if !slices.Equal(got.Lines, want.Lines) || got.From != 1 || got.Next != want.Next || len(got.Lines) != 3 {
+			t.Errorf("%s = %+v, want the default window %+v", q, got, want)
 		}
 	}
 }
