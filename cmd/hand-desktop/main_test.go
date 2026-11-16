@@ -49,6 +49,9 @@ func (stub) Tasks(context.Context, string, bool) (desktop.Tasks, error) {
 func (stub) Decision(context.Context, string, string) (desktop.DecisionDetail, error) {
 	return desktop.DecisionDetail{}, nil
 }
+func (stub) Models(context.Context, string) (desktop.Models, error) {
+	return desktop.Models{}, nil
+}
 
 func booted() *desktop.App {
 	app := desktop.New(func() (desktop.ReadModel, error) { return stub{}, nil })

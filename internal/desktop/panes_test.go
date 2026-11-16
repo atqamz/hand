@@ -138,8 +138,7 @@ func TestTheOverflowMenuHoldsRefreshNowAndOpenInBrowser(t *testing.T) {
 	tt := newTester(newApp(t, goldenFixture(t)))
 	mustNotText(t, tt, "Refresh now")
 	click(t, tt, "More")
-	mustText(t, tt, "Refresh now", "Open in browser")
-	mustNotText(t, tt, "Refresh models")
+	mustText(t, tt, "Refresh now", "Open in browser", "Refresh models")
 }
 
 func TestPollingRunsAtTheBoardsTickAndSlowsWhenUnfocused(t *testing.T) {

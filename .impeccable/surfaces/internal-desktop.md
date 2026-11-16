@@ -16,7 +16,7 @@ related_targets:
   - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat starts at 38% wide clamped to 400 to 720 px and may be dragged down to 360 px, the work pane never under 440 px, the width kept in `prefs.json` and clamped to the room at every frame);
   - below 900px: no rail and no divider, the masthead's menu button opening the rail's items as a sheet, and the Board's three tabs (Needs, Tasks, Chat), one panel at a time, the work column at 880 px and the conversation at 760 px; the tab is remembered, seeded once as the Board seeds it, and an opened ref selects the tab that holds it;
   - the window's own size, kept in `prefs.json` beside the zoom and the divider, restored on start and clamped to the monitor's work area;
-  - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now and Open in browser; with no supervisor ever, one Open in browser button, and the status's hint on the composer's foot; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
+  - the supervisor's pane head: its ref and model, the controls that apply (Resume with New session in the menu, or Start new, same as the supervisor; Interrupt; Force, a stand-in for the Board's "Screen misread?" until the blocked item is built; Stop with its second press) and an overflow menu with Refresh now, Open in browser and Refresh models; while it runs, the model line is the Board's model menu (Running now, the model and effort change, the switch to another harness, Refresh models) and a pending switch reads next turn with Cancel switch; with no supervisor ever, a Start strip of each harness's model and effort that starts one, with Drop switch when the last started supervisor carries a pending switch, and the status's hint on the composer's foot; a conversation that cannot be read shows its own error with Retry in the chat pane and keeps what it held; a blocked supervisor's question with one button per option (or the key toolbar) under it;
   - Needs: bands by severity in the page's order, each headed by its word in the band's tone; 44px rows with the kind's icon, refs and time; the top item open as a card with its band's toned header, any row opening in place and closing again, one open at a time; a report opens to its excerpt and Mark read, a failure to its attempt's reason, a decision to the Board's choice list, its recommended badge and consequence lines, a note and a primary Send answer; a sent answer collapses the row to "Sent <option> · waiting…" until the next status removes it, a picked `other` with no note is refused before the request with the Board's sentence and the note focused, and a server refusal keeps it open with the reason in the receipt; a kind with nothing to show stays inert; after Mark read or an answer a receipt toast shows for 4 seconds and the next item opens; nothing waiting shows All clear, when it cleared and the summary;
   - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: one box with a two-row message field, the status's hint, the Ctrl Enter key hint and Send;
   - Tasks: the grouped task list, and each task's page in the viewer;
@@ -24,7 +24,7 @@ related_targets:
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status, its tasks list and the open page's data poll while the window is open (see Refresh).
-- **Not in v1:** any other write (attachments, because the API sends text only; a model switch, because the API has no route for it), the document viewer, phone pairing, the archive's search, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
+- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer, phone pairing, the archive's search, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
 - **Mode:** Operate.
 
 ## Audience, job and constraints
@@ -73,7 +73,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `01-fleet-switch.png` | the rail after a switch, the second fleet's masthead |
 | `02-panes.png` | the two panes: Needs and Tasks, the supervisor's head, its conversation and its composer |
 | `06-detail.png` | a task's page in the viewer over the Board: its head, waiting rows, goal and plan, reports, decisions, events and the aside |
-| `07-empty.png` | All clear, no tasks, and no supervisor: the head offers Open in browser |
+| `07-empty.png` | All clear, no tasks, and no supervisor: the head offers the Start strip |
 | `08-error.png` | a token the board refuses, with Retry |
 | `09-decision-answer.png` | an open decision with an option chosen and the note field |
 | `10-report-ack.png` | a report with its Ack |
@@ -84,7 +84,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `15-delivered.png` | the viewer's Delivered aside in a task's page: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
 | `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
 | `17-open-link.png` | the viewer opened from a `handboard://open/` link, on a decision's page |
-| `18-overflow-menu.png` | the pane head's menu: Refresh now and Open in browser |
+| `18-overflow-menu.png` | the pane head's menu: Refresh now, Open in browser and Refresh models |
 | `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
 | `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
 | `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 860×700 and 1100×760 in both themes |
@@ -104,6 +104,17 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `39-narrow-needs-880x760-<light or dark>.png` | the breakpoint's Needs tab: the masthead with its menu button, the three tabs, the Needs bands in the 880 px column, no rail and no divider |
 | `40-narrow-tasks-880x760-<light or dark>.png` | the Tasks tab: the search field across the head as the Board draws it below 900, then the grouped task list, no page head |
 | `41-narrow-chat-820x700-<light or dark>.png` | the Chat tab: the pane head, the conversation and the composer in the 760 px column, full height |
+| `42-menu-full-<light or dark>.png` | the model menu open on a full list: Running now, the model and effort change, and a switch to each other harness |
+| `42-menu-cold-<light or dark>.png` | the same with a cold cache: each harness's listing note, the claude refresh failure in the warn tone |
+| `42-menu-now-<light or dark>.png` | the menu with the agent ready: Switch now, with keep sonnet and keep low |
+| `42-menu-after-<light or dark>.png` | the menu while the agent works: Switch after this turn |
+| `42-menu-pending-<light or dark>.png` | a pending switch: next turn: opus high with Cancel switch, and the running controls |
+| `42-menu-cancel-<light or dark>.png` | Cancel switch chosen: the Board's "Switch canceled" receipt |
+| `42-menu-drop-<light or dark>.png` | no live supervisor with a pending switch: Drop switch, and their receipt |
+| `42-menu-error-<light or dark>.png` | the model list could not be read, in the menu, with Retry |
+| `42-menu-first-run-<light or dark>.png` | a fleet with no supervisor ever: the Start strip, one row per harness, Start disabled where the harness is missing |
+| `42-menu-stop-armed-<light or dark>.png` | Stop after its first press in the model menu's slice: "Press again to stop" |
+| `42-menu-stop-<light or dark>.png` | the same head at rest: Stop |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |
@@ -130,7 +141,7 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 ## Rules
 
-**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer and a report's Ack; the supervisor controls are buttons in the pane head, and the ask's option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except Open in browser in the overflow menu, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
+**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer, a report's Ack, the model menu's model, effort and harness fields and the Start strip's; the supervisor controls are buttons in the pane head, and the ask's option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except Open in browser in the overflow menu, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
 
 **The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file and `prefs.json` beside it, and does not import the CLI, the board service or the state store.
 

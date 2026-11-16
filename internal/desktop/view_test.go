@@ -151,18 +151,6 @@ func TestThePaneHeadShowsOnlyTheControlsThatApply(t *testing.T) {
 	}
 }
 
-func TestWithNoSupervisorTheHeadOnlyOpensTheBoard(t *testing.T) {
-	f := goldenFixture(t)
-	st := f.status[fleetID]
-	st.Supervisor = nil
-	f.status[fleetID] = st
-	tt := newTester(newApp(t, f))
-	mustText(t, tt, "Open in browser", "More")
-	for _, s := range []string{"Start new", "Resume", "Stop", "Interrupt", "Force"} {
-		mustNotText(t, tt, s)
-	}
-}
-
 func TestStopNeedsASecondPressWithinTheWindow(t *testing.T) {
 	f := goldenFixture(t)
 	app := newApp(t, f)
@@ -375,8 +363,8 @@ func TestASupervisorControlWarnsWhenTheStatusCannotBeRead(t *testing.T) {
 	if ref != "s1" {
 		t.Fatalf("the control sent ref %q", ref)
 	}
-	if got := f.count("status:" + fleetID); got != before {
-		t.Fatalf("the window re-read the status: %d reads, want %d", got, before)
+	if got := f.count("status:" + fleetID); got != before+1 {
+		t.Fatalf("the window read the status %d times, want %d: an accepted control asks for a refresh", got, before+1)
 	}
 }
 

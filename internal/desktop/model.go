@@ -53,6 +53,55 @@ type Supervisor struct {
 	Ask       *Ask   `json:"ask,omitempty"`
 }
 
+type ModelOption struct {
+	Name       string   `json:"name"`
+	Text       string   `json:"text"`
+	Efforts    []string `json:"efforts,omitempty"`
+	Unverified bool     `json:"unverified,omitempty"`
+	Selected   bool     `json:"selected,omitempty"`
+}
+
+type ModelGroup struct {
+	Label  string        `json:"label"`
+	Models []ModelOption `json:"models"`
+}
+
+type Harness struct {
+	Name    string       `json:"name"`
+	Groups  []ModelGroup `json:"groups"`
+	Efforts []string     `json:"efforts,omitempty"`
+	Note    string       `json:"note,omitempty"`
+	Missing string       `json:"missing,omitempty"`
+	Model   string       `json:"model,omitempty"`
+	Effort  string       `json:"effort,omitempty"`
+}
+
+type Models struct {
+	Harnesses  []Harness `json:"harnesses"`
+	Current    string    `json:"current,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Effort     string    `json:"effort,omitempty"`
+	ModelNote  string    `json:"model_note,omitempty"`
+	Switching  string    `json:"switching,omitempty"`
+	Drop       string    `json:"drop,omitempty"`
+	DropRef    string    `json:"drop_ref,omitempty"`
+	Switchable bool      `json:"switchable,omitempty"`
+	Resumable  bool      `json:"resumable,omitempty"`
+}
+
+type Switch struct {
+	Ref     string `json:"ref"`
+	Harness string `json:"harness,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Cancel  bool   `json:"cancel,omitempty"`
+}
+
+type Refreshed struct {
+	Models        Models
+	Receipt, Warn string
+}
+
 type Ask struct {
 	Question string      `json:"question"`
 	Options  []AskOption `json:"options"`

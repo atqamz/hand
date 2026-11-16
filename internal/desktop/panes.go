@@ -71,7 +71,7 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 		}
 	}
 	pane.Children(func() {
-		a.paneHead(c, k, p)
+		a.paneHead(c, k, p, width)
 		if sup := a.Status.Supervisor; sup != nil && sup.Blocked && a.known() {
 			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 8).Children(func() { a.blockedKeys(c, p, sup) })
 		}
@@ -131,24 +131,56 @@ func (a *App) knownSupervisor() *Supervisor {
 	return a.Status.Supervisor
 }
 
-func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette) {
+func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 	sup := a.Status.Supervisor
-	ui.Row(c).MinHeight(kit.Sheet).Padding(kit.Space8, kit.Space16).Gap(kit.Space8).AlignItems(ui.Center).
-		BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Label("Supervisor").Children(func() {
-		switch {
-		case !a.known():
-			ui.Spacer(c)
-		case sup == nil:
-			ui.Spacer(c)
-			if headButton(c, "open-browser", "Open in browser", nil, look{k.LineStrong, k.FG, k.BG}, a.OpenBusy) {
-				a.OpenInBrowser()
-			}
-		default:
-			ui.Text(c, sup.Ref).Font("monospace").FontSize(kit.Meta.Size).Bold()
-			ui.Text(c, modelLine(sup)).FontSize(kit.Body.Size).Bold().SingleLine().Ellipsis("…").Grow(1)
-			a.controls(c, k, sup)
+	below := a.known() && (sup == nil || a.Models.Switching != "")
+	head := ui.Column(c).FillWidth().Label("Supervisor")
+	if below {
+		head.BorderWidth(0, 0, 1, 0).BorderColor(k.Line)
+	}
+	head.Children(func() {
+		row := ui.Row(c).FillWidth().MinHeight(kit.Sheet).Padding(kit.Space8, kit.Space16).Gap(kit.Space8).
+			AlignItems(ui.Center)
+		if !below {
+			row.BorderWidth(0, 0, 1, 0).BorderColor(k.Line)
 		}
-		a.overflow(c, k, a.knownSupervisor())
+		row.Children(func() {
+			switch {
+			case !a.known(), sup == nil:
+				ui.Spacer(c)
+			default:
+				ui.Text(c, sup.Ref).Font("monospace").FontSize(kit.Meta.Size).Bold().Shrink(0)
+				if sup.Status != "running" {
+					a.modelOpen = false
+					ui.Text(c, modelLine(sup)).FontSize(kit.Body.Size).Bold().SingleLine().Ellipsis("…").Grow(1)
+				} else {
+					ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
+						a.modelHead(c, k, p, sup)
+					})
+				}
+				a.controls(c, k, sup)
+			}
+			a.overflow(c, k, a.knownSupervisor())
+		})
+		if !a.known() {
+			return
+		}
+		if sup == nil {
+			ui.Column(c).FillWidth().Padding(0, kit.Space16, kit.Space12).Children(func() {
+				a.startStrip(c, k, p, width)
+			})
+			return
+		}
+		if a.Models.Switching != "" {
+			ui.Row(c).FillWidth().Padding(0, kit.Space16, kit.Space8).Gap(kit.Space8).
+				AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "next turn: "+a.Models.Switching).FontSize(kit.Body.Size).Bold().
+					TextColor(p.wait).SingleLine().Ellipsis("…").Grow(1)
+				if kit.Button(c, k, "switch:cancel", "Cancel switch", 120, a.Busy) {
+					a.cancelSwitch(a.Models.DropRef)
+				}
+			})
+		}
 	})
 }
 
@@ -172,6 +204,11 @@ func (a *App) controls(c *ui.Context, k kit.Colors, sup *Supervisor) {
 	}
 	plain := look{k.LineStrong, k.FG, k.BG}
 	danger := look{k.Fail, k.Fail, k.BG}
+	if !sup.Live && a.Models.Drop != "" {
+		if headButton(c, "switch:drop", "Drop switch", nil, plain, a.Busy) {
+			a.cancelSwitch(a.Models.DropRef)
+		}
+	}
 	switch {
 	case sup.Status == "running":
 		if a.Status.AgentState == "working" && !sup.Blocked &&
@@ -319,6 +356,9 @@ func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 		}
 		if m.Item("Open in browser").Disabled(a.OpenBusy).Chosen() {
 			a.OpenInBrowser()
+		}
+		if m.Item("Refresh models").Disabled(a.modelsBusy).Chosen() {
+			a.refreshModels()
 		}
 	})
 }
