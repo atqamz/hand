@@ -7,14 +7,18 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 )
 
 const (
 	maxInlineImage = 4 << 20
 	maxInlineTotal = 16 << 20
+	maxInlinePaths = 256
 	htmlSpace      = " \t\n\f\r"
 )
+
+var rawText = []string{"script", "style", "textarea", "title", "xmp", "noembed", "noframes", "iframe"}
 
 type inlined struct {
 	home, dir string
@@ -42,12 +46,6 @@ func asciiLower(b []byte) []byte {
 	return low
 }
 
-func atTag(low []byte, name string) bool {
-	k := 1 + len(name)
-	return len(low) > k && low[0] == '<' && string(low[1:k]) == name && strings.IndexByte(htmlSpace+"/>", low[k]) >= 0
-}
-
-// shortcut: only <img src> is rewritten, srcset, <picture>, <input type=image> and CSS url() keep not loading; upgrade when a report needs them.
 func (b *Board) inlineImages(h []byte, rel string) []byte {
 	low := asciiLower(h)
 	if bytes.Contains(low, []byte("<base")) {
@@ -70,28 +68,42 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 			} else {
 				i += 4 + end + 3
 			}
-		case atTag(low[i:], "script"), atTag(low[i:], "style"), atTag(low[i:], "textarea"), atTag(low[i:], "title"):
-			name := string(low[i+1 : i+1+bytes.IndexAny(low[i+1:], htmlSpace+"/>")])
-			end := bytes.Index(low[i:], []byte("</"+name))
+		case bytes.HasPrefix(low[i:], []byte("<!")), bytes.HasPrefix(low[i:], []byte("<?")):
+			end := bytes.IndexByte(h[i:], '>')
 			if end < 0 {
 				i = len(h)
 			} else {
 				i += end + 1
 			}
-		case atTag(low[i:], "img"):
-			end, attrs, ok := parseImg(h[i:])
+		case atTagStart(low[i:]):
+			k := 1
+			if low[i+k] == '/' {
+				k++
+			}
+			closing := k == 2
+			name := low[i+k : i+k+tagNameLen(low[i+k:])]
+			end, attrs, ok := parseTag(h[i:], k+len(name))
 			if !ok {
-				i++
+				i = len(h)
 				break
 			}
-			if v, vs, ve, ok := imgSrc(h[i:i+end], attrs); ok {
-				if uri := n.uri(v); uri != "" {
-					out.Write(h[last : i+vs])
-					out.WriteString(`"` + uri + `"`)
-					last = i + ve
+			if !closing && string(name) == "img" {
+				if v, vs, ve, ok := imgSrc(h[i:i+end], attrs); ok {
+					if uri := n.uri(v); uri != "" {
+						out.Write(h[last : i+vs])
+						out.WriteString(`"` + uri + `"`)
+						last = i + ve
+					}
 				}
 			}
 			i += end
+			if !closing && slices.Contains(rawText, string(name)) {
+				if at := bytes.Index(low[i:], []byte("</"+string(name))); at < 0 {
+					i = len(h)
+				} else {
+					i += at
+				}
+			}
 		default:
 			i++
 		}
@@ -103,8 +115,24 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 	return out.Bytes()
 }
 
-func parseImg(t []byte) (end int, attrs []imgAttr, ok bool) {
-	i := 4
+func atTagStart(low []byte) bool {
+	k := 1
+	if len(low) > 1 && low[1] == '/' {
+		k = 2
+	}
+	return len(low) > k && 'a' <= low[k] && low[k] <= 'z'
+}
+
+func tagNameLen(low []byte) int {
+	k := 0
+	for k < len(low) && strings.IndexByte(htmlSpace+"/>", low[k]) < 0 {
+		k++
+	}
+	return k
+}
+
+func parseTag(t []byte, start int) (end int, attrs []imgAttr, ok bool) {
+	i := start
 	for i < len(t) {
 		for i < len(t) && strings.IndexByte(htmlSpace+"/", t[i]) >= 0 {
 			i++
@@ -116,11 +144,11 @@ func parseImg(t []byte) (end int, attrs []imgAttr, ok bool) {
 			return i + 1, attrs, true
 		}
 		s := i
-		for i < len(t) && strings.IndexByte(htmlSpace+"/>=", t[i]) < 0 {
+		if t[i] == '=' {
 			i++
 		}
-		if i == s {
-			return 0, nil, false
+		for i < len(t) && strings.IndexByte(htmlSpace+"/>=", t[i]) < 0 {
+			i++
 		}
 		a := imgAttr{name: string(asciiLower(t[s:i]))}
 		for i < len(t) && strings.IndexByte(htmlSpace, t[i]) >= 0 {
@@ -179,9 +207,10 @@ func (n *inlined) uri(v string) string {
 	}
 	e, ok := n.seen[rel]
 	if !ok {
-		if n.left > 0 {
-			e = n.load(rel)
+		if n.left <= 0 || len(n.seen) >= maxInlinePaths {
+			return ""
 		}
+		e = n.load(rel)
 		n.seen[rel] = e
 	}
 	if e.n == 0 || e.n > n.left {

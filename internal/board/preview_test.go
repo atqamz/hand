@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -498,7 +499,7 @@ func TestAnHTMLPreviewInlinesWithinItsCaps(t *testing.T) {
 func TestTheRawHTMLDownloadIsTheFileByteForByte(t *testing.T) {
 	html := `<!doctype html><img src="shot.png"><p>é</p>`
 	h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
-	for _, q := range []string{"?raw", "?raw&x=1"} {
+	for _, q := range []string{"?raw", "?raw&x=1", "?raw&frame", "?frame&raw"} {
 		rec := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true)
 		if rec.Body.String() != html || rec.Header().Get("Content-Security-Policy") != framedCSP {
 			t.Errorf("%s = %q %q", q, rec.Body.String(), rec.Header().Get("Content-Security-Policy"))
@@ -509,5 +510,91 @@ func TestTheRawHTMLDownloadIsTheFileByteForByte(t *testing.T) {
 	}
 	if rec := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, false); rec.Code == http.StatusOK {
 		t.Errorf("the frame without the cookie = %d", rec.Code)
+	}
+}
+
+func frameOf(t *testing.T, files map[string]string, q string) (string, time.Duration) {
+	t.Helper()
+	h, _ := viewer(t, files)
+	start := time.Now()
+	rec := request(h, "GET", "/doc/r/page.html"+q, nil, true)
+	return rec.Body.String(), time.Since(start)
+}
+
+func TestAnHTMLPreviewScanIsLinearInThePage(t *testing.T) {
+	for _, unit := range []string{"<img ", "<img a='", "<img a ", "<a ", "<a b=\"", "<!-- <img ", "<script ", "<!x "} {
+		page := strings.Repeat(unit, 64<<10/len(unit))
+		got, took := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
+		t.Logf("%q x %d: %v", unit, 64<<10/len(unit), took)
+		if got != page || took > 2*time.Second {
+			t.Errorf("%q x %d: changed %v, took %v", unit, 64<<10/len(unit), got != page, took)
+		}
+	}
+	if testing.Short() {
+		return
+	}
+	page := strings.Repeat("<img ", 8<<20/5)
+	got, took := frameOf(t, map[string]string{"r/page.html": page}, "?frame")
+	t.Logf("8 MiB of <img : %v", took)
+	if got != page || took > 5*time.Second {
+		t.Errorf("8 MiB of <img : took %v", took)
+	}
+}
+
+func TestAnHTMLPreviewNeverRewritesTextInsideATagsAttribute(t *testing.T) {
+	uri := dataURI("image/png", flowPNG)
+	for _, c := range []struct{ in, want string }{
+		{`<a title="<img src=a.png>">`, `<a title="<img src=a.png>">`},
+		{`<a title="<img src='a.png'>">`, `<a title="<img src='a.png'>">`},
+		{`<iframe srcdoc="<img src=a.png>">`, `<iframe srcdoc="<img src=a.png>">`},
+		{`<a title='<img src="a.png">'>`, `<a title='<img src="a.png">'>`},
+		{`<a title=<img src=a.png>>`, `<a title=<img src=a.png>>`},
+		{`<p data-x="1" title="a > <img src=a.png>" class=b><img src=a.png>`, `<p data-x="1" title="a > <img src=a.png>" class=b><img src="` + uri + `">`},
+		{`</p title="<img src=a.png>"><img src=a.png>`, `</p title="<img src=a.png>"><img src="` + uri + `">`},
+		{`<script title="</script>"><img src=a.png></script><img src=a.png>`, `<script title="</script>"><img src=a.png></script><img src="` + uri + `">`},
+		{`<a =x title="<img src=a.png>"><img src=a.png>`, `<a =x title="<img src=a.png>"><img src="` + uri + `">`},
+		{`<xmp><img src=a.png></xmp><noembed><img src=a.png></noembed><noframes><img src=a.png></noframes><iframe><img src=a.png></iframe>`, `<xmp><img src=a.png></xmp><noembed><img src=a.png></noembed><noframes><img src=a.png></noframes><iframe><img src=a.png></iframe>`},
+		{`<!x <img src=a.png> ><?x <img src=a.png> ?><!doctype html><img src=a.png>`, `<!x <img src=a.png> ><?x <img src=a.png> ?><!doctype html><img src="` + uri + `">`},
+		{`<noscript><img src=a.png></noscript>`, `<noscript><img src="` + uri + `"></noscript>`},
+	} {
+		if got, _ := frameOf(t, map[string]string{"r/page.html": c.in, "r/a.png": string(flowPNG)}, "?frame"); got != c.want {
+			t.Errorf("%s\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestAnHTMLPreviewResolvesAtMostSomeDistinctPaths(t *testing.T) {
+	files := map[string]string{}
+	var page strings.Builder
+	for i := 0; i < 300; i++ {
+		files[fmt.Sprintf("r/p%d.png", i)] = string(flowPNG)
+		fmt.Fprintf(&page, `<img src="p%d.png">`, i)
+	}
+	page.WriteString(`<img src="p0.png"><img src="p299.png">`)
+	files["r/page.html"] = page.String()
+	got, _ := frameOf(t, files, "?frame")
+	if n := strings.Count(got, "data:image/png;base64,"); n != 257 {
+		t.Errorf("inlined %d, want 256 distinct paths and the repeat of one: 257", n)
+	}
+	if !strings.Contains(got, `<img src="p256.png">`) || !strings.HasSuffix(got, `<img src="p299.png">`) || strings.Contains(got, `<img src="p255.png">`) {
+		t.Errorf("the 256 first paths are inlined and the rest are left as written")
+	}
+}
+
+func TestAnHTMLPreviewOverEightMiBIsServedUnchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 16 MiB")
+	}
+	const eight = 8 << 20
+	tag := `<img src="a.png">`
+	for _, c := range []struct {
+		size    int
+		changed bool
+	}{{eight, true}, {eight + 1, false}} {
+		page := tag + strings.Repeat(" ", c.size-len(tag))
+		got, _ := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
+		if (got != page) != c.changed {
+			t.Errorf("%d bytes: changed = %v, want %v", c.size, got != page, c.changed)
+		}
 	}
 }

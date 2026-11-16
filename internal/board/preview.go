@@ -92,7 +92,8 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 	case text && isHTML(name):
 		ctype, policy = "text/html; charset=utf-8", sandbox+"; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
 		h.Set("X-Frame-Options", "SAMEORIGIN")
-		frame = r.URL.Query().Has("frame") && fi.Size() <= maxWhole
+		q := r.URL.Query()
+		frame = q.Has("frame") && !q.Has("raw") && fi.Size() <= maxWhole
 	case !text:
 		ctype = "application/octet-stream"
 		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
