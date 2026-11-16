@@ -140,6 +140,11 @@ func (a *App) refreshModels() {
 			return
 		}
 		a.showReceipt(r.Receipt, r.Warn, "models:refresh")
+		if r.Stale {
+			a.modelsFor = ""
+			a.syncModels()
+			return
+		}
 		if a.modelsKey() != key {
 			a.syncModels()
 			return

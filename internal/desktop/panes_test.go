@@ -527,3 +527,36 @@ func TestAShortConversationSitsNextToTheComposer(t *testing.T) {
 		t.Errorf("the only entry is at %v in the viewport %v, want it against the composer", one, view)
 	}
 }
+
+func TestTheOverflowHidesOpenInBrowserOnlyBeforeAnySupervisor(t *testing.T) {
+	firstRun := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		f.models[fleetID] = firstRunModels()
+	})
+	stopped := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		sup := *st.Supervisor
+		sup.Status, sup.Live, sup.Resumable = "stopped", false, false
+		st.Supervisor = &sup
+		f.status[fleetID] = st
+	})
+	for _, tc := range []struct {
+		name string
+		f    *fixture
+		want bool
+	}{
+		{"first-run", firstRun, false},
+		{"stopped", stopped, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := newTester(newApp(t, tc.f))
+			click(t, tt, "More")
+			mustText(t, tt, "Refresh now", "Refresh models")
+			if got := tt.HasText("Open in browser"); got != tc.want {
+				t.Fatalf("Open in browser shown = %v, want %v in %q", got, tc.want, tt.Texts())
+			}
+		})
+	}
+}

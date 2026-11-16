@@ -99,6 +99,7 @@ type Switch struct {
 
 type Refreshed struct {
 	Models        Models
+	Stale         bool
 	Receipt, Warn string
 }
 

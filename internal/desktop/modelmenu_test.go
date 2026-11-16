@@ -119,7 +119,7 @@ func TestScenesTheModelMenu(t *testing.T) {
 			ms := f.models[fleetID]
 			ms.Switching = "opus high"
 			f.models[fleetID] = ms
-		}, nil, []string{"next turn: opus high", "Cancel switch", "Interrupt", "Stop"}},
+		}, nil, []string{"next turn: opus · high", "Cancel switch", "Interrupt", "Stop"}},
 		{"cancel", func(f *fixture) {
 			ms := f.models[fleetID]
 			ms.Switching = "opus high"
@@ -425,10 +425,10 @@ func TestAControlDuringAModelReadReadsTheModelsAgain(t *testing.T) {
 	posted := make(chan func(), 16)
 	app.Post = func(fn func()) { posted <- fn }
 	f.mu.Lock()
-	f.modelsBlock, f.modelsBlockFor, f.modelsEntered = make(chan struct{}), fleetID, make(chan struct{}, 4)
+	f.modelsBlock, f.modelsBlockFor, f.modelsEntered = make(chan struct{}), fleetID, make(chan struct{}, 8)
 	f.mu.Unlock()
 	tt := sized(t, app, 1100, 760, false)
-	click(t, tt, "sonnet · low")
+	openMenu(t, tt, f)
 	select {
 	case <-f.modelsEntered:
 	case <-time.After(5 * time.Second):
@@ -438,11 +438,25 @@ func TestAControlDuringAModelReadReadsTheModelsAgain(t *testing.T) {
 	click(t, tt, "Switch after this turn")
 	waitPost(t, posted)()
 	waitPost(t, posted)()
+	select {
+	case <-f.modelsEntered:
+		t.Fatal("the control scheduled a read while one was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
 	close(f.modelsBlock)
 	waitPost(t, posted)()
-	waitPost(t, posted)()
-	if got := f.count("models:" + fleetID); got < reads+1 {
-		t.Fatalf("the models were read %d times, want a follow-up after the read in flight", got-reads)
+	select {
+	case <-f.modelsEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never posted the follow-up read")
+	}
+	select {
+	case <-f.modelsEntered:
+		t.Fatal("the control scheduled a second follow-up read")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := f.count("models:" + fleetID); got != reads+1 {
+		t.Fatalf("the models were read %d times, want exactly one follow-up after the read in flight", got-reads)
 	}
 }
 
@@ -519,4 +533,115 @@ func TestStopStillDisarmsOnItsOwnWindow(t *testing.T) {
 	clock.Advance(time.Millisecond)
 	tt.Frame()
 	mustNotText(t, tt, "Press again to stop")
+}
+
+func TestAnAcceptedRefreshKeepsTheCatalogue(t *testing.T) {
+	f := menuFixture(t, nil)
+	f.refreshStale = true
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	before := f.count("models:" + fleetID)
+	menu(t, tt, "Refresh models")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Refreshing models…")
+	if got, want := len(app.Models.Harnesses), len(fullModels().Harnesses); got != want {
+		t.Fatalf("an accepted refresh left %d harnesses, want %d", got, want)
+	}
+	waitPost(t, posted)()
+	if got := f.count("models:" + fleetID); got != before+1 {
+		t.Fatalf("the models were read %d times, want one follow-up read after an accepted refresh", got-before)
+	}
+}
+
+func TestALateModelReadAfterTheSupervisorChangedIsDiscarded(t *testing.T) {
+	f := menuFixture(t, nil)
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	renameFirstHarness(f, "stale")
+	f.mu.Lock()
+	f.modelsBlock, f.modelsBlockFor, f.modelsEntered = make(chan struct{}), fleetID, make(chan struct{}, 4)
+	f.mu.Unlock()
+	openMenu(t, tt, f)
+	select {
+	case <-f.modelsEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never read the models")
+	}
+	renameFirstHarness(f, "fresh")
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Ref = "s2"
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+	app.Reload()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if app.Status.Supervisor == nil || app.Status.Supervisor.Ref != "s2" {
+		t.Fatalf("the status did not move to s2: %+v", app.Status.Supervisor)
+	}
+	close(f.modelsBlock)
+	waitPost(t, posted)()
+	tt.Frame()
+	if len(app.Models.Harnesses) == 0 || app.Models.Harnesses[0].Name != "claude" {
+		t.Fatalf("the late answer for s1 was stored after the supervisor became s2: %+v", app.Models.Harnesses)
+	}
+	mustNotText(t, tt, "stale")
+}
+
+func renameFirstHarness(f *fixture, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ms := f.models[fleetID]
+	ms.Harnesses = append([]desktop.Harness(nil), ms.Harnesses...)
+	ms.Harnesses[0].Name = name
+	f.models[fleetID] = ms
+}
+
+func TestFormEditsSurviveAModelRead(t *testing.T) {
+	f := menuFixture(t, nil)
+	app := newApp(t, f)
+	tt := newTester(app)
+	openMenu(t, tt, f)
+	click(t, tt, "keep sonnet")
+	click(t, tt, "Opus 5.5 · opus")
+	click(t, tt, "keep low")
+	click(t, tt, "high")
+	before := f.count("models:" + fleetID)
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Ref = "s2"
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+	app.Reload()
+	if got := f.count("models:" + fleetID); got != before+1 {
+		t.Fatalf("the models were read %d times, want one read", got-before)
+	}
+	tt.Frame()
+	click(t, tt, "Switch after this turn")
+	tt.Frame()
+	f.mu.Lock()
+	sw := f.switchReq
+	f.mu.Unlock()
+	if sw.Model != "opus" || sw.Effort != "high" {
+		t.Fatalf("switch sent %+v, want the edited opus high to survive the read", sw)
+	}
+}
+
+func TestStopDisarmsWhenAKeyIsPressed(t *testing.T) {
+	f := blockedScreen(t, true)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Stop")
+	mustText(t, tt, "Press again to stop")
+	click(t, tt, "1 Yes")
+	tt.Frame()
+	mustNotText(t, tt, "Press again to stop")
+	if app.StopArmed {
+		t.Fatal("Stop stayed armed through a key press")
+	}
 }

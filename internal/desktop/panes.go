@@ -174,7 +174,7 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 		if a.Models.Switching != "" {
 			ui.Row(c).FillWidth().Padding(0, kit.Space16, kit.Space8).Gap(kit.Space8).
 				AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "next turn: "+a.Models.Switching).FontSize(kit.Body.Size).Bold().
+				ui.Text(c, "next turn: "+switchLine(a.Models.Switching)).FontSize(kit.Body.Size).Bold().
 					TextColor(p.wait).SingleLine().Ellipsis("…").Grow(1)
 				if kit.Button(c, k, "switch:cancel", "Cancel switch", 120, a.Busy) {
 					a.cancelSwitch(a.Models.DropRef)
@@ -182,6 +182,14 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 			})
 		}
 	})
+}
+
+func switchLine(switching string) string {
+	model, effort, ok := strings.Cut(switching, " ")
+	if !ok {
+		return switching
+	}
+	return model + " · " + effort
 }
 
 func modelLine(sup *Supervisor) string {
@@ -354,7 +362,7 @@ func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 		if m.Item("Refresh now").Chosen() {
 			a.Refresh()
 		}
-		if m.Item("Open in browser").Disabled(a.OpenBusy).Chosen() {
+		if sup != nil && m.Item("Open in browser").Disabled(a.OpenBusy).Chosen() {
 			a.OpenInBrowser()
 		}
 		if m.Item("Refresh models").Disabled(a.modelsBusy).Chosen() {

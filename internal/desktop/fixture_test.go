@@ -90,6 +90,7 @@ type fixture struct {
 	switchReq      desktop.Switch
 	refreshWith    string
 	refreshErr     error
+	refreshStale   bool
 }
 
 func (f *fixture) count(name string) int {
@@ -436,6 +437,7 @@ func (f *fixture) Models(ctx context.Context, id string) (desktop.Models, error)
 	f.mu.Lock()
 	block, blockFor := f.modelsBlock, f.modelsBlockFor
 	entered := f.modelsEntered
+	read := f.models[id]
 	f.mu.Unlock()
 	if block != nil && blockFor == id {
 		if entered != nil {
@@ -446,9 +448,7 @@ func (f *fixture) Models(ctx context.Context, id string) (desktop.Models, error)
 	if f.modelsErr != nil {
 		return desktop.Models{}, f.modelsErr
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.models[id], nil
+	return read, nil
 }
 
 func (f *fixture) StartWith(ctx context.Context, id, harness, model, effort string) (desktop.Control, error) {
@@ -529,6 +529,9 @@ func (f *fixture) RefreshModels(ctx context.Context, id, harness string) (deskto
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.refreshStale {
+		return desktop.Refreshed{Stale: true, Receipt: receipt, Warn: f.warn}, nil
+	}
 	return desktop.Refreshed{Models: f.models[id], Receipt: receipt, Warn: f.warn}, nil
 }
 

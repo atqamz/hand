@@ -1224,6 +1224,7 @@ func (a *App) Press(label string, keys ...string) {
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	a.Busy, a.BusyAction = true, "key:"+strings.Join(keys, " ")
+	a.disarmStop()
 	sent := sentKeyLabel(label)
 	applied := func(c Control) {
 		if id != a.loadID {

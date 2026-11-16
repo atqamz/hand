@@ -563,14 +563,19 @@ type refreshChoice struct {
 	Harness string `json:"harness,omitempty"`
 }
 
+type refreshReply struct {
+	Models
+	Accepted bool `json:"accepted"`
+}
+
 func (c *HTTPClient) RefreshModels(ctx context.Context, fleet, harness string) (Refreshed, error) {
 	var body any
 	if harness != "" {
 		body = refreshChoice{Harness: harness}
 	}
-	var out Models
+	var out refreshReply
 	env, err := c.post(ctx, fleet, "/models/refresh", body, &out)
-	return Refreshed{Models: out, Receipt: env.Receipt, Warn: env.Warn}, err
+	return Refreshed{Models: out.Models, Stale: out.Accepted, Receipt: env.Receipt, Warn: env.Warn}, err
 }
 
 type keysRequest struct {
