@@ -122,6 +122,9 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	working.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, working.handler(), "/"), "console")
 	contains(t, "working", console, `id="model-menu"`, `action="/supervisor/switch"`, `action="/supervisor/interrupt"`, `id="more-menu"`, `action="/supervisor/stop"`, "sonnet · low")
+	if n, forms := strings.Count(console, `name="ref" value="s1"`), strings.Count(console, `action="/supervisor/switch"`); n != forms {
+		t.Fatalf("%d of %d switch forms carry the ref:\n%s", n, forms, console)
+	}
 	idle := newFixture(t)
 	idle.status = "idle"
 	idle.supervisor(t, state.AttemptRunning, "gen-1")
@@ -259,13 +262,13 @@ func TestDraftsKeyOnTheFormIdentity(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
 	lacks(t, "console", console, "data-draft-key")
-	keyed := regexp.MustCompile(`action="/supervisor/switch" data-fetch><input type="hidden" name="csrf" value="[^"]*">(<input type="hidden" name="harness" value="([^"]+)">)?`).FindAllStringSubmatch(console, -1)
+	keyed := regexp.MustCompile(`action="/supervisor/switch" data-fetch><input type="hidden" name="csrf" value="[^"]*">(<input type="hidden" name="ref" value="[^"]*">)?(<input type="hidden" name="harness" value="([^"]+)">)?`).FindAllStringSubmatch(console, -1)
 	seen := map[string]bool{}
 	for _, m := range keyed {
-		if seen[m[2]] {
-			t.Fatalf("two switch forms share the identity %q:\n%s", m[2], console)
+		if seen[m[3]] {
+			t.Fatalf("two switch forms share the identity %q:\n%s", m[3], console)
 		}
-		seen[m[2]] = true
+		seen[m[3]] = true
 	}
 	if len(keyed) < 2 || !seen[""] || !seen["codex"] {
 		t.Fatalf("switch forms = %v:\n%s", seen, console)

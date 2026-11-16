@@ -455,6 +455,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
 	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode, agy or omp")
+	expect := fs.String("expect", "", "the supervisor the operator saw; refuse when another one is running")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -484,6 +485,9 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 				}
 				sup = last
 			}
+			if err := supervisorOnScreen(sup, *expect); err != nil {
+				return err
+			}
 			if _, err := st.CancelSupervisorSwitch(ctx, sup.ID); err != nil {
 				return err
 			}
@@ -493,6 +497,9 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
+			return err
+		}
+		if err := supervisorOnScreen(sup, *expect); err != nil {
 			return err
 		}
 		ref := state.SupervisorRef(sup.ID)

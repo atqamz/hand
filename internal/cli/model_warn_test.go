@@ -56,6 +56,17 @@ func TestSupervisorStartLeavesTheEffortToTheHarness(t *testing.T) {
 	}
 }
 
+func TestSupervisorSwitchRefusesAnotherSupervisorsRef(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	if _, errOut, code := h.run("supervisor", "switch", "--expect", "s2", "--model", "opus", "--effort", "high"); code != 3 || !strings.Contains(errOut, "s2 is on screen, but s1 is running now; refresh and try again") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if out := h.ok("supervisor", "switch", "--expect", "s1", "--model", "opus", "--effort", "high"); !strings.Contains(out, "switch: pending") {
+		t.Fatalf("switch = %q", out)
+	}
+}
+
 func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {
 	for _, c := range []struct {
 		args []string

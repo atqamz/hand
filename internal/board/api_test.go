@@ -1364,7 +1364,7 @@ func TestAPIMutationGolden(t *testing.T) {
 		{"report-acked", "/api/v1/report/r1/ack", nil},
 		{"message-sent", "/api/v1/message", map[string]string{"text": "hello from the desktop"}},
 		{"supervisor-started-with-choice", "/api/v1/supervisor/start", map[string]string{"harness": "claude", "model": "sonnet", "effort": "low"}},
-		{"supervisor-switched", "/api/v1/supervisor/switch", map[string]string{"model": "opus", "effort": "high"}},
+		{"supervisor-switched", "/api/v1/supervisor/switch", map[string]string{"ref": "s1", "model": "opus", "effort": "high"}},
 		{"models-refreshed", "/api/v1/models/refresh", map[string]string{"harness": "copilot"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -3043,27 +3043,27 @@ func TestAPISwitchModelOrHarness(t *testing.T) {
 		}
 		return env
 	}
-	env := post(map[string]any{"cancel": true}, []string{"supervisor", "switch", "--cancel"}, "Switch canceled")
+	env := post(map[string]any{"ref": "s1", "cancel": true}, []string{"supervisor", "switch", "--expect", "s1", "--cancel"}, "Switch canceled")
 	if _, st := apiInto[board.APIStatus](t, h, "/api/v1/status"); env.Cursor == "" || st.Supervisor == nil {
 		t.Fatalf("a switch answered no status: %+v", env)
 	}
-	post(map[string]string{"model": "opus", "effort": "high"}, []string{"supervisor", "switch", "--model", "opus", "--effort", "high"}, "Switch applied")
-	post(map[string]string{"harness": "codex"}, []string{"supervisor", "switch", "--harness", "codex"}, "Switching to codex…")
+	post(map[string]string{"ref": "s1", "model": "opus", "effort": "high"}, []string{"supervisor", "switch", "--expect", "s1", "--model", "opus", "--effort", "high"}, "Switch applied")
+	post(map[string]string{"ref": "s1", "harness": "codex"}, []string{"supervisor", "switch", "--expect", "s1", "--harness", "codex"}, "Switching to codex…")
 
 	ctx := context.Background()
 	if _, err := fx.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
 		t.Fatal(err)
 	}
-	post(map[string]string{"model": "opus"}, []string{"supervisor", "switch", "--model", "opus"}, "Switch set for after this turn")
+	post(map[string]string{"ref": "s1", "model": "opus"}, []string{"supervisor", "switch", "--expect", "s1", "--model", "opus"}, "Switch set for after this turn")
 	if _, err := fx.st.CancelSupervisorSwitch(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	fx.warn = state.NoteLost + ": is m available?"
-	post(map[string]string{"effort": "high"}, []string{"supervisor", "switch", "--effort", "high"}, "Switch applied, not answered")
+	post(map[string]string{"ref": "s1", "effort": "high"}, []string{"supervisor", "switch", "--expect", "s1", "--effort", "high"}, "Switch applied, not answered")
 
 	fx.fail = fmt.Errorf("%w: s1 is working; switch harness when its turn ends, or interrupt it first", state.ErrConflict)
 	before := len(calls)
-	err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", map[string]string{"harness": "codex"}, token, true), http.StatusConflict, "conflict")
+	err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", map[string]string{"ref": "s1", "harness": "codex"}, token, true), http.StatusConflict, "conflict")
 	if err.Message != "conflict: s1 is working; switch harness when its turn ends, or interrupt it first" || err.Warn != fx.warn {
 		t.Fatalf("conflict = %+v", err)
 	}
@@ -3076,9 +3076,11 @@ func TestAPISwitchModelOrHarness(t *testing.T) {
 		body any
 		want string
 	}{
-		{map[string]any{}, "give a model or effort"},
-		{map[string]string{"harness": "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot, omp`},
-		{map[string]string{"harness": "copilot", "model": "gpt-6-luna"}, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp"},
+		{map[string]any{}, "give the supervisor the status showed, as ref"},
+		{map[string]string{"ref": "nope"}, "give the supervisor the status showed, as ref"},
+		{map[string]string{"ref": "s1"}, "give a model or effort"},
+		{map[string]string{"ref": "s1", "harness": "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot, omp`},
+		{map[string]string{"ref": "s1", "harness": "copilot", "model": "gpt-6-luna"}, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp"},
 	} {
 		before := len(calls)
 		got := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", c.body, token, true), http.StatusBadRequest, "bad_request")
@@ -3089,8 +3091,8 @@ func TestAPISwitchModelOrHarness(t *testing.T) {
 			t.Fatalf("a refused switch ran %q", calls[before:])
 		}
 	}
-	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/switch", `{"model":"opus"} trailing`, token, true), http.StatusBadRequest, "bad_request")
-	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", map[string]string{"model": "opus"}, "", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/switch", `{"ref":"s1","model":"opus"} trailing`, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", map[string]string{"ref": "s1", "model": "opus"}, "", true), http.StatusForbidden, "csrf_required")
 
 	ctx2, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -3098,7 +3100,7 @@ func TestAPISwitchModelOrHarness(t *testing.T) {
 		cancel()
 		return "", nil
 	}
-	req := httptest.NewRequest("POST", "/api/v1/supervisor/switch", strings.NewReader(`{"model":"opus"}`))
+	req := httptest.NewRequest("POST", "/api/v1/supervisor/switch", strings.NewReader(`{"ref":"s1","model":"opus"}`))
 	req = req.WithContext(ctx2)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Hand-CSRF", token)

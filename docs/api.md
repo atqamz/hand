@@ -386,8 +386,10 @@ The triple goes through the harness's own check before the control runs, the sam
 `POST /api/v1/supervisor/switch` takes one JSON object:
 
 ```json
-{"model": "opus", "effort": "high"}
+{"ref": "s1", "model": "opus", "effort": "high"}
 ```
+
+`ref` is the supervisor the client's `Status` showed, as for stop and interrupt, and it is required: the board runs `supervisor switch --expect s1`, so a switch from a screen showing a replaced supervisor is `409 conflict` with `s2 is on screen, but s3 is running now; refresh and try again`, and nothing is switched.
 
 - `model` and `effort` set the pending switch, as the model menu's Switch does: the running turn finishes on the model it has, and the change lands after it. Either may be left out, and a supervisor that is idle switches at once. With all three fields empty and no `cancel`, the answer is `400 bad_request` with the board's own `give a model or effort`.
 - `harness` switches to another harness, which the board does between turns: a working supervisor is `409 conflict` with the CLI's sentence, and an idle one stops and starts the new harness now. Its receipt is `Switching to codex…`.
@@ -396,9 +398,9 @@ The triple goes through the harness's own check before the control runs, the sam
 
 The answer is the `Status` the GET serves, after the switch, or `{"accepted": true}` with the caveat in `warn` when the switch went through but the status could not be read back: the switch is set, so a client does not send it again, shows the warn and refreshes.
 
-- `400 bad_request`: a body that is not one JSON object, nothing to switch to and no `cancel`, or a harness the board does not know or cannot supervise.
+- `400 bad_request`: a body that is not one JSON object, a `ref` that is not `sN`, nothing to switch to and no `cancel`, or a harness the board does not know or cannot supervise.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
-- `409 conflict`: a harness switch while the supervisor is working, a model already running, a supervisor with no session yet, or another state the CLI refuses; the message is the CLI's.
+- `409 conflict`: another supervisor runs than the `ref` the client showed, a harness switch while the supervisor is working, a model already running, a supervisor with no session yet, or another state the CLI refuses; the message is the CLI's.
 - `200` with the updated `Status`, or `{"accepted": true}` when the status could not be read.
 
 ### Refreshing the model lists

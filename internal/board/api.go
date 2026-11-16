@@ -570,6 +570,7 @@ type apiStartBody struct {
 }
 
 type apiSwitchBody struct {
+	Ref     string `json:"ref"`
 	Harness string `json:"harness"`
 	Model   string `json:"model"`
 	Effort  string `json:"effort"`
@@ -935,11 +936,16 @@ func (b *Board) apiSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in apiSwitchBody
-	if !b.apiObject(w, r, &in, "send one JSON object with harness, model, effort and cancel") {
+	if !b.apiObject(w, r, &in, "send one JSON object with ref, harness, model, effort and cancel") {
+		return
+	}
+	ref := strings.TrimSpace(in.Ref)
+	if !supervisorRef.MatchString(ref) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "give the supervisor the status showed, as ref")
 		return
 	}
 	h, m, e := strings.TrimSpace(in.Harness), strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)
-	args, receipt := []string{"supervisor", "switch"}, "Switch applied"
+	args, receipt := []string{"supervisor", "switch", "--expect", ref}, "Switch applied"
 	switch {
 	case in.Cancel:
 		args, receipt = append(args, "--cancel"), "Switch canceled"
