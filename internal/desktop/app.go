@@ -163,7 +163,11 @@ type App struct {
 	searchFor      TaskSearchQuery
 	searchStale    bool
 	searchStaleErr string
+	searchFails    int
+	searchSkip     int
 	projectsFor    string
+	projectsFails  int
+	projectsSkip   int
 	searchScroll   ui.ScrollState
 	base           Screen
 	Models         Models
@@ -429,6 +433,8 @@ func (a *App) SelectFleet(id string) {
 	a.SearchQ, a.SearchStatus, a.SearchProject, a.SearchSince, a.SearchUntil = "", "", "", "", ""
 	a.SearchErr, a.SearchBusy = "", false
 	a.searchStale, a.searchStaleErr = false, ""
+	a.searchFails, a.searchSkip = 0, 0
+	a.projectsFails, a.projectsSkip = 0, 0
 	a.searchGen++
 	a.searchFor, a.projectsFor = TaskSearchQuery{}, ""
 	a.Projects = Projects{}
@@ -1742,9 +1748,15 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.watchDeny()
 		a.syncModels()
 	}
-	if a.Fleet.ID == fleet && a.Screen == TasksScreen &&
-		(p.StatusFresh || a.searchStale || a.projectsFor == "") {
-		a.refreshTaskSearch()
+	if a.Fleet.ID == fleet && a.Screen == TasksScreen {
+		if a.projectsFor == "" {
+			a.retryProjects()
+		}
+		if p.StatusFresh {
+			a.refreshTaskSearch()
+		} else if a.searchStale {
+			a.retryStaleSearch()
+		}
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor

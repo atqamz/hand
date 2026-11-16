@@ -18,6 +18,7 @@ func (a *App) openTasks() {
 		return
 	}
 	a.projectsFor = ""
+	a.projectsFails, a.projectsSkip = 0, 0
 	a.loadProjects()
 	a.SearchQuery = a.formQuery(1)
 	a.runTaskSearch(false)
@@ -48,11 +49,31 @@ func (a *App) SearchPage(page int) {
 }
 
 func (a *App) refreshTaskSearch() {
-	if a.Model == nil || a.Fleet.ID == "" {
+	if a.Model == nil || a.Fleet.ID == "" || a.SearchBusy {
+		return
+	}
+	a.runTaskSearch(true)
+}
+
+func (a *App) pollSkips(fails int) int {
+	ticks := int(maxRefreshBackoff / a.pollDelay())
+	return min(1<<min(fails, 16), max(ticks, 1)) - 1
+}
+
+func (a *App) retryProjects() {
+	if a.projectsSkip > 0 {
+		a.projectsSkip--
 		return
 	}
 	a.loadProjects()
+}
+
+func (a *App) retryStaleSearch() {
 	if a.SearchBusy {
+		return
+	}
+	if a.searchSkip > 0 {
+		a.searchSkip--
 		return
 	}
 	a.runTaskSearch(true)
@@ -82,6 +103,7 @@ func (a *App) runTaskSearch(quiet bool) {
 		a.Search = TaskSearch{}
 		a.SearchErr, a.searchFor = "", TaskSearchQuery{}
 		a.searchStale, a.searchStaleErr = false, ""
+		a.searchFails, a.searchSkip = 0, 0
 	}
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(s TaskSearch, err error) {
@@ -94,11 +116,14 @@ func (a *App) runTaskSearch(quiet bool) {
 				a.SearchErr, a.searchFor = friendly(err), TaskSearchQuery{}
 			} else {
 				a.searchStale, a.searchStaleErr = true, friendly(err)
+				a.searchFails++
+				a.searchSkip = a.pollSkips(a.searchFails)
 			}
 			return
 		}
 		a.Search, a.SearchErr, a.searchFor = s, "", q
 		a.searchStale, a.searchStaleErr = false, ""
+		a.searchFails, a.searchSkip = 0, 0
 		a.SearchQuery.Page = s.Page
 	}
 	if post == nil {
@@ -127,9 +152,12 @@ func (a *App) loadProjects() {
 		}
 		if err != nil {
 			a.projectsFor = ""
+			a.projectsFails++
+			a.projectsSkip = a.pollSkips(a.projectsFails)
 			return
 		}
 		a.Projects = p
+		a.projectsFails, a.projectsSkip = 0, 0
 	}
 	if post == nil {
 		p, err := read.Projects(ctx, fleet)

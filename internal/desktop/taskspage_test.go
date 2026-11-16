@@ -606,7 +606,9 @@ func TestAFailedAutomaticSearchSaysStaleAndKeepsTheResults(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "Stale · retrying", "Sun 1 Nov UTC", "Move the rail to 1024 px")
 	f.searchErr = nil
-	clock.Advance(desktop.FocusedRefresh)
+	for range 5 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
 	tt.Frame()
 	mustNotText(t, tt, "Stale · retrying")
 }
@@ -624,7 +626,9 @@ func TestAFailedProjectReadIsRetriedOnTheNextTick(t *testing.T) {
 	clock := newFakeClock()
 	app.Clock = clock
 	app.StartRefresh()
-	clock.Advance(desktop.FocusedRefresh)
+	for range 5 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
 	tt.Frame()
 	mustText(t, tt, "All projects")
 }
@@ -840,6 +844,103 @@ func TestScenesTheTasksSearchSecondPageOfOne(t *testing.T) {
 			tt := sized(t, app, windowWidth, windowHeight, dark)
 			mustText(t, tt, "Previous", "No tasks match.", "5 tasks")
 			mustNotText(t, tt, "Page 2 of 1")
+			shotSized(t, tt, name, windowWidth, windowHeight)
+		})
+	}
+}
+
+func TestAHealthyUnchangedBoardReReadsNothing(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := quietApp(t, f, false)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	search, projects := f.count("search"), f.count("projects:"+fleetID)
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("search"); got != search {
+		t.Errorf("searches = %d, want the %d already made", got, search)
+	}
+	if got := f.count("projects:" + fleetID); got != projects {
+		t.Errorf("project reads = %d, want the %d already made", got, projects)
+	}
+}
+
+func TestAFailingProjectReadBacksOffAndLeavesTheSearchAlone(t *testing.T) {
+	f := searchFixture(t)
+	st := f.status[fleetID]
+	st.Projects = 2
+	f.status[fleetID] = st
+	f.projects[fleetID] = desktop.Projects{Projects: []string{"api", "web"}}
+	f.projectsErr = errors.New("the board did not answer")
+	app, tt := quietApp(t, f, false)
+	search := f.count("search")
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("projects:" + fleetID); got > 5 {
+		t.Errorf("project reads = %d over 20 unchanged ticks, want backoff", got)
+	}
+	if got := f.count("search"); got != search {
+		t.Errorf("searches = %d, want the %d already made while only projects fail", got, search)
+	}
+	mustNotText(t, tt, "Stale · retrying")
+}
+
+func TestAFailingSearchBacksOff(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := quietApp(t, f, false)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	model := app.Model.(*quietBoard)
+	model.fresh = true
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "Stale · retrying")
+	model.fresh = false
+	search, projects := f.count("search"), f.count("projects:"+fleetID)
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("search") - search; got > 6 {
+		t.Errorf("searches = %d over 20 unchanged ticks, want backoff", got)
+	}
+	if got := f.count("projects:" + fleetID); got != projects {
+		t.Errorf("project reads = %d, want the %d already made while only the search fails", got, projects)
+	}
+	tt.Frame()
+	mustText(t, tt, "Stale · retrying")
+}
+
+func TestScenesTheTasksSearchStaleWithChips(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		name := "54-tasks-search-stale-chips-1100x760-light"
+		if dark {
+			name = "54-tasks-search-stale-chips-1100x760-dark"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := searchFixture(t)
+			row := taskSearchRow("t3", "Docs", "hand", "active", "running")
+			row.UpdatedAt = "2026-11-01T09:00:00Z"
+			f.search[desktop.TaskSearchQuery{Status: "active", Page: 1}] = desktop.TaskSearch{Status: "active",
+				Page: 1, PageSize: 50, Total: 1, Pages: 1,
+				Groups: []desktop.TaskSearchGroup{{Name: "Sun 1 Nov UTC", Count: 1, Tasks: []desktop.TaskSearchRow{row}}}}
+			app, _ := searchApp(t, f)
+			app.SearchStatus = "active"
+			app.SearchNow()
+			clock := newFakeClock()
+			app.Clock = clock
+			app.StartRefresh()
+			f.searchErr = errors.New("the board did not answer")
+			clock.Advance(desktop.FocusedRefresh)
+			tt := sized(t, app, windowWidth, windowHeight, dark)
+			mustText(t, tt, "Stale · retrying", "Status Active", "Clear", "1 task", "Docs")
 			shotSized(t, tt, name, windowWidth, windowHeight)
 		})
 	}
