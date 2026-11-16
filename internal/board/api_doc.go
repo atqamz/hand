@@ -127,7 +127,7 @@ func (b *Board) apiDoc(w http.ResponseWriter, r *http.Request) {
 		for _, m := range ms {
 			e := APIDocEntry{Name: m.name, Path: rel + "/" + m.name, Kind: "file", Label: m.kind, Dir: m.dir, Image: m.image, At: m.at, Refused: m.refused}
 			switch {
-			case m.kind == "LINK":
+			case m.link:
 				e.Kind = "link"
 			case m.dir:
 				e.Kind = "folder"

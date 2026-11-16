@@ -86,7 +86,7 @@ func whyRefused(err error) string {
 
 type member struct {
 	name, kind, refused, at string
-	dir, image              bool
+	dir, image, link        bool
 	size                    int64
 }
 
@@ -104,7 +104,7 @@ func (b *Board) members(root, real string, f *os.File, rel string, page int) (ou
 		m := member{name: it.name, dir: it.dir, kind: "DIR", size: -1}
 		switch {
 		case it.link:
-			m.kind = "LINK"
+			m.kind, m.link = "LINK", true
 			_, _, fi, err := Resolve(b.o.Home, rel+"/"+it.name)
 			if err != nil {
 				m.refused = whyRefused(err)

@@ -124,6 +124,16 @@ func TestAPIDocFolderIsTheBoardsListing(t *testing.T) {
 	}
 }
 
+func TestAPIDocRegularFileNamedLinkIsNotALink(t *testing.T) {
+	h, _ := apiDocBoard(t, map[string]string{"reports/t1/a.link": "x\n", "reports/t1/b.txt": "b\n"})
+	_, got := apiInto[board.APIDocFolder](t, h, "/api/v1/doc/reports/t1")
+	e := got.Entries[0]
+	if e.Name != "a.link" || e.Kind != "file" || e.Label != "LINK" || e.Size == nil || *e.Size != 2 {
+		t.Errorf("a regular file named a.link = %+v", e)
+	}
+	contains(t, "the page's badge", get(t, h, "/doc/reports/t1"), `<span class="badge" aria-hidden="true">LINK</span><span class="name">a.link</span>`)
+}
+
 func TestAPIDocEmptyFolderHasNoEntriesNotNull(t *testing.T) {
 	h, home := apiDocBoard(t, map[string]string{"reports/t1/a.txt": "a"})
 	if err := os.Mkdir(filepath.Join(home, "reports", "empty"), 0o755); err != nil {
