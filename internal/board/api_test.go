@@ -453,6 +453,10 @@ func TestAPITasksSearchMatchesThePage(t *testing.T) {
 
 func TestAPITasksSearchRowCarriesThePageBadges(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	if _, err := fx.st.AddTaskUnder(ctx, 1, "hand", "Run it on Safari", ""); err != nil {
+		t.Fatal(err)
+	}
 	h := fx.handler()
 	_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?q=login&status=all")
 	if len(got.Groups) != 1 || len(got.Groups[0].Tasks) != 1 {
@@ -462,7 +466,7 @@ func TestAPITasksSearchRowCarriesThePageBadges(t *testing.T) {
 	if row.Ref != "t1" || row.Title != "Fix login" || row.Project != "hand" || row.Status != state.StatusActive || row.State != "waiting" {
 		t.Fatalf("row = %+v", row)
 	}
-	if row.Delivered == nil || row.OpenDecisions != 1 || row.Attempt == nil || row.Attempt.Ref != "a1" || row.UpdatedAt == "" || row.FinishedAt != "" {
+	if row.Delivered == nil || row.OpenDecisions != 1 || row.Attempt == nil || row.Attempt.Ref != "a1" || row.UpdatedAt == "" || row.FinishedAt != "" || row.Children != 1 {
 		t.Fatalf("row badges = %+v", row)
 	}
 }

@@ -1921,6 +1921,10 @@ func (b *Board) apiTaskSearchData(ctx context.Context, q url.Values) (APITaskSea
 	if err != nil {
 		return APITaskSearch{}, err
 	}
+	subs, err := b.st.ChildCounts(ctx)
+	if err != nil {
+		return APITaskSearch{}, err
+	}
 	out := APITaskSearch{
 		Q:        v.Q,
 		Status:   q.Get("status"),
@@ -1936,6 +1940,7 @@ func (b *Board) apiTaskSearchData(ctx context.Context, q url.Values) (APITaskSea
 	for _, g := range v.Groups {
 		group := APITaskSearchGroup{Name: g.Name, Count: g.Count, Tasks: make([]APITaskSearchRow, 0, len(g.Checks))}
 		for _, c := range g.Checks {
+			c.Subs = subs[c.Task.ID]
 			group.Tasks = append(group.Tasks, APITaskSearchRow{
 				APITaskRow:    apiRow(c),
 				UpdatedAt:     c.Task.UpdatedAt,
