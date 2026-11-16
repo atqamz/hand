@@ -34,6 +34,7 @@ func goldenServer(t *testing.T) (*httptest.Server, *[]string) {
 		"/api/v1/attempt/a1":  "attempt-running",
 		"/api/v1/decision/d1": "decision",
 		"/api/v1/report/r1":   "report",
+		"/api/v1/models":      "models",
 	}
 	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -648,6 +649,10 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 			name = "supervisor-keys"
 		case "/api/v1/supervisor/stop", "/api/v1/supervisor/interrupt", "/api/v1/supervisor/force":
 			name = "status"
+		case "/api/v1/supervisor/switch":
+			name = "supervisor-switched"
+		case "/api/v1/models/refresh":
+			name = "models-refreshed"
 		case "/api/v1/attempt/a1/keys":
 			name = "attempt-running"
 		default:
@@ -830,6 +835,82 @@ func TestHTTPClientPostsSupervisorControls(t *testing.T) {
 	}
 	if _, err := c.Supervise(ctx, fleetID, "stop", ""); err == nil {
 		t.Fatal("stop without the displayed supervisor was sent")
+	}
+}
+
+func TestHTTPClientReadsTheModelList(t *testing.T) {
+	srv, _ := goldenServer(t)
+	c := goldenClient(t, srv.URL)
+	ms, err := c.Models(context.Background(), fleetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ms.Current != "claude" || ms.Model != "sonnet" || ms.Effort != "low" || !ms.Switchable {
+		t.Fatalf("models = %+v", ms)
+	}
+	if len(ms.Harnesses) != 5 || ms.Harnesses[0].Name != "claude" || len(ms.Harnesses[0].Groups[0].Models) != 4 {
+		t.Fatalf("harnesses = %+v", ms.Harnesses)
+	}
+	if ms.Harnesses[1].Name != "codex" || len(ms.Harnesses[1].Groups) != 0 {
+		t.Fatalf("codex = %+v", ms.Harnesses[1])
+	}
+}
+
+func TestHTTPClientStartsWithAChoiceSwitchesAndRefreshes(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+
+	start, err := c.StartWith(ctx, fleetID, "claude", "opus", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start.Receipt != "Starting the supervisor…" || start.Status.Supervisor == nil {
+		t.Fatalf("start = %+v", start)
+	}
+	m.mu.Lock()
+	body := m.body
+	m.mu.Unlock()
+	if !strings.Contains(body, `"harness":"claude"`) || !strings.Contains(body, `"model":"opus"`) || !strings.Contains(body, `"effort":"high"`) {
+		t.Fatalf("start body = %q", body)
+	}
+
+	sw, err := c.Switch(ctx, fleetID, desktop.Switch{Ref: "s1", Model: "opus", Effort: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sw.Receipt != "Switch applied" {
+		t.Fatalf("switch receipt = %q", sw.Receipt)
+	}
+	m.mu.Lock()
+	body = m.body
+	m.mu.Unlock()
+	if !strings.Contains(body, `"ref":"s1"`) || !strings.Contains(body, `"model":"opus"`) {
+		t.Fatalf("switch body = %q", body)
+	}
+
+	ref, err := c.RefreshModels(ctx, fleetID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Receipt != "Refreshing models…" || ref.Models.Current != "claude" {
+		t.Fatalf("refresh = %+v", ref)
+	}
+	m.mu.Lock()
+	body = m.body
+	m.mu.Unlock()
+	if body != "" {
+		t.Fatalf("a refresh of every list sent %q", body)
+	}
+
+	if _, err := c.RefreshModels(ctx, fleetID, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	body = m.body
+	m.mu.Unlock()
+	if !strings.Contains(body, `"harness":"claude"`) {
+		t.Fatalf("refresh body = %q", body)
 	}
 }
 

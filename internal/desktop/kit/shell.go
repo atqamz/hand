@@ -260,3 +260,65 @@ func NavSheet(c *ui.Context, k Colors, open *bool, body func()) bool {
 	})
 	return el.Dismissed()
 }
+
+func FieldLabel(c *ui.Context, k Colors, text string) {
+	ui.Text(c, text).FontSize(Meta.Size).Bold().TextColor(k.Muted).Padding(Space4, 0, 0)
+}
+
+func Form(c *ui.Context, k Colors, body func()) {
+	ui.Column(c).Gap(Space8).Padding(Space12, 0, 0).BorderWidth(1, 0, 0, 0).
+		BorderColor(k.Line).Children(body)
+}
+
+func MenuPanel(c *ui.Context, k Colors, panel ui.Element, width, height float32) {
+	panel.Width(width).MaxHeight(height).Margin(Space6, 0, 0, 0).Padding(Space12).
+		Gap(Space8).Radius(RadiusLG).Background(k.BG).Border(1, k.Line).
+		Shadow(0, 8, 24, 0, k.Shadow)
+}
+
+type Option struct{ Value, Label string }
+
+func Select(c *ui.Context, k Colors, value *string, options []Option) {
+	sel := ui.SelectBase(c, value)
+	label := ""
+	for _, o := range options {
+		if o.Value == *value {
+			label = o.Label
+		}
+	}
+	trigger := sel.Trigger.Height(Control).Padding(0, Space10).Gap(Space6).Radius(RadiusMD).
+		Border(1, k.LineStrong).Background(k.BG).Justify(ui.SpaceBetween).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Label(label)
+	trigger.Children(func() {
+		ui.Text(c, label).FontSize(Body.Size).SingleLine().Ellipsis("…").Grow(1)
+		ui.Icon(c, Icon("chevron")).TextColor(k.Muted)
+	})
+	sel.Popup(func(panel ui.Element) {
+		panel.Padding(Space4).Radius(RadiusMD).Background(k.BG).Border(1, k.Line).
+			Shadow(0, 6, 20, 0, k.Shadow)
+		for _, o := range options {
+			option := o
+			item := sel.Item(option.Value).Height(Control).Padding(0, Space10).Radius(RadiusSM).
+				Cursor(ui.CursorPointer).Label(option.Label)
+			if item.Highlighted() {
+				item.Background(k.Hover)
+			}
+			item.Children(func() {
+				ui.Text(c, option.Label).FontSize(Body.Size).SingleLine().Ellipsis("…")
+			})
+		}
+	})
+}
+
+func Button(c *ui.Context, k Colors, key, label string, width float32, disabled bool) bool {
+	el := ui.ButtonBase(c.Key(key)).Height(Control).Padding(0, Space10).Radius(RadiusMD).
+		Border(1, k.LineStrong).Background(k.BG).Justify(ui.Center).AlignItems(ui.Center).
+		Disabled(disabled).Cursor(ui.CursorPointer).Label(label)
+	if width > 0 {
+		el.Width(width)
+	}
+	el.Children(func() {
+		ui.Text(c, label).FontSize(Body.Size).TextColor(k.FG).SingleLine()
+	})
+	return el.Clicked()
+}

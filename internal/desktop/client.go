@@ -38,6 +38,10 @@ type ReadModel interface {
 	AckReport(ctx context.Context, fleet, ref string) (Acked, error)
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
+	StartWith(ctx context.Context, fleet, harness, model, effort string) (Control, error)
+	Switch(ctx context.Context, fleet string, sw Switch) (Control, error)
+	Models(ctx context.Context, fleet string) (Models, error)
+	RefreshModels(ctx context.Context, fleet, harness string) (Refreshed, error)
 	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64, ref string) (Control, error)
 	PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (Pressed, error)
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
@@ -519,6 +523,59 @@ func (c *HTTPClient) Supervise(ctx context.Context, fleet, action, ref string) (
 	ctl := out.control()
 	ctl.Receipt, ctl.Warn = env.Receipt, env.Warn
 	return ctl, err
+}
+
+type startChoice struct {
+	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+}
+
+func (c *HTTPClient) StartWith(ctx context.Context, fleet, harness, model, effort string) (Control, error) {
+	if harness == "" {
+		return Control{}, errors.New("a first supervisor needs a harness")
+	}
+	var out controlReply
+	env, err := c.post(ctx, fleet, "/supervisor/start", startChoice{Harness: harness, Model: model, Effort: effort}, &out)
+	ctl := out.control()
+	ctl.Receipt, ctl.Warn = env.Receipt, env.Warn
+	return ctl, err
+}
+
+func (c *HTTPClient) Switch(ctx context.Context, fleet string, sw Switch) (Control, error) {
+	if sw.Ref == "" {
+		return Control{}, errors.New("a switch needs the supervisor the status showed")
+	}
+	var out controlReply
+	env, err := c.post(ctx, fleet, "/supervisor/switch", sw, &out)
+	ctl := out.control()
+	ctl.Receipt, ctl.Warn = env.Receipt, env.Warn
+	return ctl, err
+}
+
+func (c *HTTPClient) Models(ctx context.Context, fleet string) (Models, error) {
+	var out Models
+	_, err := c.get(ctx, fleet, "/models", &out)
+	return out, err
+}
+
+type refreshChoice struct {
+	Harness string `json:"harness,omitempty"`
+}
+
+type refreshReply struct {
+	Models
+	Accepted bool `json:"accepted"`
+}
+
+func (c *HTTPClient) RefreshModels(ctx context.Context, fleet, harness string) (Refreshed, error) {
+	var body any
+	if harness != "" {
+		body = refreshChoice{Harness: harness}
+	}
+	var out refreshReply
+	env, err := c.post(ctx, fleet, "/models/refresh", body, &out)
+	return Refreshed{Models: out.Models, Stale: out.Accepted, Receipt: env.Receipt, Warn: env.Warn}, err
 }
 
 type keysRequest struct {

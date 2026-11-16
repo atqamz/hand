@@ -148,6 +148,15 @@ type App struct {
 	draftText     string
 
 	Status         Status
+	Models         Models
+	modelErr       string
+	modelOpen      bool
+	modelsFor      string
+	modelsBusy     bool
+	modelsAgain    bool
+	modelsGen      int
+	change         pick
+	picks          map[string]*pick
 	Timeline       Timeline
 	Tasks          Tasks
 	Task           TaskDetail
@@ -398,6 +407,9 @@ func (a *App) SelectFleet(id string) {
 	a.openerRef, a.boardFocus = "", false
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
+	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
+	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
+	a.modelsGen++
 	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
 	a.misreadOpen = nil
 	a.resetDeny()
@@ -839,7 +851,7 @@ func (a *App) Answer() {
 		if id != a.loadID {
 			return
 		}
-		a.Status = st
+		a.setStatus(st)
 		a.nextNeed(ref)
 	}
 	failed := func(err error) {
@@ -934,7 +946,7 @@ func (a *App) Ack(ref string) {
 		if id != a.loadID {
 			return
 		}
-		a.Status = st
+		a.setStatus(st)
 		a.reconcileAcked()
 		a.nextNeed(ref)
 	}
@@ -1072,7 +1084,7 @@ func (a *App) Send() {
 		if id != a.loadID {
 			return
 		}
-		a.Status = st
+		a.setStatus(st)
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -1180,6 +1192,15 @@ func (a *App) PressStop() {
 	})
 }
 
+// setStatus writes the status a read or a control answered and disarms Stop
+// when the supervisor on screen is no longer the one it armed on.
+func (a *App) setStatus(st Status) {
+	a.Status = st
+	if a.StopArmed && (st.Supervisor == nil || st.Supervisor.Ref != a.stopRef) {
+		a.disarmStop()
+	}
+}
+
 func (a *App) disarmStop() {
 	a.StopArmed = false
 	a.stopGen++
@@ -1203,6 +1224,7 @@ func (a *App) Press(label string, keys ...string) {
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	a.Busy, a.BusyAction = true, "key:"+strings.Join(keys, " ")
+	a.disarmStop()
 	sent := sentKeyLabel(label)
 	applied := func(c Control) {
 		if id != a.loadID {
@@ -1214,7 +1236,7 @@ func (a *App) Press(label string, keys ...string) {
 		if c.Stale {
 			return
 		}
-		a.Status = c.Status
+		a.setStatus(c.Status)
 		a.watchDeny()
 	}
 	failed := func(err error) {
@@ -1292,6 +1314,7 @@ func (a *App) runControl(name string, call func(context.Context) (Control, error
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	a.Busy, a.BusyAction = true, name
+	a.disarmStop()
 	applied := func(c Control) {
 		if id != a.loadID {
 			return
@@ -1299,10 +1322,14 @@ func (a *App) runControl(name string, call func(context.Context) (Control, error
 		a.Busy, a.BusyAction = false, ""
 		a.showReceipt(c.Receipt, c.Warn, "control:"+name)
 		if c.Stale {
+			a.modelsFor = ""
+			a.Reload()
 			return
 		}
-		a.Status = c.Status
+		a.setStatus(c.Status)
 		a.watchDeny()
+		a.modelsFor = ""
+		a.syncModels()
 	}
 	failed := func(err error) {
 		if id != a.loadID {
@@ -1666,9 +1693,11 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	}
 	statusFresh, tasksFresh, screenFresh := false, false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
-		a.Status, a.pollStatus, statusFresh = p.Status, p.StatusCursor, true
+		a.setStatus(p.Status)
+		a.pollStatus, statusFresh = p.StatusCursor, true
 		a.reconcileAcked()
 		a.watchDeny()
+		a.syncModels()
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
@@ -1898,9 +1927,10 @@ func (a *App) apply(l loaded) {
 	if !l.StatusOK {
 		return
 	}
-	a.Status = l.Status
+	a.setStatus(l.Status)
 	a.reconcileAcked()
 	a.watchDeny()
+	a.syncModels()
 	switch {
 	case l.TimelineOK && len(a.Timeline.Entries) == 0:
 		a.Timeline = l.Timeline
