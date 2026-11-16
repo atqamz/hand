@@ -17,6 +17,7 @@ func (a *App) openTasks() {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
+	a.projectsFor = ""
 	a.loadProjects()
 	a.SearchQuery = a.formQuery(1)
 	a.runTaskSearch(false)
@@ -24,6 +25,8 @@ func (a *App) openTasks() {
 
 func (a *App) OpenTaskSearch(q string) {
 	a.SearchQ = strings.TrimSpace(q)
+	a.SearchStatus, a.SearchProject = "", ""
+	a.SearchSince, a.SearchUntil = "", ""
 	if a.Screen == TasksScreen {
 		a.SearchNow()
 		return
@@ -154,7 +157,18 @@ func (a *App) taskChips() []taskChip {
 	return out
 }
 
+func (a *App) resetTaskForm() {
+	a.SearchQ, a.SearchStatus, a.SearchProject = "", "", ""
+	a.SearchSince, a.SearchUntil = "", ""
+}
+
+func (a *App) syncTaskForm() {
+	a.SearchQ, a.SearchStatus, a.SearchProject = a.SearchQuery.Q, a.SearchQuery.Status, a.SearchQuery.Project
+	a.SearchSince, a.SearchUntil = a.SearchQuery.Since, a.SearchQuery.Until
+}
+
 func (a *App) dropTaskChip(key string) {
+	a.syncTaskForm()
 	switch key {
 	case "q":
 		a.SearchQ = ""
@@ -171,8 +185,7 @@ func (a *App) dropTaskChip(key string) {
 }
 
 func (a *App) clearTaskFilters() {
-	a.SearchQ, a.SearchStatus, a.SearchProject = "", "", ""
-	a.SearchSince, a.SearchUntil = "", ""
+	a.resetTaskForm()
 	a.SearchNow()
 }
 
@@ -289,7 +302,7 @@ func (a *App) taskResults(c *ui.Context, k kit.Colors, p palette) {
 			Background(p.failBG).Border(1, p.fail).Children(func() {
 			ui.Text(c, "The tasks could not be searched").FontSize(kit.Heading.Size).Bold().TextColor(p.fail)
 			ui.Text(c, a.SearchErr).FontSize(kit.Body.Size)
-			if ui.Button(c.Key("tasks:retry"), "Retry").Width(100).Clicked() {
+			if kit.Button(c, k, "tasks:retry", "Retry", 100, false) {
 				a.SearchNow()
 			}
 		})
@@ -362,7 +375,7 @@ func taskClock(at string) string {
 
 func (a *App) taskPager(c *ui.Context, k kit.Colors, p palette) {
 	page, pages := a.Search.Page, a.Search.Pages
-	if pages <= 1 {
+	if pages <= 1 && page <= 1 {
 		return
 	}
 	ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {

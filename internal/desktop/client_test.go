@@ -1227,3 +1227,38 @@ func TestAStaleIndexEntryDoesNotHideTheLegacyBookmark(t *testing.T) {
 		t.Fatalf("fleets = %+v, want the legacy entry", fleets)
 	}
 }
+
+func TestAReadProvesTheBoardOnce(t *testing.T) {
+	srv, paths := goldenServer(t)
+	c := goldenClient(t, srv.URL)
+	if _, err := c.Task(context.Background(), fleetID, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	proofs := 0
+	for _, p := range *paths {
+		if strings.Contains(p, "/proof?") {
+			proofs++
+		}
+	}
+	if proofs != 1 {
+		t.Fatalf("a task read proved the board %d times, want 1: %q", proofs, *paths)
+	}
+}
+
+func TestTheSearchNeverStoresItsCursor(t *testing.T) {
+	srv, _ := goldenServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+	if _, err := c.TaskSearch(ctx, fleetID, desktop.TaskSearchQuery{Q: "the"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Projects(ctx, fleetID); err != nil {
+		t.Fatal(err)
+	}
+	if desktop.StoresCursor(c, "/tasks/search") {
+		t.Error("the search stored its X-Hand-Cursor")
+	}
+	if desktop.StoresCursor(c, "/projects") {
+		t.Error("the project list stored its X-Hand-Cursor")
+	}
+}

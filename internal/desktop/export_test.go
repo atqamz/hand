@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"strings"
 	"time"
 )
 
@@ -51,4 +52,15 @@ func ModelsGen(a *App) int { return a.modelsGen }
 func ShowReceiptKept(a *App, receipt, warn, key string) bool {
 	a.showReceipt(receipt, warn, key)
 	return a.receiptKey != ""
+}
+
+func StoresCursor(c *HTTPClient, path string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.cursors {
+		if strings.Contains(key, "\x00"+path) {
+			return true
+		}
+	}
+	return false
 }

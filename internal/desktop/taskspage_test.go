@@ -505,3 +505,68 @@ func TestTheNarrowSheetOpensTheTasksPage(t *testing.T) {
 	}
 	mustText(t, tt, "Fleets / golden / tasks", "Move the rail to 1024 px")
 }
+
+func TestAFleetPageSearchStartsWithNoFilters(t *testing.T) {
+	f := searchFixture(t)
+	row := taskSearchRow("t1", "Fix login", "hand", "active", "waiting")
+	row.UpdatedAt = "2026-11-01T09:00:00Z"
+	f.search[desktop.TaskSearchQuery{Q: "login", Page: 1}] = desktop.TaskSearch{Q: "login",
+		Page: 1, PageSize: 50, Total: 1, Pages: 1,
+		Groups: []desktop.TaskSearchGroup{{Name: "Sun 1 Nov UTC", Count: 1, Tasks: []desktop.TaskSearchRow{row}}}}
+	app := newApp(t, f)
+	app.SearchStatus, app.SearchProject = "active", "web"
+	app.SearchSince, app.SearchUntil = "2026-10-01", "2026-10-31"
+	app.OpenTaskSearch("login")
+	tt := newTester(app)
+	if want := (desktop.TaskSearchQuery{Q: "login", Page: 1}); app.SearchQuery != want {
+		t.Fatalf("query = %+v, want %+v", app.SearchQuery, want)
+	}
+	mustText(t, tt, `Search “login”`, "Fix login")
+	mustNotText(t, tt, "Status Active")
+	mustNotText(t, tt, "Project web")
+}
+
+func TestTheRailStartsTheTasksPageWithNoFilters(t *testing.T) {
+	app := newApp(t, searchFixture(t))
+	app.SearchStatus, app.SearchProject = "active", "web"
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	tt.Frame()
+	if want := (desktop.TaskSearchQuery{Page: 1}); app.SearchQuery != want {
+		t.Fatalf("query = %+v, want %+v", app.SearchQuery, want)
+	}
+	mustText(t, tt, "Sun 1 Nov UTC", "Move the rail to 1024 px")
+	mustNotText(t, tt, "Status Active")
+}
+
+func TestAPastTheLastPageWithOnePageOffersPrevious(t *testing.T) {
+	f := searchFixture(t)
+	f.search[desktop.TaskSearchQuery{Page: 2}] = desktop.TaskSearch{Page: 2, PageSize: 50, Total: 5, Pages: 1}
+	app, tt := searchApp(t, f)
+	app.SearchPage(2)
+	tt.Frame()
+	mustText(t, tt, "Previous", "No tasks match.", "5 tasks")
+	mustNotText(t, tt, "Page 2 of 1")
+}
+
+func TestAChipRemovesOnlyTheAppliedFilter(t *testing.T) {
+	f := searchFixture(t)
+	row := taskSearchRow("t3", "Docs", "hand", "active", "running")
+	row.UpdatedAt = "2026-11-01T09:00:00Z"
+	f.search[desktop.TaskSearchQuery{Status: "active", Page: 1}] = desktop.TaskSearch{Status: "active",
+		Page: 1, PageSize: 50, Total: 1, Pages: 1,
+		Groups: []desktop.TaskSearchGroup{{Name: "Sun 1 Nov UTC", Count: 1, Tasks: []desktop.TaskSearchRow{row}}}}
+	app, tt := searchApp(t, f)
+	app.SearchStatus = "active"
+	app.SearchNow()
+	tt.Frame()
+	mustText(t, tt, "Docs")
+	app.SearchQ = "unsent"
+	click(t, tt, "Status Active")
+	tt.Frame()
+	if want := (desktop.TaskSearchQuery{Page: 1}); app.SearchQuery != want {
+		t.Fatalf("query = %+v, want %+v", app.SearchQuery, want)
+	}
+	mustText(t, tt, "5 tasks", "Move the rail to 1024 px")
+	mustNotText(t, tt, "Search “unsent”")
+}

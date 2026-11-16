@@ -12,9 +12,21 @@ func TestTheTaskStatusValuesAreTheStatesTheStoreUses(t *testing.T) {
 	if len(taskscope.Scopes) != len(want) {
 		t.Fatalf("scopes = %d, want %d", len(taskscope.Scopes), len(want))
 	}
+	labels := map[string]bool{}
 	for i, value := range want {
-		if got := taskscope.Scopes[i].Value; got != value {
-			t.Errorf("scope %d = %q, want %q", i, got, value)
+		scope := taskscope.Scopes[i]
+		if scope.Value != value {
+			t.Errorf("scope %d = %q, want %q", i, scope.Value, value)
 		}
+		if scope.Label == "" || labels[scope.Label] {
+			t.Errorf("scope %q has the empty or repeated label %q", scope.Value, scope.Label)
+		}
+		labels[scope.Label] = true
+		if got := taskscope.Label(scope.Value); got != scope.Label {
+			t.Errorf("Label(%q) = %q, want %q", scope.Value, got, scope.Label)
+		}
+	}
+	if got := taskscope.Label("none"); got != "none" {
+		t.Errorf("Label of an unknown value = %q, want the value", got)
 	}
 }

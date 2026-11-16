@@ -174,6 +174,7 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 		a.Show(BoardScreen)
 	}
 	if draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: a.underScreen() == TasksScreen}) {
+		a.resetTaskForm()
 		a.Show(TasksScreen)
 	}
 	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})

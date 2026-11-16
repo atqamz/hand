@@ -104,14 +104,6 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `36-composer-key-1440x900-<light or dark>.png` | the foot row at 1440 px, where the pane is over 520: the Ctrl Enter keycap 8 px from the primary Send |
 | `39-narrow-needs-880x760-<light or dark>.png` | the breakpoint's Needs tab: the masthead with its menu button, the three tabs, the Needs bands in the 880 px column, no rail and no divider |
 | `40-narrow-tasks-880x760-<light or dark>.png` | the Tasks tab: the search field across the head as the Board draws it below 900, then the grouped task list, no page head |
-| `43-tasks-search-1100x760-<light or dark>.png` | the Tasks page: the breadcrumb, the search field with its Search button, the filters, the two day groups with their counts, and rows with the state icon, ref, title, attempt line and finish time |
-| `44-tasks-search-page-2-1100x760-<light or dark>.png` | the second of two pages: Previous, the second day's rows, and Page 2 of 2 |
-| `45-tasks-search-filters-1100x760-<light or dark>.png` | every filter applied: the status, project, since and until fields, the five chips, the total, and a row with its project badge |
-| `46-tasks-search-empty-1100x760-<light or dark>.png` | a search with no result: "No tasks match." and 0 tasks |
-| `47-tasks-search-past-1100x760-<light or dark>.png` | a page past the last: "No tasks match.", the total and Previous |
-| `48-tasks-search-refused-1100x760-<light or dark>.png` | a refused parameter: the board's sentence and Retry under the filters |
-| `49-tasks-search-880x760-<light or dark>.png` | the Tasks page below 900 px: one column of filters, the rows at the window's width |
-| `50-tasks-search-overtaken-1100x760-<light or dark>.png` | the newer answer on screen after the slower one lands |
 | `41-narrow-chat-820x700-<light or dark>.png` | the Chat tab: the pane head, the conversation and the composer in the 760 px column, full height |
 | `42-menu-full-<light or dark>.png` | the model menu open on a full list: Running now, the model and effort change, and a switch to each other harness |
 | `42-menu-cold-<light or dark>.png` | the same with a cold cache: each harness's listing note, the claude refresh failure in the warn tone |
@@ -124,6 +116,14 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `42-menu-first-run-<light or dark>.png` | a fleet with no supervisor ever: the Start strip, one row per harness, Start disabled where the harness is missing |
 | `42-menu-stop-armed-<light or dark>.png` | Stop after its first press in the model menu's slice: "Press again to stop" |
 | `42-menu-stop-<light or dark>.png` | the same head at rest: Stop |
+| `43-tasks-search-1100x760-<light or dark>.png` | the Tasks page: the breadcrumb, the search field with its Search button, the filters, the two day groups with their counts, and rows with the state icon, ref, title, attempt line and finish time |
+| `44-tasks-search-page-2-1100x760-<light or dark>.png` | the second of two pages: Previous, the second day's rows, and Page 2 of 2 |
+| `45-tasks-search-filters-1100x760-<light or dark>.png` | every filter applied: the status, project, since and until fields, the five chips, the total, and a row with its project badge |
+| `46-tasks-search-empty-1100x760-<light or dark>.png` | a search with no result: "No tasks match." and 0 tasks |
+| `47-tasks-search-past-1100x760-<light or dark>.png` | a page past the last: "No tasks match.", the total and Previous |
+| `48-tasks-search-refused-1100x760-<light or dark>.png` | a refused parameter: the board's sentence and Retry under the filters |
+| `49-tasks-search-880x760-<light or dark>.png` | the Tasks page below 900 px: one column of filters, the rows at the window's width |
+| `50-tasks-search-overtaken-1100x760-<light or dark>.png` | the newer answer on screen after the slower one lands |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |

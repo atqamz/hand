@@ -331,14 +331,22 @@ func (c *HTTPClient) TaskSearch(ctx context.Context, fleet string, q TaskSearchQ
 	if len(v) > 0 {
 		path += "?" + v.Encode()
 	}
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return TaskSearch{}, err
+	}
 	var out TaskSearch
-	_, err := c.getUncached(ctx, fleet, path, &out)
+	_, err = c.getWith(ctx, fleet, token, path, &out)
 	return out, err
 }
 
 func (c *HTTPClient) Projects(ctx context.Context, fleet string) (Projects, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return Projects{}, err
+	}
 	var out Projects
-	_, err := c.getUncached(ctx, fleet, "/projects", &out)
+	_, err = c.getWith(ctx, fleet, token, "/projects", &out)
 	return out, err
 }
 
@@ -646,7 +654,7 @@ func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Enve
 }
 
 func (c *HTTPClient) getAs(ctx context.Context, fleet, token, path string, out any) (Envelope, error) {
-	env, err := c.getUncached(ctx, fleet, path, out)
+	env, err := c.getWith(ctx, fleet, token, path, out)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -654,13 +662,7 @@ func (c *HTTPClient) getAs(ctx context.Context, fleet, token, path string, out a
 	return env, nil
 }
 
-// getUncached reads a path whose X-Hand-Cursor is not a change cursor, as the
-// Tasks search's is not: the value belongs to the board's tick, not the path.
-func (c *HTTPClient) getUncached(ctx context.Context, fleet, path string, out any) (Envelope, error) {
-	token, err := c.prepare(ctx, fleet)
-	if err != nil {
-		return Envelope{}, err
-	}
+func (c *HTTPClient) getWith(ctx context.Context, fleet, token, path string, out any) (Envelope, error) {
 	res, err := c.do(ctx, fleet, token, "", http.MethodGet, path, nil)
 	if err != nil {
 		return Envelope{}, err
