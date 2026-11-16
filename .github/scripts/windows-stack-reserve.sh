@@ -19,7 +19,16 @@ if [ ! -f "$stack" ]; then
 	echo "windows-stack-reserve: $goroot is not a Go toolchain" >&2
 	exit 1
 fi
-if grep -Eq '^[[:space:]]*(var|const)[[:space:]]+stackSystemReserve([[:space:]]|=|$)|^[[:space:]]*stackSystemReserve[[:space:]]+[A-Za-z_]' "$stack"; then
+# Go comments keep a `/* … */` declaration shape alive across lines, so the
+# marker reads the code with comments removed; a `//` or `/* */` mention of the
+# name must not skip the patch.
+if awk '{ code = ""; for (i = 1; i <= length($0); i++) {
+	if (block) { if (substr($0, i, 2) == "*/") { block = 0; i++ } continue }
+	if (substr($0, i, 2) == "/*") { block = 1; i++; continue }
+	if (substr($0, i, 2) == "//") break
+	code = code substr($0, i, 1) }
+	print code }' "$stack" | grep -Eq \
+	'^[[:space:]]*(var|const)[[:space:]]+stackSystemReserve([[:space:]]|=|$)|^[[:space:]]*stackSystemReserve[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*='; then
 	echo "windows-stack-reserve: $(go env GOVERSION) sizes the reserve from the host"
 	exit 0
 fi
