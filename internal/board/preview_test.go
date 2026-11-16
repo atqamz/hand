@@ -1,12 +1,15 @@
 package board_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -100,7 +103,7 @@ func TestTheHTMLPreviewRunsNothing(t *testing.T) {
 	h, _ := viewer(t, map[string]string{"reports/t1/page.html": page})
 	body := get(t, h, "/doc/reports/t1/page.html")
 	frame := regexp.MustCompile(`<iframe[^>]*>`).FindString(body)
-	if !strings.Contains(frame, `src="/doc/reports/t1/page.html?raw"`) || !regexp.MustCompile(`\ssandbox(\s|>)`).MatchString(frame) {
+	if !strings.Contains(frame, `src="/doc/reports/t1/page.html?frame"`) || !regexp.MustCompile(`\ssandbox(\s|>)`).MatchString(frame) {
 		t.Fatalf("iframe = %q", frame)
 	}
 	for _, bad := range []string{"allow-", "srcdoc", "<script>document", "RAN", "fetch("} {
@@ -369,4 +372,375 @@ func TestThePreviewsAreStyled(t *testing.T) {
 		".doc-table thead th{position:sticky;top:0;z-index:2;white-space:normal}",
 		".d-add,.d-del,.d-hunk,.d-file{display:block}",
 		".d-add{background:var(--pass-bg)}", ".d-del{background:var(--fail-bg)}", ".d-hunk{color:var(--accent)}", ".d-file{font-weight:600}")
+}
+
+const fourMiB = 4 << 20
+
+const framedCSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+
+func dataURI(mime string, b []byte) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b)
+}
+
+func TestAnHTMLPreviewFrameStaysOpaqueAndSendsNoCookie(t *testing.T) {
+	h, _ := viewer(t, map[string]string{"reports/t1/page.html": `<img src="a.png">`, "reports/t1/a.png": string(flowPNG)})
+	frame := regexp.MustCompile(`<iframe[^>]*>`).FindString(get(t, h, "/doc/reports/t1/page.html"))
+	if frame != `<iframe class="doc-frame" src="/doc/reports/t1/page.html?frame" title="page.html" sandbox>` {
+		t.Errorf("iframe = %q", frame)
+	}
+	for _, q := range []string{"?raw", "?frame"} {
+		csp := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true).Header().Get("Content-Security-Policy")
+		if csp != framedCSP || strings.Contains(csp, "allow-") {
+			t.Errorf("%s CSP = %q", q, csp)
+		}
+	}
+}
+
+func TestAnHTMLPreviewInlinesRelativeImagesFromTheFleet(t *testing.T) {
+	jpg := append([]byte("\xff\xd8\xff\xe0\x00\x10JFIF\x00"), make([]byte, 32)...)
+	const svgImg = `<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>`
+	h, _ := viewer(t, map[string]string{
+		"reports/t1302/page.html": `<!doctype html><title>x</title><img src="shot.png"><img alt="a" SRC='../t1299/shots/s2.jpg' class=c><IMG src = "dia gram.svg"><img src=shot.png><img src=./shot.png/>`,
+		"reports/t1302/shot.png":  string(flowPNG), "reports/t1299/shots/s2.jpg": string(jpg), "reports/t1302/dia gram.svg": svgImg,
+	})
+	frame := request(h, "GET", "/doc/reports/t1302/page.html?frame", nil, true)
+	if frame.Code != http.StatusOK || frame.Header().Get("Content-Security-Policy") != framedCSP {
+		t.Fatalf("frame = %d %q", frame.Code, frame.Header().Get("Content-Security-Policy"))
+	}
+	png, svgURI := dataURI("image/png", flowPNG), dataURI("image/svg+xml", []byte(svgImg))
+	want := `<!doctype html><title>x</title><img src="` + png + `"><img alt="a" SRC=` + `"` + dataURI("image/jpeg", jpg) + `" class=c><IMG src = "` + svgURI + `"><img src="` + png + `"><img src=./shot.png/>`
+	if got := frame.Body.String(); got != want {
+		t.Errorf("frame body =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestAnHTMLPreviewLeavesEveryOtherImageAlone(t *testing.T) {
+	big := string(flowPNG) + strings.Repeat("x", fourMiB)
+	files := map[string]string{
+		"reports/t1/shot.png": string(flowPNG), "reports/shared.png": string(flowPNG), ".secret/key.png": string(flowPNG), "projects/app/logo.png": string(flowPNG),
+		"hand.db": secret, "reports/t1/fake.png": "not a picture " + secret, "reports/t1/notes.txt": secret, "reports/t1/big.png": big, "reports/t1/x.svg": "\x00\x01" + secret,
+		"top.png": string(flowPNG),
+	}
+	srcs := []string{
+		"/doc/reports/t1/shot.png", "/f00000000e011/doc/reports/t1/shot.png", "//example.com/shot.png", "https://example.com/shot.png", "http://127.0.0.1/shot.png", "file:///etc/hostname", "data:image/png;base64,AAAA",
+		"../../../outside.png", "../../.secret/key.png", "../../projects/app/logo.png", "../../hand.db", "..%2f..%2fhand.db", "../../top.png", "..\\shot.png", "/etc/hostname",
+		"fake.png", "notes.txt", "big.png", "x.svg", "missing.png", "shot.png?view", "shot.png?raw", "shot.png#x", "?x", "#x", "", " ", "shot.png/", "sho&#116;.png", "sh%00ot.png", "nested/", ".",
+	}
+	var page strings.Builder
+	for _, s := range srcs {
+		page.WriteString(`<img src="` + s + `">`)
+	}
+	page.WriteString(`<img srcset="shot.png 1x"><picture><source srcset="shot.png"></picture><input type=image src="shot.png"><svg><image href="shot.png"/></svg><img src="shot.png" src="shot.png"><img data-src="shot.png"><img src>`)
+	files["reports/t1/page.html"] = page.String()
+	h, _ := viewer(t, files)
+	got := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String()
+	for _, s := range srcs {
+		if !strings.Contains(got, `<img src="`+s+`">`) {
+			t.Errorf("src %q was rewritten in:\n%.600s", s, got)
+		}
+	}
+	if got != page.String() || strings.Contains(got, secret) || strings.Contains(got, "data:image/png;base64,iVBOR") {
+		t.Errorf("the page changed:\n%.600s", got)
+	}
+}
+
+func TestAnHTMLPreviewKeepsOddMarkupAsWritten(t *testing.T) {
+	for name, html := range map[string]string{
+		"base":         `<base href="/elsewhere/"><img src="shot.png">`,
+		"comment":      `<!-- <img src="shot.png"> -->`,
+		"script":       `<script>x = '<img src="shot.png">'</script><STYLE>/*<img src="shot.png">*/</STYLE><textarea><img src="shot.png"></textarea><title><img src="shot.png"></title>`,
+		"unterminated": `<img src="shot.png`,
+		"open tag":     `<img src="shot.png"`,
+		"open comment": `<!-- <img src="shot.png">`,
+		"two srcs":     `<img src="shot.png" src="shot.png">`,
+		"quote name":   `<img "src"="shot.png">`,
+	} {
+		h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
+		if got := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String(); got != html {
+			t.Errorf("%s: body = %q", name, got)
+		}
+	}
+	html := `<img src="shot.png"><!-- <img src="shot.png"> --><img src="shot.png">`
+	h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
+	uri := dataURI("image/png", flowPNG)
+	if got, want := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String(), `<img src="`+uri+`"><!-- <img src="shot.png"> --><img src="`+uri+`">`; got != want {
+		t.Errorf("around a comment = %q", got)
+	}
+}
+
+func TestAnHTMLPreviewInlinesWithinItsCaps(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 21 MiB")
+	}
+	png := func(n int) string { return string(flowPNG) + strings.Repeat("x", n-len(flowPNG)) }
+	files := map[string]string{"r/exact.png": png(fourMiB), "r/over.png": png(fourMiB + 1), "r/small.png": string(flowPNG)}
+	var page strings.Builder
+	page.WriteString(`<img src="over.png"><img src="exact.png">`)
+	for i := 1; i <= 4; i++ {
+		files[fmt.Sprintf("r/m%d.png", i)] = png(fourMiB)
+		fmt.Fprintf(&page, `<img src="m%d.png">`, i)
+	}
+	page.WriteString(`<img src="small.png"><img src="exact.png">`)
+	files["r/page.html"] = page.String()
+	h, _ := viewer(t, files)
+	got := request(h, "GET", "/doc/r/page.html?frame", nil, true).Body.String()
+	for _, s := range []string{"over.png", "m4.png", "small.png"} {
+		if !strings.Contains(got, `<img src="`+s+`">`) {
+			t.Errorf("%s was inlined over the cap", s)
+		}
+	}
+	if n := strings.Count(got, "data:image/png;base64,"); n != 4 {
+		t.Errorf("inlined %d images, want 4 (4 MiB each, 16 MiB in all)", n)
+	}
+	if n := strings.Count(got, `<img src="exact.png">`); n != 1 {
+		t.Errorf("the second use of a 4 MiB image: %d left alone, want 1", n)
+	}
+}
+
+func TestTheRawHTMLDownloadIsTheFileByteForByte(t *testing.T) {
+	html := `<!doctype html><img src="shot.png"><p>é</p>`
+	h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
+	for _, q := range []string{"?raw", "?raw&x=1", "?raw&frame", "?frame&raw"} {
+		rec := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true)
+		if rec.Body.String() != html || rec.Header().Get("Content-Security-Policy") != framedCSP {
+			t.Errorf("%s = %q %q", q, rec.Body.String(), rec.Header().Get("Content-Security-Policy"))
+		}
+	}
+	for _, q := range []string{"?download", "?frame&download", "?download&frame"} {
+		rec := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true)
+		if rec.Body.String() != html || !strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment") {
+			t.Errorf("%s = %q %q", q, rec.Body.String(), rec.Header().Get("Content-Disposition"))
+		}
+	}
+	if rec := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, false); rec.Code == http.StatusOK {
+		t.Errorf("the frame without the cookie = %d", rec.Code)
+	}
+}
+
+func frameOf(t *testing.T, files map[string]string, q string) (string, time.Duration) {
+	t.Helper()
+	h, _ := viewer(t, files)
+	start := time.Now()
+	rec := request(h, "GET", "/doc/r/page.html"+q, nil, true)
+	return rec.Body.String(), time.Since(start)
+}
+
+func TestAnHTMLPreviewScanIsLinearInThePage(t *testing.T) {
+	for _, unit := range []string{"<img ", "<img a='", "<img a ", "<a ", "<a b=\"", "<!-- <img ", "<script ", "<!x "} {
+		page := strings.Repeat(unit, 64<<10/len(unit))
+		got, took := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
+		t.Logf("%q x %d: %v", unit, 64<<10/len(unit), took)
+		if got != page || took > 2*time.Second {
+			t.Errorf("%q x %d: changed %v, took %v", unit, 64<<10/len(unit), got != page, took)
+		}
+	}
+	if testing.Short() {
+		return
+	}
+	page := strings.Repeat("<img ", 8<<20/5)
+	got, took := frameOf(t, map[string]string{"r/page.html": page}, "?frame")
+	t.Logf("8 MiB of <img : %v", took)
+	if got != page || took > 30*time.Second {
+		t.Errorf("8 MiB of <img : took %v", took)
+	}
+}
+
+func TestAnHTMLPreviewNeverRewritesTextInsideATagsAttribute(t *testing.T) {
+	uri := dataURI("image/png", flowPNG)
+	for _, c := range []struct{ in, want string }{
+		{`<a title="<img src=a.png>">`, `<a title="<img src=a.png>">`},
+		{`<a title="<img src='a.png'>">`, `<a title="<img src='a.png'>">`},
+		{`<iframe srcdoc="<img src=a.png>">`, `<iframe srcdoc="<img src=a.png>">`},
+		{`<a title='<img src="a.png">'>`, `<a title='<img src="a.png">'>`},
+		{`<a title=<img src=a.png>>`, `<a title=<img src=a.png>>`},
+		{`<p data-x="1" title="a > <img src=a.png>" class=b><img src=a.png>`, `<p data-x="1" title="a > <img src=a.png>" class=b><img src="` + uri + `">`},
+		{`</p title="<img src=a.png>"><img src=a.png>`, `</p title="<img src=a.png>"><img src="` + uri + `">`},
+		{`<script title="</script>"><img src=a.png></script><img src=a.png>`, `<script title="</script>"><img src=a.png></script><img src="` + uri + `">`},
+		{`<a =x title="<img src=a.png>"><img src=a.png>`, `<a =x title="<img src=a.png>"><img src="` + uri + `">`},
+		{`<xmp><img src=a.png></xmp><noembed><img src=a.png></noembed><noframes><img src=a.png></noframes><iframe><img src=a.png></iframe>`, `<xmp><img src=a.png></xmp><noembed><img src=a.png></noembed><noframes><img src=a.png></noframes><iframe><img src=a.png></iframe>`},
+		{`<!x <img src=a.png> ><?x <img src=a.png> ?><!doctype html><img src=a.png>`, `<!x <img src=a.png> ><?x <img src=a.png> ?><!doctype html><img src="` + uri + `">`},
+		{`<noscript><img src=a.png></noscript>`, `<noscript><img src="` + uri + `"></noscript>`},
+	} {
+		if got, _ := frameOf(t, map[string]string{"r/page.html": c.in, "r/a.png": string(flowPNG)}, "?frame"); got != c.want {
+			t.Errorf("%s\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestAnHTMLPreviewResolvesAtMostSomeDistinctPaths(t *testing.T) {
+	files := map[string]string{}
+	var page strings.Builder
+	for i := 0; i < 300; i++ {
+		files[fmt.Sprintf("r/p%d.png", i)] = string(flowPNG)
+		fmt.Fprintf(&page, `<img src="p%d.png">`, i)
+	}
+	page.WriteString(`<img src="p0.png"><img src="p299.png">`)
+	files["r/page.html"] = page.String()
+	got, _ := frameOf(t, files, "?frame")
+	if n := strings.Count(got, "data:image/png;base64,"); n != 257 {
+		t.Errorf("inlined %d, want 256 distinct paths and the repeat of one: 257", n)
+	}
+	if !strings.Contains(got, `<img src="p256.png">`) || !strings.HasSuffix(got, `<img src="p299.png">`) || strings.Contains(got, `<img src="p255.png">`) {
+		t.Errorf("the 256 first paths are inlined and the rest are left as written")
+	}
+}
+
+func TestAnHTMLPreviewOverEightMiBIsServedUnchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 16 MiB")
+	}
+	const eight = 8 << 20
+	tag := `<img src="a.png">`
+	for _, c := range []struct {
+		size    int
+		changed bool
+	}{{eight, true}, {eight + 1, false}} {
+		page := tag + strings.Repeat(" ", c.size-len(tag))
+		got, _ := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
+		if (got != page) != c.changed {
+			t.Errorf("%d bytes: changed = %v, want %v", c.size, got != page, c.changed)
+		}
+	}
+}
+
+func inlineCases(t *testing.T, name string, cases []struct{ in, want string }) {
+	t.Helper()
+	uri := dataURI("image/png", flowPNG)
+	for _, c := range cases {
+		want := strings.ReplaceAll(c.want, "DATA", uri)
+		if got, _ := frameOf(t, map[string]string{"r/page.html": c.in, "r/a.png": string(flowPNG)}, "?frame"); got != want {
+			t.Errorf("%s: %s\n got %s\nwant %s", name, c.in, got, want)
+		}
+	}
+}
+
+func TestAnHTMLPreviewEndsACommentWhereABrowserDoes(t *testing.T) {
+	inlineCases(t, "comment", []struct{ in, want string }{
+		{`<!--> <a title=" --> <img src=a.png> ">`, `<!--> <a title=" --> <img src=a.png> ">`},
+		{`<!---> <a title=" --> <img src=a.png> ">`, `<!---> <a title=" --> <img src=a.png> ">`},
+		{`<!-- --!> <a title=" --> <img src=a.png> ">`, `<!-- --!> <a title=" --> <img src=a.png> ">`},
+		{`<!--><img src=a.png>`, `<!--><img src="DATA">`},
+		{`<!---><img src=a.png>`, `<!---><img src="DATA">`},
+		{`<!--a--!><img src=a.png>`, `<!--a--!><img src="DATA">`},
+		{`<!--a--><img src=a.png>`, `<!--a--><img src="DATA">`},
+		{`<!--a---><img src=a.png>`, `<!--a---><img src="DATA">`},
+		{`<!---a--!->  <img src=a.png> -->`, `<!---a--!->  <img src=a.png> -->`},
+	})
+}
+
+func TestAnHTMLPreviewDoesNotParseWhatABrowserParsesDifferently(t *testing.T) {
+	var cases []struct{ in, want string }
+	for _, el := range []string{"svg", "math"} {
+		for _, inner := range []string{"title", "style", "script", "textarea", "xmp", "desc"} {
+			in := `<img src=a.png><` + el + `><` + inner + `><a title="</` + inner + `><img src=a.png>"></` + el + `><img src=a.png>`
+			cases = append(cases, struct{ in, want string }{in, `<img src="DATA">` + in[len(`<img src=a.png>`):]})
+		}
+	}
+	for _, el := range []string{"svg", "math", "select", "frameset", "plaintext"} {
+		in := `<img src=a.png><` + el + `></` + el + `><img src=a.png>`
+		cases = append(cases, struct{ in, want string }{in, `<img src="DATA">` + in[len(`<img src=a.png>`):]})
+	}
+	cases = append(cases,
+		struct{ in, want string }{`<svg><title><a title="</title><img src=a.png>">`, `<svg><title><a title="</title><img src=a.png>">`},
+		struct{ in, want string }{`<SVG/><img src=a.png>`, `<SVG/><img src=a.png>`},
+	)
+	inlineCases(t, "foreign", cases)
+}
+
+func TestAnHTMLPreviewSkipsABogusEndTagLikeABrowser(t *testing.T) {
+	inlineCases(t, "bogus end tag", []struct{ in, want string }{
+		{`</ <a title="x> <img src=a.png> "> `, `</ <a title="x> <img src="DATA"> "> `},
+		{`</ <textarea><a title="</textarea><img src=a.png>">`, `</ <textarea><a title="</textarea><img src=a.png>">`},
+		{`</><img src=a.png>`, `</><img src="DATA">`},
+		{`</3 <a title="><img src=a.png>">`, `</3 <a title="><img src="DATA">">`},
+		{`</ <img src=a.png`, `</ <img src=a.png`},
+	})
+}
+
+func TestAnHTMLPreviewEndsRawTextOnlyWhereABrowserDoes(t *testing.T) {
+	inlineCases(t, "raw text end", []struct{ in, want string }{
+		{`<script>1</scriptx <b title="</script><a x="y> <img src=a.png> ">`, `<script>1</scriptx <b title="</script><a x="y> <img src=a.png> ">`},
+		{`<textarea></textareax <b title="</textarea><a x="y> <img src=a.png> ">`, `<textarea></textareax <b title="</textarea><a x="y> <img src=a.png> ">`},
+		{`<title></titlex <b title="</title><a x="y> <img src=a.png> ">`, `<title></titlex <b title="</title><a x="y> <img src=a.png> ">`},
+		{`<style></style2 <b title="</style><a x="y> <img src=a.png> ">`, `<style></style2 <b title="</style><a x="y> <img src=a.png> ">`},
+		{`<script>1</scripts><img src=a.png></script><img src=a.png>`, `<script>1</scripts><img src=a.png></script><img src="DATA">`},
+		{`<script>1</script/><img src=a.png>`, `<script>1</script/><img src="DATA">`},
+		{`<script>1</SCRIPT ><img src=a.png>`, `<script>1</SCRIPT ><img src="DATA">`},
+		{`<img src=a.png><script><!--</script><img src=a.png>`, `<img src="DATA"><script><!--</script><img src=a.png>`},
+		{`<script>/*<!--<script>*/</script><a title="</script>"><img src=a.png>`, `<script>/*<!--<script>*/</script><a title="</script>"><img src=a.png>`},
+		{`<style><!--</style><img src=a.png>`, `<style><!--</style><img src="DATA">`},
+		{`<script>1</script`, `<script>1</script`},
+	})
+}
+
+func TestAnHTMLPreviewReadsTheSrcValueAsWritten(t *testing.T) {
+	inlineCases(t, "src value", []struct{ in, want string }{
+		{`<img src='"a.png"'>`, `<img src='"a.png"'>`},
+		{`<img src="'a.png'">`, `<img src="'a.png'">`},
+		{`<img src=a.png">`, `<img src=a.png">`},
+		{`<img src="a.png">`, `<img src="DATA">`},
+		{`<image src=a.png>`, `<image src="DATA">`},
+	})
+}
+
+func TestAnHTMLPreviewIsLeftAloneOnlyForARealBaseElement(t *testing.T) {
+	inlineCases(t, "base", []struct{ in, want string }{
+		{`<!-- example: <base href="/other/"> --><img src="a.png">`, `<!-- example: <base href="/other/"> --><img src="DATA">`},
+		{`<a title="<base href=/x/>"><img src=a.png>`, `<a title="<base href=/x/>"><img src="DATA">`},
+		{`<script>"<base href=/x/>"</script><img src=a.png>`, `<script>"<base href=/x/>"</script><img src="DATA">`},
+		{`<textarea><base href=/x/></textarea><img src=a.png>`, `<textarea><base href=/x/></textarea><img src="DATA">`},
+		{`<base href="/other/"><img src="a.png">`, `<base href="/other/"><img src="a.png">`},
+		{`<BASE HREF=/x/><img src="a.png">`, `<BASE HREF=/x/><img src="a.png">`},
+		{`<img src="a.png"><base href=/x/>`, `<img src="a.png"><base href=/x/>`},
+		{`<img src="a.png"><svg></svg><base href=/x/>`, `<img src="a.png"><svg></svg><base href=/x/>`},
+		{`<img src="a.png"><base href=`, `<img src="a.png"><base href=`},
+	})
+}
+
+func TestAnHTMLPreviewScanIsLinearOnEveryShape(t *testing.T) {
+	units := []string{
+		"<!---->", "<!-- -->", "<!--x-->", "<!--a--!>", "<!-->", "<!--->", "<!--a---->", "<!--<!-->", "</ x>", "</>", "<!x>", "<?x?>", "<!DOCTYPE html>",
+		"<script></script>", "<textarea></textarea>", "<title></title>", "<style></style>", "<xmp></xmp>", "<iframe></iframe>", "<noscript></noscript>",
+		"<a b c>", "<a b=c>", "<a b='c'>", `<a b="c">`, "<a/>", "<img/>", "<img src=a.png>", "<img src='a.png'>", `<img src="a.png" alt="x">`, "<image src=a.png>", "<p>text</p>",
+		"<img ", `<img a='`, `<img a="`, `<img a="b" c='`, "<a ", "</a ", "<a/b/c/d/", "<", "<<", "<!", "<?", "</", "<!-- ", "<script>", "<script><script>", "<textarea>", "<xmp>", "<title>",
+		"<style>", "<noscript>", "<iframe>", "<script>x</scriptx", "<script></script", "<TeXtArEa>", "<IMG SRC='", `'"`, `<a b='c'd"e`, "<a =", "<a ======", "<a b=c/", "<img src=", "<img a ",
+		"<svg>", "<math>", "<select>", "<frameset>", "<plaintext>", "<script><!--", "<base ", "<a src src src ", "<img src src ",
+		"<!-- <img src=a.png> -- ", "<img src=a.png ", `<img src="a.png">`, "<a x=y x=y x=y x=y x=y x=y x=y x=y ",
+	}
+	for _, unit := range units {
+		page := strings.Repeat(unit, (1<<20)/len(unit))
+		got, took := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
+		t.Logf("%q: %v", unit, took)
+		if took > 5*time.Second || got == "" || !strings.Contains(unit, "a.png") && got != page {
+			t.Errorf("%q x %d: took %v, unchanged %v", unit, len(page)/len(unit), took, got == page)
+		}
+	}
+}
+
+func TestAnHTMLPreviewKeepsNoMoreThanTheSrcOfATag(t *testing.T) {
+	const limit = 160 << 20
+	for _, unit := range []string{"<a b c ", "<a ", "<a x=y ", `<a x="y" `, "<a src src ", "<a b c d e f g h i j k l m n o p>"} {
+		h, _ := viewer(t, map[string]string{"r/page.html": strings.Repeat(unit, (8<<20)/len(unit))})
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		rec := request(h, "GET", "/doc/r/page.html?frame", nil, true)
+		runtime.ReadMemStats(&after)
+		if got := after.TotalAlloc - before.TotalAlloc; rec.Code != http.StatusOK || got > limit {
+			t.Errorf("%q: %d MiB allocated, limit %d MiB", unit, got>>20, limit>>20)
+		}
+	}
+}
+
+func TestAnHTMLPreviewTakesOnlyTheThreeLettersSrcAsTheSource(t *testing.T) {
+	inlineCases(t, "src name", []struct{ in, want string }{
+		{`<img srcset=a.png>`, `<img srcset=a.png>`},
+		{`<img src2=a.png>`, `<img src2=a.png>`},
+		{`<img srcx=a.png>`, `<img srcx=a.png>`},
+		{`<img xsrc=a.png>`, `<img xsrc=a.png>`},
+		{`<img ssrc=a.png>`, `<img ssrc=a.png>`},
+		{`<img data-src=a.png>`, `<img data-src=a.png>`},
+		{`<img srcset=a.png src=a.png>`, `<img srcset=a.png src="DATA">`},
+		{`<img SRC=a.png>`, `<img SRC="DATA">`},
+		{`<img sRc=a.png>`, `<img sRc="DATA">`},
+	})
 }

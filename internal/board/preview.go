@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -71,11 +72,13 @@ func isHTML(name string) bool {
 	return ext == ".html" || ext == ".htm"
 }
 
-func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.FileInfo, name, sniffed string, head []byte) {
+func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.FileInfo, rel, sniffed string, head []byte) {
+	name := path.Base(rel)
 	h := w.Header()
 	text := textHead(head)
 	ctype, policy := "text/plain; charset=utf-8", sandbox
 	_, image := imageExt[sniffed]
+	frame := false
 	switch {
 	case image && imageLike.MatchString(name):
 		ctype = sniffed
@@ -89,6 +92,8 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 	case text && isHTML(name):
 		ctype, policy = "text/html; charset=utf-8", sandbox+"; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
 		h.Set("X-Frame-Options", "SAMEORIGIN")
+		q := r.URL.Query()
+		frame = q.Has("frame") && !q.Has("raw") && fi.Size() <= maxWhole
 	case !text:
 		ctype = "application/octet-stream"
 		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
@@ -97,6 +102,12 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 	h.Set("Content-Security-Policy", policy)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Cache-Control", "private, no-cache")
+	if frame {
+		if page, err := io.ReadAll(io.NewSectionReader(f, 0, fi.Size())); err == nil {
+			http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(b.inlineImages(page, rel)))
+			return
+		}
+	}
 	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 

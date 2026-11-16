@@ -253,8 +253,8 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	image = image && imageLike.MatchString(name)
 	text := textHead(head)
 	q := r.URL.Query()
-	if q.Has("raw") {
-		b.raw(w, r, f, fi, name, sniffed, head)
+	if q.Has("raw") || q.Has("frame") && !q.Has("download") {
+		b.raw(w, r, f, fi, rel, sniffed, head)
 		return
 	}
 	if q.Has("from") && text {
@@ -320,7 +320,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		}
 		data["Body"] = markdown.RenderDoc(string(md), b.o.Base, b.refTitle(ctx), b.local())
 	case !asText && isHTML(name):
-		data["Frame"] = map[string]string{"Src": self + "?raw", "Kind": "html"}
+		data["Frame"] = map[string]string{"Src": self + "?frame", "Kind": "html"}
 	case !asText && ext == ".svg":
 		data["Picture"] = self + "?raw"
 	case !asText && (ext == ".csv" || ext == ".tsv"):
