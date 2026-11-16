@@ -51,13 +51,17 @@ func asciiLower(b []byte) []byte {
 
 func (b *Board) inlineImages(h []byte, rel string) []byte {
 	low := asciiLower(h)
-	if bytes.Contains(low, []byte("<base")) {
-		return h
-	}
 	n := &inlined{home: b.o.Home, dir: path.Dir(rel), left: maxInlineTotal, seen: map[string]inlineEntry{}}
 	var out bytes.Buffer
-	last := 0
-	for i := 0; i < len(h); {
+	last, stopAt, base := 0, -1, false
+	i := 0
+	halt := func() {
+		if stopAt < 0 {
+			stopAt = i
+		}
+		i = len(h)
+	}
+	for i < len(h) {
 		j := bytes.IndexByte(h[i:], '<')
 		if j < 0 {
 			break
@@ -67,14 +71,14 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 		case bytes.HasPrefix(low[i:], []byte("<!--")):
 			end := commentEnd(low[i+4:])
 			if end < 0 {
-				i = len(h)
+				halt()
 			} else {
 				i += 4 + end
 			}
 		case bytes.HasPrefix(low[i:], []byte("<!")), bytes.HasPrefix(low[i:], []byte("<?")), bytes.HasPrefix(low[i:], []byte("</")) && !atTagStart(low[i:]):
 			end := bytes.IndexByte(h[i:], '>')
 			if end < 0 {
-				i = len(h)
+				halt()
 			} else {
 				i += end + 1
 			}
@@ -87,11 +91,12 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 			name := low[i+k : i+k+tagNameLen(low[i+k:])]
 			end, attrs, ok := parseTag(h[i:], k+len(name))
 			if !ok {
-				i = len(h)
+				halt()
 				break
 			}
+			base = base || !closing && string(name) == "base"
 			if !closing && slices.Contains(unparsed, string(name)) {
-				i = len(h)
+				halt()
 				break
 			}
 			if !closing && (string(name) == "img" || string(name) == "image") {
@@ -107,7 +112,7 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 			if !closing && slices.Contains(rawText, string(name)) {
 				at := rawEnd(low[i:], string(name))
 				if at < 0 || string(name) == "script" && bytes.Contains(low[i:i+at], []byte("<!--")) {
-					i = len(h)
+					halt()
 				} else {
 					i += at
 				}
@@ -116,7 +121,7 @@ func (b *Board) inlineImages(h []byte, rel string) []byte {
 			i++
 		}
 	}
-	if last == 0 {
+	if base || stopAt >= 0 && bytes.Contains(low[stopAt:], []byte("<base")) || last == 0 {
 		return h
 	}
 	out.Write(h[last:])

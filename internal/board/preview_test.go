@@ -681,3 +681,17 @@ func TestAnHTMLPreviewReadsTheSrcValueAsWritten(t *testing.T) {
 		{`<image src=a.png>`, `<image src="DATA">`},
 	})
 }
+
+func TestAnHTMLPreviewIsLeftAloneOnlyForARealBaseElement(t *testing.T) {
+	inlineCases(t, "base", []struct{ in, want string }{
+		{`<!-- example: <base href="/other/"> --><img src="a.png">`, `<!-- example: <base href="/other/"> --><img src="DATA">`},
+		{`<a title="<base href=/x/>"><img src=a.png>`, `<a title="<base href=/x/>"><img src="DATA">`},
+		{`<script>"<base href=/x/>"</script><img src=a.png>`, `<script>"<base href=/x/>"</script><img src="DATA">`},
+		{`<textarea><base href=/x/></textarea><img src=a.png>`, `<textarea><base href=/x/></textarea><img src="DATA">`},
+		{`<base href="/other/"><img src="a.png">`, `<base href="/other/"><img src="a.png">`},
+		{`<BASE HREF=/x/><img src="a.png">`, `<BASE HREF=/x/><img src="a.png">`},
+		{`<img src="a.png"><base href=/x/>`, `<img src="a.png"><base href=/x/>`},
+		{`<img src="a.png"><svg></svg><base href=/x/>`, `<img src="a.png"><svg></svg><base href=/x/>`},
+		{`<img src="a.png"><base href=`, `<img src="a.png"><base href=`},
+	})
+}
