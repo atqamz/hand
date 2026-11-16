@@ -669,3 +669,18 @@ func TestThePhoneDecodesTheDocAnswersWithoutAChange(t *testing.T) {
 		}
 	}
 }
+
+func TestAPIDocWindowStopsWhenTheClientIsGone(t *testing.T) {
+	h, _ := apiDocBoard(t, map[string]string{"reports/t1/flat.txt": strings.Repeat("x", 8<<20), "reports/t1/notes.txt": "one\ntwo\n"})
+	for _, p := range []string{"flat.txt?from=1", "notes.txt?from=1", "notes.txt?from=2"} {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		req := httptest.NewRequest("GET", "/api/v1/doc/reports/t1/"+p, nil).WithContext(ctx)
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Body.Len() != 0 {
+			t.Errorf("%s read and answered for a gone client:\n%.200s", p, rec.Body)
+		}
+	}
+}

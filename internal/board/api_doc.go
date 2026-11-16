@@ -2,6 +2,7 @@ package board
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -71,6 +72,18 @@ type APIDocWindow struct {
 	Cut     []APIDocCut `json:"cut,omitempty"`
 	Partial bool        `json:"partial,omitempty"`
 	Next    int         `json:"next,omitempty"`
+}
+
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 func (b *Board) apiDoc(w http.ResponseWriter, r *http.Request) {
@@ -178,15 +191,15 @@ func (b *Board) apiWindow(w http.ResponseWriter, r *http.Request, f *os.File, fi
 	}
 	ctx := r.Context()
 	start, ok := lineStart(ctx, f, fi.Size(), first)
-	if ctx.Err() != nil {
-		return
-	}
 	if !ok {
+		if ctx.Err() != nil {
+			return
+		}
 		b.apiFail(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("line %d is past the end of this file", first))
 		return
 	}
 	out := APIDocWindow{Path: rel, Name: path.Base(rel), From: first, Lines: []string{}}
-	br := bufio.NewReaderSize(io.NewSectionReader(f, start, fi.Size()-start), 64<<10)
+	br := bufio.NewReaderSize(ctxReader{ctx, io.NewSectionReader(f, start, fi.Size()-start)}, 64<<10)
 	var buf []byte
 	var used int64
 	for len(out.Lines) < n && used < window {
@@ -201,12 +214,18 @@ func (b *Board) apiWindow(w http.ResponseWriter, r *http.Request, f *os.File, fi
 			out.Partial = !l.ended
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			if !errors.Is(err, io.EOF) {
 				b.apiFailErr(w, err)
 				return
 			}
 			break
 		}
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	if start+used < fi.Size() {
 		out.Next = first + len(out.Lines)
