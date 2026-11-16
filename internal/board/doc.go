@@ -336,17 +336,21 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		data["Views"] = []choice{{v[0], self, !asText}, {v[1], self + "?as=text", asText}}
 		data["Remember"] = isMarkdown(name)
 	}
-	switch kind := media(sniffed, name); {
-	case view:
+	kind := docKind(head, sniffed, fi.Size(), name)
+	if asText && slices.Contains([]string{"markdown", "html", "svg", "csv", "tsv"}, kind) {
+		kind = "text"
+	}
+	switch kind {
+	case "image":
 		data["Picture"], data["Zoom"] = self, zoom
 		data["Views"] = []choice{{"Fit", self + "?view", !zoom}, {"Actual size", self + "?view=actual", zoom}}
-	case kind != "":
-		data["Media"] = map[string]string{"Tag": strings.SplitN(kind, "/", 2)[0], "Src": self + "?raw"}
-	case isPDF(head, name):
+	case "video", "audio":
+		data["Media"] = map[string]string{"Tag": kind, "Src": self + "?raw"}
+	case "pdf":
 		data["Frame"] = map[string]string{"Src": self + "?raw", "Kind": "pdf"}
-	case !text:
+	case "binary":
 		data["Notice"] = notText
-	case !asText && isMarkdown(name) && fi.Size() <= maxMarkdown:
+	case "markdown":
 		md, err := io.ReadAll(io.NewSectionReader(f, 0, maxMarkdown))
 		if err != nil {
 			b.failErr(w, err)
@@ -359,11 +363,11 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		data["Body"] = markdown.RenderDoc(string(md), b.o.Base, b.refTitle(ctx), b.local())
-	case !asText && isHTML(name):
+	case "html":
 		data["Frame"] = map[string]string{"Src": self + "?frame", "Kind": "html"}
-	case !asText && ext == ".svg":
+	case "svg":
 		data["Picture"] = self + "?raw"
-	case !asText && (ext == ".csv" || ext == ".tsv"):
+	case "csv", "tsv":
 		comma := ','
 		if ext == ".tsv" {
 			comma = '\t'
