@@ -27,14 +27,16 @@ const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef"
 func goldenServer(t *testing.T) (*httptest.Server, *[]string) {
 	t.Helper()
 	files := map[string]string{
-		"/api/v1/status":      "status",
-		"/api/v1/timeline":    "timeline",
-		"/api/v1/tasks":       "tasks",
-		"/api/v1/task/t1":     "task",
-		"/api/v1/attempt/a1":  "attempt-running",
-		"/api/v1/decision/d1": "decision",
-		"/api/v1/report/r1":   "report",
-		"/api/v1/models":      "models",
+		"/api/v1/status":       "status",
+		"/api/v1/timeline":     "timeline",
+		"/api/v1/tasks":        "tasks",
+		"/api/v1/tasks/search": "tasks-search",
+		"/api/v1/projects":     "projects",
+		"/api/v1/task/t1":      "task",
+		"/api/v1/attempt/a1":   "attempt-running",
+		"/api/v1/decision/d1":  "decision",
+		"/api/v1/report/r1":    "report",
+		"/api/v1/models":       "models",
 	}
 	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +131,18 @@ func TestHTTPClientReadsTheGoldenAPI(t *testing.T) {
 	if len(ts.Groups) != 2 || ts.Groups[0].Name != "Active" || ts.Groups[0].Tasks[0].Ref != "t1" {
 		t.Fatalf("tasks = %+v", ts)
 	}
+	se, err := c.TaskSearch(ctx, fleetID, desktop.TaskSearchQuery{Q: "the", Status: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if se.Total != 6 || se.Pages != 1 || se.PageSize != 50 || se.Groups[0].Name != "Sun 1 Nov UTC" ||
+		se.Groups[0].Tasks[0].Ref != "t6" || se.Groups[0].Tasks[0].UpdatedAt == "" {
+		t.Fatalf("search = %+v", se)
+	}
+	pr, err := c.Projects(ctx, fleetID)
+	if err != nil || len(pr.Projects) != 1 || pr.Projects[0] != "hand" {
+		t.Fatalf("projects = %+v, %v", pr, err)
+	}
 	td, err := c.Task(ctx, fleetID, "t1")
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +178,36 @@ func TestHTTPClientReadsTheGoldenAPI(t *testing.T) {
 		if strings.Contains(p, "/api/v1/") && (i == 0 || !strings.Contains((*paths)[i-1], "/proof?")) {
 			t.Fatalf("an API read went before its proof: %v", *paths)
 		}
+	}
+}
+
+func TestHTTPClientSearchesWithTheQueryAndNeverWithTheCursor(t *testing.T) {
+	srv, paths := goldenServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+	q := desktop.TaskSearchQuery{Q: "fix login", Status: "done", Project: "web", Since: "2026-10-01", Until: "2026-10-31", Page: 2}
+	if _, err := c.TaskSearch(ctx, fleetID, q); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.TaskSearch(ctx, fleetID, q); err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	for _, p := range *paths {
+		if strings.Contains(p, "/tasks/search") {
+			seen = append(seen, p)
+		}
+	}
+	if len(seen) != 2 || seen[0] != seen[1] {
+		t.Fatalf("searches = %q", seen)
+	}
+	for _, want := range []string{"q=fix+login", "status=done", "project=web", "since=2026-10-01", "until=2026-10-31", "page=2"} {
+		if !strings.Contains(seen[0], want) {
+			t.Errorf("search URL %q lacks %q", seen[0], want)
+		}
+	}
+	if strings.Contains(seen[0], "since="+url.QueryEscape("ZjA")) {
+		t.Errorf("the search sent a cursor as since: %q", seen[0])
 	}
 }
 

@@ -11,19 +11,19 @@ import (
 
 func (a *App) tasksScreen(c *ui.Context, p palette) {
 	field := func() ui.Element {
-		return ui.SearchField(c, &a.TaskQuery).Label("Search tasks").Placeholder("Search tasks in the browser")
+		return ui.SearchField(c, &a.TaskQuery).Label("Search tasks").Placeholder("Title, goal or ref")
 	}
 	ui.Row(c).Gap(10).Children(func() {
 		if a.narrow {
 			if field().Grow(1).Submitted() {
-				a.SearchTasks()
+				a.OpenTaskSearch(a.TaskQuery)
 			}
 			return
 		}
 		ui.Text(c, "Tasks").FontSize(kit.Display.Size).Bold()
 		ui.Spacer(c)
 		if field().Width(240).Submitted() {
-			a.SearchTasks()
+			a.OpenTaskSearch(a.TaskQuery)
 		}
 	})
 	if len(a.Tasks.Groups) == 0 {

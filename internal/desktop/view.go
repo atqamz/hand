@@ -143,7 +143,15 @@ func (a *App) toasts(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) viewerOpen() bool {
-	return a.Model != nil && a.Fleet.ID != "" && a.Screen != BoardScreen
+	return a.Model != nil && a.Fleet.ID != "" && a.Screen != BoardScreen && a.Screen != TasksScreen
+}
+
+func (a *App) underScreen() Screen {
+	switch a.Screen {
+	case TaskScreen, AttemptScreen, DecisionScreen:
+		return a.base
+	}
+	return a.Screen
 }
 
 func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
@@ -161,11 +169,13 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 		n.Open = open
 		return item(n)
 	}
-	if draw(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: true,
+	if draw(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: a.underScreen() == BoardScreen,
 		Count: a.waitingNeeds(), CountBG: bg, CountFG: fg}) {
 		a.Show(BoardScreen)
 	}
-	draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Inert: true})
+	if draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: a.underScreen() == TasksScreen}) {
+		a.Show(TasksScreen)
+	}
 	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
 	if draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 		a.OpenScreen()
@@ -291,7 +301,7 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 	}
 	if a.narrow {
 		var tabs []kit.Tab
-		if a.boardShown() {
+		if a.boardShown() && a.Screen != TasksScreen {
 			bg, fg := toneColors(a.Status.Needs.Worst, p)
 			if a.Status.Needs.Worst == "" {
 				bg, fg = p.neutralBG, p.neutral
@@ -358,6 +368,10 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	}
 	a.actionCard(c, p)
+	if a.Screen == TasksScreen {
+		a.tasksPage(c, k, p)
+		return
+	}
 	if a.narrow {
 		a.narrowPanes(c, k, p)
 		return

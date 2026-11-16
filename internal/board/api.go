@@ -25,6 +25,7 @@ import (
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/taskscope"
 )
 
 const (
@@ -1474,8 +1475,8 @@ func (b *Board) apiTaskSearch(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) apiTaskSearchQuery(w http.ResponseWriter, q url.Values) bool {
 	if s := q.Get("status"); s != "" {
-		names := make([]string, 0, len(scopes)-1)
-		for _, o := range scopes[1:] {
+		names := make([]string, 0, len(taskscope.Scopes)-1)
+		for _, o := range taskscope.Scopes[1:] {
 			names = append(names, o.Value)
 		}
 		if !slices.Contains(names, s) {
