@@ -25,6 +25,7 @@ const (
 	maxRows     = 2000
 	maxCell     = 300
 	sandbox     = "sandbox; default-src 'none'"
+	framed      = "sandbox allow-same-origin; default-src 'none'"
 )
 
 var (
@@ -87,7 +88,7 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 	case text && strings.EqualFold(path.Ext(name), ".svg"):
 		ctype, policy = "image/svg+xml", sandbox+"; style-src 'unsafe-inline'"
 	case text && isHTML(name):
-		ctype, policy = "text/html; charset=utf-8", sandbox+"; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+		ctype, policy = "text/html; charset=utf-8", framed+"; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'"
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 	case !text:
 		ctype = "application/octet-stream"
