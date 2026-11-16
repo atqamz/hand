@@ -19,7 +19,7 @@ if [ ! -f "$stack" ]; then
 	echo "windows-stack-reserve: $goroot is not a Go toolchain" >&2
 	exit 1
 fi
-if grep -q 'stackSystemReserve' "$stack"; then
+if grep -Eq '^[[:space:]]*(var|const)[[:space:]]+stackSystemReserve([[:space:]]|=|$)|^[[:space:]]*stackSystemReserve[[:space:]]+[A-Za-z_]' "$stack"; then
 	echo "windows-stack-reserve: $(go env GOVERSION) sizes the reserve from the host"
 	exit 0
 fi
