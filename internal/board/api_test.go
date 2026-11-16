@@ -401,15 +401,33 @@ func TestAPIAllowsOnlyTheMethodsEachPathTakes(t *testing.T) {
 	h := fx.handler()
 	var paths []string
 	takes := map[string][]string{}
+	static := map[string]bool{}
+	listed := map[string]bool{}
 	for _, rt := range board.APIRoutes() {
+		listed[rt.Method+" /api/v1"+rt.Path] = true
+		if rt.Fallback {
+			continue
+		}
 		path := "/api/v1" + strings.ReplaceAll(rt.Path, "{id}", "x1")
 		if _, ok := takes[path]; !ok {
 			paths = append(paths, path)
 		}
 		takes[path] = append(takes[path], rt.Method)
+		if rt.Path != "" && !strings.Contains(rt.Path, "{id}") {
+			static[path] = true
+		}
 	}
 	if len(paths) < 20 {
 		t.Fatalf("the API lists %d paths: %q", len(paths), paths)
+	}
+	patterns, ok := h.(interface{ APIPatterns() []string })
+	if !ok {
+		t.Fatalf("the board does not report the API patterns it registers")
+	}
+	for _, pattern := range patterns.APIPatterns() {
+		if !listed[pattern] {
+			t.Fatalf("the board registers %q, which the API table lacks", pattern)
+		}
 	}
 	slices.Sort(paths)
 	for _, path := range paths {
@@ -430,6 +448,8 @@ func TestAPIAllowsOnlyTheMethodsEachPathTakes(t *testing.T) {
 			switch taken := slices.Contains(takes[path], m) || m == "HEAD" && slices.Contains(takes[path], "GET"); {
 			case taken && rec.Code == http.StatusMethodNotAllowed:
 				t.Fatalf("%s %s = 405: the router takes it, Allow = %q", m, path, rec.Header().Get("Allow"))
+			case taken && static[path] && (m == "GET" || m == "HEAD") && rec.Code == http.StatusNotFound:
+				t.Fatalf("%s %s = 404: the API table lists it, so the mux answers it", m, path)
 			case taken:
 			case m == "GET" || m == "HEAD":
 				if rec.Code != http.StatusNotFound {

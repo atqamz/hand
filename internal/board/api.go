@@ -37,8 +37,9 @@ var denyIn = regexp.MustCompile(`^(\d{1,3}):(\d{2})$`)
 var supervisorRef = regexp.MustCompile(`^s[1-9][0-9]*$`)
 
 type APIRoute struct {
-	Method string
-	Path   string
+	Method   string
+	Path     string
+	Fallback bool
 }
 
 type apiRoute struct {
@@ -82,13 +83,24 @@ var apiRoutes = []apiRoute{
 	{http.MethodPost, "/report/{id}/ack", func(b *Board) http.HandlerFunc { return b.apiAck }},
 }
 
+var apiFallbacks = []apiRoute{
+	{http.MethodGet, "/", func(b *Board) http.HandlerFunc { return b.apiUnknown }},
+	{http.MethodPost, "/", func(b *Board) http.HandlerFunc { return b.apiMethod }},
+	{http.MethodPost, "", func(b *Board) http.HandlerFunc { return b.apiMethod }},
+}
+
 func APIRoutes() []APIRoute {
-	out := make([]APIRoute, len(apiRoutes))
-	for i, rt := range apiRoutes {
-		out[i] = APIRoute{Method: rt.method, Path: rt.path}
+	out := make([]APIRoute, 0, len(apiRoutes)+len(apiFallbacks))
+	for _, rt := range apiRoutes {
+		out = append(out, APIRoute{Method: rt.method, Path: rt.path})
+	}
+	for _, rt := range apiFallbacks {
+		out = append(out, APIRoute{Method: rt.method, Path: rt.path, Fallback: true})
 	}
 	return out
 }
+
+func (b *Board) APIPatterns() []string { return slices.Clone(b.mux.patterns) }
 
 type APIFleet struct {
 	ID   string `json:"id"`

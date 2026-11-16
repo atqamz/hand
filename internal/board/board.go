@@ -171,11 +171,23 @@ type Options struct {
 	ClosePeer  func(string)
 }
 
+type trackedMux struct {
+	*http.ServeMux
+	patterns []string
+}
+
+func (m *trackedMux) HandleFunc(pattern string, handler http.HandlerFunc) {
+	if _, path, ok := strings.Cut(pattern, " "); ok && apiPath(path) {
+		m.patterns = append(m.patterns, pattern)
+	}
+	m.ServeMux.HandleFunc(pattern, handler)
+}
+
 type Board struct {
 	st         *state.Store
 	token      string
 	o          Options
-	mux        *http.ServeMux
+	mux        *trackedMux
 	companions companions
 	refresh    refresher
 	artifacts  artifactCache
@@ -202,7 +214,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	if o.Beat <= 0 {
 		o.Beat = 15 * time.Second
 	}
-	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), companions: companions{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
+	b := &Board{st: st, token: token, o: o, mux: &trackedMux{ServeMux: http.NewServeMux()}, companions: companions{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
 	b.boot = b.now().UnixNano()
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor", b.supervisorPage)
@@ -236,15 +248,18 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /connect/revoke", b.connectRevoke)
 	b.mux.HandleFunc("POST /connect/revoke/in", b.connectRevokePhone(false))
 	b.mux.HandleFunc("POST /connect/revoke/everywhere", b.connectRevokePhone(true))
-	for _, rt := range apiRoutes {
+	add := func(rt apiRoute) {
 		if rt.handle == nil {
-			continue
+			return
 		}
 		b.mux.HandleFunc(rt.method+" "+apiPrefix+rt.path, rt.handle(b))
 	}
-	b.mux.HandleFunc("POST "+apiPrefix+"/", b.apiMethod)
-	b.mux.HandleFunc("POST "+apiPrefix, b.apiMethod)
-	b.mux.HandleFunc(apiPrefix+"/", b.apiUnknown)
+	for _, rt := range apiRoutes {
+		add(rt)
+	}
+	for _, rt := range apiFallbacks {
+		add(rt)
+	}
 	return b
 }
 
