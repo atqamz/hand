@@ -228,6 +228,7 @@ func TestAPIGolden(t *testing.T) {
 	h := fx.handler()
 	for _, c := range []struct{ name, path string }{
 		{"status", "/api/v1/status"},
+		{"models", "/api/v1/models"},
 		{"timeline", "/api/v1/timeline"},
 		{"tasks", "/api/v1/tasks"},
 		{"task", "/api/v1/task/t1"},
@@ -1342,6 +1343,9 @@ func TestAPIMutationGolden(t *testing.T) {
 		{"decision-answered", "/api/v1/decision/d1/answer", map[string]string{"choice": "1. Yes, keep it", "note": "keep the docs"}},
 		{"report-acked", "/api/v1/report/r1/ack", nil},
 		{"message-sent", "/api/v1/message", map[string]string{"text": "hello from the desktop"}},
+		{"supervisor-started-with-choice", "/api/v1/supervisor/start", map[string]string{"harness": "claude", "model": "sonnet", "effort": "low"}},
+		{"supervisor-switched", "/api/v1/supervisor/switch", map[string]string{"model": "opus", "effort": "high"}},
+		{"models-refreshed", "/api/v1/models/refresh", map[string]string{"harness": "copilot"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fx := apiFixture(t, func() time.Time { return frozen })
@@ -2787,5 +2791,326 @@ func TestAFileOutsideTheFleetNeverMovesACursor(t *testing.T) {
 	nextTick()
 	if rec := pollCursor(t, h, path, env.Cursor); rec.Code != http.StatusNotModified {
 		t.Fatalf("a delivered file that only grew moved the cursor (%d)", rec.Code)
+	}
+}
+
+func TestAPIModelsServesTheBoardsOwnMenu(t *testing.T) {
+	r := newModelRig(t)
+	r.all(t)
+	r.cache(t, "agy", func(m map[string]any) { m["at"] = frozen.Add(-72 * time.Hour).Format(time.RFC3339Nano) })
+	r.cache(t, "codex", func(m map[string]any) {
+		m["failed"] = map[string]any{"at": frozen.Format(time.RFC3339Nano), "reason": "codex exited 1"}
+	})
+	r.fx.options.Now = func() time.Time { return frozen }
+	ctx := context.Background()
+	sup, err := r.fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "opus", Effort: "high", Argv: []string{"/bin/claude", "x"}, Session: claudeSession})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	_, models := apiInto[board.APIModels](t, r.fx.handler(), "/api/v1/models")
+	var names []string
+	for _, h := range models.Harnesses {
+		names = append(names, h.Name)
+	}
+	if want := []string{"claude", "codex", "opencode", "agy", "omp"}; !slices.Equal(names, want) {
+		t.Fatalf("harnesses = %q, want %q", names, want)
+	}
+	if models.Current != "claude" || models.Model != "opus" || models.Effort != "high" || !models.Switchable || models.Resumable {
+		t.Fatalf("models = %+v", models)
+	}
+	claude := models.Harnesses[0]
+	if claude.Model != "opus" || claude.Effort != "high" || !slices.Equal(claude.Efforts, strings.Fields(claudeEfforts)) {
+		t.Fatalf("claude = %+v", claude)
+	}
+	wantGroups := []struct {
+		label  string
+		models []board.APIModel
+	}{
+		{"built-in", []board.APIModel{
+			{Name: "opus", Text: "Opus 5.5 · opus", Efforts: strings.Fields(claudeEfforts), Selected: true},
+			{Name: "haiku", Text: "Haiku 5.5 · haiku"},
+		}},
+		{"custom, efforts unverified", []board.APIModel{
+			{Name: "my-gw/claude-x", Text: "Gateway X · my-gw/claude-x", Efforts: []string{"low", "high"}},
+			{Name: "acme-opus", Text: "Acme Opus · acme-opus", Efforts: strings.Fields(claudeEfforts), Unverified: true},
+		}},
+	}
+	if len(claude.Groups) != len(wantGroups) {
+		t.Fatalf("claude groups = %+v", claude.Groups)
+	}
+	for i, g := range wantGroups {
+		if claude.Groups[i].Label != g.label || !reflect.DeepEqual(claude.Groups[i].Models, g.models) {
+			t.Fatalf("claude group %d = %+v, want %q %+v", i, claude.Groups[i], g.label, g.models)
+		}
+	}
+	codex := models.Harnesses[1]
+	if codex.Note != "refresh failed: codex exited 1" {
+		t.Fatalf("codex note = %q", codex.Note)
+	}
+	if len(codex.Groups) != 1 || len(codex.Groups[0].Models) != 3 || codex.Groups[0].Models[2].Efforts != nil {
+		t.Fatalf("codex groups = %+v", codex.Groups)
+	}
+	agy := models.Harnesses[3]
+	if agy.Note != "listed 3 d ago" {
+		t.Fatalf("agy note = %q", agy.Note)
+	}
+	omp := models.Harnesses[4]
+	if omp.Missing != "omp not found on the board's PATH; restart the board after installing it" || len(omp.Groups) != 0 || omp.Efforts != nil {
+		t.Fatalf("omp = %+v", omp)
+	}
+	if n := strings.Count(string(apiRaw(t, r.fx.handler(), "/api/v1/models")), `"copilot"`); n != 0 {
+		t.Fatalf("the menu offers copilot: %d", n)
+	}
+}
+
+func TestAPIStartWithAHarnessModelAndEffort(t *testing.T) {
+	r := newModelRig(t)
+	r.all(t)
+	var calls [][]string
+	r.fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		calls = append(calls, append([]string(nil), call...))
+		return "", nil
+	}
+	h := r.fx.handler()
+	env, st := apiBody[board.APIStatus](t, apiPost(t, h, "/api/v1/supervisor/start", map[string]string{"harness": "claude", "model": "opus", "effort": "high"}, token, true))
+	if want := []string{"supervisor", "start", "--harness", "claude", "--model", "opus", "--effort", "high"}; !slices.Equal(calls[len(calls)-1], want) {
+		t.Fatalf("start called %q, want %q", calls[len(calls)-1], want)
+	}
+	if env.Receipt != "Starting the supervisor…" || env.Warn != "" {
+		t.Fatalf("receipt %q, warn %q", env.Receipt, env.Warn)
+	}
+	_, again := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	a, _ := json.Marshal(st)
+	b, _ := json.Marshal(again)
+	if !bytes.Equal(a, b) {
+		t.Fatalf("start and the GET disagree:\n%s\n%s", a, b)
+	}
+
+	refuse := func(body any, want string) {
+		t.Helper()
+		before := len(calls)
+		err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/start", body, token, true), http.StatusBadRequest, "bad_request")
+		if err.Message != want {
+			t.Fatalf("message = %q, want %q", err.Message, want)
+		}
+		if len(calls) != before {
+			t.Fatalf("a refused start ran %q", calls[before:])
+		}
+	}
+	refuse(map[string]string{"model": "opus"}, "give a harness to start with a model or an effort")
+	refuse(map[string]string{"harness": "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot, omp`)
+	refuse(map[string]string{"harness": "copilot", "model": "gpt-6-luna"}, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp")
+	refuse(map[string]string{"harness": "claude", "model": "nope", "effort": "high"}, "claude model nope is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list")
+	refuse(map[string]string{"harness": "claude", "model": "opus", "effort": "ultra"}, "claude model opus: effort ultra is not one of low, medium, high, xhigh, max")
+	refuse(map[string]string{"harness": "claude", "model": "a b"}, `claude model "a b" must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit`)
+	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/start", `{"harness":"claude"} {}`, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/start", `{"harness":1}`, token, true), http.StatusBadRequest, "bad_request")
+
+	if err := os.Remove(filepath.Join(r.home, "models", "codex.json")); err != nil {
+		t.Fatal(err)
+	}
+	env, _ = apiBody[board.APIStatus](t, apiPost(t, h, "/api/v1/supervisor/start", map[string]string{"harness": "codex", "model": "gpt-6-luna", "effort": "low"}, token, true))
+	if want := "codex model gpt-6-luna could not be checked: no model list yet; run `hand models --refresh codex`; starting anyway"; env.Warn != want {
+		t.Fatalf("warn = %q, want %q", env.Warn, want)
+	}
+	if want := []string{"supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"}; !slices.Equal(calls[len(calls)-1], want) {
+		t.Fatalf("start called %q, want %q", calls[len(calls)-1], want)
+	}
+}
+
+func TestAPIStartWithoutABodyCopiesTheLastSupervisor(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	var calls [][]string
+	fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		calls = append(calls, append([]string(nil), call...))
+		return "", nil
+	}
+	h := fx.handler()
+	env, _ := apiBody[board.APIStatus](t, apiPost(t, h, "/api/v1/supervisor/start", nil, token, true))
+	if want := []string{"supervisor", "start"}; !slices.Equal(calls[len(calls)-1], want) || env.Receipt != "Starting the supervisor…" {
+		t.Fatalf("start called %q, receipt %q", calls[len(calls)-1], env.Receipt)
+	}
+	fresh := newFixture(t)
+	err := testAPIError(t, apiPost(t, fresh.handler(), "/api/v1/supervisor/start", nil, token, true), http.StatusConflict, "conflict")
+	if err.Message != "there is no earlier supervisor to copy; give a harness, model and effort" {
+		t.Fatalf("conflict = %q", err.Message)
+	}
+}
+
+func TestAPISwitchModelOrHarness(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	var calls [][]string
+	fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		calls = append(calls, append([]string(nil), call...))
+		return fx.warn, fx.fail
+	}
+	h := fx.handler()
+	post := func(body any, want []string, receipt string) board.APIEnvelope {
+		t.Helper()
+		rec := apiPost(t, h, "/api/v1/supervisor/switch", body, token, true)
+		env, _ := apiBody[board.APIStatus](t, rec)
+		if len(calls) == 0 || !slices.Equal(calls[len(calls)-1], want) {
+			t.Fatalf("switch called %q, want %q", calls[len(calls)-1], want)
+		}
+		if env.Receipt != receipt {
+			t.Fatalf("receipt = %q, want %q", env.Receipt, receipt)
+		}
+		if header := apiUnescape(t, rec, "X-Hand-Receipt"); header != receipt {
+			t.Fatalf("X-Hand-Receipt = %q, receipt = %q", header, receipt)
+		}
+		return env
+	}
+	env := post(map[string]any{"cancel": true}, []string{"supervisor", "switch", "--cancel"}, "Switch canceled")
+	if _, st := apiInto[board.APIStatus](t, h, "/api/v1/status"); env.Cursor == "" || st.Supervisor == nil {
+		t.Fatalf("a switch answered no status: %+v", env)
+	}
+	post(map[string]string{"model": "opus", "effort": "high"}, []string{"supervisor", "switch", "--model", "opus", "--effort", "high"}, "Switch applied")
+	post(map[string]string{"harness": "codex"}, []string{"supervisor", "switch", "--harness", "codex"}, "Switching to codex…")
+
+	ctx := context.Background()
+	if _, err := fx.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	post(map[string]string{"model": "opus"}, []string{"supervisor", "switch", "--model", "opus"}, "Switch set for after this turn")
+	if _, err := fx.st.CancelSupervisorSwitch(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	fx.warn = state.NoteLost + ": is m available?"
+	post(map[string]string{"effort": "high"}, []string{"supervisor", "switch", "--effort", "high"}, "Switch applied, not answered")
+
+	fx.fail = fmt.Errorf("%w: s1 is working; switch harness when its turn ends, or interrupt it first", state.ErrConflict)
+	before := len(calls)
+	err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", map[string]string{"harness": "codex"}, token, true), http.StatusConflict, "conflict")
+	if err.Message != "conflict: s1 is working; switch harness when its turn ends, or interrupt it first" || err.Warn != fx.warn {
+		t.Fatalf("conflict = %+v", err)
+	}
+	if len(calls) != before+1 {
+		t.Fatalf("a refused switch ran %q", calls[before:])
+	}
+	fx.fail = nil
+
+	for _, c := range []struct {
+		body any
+		want string
+	}{
+		{map[string]any{}, "give a model or effort"},
+		{map[string]string{"harness": "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot, omp`},
+		{map[string]string{"harness": "copilot", "model": "gpt-6-luna"}, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp"},
+	} {
+		before := len(calls)
+		got := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", c.body, token, true), http.StatusBadRequest, "bad_request")
+		if got.Message != c.want {
+			t.Fatalf("message = %q, want %q", got.Message, c.want)
+		}
+		if len(calls) != before {
+			t.Fatalf("a refused switch ran %q", calls[before:])
+		}
+	}
+	testAPIError(t, apiPostRaw(t, h, "/api/v1/supervisor/switch", `{"model":"opus"} trailing`, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/switch", map[string]string{"model": "opus"}, "", true), http.StatusForbidden, "csrf_required")
+
+	ctx2, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fx.options.Control = func(context.Context, ...string) (string, error) {
+		cancel()
+		return "", nil
+	}
+	req := httptest.NewRequest("POST", "/api/v1/supervisor/switch", strings.NewReader(`{"model":"opus"}`))
+	req = req.WithContext(ctx2)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hand-CSRF", token)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	fx.handler().ServeHTTP(rec, req)
+	env2, accepted := apiBody[struct {
+		Accepted bool `json:"accepted"`
+	}](t, rec)
+	if !accepted.Accepted || !strings.HasPrefix(env2.Warn, "the action went through, but the status could not be read: ") || env2.Receipt != "Switch applied" {
+		t.Fatalf("accepted = %+v, warn %q, receipt %q", accepted, env2.Warn, env2.Receipt)
+	}
+}
+
+func TestAPIRefreshModels(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, models := apiBody[board.APIModels](t, apiPost(t, h, "/api/v1/models/refresh", map[string]string{"harness": "copilot"}, token, true))
+	if env.Receipt != "Refreshing models…" || env.Warn != "" || len(models.Harnesses) != 5 {
+		t.Fatalf("refresh = %+v, models = %+v", env, models)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var cooled board.APIError
+	for {
+		rec := apiPost(t, h, "/api/v1/models/refresh", map[string]string{"harness": "copilot"}, token, true)
+		cooled = testAPIError(t, rec, http.StatusTooManyRequests, "rate_limited")
+		if !strings.Contains(cooled.Message, "already refreshing") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a refused refresh never reached the cooldown")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if cooled.Message != "copilot models were refreshed 0 s ago; try again in a moment" {
+		t.Fatalf("cooldown = %q", cooled.Message)
+	}
+	bad := testAPIError(t, apiPost(t, h, "/api/v1/models/refresh", map[string]string{"harness": "opencode"}, token, true), http.StatusBadRequest, "bad_request")
+	if bad.Message != "refresh the models of claude, codex, agy, copilot or omp" {
+		t.Fatalf("unknown harness = %q", bad.Message)
+	}
+	testAPIError(t, apiPostRaw(t, h, "/api/v1/models/refresh", `{"harness":"copilot"} x`, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPost(t, h, "/api/v1/models/refresh", nil, "", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, request(h, "GET", "/api/v1/models/refresh", nil, true), http.StatusNotFound, "not_found")
+}
+
+func TestAPairedPhoneCannotRefreshModels(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	c := r.as(peerA)
+	companion := r.mustPair(c, f)
+	csrf := r.csrfOf(c, f, companion)
+	rep := r.post(c, f, "models/refresh", `{"harness":"claude"}`, csrf, companion)
+	if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"code":"forbidden"`) || !strings.Contains(rep.Body, "a paired phone cannot refresh model lists; use the host's Board") {
+		t.Fatalf("a phone's refresh = %d:\n%s", rep.Code, rep.Body)
+	}
+}
+
+func goldenData(t *testing.T, name string) map[string]json.RawMessage {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "api", name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil || env.Data == nil {
+		t.Fatalf("%s is not an envelope: %v", name, err)
+	}
+	return env.Data
+}
+
+func TestThePhoneDecodesTheNewAnswersWithoutAChange(t *testing.T) {
+	phoneStatus := []string{"agent_state", "composer_hint", "pill", "line", "gauge", "compactions", "needs", "tasks", "projects"}
+	for _, name := range []string{"supervisor-started-with-choice", "supervisor-switched"} {
+		data := goldenData(t, name)
+		for _, k := range phoneStatus {
+			if _, ok := data[k]; !ok {
+				t.Fatalf("%s: the phone's Status has no %s", name, k)
+			}
+		}
+	}
+	for _, name := range []string{"models", "models-refreshed"} {
+		data := goldenData(t, name)
+		if _, ok := data["harnesses"]; !ok {
+			t.Fatalf("%s carries no harnesses", name)
+		}
+		for _, k := range append(phoneStatus, "supervisor") {
+			if _, ok := data[k]; ok {
+				t.Fatalf("%s carries a Status field, %s, so a phone would read it as one", name, k)
+			}
+		}
 	}
 }

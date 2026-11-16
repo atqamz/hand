@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired phone over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, and the supervisor controls (start, resume, stop, interrupt, force and keys). It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -60,6 +60,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | Endpoint | `data` | Page it mirrors |
 |---|---|---|
 | `GET /api/v1/status` | `Status`: supervisor, agent state, pill, gauge, compactions, Needs summary and items, task counts, project count | the fleet page's status line and Needs |
+| `GET /api/v1/models` | `Models`: each harness the menus offer, its model groups and efforts, its stale and missing notes, and the running supervisor's choice; see [Models](#modelsdata) | the model menu and the Start strip |
 | `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/task/{tN}` | `TaskDetail`: task, plan, delivered, waits, open and all decisions, unread and recent reports, attempts, events | `/task/tN` |
@@ -74,12 +75,14 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
-| `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session |
+| `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
 | `POST /api/v1/supervisor/stop` | the same `Status` after the stop | the console's Stop |
 | `POST /api/v1/supervisor/interrupt` | the same `Status` after the interrupt | the console's Interrupt |
 | `POST /api/v1/supervisor/force` | the same `Status` after the force | the blocked screen's "Type queued messages anyway" |
+| `POST /api/v1/supervisor/switch` | the same `Status` after the switch | the model menu's Switch, Cancel switch and Drop switch |
 | `POST /api/v1/supervisor/keys` | the same `Status` after the key press | the supervisor's fixed key buttons |
+| `POST /api/v1/models/refresh` | the same `Models` the GET returns, after the refresh started | the overflow menu's Refresh models |
 | `POST /api/v1/attempt/{aN}/keys` | the same `AttemptDetail` the GET returns, after the key press | `/attempt/aN`'s key buttons |
 
 `{tN}`, `{aN}`, `{dN}` and `{rN}` take the ref or the bare number, as the pages do. An unknown ref is `404`.
@@ -134,6 +137,29 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 ```
 
 `question` is the one question line the Board parser picks from the screen. Each option has the `label` the Ask card shows (for a numbered dialog, the number and the option text clipped to 24 characters) and the `keys` that choose it, in the order they are sent: `["1"]`, or `["down", "enter"]` for a `◯`/`◉` list. Both go through the absolute-path scrub the rest of the API uses. `ask` is absent unless `blocked` is true, when the screen is stale or unreadable, when the parser rejects the screen (no option block), when the question line does not end in `?`, when a question or label looks like a secret (a bearer or API token, a `password=` form, a long token), when there are more than 8 options, and when any option would need a key outside the allowed set. The question is clipped to 200 characters and each label to 60. Nothing else from the screen is carried except the `excerpt`, `title` and `options` of a blocked or worker Needs item, which show the command, the file and the footer as the Board does. A client posts an option's `keys` as one press with the three guard values above, so a stale option is refused like any stale key.
+
+### `Models.data`
+
+```json
+{
+  "harnesses": [
+    {"name": "claude",
+     "groups": [
+       {"label": "built-in", "models": [
+         {"name": "opus", "text": "Opus 5.5 · opus", "efforts": ["low", "medium", "high", "xhigh", "max"]},
+         {"name": "haiku", "text": "Haiku 5.5"}]},
+       {"label": "custom, efforts unverified", "models": [
+         {"name": "acme-opus", "text": "Acme Opus · acme-opus", "efforts": ["low"], "unverified": true}]}],
+     "efforts": ["low", "medium", "high", "xhigh", "max"], "note": "listed 2 h ago"},
+    {"name": "omp", "groups": [], "missing": "omp not found on the board's PATH; restart the board after installing it"}
+  ],
+  "current": "claude", "model": "opus", "effort": "high", "switchable": true
+}
+```
+
+`harnesses` is the menu's own order, which is the order the board's harness list keeps: `claude`, `codex`, `opencode`, `agy`, `omp`. `copilot` is left out because it starts workers only. Each harness carries `name`, `groups`, `efforts`, and where they apply `note`, `missing`, `model`, `effort`. `groups` are the menu's `<optgroup>`s in its order, each with the `label` the menu prints (`built-in`, `discovered` or `custom`, with `, efforts unverified` appended when any model in it is unverified) and its `models`. A model has `name`, the `text` the option shows (`Label · name`, or the name when it has no label), its `efforts` as tokens, and `unverified` and `selected` when they apply. `selected` is the model the Start strip would prefill, the last supervisor's, on the harness it ran; the others carry none. `efforts` on the harness is the list its effort select offers, in model order. `note` is the menu's stale line verbatim (`listed 2 h ago`, `refresh failed: …`), empty when the list is fresh, and `missing` is its reason verbatim when the harness binary is not on the board's `PATH`. Both go through the absolute-path scrub. A harness with no model list has empty `groups`, and its model box takes a typed name.
+
+`current` is the running supervisor's harness, with its `model` and `effort` as the menu's "Running now" block shows them; all three are absent when there is no supervisor. `model_note` is that block's warning, verbatim (`Asked for opus high, running sonnet low.`), when the model that was asked for is not the one running. `switching` is the pending switch's `model effort`, the menu's `next turn:` line, and `drop` is the same text when the switch can be dropped on a supervisor that is no longer running. `switchable` says the menu offers a switch at all, which the board does only while a supervisor is running; `resumable` says the Start strip offers Resume.
 
 ### `Timeline.data`
 
@@ -194,12 +220,14 @@ An action's answer says what the Board's toast would say, in two places: the env
 | `POST /supervisor/stop` | `s1 stopping` |
 | `POST /supervisor/interrupt` | `Interrupt sent to s1` |
 | `POST /supervisor/force` | `Typed into s1` |
+| `POST /supervisor/switch` | `Switch applied`, `Switch set for after this turn`, `Switch applied, not answered`, `Switching to codex…`, or `Switch canceled` |
+| `POST /models/refresh` | `Refreshing models…` |
 | `POST /supervisor/keys` | `Sent down enter to s1` |
 | `POST /attempt/{aN}/keys` | `Sent enter to a1` |
 
 The supervisor named is the one the Board's own button would name, read before the control runs. Sending a message carries no receipt, because the Board's composer shows none: the answer's timeline is the confirmation. Pairing carries none either.
 
-`warn` is the caveat the Board shows beside the receipt, for 12 seconds rather than 4: the warning the control printed while it succeeded (an unverified model, for one), joined with `; ` when several apply, and the caveat of a write that went through but whose result could not be read, `{"accepted": true}`, which says `the action went through, but the status could not be read: <reason>; refresh to see it` for a control or a key press, and `the message was sent, but the conversation could not be read: <reason>; refresh to see it` for a message. The decision answer, the report ack and a worker's keys say the same in their own words: `the answer was saved, but its decision could not be read: …`, `the report was marked read, but its detail could not be read: …`, and `the press went through, but the attempt could not be read: …`. A client shows `receipt` for 4 seconds, `warn` for 12, and both together as `receipt; warn`, as the Board's `app.js` does. A client that shows no toast ignores both.
+`warn` is the caveat the Board shows beside the receipt, for 12 seconds rather than 4: the warning the control printed while it succeeded (an unverified model, for one), joined with `; ` when several apply, and the caveat of a write that went through but whose result could not be read, `{"accepted": true}`, which says `the action went through, but the status could not be read: <reason>; refresh to see it` for a control or a key press, and `the message was sent, but the conversation could not be read: <reason>; refresh to see it` for a message. The decision answer, the report ack, a worker's keys and a model refresh say the same in their own words: `the answer was saved, but its decision could not be read: …`, `the report was marked read, but its detail could not be read: …`, `the press went through, but the attempt could not be read: …`, and `the refresh started, but the model lists could not be read: …`. A client shows `receipt` for 4 seconds, `warn` for 12, and both together as `receipt; warn`, as the Board's `app.js` does. A client that shows no toast ignores both.
 
 ### Sending a message
 
@@ -314,15 +342,15 @@ Both paths take the refusals of every read: a request through a proxy or Funnel,
 
 ### The supervisor controls
 
-`POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` run the same path as the console button they mirror and answer the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read.
+`POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` run the same path as the console button they mirror and answer the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read. `POST /api/v1/supervisor/switch` answers the same `Status`; see [Switching the model or harness](#switching-the-model-or-harness).
 
-- **start** runs `supervisor start` with no flags, copying the last supervisor's harness, model and effort, like the console's "same as sN". There must be an earlier supervisor to copy: with none, the answer is `409 conflict`, and while one is live it is `409 conflict` too. Start a first supervisor from the CLI, which can choose the harness.
+- **start** takes no body or one JSON object. With no body it runs `supervisor start` with no flags, copying the last supervisor's harness, model and effort, like the console's "same as sN"; there must be an earlier supervisor to copy, else `409 conflict`. With a body it starts the harness the body names, which is how a fleet gets its first supervisor: see [Starting with a harness, model and effort](#starting-with-a-harness-model-and-effort). While one is live the answer is `409 conflict` either way.
 - **resume** continues the last session under a new `sN`; it follows the CLI's rules, so a running supervisor or nothing to resume is a conflict or a not-found.
 - **stop**, **interrupt** and **force** take one JSON object, the ref the client's `Status` showed: `{"ref": "s1"}`. The board runs `supervisor stop --expect s1`, `supervisor interrupt --expect s1` or `supervisor force --expect s1`, so a control binds to the supervisor on screen and is `409 conflict` when another one runs by then, rather than stopping, interrupting or typing into the replacement.
 - **stop** and **interrupt** need a running supervisor; anything else is `409 conflict`.
 - **force** is the blocked screen's "Type queued messages anyway": it types the queued messages, or else the wakes, into the prompt. It follows the CLI: a supervisor that is not blocked gets its queued input delivered normally, still only to the named supervisor, and the answer is still `200`.
 
-Start and resume take no body. When a control ran but the board could not read the status back, the answer is `200` with `{"accepted": true}` instead of a `Status`, and its `warn` says so: the action went through, so a client shows that warning and asks for a refresh rather than reporting a failed action. It keeps the screen it has and needs no second read to report the outcome.
+Resume takes no body; start takes none or a harness, model and effort. When a control ran but the board could not read the status back, the answer is `200` with `{"accepted": true}` instead of a `Status`, and its `warn` says so: the action went through, so a client shows that warning and asks for a refresh rather than reporting a failed action. It keeps the screen it has and needs no second read to report the outcome.
 
 - `400 bad_request`: stop, interrupt or force without one JSON object, or with a ref that is not `sN`.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
@@ -330,6 +358,63 @@ Start and resume take no body. When a control ran but the board could not read t
 - `404 not_found`: there is nothing to resume.
 - `500 internal`: the control failed; the message keeps no path.
 - `200` with the updated `Status`, or `{"accepted": true}` when the status could not be read.
+
+### Starting with a harness, model and effort
+
+`POST /api/v1/supervisor/start` takes this instead of no body to choose what starts, which is how a fleet gets its first supervisor:
+
+```json
+{"harness": "claude", "model": "opus", "effort": "high"}
+```
+
+`harness` is one of the board's: `claude`, `codex`, `opencode`, `agy` or `omp`. `copilot` starts workers only, so it is refused with the board's sentence. `model` and `effort` may be left out, which starts the harness's own default; an effort without a model, or the two without a harness, is `400 bad_request`, because the Start strip's rows always send a harness and a model with it. The board runs `supervisor start --harness H --model M --effort E`, the same path as one of those rows, and answers the `Status` the GET serves with the receipt `Starting the supervisor…`.
+
+The triple goes through the harness's own check before the control runs, the same one the Board uses for its "starting anyway" warning:
+
+- A harness, model or effort the check refuses is `400 bad_request` with the board's own sentence, for one `claude model opus: effort ultra is not one of low, medium, high, xhigh, max`, `harness "gemini" must be one of claude, codex, opencode, agy, copilot, omp`, or `copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp`. Nothing starts.
+- A model or effort the check can only call unverified, because there is no model list yet, starts with that line in the answer's `warn`, as `codex model gpt-6-luna could not be checked: no model list yet; run \`hand models --refresh codex\`; starting anyway`, exactly as the Board shows it.
+- A model or effort the harness's list says is not there is refused with that line minus its `; starting anyway`, rather than started. This is the one place the API is stricter than the Board: its Start strip keeps an "Other model" box for a name the list has not caught up with, and v1 has no field that carries one.
+
+- `400 bad_request`: a body that is not one JSON object, a model or effort without a harness, or a harness, model or effort the check refuses.
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
+- `409 conflict`: a supervisor is already live, or a `start` with no body had none to copy.
+- `500 internal`: the control failed; the message keeps no path.
+- `200` with the updated `Status`, or `{"accepted": true}` when the status could not be read.
+
+### Switching the model or harness
+
+`POST /api/v1/supervisor/switch` takes one JSON object:
+
+```json
+{"model": "opus", "effort": "high"}
+```
+
+- `model` and `effort` set the pending switch, as the model menu's Switch does: the running turn finishes on the model it has, and the change lands after it. Either may be left out, and a supervisor that is idle switches at once. With all three fields empty and no `cancel`, the answer is `400 bad_request` with the board's own `give a model or effort`.
+- `harness` switches to another harness, which the board does between turns: a working supervisor is `409 conflict` with the CLI's sentence, and an idle one stops and starts the new harness now. Its receipt is `Switching to codex…`.
+- `cancel: true` drops a pending switch, or cancels one on a supervisor that is no longer running (the Start strip's Drop switch), and ignores the other fields as the Board's own cancel and drop forms do. Its receipt is `Switch canceled`.
+- The confirmations are the Board's: `Switch applied`, `Switch set for after this turn` when the status the board read back still carries the pending switch, `Switch applied, not answered` when the CLI warned that the opencode session did not take the note, and `Switching to H…` above. `Models.switching` carries the pending line.
+
+The answer is the `Status` the GET serves, after the switch, or `{"accepted": true}` with the caveat in `warn` when the switch went through but the status could not be read back: the switch is set, so a client does not send it again, shows the warn and refreshes.
+
+- `400 bad_request`: a body that is not one JSON object, nothing to switch to and no `cancel`, or a harness the board does not know or cannot supervise.
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
+- `409 conflict`: a harness switch while the supervisor is working, a model already running, a supervisor with no session yet, or another state the CLI refuses; the message is the CLI's.
+- `200` with the updated `Status`, or `{"accepted": true}` when the status could not be read.
+
+### Refreshing the model lists
+
+`POST /api/v1/models/refresh` takes one JSON object, or no body to refresh every list:
+
+```json
+{"harness": "claude"}
+```
+
+It runs the same refresh as the menu's Refresh models, in the background, one per harness, and answers the `Models` the GET serves with the receipt `Refreshing models…`. The new lists arrive in `GET /api/v1/models` when each refresh finishes, which is a few seconds and no event. The names it takes are `claude`, `codex`, `agy`, `copilot` and `omp`; `opencode` lists its own models when it is asked, so it has none to refresh. A harness that is busy, or was refreshed less than 30 seconds ago, is `429 rate_limited` with the board's sentence, `claude models were refreshed 12 s ago; try again in a moment`, or `claude models are already refreshing`. No body refreshes all five, and is refused only when every one of them is inside its cooldown. A paired phone cannot refresh a host's lists.
+
+- `400 bad_request`: a body that is not one JSON object, or a harness outside those five.
+- `403 forbidden`: the board has its controls off, the request is not on a loopback board, or the session is a paired phone's.
+- `429 rate_limited`: every named list is inside its 30-second cooldown, or already refreshing.
+- `200` with the `Models` the GET serves, or `{"accepted": true}` when they could not be read back.
 
 ### Pressing keys
 
@@ -390,7 +475,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
 | `409` | `conflict` | a state conflict while reading or acting |
 | `413` | `too_large` | a page form only, answered with the page's HTML error page and not this shape: a `POST` over the board's 11 MiB post limit, refused by the page's guard before the route runs, or a file over 10 MiB on `POST /supervisor/image`; a v1 action reads at most 64 KiB of JSON and answers `400 bad_request` above that |
-| `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute |
+| `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute, or `models/refresh` for a list inside its 30-second cooldown |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |
 
