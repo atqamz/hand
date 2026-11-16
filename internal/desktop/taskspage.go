@@ -2,7 +2,9 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -72,6 +74,15 @@ func (a *App) retryProjects() {
 	a.loadProjects()
 }
 
+func searchRetriable(err error) bool {
+	var api *APIError
+	if !errors.As(err, &api) {
+		return true
+	}
+	return api.Status < 400 || api.Status >= 500 ||
+		api.Status == http.StatusRequestTimeout || api.Status == http.StatusTooManyRequests
+}
+
 func (a *App) retryStaleSearch() {
 	if a.SearchBusy {
 		return
@@ -116,14 +127,21 @@ func (a *App) runTaskSearch(quiet bool) {
 		}
 		a.SearchBusy = false
 		again := func() {
-			if a.searchAgain {
-				a.searchAgain = false
+			if !a.searchAgain {
+				return
+			}
+			a.searchAgain = false
+			if a.Screen == TasksScreen {
 				a.runTaskSearch(true)
 			}
 		}
 		if err != nil {
 			if !quiet {
 				a.SearchErr, a.searchFor = friendly(err), TaskSearchQuery{}
+			}
+			if !quiet && !searchRetriable(err) {
+				again()
+				return
 			}
 			a.searchStale, a.searchStaleErr = true, friendly(err)
 			a.searchFails++

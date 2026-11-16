@@ -1745,7 +1745,9 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.Stale = a.reads[readTasks].err
 	}
 	statusFresh, tasksFresh, screenFresh := false, false, false
+	moved := false
 	if a.Fleet.ID == fleet && p.StatusFresh {
+		moved = p.StatusCursor == "" || p.StatusCursor != a.pollStatus
 		a.setStatus(p.Status)
 		a.pollStatus, statusFresh = p.StatusCursor, true
 		a.reconcileAcked()
@@ -1756,9 +1758,10 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		if a.projectsFor == "" {
 			a.retryProjects()
 		}
-		if p.StatusFresh {
+		switch {
+		case p.StatusFresh && moved:
 			a.refreshTaskSearch()
-		} else if a.searchStale {
+		case a.searchStale:
 			a.retryStaleSearch()
 		}
 	}

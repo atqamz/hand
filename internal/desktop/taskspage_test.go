@@ -1011,3 +1011,267 @@ func TestAFailedForegroundSearchRecoversOnUnchangedTicks(t *testing.T) {
 	mustNotText(t, tt, "The tasks could not be searched")
 	mustText(t, tt, "Sun 1 Nov UTC", "5 tasks")
 }
+
+type workerPoll struct {
+	desktop.ReadModel
+	cursor string
+}
+
+func (w *workerPoll) Poll(ctx context.Context, id string, screen desktop.Screen, ref string, since desktop.PollCursors) (desktop.Poll, error) {
+	p, err := w.ReadModel.Poll(ctx, id, screen, ref, since)
+	p.StatusFresh, p.StatusCursor, p.StatusRead = true, w.cursor, true
+	return p, err
+}
+
+func workerApp(t *testing.T, f *fixture) *desktop.App {
+	t.Helper()
+	model := &workerPoll{ReadModel: f, cursor: "cursor-1"}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	app.Show(desktop.TasksScreen)
+	return app
+}
+
+func TestAWorkerBlockedBoardDoesNotReReadTheSearch(t *testing.T) {
+	f := searchFixture(t)
+	app := workerApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	search, projects := f.count("search"), f.count("projects:"+fleetID)
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("search"); got != search {
+		t.Errorf("searches = %d over 20 unchanged-cursor ticks, want %d", got, search)
+	}
+	if got := f.count("projects:" + fleetID); got != projects {
+		t.Errorf("project reads = %d, want %d", got, projects)
+	}
+}
+
+func TestAWorkerBlockedBoardBacksOffAFailingSearch(t *testing.T) {
+	f := searchFixture(t)
+	app := workerApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	before := f.count("search")
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("search") - before; got > 5 {
+		t.Errorf("searches = %d over 20 unchanged-cursor ticks, want backoff", got)
+	}
+}
+
+func TestAStatusChangeDuringAFailingSearchReRunsAfter(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := searchApp(t, f)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchBlock = make(chan struct{})
+	f.searchEntered = make(chan desktop.TaskSearchQuery, 1)
+	app.SearchNow()
+	select {
+	case <-f.searchEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the search never started")
+	}
+	before := f.count("search")
+	clock.Advance(desktop.FocusedRefresh)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	f.searchErr = errors.New("the board did not answer")
+	close(f.searchBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if got := f.count("search"); got != before+1 {
+		t.Fatalf("searches = %d, want the %d plus one deferred refresh", got, before)
+	}
+}
+
+func TestTheSearchBackoffResetsAfterASuccess(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := quietApp(t, f, false)
+	model := app.Model.(*quietBoard)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	model.fresh = true
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	model.fresh = false
+	clock.Advance(desktop.FocusedRefresh)
+	clock.Advance(desktop.FocusedRefresh)
+	f.searchErr = nil
+	for range 5 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	model.fresh = true
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	model.fresh = false
+	before := f.count("search")
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("search"); got != before {
+		t.Fatalf("a retry came on the first tick after a fresh failure: %d, want %d", got, before)
+	}
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("search"); got != before+1 {
+		t.Fatalf("searches = %d, want the %d plus one retry", got, before)
+	}
+}
+
+func TestTheSearchBackoffResetsOnAForegroundSearch(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := quietApp(t, f, false)
+	model := app.Model.(*quietBoard)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	model.fresh = true
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	model.fresh = false
+	clock.Advance(desktop.FocusedRefresh)
+	clock.Advance(desktop.FocusedRefresh)
+	before := f.count("search")
+	app.SearchNow()
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("search"); got != before+1 {
+		t.Fatalf("a retry came before the second tick: %d, want %d", got, before+1)
+	}
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("search"); got != before+2 {
+		t.Fatalf("searches = %d, want the %d plus one retry", got, before+2-1)
+	}
+}
+
+func TestARefusedSearchIsNotRetried(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := quietApp(t, f, false)
+	f.searchErr = &desktop.APIError{Status: 400, Code: "bad_request", Message: `since "x" is not a date; want YYYY-MM-DD`}
+	app.SearchNow()
+	tt.Frame()
+	mustText(t, tt, "The tasks could not be searched")
+	before := f.count("search")
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("search"); got != before {
+		t.Errorf("searches = %d after a refused search, want %d", got, before)
+	}
+	tt.Frame()
+	mustText(t, tt, "The tasks could not be searched")
+}
+
+func TestADeferredSearchDoesNotRunAfterLeavingTheTasksPage(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := searchApp(t, f)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchBlock = make(chan struct{})
+	f.searchEntered = make(chan desktop.TaskSearchQuery, 1)
+	app.SearchNow()
+	select {
+	case <-f.searchEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the search never started")
+	}
+	before := f.count("search")
+	clock.Advance(desktop.FocusedRefresh)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	app.Show(desktop.BoardScreen)
+	waitPost(t, posted)()
+	close(f.searchBlock)
+	deadline := time.After(300 * time.Millisecond)
+	for {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			if got := f.count("search"); got != before {
+				t.Errorf("searches = %d after leaving the page, want %d", got, before)
+			}
+			return
+		}
+	}
+}
+
+func TestARetryDoesNotStartWhileASearchIsInFlight(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := quietApp(t, f, false)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.searchErr = errors.New("the board did not answer")
+	app.SearchNow()
+	waitPost(t, posted)()
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchErr = nil
+	f.searchBlock = make(chan struct{})
+	f.searchEntered = make(chan desktop.TaskSearchQuery, 2)
+	clock.Advance(desktop.FocusedRefresh)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	clock.Advance(desktop.FocusedRefresh)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	select {
+	case <-f.searchEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the retry never started")
+	}
+	inFlight := f.count("search")
+	clock.Advance(desktop.FocusedRefresh)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	select {
+	case <-f.searchEntered:
+		t.Error("a second search started while one was in flight")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if got := f.count("search"); got != inFlight {
+		t.Errorf("searches = %d while one was in flight, want %d", got, inFlight)
+	}
+	close(f.searchBlock)
+	waitPost(t, posted)()
+}
+
+func TestTheProjectBackoffResetsOnEntry(t *testing.T) {
+	f := searchFixture(t)
+	st := f.status[fleetID]
+	st.Projects = 2
+	f.status[fleetID] = st
+	f.projects[fleetID] = desktop.Projects{Projects: []string{"api", "web"}}
+	f.projectsErr = errors.New("the board did not answer")
+	app, tt := quietApp(t, f, false)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	clock.Advance(desktop.FocusedRefresh)
+	app.Show(desktop.BoardScreen)
+	app.Show(desktop.TasksScreen)
+	f.projectsErr = nil
+	clock.Advance(desktop.FocusedRefresh)
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "All projects")
+}
