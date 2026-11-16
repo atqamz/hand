@@ -1,12 +1,11 @@
 package board_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -31,10 +30,9 @@ func TestRawHeadersPerType(t *testing.T) {
 	}
 	h, _ := viewer(t, files)
 	const sandboxed = "sandbox; default-src 'none'"
-	const framed = "sandbox allow-same-origin; default-src 'none'"
 	for rel, want := range map[string]map[string]string{
-		"p/page.html": {"Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": framed + "; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'", "X-Frame-Options": "SAMEORIGIN"},
-		"p/page.HTM":  {"Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": framed + "; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'", "X-Frame-Options": "SAMEORIGIN"},
+		"p/page.html": {"Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": sandboxed + "; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'", "X-Frame-Options": "SAMEORIGIN"},
+		"p/page.HTM":  {"Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": sandboxed + "; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'", "X-Frame-Options": "SAMEORIGIN"},
 		"p/x.svg":     {"Content-Type": "image/svg+xml", "Content-Security-Policy": sandboxed + "; style-src 'unsafe-inline'", "X-Frame-Options": "DENY"},
 		"p/spec.pdf":  {"Content-Type": "application/pdf", "Content-Security-Policy": sandboxed, "X-Frame-Options": "SAMEORIGIN"},
 		"p/a.mp4":     {"Content-Type": "video/mp4", "Content-Security-Policy": sandboxed, "X-Frame-Options": "DENY"},
@@ -56,16 +54,13 @@ func TestRawHeadersPerType(t *testing.T) {
 		want["X-Content-Type-Options"], want["Cache-Control"] = "nosniff", "private, no-cache"
 		headers(t, rel, rec, want)
 		csp := rec.Header().Get("Content-Security-Policy")
-		for _, bad := range []string{"allow-scripts", "script-src", "unsafe-eval"} {
+		for _, bad := range []string{"allow-scripts", "allow-same-origin", "script-src", "unsafe-eval"} {
 			if strings.Contains(csp, bad) {
 				t.Errorf("%s CSP %q holds %q", rel, csp, bad)
 			}
 		}
-		if !strings.HasPrefix(csp, "sandbox;") && !strings.HasPrefix(csp, "sandbox allow-same-origin;") {
+		if !strings.HasPrefix(csp, "sandbox;") {
 			t.Errorf("%s CSP %q does not start with sandbox", rel, csp)
-		}
-		if same, html := strings.Contains(csp, "allow-same-origin"), strings.HasSuffix(rel, ".html") || strings.HasSuffix(rel, ".HTM"); same != html {
-			t.Errorf("%s CSP %q allow-same-origin = %v", rel, csp, same)
 		}
 	}
 }
@@ -106,10 +101,10 @@ func TestTheHTMLPreviewRunsNothing(t *testing.T) {
 	h, _ := viewer(t, map[string]string{"reports/t1/page.html": page})
 	body := get(t, h, "/doc/reports/t1/page.html")
 	frame := regexp.MustCompile(`<iframe[^>]*>`).FindString(body)
-	if !strings.Contains(frame, `src="/doc/reports/t1/page.html?raw"`) || !strings.Contains(frame, ` sandbox="allow-same-origin">`) {
+	if !strings.Contains(frame, `src="/doc/reports/t1/page.html?frame"`) || !regexp.MustCompile(`\ssandbox(\s|>)`).MatchString(frame) {
 		t.Fatalf("iframe = %q", frame)
 	}
-	for _, bad := range []string{"allow-scripts", "srcdoc", "<script>document", "RAN", "fetch("} {
+	for _, bad := range []string{"allow-", "srcdoc", "<script>document", "RAN", "fetch("} {
 		if strings.Contains(body, bad) {
 			t.Errorf("page holds %q", bad)
 		}
@@ -377,60 +372,142 @@ func TestThePreviewsAreStyled(t *testing.T) {
 		".d-add{background:var(--pass-bg)}", ".d-del{background:var(--fail-bg)}", ".d-hunk{color:var(--accent)}", ".d-file{font-weight:600}")
 }
 
-func TestAnHTMLPreviewLoadsRelativeImagesFromInsideTheFleetOnly(t *testing.T) {
-	const progress = `<!doctype html><title>x</title><img src="../t1299/shots/s2.png"><img src="shot.png"><img src="../../.secret/key.png"><img src="..%2f..%2fhand.db"><img src="../../projects/app/logo.png"><img src="/etc/hostname"><img src="file:///etc/hostname"><img src="https://example.com/x.png"><link rel="stylesheet" href="style.css">`
-	h, home := viewer(t, map[string]string{
-		"reports/t1302/progress.html": progress, "reports/t1302/shot.png": string(flowPNG), "reports/t1299/shots/s2.png": string(flowPNG),
-		".secret/key.png": string(flowPNG), "hand.db": secret, "projects/app/logo.png": string(flowPNG),
+const fourMiB = 4 << 20
+
+const framedCSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+
+func dataURI(mime string, b []byte) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b)
+}
+
+func TestAnHTMLPreviewFrameStaysOpaqueAndSendsNoCookie(t *testing.T) {
+	h, _ := viewer(t, map[string]string{"reports/t1/page.html": `<img src="a.png">`, "reports/t1/a.png": string(flowPNG)})
+	frame := regexp.MustCompile(`<iframe[^>]*>`).FindString(get(t, h, "/doc/reports/t1/page.html"))
+	if frame != `<iframe class="doc-frame" src="/doc/reports/t1/page.html?frame" title="page.html" sandbox>` {
+		t.Errorf("iframe = %q", frame)
+	}
+	for _, q := range []string{"?raw", "?frame"} {
+		csp := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true).Header().Get("Content-Security-Policy")
+		if csp != framedCSP || strings.Contains(csp, "allow-") {
+			t.Errorf("%s CSP = %q", q, csp)
+		}
+	}
+}
+
+func TestAnHTMLPreviewInlinesRelativeImagesFromTheFleet(t *testing.T) {
+	jpg := append([]byte("\xff\xd8\xff\xe0\x00\x10JFIF\x00"), make([]byte, 32)...)
+	const svgImg = `<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>`
+	h, _ := viewer(t, map[string]string{
+		"reports/t1302/page.html": `<!doctype html><title>x</title><img src="shot.png"><img alt="a" SRC='../t1299/shots/s2.jpg' class=c><IMG src = "dia gram.svg"><img src=shot.png><img src=./shot.png/>`,
+		"reports/t1302/shot.png":  string(flowPNG), "reports/t1299/shots/s2.jpg": string(jpg), "reports/t1302/dia gram.svg": svgImg,
 	})
-	page := get(t, h, "/doc/reports/t1302/progress.html")
-	frame := regexp.MustCompile(`<iframe[^>]*src="([^"]+)"[^>]*>`).FindStringSubmatch(page)
-	if frame == nil {
-		t.Fatalf("no iframe in %s", page)
+	frame := request(h, "GET", "/doc/reports/t1302/page.html?frame", nil, true)
+	if frame.Code != http.StatusOK || frame.Header().Get("Content-Security-Policy") != framedCSP {
+		t.Fatalf("frame = %d %q", frame.Code, frame.Header().Get("Content-Security-Policy"))
 	}
-	if !strings.Contains(frame[0], ` sandbox="allow-same-origin"`) || strings.Contains(frame[0], "allow-scripts") {
-		t.Errorf("iframe = %q", frame[0])
+	png, svgURI := dataURI("image/png", flowPNG), dataURI("image/svg+xml", []byte(svgImg))
+	want := `<!doctype html><title>x</title><img src="` + png + `"><img alt="a" SRC=` + `"` + dataURI("image/jpeg", jpg) + `" class=c><IMG src = "` + svgURI + `"><img src="` + png + `"><img src=./shot.png/>`
+	if got := frame.Body.String(); got != want {
+		t.Errorf("frame body =\n%s\nwant\n%s", got, want)
 	}
-	rec := request(h, "GET", frame[1], nil, true)
-	csp := map[string][]string{}
-	for _, d := range strings.Split(rec.Header().Get("Content-Security-Policy"), ";") {
-		if f := strings.Fields(d); len(f) > 0 {
-			csp[f[0]] = f[1:]
+}
+
+func TestAnHTMLPreviewLeavesEveryOtherImageAlone(t *testing.T) {
+	big := string(flowPNG) + strings.Repeat("x", fourMiB)
+	files := map[string]string{
+		"reports/t1/shot.png": string(flowPNG), "reports/shared.png": string(flowPNG), ".secret/key.png": string(flowPNG), "projects/app/logo.png": string(flowPNG),
+		"hand.db": secret, "reports/t1/fake.png": "not a picture " + secret, "reports/t1/notes.txt": secret, "reports/t1/big.png": big, "reports/t1/x.svg": "\x00\x01" + secret,
+		"top.png": string(flowPNG),
+	}
+	srcs := []string{
+		"/doc/reports/t1/shot.png", "/f00000000e011/doc/reports/t1/shot.png", "//example.com/shot.png", "https://example.com/shot.png", "http://127.0.0.1/shot.png", "file:///etc/hostname", "data:image/png;base64,AAAA",
+		"../../../outside.png", "../../.secret/key.png", "../../projects/app/logo.png", "../../hand.db", "..%2f..%2fhand.db", "../../top.png", "..\\shot.png", "/etc/hostname",
+		"fake.png", "notes.txt", "big.png", "x.svg", "missing.png", "shot.png?view", "shot.png?raw", "shot.png#x", "?x", "#x", "", " ", "shot.png/", "sho&#116;.png", "sh%00ot.png", "nested/", ".",
+	}
+	var page strings.Builder
+	for _, s := range srcs {
+		page.WriteString(`<img src="` + s + `">`)
+	}
+	page.WriteString(`<img srcset="shot.png 1x"><picture><source srcset="shot.png"></picture><input type=image src="shot.png"><svg><image href="shot.png"/></svg><img src="shot.png" src="shot.png"><img data-src="shot.png"><img src>`)
+	files["reports/t1/page.html"] = page.String()
+	h, _ := viewer(t, files)
+	got := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String()
+	for _, s := range srcs {
+		if !strings.Contains(got, `<img src="`+s+`">`) {
+			t.Errorf("src %q was rewritten in:\n%.600s", s, got)
 		}
 	}
-	if !slices.Contains(csp["img-src"], "'self'") || slices.ContainsFunc(csp["img-src"], func(s string) bool { return s != "'self'" && s != "data:" }) {
-		t.Errorf("img-src = %q", csp["img-src"])
+	if got != page.String() || strings.Contains(got, secret) || strings.Contains(got, "data:image/png;base64,iVBOR") {
+		t.Errorf("the page changed:\n%.600s", got)
 	}
-	if !slices.Equal(csp["sandbox"], []string{"allow-same-origin"}) || csp["script-src"] != nil || !slices.Equal(csp["default-src"], []string{"'none'"}) {
-		t.Errorf("sandbox = %q, script-src = %q, default-src = %q", csp["sandbox"], csp["script-src"], csp["default-src"])
-	}
-	base, err := url.Parse("http://board.test" + frame[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded := map[string]bool{"../t1299/shots/s2.png": true, "shot.png": true}
-	srcs := regexp.MustCompile(`<img src="([^"]+)"`).FindAllStringSubmatch(rec.Body.String(), -1)
-	if len(srcs) != 8 {
-		t.Fatalf("images = %q", srcs)
-	}
-	for _, m := range srcs {
-		ref, err := url.Parse(m[1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		u := base.ResolveReference(ref)
-		allowed := u.Scheme == base.Scheme && u.Host == base.Host
-		got := request(h, "GET", u.RequestURI(), nil, true)
-		if served := allowed && got.Code == http.StatusOK && got.Header().Get("Content-Type") == "image/png"; served != loaded[m[1]] || strings.Contains(got.Body.String(), secret) {
-			t.Errorf("%s -> %s: allowed %v, status %d, type %q", m[1], u, allowed, got.Code, got.Header().Get("Content-Type"))
+}
+
+func TestAnHTMLPreviewKeepsOddMarkupAsWritten(t *testing.T) {
+	for name, html := range map[string]string{
+		"base":         `<base href="/elsewhere/"><img src="shot.png">`,
+		"comment":      `<!-- <img src="shot.png"> -->`,
+		"script":       `<script>x = '<img src="shot.png">'</script><STYLE>/*<img src="shot.png">*/</STYLE><textarea><img src="shot.png"></textarea><title><img src="shot.png"></title>`,
+		"unterminated": `<img src="shot.png`,
+		"open tag":     `<img src="shot.png"`,
+		"open comment": `<!-- <img src="shot.png">`,
+		"two srcs":     `<img src="shot.png" src="shot.png">`,
+		"quote name":   `<img "src"="shot.png">`,
+	} {
+		h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
+		if got := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String(); got != html {
+			t.Errorf("%s: body = %q", name, got)
 		}
 	}
-	for _, p := range []string{"/doc/" + home + "/reports/t1302/shot.png", "/doc//" + home + "/reports/t1302/shot.png"} {
-		if got := request(h, "GET", p, nil, true); got.Code == http.StatusOK || got.Header().Get("Content-Type") == "image/png" {
-			t.Errorf("%s = %d %q", p, got.Code, got.Header().Get("Content-Type"))
+	html := `<img src="shot.png"><!-- <img src="shot.png"> --><img src="shot.png">`
+	h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
+	uri := dataURI("image/png", flowPNG)
+	if got, want := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String(), `<img src="`+uri+`"><!-- <img src="shot.png"> --><img src="`+uri+`">`; got != want {
+		t.Errorf("around a comment = %q", got)
+	}
+}
+
+func TestAnHTMLPreviewInlinesWithinItsCaps(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 21 MiB")
+	}
+	png := func(n int) string { return string(flowPNG) + strings.Repeat("x", n-len(flowPNG)) }
+	files := map[string]string{"r/exact.png": png(fourMiB), "r/over.png": png(fourMiB + 1), "r/small.png": string(flowPNG)}
+	var page strings.Builder
+	page.WriteString(`<img src="over.png"><img src="exact.png">`)
+	for i := 1; i <= 4; i++ {
+		files[fmt.Sprintf("r/m%d.png", i)] = png(fourMiB)
+		fmt.Fprintf(&page, `<img src="m%d.png">`, i)
+	}
+	page.WriteString(`<img src="small.png"><img src="exact.png">`)
+	files["r/page.html"] = page.String()
+	h, _ := viewer(t, files)
+	got := request(h, "GET", "/doc/r/page.html?frame", nil, true).Body.String()
+	for _, s := range []string{"over.png", "m4.png", "small.png"} {
+		if !strings.Contains(got, `<img src="`+s+`">`) {
+			t.Errorf("%s was inlined over the cap", s)
 		}
 	}
-	if got := request(h, "GET", "/doc/reports/t1302/shot.png", nil, false); got.Code == http.StatusOK {
-		t.Errorf("an image without the cookie = %d", got.Code)
+	if n := strings.Count(got, "data:image/png;base64,"); n != 4 {
+		t.Errorf("inlined %d images, want 4 (4 MiB each, 16 MiB in all)", n)
+	}
+	if n := strings.Count(got, `<img src="exact.png">`); n != 1 {
+		t.Errorf("the second use of a 4 MiB image: %d left alone, want 1", n)
+	}
+}
+
+func TestTheRawHTMLDownloadIsTheFileByteForByte(t *testing.T) {
+	html := `<!doctype html><img src="shot.png"><p>é</p>`
+	h, _ := viewer(t, map[string]string{"reports/t1/page.html": html, "reports/t1/shot.png": string(flowPNG)})
+	for _, q := range []string{"?raw", "?raw&x=1"} {
+		rec := request(h, "GET", "/doc/reports/t1/page.html"+q, nil, true)
+		if rec.Body.String() != html || rec.Header().Get("Content-Security-Policy") != framedCSP {
+			t.Errorf("%s = %q %q", q, rec.Body.String(), rec.Header().Get("Content-Security-Policy"))
+		}
+	}
+	if rec := request(h, "GET", "/doc/reports/t1/page.html?download", nil, true); rec.Body.String() != html {
+		t.Errorf("download = %q", rec.Body.String())
+	}
+	if rec := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, false); rec.Code == http.StatusOK {
+		t.Errorf("the frame without the cookie = %d", rec.Code)
 	}
 }
