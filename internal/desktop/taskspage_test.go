@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -569,4 +570,79 @@ func TestAChipRemovesOnlyTheAppliedFilter(t *testing.T) {
 	}
 	mustText(t, tt, "5 tasks", "Move the rail to 1024 px")
 	mustNotText(t, tt, "Search “unsent”")
+}
+
+func TestARepeatedSearchSaysSearchingWhileItRuns(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := searchApp(t, f)
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	f.searchBlock = make(chan struct{})
+	f.searchEntered = make(chan desktop.TaskSearchQuery, 1)
+	app.SearchNow()
+	select {
+	case <-f.searchEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the search never started")
+	}
+	tt.Frame()
+	mustText(t, tt, "Searching…")
+	mustNotText(t, tt, "No tasks match.")
+	mustNotText(t, tt, "0 tasks")
+	close(f.searchBlock)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Sun 1 Nov UTC", "5 tasks")
+}
+
+func TestAFailedAutomaticSearchSaysStaleAndKeepsTheResults(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := searchApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "Stale · retrying", "Sun 1 Nov UTC", "Move the rail to 1024 px")
+	f.searchErr = nil
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustNotText(t, tt, "Stale · retrying")
+}
+
+func TestAFailedProjectReadIsRetriedOnTheNextTick(t *testing.T) {
+	f := searchFixture(t)
+	st := f.status[fleetID]
+	st.Projects = 2
+	f.status[fleetID] = st
+	f.projects[fleetID] = desktop.Projects{Projects: []string{"api", "web"}}
+	f.projectsErr = errors.New("the board did not answer")
+	app, tt := searchApp(t, f)
+	mustNotText(t, tt, "All projects")
+	f.projectsErr = nil
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "All projects")
+}
+
+func TestATaskOpenedFromTheTasksPageLeavesNoBoardTabs(t *testing.T) {
+	app, tt := searchApp(t, searchFixture(t))
+	tt.SetSize(880, 760)
+	tt.Frame()
+	click(t, tt, "task t1")
+	tt.Frame()
+	if app.Screen != desktop.TaskScreen {
+		t.Fatalf("screen = %v, want the task page", app.Screen)
+	}
+	mustNotText(t, tt, "Chat")
+	app.CloseViewer()
+	tt.Frame()
+	if app.Screen != desktop.TasksScreen {
+		t.Fatalf("closing the task left the screen on %v", app.Screen)
+	}
+	mustText(t, tt, "Fleets / golden / tasks")
 }

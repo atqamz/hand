@@ -161,6 +161,8 @@ type App struct {
 	Projects       Projects
 	searchGen      int
 	searchFor      TaskSearchQuery
+	searchStale    bool
+	searchStaleErr string
 	projectsFor    string
 	searchScroll   ui.ScrollState
 	base           Screen
@@ -426,6 +428,7 @@ func (a *App) SelectFleet(id string) {
 	a.Search, a.SearchQuery = TaskSearch{}, TaskSearchQuery{}
 	a.SearchQ, a.SearchStatus, a.SearchProject, a.SearchSince, a.SearchUntil = "", "", "", "", ""
 	a.SearchErr, a.SearchBusy = "", false
+	a.searchStale, a.searchStaleErr = false, ""
 	a.searchGen++
 	a.searchFor, a.projectsFor = TaskSearchQuery{}, ""
 	a.Projects = Projects{}

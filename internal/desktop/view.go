@@ -302,7 +302,7 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 	}
 	if a.narrow {
 		var tabs []kit.Tab
-		if a.boardShown() && a.Screen != TasksScreen {
+		if a.boardShown() && a.underScreen() != TasksScreen {
 			bg, fg := toneColors(a.Status.Needs.Worst, p)
 			if a.Status.Needs.Worst == "" {
 				bg, fg = p.neutralBG, p.neutral
@@ -369,7 +369,7 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	}
 	a.actionCard(c, p)
-	if a.Screen == TasksScreen {
+	if a.underScreen() == TasksScreen {
 		a.tasksPage(c, k, p)
 		return
 	}

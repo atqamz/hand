@@ -48,7 +48,11 @@ func (a *App) SearchPage(page int) {
 }
 
 func (a *App) refreshTaskSearch() {
-	if a.Model == nil || a.Fleet.ID == "" || a.SearchBusy {
+	if a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	a.loadProjects()
+	if a.SearchBusy {
 		return
 	}
 	a.runTaskSearch(true)
@@ -76,7 +80,8 @@ func (a *App) runTaskSearch(quiet bool) {
 	a.SearchBusy = true
 	if !quiet {
 		a.Search = TaskSearch{}
-		a.SearchErr = ""
+		a.SearchErr, a.searchFor = "", TaskSearchQuery{}
+		a.searchStale, a.searchStaleErr = false, ""
 	}
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(s TaskSearch, err error) {
@@ -87,10 +92,13 @@ func (a *App) runTaskSearch(quiet bool) {
 		if err != nil {
 			if !quiet {
 				a.SearchErr, a.searchFor = friendly(err), TaskSearchQuery{}
+			} else {
+				a.searchStale, a.searchStaleErr = true, friendly(err)
 			}
 			return
 		}
 		a.Search, a.SearchErr, a.searchFor = s, "", q
+		a.searchStale, a.searchStaleErr = false, ""
 		a.SearchQuery.Page = s.Page
 	}
 	if post == nil {
@@ -279,6 +287,10 @@ func (a *App) taskSummary(c *ui.Context, k kit.Colors, p palette) {
 			}
 		}
 		ui.Spacer(c)
+		if a.searchStale {
+			ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).
+				Tooltip(a.searchStaleErr)
+		}
 		if len(chips) > 0 {
 			if kit.TextButton(c, k, "tasks:clear-chips", "Clear") {
 				a.clearTaskFilters()
