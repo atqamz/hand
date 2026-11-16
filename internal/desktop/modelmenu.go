@@ -26,13 +26,20 @@ func (a *App) modelsKey() string {
 }
 
 func (a *App) syncModels() {
-	if a.Model == nil || a.Fleet.ID == "" || !a.known() || a.modelsBusy {
+	if a.Model == nil || a.Fleet.ID == "" || !a.known() {
 		return
 	}
-	if key := a.modelsKey(); key != a.modelsFor {
-		a.modelsFor = key
-		a.loadModels()
+	if a.modelsBusy {
+		a.modelsAgain = true
+		return
 	}
+	key := a.modelsKey()
+	if key == a.modelsFor && !a.modelsAgain {
+		return
+	}
+	a.modelsAgain = false
+	a.modelsFor = key
+	a.loadModels()
 }
 
 func (a *App) loadModels() {
@@ -40,6 +47,7 @@ func (a *App) loadModels() {
 		return
 	}
 	read, fleet := a.Model, a.Fleet.ID
+	key := a.modelsKey()
 	a.modelsGen++
 	gen := a.modelsGen
 	a.modelsBusy = true
@@ -51,12 +59,17 @@ func (a *App) loadModels() {
 		}
 		a.modelsBusy = false
 		if err != nil {
+			a.modelsAgain = false
 			a.modelErr = friendly(err)
 			return
 		}
+		if a.modelsKey() != key {
+			a.syncModels()
+			return
+		}
 		a.Models, a.modelErr = m, ""
-		a.modelsFor = a.modelsKey()
-		a.picks, a.change = nil, pick{}
+		a.modelsFor = key
+		a.syncModels()
 	}
 	if post == nil {
 		m, err := read.Models(ctx, fleet)
@@ -110,6 +123,7 @@ func (a *App) refreshModels() {
 		return
 	}
 	read, fleet := a.Model, a.Fleet.ID
+	key := a.modelsKey()
 	a.modelsGen++
 	gen := a.modelsGen
 	a.modelsBusy = true
@@ -121,13 +135,19 @@ func (a *App) refreshModels() {
 		}
 		a.modelsBusy = false
 		if err != nil {
+			a.modelsAgain = false
 			a.ActionErr, a.ActionWarn = friendly(err), false
 			return
 		}
-		a.Models, a.modelErr = r.Models, ""
-		a.modelsFor = a.modelsKey()
-		a.picks, a.change = nil, pick{}
 		a.showReceipt(r.Receipt, r.Warn, "models:refresh")
+		if a.modelsKey() != key {
+			a.syncModels()
+			return
+		}
+		a.Models, a.modelErr = r.Models, ""
+		a.modelsFor = key
+		a.picks, a.change = nil, pick{}
+		a.syncModels()
 	}
 	if post == nil {
 		r, err := read.RefreshModels(ctx, fleet, "")
@@ -258,7 +278,7 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 	if pill.Clicked() {
 		a.modelOpen = !a.modelOpen
 		if a.modelOpen {
-			a.change = pick{}
+			a.picks, a.change = nil, pick{}
 			a.loadModels()
 		}
 	}

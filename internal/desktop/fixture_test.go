@@ -19,74 +19,77 @@ const (
 )
 
 type fixture struct {
-	fleets        []desktop.Fleet
-	status        map[string]desktop.Status
-	timeline      map[string]desktop.Timeline
-	older         map[string]desktop.Timeline
-	tasks         map[string]desktop.Tasks
-	task          map[string]desktop.TaskDetail
-	attempt       map[string]desktop.AttemptDetail
-	attemptRefs   map[string]desktop.AttemptDetail
-	attemptErr    error
-	decision      map[string]desktop.DecisionDetail
-	extra         map[string]desktop.DecisionDetail
-	report        map[string]desktop.ReportDetail
-	fail          error
-	action        error
-	taskErr       error
-	tasksErr      error
-	keepNeeds     bool
-	actionBlock   chan struct{}
-	actionEntered chan struct{}
-	choice        string
-	answerNote    string
-	sentText      string
-	controlStatus *desktop.Status
-	controlStale  bool
-	controlRef    string
-	keyStatus     *desktop.Status
-	keyStale      bool
-	keyRef        string
-	keys          []string
-	keyRevision   int64
-	keyDigest     string
-	keyAfter      int64
-	attemptKey    string
-	attemptKeyRef string
-	attemptKeyRev int64
-	attemptKeyAft int64
-	attemptScreen string
-	attemptKeyErr error
-	stale         bool
-	stall         string
-	stallOnce     bool
-	nameIn        chan struct{}
-	nameOut       chan error
-	block         chan struct{}
-	entered       chan struct{}
-	attemptIn     chan chan error
-	decisionIn    chan chan error
-	pollBlock     chan struct{}
-	pollEntered   chan struct{}
-	pollExited    chan struct{}
-	pollDone      chan struct{}
-	pollErr       error
-	pollScreen    desktop.Screen
-	pollRef       string
-	mu            sync.Mutex
-	calls         map[string]int
-	accepted      bool
-	warn          string
-	receipt       string
-	dropReceipt   bool
-	models        map[string]desktop.Models
-	modelsErr     error
-	startHarness  string
-	startModel    string
-	startEffort   string
-	switchReq     desktop.Switch
-	refreshWith   string
-	refreshErr    error
+	fleets         []desktop.Fleet
+	status         map[string]desktop.Status
+	timeline       map[string]desktop.Timeline
+	older          map[string]desktop.Timeline
+	tasks          map[string]desktop.Tasks
+	task           map[string]desktop.TaskDetail
+	attempt        map[string]desktop.AttemptDetail
+	attemptRefs    map[string]desktop.AttemptDetail
+	attemptErr     error
+	decision       map[string]desktop.DecisionDetail
+	extra          map[string]desktop.DecisionDetail
+	report         map[string]desktop.ReportDetail
+	fail           error
+	action         error
+	taskErr        error
+	tasksErr       error
+	keepNeeds      bool
+	actionBlock    chan struct{}
+	actionEntered  chan struct{}
+	choice         string
+	answerNote     string
+	sentText       string
+	controlStatus  *desktop.Status
+	controlStale   bool
+	controlRef     string
+	keyStatus      *desktop.Status
+	keyStale       bool
+	keyRef         string
+	keys           []string
+	keyRevision    int64
+	keyDigest      string
+	keyAfter       int64
+	attemptKey     string
+	attemptKeyRef  string
+	attemptKeyRev  int64
+	attemptKeyAft  int64
+	attemptScreen  string
+	attemptKeyErr  error
+	stale          bool
+	stall          string
+	stallOnce      bool
+	nameIn         chan struct{}
+	nameOut        chan error
+	block          chan struct{}
+	entered        chan struct{}
+	attemptIn      chan chan error
+	decisionIn     chan chan error
+	pollBlock      chan struct{}
+	pollEntered    chan struct{}
+	pollExited     chan struct{}
+	pollDone       chan struct{}
+	pollErr        error
+	pollScreen     desktop.Screen
+	pollRef        string
+	mu             sync.Mutex
+	calls          map[string]int
+	accepted       bool
+	warn           string
+	receipt        string
+	dropReceipt    bool
+	models         map[string]desktop.Models
+	modelsErr      error
+	modelsBlock    chan struct{}
+	modelsBlockFor string
+	modelsEntered  chan struct{}
+	startHarness   string
+	startModel     string
+	startEffort    string
+	switchReq      desktop.Switch
+	refreshWith    string
+	refreshErr     error
 }
 
 func (f *fixture) count(name string) int {
@@ -430,6 +433,16 @@ func controlReceipt(override, action string, sup *desktop.Supervisor) string {
 
 func (f *fixture) Models(ctx context.Context, id string) (desktop.Models, error) {
 	f.note("models:" + id)
+	f.mu.Lock()
+	block, blockFor := f.modelsBlock, f.modelsBlockFor
+	entered := f.modelsEntered
+	f.mu.Unlock()
+	if block != nil && blockFor == id {
+		if entered != nil {
+			entered <- struct{}{}
+		}
+		<-block
+	}
 	if f.modelsErr != nil {
 		return desktop.Models{}, f.modelsErr
 	}

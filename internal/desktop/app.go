@@ -153,6 +153,7 @@ type App struct {
 	modelOpen      bool
 	modelsFor      string
 	modelsBusy     bool
+	modelsAgain    bool
 	modelsGen      int
 	change         pick
 	picks          map[string]*pick
@@ -407,7 +408,8 @@ func (a *App) SelectFleet(id string) {
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
-	a.picks, a.change = nil, pick{}
+	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
+	a.modelsGen++
 	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
 	a.misreadOpen = nil
 	a.resetDeny()

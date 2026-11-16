@@ -389,6 +389,63 @@ func TestTheStartStripSendsAModelTypedForAHarnessWithoutAList(t *testing.T) {
 	}
 }
 
+func TestSwitchingFleetsWithAModelReadInFlightLoadsTheNewFleets(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	f.mu.Lock()
+	f.modelsBlock, f.modelsBlockFor, f.modelsEntered = make(chan struct{}), fleetID, make(chan struct{}, 4)
+	f.mu.Unlock()
+	tt := sized(t, app, 1100, 760, false)
+	click(t, tt, "sonnet · low")
+	select {
+	case <-f.modelsEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never read the first fleet's models")
+	}
+	app.SelectFleet(secondID)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if got := f.count("models:" + secondID); got == 0 {
+		t.Fatalf("the second fleet's models were never read: %q", tt.Texts())
+	}
+	close(f.modelsBlock)
+	waitPost(t, posted)()
+	tt.Frame()
+	if app.Fleet.ID != secondID {
+		t.Fatalf("fleet %s", app.Fleet.ID)
+	}
+}
+
+func TestAControlDuringAModelReadReadsTheModelsAgain(t *testing.T) {
+	f := menuFixture(t, nil)
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	f.mu.Lock()
+	f.modelsBlock, f.modelsBlockFor, f.modelsEntered = make(chan struct{}), fleetID, make(chan struct{}, 4)
+	f.mu.Unlock()
+	tt := sized(t, app, 1100, 760, false)
+	click(t, tt, "sonnet · low")
+	select {
+	case <-f.modelsEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never read the models")
+	}
+	reads := f.count("models:" + fleetID)
+	click(t, tt, "Switch after this turn")
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	close(f.modelsBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if got := f.count("models:" + fleetID); got < reads+1 {
+		t.Fatalf("the models were read %d times, want a follow-up after the read in flight", got-reads)
+	}
+}
+
 func TestRefreshModelsReportsTheCooldownRatherThanHanging(t *testing.T) {
 	f := menuFixture(t, nil)
 	tt := newTester(newApp(t, f))
