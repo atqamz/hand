@@ -46,6 +46,8 @@ func ChatWidth(pref, total, viewport float32) float32 { return chatWidth(pref, t
 
 func SheetOpen(a *App) bool { return a.sheetOpen }
 
+func ModelsGen(a *App) int { return a.modelsGen }
+
 func ShowReceiptKept(a *App, receipt, warn, key string) bool {
 	a.showReceipt(receipt, warn, key)
 	return a.receiptKey != ""

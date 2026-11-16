@@ -460,6 +460,44 @@ func TestAControlDuringAModelReadReadsTheModelsAgain(t *testing.T) {
 	}
 }
 
+func TestOpeningTheMenuDuringARefreshReadsAfterIt(t *testing.T) {
+	f := menuFixture(t, nil)
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	f.mu.Lock()
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 4)
+	f.mu.Unlock()
+	tt := newTester(app)
+	before := f.count("models:" + fleetID)
+	gen := desktop.ModelsGen(app)
+	menu(t, tt, "Refresh models")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never asked the board to refresh the models")
+	}
+	openMenu(t, tt, f)
+	if got := desktop.ModelsGen(app); got != gen+1 {
+		t.Fatalf("opening the menu moved the read generation to %d, want the refresh's %d", got, gen+1)
+	}
+	if got := f.count("models:" + fleetID); got != before {
+		t.Fatalf("the menu read the models %d times with a refresh in flight", got-before)
+	}
+	renameFirstHarness(f, "refreshed")
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Refreshing models…")
+	if got := f.count("models:" + fleetID); got != before+1 {
+		t.Fatalf("the models were read %d times, want exactly one deferred read after the refresh", got-before)
+	}
+	if len(app.Models.Harnesses) == 0 || app.Models.Harnesses[0].Name != "refreshed" {
+		t.Fatalf("the catalogue after the refresh is %+v, want the refreshed one", app.Models.Harnesses)
+	}
+}
+
 func TestRefreshModelsReportsTheCooldownRatherThanHanging(t *testing.T) {
 	f := menuFixture(t, nil)
 	tt := newTester(newApp(t, f))

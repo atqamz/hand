@@ -284,7 +284,11 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 		a.modelOpen = !a.modelOpen
 		if a.modelOpen {
 			a.picks, a.change = nil, pick{}
-			a.loadModels()
+			if a.modelsBusy {
+				a.modelsAgain = true
+			} else {
+				a.loadModels()
+			}
 		}
 	}
 	if !a.modelOpen {
