@@ -56,6 +56,8 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/models", func(b *Board) http.HandlerFunc { return b.apiModels }},
 	{http.MethodGet, "/timeline", func(b *Board) http.HandlerFunc { return b.apiTimeline }},
 	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
+	{http.MethodGet, "/tasks/search", func(b *Board) http.HandlerFunc { return b.apiTaskSearch }},
+	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
 	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
 	{http.MethodGet, "/decision/{id}", func(b *Board) http.HandlerFunc { return b.apiDecision }},
@@ -345,6 +347,35 @@ type APITasks struct {
 	Hidden        int            `json:"hidden"`
 	FinishedCount int            `json:"finished_count"`
 	Groups        []APITaskGroup `json:"groups"`
+}
+
+type APITaskSearchRow struct {
+	APITaskRow
+	UpdatedAt     string `json:"updated_at"`
+	OpenDecisions int    `json:"open_decisions,omitempty"`
+}
+
+type APITaskSearchGroup struct {
+	Name  string             `json:"name"`
+	Count int                `json:"count"`
+	Tasks []APITaskSearchRow `json:"tasks"`
+}
+
+type APITaskSearch struct {
+	Q        string               `json:"q"`
+	Status   string               `json:"status"`
+	Project  string               `json:"project"`
+	Since    string               `json:"since"`
+	Until    string               `json:"until"`
+	Page     int                  `json:"page"`
+	PageSize int                  `json:"page_size"`
+	Total    int                  `json:"total"`
+	Pages    int                  `json:"pages"`
+	Groups   []APITaskSearchGroup `json:"groups"`
+}
+
+type APIProjects struct {
+	Projects []string `json:"projects"`
 }
 
 type APITask struct {
@@ -1419,6 +1450,67 @@ func (b *Board) apiTasks(w http.ResponseWriter, r *http.Request) {
 	b.apiRespond(w, f, cursor, data)
 }
 
+func (b *Board) apiTaskSearch(w http.ResponseWriter, r *http.Request) {
+	ctx, q := r.Context(), r.URL.Query()
+	if !b.apiTaskSearchQuery(w, q) {
+		return
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	data, err := b.apiTaskSearchData(ctx, q)
+	if err != nil {
+		if errors.Is(err, state.ErrInvalid) {
+			b.apiRejected(w, err)
+		} else {
+			b.apiFailErr(w, err)
+		}
+		return
+	}
+	b.apiOK(w, f, "", data)
+}
+
+func (b *Board) apiTaskSearchQuery(w http.ResponseWriter, q url.Values) bool {
+	if s := q.Get("status"); s != "" {
+		names := make([]string, 0, len(scopes)-1)
+		for _, o := range scopes[1:] {
+			names = append(names, o.Value)
+		}
+		if !slices.Contains(names, s) {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("status %q must be one of %s", s, strings.Join(names, ", ")))
+			return false
+		}
+	}
+	if s := q.Get("page"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > maxArchivePage {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("page must be a number from 1 to %d", maxArchivePage))
+			return false
+		}
+	}
+	return true
+}
+
+func (b *Board) apiProjects(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	f, cursor, ok := b.apiRead(w, r)
+	if !ok {
+		return
+	}
+	projects, err := b.st.Projects(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	names := make([]string, 0, len(projects))
+	for _, p := range projects {
+		names = append(names, p.Name)
+	}
+	b.apiRespond(w, f, cursor, APIProjects{Projects: names})
+}
+
 func (b *Board) apiTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, err := pathID(r, "t")
@@ -1810,6 +1902,42 @@ func (b *Board) apiTasksData(ctx context.Context, q url.Values) (APITasks, error
 		group := APITaskGroup{Name: g.Name, Count: g.Count, Tasks: make([]APITaskRow, 0, len(g.Checks))}
 		for _, c := range g.Checks {
 			group.Tasks = append(group.Tasks, apiRow(c))
+		}
+		out.Groups = append(out.Groups, group)
+	}
+	return out, nil
+}
+
+func (b *Board) apiTaskSearchData(ctx context.Context, q url.Values) (APITaskSearch, error) {
+	v, err := b.buildArchive(ctx, q)
+	if err != nil {
+		return APITaskSearch{}, err
+	}
+	subs, err := b.st.ChildCounts(ctx)
+	if err != nil {
+		return APITaskSearch{}, err
+	}
+	out := APITaskSearch{
+		Q:        v.Q,
+		Status:   q.Get("status"),
+		Project:  v.Project,
+		Since:    v.Since,
+		Until:    v.Until,
+		Page:     v.Page,
+		PageSize: archivePage,
+		Total:    v.Total,
+		Pages:    (v.Total + archivePage - 1) / archivePage,
+		Groups:   make([]APITaskSearchGroup, 0, len(v.Groups)),
+	}
+	for _, g := range v.Groups {
+		group := APITaskSearchGroup{Name: g.Name, Count: g.Count, Tasks: make([]APITaskSearchRow, 0, len(g.Checks))}
+		for _, c := range g.Checks {
+			c.Subs = subs[c.Task.ID]
+			group.Tasks = append(group.Tasks, APITaskSearchRow{
+				APITaskRow:    apiRow(c),
+				UpdatedAt:     c.Task.UpdatedAt,
+				OpenDecisions: c.Asked,
+			})
 		}
 		out.Groups = append(out.Groups, group)
 	}

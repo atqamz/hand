@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA0ZjYyMDExZDI1ZTc0MzMx._DsAwWa5Pfl9oNH8ZeJGGw",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "q": "",
+    "status": "all",
+    "project": "",
+    "since": "",
+    "until": "",
+    "page": 1,
+    "page_size": 50,
+    "total": 6,
+    "pages": 1,
+    "groups": [
+      {
+        "name": "Mon 5 Oct UTC",
+        "count": 2,
+        "tasks": [
+          {
+            "ref": "t3",
+            "title": "Chore",
+            "project": "hand",
+            "status": "done",
+            "state": "passing",
+            "finished_at": "2026-10-05T11:00:00Z",
+            "updated_at": "2026-10-05T11:00:00Z"
+          },
+          {
+            "ref": "t4",
+            "title": "Chore two",
+            "project": "hand",
+            "status": "abandoned",
+            "state": "idle",
+            "finished_at": "2026-10-05T08:00:00Z",
+            "updated_at": "2026-10-05T08:00:00Z"
+          }
+        ]
+      },
+      {
+        "name": "Sun 4 Oct UTC",
+        "count": 1,
+        "tasks": [
+          {
+            "ref": "t1",
+            "title": "Fix login",
+            "project": "hand",
+            "status": "done",
+            "state": "passing",
+            "finished_at": "2026-10-04T09:00:00Z",
+            "updated_at": "2026-10-04T09:00:00Z"
+          }
+        ]
+      },
+      {
+        "name": "Sat 3 Oct UTC",
+        "count": 1,
+        "tasks": [
+          {
+            "ref": "t2",
+            "title": "Fix guide",
+            "project": "docs",
+            "status": "abandoned",
+            "state": "idle",
+            "finished_at": "2026-10-03T12:00:00Z",
+            "updated_at": "2026-10-03T12:00:00Z"
+          }
+        ]
+      },
+      {
+        "name": "Fri 2 Oct UTC",
+        "count": 1,
+        "tasks": [
+          {
+            "ref": "t5",
+            "title": "Fix inbox",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle",
+            "updated_at": "2026-10-02T10:00:00Z"
+          }
+        ]
+      },
+      {
+        "name": "Thu 1 Oct UTC",
+        "count": 1,
+        "tasks": [
+          {
+            "ref": "t6",
+            "title": "Write docs",
+            "project": "hand",
+            "status": "active",
+            "state": "idle",
+            "updated_at": "2026-10-01T07:00:00Z"
+          }
+        ]
+      }
+    ]
+  }
+}
+

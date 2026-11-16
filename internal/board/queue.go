@@ -406,6 +406,7 @@ type check struct {
 	FinishedAt string
 	Delivered  *Deliverable
 	Waits      *state.Timer
+	Asked      int
 	Depth      int
 	Under      int64
 	Subs       int
@@ -434,7 +435,7 @@ func (c check) Model() string {
 }
 
 func (f facts) check(t state.Task) check {
-	c := check{Task: t, State: "idle", FinishedAt: t.FinishedAt}
+	c := check{Task: t, State: "idle", FinishedAt: t.FinishedAt, Asked: f.asked[t.ID]}
 	if d, ok := f.delivered[t.ID]; ok {
 		c.Delivered = &d
 	}

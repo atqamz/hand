@@ -3,6 +3,7 @@ package board_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -231,6 +232,8 @@ func TestAPIGolden(t *testing.T) {
 		{"models", "/api/v1/models"},
 		{"timeline", "/api/v1/timeline"},
 		{"tasks", "/api/v1/tasks"},
+		{"tasks-search", "/api/v1/tasks/search?status=all"},
+		{"projects", "/api/v1/projects"},
 		{"task", "/api/v1/task/t1"},
 		{"attempt-running", "/api/v1/attempt/a1"},
 		{"attempt-failed", "/api/v1/attempt/a2"},
@@ -291,6 +294,400 @@ func checkAPIGolden(t *testing.T, h http.Handler, name, path string) {
 	}
 	if out.String() != string(want) {
 		t.Fatalf("GET %s does not match %s:\n%s", path, file, out.String())
+	}
+}
+
+func apiSearchFixture(t *testing.T) (*fixture, *time.Time) {
+	t.Helper()
+	now := frozen.Add(-72 * time.Hour)
+	path := filepath.Join(t.TempDir(), "hand.db")
+	st, err := state.Open(path, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO fleet(only, id, name) VALUES (1, ?, 'golden')`, "f00000000e0aa"); err != nil {
+		t.Fatal(err)
+	}
+	return &fixture{st: st, options: board.Options{Controls: true, Now: func() time.Time { return frozen }, Base: "", Tick: apiTick}}, &now
+}
+
+func TestAPITaskSearchDaysGolden(t *testing.T) {
+	fx, now := apiSearchFixture(t)
+	ctx := context.Background()
+	for _, p := range []string{"hand", "docs"} {
+		if _, err := fx.st.AddProject(ctx, p, filepath.Join(t.TempDir(), p), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open := func(project, title string, at time.Time) state.Task {
+		*now = at
+		task, err := fx.st.AddTask(ctx, project, title, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		*now = at
+		if _, err := fx.st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+	finish := func(task state.Task, to string, at time.Time) {
+		*now = at
+		if _, err := fx.st.Transition(ctx, task.ID, to); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finish(open("hand", "Fix login", time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 4, 9, 0, 0, 0, time.UTC))
+	finish(open("docs", "Fix guide", time.Date(2026, 10, 2, 11, 0, 0, 0, time.UTC)), state.StatusAbandoned, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC))
+	finish(open("hand", "Chore", time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 5, 11, 0, 0, 0, time.UTC))
+	finish(open("hand", "Chore two", time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)), state.StatusAbandoned, time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC))
+	*now = time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
+	if _, err := fx.st.AddTask(ctx, "hand", "Fix inbox", ""); err != nil {
+		t.Fatal(err)
+	}
+	open("hand", "Write docs", time.Date(2026, 10, 1, 7, 0, 0, 0, time.UTC))
+	h := fx.handler()
+	checkAPIGolden(t, h, "tasks-search-days", "/api/v1/tasks/search?status=all")
+	_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?status=all")
+	if got.Page != 1 || got.PageSize != 50 || got.Total != 6 || got.Pages != 1 || got.Status != "all" {
+		t.Fatalf("search = %+v", got)
+	}
+	want := []struct {
+		name  string
+		count int
+	}{
+		{"Mon 5 Oct UTC", 2}, {"Sun 4 Oct UTC", 1}, {"Sat 3 Oct UTC", 1}, {"Fri 2 Oct UTC", 1}, {"Thu 1 Oct UTC", 1},
+	}
+	if len(got.Groups) != len(want) {
+		t.Fatalf("groups = %+v", got.Groups)
+	}
+	for i, g := range got.Groups {
+		if g.Name != want[i].name || g.Count != want[i].count {
+			t.Fatalf("group %d = %+v, want %+v", i, g, want[i])
+		}
+	}
+	login := got.Groups[1].Tasks[0]
+	if login.Ref != "t1" || login.Status != state.StatusDone || login.FinishedAt != "2026-10-04T09:00:00Z" || login.UpdatedAt != "2026-10-04T09:00:00Z" {
+		t.Fatalf("t1 row = %+v", login)
+	}
+	inbox := got.Groups[3].Tasks[0]
+	if inbox.Ref != "t5" || inbox.FinishedAt != "" || inbox.UpdatedAt != "2026-10-02T10:00:00Z" || inbox.Parent != "" {
+		t.Fatalf("t5 row = %+v", inbox)
+	}
+}
+
+var (
+	pageFound  = regexp.MustCompile(`<p class="found" role="status">(\d+) tasks?</p>`)
+	pageGroups = regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`)
+)
+
+func searchMatchesThePage(t *testing.T, h http.Handler, q url.Values) board.APITaskSearch {
+	t.Helper()
+	body := get(t, h, "/tasks?"+q.Encode())
+	_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?"+q.Encode())
+	var rows []string
+	for _, g := range got.Groups {
+		for _, row := range g.Tasks {
+			rows = append(rows, row.Title)
+		}
+	}
+	var want []string
+	for _, title := range titles(body) {
+		want = append(want, html.UnescapeString(title))
+	}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("%q rows = %q, page = %q", q.Encode(), rows, want)
+	}
+	total := pageFound.FindStringSubmatch(body)
+	if total == nil || total[1] != strconv.Itoa(got.Total) {
+		t.Fatalf("%q total = %v, API = %d", q.Encode(), total, got.Total)
+	}
+	headings := pageGroups.FindAllStringSubmatch(body, -1)
+	if len(headings) != len(got.Groups) {
+		t.Fatalf("%q groups = %v, API = %+v", q.Encode(), headings, got.Groups)
+	}
+	for i, g := range got.Groups {
+		if headings[i][1] != g.Name || headings[i][2] != strconv.Itoa(g.Count) {
+			t.Fatalf("%q group %d = %v, API = %q/%d", q.Encode(), i, headings[i], g.Name, g.Count)
+		}
+	}
+	if got.Q != strings.TrimSpace(q.Get("q")) || got.Status != q.Get("status") || got.Project != q.Get("project") ||
+		got.Since != q.Get("since") || got.Until != q.Get("until") {
+		t.Fatalf("%q echo = %q/%q/%q/%q/%q", q.Encode(), got.Q, got.Status, got.Project, got.Since, got.Until)
+	}
+	return got
+}
+
+func TestAPITasksSearchMatchesThePage(t *testing.T) {
+	fx, now := apiSearchFixture(t)
+	ctx := context.Background()
+	for _, p := range []string{"hand", "docs"} {
+		if _, err := fx.st.AddProject(ctx, p, filepath.Join(t.TempDir(), p), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open := func(project, title string, at time.Time) state.Task {
+		*now = at
+		task, err := fx.st.AddTask(ctx, project, title, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		*now = at
+		if _, err := fx.st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+	finish := func(task state.Task, to string, at time.Time) {
+		*now = at
+		if _, err := fx.st.Transition(ctx, task.ID, to); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finish(open("hand", "Fix login", time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 4, 9, 0, 0, 0, time.UTC))
+	finish(open("docs", "Fix guide", time.Date(2026, 10, 2, 11, 0, 0, 0, time.UTC)), state.StatusAbandoned, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC))
+	open("hand", "Fix search", time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC))
+	finish(open("hand", "Fix 100% now", time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 2, 13, 0, 0, 0, time.UTC))
+	finish(open("docs", "Fix a_b", time.Date(2026, 10, 2, 13, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC))
+	open("hand", "Fix O'Brien", time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC))
+	finish(open("docs", "Fix R&D", time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC)), state.StatusAbandoned, time.Date(2026, 10, 2, 16, 0, 0, 0, time.UTC))
+	finish(open("hand", "Fix “curly” docs", time.Date(2026, 10, 2, 17, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 2, 18, 0, 0, 0, time.UTC))
+	finish(open("hand", "Fix boundary late", time.Date(2026, 10, 5, 20, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 5, 23, 59, 0, 0, time.UTC))
+	finish(open("docs", "Fix boundary early", time.Date(2026, 10, 5, 22, 0, 0, 0, time.UTC)), state.StatusDone, time.Date(2026, 10, 6, 0, 1, 0, 0, time.UTC))
+	*now = time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
+	if _, err := fx.st.AddTask(ctx, "hand", "Fix inbox", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	for _, q := range []url.Values{
+		{},
+		{"q": {"fix"}},
+		{"q": {" fix "}},
+		{"q": {"fix"}, "status": {"all"}},
+		{"q": {"fix"}, "status": {"finished"}},
+		{"q": {"fix"}, "status": {"done"}},
+		{"q": {"fix"}, "status": {"abandoned"}},
+		{"q": {"fix"}, "status": {"active"}},
+		{"q": {"fix"}, "status": {"inbox"}},
+		{"q": {"fix"}, "project": {"docs"}},
+		{"q": {"login"}, "since": {"2026-10-04"}},
+		{"q": {"login"}, "until": {"2026-10-03"}},
+		{"q": {"t4"}},
+		{"status": {"all"}},
+		{"status": {"finished"}},
+		{"q": {"fix"}, "status": {"finished"}, "project": {"hand"}, "since": {"2026-10-01"}, "until": {"2026-10-07"}},
+		{"q": {"100%"}},
+		{"q": {"a_b"}},
+		{"q": {"O'Brien"}},
+		{"q": {"R&D"}},
+		{"q": {"“curly”"}},
+		{"since": {"2026-10-05"}, "until": {"2026-10-01"}},
+		{"q": {"boundary"}},
+		{"q": {"boundary"}, "since": {"2026-10-06"}},
+		{"q": {"boundary"}, "until": {"2026-10-05"}},
+		{"q": {"boundary"}, "since": {"2026-10-05"}, "until": {"2026-10-06"}},
+	} {
+		searchMatchesThePage(t, h, q)
+	}
+}
+
+func TestAPITasksSearchRowCarriesThePageBadges(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	if _, err := fx.st.AddTaskUnder(ctx, 1, "hand", "Run it on Safari", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?q=login&status=all")
+	if len(got.Groups) != 1 || len(got.Groups[0].Tasks) != 1 {
+		t.Fatalf("search = %+v", got)
+	}
+	row := got.Groups[0].Tasks[0]
+	if row.Ref != "t1" || row.Title != "Fix login" || row.Project != "hand" || row.Status != state.StatusActive || row.State != "waiting" {
+		t.Fatalf("row = %+v", row)
+	}
+	if row.Delivered == nil || row.OpenDecisions != 1 || row.Attempt == nil || row.Attempt.Ref != "a1" || row.UpdatedAt == "" || row.FinishedAt != "" || row.Children != 1 {
+		t.Fatalf("row badges = %+v", row)
+	}
+}
+
+func TestAPITasksSearchPages(t *testing.T) {
+	fx, now := apiSearchFixture(t)
+	ctx := context.Background()
+	if _, err := fx.st.AddProject(ctx, "hand", filepath.Join(t.TempDir(), "hand"), ""); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 120 {
+		*now = base.Add(time.Duration(i) * time.Minute)
+		task, err := fx.st.AddTask(ctx, "hand", fmt.Sprintf("Chore %03d", i), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		*now = base
+		if _, err := fx.st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		*now = base.Add(time.Duration(i) * time.Minute)
+		if _, err := fx.st.Transition(ctx, task.ID, state.StatusDone); err != nil {
+			t.Fatal(err)
+		}
+	}
+	*now = base.Add(200 * time.Minute)
+	parent, err := fx.st.AddTask(ctx, "hand", "Parent chore", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, parent.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, parent.ID, state.StatusDone); err != nil {
+		t.Fatal(err)
+	}
+	*now = base.Add(30 * time.Minute)
+	child, err := fx.st.AddTaskUnder(ctx, parent.ID, "hand", "Child chore", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, child.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Transition(ctx, child.ID, state.StatusDone); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	seen := map[string]board.APITaskSearchRow{}
+	for page, want := range map[int]struct {
+		first string
+		count int
+	}{1: {"Parent chore", 50}, 2: {"Chore 070", 50}, 3: {"Chore 021", 22}} {
+		got := searchMatchesThePage(t, h, url.Values{"page": {strconv.Itoa(page)}})
+		var titles []string
+		for _, g := range got.Groups {
+			for _, row := range g.Tasks {
+				titles = append(titles, row.Title)
+				seen[row.Ref] = row
+			}
+		}
+		if got.Page != page || got.PageSize != 50 || got.Total != 122 || got.Pages != 3 || len(titles) != want.count || titles[0] != want.first {
+			t.Fatalf("page %d = %+v, first %q, %d rows", page, got, titles[0], len(titles))
+		}
+	}
+	if row := seen[state.TaskRef(parent.ID)]; row.Title != "Parent chore" || row.Parent != "" || row.Children != 1 {
+		t.Fatalf("parent row = %+v", row)
+	}
+	if row := seen[state.TaskRef(child.ID)]; row.Title != "Child chore" || row.Parent != state.TaskRef(parent.ID) || row.Children != 0 {
+		t.Fatalf("child row = %+v", row)
+	}
+	_, past := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?page=4")
+	if past.Page != 4 || past.Total != 122 || past.Pages != 3 || len(past.Groups) != 0 {
+		t.Fatalf("page 4 = %+v", past)
+	}
+}
+
+func TestAPITasksSearchRefusesBadParameters(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	for _, c := range []struct{ query, want string }{
+		{"status=junk", `status "junk" must be one of finished, all, done, abandoned, active, inbox`},
+		{"status=done%2Cabandoned", `status "done,abandoned" must be one of finished, all, done, abandoned, active, inbox`},
+		{"since=2026-13-01", `since "2026-13-01" is not a date; want YYYY-MM-DD`},
+		{"since=2026-1-1", `since "2026-1-1" is not a date; want YYYY-MM-DD`},
+		{"until=October", `until "October" is not a date; want YYYY-MM-DD`},
+		{"page=junk", "page must be a number from 1 to 1000000"},
+		{"page=0", "page must be a number from 1 to 1000000"},
+		{"page=-1", "page must be a number from 1 to 1000000"},
+		{"page=1000001", "page must be a number from 1 to 1000000"},
+	} {
+		err := testAPIError(t, request(h, "GET", "/api/v1/tasks/search?"+c.query, nil, true), http.StatusBadRequest, "bad_request")
+		if err.Message != c.want {
+			t.Fatalf("%s = %q, want %q", c.query, err.Message, c.want)
+		}
+	}
+}
+
+func TestAPITasksSearchEmptyIsAnEmptyPage(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	_, got := apiInto[board.APITaskSearch](t, h, "/api/v1/tasks/search?q=nothing")
+	if got.Page != 1 || got.PageSize != 50 || got.Total != 0 || got.Pages != 0 || got.Groups == nil || len(got.Groups) != 0 {
+		t.Fatalf("empty search = %+v", got)
+	}
+}
+
+func TestAPIProjectsFollowTheFilterOrder(t *testing.T) {
+	fx, _ := apiSearchFixture(t)
+	ctx := context.Background()
+	for _, p := range []string{"zeta", "alpha", "hand"} {
+		if _, err := fx.st.AddProject(ctx, p, filepath.Join(t.TempDir(), p), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := fx.handler()
+	env, got := apiInto[board.APIProjects](t, h, "/api/v1/projects")
+	if want := []string{"alpha", "hand", "zeta"}; !slices.Equal(got.Projects, want) {
+		t.Fatalf("projects = %q, want %q", got.Projects, want)
+	}
+	if rec := pollCursor(t, h, "/api/v1/projects", env.Cursor); rec.Code != http.StatusNotModified || rec.Header().Get("X-Hand-Cursor") != env.Cursor {
+		t.Fatalf("unchanged projects = %d, cursor %q", rec.Code, rec.Header().Get("X-Hand-Cursor"))
+	}
+	page := get(t, h, "/tasks")
+	selects := regexp.MustCompile(`(?s)<select name="project">(.*?)</select>`).FindStringSubmatch(page)
+	if selects == nil {
+		t.Fatal("the Tasks page has no project filter")
+	}
+	var pageNames []string
+	for _, m := range regexp.MustCompile(`<option value="([^"]+)">`).FindAllStringSubmatch(selects[1], -1) {
+		pageNames = append(pageNames, m[1])
+	}
+	if !slices.Equal(pageNames, got.Projects) {
+		t.Fatalf("filter = %q, API = %q", pageNames, got.Projects)
+	}
+	empty := &fixture{st: openNow(t, "f00000000e0aa"), options: board.Options{Controls: true, Now: func() time.Time { return frozen }, Tick: apiTick}}
+	_, none := apiInto[board.APIProjects](t, empty.handler(), "/api/v1/projects")
+	if none.Projects == nil || len(none.Projects) != 0 {
+		t.Fatalf("projects without a project = %+v", none.Projects)
+	}
+}
+
+func TestThePhoneDecodesTheTasksSearchAnswerWithoutAChange(t *testing.T) {
+	groupKeys := phoneRequired(t, "TaskGroup")
+	rowKeys := phoneRequired(t, "TaskRow")
+	for _, name := range []string{"tasks-search", "tasks-search-days"} {
+		data := goldenData(t, name)
+		for _, k := range []string{"page", "page_size", "total", "pages"} {
+			if _, ok := data[k]; !ok {
+				t.Fatalf("%s has no %s", name, k)
+			}
+		}
+		var groups []map[string]json.RawMessage
+		if err := json.Unmarshal(data["groups"], &groups); err != nil {
+			t.Fatalf("%s: groups is not a list: %v", name, err)
+		}
+		for i, group := range groups {
+			for _, k := range groupKeys {
+				if _, ok := group[k]; !ok {
+					t.Fatalf("%s group %d has no %s", name, i, k)
+				}
+			}
+			var rows []map[string]json.RawMessage
+			if err := json.Unmarshal(group["tasks"], &rows); err != nil {
+				t.Fatalf("%s group %d: tasks is not a list: %v", name, i, err)
+			}
+			for j, row := range rows {
+				for _, k := range rowKeys {
+					if _, ok := row[k]; !ok {
+						t.Fatalf("%s group %d row %d has no %s", name, i, j, k)
+					}
+				}
+			}
+		}
 	}
 }
 

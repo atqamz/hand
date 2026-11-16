@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQAzZWU0MTI4N2I5MWU5N2Y.2T82u6dYQWQZ28uxGxRR4g",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "q": "",
+    "status": "all",
+    "project": "",
+    "since": "",
+    "until": "",
+    "page": 1,
+    "page_size": 50,
+    "total": 6,
+    "pages": 1,
+    "groups": [
+      {
+        "name": "Sun 1 Nov UTC",
+        "count": 6,
+        "tasks": [
+          {
+            "ref": "t6",
+            "title": "Rename the cookie",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle",
+            "updated_at": "2026-11-01T04:40:00Z"
+          },
+          {
+            "ref": "t5",
+            "title": "Add dark mode toggle",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle",
+            "updated_at": "2026-11-01T04:40:00Z"
+          },
+          {
+            "ref": "t4",
+            "title": "Write docs",
+            "project": "hand",
+            "status": "inbox",
+            "state": "idle",
+            "updated_at": "2026-11-01T04:40:00Z"
+          },
+          {
+            "ref": "t3",
+            "title": "Docs",
+            "project": "hand",
+            "status": "active",
+            "state": "waiting",
+            "attempt": {
+              "ref": "a3",
+              "task": "t3",
+              "harness": "claude",
+              "model": "sonnet",
+              "effort": "low",
+              "status": "running",
+              "branch": "hand/f00000000e0aa/t3-a3",
+              "created_at": "2026-11-01T04:40:00Z"
+            },
+            "updated_at": "2026-11-01T04:40:00Z"
+          },
+          {
+            "ref": "t2",
+            "title": "Flaky test in the nightly pipeline on the arm64 macOS runner after the dependency bump",
+            "project": "hand",
+            "status": "active",
+            "state": "failing",
+            "attempt": {
+              "ref": "a2",
+              "task": "t2",
+              "harness": "codex",
+              "model": "gpt-6-luna",
+              "effort": "low",
+              "status": "failed",
+              "reason": "launch did not finish: the worktree already exists at a path that is not ours",
+              "branch": "hand/f00000000e0aa/t2-a2",
+              "created_at": "2026-11-01T04:40:00Z",
+              "ended_at": "2026-11-01T04:40:00Z"
+            },
+            "updated_at": "2026-11-01T04:40:00Z"
+          },
+          {
+            "ref": "t1",
+            "title": "Fix login",
+            "project": "hand",
+            "status": "active",
+            "state": "waiting",
+            "attempt": {
+              "ref": "a1",
+              "task": "t1",
+              "harness": "claude",
+              "model": "sonnet",
+              "effort": "low",
+              "status": "running",
+              "branch": "hand/f00000000e0aa/t1-a1",
+              "created_at": "2026-11-01T04:40:00Z"
+            },
+            "delivered": {
+              "ref": "https://github.com/example/hand/pull/42",
+              "kind": "PR"
+            },
+            "updated_at": "2026-11-01T04:40:00Z",
+            "open_decisions": 1
+          }
+        ]
+      }
+    ]
+  }
+}
+
