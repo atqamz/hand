@@ -76,7 +76,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         working-directory: .
-        run: sh .github/scripts/windows-stack-reserve.sh
+        run: if [ -f .github/scripts/windows-stack-reserve.sh ]; then sh .github/scripts/windows-stack-reserve.sh; fi
       - name: Test the Go side against the real sidecar
         working-directory: .
         env:
