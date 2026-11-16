@@ -12,7 +12,7 @@ related_targets:
 ## Scope and mode
 
 - **Covers:** `hand-desktop`, a MyGo v0.7.4 window (pinned, cgo-free) that is a client of the running Board:
-  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and an inert Phone (Board returns to the two panes; Tasks, Conversation, Screen and Phone do nothing until the pages they name exist), then a tinted mark for each fleet this machine can open;
+  - the rail: 56px of icons (232px with labels) for Board with its Needs count, toned by the worst item's severity as the Board's is, Tasks, Conversation with its working dot, Screen and Phone (Board returns to the two panes; Tasks opens the searchable Tasks page; Conversation is inert until its page exists; Screen and Phone open the Board's pages in the browser), then a tinted mark for each fleet this machine can open;
   - the two panes: Needs and Tasks on the left, divided by a draggable divider from the supervisor on the right (the chat starts at 38% wide clamped to 400 to 720 px and may be dragged down to 360 px, the work pane never under 440 px, the width kept in `prefs.json` and clamped to the room at every frame);
   - below 900px: no rail and no divider, the masthead's menu button opening the rail's items as a sheet, and the Board's three tabs (Needs, Tasks, Chat), one panel at a time, the work column at 880 px and the conversation at 760 px; the tab is remembered, seeded once as the Board seeds it, and an opened ref selects the tab that holds it;
   - the window's own size, kept in `prefs.json` beside the zoom and the divider, restored on start and clamped to the monitor's work area;
@@ -20,11 +20,12 @@ related_targets:
   - Needs: bands by severity in the page's order, each headed by its word in the band's tone; 44px rows with the kind's icon, refs and time; the top item open as a card with its band's toned header, any row opening in place and closing again, one open at a time; a report opens to its excerpt and Mark read, a failure to its attempt's reason, a decision to the Board's choice list, its recommended badge and consequence lines, a note and a primary Send answer; a sent answer collapses the row to "Sent <option> · waiting…" until the next status removes it, a picked `other` with no note is refused before the request with the Board's sentence and the note focused, and a server refusal keeps it open with the reason in the receipt; a kind with nothing to show stays inert; after Mark read or an answer a receipt toast shows for 4 seconds and the next item opens; nothing waiting shows All clear, when it cleared and the summary;
   - the conversation: the entries, the working turn and its queued messages, opened at the newest entry, and the composer pinned below it: one box with a two-row message field, the status's hint, the Ctrl Enter key hint and Send;
   - Tasks: the grouped task list, and each task's page in the viewer;
+  - the Tasks page, opened by the rail's Tasks item or the fleet page's search field: a search over every task with the status, project, since and until filters, the applied filters as removable chips, the Board's day groups and 48 px rows with the state icon, ref, title, project badge, attempt line, deliverable and finish time, the total, and Previous/Next over its pages; an empty search and a page past the last show "No tasks match.", a refused parameter shows the board's sentence with Retry, and a row opens its task in the viewer, which closes back to the search;
   - the pages of a task, an attempt and a decision, opened in the viewer over the Board, with Back through them and the close button, Escape or the backdrop for the whole stack; a report has no page of its own and opens its task at the report's card; an open run shows "Opening in the browser…" under the strip and its failure there with Dismiss, as does a document that fails to open;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status, its tasks list and the open page's data poll while the window is open (see Refresh).
-- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer, phone pairing, the archive's search, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
+- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer, phone pairing, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
 - **Mode:** Operate.
 
 ## Audience, job and constraints
@@ -115,6 +116,18 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `42-menu-first-run-<light or dark>.png` | a fleet with no supervisor ever: the Start strip, one row per harness, Start disabled where the harness is missing |
 | `42-menu-stop-armed-<light or dark>.png` | Stop after its first press in the model menu's slice: "Press again to stop" |
 | `42-menu-stop-<light or dark>.png` | the same head at rest: Stop |
+| `43-tasks-search-1100x760-<light or dark>.png` | the Tasks page: the breadcrumb, the search field with its Search button, the filters, the two day groups with their counts, and rows with the state icon, ref, title, attempt line and finish time |
+| `44-tasks-search-page-2-1100x760-<light or dark>.png` | the second of two pages: Previous, the second day's rows, and Page 2 of 2 |
+| `45-tasks-search-filters-1100x760-<light or dark>.png` | every filter applied: the status, project, since and until fields, the five chips, the total, and a row with its project badge |
+| `46-tasks-search-empty-1100x760-<light or dark>.png` | a search with no result: "No tasks match." and 0 tasks |
+| `47-tasks-search-past-1100x760-<light or dark>.png` | a page past the last: "No tasks match.", the total and Previous |
+| `48-tasks-search-refused-1100x760-<light or dark>.png` | a refused parameter: the board's sentence and Retry under the filters |
+| `49-tasks-search-880x760-<light or dark>.png` | the Tasks page below 900 px: one column of filters, the rows at the window's width |
+| `50-tasks-search-overtaken-1100x760-<light or dark>.png` | the newer answer on screen after the slower one lands |
+| `51-tasks-search-stale-1100x760-<light or dark>.png` | a failed automatic search: the rows stay with "Stale · retrying" and the total |
+| `52-tasks-search-searching-1100x760-<light or dark>.png` | a repeated search in flight: "Searching…" instead of the cleared results |
+| `53-tasks-search-page-2-of-1-1100x760-<light or dark>.png` | a page past the only page: Previous, "No tasks match." and the total |
+| `54-tasks-search-stale-chips-1100x760-<light or dark>.png` | a failed automatic search beside an applied status chip and Clear: "Stale · retrying", the chip, Clear and the total on one row |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |
@@ -162,3 +175,5 @@ The selected fleet refreshes itself, off the render path: a timer posts a tick t
 | minimised | paused |
 
 The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` in the masthead (the error is in its tooltip), and backs off that read alone, doubling its wait up to 60 s and resetting on its next answer, while the other reads go on every tick. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; Refresh now re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.
+
+While the Tasks page is open, a changed status tick re-reads its search with no cursor (the search path has no `?since=` poll), so a row's state changes within two seconds; an unchanged tick still retries a search or project read that failed, each with the same doubling backoff as any failing read, and a failed search keeps the rows with "Stale · retrying" until one succeeds; closing a task over the page re-reads the search, and a status that changes while a search runs re-runs it when that search finishes.

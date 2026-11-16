@@ -19,6 +19,7 @@ type Screen int
 
 const (
 	BoardScreen Screen = iota
+	TasksScreen
 	TaskScreen
 	AttemptScreen
 	DecisionScreen
@@ -148,6 +149,28 @@ type App struct {
 	draftText     string
 
 	Status         Status
+	Search         TaskSearch
+	SearchQuery    TaskSearchQuery
+	SearchQ        string
+	SearchStatus   string
+	SearchProject  string
+	SearchSince    string
+	SearchUntil    string
+	SearchErr      string
+	SearchBusy     bool
+	Projects       Projects
+	searchGen      int
+	searchFor      TaskSearchQuery
+	searchStale    bool
+	searchStaleErr string
+	searchFails    int
+	searchSkip     int
+	searchAgain    bool
+	projectsFor    string
+	projectsFails  int
+	projectsSkip   int
+	searchScroll   ui.ScrollState
+	base           Screen
 	Models         Models
 	modelErr       string
 	modelOpen      bool
@@ -407,6 +430,17 @@ func (a *App) SelectFleet(id string) {
 	a.openerRef, a.boardFocus = "", false
 	a.disarmStop()
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
+	a.Search, a.SearchQuery = TaskSearch{}, TaskSearchQuery{}
+	a.SearchQ, a.SearchStatus, a.SearchProject, a.SearchSince, a.SearchUntil = "", "", "", "", ""
+	a.SearchErr, a.SearchBusy = "", false
+	a.searchStale, a.searchStaleErr = false, ""
+	a.searchFails, a.searchSkip, a.searchAgain = 0, 0, false
+	a.projectsFails, a.projectsSkip = 0, 0
+	a.searchGen++
+	a.searchFor, a.projectsFor = TaskSearchQuery{}, ""
+	a.Projects = Projects{}
+	a.searchScroll = ui.ScrollState{}
+	a.base = BoardScreen
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
 	a.modelsGen++
@@ -487,14 +521,23 @@ const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
+	if s == BoardScreen || s == TasksScreen {
+		a.base = s
+	}
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.tabFor = ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
-	if s == BoardScreen {
+	if s == BoardScreen || s == TasksScreen {
 		a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	}
+	if s == TasksScreen {
+		a.searchScroll = ui.ScrollState{}
+	}
 	a.Reload()
+	if s == TasksScreen {
+		a.openTasks()
+	}
 }
 
 // OpenRef opens the page of a ref: over the Board it is the viewer's first
@@ -534,12 +577,19 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == s && a.Ref == ref && a.pageReport == report {
 		return
 	}
-	a.tabFor = ref
-	if a.Screen == BoardScreen {
-		a.openerRef = opener
+	if a.Screen == BoardScreen || a.Screen == TasksScreen {
+		a.base = a.Screen
 		a.viewerFocus = true
 	}
-	if a.Screen != BoardScreen && len(a.back) < viewerStackMax-1 {
+	if a.base == BoardScreen {
+		a.tabFor = ref
+	} else {
+		a.tabFor = ""
+	}
+	if a.Screen == BoardScreen {
+		a.openerRef = opener
+	}
+	if a.Screen != BoardScreen && a.Screen != TasksScreen && len(a.back) < viewerStackMax-1 {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
 			Target: a.pageTarget, HasTarget: a.pageTargetOK})
 	}
@@ -719,12 +769,15 @@ func (a *App) CloseViewer() {
 	}
 	a.openerRef = ""
 	a.tabFor = ""
-	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.Screen, a.Ref, a.back = a.base, "", nil
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
 	a.Reload()
+	if a.Screen == TasksScreen {
+		a.refreshTaskSearch()
+	}
 }
 
 func (a *App) liveRef(ref string) bool {
@@ -1607,7 +1660,7 @@ func (a *App) pollOnce(gen, tick int) {
 	}
 	for i, rc := range cursors {
 		rs := &a.reads[i]
-		if i == readTasks && screen == BoardScreen {
+		if i == readTasks && (screen == BoardScreen || screen == TasksScreen) {
 			a.pollSkipped[i] = true
 			continue
 		}
@@ -1692,12 +1745,25 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		a.Stale = a.reads[readTasks].err
 	}
 	statusFresh, tasksFresh, screenFresh := false, false, false
+	moved := false
 	if a.Fleet.ID == fleet && p.StatusFresh {
+		moved = p.StatusCursor == "" || p.StatusCursor != a.pollStatus
 		a.setStatus(p.Status)
 		a.pollStatus, statusFresh = p.StatusCursor, true
 		a.reconcileAcked()
 		a.watchDeny()
 		a.syncModels()
+	}
+	if a.Fleet.ID == fleet && a.Screen == TasksScreen {
+		if a.projectsFor == "" {
+			a.retryProjects()
+		}
+		switch {
+		case p.StatusFresh && moved:
+			a.refreshTaskSearch()
+		case a.searchStale:
+			a.retryStaleSearch()
+		}
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor

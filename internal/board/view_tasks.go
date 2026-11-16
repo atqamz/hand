@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/taskscope"
 )
 
 type taskGroup struct {
@@ -156,7 +157,7 @@ type archiveView struct {
 	Chips    []chip
 	Q        string
 	Scope    string
-	Scopes   []scopeOption
+	Scopes   []taskscope.Scope
 	Project  string
 	Since    string
 	Until    string
@@ -173,7 +174,7 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 		statuses, scope = nil, s
 	case s == "" && q != "":
 		statuses = nil
-	case slices.ContainsFunc(scopes[3:], func(o scopeOption) bool { return o.Value == s }):
+	case slices.ContainsFunc(taskscope.Scopes[3:], func(o taskscope.Scope) bool { return o.Value == s }):
 		statuses, scope = []string{s}, s
 	case s != "":
 		scope = "finished"
@@ -205,7 +206,7 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 		Projects: projects,
 		Q:        query.Q,
 		Scope:    scope,
-		Scopes:   scopes,
+		Scopes:   taskscope.Scopes,
 		Project:  query.Project,
 		Since:    query.Since,
 		Until:    query.Until,
@@ -239,7 +240,7 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 			val = "“" + val + "”"
 		}
 		if c.key == "status" {
-			val = scopes[slices.IndexFunc(scopes, func(o scopeOption) bool { return o.Value == scope })].Label
+			val = taskscope.Label(scope)
 		}
 		rest := maps.Clone(keep)
 		rest.Del(c.key)

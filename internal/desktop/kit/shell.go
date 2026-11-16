@@ -279,6 +279,14 @@ func MenuPanel(c *ui.Context, k Colors, panel ui.Element, width, height float32)
 type Option struct{ Value, Label string }
 
 func Select(c *ui.Context, k Colors, value *string, options []Option) {
+	selectField(c, k, "", value, options)
+}
+
+func SelectLabel(c *ui.Context, k Colors, label string, value *string, options []Option) {
+	selectField(c, k, label, value, options)
+}
+
+func selectField(c *ui.Context, k Colors, name string, value *string, options []Option) {
 	sel := ui.SelectBase(c, value)
 	label := ""
 	for _, o := range options {
@@ -286,10 +294,13 @@ func Select(c *ui.Context, k Colors, value *string, options []Option) {
 			label = o.Label
 		}
 	}
-	trigger := sel.Trigger.Height(Control).Padding(0, Space10).Gap(Space6).Radius(RadiusMD).
+	trigger := sel.Trigger.Height(Control).Padding(0, Space10).Gap(Space8).Radius(RadiusMD).
 		Border(1, k.LineStrong).Background(k.BG).Justify(ui.SpaceBetween).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Label(label)
 	trigger.Children(func() {
+		if name != "" {
+			ui.Text(c, name).FontSize(Meta.Size).Bold().TextColor(k.Muted).Shrink(0)
+		}
 		ui.Text(c, label).FontSize(Body.Size).SingleLine().Ellipsis("…").Grow(1)
 		ui.Icon(c, Icon("chevron")).TextColor(k.Muted)
 	})
@@ -321,4 +332,36 @@ func Button(c *ui.Context, k Colors, key, label string, width float32, disabled 
 		ui.Text(c, label).FontSize(Body.Size).TextColor(k.FG).SingleLine()
 	})
 	return el.Clicked()
+}
+
+func PrimaryButton(c *ui.Context, k Colors, key, label string, width float32, disabled bool) bool {
+	el := ui.ButtonBase(c.Key(key)).Height(Control).Padding(0, Space10).Radius(RadiusMD).
+		Background(k.Primary).Justify(ui.Center).AlignItems(ui.Center).
+		Disabled(disabled).Cursor(ui.CursorPointer).Label(label)
+	if width > 0 {
+		el.Width(width)
+	}
+	el.Children(func() {
+		ui.Text(c, label).FontSize(Body.Size).Bold().TextColor(k.OnPrimary).SingleLine()
+	})
+	return el.Clicked()
+}
+
+func TextButton(c *ui.Context, k Colors, key, label string) bool {
+	el := ui.ButtonBase(c.Key(key)).Height(Control).Padding(0, Space8).Radius(RadiusSM).
+		Background(ui.Transparent).Cursor(ui.CursorPointer).AlignItems(ui.Center).Label(label)
+	el.Children(func() {
+		ui.Text(c, label).FontSize(Body.Size).TextColor(k.Accent).SingleLine()
+	})
+	return el.Clicked()
+}
+
+func Field(c *ui.Context, k Colors, label, placeholder string, value *string) {
+	ui.Row(c).Height(Control).Grow(1).MinWidth(110).Padding(0, Space10).Gap(Space8).
+		Radius(RadiusMD).Border(1, k.LineStrong).Background(k.BG).AlignItems(ui.Center).
+		Label(label).Children(func() {
+		ui.Text(c, label).FontSize(Meta.Size).Bold().TextColor(k.Muted).Shrink(0)
+		ui.TextInput(c, value).Grow(1).MinWidth(0).Placeholder(placeholder).FontSize(Body.Size).
+			BorderWidth(0, 0, 0, 0).Background(ui.Transparent).Padding(0)
+	})
 }

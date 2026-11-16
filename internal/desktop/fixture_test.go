@@ -24,6 +24,12 @@ type fixture struct {
 	timeline       map[string]desktop.Timeline
 	older          map[string]desktop.Timeline
 	tasks          map[string]desktop.Tasks
+	search         map[desktop.TaskSearchQuery]desktop.TaskSearch
+	searchErr      error
+	searchBlock    chan struct{}
+	searchEntered  chan desktop.TaskSearchQuery
+	projects       map[string]desktop.Projects
+	projectsErr    error
 	task           map[string]desktop.TaskDetail
 	attempt        map[string]desktop.AttemptDetail
 	attemptRefs    map[string]desktop.AttemptDetail
@@ -174,6 +180,41 @@ func (f *fixture) Tasks(ctx context.Context, id string, all bool) (desktop.Tasks
 		return desktop.Tasks{}, f.tasksErr
 	}
 	return f.tasks[id], nil
+}
+
+func (f *fixture) TaskSearch(ctx context.Context, id string, q desktop.TaskSearchQuery) (desktop.TaskSearch, error) {
+	f.note("search")
+	if f.searchBlock != nil {
+		if f.searchEntered != nil {
+			f.searchEntered <- q
+		}
+		select {
+		case <-f.searchBlock:
+		case <-ctx.Done():
+			return desktop.TaskSearch{}, ctx.Err()
+		}
+	}
+	if f.searchErr != nil {
+		return desktop.TaskSearch{}, f.searchErr
+	}
+	f.mu.Lock()
+	s, ok := f.search[q]
+	f.mu.Unlock()
+	if ok {
+		return s, nil
+	}
+	echo := desktop.TaskSearch{Q: q.Q, Status: q.Status, Project: q.Project, Since: q.Since, Until: q.Until, Page: q.Page, PageSize: 50}
+	return echo, nil
+}
+
+func (f *fixture) Projects(ctx context.Context, id string) (desktop.Projects, error) {
+	f.note("projects:" + id)
+	if f.projectsErr != nil {
+		return desktop.Projects{}, f.projectsErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.projects[id], nil
 }
 
 func (f *fixture) Task(ctx context.Context, id, ref string) (desktop.TaskDetail, error) {
@@ -624,6 +665,8 @@ func goldenFixture(t *testing.T) *fixture {
 		status:   map[string]desktop.Status{},
 		timeline: map[string]desktop.Timeline{},
 		tasks:    map[string]desktop.Tasks{},
+		search:   map[desktop.TaskSearchQuery]desktop.TaskSearch{},
+		projects: map[string]desktop.Projects{},
 		task:     map[string]desktop.TaskDetail{},
 		attempt:  map[string]desktop.AttemptDetail{},
 		decision: map[string]desktop.DecisionDetail{},
@@ -670,6 +713,7 @@ func goldenFixture(t *testing.T) *fixture {
 		f.models[id] = ms
 		f.timeline[id] = tl
 		f.tasks[id] = ts
+		f.projects[id] = desktop.Projects{Projects: []string{"hand"}}
 		f.task[id] = td
 		f.attempt[id] = ad
 		f.decision[id] = dd

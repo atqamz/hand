@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,8 @@ type ReadModel interface {
 	Status(ctx context.Context, fleet string) (Status, error)
 	Timeline(ctx context.Context, fleet string, before int) (Timeline, error)
 	Tasks(ctx context.Context, fleet string, all bool) (Tasks, error)
+	TaskSearch(ctx context.Context, fleet string, q TaskSearchQuery) (TaskSearch, error)
+	Projects(ctx context.Context, fleet string) (Projects, error)
 	Task(ctx context.Context, fleet, ref string) (TaskDetail, error)
 	Attempt(ctx context.Context, fleet, ref string) (AttemptDetail, error)
 	Decision(ctx context.Context, fleet, ref string) (DecisionDetail, error)
@@ -314,6 +317,39 @@ func (c *HTTPClient) Tasks(ctx context.Context, fleet string, all bool) (Tasks, 
 	return out, err
 }
 
+func (c *HTTPClient) TaskSearch(ctx context.Context, fleet string, q TaskSearchQuery) (TaskSearch, error) {
+	v := url.Values{}
+	for key, value := range map[string]string{"q": q.Q, "status": q.Status, "project": q.Project, "since": q.Since, "until": q.Until} {
+		if value != "" {
+			v.Set(key, value)
+		}
+	}
+	if q.Page > 1 {
+		v.Set("page", strconv.Itoa(q.Page))
+	}
+	path := "/tasks/search"
+	if len(v) > 0 {
+		path += "?" + v.Encode()
+	}
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return TaskSearch{}, err
+	}
+	var out TaskSearch
+	_, err = c.getWith(ctx, fleet, token, path, &out)
+	return out, err
+}
+
+func (c *HTTPClient) Projects(ctx context.Context, fleet string) (Projects, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return Projects{}, err
+	}
+	var out Projects
+	_, err = c.getWith(ctx, fleet, token, "/projects", &out)
+	return out, err
+}
+
 func (c *HTTPClient) Task(ctx context.Context, fleet, ref string) (TaskDetail, error) {
 	var out TaskDetail
 	_, err := c.get(ctx, fleet, "/task/"+url.PathEscape(ref), &out)
@@ -346,7 +382,7 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 	var p Poll
 	p.StatusFresh, p.StatusCursor, p.StatusRead, p.StatusErr = c.pollRead(ctx, fleet, token, "/status", since.Status, since.Worker, &p.Status)
 	p.ScreenFresh, p.ScreenCursor, p.ScreenRead, p.ScreenErr = c.pollRead(ctx, fleet, token, pollPath(screen, ref), since.Screen, false, pollData(screen, &p))
-	if screen != BoardScreen {
+	if screen != BoardScreen && screen != TasksScreen {
 		p.TasksFresh, p.TasksCursor, p.TasksRead, p.TasksErr = c.pollRead(ctx, fleet, token, "/tasks?all=1", since.Tasks, false, &p.Tasks)
 	}
 	p.TimelineFresh, p.TimelineCursor, p.TimelineRead, p.TimelineErr = c.pollRead(ctx, fleet, token, "/timeline", since.Timeline, false, &p.Timeline)
@@ -357,7 +393,7 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 }
 
 func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc ReadCursor, full bool, out any) (fresh bool, cursor string, read bool, err error) {
-	if rc.Skip {
+	if rc.Skip || path == "" {
 		return
 	}
 	since := rc.Since
@@ -370,6 +406,8 @@ func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc
 
 func pollPath(screen Screen, ref string) string {
 	switch screen {
+	case TasksScreen:
+		return ""
 	case TaskScreen:
 		return "/task/" + url.PathEscape(ref)
 	case AttemptScreen:
@@ -616,17 +654,21 @@ func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Enve
 }
 
 func (c *HTTPClient) getAs(ctx context.Context, fleet, token, path string, out any) (Envelope, error) {
-	res, err := c.do(ctx, fleet, token, "", http.MethodGet, path, nil)
-	if err != nil {
-		return Envelope{}, err
-	}
-	defer res.Body.Close()
-	env, err := c.decode(res, fleet, path, out)
+	env, err := c.getWith(ctx, fleet, token, path, out)
 	if err != nil {
 		return Envelope{}, err
 	}
 	c.remember(fleet, path, env.Cursor)
 	return env, nil
+}
+
+func (c *HTTPClient) getWith(ctx context.Context, fleet, token, path string, out any) (Envelope, error) {
+	res, err := c.do(ctx, fleet, token, "", http.MethodGet, path, nil)
+	if err != nil {
+		return Envelope{}, err
+	}
+	defer res.Body.Close()
+	return c.decode(res, fleet, path, out)
 }
 
 func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any) (Envelope, error) {

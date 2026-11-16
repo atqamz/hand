@@ -307,6 +307,44 @@ type Tasks struct {
 	Groups        []TaskGroup `json:"groups"`
 }
 
+type TaskSearchQuery struct {
+	Q       string `json:"q"`
+	Status  string `json:"status"`
+	Project string `json:"project"`
+	Since   string `json:"since"`
+	Until   string `json:"until"`
+	Page    int    `json:"page"`
+}
+
+type TaskSearchRow struct {
+	TaskRow
+	UpdatedAt     string `json:"updated_at"`
+	OpenDecisions int    `json:"open_decisions,omitempty"`
+}
+
+type TaskSearchGroup struct {
+	Name  string          `json:"name"`
+	Count int             `json:"count"`
+	Tasks []TaskSearchRow `json:"tasks"`
+}
+
+type TaskSearch struct {
+	Q        string            `json:"q"`
+	Status   string            `json:"status"`
+	Project  string            `json:"project"`
+	Since    string            `json:"since"`
+	Until    string            `json:"until"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+	Total    int               `json:"total"`
+	Pages    int               `json:"pages"`
+	Groups   []TaskSearchGroup `json:"groups"`
+}
+
+type Projects struct {
+	Projects []string `json:"projects"`
+}
+
 type Task struct {
 	Ref        string `json:"ref"`
 	Title      string `json:"title"`
