@@ -945,3 +945,69 @@ func TestScenesTheTasksSearchStaleWithChips(t *testing.T) {
 		})
 	}
 }
+
+func TestClosingTheViewerRefreshesTheSearch(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := searchApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	click(t, tt, "task t1")
+	tt.Frame()
+	before := f.count("search")
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	app.CloseViewer()
+	tt.Frame()
+	if got := f.count("search"); got <= before {
+		t.Fatalf("searches = %d after closing the viewer, want more than %d", got, before)
+	}
+	mustText(t, tt, "Fleets / golden / tasks", "Sun 1 Nov UTC")
+}
+
+func TestAStatusChangeDuringASearchReRunsItAfter(t *testing.T) {
+	f := searchFixture(t)
+	app, _ := searchApp(t, f)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchBlock = make(chan struct{})
+	f.searchEntered = make(chan desktop.TaskSearchQuery, 1)
+	app.SearchNow()
+	select {
+	case <-f.searchEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the search never started")
+	}
+	before := f.count("search")
+	clock.Advance(desktop.FocusedRefresh)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	close(f.searchBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if got := f.count("search"); got != before+1 {
+		t.Fatalf("searches = %d, want the %d plus one deferred refresh", got, before)
+	}
+}
+
+func TestAFailedForegroundSearchRecoversOnUnchangedTicks(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := quietApp(t, f, false)
+	f.searchErr = errors.New("the board did not answer")
+	app.SearchNow()
+	tt.Frame()
+	mustText(t, tt, "The tasks could not be searched")
+	f.searchErr = nil
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	for range 5 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	tt.Frame()
+	mustNotText(t, tt, "The tasks could not be searched")
+	mustText(t, tt, "Sun 1 Nov UTC", "5 tasks")
+}

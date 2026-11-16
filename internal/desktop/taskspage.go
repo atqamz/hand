@@ -49,7 +49,11 @@ func (a *App) SearchPage(page int) {
 }
 
 func (a *App) refreshTaskSearch() {
-	if a.Model == nil || a.Fleet.ID == "" || a.SearchBusy {
+	if a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	if a.SearchBusy {
+		a.searchAgain = true
 		return
 	}
 	a.runTaskSearch(true)
@@ -103,7 +107,7 @@ func (a *App) runTaskSearch(quiet bool) {
 		a.Search = TaskSearch{}
 		a.SearchErr, a.searchFor = "", TaskSearchQuery{}
 		a.searchStale, a.searchStaleErr = false, ""
-		a.searchFails, a.searchSkip = 0, 0
+		a.searchFails, a.searchSkip, a.searchAgain = 0, 0, false
 	}
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	apply := func(s TaskSearch, err error) {
@@ -111,19 +115,26 @@ func (a *App) runTaskSearch(quiet bool) {
 			return
 		}
 		a.SearchBusy = false
+		again := func() {
+			if a.searchAgain {
+				a.searchAgain = false
+				a.runTaskSearch(true)
+			}
+		}
 		if err != nil {
 			if !quiet {
 				a.SearchErr, a.searchFor = friendly(err), TaskSearchQuery{}
-			} else {
-				a.searchStale, a.searchStaleErr = true, friendly(err)
-				a.searchFails++
-				a.searchSkip = a.pollSkips(a.searchFails)
 			}
+			a.searchStale, a.searchStaleErr = true, friendly(err)
+			a.searchFails++
+			a.searchSkip = a.pollSkips(a.searchFails)
+			again()
 			return
 		}
 		a.Search, a.SearchErr, a.searchFor = s, "", q
 		a.searchStale, a.searchStaleErr = false, ""
 		a.searchFails, a.searchSkip = 0, 0
+		again()
 		a.SearchQuery.Page = s.Page
 	}
 	if post == nil {

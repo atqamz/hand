@@ -165,6 +165,7 @@ type App struct {
 	searchStaleErr string
 	searchFails    int
 	searchSkip     int
+	searchAgain    bool
 	projectsFor    string
 	projectsFails  int
 	projectsSkip   int
@@ -433,7 +434,7 @@ func (a *App) SelectFleet(id string) {
 	a.SearchQ, a.SearchStatus, a.SearchProject, a.SearchSince, a.SearchUntil = "", "", "", "", ""
 	a.SearchErr, a.SearchBusy = "", false
 	a.searchStale, a.searchStaleErr = false, ""
-	a.searchFails, a.searchSkip = 0, 0
+	a.searchFails, a.searchSkip, a.searchAgain = 0, 0, false
 	a.projectsFails, a.projectsSkip = 0, 0
 	a.searchGen++
 	a.searchFor, a.projectsFor = TaskSearchQuery{}, ""
@@ -774,6 +775,9 @@ func (a *App) CloseViewer() {
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
 	a.Reload()
+	if a.Screen == TasksScreen {
+		a.refreshTaskSearch()
+	}
 }
 
 func (a *App) liveRef(ref string) bool {
