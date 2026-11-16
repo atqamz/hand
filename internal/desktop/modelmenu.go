@@ -457,6 +457,12 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 	field := func(grow float32) ui.Element {
 		return ui.Column(c).Grow(grow).MinWidth(0)
 	}
+	effortField := func(grow float32) ui.Element {
+		if wide {
+			return field(grow)
+		}
+		return field(grow).MinWidth(96)
+	}
 	modelGrow, otherGrow, effortGrow := float32(2), float32(0), float32(1)
 	if wide {
 		modelGrow, otherGrow, effortGrow = 3, 2, 1.6
@@ -469,7 +475,7 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 		if h.Name == "opencode" {
 			placeholder = "variant"
 		}
-		field(1).Children(func() {
+		effortField(1).Children(func() {
 			ui.TextInput(c, &pk.effort).Placeholder(placeholder).Label(h.Name + " " + placeholder)
 		})
 		return
@@ -486,11 +492,11 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 			pk.effort = ""
 			return
 		}
-		field(effortGrow).Children(func() {
+		effortField(effortGrow).Children(func() {
 			ui.TextInput(c, &pk.effort).Placeholder("variant").Label(h.Name + " variant")
 		})
 		return
 	}
 	pk.effort = listedEffort(h, pk.model, pk.effort)
-	field(effortGrow).Children(func() { kit.Select(c, k, &pk.effort, options) })
+	effortField(effortGrow).Children(func() { kit.Select(c, k, &pk.effort, options) })
 }
