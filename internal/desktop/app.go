@@ -1737,13 +1737,14 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	statusFresh, tasksFresh, screenFresh := false, false, false
 	if a.Fleet.ID == fleet && p.StatusFresh {
 		a.setStatus(p.Status)
-		if a.Screen == TasksScreen {
-			a.refreshTaskSearch()
-		}
 		a.pollStatus, statusFresh = p.StatusCursor, true
 		a.reconcileAcked()
 		a.watchDeny()
 		a.syncModels()
+	}
+	if a.Fleet.ID == fleet && a.Screen == TasksScreen &&
+		(p.StatusFresh || a.searchStale || a.projectsFor == "") {
+		a.refreshTaskSearch()
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor

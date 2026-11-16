@@ -124,6 +124,9 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `48-tasks-search-refused-1100x760-<light or dark>.png` | a refused parameter: the board's sentence and Retry under the filters |
 | `49-tasks-search-880x760-<light or dark>.png` | the Tasks page below 900 px: one column of filters, the rows at the window's width |
 | `50-tasks-search-overtaken-1100x760-<light or dark>.png` | the newer answer on screen after the slower one lands |
+| `51-tasks-search-stale-1100x760-<light or dark>.png` | a failed automatic search: the rows stay with "Stale · retrying" and the total |
+| `52-tasks-search-searching-1100x760-<light or dark>.png` | a repeated search in flight: "Searching…" instead of the cleared results |
+| `53-tasks-search-page-2-of-1-1100x760-<light or dark>.png` | a page past the only page: Previous, "No tasks match." and the total |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |
@@ -172,4 +175,4 @@ The selected fleet refreshes itself, off the render path: a timer posts a tick t
 
 The loop pauses while no fleet is selected, is cancelled on a fleet switch and on close, and starts again clean for the fleet just selected. A `304` changes nothing; a `200` applies the status always and the screen's data only while that screen and ref are still the open one, so a poll never clobbers a screen the operator navigated to meanwhile. A tick is bounded at 5 s; a failure leaves the content in place, shows `Stale · retrying` in the masthead (the error is in its tooltip), and backs off that read alone, doubling its wait up to 60 s and resetting on its next answer, while the other reads go on every tick. A poll clears a read error only when it refreshed every half the error covers: a fresh status does not hide a failed screen's read, nor a fresh screen a failed status. A read that succeeds clears `Stale · retrying`; Refresh now re-arms the loop at the base interval. A refresh never touches the composer draft: the timeline may be replaced while the text stays typed.
 
-While the Tasks page is open, a successful status tick re-reads its search with no cursor (the search path has no `?since=` poll), so a row's state changes within two seconds.
+While the Tasks page is open, a changed status tick re-reads its search with no cursor (the search path has no `?since=` poll), so a row's state changes within two seconds; an unchanged tick still retries a search or project read that failed, and a failed search keeps the rows with "Stale · retrying" until one succeeds.

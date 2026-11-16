@@ -289,7 +289,7 @@ func (a *App) taskSummary(c *ui.Context, k kit.Colors, p palette) {
 		ui.Spacer(c)
 		if a.searchStale {
 			ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).
-				Tooltip(a.searchStaleErr)
+				MarginEnd(kit.Space12).Tooltip(a.searchStaleErr)
 		}
 		if len(chips) > 0 {
 			if kit.TextButton(c, k, "tasks:clear-chips", "Clear") {
@@ -382,7 +382,7 @@ func taskClock(at string) string {
 	if !ok {
 		return ""
 	}
-	return t.Local().Format("15:04")
+	return t.UTC().Format("15:04")
 }
 
 func (a *App) taskPager(c *ui.Context, k kit.Colors, p palette) {

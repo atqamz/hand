@@ -646,3 +646,201 @@ func TestATaskOpenedFromTheTasksPageLeavesNoBoardTabs(t *testing.T) {
 	}
 	mustText(t, tt, "Fleets / golden / tasks")
 }
+
+type quietBoard struct {
+	desktop.ReadModel
+	fresh bool
+}
+
+func (q *quietBoard) Poll(ctx context.Context, id string, screen desktop.Screen, ref string, since desktop.PollCursors) (desktop.Poll, error) {
+	p, err := q.ReadModel.Poll(ctx, id, screen, ref, since)
+	if !q.fresh {
+		p.StatusFresh = false
+	}
+	return p, err
+}
+
+func quietApp(t *testing.T, f *fixture, fresh bool) (*desktop.App, *ui.Tester) {
+	t.Helper()
+	model := &quietBoard{ReadModel: f, fresh: fresh}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	app.Show(desktop.TasksScreen)
+	return app, newTester(app)
+}
+
+func TestAnUnchangedStatusTickRetriesAProjectRead(t *testing.T) {
+	f := searchFixture(t)
+	st := f.status[fleetID]
+	st.Projects = 2
+	f.status[fleetID] = st
+	f.projects[fleetID] = desktop.Projects{Projects: []string{"api", "web"}}
+	f.projectsErr = errors.New("the board did not answer")
+	app, tt := quietApp(t, f, false)
+	mustNotText(t, tt, "All projects")
+	f.projectsErr = nil
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	for range 5 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	tt.Frame()
+	mustText(t, tt, "All projects")
+}
+
+func TestAnUnchangedStatusTickRetriesAFailedSearch(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := quietApp(t, f, true)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	f.searchErr = errors.New("the board did not answer")
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "Stale · retrying")
+	model := app.Model.(*quietBoard)
+	model.fresh = false
+	f.searchErr = nil
+	for range 5 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	tt.Frame()
+	mustNotText(t, tt, "Stale · retrying")
+	mustText(t, tt, "Sun 1 Nov UTC", "Move the rail to 1024 px")
+}
+
+func TestTheSearchStaysBeneathTheTaskViewer(t *testing.T) {
+	app, tt := searchApp(t, searchFixture(t))
+	click(t, tt, "task t1")
+	tt.Frame()
+	if app.Screen != desktop.TaskScreen {
+		t.Fatalf("screen = %v, want the task page", app.Screen)
+	}
+	mustText(t, tt, "Fleets / golden / tasks")
+}
+
+func TestRetryIsTheKitsFlatButton(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		f := searchFixture(t)
+		f.searchErr = &desktop.APIError{Status: 400, Code: "bad_request", Message: "page must be a number from 1 to 1000000"}
+		app, _ := searchApp(t, f)
+		tt := sized(t, app, windowWidth, windowHeight, dark)
+		retry, ok := tt.Find("Retry")
+		if !ok {
+			t.Fatalf("dark=%v: no Retry button", dark)
+		}
+		img := tt.Image()
+		ground := img.At(600, 740)
+		run := 0
+		y := int(retry.Y) + 4
+		for x := int(retry.X) + 10; x < int(retry.X)+60; x++ {
+			if img.At(x, y) == ground {
+				run++
+			}
+		}
+		if run < 50 {
+			t.Errorf("dark=%v: %d of 50 px above Retry's text are the page ground, want 50", dark, run)
+		}
+	}
+}
+
+func TestClearDropsEveryFilterAndTheUnsentEdit(t *testing.T) {
+	app, tt := searchApp(t, searchFixture(t))
+	app.SearchStatus, app.SearchSince = "active", "2026-10-01"
+	app.SearchNow()
+	tt.Frame()
+	mustText(t, tt, "Status Active", "Since 2026-10-01")
+	app.SearchQ = "unsent"
+	click(t, tt, "Clear")
+	tt.Frame()
+	if want := (desktop.TaskSearchQuery{Page: 1}); app.SearchQuery != want {
+		t.Fatalf("query = %+v, want %+v", app.SearchQuery, want)
+	}
+	mustText(t, tt, "5 tasks", "Move the rail to 1024 px")
+	mustNotText(t, tt, "Status Active")
+	mustNotText(t, tt, "Since 2026-10-01")
+	mustNotText(t, tt, "Search “unsent”")
+}
+
+func TestEnteringThePageReReadsTheProjects(t *testing.T) {
+	f := searchFixture(t)
+	app := newApp(t, f)
+	app.Show(desktop.TasksScreen)
+	first := f.count("projects:" + fleetID)
+	app.Show(desktop.BoardScreen)
+	app.Show(desktop.TasksScreen)
+	if got := f.count("projects:" + fleetID); got <= first {
+		t.Fatalf("projects read %d times, want more than %d", got, first)
+	}
+}
+
+func TestScenesTheTasksSearchStale(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		name := "51-tasks-search-stale-1100x760-light"
+		if dark {
+			name = "51-tasks-search-stale-1100x760-dark"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := searchFixture(t)
+			app, tt := searchApp(t, f)
+			clock := newFakeClock()
+			app.Clock = clock
+			app.StartRefresh()
+			f.searchErr = errors.New("the board did not answer")
+			clock.Advance(desktop.FocusedRefresh)
+			tt = sized(t, app, windowWidth, windowHeight, dark)
+			mustText(t, tt, "Stale · retrying", "Sun 1 Nov UTC", "Move the rail to 1024 px", "5 tasks")
+			shotSized(t, tt, name, windowWidth, windowHeight)
+		})
+	}
+}
+
+func TestScenesTheTasksSearchSearching(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		name := "52-tasks-search-searching-1100x760-light"
+		if dark {
+			name = "52-tasks-search-searching-1100x760-dark"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := searchFixture(t)
+			app, tt := searchApp(t, f)
+			posted := make(chan func(), 4)
+			app.Post = func(fn func()) { posted <- fn }
+			f.searchBlock = make(chan struct{})
+			f.searchEntered = make(chan desktop.TaskSearchQuery, 1)
+			app.SearchNow()
+			select {
+			case <-f.searchEntered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the search never started")
+			}
+			tt = sized(t, app, windowWidth, windowHeight, dark)
+			mustText(t, tt, "Searching…")
+			mustNotText(t, tt, "No tasks match.")
+			shotSized(t, tt, name, windowWidth, windowHeight)
+			close(f.searchBlock)
+			waitPost(t, posted)()
+		})
+	}
+}
+
+func TestScenesTheTasksSearchSecondPageOfOne(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		name := "53-tasks-search-page-2-of-1-1100x760-light"
+		if dark {
+			name = "53-tasks-search-page-2-of-1-1100x760-dark"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := searchFixture(t)
+			f.search[desktop.TaskSearchQuery{Page: 2}] = desktop.TaskSearch{Page: 2, PageSize: 50, Total: 5, Pages: 1}
+			app, _ := searchApp(t, f)
+			app.SearchPage(2)
+			tt := sized(t, app, windowWidth, windowHeight, dark)
+			mustText(t, tt, "Previous", "No tasks match.", "5 tasks")
+			mustNotText(t, tt, "Page 2 of 1")
+			shotSized(t, tt, name, windowWidth, windowHeight)
+		})
+	}
+}
