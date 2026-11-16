@@ -36,6 +36,60 @@ var denyIn = regexp.MustCompile(`^(\d{1,3}):(\d{2})$`)
 
 var supervisorRef = regexp.MustCompile(`^s[1-9][0-9]*$`)
 
+type APIRoute struct {
+	Method string
+	Path   string
+}
+
+type apiRoute struct {
+	method string
+	path   string
+	handle func(*Board) http.HandlerFunc // nil where apiServe answers the path before the mux
+}
+
+var apiRoutes = []apiRoute{
+	{http.MethodGet, "", func(b *Board) http.HandlerFunc { return b.apiUnknown }},
+	{http.MethodGet, "/session", func(b *Board) http.HandlerFunc { return b.apiSession }},
+	{http.MethodGet, "/events", func(b *Board) http.HandlerFunc { return b.apiEvents }},
+	{http.MethodGet, "/status", func(b *Board) http.HandlerFunc { return b.apiStatus }},
+	{http.MethodGet, "/models", func(b *Board) http.HandlerFunc { return b.apiModels }},
+	{http.MethodGet, "/timeline", func(b *Board) http.HandlerFunc { return b.apiTimeline }},
+	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
+	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
+	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
+	{http.MethodGet, "/decision/{id}", func(b *Board) http.HandlerFunc { return b.apiDecision }},
+	{http.MethodGet, "/report/{id}", func(b *Board) http.HandlerFunc { return b.apiReport }},
+	{http.MethodPost, "/pair", nil},
+	{http.MethodPost, "/message", func(b *Board) http.HandlerFunc { return b.apiMessage }},
+	{http.MethodPost, "/supervisor/start", func(b *Board) http.HandlerFunc { return b.apiStart }},
+	{http.MethodPost, "/supervisor/resume", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "resume") }
+	}},
+	{http.MethodPost, "/supervisor/stop", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "stop") }
+	}},
+	{http.MethodPost, "/supervisor/interrupt", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "interrupt") }
+	}},
+	{http.MethodPost, "/supervisor/force", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "force") }
+	}},
+	{http.MethodPost, "/supervisor/switch", func(b *Board) http.HandlerFunc { return b.apiSwitch }},
+	{http.MethodPost, "/models/refresh", func(b *Board) http.HandlerFunc { return b.apiRefreshModels }},
+	{http.MethodPost, "/supervisor/keys", func(b *Board) http.HandlerFunc { return b.apiKeys }},
+	{http.MethodPost, "/attempt/{id}/keys", func(b *Board) http.HandlerFunc { return b.apiAttemptKeys }},
+	{http.MethodPost, "/decision/{id}/answer", func(b *Board) http.HandlerFunc { return b.apiAnswer }},
+	{http.MethodPost, "/report/{id}/ack", func(b *Board) http.HandlerFunc { return b.apiAck }},
+}
+
+func APIRoutes() []APIRoute {
+	out := make([]APIRoute, len(apiRoutes))
+	for i, rt := range apiRoutes {
+		out[i] = APIRoute{Method: rt.method, Path: rt.path}
+	}
+	return out
+}
+
 type APIFleet struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -496,14 +550,40 @@ func actor(ctx context.Context, host string) string {
 
 func apiAllow(r *http.Request) string {
 	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
-	if p == "/pair" || p == "/message" || p == "/models/refresh" || p == "/supervisor/start" || p == "/supervisor/resume" || p == "/supervisor/stop" ||
-		p == "/supervisor/interrupt" || p == "/supervisor/force" || p == "/supervisor/switch" || p == "/supervisor/keys" ||
-		strings.HasPrefix(p, "/attempt/") && strings.HasSuffix(p, "/keys") ||
-		strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
-		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
+	get, post := false, false
+	for _, rt := range apiRoutes {
+		if !apiRouteMatch(rt.path, p) {
+			continue
+		}
+		if rt.method == http.MethodPost {
+			post = true
+		} else {
+			get = true
+		}
+	}
+	switch {
+	case get && post:
+		return "GET, HEAD, POST"
+	case post:
 		return "POST"
 	}
 	return "GET, HEAD"
+}
+
+func apiRouteMatch(pattern, path string) bool {
+	if pattern == "" {
+		return path == ""
+	}
+	ps, qs := strings.Split(pattern, "/"), strings.Split(path, "/")
+	if len(ps) != len(qs) {
+		return false
+	}
+	for i, s := range ps {
+		if s != qs[i] && !(strings.HasPrefix(s, "{") && qs[i] != "") {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Board) apiSession(w http.ResponseWriter, r *http.Request) {

@@ -294,6 +294,25 @@ func TestArgvIsExact(t *testing.T) {
 	}
 }
 
+func TestArgvLeavesAnEmptyEffortToTheHarness(t *testing.T) {
+	c, err := Argv("/bin/claude", Spec{"claude", "opus", ""}, "fix it", "", "")
+	if want := []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", c[3], "--model", "opus", "--strict-mcp-config", "fix it"}; err != nil || len(c) != len(want) || !slices.Equal(c, want) {
+		t.Fatalf("claude argv = %q, %v", c, err)
+	}
+	for _, dir := range spacedDirs(t) {
+		x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", ""}, "fix it", dir, "")
+		if want := []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", "gpt-6-luna", "fix it"}; err != nil || !slices.Equal(x, want) {
+			t.Fatalf("codex argv = %q, %v", x, err)
+		}
+	}
+	if _, err := Check(Spec{"claude", "opus", "Very High"}, Env{}); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("bad effort err = %v", err)
+	}
+	if _, err := Check(Spec{"codex", "gpt-6-luna", "low=1"}, Env{CodexHome: t.TempDir()}); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("bad codex effort err = %v", err)
+	}
+}
+
 func TestOpencodeStartsBare(t *testing.T) {
 	if _, err := Check(Spec{Harness: "opencode"}, Env{CodexHome: t.TempDir()}); err != nil {
 		t.Fatal(err)

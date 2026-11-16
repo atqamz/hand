@@ -365,7 +365,10 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string) ([]string, error) {
 	case "opencode":
 		return []string{bin, "--standalone", "--auto", "--session", NewOpencodeSessionID(), "--prompt", prompt}, nil
 	case "claude":
-		argv := []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
+		argv := []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model}
+		if s.Effort != "" {
+			argv = append(argv, "--effort", s.Effort)
+		}
 		return append(append(argv, claudeMCP(mcp)...), prompt), nil
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
@@ -376,7 +379,11 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string) ([]string, error) {
 		}
 		return append(argv, "--allow-all-tools", "--allow-all-paths", "--session-id", NewSessionID(), "-i", prompt), nil
 	case "codex":
-		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+		argv := []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model}
+		if s.Effort != "" {
+			argv = append(argv, "-c", "model_reasoning_effort="+s.Effort)
+		}
+		return append(argv, prompt), nil
 	case "omp":
 		argv := []string{bin, "--auto-approve", "--no-title"}
 		if s.Model != "" {

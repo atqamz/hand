@@ -119,7 +119,7 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 	return r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Session: session, WakeCursor: cursor}, ref)
 }
 
-func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec) error {
+func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec, expect string) error {
 	if _, err := harnessBin(r, spec); err != nil {
 		return err
 	}
@@ -130,6 +130,9 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	defer unlock()
 	sup, err := runningSupervisor(ctx, st)
 	if err != nil {
+		return err
+	}
+	if err := supervisorOnScreen(sup, expect); err != nil {
 		return err
 	}
 	ref := state.SupervisorRef(sup.ID)
@@ -504,7 +507,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		ref := state.SupervisorRef(sup.ID)
 		if routed.Harness != "" && routed.Harness != sup.Harness {
-			return r.switchHarness(ctx, st, c, routed)
+			return r.switchHarness(ctx, st, c, routed, *expect)
 		}
 		spec := harness.Spec{Harness: sup.Harness, Model: sup.Model, Effort: sup.Effort}
 		switch {

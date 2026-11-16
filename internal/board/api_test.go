@@ -399,19 +399,47 @@ func TestAPIAnswerRefusals(t *testing.T) {
 func TestAPIAllowsOnlyTheMethodsEachPathTakes(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
-	for _, c := range []struct{ method, path, allow string }{
-		{"PUT", "/api/v1/models/refresh", "POST"},
-		{"PUT", "/api/v1/supervisor/switch", "POST"},
-		{"PUT", "/api/v1/supervisor/start", "POST"},
-		{"PUT", "/api/v1/models", "GET, HEAD"},
-	} {
-		req := httptest.NewRequest(c.method, c.path, nil)
-		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
-		if got := rec.Header().Get("Allow"); got != c.allow {
-			t.Fatalf("%s %s Allow = %q, want %q", c.method, c.path, got, c.allow)
+	var paths []string
+	takes := map[string][]string{}
+	for _, rt := range board.APIRoutes() {
+		path := "/api/v1" + strings.ReplaceAll(rt.Path, "{id}", "x1")
+		if _, ok := takes[path]; !ok {
+			paths = append(paths, path)
+		}
+		takes[path] = append(takes[path], rt.Method)
+	}
+	if len(paths) < 20 {
+		t.Fatalf("the API lists %d paths: %q", len(paths), paths)
+	}
+	slices.Sort(paths)
+	for _, path := range paths {
+		allow := "GET, HEAD"
+		switch {
+		case slices.Contains(takes[path], "POST") && slices.Contains(takes[path], "GET"):
+			allow = "GET, HEAD, POST"
+		case slices.Contains(takes[path], "POST"):
+			allow = "POST"
+		}
+		for _, m := range []string{"GET", "HEAD", "POST", "PUT", "DELETE"} {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			req := httptest.NewRequest(m, path, nil).WithContext(ctx)
+			req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			cancel()
+			switch taken := slices.Contains(takes[path], m) || m == "HEAD" && slices.Contains(takes[path], "GET"); {
+			case taken && rec.Code == http.StatusMethodNotAllowed:
+				t.Fatalf("%s %s = 405: the router takes it, Allow = %q", m, path, rec.Header().Get("Allow"))
+			case taken:
+			case m == "GET" || m == "HEAD":
+				if rec.Code != http.StatusNotFound {
+					t.Fatalf("%s %s = %d: the router answers it, but %q takes only %q", m, path, rec.Code, path, takes[path])
+				}
+			case rec.Code != http.StatusMethodNotAllowed:
+				t.Fatalf("%s %s = %d: the router takes it, Allow = %q", m, path, rec.Code, allow)
+			case rec.Header().Get("Allow") != allow:
+				t.Fatalf("%s %s Allow = %q, want %q", m, path, rec.Header().Get("Allow"), allow)
+			}
 		}
 	}
 }
