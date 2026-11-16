@@ -171,11 +171,23 @@ type Options struct {
 	ClosePeer  func(string)
 }
 
+type trackedMux struct {
+	*http.ServeMux
+	patterns []string
+}
+
+func (m *trackedMux) HandleFunc(pattern string, handler http.HandlerFunc) {
+	if _, path, ok := strings.Cut(pattern, " "); ok && apiPath(path) {
+		m.patterns = append(m.patterns, pattern)
+	}
+	m.ServeMux.HandleFunc(pattern, handler)
+}
+
 type Board struct {
 	st         *state.Store
 	token      string
 	o          Options
-	mux        *http.ServeMux
+	mux        *trackedMux
 	companions companions
 	refresh    refresher
 	artifacts  artifactCache
@@ -202,7 +214,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	if o.Beat <= 0 {
 		o.Beat = 15 * time.Second
 	}
-	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), companions: companions{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
+	b := &Board{st: st, token: token, o: o, mux: &trackedMux{ServeMux: http.NewServeMux()}, companions: companions{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
 	b.boot = b.now().UnixNano()
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor", b.supervisorPage)
@@ -236,29 +248,18 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /connect/revoke", b.connectRevoke)
 	b.mux.HandleFunc("POST /connect/revoke/in", b.connectRevokePhone(false))
 	b.mux.HandleFunc("POST /connect/revoke/everywhere", b.connectRevokePhone(true))
-	b.mux.HandleFunc("GET "+apiPrefix, b.apiUnknown)
-	b.mux.HandleFunc("GET "+apiPrefix+"/session", b.apiSession)
-	b.mux.HandleFunc("GET "+apiPrefix+"/events", b.apiEvents)
-	b.mux.HandleFunc("GET "+apiPrefix+"/status", b.apiStatus)
-	b.mux.HandleFunc("GET "+apiPrefix+"/timeline", b.apiTimeline)
-	b.mux.HandleFunc("GET "+apiPrefix+"/tasks", b.apiTasks)
-	b.mux.HandleFunc("GET "+apiPrefix+"/task/{id}", b.apiTask)
-	b.mux.HandleFunc("GET "+apiPrefix+"/attempt/{id}", b.apiAttempt)
-	b.mux.HandleFunc("GET "+apiPrefix+"/decision/{id}", b.apiDecision)
-	b.mux.HandleFunc("GET "+apiPrefix+"/report/{id}", b.apiReport)
-	b.mux.HandleFunc("POST "+apiPrefix+"/message", b.apiMessage)
-	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/start", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "start") })
-	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/resume", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "resume") })
-	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/stop", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "stop") })
-	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/interrupt", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "interrupt") })
-	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/force", func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "force") })
-	b.mux.HandleFunc("POST "+apiPrefix+"/supervisor/keys", b.apiKeys)
-	b.mux.HandleFunc("POST "+apiPrefix+"/attempt/{id}/keys", b.apiAttemptKeys)
-	b.mux.HandleFunc("POST "+apiPrefix+"/decision/{id}/answer", b.apiAnswer)
-	b.mux.HandleFunc("POST "+apiPrefix+"/report/{id}/ack", b.apiAck)
-	b.mux.HandleFunc("POST "+apiPrefix+"/", b.apiMethod)
-	b.mux.HandleFunc("POST "+apiPrefix, b.apiMethod)
-	b.mux.HandleFunc(apiPrefix+"/", b.apiUnknown)
+	add := func(rt apiRoute) {
+		if rt.handle == nil {
+			return
+		}
+		b.mux.HandleFunc(rt.method+" "+apiPrefix+rt.path, rt.handle(b))
+	}
+	for _, rt := range apiRoutes {
+		add(rt)
+	}
+	for _, rt := range apiFallbacks {
+		add(rt)
+	}
 	return b
 }
 

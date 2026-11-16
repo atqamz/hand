@@ -23,6 +23,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -34,6 +35,72 @@ const (
 var denyIn = regexp.MustCompile(`^(\d{1,3}):(\d{2})$`)
 
 var supervisorRef = regexp.MustCompile(`^s[1-9][0-9]*$`)
+
+type APIRoute struct {
+	Method   string
+	Path     string
+	Fallback bool
+}
+
+type apiRoute struct {
+	method string
+	path   string
+	handle func(*Board) http.HandlerFunc // nil where apiServe answers the path before the mux
+}
+
+var apiRoutes = []apiRoute{
+	{http.MethodGet, "", func(b *Board) http.HandlerFunc { return b.apiUnknown }},
+	{http.MethodGet, "/session", func(b *Board) http.HandlerFunc { return b.apiSession }},
+	{http.MethodGet, "/events", func(b *Board) http.HandlerFunc { return b.apiEvents }},
+	{http.MethodGet, "/status", func(b *Board) http.HandlerFunc { return b.apiStatus }},
+	{http.MethodGet, "/models", func(b *Board) http.HandlerFunc { return b.apiModels }},
+	{http.MethodGet, "/timeline", func(b *Board) http.HandlerFunc { return b.apiTimeline }},
+	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
+	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
+	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
+	{http.MethodGet, "/decision/{id}", func(b *Board) http.HandlerFunc { return b.apiDecision }},
+	{http.MethodGet, "/report/{id}", func(b *Board) http.HandlerFunc { return b.apiReport }},
+	{http.MethodPost, "/pair", nil},
+	{http.MethodPost, "/message", func(b *Board) http.HandlerFunc { return b.apiMessage }},
+	{http.MethodPost, "/supervisor/start", func(b *Board) http.HandlerFunc { return b.apiStart }},
+	{http.MethodPost, "/supervisor/resume", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "resume") }
+	}},
+	{http.MethodPost, "/supervisor/stop", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "stop") }
+	}},
+	{http.MethodPost, "/supervisor/interrupt", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "interrupt") }
+	}},
+	{http.MethodPost, "/supervisor/force", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiControl(w, r, "force") }
+	}},
+	{http.MethodPost, "/supervisor/switch", func(b *Board) http.HandlerFunc { return b.apiSwitch }},
+	{http.MethodPost, "/models/refresh", func(b *Board) http.HandlerFunc { return b.apiRefreshModels }},
+	{http.MethodPost, "/supervisor/keys", func(b *Board) http.HandlerFunc { return b.apiKeys }},
+	{http.MethodPost, "/attempt/{id}/keys", func(b *Board) http.HandlerFunc { return b.apiAttemptKeys }},
+	{http.MethodPost, "/decision/{id}/answer", func(b *Board) http.HandlerFunc { return b.apiAnswer }},
+	{http.MethodPost, "/report/{id}/ack", func(b *Board) http.HandlerFunc { return b.apiAck }},
+}
+
+var apiFallbacks = []apiRoute{
+	{http.MethodGet, "/", func(b *Board) http.HandlerFunc { return b.apiUnknown }},
+	{http.MethodPost, "/", func(b *Board) http.HandlerFunc { return b.apiMethod }},
+	{http.MethodPost, "", func(b *Board) http.HandlerFunc { return b.apiMethod }},
+}
+
+func APIRoutes() []APIRoute {
+	out := make([]APIRoute, 0, len(apiRoutes)+len(apiFallbacks))
+	for _, rt := range apiRoutes {
+		out = append(out, APIRoute{Method: rt.method, Path: rt.path})
+	}
+	for _, rt := range apiFallbacks {
+		out = append(out, APIRoute{Method: rt.method, Path: rt.path, Fallback: true})
+	}
+	return out
+}
+
+func (b *Board) APIPatterns() []string { return slices.Clone(b.mux.patterns) }
 
 type APIFleet struct {
 	ID   string `json:"id"`
@@ -403,6 +470,42 @@ type APIReportDetail struct {
 	Delivered []APIDeliverable `json:"delivered"`
 }
 
+type APIModel struct {
+	Name       string   `json:"name"`
+	Text       string   `json:"text"`
+	Efforts    []string `json:"efforts,omitempty"`
+	Unverified bool     `json:"unverified,omitempty"`
+	Selected   bool     `json:"selected,omitempty"`
+}
+
+type APIModelGroup struct {
+	Label  string     `json:"label"`
+	Models []APIModel `json:"models"`
+}
+
+type APIHarness struct {
+	Name    string          `json:"name"`
+	Groups  []APIModelGroup `json:"groups"`
+	Efforts []string        `json:"efforts,omitempty"`
+	Note    string          `json:"note,omitempty"`
+	Missing string          `json:"missing,omitempty"`
+	Model   string          `json:"model,omitempty"`
+	Effort  string          `json:"effort,omitempty"`
+}
+
+type APIModels struct {
+	Harnesses  []APIHarness `json:"harnesses"`
+	Current    string       `json:"current,omitempty"`
+	Model      string       `json:"model,omitempty"`
+	Effort     string       `json:"effort,omitempty"`
+	ModelNote  string       `json:"model_note,omitempty"`
+	Switching  string       `json:"switching,omitempty"`
+	Drop       string       `json:"drop,omitempty"`
+	DropRef    string       `json:"drop_ref,omitempty"`
+	Switchable bool         `json:"switchable,omitempty"`
+	Resumable  bool         `json:"resumable,omitempty"`
+}
+
 func apiPath(path string) bool {
 	return path == apiPrefix || strings.HasPrefix(path, apiPrefix+"/")
 }
@@ -460,14 +563,40 @@ func actor(ctx context.Context, host string) string {
 
 func apiAllow(r *http.Request) string {
 	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
-	if p == "/pair" || p == "/message" || p == "/supervisor/start" || p == "/supervisor/resume" || p == "/supervisor/stop" ||
-		p == "/supervisor/interrupt" || p == "/supervisor/force" || p == "/supervisor/keys" ||
-		strings.HasPrefix(p, "/attempt/") && strings.HasSuffix(p, "/keys") ||
-		strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
-		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
+	get, post := false, false
+	for _, rt := range apiRoutes {
+		if !apiRouteMatch(rt.path, p) {
+			continue
+		}
+		if rt.method == http.MethodPost {
+			post = true
+		} else {
+			get = true
+		}
+	}
+	switch {
+	case get && post:
+		return "GET, HEAD, POST"
+	case post:
 		return "POST"
 	}
 	return "GET, HEAD"
+}
+
+func apiRouteMatch(pattern, path string) bool {
+	if pattern == "" {
+		return path == ""
+	}
+	ps, qs := strings.Split(pattern, "/"), strings.Split(path, "/")
+	if len(ps) != len(qs) {
+		return false
+	}
+	for i, s := range ps {
+		if s != qs[i] && !(strings.HasPrefix(s, "{") && qs[i] != "") {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Board) apiSession(w http.ResponseWriter, r *http.Request) {
@@ -527,6 +656,24 @@ type apiControlBody struct {
 	Ref string `json:"ref"`
 }
 
+type apiStartBody struct {
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+	Effort  string `json:"effort"`
+}
+
+type apiSwitchBody struct {
+	Ref     string `json:"ref"`
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+	Effort  string `json:"effort"`
+	Cancel  bool   `json:"cancel"`
+}
+
+type apiHarnessBody struct {
+	Harness string `json:"harness"`
+}
+
 // APIAccepted is an action's answer when it went through but its result could
 // not be read back; the answer's warn says so and the client refreshes.
 type APIAccepted struct {
@@ -539,7 +686,10 @@ const (
 	apiAnswerUnread       = "the answer was saved, but its decision could not be read"
 	apiAckUnread          = "the report was marked read, but its detail could not be read"
 	apiPressUnread        = "the press went through, but the attempt could not be read"
+	apiModelsUnread       = "the refresh started, but the model lists could not be read"
 )
+
+const startingAnyway = "; starting anyway"
 
 // apiReply is what an action's answer says next to its data: the Board's own
 // words for a receipt and for a warning, carried as the X-Hand-Receipt and
@@ -769,6 +919,208 @@ func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
 	b.apiOK(w, f, "", tl)
 }
 
+// apiObject reads one JSON object under the same limit and shape every action
+// body keeps; an empty body leaves v at its zero value.
+func (b *Board) apiObject(w http.ResponseWriter, r *http.Request, v any, bad string) bool {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return false
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return true
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(v); err != nil {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", bad)
+		return false
+	}
+	return true
+}
+
+// apiRejected answers the sentence the board's own banner prints for an
+// invalid harness, model or effort, without the error's kind in front of it.
+func (b *Board) apiRejected(w http.ResponseWriter, err error) {
+	b.apiFail(w, http.StatusBadRequest, "bad_request", strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
+}
+
+func (b *Board) apiStart(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	if b.o.Control == nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the board's controls are off")
+		return
+	}
+	var in apiStartBody
+	if !b.apiObject(w, r, &in, "send one JSON object with harness, model and effort") {
+		return
+	}
+	h, m, e := strings.TrimSpace(in.Harness), strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)
+	args, warn := []string{"supervisor", "start"}, ""
+	switch {
+	case h == "":
+		if m != "" || e != "" {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", "give a harness to start with a model or an effort")
+			return
+		}
+		if _, ok, err := b.st.LatestSupervisor(ctx); err != nil {
+			b.apiFailErr(w, err)
+			return
+		} else if !ok {
+			b.apiFail(w, http.StatusConflict, "conflict", "there is no earlier supervisor to copy; give a harness, model and effort")
+			return
+		}
+	default:
+		spec := harness.Spec{Harness: h, Model: m, Effort: e}
+		if !slices.Contains(state.Harnesses, h) {
+			b.apiRejected(w, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, h, strings.Join(state.Harnesses, ", ")))
+			return
+		}
+		if err := harness.CheckSupervisor(spec); err != nil {
+			b.apiRejected(w, err)
+			return
+		}
+		why, err := harness.Check(spec, b.o.Harness)
+		if err != nil {
+			b.apiRejected(w, err)
+			return
+		}
+		if why.Text != "" && !why.Unread {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", strings.TrimSuffix(why.Text, startingAnyway))
+			return
+		}
+		warn = why.Text
+		args = append(args, "--harness", h)
+		if m != "" {
+			args = append(args, "--model", m)
+		}
+		if e != "" {
+			args = append(args, "--effort", e)
+		}
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	why, err := b.o.Control(ctx, args...)
+	reply := apiReply{receipt: "Starting the supervisor…", warn: warn}
+	if err != nil {
+		reply.and(why).send(w)
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiControlOK(w, f, ctx, reply.and(why))
+}
+
+func (b *Board) apiSwitch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	if b.o.Control == nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the board's controls are off")
+		return
+	}
+	var in apiSwitchBody
+	if !b.apiObject(w, r, &in, "send one JSON object with ref, harness, model, effort and cancel") {
+		return
+	}
+	ref := strings.TrimSpace(in.Ref)
+	if !supervisorRef.MatchString(ref) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "give the supervisor the status showed, as ref")
+		return
+	}
+	h, m, e := strings.TrimSpace(in.Harness), strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)
+	args, receipt := []string{"supervisor", "switch", "--expect", ref}, "Switch applied"
+	switch {
+	case in.Cancel:
+		args, receipt = append(args, "--cancel"), "Switch canceled"
+	case h == "" && m == "" && e == "":
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "give a model or effort")
+		return
+	default:
+		if h != "" {
+			if !slices.Contains(state.Harnesses, h) {
+				b.apiRejected(w, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, h, strings.Join(state.Harnesses, ", ")))
+				return
+			}
+			if err := harness.CheckSupervisor(harness.Spec{Harness: h}); err != nil {
+				b.apiRejected(w, err)
+				return
+			}
+			args, receipt = append(args, "--harness", h), "Switching to "+h+"…"
+		}
+		if m != "" {
+			args = append(args, "--model", m)
+		}
+		if e != "" {
+			args = append(args, "--effort", e)
+		}
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	warn, err := b.o.Control(ctx, args...)
+	if err != nil {
+		apiReply{warn: warn}.send(w)
+		b.apiFailErr(w, err)
+		return
+	}
+	if !in.Cancel && h == "" {
+		sup, ok, _ := b.st.LatestSupervisor(ctx)
+		switch {
+		case ok && sup.Switching():
+			receipt = "Switch set for after this turn"
+		case strings.Contains(warn, state.NoteLost):
+			receipt = "Switch applied, not answered"
+		}
+	}
+	b.apiControlOK(w, f, ctx, apiReply{receipt: receipt, warn: warn})
+}
+
+func (b *Board) apiRefreshModels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	if s, _ := ctx.Value(sessionKey{}).(session); s.Device != nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired phone cannot refresh model lists; use the host's Board")
+		return
+	}
+	var in apiHarnessBody
+	if !b.apiObject(w, r, &in, "send one JSON object with a harness, or no body to refresh every list") {
+		return
+	}
+	names := refreshable
+	if h := strings.TrimSpace(in.Harness); h != "" {
+		if !slices.Contains(refreshable, h) {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", "refresh the models of claude, codex, agy, copilot or omp")
+			return
+		}
+		names = []string{h}
+	}
+	started, refused := b.beginRefresh(names)
+	if started == 0 {
+		b.apiFail(w, http.StatusTooManyRequests, "rate_limited", refused)
+		return
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiMutationOK(w, f, ctx, apiReply{receipt: "Refreshing models…"}, apiModelsUnread, func() (any, error) { return b.apiModelsData(ctx) })
+}
+
 func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string) {
 	ctx := r.Context()
 	if !b.apiCSRF(w, r) {
@@ -785,15 +1137,6 @@ func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string
 			return
 		}
 		args = append(args, "--expect", ref)
-	}
-	if action == "start" {
-		if _, ok, err := b.st.LatestSupervisor(ctx); err != nil {
-			b.apiFailErr(w, err)
-			return
-		} else if !ok {
-			b.apiFail(w, http.StatusConflict, "conflict", "there is no earlier supervisor to copy; start the first one with `hand supervisor start`")
-			return
-		}
 	}
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
@@ -1168,6 +1511,20 @@ func (b *Board) apiReport(w http.ResponseWriter, r *http.Request) {
 	b.apiRespond(w, f, cursor, data)
 }
 
+func (b *Board) apiModels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	f, since, ok := b.apiSince(w, r)
+	if !ok {
+		return
+	}
+	data, err := b.apiModelsData(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiOK(w, f, since, data)
+}
+
 func (b *Board) apiUnknown(w http.ResponseWriter, r *http.Request) {
 	b.apiFail(w, http.StatusNotFound, "not_found", "there is no such API route")
 }
@@ -1366,6 +1723,51 @@ func (b *Board) apiStatusData(ctx context.Context) (APIStatus, error) {
 			Abandoned: counts[state.StatusAbandoned],
 		},
 		Projects: len(projects),
+	}
+	return out, nil
+}
+
+func (b *Board) apiModelsData(ctx context.Context) (APIModels, error) {
+	sv, err := b.buildSupervisor(ctx, url.Values{"pick": {"1"}})
+	if err != nil {
+		return APIModels{}, err
+	}
+	out := APIModels{
+		Harnesses:  make([]APIHarness, 0, len(sv.StartHarnesses)),
+		Switchable: sv.Switchable,
+		Drop:       sv.Drop,
+		DropRef:    sv.DropRef,
+		Resumable:  sv.Resumable,
+		ModelNote:  sv.ModelNote,
+	}
+	if sv.Sup != nil {
+		out.Current, out.Model, out.Effort = sv.Sup.Harness, sv.Sup.Model, sv.Sup.Effort
+		out.Switching = sv.Sup.SwitchText()
+	}
+	for _, c := range sv.StartHarnesses {
+		h := APIHarness{
+			Name:    c.Name,
+			Groups:  make([]APIModelGroup, 0, len(c.Groups)),
+			Efforts: c.Efforts,
+			Note:    Scrub(c.Note),
+			Missing: Scrub(c.Missing),
+			Model:   c.Model,
+			Effort:  c.Effort,
+		}
+		for _, g := range c.Groups {
+			group := APIModelGroup{Label: g.Label, Models: make([]APIModel, 0, len(g.Models))}
+			for _, m := range g.Models {
+				group.Models = append(group.Models, APIModel{
+					Name:       m.Name,
+					Text:       m.Text,
+					Efforts:    strings.Fields(m.Efforts),
+					Unverified: m.Unverified,
+					Selected:   m.Selected,
+				})
+			}
+			h.Groups = append(h.Groups, group)
+		}
+		out.Harnesses = append(out.Harnesses, h)
 	}
 	return out, nil
 }

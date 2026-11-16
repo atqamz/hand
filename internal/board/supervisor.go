@@ -1045,6 +1045,10 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := []string{"supervisor", "switch"}
+	if ref := strings.TrimSpace(r.PostFormValue("ref")); supervisorRef.MatchString(ref) {
+		args = append(args, "--expect", ref)
+	}
+	settled := len(args)
 	switch {
 	case r.PostFormValue("cancel") == "1":
 		args = append(args, "--cancel")
@@ -1054,7 +1058,7 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		}
 		args = append(args, modelEffortArgs(r)...)
 	}
-	if len(args) == 2 {
+	if len(args) == settled {
 		b.fail(w, http.StatusBadRequest, "give a model or effort")
 		return
 	}

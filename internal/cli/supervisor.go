@@ -119,7 +119,7 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 	return r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Session: session, WakeCursor: cursor}, ref)
 }
 
-func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec) error {
+func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec, expect string) error {
 	if _, err := harnessBin(r, spec); err != nil {
 		return err
 	}
@@ -130,6 +130,9 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	defer unlock()
 	sup, err := runningSupervisor(ctx, st)
 	if err != nil {
+		return err
+	}
+	if err := supervisorOnScreen(sup, expect); err != nil {
 		return err
 	}
 	ref := state.SupervisorRef(sup.ID)
@@ -455,6 +458,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
 	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode, agy or omp")
+	expect := fs.String("expect", "", "the supervisor the operator saw; refuse when another one is running")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -484,6 +488,9 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 				}
 				sup = last
 			}
+			if err := supervisorOnScreen(sup, *expect); err != nil {
+				return err
+			}
 			if _, err := st.CancelSupervisorSwitch(ctx, sup.ID); err != nil {
 				return err
 			}
@@ -495,9 +502,12 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		if err := supervisorOnScreen(sup, *expect); err != nil {
+			return err
+		}
 		ref := state.SupervisorRef(sup.ID)
 		if routed.Harness != "" && routed.Harness != sup.Harness {
-			return r.switchHarness(ctx, st, c, routed)
+			return r.switchHarness(ctx, st, c, routed, *expect)
 		}
 		spec := harness.Spec{Harness: sup.Harness, Model: sup.Model, Effort: sup.Effort}
 		switch {
@@ -506,7 +516,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		default:
 			spec.Model, spec.Effort = cmp.Or(*model, spec.Model), cmp.Or(*effort, spec.Effort)
 		}
-		warn, err := harness.Check(spec, r.harnessEnv())
+		checked, err := harness.Check(spec, r.harnessEnv())
 		if err != nil {
 			return err
 		}
@@ -514,9 +524,9 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			if err := r.opencodeListed(spec.Model); err != nil {
 				return err
 			}
-			warn, _ = harness.Check(spec, r.harnessEnv())
+			checked, _ = harness.Check(spec, r.harnessEnv())
 		}
-		r.warn(warn)
+		r.warn(checked.Text)
 		if harness.Resolves(spec.Model, sup.Model) && (spec.Effort == sup.Effort || spec.Effort == "default" && sup.Effort == "") {
 			return fmt.Errorf("%w: supervisor %s already runs %s", state.ErrConflict, ref, strings.Join(strings.Fields(sup.Model+" "+sup.Effort), " "))
 		}
@@ -529,7 +539,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		if _, err := st.SetSupervisorSwitch(ctx, sup.ID, spec.Model, spec.Effort); err != nil {
 			return err
 		}
-		why, err := r.deliver(ctx, st, c, caps, true, "")
+		why, err := r.deliver(ctx, st, c, caps, true, *expect)
 		if err != nil {
 			return err
 		}
@@ -659,7 +669,7 @@ func harnessBin(r *runner, spec harness.Spec) (string, error) {
 
 func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
 	env := r.harnessEnv()
-	warn, err := harness.Check(spec, env)
+	checked, err := harness.Check(spec, env)
 	if err != nil {
 		return "", "", err
 	}
@@ -675,7 +685,7 @@ func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
 	case err != nil:
 		return "", "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, installText(spec.Harness))
 	}
-	return bin, warn, nil
+	return bin, checked.Text, nil
 }
 
 func installText(name string) string {

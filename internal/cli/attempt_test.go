@@ -58,6 +58,21 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	}
 }
 
+func TestAttemptStartLeavesAnEmptyEffortToTheHarness(t *testing.T) {
+	fx := newAttemptFixture(t)
+	out := fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "status: running") || strings.Contains(out, "warn") {
+		t.Fatalf("start = %q", out)
+	}
+	argv := fx.rt.lastCreate().Command
+	if slices.ContainsFunc(argv, func(a string) bool { return strings.Contains(a, "--effort") || a == "" }) {
+		t.Fatalf("argv = %q", argv)
+	}
+	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "Very High", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "claude effort") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
 func TestAttemptStartRefusesABriefTooLongForTheArgumentBeforeAnythingStarts(t *testing.T) {
 	fx := newAttemptFixture(t)
 	long := filepath.Join(t.TempDir(), "long.md")

@@ -74,6 +74,7 @@ type supervisorView struct {
 	StartHarnesses []harnessChoice
 	Resumable      bool
 	Drop           string
+	DropRef        string
 	Switchable     bool
 	Current        *harnessChoice
 	OtherHarnesses []harnessChoice
@@ -124,7 +125,7 @@ func (b *Board) buildSupervisor(ctx context.Context, q url.Values) (supervisorVi
 			if found {
 				resumable = started
 				if started.Switching() {
-					v.Drop = started.SwitchText()
+					v.Drop, v.DropRef = started.SwitchText(), state.SupervisorRef(started.ID)
 				}
 			}
 		}

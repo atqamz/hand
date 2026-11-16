@@ -36,6 +36,8 @@ func (e Env) get(key string) string {
 
 const MaxPromptBytes = 16384
 
+const startingAnyway = "; starting anyway"
+
 var (
 	claudeModel   = regexp.MustCompile(`^(default|opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)(\[1m\])?$`)
 	modelToken    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]#+-]{0,199}$`)
@@ -56,145 +58,168 @@ func ValidServed(model, effort string) bool {
 	return modelToken.MatchString(model) && (effort == "" || effortToken.MatchString(effort))
 }
 
-func Check(s Spec, env Env) (string, error) {
+type Warn struct {
+	Text   string
+	Unread bool
+}
+
+func Check(s Spec, env Env) (Warn, error) {
 	switch s.Harness {
 	case "claude", "codex", "agy", "copilot", "omp":
 	case "opencode":
 		return checkOpencode(s, env)
 	default:
-		return "", fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, s.Harness, strings.Join(state.Harnesses, ", "))
+		return Warn{}, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, s.Harness, strings.Join(state.Harnesses, ", "))
 	}
 	if !modelToken.MatchString(s.Model) {
-		return "", fmt.Errorf("%w: %s model %q must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit", state.ErrInvalid, s.Harness, s.Model)
+		return Warn{}, fmt.Errorf("%w: %s model %q must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit", state.ErrInvalid, s.Harness, s.Model)
 	}
 	switch {
 	case s.Harness == "agy":
 		if s.Effort != "" {
-			return "", fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
+			return Warn{}, fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
 		}
-	case (s.Harness == "copilot" || s.Harness == "omp") && s.Effort == "":
+	case s.Effort == "":
 	case !effortToken.MatchString(s.Effort):
-		return "", fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
+		return Warn{}, fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
 	}
 	switch s.Harness {
 	case "claude":
-		return checkClaude(s, env), nil
+		return joinWarns(checkClaude(s, env)), nil
 	case "codex":
-		return checkCodex(s, env), nil
+		return joinWarns(checkCodex(s, env)), nil
 	case "copilot":
-		return checkCopilot(s, env), nil
+		return joinWarns(checkCopilot(s, env)), nil
 	case "omp":
-		return checkOmp(s, env), nil
+		return joinWarns(checkOmp(s, env)), nil
 	}
-	return checkAgy(s, env), nil
+	return joinWarns(checkAgy(s, env)), nil
 }
 
-func checkClaude(s Spec, env Env) string {
-	l, _ := catalog("claude", env)
+func joinWarns(warns []Warn) Warn {
+	if len(warns) == 0 {
+		return Warn{}
+	}
+	texts := make([]string, len(warns))
+	out := Warn{Unread: true}
+	for i, w := range warns {
+		texts[i] = w.Text
+		out.Unread = out.Unread && w.Unread
+	}
+	out.Text = strings.Join(texts, "; ") + startingAnyway
+	return out
+}
+
+func checkClaude(s Spec, env Env) []Warn {
+	l, unread := claudeList(env)
 	m, listed := find(l.Models, s.Model)
-	var warns []string
+	var warns []Warn
 	switch {
 	case slices.Contains(l.Gone, s.Model):
-		warns = append(warns, goneText(s))
+		warns = append(warns, Warn{Text: goneText(s)})
 	case !listed && !claudeModel.MatchString(s.Model):
-		warns = append(warns, fmt.Sprintf("claude model %s is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list", s.Model))
+		warns = append(warns, Warn{Text: fmt.Sprintf("claude model %s is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list", s.Model), Unread: unread})
 	}
 	efforts := claudeEfforts
 	if len(m.Efforts) > 0 {
 		efforts = m.Efforts
 	}
-	if !slices.Contains(efforts, s.Effort) {
-		warns = append(warns, fmt.Sprintf("claude model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(efforts, ", ")))
+	if s.Effort != "" && !slices.Contains(efforts, s.Effort) {
+		warns = append(warns, Warn{Text: fmt.Sprintf("claude model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(efforts, ", "))})
 	}
-	return unverified(warns)
+	return warns
 }
 
-func checkOpencode(s Spec, env Env) (string, error) {
+func claudeList(env Env) (Listing, bool) {
+	if l, ok := load("claude", env); ok && len(l.Models) > 0 {
+		return l, false
+	}
+	return Listing{Harness: "claude", Models: builtinClaude()}, true
+}
+
+func checkOpencode(s Spec, env Env) (Warn, error) {
 	if s.Model == "" {
 		if s.Effort != "" {
-			return "", fmt.Errorf("%w: opencode effort %q is a variant of a model; give the model as provider/id, or leave effort empty", state.ErrInvalid, s.Effort)
+			return Warn{}, fmt.Errorf("%w: opencode effort %q is a variant of a model; give the model as provider/id, or leave effort empty", state.ErrInvalid, s.Effort)
 		}
-		return "", nil
+		return Warn{}, nil
 	}
 	if !validModel("opencode", s.Model) {
-		return "", fmt.Errorf("%w: opencode model %q must be provider/id: 1 to 200 characters, no # and no control characters", state.ErrInvalid, s.Model)
+		return Warn{}, fmt.Errorf("%w: opencode model %q must be provider/id: 1 to 200 characters, no # and no control characters", state.ErrInvalid, s.Model)
 	}
 	if s.Effort != "" && !effortToken.MatchString(s.Effort) {
-		return "", fmt.Errorf("%w: opencode variant %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Effort)
+		return Warn{}, fmt.Errorf("%w: opencode variant %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Effort)
 	}
 	l, err := catalog("opencode", env)
 	if err != nil {
-		return unverified([]string{fmt.Sprintf("opencode model %s could not be checked: %s", s.Model, plainReason(err))}), nil
+		return joinWarns(unreadWarn(fmt.Sprintf("opencode model %s could not be checked: %s", s.Model, plainReason(err)))), nil
 	}
 	m, ok := find(l.Models, s.Model)
 	switch {
 	case !ok:
-		return unverified([]string{fmt.Sprintf("opencode model %s is not in `opencode models`", s.Model)}), nil
+		return joinWarns([]Warn{{Text: fmt.Sprintf("opencode model %s is not in `opencode models`", s.Model)}}), nil
 	case s.Effort != "" && s.Effort != "default" && len(m.Efforts) > 0 && !slices.Contains(m.Efforts, s.Effort):
-		return unverified([]string{fmt.Sprintf("opencode model %s lists variants %s, not %s; opencode resets an unknown variant to default", s.Model, strings.Join(m.Efforts, ", "), s.Effort)}), nil
+		return joinWarns([]Warn{{Text: fmt.Sprintf("opencode model %s lists variants %s, not %s; opencode resets an unknown variant to default", s.Model, strings.Join(m.Efforts, ", "), s.Effort)}}), nil
 	}
-	return "", nil
+	return Warn{}, nil
 }
 
-func checkAgy(s Spec, env Env) string {
+func checkAgy(s Spec, env Env) []Warn {
 	l, err := catalog("agy", env)
 	switch {
 	case err != nil:
-		return unverified([]string{fmt.Sprintf("agy model %s could not be checked: %s", s.Model, plainReason(err))})
+		return unreadWarn(fmt.Sprintf("agy model %s could not be checked: %s", s.Model, plainReason(err)))
 	case slices.Contains(l.Gone, s.Model):
-		return unverified([]string{goneText(s)})
+		return []Warn{{Text: goneText(s)}}
 	}
 	if _, ok := find(l.Models, s.Model); !ok {
-		return unverified([]string{fmt.Sprintf("agy model %s is not in `agy models`", s.Model)})
+		return []Warn{{Text: fmt.Sprintf("agy model %s is not in `agy models`", s.Model)}}
 	}
-	return ""
+	return nil
 }
 
-func checkCopilot(s Spec, env Env) string {
+func checkCopilot(s Spec, env Env) []Warn {
 	switch {
 	case s.Effort != "" && !slices.Contains(copilotEfforts, s.Effort):
-		return unverified([]string{fmt.Sprintf("copilot model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(copilotEfforts, ", "))})
+		return []Warn{{Text: fmt.Sprintf("copilot model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(copilotEfforts, ", "))}}
 	case s.Model == "auto" && s.Effort != "":
-		return unverified([]string{"copilot model auto takes no effort"})
+		return []Warn{{Text: "copilot model auto takes no effort"}}
 	case s.Model == "auto":
-		return ""
+		return nil
 	}
 	l, err := catalog("copilot", env)
 	switch {
 	case err != nil:
-		return unverified([]string{fmt.Sprintf("copilot model %s could not be checked: %s", s.Model, plainReason(err))})
+		return unreadWarn(fmt.Sprintf("copilot model %s could not be checked: %s", s.Model, plainReason(err)))
 	case slices.Contains(l.Gone, s.Model):
-		return unverified([]string{goneText(s)})
+		return []Warn{{Text: goneText(s)}}
 	}
 	if _, ok := find(l.Models, s.Model); !ok {
-		return unverified([]string{fmt.Sprintf("copilot model %s is not in `copilot help config`", s.Model)})
+		return []Warn{{Text: fmt.Sprintf("copilot model %s is not in `copilot help config`", s.Model)}}
 	}
-	return ""
+	return nil
 }
 
-func checkOmp(s Spec, env Env) string {
+func checkOmp(s Spec, env Env) []Warn {
 	l, err := catalog("omp", env)
 	switch {
 	case err != nil:
-		return unverified([]string{fmt.Sprintf("omp model %s could not be checked: %s", s.Model, plainReason(err))})
+		return unreadWarn(fmt.Sprintf("omp model %s could not be checked: %s", s.Model, plainReason(err)))
 	case slices.Contains(l.Gone, s.Model):
-		return unverified([]string{goneText(s)})
+		return []Warn{{Text: goneText(s)}}
 	}
 	_, ok := find(l.Models, s.Model)
 	switch {
 	case !ok:
-		return unverified([]string{fmt.Sprintf("omp model %s is not in `omp models --json`", s.Model)})
+		return []Warn{{Text: fmt.Sprintf("omp model %s is not in `omp models --json`", s.Model)}}
 	case s.Effort != "" && !slices.Contains(ompEfforts, s.Effort):
-		return unverified([]string{fmt.Sprintf("omp model %s: thinking level %s is not one of %s", s.Model, s.Effort, strings.Join(ompEfforts, ", "))})
+		return []Warn{{Text: fmt.Sprintf("omp model %s: thinking level %s is not one of %s", s.Model, s.Effort, strings.Join(ompEfforts, ", "))}}
 	}
-	return ""
+	return nil
 }
 
-func unverified(warns []string) string {
-	if len(warns) == 0 {
-		return ""
-	}
-	return strings.Join(warns, "; ") + "; starting anyway"
+func unreadWarn(text string) []Warn {
+	return []Warn{{Text: text, Unread: true}}
 }
 
 func plainReason(err error) string {
@@ -242,21 +267,21 @@ func servedAs(alias, served string) bool {
 	return m != nil && m[1] == alias
 }
 
-func checkCodex(s Spec, env Env) string {
+func checkCodex(s Spec, env Env) []Warn {
 	l, err := catalog("codex", env)
 	if err != nil {
-		return unverified([]string{fmt.Sprintf("codex model %s could not be checked: %s", s.Model, plainReason(err))})
+		return unreadWarn(fmt.Sprintf("codex model %s could not be checked: %s", s.Model, plainReason(err)))
 	}
 	m, ok := find(l.Models, s.Model)
 	switch {
 	case slices.Contains(l.Gone, s.Model):
-		return unverified([]string{goneText(s)})
+		return []Warn{{Text: goneText(s)}}
 	case !ok:
-		return unverified([]string{fmt.Sprintf("codex model %s is not in codex's model list", s.Model)})
-	case !slices.Contains(m.Efforts, s.Effort):
-		return unverified([]string{fmt.Sprintf("codex model %s lists efforts %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)})
+		return []Warn{{Text: fmt.Sprintf("codex model %s is not in codex's model list", s.Model)}}
+	case s.Effort != "" && !slices.Contains(m.Efforts, s.Effort):
+		return []Warn{{Text: fmt.Sprintf("codex model %s lists efforts %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)}}
 	}
-	return ""
+	return nil
 }
 
 func CodexHome(getenv func(string) string) string {
@@ -340,7 +365,10 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string) ([]string, error) {
 	case "opencode":
 		return []string{bin, "--standalone", "--auto", "--session", NewOpencodeSessionID(), "--prompt", prompt}, nil
 	case "claude":
-		argv := []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
+		argv := []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model}
+		if s.Effort != "" {
+			argv = append(argv, "--effort", s.Effort)
+		}
 		return append(append(argv, claudeMCP(mcp)...), prompt), nil
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
@@ -351,7 +379,11 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string) ([]string, error) {
 		}
 		return append(argv, "--allow-all-tools", "--allow-all-paths", "--session-id", NewSessionID(), "-i", prompt), nil
 	case "codex":
-		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+		argv := []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model}
+		if s.Effort != "" {
+			argv = append(argv, "-c", "model_reasoning_effort="+s.Effort)
+		}
+		return append(argv, prompt), nil
 	case "omp":
 		argv := []string{bin, "--auto-approve", "--no-title"}
 		if s.Model != "" {

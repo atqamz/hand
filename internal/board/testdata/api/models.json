@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQBjZTY3ZmE4ODJlMDVjNjY0.ZtjhXzqAJSMfo2HAMUgu-A",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "harnesses": [
+      {
+        "name": "claude",
+        "groups": [
+          {
+            "label": "built-in",
+            "models": [
+              {
+                "name": "opus",
+                "text": "opus",
+                "efforts": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "name": "sonnet",
+                "text": "sonnet",
+                "efforts": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "selected": true
+              },
+              {
+                "name": "haiku",
+                "text": "haiku",
+                "efforts": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "name": "fable",
+                "text": "fable",
+                "efforts": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ]
+          }
+        ],
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "model": "sonnet",
+        "effort": "low"
+      },
+      {
+        "name": "codex",
+        "groups": []
+      },
+      {
+        "name": "opencode",
+        "groups": []
+      },
+      {
+        "name": "agy",
+        "groups": []
+      },
+      {
+        "name": "omp",
+        "groups": []
+      }
+    ],
+    "current": "claude",
+    "model": "sonnet",
+    "effort": "low",
+    "switchable": true
+  }
+}
+

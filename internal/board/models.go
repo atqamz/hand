@@ -47,22 +47,7 @@ func (r *refresher) end(name string) {
 	r.done.Add(1)
 }
 
-func (b *Board) refreshModels(w http.ResponseWriter, r *http.Request) {
-	if !b.allowed(w) {
-		return
-	}
-	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot refresh model lists; use the host's Board")
-		return
-	}
-	names := refreshable
-	if h := r.PostFormValue("harness"); h != "" {
-		if !slices.Contains(refreshable, h) {
-			b.fail(w, http.StatusBadRequest, "refresh the models of claude, codex, agy, copilot or omp")
-			return
-		}
-		names = []string{h}
-	}
+func (b *Board) beginRefresh(names []string) (int, string) {
 	var refused string
 	started := 0
 	for _, name := range names {
@@ -80,7 +65,26 @@ func (b *Board) refreshModels(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-	if started == 0 {
+	return started, refused
+}
+
+func (b *Board) refreshModels(w http.ResponseWriter, r *http.Request) {
+	if !b.allowed(w) {
+		return
+	}
+	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
+		b.fail(w, http.StatusForbidden, "a paired phone cannot refresh model lists; use the host's Board")
+		return
+	}
+	names := refreshable
+	if h := r.PostFormValue("harness"); h != "" {
+		if !slices.Contains(refreshable, h) {
+			b.fail(w, http.StatusBadRequest, "refresh the models of claude, codex, agy, copilot or omp")
+			return
+		}
+		names = []string{h}
+	}
+	if started, refused := b.beginRefresh(names); started == 0 {
 		b.fail(w, http.StatusTooManyRequests, refused)
 		return
 	}

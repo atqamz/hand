@@ -122,6 +122,9 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	working.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, working.handler(), "/"), "console")
 	contains(t, "working", console, `id="model-menu"`, `action="/supervisor/switch"`, `action="/supervisor/interrupt"`, `id="more-menu"`, `action="/supervisor/stop"`, "sonnet · low")
+	if n, forms := strings.Count(console, `name="ref" value="s1"`), strings.Count(console, `action="/supervisor/switch"`); n != forms {
+		t.Fatalf("%d of %d switch forms carry the ref:\n%s", n, forms, console)
+	}
 	idle := newFixture(t)
 	idle.status = "idle"
 	idle.supervisor(t, state.AttemptRunning, "gen-1")
@@ -188,7 +191,14 @@ func TestADroppableSwitchShowsBehindALaunchThatFailed(t *testing.T) {
 	if _, err := fx.st.EndSupervisor(ctx, failed.ID, state.AttemptFailed, "no pty"); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "failed launch", region(get(t, fx.handler(), "/"), "console"), `action="/supervisor/resume"`, `aria-label="Drop switch to opus high"`)
+	contains(t, "failed launch", region(get(t, fx.handler(), "/"), "console"), `action="/supervisor/resume"`, `name="ref" value="s1"`, `aria-label="Drop switch to opus high"`)
+	lacks(t, "failed launch", region(get(t, fx.handler(), "/"), "console"), `name="ref" value="s2"`)
+	if res := post(fx.handler(), "/supervisor/switch", url.Values{"ref": {"s1"}, "cancel": {"1"}}); res.StatusCode != 303 {
+		t.Fatalf("drop = %d", res.StatusCode)
+	}
+	if calls := fx.called(); len(calls) != 1 || strings.Join(calls[0], " ") != "supervisor switch --expect s1 --cancel" {
+		t.Fatalf("drop called %q", calls)
+	}
 }
 
 func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
@@ -259,13 +269,13 @@ func TestDraftsKeyOnTheFormIdentity(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
 	lacks(t, "console", console, "data-draft-key")
-	keyed := regexp.MustCompile(`action="/supervisor/switch" data-fetch><input type="hidden" name="csrf" value="[^"]*">(<input type="hidden" name="harness" value="([^"]+)">)?`).FindAllStringSubmatch(console, -1)
+	keyed := regexp.MustCompile(`action="/supervisor/switch" data-fetch><input type="hidden" name="csrf" value="[^"]*">(<input type="hidden" name="ref" value="[^"]*">)?(<input type="hidden" name="harness" value="([^"]+)">)?`).FindAllStringSubmatch(console, -1)
 	seen := map[string]bool{}
 	for _, m := range keyed {
-		if seen[m[2]] {
-			t.Fatalf("two switch forms share the identity %q:\n%s", m[2], console)
+		if seen[m[3]] {
+			t.Fatalf("two switch forms share the identity %q:\n%s", m[3], console)
 		}
-		seen[m[2]] = true
+		seen[m[3]] = true
 	}
 	if len(keyed) < 2 || !seen[""] || !seen["codex"] {
 		t.Fatalf("switch forms = %v:\n%s", seen, console)

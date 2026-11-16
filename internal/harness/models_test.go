@@ -322,8 +322,8 @@ func TestCodexListsTheBundledCatalogAndHonoursVisibility(t *testing.T) {
 	if err != nil || len(offered) != 2 {
 		t.Fatalf("offered = %+v, %v", offered, err)
 	}
-	if warn, err := Check(Spec{"codex", "codex-auto-review", "low"}, f.env); err != nil || warn != "" {
-		t.Fatalf("a hidden model is still known: %q, %v", warn, err)
+	if warn, err := Check(Spec{"codex", "codex-auto-review", "low"}, f.env); err != nil || warn.Text != "" {
+		t.Fatalf("a hidden model is still known: %q, %v", warn.Text, err)
 	}
 	noSecret(t, "codex cache", f.cacheFile("codex"))
 }
@@ -380,8 +380,8 @@ func TestCodexFallbackNeverMarksAModelGone(t *testing.T) {
 	if l := f.refresh("codex"); slices.Contains(l.Gone, "gpt-6-luna") || !slices.Contains(l.Gone, "codex-auto-review") {
 		t.Fatalf("a listed model is still gone, or a missing one was forgotten: %+v", l.Gone)
 	}
-	if warn, err := Check(Spec{"codex", "gpt-6-luna", "low"}, f.env); err != nil || warn != "" {
-		t.Fatalf("a listed model warns: %q, %v", warn, err)
+	if warn, err := Check(Spec{"codex", "gpt-6-luna", "low"}, f.env); err != nil || warn.Text != "" {
+		t.Fatalf("a listed model warns: %q, %v", warn.Text, err)
 	}
 }
 
@@ -962,21 +962,21 @@ func TestModelsThatLeftTheListAreRemembered(t *testing.T) {
 	f.refresh("codex")
 	spec := Spec{"codex", "gpt-6-luna", "low"}
 	const gone = "model gpt-6-luna is no longer listed by codex"
-	if warn, err := Check(spec, f.env); err != nil || strings.Contains(warn, gone) {
-		t.Fatalf("a listed model is gone: %q, %v", warn, err)
+	if warn, err := Check(spec, f.env); err != nil || strings.Contains(warn.Text, gone) {
+		t.Fatalf("a listed model is gone: %q, %v", warn.Text, err)
 	}
 	f.install("codex", map[string]string{"stdout": `{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`})
 	f.refresh("codex")
-	if warn, err := Check(spec, f.env); err != nil || !strings.Contains(warn, gone) {
-		t.Fatalf("warn = %q, %v", warn, err)
+	if warn, err := Check(spec, f.env); err != nil || !strings.Contains(warn.Text, gone) {
+		t.Fatalf("warn = %q, %v", warn.Text, err)
 	}
-	if warn, _ := Check(Spec{"codex", "never-listed", "low"}, f.env); strings.Contains(warn, "no longer listed") {
-		t.Fatalf("a model that was never listed is gone: %q", warn)
+	if warn, _ := Check(Spec{"codex", "never-listed", "low"}, f.env); strings.Contains(warn.Text, "no longer listed") {
+		t.Fatalf("a model that was never listed is gone: %q", warn.Text)
 	}
 	f.install("codex", map[string]string{"stdout": codexBundled("")})
 	f.refresh("codex")
-	if warn, _ := Check(spec, f.env); strings.Contains(warn, gone) {
-		t.Fatalf("a model that came back stays gone: %q", warn)
+	if warn, _ := Check(spec, f.env); strings.Contains(warn.Text, gone) {
+		t.Fatalf("a model that came back stays gone: %q", warn.Text)
 	}
 }
 
@@ -986,8 +986,8 @@ func TestClaudeVanishingIsNeverAuthoritative(t *testing.T) {
 	f.refresh("claude")
 	f.install("claude", map[string]string{"stdout": claudeStdout(t, claudeRow("opus", "Opus", all5...))})
 	f.refresh("claude")
-	if warn, err := Check(Spec{"claude", "acme-opus", "low"}, f.env); err != nil || !strings.Contains(warn, "model acme-opus is no longer listed by claude") {
-		t.Fatalf("warn = %q, %v", warn, err)
+	if warn, err := Check(Spec{"claude", "acme-opus", "low"}, f.env); err != nil || !strings.Contains(warn.Text, "model acme-opus is no longer listed by claude") {
+		t.Fatalf("warn = %q, %v", warn.Text, err)
 	}
 }
 

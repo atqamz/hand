@@ -277,6 +277,9 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"supervisor", "send", "--text", "hi"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"supervisor", "send", "--text", "line one\nline two"}, "/"},
 		{"/supervisor/switch", url.Values{"model": {"opus"}, "effort": {"high"}}, []string{"supervisor", "switch", "--model", "opus", "--effort", "high"}, "/"},
+		{"/supervisor/switch", url.Values{"ref": {"s1"}, "model": {"opus"}, "effort": {"high"}}, []string{"supervisor", "switch", "--expect", "s1", "--model", "opus", "--effort", "high"}, "/"},
+		{"/supervisor/switch", url.Values{"ref": {"s1"}, "cancel": {"1"}}, []string{"supervisor", "switch", "--expect", "s1", "--cancel"}, "/"},
+		{"/supervisor/switch", url.Values{"ref": {"nope"}, "effort": {"max"}}, []string{"supervisor", "switch", "--effort", "max"}, "/"},
 		{"/supervisor/switch", url.Values{"effort": {"max"}}, []string{"supervisor", "switch", "--effort", "max"}, "/"},
 		{"/supervisor/switch", url.Values{"cancel": {"1"}}, []string{"supervisor", "switch", "--cancel"}, "/"},
 	}
