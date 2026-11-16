@@ -139,7 +139,9 @@ func (a *App) runTaskSearch(quiet bool) {
 			if !quiet {
 				a.SearchErr, a.searchFor = friendly(err), TaskSearchQuery{}
 			}
-			if !quiet && !searchRetriable(err) {
+			if !searchRetriable(err) {
+				a.searchStale, a.searchStaleErr = false, ""
+				a.searchFails, a.searchSkip = 0, 0
 				again()
 				return
 			}

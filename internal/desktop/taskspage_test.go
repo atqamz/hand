@@ -1275,3 +1275,26 @@ func TestTheProjectBackoffResetsOnEntry(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "All projects")
 }
+
+func TestARefusedAutomaticSearchStopsRetrying(t *testing.T) {
+	f := searchFixture(t)
+	app, tt := quietApp(t, f, false)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	model := app.Model.(*quietBoard)
+	model.fresh = true
+	f.searchErr = &desktop.APIError{Status: 400, Code: "bad_request", Message: `status "nope" must be one of finished, all, done, abandoned, active, inbox`}
+	clock.Advance(desktop.FocusedRefresh)
+	model.fresh = false
+	after := f.count("search")
+	for range 20 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	if got := f.count("search"); got != after {
+		t.Errorf("searches = %d after a refused automatic search, want %d", got, after)
+	}
+	tt.Frame()
+	mustNotText(t, tt, "Stale · retrying")
+	mustText(t, tt, "Sun 1 Nov UTC", "Move the rail to 1024 px")
+}
