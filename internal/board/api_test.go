@@ -417,7 +417,7 @@ func searchMatchesThePage(t *testing.T, h http.Handler, q url.Values) board.APIT
 			t.Fatalf("%q group %d = %v, API = %q/%d", q.Encode(), i, headings[i], g.Name, g.Count)
 		}
 	}
-	if got.Q != q.Get("q") || got.Status != q.Get("status") || got.Project != q.Get("project") ||
+	if got.Q != strings.TrimSpace(q.Get("q")) || got.Status != q.Get("status") || got.Project != q.Get("project") ||
 		got.Since != q.Get("since") || got.Until != q.Get("until") {
 		t.Fatalf("%q echo = %q/%q/%q/%q/%q", q.Encode(), got.Q, got.Status, got.Project, got.Since, got.Until)
 	}
@@ -468,6 +468,7 @@ func TestAPITasksSearchMatchesThePage(t *testing.T) {
 	for _, q := range []url.Values{
 		{},
 		{"q": {"fix"}},
+		{"q": {" fix "}},
 		{"q": {"fix"}, "status": {"all"}},
 		{"q": {"fix"}, "status": {"finished"}},
 		{"q": {"fix"}, "status": {"done"}},
