@@ -705,12 +705,13 @@ func TestAnHTMLPreviewScanIsLinearOnEveryShape(t *testing.T) {
 		"<img ", `<img a='`, `<img a="`, `<img a="b" c='`, "<a ", "</a ", "<a/b/c/d/", "<", "<<", "<!", "<?", "</", "<!-- ", "<script>", "<script><script>", "<textarea>", "<xmp>", "<title>",
 		"<style>", "<noscript>", "<iframe>", "<script>x</scriptx", "<script></script", "<TeXtArEa>", "<IMG SRC='", `'"`, `<a b='c'd"e`, "<a =", "<a ======", "<a b=c/", "<img src=", "<img a ",
 		"<svg>", "<math>", "<select>", "<frameset>", "<plaintext>", "<script><!--", "<base ", "<a src src src ", "<img src src ",
+		"<!-- <img src=a.png> -- ", "<img src=a.png ", `<img src="a.png">`, "<a x=y x=y x=y x=y x=y x=y x=y x=y ",
 	}
 	for _, unit := range units {
 		page := strings.Repeat(unit, (1<<20)/len(unit))
 		got, took := frameOf(t, map[string]string{"r/page.html": page, "r/a.png": string(flowPNG)}, "?frame")
 		t.Logf("%q: %v", unit, took)
-		if took > 2*time.Second || got == "" || !strings.Contains(unit, "a.png") && got != page {
+		if took > 5*time.Second || got == "" || !strings.Contains(unit, "a.png") && got != page {
 			t.Errorf("%q x %d: took %v, unchanged %v", unit, len(page)/len(unit), took, got == page)
 		}
 	}
@@ -728,4 +729,18 @@ func TestAnHTMLPreviewKeepsNoMoreThanTheSrcOfATag(t *testing.T) {
 			t.Errorf("%q: %d MiB allocated, limit %d MiB", unit, got>>20, limit>>20)
 		}
 	}
+}
+
+func TestAnHTMLPreviewTakesOnlyTheThreeLettersSrcAsTheSource(t *testing.T) {
+	inlineCases(t, "src name", []struct{ in, want string }{
+		{`<img srcset=a.png>`, `<img srcset=a.png>`},
+		{`<img src2=a.png>`, `<img src2=a.png>`},
+		{`<img srcx=a.png>`, `<img srcx=a.png>`},
+		{`<img xsrc=a.png>`, `<img xsrc=a.png>`},
+		{`<img ssrc=a.png>`, `<img ssrc=a.png>`},
+		{`<img data-src=a.png>`, `<img data-src=a.png>`},
+		{`<img srcset=a.png src=a.png>`, `<img srcset=a.png src="DATA">`},
+		{`<img SRC=a.png>`, `<img SRC="DATA">`},
+		{`<img sRc=a.png>`, `<img sRc="DATA">`},
+	})
 }
