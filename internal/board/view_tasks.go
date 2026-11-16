@@ -160,6 +160,7 @@ type archiveView struct {
 	Project  string
 	Since    string
 	Until    string
+	Page     int
 	Prev     string
 	Next     string
 }
@@ -208,6 +209,7 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 		Project:  query.Project,
 		Since:    query.Since,
 		Until:    query.Until,
+		Page:     page,
 	}
 	for _, t := range tasks {
 		c := f.check(t)

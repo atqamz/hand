@@ -46,7 +46,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). A session, an attempt and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). A session, an attempt and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
 
 - No `?since=`: always `200` with the full data.
 - `?since=` equal to the cursor the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first: for the pages above it costs no build and no body.
@@ -63,6 +63,8 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/models` | `Models`: each harness the menus offer, its model groups and efforts, its stale and missing notes, and the running supervisor's choice; see [Models](#modelsdata) | the model menu and the Start strip |
 | `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
+| `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
+| `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/task/{tN}` | `TaskDetail`: task, plan, delivered, waits, open and all decisions, unread and recent reports, attempts, events | `/task/tN` |
 | `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, model_note, duration, reports, events, delivered, transcript | `/attempt/aN` |
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
@@ -87,7 +89,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 
 `{tN}`, `{aN}`, `{dN}` and `{rN}` take the ref or the bare number, as the pages do. An unknown ref is `404`.
 
-`/api/v1/tasks` is the fleet page's list (active and inbox tasks plus the five most recent finished ones), not the searchable Tasks page; `all=1` shows the finished tasks too. The archive and its search are not in v1.
+`/api/v1/tasks` is the fleet page's list (active and inbox tasks plus the five most recent finished ones), not the searchable Tasks page; `all=1` shows the finished tasks too. `/api/v1/tasks/search` is the searchable Tasks page and its filters.
 
 `before` must be a non-negative message number; a word, a negative value or any other form is `400` with `bad_request`.
 
@@ -168,6 +170,18 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 ### `Tasks.data`
 
 `groups` are the page's groups in order: `name`, `count`, and `tasks`. A task row has `ref`, `title`, `project`, `status`, `state`, and where it applies `agent`, `attempt`, `delivered`, `waits`, `finished_at` (only for a done or abandoned task), `parent` (the parent's `tN`, for a sub-task) and `children` (how many sub-tasks the task has, absent at zero). A sub-task follows its parent inside its group, and a sub-task whose parent is in another group or not on the page is a root there that still carries `parent`. `hidden` and `finished_count` are the page's counts.
+
+### `TaskSearch.data`
+
+`TaskSearch` is the searchable Tasks page. `q` matches every word in a task's title, goal or `tN` ref, case-insensitively, as the page's search does. `status` is one of `finished` (the default: done and abandoned), `all`, `done`, `abandoned`, `active` or `inbox`; left out, it means the default, except that a non-empty `q` with no `status` searches every status, as the page's default form does. `project` is one project name as `GET /api/v1/projects` returns it. `since` and `until` are `YYYY-MM-DD` UTC days, inclusive, tested against a done or abandoned task's finish time and an unfinished task's `updated_at`.
+
+`groups` are the page's day groups in order, newest first: `name` (`Mon 2 Jan UTC`), `count` and `tasks`. A row uses the `Tasks` row's fields and adds `updated_at`, the time an unfinished row is grouped and sorted by, and `open_decisions`, how many decisions are open on the task (absent at zero). `finished_at` is present only for a done or abandoned task, and a sub-task follows its parent inside its group. `q`, `status`, `project`, `since` and `until` repeat the query the board used.
+
+`page` is `1` unless asked, `page_size` is `50`, `total` is every task the query matches, and `pages` is `total` divided by `page_size`, rounded up (`0` when nothing matches). A page past the last one is `200` with no groups. A `status` outside those words, a `since` or `until` that is not a date, and a `page` that is not a number from 1 to 1,000,000 are `400` with `bad_request` and the board's sentence. An empty result is `200` with zero rows. Here `since` is the finished-on-or-after filter, not the change cursor, so this endpoint has no `?since=` poll and always answers `200`.
+
+### `Projects.data`
+
+`projects` is every registered project's name, in the order the Tasks filter lists them, which is the board's project order (`ORDER BY name`). The filter itself appears only when the fleet has more than one project; the list does not depend on whether a project has tasks today.
 
 ### Detail data
 
@@ -463,7 +477,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`), or a mutation body it cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since` or `until`), or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
