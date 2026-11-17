@@ -767,6 +767,46 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	}
 }
 
+func TestABurstOfTenEventsIsOneWakeAndNothingWakesForIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	st := openStore(t, fx.h)
+	ctx := context.Background()
+	for i := range 10 {
+		if err := st.NoteAttempt(ctx, 1, "reported", fmt.Sprintf("q%02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := st.EventsAfter(ctx, 0, []string{"attempt.reported"}, 100)
+	if err != nil || len(events) != 10 {
+		t.Fatalf("events = %d, %v", len(events), err)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[9].Seq))
+	})
+	if lines := strings.Split(fx.rt.prompts()[0], "\n"); len(lines) != 11 {
+		t.Fatalf("digest = %d lines, want the header and ten events", len(lines))
+	}
+	for range 3 {
+		if _, err := st.AddReport(ctx, 1, state.ReportProgress, "Halfway"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		n := explains(fx.rt)
+		publishStatus(fx, pane, "idle")
+		eventually(t, func() bool { return explains(fx.rt) > n })
+	}
+	if got := fx.rt.prompts(); len(got) != 1 {
+		t.Fatalf("progress reports, or the wake's own delivery, woke the supervisor again: %q", got)
+	}
+}
+
 func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 	fx := newAttemptFixture(t)
 	startClaudeSupervisor(fx.h)

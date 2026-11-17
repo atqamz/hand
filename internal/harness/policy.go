@@ -22,6 +22,27 @@ const PolicyFile = "routing.json"
 
 const DefaultRolloverTokens = 300000
 
+const DefaultAnswerWithin = 60 * time.Second
+
+type Span time.Duration
+
+func (s Span) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(s).String())
+}
+
+func (s *Span) UnmarshalJSON(b []byte) error {
+	var text string
+	if err := json.Unmarshal(b, &text); err != nil {
+		return fmt.Errorf("supervisor.answer_within must be a duration string like \"60s\"")
+	}
+	d, err := time.ParseDuration(text)
+	if err != nil || d < 5*time.Second || d > time.Hour {
+		return fmt.Errorf("supervisor.answer_within is %q; give a duration from 5s to 1h, like \"60s\"", text)
+	}
+	*s = Span(d)
+	return nil
+}
+
 type Policy struct {
 	Removed    json.RawMessage `json:"profiles,omitempty"`
 	Notify     []string        `json:"notify,omitzero"`
@@ -31,6 +52,7 @@ type Policy struct {
 	Supervisor struct {
 		Autoresume     bool  `json:"autoresume"`
 		RolloverTokens int64 `json:"rollover_tokens"`
+		AnswerWithin   Span  `json:"answer_within,omitzero"`
 	} `json:"supervisor,omitzero"`
 }
 
@@ -198,6 +220,7 @@ func LoadPolicy(home string) (Policy, error) {
 	}
 	p := Policy{Stall: DefaultStall, Retention: DefaultRetention}
 	p.Supervisor.RolloverTokens = DefaultRolloverTokens
+	p.Supervisor.AnswerWithin = Span(DefaultAnswerWithin)
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {

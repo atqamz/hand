@@ -40,7 +40,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
+	doc, err := Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 	_, _ = st.SetPlan(ctx, a.ID, "fix cookie")
 	_, _ = st.Ask(ctx, a.ID, "Keep cookie name?")
 	_, _ = st.AddTask(ctx, "hand", "Write docs", "")
-	first, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	first, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _ := Build(ctx, st, home, "", true, true, DefaultBudget)
+	second, _ := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if first.String() != second.String() {
 		t.Fatal("orient is not deterministic")
 	}
@@ -121,7 +121,7 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestOrientShowsTheLatestAttempt(t *testing.T) {
 	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestOrientCutsAReportSummaryAtAWordBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	_, _ = st.EndAttempt(ctx, a1.ID, state.AttemptStopped, "retry")
 	a2, _ := st.AddAttempt(ctx, spec, "/w")
 	_, _ = st.AttemptRunning(ctx, a2.ID, term)
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestBuildAcceptsAZeroReportBudget(t *testing.T) {
 	st, home := setup(t)
 	b := DefaultBudget
 	b.Reports = 0
-	if _, err := Build(context.Background(), st, home, "", false, true, b); err != nil {
+	if _, err := Build(context.Background(), st, home, "", false, true, Turn{}, b); err != nil {
 		t.Fatalf("zero report budget: %v", err)
 	}
 }
@@ -299,7 +299,7 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	ctx := context.Background()
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -369,7 +369,7 @@ func TestOrientJoinsOnlyTheSupervisorPartsThatExist(t *testing.T) {
 		if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 			t.Fatal(err)
 		}
-		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -406,7 +406,7 @@ func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,11 +426,11 @@ func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 
 func TestOrientWatchLine(t *testing.T) {
 	st, home := setup(t)
-	running, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
+	running, err := Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	missing, err := Build(context.Background(), st, home, "", false, true, DefaultBudget)
+	missing, err := Build(context.Background(), st, home, "", false, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestOrientShowsWorkerSignal(t *testing.T) {
 	if err := st.NoteAttempt(ctx, 2, "blocked", "Do you want to proceed? "+strings.Repeat("x", 100)); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ func TestOrientTellsASessionWhetherItIsTheSupervisor(t *testing.T) {
 	ctx := context.Background()
 	you := func(pane string) string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, pane, true, true, DefaultBudget)
+		doc, err := Build(ctx, st, home, pane, true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -533,7 +533,7 @@ func TestOrientNamesUnwatchedTasks(t *testing.T) {
 	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -576,7 +576,7 @@ func TestOrientCapsTheUnwatchedList(t *testing.T) {
 		task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +594,7 @@ func TestOrientListsArmedTimers(t *testing.T) {
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -627,7 +627,7 @@ func TestOrientMarksATimerBeyondTheHorizon(t *testing.T) {
 	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 8 * time.Hour}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +663,7 @@ func TestOrientReadsTheClockOnceForUnwatchedAndTimers(t *testing.T) {
 		t.Fatal(err)
 	}
 	tick = time.Minute
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +684,7 @@ func TestOrientMarksATimerNoManagedSupervisorFires(t *testing.T) {
 	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 8 * time.Hour}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, false, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, false, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ func TestInboxFolderShowsOnlyWhenLarge(t *testing.T) {
 	}
 	build := func() string {
 		t.Helper()
-		doc, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
+		doc, err := Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -761,7 +761,7 @@ func TestOrientMarksAWaitingTaskAndItsTimer(t *testing.T) {
 	}
 	build := func(managed bool) string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, managed, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, managed, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -817,7 +817,7 @@ func TestOrientWarnsAboutOldAndLargeReportsAndShots(t *testing.T) {
 	}
 	build := func() string {
 		t.Helper()
-		doc, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
+		doc, err := Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -856,7 +856,7 @@ func TestOrientNestsActiveAndInboxRowsAndAddsAParentColumnOnlyWhenNested(t *test
 	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	a, _ := st.AddTask(ctx, "hand", "Alpha", "")
 	b, _ := st.AddTask(ctx, "hand", "Beta", "")
-	plain, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	plain, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil || strings.Contains(plain.String(), "parent") {
 		t.Fatalf("unnested orient mentions parent: %v\n%s", err, plain)
 	}
@@ -866,7 +866,7 @@ func TestOrientNestsActiveAndInboxRowsAndAddsAParentColumnOnlyWhenNested(t *test
 	}
 	_, _ = st.AddTaskUnder(ctx, a.ID, "hand", "Inbox child", "")
 	_, _ = st.AddTaskUnder(ctx, b.ID, "hand", "Inbox sibling", "")
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -901,7 +901,7 @@ func TestOrientStaysWithinBudgetForANestedFleet(t *testing.T) {
 			parent = task.ID
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -930,7 +930,7 @@ func TestShortListsExactlyWhatChangedSinceTheCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	cursor, _ := st.LastEventSeq(ctx)
-	doc, err := Short(ctx, st, since, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, since, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -960,11 +960,11 @@ func TestShortOfAnUnchangedFleetIsTiny(t *testing.T) {
 		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
 	}
 	cursor, _ := st.LastEventSeq(ctx)
-	full, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	full, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Short(ctx, st, cursor, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, cursor, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -984,7 +984,7 @@ func TestShortKeepsTheUnwatchedLine(t *testing.T) {
 	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
 	cursor, _ := st.LastEventSeq(ctx)
-	doc, err := Short(ctx, st, cursor, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, cursor, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,7 +997,7 @@ func TestShortReportsAMissingWatcherAndWhoYouAre(t *testing.T) {
 	st, _ := setup(t)
 	ctx := context.Background()
 	cursor, _ := st.LastEventSeq(ctx)
-	doc, err := Short(ctx, st, cursor, "", false, true, DefaultBudget)
+	doc, err := Short(ctx, st, cursor, "", false, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1008,7 +1008,7 @@ func TestShortReportsAMissingWatcherAndWhoYouAre(t *testing.T) {
 
 func TestShortRefusesACursorAheadOfTheFleet(t *testing.T) {
 	st, _ := setup(t)
-	if _, err := Short(context.Background(), st, 99, "", true, true, DefaultBudget); err == nil || !strings.Contains(err.Error(), "run `hand orient`") {
+	if _, err := Short(context.Background(), st, 99, "", true, true, Turn{}, DefaultBudget); err == nil || !strings.Contains(err.Error(), "run `hand orient`") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -1020,7 +1020,7 @@ func TestShortCutsALongRunOfEventsAndSaysSo(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
 	}
-	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1063,7 +1063,7 @@ func TestShortFromAFarBehindCursorStillListsTheReportAndTheDecision(t *testing.T
 		t.Fatal(err)
 	}
 	cursor, _ := st.LastEventSeq(ctx)
-	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1108,7 +1108,7 @@ func TestShortListsOpenDecisionsAndUnackedReportsFromBeforeTheCursor(t *testing.
 		t.Fatal(err)
 	}
 	cursor, _ := st.LastEventSeq(ctx)
-	doc, err := Short(ctx, st, cursor, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, cursor, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1134,7 +1134,7 @@ func TestShortSaysWhenTheQueuesAreCut(t *testing.T) {
 	b := DefaultBudget
 	b.ShortBytes = 1 << 20
 	cursor, _ := st.LastEventSeq(ctx)
-	doc, err := Short(ctx, st, cursor, "", true, true, b)
+	doc, err := Short(ctx, st, cursor, "", true, true, Turn{}, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1154,7 +1154,7 @@ func TestShortCapsTheUnwatchedAndChangedTasks(t *testing.T) {
 	}
 	b := DefaultBudget
 	b.ShortBytes = 1 << 20
-	doc, err := Short(ctx, st, 0, "", true, true, b)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1188,7 +1188,7 @@ func TestShortCutForBytesKeepsDecisionsAndSaysWhatItDropped(t *testing.T) {
 	}
 	b := DefaultBudget
 	b.ShortBytes = 600
-	doc, err := Short(ctx, st, 0, "", true, true, b)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1219,7 +1219,7 @@ func TestShortPutsWakeEventsBeforePlainOnesAndDropsThemLast(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_, _ = st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
 	}
-	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1230,7 +1230,7 @@ func TestShortPutsWakeEventsBeforePlainOnesAndDropsThemLast(t *testing.T) {
 	}
 	b := DefaultBudget
 	b.ShortBytes = 480
-	doc, err = Short(ctx, st, 0, "", true, true, b)
+	doc, err = Short(ctx, st, 0, "", true, true, Turn{}, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1275,7 +1275,7 @@ func TestShortKeepsATasklessStallAndTimerOverPlainRows(t *testing.T) {
 	}
 	b := DefaultBudget
 	b.ShortBytes = 560
-	doc, err := Short(ctx, st, 0, "", true, true, b)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1299,7 +1299,7 @@ func TestShortKeepsABlockedAttemptWhoseTaskIsBeyondTheTaskCap(t *testing.T) {
 		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
 		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	}
-	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1318,7 +1318,7 @@ func TestShortSaysMoreOnlyWhenTasksQueuesOrWakesWereCut(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		_, _ = st.SetPlan(ctx, task.ID, "plan "+strconv.Itoa(i))
 	}
-	doc, err := Short(ctx, st, 0, "", true, true, DefaultBudget)
+	doc, err := Short(ctx, st, 0, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1332,11 +1332,67 @@ func TestShortSaysMoreOnlyWhenTasksQueuesOrWakesWereCut(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err = Short(ctx, st, 0, "", true, true, DefaultBudget)
+	doc, err = Short(ctx, st, 0, "", true, true, Turn{}, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out := doc.String(); !strings.Contains(out, "\nmore: rows were cut; run `hand orient`") {
 		t.Fatalf("short =\n%s", out)
+	}
+}
+
+func TestTurnHintNamesTheAgeOnlyPastTheBound(t *testing.T) {
+	for _, c := range []struct {
+		turn Turn
+		want string
+	}{
+		{Turn{}, ""},
+		{Turn{Ref: "s2", Age: 10 * time.Minute}, "s2 is still working 10m0s after its last message or wake; an operator message waits until the turn ends. If you wait on something outside Hand, arm `hand wake` and end the turn; otherwise finish the work"},
+		{Turn{Ref: "s2", Age: 59 * time.Second, Bound: time.Minute}, ""},
+		{Turn{Ref: "s2", Age: time.Minute, Bound: time.Minute}, ""},
+		{Turn{Ref: "s2", From: "it started", Age: 61500 * time.Millisecond, Bound: time.Minute}, "s2 is still working 1m1s after it started; an operator message waits until the turn ends. If you wait on something outside Hand, arm `hand wake` and end the turn; otherwise finish the work"},
+	} {
+		if got := c.turn.hint(); got != c.want {
+			t.Fatalf("%+v hint = %q, want %q", c.turn, got, c.want)
+		}
+	}
+	st, home := setup(t)
+	turn := Turn{Ref: "s2", Age: time.Hour, Bound: time.Minute}
+	full, err := Build(context.Background(), st, home, "", true, true, turn, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, err := Short(context.Background(), st, 0, "", true, true, turn, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []*toon.Doc{full, short} {
+		if strings.Contains(d.String(), "turn_warn") {
+			t.Fatalf("a turn without a warning prints one:\n%s", d)
+		}
+		if n := strings.Count(d.String(), "turn_long: "); n != 1 {
+			t.Fatalf("turn_long lines = %d in\n%s", n, d)
+		}
+	}
+	if len(short.String()) >= DefaultBudget.ShortBytes {
+		t.Fatalf("short orient with the hint is %d bytes", len(short.String()))
+	}
+}
+
+func TestTurnWarningPrintsOnceWithoutAHint(t *testing.T) {
+	st, home := setup(t)
+	turn := Turn{Warn: "routing.json unreadable, the turn_long bound uses 1m0s: bad key"}
+	full, err := Build(context.Background(), st, home, "", true, true, turn, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, err := Short(context.Background(), st, 0, "", true, true, turn, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []*toon.Doc{full, short} {
+		if n := strings.Count(d.String(), "turn_warn: \"routing.json unreadable"); n != 1 || strings.Contains(d.String(), "turn_long: ") {
+			t.Fatalf("warning lines = %d in\n%s", n, d)
+		}
 	}
 }

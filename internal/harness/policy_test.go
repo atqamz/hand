@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -243,5 +244,43 @@ func TestPolicyReadsTheRolloverLimit(t *testing.T) {
 		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) {
 			t.Fatalf("policy %s err = %v", body, err)
 		}
+	}
+}
+
+func TestPolicyReadsTheAnswerWithin(t *testing.T) {
+	for body, want := range map[string]time.Duration{
+		`{}`:                                    DefaultAnswerWithin,
+		`{"supervisor":{"autoresume":true}}`:    DefaultAnswerWithin,
+		`{"supervisor":{"answer_within":"5s"}}`: 5 * time.Second,
+		`{"supervisor":{"answer_within":"2m"}}`: 2 * time.Minute,
+		`{"supervisor":{"answer_within":"1h"}}`: time.Hour,
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || time.Duration(p.Supervisor.AnswerWithin) != want {
+			t.Fatalf("policy %s: answer_within = %v, %v; want %v", body, time.Duration(p.Supervisor.AnswerWithin), err, want)
+		}
+	}
+	for _, body := range []string{`{"supervisor":{"answer_within":60}}`, `{"supervisor":{"answer_within":"soon"}}`, `{"supervisor":{"answer_within":"4s"}}`, `{"supervisor":{"answer_within":"2h"}}`, `{"supervisor":{"answer_within":"off"}}`} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "answer_within") {
+			t.Fatalf("policy %s err = %v", body, err)
+		}
+	}
+}
+
+func TestAPolicyWithoutAnAnswerWithinSurvivesAJSONRoundTrip(t *testing.T) {
+	p := StarterPolicy
+	p.Supervisor.Autoresume = true
+	b, err := json.Marshal(p)
+	if err != nil || strings.Contains(string(b), "answer_within") {
+		t.Fatalf("marshal = %s, %v", b, err)
+	}
+	if got, err := LoadPolicy(writePolicy(t, string(b))); err != nil || time.Duration(got.Supervisor.AnswerWithin) != DefaultAnswerWithin {
+		t.Fatalf("policy = %+v, %v", got, err)
+	}
+	p.Supervisor.AnswerWithin = Span(2 * time.Minute)
+	if b, err = json.Marshal(p); err != nil || !strings.Contains(string(b), `"answer_within":"2m0s"`) {
+		t.Fatalf("marshal = %s, %v", b, err)
+	}
+	if got, err := LoadPolicy(writePolicy(t, string(b))); err != nil || time.Duration(got.Supervisor.AnswerWithin) != 2*time.Minute {
+		t.Fatalf("policy = %+v, %v", got, err)
 	}
 }

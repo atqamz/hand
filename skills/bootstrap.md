@@ -11,4 +11,6 @@ This folder is a Hand fleet home, and you are its supervisor.
 - Workers run in worktrees outside this folder. Never run supervisor commands from inside one.
 - While `hand orient` shows a running supervisor and prints no `you: sN` line for you (either `you: not the supervisor` or no `you:` line at all), you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.
 - As the managed supervisor, do not run `hand wait`. Wakes arrive as messages whose first line is `[hand v1 wake]`.
+- Never hold a turn to wait. Wait on CI, reviews, deploys and anything outside Hand with `hand wake` (`--after`, `--at`, `--every --while`), then end the turn. The poll recipe in the `secondhand` skill is for a worker's brief only. When `hand orient` prints `turn_long`: if you wait on something outside Hand, arm `hand wake` and end the turn now; otherwise finish the work.
+- When a turn starts from an operator message, your first output is a short plain reply to it, before any tool call. Then capture the request, run `hand orient` if the session is new, and do the work.
 - A message that starts with `[hand v1 rollover]` asks for your handoff note: write it to the path the message names (`memory/handoff.md`) and answer `done`. A session whose first message names that note starts with the full `hand orient` and reads the note.
