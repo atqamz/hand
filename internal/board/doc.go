@@ -90,6 +90,14 @@ func openSame(home, rel, root, real string) (*os.File, fs.FileInfo, error) {
 		return nil, nil, err
 	}
 	got, err := f.Stat()
+	if err == nil && got.Mode().IsRegular() {
+		if n, lerr := fsx.FileLinks(f); lerr != nil {
+			err = lerr
+		} else if n > 1 {
+			f.Close()
+			return nil, nil, errLinked
+		}
+	}
 	_, again, now, rerr := Resolve(home, rel)
 	if err != nil || rerr != nil || again != real || !os.SameFile(got, now) {
 		f.Close()

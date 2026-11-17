@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,6 +16,9 @@ const linkedWords = "this file has more than one hard link, so the Board does no
 func hardLink(t *testing.T, target, at string) {
 	t.Helper()
 	if err := os.Link(target, at); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Fatalf("hard link: %v", err)
+		}
 		t.Skipf("no hard links here: %v", err)
 	}
 }
@@ -63,5 +67,28 @@ func TestAFileWithOneLinkIsStillServed(t *testing.T) {
 	_, file := apiInto[board.APIDocFile](t, h, "/api/v1/doc/reports/t1/data.txt")
 	if file.Kind != "text" || file.Size != 8 {
 		t.Errorf("one link = %+v", file)
+	}
+}
+
+func TestAListingRefusesALinkedFileBeforeItIsOpened(t *testing.T) {
+	h, home := apiDocBoard(t, map[string]string{"hand.db": secret, "reports/t1/ok.txt": "fine\n", "reports/t1/pic.png": string(flowPNG)})
+	t1 := filepath.Join(home, "reports", "t1")
+	hardLink(t, filepath.Join(home, "hand.db"), filepath.Join(t1, "db.txt"))
+	hardLink(t, filepath.Join(t1, "pic.png"), filepath.Join(t1, "pic2.png"))
+	body := get(t, h, "/doc/reports/t1")
+	contains(t, "listing", body, `<span class="name">db.txt</span><span class="meta">has more than one hard link</span>`, `<span class="name">pic2.png</span><span class="meta">has more than one hard link</span>`, `<li><a href="/doc/reports/t1/ok.txt">`)
+	lacks(t, "listing", body, `href="/doc/reports/t1/db.txt"`, `href="/doc/reports/t1/pic.png`, `href="/doc/reports/t1/pic2.png`)
+	_, folder := apiInto[board.APIDocFolder](t, h, "/api/v1/doc/reports/t1")
+	refusedBy := map[string]board.APIDocEntry{}
+	for _, e := range folder.Entries {
+		refusedBy[e.Name] = e
+	}
+	for _, name := range []string{"db.txt", "pic.png", "pic2.png"} {
+		if e := refusedBy[name]; e.Refused != "has more than one hard link" || e.Size != nil || e.Image {
+			t.Errorf("%s = %+v", name, e)
+		}
+	}
+	if e := refusedBy["ok.txt"]; e.Refused != "" || e.Size == nil {
+		t.Errorf("ok.txt = %+v", e)
 	}
 }

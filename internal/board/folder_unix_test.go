@@ -149,3 +149,17 @@ func TestAnAbsoluteSymlinkAliasHasTheNeighboursOfItsTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestASymlinkToALinkedFileSaysWhy(t *testing.T) {
+	h, home := apiDocBoard(t, map[string]string{"hand.db": secret, "reports/t1/ok.txt": "fine\n"})
+	t1 := filepath.Join(home, "reports", "t1")
+	hardLink(t, filepath.Join(home, "hand.db"), filepath.Join(t1, "db"))
+	link(t, "db", filepath.Join(t1, "db-link"))
+	contains(t, "listing", get(t, h, "/doc/reports/t1"), `<span class="refused"><span class="badge" aria-hidden="true">LINK</span><span class="name">db-link</span><span class="meta">has more than one hard link</span></span>`)
+	_, folder := apiInto[board.APIDocFolder](t, h, "/api/v1/doc/reports/t1")
+	for _, e := range folder.Entries {
+		if e.Name == "db-link" && (e.Kind != "link" || e.Refused != "has more than one hard link") {
+			t.Errorf("db-link = %+v", e)
+		}
+	}
+}

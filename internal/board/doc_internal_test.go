@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -60,6 +61,33 @@ func TestAPathSwappedAfterTheCheckIsNotOpened(t *testing.T) {
 	}
 	if got, err := read("reports/x.md", func() { link("projects", filepath.Join(home, "reports")) }); !errors.Is(err, errChanged) {
 		t.Fatalf("a folder swapped for a link to projects/ = %q, %v", got, err)
+	}
+}
+
+func TestAFileLinkedAfterTheCheckIsNotOpened(t *testing.T) {
+	home := t.TempDir()
+	p := filepath.Join(home, "reports", "x.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, real, _, err := Resolve(home, "reports/x.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(p, filepath.Join(home, "reports", "y.md")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Fatalf("hard link: %v", err)
+		}
+		t.Skipf("no hard links here: %v", err)
+	}
+	if f, _, err := openSame(home, "reports/x.md", root, real); !errors.Is(err, errLinked) {
+		if f != nil {
+			f.Close()
+		}
+		t.Fatalf("a file linked between the check and the open: %v", err)
 	}
 }
 

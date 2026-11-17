@@ -2,7 +2,10 @@
 
 package fsx
 
-import "syscall"
+import (
+	"os"
+	"syscall"
+)
 
 func Links(path string) (uint64, error) {
 	p, err := syscall.UTF16PtrFromString(path)
@@ -16,6 +19,14 @@ func Links(path string) (uint64, error) {
 	defer syscall.CloseHandle(h)
 	var info syscall.ByHandleFileInformation
 	if err := syscall.GetFileInformationByHandle(h, &info); err != nil {
+		return 0, err
+	}
+	return uint64(info.NumberOfLinks), nil
+}
+
+func FileLinks(f *os.File) (uint64, error) {
+	var info syscall.ByHandleFileInformation
+	if err := syscall.GetFileInformationByHandle(syscall.Handle(f.Fd()), &info); err != nil {
 		return 0, err
 	}
 	return uint64(info.NumberOfLinks), nil

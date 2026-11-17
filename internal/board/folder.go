@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/fsx"
 )
 
 const folderPage = 500
@@ -78,6 +80,8 @@ func whyRefused(err error) string {
 		return "points at a file the Board never shows"
 	case errors.Is(err, errKind):
 		return "points at something that is not a file or folder"
+	case errors.Is(err, errLinked):
+		return "has more than one hard link"
 	case errors.Is(err, fs.ErrNotExist):
 		return "points at nothing"
 	}
@@ -115,6 +119,11 @@ func (b *Board) members(root, real string, f *os.File, rel string, page int) (ou
 			m.image = !m.dir && imageLike.MatchString(it.name)
 		case !it.dir:
 			m.kind, m.image = fileKind(it.name), imageLike.MatchString(it.name)
+			if n, err := fsx.Links(filepath.Join(root, real, it.name)); err == nil && n > 1 {
+				m.refused, m.image = whyRefused(errLinked), false
+				out = append(out, m)
+				continue
+			}
 		}
 		if rt != nil {
 			if info, err := rt.Lstat(filepath.Join(real, it.name)); err == nil {
