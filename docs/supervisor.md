@@ -86,6 +86,41 @@ The line is a hint to whoever runs `orient`, usually the supervisor itself, and 
 
 No line appears while the supervisor is idle, blocked or not managed, or when Luvus cannot be read. When `routing.json` cannot be read, `orient` prints one `turn_warn` line naming the error and uses `60s`; `hand doctor` fails the file too.
 
+## A message that interrupts a wait
+
+A supervisor that holds a turn open inside a wait (a `sleep`, a CI poll) answers a message only when the wait ends. When a delivered message has gone unanswered for longer than `supervisor.answer_within` (the bound above, `60s` by default) while the supervisor's turn runs, the watcher presses the harness's interrupt key once, waits for the turn to stop, and types the message again as a fresh prompt. It does this only while the tool call that runs is a known wait, and it never does it twice for the same message. The setting is on by default and sits beside `answer_within` in `routing.json`:
+
+```json
+"supervisor": {"answer_within": "60s", "interrupt": true}
+```
+
+`"interrupt": false` turns it off: a message then waits for the end of the turn, as before, and its receipt says `waited: interrupt is off`. The watcher checks every 5 seconds, so the interrupt comes up to 5 seconds after the bound.
+
+A tool call is a known wait when its shell command is one of these, alone or joined with `;`, `&&`, `||`, `|` or newlines (every part must be one):
+- `sleep N`, with `N` a number and an optional `s`, `m`, `h` or `d`;
+- `gh pr checks ...`, `gh run view ...` and `gh run watch ...`, with any arguments, `--watch` included;
+- `hand wait ...`;
+- a `for NAME in WORDS; do ...; done` loop whose body holds only those commands, nested loops included, with `$(seq N)` and `{1..N}` allowed in the list.
+
+Anything else is not a wait: a merge, a push, `hand update`, `hand attempt start`, a file write, a build or a test, any other command, and any command Hand cannot parse (a substitution, a backtick, a subshell, a background `&`, a variable as the command, an unterminated quote). A redirection to `/dev/null` or `2>&1` is allowed, and one to a file is a write. A loop with a merge or a push in its body, or a `sleep` joined to a `git push`, is refused as a whole. A refused command is never interrupted, because the interrupted call loses its result and a half-finished merge or push is worse than a late answer.
+
+Hand finds the running call in the harness's own record, not on the screen, and says so per harness:
+- **Claude Code** (`claude`): found. The session file records a `tool_use` when the call starts and a `tool_result` when it ends, so the call with no result yet is the running one; a call left open by an earlier message does not count. A message typed into a running turn is not recorded as an operator entry until Claude takes it (the same entry that stamps `answered_at`), so a message with no entry is still queued and one with an entry is already being worked on and is left alone. The pane must also show an empty prompt: text typed into it, or a key the operator pressed with `hand supervisor keys` after the message arrived, stops the interrupt.
+- **Codex** (`codex`): not found. Its record pairs a `function_call` with its `function_call_output`, but Hand's reader does not follow that pairing, so it cannot say which call runs. It never interrupts.
+- **oh-my-pi** (`omp`): not found. Its record holds calls and results (`toolCall` and `toolResult`, by id), but Hand's reader does not track them, so it cannot say which call runs. It never interrupts.
+- **opencode** (`opencode`): not found. Hand reads its session through `opencode session export`, which can be several seconds behind, and it does not track the export's tool parts. It never interrupts.
+- **agy** and **copilot**: not found, so they never interrupt.
+
+A harness that cannot be read is not a reason for an error: the message waits, as without the setting.
+
+It never interrupts a supervisor that is blocked, at a usage limit, switching models, or whose terminal is lost: those states keep their own reason on a queued message, and Hand does not press a key into them. It also never interrupts when it cannot tell, which includes no running call in the record, an unreadable record or an unreadable `routing.json` (the watcher says so once).
+
+The message's receipt says what happened, in the `reason` of the message (`hand supervisor show`, the Board's line under it and the [API](api.md)):
+- `waited: interrupt is off`, `waited: the supervisor is not in a known wait`, `waited: Hand cannot tell what the supervisor runs` (an unreadable harness, no running call, an unreadable record), `waited: someone typed in the pane` and `waited: the interrupt key was not accepted`. A `waited` message is looked at again on the next check: it is interrupted if the supervisor later enters a known wait before it is answered. One event, `input.waited`, is recorded for each change of reason, not one per check.
+- `interrupted, sent again`: Hand pressed the key and typed the message again. `interrupted: not sent again: ...` says why it did not type it, for example that the turn did not stop within 5 seconds or the prompt was not empty. One event, `input.interrupted`, is recorded; the reason stays after the message is answered. Several messages past the bound at once share one key press and are typed again in order.
+
+The message stays one input and `delivered_at` does not move. The transcript may hold the message twice (once as Claude took it from its queue, once typed again), and the pairing that stamps `answered_at` pairs the first entry with the input and stamps the first supervisor reply after it. Hand has no live check of what Claude Code does with a message that was queued when the turn is interrupted: if it moves the text back to the prompt, the empty-prompt check refuses to type the message again, and the receipt says `not sent again`.
+
 ## When the supervisor idles
 
 The supervisor acts only on a message. While a task is active, no attempt runs, no decision is open and no timer is armed that is due within 6 hours while the managed supervisor runs, no event will ever come for it, and its work is unwatched. A task with an armed `waits` timer (see [Timers](#timers)) is the exception: it is left out for as long as the timer is armed. The watcher then wakes the supervisor with `supervisor.stalled` once it has been idle for 20 minutes, again 40 minutes later, then every 60 minutes while nothing changes. The wake names the tasks and the idle time. Any event other than the stall wake and its delivery starts the count again, and the next wake comes no sooner than `after` (20 minutes by default) after the supervisor last worked. Hand never sends it to a supervisor that is stopped, blocked, at a usage limit or switching models. After the first one, the Board's Needs shows "Supervisor idle for 1h12m with 3 active tasks and no running attempt" until the work is watched again, and the alert goes out once, on the first due stall wake at or after 60 minutes of idle time. `hand orient` lists the tasks as `unwatched`. Change the delays in `routing.json` (each from `1m` to `24h`), or turn the wake off with `"stall": "off"`:

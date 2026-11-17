@@ -153,3 +153,43 @@ func TestAShortReplyBeforeAToolCallShowsInTheConversation(t *testing.T) {
 	contains(t, "first reply", tl, "Looking now.")
 	lacks(t, "chatter", tl, "Reading the plan.")
 }
+
+func TestTheLineUnderADeliveredMessageSaysWhetherHandWaitedOrInterrupted(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		mark  func(*state.Store, int64) error
+		reply bool
+		want  string
+	}{
+		{"off", func(s *state.Store, id int64) error {
+			return s.WaitInputs(context.Background(), []int64{id}, state.WaitOff)
+		}, false, `data-state="delivered">delivered <time datetime="2026-09-26T00:00:00Z" data-clock>00:00</time> · waited: interrupt is off</p>`},
+		{"not a wait", func(s *state.Store, id int64) error {
+			return s.WaitInputs(context.Background(), []int64{id}, state.WaitNotWait)
+		}, false, ` · waited: the supervisor is not in a known wait</p>`},
+		{"interrupted", func(s *state.Store, id int64) error { return s.InterruptInputs(context.Background(), []int64{id}, "") }, false, ` · interrupted, sent again</p>`},
+		{"interrupted, not sent", func(s *state.Store, id int64) error {
+			return s.InterruptInputs(context.Background(), []int64{id}, "not sent again: the turn did not stop")
+		}, false, ` · interrupted: not sent again: the turn did not stop</p>`},
+		{"answered after an interrupt", func(s *state.Store, id int64) error { return s.InterruptInputs(context.Background(), []int64{id}, "") }, true, `data-state="answered">answered <time datetime="2026-09-28T01:00:09Z" data-clock>01:00</time> · interrupted, sent again</p>`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fx := newFixture(t)
+			fx.supervisor(t, state.AttemptRunning, "gen-1")
+			id := sendInput(t, fx, "status?")
+			if err := fx.st.DeliverSupervisorInput(context.Background(), id, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.mark(fx.st, id); err != nil {
+				t.Fatal(err)
+			}
+			if c.reply {
+				if err := fx.st.AnswerSupervisorInput(context.Background(), id, "2026-09-28T01:00:09Z"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			claudeLog(t, fx, []string{userRecord("status?")})
+			contains(t, c.name, region(get(t, fx.handler(), "/"), "timeline"), `id="msg-i1"`, c.want)
+		})
+	}
+}

@@ -1653,23 +1653,31 @@ func cmdSupervisorInterrupt(r *runner, args []string) error {
 		if err := supervisorOnScreen(sup, *expect); err != nil {
 			return err
 		}
-		presses := 1
-		if sup.Harness == "opencode" {
-			presses = 2
-		}
-		for i := range presses {
-			if i > 0 {
-				time.Sleep(escGap)
-			}
-			if err := pressEsc(ctx, c, sup); err != nil {
-				return err
-			}
+		presses, err := interruptSupervisor(ctx, c, sup)
+		if err != nil {
+			return err
 		}
 		var d toon.Doc
 		d.Field("supervisor", state.SupervisorRef(sup.ID))
 		d.Field("keys", strings.TrimSpace(strings.Repeat("esc ", presses)))
 		return r.print(&d)
 	})
+}
+
+func interruptSupervisor(ctx context.Context, c luvus.Client, sup state.Supervisor) (int, error) {
+	presses := 1
+	if sup.Harness == "opencode" {
+		presses = 2
+	}
+	for i := range presses {
+		if i > 0 {
+			time.Sleep(escGap)
+		}
+		if err := pressEsc(ctx, c, sup); err != nil {
+			return i, err
+		}
+	}
+	return presses, nil
 }
 
 func pressEsc(ctx context.Context, c luvus.Client, sup state.Supervisor) error {

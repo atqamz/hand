@@ -53,8 +53,11 @@ type Policy struct {
 		Autoresume     bool  `json:"autoresume"`
 		RolloverTokens int64 `json:"rollover_tokens"`
 		AnswerWithin   Span  `json:"answer_within,omitzero"`
+		Interrupt      *bool `json:"interrupt,omitempty"`
 	} `json:"supervisor,omitzero"`
 }
+
+func (p Policy) InterruptOn() bool { return p.Supervisor.Interrupt == nil || *p.Supervisor.Interrupt }
 
 var StarterPolicy = Policy{}
 

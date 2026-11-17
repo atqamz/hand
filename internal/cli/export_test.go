@@ -46,6 +46,9 @@ var (
 	RolloverPoll     = &rolloverPoll
 	RolloverStill    = &rolloverStill
 	EventHandled     = &eventHandled
+	PreemptEvery     = &preemptEvery
+	InterruptSettle  = &interruptSettle
+	InterruptPoll    = &interruptPoll
 )
 
 func Control(env Env, home string) func(context.Context, ...string) (string, error) {
