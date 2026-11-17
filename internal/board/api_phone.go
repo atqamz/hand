@@ -241,32 +241,13 @@ func (b *Board) apiPhoneCodeNew(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	set, ok := b.apiChosenFleets(r.Context(), in.Fleets)
+	set, ok := b.chosenFleetsFrom(r.Context(), in.Fleets)
 	if !ok {
 		b.apiFail(w, http.StatusForbidden, "forbidden", "this session is not signed in to every fleet you chose; read the phone again and choose from its fleets")
 		return
 	}
 	b.mint(b.now(), set, base, false)
 	b.apiPhoneAnswer(w, r, apiReply{}, nil)
-}
-
-func (b *Board) apiChosenFleets(ctx context.Context, ids []string) ([]string, bool) {
-	own := b.fleetID()
-	offered := map[string]bool{}
-	for _, l := range b.hostFleets(ctx) {
-		offered[l.ID] = true
-	}
-	set := []string{own}
-	for _, id := range ids {
-		if id == own || slices.Contains(set, id) {
-			continue
-		}
-		if !offered[id] {
-			return nil, false
-		}
-		set = append(set, id)
-	}
-	return set, true
 }
 
 func (b *Board) apiPhoneApp(w http.ResponseWriter, r *http.Request) {

@@ -501,13 +501,17 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 }
 
 func (b *Board) chosenFleets(r *http.Request) ([]string, bool) {
+	return b.chosenFleetsFrom(r.Context(), r.PostForm["fleet"])
+}
+
+func (b *Board) chosenFleetsFrom(ctx context.Context, ids []string) ([]string, bool) {
 	own := b.fleetID()
 	offered := map[string]bool{}
-	for _, l := range b.hostFleets(r.Context()) {
+	for _, l := range b.hostFleets(ctx) {
 		offered[l.ID] = true
 	}
 	set := []string{own}
-	for _, id := range r.PostForm["fleet"] {
+	for _, id := range ids {
 		if id == own || slices.Contains(set, id) {
 			continue
 		}
