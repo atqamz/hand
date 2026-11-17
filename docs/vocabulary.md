@@ -225,7 +225,7 @@ Plain files under `memory/` that Hand never rewrites. `hand init` creates `memor
 
 ### Skill
 
-The instructions `hand init` installs for the supervisor. The `secondhand` skill describes the supervision loop. The `secondhand-cleanup` skill guides freeing space in `reports/` and `shots/` with `hand gc` and the operator's approval (see Retention).
+A manual: a sequence of steps an agent follows, with the commands or files each step touches and the stop condition. A skill is a folder with a `SKILL.md` on the Agent Skills format, installed by `hand skills` at one of three scopes: project (`<checkout>/.agents/skills`, the default inside a checkout, and the only scope an attempt's worker sees), fleet (the fleet home's roots, for the supervisor) or user (`$HOME`'s roots, for every harness process). [Skills in the spec](spec.md#skills) has the model and the drift rule. `hand init` installs two for the supervisor: `secondhand`, the supervision loop, and `secondhand-cleanup`, which guides freeing space in `reports/` and `shots/` with `hand gc` and the operator's approval (see Retention).
 
 ## Work
 
