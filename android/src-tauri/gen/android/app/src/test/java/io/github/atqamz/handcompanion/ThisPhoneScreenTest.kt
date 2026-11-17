@@ -27,7 +27,7 @@ private fun phone(fleets: List<FleetLine>) =
 
 class ThisPhoneScreenTest {
   @get:Rule
-  val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 1500))
+  val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2200))
 
   private fun shot(dark: Boolean, phone: ThisPhone) =
     paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}, {}) } }
