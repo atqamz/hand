@@ -111,6 +111,10 @@ func main() {
 			Content: ui.View(app.View),
 		})
 		app.Post = win.Update
+		app.Pick = func() []string {
+			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Attach files", Multiple: true})
+			return paths
+		}
 		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
 		win.OnFocus(func() { app.SetFocused(true) })
 		win.OnBlur(func() { app.SetFocused(false) })

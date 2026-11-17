@@ -58,6 +58,9 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 
 func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 	pane := ui.Column(c).Fill().Background(k.Panel)
+	if dropped := pane.DroppedFiles(); len(dropped) > 0 {
+		a.Attach(dropped...)
+	}
 	width := pane.Bounds().W
 	if width <= 0 {
 		if a.narrow {
@@ -95,12 +98,15 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 				c.Invalidate()
 			}
 			scroll.Children(func() {
-				ui.Column(c).Selectable().FillWidth().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, p, column) })
+				ui.Column(c).Selectable().FillWidth().MinHeight(held).Justify(ui.End).Children(func() { a.timelineEntries(c, k, p, column) })
 			})
 			ui.Box(c).Absolute().Top(0).Left(m).Right(m).Height(kit.Space16).
 				Gradient(p.panel, p.panel.Alpha(0), 180).IgnoreInput(true)
 		})
 		a.composer(c, k, p, width)
+		if pane.FileDragOver() && a.canAttach() {
+			kit.DropVeil(c, k)
+		}
 	})
 }
 

@@ -47,6 +47,7 @@ type fixture struct {
 	choice         string
 	answerNote     string
 	sentText       string
+	sentFiles      []string
 	controlStatus  *desktop.Status
 	controlStale   bool
 	controlRef     string
@@ -102,6 +103,12 @@ type fixture struct {
 	docBytes       map[string][]byte
 	docErr         map[string]error
 	docWindowSize  int
+	inbox          map[string][]byte
+	inboxGets      []string
+	uploaded       []string
+	uploadErr      error
+	uploadBlock    chan struct{}
+	uploadEntered  chan struct{}
 }
 
 func (f *fixture) count(name string) int {
@@ -418,10 +425,10 @@ func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.Acked,
 	return desktop.Acked{ReportDetail: d, Warn: f.warn, Receipt: receipt}, nil
 }
 
-func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Sent, error) {
+func (f *fixture) SendMessage(ctx context.Context, id, text string, attachments []string) (desktop.Sent, error) {
 	f.note("send:" + id)
 	f.mu.Lock()
-	f.sentText = text
+	f.sentText, f.sentFiles = text, append([]string(nil), attachments...)
 	f.mu.Unlock()
 	f.stallAction()
 	if f.action != nil {

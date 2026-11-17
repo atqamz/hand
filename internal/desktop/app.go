@@ -136,6 +136,22 @@ type App struct {
 	OpenErr      string
 	OpenBusy     bool
 
+	Chips      []chip
+	chipSeq    int
+	chipGen    int
+	chipStop   context.CancelFunc
+	attachNote string
+	attachSay  string
+	// Pick shows the system file picker and returns the paths chosen; nil
+	// turns the paperclip off. It may block, so the window runs it off the
+	// UI thread.
+	Pick func() []string
+
+	shots     map[string]*shotState
+	shotQueue []string
+	shotBusy  bool
+	shotGen   int
+
 	Draft     string
 	TaskQuery string
 	DraftDir  string
@@ -465,9 +481,15 @@ func (a *App) SelectFleet(id string) {
 	if a.writer != nil {
 		a.writer.Flush()
 	}
+	a.shots, a.shotQueue, a.shotBusy = nil, nil, false
+	a.shotGen++
 	if was != a.Fleet.ID || a.Draft == "" {
 		a.Draft = a.drafts().Load(a.Fleet.ID)
 		a.draftAt, a.draftRestored = time.Time{}, a.Draft != ""
+	}
+	if was != a.Fleet.ID {
+		a.dropChips()
+		a.restoreChips()
 	}
 	if a.writer != nil {
 		if u, ok := a.writer.unsaved(a.Fleet.ID); ok {
@@ -1115,18 +1137,27 @@ func ackedReports(have []Report, ref string, r Report) []Report {
 
 func (a *App) Send() {
 	text := a.Draft
-	if a.Busy || a.Model == nil || a.Fleet.ID == "" || strings.TrimSpace(text) == "" {
+	sentIDs, names := a.readyChips()
+	prose := strings.TrimSpace(text) != ""
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.attaching() > 0 || !prose && len(names) == 0 {
 		return
+	}
+	body := text
+	if !prose {
+		body = ""
 	}
 	a.flushDraft()
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
-	model, fleet, writer := a.Model, a.Fleet.ID, a.draftWriter()
+	model, fleet, writer, gen := a.Model, a.Fleet.ID, a.draftWriter(), a.chipGen
 	a.Busy = true
 	a.DraftErr, a.SendErr = "", ""
 	applied := func(sent Sent) {
 		if a.Fleet.ID == fleet && a.Draft == text {
 			a.Draft, a.draftAt, a.draftRestored = "", time.Time{}, false
+		}
+		if a.Fleet.ID == fleet && a.chipGen == gen {
+			a.sentChips(sentIDs)
 		}
 		if id != a.loadID {
 			return
@@ -1166,7 +1197,7 @@ func (a *App) Send() {
 		a.ActionWarn = true
 	}
 	fetch := func() {
-		sent, err := model.SendMessage(ctx, fleet, text)
+		sent, err := model.SendMessage(ctx, fleet, body, names)
 		if err != nil {
 			cancel()
 			if post == nil {
@@ -1444,6 +1475,7 @@ func (a *App) saveDraft() {
 	if a.Fleet.ID == "" {
 		return
 	}
+	a.attachNote = ""
 	if a.Draft == "" {
 		a.draftAt, a.draftRestored = time.Time{}, false
 	}

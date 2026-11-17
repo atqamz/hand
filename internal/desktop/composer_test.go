@@ -262,7 +262,7 @@ func TestTheComposerHintSaysWhyAMessageWaits(t *testing.T) {
 func TestTheComposerHintWrapsAndGrowsTheBox(t *testing.T) {
 	f := goldenFixture(t)
 	st := f.status[fleetID]
-	st.ComposerHint = "No supervisor is running; your message waits."
+	st.ComposerHint = "s1 is starting; your message waits."
 	f.status[fleetID] = st
 	tt := sized(t, newApp(t, f), 1100, 760, false)
 	one := composerBox(t, tt)

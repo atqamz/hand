@@ -85,11 +85,7 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 			r.err = err
 			break
 		}
-		if cfg, _, err := image.DecodeConfig(bytes.NewReader(b)); err == nil && int64(cfg.Width)*int64(cfg.Height) > docPixelsMax {
-			r.row = docTooLarge
-		} else if r.image, err = ui.DecodeBitmap(b); err != nil {
-			r.row = "This picture could not be drawn here. Open it in the browser."
-		}
+		r.image, r.row = drawBitmap(b)
 	case "binary":
 		r.row = notText
 	default:
@@ -100,6 +96,17 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 		r.row = noun + " opens in the Board's viewer, in the browser."
 	}
 	return r
+}
+
+func drawBitmap(b []byte) (*ui.Bitmap, string) {
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(b)); err == nil && int64(cfg.Width)*int64(cfg.Height) > docPixelsMax {
+		return nil, docTooLarge
+	}
+	bmp, err := ui.DecodeBitmap(b)
+	if err != nil {
+		return nil, "This picture could not be drawn here. Open it in the browser."
+	}
+	return bmp, ""
 }
 
 func docRefusal(err error) *APIError {
