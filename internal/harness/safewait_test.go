@@ -1,8 +1,12 @@
 package harness
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestKnownWaitAllowsEveryWaitForm(t *testing.T) {
+	absHand := filepath.Join(t.TempDir(), "hand") + " wait --timeout 5m"
 	for _, cmd := range []string{
 		`sleep 30`,
 		`sleep 2.5`,
@@ -21,7 +25,7 @@ func TestKnownWaitAllowsEveryWaitForm(t *testing.T) {
 		`gh run watch 99 --exit-status`,
 		`hand wait`,
 		`hand wait --after 12 --timeout 5m`,
-		`/home/atqa/.local/bin/hand wait --timeout 5m`,
+		absHand,
 		`sleep 5; gh pr checks 1`,
 		`sleep 5 && gh pr checks 1 || sleep 5`,
 		"sleep 5\ngh pr checks 1\n",
