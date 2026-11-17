@@ -90,6 +90,42 @@ func (b *Board) revokeLabel(ctx context.Context, label string) (int, error) {
 	return len(gone), err
 }
 
+func (b *Board) revokeDevice(ctx context.Context, id int64) (*state.Device, error) {
+	d, err := b.st.RevokeDevice(ctx, id)
+	missing := errors.Is(err, state.ErrNotFound)
+	if err != nil && !missing {
+		return nil, err
+	}
+	b.companions.mu.Lock()
+	delete(b.companions.seen, id)
+	b.companions.mu.Unlock()
+	if missing {
+		return nil, nil
+	}
+	return &d, nil
+}
+
+type revokeFailure struct {
+	railLink
+	err error
+}
+
+func (b *Board) revokeAcross(ctx context.Context, targets []railLink, label string) (done []railLink, failed []revokeFailure) {
+	detached := context.WithoutCancel(ctx)
+	for _, l := range targets {
+		work, cancel := context.WithTimeout(detached, pairWait)
+		n, err := b.revokeFleet(work, l.ID, label)
+		cancel()
+		switch {
+		case err != nil:
+			failed = append(failed, revokeFailure{l, err})
+		case n > 0:
+			done = append(done, l)
+		}
+	}
+	return done, failed
+}
+
 func (b *Board) revokeFleet(ctx context.Context, id, label string) (int, error) {
 	if id == b.fleetID() {
 		return b.revokeLabel(ctx, label)
@@ -152,6 +188,22 @@ func (b *Board) phoneEntries(ctx context.Context, own []PhoneRecord) ([]phoneEnt
 	return entries, unread
 }
 
+func linkNames(ls []railLink) []string {
+	out := make([]string, len(ls))
+	for i, l := range ls {
+		out[i] = l.Name
+	}
+	return out
+}
+
+func failedNames(fs []revokeFailure) []string {
+	out := make([]string, len(fs))
+	for i, f := range fs {
+		out[i] = f.Name
+	}
+	return out
+}
+
 func laterOf(a, b time.Time) time.Time {
 	if b.After(a) {
 		return b
@@ -199,24 +251,12 @@ func (b *Board) connectRevokePhone(everywhere bool) http.HandlerFunc {
 			}
 			targets, note = targets[i:i+1], revokeNote{Action: "in", Fleet: id, Phone: label, Button: "Revoke"}
 		}
-		detached := context.WithoutCancel(ctx)
-		var done, failed []string
-		for _, l := range targets {
-			work, cancel := context.WithTimeout(detached, pairWait)
-			n, err := b.revokeFleet(work, l.ID, label)
-			cancel()
-			switch {
-			case err != nil:
-				failed = append(failed, l.Name)
-			case n > 0:
-				done = append(done, l.Name)
-			}
-		}
+		done, failed := b.revokeAcross(ctx, targets, label)
 		if len(failed) == 0 {
 			http.Redirect(w, r, b.o.Base+"/connect", http.StatusSeeOther)
 			return
 		}
-		note.Text = revokeText(done, failed, note.Button)
+		note.Text = revokeText(linkNames(done), failedNames(failed), note.Button)
 		b.connectPage(w, r, http.StatusOK, map[string]any{"Revoked": note})
 	}
 }

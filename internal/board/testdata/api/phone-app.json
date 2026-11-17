@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "CURSOR",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "iroh": {
+      "state": "ready",
+      "tone": "pass",
+      "text": "Phone access over iroh is online. The Hand app can pair with this host.",
+      "id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "fleets": [],
+    "app": {
+      "link": "handboard://c#v=1\u0026e=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\u0026f=f00000000e0aa\u0026c=K7QM3XRD2P\u0026r=https%3A%2F%2Frelay.example",
+      "expires_at": "2026-11-01T05:05:00Z"
+    },
+    "devices": [
+      {
+        "id": 1,
+        "name": "Old phone",
+        "paired_at": "2026-11-01T04:40:00Z"
+      },
+      {
+        "phone": "0123456789abcdef",
+        "name": "Pixel 9",
+        "login": "iroh:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "paired_at": "2026-11-01T04:40:00Z"
+      }
+    ]
+  }
+}
+
