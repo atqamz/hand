@@ -19,7 +19,7 @@ sealed interface Landing {
 }
 
 fun incomingLink(action: String?, data: String?): String? =
-  data
+  if (action == THIS_PHONE_ACTION) PHONE_LINK else data
 
 fun landing(link: String, open: (String) -> String?): Landing {
   if (link == PHONE_LINK) return Landing.Phone
