@@ -85,3 +85,27 @@ func TestUpdateRestartsAWatchAfterTheNewBinaryPinnedTheFleet(t *testing.T) {
 		t.Fatalf("stdout=%q", out)
 	}
 }
+
+func TestUpdateRepairsABoardAfterTheNewBinaryPinnedTheFleet(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	if err := fleet.WriteVersion(h.home, fleet.VersionPin{Version: "0.14.1", Commit: "0123456789ab", Schema: state.SchemaVersion + 1}); err != nil {
+		t.Fatal(err)
+	}
+	enableBoard(t, h)
+	journal := fmt.Sprintf(`{"board":[%q]}`, h.home)
+	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "update.json"), []byte(journal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.vars["HAND_INSTALL_BASE"] = "http://127.0.0.1:1"
+	out, errOut, code := h.run("update", "--channel", "edge")
+	if !strings.Contains(out, "status: repaired\n") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	if strings.Contains(out+errOut, "newer than this hand") {
+		t.Fatalf("the board repair ran the old process's gate: stdout=%q stderr=%q", out, errOut)
+	}
+	if n := boardSpawns(h); n != 1 {
+		t.Fatalf("boards started = %d, want 1; stdout=%q stderr=%q", n, out, errOut)
+	}
+}

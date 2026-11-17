@@ -146,17 +146,21 @@ func (r *Report) repair(ctx context.Context, o Options, j journal) {
 		} else {
 			listed = true
 			for _, e := range entries {
-				byHome[filepath.Clean(e.Home)] = e
+				if e.State == "ok" {
+					byHome[filepath.Clean(e.Home)] = e
+				}
 			}
 		}
 	}
+	reported := map[string]bool{}
 	entries := func(homes []string) []fleet.Entry {
 		out := make([]fleet.Entry, 0, len(homes))
 		for _, home := range homes {
 			e, ok := byHome[filepath.Clean(home)]
 			if !ok {
-				if listed {
-					r.fail(fmt.Sprintf("could not find the fleet at %s to start it; start it by hand", home))
+				if listed && !reported[filepath.Clean(home)] {
+					reported[filepath.Clean(home)] = true
+					r.fail(fmt.Sprintf("could not find a fleet registered at %s to start it; start it by hand", home))
 				}
 				continue
 			}
