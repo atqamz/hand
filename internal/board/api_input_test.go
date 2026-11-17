@@ -33,7 +33,7 @@ func TestTheAPICarriesTheStatusAndTheReasonOfEachMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := apiEntryOf(t, fx, id)
-	if e.Status != "queued" || e.Delivery != "queued" || e.Reason != "blocked" || e.ReasonDetail != "Esc to cancel" || !slices.Equal(e.ReasonKeys, state.SupervisorKeys) {
+	if e.Status != "queued" || e.Delivery != "queued" || e.Reason != "blocked" || e.ReasonDetail != "" || !slices.Equal(e.ReasonKeys, state.SupervisorKeys) {
 		t.Fatalf("blocked = %+v", e)
 	}
 	if err := fx.st.DeliverSupervisorInput(ctx, id, false); err != nil {
@@ -56,10 +56,10 @@ func TestTheAPICarriesTheStatusAndTheReasonOfEachMessage(t *testing.T) {
 func TestTheAPIDropsTheDirectoryOfAPathInAReasonDetail(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	id := sendInput(t, fx, "hello")
-	if err := fx.st.HoldSupervisorInputs(context.Background(), state.ReasonBlocked, "Allow edits to /home/someone/work/secret/plan.md?"); err != nil {
+	if err := fx.st.HoldSupervisorInputs(context.Background(), state.ReasonHeld, "cannot find the omp session in /home/someone/work/secret/plan.md"); err != nil {
 		t.Fatal(err)
 	}
-	if e := apiEntryOf(t, fx, id); e.ReasonDetail != "Allow edits to plan.md?" {
+	if e := apiEntryOf(t, fx, id); e.ReasonDetail != "cannot find the omp session in plan.md" {
 		t.Fatalf("detail = %q", e.ReasonDetail)
 	}
 }
@@ -85,4 +85,27 @@ func TestAPIMessageStatesGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkAPIGolden(t, fx.handler(), "message-states", "/api/v1/timeline")
+}
+
+func TestTheAPIKeepsAScreenLineOutOfTheReasonDetail(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	id := sendInput(t, fx, "hello")
+	for _, c := range []struct{ reason, detail string }{
+		{state.ReasonBlocked, "Esc to cancel · Tab to amend"},
+		{state.ReasonLimited, "You've hit your session limit · resets 6:10am"},
+	} {
+		if err := fx.st.HoldSupervisorInputs(ctx, c.reason, c.detail); err != nil {
+			t.Fatal(err)
+		}
+		if e := apiEntryOf(t, fx, id); e.Reason != c.reason || e.ReasonDetail != "" {
+			t.Fatalf("%s entry = %+v, want the reason without the screen line", c.reason, e)
+		}
+	}
+	if err := fx.st.HoldSupervisorInputs(ctx, state.ReasonSwitching, "opus high"); err != nil {
+		t.Fatal(err)
+	}
+	if e := apiEntryOf(t, fx, id); e.ReasonDetail != "opus high" {
+		t.Fatalf("switching entry = %+v", e)
+	}
 }

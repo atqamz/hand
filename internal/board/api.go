@@ -2309,6 +2309,9 @@ func apiEntry(c chatItem) APIEntry {
 		ReasonDetail: c.Detail,
 		ReasonKeys:   c.Keys,
 	}
+	if c.Reason == state.ReasonBlocked || c.Reason == state.ReasonLimited {
+		out.ReasonDetail = ""
+	}
 	for _, w := range c.Wakes {
 		out.Wakes = append(out.Wakes, apiEntry(w))
 	}

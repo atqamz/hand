@@ -27,7 +27,6 @@
         "queued": true,
         "status": "queued",
         "reason": "blocked",
-        "reason_detail": "Do you want to proceed?",
         "reason_keys": [
           "enter",
           "esc",
