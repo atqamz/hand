@@ -708,6 +708,23 @@ var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)
 
 const deliveredLookback = 50
 
+const unreadGrace = 2 * time.Minute
+
+func (d *chatItem) track(in state.SupervisorInput) {
+	d.Input, d.Delivered, d.Status, d.Answered, d.Reason, d.Detail, d.Keys = in.ID, in.DeliveredAt, in.Status(), in.AnsweredAt, in.Reason, Scrub(in.ReasonDetail), in.Keys()
+	if in.Reason == state.ReasonTurn {
+		d.Detail = in.ReasonDetail
+	}
+	switch {
+	case in.DeliveredAt == "":
+		d.Delivery = "queued"
+	case in.Typed:
+		d.Delivery = "typed anyway"
+	default:
+		d.Delivery = "delivered"
+	}
+}
+
 var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.fresh", "supervisor.rolled_over", "supervisor.switch", "supervisor.blocked", "supervisor.refused", "luvus.switched", "luvus.failed"}
 
 func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
@@ -764,6 +781,9 @@ type chatItem struct {
 	Ref, Model, Day     string
 	Kind                string
 	Delivered, Delivery string
+	Status, Answered    string
+	Reason, Detail      string
+	Keys                []string
 	Clock               bool
 	Input               int64
 	Wakes               []chatItem

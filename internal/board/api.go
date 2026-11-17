@@ -270,6 +270,12 @@ type APIEntry struct {
 	Queued    bool       `json:"queued,omitempty"`
 	Wakes     []APIEntry `json:"wakes,omitempty"`
 	Shots     []APIShot  `json:"shots,omitempty"`
+
+	Status       string   `json:"status,omitempty"`
+	AnsweredAt   string   `json:"answered_at,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	ReasonDetail string   `json:"reason_detail,omitempty"`
+	ReasonKeys   []string `json:"reason_keys,omitempty"`
 }
 
 type APIWorking struct {
@@ -2296,6 +2302,12 @@ func apiEntry(c chatItem) APIEntry {
 		Delivered: c.Delivered,
 		Input:     c.Input,
 		Queued:    c.Queued,
+
+		Status:       c.Status,
+		AnsweredAt:   c.Answered,
+		Reason:       c.Reason,
+		ReasonDetail: c.Detail,
+		ReasonKeys:   c.Keys,
 	}
 	for _, w := range c.Wakes {
 		out.Wakes = append(out.Wakes, apiEntry(w))

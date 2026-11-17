@@ -27,6 +27,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 	go func() {
 		defer w.pending.Done()
 		defer w.sweepBusy.Store(false)
+		w.stampAnswers(ctx)
 		if w.sources == nil {
 			w.transcripts = &transcript.Reader{Paths: w.r.transcriptPaths()}
 			w.modelSessions = map[int64]modelSession{}

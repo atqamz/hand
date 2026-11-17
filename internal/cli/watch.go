@@ -73,6 +73,7 @@ type watcher struct {
 	reapBusy       atomic.Bool
 	reapWarned     atomic.Bool
 	transcripts    *transcript.Reader
+	answers        *transcript.Reader
 	sources        map[string]modelSource
 	modelSessions  map[int64]modelSession
 	supModel       modelSession

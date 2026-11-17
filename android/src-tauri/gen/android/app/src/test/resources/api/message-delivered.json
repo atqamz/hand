@@ -40,7 +40,8 @@
         "ref": "s1",
         "delivery": "delivered",
         "delivered": "2026-11-01T04:40:00Z",
-        "input": 1
+        "input": 1,
+        "status": "delivered"
       },
       {
         "role": "operator",

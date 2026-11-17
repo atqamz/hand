@@ -82,10 +82,7 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 		no++
 		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
 		if in, ok := paired[i]; ok {
-			d.Input, d.Delivered, d.Delivery = in.ID, in.DeliveredAt, "delivered"
-			if in.Typed {
-				d.Delivery = "typed anyway"
-			}
+			d.track(in)
 		}
 		all = append(all, d)
 	}
@@ -105,8 +102,24 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 		}
 	}
 	all = groupWakes(all)
+	took, newest := map[int64]bool{}, time.Time{}
+	for i, in := range paired {
+		took[in.ID] = true
+		if at := parse(entries[i].At); at.After(newest) {
+			newest = at
+		}
+	}
+	for _, in := range slices.Backward(delivered) {
+		if !took[in.ID] && in.AnsweredAt == "" && parse(in.DeliveredAt).After(newest) && (sv.Agent == "working" || b.now().Sub(parse(in.DeliveredAt)) < unreadGrace) {
+			d := chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt}}
+			d.track(in)
+			all = append(all, d)
+		}
+	}
 	for _, in := range pending {
-		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}, Input: in.ID, Delivery: "queued"})
+		d := chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}}
+		d.track(in)
+		all = append(all, d)
 	}
 	for i := range all {
 		if all[i].Role == "operator" {

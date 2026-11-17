@@ -231,7 +231,7 @@ pre.screen::-webkit-scrollbar-thumb{background:var(--screen-thumb);border-radius
 .sent-file>:not(.badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shots a.sent-file:hover{border-color:var(--line-strong);text-decoration:none}
 .shots .sent-file.missing{border-style:dashed;color:var(--muted)}
-.delivery{margin-left:auto}
+.from-you .delivery{margin:var(--space-6) 0 0;text-align:right}
 .ring{flex:none;width:8px;height:8px;border:1.5px solid var(--line-strong);border-radius:50%}
 .day{display:flex;align-items:center;gap:var(--space-12);margin:var(--space-6) 0}
 .day::before,.day::after{content:"";flex:1;border-top:1px solid var(--line)}

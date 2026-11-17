@@ -923,6 +923,14 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			}
 		}
 		d.Field("pending", strconv.Itoa(len(pending)))
+		recent, err := st.DeliveredSupervisorInputs(ctx, 3)
+		if err != nil {
+			return err
+		}
+		slices.Reverse(recent)
+		if rows := inputRows(slices.Concat(recent, pending)); len(rows) > 0 {
+			d.Rows("messages", []string{"input", "status", "at", "reason"}, rows)
+		}
 		if sup.Switching() {
 			d.Field("switch", sup.SwitchText())
 		}
@@ -1120,6 +1128,15 @@ func ompSessionMismatch(getenv func(string) string, home, session string) string
 	return ompSessionNote + "Luvus sees omp session " + session + " in the pane, but " + dir + " has no session for it; the Luvus server may have started with a different PI_CODING_AGENT_DIR: restart the server from this shell, or unset the variable"
 }
 
+func inputRows(inputs []state.SupervisorInput) [][]string {
+	rows := make([][]string, len(inputs))
+	for i, in := range inputs {
+		at := cmp.Or(in.AnsweredAt, in.DeliveredAt, in.CreatedAt)
+		rows[i] = []string{"i" + strconv.FormatInt(in.ID, 10), in.Status(), at, state.ReasonText(in.Reason, in.ReasonDetail)}
+	}
+	return rows
+}
+
 func cmdSupervisorSend(r *runner, args []string) error {
 	fs := flags("supervisor send")
 	text := fs.String("text", "", "message for the supervisor")
@@ -1163,6 +1180,11 @@ func cmdSupervisorSend(r *runner, args []string) error {
 		}
 		d.Field("delivered", "no")
 		d.Field("why", why)
+		if held, err := st.SupervisorInput(ctx, in.ID); err != nil {
+			return err
+		} else if held.Reason != "" {
+			d.Field("reason", held.Reason)
+		}
 		d.Help("It is delivered once the supervisor can take it; check with `hand supervisor show`")
 		return r.print(&d)
 	})
@@ -1179,6 +1201,13 @@ func detached(ctx context.Context, fn func(context.Context) error) error {
 	return fn(ctx)
 }
 
+func hold(ctx context.Context, st *state.Store, code, detail, why string) (string, error) {
+	if code == state.ReasonHeld || code == state.ReasonLost {
+		detail = cmp.Or(detail, why)
+	}
+	return why, detached(ctx, func(ctx context.Context) error { return st.HoldSupervisorInputs(ctx, code, detail) })
+}
+
 func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, wait bool, expect string) (string, error) {
 	unlock, ok, err := r.supervisorLock(wait)
 	if err != nil {
@@ -1193,66 +1222,66 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		return "", err
 	}
 	if !ok || sup.Status != state.AttemptRunning {
-		return "no live supervisor", nil
+		return hold(ctx, st, state.ReasonNoSupervisor, "", "no live supervisor")
 	}
 	if err := supervisorOnScreen(sup, expect); err != nil {
 		return "", err
 	}
 	ref := state.SupervisorRef(sup.ID)
 	if sup.ServerGeneration != caps.ServerGeneration {
-		return "supervisor " + ref + " belongs to an earlier luvus server", nil
+		return hold(ctx, st, state.ReasonLost, "", "supervisor "+ref+" belongs to an earlier luvus server")
 	}
 	if health, err := c.Validate(ctx, terminal(sup.Terminal)); err != nil || health == "gone" {
-		return "supervisor " + ref + " terminal is gone", nil
+		return hold(ctx, st, state.ReasonLost, "", "supervisor "+ref+" terminal is gone")
 	}
 	if sup.Session == "" && sup.Harness != "claude" && sup.Harness != "opencode" {
 		if err := r.findSession(ctx, st, &sup); err != nil {
-			return "cannot find the " + sup.Harness + " session: " + err.Error(), nil
+			return hold(ctx, st, state.ReasonHeld, "", "cannot find the "+sup.Harness+" session: "+err.Error())
 		}
 		if sup.Session == "" {
 			if ompSessionLate(r, sup) {
 				ag, _ := c.Explain(ctx, sup.PaneID)
-				return ompSessionMismatch(r.env.Getenv, r.home, ag.Session), nil
+				return hold(ctx, st, state.ReasonHeld, "", ompSessionMismatch(r.env.Getenv, r.home, ag.Session))
 			}
-			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
+			return hold(ctx, st, state.ReasonHeld, "", "waiting for "+sup.Harness+" to start its session; a trust or setup screen reads as idle")
 		}
 	}
 	if screens, ok := trustScreens[sup.Harness]; ok {
 		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil {
 			if screen, asked := askedScreen(screens, s.Text); asked && screen.hasYesRow(s.Text) {
-				return sup.Harness + " is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
+				return hold(ctx, st, state.ReasonHeld, "", sup.Harness+" is asking to trust a folder; answer it in the pane: `"+r.env.command()+" attach supervisor`")
 			}
 		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
 	if err != nil {
-		return "supervisor status unknown: " + err.Error(), nil
+		return hold(ctx, st, state.ReasonHeld, "", "supervisor status unknown: "+err.Error())
 	}
 	switch ag.Status {
 	case "idle", "done", "working":
 	case "blocked":
-		return "supervisor blocked: " + ag.Hint, nil
+		return hold(ctx, st, state.ReasonBlocked, ag.Hint, "supervisor blocked: "+ag.Hint)
 	default:
-		return "supervisor is " + ag.Status, nil
+		return hold(ctx, st, state.ReasonHeld, "", "supervisor is "+ag.Status)
 	}
 	if sup.Switching() {
 		if ag.Status == "working" {
-			return "switching to " + sup.SwitchText() + " after this turn", nil
+			return hold(ctx, st, state.ReasonSwitching, sup.SwitchText(), "switching to "+sup.SwitchText()+" after this turn")
 		}
 		if sup, err = r.applySwitch(ctx, st, c, sup); err != nil {
 			return "", err
 		}
 		if ag, err = c.Explain(ctx, sup.PaneID); err != nil {
-			return "supervisor status unknown: " + err.Error(), nil
+			return hold(ctx, st, state.ReasonHeld, "", "supervisor status unknown: "+err.Error())
 		}
 		if ag.Status != "idle" && ag.Status != "done" && ag.Status != "working" {
-			return "supervisor " + state.SupervisorRef(sup.ID) + " is " + ag.Status + " after the switch", nil
+			return hold(ctx, st, state.ReasonHeld, "", "supervisor "+state.SupervisorRef(sup.ID)+" is "+ag.Status+" after the switch")
 		}
 	}
 	if why, held, err := st.SupervisorHold(ctx, sup); err != nil {
 		return "", err
 	} else if held {
-		return why, nil
+		return hold(ctx, st, state.ReasonLost, why, why)
 	}
 	pending, err := st.PendingSupervisorInputs(ctx)
 	if err != nil {
@@ -1265,22 +1294,34 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		}
 		typed, err := sendToSupervisor(ctx, c, sup, status, in.Body)
 		if err != nil {
-			switch luvus.Code(err) {
-			case "":
+			if luvus.Code(err) == "" {
 				return "", runtimeErr(err)
-			case "agent_not_ready":
-				return "supervisor is not at a prompt", nil
-			case "content_revision_conflict":
-				return "supervisor terminal changed", nil
 			}
-			return "luvus refused the message: " + err.Error(), nil
+			why, busy := "luvus refused the message: "+err.Error(), false
+			switch luvus.Code(err) {
+			case "agent_not_ready":
+				why, busy = "supervisor is not at a prompt", true
+			case "content_revision_conflict":
+				why, busy = "supervisor terminal changed", true
+			}
+			if line, lerr := supervisorLimit(ctx, c, sup); lerr == nil && line != "" {
+				return hold(ctx, st, state.ReasonLimited, line, supervisorLimited+line)
+			}
+			if busy && status == "working" {
+				since, err := st.TurnSince(ctx, sup)
+				if err != nil {
+					return "", err
+				}
+				return hold(ctx, st, state.ReasonTurn, since, why)
+			}
+			return hold(ctx, st, state.ReasonHeld, "", why)
 		}
 		if err := detached(ctx, func(ctx context.Context) error { return st.DeliverSupervisorInput(ctx, in.ID, typed) }); err != nil {
 			return "", err
 		}
 		cur, err := c.Explain(ctx, sup.PaneID)
 		if err != nil {
-			return "supervisor status unknown: " + err.Error(), nil
+			return hold(ctx, st, state.ReasonHeld, "", "supervisor status unknown: "+err.Error())
 		}
 		status = cur.Status
 	}
@@ -1292,7 +1333,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		return "cannot read the supervisor's screen: " + err.Error(), nil
 	}
 	if line != "" {
-		return supervisorLimited + line, nil
+		return hold(ctx, st, state.ReasonLimited, line, supervisorLimited+line)
 	}
 	events, err := wakeEvents(ctx, st, sup.WakeCursor)
 	if err != nil || len(events) == 0 {

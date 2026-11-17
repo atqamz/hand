@@ -36,7 +36,7 @@ func TestYourNotesAreYours(t *testing.T) {
 		t.Fatal(err)
 	}
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "notes", tl, `<article class="card from-you" data-role="operator"`, `<span class="who">you</span>`, "please look", `<span class="delivery">queued</span>`, "later please")
+	contains(t, "notes", tl, `<article class="card from-you" data-role="operator"`, `<span class="who">you</span>`, "please look", `<p class="meta delivery" data-state="queued">queued</p>`, "later please")
 }
 
 func TestHandLinesAreOneLine(t *testing.T) {
@@ -118,7 +118,7 @@ func TestAForcedMessageSaysTypedAnyway(t *testing.T) {
 	}
 	claudeLog(t, fx, []string{userRecord("hello there"), userRecord("plain one")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "delivery", tl, `id="msg-i1"`, `id="msg-i2"`, `<span class="delivery">typed anyway <time`, `<span class="delivery">delivered <time`)
+	contains(t, "delivery", tl, `id="msg-i1"`, `id="msg-i2"`, `data-state="delivered">typed anyway <time`, `data-state="delivered">delivered <time`)
 }
 
 func TestWakesGroup(t *testing.T) {

@@ -314,15 +314,25 @@ func scenes() []scene {
 	}
 	list := []scene{
 		{"f00000000e001", "empty", func(t *testing.T, fx *fixture) {}},
-		{"f00000000e002", "ready", supervised("idle", "", 510000, nil)},
+		{"f00000000e002", "ready", supervised("idle", "", 510000, func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			in, _ := fx.st.AddSupervisorInput(ctx, "status?")
+			_ = fx.st.DeliverSupervisorInput(ctx, in.ID, false)
+			_ = fx.st.AnswerSupervisorInput(ctx, in.ID, ago(199))
+		})},
 		{"f00000000e003", "working", supervised("working", "", 850000, func(t *testing.T, fx *fixture) {
-			_, _ = fx.st.AddSupervisorInput(context.Background(), "also check the nightly pipeline")
-			_, _ = fx.st.AddSupervisorInput(context.Background(), "and write the summary in the PR")
+			ctx := context.Background()
+			first, _ := fx.st.AddSupervisorInput(ctx, "also check the nightly pipeline")
+			_ = fx.st.DeliverSupervisorInput(ctx, first.ID, false)
+			_, _ = fx.st.AddSupervisorInput(ctx, "and write the summary in the PR")
+			_ = fx.st.HoldSupervisorInputs(ctx, state.ReasonTurn, ago(3))
 		})},
 		{"f00000000e004", "blocked", func(t *testing.T, fx *fixture) {
 			fx.screen = permission
 			supervised("blocked", "Esc to cancel · Tab to amend", 940000, func(t *testing.T, fx *fixture) {
 				fx.panes = map[string]string{"3": "blocked"}
+				_, _ = fx.st.AddSupervisorInput(context.Background(), "and add the retry to the nightly pipeline")
+				_ = fx.st.HoldSupervisorInputs(context.Background(), state.ReasonBlocked, "Esc to cancel · Tab to amend")
 				a, _ := fx.st.Attempts(context.Background(), 0, 10)
 				for _, x := range a {
 					if x.Status == state.AttemptRunning {
