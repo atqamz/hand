@@ -2316,22 +2316,33 @@ func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
 	}
 }
 
+func supervisorLimitedRows(t *testing.T, fx *attemptFixture) int {
+	t.Helper()
+	n := 0
+	for _, a := range alertRows(t, fx) {
+		if a.Kind == "supervisor.limited" {
+			n++
+		}
+	}
+	return n
+}
+
 func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
 	fx := newAttemptFixture(t)
-	notes := fakeNotify(t, fx)
+	fakeNotify(t, fx)
 	startClaudeSupervisor(fx.h)
 	fx.start()
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
-	stop := startWatch(t, fx, "--every", "1h")
+	stop := startWatch(t, fx, "--every", "200ms")
 	defer stop()
-	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
+	eventually(t, func() bool { return supervisorLimitedRows(t, fx) == 1 })
 	has(t, "switch", fx.h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "supervisor: s2", "switch: applied")
 	publishStatus(fx, supervisorPane(t, fx.h.ok("supervisor", "show")), "idle")
-	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 2 })
+	eventually(t, func() bool { return supervisorLimitedRows(t, fx) == 2 })
 }
 
 func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
