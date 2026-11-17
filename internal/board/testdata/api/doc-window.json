@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA0N2I5ODlhNDAxNmUxNjU1.Um1S-R2_sqwi4f7xvAx8VQ",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "path": "reports/t1/notes.txt",
+    "name": "notes.txt",
+    "from": 2,
+    "lines": [
+      "two"
+    ],
+    "next": 3
+  }
+}
+

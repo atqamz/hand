@@ -805,12 +805,12 @@ func TestAPIAllowsOnlyTheMethodsEachPathTakes(t *testing.T) {
 		if rt.Fallback {
 			continue
 		}
-		path := "/api/v1" + strings.ReplaceAll(rt.Path, "{id}", "x1")
+		path := "/api/v1" + strings.ReplaceAll(strings.ReplaceAll(rt.Path, "{id}", "x1"), "{path...}", "reports/x1")
 		if _, ok := takes[path]; !ok {
 			paths = append(paths, path)
 		}
 		takes[path] = append(takes[path], rt.Method)
-		if rt.Path != "" && !strings.Contains(rt.Path, "{id}") {
+		if rt.Path != "" && !strings.Contains(rt.Path, "{id}") && !strings.Contains(rt.Path, "{path...}") {
 			static[path] = true
 		}
 	}
@@ -3637,14 +3637,18 @@ var (
 
 func kotlinParams(t *testing.T, class string) []string {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join("..", "..", "android", "src-tauri", "gen", "android", "app", "src", "main", "java", "io", "github", "atqamz", "handcompanion", "Status.kt"))
+	return kotlinParamsIn(t, "Status.kt", "data class "+class+"(")
+}
+
+func kotlinParamsIn(t *testing.T, file, head string) []string {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join("..", "..", "android", "src-tauri", "gen", "android", "app", "src", "main", "java", "io", "github", "atqamz", "handcompanion", file))
 	if err != nil {
 		t.Fatal(err)
 	}
-	head := "data class " + class + "("
 	at := strings.Index(string(src), head)
 	if at < 0 {
-		t.Fatalf("Status.kt has no data class %s", class)
+		t.Fatalf("%s has no %s", file, head)
 	}
 	rest, depth, start := string(src)[at+len(head):], 1, 0
 	var out []string
@@ -3663,7 +3667,7 @@ func kotlinParams(t *testing.T, class string) []string {
 			}
 		}
 	}
-	t.Fatalf("Status.kt's data class %s has no closing paren", class)
+	t.Fatalf("%s's %s has no closing paren", file, head)
 	return nil
 }
 

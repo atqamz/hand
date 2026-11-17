@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQBjMWQ3NmFlNzhmNzUyMzQ.AzPF84bO4QSe95j_7jBzFw",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "path": "reports/t1/flow.png",
+    "name": "flow.png",
+    "kind": "image",
+    "text": false,
+    "size": 40,
+    "at": "2026-10-30T08:15:00Z",
+    "folder_page": 1
+  }
+}
+

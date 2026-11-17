@@ -65,6 +65,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
+| `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
+| `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
+| `GET /api/v1/doc/{path}?from=N` or `?lines=M` (either, or both) | `DocWindow`: those lines of a text file and where the next ones start | the viewer's text lines |
 | `GET /api/v1/task/{tN}` | `TaskDetail`: task, plan, delivered, waits, open and all decisions, unread and recent reports, attempts, events | `/task/tN` |
 | `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, model_note, duration, reports, events, delivered, transcript | `/attempt/aN` |
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
@@ -182,6 +185,51 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 ### `Projects.data`
 
 `projects` is every registered project's name, in the order the Tasks filter lists them, which is the board's project order (`ORDER BY name`). The filter itself appears only when the fleet has more than one project; the list does not depend on whether a project has tasks today.
+
+### Documents
+
+`/api/v1/doc/{path}` serves the Board's document viewer from the same code the page runs: the same `Resolve` and `openSame` confinement, the same refusals, the same folder order, page size and Previous and Next, the same file kinds and the same `?raw`. `{path}` is relative to the fleet folder and no answer carries a host path. The viewer refuses a file in the fleet folder itself, a dot name, `backups/`, `cache/`, `luvus/`, `locks/` and `projects/`, as well as `..`, a backslash, a NUL and a symlink that leaves the fleet folder or points at one of those. The root `/api/v1/doc/` is refused like the page's `/doc/`. A path with `..` or `//` spelled out is redirected by the router (`307`) before it reaches a handler, as the page's is. Percent-encoded forms are decoded first and judged as the page judges them (`%2e%2e` and `%5C` are refused, `%2F` is a slash).
+
+A folder answers `DocFolder`:
+
+```json
+{
+  "path": "reports/t1", "name": "t1", "kind": "folder", "at": "2026-10-30T08:15:00Z",
+  "entries": [
+    {"name": "sub", "path": "reports/t1/sub", "kind": "folder", "label": "DIR", "dir": true, "image": false, "at": "2026-10-30T08:15:00Z"},
+    {"name": "design.md", "path": "reports/t1/design.md", "kind": "file", "label": "MD", "dir": false, "image": false, "size": 303, "at": "2026-10-30T08:15:00Z"}
+  ],
+  "page": 1, "page_size": 500, "total": 13, "pages": 1
+}
+```
+
+`entries` are the Board's listing: folders first, then files, each group ordered by lower-case name and then by name; dot names are left out. `kind` is `folder`, `file` or `link` (a symlink); `label` is the badge the page prints (`DIR`, `LINK`, the extension in capitals, `FILE`); `dir` is true for a folder and for a link that resolves to one; `image` is true for the names the page shows as a thumbnail (`png`, `jpg`, `jpeg`, `webp`, `gif`). `size` (bytes) is present for a regular file only. `at` (RFC 3339 UTC) is the entry's own modification time, absent when it could not be read. A link the Board will not follow carries `refused` with the page's words (`leads outside the fleet folder`, `points at a file the Board never shows`, `points at something that is not a file or folder`, `points at nothing`, `cannot be read`) and no size. `page_size` is `500`, `total` is every entry and `pages` is `total` divided by `page_size`, rounded up, never below `1`; an empty folder is `200` with `"entries": []`. A `page` past the last one answers the last page and `page` says which; a `page` that is not a whole number from 1 is `400` with `bad_request`. An empty value is read as the default, as in the task search: `?page=` is page 1.
+
+A file answers `DocFile`:
+
+```json
+{
+  "path": "reports/t1/design.md", "name": "design.md", "kind": "markdown", "text": true,
+  "size": 303, "at": "2026-10-30T08:15:00Z",
+  "prev": {"name": "data.tsv", "path": "reports/t1/data.tsv"},
+  "next": {"name": "flow.png", "path": "reports/t1/flow.png"},
+  "folder_page": 1
+}
+```
+
+`kind` is what the viewer would draw, found from the file name and its first 8 KiB, as the page finds it. The page reads the whole file, so it may still show a text or not-text view for a file of that kind: a Markdown file that is not UTF-8 past the first 8 KiB gets the not-text notice, and a CSV or TSV that is empty or that the table refuses gets the text view. The kinds are `markdown` (a `.md` or `.markdown` text file of at most 1 MiB; a larger one is `text`, as the page shows it as source), `text`, `image` (`png`, `jpeg`, `webp` or `gif` bytes under a matching name), `svg`, `html`, `pdf`, `csv`, `tsv`, `video`, `audio` (the page's players) and `binary`. A Markdown file whose bytes past the first 8 KiB are not UTF-8 is still `markdown` here: its `?raw` is the file as it is, and what to show is the client's choice. `text` says the first 8 KiB read as text, so `from` and `lines` apply. `prev` and `next` are the files before and after this one in the folder's order, skipping folders and what the Board refuses; for an `image` they are images only, as the page's picture view has it. `folder_page` is the page of the folder's listing that holds the file.
+
+`?raw` answers the file's bytes with the headers the page's `?raw` sets: `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-cache`, a `sandbox; default-src 'none'` policy (HTML and SVG add the styles they need, HTML adds `frame-ancestors 'self'`), `Content-Disposition: attachment` for bytes that are not text, and the page's own `Content-Type` choice, which is `text/plain` for text with no better type and never the file's claim. It takes `Range` and `HEAD`. It is never the page's inlined `?frame`: `?raw&frame` is the same bytes, and `?frame` alone is `DocFile`. A folder has no bytes: `?raw` on one is `400`.
+
+`?from=N` and `?lines=M` read a text file by line, the way the page's text view reads it. Either one makes the answer a `DocWindow`, also with an empty value (`?from=` is the default window); `from` is a 1-based line number (default `1`) and `lines` the count wanted (default `500`, most `2000`; a larger value is the most). The answer is bounded by size too: the `lines` as JSON strings take at most 4 MiB (a control character or a byte that is not UTF-8 takes up to six bytes there), so a window can hold fewer lines than asked, and `next` says where it ended. A line is never split between two windows.
+
+```json
+{"path": "reports/t1/notes.txt", "name": "notes.txt", "from": 2, "lines": ["two"], "next": 3}
+```
+
+`lines` are the text as written, one string each, without the line end and with a trailing `\r` removed, so escape sequences, tabs and control characters arrive untouched and a client must draw them inert; bytes that are not UTF-8 arrive as U+FFFD. A line longer than 256 KiB is cut there and listed in `cut` as `{"line", "bytes"}` with the bytes left out, as the page's "more on this line" note says. `next` is the number of the first line after the window and is absent when the window reached the end of the file. `partial` is `true` when the last line has no line end yet, because the file is being written: a client that follows the file asks again from that line, not from `next`. An empty file answers `from: 1` with no lines. A `from` past the last line, a `from` or `lines` that is not a whole number from 1, a file that is not text and a folder are `400` with `bad_request`; the not-text sentence is the page's (`This file is not text, so the Board does not show it; download it to open it.`). `raw` wins when it is sent with a window. The file is read where the line starts, so a window far into a very large file costs a scan up to it.
+
+Refusals use the Board's own sentence in the error's `message`. A hidden, outside or special path is `403` with `forbidden`; a path that does not exist, or goes through a file, is `404` with `not_found`; a file that changed while it was opened is `409` with `conflict`. A link that leaves the fleet is refused as outside, and no message names where it led. The answers take no `?since=` and have no `304`: an answer's `cursor` fingerprints its data.
 
 ### Detail data
 
@@ -477,19 +525,19 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since` or `until`), or a mutation body it cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from` or `lines`), a window on a file that is not text or past its end, `?raw` or a window on a folder, or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
+| `403` | `forbidden` | a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `403` | `wrong_code` | `pair` with a code the board does not hold |
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |
 | `403` | `code_used` | `pair` with a code already redeemed |
 | `403` | `codes_cancelled` | `pair` was the tenth wrong code, so every code is cancelled |
-| `404` | `not_found` | an unknown route or ref |
+| `404` | `not_found` | an unknown route or ref, or a document path that does not exist |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
-| `409` | `conflict` | a state conflict while reading or acting |
+| `409` | `conflict` | a state conflict while reading or acting, or a document that changed while it was opened |
 | `413` | `too_large` | a page form only, answered with the page's HTML error page and not this shape: a `POST` over the board's 11 MiB post limit, refused by the page's guard before the route runs, or a file over 10 MiB on `POST /supervisor/image`; a v1 action reads at most 64 KiB of JSON and answers `400 bad_request` above that |
 | `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute, or `models/refresh` for a list inside its 30-second cooldown |
 | `500` | `internal` | any other failure |

@@ -84,11 +84,53 @@ func whyRefused(err error) string {
 	return "cannot be read"
 }
 
-func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]entry, *pager) {
+type member struct {
+	name, kind, refused, at string
+	dir, image, link        bool
+	size                    int64
+}
+
+func (b *Board) members(root, real string, f *os.File, rel string, page int) (out []member, at, pages, total int) {
 	items := readItems(f)
-	pages := max(1, (len(items)+folderPage-1)/folderPage)
-	page = min(max(page, 1), pages)
-	lo, hi := (page-1)*folderPage, min(page*folderPage, len(items))
+	pages = max(1, (len(items)+folderPage-1)/folderPage)
+	at = min(max(page, 1), pages)
+	lo, hi := (at-1)*folderPage, min(at*folderPage, len(items))
+	rt, err := os.OpenRoot(root)
+	if err == nil {
+		defer rt.Close()
+	}
+	out = make([]member, 0, hi-lo)
+	for _, it := range items[lo:hi] {
+		m := member{name: it.name, dir: it.dir, kind: "DIR", size: -1}
+		switch {
+		case it.link:
+			m.kind, m.link = "LINK", true
+			_, _, fi, err := Resolve(b.o.Home, rel+"/"+it.name)
+			if err != nil {
+				m.refused = whyRefused(err)
+				out = append(out, m)
+				continue
+			}
+			m.dir = fi.IsDir()
+			m.image = !m.dir && imageLike.MatchString(it.name)
+		case !it.dir:
+			m.kind, m.image = fileKind(it.name), imageLike.MatchString(it.name)
+		}
+		if rt != nil {
+			if info, err := rt.Lstat(filepath.Join(real, it.name)); err == nil {
+				m.at = info.ModTime().UTC().Format(time.RFC3339)
+				if info.Mode().IsRegular() {
+					m.size = info.Size()
+				}
+			}
+		}
+		out = append(out, m)
+	}
+	return out, at, pages, len(items)
+}
+
+func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]entry, *pager) {
+	ms, page, pages, total := b.members(root, real, f, rel, page)
 	self := docURL(b.o.Base, rel)
 	var pg *pager
 	if pages > 1 {
@@ -98,7 +140,7 @@ func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]
 			}
 			return fmt.Sprintf("%s?page=%d", self, n)
 		}
-		pg = &pager{Text: fmt.Sprintf("%s entries, page %d of %d", thousands(len(items)), page, pages), Self: self, Pages: pages}
+		pg = &pager{Text: fmt.Sprintf("%s entries, page %d of %d", thousands(total), page, pages), Self: self, Pages: pages}
 		if page > 1 {
 			pg.Prev = at(page - 1)
 		}
@@ -112,57 +154,36 @@ func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]
 			pg.Last = at(pages)
 		}
 	}
-	rt, err := os.OpenRoot(root)
-	if err == nil {
-		defer rt.Close()
-	}
-	out := make([]entry, 0, hi-lo)
-	for _, it := range items[lo:hi] {
-		e := entry{Name: it.name, Href: docURL(b.o.Base, rel+"/"+it.name), Dir: it.dir, Kind: "DIR"}
+	out := make([]entry, 0, len(ms))
+	for _, m := range ms {
+		e := entry{Name: m.name, Href: docURL(b.o.Base, rel+"/"+m.name), Dir: m.dir, Kind: m.kind, Image: m.image, At: m.at, Refused: m.refused}
 		e.Thumb = e.Href
-		switch {
-		case it.link:
-			e.Kind = "LINK"
-			_, _, fi, err := Resolve(b.o.Home, rel+"/"+it.name)
-			if err != nil {
-				e.Href, e.Refused = "", whyRefused(err)
-				out = append(out, e)
-				continue
-			}
-			e.Dir = fi.IsDir()
-			e.Image = !e.Dir && imageLike.MatchString(it.name)
-		case !it.dir:
-			e.Kind, e.Image = fileKind(it.name), imageLike.MatchString(it.name)
-		}
-		if e.Image {
+		if m.refused != "" {
+			e.Href = ""
+		} else if m.image {
 			e.Href += "?view"
 		}
-		if rt != nil {
-			if info, err := rt.Lstat(filepath.Join(real, it.name)); err == nil {
-				e.At = info.ModTime().UTC().Format(time.RFC3339)
-				if info.Mode().IsRegular() {
-					e.Size = size(info.Size())
-				}
-			}
+		if m.size >= 0 {
+			e.Size = size(m.size)
 		}
 		out = append(out, e)
 	}
 	return out, pg
 }
 
-func (b *Board) around(root, rel string, images bool, tail string, source bool) (prev, next *step, page int) {
+func (b *Board) neighbours(root, rel string, images bool) (prev, next string, page int) {
 	dir, name := path.Split(rel)
 	d, err := os.OpenInRoot(root, filepath.FromSlash(path.Clean(dir)))
 	if err != nil {
-		return nil, nil, 1
+		return "", "", 1
 	}
 	defer d.Close()
 	items := readItems(d)
 	i := slices.IndexFunc(items, func(it item) bool { return it.name == name })
 	if i < 0 {
-		return nil, nil, 1
+		return "", "", 1
 	}
-	pick := func(from, by int) *step {
+	pick := func(from, by int) string {
 		for j := from; j >= 0 && j < len(items); j += by {
 			it := items[j]
 			if it.dir || images && !imageLike.MatchString(it.name) {
@@ -171,15 +192,30 @@ func (b *Board) around(root, rel string, images bool, tail string, source bool) 
 			if _, _, fi, err := Resolve(b.o.Home, dir+it.name); err != nil || fi.IsDir() {
 				continue
 			}
-			href := docURL(b.o.Base, dir+it.name)
-			if imageLike.MatchString(it.name) {
-				href += tail
-			} else if source && isMarkdown(it.name) {
-				href += "?as=text"
-			}
-			return &step{it.name, href}
+			return it.name
 		}
-		return nil
+		return ""
 	}
 	return pick(i-1, -1), pick(i+1, 1), i/folderPage + 1
+}
+
+func (b *Board) around(root, rel string, images bool, tail string, source bool) (prev, next *step, page int) {
+	p, n, page := b.neighbours(root, rel, images)
+	dir := path.Dir(rel) + "/"
+	if dir == "./" {
+		dir = ""
+	}
+	at := func(name string) *step {
+		if name == "" {
+			return nil
+		}
+		href := docURL(b.o.Base, dir+name)
+		if imageLike.MatchString(name) {
+			href += tail
+		} else if source && isMarkdown(name) {
+			href += "?as=text"
+		}
+		return &step{name, href}
+	}
+	return at(p), at(n), page
 }
