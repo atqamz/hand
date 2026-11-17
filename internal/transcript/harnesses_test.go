@@ -771,3 +771,62 @@ func TestCodexStatusKeepsTheEffortOfAnUnchangedModel(t *testing.T) {
 		t.Fatalf("after a model change status = %+v", s)
 	}
 }
+
+func TestAShortReplyBeforeAToolCallIsTheFirstReplyForEveryHarness(t *testing.T) {
+	want := []string{"operator: go", "supervisor: On it.", "supervisor: Done, a2 runs."}
+	t.Run("codex", func(t *testing.T) {
+		home := t.TempDir()
+		line := func(ts, payload string) string {
+			return `{"timestamp":"2026-09-28T01:00:` + ts + `Z","type":"response_item","payload":` + payload + `}` + "\n"
+		}
+		msg := func(role, kind, text string) string {
+			return `{"type":"message","role":"` + role + `","content":[{"type":"` + kind + `","text":"` + text + `"}]}`
+		}
+		body := meta("codex-2") + line("01", msg("user", "input_text", "go")) + line("02", msg("assistant", "output_text", "On it.")) +
+			line("03", `{"type":"function_call","name":"shell","arguments":"{}"}`) + line("04", msg("assistant", "output_text", "Reading.")) +
+			line("05", msg("assistant", "output_text", "Done, a2 runs.")) + `{"timestamp":"2026-09-28T01:00:06Z","type":"event_msg","payload":{"type":"task_complete"}}` + "\n"
+		rollout(t, home, "rollout-2026-09-28T01-00-00-codex-2.jsonl", body)
+		got, err := (&Reader{Paths: Paths{Codex: home}}).Read(context.Background(), "codex", "codex-2", "/fleets/demo")
+		if err != nil || !slices.Equal(texts(got), want) || got[1].At != "2026-09-28T01:00:02Z" {
+			t.Fatalf("entries = %q, %v", texts(got), err)
+		}
+	})
+	t.Run("omp", func(t *testing.T) {
+		home := t.TempDir()
+		msg := func(ts, role, text, stop string) string {
+			return `{"type":"message","timestamp":"2026-09-28T01:00:` + ts + `Z","message":{"role":"` + role + `","stopReason":"` + stop + `","content":[{"type":"text","text":"` + text + `"}]}}` + "\n"
+		}
+		body := `{"type":"session","version":3,"id":"omp-2","timestamp":"2026-09-28T01:00:00Z","cwd":"/fleets/demo"}` + "\n" +
+			msg("01", "user", "go", "") + msg("02", "assistant", "On it.", "toolUse") + msg("03", "assistant", "Reading.", "toolUse") + msg("04", "assistant", "Done, a2 runs.", "stop")
+		ompSession(t, home, "omp-2", body)
+		got, err := (&Reader{Paths: Paths{Omp: home}}).Read(context.Background(), "omp", "omp-2", "/fleets/demo")
+		if err != nil || !slices.Equal(texts(got), want) || got[1].At != "2026-09-28T01:00:02Z" {
+			t.Fatalf("entries = %q, %v", texts(got), err)
+		}
+	})
+	t.Run("opencode", func(t *testing.T) {
+		export := `{"messages":[` +
+			`{"info":{"role":"user","time":{"created":1790570000000}},"parts":[{"type":"text","text":"go"}]},` +
+			`{"info":{"role":"assistant","finish":"tool-calls","time":{"created":1790570001000}},"parts":[{"type":"text","text":"On it."}]},` +
+			`{"info":{"role":"assistant","finish":"tool-calls","time":{"created":1790570002000}},"parts":[{"type":"text","text":"Reading."}]},` +
+			`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570003000}},"parts":[{"type":"text","text":"Done, a2 runs."}]}]}`
+		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"count": filepath.Join(t.TempDir(), "count"), "export": export})
+		got, err := (&Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}).Read(context.Background(), "opencode", "ses_1", t.TempDir())
+		if err != nil || !slices.Equal(texts(got), want) {
+			t.Fatalf("entries = %q, %v", texts(got), err)
+		}
+	})
+	t.Run("claude", func(t *testing.T) {
+		line := func(ts, role, stop, text string) string {
+			if role == "user" {
+				return `{"type":"user","timestamp":"2026-09-28T01:00:` + ts + `Z","message":{"role":"user","content":"` + text + `"}}`
+			}
+			return `{"type":"assistant","timestamp":"2026-09-28T01:00:` + ts + `Z","message":{"role":"assistant","stop_reason":"` + stop + `","content":[{"type":"text","text":"` + text + `"}]}}`
+		}
+		home, _ := claudeHome(t, strings.Join([]string{line("01", "user", "", "go"), line("02", "assistant", "tool_use", "On it."), line("03", "assistant", "tool_use", "Reading."), line("04", "assistant", "end_turn", "Done, a2 runs.")}, "\n")+"\n")
+		got, err := (&Reader{Paths: Paths{Claude: home}}).Read(context.Background(), "claude", sessionUUID, "/fleets/demo")
+		if err != nil || !slices.Equal(texts(got), want) {
+			t.Fatalf("entries = %q, %v", texts(got), err)
+		}
+	})
+}

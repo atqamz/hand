@@ -53,11 +53,60 @@ func (s Supervisor) Managed(generation string) bool {
 }
 
 type SupervisorInput struct {
-	ID          int64
-	Body        string
-	CreatedAt   string
-	DeliveredAt string
-	Typed       bool
+	ID           int64
+	Body         string
+	CreatedAt    string
+	DeliveredAt  string
+	AnsweredAt   string
+	Reason       string
+	ReasonDetail string
+	Typed        bool
+}
+
+const (
+	ReasonBlocked      = "blocked"
+	ReasonLimited      = "limited"
+	ReasonLost         = "lost"
+	ReasonSwitching    = "switching"
+	ReasonTurn         = "turn"
+	ReasonNoSupervisor = "no_supervisor"
+	ReasonHeld         = "held"
+)
+
+var InputReasons = []string{ReasonBlocked, ReasonLimited, ReasonLost, ReasonSwitching, ReasonTurn, ReasonNoSupervisor, ReasonHeld}
+
+func (in SupervisorInput) Status() string {
+	switch {
+	case in.AnsweredAt != "":
+		return "answered"
+	case in.DeliveredAt != "":
+		return "delivered"
+	}
+	return "queued"
+}
+
+func ReasonText(code, detail string) string {
+	switch code {
+	case ReasonNoSupervisor:
+		return "no supervisor"
+	case ReasonSwitching:
+		return "switching to " + detail
+	case ReasonTurn:
+		if at, err := time.Parse(time.RFC3339Nano, detail); err == nil {
+			return "working since last delivery " + at.UTC().Format("15:04") + " UTC"
+		}
+		return "turn"
+	case ReasonBlocked, ReasonLimited, ReasonLost:
+		return strings.TrimSpace(code + ": " + detail)
+	}
+	return detail
+}
+
+func (in SupervisorInput) Keys() []string {
+	if in.DeliveredAt == "" && in.Reason == ReasonBlocked {
+		return SupervisorKeys
+	}
+	return nil
 }
 
 func SupervisorRef(id int64) string { return "s" + strconv.FormatInt(id, 10) }
@@ -421,14 +470,16 @@ func (s *Store) NoteSupervisor(ctx context.Context, id int64, kind, detail strin
 	})
 }
 
-const deliveredInputs = `SELECT id, body, created_at, delivered_at, ('i' || id || ': typed') IN (SELECT detail FROM event WHERE kind = 'supervisor.delivered') FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`
+const inputColumns = `id, body, created_at, delivered_at, answered_at, reason, reason_detail`
+
+const deliveredInputs = `SELECT ` + inputColumns + `, ('i' || id || ': typed') IN (SELECT detail FROM event WHERE kind = 'supervisor.delivered') FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`
 
 func (s *Store) DeliveredSupervisorInputs(ctx context.Context, limit int) ([]SupervisorInput, error) {
 	return s.inputs(ctx, deliveredInputs, limit)
 }
 
 func (s *Store) PendingSupervisorInputs(ctx context.Context) ([]SupervisorInput, error) {
-	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at, 0 FROM supervisor_input WHERE delivered_at = '' ORDER BY id`)
+	return s.inputs(ctx, `SELECT `+inputColumns+`, 0 FROM supervisor_input WHERE delivered_at = '' ORDER BY id`)
 }
 
 func (s *Store) inputs(ctx context.Context, q string, args ...any) ([]SupervisorInput, error) {
@@ -440,7 +491,7 @@ func (s *Store) inputs(ctx context.Context, q string, args ...any) ([]Supervisor
 	var out []SupervisorInput
 	for rows.Next() {
 		var in SupervisorInput
-		if err := rows.Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt, &in.Typed); err != nil {
+		if err := rows.Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt, &in.AnsweredAt, &in.Reason, &in.ReasonDetail, &in.Typed); err != nil {
 			return nil, err
 		}
 		out = append(out, in)
@@ -450,7 +501,7 @@ func (s *Store) inputs(ctx context.Context, q string, args ...any) ([]Supervisor
 
 func (s *Store) SupervisorInput(ctx context.Context, id int64) (SupervisorInput, error) {
 	var in SupervisorInput
-	err := s.db.QueryRowContext(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE id = ?`, id).Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt)
+	err := s.db.QueryRowContext(ctx, `SELECT `+inputColumns+` FROM supervisor_input WHERE id = ?`, id).Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt, &in.AnsweredAt, &in.Reason, &in.ReasonDetail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SupervisorInput{}, fmt.Errorf("%w: input %s", ErrNotFound, inputRef(id))
 	}
@@ -460,7 +511,7 @@ func (s *Store) SupervisorInput(ctx context.Context, id int64) (SupervisorInput,
 func (s *Store) DeliverSupervisorInput(ctx context.Context, inputID int64, typed bool) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		now := s.stamp()
-		res, err := tx.Exec(`UPDATE supervisor_input SET delivered_at = ? WHERE id = ? AND delivered_at = ''`, now, inputID)
+		res, err := tx.Exec(`UPDATE supervisor_input SET delivered_at = ?, reason = '', reason_detail = '' WHERE id = ? AND delivered_at = ''`, now, inputID)
 		if err != nil {
 			return err
 		}
@@ -475,6 +526,62 @@ func (s *Store) DeliverSupervisorInput(ctx context.Context, inputID int64, typed
 		}
 		return emit(tx, now, "supervisor.delivered", 0, detail)
 	})
+}
+
+func (s *Store) HoldSupervisorInputs(ctx context.Context, reason, detail string) error {
+	if !slices.Contains(InputReasons, reason) {
+		return fmt.Errorf("%w: input reason %q must be one of %s", ErrInvalid, reason, strings.Join(InputReasons, ", "))
+	}
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.Query(`SELECT id FROM supervisor_input WHERE delivered_at = '' AND (reason != ? OR reason_detail != ?) ORDER BY id`, reason, detail)
+		if err != nil {
+			return err
+		}
+		var refs []string
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			refs = append(refs, inputRef(id))
+		}
+		if err := rows.Close(); err != nil || len(refs) == 0 {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE supervisor_input SET reason = ?, reason_detail = ? WHERE delivered_at = ''`, reason, detail); err != nil {
+			return err
+		}
+		return emit(tx, s.stamp(), "supervisor.held", 0, strings.Join(refs, ", ")+": "+strings.TrimSuffix(reason+": "+detail, ": "))
+	})
+}
+
+func (s *Store) AnswerSupervisorInput(ctx context.Context, inputID int64, at string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE supervisor_input SET answered_at = ? WHERE id = ? AND delivered_at != '' AND answered_at = ''`, at, inputID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return fmt.Errorf("%w: input %s is not delivered, is already answered or does not exist", ErrConflict, inputRef(inputID))
+		}
+		return emit(tx, s.stamp(), "supervisor.answered", 0, inputRef(inputID))
+	})
+}
+
+func (s *Store) TurnSince(ctx context.Context, sup Supervisor) (string, error) {
+	e, ok, err := s.LatestEvent(ctx, "supervisor.delivered")
+	if err != nil || !ok {
+		return sup.CreatedAt, err
+	}
+	at, e1 := time.Parse(time.RFC3339Nano, e.At)
+	born, e2 := time.Parse(time.RFC3339Nano, sup.CreatedAt)
+	if e1 != nil || e2 != nil || at.Before(born) {
+		return sup.CreatedAt, nil
+	}
+	return e.At, nil
 }
 
 func (s *Store) AdvanceWakeCursor(ctx context.Context, supervisorID, seq int64) error {

@@ -128,6 +128,10 @@ func TestClaudeTranscriptIsCalm(t *testing.T) {
 		{Role: "hand", Text: "wake: attempt.reported a1: r1 done", At: "2026-09-28T01:00:12.000Z"},
 		{Role: "operator", Text: "hello there", At: "2026-09-28T01:00:14.000Z"},
 		{Role: "hand", Text: "context compacted", At: "2026-09-28T01:00:16.000Z"},
+		{Role: "operator", Text: "Dispatch t2.", At: "2026-09-28T01:00:20.000Z"},
+		{Role: "supervisor", Text: "On it, dispatching t2.", At: "2026-09-28T01:00:21.000Z"},
+		{Role: "supervisor", Text: "Dispatched a2.", At: "2026-09-28T01:00:23.000Z"},
+		{Role: "hand", Text: "wake: attempt.idle a1", At: "2026-09-28T01:00:30.000Z"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("entries =\n%+v\nwant\n%+v", got, want)

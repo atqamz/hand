@@ -59,15 +59,13 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 	if err != nil {
 		return v, err
 	}
-	sent := map[string][]state.SupervisorInput{}
-	for _, in := range delivered {
-		sent[strings.TrimSpace(in.Body)] = append(sent[strings.TrimSpace(in.Body)], in)
+	sent, byID := make([]transcript.Sent, len(delivered)), map[int64]state.SupervisorInput{}
+	for i, in := range delivered {
+		sent[i], byID[in.ID] = transcript.Sent{ID: in.ID, Body: in.Body, CreatedAt: in.CreatedAt}, in
 	}
 	paired := map[int]state.SupervisorInput{}
-	for i := len(entries) - 1; i >= 0; i-- {
-		if k := strings.TrimSpace(entries[i].Text); entries[i].Role == "operator" && len(sent[k]) > 0 {
-			paired[i], sent[k] = sent[k][0], sent[k][1:]
-		}
+	for id, i := range transcript.Pair(entries, sent) {
+		paired[i] = byID[id]
 	}
 	models := map[string]string{}
 	for _, s := range sups {
@@ -82,10 +80,7 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 		no++
 		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
 		if in, ok := paired[i]; ok {
-			d.Input, d.Delivered, d.Delivery = in.ID, in.DeliveredAt, "delivered"
-			if in.Typed {
-				d.Delivery = "typed anyway"
-			}
+			d.track(in)
 		}
 		all = append(all, d)
 	}
@@ -105,8 +100,21 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 		}
 	}
 	all = groupWakes(all)
+	took, latest := map[int64]bool{}, int64(0)
+	for _, in := range paired {
+		took[in.ID], latest = true, max(latest, in.ID)
+	}
+	for _, in := range slices.Backward(delivered) {
+		if !took[in.ID] && in.AnsweredAt == "" && in.ID > latest && (sv.Agent == "working" || b.now().Sub(parse(in.DeliveredAt)) < unreadGrace) {
+			d := chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt}}
+			d.track(in)
+			all = append(all, d)
+		}
+	}
 	for _, in := range pending {
-		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}, Input: in.ID, Delivery: "queued"})
+		d := chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}}
+		d.track(in)
+		all = append(all, d)
 	}
 	for i := range all {
 		if all[i].Role == "operator" {

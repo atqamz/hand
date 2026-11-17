@@ -314,15 +314,25 @@ func scenes() []scene {
 	}
 	list := []scene{
 		{"f00000000e001", "empty", func(t *testing.T, fx *fixture) {}},
-		{"f00000000e002", "ready", supervised("idle", "", 510000, nil)},
+		{"f00000000e002", "ready", supervised("idle", "", 510000, func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			in, _ := fx.st.AddSupervisorInput(ctx, "status?")
+			_ = fx.st.DeliverSupervisorInput(ctx, in.ID, false)
+			_ = fx.st.AnswerSupervisorInput(ctx, in.ID, ago(199))
+		})},
 		{"f00000000e003", "working", supervised("working", "", 850000, func(t *testing.T, fx *fixture) {
-			_, _ = fx.st.AddSupervisorInput(context.Background(), "also check the nightly pipeline")
-			_, _ = fx.st.AddSupervisorInput(context.Background(), "and write the summary in the PR")
+			ctx := context.Background()
+			first, _ := fx.st.AddSupervisorInput(ctx, "also check the nightly pipeline")
+			_ = fx.st.DeliverSupervisorInput(ctx, first.ID, false)
+			_, _ = fx.st.AddSupervisorInput(ctx, "and write the summary in the PR")
+			_ = fx.st.HoldSupervisorInputs(ctx, state.ReasonTurn, ago(3))
 		})},
 		{"f00000000e004", "blocked", func(t *testing.T, fx *fixture) {
 			fx.screen = permission
 			supervised("blocked", "Esc to cancel · Tab to amend", 940000, func(t *testing.T, fx *fixture) {
 				fx.panes = map[string]string{"3": "blocked"}
+				_, _ = fx.st.AddSupervisorInput(context.Background(), "and add the retry to the nightly pipeline")
+				_ = fx.st.HoldSupervisorInputs(context.Background(), state.ReasonBlocked, "Esc to cancel · Tab to amend")
 				a, _ := fx.st.Attempts(context.Background(), 0, 10)
 				for _, x := range a {
 					if x.Status == state.AttemptRunning {
@@ -579,6 +589,26 @@ func scenes() []scene {
 			blockedWorker(t, fx, "Pick the release channel")
 			fx.screen = "Release channel?\n❯ ◉ Stable\n  ◯ Beta\n  ◯ Nightly\n\n↑/↓ select · enter to confirm · esc cancel"
 		})},
+		{"f00000000e01a", "reply-first", func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			fx.status = "working"
+			fx.supervisor(t, state.AttemptRunning, "gen-1")
+			baseTasks(t, fx)
+			toolReply := func(at time.Time, text string) string {
+				b, _ := json.Marshal(text)
+				return `{"type":"assistant","timestamp":"` + at.Format(time.RFC3339) + `","message":{"model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"text","text":` + string(b) + `},{"type":"tool_use","id":"t9","name":"Bash","input":{"command":"hand attempt start"}}]}}`
+			}
+			asked := frozen.Add(-3 * time.Minute)
+			first := asked.Add(12 * time.Second)
+			claudeLog(t, fx, append(chatLines(t, fx, 600000),
+				rec("user", asked.Format(time.RFC3339), "start t4 and tell me when it runs", 0),
+				toolReply(first, "On it: I am starting t4 now and will tell you when a4 runs."),
+				toolReply(first.Add(20*time.Second), "Reading the brief for t4."),
+			))
+			in, _ := fx.st.AddSupervisorInput(ctx, "start t4 and tell me when it runs")
+			_ = fx.st.DeliverSupervisorInput(ctx, in.ID, false)
+			_ = fx.st.AnswerSupervisorInput(ctx, in.ID, first.Format(time.RFC3339))
+		}},
 		{"f00000000e011", "decisions", func(t *testing.T, fx *fixture) {
 			ctx := context.Background()
 			fx.status = "idle"

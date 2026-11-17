@@ -31,6 +31,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - The conversation is read from each harness's own session record, filtered with calm rules:
   - final replies always;
   - substantive mid-turn text;
+  - the first text after an operator message, however short, so a reply before a tool call shows;
   - never tool calls or thinking.
 
   Nothing is installed into, or changed in, any harness.

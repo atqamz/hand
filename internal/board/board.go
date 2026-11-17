@@ -48,6 +48,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"refs":     markdown.Refs,
 	"inline":   markdown.Inline,
 	"when":     when,
+	"reason":   state.ReasonText,
 	"until":    func(t time.Time) string { return t.UTC().Format("Jan 2") },
 	"options":  options,
 	"prose":    prose,
