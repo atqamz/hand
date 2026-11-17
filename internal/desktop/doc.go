@@ -241,9 +241,6 @@ func (a *App) openDocLink(dest string) bool {
 }
 
 func (a *App) docLink(dest string) (string, bool) {
-	if strings.ContainsAny(dest, "\\\x00") {
-		return "", false
-	}
 	if rel, ok := a.docRel(dest); ok {
 		return rel, true
 	}

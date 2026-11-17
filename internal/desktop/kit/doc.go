@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 const (
@@ -94,4 +95,17 @@ func DocStep(c *ui.Context, k Colors, name string, next bool) bool {
 		ui.Text(c, name).FontSize(Meta.Size).TextColor(k.Muted).SingleLine().Ellipsis("…").MinWidth(0)
 	})
 	return el.Clicked()
+}
+
+func DocTheme(c *ui.Context) *markdown.Theme {
+	th := &markdown.Theme{FontSize: Message.Size, LineHeight: Message.Line / Message.Size}
+	for i := range th.Headings {
+		size, top := float32(1), float32(Space16)
+		if i < 2 {
+			size, top = Heading.Size/Message.Size, Space24
+		}
+		th.Headings[i] = markdown.HeadingStyle{Size: size, Weight: 600, Color: c.Theme().Text,
+			Top: top / Message.Size, Bottom: Space4 / Message.Size}
+	}
+	return th
 }

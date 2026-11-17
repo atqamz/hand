@@ -2,10 +2,12 @@ package kit
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 func cssRule(t *testing.T, selector string) string {
@@ -86,4 +88,86 @@ func TestDocStepMatchesTheBoardsNav(t *testing.T) {
 	if got := rect(t, tt, "host").H; got != Control {
 		t.Errorf("the step link is %v tall, want %v", got, Control)
 	}
+}
+
+func cssDecl(t *testing.T, selector, prop string) string {
+	t.Helper()
+	m := regexp.MustCompile(`(?:^|;)` + regexp.QuoteMeta(prop) + `:([^;]+)`).FindStringSubmatch(cssRule(t, selector))
+	if m == nil {
+		t.Fatalf("%s has no %s", selector, prop)
+	}
+	return m[1]
+}
+
+func cssPx(t *testing.T, v string) float32 {
+	t.Helper()
+	v = strings.TrimSpace(v)
+	if name, ok := strings.CutSuffix(strings.TrimPrefix(v, "var(--"), ")"); ok && strings.HasPrefix(v, "var(--") {
+		if n, ok := lengths[name]; ok {
+			return n
+		}
+	}
+	if n, ok := strings.CutSuffix(v, "px"); ok {
+		f, err := strconv.ParseFloat(n, 32)
+		if err == nil {
+			return float32(f)
+		}
+	}
+	if v == "0" {
+		return 0
+	}
+	t.Fatalf("cannot read %q as a length", v)
+	return 0
+}
+
+func TestDocThemeMatchesTheBoardsDocumentHeadings(t *testing.T) {
+	bottom := cssPx(t, strings.Fields(cssDecl(t, ".md h3,.md h4", "margin"))[2])
+	weight := cssDecl(t, ".md h3,.md h4", "font-weight")
+	levels := []struct {
+		selector string
+		heads    []string
+		first    int
+	}{{".doc-body h3", []string{"Hone", "Htwo"}, 0}, {".doc-body h4", []string{"Hthree", "Hfour"}, 2}}
+	src := "alpha\n\n# Hone\n\nbeta\n\n## Htwo\n\ngamma\n\n### Hthree\n\ndelta\n\n#### Hfour\n\nepsilon\n"
+	var th *markdown.Theme
+	tt := ui.NewTester(func(c *ui.Context) {
+		th = DocTheme(c)
+		ui.Column(c).Width(600).Children(func() { markdown.View(c, src, &markdown.Options{Theme: th}) })
+	}, 700, 900)
+	order := []string{"alpha", "Hone", "beta", "Htwo", "gamma", "Hthree", "delta", "Hfour", "epsilon"}
+	rects := map[string]ui.Rect{}
+	for _, w := range order {
+		rects[w] = rect(t, tt, w)
+	}
+	near := func(what string, got, want float32) {
+		t.Helper()
+		if got < want-.5 || got > want+.5 {
+			t.Errorf("%s is %v, want %v", what, got, want)
+		}
+	}
+	for _, lv := range levels {
+		size := cssPx(t, cssDecl(t, lv.selector, "font-size"))
+		top := cssPx(t, cssDecl(t, lv.selector, "margin-top"))
+		for i, head := range lv.heads {
+			style := th.Headings[lv.first+i]
+			near(head+" font size", style.Size*th.FontSize, size)
+			if strconv.Itoa(style.Weight) != strings.TrimSpace(weight) {
+				t.Errorf("%s weight is %d, want %s", head, style.Weight, weight)
+			}
+			at := indexOf(order, head)
+			above, below := rects[order[at-1]], rects[order[at+1]]
+			r := rects[head]
+			near(head+" gap above", r.Y-(above.Y+above.H), top)
+			near(head+" gap below", below.Y-(r.Y+r.H), bottom)
+		}
+	}
+}
+
+func indexOf(list []string, s string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
 }
