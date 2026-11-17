@@ -12,6 +12,8 @@ import (
 
 const shotRetry = 30 * time.Second
 
+var shotBudget = 48 << 20
+
 type shotState struct {
 	bmp    *ui.Bitmap
 	failed time.Time
@@ -69,6 +71,11 @@ func (a *App) pumpShots() {
 	}
 	name := a.shotQueue[0]
 	a.shotQueue = a.shotQueue[1:]
+	if a.shotPix >= shotBudget {
+		a.shots[name].done = true
+		a.pumpShots()
+		return
+	}
 	a.shotBusy = true
 	gen, fleet, model, timeout := a.shotGen, a.Fleet.ID, a.Model, a.pollTimeout()
 	a.offload(func() func() {
@@ -85,7 +92,11 @@ func (a *App) pumpShots() {
 			}
 			a.shotBusy = false
 			st := a.shots[name]
-			st.bmp, st.done = bmp, true
+			st.done = true
+			if w, h := ui.ImageSize(bmp); bmp != nil && a.shotPix+int(w*h) <= shotBudget {
+				st.bmp = bmp
+				a.shotPix += int(w * h)
+			}
 			if err != nil {
 				st.failed = a.now()
 			}

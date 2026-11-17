@@ -8,6 +8,7 @@ import (
 
 const (
 	AttachMax  = 280
+	ChipRowMax = 160
 	ShotWidth  = 240
 	ShotHeight = 180
 	dropChars  = 44
@@ -89,7 +90,9 @@ func IconButton(c *ui.Context, k Colors, key, label, icon string) bool {
 }
 
 func ChipRow(c *ui.Context, chips func()) {
-	ui.Row(c).Wrap().AlignItems(ui.Start).Gap(Space6).Padding(Space2, Space6, Space8).Label("Attachments").Children(chips)
+	ui.Scroll(c.Key("chips")).MaxHeight(ChipRowMax).Children(func() {
+		ui.Row(c).Wrap().AlignItems(ui.Start).Gap(Space6).Padding(Space2, Space6, Space8).Label("Attachments").Children(chips)
+	})
 }
 
 func SentFile(c *ui.Context, k Colors, key, badge, name, meta string, missing bool) bool {

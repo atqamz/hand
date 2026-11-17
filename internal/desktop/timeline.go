@@ -236,6 +236,13 @@ func (a *App) timelineEntries(c *ui.Context, k kit.Colors, p palette, column flo
 		a.working(c, p)
 		return
 	}
+	for _, e := range a.Timeline.Entries {
+		for _, s := range e.Shots {
+			if s.Image && !s.Missing && inboxName.MatchString(s.Name) {
+				a.shotFor(s.Name)
+			}
+		}
+	}
 	measure := kit.MeasureOf(c)
 	quiet := false
 	for _, r := range timelineRows(a.Timeline.Entries) {

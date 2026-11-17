@@ -150,6 +150,7 @@ type App struct {
 	shots     map[string]*shotState
 	shotQueue []string
 	shotBusy  bool
+	shotPix   int
 	shotGen   int
 
 	Draft     string
@@ -481,7 +482,7 @@ func (a *App) SelectFleet(id string) {
 	if a.writer != nil {
 		a.writer.Flush()
 	}
-	a.shots, a.shotQueue, a.shotBusy = nil, nil, false
+	a.shots, a.shotQueue, a.shotBusy, a.shotPix = nil, nil, false, 0
 	a.shotGen++
 	if was != a.Fleet.ID || a.Draft == "" {
 		a.Draft = a.drafts().Load(a.Fleet.ID)
@@ -1137,7 +1138,8 @@ func ackedReports(have []Report, ref string, r Report) []Report {
 
 func (a *App) Send() {
 	text := a.Draft
-	sentIDs, names := a.readyChips()
+	_, names := a.readyChips()
+	sentIDs := a.settledChips()
 	prose := strings.TrimSpace(text) != ""
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.attaching() > 0 || !prose && len(names) == 0 {
 		return
@@ -1156,9 +1158,7 @@ func (a *App) Send() {
 		if a.Fleet.ID == fleet && a.Draft == text {
 			a.Draft, a.draftAt, a.draftRestored = "", time.Time{}, false
 		}
-		if a.Fleet.ID == fleet && a.chipGen == gen {
-			a.sentChips(sentIDs)
-		}
+		a.sentChips(gen, fleet, sentIDs, names)
 		if id != a.loadID {
 			return
 		}

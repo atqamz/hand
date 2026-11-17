@@ -276,19 +276,30 @@ func (a *App) chipsChanged() {
 	}
 }
 
-func (a *App) sentChips(ids []int) {
-	kept := a.Chips[:0:0]
+func (a *App) settledChips() []int {
+	var ids []int
 	for _, ch := range a.Chips {
-		sent := false
-		for _, id := range ids {
-			sent = sent || ch.id == id
-		}
-		if !sent && ch.state != chipFailed {
-			kept = append(kept, ch)
+		if ch.state == chipReady || ch.state == chipFailed {
+			ids = append(ids, ch.id)
 		}
 	}
-	a.Chips = kept
-	a.chipsChanged()
+	return ids
+}
+
+func (a *App) sentChips(gen int, fleet string, ids []int, names []string) {
+	if a.Fleet.ID == fleet && a.chipGen == gen {
+		a.Chips = slices.DeleteFunc(a.Chips, func(ch chip) bool { return slices.Contains(ids, ch.id) })
+		a.chipsChanged()
+		return
+	}
+	drafts := a.drafts()
+	if err := drafts.SaveFiles(fleet, slices.DeleteFunc(drafts.LoadFiles(fleet), func(f InboxFile) bool { return slices.Contains(names, f.Name) })); err != nil {
+		a.DraftErr = "the draft was not saved: " + friendly(err)
+	}
+	if a.Fleet.ID == fleet {
+		a.Chips = slices.DeleteFunc(a.Chips, func(ch chip) bool { return ch.state != chipFailed && slices.Contains(names, ch.file.Name) })
+		a.chipsChanged()
+	}
 }
 
 func (a *App) PickFiles() {

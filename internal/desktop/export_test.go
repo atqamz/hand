@@ -71,3 +71,9 @@ func DocShown(a *App) string {
 	}
 	return ""
 }
+
+func SetShotBudget(n int) func() {
+	old := shotBudget
+	shotBudget = n
+	return func() { shotBudget = old }
+}

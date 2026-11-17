@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 const (
@@ -829,5 +830,118 @@ func TestScenesTheNarrowWindowKeepsTheChips(t *testing.T) {
 			}
 			shotSized(t, tt, "76-attach-narrow-820x700-"+theme(dark), 820, 700)
 		})
+	}
+}
+
+func TestASendFinishingAfterAFleetSwitchRemovesItsFilesFromTheFirstFleetsDraft(t *testing.T) {
+	f := sentFixture(t)
+	app, posted := asyncApp(t, f)
+	_, img, log := twoFiles(t)
+	app.Attach(img, log)
+	drainPosts(t, posted)
+	if len(app.Chips) != 2 {
+		t.Fatalf("%d chips", len(app.Chips))
+	}
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 2)
+	app.Draft = "both"
+	app.Send()
+	<-f.actionEntered
+	app.SelectFleet(secondID)
+	close(f.actionBlock)
+	drainPosts(t, posted)
+	if left := (desktop.Drafts{Dir: app.DraftDir}).LoadFiles(fleetID); len(left) != 0 {
+		t.Fatalf("the sent files stayed in the first fleet's draft: %v", left)
+	}
+	app.SelectFleet(fleetID)
+	drainPosts(t, posted)
+	if len(app.Chips) != 0 {
+		t.Fatalf("coming back restored %d sent files", len(app.Chips))
+	}
+}
+
+func TestASendFinishingAfterALeaveAndReturnDropsTheRestoredSentChips(t *testing.T) {
+	f := sentFixture(t)
+	app, posted := asyncApp(t, f)
+	_, img, _ := twoFiles(t)
+	app.Attach(img)
+	drainPosts(t, posted)
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 2)
+	app.Draft = "one"
+	app.Send()
+	<-f.actionEntered
+	app.SelectFleet(secondID)
+	app.SelectFleet(fleetID)
+	drainPosts(t, posted)
+	if len(app.Chips) != 1 {
+		t.Fatalf("the return restored %d chips, want the one being sent", len(app.Chips))
+	}
+	close(f.actionBlock)
+	drainPosts(t, posted)
+	if len(app.Chips) != 0 {
+		t.Fatalf("%d sent chips remain after the send finished", len(app.Chips))
+	}
+}
+
+func TestAFailedChipAddedWhileASendRunsSurvivesIt(t *testing.T) {
+	f := sentFixture(t)
+	app, posted := asyncApp(t, f)
+	dir, img, _ := twoFiles(t)
+	app.Attach(img)
+	drainPosts(t, posted)
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 2)
+	app.Draft = "one"
+	app.Send()
+	<-f.actionEntered
+	app.Attach(filepath.Join(dir, "gone.txt"))
+	close(f.actionBlock)
+	drainPosts(t, posted)
+	if len(app.Chips) != 1 {
+		t.Fatalf("%d chips after the send, want only the failed one added during it", len(app.Chips))
+	}
+}
+
+func TestAConversationLoadsPicturesNewestFirstAndStopsAtItsPixelBudget(t *testing.T) {
+	defer desktop.SetShotBudget(480 * 270)()
+	f := sentFixture(t)
+	older := "20261030-045800-3-older.png"
+	f.inbox[older] = f.inbox[sentImage]
+	tl := f.timeline[fleetID]
+	tl.Entries = append(tl.Entries, desktop.Entry{Role: "operator", At: "2026-10-31T04:00:00Z", Text: "older",
+		Shots: []desktop.Shot{{Name: older, Label: "older.png", Kind: "PNG", Size: "6 KiB", Image: true}}})
+	f.timeline[fleetID] = tl
+	app := newApp(t, f)
+	tt := sized(t, app, 1100, 760, false)
+	tt.Frame()
+	tt.Frame()
+	if got := f.gets(); len(got) != 1 || got[0] != sentImage {
+		t.Fatalf("the window fetched %v, want only the newest picture once the budget is spent", got)
+	}
+	if _, ok := tt.Find("Attached image " + attachImage); !ok {
+		t.Error("the newest picture is not drawn")
+	}
+	if _, ok := tt.Find("Attached image older.png"); ok {
+		t.Error("a picture past the budget was drawn")
+	}
+	mustText(t, tt, "older.png", "PNG · 6 KiB")
+}
+
+func TestManyChipsScrollInsideABoundedRowAndKeepSendInView(t *testing.T) {
+	f := sentFixture(t)
+	app := newApp(t, f)
+	dir := t.TempDir()
+	tt := sized(t, app, 820, 600, false)
+	click(t, tt, "Chat")
+	for i := range 40 {
+		app.Attach(fileOf(t, dir, "file-"+strings.Repeat("x", 30)+string(rune('a'+i%26))+string(rune('a'+i/26))+".log", 100))
+	}
+	tt.Frame()
+	tt.Frame()
+	box := composerBox(t, tt)
+	send, ok := tt.Find("Send")
+	if !ok || send.Y+send.H > 600 || box.Y < 0 {
+		t.Fatalf("Send %v and the composer %v do not fit a 600 px window", send, box)
+	}
+	if box.H > 90+kit.ChipRowMax+40 {
+		t.Fatalf("40 chips made the composer %.0f high; the chip row is bounded at %d", box.H, kit.ChipRowMax)
 	}
 }
