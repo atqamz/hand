@@ -1,11 +1,39 @@
 package board
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+type countingReader struct{ read int }
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	if c.read >= 64<<20 {
+		return 0, io.EOF
+	}
+	n := min(len(p), 64<<20-c.read)
+	c.read += n
+	return n, nil
+}
+
+func TestSaveImageStopsReadingAtTheFileCap(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "inbox")
+	src := &countingReader{}
+	if _, err := saveImage(dir, time.Now(), "big.bin", src); !errors.Is(err, errTooLarge) {
+		t.Fatalf("a 64 MiB body = %v, want errTooLarge", err)
+	}
+	if src.read > maxImage+1<<20 {
+		t.Fatalf("saveImage read %d bytes of a body over the %d byte cap", src.read, maxImage)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a refused file left %d entries", len(entries))
+	}
+}
 
 func TestShotsTakeOnlyThisFleetsInbox(t *testing.T) {
 	home := t.TempDir()

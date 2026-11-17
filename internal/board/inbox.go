@@ -132,27 +132,38 @@ func (b *Board) image(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		b.failErr(w, err)
 	default:
-		kind := "file"
-		if isImage(name) {
-			kind = "image"
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"path": filepath.Join(dir, name), "name": name, "kind": kind})
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": filepath.Join(dir, name), "name": name, "kind": attachKind(name)})
 	}
 }
 
+func attachKind(name string) string {
+	if isImage(name) {
+		return "image"
+	}
+	return "file"
+}
+
 func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
+	b.serveInbox(w, r, func() { http.NotFound(w, r) })
+}
+
+func (b *Board) serveInbox(w http.ResponseWriter, r *http.Request, notFound func()) {
 	name := r.PathValue("name")
 	if !shotName.MatchString(name) {
-		http.NotFound(w, r)
+		notFound()
 		return
 	}
 	f, err := os.OpenInRoot(filepath.Join(b.o.Home, "inbox"), name)
 	if err != nil {
-		http.NotFound(w, r)
+		notFound()
 		return
 	}
 	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		notFound()
+		return
+	}
 	if isImage(name) {
 		w.Header().Set("Content-Type", shotTypes[filepath.Ext(name)])
 	} else {

@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired phone over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -68,6 +68,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
 | `GET /api/v1/doc/{path}?from=N` or `?lines=M` (either, or both) | `DocWindow`: those lines of a text file and where the next ones start | the viewer's text lines |
+| `GET /api/v1/inbox/{name}` | not an envelope: the bytes of a file in the fleet's inbox, with the headers the page's `/inbox/{name}` sets; see [Attachments](#attachments) | `/inbox/{name}`, the images and file cards in the conversation |
 | `GET /api/v1/task/{tN}` | `TaskDetail`: task, plan, delivered, waits, open and all decisions, unread and recent reports, attempts, events | `/task/tN` |
 | `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, model_note, duration, reports, events, delivered, transcript | `/attempt/aN` |
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
@@ -76,7 +77,8 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/events` | a Server-Sent Events stream; see [The event stream](#the-event-stream) | the pages' own `/events` stream |
 | `GET /api/v1/fleets` | `Fleets`: every fleet this session proves, each with its Needs summary and supervisor pill; host level, see [The fleet list and the features](#the-fleet-list-and-the-features) | the Board's rail order, with each fleet's status line |
 | `GET /api/v1/meta` | `Meta`: Hand's version, the `features` list and the sidecar's state; host level | none; what a client checks before it shows a feature |
-| `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
+| `POST /api/v1/inbox` | `InboxFile`: the stored file's inbox `name`, `label`, `kind` and `size`; see [Attachments](#attachments) | the composer's paperclip, drop and paste (`POST /supervisor/image`) |
+| `POST /api/v1/message` | the same `Timeline` the GET returns, after the message; takes `attachments`, a list of inbox names | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
@@ -308,7 +310,41 @@ If the board queued the message but cannot read the conversation back, it still 
 - `500 internal`: the supervisor path failed; the message keeps no path.
 - `200` with the updated `Timeline`, or `{"accepted": true}` when the conversation could not be read back.
 
-v1 sends text only. The web composer's attachment upload writes an absolute host path into the message; v1 has no attachment upload contract and no field that carries a host path, so attachments need a contract that carries the inbox file by name, and they are not in this version. The text itself is free text: a path the operator types stays in it, exactly as the web composer keeps it.
+`text` is free text: a path the operator types stays in it, exactly as the web composer keeps it. Files go in `attachments`, see below.
+
+### Attachments
+
+A file reaches the supervisor in two steps, as it does from the web composer: upload it to the fleet's `inbox/` folder, then name it in a message. The API never carries a host path in either step, only the file's inbox name.
+
+`POST /api/v1/inbox` takes the file as `multipart/form-data` in the field `file`, because the file is the body and the other API actions' JSON cannot carry bytes; a raw body would need its file name in a header or a query. The request carries `X-Hand-CSRF` like every action. The board stores it with the page's own code (`POST /supervisor/image`), so the rules are the page's: a file is at most 10 MiB and a post at most 11 MiB; the name is reduced to its base name and to letters, digits, `.`, `_` and `-`, at most 80 characters with a long extension kept; the bytes decide whether it is an image, so a PNG, JPEG, WebP or GIF takes the extension its bytes say, and a file named like an image that is not one gets `.bin` added; any other type is kept as it is. The stored name is `YYYYMMDD-HHMMSS-N-label` (the board's local time, and `N` counts from 1 for files stored in the same second), and the folder is private to the board's user.
+
+```json
+{"name": "20261101-050000-1-shot.png", "label": "shot.png", "kind": "image", "size": 40}
+```
+
+`name` is the file's name in `inbox/` and the only handle to it. `label` is the name the operator sees (`name` without its stamp), `kind` is `image` or `file`, and `size` is the stored bytes. The answer is `200`, like every action's, and carries no receipt.
+
+- `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`.
+- `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired phone.
+- `413 too_large`: a file over 10 MiB (`a file can be at most 10 MiB`) or a post over 11 MiB (`the request is too large`). Nothing is stored.
+- `507 no_space`: the disk was full.
+- `500 internal`: the folder could not be written; the message names no path.
+
+`GET /api/v1/inbox/{name}` answers the file's bytes, not an envelope, with the headers the page's `/inbox/{name}` sets: an image is served with its own type, and every other file as `application/octet-stream` with `Content-Disposition: attachment; filename=<label>` and a `sandbox; default-src 'none'` policy; all carry `X-Content-Type-Options: nosniff` and `Cache-Control: private, max-age=86400`. It takes `Range` and `HEAD`, and a client that restored a draft asks `HEAD` to learn the file is still there and its `Content-Length`. Only a name that `POST /api/v1/inbox` could have answered is served, and only as a regular file inside `inbox/`. A name with a separator, an encoded one, a backslash, a NUL, a leading dot or a `..` is `404`, as is a link that leaves the folder, a folder, and a name that is not there. A raw dot segment (`..`, `.`, `../x`) never reaches the handler: the router answers it with `307`, as it does for `/doc`, so only the encoded forms are `404`. Every refusal is `404` with `not_found`, as the page's is a plain `404`, and names no path.
+
+`POST /api/v1/message` takes an optional `attachments`, a list of inbox names:
+
+```json
+{"text": "what is wrong here?", "attachments": ["20261101-050000-1-shot.png"]}
+```
+
+The board turns each name into the line the web composer writes, `[image: PATH]` for an image and `[file: PATH]` for any other file, where `PATH` is the file in this board's `inbox/`, so the supervisor reads exactly what it reads from the page. The text comes first, with a newline added when it does not end in one, and every line is followed by a newline, as the page's composer joins them; the whole message then goes through the same CRLF and `CheckMessage` rules, so the lines count toward the 16 KiB. `text` may be left out, or empty, when `attachments` is not empty, as the page's composer allows a message of files alone; it is required otherwise. The answer is the `Timeline` as for any message, where the new entry carries the files in `shots` and its `text` without the lines. A message without `attachments`, or with an empty list or `null`, is sent exactly as before. A name may be listed twice and is then written twice.
+
+Every name is checked before anything is sent, and one bad name refuses the whole message:
+
+- `400 bad_request`: `attachments` is not a list of strings, or a name is not one an upload could have answered (a path, a host path, a `..` or backslash name, an empty name, a name with a newline or NUL).
+- `404 not_found`: the name is well formed but not a regular file in `inbox/` (pruned, never uploaded, a link or a folder); the message names the label and no path.
 
 A client that shows the fleet status re-reads `GET /api/v1/status` after a message, an answer or an ack, because a sent message can change the composer hint and Needs. The supervisor controls answer the status itself, so they need no second read.
 
@@ -525,7 +561,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from` or `lines`), a window on a file that is not text or past its end, `?raw` or a window on a folder, or a mutation body it cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from` or `lines`), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, or an attachment that is not an inbox name |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
@@ -535,10 +571,10 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |
 | `403` | `code_used` | `pair` with a code already redeemed |
 | `403` | `codes_cancelled` | `pair` was the tenth wrong code, so every code is cancelled |
-| `404` | `not_found` | an unknown route or ref, or a document path that does not exist |
+| `404` | `not_found` | an unknown route or ref, a document path that does not exist, or an inbox name that is not a regular file in `inbox/` (to read it, or to attach it) |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
 | `409` | `conflict` | a state conflict while reading or acting, or a document that changed while it was opened |
-| `413` | `too_large` | a page form only, answered with the page's HTML error page and not this shape: a `POST` over the board's 11 MiB post limit, refused by the page's guard before the route runs, or a file over 10 MiB on `POST /supervisor/image`; a v1 action reads at most 64 KiB of JSON and answers `400 bad_request` above that |
+| `413` | `too_large` | a page form only, answered with the page's HTML error page and not this shape: a `POST` over the board's 11 MiB post limit, refused by the page's guard before the route runs, or a file over 10 MiB on `POST /supervisor/image`; a v1 action reads at most 64 KiB of JSON and answers `400 bad_request` above that, except `POST /api/v1/inbox`, which answers this shape with `413` for a file over 10 MiB or a post over 11 MiB |
 | `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute, or `models/refresh` for a list inside its 30-second cooldown |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |

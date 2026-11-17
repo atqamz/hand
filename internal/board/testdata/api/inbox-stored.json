@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA4Y2FjMGNiNGFmOTRkY2Ux.3w0Csnr-f6JILNDQ1llTwQ",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "name": "20261101-050000-1-shot.png",
+    "label": "shot.png",
+    "kind": "image",
+    "size": 40
+  }
+}
+
