@@ -3,17 +3,18 @@ package io.github.atqamz.handcompanion
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
-import kotlin.concurrent.thread
+import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -228,29 +229,40 @@ class FallbackTest {
   }
 
   @Test(timeout = 5_000)
-  fun theFlushRunsOffTheCallbackThreadAndBeforeThePageIsReady() = runBlocking {
-    var page: Page? = null
+  fun theFlushRunsOffTheCoroutinesOwnThreadAndBeforeThePageIsReady() = runBlocking {
     val gate = CompletableDeferred<Unit>()
     val jar = SpyJar(gate)
-    val opener = launch {
-      page =
+    val executor = Executors.newSingleThreadExecutor { Thread(it, "coroutine-thread") }
+    try {
+      lateinit var coroutineThread: Thread
+      val opener = async(executor.asCoroutineDispatcher()) {
         openBoard(
           "/$FLEET/",
           { """{"port":50123,"cookie":"$COOKIE"}""" },
-          Cookies { url, cookie -> storeCookie(jar, url, cookie) }
+          Cookies { url, cookie ->
+            coroutineThread = Thread.currentThread()
+            storeCookie(jar, url, cookie)
+          }
         )
+      }
+      withTimeout(1_000) { jar.reached.await() }
+      executor.execute { jar.answer() }
+      withTimeout(1_000) { jar.flushing.await() }
+      delay(50)
+      assertTrue(opener.isActive)
+      gate.complete(Unit)
+      val page = opener.await()
+      assertEquals(Page.Ready("http://localhost:50123/$FLEET/", 50123), page)
+      assertEquals(listOf("setCookie", "flush"), jar.events)
+      assertEquals(coroutineThread, jar.callbackThread)
+      assertNotEquals(
+        "flush ran on the coroutine's own thread ${coroutineThread.name}",
+        coroutineThread,
+        jar.threads.single()
+      )
+    } finally {
+      executor.shutdownNow()
     }
-    withTimeout(1_000) { jar.reached.await() }
-    val callback = thread(name = "cookie-callback") { jar.answer() }
-    withTimeout(1_000) { jar.flushing.await() }
-    delay(50)
-    assertNull(page)
-    gate.complete(Unit)
-    opener.join()
-    callback.join()
-    assertEquals(Page.Ready("http://localhost:50123/$FLEET/", 50123), page)
-    assertEquals(listOf("setCookie", "flush"), jar.events)
-    assertNotEquals(jar.callbackThread, jar.threads.single())
   }
 
   @Test(timeout = 3_000)
