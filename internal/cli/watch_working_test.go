@@ -111,7 +111,7 @@ func TestOrientShowsRunningAfterTheMoveOutOfQuiet(t *testing.T) {
 	ctx := context.Background()
 	home, st, a, w := stoppedAttempt(t, "quiet")
 	cell := func() string {
-		doc, err := orient.Build(ctx, st, home, "", true, true, orient.DefaultBudget)
+		doc, err := orient.Build(ctx, st, home, "", true, true, orient.Turn{}, orient.DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
