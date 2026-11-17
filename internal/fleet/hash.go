@@ -12,10 +12,17 @@ import (
 	"strings"
 )
 
-var hashSkipDirs = map[string]bool{".git": true, "__pycache__": true, "__pypackages__": true}
+var (
+	hashSkipFiles = map[string]bool{"metadata.json": true}
+	hashSkipDirs  = map[string]bool{".git": true, "__pycache__": true, "__pypackages__": true}
+)
 
 func ComputedHash(dir string) (string, error) {
-	root, err := filepath.EvalSymlinks(dir)
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", err
 	}
@@ -24,48 +31,71 @@ func ComputedHash(dir string) (string, error) {
 		data []byte
 	}
 	var files []file
-	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	var walk func(path, prefix string, ancestors map[string]bool) error
+	walk = func(path, prefix string, ancestors map[string]bool) error {
+		real, err := filepath.EvalSymlinks(path)
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			if path != dir && hashSkipDirs[d.Name()] {
-				return filepath.SkipDir
+		if ancestors[real] {
+			return nil
+		}
+		branch := make(map[string]bool, len(ancestors)+1)
+		for p := range ancestors {
+			branch[p] = true
+		}
+		branch[real] = true
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if hashSkipFiles[name] {
+				continue
 			}
-			return nil
-		}
-		if d.Name() == "metadata.json" {
-			return nil
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			target, err := filepath.EvalSymlinks(path)
+			full := filepath.Join(path, name)
+			isDir := e.IsDir()
+			if e.Type()&fs.ModeSymlink != 0 {
+				target, err := filepath.EvalSymlinks(full)
+				if err != nil {
+					continue
+				}
+				if inside, err := filepath.Rel(root, target); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+					continue
+				}
+				info, err := os.Stat(full)
+				if err != nil {
+					continue
+				}
+				isDir = info.IsDir()
+				if !isDir && !info.Mode().IsRegular() {
+					continue
+				}
+			} else if !isDir && !e.Type().IsRegular() {
+				continue
+			}
+			if isDir {
+				if hashSkipDirs[name] {
+					continue
+				}
+				if err := walk(full, prefix+name+"/", branch); err != nil {
+					return err
+				}
+				continue
+			}
+			b, err := os.ReadFile(full)
 			if err != nil {
-				return nil
+				return err
 			}
-			if info, err := os.Stat(target); err != nil || !info.Mode().IsRegular() {
-				return nil
+			if !bytes.Contains(b, []byte{0}) {
+				b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
 			}
-			if inside, err := filepath.Rel(root, target); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-				return nil
-			}
-		} else if !d.Type().IsRegular() {
-			return nil
+			files = append(files, file{filepath.ToSlash(prefix + name), b})
 		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if !bytes.Contains(b, []byte{0}) {
-			b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
-		}
-		files = append(files, file{filepath.ToSlash(rel), b})
 		return nil
-	})
-	if err != nil {
+	}
+	if err := walk(abs, "", map[string]bool{}); err != nil {
 		return "", err
 	}
 	slices.SortFunc(files, func(a, b file) int { return strings.Compare(a.rel, b.rel) })

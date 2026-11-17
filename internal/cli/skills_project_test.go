@@ -59,8 +59,11 @@ func TestSkillsAddInACheckoutInstallsOneRootAndTheRepoLock(t *testing.T) {
 	}
 	e := lockEntries(t, fleetLock(repo))["notes"]
 	want, err := fleet.ComputedHash(filepath.Join(repo, ".agents", "skills", "notes"))
-	if err != nil || e.ComputedHash != want || e.Source != src || e.SourceType != "local" {
+	if err != nil || e.ComputedHash != want || e.SourceType != "local" {
 		t.Fatalf("lock entry = %+v, want hash %s (%v)", e, want, err)
+	}
+	if filepath.IsAbs(e.Source) || filepath.ToSlash(e.Source) != e.Source || !strings.HasPrefix(e.Source, "../") || filepath.Clean(filepath.Join(repo, filepath.FromSlash(e.Source))) != filepath.Clean(src) {
+		t.Fatalf("lock source %q is not the portable path to %s", e.Source, src)
 	}
 	if got := untracked(t, repo); !slices.Equal(got, []string{"?? .agents/skills/notes/SKILL.md", "?? skills-lock.json"}) {
 		t.Fatalf("the checkout holds more than the skill and its lock: %q", got)
@@ -69,7 +72,7 @@ func TestSkillsAddInACheckoutInstallsOneRootAndTheRepoLock(t *testing.T) {
 		t.Fatalf("the fleet got the project's lock: %v", err)
 	}
 	list := h.ok("skills", "list")
-	if !strings.Contains(list, "notes,"+toonCell(src)+",\"\",project,yes") {
+	if !strings.Contains(list, "notes,"+toonCell(e.Source)+",\"\",project,yes") {
 		t.Fatalf("list = %q", list)
 	}
 }
@@ -96,7 +99,11 @@ func TestSkillsInTheFleetHomeNeedAProjectAFleetOrAUser(t *testing.T) {
 	if _, err := os.Stat(skillPath(repo, ".agents", "notes")); err != nil {
 		t.Fatal(err)
 	}
-	if list := h.ok("skills", "list", "--project", "app"); !strings.Contains(list, "notes,"+toonCell(src)+",\"\",project,yes") {
+	source := lockEntries(t, fleetLock(repo))["notes"].Source
+	if filepath.IsAbs(source) {
+		t.Fatalf("lock source %q is absolute", source)
+	}
+	if list := h.ok("skills", "list", "--project", "app"); !strings.Contains(list, "notes,"+toonCell(source)+",\"\",project,yes") {
 		t.Fatalf("list --project = %q", list)
 	}
 	if _, err := os.Stat(filepath.Join(h.home, ".agents", "skills", "notes")); !os.IsNotExist(err) {
@@ -159,6 +166,26 @@ func TestSkillsRefuseAProjectPathThatIsDirtyInGit(t *testing.T) {
 	}
 }
 
+func TestSkillsRecordAnInsideSourceRelativeToTheCheckout(t *testing.T) {
+	h, repo := projectHarness(t)
+	src := filepath.Join(repo, "sources", "notes")
+	writeFiles(t, src, skillFiles("notes", "one"))
+	h.ok("skills", "add", src)
+	if e := lockEntries(t, fleetLock(repo))["notes"]; e.Source != "./sources/notes" {
+		t.Fatalf("lock source = %q, want ./sources/notes", e.Source)
+	}
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-q", "-m", "skills: notes")
+	writeFiles(t, src, skillFiles("notes", "two"))
+	if out := h.ok("skills", "update", "notes"); !strings.Contains(out, "notes,updated") {
+		t.Fatalf("update = %q", out)
+	}
+	e := lockEntries(t, fleetLock(repo))["notes"]
+	if e.Source != "./sources/notes" || e.ComputedHash == "" {
+		t.Fatalf("the update lost the portable source: %+v", e)
+	}
+}
+
 func TestAWorkerAttemptStartedFromAProjectCheckoutHasTheInstalledSkill(t *testing.T) {
 	fx := newAttemptFixture(t)
 	src := skillSource(t, "notes", "one")
@@ -180,7 +207,11 @@ func TestAWorkerAttemptStartedFromAProjectCheckoutHasTheInstalledSkill(t *testin
 		t.Fatal("the worktree has no lock for the skill")
 	}
 	fx.h.cwd = wt
-	if list := fx.h.ok("skills", "list"); !strings.Contains(list, "notes,"+toonCell(src)+",\"\",project,yes") {
+	source := lockEntries(t, fleetLock(wt))["notes"].Source
+	if filepath.IsAbs(source) {
+		t.Fatalf("lock source %q is absolute", source)
+	}
+	if list := fx.h.ok("skills", "list"); !strings.Contains(list, "notes,"+toonCell(source)+",\"\",project,yes") {
 		t.Fatalf("the worker lists %q", list)
 	}
 }
@@ -192,11 +223,13 @@ func TestSkillsRefuseASpecBreakWithTheFieldNamedAndInstallNothing(t *testing.T) 
 		"mismatch": {"---\nname: other\ndescription: x\n---\n", `name "other" must equal`},
 		"nodesc":   {"---\nname: nodesc\n---\n", "description is 0 characters"},
 		"toolong":  {"---\nname: toolong\ndescription: x\n---\n" + strings.Repeat("x\n", 500), "keep SKILL.md under 500"},
+		"flowmeta": {"---\nname: flowmeta\ndescription: x\nmetadata: {version: \"1\"}\n---\n", "metadata must be a block map"},
 	} {
 		src := filepath.Join(t.TempDir(), name)
 		writeFiles(t, src, map[string]string{"SKILL.md": c.file})
-		if _, errOut, code := h.run("skills", "add", "--fleet", src); code != 2 || !strings.Contains(errOut, c.want) {
-			t.Fatalf("%s: code=%d stderr=%q, want %q", name, code, errOut, c.want)
+		_, errOut, code := h.run("skills", "add", "--fleet", src)
+		if code != 2 || !strings.Contains(errOut, c.want) || strings.Contains(errOut, "hand-skill-") {
+			t.Fatalf("%s: code=%d stderr=%q, want %q and no temp path", name, code, errOut, c.want)
 		}
 		for _, root := range fleet.SkillRoots {
 			if _, err := os.Stat(filepath.Dir(skillPath(h.home, root, name))); !os.IsNotExist(err) {
@@ -324,6 +357,25 @@ func TestSkillsMigrateThePreV2StateOnceOnRead(t *testing.T) {
 		if _, ok := skillState(t, h.home)[name]; ok {
 			t.Fatalf("%s was adopted", name)
 		}
+	}
+}
+
+func TestSkillsKeepThePreV2StateWhenNothingMoves(t *testing.T) {
+	h := skillsHarness(t)
+	old := filepath.Join(h.home, ".agents", "skills", ".hand-skills.json")
+	state := `{"gone":{"source":"/old/gone","scope":"fleet","sum":"stale"}}`
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.ok("skills", "list", "--fleet")
+	if b, err := os.ReadFile(old); err != nil || string(b) != state {
+		t.Fatalf("the pre-v2 file was changed or removed: %q, %v", b, err)
+	}
+	if _, err := os.Stat(fleetLock(h.home)); !os.IsNotExist(err) {
+		t.Fatalf("a migration that moved nothing wrote a lock: %v", err)
 	}
 }
 

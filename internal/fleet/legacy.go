@@ -41,6 +41,7 @@ func (s Skills) migrate() error {
 	if err != nil {
 		return err
 	}
+	moved := 0
 	for name, e := range old {
 		if !SkillName.MatchString(name) {
 			return fmt.Errorf("read %s: %q is not a skill name", path, name)
@@ -73,6 +74,10 @@ func (s Skills) migrate() error {
 		if l.Skills[name], err = json.Marshal(entry); err != nil {
 			return err
 		}
+		moved++
+	}
+	if moved == 0 {
+		return nil
 	}
 	if err := s.writeLock(l); err != nil {
 		return err

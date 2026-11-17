@@ -670,17 +670,28 @@ func TestSkillsRefuseATreeOverTheCap(t *testing.T) {
 func TestSkillsConcurrentAddsKeepEveryRecord(t *testing.T) {
 	h := skillsHarness(t)
 	names := []string{"a1", "a2", "a3", "a4", "a5", "a6"}
+	type result struct {
+		name, errOut string
+		code         int
+	}
+	results := make([]result, len(names))
 	var wg sync.WaitGroup
-	for _, name := range names {
+	for i, name := range names {
 		src := filepath.Join(t.TempDir(), name)
 		writeFiles(t, src, skillFiles(name, "one"))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			h.ok("skills", "add", "--fleet", src)
+			_, errOut, code := h.run("skills", "add", "--fleet", src)
+			results[i] = result{name, errOut, code}
 		}()
 	}
 	wg.Wait()
+	for _, r := range results {
+		if r.code != 0 {
+			t.Fatalf("hand skills add %s: exit %d: %s", r.name, r.code, r.errOut)
+		}
+	}
 	if got := skillState(t, h.home); len(got) != len(names) {
 		t.Fatalf("state records %d of %d skills", len(got), len(names))
 	}

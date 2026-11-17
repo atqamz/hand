@@ -179,13 +179,22 @@ func parseSkillSource(arg string) (string, fleet.Managed, error) {
 	return name, e, nil
 }
 
-func fetchSkill(ctx context.Context, e fleet.Managed) (dir, commit string, cleanup func(), err error) {
+func localSource(base, source string) string {
+	source = filepath.FromSlash(source)
+	if filepath.IsAbs(source) {
+		return source
+	}
+	return filepath.Join(base, source)
+}
+
+func fetchSkill(ctx context.Context, base string, e fleet.Managed) (dir, commit string, cleanup func(), err error) {
 	cleanup = func() {}
 	if e.Local() {
-		if _, err := os.Stat(filepath.Join(e.Source, "SKILL.md")); err != nil {
-			return "", "", cleanup, fmt.Errorf("source missing: %s", e.Source)
+		src := localSource(base, e.Source)
+		if _, err := os.Stat(filepath.Join(src, "SKILL.md")); err != nil {
+			return "", "", cleanup, fmt.Errorf("source missing: %s", src)
 		}
-		return e.Source, "", cleanup, nil
+		return src, "", cleanup, nil
 	}
 	tmp, err := os.MkdirTemp("", "hand-skills-")
 	if err != nil {
@@ -230,7 +239,7 @@ func skillState(s fleet.Skills, name string, e fleet.Managed) (string, error) {
 	case kind != "":
 		return "drifted", nil
 	case e.Local():
-		if _, err := os.Stat(filepath.Join(e.Source, "SKILL.md")); err != nil {
+		if _, err := os.Stat(filepath.Join(localSource(s.Base, e.Source), "SKILL.md")); err != nil {
 			return "source missing", nil
 		}
 	}
@@ -324,7 +333,7 @@ func cmdSkillsAdd(r *runner, args []string) error {
 }
 
 func (r *runner) installSkill(s fleet.Skills, name string, e *fleet.Managed) error {
-	src, commit, cleanup, err := fetchSkill(r.ctx(), *e)
+	src, commit, cleanup, err := fetchSkill(r.ctx(), s.Base, *e)
 	defer cleanup()
 	if err != nil {
 		return err
@@ -418,7 +427,7 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 		if err != nil {
 			return "", "", err
 		}
-		src, commit, cleanup, err := fetchSkill(r.ctx(), e)
+		src, commit, cleanup, err := fetchSkill(r.ctx(), s.Base, e)
 		defer cleanup()
 		if err != nil {
 			return "", "", err

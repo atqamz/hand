@@ -75,8 +75,11 @@ func parseFrontmatter(head string) (fields, meta map[string]string, err error) {
 			}
 			fields[key] = unquote(v)
 			if key == "metadata" {
+				if strings.HasPrefix(v, "{") {
+					return nil, nil, fmt.Errorf("metadata must be a block map, not a flow map; write one `key: value` per line under `metadata:`")
+				}
 				meta = nil
-				if v == "" || strings.HasPrefix(v, "{") {
+				if v == "" {
 					meta = map[string]string{}
 				}
 			}

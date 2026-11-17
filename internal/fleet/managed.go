@@ -12,6 +12,7 @@ import (
 
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/fsx"
+	"github.com/atqamz/hand/internal/state"
 )
 
 const MaxSkillBytes = 32 << 20
@@ -124,6 +125,9 @@ func (s Skills) Save(managed map[string]Managed) error {
 	}
 	pending := map[string]string{}
 	for name, e := range managed {
+		if s.Scope == "project" && e.Local() {
+			e.Source = s.portableSource(e.Source)
+		}
 		b, err := json.Marshal(e.LockEntry)
 		if err != nil {
 			return err
@@ -260,10 +264,13 @@ func mark(dir string) error {
 	if !ok {
 		return fmt.Errorf("%s has no frontmatter", path)
 	}
+	if _, _, err := parseFrontmatter(head); err != nil {
+		return fmt.Errorf("%w: SKILL.md: %v", state.ErrInvalid, err)
+	}
 	lines := strings.Split(head, "\n")
 	at, indent := len(lines), "  "
 	for i, l := range lines {
-		if l == "metadata:" {
+		if strings.TrimRight(l, " \t") == "metadata:" {
 			at = i + 1
 			for _, next := range lines[at:] {
 				if strings.TrimSpace(next) == "" {
@@ -275,9 +282,6 @@ func mark(dir string) error {
 				break
 			}
 			break
-		}
-		if strings.HasPrefix(l, "metadata:") {
-			return fmt.Errorf("%s: metadata is not a block; add `  %s` to it by hand", path, Marker)
 		}
 	}
 	if at == len(lines) {

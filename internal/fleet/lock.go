@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -78,6 +79,21 @@ func (s Skills) readLock() (lock, error) {
 		return l, fmt.Errorf("%w: %s is lock version %d; Hand reads version %d (`npx skills check` upgrades it)", state.ErrInvalid, s.lockPath(), read.Version, lockVersion)
 	}
 	return read, nil
+}
+
+func (s Skills) portableSource(source string) string {
+	if !filepath.IsAbs(filepath.FromSlash(source)) {
+		return filepath.ToSlash(source)
+	}
+	rel, err := filepath.Rel(s.Base, filepath.FromSlash(source))
+	if err != nil || filepath.IsAbs(rel) {
+		return filepath.ToSlash(source)
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return rel
+	}
+	return "./" + rel
 }
 
 func (s Skills) writeLock(l lock) error {

@@ -85,23 +85,30 @@ func TestComputedHashFollowsTheReadmeRules(t *testing.T) {
 	}
 }
 
-func TestComputedHashCountsASymlinkedFileAndSkipsOneLeavingTheFolder(t *testing.T) {
+func TestComputedHashFollowsASymlinkedFolderAndSkipsOneLeavingTheFolder(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need privileges on Windows")
 	}
 	linked := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "a\n", "real/b.md": "b\n"})
 	outside := writeTree(t, t.TempDir(), map[string]string{"x.md": "secret"})
-	for link, target := range map[string]string{"b.md": "real/b.md", "out.md": filepath.Join(outside, "x.md"), "loop.md": "loop.md", "gone.md": "missing.md", "dir": "real"} {
+	for link, target := range map[string]string{"b.md": "real/b.md", "out.md": filepath.Join(outside, "x.md"), "loop.md": "loop.md", "gone.md": "missing.md", "dir": "real", "back": ".", "outdir": outside} {
 		if err := os.Symlink(target, filepath.Join(linked, link)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	want, err := fleet.ComputedHash(writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "a\n", "b.md": "b\n", "real/b.md": "b\n"}))
+	want, err := fleet.ComputedHash(writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "a\n", "b.md": "b\n", "real/b.md": "b\n", "dir/b.md": "b\n"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, err := fleet.ComputedHash(linked); err != nil || got != want {
 		t.Fatalf("hash = %s, %v; want %s", got, err, want)
+	}
+	only := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "a\n", "real/b.md": "b\n"})
+	if err := os.Symlink("real", filepath.Join(only, "dir")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := fleet.ComputedHash(only); err != nil || got != "56d7390de30a704c1e09025c23d759489030ea898f8de4b7641e846a3049d81e" {
+		t.Fatalf("hash = %s, %v; want the vercel hash of SKILL.md, real/b.md and dir/b.md", got, err)
 	}
 }
 
@@ -138,6 +145,7 @@ func TestValidateSpecNamesTheBrokenField(t *testing.T) {
 		{"empty compatibility", "notes", skill("name: notes\ndescription: x\ncompatibility:"), "compatibility is 0 characters"},
 		{"compatibility 501", "notes", skill("name: notes\ndescription: x\ncompatibility: " + long(501)), "compatibility is 501 characters"},
 		{"metadata scalar", "notes", skill("name: notes\ndescription: x\nmetadata: nope"), "metadata must be a map"},
+		{"metadata flow map", "notes", skill("name: notes\ndescription: x\nmetadata: {version: \"1\"}"), "metadata must be a block map"},
 		{"500 lines", "notes", skill("name: notes\ndescription: x", lines(496)), "500 lines; keep SKILL.md under 500"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
