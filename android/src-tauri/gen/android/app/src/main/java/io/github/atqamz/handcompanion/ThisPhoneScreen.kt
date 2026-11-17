@@ -91,7 +91,7 @@ fun ThisPhoneScreen(
       Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
         Section("Laptop")
         Line(phone.laptop ?: "No laptop paired", if (phone.laptop == null) null else phone.link, mono = true) {
-          if (phone.laptop != null || phone.fleets.isNotEmpty()) Action("Forget", onForget)
+          if (phone.laptop != null || phone.fleets.isNotEmpty()) Action("Forget", { onAsk(true) })
         }
         Section("Fleets")
         if (phone.fleets.isEmpty()) Line("No fleet is paired", null)
@@ -99,7 +99,7 @@ fun ThisPhoneScreen(
           Line(fleet.name, fleet.dates) {
             Action(
               "Sign out",
-              { onSignOut(phone.fleets.first().id) },
+              { onSignOut(fleet.id) },
               Modifier.semantics { contentDescription = "Sign out of ${fleet.name}" }
             )
           }
@@ -129,9 +129,9 @@ fun ThisPhoneRoute(
   if (signing == null) {
     ThisPhoneScreen(phone, onBack, onAsk, onForget, onSigning, onSettings)
   } else {
-    val path = "/$signing/"
+    val path = signOutPath(signing)
     key(signing) {
-      FallbackScreen(signing, phone.fleets.firstOrNull { it.id == signing }?.name, path, { }) {
+      FallbackScreen(signing, phone.fleets.firstOrNull { it.id == signing }?.name, path, { onSigning(null) }) {
         web(path)
       }
     }

@@ -136,6 +136,7 @@ class HandActivity : ComponentActivity() {
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    take(intent)
   }
 
   private fun fleetModel(id: String): FleetModel =
