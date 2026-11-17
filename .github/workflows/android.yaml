@@ -196,17 +196,6 @@ jobs:
         if: needs.changes.outputs.android == 'true'
         run: ./gradlew :app:assembleDebug
         working-directory: android/src-tauri/gen/android
-      - name: Record the screen images (temporary)
-        if: needs.changes.outputs.android == 'true'
-        run: ./gradlew :app:recordPaparazziUniversalDebug
-        working-directory: android/src-tauri/gen/android
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && needs.changes.outputs.android == 'true'
-        with:
-          name: a19-recorded-images
-          path: android/src-tauri/gen/android/app/src/test/snapshots/images
-          if-no-files-found: error
-          retention-days: 1
       - name: Run the JVM tests and check the screen images
         if: needs.changes.outputs.android == 'true'
         run: ./gradlew :app:verifyPaparazziUniversalDebug
