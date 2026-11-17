@@ -26,6 +26,10 @@ func (a *App) tasksScreen(c *ui.Context, p palette) {
 			a.OpenTaskSearch(a.TaskQuery)
 		}
 	})
+	if msg := a.tasksReadErr(); msg != "" {
+		a.errorCardFor(c, p, msg)
+		return
+	}
 	if len(a.Tasks.Groups) == 0 {
 		a.emptyCard(c, p, "No tasks", "The supervisor has not captured a task yet.")
 		return

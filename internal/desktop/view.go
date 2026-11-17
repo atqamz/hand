@@ -448,10 +448,26 @@ func (a *App) workPane(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) errorCard(c *ui.Context, p palette) {
+	a.errorCardFor(c, p, a.Err)
+}
+
+func (a *App) tasksReadErr() string {
+	switch {
+	case a.Screen != BoardScreen:
+		return ""
+	case a.errScreen:
+		return a.Err
+	case a.reads[readStatus].err == "":
+		return a.reads[readScreen].err
+	}
+	return ""
+}
+
+func (a *App) errorCardFor(c *ui.Context, p palette, msg string) {
 	ui.Column(c).Gap(10).Padding(16).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
 		ui.Text(c, "The board could not be read").FontSize(kit.Heading.Size).Bold().TextColor(p.fail)
-		ui.Text(c, a.Err).FontSize(kit.Body.Size)
+		ui.Text(c, msg).FontSize(kit.Body.Size)
 		if len(a.back) > 0 && ui.Button(c.Key("back"), "Back").Width(100).Clicked() {
 			a.Back()
 		}
