@@ -68,7 +68,7 @@ func TestAMessageTheHarnessRefusesWhileItWorksNamesTheTurnSince(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339Nano, in.ReasonDetail); err != nil || in.Reason != state.ReasonTurn {
 		t.Fatalf("input = %+v, want a turn reason whose detail is when the turn started", in)
 	}
-	has(t, "show", h.ok("supervisor", "show"), "i1,queued,", "turn since ", " UTC")
+	has(t, "show", h.ok("supervisor", "show"), "i1,queued,", "working since last delivery ", " UTC")
 }
 
 func TestAMessageTheHarnessRefusesAtAnIdlePromptIsHeldNotATurn(t *testing.T) {

@@ -236,8 +236,13 @@ func (s *session) user(text, at string) {
 	}
 }
 
+func (s *session) afterOperator(text string) bool {
+	n := len(s.entries)
+	return n > 0 && s.entries[n-1].Role == "operator" && strings.TrimSpace(text) != ""
+}
+
 func (s *session) reply(text, at string, final bool) {
-	if calm(text, final) {
+	if calm(text, final) || s.afterOperator(text) {
 		s.add(Entry{Role: "supervisor", Text: strings.TrimSpace(text), At: at})
 	}
 }

@@ -25,7 +25,7 @@ func TestTheLineUnderAQueuedMessageNamesWhyItWaits(t *testing.T) {
 		{state.ReasonSwitching, "opus high", `queued · switching to opus high</p>`},
 		{state.ReasonNoSupervisor, "", `queued · no supervisor</p>`},
 		{state.ReasonHeld, "waiting for omp to start its session", `queued · waiting for omp to start its session</p>`},
-		{state.ReasonTurn, "2026-09-28T04:41:00Z", `queued · turn since <time datetime="2026-09-28T04:41:00Z" data-clock>04:41</time></p>`},
+		{state.ReasonTurn, "2026-09-28T04:41:00Z", `queued · working since last delivery <time datetime="2026-09-28T04:41:00Z" data-clock>04:41</time></p>`},
 	} {
 		t.Run(c.reason, func(t *testing.T) {
 			fx := newFixture(t)
@@ -100,4 +100,38 @@ func TestADeliveredMessageOlderThanOneTheHarnessRecordedIsNotShownAgain(t *testi
 	tl := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "recorded", tl, `id="msg-i2"`)
 	lacks(t, "older unpaired", tl, "never recorded", `id="msg-i1"`)
+}
+
+func TestTwoMessagesWithTheSameTextKeepTheirOwnStateWhileTheLaterOneIsUnrecorded(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	older, newer := sendInput(t, fx, "continue"), sendInput(t, fx, "continue")
+	for _, id := range []int64{older, newer} {
+		if err := fx.st.DeliverSupervisorInput(ctx, id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fx.st.AnswerSupervisorInput(ctx, older, "2026-09-28T01:00:09Z"); err != nil {
+		t.Fatal(err)
+	}
+	claudeLog(t, fx, []string{at(userRecord("continue"), "2026-09-26T00:00:00Z")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "both", tl, `id="msg-i1"`, `id="msg-i2"`, `data-state="answered">answered`, `data-state="delivered">delivered`)
+	if i1, i2, a, d := strings.Index(tl, `id="msg-i1"`), strings.Index(tl, `id="msg-i2"`), strings.Index(tl, `data-state="answered"`), strings.Index(tl, `data-state="delivered"`); !(i2 < d && d < i1 && i1 < a) {
+		t.Fatalf("states are on the wrong messages (i1 %d i2 %d answered %d delivered %d):\n%s", i1, i2, a, d, tl)
+	}
+}
+
+func TestAShortReplyBeforeAToolCallShowsInTheConversation(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{
+		userRecord("status?"),
+		`{"type":"assistant","timestamp":"2026-09-28T01:00:02Z","message":{"stop_reason":"tool_use","content":[{"type":"text","text":"Looking now."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"hand orient"}}]}}`,
+		`{"type":"assistant","timestamp":"2026-09-28T01:00:03Z","message":{"stop_reason":"tool_use","content":[{"type":"text","text":"Reading the plan."}]}}`,
+	})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "first reply", tl, "Looking now.")
+	lacks(t, "chatter", tl, "Reading the plan.")
 }

@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -11,10 +12,10 @@ type Sent struct {
 	CreatedAt string
 }
 
-func Answers(entries []Entry, sent []Sent) map[int64]string {
-	out := map[int64]string{}
+func Pair(entries []Entry, sent []Sent) map[int64]int {
+	out := map[int64]int{}
 	taken := make([]bool, len(entries))
-	for _, in := range sent {
+	for _, in := range slices.SortedFunc(slices.Values(sent), func(a, b Sent) int { return int(a.ID - b.ID) }) {
 		created, err := time.Parse(time.RFC3339Nano, in.CreatedAt)
 		if err != nil {
 			continue
@@ -25,13 +26,21 @@ func Answers(entries []Entry, sent []Sent) map[int64]string {
 				continue
 			}
 			taken[i] = true
-			for _, r := range entries[i+1:] {
-				if _, err := time.Parse(time.RFC3339Nano, r.At); r.Role == "supervisor" && err == nil {
-					out[in.ID] = r.At
-					break
-				}
-			}
+			out[in.ID] = i
 			break
+		}
+	}
+	return out
+}
+
+func Answers(entries []Entry, sent []Sent) map[int64]string {
+	out := map[int64]string{}
+	for id, i := range Pair(entries, sent) {
+		for _, r := range entries[i+1:] {
+			if _, err := time.Parse(time.RFC3339Nano, r.At); r.Role == "supervisor" && err == nil {
+				out[id] = r.At
+				break
+			}
 		}
 	}
 	return out

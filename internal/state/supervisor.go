@@ -93,7 +93,7 @@ func ReasonText(code, detail string) string {
 		return "switching to " + detail
 	case ReasonTurn:
 		if at, err := time.Parse(time.RFC3339Nano, detail); err == nil {
-			return "turn since " + at.UTC().Format("15:04") + " UTC"
+			return "working since last delivery " + at.UTC().Format("15:04") + " UTC"
 		}
 		return "turn"
 	case ReasonBlocked, ReasonLimited, ReasonLost:

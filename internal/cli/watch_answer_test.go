@@ -17,6 +17,7 @@ type answerFixture struct {
 	w    *watcher
 	st   *state.Store
 	file string
+	now  *time.Time
 }
 
 func newAnswerFixture(t *testing.T) *answerFixture {
@@ -45,7 +46,7 @@ func newAnswerFixture(t *testing.T) *answerFixture {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return &answerFixture{t: t, w: &watcher{r: r, st: st}, st: st, file: file}
+	return &answerFixture{t: t, w: &watcher{r: r, st: st}, st: st, file: file, now: &now}
 }
 
 func (f *answerFixture) send(body string) int64 {
@@ -142,5 +143,61 @@ func TestTwoMessagesDeliveredBeforeOneReplyAreBothAnswered(t *testing.T) {
 		if s, at := f.status(id); s != "answered" || at != "2026-11-17T04:40:10.000Z" {
 			t.Fatalf("input %d = %s at %q", id, s, at)
 		}
+	}
+}
+
+func claudeToolReply(at, text string) string {
+	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":%q},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"hand orient"}}]}}`, at, text)
+}
+
+func TestAShortReplyBeforeAToolCallAnswersTheMessageAtOnce(t *testing.T) {
+	f := newAnswerFixture(t)
+	id := f.send("status?")
+	f.append(claudeUser("2026-11-17T04:40:03.000Z", "status?"), claudeToolReply("2026-11-17T04:40:06.000Z", "Looking now."))
+	f.w.stampAnswers(context.Background())
+	if s, at := f.status(id); s != "answered" || at != "2026-11-17T04:40:06.000Z" {
+		t.Fatalf("with only the pre-tool reply = %s at %q, want answered at that reply", s, at)
+	}
+}
+
+func TestAnAnswerIsStampedAfterTheSupervisorEndedBeforeTheNextSweep(t *testing.T) {
+	f := newAnswerFixture(t)
+	id := f.send("status?")
+	f.append(claudeUser("2026-11-17T04:40:03.000Z", "status?"), claudeReply("2026-11-17T04:40:09.000Z", "t1 is in review"))
+	if _, err := f.st.EndSupervisor(context.Background(), 1, state.AttemptStopped, "rolled over"); err != nil {
+		t.Fatal(err)
+	}
+	f.w.stampAnswers(context.Background())
+	if s, at := f.status(id); s != "answered" || at != "2026-11-17T04:40:09.000Z" {
+		t.Fatalf("after the supervisor ended = %s at %q, want the reply it gave before", s, at)
+	}
+}
+
+func TestAMessageTheHarnessNeverRecordsIsGivenUpAndTheReaderDropped(t *testing.T) {
+	f := newAnswerFixture(t)
+	id := f.send("a message the harness rewrites")
+	f.w.stampAnswers(context.Background())
+	if f.w.answers == nil {
+		t.Fatal("no reader while a delivered message waits for its answer")
+	}
+	*f.now = f.now.Add(answerHorizon + time.Minute)
+	f.append(claudeUser("2026-11-17T05:20:00.000Z", "a message the harness rewrites"), claudeReply("2026-11-17T05:20:05.000Z", "late"))
+	f.w.stampAnswers(context.Background())
+	if s, _ := f.status(id); s != "delivered" {
+		t.Fatalf("a message past the horizon = %s, want it left delivered", s)
+	}
+	if f.w.answers != nil {
+		t.Fatal("the transcript reader is kept for a message nobody can answer any more")
+	}
+}
+
+func TestTheReaderIsDroppedOnceEveryMessageIsAnswered(t *testing.T) {
+	f := newAnswerFixture(t)
+	f.send("status?")
+	f.append(claudeUser("2026-11-17T04:40:03.000Z", "status?"), claudeReply("2026-11-17T04:40:09.000Z", "ok"))
+	f.w.stampAnswers(context.Background())
+	f.w.stampAnswers(context.Background())
+	if f.w.answers != nil {
+		t.Fatal("the transcript reader outlived the last unanswered message")
 	}
 }

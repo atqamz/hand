@@ -109,7 +109,7 @@ func (s *session) codexLine(line []byte) {
 	case rec.Type == "response_item" && p.Type == "message" && p.Role == "assistant":
 		for _, c := range p.Content {
 			if c.Type == "output_text" {
-				s.turn, s.shown = &Entry{Role: "supervisor", Text: strings.TrimSpace(c.Text), At: rec.Timestamp}, calm(c.Text, false)
+				s.turn, s.shown = &Entry{Role: "supervisor", Text: strings.TrimSpace(c.Text), At: rec.Timestamp}, calm(c.Text, false) || s.afterOperator(c.Text)
 				if s.shown {
 					s.add(*s.turn)
 				}

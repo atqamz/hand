@@ -10,44 +10,72 @@ import (
 	"github.com/atqamz/hand/internal/transcript"
 )
 
-const answerLookback = 20
+const (
+	answerLookback = 20
+	answerHorizon  = 30 * time.Minute
+)
+
+type answerSession struct{ harness, session string }
+
+func deliveredTo(sups []state.Supervisor, at time.Time) (state.Supervisor, bool) {
+	var out state.Supervisor
+	found := false
+	for _, s := range sups {
+		born, err := time.Parse(time.RFC3339Nano, s.CreatedAt)
+		if err != nil || at.Before(born) {
+			continue
+		}
+		if end, err := time.Parse(time.RFC3339Nano, s.EndedAt); s.EndedAt != "" && (err != nil || at.After(end)) {
+			continue
+		}
+		out, found = s, true
+	}
+	return out, found
+}
 
 func (w *watcher) stampAnswers(ctx context.Context) {
-	sup, ok, err := w.st.LiveSupervisor(ctx)
-	if err != nil || !ok || sup.Session == "" {
-		return
-	}
 	inputs, err := w.st.UnansweredSupervisorInputs(ctx, answerLookback)
-	start, found, err2 := w.st.SessionStart(ctx, sup.Session)
-	if err != nil || err2 != nil || !found {
+	sups, err2 := w.st.Supervisors(ctx)
+	if err != nil || err2 != nil {
 		return
 	}
-	var sent []transcript.Sent
+	now := w.r.env.Now()
+	groups, ended := map[answerSession][]transcript.Sent{}, map[answerSession]bool{}
 	for _, in := range inputs {
-		if at, err := time.Parse(time.RFC3339Nano, in.DeliveredAt); err == nil && !at.Before(start) {
-			sent = append(sent, transcript.Sent{ID: in.ID, Body: in.Body, CreatedAt: in.CreatedAt})
+		at, err := time.Parse(time.RFC3339Nano, in.DeliveredAt)
+		if err != nil || now.Sub(at) > answerHorizon {
+			continue
+		}
+		if sup, ok := deliveredTo(sups, at); ok && sup.Session != "" {
+			k := answerSession{sup.Harness, sup.Session}
+			groups[k] = append(groups[k], transcript.Sent{ID: in.ID, Body: in.Body, CreatedAt: in.CreatedAt})
+			ended[k] = !sup.Live()
 		}
 	}
-	if len(sent) == 0 {
-		if w.answers != nil {
-			w.answers.Forget(sup.Harness, sup.Session)
-		}
+	if len(groups) == 0 {
+		w.answers = nil
 		return
 	}
 	if w.answers == nil {
 		w.answers = &transcript.Reader{Paths: w.r.transcriptPaths()}
 	}
-	dir := w.r.home
-	if sup.Harness == "omp" {
-		dir = harness.OmpAgent(w.r.env.Getenv, w.r.home)
-	}
-	entries, err := w.answers.Read(ctx, sup.Harness, sup.Session, dir)
-	if err != nil {
-		return
-	}
-	for id, at := range transcript.Answers(entries, sent) {
-		if err := w.st.AnswerSupervisorInput(ctx, id, at); err != nil && !errors.Is(err, state.ErrConflict) {
-			w.say("supervisor answer: " + err.Error())
+	for k, sent := range groups {
+		dir := w.r.home
+		if k.harness == "omp" {
+			dir = harness.OmpAgent(w.r.env.Getenv, w.r.home)
+		}
+		read := w.answers.Read
+		if ended[k] {
+			read = w.answers.ReadEnded
+		}
+		entries, err := read(ctx, k.harness, k.session, dir)
+		if err != nil {
+			continue
+		}
+		for id, at := range transcript.Answers(entries, sent) {
+			if err := w.st.AnswerSupervisorInput(ctx, id, at); err != nil && !errors.Is(err, state.ErrConflict) {
+				w.say("supervisor answer: " + err.Error())
+			}
 		}
 	}
 }

@@ -82,3 +82,17 @@ func TestAnEntryOlderThanTheMessageIsNeverItsTwin(t *testing.T) {
 		t.Fatalf("answers = %v", got)
 	}
 }
+
+func TestPairGivesTheOldestInputTheOldestEntryAndLeavesALaterOneUnmatched(t *testing.T) {
+	entries := []Entry{op("continue", "2026-11-17T04:00:01Z")}
+	got := Pair(entries, []Sent{
+		{ID: 2, Body: "continue", CreatedAt: "2026-11-17T05:00:00Z"},
+		{ID: 1, Body: "continue", CreatedAt: "2026-11-17T04:00:00Z"},
+	})
+	if i, ok := got[1]; !ok || i != 0 {
+		t.Fatalf("pairs = %v, want input 1 on entry 0", got)
+	}
+	if _, ok := got[2]; ok {
+		t.Fatalf("pairs = %v, the newer input took an entry older than itself", got)
+	}
+}

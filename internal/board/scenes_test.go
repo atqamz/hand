@@ -589,6 +589,26 @@ func scenes() []scene {
 			blockedWorker(t, fx, "Pick the release channel")
 			fx.screen = "Release channel?\n❯ ◉ Stable\n  ◯ Beta\n  ◯ Nightly\n\n↑/↓ select · enter to confirm · esc cancel"
 		})},
+		{"f00000000e01a", "reply-first", func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			fx.status = "working"
+			fx.supervisor(t, state.AttemptRunning, "gen-1")
+			baseTasks(t, fx)
+			toolReply := func(at time.Time, text string) string {
+				b, _ := json.Marshal(text)
+				return `{"type":"assistant","timestamp":"` + at.Format(time.RFC3339) + `","message":{"model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"text","text":` + string(b) + `},{"type":"tool_use","id":"t9","name":"Bash","input":{"command":"hand attempt start"}}]}}`
+			}
+			asked := frozen.Add(-3 * time.Minute)
+			first := asked.Add(12 * time.Second)
+			claudeLog(t, fx, append(chatLines(t, fx, 600000),
+				rec("user", asked.Format(time.RFC3339), "start t4 and tell me when it runs", 0),
+				toolReply(first, "On it: I am starting t4 now and will tell you when a4 runs."),
+				toolReply(first.Add(20*time.Second), "Reading the brief for t4."),
+			))
+			in, _ := fx.st.AddSupervisorInput(ctx, "start t4 and tell me when it runs")
+			_ = fx.st.DeliverSupervisorInput(ctx, in.ID, false)
+			_ = fx.st.AnswerSupervisorInput(ctx, in.ID, first.Format(time.RFC3339))
+		}},
 		{"f00000000e011", "decisions", func(t *testing.T, fx *fixture) {
 			ctx := context.Background()
 			fx.status = "idle"

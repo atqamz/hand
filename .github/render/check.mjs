@@ -34,6 +34,7 @@ const scenes = [
   ['documents', fleet('012')],
   ['ask', fleet('013')],
   ['worker-list', fleet('019')],
+  ['reply-first', fleet('01a')],
   ['cleanup', fleet('014')],
   ['screen', `${fleet('016')}supervisor`],
   ['phone', `${fleet('015')}connect`],
