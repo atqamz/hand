@@ -143,7 +143,7 @@ A fleet home holds:
 
 - `hand.db`: the SQLite state;
 - `AGENTS.md` and `CLAUDE.md`, which Hand owns and rewrites on every `hand init`;
-- the `secondhand` and `secondhand-cleanup` skills under `.claude/`, `.agents/`, `.grok/` and `.pi/`, which `hand init` owns, and the skills `hand skills add` copied beside them, marked `managed-by: hand-skills` and recorded in `.agents/skills/.hand-skills.json`;
+- the `secondhand` and `secondhand-cleanup` skills under `.claude/`, `.agents/`, `.grok/` and `.pi/`, which `hand init` owns, and the skills `hand skills add --fleet` copied beside them, marked `managed-by: hand` and recorded in the fleet home's `skills-lock.json`;
 - `memory/`: the operator memory;
 - `routing.json`: the watcher's `notify` command and its `stall`, `inbox` and `retention` settings, and `supervisor.autoresume`, `supervisor.rollover_tokens` and `supervisor.answer_within`;
 - `inbox/`: the files attached on the board, and its trash (see Inbox folder and trash);

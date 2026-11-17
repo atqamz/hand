@@ -1,8 +1,6 @@
 package fleet
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,55 +21,89 @@ var Rename = fsx.Rename
 var SkillName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 const (
-	Marker    = "managed-by: hand-skills"
-	stateFile = ".hand-skills.json"
+	Marker      = "managed-by: hand"
+	lockFileMu  = ".hand-skills.lock"
+	pendingFile = ".hand-skills-next.json"
 )
 
-type Managed struct {
-	Source string `json:"source"`
-	Path   string `json:"path,omitempty"`
-	Commit string `json:"commit,omitempty"`
-	Scope  string `json:"scope"`
-	Sum    string `json:"sum"`
-	Next   string `json:"next,omitempty"`
-}
+type Skills struct{ Base, Scope, Meta string }
 
-type Skills struct{ Base, Scope string }
+func (s Skills) Roots() []string {
+	if s.Scope == "project" {
+		return SkillRoots[1:2]
+	}
+	return SkillRoots
+}
 
 func (s Skills) Dir(root, name string) string {
 	return filepath.Join(s.Base, root, "skills", name)
 }
 
-func (s Skills) statePath() string {
-	return filepath.Join(s.Base, SkillRoots[1], "skills", stateFile)
+func (s Skills) metaDir() string {
+	if s.Meta != "" {
+		return s.Meta
+	}
+	return filepath.Join(s.Base, SkillRoots[1], "skills")
+}
+
+func (s Skills) pendingPath() string { return filepath.Join(s.metaDir(), pendingFile) }
+
+func (s Skills) owned(name string) bool {
+	for _, root := range s.Roots() {
+		if Owned(s.Dir(root, name)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Skills) Load() (map[string]Managed, error) {
-	state := map[string]Managed{}
-	b, err := os.ReadFile(s.statePath())
+	if err := s.migrate(); err != nil {
+		return nil, err
+	}
+	l, err := s.readLock()
+	if err != nil {
+		return nil, err
+	}
+	pending, err := s.readPending()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]Managed{}
+	for name, raw := range l.Skills {
+		if !SkillName.MatchString(name) || !s.owned(name) {
+			continue
+		}
+		e := Managed{Next: pending[name]}
+		if err := json.Unmarshal(raw, &e.LockEntry); err != nil {
+			return nil, fmt.Errorf("read %s: %s: %w", s.lockPath(), name, err)
+		}
+		out[name] = e
+	}
+	return out, nil
+}
+
+func (s Skills) readPending() (map[string]string, error) {
+	pending := map[string]string{}
+	b, err := os.ReadFile(s.pendingPath())
 	if errors.Is(err, fs.ErrNotExist) {
-		return state, nil
+		return pending, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(b, &state); err != nil {
-		return nil, fmt.Errorf("read %s: %w", s.statePath(), err)
+	if err := json.Unmarshal(b, &pending); err != nil {
+		return nil, fmt.Errorf("read %s: %w", s.pendingPath(), err)
 	}
-	for name := range state {
-		if !SkillName.MatchString(name) {
-			return nil, fmt.Errorf("read %s: %q is not a skill name", s.statePath(), name)
-		}
-	}
-	return state, nil
+	return pending, nil
 }
 
 func (s Skills) Lock() (func(), error) {
-	dir := filepath.Dir(s.statePath())
+	dir := s.metaDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, ".hand-skills.lock"), os.O_RDWR|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(filepath.Join(dir, lockFileMu), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -85,21 +117,62 @@ func (s Skills) Lock() (func(), error) {
 	return func() { _ = flock.Release(f) }, nil
 }
 
-func (s Skills) Save(state map[string]Managed) error {
-	b, err := json.MarshalIndent(state, "", "  ")
+func (s Skills) Save(managed map[string]Managed) error {
+	l, err := s.readLock()
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(s.statePath())
+	pending := map[string]string{}
+	for name, e := range managed {
+		b, err := json.Marshal(e.LockEntry)
+		if err != nil {
+			return err
+		}
+		l.Skills[name] = b
+		if e.Next != "" {
+			pending[name] = e.Next
+		}
+	}
+	if err := s.writeLock(l); err != nil {
+		return err
+	}
+	return s.writePending(pending)
+}
+
+func (s Skills) writePending(pending map[string]string) error {
+	if len(pending) == 0 {
+		if err := os.Remove(s.pendingPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	b, err := json.MarshalIndent(pending, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(s.pendingPath(), append(b, '\n'))
+}
+
+func (s Skills) Forget(name string) error {
+	l, err := s.readLock()
+	if err != nil {
+		return err
+	}
+	delete(l.Skills, name)
+	return s.writeLock(l)
+}
+
+func writeAtomic(path string, b []byte) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, stateFile+".*.tmp")
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
 	tmp := f.Name()
-	_, err = f.Write(append(b, '\n'))
+	_, err = f.Write(b)
 	if err == nil {
 		err = f.Sync()
 	}
@@ -110,15 +183,13 @@ func (s Skills) Save(state map[string]Managed) error {
 		err = os.Chmod(tmp, 0o644)
 	}
 	if err == nil {
-		err = fsx.Rename(tmp, s.statePath())
+		err = fsx.Rename(tmp, path)
 		if err == nil {
 			_ = syncDir(dir)
 			return nil
 		}
 	}
-	if err != nil {
-		_ = os.Remove(tmp)
-	}
+	_ = os.Remove(tmp)
 	return err
 }
 
@@ -143,27 +214,6 @@ func Owned(dir string) bool {
 		}
 	}
 	return false
-}
-
-func Sum(dir string) (string, error) {
-	h := sha256.New()
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), len(b))
-		h.Write(b)
-		return nil
-	})
-	return hex.EncodeToString(h.Sum(nil)), err
 }
 
 func Copy(src, dst string) error {
@@ -238,15 +288,18 @@ func mark(dir string) error {
 	return os.WriteFile(path, []byte("---\n"+strings.Join(lines, "\n")+"\n---\n"+rest), 0o644)
 }
 
-func Stage(src string) (dir, sum string, err error) {
+func Stage(src, name string) (dir, sum string, err error) {
 	if dir, err = os.MkdirTemp("", "hand-skill-"); err != nil {
 		return "", "", err
 	}
 	if err = Copy(src, dir); err == nil {
+		err = ValidateSpec(dir, name)
+	}
+	if err == nil {
 		err = mark(dir)
 	}
 	if err == nil {
-		sum, err = Sum(dir)
+		sum, err = ComputedHash(dir)
 	}
 	if err != nil {
 		_ = os.RemoveAll(dir)
@@ -256,7 +309,8 @@ func Stage(src string) (dir, sum string, err error) {
 }
 
 func (s Skills) Install(name, staged string, beforeSwap func() error) error {
-	n := len(SkillRoots)
+	roots := s.Roots()
+	n := len(roots)
 	dst, fresh, old := make([]string, n), make([]string, n), make([]string, n)
 	defer func() {
 		for i := range fresh {
@@ -265,7 +319,7 @@ func (s Skills) Install(name, staged string, beforeSwap func() error) error {
 			}
 		}
 	}()
-	for i, root := range SkillRoots {
+	for i, root := range roots {
 		dst[i] = s.Dir(root, name)
 		parent := filepath.Dir(dst[i])
 		if err := os.MkdirAll(parent, 0o755); err != nil {
@@ -329,7 +383,7 @@ func (s Skills) Install(name, staged string, beforeSwap func() error) error {
 }
 
 func (s Skills) Remove(name string) error {
-	for _, root := range SkillRoots {
+	for _, root := range s.Roots() {
 		if err := os.RemoveAll(s.Dir(root, name)); err != nil {
 			return err
 		}
@@ -338,7 +392,7 @@ func (s Skills) Remove(name string) error {
 }
 
 func (s Skills) Check(name string, e Managed) (kind, root string, err error) {
-	for _, r := range SkillRoots {
+	for _, r := range s.Roots() {
 		dir := s.Dir(r, name)
 		if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 			if kind == "" {
@@ -349,11 +403,11 @@ func (s Skills) Check(name string, e Managed) (kind, root string, err error) {
 		if !Owned(dir) {
 			return "unmanaged", r, nil
 		}
-		sum, err := Sum(dir)
+		sum, err := ComputedHash(dir)
 		if err != nil {
 			return "", "", err
 		}
-		if e.Sum != "" && sum != e.Sum && sum != e.Next && kind != "changed" {
+		if e.ComputedHash != "" && sum != e.ComputedHash && sum != e.Next && kind != "changed" {
 			kind, root = "changed", r
 		}
 	}

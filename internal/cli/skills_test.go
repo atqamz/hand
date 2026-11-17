@@ -77,7 +77,7 @@ func isolateGit(t *testing.T, remote string) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "url.file://"+filepath.ToSlash(remote)+".insteadOf")
-	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/atqamz/hand-skills.git")
+	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/atqamz/skills.git")
 }
 
 func skillsHarness(t *testing.T) *harness {
@@ -108,13 +108,40 @@ func readSkill(t *testing.T, path string) string {
 	return string(b)
 }
 
-func skillState(t *testing.T, base string) map[string]fleet.Managed {
+const skillsURL = "https://github.com/atqamz/skills.git"
+
+func fleetLock(base string) string { return filepath.Join(base, "skills-lock.json") }
+
+func userLock(base string) string { return filepath.Join(base, ".agents", "skills-lock.json") }
+
+func lockEntries(t *testing.T, path string) map[string]fleet.LockEntry {
 	t.Helper()
-	var state map[string]fleet.Managed
-	if err := json.Unmarshal([]byte(readSkill(t, filepath.Join(base, ".agents", "skills", ".hand-skills.json"))), &state); err != nil {
-		t.Fatal(err)
+	var lock struct {
+		Version int
+		Skills  map[string]fleet.LockEntry
 	}
-	return state
+	if err := json.Unmarshal([]byte(readSkill(t, path)), &lock); err != nil || lock.Version != 2 {
+		t.Fatalf("%s: version %d: %v", path, lock.Version, err)
+	}
+	return lock.Skills
+}
+
+func skillState(t *testing.T, base string) map[string]fleet.LockEntry {
+	t.Helper()
+	return lockEntries(t, fleetLock(base))
+}
+
+func pendingSwaps(t *testing.T, base string) map[string]string {
+	t.Helper()
+	pending := map[string]string{}
+	b, err := os.ReadFile(filepath.Join(base, ".agents", "skills", ".hand-skills-next.json"))
+	if os.IsNotExist(err) {
+		return pending
+	}
+	if err != nil || json.Unmarshal(b, &pending) != nil {
+		t.Fatalf("pending swaps: %v", err)
+	}
+	return pending
 }
 
 func TestSkillsAddByPathCopiesMarksListsAndRemoves(t *testing.T) {
@@ -125,7 +152,7 @@ func TestSkillsAddByPathCopiesMarksListsAndRemoves(t *testing.T) {
 	if err := os.Chmod(filepath.Join(src, "scripts", "run.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out := h.ok("skills", "add", src)
+	out := h.ok("skills", "add", "--fleet", src)
 	if !strings.Contains(out, "notes,added") {
 		t.Fatalf("add = %q", out)
 	}
@@ -136,7 +163,7 @@ func TestSkillsAddByPathCopiesMarksListsAndRemoves(t *testing.T) {
 			t.Fatalf("%s: %v %v", root, info, err)
 		}
 		got := readSkill(t, path)
-		if !strings.Contains(got, "metadata:\n  managed-by: hand-skills\n---\n") || !strings.Contains(got, "\none\n") {
+		if !strings.Contains(got, "metadata:\n  managed-by: hand\n---\n") || !strings.Contains(got, "\none\n") {
 			t.Fatalf("%s: SKILL.md = %q", root, got)
 		}
 		if _, err := os.Stat(filepath.Join(filepath.Dir(path), "scripts", "run.sh")); err != nil {
@@ -147,19 +174,19 @@ func TestSkillsAddByPathCopiesMarksListsAndRemoves(t *testing.T) {
 		t.Fatalf("the source was marked: %q", got)
 	}
 	e := skillState(t, h.home)["notes"]
-	if e.Source != src || e.Scope != "fleet" || e.Sum == "" || e.Commit != "" {
+	if e.Source != src || e.SourceType != "local" || e.ComputedHash == "" || e.Commit != "" {
 		t.Fatalf("state = %+v", e)
 	}
-	list := h.ok("skills", "list")
+	list := h.ok("skills", "list", "--fleet")
 	for _, want := range []string{"secondhand,hand init,\"\",fleet,no", "secondhand-cleanup,hand init,\"\",fleet,no", "notes," + toonCell(src) + ",\"\",fleet,yes"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("list missing %q:\n%s", want, list)
 		}
 	}
-	if _, errOut, code := h.run("skills", "add", src); code != 3 || !strings.Contains(errOut, "already exists") {
+	if _, errOut, code := h.run("skills", "add", "--fleet", src); code != 3 || !strings.Contains(errOut, "already exists") {
 		t.Fatalf("second add: code=%d stderr=%q", code, errOut)
 	}
-	out = h.ok("skills", "remove", "notes")
+	out = h.ok("skills", "remove", "--fleet", "notes")
 	if !strings.Contains(out, "notes,removed") {
 		t.Fatalf("remove = %q", out)
 	}
@@ -178,14 +205,17 @@ func TestSkillsAddByNameAndURLUseALocalRepo(t *testing.T) {
 	remotes := t.TempDir()
 	hub := newSkillRemote(t, filepath.Join(remotes, "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"], "skills/triage/ref/a.md": "a\n"})
 	isolateGit(t, hub.bare)
-	out := h.ok("skills", "add", "triage")
+	out := h.ok("skills", "add", "--fleet", "triage")
 	commit := skillGit(t, hub.work, "rev-parse", "HEAD")
 	if !strings.Contains(out, "triage,added,"+commit) {
 		t.Fatalf("add by name = %q", out)
 	}
 	e := skillState(t, h.home)["triage"]
-	if e.Source != "https://github.com/atqamz/hand-skills.git" || e.Path != "skills/triage" || e.Commit != commit {
+	if e.Source != "atqamz/skills" || e.SourceURL != skillsURL || e.SourceType != "github" || e.SkillPath != "skills/triage/SKILL.md" || e.Commit != commit {
 		t.Fatalf("state = %+v", e)
+	}
+	if list := h.ok("skills", "list", "--fleet"); !strings.Contains(list, `triage,"`+skillsURL+`#skills/triage",`+commit+",fleet,yes") {
+		t.Fatalf("list = %q", list)
 	}
 	if _, err := os.Stat(filepath.Join(h.home, ".claude", "skills", "triage", "ref", "a.md")); err != nil {
 		t.Fatal(err)
@@ -195,13 +225,13 @@ func TestSkillsAddByNameAndURLUseALocalRepo(t *testing.T) {
 	}
 	tool := newSkillRemote(t, filepath.Join(remotes, "tool-skill.git"), skillFiles("tool-skill", "root"))
 	url := "file://" + filepath.ToSlash(tool.bare)
-	if !strings.Contains(h.ok("skills", "add", url), "tool-skill,added,"+skillGit(t, tool.work, "rev-parse", "HEAD")) {
+	if !strings.Contains(h.ok("skills", "add", "--fleet", url), "tool-skill,added,"+skillGit(t, tool.work, "rev-parse", "HEAD")) {
 		t.Fatal("add by url failed")
 	}
-	if e := skillState(t, h.home)["tool-skill"]; e.Source != url || e.Path != "" {
+	if e := skillState(t, h.home)["tool-skill"]; e.Source != url || e.SkillPath != "" || e.SourceType != "git" {
 		t.Fatalf("state = %+v", e)
 	}
-	if _, errOut, code := h.run("skills", "add", "missing-skill"); code == 0 || !strings.Contains(errOut, "missing-skill") {
+	if _, errOut, code := h.run("skills", "add", "--fleet", "missing-skill"); code == 0 || !strings.Contains(errOut, "missing-skill") {
 		t.Fatalf("unknown name: code=%d stderr=%q", code, errOut)
 	}
 }
@@ -210,16 +240,16 @@ func TestSkillsUpdateFollowsTheCommit(t *testing.T) {
 	h := skillsHarness(t)
 	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"]})
 	isolateGit(t, hub.bare)
-	h.ok("skills", "add", "triage")
-	if out := h.ok("skills", "update"); !strings.Contains(out, "triage,current,") {
+	h.ok("skills", "add", "--fleet", "triage")
+	if out := h.ok("skills", "update", "--fleet"); !strings.Contains(out, "triage,current,") {
 		t.Fatalf("unmoved update = %q", out)
 	}
 	moved := hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"]})
-	if out := h.ok("skills", "update", "triage"); !strings.Contains(out, "triage,updated,"+moved) {
+	if out := h.ok("skills", "update", "--fleet", "triage"); !strings.Contains(out, "triage,updated,"+moved) {
 		t.Fatalf("update = %q", out)
 	}
 	for _, root := range fleet.SkillRoots {
-		if got := readSkill(t, skillPath(h.home, root, "triage")); !strings.Contains(got, "\nv2\n") || !strings.Contains(got, "managed-by: hand-skills") {
+		if got := readSkill(t, skillPath(h.home, root, "triage")); !strings.Contains(got, "\nv2\n") || !strings.Contains(got, "managed-by: hand") {
 			t.Fatalf("%s: %q", root, got)
 		}
 	}
@@ -232,12 +262,12 @@ func TestSkillsUpdateOfAPathFollowsItsContent(t *testing.T) {
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
-	h.ok("skills", "add", src)
-	if out := h.ok("skills", "update"); !strings.Contains(out, "notes,current") {
+	h.ok("skills", "add", "--fleet", src)
+	if out := h.ok("skills", "update", "--fleet"); !strings.Contains(out, "notes,current") {
 		t.Fatalf("update = %q", out)
 	}
 	writeFiles(t, src, skillFiles("notes", "two"))
-	if out := h.ok("skills", "update"); !strings.Contains(out, "notes,updated") {
+	if out := h.ok("skills", "update", "--fleet"); !strings.Contains(out, "notes,updated") {
 		t.Fatalf("update = %q", out)
 	}
 	if got := readSkill(t, skillPath(h.home, ".grok", "notes")); !strings.Contains(got, "\ntwo\n") {
@@ -249,21 +279,21 @@ func TestSkillsUpdateRefusesALocalChange(t *testing.T) {
 	h := skillsHarness(t)
 	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"]})
 	isolateGit(t, hub.bare)
-	h.ok("skills", "add", "triage")
+	h.ok("skills", "add", "--fleet", "triage")
 	edited := skillPath(h.home, ".pi", "triage")
 	mine := readSkill(t, edited) + "my note\n"
 	if err := os.WriteFile(edited, []byte(mine), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"]})
-	out, errOut, code := h.run("skills", "update", "triage")
+	out, errOut, code := h.run("skills", "update", "--fleet", "triage")
 	if code != 3 || !strings.Contains(out, "triage,refused") || !strings.Contains(out, "changed locally in .pi") || !strings.Contains(errOut, "1 skill(s) not updated") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if readSkill(t, edited) != mine || strings.Contains(readSkill(t, skillPath(h.home, ".agents", "triage")), "v2") {
 		t.Fatal("an update overwrote a changed skill")
 	}
-	if _, _, code := h.run("skills", "remove", "triage"); code != 3 || readSkill(t, edited) != mine {
+	if _, _, code := h.run("skills", "remove", "--fleet", "triage"); code != 3 || readSkill(t, edited) != mine {
 		t.Fatalf("remove of a changed skill: code=%d", code)
 	}
 }
@@ -273,17 +303,17 @@ func TestSkillsLeaveUnmanagedSkillsAlone(t *testing.T) {
 	mine := filepath.Join(h.home, ".agents", "skills", "mine")
 	writeFiles(t, mine, skillFiles("mine", "hand-written"))
 	for _, name := range []string{"secondhand", "secondhand-cleanup", "mine"} {
-		out, _, code := h.run("skills", "remove", name)
+		out, _, code := h.run("skills", "remove", "--fleet", name)
 		if code != 3 || !strings.Contains(out, name+",refused") {
 			t.Fatalf("remove %s: code=%d out=%q", name, code, out)
 		}
 	}
-	if out, _, code := h.run("skills", "update", "secondhand"); code != 3 || !strings.Contains(out, "secondhand,refused") {
+	if out, _, code := h.run("skills", "update", "--fleet", "secondhand"); code != 3 || !strings.Contains(out, "secondhand,refused") {
 		t.Fatalf("update: code=%d out=%q", code, out)
 	}
 	src := filepath.Join(t.TempDir(), "secondhand")
 	writeFiles(t, src, skillFiles("secondhand", "mine"))
-	if _, errOut, code := h.run("skills", "add", src); code != 3 || !strings.Contains(errOut, "already exists") {
+	if _, errOut, code := h.run("skills", "add", "--fleet", src); code != 3 || !strings.Contains(errOut, "already exists") {
 		t.Fatalf("add over a shipped skill: code=%d stderr=%q", code, errOut)
 	}
 	for _, path := range []string{skillPath(h.home, ".claude", "secondhand"), skillPath(h.home, ".agents", "mine")} {
@@ -305,20 +335,23 @@ func TestSkillsUserScopeUsesHomeAndTouchesNoFleet(t *testing.T) {
 		t.Fatalf("add = %q", out)
 	}
 	for _, root := range fleet.SkillRoots {
-		if got := readSkill(t, skillPath(h.vars["HOME"], root, "notes")); !strings.Contains(got, "managed-by: hand-skills") {
+		if got := readSkill(t, skillPath(h.vars["HOME"], root, "notes")); !strings.Contains(got, "managed-by: hand") {
 			t.Fatalf("%s: %q", root, got)
 		}
 		if _, err := os.Stat(filepath.Dir(skillPath(h.home, root, "notes"))); !os.IsNotExist(err) {
 			t.Fatalf("the fleet got the user skill: %v", err)
 		}
 	}
-	if e := skillState(t, h.vars["HOME"])["notes"]; e.Scope != "user" {
+	if e := lockEntries(t, userLock(h.vars["HOME"]))["notes"]; e.Source != src || e.ComputedHash == "" {
 		t.Fatalf("state = %+v", e)
+	}
+	if _, err := os.Stat(fleetLock(h.home)); !os.IsNotExist(err) {
+		t.Fatalf("the fleet got the user lock: %v", err)
 	}
 	if list := h.ok("skills", "list", "--user"); !strings.Contains(list, "notes,"+toonCell(src)+",\"\",user,yes") || strings.Contains(list, "secondhand") {
 		t.Fatalf("list = %q", list)
 	}
-	if list := h.ok("skills", "list"); strings.Contains(list, "notes") {
+	if list := h.ok("skills", "list", "--fleet"); strings.Contains(list, "notes") {
 		t.Fatalf("fleet list shows a user skill: %q", list)
 	}
 	writeFiles(t, src, skillFiles("notes", "two"))
@@ -340,7 +373,7 @@ func TestSkillsRefuseASourceThatIsNotASkill(t *testing.T) {
 	plain := filepath.Join(t.TempDir(), "plain")
 	writeFiles(t, plain, map[string]string{"SKILL.md": "no frontmatter\n"})
 	for _, src := range []string{empty, plain} {
-		if _, _, code := h.run("skills", "add", src); code == 0 {
+		if _, _, code := h.run("skills", "add", "--fleet", src); code == 0 {
 			t.Fatalf("add %s succeeded", src)
 		}
 		if _, err := os.Stat(filepath.Dir(skillPath(h.home, ".claude", filepath.Base(src)))); !os.IsNotExist(err) {
@@ -360,7 +393,7 @@ func TestDoctorRowForManagedSkills(t *testing.T) {
 	if row := checkRows(t, h.ok("doctor"))["skills"]; row != [2]string{"ok", `""`} {
 		t.Fatalf("empty = %q", row)
 	}
-	h.ok("skills", "add", src)
+	h.ok("skills", "add", "--fleet", src)
 	if row := checkRows(t, h.ok("doctor"))["skills"]; row != [2]string{"ok", `""`} {
 		t.Fatalf("clean = %q", row)
 	}
@@ -397,7 +430,7 @@ func TestSkillsRefuseANameThatLeavesTheSkillsFolder(t *testing.T) {
 	writeFiles(t, src, skillFiles("bar", "one"))
 	h.ok("skills", "add", "--user", src)
 	decoy := filepath.Join(home, ".claude", "decoy")
-	writeFiles(t, decoy, map[string]string{"SKILL.md": "---\nname: decoy\nmetadata:\n  managed-by: hand-skills\n---\n"})
+	writeFiles(t, decoy, map[string]string{"SKILL.md": "---\nname: decoy\nmetadata:\n  managed-by: hand\n---\n"})
 	for _, cmd := range []string{"remove", "update"} {
 		if _, errOut, code := h.run("skills", cmd, "--user", "../decoy"); code != 2 || !strings.Contains(errOut, "not a skill name") {
 			t.Fatalf("%s: code=%d stderr=%q", cmd, code, errOut)
@@ -406,12 +439,11 @@ func TestSkillsRefuseANameThatLeavesTheSkillsFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(decoy, "SKILL.md")); err != nil {
 		t.Fatalf("a folder outside skills/ was touched: %v", err)
 	}
-	state := filepath.Join(home, ".agents", "skills", ".hand-skills.json")
-	if err := os.WriteFile(state, []byte(`{"../decoy":{"source":"x","scope":"user","sum":"x"}}`), 0o644); err != nil {
+	if err := os.WriteFile(userLock(home), []byte(`{"version":2,"skills":{"../decoy":{"source":"x","sourceType":"local","computedHash":"x"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, errOut, code := h.run("skills", "remove", "--user"); code == 0 || !strings.Contains(errOut, "not a skill name") {
-		t.Fatalf("state key: code=%d stderr=%q", code, errOut)
+	if out := h.ok("skills", "remove", "--user"); strings.Contains(out, "decoy") {
+		t.Fatalf("a lock key was acted on: %q", out)
 	}
 	if _, err := os.Stat(filepath.Join(decoy, "SKILL.md")); err != nil {
 		t.Fatalf("a state key walked out: %v", err)
@@ -444,11 +476,11 @@ func TestSkillsUpdateThatFailsLeavesEveryRootOldAndARerunCompletes(t *testing.T)
 			h := skillsHarness(t)
 			src := filepath.Join(t.TempDir(), "foo")
 			writeFiles(t, src, skillFiles("foo", "one"))
-			h.ok("skills", "add", src)
+			h.ok("skills", "add", "--fleet", src)
 			before := skillState(t, h.home)["foo"]
 			writeFiles(t, src, skillFiles("foo", "two"))
 			c.break_(t, h)
-			if _, _, code := h.run("skills", "update", "foo"); code == 0 {
+			if _, _, code := h.run("skills", "update", "--fleet", "foo"); code == 0 {
 				t.Fatal("update succeeded")
 			}
 			fleet.Rename = fsxRename
@@ -466,17 +498,17 @@ func TestSkillsUpdateThatFailsLeavesEveryRootOldAndARerunCompletes(t *testing.T)
 					}
 				}
 			}
-			after := skillState(t, h.home)["foo"]
-			if c.next && (after.Next == "" || after.Next == before.Sum || after.Sum != before.Sum) {
-				t.Fatalf("state before the swap = %+v, was %+v", after, before)
+			after, next := skillState(t, h.home)["foo"], pendingSwaps(t, h.home)["foo"]
+			if c.next && (next == "" || next == before.ComputedHash || after != before) {
+				t.Fatalf("state before the swap = %+v next %q, was %+v", after, next, before)
 			}
-			if !c.next && after != before {
-				t.Fatalf("state = %+v, was %+v", after, before)
+			if !c.next && (after != before || next != "") {
+				t.Fatalf("state = %+v next %q, was %+v", after, next, before)
 			}
 			if err := os.Chmod(filepath.Join(h.home, ".pi", "skills"), 0o755); err != nil && runtime.GOOS != "windows" {
 				t.Fatal(err)
 			}
-			if out := h.ok("skills", "update", "foo"); !strings.Contains(out, "foo,updated") {
+			if out := h.ok("skills", "update", "--fleet", "foo"); !strings.Contains(out, "foo,updated") {
 				t.Fatalf("rerun = %q", out)
 			}
 			for _, root := range fleet.SkillRoots {
@@ -484,8 +516,8 @@ func TestSkillsUpdateThatFailsLeavesEveryRootOldAndARerunCompletes(t *testing.T)
 					t.Fatalf("%s: %q", root, got)
 				}
 			}
-			if e := skillState(t, h.home)["foo"]; e.Next != "" {
-				t.Fatalf("state = %+v", e)
+			if e := skillState(t, h.home)["foo"]; e.ComputedHash == before.ComputedHash || len(pendingSwaps(t, h.home)) != 0 {
+				t.Fatalf("state = %+v, pending %v", e, pendingSwaps(t, h.home))
 			}
 		})
 	}
@@ -508,7 +540,7 @@ func failRename(t *testing.T, hit func(from, to string) bool) func(*testing.T, *
 func TestSkillsListSkipsDotFolders(t *testing.T) {
 	h := skillsHarness(t)
 	writeFiles(t, filepath.Join(h.home, ".agents", "skills", ".hand-foo-123.old"), skillFiles("foo", "one"))
-	if out := h.ok("skills", "list"); strings.Contains(out, ".hand-foo") {
+	if out := h.ok("skills", "list", "--fleet"); strings.Contains(out, ".hand-foo") {
 		t.Fatalf("list = %q", out)
 	}
 }
@@ -517,36 +549,38 @@ func TestSkillsRerunFinishesAnInterruptedSwap(t *testing.T) {
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "foo")
 	writeFiles(t, src, skillFiles("foo", "one"))
-	h.ok("skills", "add", src)
+	h.ok("skills", "add", "--fleet", src)
 	old := readSkill(t, skillPath(h.home, ".pi", "foo"))
 	writeFiles(t, src, skillFiles("foo", "two"))
-	h.ok("skills", "update", "foo")
-	newSum := skillState(t, h.home)["foo"].Sum
+	h.ok("skills", "update", "--fleet", "foo")
+	newSum := skillState(t, h.home)["foo"].ComputedHash
 	if err := os.WriteFile(skillPath(h.home, ".pi", "foo"), []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	state := skillState(t, h.home)
-	oldSum := state["foo"]
-	oldSum.Sum, oldSum.Next = fleetSum(t, filepath.Dir(skillPath(h.home, ".pi", "foo"))), newSum
-	state["foo"] = oldSum
-	b, _ := json.Marshal(state)
-	if err := os.WriteFile(filepath.Join(h.home, ".agents", "skills", ".hand-skills.json"), b, 0o644); err != nil {
+	entry := skillState(t, h.home)["foo"]
+	entry.ComputedHash = fleetSum(t, filepath.Dir(skillPath(h.home, ".pi", "foo")))
+	b, _ := json.Marshal(map[string]any{"version": 2, "skills": map[string]fleet.LockEntry{"foo": entry}})
+	if err := os.WriteFile(fleetLock(h.home), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out := h.ok("skills", "update", "foo"); !strings.Contains(out, "foo,updated") {
+	b, _ = json.Marshal(map[string]string{"foo": newSum})
+	if err := os.WriteFile(filepath.Join(h.home, ".agents", "skills", ".hand-skills-next.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.ok("skills", "update", "--fleet", "foo"); !strings.Contains(out, "foo,updated") {
 		t.Fatalf("rerun = %q", out)
 	}
 	if got := readSkill(t, skillPath(h.home, ".pi", "foo")); !strings.Contains(got, "\ntwo\n") {
 		t.Fatalf("pi = %q", got)
 	}
-	if e := skillState(t, h.home)["foo"]; e.Sum != newSum || e.Next != "" {
-		t.Fatalf("state = %+v", e)
+	if e := skillState(t, h.home)["foo"]; e.ComputedHash != newSum || len(pendingSwaps(t, h.home)) != 0 {
+		t.Fatalf("state = %+v, pending %v", e, pendingSwaps(t, h.home))
 	}
 }
 
 func fleetSum(t *testing.T, dir string) string {
 	t.Helper()
-	sum, err := fleet.Sum(dir)
+	sum, err := fleet.ComputedHash(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,10 +591,10 @@ func TestSkillsMarkerCountsOnlyInTheFrontmatter(t *testing.T) {
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "quote")
 	writeFiles(t, src, skillFiles("quote", "one"))
-	h.ok("skills", "add", src)
+	h.ok("skills", "add", "--fleet", src)
 	quote := filepath.Join(h.home, ".agents", "skills", "quote")
-	writeFiles(t, quote, map[string]string{"SKILL.md": "---\nname: quote\n---\n\nmetadata:\n  managed-by: hand-skills\n"})
-	if out, _, code := h.run("skills", "remove", "quote"); code != 3 || !strings.Contains(out, "is not marked as managed") {
+	writeFiles(t, quote, map[string]string{"SKILL.md": "---\nname: quote\n---\n\nmetadata:\n  managed-by: hand\n"})
+	if out, _, code := h.run("skills", "remove", "--fleet", "quote"); code != 3 || !strings.Contains(out, "is not marked as managed") {
 		t.Fatalf("remove: code=%d out=%q", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(quote, "SKILL.md")); err != nil {
@@ -572,11 +606,11 @@ func TestSkillsRemoveRefusesAMarkedFolderWithNoRecord(t *testing.T) {
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
-	h.ok("skills", "add", src)
-	if err := os.WriteFile(filepath.Join(h.home, ".agents", "skills", ".hand-skills.json"), []byte("{}\n"), 0o644); err != nil {
+	h.ok("skills", "add", "--fleet", src)
+	if err := os.WriteFile(fleetLock(h.home), []byte("{\"version\":2,\"skills\":{}}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, _, code := h.run("skills", "remove", "notes"); code != 3 || !strings.Contains(out, "no recorded copy") {
+	if out, _, code := h.run("skills", "remove", "--fleet", "notes"); code != 3 || !strings.Contains(out, "no recorded copy") {
 		t.Fatalf("remove: code=%d out=%q", code, out)
 	}
 	for _, root := range fleet.SkillRoots {
@@ -590,14 +624,14 @@ func TestSkillsAcceptCRLFFrontmatter(t *testing.T) {
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "crlf")
 	writeFiles(t, src, map[string]string{"SKILL.md": "---\r\nname: crlf\r\ndescription: x\r\n---\r\n\r\nbody\r\n"})
-	if out := h.ok("skills", "add", src); !strings.Contains(out, "crlf,added") {
+	if out := h.ok("skills", "add", "--fleet", src); !strings.Contains(out, "crlf,added") {
 		t.Fatalf("add = %q", out)
 	}
 	got := readSkill(t, skillPath(h.home, ".claude", "crlf"))
-	if !strings.HasPrefix(got, "---\nname: crlf\ndescription: x\nmetadata:\n  managed-by: hand-skills\n---\n") {
+	if !strings.HasPrefix(got, "---\nname: crlf\ndescription: x\nmetadata:\n  managed-by: hand\n---\n") {
 		t.Fatalf("got %q", got)
 	}
-	if out := h.ok("skills", "remove", "crlf"); !strings.Contains(out, "crlf,removed") {
+	if out := h.ok("skills", "remove", "--fleet", "crlf"); !strings.Contains(out, "crlf,removed") {
 		t.Fatalf("remove = %q", out)
 	}
 }
@@ -605,12 +639,12 @@ func TestSkillsAcceptCRLFFrontmatter(t *testing.T) {
 func TestSkillsMarkerFollowsTheMetadataIndent(t *testing.T) {
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "wide")
-	writeFiles(t, src, map[string]string{"SKILL.md": "---\nname: wide\nmetadata:\n    version: 1\n---\n"})
-	h.ok("skills", "add", src)
-	if got := readSkill(t, skillPath(h.home, ".claude", "wide")); got != "---\nname: wide\nmetadata:\n    managed-by: hand-skills\n    version: 1\n---\n" {
+	writeFiles(t, src, map[string]string{"SKILL.md": "---\nname: wide\ndescription: x\nmetadata:\n    version: 1\n---\n"})
+	h.ok("skills", "add", "--fleet", src)
+	if got := readSkill(t, skillPath(h.home, ".claude", "wide")); got != "---\nname: wide\ndescription: x\nmetadata:\n    managed-by: hand\n    version: 1\n---\n" {
 		t.Fatalf("got %q", got)
 	}
-	h.ok("skills", "remove", "wide")
+	h.ok("skills", "remove", "--fleet", "wide")
 }
 
 func TestSkillsRefuseATreeOverTheCap(t *testing.T) {
@@ -625,7 +659,7 @@ func TestSkillsRefuseATreeOverTheCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = f.Close()
-	if _, errOut, code := h.run("skills", "add", src); code == 0 || !strings.Contains(errOut, "32 MiB") {
+	if _, errOut, code := h.run("skills", "add", "--fleet", src); code == 0 || !strings.Contains(errOut, "32 MiB") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if _, err := os.Stat(filepath.Dir(skillPath(h.home, ".claude", "big"))); !os.IsNotExist(err) {
@@ -643,7 +677,7 @@ func TestSkillsConcurrentAddsKeepEveryRecord(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			h.ok("skills", "add", src)
+			h.ok("skills", "add", "--fleet", src)
 		}()
 	}
 	wg.Wait()
