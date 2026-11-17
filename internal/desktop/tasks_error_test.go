@@ -39,6 +39,17 @@ func TestScenesTasksOnlyFailureDrawsTheErrorCard(t *testing.T) {
 			if tc.width == windowWidth {
 				shot(t, tt, "tasks-error-"+tc.name)
 			}
+			if tc.width < 1000 {
+				for _, tab := range []string{"Needs", "Chat"} {
+					click(t, tt, tab)
+					tt.Frame()
+					mustNotText(t, tt, "The board could not be read")
+					mustNotText(t, tt, tasksFailed)
+					mustNotText(t, tt, "Retry")
+				}
+				click(t, tt, "Tasks")
+				tt.Frame()
+			}
 			f.tasksErr = nil
 			click(t, tt, "Retry")
 			tt.Frame()
