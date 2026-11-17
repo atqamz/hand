@@ -2,4 +2,4 @@
 
 package markdown_test
 
-const linearLimit = 600
+const raceBuild = false

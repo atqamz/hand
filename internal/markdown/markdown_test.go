@@ -330,6 +330,10 @@ const (
 )
 
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
+	if raceBuild {
+		t.Skip("race instrumentation flattens the ratio; the run without -race guards linearity")
+	}
+	const linearLimit = 600
 	cost := func(in string, reps, runs int) time.Duration {
 		best := time.Duration(1<<63 - 1)
 		for range runs {
