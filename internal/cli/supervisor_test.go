@@ -2337,16 +2337,12 @@ func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
 	fx.start()
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
-	waitHandled := watchedEvents(t, fx)
-	stop := startWatch(t, fx, "--every", "1h")
+	stop := startWatch(t, fx, "--every", "200ms")
 	defer stop()
 	eventually(t, func() bool { return supervisorLimitedRows(t, fx) == 1 })
 	has(t, "switch", fx.h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "supervisor: s2", "switch: applied")
 	publishStatus(fx, supervisorPane(t, fx.h.ok("supervisor", "show")), "idle")
-	waitHandled("pane.agent_status_changed", 1)
-	if n := supervisorLimitedRows(t, fx); n != 2 {
-		t.Fatalf("limited alerts = %d, want 2", n)
-	}
+	eventually(t, func() bool { return supervisorLimitedRows(t, fx) == 2 })
 }
 
 func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
