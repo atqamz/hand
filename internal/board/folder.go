@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/fsx"
 )
 
 const folderPage = 500
@@ -78,6 +80,8 @@ func whyRefused(err error) string {
 		return "points at a file the Board never shows"
 	case errors.Is(err, errKind):
 		return "points at something that is not a file or folder"
+	case errors.Is(err, errLinked):
+		return "has more than one hard link"
 	case errors.Is(err, fs.ErrNotExist):
 		return "points at nothing"
 	}
@@ -115,6 +119,11 @@ func (b *Board) members(root, real string, f *os.File, rel string, page int) (ou
 			m.image = !m.dir && imageLike.MatchString(it.name)
 		case !it.dir:
 			m.kind, m.image = fileKind(it.name), imageLike.MatchString(it.name)
+			if n, err := fsx.Links(filepath.Join(root, real, it.name)); err == nil && n > 1 {
+				m.refused, m.image = whyRefused(errLinked), false
+				out = append(out, m)
+				continue
+			}
 		}
 		if rt != nil {
 			if info, err := rt.Lstat(filepath.Join(real, it.name)); err == nil {
@@ -171,9 +180,13 @@ func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]
 	return out, pg
 }
 
-func (b *Board) neighbours(root, rel string, images bool) (prev, next string, page int) {
+func (b *Board) neighbours(rel string, images bool) (prev, next string, page int) {
 	dir, name := path.Split(rel)
-	d, err := os.OpenInRoot(root, filepath.FromSlash(path.Clean(dir)))
+	root, real, fi, err := Resolve(b.o.Home, path.Clean(dir))
+	if err != nil || !fi.IsDir() {
+		return "", "", 1
+	}
+	d, err := os.OpenInRoot(root, filepath.FromSlash(real))
 	if err != nil {
 		return "", "", 1
 	}
@@ -199,8 +212,8 @@ func (b *Board) neighbours(root, rel string, images bool) (prev, next string, pa
 	return pick(i-1, -1), pick(i+1, 1), i/folderPage + 1
 }
 
-func (b *Board) around(root, rel string, images bool, tail string, source bool) (prev, next *step, page int) {
-	p, n, page := b.neighbours(root, rel, images)
+func (b *Board) around(rel string, images bool, tail string, source bool) (prev, next *step, page int) {
+	p, n, page := b.neighbours(rel, images)
 	dir := path.Dir(rel) + "/"
 	if dir == "./" {
 		dir = ""
