@@ -16,6 +16,7 @@ var shotBudget = 48 << 20
 
 type shotState struct {
 	bmp    *ui.Bitmap
+	pix    int
 	failed time.Time
 	done   bool
 }
@@ -71,7 +72,8 @@ func (a *App) pumpShots() {
 	}
 	name := a.shotQueue[0]
 	a.shotQueue = a.shotQueue[1:]
-	if a.shotPix >= shotBudget {
+	room := a.shotRoom(name)
+	if room <= 0 {
 		a.shots[name].done = true
 		a.pumpShots()
 		return
@@ -84,7 +86,7 @@ func (a *App) pumpShots() {
 		b, err := model.InboxBytes(ctx, fleet, name)
 		var bmp *ui.Bitmap
 		if err == nil {
-			bmp, _ = drawBitmap(b)
+			bmp, _ = drawBitmap(b, room)
 		}
 		return func() {
 			if gen != a.shotGen {
@@ -93,9 +95,8 @@ func (a *App) pumpShots() {
 			a.shotBusy = false
 			st := a.shots[name]
 			st.done = true
-			if w, h := ui.ImageSize(bmp); bmp != nil && a.shotPix+int(w*h) <= shotBudget {
-				st.bmp = bmp
-				a.shotPix += int(w * h)
+			if w, h := ui.ImageSize(bmp); bmp != nil {
+				a.holdShot(name, st, bmp, int(w*h))
 			}
 			if err != nil {
 				st.failed = a.now()
@@ -103,4 +104,33 @@ func (a *App) pumpShots() {
 			a.pumpShots()
 		}
 	})
+}
+
+func (a *App) shotHeld(from string) (pix int) {
+	for n, st := range a.shots {
+		if n >= from {
+			pix += st.pix
+		}
+	}
+	return pix
+}
+
+func (a *App) shotRoom(name string) int64 {
+	return min(int64(shotBudget-a.shotHeld(name)), docPixelsMax)
+}
+
+func (a *App) holdShot(name string, st *shotState, bmp *ui.Bitmap, pix int) {
+	for a.shotHeld("")+pix > shotBudget {
+		oldest := ""
+		for n, o := range a.shots {
+			if o.bmp != nil && n < name && (oldest == "" || n < oldest) {
+				oldest = n
+			}
+		}
+		if oldest == "" {
+			return
+		}
+		a.shots[oldest].bmp, a.shots[oldest].pix = nil, 0
+	}
+	st.bmp, st.pix = bmp, pix
 }

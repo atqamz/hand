@@ -85,7 +85,7 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 			r.err = err
 			break
 		}
-		r.image, r.row = drawBitmap(b)
+		r.image, r.row = drawBitmap(b, docPixelsMax)
 	case "binary":
 		r.row = notText
 	default:
@@ -98,8 +98,8 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 	return r
 }
 
-func drawBitmap(b []byte) (*ui.Bitmap, string) {
-	if cfg, _, err := image.DecodeConfig(bytes.NewReader(b)); err == nil && int64(cfg.Width)*int64(cfg.Height) > docPixelsMax {
+func drawBitmap(b []byte, most int64) (*ui.Bitmap, string) {
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(b)); err == nil && int64(cfg.Width)*int64(cfg.Height) > most {
 		return nil, docTooLarge
 	}
 	bmp, err := ui.DecodeBitmap(b)

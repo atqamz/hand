@@ -43,6 +43,9 @@ type fixture struct {
 	tasksErr       error
 	keepNeeds      bool
 	actionBlock    chan struct{}
+	headBlock      map[string]chan struct{}
+	headEntered    chan string
+	headGone       map[string]bool
 	actionEntered  chan struct{}
 	choice         string
 	answerNote     string

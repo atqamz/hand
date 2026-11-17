@@ -36,6 +36,13 @@ func (f *fixture) UploadInbox(ctx context.Context, id, name string, body []byte)
 
 func (f *fixture) InboxHead(ctx context.Context, id, name string) (int64, error) {
 	f.note("head:" + name)
+	if block := f.headBlock[id]; block != nil {
+		f.headEntered <- id
+		<-block
+	}
+	if f.headGone[id] {
+		return 0, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: file in inbox/"}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	b, ok := f.inbox[name]

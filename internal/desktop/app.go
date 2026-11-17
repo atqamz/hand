@@ -142,15 +142,11 @@ type App struct {
 	chipStop   context.CancelFunc
 	attachNote string
 	attachSay  string
-	// Pick shows the system file picker and returns the paths chosen; nil
-	// turns the paperclip off. It may block, so the window runs it off the
-	// UI thread.
-	Pick func() []string
+	Pick       func() []string
 
 	shots     map[string]*shotState
 	shotQueue []string
 	shotBusy  bool
-	shotPix   int
 	shotGen   int
 
 	Draft     string
@@ -482,7 +478,7 @@ func (a *App) SelectFleet(id string) {
 	if a.writer != nil {
 		a.writer.Flush()
 	}
-	a.shots, a.shotQueue, a.shotBusy, a.shotPix = nil, nil, false, 0
+	a.shots, a.shotQueue, a.shotBusy = nil, nil, false
 	a.shotGen++
 	if was != a.Fleet.ID || a.Draft == "" {
 		a.Draft = a.drafts().Load(a.Fleet.ID)
@@ -495,7 +491,7 @@ func (a *App) SelectFleet(id string) {
 	if a.writer != nil {
 		if u, ok := a.writer.unsaved(a.Fleet.ID); ok {
 			a.Draft = u.text
-			a.DraftErr = "the draft was not saved: " + friendly(u.err)
+			a.DraftErr = draftNotSaved
 			a.draftRestored = false
 		}
 	}
@@ -1138,8 +1134,8 @@ func ackedReports(have []Report, ref string, r Report) []Report {
 
 func (a *App) Send() {
 	text := a.Draft
-	_, names := a.readyChips()
-	sentIDs := a.settledChips()
+	sentIDs, names := a.readyChips()
+	failedIDs := a.failedChips()
 	prose := strings.TrimSpace(text) != ""
 	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.attaching() > 0 || !prose && len(names) == 0 {
 		return
@@ -1158,7 +1154,7 @@ func (a *App) Send() {
 		if a.Fleet.ID == fleet && a.Draft == text {
 			a.Draft, a.draftAt, a.draftRestored = "", time.Time{}, false
 		}
-		a.sentChips(gen, fleet, sentIDs, names)
+		a.sentChips(gen, fleet, sentIDs, failedIDs, names)
 		if id != a.loadID {
 			return
 		}
@@ -1174,7 +1170,7 @@ func (a *App) Send() {
 		if id != a.loadID {
 			return
 		}
-		a.DraftErr = "the message was sent, but its stored draft could not be removed: " + friendly(err)
+		a.DraftErr = "the message was sent, but its stored draft could not be removed"
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -1547,7 +1543,7 @@ func (a *App) applyDraftSave(fleet, text string) {
 	}
 	if u, ok := a.draftWriter().unsaved(fleet); ok {
 		if a.Draft == u.text {
-			a.DraftErr = "the draft was not saved: " + friendly(u.err)
+			a.DraftErr = draftNotSaved
 			a.draftAt = time.Time{}
 		}
 		return

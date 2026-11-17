@@ -1,8 +1,11 @@
 package desktop_test
 
 import (
+	"bytes"
 	"errors"
+	"image"
 	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -756,10 +759,20 @@ func TestAnImageLinePathOutsideTheInboxIsShownAsTextAndNeverFetched(t *testing.T
 	}
 }
 
+func grayPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&out, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
 func TestADecodeCapHoldsBeforeDecodingASentImage(t *testing.T) {
 	f := sentFixture(t)
-	f.inbox[sentImage] = hugePNG(40000, 40000)
-	if len(f.inbox[sentImage]) > 1<<10 {
+	f.inbox[sentImage] = grayPNG(t, 6200, 6200)
+	if len(f.inbox[sentImage]) > 1<<20 {
 		t.Fatal("the fixture is not a small file")
 	}
 	app := newApp(t, f)
@@ -776,6 +789,16 @@ func TestADecodeCapHoldsBeforeDecodingASentImage(t *testing.T) {
 	tt.Frame()
 	if got := f.count("inbox:" + sentImage); got != 1 {
 		t.Fatalf("a repaint fetched the image again: %d", got)
+	}
+}
+
+func TestADrawLimitIsCheckedBeforeTheBytesAreDecoded(t *testing.T) {
+	header := hugePNG(100, 100)
+	if _, why := desktop.DrawBitmap(header, 5000); !strings.Contains(why, "larger than this window reads") {
+		t.Fatalf("a picture over the limit says %q", why)
+	}
+	if _, why := desktop.DrawBitmap(header, 10000); !strings.Contains(why, "could not be drawn") {
+		t.Fatalf("a picture within the limit says %q, want it to reach the decoder", why)
 	}
 }
 
@@ -897,6 +920,186 @@ func TestAFailedChipAddedWhileASendRunsSurvivesIt(t *testing.T) {
 	drainPosts(t, posted)
 	if len(app.Chips) != 1 {
 		t.Fatalf("%d chips after the send, want only the failed one added during it", len(app.Chips))
+	}
+}
+
+func TestAFailedChipRetriedWhileASendRunsIsNotSentAndSurvivesIt(t *testing.T) {
+	f := sentFixture(t)
+	app, posted := asyncApp(t, f)
+	dir, img, _ := twoFiles(t)
+	later := filepath.Join(dir, "later.txt")
+	app.Attach(img)
+	drainPosts(t, posted)
+	app.Attach(later)
+	if len(app.Chips) != 2 {
+		t.Fatalf("%d chips, want the ready one and the failed one", len(app.Chips))
+	}
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 2)
+	app.Draft = "one"
+	app.Send()
+	<-f.actionEntered
+	fileOf(t, dir, "later.txt", 10)
+	app.RetryChip(2)
+	close(f.actionBlock)
+	drainPosts(t, posted)
+	if len(f.sentFiles) != 1 || strings.Contains(f.sentFiles[0], "later.txt") {
+		t.Fatalf("the send carried %v, want only the picture", f.sentFiles)
+	}
+	if len(app.Chips) != 1 {
+		t.Fatalf("%d chips after the send, want the retried one", len(app.Chips))
+	}
+	if left := (desktop.Drafts{Dir: app.DraftDir}).LoadFiles(fleetID); len(left) != 1 || left[0].Label != "later.txt" {
+		t.Fatalf("the draft keeps %v, want later.txt", left)
+	}
+}
+
+func TestANewerPictureEvictsTheOldestOnceTheBudgetIsSpent(t *testing.T) {
+	defer desktop.SetShotBudget(480*270 + 10)()
+	f := sentFixture(t)
+	older := "20261030-045800-3-older.png"
+	f.inbox[older] = f.inbox[sentImage]
+	full := f.timeline[fleetID]
+	olderEntry := desktop.Entry{Role: "operator", At: "2026-10-31T04:00:00Z", Text: "older",
+		Shots: []desktop.Shot{{Name: older, Label: "older.png", Kind: "PNG", Size: "6 KiB", Image: true}}}
+	f.timeline[fleetID] = desktop.Timeline{Entries: []desktop.Entry{olderEntry}}
+	app := newApp(t, f)
+	tt := sized(t, app, 1100, 760, false)
+	tt.Frame()
+	tt.Frame()
+	if _, ok := tt.Find("Attached image older.png"); !ok {
+		t.Fatal("the first picture is not drawn")
+	}
+	full.Entries = append(full.Entries, olderEntry)
+	f.timeline[fleetID] = full
+	app.Refresh()
+	tt.Frame()
+	tt.Frame()
+	if _, ok := tt.Find("Attached image " + attachImage); !ok {
+		t.Error("a newer picture does not draw once the budget is spent")
+	}
+	if _, ok := tt.Find("Attached image older.png"); ok {
+		t.Error("the oldest picture stayed drawn past the budget")
+	}
+	mustText(t, tt, "older.png", "PNG · 6 KiB")
+	if got := f.gets(); len(got) != 2 {
+		t.Fatalf("the window fetched %v, want each picture once", got)
+	}
+}
+
+func TestARestoreAnswerForAnotherFleetLeavesTheSameNamedChipAlone(t *testing.T) {
+	f := sentFixture(t)
+	blockA, blockB := make(chan struct{}), make(chan struct{})
+	f.headBlock = map[string]chan struct{}{fleetID: blockA, secondID: blockB}
+	f.headGone = map[string]bool{fleetID: true}
+	f.headEntered = make(chan string, 4)
+	app, posted := asyncApp(t, f)
+	drafts := desktop.Drafts{Dir: app.DraftDir}
+	file := desktop.InboxFile{Name: sentImage, Label: attachImage, Kind: "image", Size: 100}
+	if err := drafts.SaveFiles(fleetID, []desktop.InboxFile{file}); err != nil {
+		t.Fatal(err)
+	}
+	app.SelectFleet(secondID)
+	app.SelectFleet(fleetID)
+	if got := <-f.headEntered; got != fleetID {
+		t.Fatalf("the first check was for %s", got)
+	}
+	if err := drafts.SaveFiles(secondID, []desktop.InboxFile{file}); err != nil {
+		t.Fatal(err)
+	}
+	app.SelectFleet(secondID)
+	if got := <-f.headEntered; got != secondID {
+		t.Fatalf("the second check was for %s", got)
+	}
+	close(blockA)
+	drainPosts(t, posted)
+	if len(app.Chips) != 1 {
+		t.Fatalf("the first fleet's late answer left %d chips in the second, want its one checking chip", len(app.Chips))
+	}
+	if left := drafts.LoadFiles(secondID); len(left) != 1 {
+		t.Fatalf("the second fleet's draft holds %v", left)
+	}
+	close(blockB)
+	drainPosts(t, posted)
+	if len(app.Chips) != 1 {
+		t.Fatalf("%d chips after the second fleet's own answer", len(app.Chips))
+	}
+}
+
+func TestSendLooksDisabledWhileAFileUploads(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(theme(dark), func(t *testing.T) {
+			k := colorsFor(dark)
+			f := sentFixture(t)
+			f.uploadBlock, f.uploadEntered = make(chan struct{}), make(chan struct{}, 4)
+			app, posted := asyncApp(t, f)
+			_, img, _ := twoFiles(t)
+			tt := sized(t, app, 1100, 760, dark)
+			click(t, tt, "Message the supervisor")
+			tt.Type("see this")
+			tt.Frame()
+			tt.Frame()
+			fill := func() bool {
+				r, ok := tt.Find("Send")
+				if !ok {
+					t.Fatal("no Send button")
+				}
+				return rgbIs(tt.Image().RGBAAt(int(r.X)+3, int(r.Y+r.H/2)), k.Primary)
+			}
+			if !fill() {
+				t.Fatal("Send is not drawn in its enabled colour with a message typed")
+			}
+			app.Attach(img)
+			<-f.uploadEntered
+			tt.Frame()
+			tt.Frame()
+			if fill() {
+				t.Error("Send looks enabled while a file uploads")
+			}
+			close(f.uploadBlock)
+			drainPosts(t, posted)
+			tt.Frame()
+			tt.Frame()
+			if !fill() {
+				t.Error("Send stayed dimmed after the upload finished")
+			}
+		})
+	}
+}
+
+func TestADraftSaveFailureNamesNoPathOnTheScreen(t *testing.T) {
+	dir := t.TempDir()
+	blocked := filepath.Join(dir, "blocked-drafts-folder")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := sentFixture(t)
+	app := newApp(t, f)
+	app.DraftDir = blocked
+	_, img, _ := twoFiles(t)
+	tt := sized(t, app, 1100, 760, false)
+	click(t, tt, "Message the supervisor")
+	app.Attach(img)
+	tt.Frame()
+	tt.Frame()
+	for _, text := range tt.Texts() {
+		if strings.Contains(text, "blocked-drafts-folder") || strings.Contains(text, dir) {
+			t.Fatalf("a path is on screen after the files draft failed: %q", text)
+		}
+	}
+	mustText(t, tt, "the draft was not saved")
+	tt.Type("words")
+	tt.Frame()
+	tt.Frame()
+	for _, text := range tt.Texts() {
+		if strings.Contains(text, "blocked-drafts-folder") || strings.Contains(text, dir) {
+			t.Fatalf("a path is on screen after the text draft failed: %q", text)
+		}
+	}
+	mustText(t, tt, "the draft was not saved")
+	click(t, tt, "second")
+	click(t, tt, "golden")
+	if strings.Contains(app.DraftErr, dir) {
+		t.Fatalf("the restored draft error names a path: %q", app.DraftErr)
 	}
 }
 

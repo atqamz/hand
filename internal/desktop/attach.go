@@ -28,7 +28,10 @@ var (
 	errUnreadable = &refusal{"The file could not be read.", true}
 )
 
-const copyFolder = "A folder is not copied. Paste its path instead."
+const (
+	draftNotSaved = "the draft was not saved; the folder for drafts could not be written"
+	copyFolder    = "A folder is not copied. Paste its path instead."
+)
 
 type refusal struct {
 	msg   string
@@ -194,7 +197,7 @@ func (a *App) upload(id int) {
 	ctx, cancel := context.WithCancel(a.Context)
 	ch := &a.Chips[i]
 	ch.state, ch.err, ch.retry, ch.cancel = chipUploading, "", false, cancel
-	src, data, title, model, fleet, gen := ch.src, ch.data, ch.title, a.Model, a.Fleet.ID, a.chipGen
+	src, data, title, model, fleet := ch.src, ch.data, ch.title, a.Model, a.Fleet.ID
 	a.offload(func() func() {
 		var f InboxFile
 		body, err := data, error(nil)
@@ -205,14 +208,11 @@ func (a *App) upload(id int) {
 			f, err = model.UploadInbox(ctx, fleet, title, body)
 		}
 		cancel()
-		return func() { a.uploaded(gen, fleet, id, f, err) }
+		return func() { a.uploaded(id, f, err) }
 	})
 }
 
-func (a *App) uploaded(gen int, fleet string, id int, f InboxFile, err error) {
-	if gen != a.chipGen || fleet != a.Fleet.ID {
-		return
-	}
+func (a *App) uploaded(id int, f InboxFile, err error) {
 	i := a.chipAt(id)
 	if i < 0 {
 		return
@@ -272,29 +272,30 @@ func (a *App) chipsChanged() {
 		}
 	}
 	if err := a.drafts().SaveFiles(a.Fleet.ID, files); err != nil {
-		a.DraftErr = "the draft was not saved: " + friendly(err)
+		a.DraftErr = draftNotSaved
 	}
 }
 
-func (a *App) settledChips() []int {
-	var ids []int
+func (a *App) failedChips() (ids []int) {
 	for _, ch := range a.Chips {
-		if ch.state == chipReady || ch.state == chipFailed {
+		if ch.state == chipFailed {
 			ids = append(ids, ch.id)
 		}
 	}
 	return ids
 }
 
-func (a *App) sentChips(gen int, fleet string, ids []int, names []string) {
+func (a *App) sentChips(gen int, fleet string, sent, failed []int, names []string) {
 	if a.Fleet.ID == fleet && a.chipGen == gen {
-		a.Chips = slices.DeleteFunc(a.Chips, func(ch chip) bool { return slices.Contains(ids, ch.id) })
+		a.Chips = slices.DeleteFunc(a.Chips, func(ch chip) bool {
+			return slices.Contains(sent, ch.id) || ch.state == chipFailed && slices.Contains(failed, ch.id)
+		})
 		a.chipsChanged()
 		return
 	}
 	drafts := a.drafts()
 	if err := drafts.SaveFiles(fleet, slices.DeleteFunc(drafts.LoadFiles(fleet), func(f InboxFile) bool { return slices.Contains(names, f.Name) })); err != nil {
-		a.DraftErr = "the draft was not saved: " + friendly(err)
+		a.DraftErr = draftNotSaved
 	}
 	if a.Fleet.ID == fleet {
 		a.Chips = slices.DeleteFunc(a.Chips, func(ch chip) bool { return ch.state != chipFailed && slices.Contains(names, ch.file.Name) })
