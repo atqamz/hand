@@ -289,6 +289,7 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
+			eventHandled(ev.Event)
 		case b := <-w.busyNow:
 			err = w.held(sctx, c, caps, b)
 		}
@@ -297,6 +298,8 @@ func (w *watcher) session(ctx context.Context) error {
 		}
 	}
 }
+
+var eventHandled = func(string) {}
 
 func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabilities, ev luvus.Event) error {
 	switch ev.Event {

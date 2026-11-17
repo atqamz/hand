@@ -45,6 +45,7 @@ var (
 	RolloverWait     = &rolloverWait
 	RolloverPoll     = &rolloverPoll
 	RolloverStill    = &rolloverStill
+	EventHandled     = &eventHandled
 )
 
 func Control(env Env, home string) func(context.Context, ...string) (string, error) {
