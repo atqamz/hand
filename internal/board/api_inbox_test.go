@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -269,6 +270,11 @@ func TestAPIInboxServesOnlyInboxNames(t *testing.T) {
 		}
 	}
 	got := apiStored(t, h, "a.png", pngBytes)
+	for _, f := range []string{".upload-123", ".hidden", "hand.db", "20261101-050000-1.html"} {
+		if err := os.WriteFile(filepath.Join(home, "inbox", f), []byte(secret), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	const stamp = "20261101-050000-1-"
 	probes := []struct {
 		raw  string
@@ -276,7 +282,7 @@ func TestAPIInboxServesOnlyInboxNames(t *testing.T) {
 	}{
 		{got.Name, 200},
 		{"..%2Fhand.db", 404}, {"%2E%2E%2Fhand.db", 404}, {"..%5Chand.db", 404}, {"hand.db", 404}, {"board.token", 404},
-		{"%2Fetc%2Fpasswd", 404}, {"%2F" + strings.TrimPrefix(home, "/") + "%2Fhand.db", 404}, {"C%3A%5CWindows%5Cwin.ini", 404},
+		{"%2Fetc%2Fpasswd", 404}, {url.PathEscape(filepath.Join(home, "hand.db")), 404}, {"C%3A%5CWindows%5Cwin.ini", 404},
 		{"..", 307}, {".", 307}, {"%2e%2e", 404}, {"%2e", 404}, {"../hand.db", 307}, {"./" + got.Name, 307}, {got.Name + "/", 404}, {got.Name + "/.", 307},
 		{stamp + "a%2F..%2F..%2Fhand.db", 404}, {stamp + "..%2Fhand.db", 404}, {stamp + "a%5C..%5Chand.db", 404},
 		{stamp + "a.png%00", 404}, {stamp + "a%00.png", 404}, {"%00", 404},
@@ -556,5 +562,54 @@ func TestThePhoneDecodesTheInboxAnswersWithoutAChange(t *testing.T) {
 	phone, err := os.ReadFile(filepath.Join("..", "..", "android", "src-tauri", "gen", "android", "app", "src", "test", "resources", "api", "message-sent.json"))
 	if err != nil || !bytes.Equal(golden, phone) {
 		t.Fatalf("the phone's copy of message-sent.json differs from the golden (%v)", err)
+	}
+}
+
+func TestAPIInboxConcurrentUploadsKeepEveryFile(t *testing.T) {
+	for _, c := range []struct {
+		what    string
+		viaPage func(i int) bool
+	}{
+		{"through the API", func(int) bool { return false }},
+		{"through the API and the page", func(i int) bool { return i%2 == 1 }},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			fx := apiInboxFixture(t)
+			h := fx.handler()
+			const n = 24
+			names := make([]string, n)
+			var wg sync.WaitGroup
+			for i := range names {
+				wg.Go(func() {
+					data := append(append([]byte{}, pngBytes...), byte(i))
+					if c.viaPage(i) {
+						_, names[i], _ = saved(t, upload(h, "a.png", data, token))
+						return
+					}
+					rec := apiUpload(h, "file", "a.png", data, token, true)
+					if rec.Code != http.StatusOK {
+						t.Errorf("upload %d = %d:\n%s", i, rec.Code, rec.Body)
+						return
+					}
+					_, got := apiBody[board.APIInboxFile](t, rec)
+					names[i] = got.Name
+				})
+			}
+			wg.Wait()
+			seen := map[string]bool{}
+			for i, name := range names {
+				if name == "" || seen[name] {
+					t.Fatalf("upload %d got the name %q, which is empty or taken", i, name)
+				}
+				seen[name] = true
+				b, err := os.ReadFile(filepath.Join(fx.options.Home, "inbox", name))
+				if err != nil || len(b) != len(pngBytes)+1 || b[len(b)-1] != byte(i) {
+					t.Fatalf("%s does not hold upload %d (%v, %d bytes)", name, i, err, len(b))
+				}
+			}
+			if got := inboxFiles(t, fx.options.Home); len(got) != n {
+				t.Fatalf("inbox = %q, want %d files and no .upload-* leftovers", got, n)
+			}
+		})
 	}
 }
