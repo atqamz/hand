@@ -42,6 +42,30 @@ func eventuallyWithin(t *testing.T, d time.Duration, ok func() bool) {
 	}
 }
 
+func watchedEvents(t *testing.T, fx *attemptFixture) func(event string, n int) {
+	t.Helper()
+	fx.watchExited = make(chan struct{})
+	handled := make(chan string, 4096)
+	old := *cli.EventHandled
+	*cli.EventHandled = func(event string) { handled <- event }
+	t.Cleanup(func() { *cli.EventHandled = old })
+	return func(event string, n int) {
+		t.Helper()
+		for n > 0 {
+			select {
+			case got := <-handled:
+				if got == event {
+					n--
+				}
+			case <-fx.watchExited:
+				t.Fatalf("watch exited before %d %s events were handled: %s", n, event, fx.watchExit)
+			case <-time.After(30 * time.Second):
+				t.Fatalf("%d %s events not handled", n, event)
+			}
+		}
+	}
+}
+
 func woken(fx *attemptFixture, kind string) bool {
 	out, _, _ := fx.h.run("wait", "--after", "0", "--timeout", "1ms")
 	return strings.Contains(out, ","+kind+",")
@@ -87,6 +111,10 @@ func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (strin
 	done := make(chan result, 1)
 	go func() {
 		out, _, code := fx.h.runCtx(ctx, append([]string{"watch"}, flags...)...)
+		if fx.watchExited != nil {
+			fx.watchExit = fmt.Sprintf("exit %d, out %q", code, out)
+			close(fx.watchExited)
+		}
 		done <- result{out, code}
 	}()
 	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
@@ -1822,10 +1850,12 @@ func TestWatchRecordsACodexQuestionInTheBlockedEvent(t *testing.T) {
 
 func TestWatchChecksTheHomeOnlyForEventsItActsOn(t *testing.T) {
 	fx := newAttemptFixture(t)
+	waitHandled := watchedEvents(t, fx)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "1h")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 	publishBlocked(fx, "2", "claude")
+	waitHandled("pane.agent_status_changed", 2)
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	if err := os.WriteFile(fleetLink(t, fx.h), []byte(t.TempDir()+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1833,7 +1863,7 @@ func TestWatchChecksTheHomeOnlyForEventsItActsOn(t *testing.T) {
 	for range 50 {
 		fx.rt.srv.Publish("terminal.output_ready", map[string]any{"terminal_id": "t2"})
 	}
-	time.Sleep(300 * time.Millisecond)
+	waitHandled("terminal.output_ready", 50)
 	if n := fx.rt.srv.Subscribers(); n != 1 {
 		t.Fatalf("subscribers after unrelated events = %d, want 1", n)
 	}
