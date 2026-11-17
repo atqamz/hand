@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/atqamz/hand/internal/fsx"
 	"github.com/atqamz/hand/internal/markdown"
 )
 
@@ -31,6 +32,7 @@ var (
 	errHidden  = errors.New("the Board does not show Hand's own files, dot files, backups/, cache/, luvus/, locks/ or projects/")
 	errOutside = errors.New("this path leads outside the fleet folder, so the Board does not show it")
 	errKind    = errors.New("the Board shows files and folders only")
+	errLinked  = errors.New("this file has more than one hard link, so the Board does not show it; copy it to show it")
 	errChanged = errors.New("this file changed while the Board opened it; reload the page")
 	ownFolders = []string{"backups", "cache", "luvus", "locks", "projects"}
 )
@@ -71,6 +73,13 @@ func Resolve(home, rel string) (root, real string, fi fs.FileInfo, err error) {
 	}
 	if hidden(real, fi.IsDir()) {
 		return "", "", nil, errHidden
+	}
+	if fi.Mode().IsRegular() {
+		if n, err := fsx.Links(full); err != nil {
+			return "", "", nil, err
+		} else if n > 1 {
+			return "", "", nil, errLinked
+		}
 	}
 	return root, real, fi, nil
 }
@@ -249,7 +258,7 @@ func docRefusal(err error) (int, string) {
 		return http.StatusNotFound, "there is no file or folder at this path"
 	case errors.Is(err, errChanged):
 		return http.StatusConflict, err.Error()
-	case errors.Is(err, errHidden), errors.Is(err, errOutside), errors.Is(err, errKind):
+	case errors.Is(err, errHidden), errors.Is(err, errOutside), errors.Is(err, errKind), errors.Is(err, errLinked):
 		return http.StatusForbidden, err.Error()
 	}
 	return http.StatusForbidden, "the Board cannot read this path"
@@ -325,7 +334,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	}
 	ext := strings.ToLower(path.Ext(name))
 	asText := q.Get("as") == "text"
-	prev, next, at := b.around(root, rel, view, tail, asText && isMarkdown(name))
+	prev, next, at := b.around(rel, view, tail, asText && isMarkdown(name))
 	if prev != nil || next != nil {
 		data["Prev"], data["Next"] = prev, next
 	}

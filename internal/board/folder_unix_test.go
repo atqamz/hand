@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/board"
 )
 
 func TestARefusedLinkIsListedWithItsReasonAndNoTarget(t *testing.T) {
@@ -127,4 +129,23 @@ func TestAVeryLargeFolderStaysBounded(t *testing.T) {
 	}
 	contains(t, "page 200", get(t, h, "/doc/big?page=200"), "100,001 entries, page 200 of 201", "frame-099500.png", "frame-099999.png")
 	contains(t, "last page", get(t, h, "/doc/big?page=201"), "page 201 of 201", "seed.txt")
+}
+
+func TestAnAbsoluteSymlinkAliasHasTheNeighboursOfItsTarget(t *testing.T) {
+	h, home := apiDocBoard(t, map[string]string{"reports/t1/sub/a.txt": "a", "reports/t1/sub/b.txt": "b", "reports/t1/sub/c.txt": "c"})
+	t1 := filepath.Join(home, "reports", "t1")
+	link(t, "sub", filepath.Join(t1, "rel"))
+	real, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link(t, filepath.Join(real, "reports", "t1", "sub"), filepath.Join(t1, "abs"))
+	for _, dir := range []string{"sub", "rel", "abs"} {
+		body := get(t, h, "/doc/reports/t1/"+dir+"/b.txt")
+		contains(t, dir, body, `<a href="/doc/reports/t1/`+dir+`/a.txt" rel="prev"`, `<a href="/doc/reports/t1/`+dir+`/c.txt" rel="next"`)
+		_, got := apiInto[board.APIDocFile](t, h, "/api/v1/doc/reports/t1/"+dir+"/b.txt")
+		if got.Prev == nil || got.Prev.Name != "a.txt" || got.Next == nil || got.Next.Name != "c.txt" || got.FolderPage != 1 {
+			t.Errorf("%s: neighbours = %+v %+v page %d", dir, got.Prev, got.Next, got.FolderPage)
+		}
+	}
 }

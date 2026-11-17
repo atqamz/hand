@@ -171,9 +171,13 @@ func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]
 	return out, pg
 }
 
-func (b *Board) neighbours(root, rel string, images bool) (prev, next string, page int) {
+func (b *Board) neighbours(rel string, images bool) (prev, next string, page int) {
 	dir, name := path.Split(rel)
-	d, err := os.OpenInRoot(root, filepath.FromSlash(path.Clean(dir)))
+	root, real, fi, err := Resolve(b.o.Home, path.Clean(dir))
+	if err != nil || !fi.IsDir() {
+		return "", "", 1
+	}
+	d, err := os.OpenInRoot(root, filepath.FromSlash(real))
 	if err != nil {
 		return "", "", 1
 	}
@@ -199,8 +203,8 @@ func (b *Board) neighbours(root, rel string, images bool) (prev, next string, pa
 	return pick(i-1, -1), pick(i+1, 1), i/folderPage + 1
 }
 
-func (b *Board) around(root, rel string, images bool, tail string, source bool) (prev, next *step, page int) {
-	p, n, page := b.neighbours(root, rel, images)
+func (b *Board) around(rel string, images bool, tail string, source bool) (prev, next *step, page int) {
+	p, n, page := b.neighbours(rel, images)
 	dir := path.Dir(rel) + "/"
 	if dir == "./" {
 		dir = ""

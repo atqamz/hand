@@ -156,7 +156,7 @@ func (b *Board) apiDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := docKind(head, sniffed, fi.Size(), name)
 	out := APIDocFile{Path: rel, Name: name, Kind: kind, Text: textHead(head), Size: fi.Size(), At: at}
-	prev, next, page := b.neighbours(root, rel, kind == "image")
+	prev, next, page := b.neighbours(rel, kind == "image")
 	step := func(n string) *APIDocStep {
 		if n == "" {
 			return nil
