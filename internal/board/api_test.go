@@ -805,12 +805,12 @@ func TestAPIAllowsOnlyTheMethodsEachPathTakes(t *testing.T) {
 		if rt.Fallback {
 			continue
 		}
-		path := "/api/v1" + strings.ReplaceAll(strings.ReplaceAll(rt.Path, "{id}", "x1"), "{path...}", "reports/x1")
+		path := "/api/v1" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(rt.Path, "{id}", "x1"), "{name}", "x1"), "{path...}", "reports/x1")
 		if _, ok := takes[path]; !ok {
 			paths = append(paths, path)
 		}
 		takes[path] = append(takes[path], rt.Method)
-		if rt.Path != "" && !strings.Contains(rt.Path, "{id}") && !strings.Contains(rt.Path, "{path...}") {
+		if rt.Path != "" && !strings.Contains(rt.Path, "{id}") && !strings.Contains(rt.Path, "{name}") && !strings.Contains(rt.Path, "{path...}") {
 			static[path] = true
 		}
 	}

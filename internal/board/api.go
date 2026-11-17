@@ -59,12 +59,14 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
 	{http.MethodGet, "/tasks/search", func(b *Board) http.HandlerFunc { return b.apiTaskSearch }},
 	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
+	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
 	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
 	{http.MethodGet, "/decision/{id}", func(b *Board) http.HandlerFunc { return b.apiDecision }},
 	{http.MethodGet, "/report/{id}", func(b *Board) http.HandlerFunc { return b.apiReport }},
 	{http.MethodPost, "/pair", nil},
+	{http.MethodPost, "/inbox", func(b *Board) http.HandlerFunc { return b.apiInboxUpload }},
 	{http.MethodPost, "/message", func(b *Board) http.HandlerFunc { return b.apiMessage }},
 	{http.MethodPost, "/supervisor/start", func(b *Board) http.HandlerFunc { return b.apiStart }},
 	{http.MethodPost, "/supervisor/resume", func(b *Board) http.HandlerFunc {
@@ -657,7 +659,8 @@ type apiAnswerBody struct {
 }
 
 type apiMessageBody struct {
-	Text json.RawMessage `json:"text"`
+	Text        json.RawMessage `json:"text"`
+	Attachments []string        `json:"attachments"`
 }
 
 type apiKeysBody struct {
@@ -922,12 +925,21 @@ func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with text")
 		return
 	}
-	text, err := apiMessageText(in.Text)
-	if err != nil {
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with text")
+	var text string
+	if len(in.Text) > 0 || len(in.Attachments) == 0 {
+		if text, err = apiMessageText(in.Text); err != nil {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with text")
+			return
+		}
+	}
+	lines, ok := b.apiAttachLines(w, in.Attachments)
+	if !ok {
 		return
 	}
-	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if lines != "" && text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	text = strings.ReplaceAll(text+lines, "\r\n", "\n")
 	if err := state.CheckMessage(text); err != nil {
 		b.apiFailErr(w, err)
 		return
