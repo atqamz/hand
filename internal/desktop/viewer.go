@@ -50,6 +50,8 @@ func (a *App) viewerName() string {
 		if a.Decision.Decision.Ref == a.Ref && a.Decision.Decision.Headline != "" {
 			return shownText(a.Decision.Decision.Headline)
 		}
+	case DocScreen:
+		return a.docName()
 	}
 	if a.Ref != "" {
 		return shownText(a.Ref)
@@ -60,11 +62,13 @@ func (a *App) viewerName() string {
 func (a *App) viewerBody(c *ui.Context, k kit.Colors, p palette) {
 	if a.Err != "" && a.errScreen {
 		a.pageScroll(c, func() {
-			a.viewerError(c, p)
+			a.viewerError(c, p, a.Err)
 		})
 		return
 	}
 	switch a.Screen {
+	case DocScreen:
+		a.docBody(c, k, p)
 	case TaskScreen:
 		if a.Task.Task.Ref != a.Ref {
 			a.readingPage(c, p)
@@ -112,11 +116,11 @@ func (a *App) pageScroll(c *ui.Context, body func()) {
 	}
 }
 
-func (a *App) viewerError(c *ui.Context, p palette) {
+func (a *App) viewerError(c *ui.Context, p palette, msg string) {
 	ui.Column(c).Gap(kit.Space10).Padding(kit.Space16).Radius(kit.RadiusLG).
 		Background(p.failBG).Border(1, p.fail).Children(func() {
 		ui.Text(c, "The page could not be read").FontSize(kit.Heading.Size).Bold().TextColor(p.fail)
-		ui.Text(c, shownText(a.Err)).FontSize(kit.Body.Size)
+		ui.Text(c, shownText(msg)).FontSize(kit.Body.Size)
 		ui.Row(c).Gap(kit.Space8).Children(func() {
 			if ui.Button(c.Key("viewer:error-close"), "Close").Width(100).Clicked() {
 				a.CloseViewer()
@@ -795,6 +799,7 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 			switch {
 			case !board:
 				c.OpenURL(dest)
+			case a.openDocLink(dest):
 			case !a.openBoardPage(dest):
 				a.OpenBoardPath(dest)
 			}

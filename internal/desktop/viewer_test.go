@@ -407,15 +407,16 @@ func TestAnOpenInFlightShowsInTheViewer(t *testing.T) {
 func TestAFailedDocumentOpenShowsInTheViewer(t *testing.T) {
 	hand := installFakeHand(t)
 	t.Setenv("FAKE_HAND_FAIL", "the document did not open")
-	f := viewFixture(t)
+	f := withDocs(t, viewFixture(t))
 	f.fleets[0].Home = hand.home
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Fix login")
 	click(t, tt, "open /"+fleetID+"/doc/reports/t1/design.md")
+	click(t, tt, "Open as a page")
 	tt.Frame()
 	mustText(t, tt, "The browser did not open", "the document did not open")
-	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+	if app.Screen != desktop.DocScreen || app.Ref != "reports/t1/design.md" {
 		t.Fatalf("the failure left the viewer on %v %q", app.Screen, app.Ref)
 	}
 }

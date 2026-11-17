@@ -97,6 +97,11 @@ type fixture struct {
 	refreshWith    string
 	refreshErr     error
 	refreshStale   bool
+	docs           map[string]desktop.Doc
+	docLines       map[string][]string
+	docBytes       map[string][]byte
+	docErr         map[string]error
+	docWindowSize  int
 }
 
 func (f *fixture) count(name string) int {

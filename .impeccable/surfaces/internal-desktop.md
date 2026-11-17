@@ -22,10 +22,11 @@ related_targets:
   - Tasks: the grouped task list, and each task's page in the viewer;
   - the Tasks page, opened by the rail's Tasks item or the fleet page's search field: a search over every task with the status, project, since and until filters, the applied filters as removable chips, the Board's day groups and 48 px rows with the state icon, ref, title, project badge, attempt line, deliverable and finish time, the total, and Previous/Next over its pages; an empty search and a page past the last show "No tasks match.", a refused parameter shows the board's sentence with Retry, and a row opens its task in the viewer, which closes back to the search;
   - the pages of a task, an attempt and a decision, opened in the viewer over the Board, with Back through them and the close button, Escape or the backdrop for the whole stack; a report has no page of its own and opens its task at the report's card; an open run shows "Opening in the browser…" under the strip and its failure there with Dismiss, as does a document that fails to open;
+  - a document or a folder of the fleet in the same viewer, from a delivered file, a link to `/<fleet id>/doc/…` or a relative link inside a Markdown file: Markdown rendered, text as numbered lines read in windows of 500 through the API's `next` with Earlier and Later, a picture, and a folder's listing with its pager; a file's crumbs open its folders, Previous and Next step through the folder (a picture's through the pictures only), Copy path copies the fleet-relative path, and every other kind, such as PDF, HTML, SVG, CSV, video, audio and binary, and any refusal, shows the Board's sentence with Open in browser, which runs `hand open --doc PATH`;
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status, its tasks list and the open page's data poll while the window is open (see Refresh).
-- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer, phone pairing, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
+- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer's Find, Copy contents, Download, CSV tables and Follow, phone pairing, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
 - **Mode:** Operate.
 
 ## Audience, job and constraints
@@ -82,7 +83,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `12-composer-error.png` | a failed send, its error and the text it kept |
 | `13-supervisor-controls.png` | a blocked supervisor with its controls, Force and the fixed key toolbar |
 | `14-open-error.png` | Open in browser with no `hand` to run, and its inline error |
-| `15-delivered.png` | the viewer's Delivered aside in a task's page: a PR and a link that open in the browser, a fleet file that opens in the Board's viewer, and a file outside the fleet as plain text |
+| `15-delivered.png` | the viewer's Delivered aside in a task's page: a PR and a link that open in the browser, a fleet file that opens in the viewer, and a file outside the fleet as plain text |
 | `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
 | `17-open-link.png` | the viewer opened from a `handboard://open/` link, on a decision's page |
 | `18-overflow-menu.png` | the pane head's menu: Refresh now, Open in browser and Refresh models |
@@ -128,6 +129,19 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `52-tasks-search-searching-1100x760-<light or dark>.png` | a repeated search in flight: "Searching…" instead of the cleared results |
 | `53-tasks-search-page-2-of-1-1100x760-<light or dark>.png` | a page past the only page: Previous, "No tasks match." and the total |
 | `54-tasks-search-stale-chips-1100x760-<light or dark>.png` | a failed automatic search beside an applied status chip and Clear: "Stale · retrying", the chip, Clear and the total on one row |
+| `55-doc-markdown-1100x760-<light or dark>.png` | a Markdown file in the viewer: the crumbs, the name, the fleet-relative path with Copy path, its size and time, Next with the neighbour's name, and the rendered text |
+| `56-doc-folder-1100x760-<light or dark>.png` | a folder's first of two pages: the pager text with Next, and the rows with their badge, name, size and time, a folder first |
+| `57-doc-folder-page-2-1100x760-<light or dark>.png` | the second page: Previous, and picture rows |
+| `58-doc-text-window-1-1100x760-<light or dark>.png` | a text file's first window: "From line 1 of a 120 B file", Later, Previous and Next, and the numbered lines |
+| `59-doc-text-window-2-1100x760-<light or dark>.png` | the second window: "From line 4", Earlier, line numbers 4 and 5, tabs shown as spaces |
+| `60-doc-image-1100x760-<light or dark>.png` | a picture drawn from its bytes in a bordered box, Next and no Previous |
+| `61-doc-browser-1100x760-<light or dark>.png` | a PDF: the Board's sentence and Open in browser in the notice box |
+| `62-doc-refused-1100x760-<light or dark>.png` | a refused path: the Board's words and Open in browser, with no Retry |
+| `63-doc-error-1100x760-<light or dark>.png` | a document the board did not answer: the error card with Close and Retry |
+| `64-doc-overtaken-1100x760-<light or dark>.png` | the newer document on screen after a slower answer for another one lands |
+| `65-doc-markdown-880x760-<light or dark>.png` | a Markdown file below 900 px |
+| `66-doc-folder-880x760-<light or dark>.png` | a folder below 900 px |
+| `67-doc-text-880x760-<light or dark>.png` | a text window below 900 px |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |

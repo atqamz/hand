@@ -64,3 +64,10 @@ func StoresCursor(c *HTTPClient, path string) bool {
 	}
 	return false
 }
+
+func DocShown(a *App) string {
+	if a.doc.ok {
+		return a.doc.doc.Path
+	}
+	return ""
+}

@@ -472,3 +472,53 @@ type ReportDetail struct {
 	Task      Task          `json:"task"`
 	Delivered []Deliverable `json:"delivered"`
 }
+
+type DocStep struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type DocEntry struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Kind    string `json:"kind"`
+	Label   string `json:"label"`
+	Dir     bool   `json:"dir"`
+	Image   bool   `json:"image"`
+	Size    *int64 `json:"size,omitempty"`
+	At      string `json:"at,omitempty"`
+	Refused string `json:"refused,omitempty"`
+}
+
+// Doc is a folder (Kind "folder", with Entries and its page) or a file.
+type Doc struct {
+	Path       string     `json:"path"`
+	Name       string     `json:"name"`
+	Kind       string     `json:"kind"`
+	At         string     `json:"at,omitempty"`
+	Text       bool       `json:"text"`
+	Size       int64      `json:"size"`
+	Prev       *DocStep   `json:"prev,omitempty"`
+	Next       *DocStep   `json:"next,omitempty"`
+	FolderPage int        `json:"folder_page"`
+	Entries    []DocEntry `json:"entries"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"page_size"`
+	Total      int        `json:"total"`
+	Pages      int        `json:"pages"`
+}
+
+type DocCut struct {
+	Line  int   `json:"line"`
+	Bytes int64 `json:"bytes"`
+}
+
+type DocWindow struct {
+	Path    string   `json:"path"`
+	Name    string   `json:"name"`
+	From    int      `json:"from"`
+	Lines   []string `json:"lines"`
+	Next    int      `json:"next,omitempty"`
+	Partial bool     `json:"partial,omitempty"`
+	Cut     []DocCut `json:"cut,omitempty"`
+}

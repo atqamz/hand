@@ -431,10 +431,17 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 			}
 
 			click(t, tt, "open "+docHref)
-			hand.want(t, "open", "--doc", "reports/t1/my design.md")
+			if app.Screen != desktop.DocScreen || app.Ref != "reports/t1/my design.md" {
+				t.Fatalf("a fleet file left the viewer on %v %q", app.Screen, app.Ref)
+			}
 			if got := tt.OpenedURLs(); len(got) != len(want) {
 				t.Fatalf("a fleet file reached the browser directly: %q", got)
 			}
+			if got := hand.calls(t); len(got) != 0 {
+				t.Fatalf("hand ran for a fleet file: %q", got)
+			}
+			app.Back()
+			tt.Frame()
 
 			for _, plain := range []string{"outside.pdf", "javascript:alert(1)", "file:///etc/passwd", "evil.md", "up.md"} {
 				if err := tt.Click(plain); err == nil {
@@ -464,9 +471,15 @@ func TestSameNamedDeliveredFilesOpenTheirOwnDocument(t *testing.T) {
 	app.OpenRef("t1")
 	tt.Frame()
 	click(t, tt, "open "+first)
-	hand.want(t, "open", "--doc", "reports/t1/design.md")
+	if app.Screen != desktop.DocScreen || app.Ref != "reports/t1/design.md" {
+		t.Fatalf("the first file opened %v %q", app.Screen, app.Ref)
+	}
+	app.Back()
+	tt.Frame()
 	click(t, tt, "open "+second)
-	hand.want(t, "open", "--doc", "reports/t2/design.md")
+	if app.Screen != desktop.DocScreen || app.Ref != "reports/t2/design.md" {
+		t.Fatalf("the second file opened %v %q", app.Screen, app.Ref)
+	}
 }
 
 func TestRailScreenAndPhoneOpenThroughHandOpen(t *testing.T) {

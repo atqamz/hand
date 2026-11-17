@@ -148,7 +148,7 @@ func (a *App) viewerOpen() bool {
 
 func (a *App) underScreen() Screen {
 	switch a.Screen {
-	case TaskScreen, AttemptScreen, DecisionScreen:
+	case TaskScreen, AttemptScreen, DecisionScreen, DocScreen:
 		return a.base
 	}
 	return a.Screen
@@ -752,8 +752,15 @@ func (a *App) markdownCopy(c *ui.Context, src string) {
 func (a *App) markdownAt(c *ui.Context, src string, theme *markdown.Theme) {
 	a.md.ShareSelection = true
 	a.md.OnLink = func(dest string) {
+		if a.Screen == DocScreen {
+			if rel, ok := a.docLink(dest); ok {
+				a.OpenDoc(rel)
+				return
+			}
+		}
 		target, board := a.linkTarget(dest)
 		switch {
+		case board && a.openDocLink(target):
 		case board:
 			a.OpenBoardPath(target)
 		case target != "":
