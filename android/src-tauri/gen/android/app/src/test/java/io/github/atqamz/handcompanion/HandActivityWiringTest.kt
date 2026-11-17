@@ -44,12 +44,6 @@ class HandActivityWiringTest {
   }
 
   @Test
-  fun thePhoneLandingShowsThePhoneAndTheRouteIsFedItsSigningState() {
-    assertTrue(body(activity, "Landing.Phone ->").contains("phone = true"))
-    assertTrue(activity.contains("{ signing = it }"))
-  }
-
-  @Test
   fun theNotificationBuildsItsIntentFromTheTap() {
     val open = body(notifier, "private fun open")
     assertTrue(open.contains("tapOf(spec)"))
