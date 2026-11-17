@@ -5,17 +5,17 @@ import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
 
-internal val atlas = FleetLine("f000000000003", "atlas", "paired Nov 3 · signs out Feb 1")
+internal val phoneAtlas = FleetLine("f000000000003", "atlas", "paired Nov 3 · signs out Feb 1")
 
-internal val several =
+internal val phoneSeveral =
   listOf(
-    atlas,
+    phoneAtlas,
     FleetLine("f000000000005", "orchard", "paired Nov 3 · signs out Feb 1"),
     FleetLine("f000000000017", "harbor", "paired Nov 9 · signs out Feb 7"),
     FleetLine("f000000000011", "meadow", "paired Nov 9 · signs out Feb 7")
   )
 
-internal fun phone(fleets: List<FleetLine>) =
+internal fun phoneOf(fleets: List<FleetLine>) =
   ThisPhone(
     laptop = "4d92…6ed6",
     fleets = fleets,
@@ -32,22 +32,22 @@ class ThisPhoneScreenTest {
   private fun shot(dark: Boolean, phone: ThisPhone) =
     paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}, {}) } }
 
-  @Test fun oneFleetLight() = shot(false, phone(listOf(atlas)))
+  @Test fun oneFleetLight() = shot(false, phoneOf(listOf(phoneAtlas)))
 
-  @Test fun oneFleetDark() = shot(true, phone(listOf(atlas)))
+  @Test fun oneFleetDark() = shot(true, phoneOf(listOf(phoneAtlas)))
 
-  @Test fun severalFleetsLight() = shot(false, phone(several))
+  @Test fun severalFleetsLight() = shot(false, phoneOf(phoneSeveral))
 
-  @Test fun severalFleetsDark() = shot(true, phone(several))
+  @Test fun severalFleetsDark() = shot(true, phoneOf(phoneSeveral))
 
   private val off =
-    phone(several).copy(alerts = "Alerts are off", alertsDetail = "Allow notifications in Settings.")
+    phoneOf(phoneSeveral).copy(alerts = "Alerts are off", alertsDetail = "Allow notifications in Settings.")
 
   @Test fun alertsOffLight() = shot(false, off)
 
   @Test fun alertsOffDark() = shot(true, off)
 
-  @Test fun forgetConfirmLight() = shot(false, phone(several).copy(asking = true))
+  @Test fun forgetConfirmLight() = shot(false, phoneOf(phoneSeveral).copy(asking = true))
 
-  @Test fun forgetConfirmDark() = shot(true, phone(several).copy(asking = true))
+  @Test fun forgetConfirmDark() = shot(true, phoneOf(phoneSeveral).copy(asking = true))
 }

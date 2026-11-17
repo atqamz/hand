@@ -8,11 +8,12 @@ import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import app.cash.paparazzi.Snapshot
 import app.cash.paparazzi.SnapshotHandler
-import java.awt.image.BufferedImage
+import java.lang.reflect.Proxy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -21,12 +22,14 @@ import org.junit.Test
 private class Frames : SnapshotHandler {
   var onFrame: () -> Unit = {}
 
-  override fun newFrameHandler(snapshot: Snapshot, frameCount: Int, fps: Int) =
-    object : SnapshotHandler.FrameHandler {
-      override fun handle(image: BufferedImage) = onFrame()
-
-      override fun close() = Unit
-    }
+  override fun newFrameHandler(snapshot: Snapshot, frameCount: Int, fps: Int): SnapshotHandler.FrameHandler =
+    Proxy.newProxyInstance(
+      SnapshotHandler.FrameHandler::class.java.classLoader,
+      arrayOf(SnapshotHandler.FrameHandler::class.java)
+    ) { _, method, _ ->
+      if (method.name == "handle") onFrame()
+      null
+    } as SnapshotHandler.FrameHandler
 
   override fun close() = Unit
 }
@@ -96,7 +99,7 @@ class ThisPhoneRouteTest {
 
   @Test
   fun tappingForgetRaisesTheQuestionAndDoesNotForget() {
-    val calls = shown(phone(several), null) { tap("Forget") }
+    val calls = shown(phoneOf(phoneSeveral), null) { tap("Forget") }
     assertEquals(listOf(true), calls.asks)
     assertEquals(0, calls.forgets)
     assertTrue(calls.signings.isEmpty())
@@ -104,7 +107,7 @@ class ThisPhoneRouteTest {
 
   @Test
   fun eachSignOutNamesItsOwnFleet() {
-    val calls = shown(phone(several), null) {
+    val calls = shown(phoneOf(phoneSeveral), null) {
       tap("Sign out of atlas")
       tap("Sign out of harbor")
     }
@@ -115,7 +118,7 @@ class ThisPhoneRouteTest {
 
   @Test
   fun settingsOpensTheNotificationSettingsAndNothingElse() {
-    val calls = shown(phone(several), null) { tap("Settings") }
+    val calls = shown(phoneOf(phoneSeveral), null) { tap("Settings") }
     assertEquals(1, calls.settings)
     assertTrue(calls.asks.isEmpty())
     assertTrue(calls.signings.isEmpty())
@@ -123,7 +126,7 @@ class ThisPhoneRouteTest {
 
   @Test
   fun aFleetBeingSignedOutShowsItsPhonePageInTheFallbackAndCloseGoesBack() {
-    val calls = shown(phone(several), "f000000000005") { tap("Close") }
+    val calls = shown(phoneOf(phoneSeveral), "f000000000005") { tap("Close") }
     assertEquals(setOf("/f000000000005/connect"), calls.pages)
     assertTrue("orchard · connect" in calls.labels)
     assertTrue("Forget" !in calls.labels)
@@ -132,7 +135,7 @@ class ThisPhoneRouteTest {
 
   @Test
   fun noFleetBeingSignedOutShowsThePhoneAndNoWebPage() {
-    val calls = shown(phone(several), null) {}
+    val calls = shown(phoneOf(phoneSeveral), null) {}
     assertTrue(calls.pages.isEmpty())
     assertTrue("This phone" in calls.labels)
   }
