@@ -100,15 +100,12 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 		}
 	}
 	all = groupWakes(all)
-	took, newest := map[int64]bool{}, time.Time{}
-	for i, in := range paired {
-		took[in.ID] = true
-		if at := parse(entries[i].At); at.After(newest) {
-			newest = at
-		}
+	took, latest := map[int64]bool{}, int64(0)
+	for _, in := range paired {
+		took[in.ID], latest = true, max(latest, in.ID)
 	}
 	for _, in := range slices.Backward(delivered) {
-		if !took[in.ID] && in.AnsweredAt == "" && !parse(in.DeliveredAt).Before(newest) && (sv.Agent == "working" || b.now().Sub(parse(in.DeliveredAt)) < unreadGrace) {
+		if !took[in.ID] && in.AnsweredAt == "" && in.ID > latest && (sv.Agent == "working" || b.now().Sub(parse(in.DeliveredAt)) < unreadGrace) {
 			d := chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt}}
 			d.track(in)
 			all = append(all, d)

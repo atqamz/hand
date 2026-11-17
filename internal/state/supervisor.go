@@ -556,12 +556,6 @@ func (s *Store) HoldSupervisorInputs(ctx context.Context, reason, detail string)
 	})
 }
 
-func (s *Store) UnansweredSupervisorInputs(ctx context.Context, limit int) ([]SupervisorInput, error) {
-	in, err := s.inputs(ctx, `SELECT `+inputColumns+`, 0 FROM supervisor_input WHERE delivered_at != '' AND answered_at = '' ORDER BY id DESC LIMIT ?`, limit)
-	slices.Reverse(in)
-	return in, err
-}
-
 func (s *Store) AnswerSupervisorInput(ctx context.Context, inputID int64, at string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.Exec(`UPDATE supervisor_input SET answered_at = ? WHERE id = ? AND delivered_at != '' AND answered_at = ''`, at, inputID)

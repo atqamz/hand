@@ -139,36 +139,6 @@ func TestHoldingRecordsOneEventPerChangeAndLeavesDeliveredInputsAlone(t *testing
 	}
 }
 
-func TestUnansweredInputsAreTheDeliveredOnesOldestFirstAndCapped(t *testing.T) {
-	s, _ := openTest(t)
-	ctx := context.Background()
-	for _, body := range []string{"a", "b", "c"} {
-		in, err := s.AddSupervisorInput(ctx, body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if body != "c" {
-			if err := s.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := s.AnswerSupervisorInput(ctx, 1, "2026-11-17T04:42:00Z"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.UnansweredSupervisorInputs(ctx, 10)
-	if err != nil || len(got) != 1 || got[0].ID != 2 {
-		t.Fatalf("unanswered = %+v, %v", got, err)
-	}
-	if err := s.DeliverSupervisorInput(ctx, 3, false); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = s.UnansweredSupervisorInputs(ctx, 1)
-	if len(got) != 1 || got[0].ID != 3 {
-		t.Fatalf("capped = %+v", got)
-	}
-}
-
 func TestATurnStartsAtTheLastDeliveryOfTheRunningSupervisor(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()

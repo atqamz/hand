@@ -102,6 +102,24 @@ func TestADeliveredMessageOlderThanOneTheHarnessRecordedIsNotShownAgain(t *testi
 	lacks(t, "older unpaired", tl, "never recorded", `id="msg-i1"`)
 }
 
+func TestAMessageQueuedBehindARecordedOneStaysInTheConversationWhileTheSupervisorWorks(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	one, two := sendInput(t, fx, "one"), sendInput(t, fx, "two")
+	for _, id := range []int64{one, two} {
+		if err := fx.st.DeliverSupervisorInput(ctx, id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claudeLog(t, fx, []string{userRecord("one")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "both", tl, `id="msg-i1"`, `id="msg-i2"`, "two")
+	if n := strings.Count(tl, `id="msg-i2"`); n != 1 {
+		t.Fatalf("the queued message shows %d times:\n%s", n, tl)
+	}
+}
+
 func TestTwoMessagesWithTheSameTextKeepTheirOwnStateWhileTheLaterOneIsUnrecorded(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")

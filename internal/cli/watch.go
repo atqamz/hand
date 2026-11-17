@@ -74,6 +74,7 @@ type watcher struct {
 	reapWarned     atomic.Bool
 	transcripts    *transcript.Reader
 	answers        *transcript.Reader
+	matched        map[int64]bool
 	sources        map[string]modelSource
 	modelSessions  map[int64]modelSession
 	supModel       modelSession

@@ -201,3 +201,38 @@ func TestTheReaderIsDroppedOnceEveryMessageIsAnswered(t *testing.T) {
 		t.Fatal("the transcript reader outlived the last unanswered message")
 	}
 }
+
+func TestALaterMessageWithTheSameTextIsNotStampedByTheReplyToAnEarlierOne(t *testing.T) {
+	f := newAnswerFixture(t)
+	one := f.send("continue")
+	*f.now = f.now.Add(5 * time.Second)
+	two := f.send("continue")
+	f.append(claudeUser("2026-11-17T04:40:10.000Z", "continue"), claudeReply("2026-11-17T04:40:12.000Z", "working on it"))
+	f.w.stampAnswers(context.Background())
+	if s, _ := f.status(one); s != "answered" {
+		t.Fatalf("first = %s, want answered", s)
+	}
+	f.append(claudeUser("2026-11-17T04:40:40.000Z", "continue"))
+	f.w.stampAnswers(context.Background())
+	if s, at := f.status(two); s != "delivered" || at != "" {
+		t.Fatalf("second = %s at %q, want delivered: the reply was to the first", s, at)
+	}
+	f.append(claudeReply("2026-11-17T04:40:50.000Z", "and this"))
+	f.w.stampAnswers(context.Background())
+	if s, at := f.status(two); s != "answered" || at != "2026-11-17T04:40:50.000Z" {
+		t.Fatalf("second = %s at %q, want answered by its own reply", s, at)
+	}
+}
+
+func TestAMessageTheHarnessRecordedIsStillAnsweredPastTheHorizon(t *testing.T) {
+	f := newAnswerFixture(t)
+	id := f.send("status?")
+	f.append(claudeUser("2026-11-17T04:42:00.000Z", "status?"))
+	f.w.stampAnswers(context.Background())
+	*f.now = f.now.Add(answerHorizon + time.Minute)
+	f.append(claudeReply("2026-11-17T05:15:00.000Z", "after a long tool stretch"))
+	f.w.stampAnswers(context.Background())
+	if s, at := f.status(id); s != "answered" || at != "2026-11-17T05:15:00.000Z" {
+		t.Fatalf("a recorded message past the horizon = %s at %q, want answered", s, at)
+	}
+}
