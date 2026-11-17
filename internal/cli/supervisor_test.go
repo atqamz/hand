@@ -824,17 +824,13 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 		t.Fatalf("prompts after resume = %q, want only the resume note", got)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	waitHandled := watchedEvents(t, fx)
-	stop := startWatch(t, fx, "--every", "1h")
+	stop := startWatch(t, fx, "--every", "200ms")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 3 })
 	publishStatus(fx, pane, "idle")
-	waitHandled("pane.agent_status_changed", 1)
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 4 })
 	n := explains(fx.rt)
 	publishStatus(fx, pane, "idle")
-	waitHandled("pane.agent_status_changed", 1)
-	if explains(fx.rt) <= n {
-		t.Fatalf("explains = %d after a second idle, want more than %d", explains(fx.rt), n)
-	}
+	eventually(t, func() bool { return explains(fx.rt) > n })
 	stop()
 	got := fx.rt.prompts()
 	if len(got) != 4 || got[1] != "first" || got[2] != "second" || !strings.HasPrefix(got[3], "[hand v1 wake]\n") || !strings.Contains(got[3], "attempt.interrupted a1: luvus server restarted") || strings.Contains(got[3], "attempt.blocked") {
@@ -2185,23 +2181,12 @@ func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
 	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
-	waitHandled := watchedEvents(t, fx)
-	stop := startWatch(t, fx, "--every", "1h")
-	eventually(t, func() bool {
-		for _, a := range alertRows(t, fx) {
-			if a.Kind == "supervisor.limited" {
-				return true
-			}
-		}
-		return false
-	})
+	stop := startWatch(t, fx, "--every", "200ms")
+	eventually(t, func() bool { return supervisorLimitedRows(t, fx) == 1 })
 	for _, status := range []string{"idle", "working", "idle"} {
 		n := explains(fx.rt)
 		publishStatus(fx, pane, status)
-		waitHandled("pane.agent_status_changed", 1)
-		if explains(fx.rt) <= n {
-			t.Fatalf("explains = %d after %s, want more than %d", explains(fx.rt), status, n)
-		}
+		eventually(t, func() bool { return explains(fx.rt) > n })
 	}
 	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "why: \"supervisor limited: You've hit your session limit · resets 6:10am (Asia/Jakarta)\"")
 	has(t, "send", fx.h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
