@@ -204,6 +204,13 @@ type Shot struct {
 	Missing bool   `json:"missing,omitempty"`
 }
 
+type InboxFile struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+	Size  int64  `json:"size"`
+}
+
 type Entry struct {
 	Role      string  `json:"role"`
 	Key       string  `json:"key,omitempty"`

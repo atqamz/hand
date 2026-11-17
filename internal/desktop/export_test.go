@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/egoist/mygo/ui"
 	"strings"
 	"time"
 )
@@ -71,3 +72,11 @@ func DocShown(a *App) string {
 	}
 	return ""
 }
+
+func SetShotBudget(n int) func() {
+	old := shotBudget
+	shotBudget = n
+	return func() { shotBudget = old }
+}
+
+func DrawBitmap(b []byte, most int64) (*ui.Bitmap, string) { return drawBitmap(b, most) }

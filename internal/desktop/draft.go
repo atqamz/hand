@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,14 +38,16 @@ type Drafts struct {
 	Dir string
 }
 
-func (d Drafts) path(fleet string) (string, error) {
+func (d Drafts) path(fleet string) (string, error) { return d.pathFor(fleet, ".txt") }
+
+func (d Drafts) pathFor(fleet, ext string) (string, error) {
 	if !fleetIDShape.MatchString(fleet) {
 		return "", fmt.Errorf("%q is not a fleet id", fleet)
 	}
 	if d.Dir == "" {
 		return "", errors.New("the desktop has no draft folder")
 	}
-	return filepath.Join(d.Dir, fleet+".txt"), nil
+	return filepath.Join(d.Dir, fleet+ext), nil
 }
 
 func (d Drafts) Load(fleet string) string {
@@ -75,6 +78,10 @@ func (d Drafts) Save(fleet, text string) error {
 	if text == "" {
 		return d.remove(path)
 	}
+	return d.write(path, text)
+}
+
+func (d Drafts) write(path, text string) error {
 	if err := os.MkdirAll(d.Dir, 0o700); err != nil {
 		return err
 	}
@@ -98,6 +105,49 @@ func (d Drafts) Save(fleet, text string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// LoadFiles reads the files the draft had attached. Only names the board could
+// have answered survive, so a hand-edited file cannot name another path.
+func (d Drafts) LoadFiles(fleet string) []InboxFile {
+	path, err := d.pathFor(fleet, ".files")
+	if err != nil {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxDraft+1))
+	var files, kept []InboxFile
+	if err != nil || len(raw) > maxDraft || json.Unmarshal(raw, &files) != nil {
+		return nil
+	}
+	for _, f := range files {
+		if inboxName.MatchString(f.Name) {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+func (d Drafts) SaveFiles(fleet string, files []InboxFile) error {
+	path, err := d.pathFor(fleet, ".files")
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return d.remove(path)
+	}
+	raw, err := json.Marshal(files)
+	if err != nil {
+		return err
+	}
+	if len(raw) > maxDraft {
+		return fmt.Errorf("the attached files take %d bytes; the most is %d", len(raw), maxDraft)
+	}
+	return d.write(path, string(raw))
 }
 
 // ClearIf removes the draft only while it still holds text, so a send cannot

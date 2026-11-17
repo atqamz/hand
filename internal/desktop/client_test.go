@@ -802,7 +802,7 @@ func TestHTTPClientReadsTheBoardsReceipts(t *testing.T) {
 func TestHTTPClientSendsAMessage(t *testing.T) {
 	srv, m := mutationServer(t)
 	c := goldenClient(t, srv.URL)
-	sent, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop")
+	sent, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -827,7 +827,7 @@ func TestHTTPClientReportsAnAcceptedMessageWithoutATimeline(t *testing.T) {
 	m.accepted = true
 	m.mu.Unlock()
 	c := goldenClient(t, srv.URL)
-	sent, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop")
+	sent, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

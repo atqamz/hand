@@ -23,14 +23,20 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 	box := ui.Column(c).Key("composer").Label("Composer").MaxWidth(composerMax).
 		Margin(0, m, kit.Space16).Padding(kit.Space4, kit.Space4, kit.Space8).
 		Radius(kit.RadiusLG).Background(k.BG).Border(1, k.LineStrong)
+	if a.attachSay != "" {
+		c.Announce(a.attachSay)
+		a.attachSay = ""
+	}
 	box.Children(func() {
 		a.latest(c, k)
 		_, viewport := c.Size()
+		clip := c.Services()
 		message := ui.TextAreaBase(c, &a.Draft).Label("Message the supervisor").Placeholder("Message the supervisor").
 			Lines(1, composerLines(viewport)).FixedLineHeight(kit.Body.Line).
 			MinHeight(kit.Tap).Padding(kit.Space8, kit.Space10).Disabled(a.Busy).
 			TextColor(k.FG).PlaceholderColor(k.Muted).
 			OnChange(func() { a.saveDraft() }).
+			OnPaste(func(text string) bool { return text == "" && a.pasteImage(clip) }).
 			OnTextKey(func(key ui.TextKey) bool {
 				if key.Key != ui.KeyEnter || (key.Mods != ui.Ctrl && key.Mods != ui.Super) {
 					return false
@@ -44,6 +50,7 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 			message.Focus()
 			a.focusComposer = false
 		}
+		a.chipRow(c, k)
 		if a.DraftErr != "" {
 			ui.Text(c, a.DraftErr).FontSize(kit.Meta.Size).TextColor(p.fail).Padding(0, kit.Space10)
 		}
@@ -56,6 +63,9 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 		ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Padding(0, kit.Space6, 0, kit.Space10).Children(func() {
 			a.composerHint(c, k, p)
 			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
+				if kit.IconButton(c, k, "composer:attach", "Attach files", "attach") {
+					a.PickFiles()
+				}
 				if key := a.sendKeyHint(pane); key != "" {
 					kit.Keycap(c, k, key)
 				}
@@ -134,7 +144,13 @@ func (a *App) sendKeyHint(pane float32) string {
 }
 
 func (a *App) draftNote() string {
-	if a.Draft == "" {
+	if note := a.attachingNote(); note != "" {
+		return note
+	}
+	if a.attachNote != "" {
+		return a.attachNote
+	}
+	if a.Draft == "" && len(a.Chips) == 0 {
 		return ""
 	}
 	if a.draftRestored {
@@ -163,7 +179,8 @@ func (a *App) sendButton(c *ui.Context, k kit.Colors) {
 		label = "Sending…"
 	}
 	bg, fg, edge := a.sendStyle(k)
-	disabled := a.Busy || strings.TrimSpace(a.Draft) == ""
+	_, names := a.readyChips()
+	disabled := a.Busy || a.attaching() > 0 || strings.TrimSpace(a.Draft) == "" && len(names) == 0
 	b := ui.ButtonBase(c.Key("composer:send")).Height(kit.Control).Padding(0, kit.Space12).
 		Radius(kit.RadiusMD).Background(bg).Border(1, edge).Justify(ui.Center).AlignItems(ui.Center).
 		Disabled(disabled).Cursor(ui.CursorPointer).Label(label)

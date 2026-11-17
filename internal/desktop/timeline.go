@@ -221,7 +221,7 @@ func (a *App) now() time.Time {
 	return time.Now()
 }
 
-func (a *App) timelineEntries(c *ui.Context, p palette, column float32) {
+func (a *App) timelineEntries(c *ui.Context, k kit.Colors, p palette, column float32) {
 	if a.Timeline.Older > 0 {
 		if ui.Button(c.Key("timeline:older"), "Older messages").Clicked() {
 			a.Older()
@@ -236,6 +236,13 @@ func (a *App) timelineEntries(c *ui.Context, p palette, column float32) {
 		a.working(c, p)
 		return
 	}
+	for _, e := range a.Timeline.Entries {
+		for _, s := range e.Shots {
+			if s.Image && !s.Missing && inboxName.MatchString(s.Name) {
+				a.shotFor(s.Name)
+			}
+		}
+	}
 	measure := kit.MeasureOf(c)
 	quiet := false
 	for _, r := range timelineRows(a.Timeline.Entries) {
@@ -245,12 +252,12 @@ func (a *App) timelineEntries(c *ui.Context, p palette, column float32) {
 			gap = kit.Space6
 		}
 		quiet = line
-		ui.Column(c).Margin(gap, 0, 0).Children(func() { a.timelineRow(c, p, measure, column, r) })
+		ui.Column(c).Margin(gap, 0, 0).Children(func() { a.timelineRow(c, k, p, measure, column, r) })
 	}
 	a.working(c, p)
 }
 
-func (a *App) timelineRow(c *ui.Context, p palette, measure, column float32, r row) {
+func (a *App) timelineRow(c *ui.Context, k kit.Colors, p palette, measure, column float32, r row) {
 	e := r.Entry
 	switch {
 	case r.Day != "":
@@ -261,13 +268,13 @@ func (a *App) timelineRow(c *ui.Context, p palette, measure, column float32, r r
 		a.wakes(c, p, e, r.Dated)
 	case e.Role == "supervisor":
 		ui.Row(c).FillWidth().Children(func() {
-			a.bubble(c, p, measure, column, r, false)
+			a.bubble(c, k, p, measure, column, r, false)
 			ui.Spacer(c)
 		})
 	default:
 		ui.Row(c).FillWidth().Children(func() {
 			ui.Spacer(c)
-			a.bubble(c, p, measure, column, r, true)
+			a.bubble(c, k, p, measure, column, r, true)
 		})
 	}
 }
@@ -324,7 +331,7 @@ func (a *App) wakes(c *ui.Context, p palette, e Entry, dated bool) {
 	}
 }
 
-func (a *App) bubble(c *ui.Context, p palette, measure, column float32, r row, you bool) {
+func (a *App) bubble(c *ui.Context, k kit.Colors, p palette, measure, column float32, r row, you bool) {
 	e := r.Entry
 	who, tone, bg := roleName(e), p.neutral, p.card
 	box := ui.Column(c).Gap(kit.Space4).Label("Message from " + who)
@@ -363,6 +370,7 @@ func (a *App) bubble(c *ui.Context, p palette, measure, column float32, r row, y
 			a.markdown(c, e.Text)
 			a.md.Theme = nil
 		}
+		a.shotRow(c, k, e)
 	})
 }
 

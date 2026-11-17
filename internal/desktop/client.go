@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -42,7 +43,10 @@ type ReadModel interface {
 	DocBytes(ctx context.Context, fleet, path string) ([]byte, error)
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error)
 	AckReport(ctx context.Context, fleet, ref string) (Acked, error)
-	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
+	SendMessage(ctx context.Context, fleet, text string, attachments []string) (Sent, error)
+	UploadInbox(ctx context.Context, fleet, name string, body []byte) (InboxFile, error)
+	InboxHead(ctx context.Context, fleet, name string) (int64, error)
+	InboxBytes(ctx context.Context, fleet, name string) ([]byte, error)
 	Supervise(ctx context.Context, fleet, action, ref string) (Control, error)
 	StartWith(ctx context.Context, fleet, harness, model, effort string) (Control, error)
 	Switch(ctx context.Context, fleet string, sw Switch) (Control, error)
@@ -412,7 +416,7 @@ func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	res, err := c.do(ctx, fleet, token, "", http.MethodGet, docPath(path)+"?raw", nil)
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodGet, docPath(path)+"?raw", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +498,7 @@ func (c *HTTPClient) pollAs(ctx context.Context, fleet, token, path, since strin
 }
 
 func (c *HTTPClient) pollSince(ctx context.Context, fleet, token, path, since string, out any) (bool, string, error) {
-	res, err := c.do(ctx, fleet, token, "", http.MethodGet, withSince(path, since), nil)
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodGet, withSince(path, since), nil)
 	if err != nil {
 		return false, "", err
 	}
@@ -569,7 +573,8 @@ func (c *HTTPClient) AckReport(ctx context.Context, fleet, ref string) (Acked, e
 }
 
 type messageRequest struct {
-	Text string `json:"text"`
+	Text        string   `json:"text"`
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 type messageReply struct {
@@ -577,10 +582,69 @@ type messageReply struct {
 	Timeline
 }
 
-func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string) (Sent, error) {
+func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string, attachments []string) (Sent, error) {
 	var out messageReply
-	_, err := c.post(ctx, fleet, "/message", messageRequest{Text: text}, &out)
+	_, err := c.post(ctx, fleet, "/message", messageRequest{Text: text, Attachments: attachments}, &out)
 	return Sent{Timeline: out.Timeline, Fresh: !out.Accepted}, err
+}
+
+func inboxPath(name string) string { return "/inbox/" + url.PathEscape(name) }
+
+func (c *HTTPClient) UploadInbox(ctx context.Context, fleet, name string, body []byte) (InboxFile, error) {
+	var buf bytes.Buffer
+	form := multipart.NewWriter(&buf)
+	part, err := form.CreateFormFile("file", name)
+	if err != nil {
+		return InboxFile{}, err
+	}
+	if _, err := part.Write(body); err != nil {
+		return InboxFile{}, err
+	}
+	if err := form.Close(); err != nil {
+		return InboxFile{}, err
+	}
+	var out InboxFile
+	_, err = c.postRaw(ctx, fleet, "/inbox", form.FormDataContentType(), &buf, &out)
+	return out, err
+}
+
+func (c *HTTPClient) InboxHead(ctx context.Context, fleet, name string) (int64, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return 0, err
+	}
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodHead, inboxPath(name), nil)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	switch res.StatusCode {
+	case http.StatusOK:
+		return res.ContentLength, nil
+	case http.StatusNotFound:
+		return 0, &APIError{Status: res.StatusCode, Code: "not_found", Message: "not found: file in inbox/"}
+	}
+	return 0, fmt.Errorf("the board answered %s", res.Status)
+}
+
+func (c *HTTPClient) InboxBytes(ctx context.Context, fleet, name string) ([]byte, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodGet, inboxPath(name), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, remoteError(res)
+	}
+	b, err := io.ReadAll(io.LimitReader(res.Body, docRawMax+1))
+	if err == nil && len(b) > docRawMax {
+		return nil, errors.New("the file is larger than this window reads")
+	}
+	return b, err
 }
 
 var supervisorActions = map[string]bool{"start": true, "resume": true, "stop": true, "interrupt": true, "force": true}
@@ -716,7 +780,7 @@ func (c *HTTPClient) getAs(ctx context.Context, fleet, token, path string, out a
 }
 
 func (c *HTTPClient) getWith(ctx context.Context, fleet, token, path string, out any) (Envelope, error) {
-	res, err := c.do(ctx, fleet, token, "", http.MethodGet, path, nil)
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodGet, path, nil)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -725,6 +789,19 @@ func (c *HTTPClient) getWith(ctx context.Context, fleet, token, path string, out
 }
 
 func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any) (Envelope, error) {
+	var raw io.Reader
+	ctype := ""
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return Envelope{}, err
+		}
+		raw, ctype = bytes.NewReader(b), "application/json"
+	}
+	return c.postRaw(ctx, fleet, path, ctype, raw, out)
+}
+
+func (c *HTTPClient) postRaw(ctx context.Context, fleet, path, ctype string, raw io.Reader, out any) (Envelope, error) {
 	token, err := c.prepare(ctx, fleet)
 	if err != nil {
 		return Envelope{}, err
@@ -738,15 +815,7 @@ func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any
 	if sess.CSRF == "" {
 		return Envelope{}, errors.New("the board's session has no CSRF token")
 	}
-	var raw io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return Envelope{}, err
-		}
-		raw = bytes.NewReader(b)
-	}
-	res, err := c.do(ctx, fleet, token, sess.CSRF, http.MethodPost, path, raw)
+	res, err := c.do(ctx, fleet, token, sess.CSRF, ctype, http.MethodPost, path, raw)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -772,7 +841,7 @@ func (c *HTTPClient) prepare(ctx context.Context, fleet string) (string, error) 
 	return token, nil
 }
 
-func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, method, path string, body io.Reader) (*http.Response, error) {
+func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, ctype, method, path string, body io.Reader) (*http.Response, error) {
 	u := c.Base + "/" + fleet + "/api/v1" + path
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
@@ -782,8 +851,8 @@ func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, method, path st
 	if csrf != "" {
 		req.Header.Set("X-Hand-CSRF", csrf)
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if ctype != "" {
+		req.Header.Set("Content-Type", ctype)
 	}
 	res, err := c.client().Do(req)
 	if err != nil {
