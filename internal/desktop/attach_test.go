@@ -953,6 +953,24 @@ func TestAFailedChipRetriedWhileASendRunsIsNotSentAndSurvivesIt(t *testing.T) {
 	}
 }
 
+func TestAFailedChipStillFailedAtTheEndOfASendIsCleared(t *testing.T) {
+	f := sentFixture(t)
+	app := newApp(t, f)
+	dir := t.TempDir()
+	app.Attach(filepath.Join(dir, "gone.txt"))
+	if len(app.Chips) != 1 {
+		t.Fatalf("%d chips, want the one failed", len(app.Chips))
+	}
+	app.Draft = "one"
+	app.Send()
+	if got := f.count("send:" + fleetID); got != 1 {
+		t.Fatalf("the message was sent %d times", got)
+	}
+	if len(app.Chips) != 0 {
+		t.Fatalf("%d chips after the send, want the failed one cleared", len(app.Chips))
+	}
+}
+
 func TestANewerPictureEvictsTheOldestOnceTheBudgetIsSpent(t *testing.T) {
 	defer desktop.SetShotBudget(480*270 + 10)()
 	f := sentFixture(t)
@@ -1126,6 +1144,23 @@ func TestAConversationLoadsPicturesNewestFirstAndStopsAtItsPixelBudget(t *testin
 		t.Error("a picture past the budget was drawn")
 	}
 	mustText(t, tt, "older.png", "PNG · 6 KiB")
+}
+
+func TestAPictureIsDecodedOnlyWithinItsRoom(t *testing.T) {
+	defer desktop.SetShotBudget(100)()
+	var limits []int64
+	defer desktop.SetShotDecode(func(_ []byte, most int64) (*ui.Bitmap, string) {
+		limits = append(limits, most)
+		return nil, ""
+	})()
+	f := sentFixture(t)
+	app := newApp(t, f)
+	tt := sized(t, app, 1100, 760, false)
+	tt.Frame()
+	tt.Frame()
+	if !slices.Equal(limits, []int64{100}) {
+		t.Fatalf("the picture was decoded with limits %v, want its room of 100", limits)
+	}
 }
 
 func TestManyChipsScrollInsideABoundedRowAndKeepSendInView(t *testing.T) {

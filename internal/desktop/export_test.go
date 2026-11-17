@@ -80,3 +80,9 @@ func SetShotBudget(n int) func() {
 }
 
 func DrawBitmap(b []byte, most int64) (*ui.Bitmap, string) { return drawBitmap(b, most) }
+
+func SetShotDecode(f func([]byte, int64) (*ui.Bitmap, string)) func() {
+	old := shotDecode
+	shotDecode = f
+	return func() { shotDecode = old }
+}
