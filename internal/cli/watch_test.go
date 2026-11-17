@@ -42,8 +42,9 @@ func eventuallyWithin(t *testing.T, d time.Duration, ok func() bool) {
 	}
 }
 
-func watchedEvents(t *testing.T) func(event string, n int) {
+func watchedEvents(t *testing.T, fx *attemptFixture) func(event string, n int) {
 	t.Helper()
+	fx.watchExited = make(chan struct{})
 	handled := make(chan string, 4096)
 	old := *cli.EventHandled
 	*cli.EventHandled = func(event string) { handled <- event }
@@ -56,6 +57,8 @@ func watchedEvents(t *testing.T) func(event string, n int) {
 				if got == event {
 					n--
 				}
+			case <-fx.watchExited:
+				t.Fatalf("watch exited before %d %s events were handled: %s", n, event, fx.watchExit)
 			case <-time.After(30 * time.Second):
 				t.Fatalf("%d %s events not handled", n, event)
 			}
@@ -108,6 +111,10 @@ func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (strin
 	done := make(chan result, 1)
 	go func() {
 		out, _, code := fx.h.runCtx(ctx, append([]string{"watch"}, flags...)...)
+		if fx.watchExited != nil {
+			fx.watchExit = fmt.Sprintf("exit %d, out %q", code, out)
+			close(fx.watchExited)
+		}
 		done <- result{out, code}
 	}()
 	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
@@ -1843,7 +1850,7 @@ func TestWatchRecordsACodexQuestionInTheBlockedEvent(t *testing.T) {
 
 func TestWatchChecksTheHomeOnlyForEventsItActsOn(t *testing.T) {
 	fx := newAttemptFixture(t)
-	waitHandled := watchedEvents(t)
+	waitHandled := watchedEvents(t, fx)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "1h")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })

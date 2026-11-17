@@ -784,7 +784,7 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 		t.Fatalf("prompts after resume = %q, want only the resume note", got)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	waitHandled := watchedEvents(t)
+	waitHandled := watchedEvents(t, fx)
 	stop := startWatch(t, fx, "--every", "1h")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 3 })
 	publishStatus(fx, pane, "idle")
@@ -2145,7 +2145,7 @@ func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
 	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
-	waitHandled := watchedEvents(t)
+	waitHandled := watchedEvents(t, fx)
 	stop := startWatch(t, fx, "--every", "1h")
 	eventually(t, func() bool {
 		for _, a := range alertRows(t, fx) {

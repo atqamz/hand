@@ -581,6 +581,9 @@ type attemptFixture struct {
 	rt    *fakeRuntime
 	repo  string
 	brief string
+
+	watchExited chan struct{}
+	watchExit   string
 }
 
 func gitRepo(t *testing.T) string {
