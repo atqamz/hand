@@ -15,7 +15,7 @@ sealed interface Landing {
 
   data class Refused(val message: String) : Landing
 
-  object Phone : Landing
+  data object Phone : Landing
 }
 
 fun incomingLink(action: String?, data: String?): String? =

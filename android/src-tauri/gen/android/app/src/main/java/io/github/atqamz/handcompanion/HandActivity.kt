@@ -449,31 +449,24 @@ class HandActivity : ComponentActivity() {
             }
           } else if (fleet == null && phone) {
             val state by model.state.collectAsStateWithLifecycle()
-            val to = signing
-            if (to != null) {
-              val name = state.phone?.fleets?.firstOrNull { it.id == to }?.name
-              key(to) {
-                FallbackScreen(to, name, signOutPath(to), { signing = null }) {
-                  WebBoard(signOutPath(to)) { signing = null }
-                }
-              }
-            } else {
-              val leave = {
-                model.ask(false)
+            val leave = {
+              model.ask(false)
+              phone = false
+            }
+            BackHandler(enabled = signing == null, onBack = leave)
+            ThisPhoneRoute(
+              thisPhone(state, BuildConfig.VERSION_NAME),
+              signing,
+              { signing = it },
+              leave,
+              model::ask,
+              {
+                model.forget()
                 phone = false
-              }
-              BackHandler(onBack = leave)
-              ThisPhoneScreen(
-                thisPhone(state, BuildConfig.VERSION_NAME),
-                leave,
-                model::ask,
-                {
-                  model.forget()
-                  phone = false
-                },
-                { signing = it },
-                { notificationSettings() }
-              )
+              },
+              { notificationSettings() }
+            ) { path ->
+              WebBoard(path) { signing = null }
             }
           } else if (fleet == null) {
             val state by model.state.collectAsStateWithLifecycle()

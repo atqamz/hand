@@ -5,9 +5,9 @@ import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
 
-private val atlas = FleetLine("f000000000003", "atlas", "paired Nov 3 · signs out Feb 1")
+internal val atlas = FleetLine("f000000000003", "atlas", "paired Nov 3 · signs out Feb 1")
 
-private val several =
+internal val several =
   listOf(
     atlas,
     FleetLine("f000000000005", "orchard", "paired Nov 3 · signs out Feb 1"),
@@ -15,11 +15,11 @@ private val several =
     FleetLine("f000000000011", "meadow", "paired Nov 9 · signs out Feb 7")
   )
 
-private fun phone(fleets: List<FleetLine>) =
+internal fun phone(fleets: List<FleetLine>) =
   ThisPhone(
     laptop = "4d92…6ed6",
     fleets = fleets,
-    alertsDetail = "watching ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}",
+    alertsDetail = "Hand is connected · watching ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}",
     phoneId = "9ab2…11fe",
     app = "0.2.0",
     core = "0.1.0"

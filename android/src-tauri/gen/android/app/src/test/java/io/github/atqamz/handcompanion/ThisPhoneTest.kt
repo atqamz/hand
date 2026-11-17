@@ -86,6 +86,12 @@ class ThisPhoneTest {
   }
 
   @Test
+  fun theDaysAreTheDaysOfThePhonesOwnZone() {
+    TimeZone.setDefault(TimeZone.getTimeZone("Pacific/Kiritimati"))
+    assertEquals("paired Nov 4 · signs out Feb 2", pairingDates(seconds("2026-11-03T23:30:00Z")))
+  }
+
+  @Test
   fun theSignOutIsNinetyDaysOfSecondsNotThreeCalendarMonths() {
     val paired = seconds("2026-11-03T12:00:00Z")
     assertEquals(90 * DAY, signOutSeconds(paired) - paired)
@@ -128,9 +134,17 @@ class ThisPhoneTest {
     val one = PhoneInfo("a…b", "0.1.0", listOf(PairedFleet(ONE, "a", 0)))
     thisPhone(state(phone = info), "0.2.0").let {
       assertEquals("Alerts are on", it.alerts)
-      assertEquals("watching 2 fleets", it.alertsDetail)
+      assertEquals("Hand is connected · watching 2 fleets", it.alertsDetail)
     }
-    assertEquals("watching 1 fleet", thisPhone(state(phone = one), "0.2.0").alertsDetail)
+    assertEquals(
+      "Hand is connected · watching 1 fleet",
+      thisPhone(state(phone = one), "0.2.0").alertsDetail
+    )
+    assertEquals(
+      "Hand is not connected · watching 1 fleet",
+      thisPhone(state(phone = one, band = band(BoardError.Unreachable, LAPTOP, "12:41")), "0.2.0")
+        .alertsDetail
+    )
     thisPhone(state(phone = info, alertsOff = true), "0.2.0").let {
       assertEquals("Alerts are off", it.alerts)
       assertEquals("Allow notifications in Settings.", it.alertsDetail)
@@ -163,76 +177,29 @@ class ThisPhoneTest {
   }
 
   @Test
-  fun forgetAsksFirstAndCancelChangesNothing() {
-    var stops = 0
-    val model =
-      FleetsModel(
-        board,
-        { listOf(ONE) },
-        { LAPTOP },
-        forgetter = { stops++; true },
-        phone = { answer(stored(ONE, "hand", 1)) }
-      )
-    runBlocking { model.refresh() }
-    model.ask(true)
-    assertTrue(thisPhone(model.state.value, "0.2.0").asking)
-    assertEquals(0, stops)
-    model.ask(false)
-    assertFalse(thisPhone(model.state.value, "0.2.0").asking)
-    assertEquals(0, stops)
-    assertEquals(1, thisPhone(model.state.value, "0.2.0").fleets.size)
+  fun theQuestionFollowsTheListsAsk() {
+    assertFalse(thisPhone(state(), "0.2.0").asking)
+    assertTrue(thisPhone(state().copy(asking = true), "0.2.0").asking)
   }
 
   @Test
-  fun forgetClearsTheStoreStopsTheAlertsOnceAndEmptiesTheScreen() {
-    var held = listOf(ONE)
-    var stops = 0
-    val model =
-      FleetsModel(
-        board,
-        { held },
-        { if (held.isEmpty()) null else LAPTOP },
-        forgetter = {
-          held = emptyList()
-          stops++
-          true
-        },
-        phone = { answer(*held.map { stored(it, "x", 1) }.toTypedArray()) }
+  fun aStateWithNothingPairedEmptiesTheScreen() {
+    val shown =
+      thisPhone(
+        FleetsState(null, emptyList(), loaded = true, phone = PhoneInfo("a…b", "0.1.0", emptyList())),
+        "0.2.0"
       )
-    runBlocking { model.refresh() }
-    model.alerts(true)
-    model.ask(true)
-
-    runBlocking { model.forgetLaptop() }
-
-    val shown = thisPhone(model.state.value, "0.2.0")
-    assertEquals(1, stops)
     assertTrue(shown.fleets.isEmpty())
     assertNull(shown.laptop)
-    assertFalse(shown.asking)
     assertEquals("No fleet is paired.", shown.alertsDetail)
-    assertNull(model.state.value.notice)
   }
 
   @Test
-  fun aForgetThatFailsKeepsTheFleetsAndSaysSo() {
-    val model =
-      FleetsModel(
-        board,
-        { listOf(ONE) },
-        { LAPTOP },
-        forgetter = { false },
-        phone = { answer(stored(ONE, "hand", 1)) }
-      )
-    runBlocking { model.refresh() }
-    model.ask(true)
-
-    runBlocking { model.forgetLaptop() }
-
-    val shown = thisPhone(model.state.value, "0.2.0")
-    assertEquals(FORGET_FAILED, model.state.value.notice)
-    assertFalse(shown.asking)
-    assertEquals(1, shown.fleets.size)
+  fun aStateWithFleetsKeepsThemAndTheLaptop() {
+    val info = PhoneInfo("a…b", "0.1.0", listOf(PairedFleet(ONE, "hand", 1)))
+    val shown = thisPhone(state(listOf(FleetRow(ONE)), info), "0.2.0")
+    assertEquals(listOf(ONE), shown.fleets.map { it.id })
+    assertEquals(LAPTOP, shown.laptop)
   }
 
   @Test

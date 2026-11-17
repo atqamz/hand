@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -112,4 +113,27 @@ fun ThisPhoneScreen(
     }
   }
   if (phone.asking) ForgetDialog(phone.laptop, phone.fleets.size, onForget) { onAsk(false) }
+}
+
+@Composable
+fun ThisPhoneRoute(
+  phone: ThisPhone,
+  signing: String?,
+  onSigning: (String?) -> Unit,
+  onBack: () -> Unit,
+  onAsk: (Boolean) -> Unit,
+  onForget: () -> Unit,
+  onSettings: () -> Unit,
+  web: @Composable (String) -> Unit
+) {
+  if (signing == null) {
+    ThisPhoneScreen(phone, onBack, onAsk, onForget, onSigning, onSettings)
+  } else {
+    val path = signOutPath(signing)
+    key(signing) {
+      FallbackScreen(signing, phone.fleets.firstOrNull { it.id == signing }?.name, path, { onSigning(null) }) {
+        web(path)
+      }
+    }
+  }
 }

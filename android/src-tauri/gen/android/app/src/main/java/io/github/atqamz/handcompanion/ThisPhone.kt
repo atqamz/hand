@@ -63,16 +63,19 @@ fun thisPhone(state: FleetsState, app: String): ThisPhone {
       val live = state.rows.firstOrNull { it.id == stored.id }?.name?.takeIf { it != stored.id }
       FleetLine(stored.id, live ?: stored.name.ifBlank { stored.id }, pairingDates(stored.paired))
     }
+  val link = if (state.band == null || state.band == UNSAVED) "connected" else "not connected"
   val (alerts, detail) =
     when {
       state.alertsOff -> "Alerts are off" to "Allow notifications in Settings."
       fleets.isEmpty() -> "Alerts are off" to "No fleet is paired."
-      else -> "Alerts are on" to "watching ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}"
+      else ->
+        "Alerts are on" to
+          "Hand is $link · watching ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}"
     }
   return ThisPhone(
     loaded = state.loaded,
     laptop = state.laptop,
-    link = if (state.band == null || state.band == UNSAVED) "connected" else "not connected",
+    link = link,
     fleets = fleets,
     alerts = alerts,
     alertsDetail = detail,

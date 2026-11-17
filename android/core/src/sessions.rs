@@ -314,7 +314,7 @@ fn import(data: &mut Data, laptop: Option<String>, jar: &[(String, String)]) {
             name: String::new(),
             device: device.to_owned(),
             secret: secret.to_owned(),
-            paired: now(),
+            paired: 0,
         });
     }
 }
@@ -735,16 +735,15 @@ mod tests {
     }
 
     #[test]
-    fn the_listing_gives_each_fleet_its_pairing_time_from_the_store_and_the_import() {
+    fn the_listing_gives_a_paired_fleet_its_time_and_an_imported_one_none() {
         let setup = Setup::new(&[COOKIE]);
-        let before = now();
         let sessions = setup.open().unwrap();
 
         let imported = sessions.listed();
 
         assert_eq!(imported.len(), 1);
         assert_eq!(imported[0].id, FLEET);
-        assert!(imported[0].paired >= before);
+        assert_eq!(imported[0].paired, 0);
         sessions
             .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
             .unwrap();
@@ -757,6 +756,7 @@ mod tests {
             [FLEET, OTHER]
         );
         assert_eq!(named[1].name, format!("name of {OTHER}"));
+        assert!(named[1].paired > 0);
         assert_eq!(named[0].paired, imported[0].paired);
         sessions.forget().unwrap();
         assert!(sessions.listed().is_empty());
