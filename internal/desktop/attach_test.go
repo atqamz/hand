@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -642,7 +643,11 @@ func TestPastingAnImageFromTheClipboardAttachesIt(t *testing.T) {
 		app.View(c)
 	}, 1100, 760)
 	click(t, tt, "Message the supervisor")
-	tt.Key(ui.Ctrl, ui.KeyV)
+	paste := ui.Ctrl
+	if runtime.GOOS == "darwin" {
+		paste = ui.Super
+	}
+	tt.Key(paste, ui.KeyV)
 	tt.Frame()
 	mustText(t, tt, "image.png")
 	if app.Draft != "" {
