@@ -687,3 +687,52 @@ func hugePNG(w, h uint32) []byte {
 	binary.Write(&out, binary.BigEndian, crc32.ChecksumIEEE(chunk))
 	return out.Bytes()
 }
+
+type slowReport struct {
+	desktop.ReadModel
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *slowReport) Report(ctx context.Context, fleet, ref string) (desktop.ReportDetail, error) {
+	s.entered <- struct{}{}
+	<-s.release
+	return s.ReadModel.Report(ctx, fleet, "r1")
+}
+
+func TestAReportReadStartedBeforeADocumentDoesNotReplaceIt(t *testing.T) {
+	model := &slowReport{ReadModel: docFixture(t), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.OpenRef("r9")
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the report read never started")
+	}
+	app.OpenDoc("reports/t1/design.md")
+	close(model.release)
+	drain(posted)
+	if app.Screen != desktop.DocScreen || app.Ref != "reports/t1/design.md" {
+		t.Fatalf("the late report left %v %q", app.Screen, app.Ref)
+	}
+}
+
+func TestAnExternalLinkNamingAFleetPathStaysExternal(t *testing.T) {
+	f := docFixture(t)
+	link := "https://example.com/" + fleetID + "/doc/reports/t1/notes.txt"
+	f.docBytes["reports/t1/design.md"] = []byte("Open [elsewhere](" + link + ") now\n")
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	click(t, tt, "elsewhere")
+	if app.Ref != "reports/t1/design.md" {
+		t.Fatalf("an external link opened the document %q", app.Ref)
+	}
+	if got := tt.OpenedURLs(); len(got) != 1 || got[0] != link {
+		t.Fatalf("opened %q, want %q", got, link)
+	}
+}

@@ -130,6 +130,8 @@ func (a *App) showDoc(rel string, page int, push bool) {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
 			Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page})
 	}
+	_, _, stop := a.nextLoad()
+	stop()
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = DocScreen, rel, "", ""
 	a.pageTarget, a.pageTargetOK, a.pageTargetNeed = Report{}, false, pageTargetSettled
 	a.pageTargetGen++
@@ -215,8 +217,11 @@ func (a *App) docEarlier() {
 	}
 }
 
-func docRel(fleet, dest string) (string, bool) {
-	args, ok := boardOpenArgs(fleet, dest)
+func (a *App) docRel(dest string) (string, bool) {
+	if _, board := a.linkTarget(dest); !board {
+		return "", false
+	}
+	args, ok := boardOpenArgs(a.Fleet.ID, dest)
 	if !ok || len(args) != 2 || args[0] != "--doc" {
 		return "", false
 	}
@@ -224,7 +229,7 @@ func docRel(fleet, dest string) (string, bool) {
 }
 
 func (a *App) openDocLink(dest string) bool {
-	rel, ok := docRel(a.Fleet.ID, dest)
+	rel, ok := a.docRel(dest)
 	if ok {
 		a.OpenDoc(rel)
 	}
@@ -232,7 +237,7 @@ func (a *App) openDocLink(dest string) bool {
 }
 
 func (a *App) docLink(dest string) (string, bool) {
-	if rel, ok := docRel(a.Fleet.ID, dest); ok {
+	if rel, ok := a.docRel(dest); ok {
 		return rel, true
 	}
 	u, err := url.Parse(dest)
