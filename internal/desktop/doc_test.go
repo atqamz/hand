@@ -767,11 +767,11 @@ func TestAWindowThatNoLongerExistsRetriesFromTheStart(t *testing.T) {
 
 func TestALinkWithABackslashOrANulStaysOnThePage(t *testing.T) {
 	f := docFixture(t)
-	f.docBytes["reports/t1/design.md"] = []byte("Go [bs](..%5C..%5Cx.md) now\n\nGo [nul](a%00b.md) now\n\nGo [raw](sub\\x.md) now\n")
+	f.docBytes["reports/t1/design.md"] = []byte("Go [backslashed](..%5C..%5Cx.md) now\n\nGo [nulled](a%00b.md) now\n\nGo [rawslash](sub\\x.md) now\n")
 	app := newApp(t, f)
 	app.OpenDoc("reports/t1/design.md")
 	tt := newTester(app)
-	for _, link := range []string{"bs", "nul", "raw"} {
+	for _, link := range []string{"backslashed", "nulled", "rawslash"} {
 		click(t, tt, link)
 		if app.Ref != "reports/t1/design.md" {
 			t.Fatalf("the %s link opened %q", link, app.Ref)
@@ -783,16 +783,19 @@ func TestABoardLinkWithADoubleSlashIsNotADocument(t *testing.T) {
 	hand := installFakeHand(t)
 	f := docFixture(t)
 	f.fleets[0].Home = hand.home
-	f.docBytes["reports/t1/design.md"] = []byte("Go [slash](/" + fleetID + "/doc//etc/passwd) now\n")
+	f.docBytes["reports/t1/design.md"] = []byte("Go [slash](/" + fleetID + "/doc//etc/passwd) now\n\nGo [backslashed](/" + fleetID + "/doc/sub%5Cx.md) now\n\nGo [nulled](/" + fleetID + "/doc/a%00b.md) now\n")
 	app := newApp(t, f)
 	app.OpenDoc("reports/t1/design.md")
 	tt := newTester(app)
-	click(t, tt, "slash")
-	if app.Ref != "reports/t1/design.md" {
-		t.Fatalf("the link opened %q", app.Ref)
-	}
-	if app.OpenErr == "" || len(hand.calls(t)) != 0 {
-		t.Fatalf("err %q, hand ran %q", app.OpenErr, hand.calls(t))
+	for _, link := range []string{"slash", "backslashed", "nulled"} {
+		app.OpenErr = ""
+		click(t, tt, link)
+		if app.Ref != "reports/t1/design.md" {
+			t.Fatalf("the %s link opened %q", link, app.Ref)
+		}
+		if len(hand.calls(t)) != 0 || link == "slash" && app.OpenErr == "" {
+			t.Fatalf("%s: err %q, hand ran %q", link, app.OpenErr, hand.calls(t))
+		}
 	}
 }
 
