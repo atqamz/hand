@@ -59,37 +59,43 @@ func TestReportCodeBlockCopyFillsTheClipboard(t *testing.T) {
 
 func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 	cases := []struct {
-		name, dest, want, ran string
+		name, dest, want, ran, doc string
 	}{
-		{"https", "https://github.com/atqamz/hand/pull/1", "https://github.com/atqamz/hand/pull/1", ""},
-		{"http", "http://example.com/a", "http://example.com/a", ""},
-		{"fleet path", "/" + fleetID + "/doc/reports/t1/a.md", "", "open --doc reports/t1/a.md"},
-		{"other fleet path", "/" + secondID + "/doc/a.md", "", ""},
-		{"board root", "/", "", ""},
-		{"traversal", "/" + fleetID + "/doc/../../etc/passwd", "", ""},
-		{"protocol relative", "//evil.example/" + fleetID + "/", "", ""},
-		{"javascript", "javascript:alert(1)", "", ""},
-		{"file", "file:///etc/passwd", "", ""},
-		{"mailto", "mailto:a@example.com", "", ""},
-		{"relative", "reports/t1/a.md", "", ""},
-		{"backslash traversal", "/" + fleetID + "/doc/..\\x", "", ""},
-		{"unc", "\\\\host\\x", "", ""},
-		{"encoded nul", "/" + fleetID + "/a%00", "", ""},
-		{"upper http", "HTTP://x", "HTTP://x", ""},
-		{"mixed javascript", "JaVaScRiPt:x", "", ""},
-		{"one slash http", "http:/x", "", ""},
-		{"data", "data:text/html,x", "", ""},
-		{"encoded dots", "/" + fleetID + "/doc/%2e%2e/x", "", ""},
-		{"encoded slash after dots", "/" + fleetID + "/doc/..%2fx", "", ""},
-		{"encoded slash after id", "/" + fleetID + "%2Fx", "", ""},
-		{"long", "https://example.com/" + strings.Repeat("a", 20000), "https://example.com/" + strings.Repeat("a", 20000), ""},
+		{"https", "https://github.com/atqamz/hand/pull/1", "https://github.com/atqamz/hand/pull/1", "", ""},
+		{"http", "http://example.com/a", "http://example.com/a", "", ""},
+		{"fleet path", "/" + fleetID + "/doc/reports/t1/a.md", "", "", "reports/t1/a.md"},
+		{"other fleet path", "/" + secondID + "/doc/a.md", "", "", ""},
+		{"board root", "/", "", "", ""},
+		{"traversal", "/" + fleetID + "/doc/../../etc/passwd", "", "", ""},
+		{"protocol relative", "//evil.example/" + fleetID + "/", "", "", ""},
+		{"javascript", "javascript:alert(1)", "", "", ""},
+		{"file", "file:///etc/passwd", "", "", ""},
+		{"mailto", "mailto:a@example.com", "", "", ""},
+		{"relative", "reports/t1/a.md", "", "", ""},
+		{"backslash traversal", "/" + fleetID + "/doc/..\\x", "", "", ""},
+		{"unc", "\\\\host\\x", "", "", ""},
+		{"encoded nul", "/" + fleetID + "/a%00", "", "", ""},
+		{"upper http", "HTTP://x", "HTTP://x", "", ""},
+		{"mixed javascript", "JaVaScRiPt:x", "", "", ""},
+		{"one slash http", "http:/x", "", "", ""},
+		{"data", "data:text/html,x", "", "", ""},
+		{"encoded dots", "/" + fleetID + "/doc/%2e%2e/x", "", "", ""},
+		{"encoded slash after dots", "/" + fleetID + "/doc/..%2fx", "", "", ""},
+		{"encoded slash after id", "/" + fleetID + "%2Fx", "", "", ""},
+		{"long", "https://example.com/" + strings.Repeat("a", 20000), "https://example.com/" + strings.Repeat("a", 20000), "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hand := installFakeHand(t)
-			_, tt := reportAppAt(t, "Result\n\nOpen [the link]("+tc.dest+") now", hand.home)
+			app, tt := reportAppAt(t, "Result\n\nOpen [the link]("+tc.dest+") now", hand.home)
 			click(t, tt, "the link")
 			got := tt.OpenedURLs()
+			if tc.doc != "" {
+				if len(got) != 0 || len(hand.calls(t)) != 0 || app.Screen != desktop.DocScreen || app.Ref != tc.doc {
+					t.Fatalf("opened %q, hand ran %q, screen %v %q; want the viewer at %q", got, hand.calls(t), app.Screen, app.Ref, tc.doc)
+				}
+				return
+			}
 			if tc.want == "" {
 				if len(got) != 0 {
 					t.Fatalf("opened %q", got)
@@ -118,8 +124,6 @@ func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
 		{"/" + fleetID + "/task/t1", []string{"open", "t1"}},
 		{"/" + fleetID + "/decision/d1#x", []string{"open", "d1"}},
 		{"/" + fleetID + "/", []string{"open"}},
-		{"/" + fleetID + "/doc/reports/t1/a.md", []string{"open", "--doc", "reports/t1/a.md"}},
-		{"/" + fleetID + "/doc/reports/t1/my%20notes%231.md?x=1#top", []string{"open", "--doc", "reports/t1/my notes#1.md"}},
 		{"/" + fleetID + "/doc/", nil},
 		{"/" + fleetID + "/doc", nil},
 	} {

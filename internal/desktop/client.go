@@ -37,6 +37,9 @@ type ReadModel interface {
 	Attempt(ctx context.Context, fleet, ref string) (AttemptDetail, error)
 	Decision(ctx context.Context, fleet, ref string) (DecisionDetail, error)
 	Report(ctx context.Context, fleet, ref string) (ReportDetail, error)
+	Doc(ctx context.Context, fleet, path string, page int) (Doc, error)
+	DocWindow(ctx context.Context, fleet, path string, from int) (DocWindow, error)
+	DocBytes(ctx context.Context, fleet, path string) ([]byte, error)
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error)
 	AckReport(ctx context.Context, fleet, ref string) (Acked, error)
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
@@ -127,6 +130,7 @@ type Pressed struct {
 const (
 	apiVersion = 1
 	maxBody    = 16 << 20
+	docRawMax  = 10 << 20
 )
 
 var (
@@ -374,6 +378,55 @@ func (c *HTTPClient) Report(ctx context.Context, fleet, ref string) (ReportDetai
 	return out, err
 }
 
+func docPath(path string) string {
+	return "/doc/" + (&url.URL{Path: path}).EscapedPath()
+}
+
+func (c *HTTPClient) docGet(ctx context.Context, fleet, path string, out any) error {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return err
+	}
+	_, err = c.getWith(ctx, fleet, token, path, out)
+	return err
+}
+
+func (c *HTTPClient) Doc(ctx context.Context, fleet, path string, page int) (Doc, error) {
+	q := ""
+	if page > 1 {
+		q = "?page=" + strconv.Itoa(page)
+	}
+	var out Doc
+	err := c.docGet(ctx, fleet, docPath(path)+q, &out)
+	return out, err
+}
+
+func (c *HTTPClient) DocWindow(ctx context.Context, fleet, path string, from int) (DocWindow, error) {
+	var out DocWindow
+	err := c.docGet(ctx, fleet, docPath(path)+"?from="+strconv.Itoa(max(from, 1)), &out)
+	return out, err
+}
+
+func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.do(ctx, fleet, token, "", http.MethodGet, docPath(path)+"?raw", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, remoteError(res)
+	}
+	b, err := io.ReadAll(io.LimitReader(res.Body, docRawMax+1))
+	if err == nil && len(b) > docRawMax {
+		return nil, errors.New("the file is larger than this window reads")
+	}
+	return b, err
+}
+
 func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error) {
 	token, err := c.prepare(ctx, fleet)
 	if err != nil {
@@ -406,7 +459,7 @@ func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc
 
 func pollPath(screen Screen, ref string) string {
 	switch screen {
-	case TasksScreen:
+	case TasksScreen, DocScreen:
 		return ""
 	case TaskScreen:
 		return "/task/" + url.PathEscape(ref)

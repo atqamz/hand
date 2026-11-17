@@ -23,6 +23,7 @@ const (
 	TaskScreen
 	AttemptScreen
 	DecisionScreen
+	DocScreen
 )
 
 // The auto-refresh intervals: short while the window has keyboard focus,
@@ -206,6 +207,9 @@ type App struct {
 	stop          context.CancelFunc
 	gen           int
 	back          []backStep
+	doc           docState
+	docGen        int
+	docCancel     context.CancelFunc
 	stopTimer     func()
 	stopGen       int
 	stopRef       string
@@ -269,6 +273,7 @@ type backStep struct {
 	Report    string
 	Target    Report
 	HasTarget bool
+	Page      int
 }
 
 type found struct {
@@ -423,6 +428,7 @@ func (a *App) SelectFleet(id string) {
 		a.Fleet = f
 	}
 	a.Screen, a.Ref, a.back = BoardScreen, "", nil
+	a.resetDoc()
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.tabFor = ""
 	a.scroll.Y = math.MaxFloat32
@@ -521,6 +527,7 @@ const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
+	a.resetDoc()
 	if s == BoardScreen || s == TasksScreen {
 		a.base = s
 	}
@@ -591,7 +598,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	}
 	if a.Screen != BoardScreen && a.Screen != TasksScreen && len(a.back) < viewerStackMax-1 {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
-			Target: a.pageTarget, HasTarget: a.pageTargetOK})
+			Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page})
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
 	a.pageTarget, a.pageTargetOK, a.pageTargetNeed = Report{}, false, pageTargetSettled
@@ -770,6 +777,7 @@ func (a *App) CloseViewer() {
 	a.openerRef = ""
 	a.tabFor = ""
 	a.Screen, a.Ref, a.back = a.base, "", nil
+	a.resetDoc()
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
@@ -825,6 +833,10 @@ func (a *App) Back() {
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = true
+	a.resetDoc()
+	if step.Screen == DocScreen {
+		a.doc = docState{path: step.Ref, page: step.Page, from: 1}
+	}
 	a.Reload()
 }
 
@@ -1530,6 +1542,7 @@ func (a *App) Reload() {
 		l := fetch(a.Model, ctx, a.Fleet.ID, a.Screen, a.Ref, withTasks)
 		cancel()
 		a.apply(l)
+		a.reloadDoc()
 		return
 	}
 	a.Loading = true
@@ -1546,6 +1559,7 @@ func (a *App) Reload() {
 			a.apply(l)
 		})
 	}()
+	a.reloadDoc()
 }
 
 func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {

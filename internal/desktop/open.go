@@ -25,6 +25,8 @@ func (a *App) OpenInBrowser() {
 		a.runOpen(a.Ref)
 	case AttemptScreen, DecisionScreen:
 		a.runOpen(a.Ref)
+	case DocScreen:
+		a.runOpen("--doc", a.Ref)
 	default:
 		a.runOpen()
 	}
@@ -178,7 +180,7 @@ func boardOpenArgs(fleet, dest string) ([]string, bool) {
 		return nil, true
 	}
 	kind, ref, ok := strings.Cut(rest, "/")
-	if kind == "doc" && ok && strings.Trim(ref, "/") != "" {
+	if kind == "doc" && ok && strings.Trim(ref, "/") != "" && !strings.HasPrefix(ref, "/") && !strings.ContainsAny(ref, "\\\x00") {
 		return []string{"--doc", ref}, true
 	}
 	prefix, known := boardKinds[kind]
