@@ -2,6 +2,17 @@ package desktop
 
 import "testing"
 
+func TestAnUnpaddedInboxCounterSortsAsText(t *testing.T) {
+	defer func(old int) { shotBudget = old }(shotBudget)
+	shotBudget = 1000
+	a := &App{shots: map[string]*shotState{
+		"20261101-050000-10-a.png": {pix: 500},
+	}}
+	if got := a.shotRoom("20261101-050000-2-a.png"); got != 1000 {
+		t.Fatalf("room for the second name is %d, want 1000: names compare as text, so -10- is the older one", got)
+	}
+}
+
 func TestAPictureRoomIsTheBudgetLessWhatNewerPicturesHold(t *testing.T) {
 	defer func(old int) { shotBudget = old }(shotBudget)
 	shotBudget = 1000

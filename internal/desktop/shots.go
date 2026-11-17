@@ -14,6 +14,8 @@ const shotRetry = 30 * time.Second
 
 var shotBudget = 48 << 20
 
+var shotDecode = drawBitmap
+
 type shotState struct {
 	bmp    *ui.Bitmap
 	pix    int
@@ -86,7 +88,7 @@ func (a *App) pumpShots() {
 		b, err := model.InboxBytes(ctx, fleet, name)
 		var bmp *ui.Bitmap
 		if err == nil {
-			bmp, _ = drawBitmap(b, room)
+			bmp, _ = shotDecode(b, room)
 		}
 		return func() {
 			if gen != a.shotGen {
