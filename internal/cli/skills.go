@@ -199,7 +199,11 @@ func fetchSkill(ctx context.Context, e fleet.Managed) (dir, commit string, clean
 	if err != nil {
 		return "", "", cleanup, err
 	}
-	return filepath.Join(tmp, "repo", filepath.FromSlash(e.Path())), strings.TrimSpace(out), cleanup, nil
+	rel := filepath.FromSlash(e.Path())
+	if rel != "" && !filepath.IsLocal(rel) {
+		return "", "", cleanup, fmt.Errorf("%w: skill path %q leaves the repository", state.ErrInvalid, e.Path())
+	}
+	return filepath.Join(tmp, "repo", rel), strings.TrimSpace(out), cleanup, nil
 }
 
 func skillState(s fleet.Skills, name string, e fleet.Managed) (string, error) {

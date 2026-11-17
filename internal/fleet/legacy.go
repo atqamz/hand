@@ -48,13 +48,15 @@ func (s Skills) migrate() error {
 		if _, taken := l.Skills[name]; taken || !s.legacyClean(name, e.Sum) {
 			continue
 		}
-		for _, root := range s.Roots() {
-			file := filepath.Join(s.Dir(root, name), "SKILL.md")
-			have, err := os.ReadFile(file)
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(file, legacyMarker.ReplaceAll(have, []byte("${1}"+Marker)), 0o644); err != nil {
+		files, ok, err := s.remarked(name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		for file, text := range files {
+			if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
 				return err
 			}
 		}
@@ -76,6 +78,23 @@ func (s Skills) migrate() error {
 		return err
 	}
 	return os.Remove(path)
+}
+
+func (s Skills) remarked(name string) (map[string]string, bool, error) {
+	files := map[string]string{}
+	for _, root := range s.Roots() {
+		file := filepath.Join(s.Dir(root, name), "SKILL.md")
+		have, err := os.ReadFile(file)
+		if err != nil {
+			return nil, false, err
+		}
+		head, rest, ok := frontmatter(string(have))
+		if !ok || !legacyMarker.MatchString(head) {
+			return nil, false, nil
+		}
+		files[file] = "---\n" + legacyMarker.ReplaceAllString(head, "${1}"+Marker) + "\n---\n" + rest
+	}
+	return files, true, nil
 }
 
 func (s Skills) legacyClean(name, want string) bool {

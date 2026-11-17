@@ -64,7 +64,7 @@ func parseFrontmatter(head string) (fields, meta map[string]string, err error) {
 		if text == "" || strings.HasPrefix(text, "#") {
 			continue
 		}
-		if line[0] != ' ' && line[0] != '\t' {
+		if line[0] != ' ' && line[0] != '\t' && !(key != "" && strings.HasPrefix(line, "- ")) {
 			k, v, ok := strings.Cut(line, ":")
 			if !ok || strings.TrimSpace(k) == "" {
 				return nil, nil, fmt.Errorf("frontmatter line %q is not `key: value`", line)

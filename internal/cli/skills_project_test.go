@@ -277,18 +277,26 @@ func legacyHash(t *testing.T, dir string) string {
 
 func TestSkillsMigrateThePreV2StateOnceOnRead(t *testing.T) {
 	h := skillsHarness(t)
-	for _, name := range []string{"kept", "edited"} {
+	legacy := func(name, nl, body string) {
+		front := strings.ReplaceAll("---\nname: "+name+"\ndescription: x\nmetadata:\n  managed-by: hand-skills\n---\n\nbody\n"+body, "\n", nl)
 		for _, root := range fleet.SkillRoots {
-			writeFiles(t, filepath.Join(h.home, root, "skills", name), map[string]string{"SKILL.md": "---\nname: " + name + "\ndescription: x\nmetadata:\n  managed-by: hand-skills\n---\n\nbody\n"})
+			writeFiles(t, filepath.Join(h.home, root, "skills", name), map[string]string{"SKILL.md": front})
 		}
 	}
-	state := fmt.Sprintf(`{"kept":{"source":"https://example.com/kept.git","path":"skills/kept","commit":"c0ffee","scope":"fleet","sum":%q},"edited":{"source":"/old/edited","scope":"fleet","sum":"stale"}}`, legacyHash(t, filepath.Join(h.home, ".agents", "skills", "kept")))
+	legacy("kept", "\n", "    managed-by: hand-skills\n")
+	legacy("crlf", "\r\n", "")
+	legacy("edited", "\n", "")
+	for _, root := range fleet.SkillRoots {
+		writeFiles(t, filepath.Join(h.home, root, "skills", "bodyonly"), map[string]string{"SKILL.md": "---\nname: bodyonly\ndescription: x\n---\n\n  managed-by: hand-skills\n"})
+	}
+	sum := func(name string) string { return legacyHash(t, filepath.Join(h.home, ".agents", "skills", name)) }
+	state := fmt.Sprintf(`{"kept":{"source":"https://example.com/kept.git","path":"skills/kept","commit":"c0ffee","scope":"fleet","sum":%q},"crlf":{"source":"/old/crlf","scope":"fleet","sum":%q},"bodyonly":{"source":"/old/bodyonly","scope":"fleet","sum":%q},"edited":{"source":"/old/edited","scope":"fleet","sum":"stale"}}`, sum("kept"), sum("crlf"), sum("bodyonly"))
 	old := filepath.Join(h.home, ".agents", "skills", ".hand-skills.json")
 	if err := os.WriteFile(old, []byte(state), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	list := h.ok("skills", "list", "--fleet")
-	for _, want := range []string{`kept,"https://example.com/kept.git#skills/kept",c0ffee,fleet,yes`, "edited,\"\",\"\",fleet,no"} {
+	for _, want := range []string{`kept,"https://example.com/kept.git#skills/kept",c0ffee,fleet,yes`, "crlf,/old/crlf,\"\",fleet,yes", "edited,\"\",\"\",fleet,no"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("list missing %q:\n%s", want, list)
 		}
@@ -301,14 +309,36 @@ func TestSkillsMigrateThePreV2StateOnceOnRead(t *testing.T) {
 		t.Fatalf("entry = %+v", e)
 	}
 	for _, root := range fleet.SkillRoots {
-		if got := readSkill(t, skillPath(h.home, root, "kept")); !strings.Contains(got, "  managed-by: hand\n") || strings.Contains(got, "hand-skills") {
+		if got := readSkill(t, skillPath(h.home, root, "kept")); !strings.Contains(got, "\n  managed-by: hand\n---\n") || !strings.HasSuffix(got, "\nbody\n    managed-by: hand-skills\n") {
+			t.Fatalf("%s: %q", root, got)
+		}
+		if got := readSkill(t, skillPath(h.home, root, "crlf")); !strings.Contains(got, "\n  managed-by: hand\n---\n") {
 			t.Fatalf("%s: %q", root, got)
 		}
 	}
 	if got := readSkill(t, skillPath(h.home, ".claude", "edited")); !strings.Contains(got, "managed-by: hand-skills") {
 		t.Fatalf("a skill that no longer matches its old sum was rewritten: %q", got)
 	}
-	if _, ok := skillState(t, h.home)["edited"]; ok {
-		t.Fatal("a skill that no longer matches its old sum was adopted")
+	for _, name := range []string{"edited", "bodyonly"} {
+		if _, ok := skillState(t, h.home)[name]; ok {
+			t.Fatalf("%s was adopted", name)
+		}
+	}
+}
+
+func TestSkillsUpdateRefusesALockedPathThatLeavesTheClone(t *testing.T) {
+	h := skillsHarness(t)
+	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"], "outside/triage/SKILL.md": skillFiles("triage", "elsewhere")["SKILL.md"]})
+	isolateGit(t, hub.bare)
+	h.ok("skills", "add", "--fleet", "triage")
+	lock := readSkill(t, fleetLock(h.home))
+	if err := os.WriteFile(fleetLock(h.home), []byte(strings.Replace(lock, "skills/triage/SKILL.md", "../repo/outside/triage/SKILL.md", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, code := h.run("skills", "update", "--fleet", "triage"); code != 3 || !strings.Contains(out, "leaves the repository") {
+		t.Fatalf("update: code=%d out=%q", code, out)
+	}
+	if strings.Contains(readSkill(t, skillPath(h.home, ".claude", "triage")), "elsewhere") {
+		t.Fatal("update copied a folder from outside the skill's path in the clone")
 	}
 }

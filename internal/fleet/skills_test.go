@@ -116,6 +116,7 @@ func TestValidateSpecNamesTheBrokenField(t *testing.T) {
 	}{
 		{"valid", "notes", skill("name: notes\ndescription: Do it when asked."), ""},
 		{"quoted and folded", "notes", skill("name: \"notes\"\ndescription: >\n  one\n  two\nlicense: MIT\nmetadata:\n  version: \"1\"\n  author: x\nallowed-tools: Bash(git:*)"), ""},
+		{"column zero sequence", "notes", skill("name: notes\ndescription: x\nallowed-tools:\n- Read\n- Bash"), ""},
 		{"name 64", long(64), skill("name: " + long(64) + "\ndescription: x"), ""},
 		{"description 1024", "notes", skill("name: notes\ndescription: " + long(1024)), ""},
 		{"compatibility 500", "notes", skill("name: notes\ndescription: x\ncompatibility: " + long(500)), ""},
