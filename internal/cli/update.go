@@ -37,13 +37,15 @@ func cmdUpdate(r *runner, args []string) error {
 	case *channel == "":
 		*channel = Channel
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	target, err := update.Target(exe)
-	if err != nil {
-		return err
+	target := updateHooks.Target
+	if target == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if target, err = update.Target(exe); err != nil {
+			return err
+		}
 	}
 	root, err := r.rootDir()
 	if err != nil {
@@ -72,32 +74,20 @@ func cmdUpdate(r *runner, args []string) error {
 		Client: func(e fleet.Entry) luvus.Client {
 			return (&runner{env: r.env, home: e.Home, root: root}).client(fleet.Session(e.ID))
 		},
-		Start: func(ctx context.Context, home string) error {
-			w, err := fleetRunner(r, root, home)
-			if err != nil {
-				return err
-			}
-			_, _, err = w.luvus(ctx)
+		Start: func(ctx context.Context, e fleet.Entry) error {
+			_, _, err := updateRunner(r, root, e).luvus(ctx)
 			return err
 		},
-		Watch: func(ctx context.Context, home string) error {
-			w, err := fleetRunner(r, root, home)
-			if err != nil {
-				return err
-			}
-			_, err = w.ensureWatcher(ctx)
+		Watch: func(ctx context.Context, e fleet.Entry) error {
+			_, err := updateRunner(r, root, e).ensureWatcher(ctx)
 			return err
 		},
-		Board: func(ctx context.Context, home string) error {
-			w, err := fleetRunner(r, root, home)
+		Board: func(ctx context.Context, e fleet.Entry) error {
+			token, err := boardToken(e.Home)
 			if err != nil {
 				return err
 			}
-			token, err := boardToken(home)
-			if err != nil {
-				return err
-			}
-			return w.ensureBoard(ctx, token)
+			return updateRunner(r, root, e).ensureBoard(ctx, token)
 		},
 	})
 	if err != nil {
@@ -115,13 +105,8 @@ func cmdUpdate(r *runner, args []string) error {
 	return nil
 }
 
-func fleetRunner(r *runner, root, home string) (*runner, error) {
-	w := &runner{env: r.env, home: home, root: root}
-	st, err := w.store()
-	if err != nil {
-		return nil, err
-	}
-	return w, st.Close()
+func updateRunner(r *runner, root string, e fleet.Entry) *runner {
+	return &runner{env: r.env, home: e.Home, root: root, fleet: state.Fleet{ID: e.ID, Name: e.Name, Home: e.Home}}
 }
 
 func (r *runner) base(name, fallback string) string {

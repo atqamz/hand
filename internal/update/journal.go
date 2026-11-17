@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/fsx"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -136,11 +137,38 @@ func (r *Report) finishJournal(ctx context.Context, o Options, hold func()) erro
 }
 
 func (r *Report) repair(ctx context.Context, o Options, j journal) {
-	if len(j.Board) > 0 {
-		r.start(ctx, o, "board", j.Board, o.Board)
+	byHome := map[string]fleet.Entry{}
+	listed := false
+	if len(j.Watcher)+len(j.Board) > 0 {
+		entries, err := fleet.List(o.Root)
+		if err != nil {
+			r.fail(fmt.Sprintf("could not read the fleets to finish the update (%v); start the board and the watchers by hand", err))
+		} else {
+			listed = true
+			for _, e := range entries {
+				byHome[filepath.Clean(e.Home)] = e
+			}
+		}
 	}
-	for _, home := range j.Watcher {
-		r.start(ctx, o, "watch "+home, []string{home}, o.Watch)
+	entries := func(homes []string) []fleet.Entry {
+		out := make([]fleet.Entry, 0, len(homes))
+		for _, home := range homes {
+			e, ok := byHome[filepath.Clean(home)]
+			if !ok {
+				if listed {
+					r.fail(fmt.Sprintf("could not find the fleet at %s to start it; start it by hand", home))
+				}
+				continue
+			}
+			out = append(out, e)
+		}
+		return out
+	}
+	if board := entries(j.Board); len(board) > 0 {
+		r.start(ctx, o, "board", board, o.Board)
+	}
+	for _, e := range entries(j.Watcher) {
+		r.start(ctx, o, "watch "+e.Home, []fleet.Entry{e}, o.Watch)
 	}
 	for _, home := range j.Supervisor {
 		_ = r.resume(ctx, o, home)
