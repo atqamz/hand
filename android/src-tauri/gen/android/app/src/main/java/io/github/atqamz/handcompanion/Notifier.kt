@@ -57,12 +57,12 @@ object Notifier {
   }
 
   private fun open(context: Context, spec: NoticeSpec?): PendingIntent {
-    val link = spec?.tapUri
+    val tap = tapOf(spec)
     val intent =
-      if (link != null) {
-        Intent(Intent.ACTION_VIEW, Uri.parse(link)).setPackage(context.packageName)
+      if (tap.uri != null) {
+        Intent(tap.action, Uri.parse(tap.uri)).setPackage(context.packageName)
       } else {
-        Intent(context, HandActivity::class.java)
+        Intent(context, HandActivity::class.java).setAction(tap.action)
       }
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return PendingIntent.getActivity(

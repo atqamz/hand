@@ -20,6 +20,8 @@ object Core {
 
   @JvmStatic external fun unsaved(): Boolean
 
+  @JvmStatic external fun phone(): String?
+
   @JvmStatic external fun offer(link: String): String?
 
   @JvmStatic external fun pair(name: String): String?

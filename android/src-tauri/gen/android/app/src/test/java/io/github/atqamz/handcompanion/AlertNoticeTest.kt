@@ -39,6 +39,18 @@ class AlertNoticeTest {
   }
 
   @Test
+  fun thePermanentNotificationOpensThisPhoneAndOtherTapsKeepTheirTarget() {
+    assertEquals(Tap(THIS_PHONE_ACTION, null), tapOf(null))
+    assertEquals(
+      Tap("android.intent.action.VIEW", link),
+      tapOf(alertSpec("f0123456789ab", "hand", "decision.asked", "d3", "t", link))
+    )
+    assertEquals(Tap(null, null), tapOf(alertSpec("f0123456789ab", "hand", "x", "d3", "t", null)))
+    assertEquals(Tap(null, null), tapOf(unpairedSpec("f0123456789ab", "hand")))
+    assertEquals(Tap(null, null), tapOf(unreadableSpec()))
+  }
+
+  @Test
   fun anAlertReplacesTheOlderOneOnTheSameItem() {
     val first = alertSpec("f0123456789ab", "hand", "decision.asked", "d3", "old", link)
     val second = alertSpec("f0123456789ab", "hand", "decision.asked", "d3", "new", link)

@@ -50,6 +50,12 @@ pub struct Paired {
     pub value: String,
 }
 
+pub struct Listed {
+    pub id: String,
+    pub name: String,
+    pub paired: u64,
+}
+
 pub struct Sessions<J> {
     root: PathBuf,
     jar: J,
@@ -128,6 +134,20 @@ impl<J: Jar> Sessions<J> {
             .collect::<Vec<_>>()
             .join("; ");
         (!header.is_empty()).then_some(header)
+    }
+
+    pub fn listed(&self) -> Vec<Listed> {
+        let mut data = self.data.lock().unwrap();
+        let _ = self.import(&mut data);
+        data.laptops
+            .iter()
+            .flat_map(|laptop| &laptop.fleets)
+            .map(|entry| Listed {
+                id: entry.id.clone(),
+                name: entry.name.clone(),
+                paired: entry.paired,
+            })
+            .collect()
     }
 
     pub fn cookie(&self, fleet: &str) -> Option<String> {
@@ -712,6 +732,34 @@ mod tests {
         assert_eq!(sessions.cookie("f012345678"), None);
         sessions.forget().unwrap();
         assert_eq!(sessions.cookie(FLEET), None);
+    }
+
+    #[test]
+    fn the_listing_gives_each_fleet_its_pairing_time_from_the_store_and_the_import() {
+        let setup = Setup::new(&[COOKIE]);
+        let before = now();
+        let sessions = setup.open().unwrap();
+
+        let imported = sessions.listed();
+
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].id, FLEET);
+        assert!(imported[0].paired >= before);
+        sessions
+            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+        let named = setup.open().unwrap().listed();
+        assert_eq!(
+            named
+                .iter()
+                .map(|fleet| fleet.id.as_str())
+                .collect::<Vec<_>>(),
+            [FLEET, OTHER]
+        );
+        assert_eq!(named[1].name, format!("name of {OTHER}"));
+        assert_eq!(named[0].paired, imported[0].paired);
+        sessions.forget().unwrap();
+        assert!(sessions.listed().is_empty());
     }
 
     #[test]

@@ -141,15 +141,14 @@ internal fun Snack(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ForgetDialog(state: FleetsState, onConfirm: () -> Unit, onCancel: () -> Unit) {
-  val count = state.rows.size
+internal fun ForgetDialog(laptop: String?, count: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
   val fleets = if (count == 0) "" else " and its $count fleet${if (count == 1) "" else "s"}"
   AlertDialog(
     onDismissRequest = onCancel,
     title = { Text("Forget this laptop?") },
     text = {
       Text(
-        "This phone leaves ${state.laptop ?: "your laptop"}$fleets. Alerts stop. " +
+        "This phone leaves ${laptop ?: "your laptop"}$fleets. Alerts stop. " +
           "To use it again, pair with a new code from the laptop."
       )
     },
@@ -249,7 +248,8 @@ fun FleetsScreen(
   onOpen: (String) -> Unit,
   onAsk: (Boolean) -> Unit,
   onForget: () -> Unit,
-  onSettings: () -> Unit
+  onSettings: () -> Unit,
+  onPhone: () -> Unit = {}
 ) {
   val line = LocalHand.current.line
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -261,7 +261,7 @@ fun FleetsScreen(
       Text("Hand", Modifier.weight(1f), style = type.headlineSmall)
       Action("Add fleet", onAddFleet, Modifier.height(36.dp))
       if (state.laptop != null || state.rows.isNotEmpty()) {
-        Menu(listOf("Forget this laptop" to { onAsk(true) }))
+        Menu(listOf("This phone" to onPhone, "Forget this laptop" to { onAsk(true) }))
       }
     }
     HorizontalDivider(color = line)
@@ -290,5 +290,5 @@ fun FleetsScreen(
         }
     }
   }
-  if (state.asking) ForgetDialog(state, onForget) { onAsk(false) }
+  if (state.asking) ForgetDialog(state.laptop, state.rows.size, onForget) { onAsk(false) }
 }

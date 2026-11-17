@@ -2,6 +2,7 @@ package io.github.atqamz.handcompanion
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.Intent
 
 object Channels {
   const val SERVICE = "service"
@@ -33,6 +34,10 @@ private val NEEDS_KINDS =
   )
 
 private const val OPEN_PREFIX = "handboard://open/"
+
+const val THIS_PHONE_ACTION = "io.github.atqamz.handcompanion.THIS_PHONE"
+
+data class Tap(val action: String?, val uri: String?)
 
 data class NoticeSpec(
   val tag: String,
@@ -92,3 +97,10 @@ fun unreadableSpec(): NoticeSpec =
     tapUri = null,
     visibility = Notification.VISIBILITY_PRIVATE
   )
+
+fun tapOf(spec: NoticeSpec?): Tap =
+  when {
+    spec == null -> Tap(THIS_PHONE_ACTION, null)
+    spec.tapUri != null -> Tap(Intent.ACTION_VIEW, spec.tapUri)
+    else -> Tap(null, null)
+  }

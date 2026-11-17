@@ -1,6 +1,7 @@
 package io.github.atqamz.handcompanion
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -32,6 +33,25 @@ class LandingTest {
     assertEquals(Landing.Pairing(link), landing(link, open))
     assertEquals(Landing.Pairing("handboard://c"), landing("handboard://c", open))
     assertTrue(open.asked.isEmpty())
+  }
+
+  @Test
+  fun theNotificationTapGoesToThisPhoneWithoutAskingTheCore() {
+    val open = Opener(setOf(HOME))
+    assertEquals(Landing.Phone, landing(PHONE_LINK, open))
+    assertTrue(open.asked.isEmpty())
+    assertEquals(Landing.Phone, landing(incomingLink(THIS_PHONE_ACTION, null).orEmpty(), open))
+  }
+
+  @Test
+  fun onlyTheTapActionSendsThePhoneLinkAndALinkIsPassedOnAsItIs() {
+    val link = "handboard://open/$HOME/decision/d3"
+    assertEquals(PHONE_LINK, incomingLink(THIS_PHONE_ACTION, null))
+    assertEquals(PHONE_LINK, incomingLink(THIS_PHONE_ACTION, link))
+    assertEquals(link, incomingLink("android.intent.action.VIEW", link))
+    assertEquals(link, incomingLink(null, link))
+    assertNull(incomingLink(null, null))
+    assertNull(incomingLink("android.intent.action.MAIN", null))
   }
 
   @Test

@@ -70,7 +70,8 @@ class HandActivity : ComponentActivity() {
           { pairedFleets(Core.fleets()) },
           { laptopId(laptop) },
           Core::unsaved,
-          forgetter = Core::forget
+          forgetter = Core::forget,
+          phone = Core::phone
         )
       }
     }
@@ -95,9 +96,14 @@ class HandActivity : ComponentActivity() {
     }
 
   private fun take(intent: Intent) {
-    incoming = intent.data?.toString() ?: return
+    incoming = incomingLink(intent.action, intent.data?.toString()) ?: return
     setIntent(Intent())
   }
+
+  private fun notificationSettings() =
+    startActivity(
+      Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+    )
 
   private fun checkAlerts() {
     if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
@@ -329,6 +335,8 @@ class HandActivity : ComponentActivity() {
         var open by rememberSaveable { mutableStateOf<String?>(null) }
         var decision by rememberSaveable { mutableStateOf<String?>(null) }
         var web by rememberSaveable { mutableStateOf<String?>(null) }
+        var phone by rememberSaveable { mutableStateOf(false) }
+        var signing by rememberSaveable { mutableStateOf<String?>(null) }
         var threads by rememberSaveable { mutableStateOf("") }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
@@ -366,6 +374,8 @@ class HandActivity : ComponentActivity() {
             decision = null
             web = null
             threads = ""
+            phone = false
+            signing = null
             open = id
           }
           model.say(null)
@@ -376,8 +386,20 @@ class HandActivity : ComponentActivity() {
               web = null
               threads = ""
               scanning = false
+              phone = false
+              signing = null
               adding = true
               pair.offer(to.link)
+            }
+            Landing.Phone -> {
+              open = null
+              decision = null
+              web = null
+              threads = ""
+              scanning = false
+              adding = false
+              signing = null
+              phone = true
             }
             is Landing.Decision -> {
               show(to.fleet)
@@ -425,6 +447,34 @@ class HandActivity : ComponentActivity() {
               else ->
                 AddFleetScreen(pairing, pair::edit, { scanning = true }, { pair.offer(pairing.link) }, leave)
             }
+          } else if (fleet == null && phone) {
+            val state by model.state.collectAsStateWithLifecycle()
+            val to = signing
+            if (to != null) {
+              val name = state.phone?.fleets?.firstOrNull { it.id == to }?.name
+              key(to) {
+                FallbackScreen(to, name, signOutPath(to), { signing = null }) {
+                  WebBoard(signOutPath(to)) { signing = null }
+                }
+              }
+            } else {
+              val leave = {
+                model.ask(false)
+                phone = false
+              }
+              BackHandler(onBack = leave)
+              ThisPhoneScreen(
+                thisPhone(state, BuildConfig.VERSION_NAME),
+                leave,
+                model::ask,
+                {
+                  model.forget()
+                  phone = false
+                },
+                { signing = it },
+                { notificationSettings() }
+              )
+            }
           } else if (fleet == null) {
             val state by model.state.collectAsStateWithLifecycle()
             FleetsScreen(
@@ -442,11 +492,10 @@ class HandActivity : ComponentActivity() {
               },
               model::ask,
               model::forget,
+              { notificationSettings() },
               {
-                startActivity(
-                  Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                )
+                model.say(null)
+                phone = true
               }
             )
           } else {
