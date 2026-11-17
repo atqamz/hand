@@ -59,18 +59,23 @@ func (r *runner) supervisorTurn(ctx context.Context, st *state.Store, managed bo
 	if err != nil || !ok {
 		return orient.Turn{}
 	}
+	turn := orient.Turn{Ref: state.SupervisorRef(sup.ID), Bound: harness.DefaultAnswerWithin}
+	if p, err := harness.LoadPolicy(r.home); err == nil {
+		turn.Bound = time.Duration(p.Supervisor.AnswerWithin)
+	} else {
+		turn.Warn = orient.Clip(harness.PolicyFile+" unreadable, the turn_long bound uses "+harness.DefaultAnswerWithin.String()+": "+err.Error(), 400)
+	}
 	if ag, err := r.client(fleet.Session(r.fleet.ID)).Explain(ctx, sup.PaneID); err != nil || ag.Status != "working" {
-		return orient.Turn{}
+		turn.Ref = ""
+		return turn
 	}
 	began, _ := time.Parse(time.RFC3339Nano, sup.CreatedAt)
+	turn.From = "it started"
 	if e, ok, err := st.LatestEvent(ctx, "supervisor.delivered"); err == nil && ok {
 		if at, err := time.Parse(time.RFC3339Nano, e.At); err == nil && !at.Before(began) {
-			began = at
+			began, turn.From = at, ""
 		}
 	}
-	bound := harness.DefaultAnswerWithin
-	if p, err := harness.LoadPolicy(r.home); err == nil {
-		bound = time.Duration(p.Supervisor.AnswerWithin)
-	}
-	return orient.Turn{Ref: state.SupervisorRef(sup.ID), Age: r.env.Now().Sub(began), Bound: bound}
+	turn.Age = r.env.Now().Sub(began)
+	return turn
 }

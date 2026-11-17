@@ -47,15 +47,19 @@ type section struct {
 }
 
 type Turn struct {
-	Ref        string
-	Age, Bound time.Duration
+	Ref, From, Warn string
+	Age, Bound      time.Duration
 }
 
 func (t Turn) hint() string {
 	if t.Ref == "" || t.Age <= t.Bound {
 		return ""
 	}
-	return t.Ref + " has run this turn for " + t.Age.Truncate(time.Second).String() + "; an operator message waits until it ends. Wait with `hand wake` and end the turn"
+	from := t.From
+	if from == "" {
+		from = "its last message or wake"
+	}
+	return t.Ref + " is still working " + t.Age.Truncate(time.Second).String() + " after " + from + "; an operator message waits until the turn ends. If you wait on something outside Hand, arm `hand wake` and end the turn; otherwise finish the work"
 }
 
 func Build(ctx context.Context, st *state.Store, home, pane string, watch, managed bool, turn Turn, b Budget) (*toon.Doc, error) {
@@ -214,7 +218,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, move, supervisor, you, turn.hint(), watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
+		d := render(home, f, move, supervisor, you, turn, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -384,7 +388,7 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 		{"events", []string{"seq", "kind", "task"}, eventRows, eventsTotal, "hand orient"},
 	}
 	for {
-		d := renderShort(since, cursor, you, turn.hint(), watch, counts, unwatched, unwatchedTotal, sections, wakeTotal)
+		d := renderShort(since, cursor, you, turn, watch, counts, unwatched, unwatchedTotal, sections, wakeTotal)
 		if len(d.String()) < b.ShortBytes {
 			return d, nil
 		}
@@ -396,15 +400,18 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 	}
 }
 
-func renderShort(since, cursor int64, you, turn string, watch bool, counts map[string]int, unwatched state.Unwatched, unwatchedTotal int, sections []*section, wakeTotal int) *toon.Doc {
+func renderShort(since, cursor int64, you string, turn Turn, watch bool, counts map[string]int, unwatched state.Unwatched, unwatchedTotal int, sections []*section, wakeTotal int) *toon.Doc {
 	var d toon.Doc
 	d.Field("since", strconv.FormatInt(since, 10))
 	d.Field("cursor", strconv.FormatInt(cursor, 10))
 	if you != "" {
 		d.Field("you", you)
 	}
-	if turn != "" {
-		d.Field("turn_long", turn)
+	if h := turn.hint(); h != "" {
+		d.Field("turn_long", h)
+	}
+	if turn.Warn != "" {
+		d.Field("turn_warn", turn.Warn)
 	}
 	if !watch {
 		d.Field("watch", "missing")
@@ -504,7 +511,7 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, move, supervisor, you, turn string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, move, supervisor, you string, turn Turn, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
@@ -515,8 +522,11 @@ func render(home string, f state.Fleet, move, supervisor, you, turn string, watc
 	if you != "" {
 		d.Field("you", you)
 	}
-	if turn != "" {
-		d.Field("turn_long", turn)
+	if h := turn.hint(); h != "" {
+		d.Field("turn_long", h)
+	}
+	if turn.Warn != "" {
+		d.Field("turn_warn", turn.Warn)
 	}
 	watchState := "missing"
 	if watch {

@@ -1347,10 +1347,10 @@ func TestTurnHintNamesTheAgeOnlyPastTheBound(t *testing.T) {
 		want string
 	}{
 		{Turn{}, ""},
-		{Turn{Ref: "s2", Age: 10 * time.Minute}, "s2 has run this turn for 10m0s; an operator message waits until it ends. Wait with `hand wake` and end the turn"},
+		{Turn{Ref: "s2", Age: 10 * time.Minute}, "s2 is still working 10m0s after its last message or wake; an operator message waits until the turn ends. If you wait on something outside Hand, arm `hand wake` and end the turn; otherwise finish the work"},
 		{Turn{Ref: "s2", Age: 59 * time.Second, Bound: time.Minute}, ""},
 		{Turn{Ref: "s2", Age: time.Minute, Bound: time.Minute}, ""},
-		{Turn{Ref: "s2", Age: 61500 * time.Millisecond, Bound: time.Minute}, "s2 has run this turn for 1m1s; an operator message waits until it ends. Wait with `hand wake` and end the turn"},
+		{Turn{Ref: "s2", From: "it started", Age: 61500 * time.Millisecond, Bound: time.Minute}, "s2 is still working 1m1s after it started; an operator message waits until the turn ends. If you wait on something outside Hand, arm `hand wake` and end the turn; otherwise finish the work"},
 	} {
 		if got := c.turn.hint(); got != c.want {
 			t.Fatalf("%+v hint = %q, want %q", c.turn, got, c.want)
@@ -1367,11 +1367,32 @@ func TestTurnHintNamesTheAgeOnlyPastTheBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, d := range []*toon.Doc{full, short} {
+		if strings.Contains(d.String(), "turn_warn") {
+			t.Fatalf("a turn without a warning prints one:\n%s", d)
+		}
 		if n := strings.Count(d.String(), "turn_long: "); n != 1 {
 			t.Fatalf("turn_long lines = %d in\n%s", n, d)
 		}
 	}
 	if len(short.String()) >= DefaultBudget.ShortBytes {
 		t.Fatalf("short orient with the hint is %d bytes", len(short.String()))
+	}
+}
+
+func TestTurnWarningPrintsOnceWithoutAHint(t *testing.T) {
+	st, home := setup(t)
+	turn := Turn{Warn: "routing.json unreadable, the turn_long bound uses 1m0s: bad key"}
+	full, err := Build(context.Background(), st, home, "", true, true, turn, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, err := Short(context.Background(), st, 0, "", true, true, turn, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []*toon.Doc{full, short} {
+		if n := strings.Count(d.String(), "turn_warn: \"routing.json unreadable"); n != 1 || strings.Contains(d.String(), "turn_long: ") {
+			t.Fatalf("warning lines = %d in\n%s", n, d)
+		}
 	}
 }

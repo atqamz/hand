@@ -67,19 +67,24 @@ A limit below what a fresh session holds on its own (50000, say) rolls over ever
 
 ## A turn that runs long
 
-The supervisor never holds a turn to wait. A message you type during a turn waits until the turn ends, because the harness queues it, so a turn held open on a poll delays the answer. It waits on CI, a review, a deploy or anything else outside Hand with a timer (`hand wake`, see [Timers](#timers)) and ends the turn. The 3-polls-150-seconds recipe in the `secondhand` skill is what the supervisor writes into a **worker's** brief, not a rule for its own turns. When a turn starts from your message, its first output is a short plain reply, before any tool call, and then the work.
+The supervisor never holds a turn to wait. A message you type during a turn waits for it: claude queues the message until the turn ends, and omp interjects it at the next safe point, so a turn held open on a poll delays the answer. The supervisor waits on CI, a review, a deploy or anything else outside Hand with a timer (`hand wake`, see [Timers](#timers)) and ends the turn. The 3-polls-150-seconds recipe in the `secondhand` skill is what the supervisor writes into a **worker's** brief, not a rule for its own turns. When a turn starts from your message, its first output is a short plain reply, before any tool call, and then the work. A message still waits for a supervisor that is blocked, at a usage limit or switching models.
 
-`hand orient` and `hand orient --since` print one `turn_long` line while the managed supervisor's turn has run longer than `supervisor.answer_within` in `routing.json` (`60s` by default, from `5s` to `1h`):
+`hand orient` and `hand orient --since` print one `turn_long` line while the managed supervisor is working and its last message or wake reached it longer ago than `supervisor.answer_within` in `routing.json` (`60s` by default, from `5s` to `1h`):
 
 ```json
 "supervisor": {"answer_within": "60s"}
 ```
 
 ```
-turn_long: s3 has run this turn for 4m12s; an operator message waits until it ends. Wait with `hand wake` and end the turn
+turn_long: s3 is still working 4m12s after its last message or wake; an operator message waits until the turn ends. If you wait on something outside Hand, arm `hand wake` and end the turn; otherwise finish the work
 ```
 
-The line is a hint to whoever runs `orient`, usually the supervisor itself, and it never changes a message's delivery. Hand reads the turn from the state it already keeps, the same the Board's `working` pill uses: Luvus's reading of the pane as `working`, whatever the harness, and the turn began when Hand last delivered a message or a wake to the supervisor, or when the supervisor started if it delivered none. A turn you began by typing in the pane yourself leaves no record, so its age counts from the last delivery. No line appears while the supervisor is idle, blocked or not managed, or when Luvus cannot be read.
+The line is a hint to whoever runs `orient`, usually the supervisor itself, and it never changes a message's delivery. It does not claim the turn's length. Hand keeps no record of when a supervisor turn began, so it counts from the latest `supervisor.delivered` event (a message or a wake typed into the pane), or from the supervisor's start when it delivered none, and only while Luvus reads the pane as `working`, the same reading the Board's `working` pill uses, whatever the harness. Three things follow:
+- A message delivered while a turn already runs restarts the count, so the line stays quiet for another `answer_within` after each delivery, even for a long turn.
+- A turn that began without a delivery (you typed in the pane yourself, a queued message started the next turn, a harness continued by itself at a usage-limit reset) is counted from the last delivery, so the time can be longer than the turn.
+- opencode can read as `idle` before a turn with subagents ends, so its line can be missing.
+
+No line appears while the supervisor is idle, blocked or not managed, or when Luvus cannot be read. When `routing.json` cannot be read, `orient` prints one `turn_warn` line naming the error and uses `60s`; `hand doctor` fails the file too.
 
 ## When the supervisor idles
 

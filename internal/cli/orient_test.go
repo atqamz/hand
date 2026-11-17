@@ -64,15 +64,15 @@ func TestOrientFlagsALongSupervisorTurn(t *testing.T) {
 	full, short := both()
 	for _, out := range []string{full, short} {
 		l := turnLines(out)
-		if len(l) != 1 || !strings.Contains(l[0], "s1 has run this turn for 1m30s") || !strings.Contains(l[0], "message waits") || !strings.Contains(l[0], "hand wake") {
+		if len(l) != 1 || !strings.Contains(l[0], "s1 is still working 1m30s after it started") || strings.Contains(l[0], "has run this turn") || !strings.Contains(l[0], "message waits") || !strings.Contains(l[0], "hand wake") {
 			t.Fatalf("over the bound: %q in %q", l, out)
 		}
 	}
 	h.ok("supervisor", "send", "--text", "hello")
-	none("a delivered message starts a new turn")
+	none("the age counts from the last delivery")
 	h.advance(2 * time.Minute)
-	if full, _ := both(); len(turnLines(full)) != 1 {
-		t.Fatalf("over the bound again: %q", full)
+	if l := turnLines(h.ok("orient")); len(l) != 1 || !strings.Contains(l[0], "s1 is still working 2m0s after its last message or wake") {
+		t.Fatalf("over the bound again: %q", l)
 	}
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{"supervisor":{"answer_within":"5m"}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -93,5 +93,40 @@ func TestOrientDoesNotFlagATurnWithoutAManagedSupervisor(t *testing.T) {
 	h.advance(time.Hour)
 	if l := turnLines(h.ok("orient")); len(l) != 0 {
 		t.Fatalf("orient flags a turn with no supervisor: %q", l)
+	}
+}
+
+func TestOrientWarnsOnceWhenAnswerWithinIsInvalid(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	cursor := regexp.MustCompile(`(?m)^cursor: (\d+)$`).FindStringSubmatch(h.ok("orient"))[1]
+	warns := func(out string) []string {
+		var lines []string
+		for _, l := range strings.Split(out, "\n") {
+			if strings.HasPrefix(l, "turn_warn:") {
+				lines = append(lines, l)
+			}
+		}
+		return lines
+	}
+	if l := warns(h.ok("orient")); len(l) != 0 {
+		t.Fatalf("a valid policy warns: %q", l)
+	}
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{"supervisor":{"answer_within":"soon"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.advance(90 * time.Second)
+	for _, out := range []string{h.ok("orient"), h.ok("orient", "--since", cursor)} {
+		l := warns(out)
+		if len(l) != 1 || !strings.Contains(l[0], "routing.json unreadable") || !strings.Contains(l[0], "answer_within") || !strings.Contains(l[0], "1m0s") {
+			t.Fatalf("warning = %q in %q", l, out)
+		}
+		if len(turnLines(out)) != 1 {
+			t.Fatalf("an invalid bound hides the default 60s hint: %q", out)
+		}
+	}
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	if l := warns(h.ok("orient")); len(l) != 1 {
+		t.Fatalf("an idle supervisor hides the warning: %q", l)
 	}
 }
