@@ -19,6 +19,9 @@
 'area: android':
   - changed-files:
       - any-glob-to-any-file: ['android/**']
+'area: desktop':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/desktop/**', 'cmd/hand-desktop/**']
 'area: state':
   - changed-files:
       - any-glob-to-any-file: ['internal/state/**', 'internal/flock/**']
