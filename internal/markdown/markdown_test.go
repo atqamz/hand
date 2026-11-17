@@ -324,22 +324,29 @@ func markup(out string, doc bool) string {
 	return ""
 }
 
+const (
+	smallSize = 2 << 10
+	largeSize = 128 << 10
+)
+
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
-	cost := func(in string, runs int) time.Duration {
+	cost := func(in string, reps, runs int) time.Duration {
 		best := time.Duration(1<<63 - 1)
 		for range runs {
 			start := time.Now()
-			markdown.Render(in, nil)
-			markdown.RenderDoc(in, "/f1", nil, stub)
-			markdown.RenderRefs(in, "/f1", nil, deny)
+			for range reps {
+				markdown.Render(in, nil)
+				markdown.RenderDoc(in, "/f1", nil, stub)
+				markdown.RenderRefs(in, "/f1", nil, deny)
+			}
 			best = min(best, time.Since(start))
 		}
 		return best
 	}
 	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|", "![a ", "![a](b ", "[a](javascript:b) ", "- [ ] a\n", "/(", "/a ", "`/a` ", "C:\\a "} {
-		small, large := max(cost(strings.Repeat(unit, 4<<10/len(unit)), 7), 50*time.Microsecond), cost(strings.Repeat(unit, 256<<10/len(unit)), 2)
-		if large > linearLimit*small {
-			t.Errorf("rendering %q took %v for 4 KiB and %v for 256 KiB: 64 times the input must not cost more than %d times (linear is 64, quadratic 4096)", unit, small, large, linearLimit)
+		small, large := cost(strings.Repeat(unit, smallSize/len(unit)), largeSize/smallSize, 2), cost(strings.Repeat(unit, largeSize/len(unit)), 1, 2)
+		if large*100 > linearLimit*small {
+			t.Errorf("rendering %q took %v for %d renders of %d bytes and %v for one of %d: the same bytes in one piece must not cost more than %d%% (linear is 100%%, quadratic %d%%)", unit, small, largeSize/smallSize, smallSize, large, largeSize, linearLimit, 100*largeSize/smallSize)
 		}
 	}
 }

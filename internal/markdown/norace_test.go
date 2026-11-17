@@ -2,4 +2,4 @@
 
 package markdown_test
 
-const linearLimit = 512
+const linearLimit = 600
