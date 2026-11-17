@@ -93,6 +93,10 @@ impl Companion {
         exchange(&self.dialer, request).await
     }
 
+    pub fn phone_id(&self) -> String {
+        short_id(&self.dialer.endpoint().id().to_string())
+    }
+
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -464,6 +468,19 @@ mod tests {
             data_dir: dir.path().to_owned(),
             cipher: Arc::new(TestCipher),
         }
+    }
+
+    #[tokio::test]
+    async fn the_phone_id_is_the_short_form_of_its_own_endpoint_id() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let endpoint = companion.dialer.endpoint().id().to_string();
+
+        assert_eq!(endpoint.len(), 64);
+        assert_eq!(
+            companion.phone_id(),
+            format!("{}…{}", &endpoint[..4], &endpoint[60..])
+        );
     }
 
     #[tokio::test]

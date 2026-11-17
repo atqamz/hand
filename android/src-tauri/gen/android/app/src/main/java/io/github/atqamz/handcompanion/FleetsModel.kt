@@ -50,7 +50,8 @@ data class FleetsState(
   val alertsOff: Boolean = false,
   val asking: Boolean = false,
   val notice: String? = null,
-  val loaded: Boolean = false
+  val loaded: Boolean = false,
+  val phone: PhoneInfo? = null
 )
 
 enum class FleetsBody {
@@ -159,7 +160,8 @@ class FleetsModel(
   private val laptop: () -> String?,
   private val unsaved: () -> Boolean = { false },
   private val forgetter: () -> Boolean = { true },
-  private val clock: () -> String = { hhmm(Date()) }
+  private val clock: () -> String = { hhmm(Date()) },
+  private val phone: () -> String? = { null }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetsState())
   val state: StateFlow<FleetsState> = mutableState
@@ -201,6 +203,7 @@ class FleetsModel(
     lock.withLock {
       val (ids, who) = withContext(Dispatchers.IO) { fleets() to laptop() }
       val unsaved = withContext(Dispatchers.IO) { unsaved() }
+      val info = withContext(Dispatchers.IO) { phoneInfo(phone()) }
       val now = clock()
       val known = mutableState.value.rows.associateBy { it.id }
       val rows = mutableListOf<FleetRow>()
@@ -235,6 +238,7 @@ class FleetsModel(
           laptop = who,
           rows = rows,
           loaded = true,
+          phone = info,
           band = failure?.let { band(it, who, downSince) } ?: UNSAVED.takeIf { unsaved }
         )
       }

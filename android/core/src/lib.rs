@@ -35,4 +35,6 @@ pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, open_paired, p
 pub use pair::{NAME_MAX, PairError, parse_answer, redeem, valid_name};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::Proxy;
-pub use sessions::{Jar, Paired, Sessions};
+pub use sessions::{Jar, Listed, Paired, Sessions};
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

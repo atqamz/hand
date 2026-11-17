@@ -9,7 +9,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
     Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Request, RequestError, Response,
-    Sessions, Supervisor, open_paired, paired_fleets,
+    Sessions, Supervisor, VERSION, open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jlong, jstring};
@@ -454,6 +454,29 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fleets<'local>(
         .unwrap_or_default();
     env.new_string(ids)
         .map_or(ptr::null_mut(), |text| text.into_raw())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_phone<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    let answer = catch_unwind(AssertUnwindSafe(|| {
+        let core = core()?;
+        Some(serde_json::json!({
+            "id": core.companion.phone_id(),
+            "core": VERSION,
+            "fleets": core
+                .sessions
+                .listed()
+                .iter()
+                .map(|fleet| serde_json::json!({ "id": fleet.id, "name": fleet.name, "paired": fleet.paired }))
+                .collect::<Vec<_>>(),
+        }))
+    }))
+    .ok()
+    .flatten();
+    answer.map_or(ptr::null_mut(), |answer| reply(&mut env, answer))
 }
 
 #[unsafe(no_mangle)]
