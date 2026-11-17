@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -340,5 +341,31 @@ func TestSkillsUpdateRefusesALockedPathThatLeavesTheClone(t *testing.T) {
 	}
 	if strings.Contains(readSkill(t, skillPath(h.home, ".claude", "triage")), "elsewhere") {
 		t.Fatal("update copied a folder from outside the skill's path in the clone")
+	}
+}
+
+func TestSkillsUpdateRefusesALockedPathThroughASymlinkOutOfTheClone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	h := skillsHarness(t)
+	outside := t.TempDir()
+	writeFiles(t, outside, map[string]string{"triage/SKILL.md": skillFiles("triage", "outside")["SKILL.md"]})
+	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"]})
+	if err := os.Symlink(outside, filepath.Join(hub.work, "link")); err != nil {
+		t.Fatal(err)
+	}
+	hub.commit(map[string]string{"skills/triage/note.md": "x\n"})
+	isolateGit(t, hub.bare)
+	h.ok("skills", "add", "--fleet", "triage")
+	lock := readSkill(t, fleetLock(h.home))
+	if err := os.WriteFile(fleetLock(h.home), []byte(strings.Replace(lock, "skills/triage/SKILL.md", "link/triage/SKILL.md", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, code := h.run("skills", "update", "--fleet", "triage"); code != 3 || !strings.Contains(out, "leaves the repository") {
+		t.Fatalf("update: code=%d out=%q", code, out)
+	}
+	if strings.Contains(readSkill(t, skillPath(h.home, ".claude", "triage")), "outside") {
+		t.Fatal("update copied a folder from outside the clone")
 	}
 }

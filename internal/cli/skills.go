@@ -199,11 +199,27 @@ func fetchSkill(ctx context.Context, e fleet.Managed) (dir, commit string, clean
 	if err != nil {
 		return "", "", cleanup, err
 	}
-	rel := filepath.FromSlash(e.Path())
-	if rel != "" && !filepath.IsLocal(rel) {
-		return "", "", cleanup, fmt.Errorf("%w: skill path %q leaves the repository", state.ErrInvalid, e.Path())
+	dir, err = clonedSkillDir(filepath.Join(tmp, "repo"), e.Path())
+	return dir, strings.TrimSpace(out), cleanup, err
+}
+
+func clonedSkillDir(clone, skill string) (string, error) {
+	rel := filepath.FromSlash(skill)
+	if rel == "" {
+		return clone, nil
 	}
-	return filepath.Join(tmp, "repo", rel), strings.TrimSpace(out), cleanup, nil
+	root, err := filepath.EvalSymlinks(clone)
+	if err != nil {
+		return "", err
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Join(root, rel))
+	if err != nil {
+		return "", fmt.Errorf("%w: skill path %q: %v", state.ErrInvalid, skill, err)
+	}
+	if inside, err := filepath.Rel(root, dir); !filepath.IsLocal(rel) || err != nil || !filepath.IsLocal(inside) && inside != "." {
+		return "", fmt.Errorf("%w: skill path %q leaves the repository", state.ErrInvalid, skill)
+	}
+	return dir, nil
 }
 
 func skillState(s fleet.Skills, name string, e fleet.Managed) (string, error) {
