@@ -490,7 +490,6 @@ type DocEntry struct {
 	Refused string `json:"refused,omitempty"`
 }
 
-// Doc is a folder (Kind "folder", with Entries and its page) or a file.
 type Doc struct {
 	Path       string     `json:"path"`
 	Name       string     `json:"name"`

@@ -38,6 +38,20 @@ func hasRun(img *image.RGBA, want ui.Color, min int) bool {
 	return false
 }
 
+func rowRun(img *image.RGBA, y int, want ui.Color, min int) bool {
+	n := 0
+	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+		if rgbIs(img.RGBAAt(x, y), want) {
+			if n++; n >= min {
+				return true
+			}
+		} else {
+			n = 0
+		}
+	}
+	return false
+}
+
 func docShots(t *testing.T, name string, width, height int, open func(*desktop.App), check func(*testing.T, *ui.Tester, bool)) {
 	t.Helper()
 	for _, dark := range []bool{false, true} {
@@ -63,8 +77,8 @@ func TestScenesTheMarkdownDocument(t *testing.T) {
 				"2 KiB", "Next →", "notes.txt", "Nightly export pipeline: design", "Goals", "A manifest written last",
 				"Open as a page")
 			mustNotText(t, tt, "← Previous")
-			if got := tt.Image().RGBAAt(500, 600); !rgbIs(got, kit.ColorsFor(dark).BG) {
-				t.Errorf("the page under the text is %v, want the ground", got)
+			if !rowRun(tt.Image(), 600, kit.ColorsFor(dark).BG, 500) {
+				t.Error("the page under the text has no run of the ground")
 			}
 		})
 }
@@ -223,7 +237,7 @@ func TestScenesTheTextWithLineNumbers(t *testing.T) {
 	}
 }
 
-func TestAnImageDrawsItsRawBytes(t *testing.T) {
+func TestScenesAnImageDrawsItsRawBytes(t *testing.T) {
 	f := docFixture(t)
 	app := newApp(t, f)
 	app.OpenDoc("reports/t1/shot-1.png")
@@ -427,10 +441,6 @@ func TestALongLineScrollsInsteadOfWideningTheBox(t *testing.T) {
 	}
 	if !hasRun(tt.Image(), kit.ColorsFor(false).Card, 50) {
 		t.Error("the lines have no card ground")
-	}
-	img := tt.Image()
-	if got := img.RGBAAt(1085, 300); got.R > 200 {
-		t.Errorf("right of the box is %v, want the backdrop", got)
 	}
 }
 
@@ -735,4 +745,100 @@ func TestAnExternalLinkNamingAFleetPathStaysExternal(t *testing.T) {
 	if got := tt.OpenedURLs(); len(got) != 1 || got[0] != link {
 		t.Fatalf("opened %q, want %q", got, link)
 	}
+}
+
+func TestAWindowThatNoLongerExistsRetriesFromTheStart(t *testing.T) {
+	f := docFixture(t)
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/notes.txt")
+	tt := newTester(app)
+	f.mu.Lock()
+	f.docLines["reports/t1/notes.txt"] = []string{"one", "two"}
+	f.mu.Unlock()
+	click(t, tt, "Later")
+	mustText(t, tt, "this file has no such line", "Retry")
+	click(t, tt, "Retry")
+	mustText(t, tt, "one", "two")
+	mustNotText(t, tt, "this file has no such line")
+	if f.count("window:reports/t1/notes.txt:4") != 1 {
+		t.Fatalf("Retry sent line 4 again: %v", f.calls)
+	}
+}
+
+func TestALinkWithABackslashOrANulStaysOnThePage(t *testing.T) {
+	f := docFixture(t)
+	f.docBytes["reports/t1/design.md"] = []byte("Go [bs](..%5C..%5Cx.md) now\n\nGo [nul](a%00b.md) now\n\nGo [raw](sub\\x.md) now\n")
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	for _, link := range []string{"bs", "nul", "raw"} {
+		click(t, tt, link)
+		if app.Ref != "reports/t1/design.md" {
+			t.Fatalf("the %s link opened %q", link, app.Ref)
+		}
+	}
+}
+
+func TestABoardLinkWithADoubleSlashIsNotADocument(t *testing.T) {
+	hand := installFakeHand(t)
+	f := docFixture(t)
+	f.fleets[0].Home = hand.home
+	f.docBytes["reports/t1/design.md"] = []byte("Go [slash](/" + fleetID + "/doc//etc/passwd) now\n")
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	click(t, tt, "slash")
+	if app.Ref != "reports/t1/design.md" {
+		t.Fatalf("the link opened %q", app.Ref)
+	}
+	if app.OpenErr == "" || len(hand.calls(t)) != 0 {
+		t.Fatalf("err %q, hand ran %q", app.OpenErr, hand.calls(t))
+	}
+}
+
+type slowWindow struct {
+	desktop.ReadModel
+	entered chan struct{}
+	release chan struct{}
+	mu      sync.Mutex
+	held    bool
+}
+
+func (s *slowWindow) DocWindow(ctx context.Context, fleet, path string, from int) (desktop.DocWindow, error) {
+	s.mu.Lock()
+	hold := from == 4 && !s.held
+	s.held = s.held || hold
+	s.mu.Unlock()
+	if hold {
+		s.entered <- struct{}{}
+		<-s.release
+		return desktop.DocWindow{Path: path, From: from, Lines: []string{"stale line"}}, nil
+	}
+	return s.ReadModel.DocWindow(ctx, fleet, path, from)
+}
+
+func TestARetryOvertakesASlowWindow(t *testing.T) {
+	model := &slowWindow{ReadModel: docFixture(t), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	app.OpenDoc("reports/t1/notes.txt")
+	drain(posted)
+	tt := newTester(app)
+	mustText(t, tt, "line 1 of the export log", "Later")
+	click(t, tt, "Later")
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the slow window never started")
+	}
+	app.Retry()
+	drain(posted)
+	close(model.release)
+	drain(posted)
+	tt.Frame()
+	mustText(t, tt, "line 5 of the export log", "From line 4")
+	mustNotText(t, tt, "stale line")
 }

@@ -28,11 +28,9 @@ func DocRow(c *ui.Context, k Colors, key, badge, name, meta string, plain bool) 
 	el.MinHeight(Tap).Padding(0, Space4).Gap(Space10).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Label(name)
 	el.Children(func() {
-		ui.Row(c).Width(DocBadge).Shrink(0).Justify(ui.Center).Children(func() {
-			ui.Row(c).Height(Badge).Padding(0, Space8).Radius(RadiusPill).Background(k.NeutralBG).
-				AlignItems(ui.Center).Children(func() {
-				ui.Text(c, badge).FontSize(Meta.Size).Bold().TextColor(tone).SingleLine()
-			})
+		ui.Row(c).Width(DocBadge).Height(Badge).Shrink(0).Radius(RadiusPill).Background(k.NeutralBG).
+			Justify(ui.Center).AlignItems(ui.Center).Label("kind " + badge).Children(func() {
+			ui.Text(c, badge).FontSize(Meta.Size).Bold().TextColor(tone).SingleLine()
 		})
 		ui.Text(c, name).FontSize(Body.Size).TextColor(fg).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 		if meta != "" {
@@ -45,7 +43,7 @@ func DocRow(c *ui.Context, k Colors, key, badge, name, meta string, plain bool) 
 func DocNotice(c *ui.Context, k Colors, text string, actions func()) {
 	ui.Column(c).Gap(Space10).Padding(Space10, Space12).Radius(RadiusMD).
 		Background(k.WaitBG).Border(1, k.Line).Children(func() {
-		ui.Text(c, text).FontSize(Body.Size)
+		ui.Text(c, text).FontSize(Body.Size).FixedLineHeight(Body.Line)
 		if actions != nil {
 			ui.Row(c).Gap(Space8).Wrap().Children(actions)
 		}

@@ -407,7 +407,6 @@ func (c *HTTPClient) DocWindow(ctx context.Context, fleet, path string, from int
 	return out, err
 }
 
-// DocBytes reads a file's raw bytes, at most docRawMax of them.
 func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, error) {
 	token, err := c.prepare(ctx, fleet)
 	if err != nil {

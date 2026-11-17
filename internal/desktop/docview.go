@@ -7,11 +7,25 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 const docTabWidth = 8
+
+func docTheme(c *ui.Context) *markdown.Theme {
+	th := &markdown.Theme{FontSize: kit.Message.Size, LineHeight: kit.Message.Line / kit.Message.Size}
+	for i := range th.Headings {
+		size, top := float32(1), float32(kit.Space16)
+		if i < 2 {
+			size, top = kit.Heading.Size/kit.Message.Size, kit.Space24
+		}
+		th.Headings[i] = markdown.HeadingStyle{Size: size, Weight: 600, Color: c.Theme().Text,
+			Top: top / (size * kit.Message.Size), Bottom: kit.Space4 / (size * kit.Message.Size)}
+	}
+	return th
+}
 
 func (a *App) docName() string {
 	name := path.Base(a.Ref)
@@ -63,7 +77,7 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 			a.docRow(c, k, a.doc.row, false)
 			return
 		}
-		a.markdownCopy(c, shownText(a.doc.body))
+		a.markdownAt(c, shownText(a.doc.body), docTheme(c))
 	case "text":
 		a.docText(c, k, p, d)
 	case "image":

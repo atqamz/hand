@@ -225,6 +225,7 @@ func TestABoardLinkGoesThroughHandOpen(t *testing.T) {
 	}
 	for _, dest := range []string{
 		"/" + fleetID + "/doc/",
+		"/" + fleetID + "/doc//etc/passwd",
 		"/" + fleetID + "/docs/a.md",
 		"/" + fleetID + "/task/d3",
 		"/" + fleetID + "/task/t1/x",

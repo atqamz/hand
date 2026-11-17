@@ -181,6 +181,10 @@ func (a *App) loadDoc() {
 			if api := docRefusal(r.err); api != nil {
 				st.err, st.refused, st.conflict = api.Message, true, api.Status == http.StatusConflict
 			}
+			var bad *APIError
+			if errors.As(r.err, &bad) && bad.Status == http.StatusBadRequest {
+				st.from, st.froms = 1, nil
+			}
 			return
 		}
 		st.doc, st.ok = r.doc, true
@@ -237,11 +241,15 @@ func (a *App) openDocLink(dest string) bool {
 }
 
 func (a *App) docLink(dest string) (string, bool) {
+	if strings.ContainsAny(dest, "\\\x00") {
+		return "", false
+	}
 	if rel, ok := a.docRel(dest); ok {
 		return rel, true
 	}
 	u, err := url.Parse(dest)
-	if err != nil || u.Scheme != "" || u.Host != "" || u.Path == "" || strings.HasPrefix(u.Path, "/") {
+	if err != nil || u.Scheme != "" || u.Host != "" || u.Path == "" || strings.HasPrefix(u.Path, "/") ||
+		strings.ContainsAny(u.Path, "\\\x00") {
 		return "", false
 	}
 	rel := path.Join(path.Dir(a.Ref), u.Path)

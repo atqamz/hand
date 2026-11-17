@@ -180,7 +180,7 @@ func boardOpenArgs(fleet, dest string) ([]string, bool) {
 		return nil, true
 	}
 	kind, ref, ok := strings.Cut(rest, "/")
-	if kind == "doc" && ok && strings.Trim(ref, "/") != "" {
+	if kind == "doc" && ok && strings.Trim(ref, "/") != "" && !strings.HasPrefix(ref, "/") {
 		return []string{"--doc", ref}, true
 	}
 	prefix, known := boardKinds[kind]
