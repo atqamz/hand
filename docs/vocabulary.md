@@ -26,6 +26,8 @@ An agent the operator opens by hand in the fleet folder is not the managed super
 
 The harness process that runs one attempt. It works in the attempt's worktree, never in the fleet home, and it sends its result back with `hand report add` from inside that worktree. Hand finds the attempt from the worktree's path.
 
+`worker.compact_percent` in `routing.json` (a whole number from 0 to 100; absent or `0` is off and changes nothing) makes a claude worker start Claude Code's own compaction earlier. `hand attempt start` reads it for a claude worker and gives the hidden `_exec` wrapper `--compact-percent N`, which sets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=N` in that worker's environment, replacing an inherited value (on Windows whatever its case). Claude Code reads N as the percentage of its auto-compact window at which it compacts, and it can only lower the threshold: a value above the window's own default percentage is ignored. Hand sets it for no other harness and never for the supervisor, so the supervisor's rollover and the operator's own Claude sessions are untouched. It applies to workers started after the change; `--continue` reads the key again. A value below 0 or above 100 makes `routing.json` invalid: `hand doctor` fails the `routing.json` row, and `hand attempt start` for a claude worker warns that it starts without the setting, as the watcher does for an unreadable `routing.json`.
+
 ### Harness
 
 The agent CLI that Hand launches as a supervisor or a worker. There are six: `claude` (Claude Code), `codex` (Codex), `opencode` (opencode), `agy` (Antigravity), `copilot` (GitHub Copilot CLI) and `omp` (oh-my-pi). All but `copilot` can run the supervisor or a worker; `copilot` runs workers only, and `hand supervisor start` and `switch` refuse it. Each runs in full-auto mode:
@@ -147,7 +149,7 @@ A fleet home holds:
 - `AGENTS.md` and `CLAUDE.md`, which Hand owns and rewrites on every `hand init`;
 - the `secondhand` and `secondhand-cleanup` skills under `.claude/`, `.agents/`, `.grok/` and `.pi/`, which `hand init` owns, and the skills `hand skills add --fleet` copied beside them, marked `managed-by: hand` and recorded in the fleet home's `skills-lock.json`;
 - `memory/`: the operator memory;
-- `routing.json`: the watcher's `notify` command and its `stall`, `inbox` and `retention` settings, and `supervisor.autoresume`, `supervisor.rollover_tokens`, `supervisor.answer_within` and `supervisor.interrupt` (off by default, experimental);
+- `routing.json`: the watcher's `notify` command and its `stall`, `inbox` and `retention` settings, and `supervisor.autoresume`, `supervisor.rollover_tokens`, `supervisor.answer_within` and `supervisor.interrupt` (off by default, experimental), and `worker.compact_percent` (absent by default; see Worker);
 - `inbox/`: the files attached on the board, and its trash (see Inbox folder and trash);
 - `reports/` and `shots/`: the documents and screenshots workers leave for the operator (see Retention);
 - `scratch/`: each attempt's scratch folder, `scratch/tN-aM` (see Scratch);

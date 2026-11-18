@@ -130,6 +130,14 @@ func cmdAttemptStart(r *runner, args []string) error {
 			return err
 		}
 	}
+	var compact int
+	if spec.Harness == "claude" {
+		if p, err := harness.LoadPolicy(r.home); err == nil {
+			compact = p.Worker.CompactPercent
+		} else if !errors.Is(err, os.ErrNotExist) {
+			r.warn(fmt.Sprintf("the worker starts without worker.compact_percent: %v", err))
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -176,7 +184,11 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...), r.requester(), r.ownSocket())
+		wrapper := []string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a)}
+		if compact > 0 {
+			wrapper = append(wrapper, "--compact-percent", strconv.Itoa(compact))
+		}
+		running, err := launch(ctx, st, c, a, g, start, append(append(wrapper, "--"), a.Argv...), r.requester(), r.ownSocket())
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}

@@ -41,7 +41,7 @@ func TestLoadPolicyRejectsBadFiles(t *testing.T) {
 			t.Fatalf("policy %q err = %v", body, err)
 		}
 	}
-	if _, err := LoadPolicy(t.TempDir()); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "hand init") {
+	if _, err := LoadPolicy(t.TempDir()); !errors.Is(err, state.ErrInvalid) || !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "hand init") {
 		t.Fatalf("missing policy err = %v", err)
 	}
 }
@@ -301,5 +301,34 @@ func TestPolicyReadsTheInterruptSettingAndDefaultsItOff(t *testing.T) {
 		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "interrupt") {
 			t.Fatalf("policy %s err = %v", body, err)
 		}
+	}
+}
+
+func TestPolicyReadsTheWorkerCompactPercent(t *testing.T) {
+	for body, want := range map[string]int{
+		`{}`:                                 0,
+		`{"worker":{}}`:                      0,
+		`{"worker":{"compact_percent":0}}`:   0,
+		`{"worker":{"compact_percent":1}}`:   1,
+		`{"worker":{"compact_percent":60}}`:  60,
+		`{"worker":{"compact_percent":100}}`: 100,
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Worker.CompactPercent != want {
+			t.Fatalf("policy %s: compact_percent = %d, %v; want %d", body, p.Worker.CompactPercent, err, want)
+		}
+	}
+	for _, body := range []string{
+		`{"worker":{"compact_percent":-1}}`,
+		`{"worker":{"compact_percent":101}}`,
+		`{"worker":{"compact_percent":"60"}}`,
+		`{"worker":{"compact_percent":50.5}}`,
+		`{"worker":{"compact":60}}`,
+	} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) {
+			t.Fatalf("policy %s err = %v", body, err)
+		}
+	}
+	if b, err := json.Marshal(Policy{}); err != nil || strings.Contains(string(b), "worker") {
+		t.Fatalf("an empty policy marshals as %s, %v; want no worker key", b, err)
 	}
 }

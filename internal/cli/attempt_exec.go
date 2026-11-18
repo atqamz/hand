@@ -17,6 +17,10 @@ import (
 
 var scratchEnvVars = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR"}
 
+const compactEnvVar = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+
+var envNamesFold = runtime.GOOS == "windows"
+
 const (
 	unixSocketPathLimit = 104
 	unixSocketNameRoom  = 8
@@ -30,8 +34,12 @@ func cmdAttemptExec(r *runner, args []string) error {
 	fs := flags("attempt _exec")
 	dir := fs.String("dir", "", "")
 	root := fs.String("root", "", "")
+	compact := fs.Int("compact-percent", 0, "")
 	if err := fs.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("attempt _exec: %v", err)}
+	}
+	if *compact < 0 || *compact > 100 {
+		return usageError{fmt.Sprintf("attempt _exec: --compact-percent is %d; give 0 to 100, 0 is off", *compact)}
 	}
 	argv := fs.Args()
 	scratch, err := attemptScratch(*root, *dir, argv)
@@ -44,7 +52,7 @@ func cmdAttemptExec(r *runner, args []string) error {
 	if err := makePrivate(scratch); err != nil {
 		return err
 	}
-	err = replaceProcess(argv, scratchEnvironment(r.environ(), scratch))
+	err = replaceProcess(argv, scratchEnvironment(r.environ(), scratch, *compact))
 	if code, ok := processExitCode(err); ok {
 		return exitStatus{code}
 	}
@@ -152,18 +160,29 @@ func (r *runner) environ() []string {
 	return os.Environ()
 }
 
-func scratchEnvironment(environ []string, dir string) []string {
-	out := make([]string, 0, len(environ)+len(scratchEnvVars))
+func scratchEnvironment(environ []string, dir string, compact int) []string {
+	out := make([]string, 0, len(environ)+len(scratchEnvVars)+1)
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if !slices.Contains(scratchEnvVars, name) {
-			out = append(out, kv)
+		if slices.Contains(scratchEnvVars, name) || compact > 0 && sameEnvName(name, compactEnvVar) {
+			continue
 		}
+		out = append(out, kv)
 	}
 	for _, name := range scratchEnvVars {
 		out = append(out, name+"="+dir)
 	}
+	if compact > 0 {
+		out = append(out, compactEnvVar+"="+strconv.Itoa(compact))
+	}
 	return out
+}
+
+func sameEnvName(a, b string) bool {
+	if envNamesFold {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func processExitCode(err error) (int, bool) {

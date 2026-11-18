@@ -45,7 +45,7 @@ func fakeBehaviors() map[string]func([]string) int {
 
 func envMain(args []string) int {
 	var lines []string
-	for _, name := range []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR", "HOME", "PATH"} {
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR", "HOME", "PATH", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"} {
 		lines = append(lines, name+"="+os.Getenv(name))
 	}
 	argv, err := json.Marshal(args)
