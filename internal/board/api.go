@@ -2255,7 +2255,15 @@ func apiWakeText(text string) string {
 	if !strings.HasPrefix(text, prefix) {
 		return text
 	}
-	parts := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	split := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	parts := make([]string, 0, len(split))
+	for _, p := range split {
+		if n := len(parts); n > 0 && strings.HasPrefix(p, "reported r") && strings.HasSuffix(parts[n-1], "turn ended") {
+			parts[n-1] += "; " + p
+			continue
+		}
+		parts = append(parts, p)
+	}
 	out := make([]string, 0, len(parts))
 	drop := false
 	for _, line := range parts {

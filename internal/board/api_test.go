@@ -2425,6 +2425,9 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 			rec("user", ago(2), "Please investigate api error: timeout", 0),
 			rec("user", ago(1), "[hand v1 wake]\nattempt.limited a1: SECRET-SCREEN-TEXT; leaked-after-semicolon", 0),
 			rec("user", ago(1), "[hand v1 wake]\nattempt.quiet a1: turn ended without a new report: will not clear by itself: SECRET-SCREEN-TEXT; leaked-quiet-tail", 0),
+			rec("user", ago(1), "[hand v1 wake]\nattempt.quiet a1: turn ended; reported r1 progress: will not clear by itself: SECRET-SCREEN-TEXT; leaked-reported-tail", 0),
+			rec("user", ago(1), "[hand v1 wake]\nattempt.quiet a1: turn ended; reported r1 progress: will not clear by itself: SECRET-SCREEN-TEXT; attempt.done a1: kept-event-after-refusal", 0),
+			rec("user", ago(1), "[hand v1 wake]\nattempt.quiet a1: turn ended; reported r1 progress; task.created t9: kept-plain-progress", 0),
 		})
 		h := fx.handler()
 		for _, c := range []string{
@@ -2464,6 +2467,17 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		}
 		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-quiet-tail") {
 			t.Fatalf("the timeline kept a repeated refusal after a semicolon:\n%s", raw)
+		}
+		raw := apiRaw(t, h, "/api/v1/timeline")
+		for _, leak := range []string{"leaked-reported-tail", "SECRET-SCREEN-TEXT"} {
+			if strings.Contains(raw, leak) {
+				t.Fatalf("the timeline kept %q of a refusal after a progress report:\n%s", leak, raw)
+			}
+		}
+		for _, kept := range []string{"attempt.done a1: kept-event-after-refusal", "attempt.quiet a1: turn ended; reported r1 progress; task.created t9: kept-plain-progress"} {
+			if !strings.Contains(raw, kept) {
+				t.Fatalf("the timeline lost %q:\n%s", kept, raw)
+			}
 		}
 		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-after-semicolon") {
 			t.Fatalf("the timeline kept a screen detail after a semicolon:\n%s", raw)
