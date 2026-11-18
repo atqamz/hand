@@ -1472,3 +1472,67 @@ func TestTurnWarningPrintsOnceWithoutAHint(t *testing.T) {
 		}
 	}
 }
+
+func withoutCursor(t *testing.T, doc string) (string, int64) {
+	t.Helper()
+	var kept []string
+	var cursor int64
+	for _, l := range strings.Split(doc, "\n") {
+		if v, ok := strings.CutPrefix(l, "cursor: "); ok {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cursor = n
+			continue
+		}
+		kept = append(kept, l)
+	}
+	return strings.Join(kept, "\n"), cursor
+}
+
+func TestOrientPrintsTheSameAfterAHundredSupervisorReplies(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Argv: []string{"claude"}, Session: "sess1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(since int64) (string, string, int64) {
+		full, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		short, err := Short(ctx, st, since, "", true, true, Turn{}, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, c := withoutCursor(t, full.String())
+		s, _ := withoutCursor(t, short.String())
+		return f, s, c
+	}
+	cursor, _ := st.LastEventSeq(ctx)
+	fullBefore, shortBefore, cursorBefore := render(cursor)
+	_, shortFrom0Before, _ := render(0)
+	var replies []state.Reply
+	for i := range 100 {
+		replies = append(replies, state.Reply{At: "2026-11-18T10:00:00Z", N: i, Body: "reply " + strconv.Itoa(i)})
+	}
+	if n, err := st.AddSupervisorReplies(ctx, sup.ID, "sess1", replies); err != nil || n != 100 {
+		t.Fatalf("insert = %d, %v", n, err)
+	}
+	fullAfter, shortAfter, cursorAfter := render(cursor)
+	_, shortFrom0After, _ := render(0)
+	if fullAfter != fullBefore || shortAfter != shortBefore || shortFrom0After != shortFrom0Before {
+		t.Fatalf("orient changed after the replies:\n%s\n---\n%s\n%s\n---\n%s", fullBefore, fullAfter, shortBefore, shortAfter)
+	}
+	if cursorAfter != cursorBefore+1 {
+		t.Fatalf("cursor %d to %d: one batch must be one event", cursorBefore, cursorAfter)
+	}
+	if strings.Contains(fullAfter, "supervisor.replied") || strings.Contains(shortAfter, "supervisor.replied") {
+		t.Fatal("orient names the replied event")
+	}
+}

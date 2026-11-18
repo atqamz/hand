@@ -74,6 +74,10 @@ type watcher struct {
 	reapWarned     atomic.Bool
 	transcripts    *transcript.Reader
 	answers        *transcript.Reader
+	replies        *transcript.Reader
+	replyMarks     map[answerSession]replyMark
+	repliesPrev    state.Supervisor
+	repliesSeen    bool
 	calls          *transcript.Reader
 	interrupted    map[int64]bool
 	interruptWarn  bool

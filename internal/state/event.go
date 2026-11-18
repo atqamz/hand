@@ -57,7 +57,7 @@ func closeAll(tx *sql.Tx, taskID int64, now, kind string, ref func(int64) string
 
 func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, task_id, detail FROM (
-		SELECT seq, at, kind, COALESCE(task_id, 0) AS task_id, detail FROM event ORDER BY seq DESC LIMIT ?
+		SELECT seq, at, kind, COALESCE(task_id, 0) AS task_id, detail FROM event WHERE kind != 'supervisor.replied' ORDER BY seq DESC LIMIT ?
 	) ORDER BY seq`, limit)
 	if err != nil {
 		return nil, err
@@ -309,10 +309,10 @@ func (s *Store) NewestEventsAfter(ctx context.Context, after int64, first []stri
 		args = append(args, k)
 	}
 	var total, firstTotal int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*), COALESCE(sum(`+in+`), 0) FROM event WHERE seq > ?`, append(args[1:], after)...).Scan(&total, &firstTotal); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), COALESCE(sum(`+in+`), 0) FROM event WHERE seq > ? AND kind != 'supervisor.replied'`, append(args[1:], after)...).Scan(&total, &firstTotal); err != nil {
 		return nil, 0, 0, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? ORDER BY +`+in+` DESC, seq DESC LIMIT ?`, append(args, limit)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? AND kind != 'supervisor.replied' ORDER BY +`+in+` DESC, seq DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, 0, 0, err
 	}

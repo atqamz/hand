@@ -44,11 +44,14 @@ var socketSchema string
 //go:embed input_answer.sql
 var inputAnswerSchema string
 
-var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema, alertSchema, socketSchema, inputAnswerSchema}
+//go:embed supervisor_reply.sql
+var supervisorReplySchema string
+
+var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema, alertSchema, socketSchema, inputAnswerSchema, supervisorReplySchema}
 
 const MinSchemaVersion = 16
 
-const SchemaVersion = 24
+const SchemaVersion = 25
 
 const lastMigrating = "0.13.0"
 

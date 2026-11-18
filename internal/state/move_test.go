@@ -47,6 +47,7 @@ func moveFixture(t *testing.T, s *Store, old, tilde string) {
 		"Delivered: "+old+"/reports/t1/x.md. and "+old+"/y,", at)
 	exec(`INSERT INTO supervisor(id, harness, model, effort, argv, status, created_at) VALUES (1, 'claude', 'sonnet', 'low', ?, 'stopped', ?)`, `["`+old+`"]`, at)
 	exec(`INSERT INTO supervisor_input(id, body, created_at, delivered_at) VALUES (1, ?, ?, ?)`, tilde+" input", at, at)
+	exec(`INSERT INTO supervisor_reply(id, supervisor_id, session, at, n, body) VALUES (1, 1, 'sess', ?, 0, ?)`, at, "see "+old+"/memory")
 	exec(`INSERT INTO timer(id, due_at, task_id, note, status, created_at) VALUES (1, ?, 1, ?, 'fired', ?)`, at, old+" note", at)
 	hash := tilde + "/" + strings.Repeat("a", 64-len(tilde)-1)
 	exec(`INSERT INTO device(id, name, login, secret_hash, paired_at) VALUES (1, ?, ?, ?, ?)`, tilde, old, hash, at)
@@ -91,8 +92,8 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Absolute != 16 || rep.Tilde != 8 || len(rep.Cells) != 19 || len(rep.Hits) != 0 {
-		t.Fatalf("counts = %d absolute, %d tilde, %d cells, %d hits; want 16, 8, 19, 0: %+v", rep.Absolute, rep.Tilde, len(rep.Cells), len(rep.Hits), rep.Cells)
+	if rep.Absolute != 17 || rep.Tilde != 8 || len(rep.Cells) != 20 || len(rep.Hits) != 0 {
+		t.Fatalf("counts = %d absolute, %d tilde, %d cells, %d hits; want 17, 8, 20, 0: %+v", rep.Absolute, rep.Tilde, len(rep.Cells), len(rep.Hits), rep.Cells)
 	}
 	if rep.AfterAbsolute != 0 || rep.ForeignKeys != 0 || rep.Integrity != "ok" || rep.MarkerSeq == 0 || rep.EventSeq != 0 {
 		t.Fatalf("checks = %+v", rep)
@@ -124,6 +125,7 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 		{`SELECT body FROM report WHERE id = 1`, "Delivered: " + to + "/reports/t1/x.md. and " + to + "/y,"},
 		{`SELECT argv FROM supervisor WHERE id = 1`, `["` + to + `"]`},
 		{`SELECT body FROM supervisor_input WHERE id = 1`, tilde + " input"},
+		{`SELECT body FROM supervisor_reply WHERE id = 1`, "see " + to + "/memory"},
 		{`SELECT note FROM timer WHERE id = 1`, old + " note"},
 		{`SELECT name FROM device WHERE id = 1`, newTilde},
 		{`SELECT login FROM device WHERE id = 1`, to},
