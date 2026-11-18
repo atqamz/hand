@@ -50,22 +50,6 @@ mod tests {
     }
 
     #[test]
-    fn a_five_minute_cap_doubles_to_the_cap_and_stays_there() {
-        let mut backoff = Backoff::capped(300);
-        let bases = [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300, 300];
-        for base in bases {
-            let delay = backoff.next_delay();
-            assert!(delay >= Duration::from_secs(base), "{delay:?} < {base}");
-            assert!(
-                delay <= Duration::from_secs_f64(base as f64 * 1.25),
-                "{delay:?} > {base}"
-            );
-        }
-        backoff.reset();
-        assert!(backoff.next_delay() <= Duration::from_millis(1250));
-    }
-
-    #[test]
     fn reset_starts_again_at_one_second() {
         let mut backoff = Backoff::default();
         for _ in 0..4 {

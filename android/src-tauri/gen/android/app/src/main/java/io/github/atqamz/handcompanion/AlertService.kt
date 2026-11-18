@@ -7,20 +7,33 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AlertService : Service() {
   private var watching = false
+  private val handler = Handler(Looper.getMainLooper())
+  private val pending = AtomicBoolean(false)
+  private val tell = Runnable {
+    pending.set(false)
+    Core.networkChange()
+  }
+
+  private fun changed() {
+    if (pending.compareAndSet(false, true)) handler.postDelayed(tell, COALESCE_MS)
+  }
 
   private val networkChanged =
     object : ConnectivityManager.NetworkCallback() {
-      override fun onAvailable(network: Network) = Core.networkChange()
+      override fun onAvailable(network: Network) = changed()
 
       override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
-        Core.networkChange()
+        changed()
     }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -73,9 +86,14 @@ class AlertService : Service() {
   override fun onDestroy() {
     running = false
     if (watching) {
-      getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkChanged)
+      try {
+        getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkChanged)
+      } catch (error: IllegalArgumentException) {
+        Log.w(TAG, "network callback was not registered")
+      }
       watching = false
     }
+    handler.removeCallbacks(tell)
     Core.unwatch()
     Log.i(TAG, "service stop")
     super.onDestroy()
@@ -83,6 +101,7 @@ class AlertService : Service() {
 
   companion object {
     private const val TAG = "HandAlerts"
+    private const val COALESCE_MS = 1000L
 
     @Volatile var running = false
       private set

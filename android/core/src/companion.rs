@@ -5,12 +5,14 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use iroh::address_lookup::{DnsAddressLookup, PkarrResolver};
 use iroh::endpoint::{Builder, Endpoint, PortmapperConfig, QuicTransportConfig, VarInt, presets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
@@ -56,6 +58,7 @@ pub struct Companion {
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
     store: std::sync::Arc<StdMutex<()>>,
+    network_changes: Arc<AtomicU64>,
     #[cfg(test)]
     gate: std::sync::Arc<StdMutex<Option<std::sync::Arc<Gate>>>>,
 }
@@ -93,6 +96,7 @@ impl Companion {
             port: proxy.port(),
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
             store: std::sync::Arc::new(StdMutex::new(())),
+            network_changes: Arc::new(AtomicU64::new(0)),
             #[cfg(test)]
             gate: std::sync::Arc::new(StdMutex::new(None)),
         })
@@ -336,19 +340,45 @@ impl Companion {
         }
     }
 
-    pub async fn reconnect_on_resume(&self) {
+    pub async fn reconnect_on_resume(&self, then: impl FnOnce()) {
         self.dialer.disconnect().await;
+        then();
     }
 
-    pub async fn report_every(&self, period: Duration, emit: impl Fn(&str)) {
-        loop {
-            emit(&self.dialer.report().await);
-            tokio::time::sleep(period).await;
-        }
-    }
-
-    pub async fn network_change(&self) {
+    pub async fn network_change(&self, then: impl FnOnce()) {
         self.dialer.endpoint().network_change().await;
+        self.network_changes.fetch_add(1, Ordering::Relaxed);
+        then();
+    }
+
+    pub async fn report(&self) -> String {
+        format!(
+            "{} network_changes={}",
+            self.dialer.report().await,
+            self.network_changes.load(Ordering::Relaxed)
+        )
+    }
+
+    pub fn report_every(
+        self: &Arc<Self>,
+        period: Duration,
+        emit: impl Fn(&str) + Send + Sync + 'static,
+    ) -> Reporter {
+        let this = self.clone();
+        Reporter(tokio::spawn(async move {
+            loop {
+                emit(&this.report().await);
+                tokio::time::sleep(period).await;
+            }
+        }))
+    }
+}
+
+pub struct Reporter(JoinHandle<()>);
+
+impl Drop for Reporter {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -475,6 +505,64 @@ mod tests {
         assert_eq!(lookup.len(), 2, "{lookup:?}");
         assert!(!format!("{lookup:?}").contains("Publisher"), "{lookup:?}");
         endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_network_change_reaches_the_endpoint_and_then_the_hook_and_is_counted() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let hooks = AtomicU64::new(0);
+        companion
+            .network_change(|| {
+                hooks.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+        assert_eq!(hooks.load(Ordering::SeqCst), 1);
+        assert!(companion.report().await.contains(" network_changes=1"));
+        companion.network_change(|| {}).await;
+        assert!(companion.report().await.contains(" network_changes=2"));
+    }
+
+    #[tokio::test]
+    async fn a_resume_drops_the_connection_and_then_runs_the_hook() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let hooks = AtomicU64::new(0);
+        companion
+            .reconnect_on_resume(|| {
+                hooks.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+        assert_eq!(hooks.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn the_report_task_ticks_until_its_reporter_is_dropped() {
+        let dir = TempDir::new();
+        let companion = Arc::new(Companion::start(config(&dir)).await.unwrap());
+        let lines = Arc::new(AtomicU64::new(0));
+        let counted = lines.clone();
+        let reporter = companion.report_every(Duration::from_millis(10), move |line| {
+            assert!(line.starts_with("iroh "), "{line}");
+            counted.fetch_add(1, Ordering::SeqCst);
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while lines.load(Ordering::SeqCst) < 3 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(lines.load(Ordering::SeqCst) >= 3);
+        drop(reporter);
+        while Arc::strong_count(&lines) > 1 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            Arc::strong_count(&lines),
+            1,
+            "the task still owns its emitter"
+        );
+        let after = lines.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(lines.load(Ordering::SeqCst), after);
     }
 
     const LINK: &str = "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P";

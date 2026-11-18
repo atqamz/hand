@@ -100,6 +100,10 @@ pub struct Feed {
     nudges: watch::Sender<u64>,
 }
 
+fn unreachable_backoff() -> Backoff {
+    Backoff::capped(UNREACHABLE_BACKOFF_MAX)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stop {
     Forgotten,
@@ -175,7 +179,7 @@ impl Feed {
         let generation = self.generation();
         let path = self.dir.join(format!("{fleet}.cursor"));
         let mut cursor = read_cursor(&path);
-        let mut backoff = Backoff::capped(UNREACHABLE_BACKOFF_MAX);
+        let mut backoff = unreachable_backoff();
         let mut nudges = self.nudges.subscribe();
         let mut more = false;
         let mut refused_before = refused_before;
@@ -590,8 +594,24 @@ mod tests {
         json!({"seq": seq, "at": "2026-11-10T03:12:00Z", "kind": "attempt.failed", "ref": "a1", "text": "a1 failed", "link": ""})
     }
 
+    #[test]
+    fn the_unreachable_backoff_doubles_to_five_minutes_and_stays_there() {
+        let mut backoff = unreachable_backoff();
+        let bases = [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300, 300, 300];
+        for base in bases {
+            let delay = backoff.next_delay();
+            assert!(delay >= Duration::from_secs(base), "{delay:?} < {base}");
+            assert!(
+                delay <= Duration::from_secs_f64(base as f64 * 1.25),
+                "{delay:?} > {base}"
+            );
+        }
+        backoff.reset();
+        assert!(backoff.next_delay() <= Duration::from_millis(1250));
+    }
+
     #[tokio::test]
-    async fn a_nudge_ends_the_wait_and_starts_the_backoff_again() {
+    async fn a_nudge_during_the_wait_ends_it_and_starts_the_backoff_again() {
         let feed = Feed::new(
             Dialer::new(
                 iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
@@ -602,18 +622,25 @@ mod tests {
             ),
             PathBuf::new(),
         );
-        let mut backoff = Backoff::capped(UNREACHABLE_BACKOFF_MAX);
+        let mut backoff = unreachable_backoff();
         for _ in 0..8 {
             backoff.next_delay();
         }
         let mut nudges = feed.nudges.subscribe();
+        let waiting = tokio::spawn(async move {
+            Feed::pause(&mut backoff, &mut nudges).await;
+            backoff
+        });
+        sleep(Duration::from_millis(100)).await;
+        assert!(
+            !waiting.is_finished(),
+            "the wait of minutes ended by itself"
+        );
         feed.nudge();
-        timeout(
-            Duration::from_secs(1),
-            Feed::pause(&mut backoff, &mut nudges),
-        )
-        .await
-        .expect("the nudge ends a wait of minutes");
+        let mut backoff = timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("the nudge ends a wait of minutes")
+            .unwrap();
         assert!(backoff.next_delay() <= Duration::from_millis(1250));
     }
 

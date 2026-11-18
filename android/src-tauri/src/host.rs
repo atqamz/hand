@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
-    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Request, RequestError, Response,
-    Sessions, Supervisor, VERSION, open_paired, paired_fleets,
+    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Reporter, Request, RequestError,
+    Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jlong, jstring};
@@ -29,6 +29,7 @@ struct Core {
     sessions: Arc<Sessions<HostJar>>,
     host: Arc<Host>,
     live: Mutex<Option<RunningLive>>,
+    reporter: Mutex<Option<Reporter>>,
 }
 
 struct RunningLive {
@@ -399,16 +400,13 @@ fn start(
         runtime().spawn(async move {
             let _ = restored.open_board().await;
         });
-        let reporting = companion.clone();
-        runtime().spawn(async move {
-            reporting.report_every(REPORT, info).await;
-        });
         Ok(Core {
             companion,
             alerts,
             sessions,
             host,
             live: Mutex::new(None),
+            reporter: Mutex::new(None),
         })
     })();
     match result {
@@ -497,14 +495,11 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_watch<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) {
-    let alerts = STATE
-        .lock()
-        .unwrap()
-        .core
-        .as_ref()
-        .map(|core| core.alerts.clone());
-    if let Some(alerts) = alerts {
-        runtime().block_on(async move { alerts.start() });
+    if let Some(core) = core() {
+        runtime().block_on(async {
+            core.alerts.start();
+            *core.reporter.lock().unwrap() = Some(core.companion.report_every(REPORT, info));
+        });
     }
 }
 
@@ -513,14 +508,9 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) {
-    let alerts = STATE
-        .lock()
-        .unwrap()
-        .core
-        .as_ref()
-        .map(|core| core.alerts.clone());
-    if let Some(alerts) = alerts {
-        alerts.stop();
+    if let Some(core) = core() {
+        core.reporter.lock().unwrap().take();
+        core.alerts.stop();
     }
 }
 
@@ -555,8 +545,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_resume<'local>(
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
-        core.alerts.nudge();
-        runtime().block_on(core.companion.reconnect_on_resume());
+        runtime().block_on(core.companion.reconnect_on_resume(|| core.alerts.nudge()));
     }
 }
 
@@ -566,8 +555,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_networkChange<'l
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
-        core.alerts.nudge();
-        runtime().spawn(async move { core.companion.network_change().await });
+        runtime().spawn(async move { core.companion.network_change(|| core.alerts.nudge()).await });
     }
 }
 
