@@ -242,7 +242,7 @@ func TestOneGrantNamesEachFleetOnceUnderRacingCalls(t *testing.T) {
 func TestACodeKeepsItsOwnCopyOfTheFleetSet(t *testing.T) {
 	a, _, aid := pairBoard(t, strings.Repeat("1", 32))
 	set := []string{aid, "f000000000001"}
-	code, until := a.mint(time.Now(), set)
+	code, until := a.mint(time.Now(), set, "", false)
 	set[1] = "f0000000000ff"
 	res, got := a.redeem("100.64.0.1", code, until.Add(-time.Minute))
 	if res != pairOK || len(got) != 2 || got[1] != "f000000000001" {

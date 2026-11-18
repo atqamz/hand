@@ -108,7 +108,7 @@ fun ThisPhoneScreen(
         Line(phone.alerts, phone.alertsDetail) { Action("Settings", onSettings) }
         Section("About")
         Line("This phone's ID", phone.phoneId ?: "unknown", monoDetail = true)
-        Line("Hand for Android ${phone.app}", phone.core?.let { "core $it" })
+        Line("Hand's Companion ${phone.app}", phone.core?.let { "core $it" })
       }
     }
   }

@@ -110,11 +110,8 @@ func TestSkillsSaveSucceedsWhenTheStateFolderCannotBeSynced(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores folder modes")
 	}
-	skills := fleet.Skills{Base: t.TempDir()}
-	dir := filepath.Join(skills.Base, fleet.SkillRoots[1], "skills")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	skills := fleet.Skills{Base: t.TempDir(), Scope: "fleet"}
+	dir := skills.Base
 	if err := os.Chmod(dir, 0o300); err != nil {
 		t.Fatal(err)
 	}

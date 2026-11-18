@@ -74,6 +74,9 @@ type watcher struct {
 	reapWarned     atomic.Bool
 	transcripts    *transcript.Reader
 	answers        *transcript.Reader
+	calls          *transcript.Reader
+	interrupted    map[int64]bool
+	interruptWarn  bool
 	matched        map[int64]bool
 	sources        map[string]modelSource
 	modelSessions  map[int64]modelSession
@@ -254,6 +257,8 @@ func (w *watcher) session(ctx context.Context) error {
 	w.sweepModels(ctx)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
+	preemptTick := time.NewTicker(preemptEvery)
+	defer preemptTick.Stop()
 	for {
 		select {
 		case <-sctx.Done():
@@ -289,6 +294,8 @@ func (w *watcher) session(ctx context.Context) error {
 				w.refreshModels(ctx)
 				w.sweepModels(ctx)
 			}
+		case <-preemptTick.C:
+			w.preempt(sctx, c, caps)
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
 			eventHandled(ev.Event)

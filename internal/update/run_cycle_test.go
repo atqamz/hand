@@ -71,15 +71,15 @@ func newCycle(t *testing.T) *fixture {
 	f.status = "idle"
 	f.o.Client = func(fleet.Entry) luvus.Client { return luvus.Client{Socket: f.uhp.Socket} }
 	f.setenv("HAND_SESSION="+fleet.Session(f.alphaID), "HAND_SESSION_DIR="+f.sessionDir)
-	f.o.Watch = func(_ context.Context, home string) error {
-		f.note("watcher @ " + home)
+	f.o.Watch = func(_ context.Context, e fleet.Entry) error {
+		f.note("watcher @ " + e.Home)
 		return nil
 	}
-	f.o.Board = func(_ context.Context, home string) error {
-		f.note("board @ " + home)
+	f.o.Board = func(_ context.Context, e fleet.Entry) error {
+		f.note("board @ " + e.Home)
 		return nil
 	}
-	f.o.Start = func(context.Context, string) error {
+	f.o.Start = func(context.Context, fleet.Entry) error {
 		f.note("luvus start")
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -279,8 +279,8 @@ func TestUpdateReportsAFailedStart(t *testing.T) {
 	f := newCycle(t)
 	f.watcherRuns(t)
 	f.boardRuns(t)
-	f.o.Watch = func(context.Context, string) error { return errors.New("no lock") }
-	f.o.Board = func(context.Context, string) error { return errors.New("no port") }
+	f.o.Watch = func(context.Context, fleet.Entry) error { return errors.New("no lock") }
+	f.o.Board = func(context.Context, fleet.Entry) error { return errors.New("no port") }
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || !rep.Failed {
 		t.Fatalf("report = %+v, %v", rep, err)
@@ -304,10 +304,10 @@ func TestUpdateStartsTheWatcherUnderTheNewBoardsGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var held string
-	f.o.Board = func(context.Context, string) error {
+	f.o.Board = func(context.Context, fleet.Entry) error {
 		return os.WriteFile(file, []byte("new\n"), 0o600)
 	}
-	f.o.Watch = func(context.Context, string) error {
+	f.o.Watch = func(context.Context, fleet.Entry) error {
 		b, err := os.ReadFile(file)
 		held = strings.TrimSpace(string(b))
 		return err
@@ -529,8 +529,8 @@ func TestUpdateStartsTheBoardThroughTheNextFleetWhenTheFirstFails(t *testing.T) 
 			newFleet(t, f.root, "beta")
 			f.boardRuns(t)
 			var tried []string
-			f.o.Board = func(_ context.Context, home string) error {
-				tried = append(tried, home)
+			f.o.Board = func(_ context.Context, e fleet.Entry) error {
+				tried = append(tried, e.Home)
 				if len(tried) <= fails {
 					return errors.New("unusable token")
 				}

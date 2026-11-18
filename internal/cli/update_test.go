@@ -45,7 +45,12 @@ func TestUpdateTakesNoArguments(t *testing.T) {
 
 func handRelease(t *testing.T, version, channel, commit, luvusVersion string) string {
 	t.Helper()
-	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: " + version + "\nchannel: " + channel + "\ncommit: " + commit + "\nschema: " + strconv.Itoa(state.SchemaVersion) + "\nluvus: " + luvusVersion + "\n"}))
+	return handReleaseSchema(t, version, channel, commit, state.SchemaVersion, luvusVersion)
+}
+
+func handReleaseSchema(t *testing.T, version, channel, commit string, schema int, luvusVersion string) string {
+	t.Helper()
+	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: " + version + "\nchannel: " + channel + "\ncommit: " + commit + "\nschema: " + strconv.Itoa(schema) + "\nluvus: " + luvusVersion + "\n"}))
 	files := map[string][]byte{}
 	if runtime.GOOS == "windows" {
 		var archive bytes.Buffer

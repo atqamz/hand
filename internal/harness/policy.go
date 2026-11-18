@@ -53,6 +53,7 @@ type Policy struct {
 		Autoresume     bool  `json:"autoresume"`
 		RolloverTokens int64 `json:"rollover_tokens"`
 		AnswerWithin   Span  `json:"answer_within,omitzero"`
+		Interrupt      bool  `json:"interrupt,omitempty"`
 	} `json:"supervisor,omitzero"`
 }
 

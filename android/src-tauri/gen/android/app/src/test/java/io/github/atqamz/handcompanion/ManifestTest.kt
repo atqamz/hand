@@ -52,6 +52,12 @@ class ManifestTest {
   }
 
   @Test
+  fun theNetworkStateIsReadSoTheServiceCanTellTheCoreAboutASwitch() {
+    val permissions = root.children("uses-permission").map { it.getAttributeNS(ANDROID, "name") }
+    assertTrue("android.permission.ACCESS_NETWORK_STATE" in permissions)
+  }
+
+  @Test
   fun noBuildTypeAddsItsOwnManifest() {
     assertFalse(File("src/debug/AndroidManifest.xml").exists())
   }

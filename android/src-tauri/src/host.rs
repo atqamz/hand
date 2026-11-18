@@ -5,16 +5,18 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
-    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Request, RequestError, Response,
-    Sessions, Supervisor, VERSION, open_paired, paired_fleets,
+    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Reporter, Request, RequestError,
+    Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jlong, jstring};
 use jni::{JNIEnv, JavaVM};
 
+const REPORT: Duration = Duration::from_secs(60);
 const PROBE: i32 = 0;
 const SEAL: i32 = 1;
 const OPEN: i32 = 2;
@@ -27,6 +29,7 @@ struct Core {
     sessions: Arc<Sessions<HostJar>>,
     host: Arc<Host>,
     live: Mutex<Option<RunningLive>>,
+    reporter: Mutex<Option<Reporter>>,
 }
 
 struct RunningLive {
@@ -102,11 +105,18 @@ unsafe extern "C" {
     fn __android_log_write(priority: i32, tag: *const c_char, text: *const c_char) -> i32;
 }
 
-fn warn(message: &str) {
-    const WARN: i32 = 5;
+fn log(priority: i32, message: &str) {
     if let Ok(text) = CString::new(message) {
-        unsafe { __android_log_write(WARN, c"HandAlerts".as_ptr(), text.as_ptr()) };
+        unsafe { __android_log_write(priority, c"HandAlerts".as_ptr(), text.as_ptr()) };
     }
+}
+
+fn warn(message: &str) {
+    log(5, message);
+}
+
+fn info(message: &str) {
+    log(4, message);
 }
 
 struct Host {
@@ -396,6 +406,7 @@ fn start(
             sessions,
             host,
             live: Mutex::new(None),
+            reporter: Mutex::new(None),
         })
     })();
     match result {
@@ -484,14 +495,11 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_watch<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) {
-    let alerts = STATE
-        .lock()
-        .unwrap()
-        .core
-        .as_ref()
-        .map(|core| core.alerts.clone());
-    if let Some(alerts) = alerts {
-        runtime().block_on(async move { alerts.start() });
+    if let Some(core) = core() {
+        runtime().block_on(async {
+            core.alerts.start();
+            *core.reporter.lock().unwrap() = Some(core.companion.report_every(REPORT, info));
+        });
     }
 }
 
@@ -500,14 +508,9 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) {
-    let alerts = STATE
-        .lock()
-        .unwrap()
-        .core
-        .as_ref()
-        .map(|core| core.alerts.clone());
-    if let Some(alerts) = alerts {
-        alerts.stop();
+    if let Some(core) = core() {
+        core.reporter.lock().unwrap().take();
+        core.alerts.stop();
     }
 }
 
@@ -542,7 +545,17 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_resume<'local>(
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
-        runtime().block_on(core.companion.reconnect_on_resume());
+        runtime().block_on(core.companion.reconnect_on_resume(|| core.alerts.nudge()));
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_networkChange<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        runtime().spawn(async move { core.companion.network_change(|| core.alerts.nudge()).await });
     }
 }
 

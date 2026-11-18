@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "CURSOR",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "receipt": "Revoked in golden",
+  "data": {
+    "iroh": {
+      "state": "ready",
+      "tone": "pass",
+      "text": "Phone access over iroh is online. The Hand app can pair with this host.",
+      "id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "fleets": [],
+    "devices": [
+      {
+        "id": 1,
+        "name": "Old phone",
+        "paired_at": "2026-11-01T04:40:00Z"
+      }
+    ],
+    "revoke": {
+      "revoked": [
+        {
+          "id": "f00000000e0aa",
+          "name": "golden"
+        }
+      ],
+      "failed": []
+    }
+  }
+}
+

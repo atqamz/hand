@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -221,5 +222,48 @@ func TestGitIgnoresStderrWarnings(t *testing.T) {
 	fx.h.cwd = fx.h.worktree("t1-a1")
 	if out := fx.h.ok("report", "add", "--status", "done", "--text", "ok"); !strings.Contains(out, "attempt: a1") {
 		t.Fatalf("report add = %q", out)
+	}
+}
+
+func TestReportShowCutsALongBodyAndFullPrintsIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	body := "Fixed login\n" + strings.Repeat(strings.Repeat("x", 99)+"\n", 100) + "Delivered: /abs/mid.md\n" + strings.Repeat(strings.Repeat("y", 99)+"\n", 100) + "Gate: CHANGES\nDelivered: https://example.com/pr/1\n"
+	fx.h.in = strings.NewReader(body)
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	fx.h.ok("report", "add", "--status", "done", "--file", "-")
+	fx.h.cwd = ""
+	cut := field(fx.h.ok("report", "show", "r1"), "body")
+	lines := strings.Split(strings.TrimRight(cut, "\n"), "\n")
+	n := len(lines)
+	if lines[0] != "Fixed login" || lines[n-1] != "Delivered: https://example.com/pr/1" || lines[n-2] != "Gate: CHANGES" {
+		t.Fatalf("summary or closing lines lost: %q ... %q", lines[0], lines[n-2:])
+	}
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "bytes omitted") })
+	if i < 0 || !strings.Contains(lines[i], "`hand report show --full r1`") || lines[i+1] != "Delivered: /abs/mid.md" {
+		t.Fatalf("elision line or kept delivered line wrong: %q", lines)
+	}
+	if len(cut) > 8<<10+200 {
+		t.Fatalf("body is %d bytes", len(cut))
+	}
+	if full := field(fx.h.ok("report", "show", "--full", "r1"), "body"); full != body {
+		t.Fatalf("--full body = %d bytes, want %d", len(full), len(body))
+	}
+	fx.h.name = "hand-foo"
+	if named := field(fx.h.ok("report", "show", "r1"), "body"); !strings.Contains(named, "`hand-foo report show --full r1`") {
+		t.Fatalf("note does not name the invoked binary: %q", named)
+	}
+}
+
+func TestReportShowLeavesAShortBodyAlone(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	body := "Fixed login\nDelivered: https://example.com/pr/1\n"
+	fx.h.in = strings.NewReader(body)
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	fx.h.ok("report", "add", "--status", "done", "--file", "-")
+	fx.h.cwd = ""
+	if got := field(fx.h.ok("report", "show", "r1"), "body"); got != body {
+		t.Fatalf("body = %q", got)
 	}
 }

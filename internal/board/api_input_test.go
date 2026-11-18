@@ -109,3 +109,27 @@ func TestTheAPIKeepsAScreenLineOutOfTheReasonDetail(t *testing.T) {
 		t.Fatalf("switching entry = %+v", e)
 	}
 }
+
+func TestTheAPICarriesWhetherHandWaitedOrInterruptedADeliveredMessage(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx := context.Background()
+	one, two := sendInput(t, fx, "one"), sendInput(t, fx, "two")
+	for _, id := range []int64{one, two} {
+		if err := fx.st.DeliverSupervisorInput(ctx, id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fx.st.WaitInputs(ctx, []int64{one}, state.WaitNotWait); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.st.InterruptInputs(ctx, []int64{two}, ""); err != nil {
+		t.Fatal(err)
+	}
+	claudeLog(t, fx, []string{rec("user", ago(20), "one", 0), rec("user", ago(19), "two", 0)})
+	if e := apiEntryOf(t, fx, one); e.Status != "delivered" || e.Reason != "waited" || e.ReasonDetail != "not_wait" || e.ReasonKeys != nil {
+		t.Fatalf("waited = %+v", e)
+	}
+	if e := apiEntryOf(t, fx, two); e.Status != "delivered" || e.Reason != "interrupted" || e.ReasonDetail != "" {
+		t.Fatalf("interrupted = %+v", e)
+	}
+}

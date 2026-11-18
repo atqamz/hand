@@ -135,7 +135,7 @@ func TestRunSkipsInitInAFleetPinnedNewerAfterALuvusRepin(t *testing.T) {
 	f.mu.Lock()
 	f.version = "0.14.3"
 	f.mu.Unlock()
-	f.o.Start = func(context.Context, string) error {
+	f.o.Start = func(context.Context, fleet.Entry) error {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.version = "0.14.4"

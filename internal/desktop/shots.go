@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -110,11 +111,54 @@ func (a *App) pumpShots() {
 
 func (a *App) shotHeld(from string) (pix int) {
 	for n, st := range a.shots {
-		if n >= from {
+		if shotOrder(n, from) >= 0 {
 			pix += st.pix
 		}
 	}
 	return pix
+}
+
+func shotOrder(a, b string) int {
+	as, ac, aok := shotParts(a)
+	bs, bc, bok := shotParts(b)
+	switch {
+	case aok != bok:
+		if aok {
+			return 1
+		}
+		return -1
+	case aok:
+		if c := strings.Compare(as, bs); c != 0 {
+			return c
+		}
+		if len(ac) != len(bc) {
+			return len(ac) - len(bc)
+		}
+		if c := strings.Compare(ac, bc); c != 0 {
+			return c
+		}
+	}
+	return strings.Compare(a, b)
+}
+
+func shotParts(name string) (stamp, counter string, ok bool) {
+	if len(name) < 18 || name[8] != '-' || name[15] != '-' {
+		return "", "", false
+	}
+	for i := range 15 {
+		if i != 8 && (name[i] < '0' || name[i] > '9') {
+			return "", "", false
+		}
+	}
+	rest := name[16:]
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 || end == len(rest) || rest[end] != '.' && rest[end] != '-' {
+		return "", "", false
+	}
+	return name[:15], strings.TrimLeft(rest[:end], "0"), true
 }
 
 func (a *App) shotRoom(name string) int64 {
@@ -125,7 +169,7 @@ func (a *App) holdShot(name string, st *shotState, bmp *ui.Bitmap, pix int) {
 	for a.shotHeld("")+pix > shotBudget {
 		oldest := ""
 		for n, o := range a.shots {
-			if o.bmp != nil && n < name && (oldest == "" || n < oldest) {
+			if o.bmp != nil && shotOrder(n, name) < 0 && (oldest == "" || shotOrder(n, oldest) < 0) {
 				oldest = n
 			}
 		}

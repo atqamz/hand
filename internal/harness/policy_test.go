@@ -284,3 +284,22 @@ func TestAPolicyWithoutAnAnswerWithinSurvivesAJSONRoundTrip(t *testing.T) {
 		t.Fatalf("policy = %+v, %v", got, err)
 	}
 }
+
+func TestPolicyReadsTheInterruptSettingAndDefaultsItOff(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{}`:                                 false,
+		`{"supervisor":{"autoresume":true}}`: false,
+		`{"supervisor":{"interrupt":true}}`:  true,
+		`{"supervisor":{"interrupt":false}}`: false,
+		`{"supervisor":{"interrupt":true,"answer_within":"2m"}}`: true,
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Supervisor.Interrupt != want {
+			t.Fatalf("policy %s: interrupt = %v, %v; want %v", body, p.Supervisor.Interrupt, err, want)
+		}
+	}
+	for _, body := range []string{`{"supervisor":{"interrupt":"off"}}`, `{"supervisor":{"interrupt":0}}`} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "interrupt") {
+			t.Fatalf("policy %s err = %v", body, err)
+		}
+	}
+}

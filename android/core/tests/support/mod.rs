@@ -297,6 +297,18 @@ impl Board {
     }
 }
 
+async fn read_head(stream: &mut tokio::net::TcpStream) -> Vec<u8> {
+    let mut request = Vec::new();
+    let mut chunk = [0u8; 1024];
+    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => request.extend_from_slice(&chunk[..n]),
+        }
+    }
+    request
+}
+
 async fn serve(
     mut stream: tokio::net::TcpStream,
     secret: &str,
@@ -321,6 +333,7 @@ async fn serve(
     }
     match behavior {
         Behavior::Reset => {
+            read_head(&mut stream).await;
             if let Ok(stream) = stream.into_std() {
                 let _ = socket2::SockRef::from(&stream).set_linger(Some(Duration::ZERO));
             }
@@ -340,17 +353,10 @@ async fn serve(
             return;
         }
         Behavior::Http | Behavior::HalfClose => {
-            let mut request = Vec::new();
             if behavior == Behavior::HalfClose {
-                let _ = stream.read_to_end(&mut request).await;
+                let _ = stream.read_to_end(&mut Vec::new()).await;
             } else {
-                let mut chunk = [0u8; 1024];
-                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    match stream.read(&mut chunk).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => request.extend_from_slice(&chunk[..n]),
-                    }
-                }
+                read_head(&mut stream).await;
             }
             let body = b"hello from the board\n";
             let response = format!(

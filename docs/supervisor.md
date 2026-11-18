@@ -67,7 +67,7 @@ A limit below what a fresh session holds on its own (50000, say) rolls over ever
 
 ## A turn that runs long
 
-The supervisor never holds a turn to wait. A message you type during a turn waits for it: claude queues the message until the turn ends, and omp interjects it at the next safe point, so a turn held open on a poll delays the answer. The supervisor waits on CI, a review, a deploy or anything else outside Hand with a timer (`hand wake`, see [Timers](#timers)) and ends the turn. The 3-polls-150-seconds recipe in the `secondhand` skill is what the supervisor writes into a **worker's** brief, not a rule for its own turns. When a turn starts from your message, its first output is a short plain reply, before any tool call, and then the work. A message still waits for a supervisor that is blocked, at a usage limit or switching models.
+The supervisor never holds a turn to wait. A message you type during a turn waits for it (unless the experimental [interrupt](#a-message-that-interrupts-a-wait) is on and the turn is in a known wait): claude queues the message until the turn ends, and omp interjects it at the next safe point, so a turn held open on a poll delays the answer. The supervisor waits on CI, a review, a deploy or anything else outside Hand with a timer (`hand wake`, see [Timers](#timers)) and ends the turn. The 3-polls-150-seconds recipe in the `secondhand` skill is what the supervisor writes into a **worker's** brief, not a rule for its own turns. When a turn starts from your message, its first output is a short plain reply, before any tool call, and then the work. A message still waits for a supervisor that is blocked, at a usage limit or switching models.
 
 `hand orient` and `hand orient --since` print one `turn_long` line while the managed supervisor is working and its last message or wake reached it longer ago than `supervisor.answer_within` in `routing.json` (`60s` by default, from `5s` to `1h`):
 
@@ -85,6 +85,43 @@ The line is a hint to whoever runs `orient`, usually the supervisor itself, and 
 - opencode can read as `idle` before a turn with subagents ends, so its line can be missing.
 
 No line appears while the supervisor is idle, blocked or not managed, or when Luvus cannot be read. When `routing.json` cannot be read, `orient` prints one `turn_warn` line naming the error and uses `60s`; `hand doctor` fails the file too.
+
+## A message that interrupts a wait
+
+A supervisor that holds a turn open inside a wait (a `sleep`, a CI poll) answers a message only when the wait ends. When a delivered message has gone unanswered for longer than `supervisor.answer_within` (the bound above, `60s` by default) while the supervisor's turn runs, the watcher presses the harness's interrupt key once, waits for the turn to stop, and types the message again as a fresh prompt. It does this only while the tool call that runs is a known wait, and it never does it twice for the same message. It looks at a message only for 30 minutes after the bound passes, so a longer `answer_within` still works.
+
+**This is experimental and off by default.** What Claude Code does with the messages it has queued when Esc stops the turn has not been checked against a real session: it may keep them, drop them or move their text back into the prompt. Hand handles each case (see the end of this section) but has not seen it happen. To turn it on, add `"interrupt": true` beside `answer_within` in `routing.json`; the watcher reads the file at every check, so no restart is needed:
+
+```json
+"supervisor": {"answer_within": "60s", "interrupt": true}
+```
+
+With the setting absent or `false` a message waits for the end of the turn, and its receipt says `waited: interrupt is off`. The watcher checks every 5 seconds, so the interrupt comes up to 5 seconds after the bound.
+
+A tool call is a known wait when its shell command is one of these, alone or joined with `;`, `&&`, `||`, `|` or newlines (every part must be one):
+- `sleep N`, with `N` a number and an optional `s`, `m`, `h` or `d`;
+- `gh pr checks ...`, `gh run view ...` and `gh run watch ...`, with any arguments, `--watch` included;
+- `hand wait ...`;
+- a `for NAME in WORDS; do ...; done` loop whose body holds only those commands, nested loops included, with `$(seq N)` and `{1..N}` allowed in the list.
+
+Anything else is not a wait: a merge, a push, `hand update`, `hand attempt start`, a file write, a build or a test, any other command, and any command Hand cannot parse (a substitution, a backtick, a subshell, a background `&`, a variable as the command, an unterminated quote). A redirection to `/dev/null` or `2>&1` is allowed, and one to a file is a write. A loop with a merge or a push in its body, or a `sleep` joined to a `git push`, is refused as a whole. A refused command is never interrupted, because the interrupted call loses its result and a half-finished merge or push is worse than a late answer.
+
+Hand finds the running call in the harness's own record, not on the screen, and says so per harness:
+- **Claude Code** (`claude`): found. The session file records a `tool_use` when the call starts and a `tool_result` when it ends, so the call with no result yet is the running one; a call left open by an earlier message does not count. A message typed into a running turn is not recorded as an operator entry until Claude takes it (the same entry that stamps `answered_at`), so a message with no entry is still queued and one with an entry is already being worked on and is left alone. The pane must also show an empty prompt: text typed into it, or a key the operator pressed with `hand supervisor keys` after the message arrived, stops the interrupt. Hand reads the record again just before the key and sends nothing if the running call is no longer a known wait (the receipt then says `waited` with the new reason, and the message is looked at again on the next check).
+- **Codex** (`codex`): not found. Its record pairs a `function_call` with its `function_call_output`, but Hand's reader does not follow that pairing, so it cannot say which call runs. It never interrupts.
+- **oh-my-pi** (`omp`): not found. Its record holds calls and results (`toolCall` and `toolResult`, by id), but Hand's reader does not track them, so it cannot say which call runs. It never interrupts.
+- **opencode** (`opencode`): not found. Hand reads its session through `opencode session export`, which can be several seconds behind, and it does not track the export's tool parts. It never interrupts.
+- **agy** and **copilot**: not found, so they never interrupt.
+
+A harness that cannot be read is not a reason for an error: the message waits, as without the setting.
+
+It never interrupts a supervisor that is blocked, at a usage limit, switching models, or whose terminal is lost: those states keep their own reason on a queued message, and Hand does not press a key into them. It also never interrupts when it cannot tell, which includes no running call in the record, an unreadable record or an unreadable `routing.json` (the watcher says so once).
+
+The message's receipt says what happened, in the `reason` of the message (`hand supervisor show`, the Board's line under it and the [API](api.md)):
+- `waited: interrupt is off`, `waited: the supervisor is not in a known wait`, `waited: Hand cannot tell what the supervisor runs` (an unreadable harness, no running call, an unreadable record), `waited: someone typed in the pane` and `waited: the interrupt key was not accepted`. A `waited` message is looked at again on the next check: it is interrupted if the supervisor later enters a known wait before it is answered, except after `the interrupt key was not accepted`, which is not tried again by the same watcher process. One event, `input.waited`, is recorded for each change of reason, not one per check; a change between `the supervisor is not in a known wait` and `Hand cannot tell what the supervisor runs` is not a change, so the first of the two stays.
+- `interrupted, sent again`: Hand pressed the key and typed the message again. `interrupted: not sent again: ...` says why it did not type it, for example that the turn did not stop within 5 seconds or the prompt was not empty. One event, `input.interrupted`, is recorded; the reason stays after the message is answered. Every delivered message that no entry of the record shows yet and that is no older than the oldest one past the bound is typed again in order after the key, including one that is not yet past the bound, because Claude Code's queue holds them all; each of them gets this receipt and none is interrupted again. Hand reads the pane before each one and stops typing when the prompt holds text.
+
+The message stays one input and `delivered_at` does not move. The transcript may hold the message twice (once as Claude took it from its queue, once typed again), and the pairing that stamps `answered_at` pairs the first entry with the input and stamps the first supervisor reply after it. Hand has no live check of what Claude Code does with a message that was queued when the turn is interrupted. If it keeps the queue, the turn does not stop, the receipt says `not sent again`, and nothing is typed. If it drops the queue, the messages are typed again. If it moves the text back to the prompt, the empty-prompt check before each message refuses to type, and the receipt says `not sent again: the prompt holds text`.
 
 ## When the supervisor idles
 
@@ -120,7 +157,7 @@ error: invalid: prompt is 17021 bytes; luvus accepts at most 16384 per argument;
 error: invalid: starting codex.exe takes a 32779 character command line once quoted, and Windows allows 32766; shorten the prompt, or write the long text to a file and make the prompt say to read that file
 ```
 
-To give a worker more than that, write the whole brief to a file outside the worktree (the fleet's folder is a good place), and keep the file you pass to `--prompt-file` short and naming it: `Read C:\Users\you\fleets\demo\briefs\t12.md in full and do what it says; it is the whole brief.` The worker reads the file with its own tools. The limit counts the footer too, so a brief file of 15.5 KiB can already be over it.
+To give a worker more than that, write the whole brief to a file outside the worktree (the fleet's folder is a good place), and keep the file you pass to `--prompt-file` short and naming it: `Read C:\Users\you\fleets\demo\briefs\t12.md in full and do what it says; it is the whole brief.` The worker reads the file with its own tools. The limit counts the footer too, so a brief file of 14 KiB can already be over it.
 
 Both limits were measured on a Windows runner, with the tested Luvus and a stand-in `codex.exe` that records the arguments it receives. Prompts of the sampled sizes from 1 to 16384 bytes arrive byte for byte, for a worker and for a supervisor, with several paragraphs, `"` and `'`, backslashes (also before a quote and at the end), `%PATH%`, `^ & | < > !`, backticks, tabs, accented letters, emoji and CRLF or LF newlines. Luvus refuses 16385 bytes with `command argument is invalid or exceeds the v1 limit`. A command line of 32,766 characters starts, and one of 32,767 does not: Luvus answers `create_failed: terminal failed to start`, which is what the second message above replaces.
 

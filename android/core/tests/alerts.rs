@@ -827,6 +827,36 @@ async fn the_supervisor_starts_a_fleet_when_its_cookie_appears_and_runs_one_loop
 }
 
 #[tokio::test]
+async fn a_nudge_through_the_supervisor_ends_the_backoff_wait_of_a_loop_that_keeps_failing() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0..=3 => Reply::status(503),
+        _ => answer(1, vec![]).held(Duration::from_secs(30)),
+    })
+    .await;
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(harness.feed(), cookies, harness.sink.clone(), TICK);
+    supervisor.start();
+    assert!(wait_for(|| !harness.board.seen().is_empty()).await);
+
+    let started = Instant::now();
+    while harness.board.seen().len() < 5 && started.elapsed() < Duration::from_secs(5) {
+        supervisor.nudge();
+        sleep(Duration::from_millis(100)).await;
+    }
+    supervisor.stop();
+    let requests = harness.board.seen().len();
+    assert!(
+        requests >= 5,
+        "{requests} requests in {:?}; the backoff alone needs 15 s for five",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
 async fn forgetting_stops_the_loops_and_the_cursors_and_posts_nothing() {
     let Some(bin) = sidecar_bin() else {
         return;

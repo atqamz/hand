@@ -55,6 +55,7 @@ func (s *session) claudeLine(line []byte) {
 		Effort       json.RawMessage `json:"effort"`
 		PerTurn      json.RawMessage `json:"perTurnEffort"`
 		Message      struct {
+			ID         string          `json:"id"`
 			Model      string          `json:"model"`
 			StopReason string          `json:"stop_reason"`
 			Content    json.RawMessage `json:"content"`
@@ -86,7 +87,11 @@ func (s *session) claudeLine(line []byte) {
 	}
 	switch rec.Type {
 	case "user":
+		for _, id := range claudeResults(rec.Message.Content) {
+			s.endCall(id)
+		}
 		if text, ok := claudeUserText(rec.Message.Content); ok {
+			s.calls = nil
 			s.user(text, rec.Timestamp)
 		}
 	case "attachment":
@@ -107,11 +112,22 @@ func (s *session) claudeLine(line []byte) {
 			s.status.Window = claudeWindow(rec.Message.Model)
 		}
 		var blocks []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string          `json:"type"`
+			Text  string          `json:"text"`
+			ID    string          `json:"id"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
 		}
 		if json.Unmarshal(rec.Message.Content, &blocks) != nil {
 			return
+		}
+		if rec.Message.ID != s.callMsg {
+			s.calls, s.callMsg = nil, rec.Message.ID
+		}
+		for _, b := range blocks {
+			if b.Type == "tool_use" && b.ID != "" {
+				s.startCall(Call{ID: b.ID, Tool: b.Name, Command: commandOf(b.Input)})
+			}
 		}
 		final := rec.Message.StopReason == "end_turn" || rec.Message.StopReason == "stop_sequence"
 		for _, b := range blocks {
@@ -120,6 +136,23 @@ func (s *session) claudeLine(line []byte) {
 			}
 		}
 	}
+}
+
+func claudeResults(content json.RawMessage) []string {
+	var blocks []struct {
+		Type string `json:"type"`
+		ID   string `json:"tool_use_id"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return nil
+	}
+	var ids []string
+	for _, b := range blocks {
+		if b.Type == "tool_result" {
+			ids = append(ids, b.ID)
+		}
+	}
+	return ids
 }
 
 func claudeUserText(content json.RawMessage) (string, bool) {

@@ -1,4 +1,4 @@
-# The Android Companion contract
+# Hand's Companion contract
 
 The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests read it by path.
 
@@ -237,7 +237,7 @@ The app sends it as any other request through the sidecar: `Host: localhost`, th
 - **Empty.** An answer with `alerts: []` at the end of the wait is the heartbeat. Send the next request at once.
 - **`kind`.** One of the kinds in [Alerts on your phone](alerts.md), as `kinds` in the vectors lists. The set can grow inside this version: treat a kind you do not know as an ordinary alert, never as an error.
 - **`ref`.** `tN`, `dN`, `aN` or `supervisor`.
-- **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as the ntfy recipe already sends.
+- **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as a custom-command recipe can send.
 - **`link`.** A `handboard://open/<fleet id>/<page>` link for the app's own open-link entry point: `<page>` is `task/tN`, `decision/dN`, `attempt/aN`, or empty for the fleet's root (`supervisor` alerts). The numbers have 1 to 9 digits and no leading zero. The app must check the link with its own parser, and that its fleet is the one it polled, before it opens anything; a link that fails the check is no link, and the alert is still shown. `link` is empty when Hand cannot place the ref. The `open` vectors are the grammar. The link holds no secret.
 - **Nothing else.** No token, cookie, pairing code, endpoint ID or path is in any field.
 

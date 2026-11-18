@@ -92,11 +92,16 @@ func cmdAttemptSend(r *runner, args []string) error {
 
 func cmdAttemptRead(r *runner, args []string) error {
 	fs := flags("attempt read")
-	lines := fs.Int("lines", 40, "screen lines")
+	lines := fs.Int("lines", 40, "screen lines, at most 500")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
 	}
+	if *lines < 1 {
+		return usageError{"attempt read: --lines must be at least 1"}
+	}
+	capped := *lines > maxReadLines
+	*lines = min(*lines, maxReadLines)
 	id, err := parseID("a", pos[0])
 	if err != nil {
 		return err
@@ -117,6 +122,9 @@ func cmdAttemptRead(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("revision", rev)
+		if capped {
+			d.Field("lines", fmt.Sprintf("capped at %d", maxReadLines))
+		}
 		d.Text("screen", s.Text)
 		d.Help("Answer exactly what the screen asks: `hand attempt keys --revision " + rev + " " + ref + " KEY...`")
 		return r.print(&d)
