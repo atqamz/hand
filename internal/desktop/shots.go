@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -122,28 +121,33 @@ func (a *App) shotHeld(from string) (pix int) {
 func shotOrder(a, b string) int {
 	as, ac, aok := shotParts(a)
 	bs, bc, bok := shotParts(b)
-	if !aok || !bok {
-		return strings.Compare(a, b)
-	}
-	if c := strings.Compare(as, bs); c != 0 {
-		return c
-	}
 	switch {
-	case ac < bc:
+	case aok != bok:
+		if aok {
+			return 1
+		}
 		return -1
-	case ac > bc:
-		return 1
+	case aok:
+		if c := strings.Compare(as, bs); c != 0 {
+			return c
+		}
+		if len(ac) != len(bc) {
+			return len(ac) - len(bc)
+		}
+		if c := strings.Compare(ac, bc); c != 0 {
+			return c
+		}
 	}
-	return 0
+	return strings.Compare(a, b)
 }
 
-func shotParts(name string) (stamp string, counter int, ok bool) {
+func shotParts(name string) (stamp, counter string, ok bool) {
 	if len(name) < 18 || name[8] != '-' || name[15] != '-' {
-		return "", 0, false
+		return "", "", false
 	}
 	for i := range 15 {
 		if i != 8 && (name[i] < '0' || name[i] > '9') {
-			return "", 0, false
+			return "", "", false
 		}
 	}
 	rest := name[16:]
@@ -152,13 +156,9 @@ func shotParts(name string) (stamp string, counter int, ok bool) {
 		end++
 	}
 	if end == 0 || end == len(rest) || rest[end] != '.' && rest[end] != '-' {
-		return "", 0, false
+		return "", "", false
 	}
-	counter, err := strconv.Atoi(rest[:end])
-	if err != nil {
-		return "", 0, false
-	}
-	return name[:15], counter, true
+	return name[:15], strings.TrimLeft(rest[:end], "0"), true
 }
 
 func (a *App) shotRoom(name string) int64 {
