@@ -60,6 +60,7 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/tasks/search", func(b *Board) http.HandlerFunc { return b.apiTaskSearch }},
 	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
 	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
+	{http.MethodGet, "/phone", func(b *Board) http.HandlerFunc { return b.apiPhone }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
 	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
@@ -67,6 +68,9 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/report/{id}", func(b *Board) http.HandlerFunc { return b.apiReport }},
 	{http.MethodPost, "/pair", nil},
 	{http.MethodPost, "/inbox", func(b *Board) http.HandlerFunc { return b.apiInboxUpload }},
+	{http.MethodPost, "/phone/code", func(b *Board) http.HandlerFunc { return b.apiPhoneCodeNew }},
+	{http.MethodPost, "/phone/app", func(b *Board) http.HandlerFunc { return b.apiPhoneApp }},
+	{http.MethodPost, "/phone/revoke", func(b *Board) http.HandlerFunc { return b.apiPhoneRevoke }},
 	{http.MethodPost, "/message", func(b *Board) http.HandlerFunc { return b.apiMessage }},
 	{http.MethodPost, "/supervisor/start", func(b *Board) http.HandlerFunc { return b.apiStart }},
 	{http.MethodPost, "/supervisor/resume", func(b *Board) http.HandlerFunc {
