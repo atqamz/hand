@@ -78,7 +78,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 		running := map[int64]bool{}
 		for _, a := range live {
 			running[a.ID] = true
-			if a.Status == state.AttemptRunning && !rolloverHarness(a.Harness) {
+			if a.Status == state.AttemptRunning && !contextHarness(a.Harness) {
 				w.noteContextUnknown(ctx, a)
 			}
 			src := w.sources[a.Harness]
@@ -98,7 +98,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 				model, effort = settle(a.Harness, a.Model, a.Effort, model, effort)
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
-			if a.Status == state.AttemptRunning && rolloverHarness(a.Harness) {
+			if a.Status == state.AttemptRunning && contextHarness(a.Harness) {
 				w.noteContext(ctx, a, w.transcripts.Status(a.Harness, id).Context)
 			}
 		}
@@ -115,6 +115,8 @@ func (w *watcher) sweepModels(ctx context.Context) {
 		}
 	}()
 }
+
+func contextHarness(name string) bool { return rolloverHarness(name) || name == "codex" }
 
 var contextMarks = []int64{100_000, 150_000, 200_000, 300_000}
 
@@ -156,7 +158,7 @@ func (w *watcher) noteContextUnknown(ctx context.Context, a state.Attempt) {
 	if seen == nil || seen.unknown || ctx.Err() != nil {
 		return
 	}
-	if w.st.NoteAttempt(ctx, a.ID, "context_unknown", a.Harness+" reports no context") == nil {
+	if w.st.NoteAttempt(ctx, a.ID, "context_unknown", a.Harness+" has no context mark") == nil {
 		seen.unknown = true
 	}
 }
