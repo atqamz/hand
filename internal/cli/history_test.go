@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type historySeed struct {
@@ -248,6 +249,17 @@ func TestHistorySearchFullPrintsOneEntryWhole(t *testing.T) {
 		if len(out) < 16<<10-2000 {
 			t.Fatalf("%s prints only %d bytes", ref, len(out))
 		}
+	}
+	s.input(6, "2026-11-10T11:04:00Z", strings.Repeat("€", 6000))
+	out = h.ok("history", "search", "--full", "i6")
+	m := notice.FindStringSubmatch(out)
+	if m == nil || len(out) > 16<<10 || !utf8.ValidString(out) || strings.ContainsRune(out, '\uFFFD') {
+		t.Fatalf("i6 prints %d bytes, notice %v, valid %v", len(out), m, utf8.ValidString(out))
+	}
+	omitted, _ := strconv.Atoi(m[1])
+	body := strings.TrimPrefix(notice.ReplaceAllString(out[strings.Index(out, "text: |\n")+len("text: |\n"):], ""), "  ")
+	if omitted+len(body) != 18000 {
+		t.Fatalf("i6: kept %d and omitted %d is not 18000", len(body), omitted)
 	}
 	if out := h.ok("history", "search", "--full", "r1"); strings.Contains(out, "omitted") {
 		t.Fatalf("a short entry reports an omission: %q", out)

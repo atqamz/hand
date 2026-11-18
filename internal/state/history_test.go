@@ -285,6 +285,30 @@ func TestTaskFilterMatchesTheRefTokenInMessagesAndReplies(t *testing.T) {
 	}
 }
 
+func TestAQueryCannotEscapeTheTaskOrWhoFilter(t *testing.T) {
+	h := newHistory(t)
+	at := "2026-11-10T10:00:00Z"
+	for i := range 6 {
+		h.input(t, at, fmt.Sprintf("zed message %d", i))
+	}
+	h.reply(t, at, 0, "zed reply")
+	h.report(t, h.attempt.TaskID, at, "zed report")
+	want := h.input(t, at, "zed or zed for t5")
+	for _, q := range []string{"zed) OR (zed", "zed) OR zed OR (zed", `zed" OR "zed`, "(zed) OR (zed"} {
+		res := h.search(t, HistoryQuery{Q: q, Who: "operator", TaskID: 5})
+		if got := refs(res); res.Total != 1 || !slices.Equal(got, []string{want}) {
+			t.Errorf("%q with who operator and task t5 returned %v of %d", q, got, res.Total)
+		}
+		res = h.search(t, HistoryQuery{Q: q, TaskID: 5})
+		if got := refs(res); res.Total != 1 || !slices.Equal(got, []string{want}) {
+			t.Errorf("%q with task t5 and every source returned %v of %d", q, got, res.Total)
+		}
+		if res := h.search(t, HistoryQuery{Q: q, Who: "operator", Limit: 50}); res.Total != 1 || res.Hits[0].Who != "operator" {
+			t.Errorf("%q with who operator returned %d", q, res.Total)
+		}
+	}
+}
+
 func TestSearchRanksThenNewestFirstAndCountsTheRest(t *testing.T) {
 	h := newHistory(t)
 	h.input(t, "2026-11-10T10:00:00Z", "kiln")
@@ -439,6 +463,23 @@ func TestSnippetsAndEntriesAreRedactedWhateverTheWindow(t *testing.T) {
 	}
 }
 
+func TestARedactedWindowStartsOnARuneBoundary(t *testing.T) {
+	h := newHistory(t)
+	secret := shape("gh", "p_", strings.Repeat("Ab3dE", 8))
+	for lead := range 4 {
+		h.input(t, "2026-11-10T10:00:00Z", strings.Repeat("x", lead)+strings.Repeat("é", 100)+" "+secret+" omega")
+	}
+	res := h.search(t, HistoryQuery{Q: "omega", Limit: 50})
+	if len(res.Hits) != 4 {
+		t.Fatalf("hits = %d", len(res.Hits))
+	}
+	for _, hit := range res.Hits {
+		if !utf8.ValidString(hit.Text) || strings.ContainsRune(hit.Text, '\uFFFD') || !strings.Contains(hit.Text, "[redacted:github-token]") {
+			t.Fatalf("%s window = %q", hit.Ref, hit.Text)
+		}
+	}
+}
+
 func TestSnippetsAreOneLineAndBounded(t *testing.T) {
 	h := newHistory(t)
 	h.input(t, "2026-11-10T10:00:00Z", "amber\n\n\tkiln\x01\x1b[31m "+strings.Repeat("x", 5000)+" birch")
@@ -529,6 +570,10 @@ func TestHistoryEntryIsCappedAtARuneBoundary(t *testing.T) {
 	big, err := h.t.HistoryEntry(context.Background(), r)
 	if err != nil || !big.Truncated || len(big.Text) > MaxHistoryBody || !utf8.ValidString(big.Text) || big.Omitted+len(big.Text) != 60000 {
 		t.Fatalf("report: truncated %v, %d bytes, omitted %d, %v", big.Truncated, len(big.Text), big.Omitted, err)
+	}
+	multi := h.input(t, "2026-11-10T10:04:00Z", strings.Repeat("€", 6000))
+	if e, err := h.t.HistoryEntry(context.Background(), multi); err != nil || !e.Truncated || !utf8.ValidString(e.Text) || e.Omitted+len(e.Text) != 18000 || len(e.Text) > MaxHistoryBody {
+		t.Fatalf("a multibyte operator message: truncated %v, %d bytes, omitted %d, %v", e.Truncated, len(e.Text), e.Omitted, err)
 	}
 	ok := h.input(t, "2026-11-10T10:03:00Z", strings.Repeat("x", MaxHistoryBody))
 	if e, _ := h.t.HistoryEntry(context.Background(), ok); e.Truncated || e.Omitted != 0 || len(e.Text) != MaxHistoryBody {

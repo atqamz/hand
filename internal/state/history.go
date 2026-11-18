@@ -113,13 +113,6 @@ func (q HistoryQuery) validate() error {
 	return nil
 }
 
-func (src historySource) match(q string, taskID int64) string {
-	if taskID == 0 || src.who == "report" {
-		return q
-	}
-	return "(" + q + `) AND "` + TaskRef(taskID) + `"`
-}
-
 func (src historySource) where(since string, taskID int64) (string, []any) {
 	w := ` WHERE ` + src.fts + ` MATCH ?`
 	var args []any
@@ -127,9 +120,14 @@ func (src historySource) where(since string, taskID int64) (string, []any) {
 		w += ` AND t.` + src.at + ` >= ?`
 		args = append(args, since)
 	}
-	if taskID != 0 && src.who == "report" {
+	switch {
+	case taskID == 0:
+	case src.who == "report":
 		w += ` AND t.task_id = ?`
 		args = append(args, taskID)
+	default:
+		w += ` AND t.id IN (SELECT rowid FROM ` + src.fts + ` WHERE ` + src.fts + ` MATCH ?)`
+		args = append(args, `"`+TaskRef(taskID)+`"`)
 	}
 	return w, args
 }
@@ -168,7 +166,7 @@ func (s *Store) SearchHistory(ctx context.Context, q HistoryQuery) (HistoryResul
 	for _, src := range sources {
 		where, wargs := src.where(since, q.TaskID)
 		parts = append(parts, `SELECT '`+src.who+`' AS who, t.id AS id, t.`+src.at+` AS at, `+src.sup+` AS sup, `+src.task+` AS task, `+src.fts+`.rank AS rank FROM `+src.fts+` JOIN `+src.table+` t ON t.id = `+src.fts+`.rowid`+where)
-		args = append(args, src.match(match, q.TaskID))
+		args = append(args, match)
 		args = append(args, wargs...)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT who, id, at, sup, task FROM (`+strings.Join(parts, ` UNION ALL `)+`) ORDER BY rank, at DESC, who, id LIMIT ?`, append(args, q.Limit)...)
@@ -202,7 +200,7 @@ func (s *Store) SearchHistory(ctx context.Context, q HistoryQuery) (HistoryResul
 	for _, k := range found {
 		src := k.src
 		var snip, body string
-		if err := s.db.QueryRowContext(ctx, `SELECT snippet(`+src.fts+`, 0, '«', '»', '…', 24), t.body FROM `+src.fts+` JOIN `+src.table+` t ON t.id = `+src.fts+`.rowid WHERE `+src.fts+` MATCH ? AND `+src.fts+`.rowid = ?`, src.match(match, q.TaskID), k.id).Scan(&snip, &body); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT snippet(`+src.fts+`, 0, '«', '»', '…', 24), t.body FROM `+src.fts+` JOIN `+src.table+` t ON t.id = `+src.fts+`.rowid WHERE `+src.fts+` MATCH ? AND `+src.fts+`.rowid = ?`, match, k.id).Scan(&snip, &body); err != nil {
 			return HistoryResult{}, err
 		}
 		hit := HistoryHit{HistoryEntry: historyEntry(src.who, k.id, k.at, k.sup, k.task)}
@@ -242,7 +240,7 @@ func (s *Store) historyCount(ctx context.Context, sources []historySource, match
 	for _, src := range sources {
 		where, wargs := src.where(since, taskID)
 		var n int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+src.fts+` JOIN `+src.table+` t ON t.id = `+src.fts+`.rowid`+where, append([]any{src.match(match, taskID)}, wargs...)...).Scan(&n); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+src.fts+` JOIN `+src.table+` t ON t.id = `+src.fts+`.rowid`+where, append([]any{match}, wargs...)...).Scan(&n); err != nil {
 			return 0, err
 		}
 		total += n

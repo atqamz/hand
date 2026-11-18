@@ -189,7 +189,7 @@ func TestAPIHistoryNeedsTheHostsCookie(t *testing.T) {
 	}
 }
 
-func TestAPIHistoryIsListedAsAFeature(t *testing.T) {
+func TestAPIRoutesIncludeHistorySearch(t *testing.T) {
 	var found bool
 	for _, rt := range board.APIRoutes() {
 		found = found || rt.Method == "GET" && rt.Path == "/history/search"
