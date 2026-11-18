@@ -554,6 +554,9 @@ func TestRunKeepsTheInstalledWindowOnAnEdgeUpdate(t *testing.T) {
 }
 
 func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the downloaded hand for another OS cannot run on a Windows host")
+	}
 	for _, tc := range []struct{ goos, arch string }{{"darwin", "arm64"}} {
 		for _, current := range []bool{false, true} {
 			t.Run(tc.goos+"-"+tc.arch+"-"+strconv.FormatBool(current), func(t *testing.T) {
