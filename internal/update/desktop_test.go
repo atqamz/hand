@@ -140,7 +140,7 @@ func TestRunInstallsTheDesktopNextToTheNewHand(t *testing.T) {
 		if b, err := os.ReadFile(f.desktop()); err != nil || string(b) == "the old desktop" || len(b) == 0 {
 			t.Fatalf("had %v: the desktop next to hand = %d bytes, %v", had, len(b), err)
 		}
-		if fi, err := os.Stat(f.desktop()); err != nil || fi.Mode().Perm()&0o111 == 0 {
+		if fi, err := os.Stat(f.desktop()); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm()&0o111 == 0) {
 			t.Fatalf("had %v: the desktop is not executable: %v, %v", had, fi, err)
 		}
 		if out := Render(rep).String(); !strings.Contains(out, "desktop: 0.9.0 0123456789ab installed\n") {
@@ -275,6 +275,9 @@ func TestRunKeepsTheOldBinariesWhenTheDesktopDoesNotRun(t *testing.T) {
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	asset, sums := hostDesktop()
 	archive := tarball(t, desktopasset.Name, "not a program")
+	if runtime.GOOS == "windows" {
+		archive = zipball(t, desktopasset.Name+".exe", "not a program")
+	}
 	f.srv.set(asset, archive)
 	f.srv.set(sums, []byte(sum(archive)+"  "+asset+"\n"))
 	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "the downloaded hand-desktop does not run") {
@@ -285,6 +288,9 @@ func TestRunKeepsTheOldBinariesWhenTheDesktopDoesNotRun(t *testing.T) {
 
 func TestRunDoesNotReplaceHandWhenTheDesktopCannotBePlaced(t *testing.T) {
 	skipUnlessDesktop(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows moves a folder in the way aside as .old and places the file")
+	}
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	if err := os.MkdirAll(filepath.Join(f.desktop(), "inside"), 0o755); err != nil {
 		t.Fatal(err)

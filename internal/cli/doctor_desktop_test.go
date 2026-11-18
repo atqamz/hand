@@ -26,7 +26,6 @@ func installDesktop(t *testing.T, fx *doctorFixture, params map[string]string) {
 }
 
 func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
-	buildChannel(t, "edge")
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
 		t.Skip("hand-desktop assets are for Linux and Windows only")
 	}
@@ -68,6 +67,7 @@ func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
 				cli.Commit = c.commit
 			}
 			fx := newDoctorFixture(t)
+			buildChannel(t, "edge")
 			holdWatchLock(t, fx.h.home)
 			c.set(t, fx)
 			out := fx.h.ok("doctor")
@@ -84,7 +84,6 @@ func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
 }
 
 func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
-	buildChannel(t, "stable")
 	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "stable") {
 		t.Skip("this platform supports hand-desktop on a stable build")
 	}
@@ -98,13 +97,16 @@ func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
 }
 
 func TestDoctorDesktopReadsTheBinaryNextToHand(t *testing.T) {
-	buildChannel(t, "edge")
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
 		t.Skip("hand-desktop assets are for Linux and Windows only")
 	}
 	fx := newDoctorFixture(t)
+	buildChannel(t, "edge")
 	holdWatchLock(t, fx.h.home)
 	next := filepath.Join(fx.self, desktopasset.Name)
+	if runtime.GOOS == "windows" {
+		next += ".exe"
+	}
 	b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	if err := os.WriteFile(next, b, 0o755); err != nil {
 		t.Fatal(err)
@@ -135,7 +137,6 @@ func TestDoctorDesktopRowNeedsNoSecondhandFolder(t *testing.T) {
 }
 
 func TestDoctorDesktopEntryRow(t *testing.T) {
-	buildChannel(t, "edge")
 	if runtime.GOOS != "linux" {
 		t.Skip("the launcher entry is written on Linux only")
 	}
@@ -195,11 +196,11 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 }
 
 func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
-	buildChannel(t, "edge")
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
 		t.Skip("hand-desktop assets are for Linux and Windows only")
 	}
 	fx := newDoctorFixture(t)
+	buildChannel(t, "edge")
 	holdWatchLock(t, fx.h.home)
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
