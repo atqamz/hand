@@ -143,7 +143,7 @@ A fleet home holds:
 
 - `hand.db`: the SQLite state;
 - `AGENTS.md` and `CLAUDE.md`, which Hand owns and rewrites on every `hand init`;
-- the `secondhand` and `secondhand-cleanup` skills under `.claude/`, `.agents/`, `.grok/` and `.pi/`, which `hand init` owns, and the skills `hand skills add` copied beside them, marked `managed-by: hand-skills` and recorded in `.agents/skills/.hand-skills.json`;
+- the `secondhand` and `secondhand-cleanup` skills under `.claude/`, `.agents/`, `.grok/` and `.pi/`, which `hand init` owns, and the skills `hand skills add --fleet` copied beside them, marked `managed-by: hand` and recorded in the fleet home's `skills-lock.json`;
 - `memory/`: the operator memory;
 - `routing.json`: the watcher's `notify` command and its `stall`, `inbox` and `retention` settings, and `supervisor.autoresume`, `supervisor.rollover_tokens` and `supervisor.answer_within`;
 - `inbox/`: the files attached on the board, and its trash (see Inbox folder and trash);
@@ -225,7 +225,7 @@ Plain files under `memory/` that Hand never rewrites. `hand init` creates `memor
 
 ### Skill
 
-The instructions `hand init` installs for the supervisor. The `secondhand` skill describes the supervision loop. The `secondhand-cleanup` skill guides freeing space in `reports/` and `shots/` with `hand gc` and the operator's approval (see Retention).
+A manual: a sequence of steps an agent follows, with the commands or files each step touches and the stop condition. A skill is a folder with a `SKILL.md` on the Agent Skills format, installed by `hand skills` at one of three scopes: project (`<checkout>/.agents/skills`, the default inside a checkout, and the only scope committed with the repository, so the one every worker attempt sees), fleet (the fleet home's roots, for the supervisor) or user (`$HOME`'s roots, for every harness process). [Skills in the spec](spec.md#skills) has the model and the drift rule. `hand init` installs two for the supervisor: `secondhand`, the supervision loop, and `secondhand-cleanup`, which guides freeing space in `reports/` and `shots/` with `hand gc` and the operator's approval (see Retention).
 
 ## Work
 

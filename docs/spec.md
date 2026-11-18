@@ -37,6 +37,28 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 - Exec-guard, operator attestation, provider identity proofs beyond what the chosen backend gives natively.
 - Features for hypothetical other users.
 
+## Skills
+
+A skill is a **manual**: a sequence of steps an agent follows, with the commands or files each step touches and the stop condition. Facts that only describe a domain belong in `AGENTS.md` or a skill's `references/` folder, and a skill that is only a reading list is moved there or dropped. `hand skills list|add|update|remove` installs and checks skills on the [Agent Skills](https://agentskills.io/specification) format; Hand needs no Node and no `npx skills`, and its lock is the one `npx skills` reads.
+
+**Scopes.** `hand skills` acts on one scope, chosen by the flag or by where it runs:
+
+| Scope | Flag | Lands in | Lock | Reaches |
+|---|---|---|---|---|
+| project (default) | none in a checkout, `--project NAME` elsewhere | `<checkout>/.agents/skills/<name>`, one root | `<checkout>/skills-lock.json` | whoever checks the repo out, so every worker attempt of that project |
+| fleet | `--fleet` | `.claude`, `.agents`, `.grok`, `.pi` under the fleet home | `<fleet home>/skills-lock.json` | the supervisor session and `hand` itself |
+| user | `--user` | the same four roots under `$HOME` | `~/.agents/skills-lock.json` | every harness process on the machine |
+
+Inside a git checkout the scope is that project. In the fleet home, which is not a checkout, `hand skills` without a flag refuses and lists the fleet's projects; `--project NAME` acts on the checkout the fleet registered for it. A project skill is committed with the repo, and Hand refuses to add, update or remove one whose folder is dirty in git (uncommitted or untracked changes): commit or discard them first. An attempt's worktree is a checkout of the project, so a committed skill is in its working directory when the worker starts; Hand does not say which harness loads `.agents/skills`.
+
+**Source.** `hand skills add NAME` copies `skills/NAME` from `atqamz/skills`. A `PATH` is a folder holding `SKILL.md`; a `URL` is a git repository whose root is the skill. Hand copies, never links, and stamps `managed-by: hand` into the copy's frontmatter `metadata`.
+
+**Validation.** `add` and `update` refuse, naming the field, a source that breaks the specification, and never rewrite its body: frontmatter present; `name` 1-64 lowercase letters, digits and single hyphens, equal to the folder name; `description` 1-1024 characters; `compatibility`, when present, 1-500; `metadata`, when present, a block map with one `key: value` per line (a flow map such as `metadata: {...}` is refused, because Hand writes its marker into that block); `SKILL.md` under 500 lines.
+
+**Lock.** `skills-lock.json` is the vercel-labs/skills version 2 lock: per skill the `source`, `commit`, `skillPath` and a `computedHash`, the SHA-256 of the installed folder as its README ("Lock File Content Hash") defines it (CRLF to LF in text files, paths sorted by their UTF-8 bytes, `.git`, `__pycache__`, `__pypackages__` and `metadata.json` left out, and a symlink hashed as the file or folder it points to, unless it is broken, loops or leaves the skill folder). A project lock records a local skill's `source` relative to the lock (`./` inside it, `../` outside, `/` separators), as `npx skills` writes it, so a committed project lock holds no machine path; Hand resolves it against the lock's folder when it reads. Entries written by other tools are kept as they are, and a lock of another version is refused. A skill is Hand's when it has an entry and its `SKILL.md` carries the marker. What the lock has no field for stays in Hand's folder: the hash of an `update` swap in progress, and the lock file Hand holds while it writes (`.agents/skills/` in a fleet or user scope, `<git dir>/hand-skills/` in a project, so a checkout gains no stray file).
+
+**Drift.** The locked hash says what Hand installed. A copy that no longer hashes to it was edited. Hand never overwrites or deletes an edited copy and never keeps it as a quiet fork: `update` and `remove` refuse it with exit 3, and the edit goes back to the skill's source as a proposal, not into the copy. A skill whose source moved is refreshed by `update`; a source that moved while the copy was edited is a conflict a person settles.
+
 ## Decision path
 
 1. Runtime spikes, Orca and then Luvus, chose Luvus on 2026-09-26. It has fenced input that refuses at permission prompts, zero-token event waits, and exact process identity, and it is a 13 MB binary instead of a 556 MB Electron app.
