@@ -47,6 +47,8 @@ private val wakes =
     TimelineEntry(role = "hand", at = at(10), text = "wake: attempt.reported a1: r1 done")
   )
 
+private const val noSupervisorHint = "No supervisor is running; your message waits."
+
 private val conversation =
   listOf(
     TimelineEntry(
@@ -102,6 +104,7 @@ private fun pageState(
   draftNote: String = "",
   sending: Boolean = false,
   sendError: String = "",
+  sendNote: String = "",
   now: Long = NOW
 ) =
   ChatState(
@@ -121,6 +124,7 @@ private fun pageState(
     draftNote = draftNote,
     sending = sending,
     sendError = sendError,
+    sendNote = sendNote,
     now = now
   )
 
@@ -375,6 +379,53 @@ class ChatScreenTest {
   @Test
   fun composerBlockedDark() =
     shot(true, pageState(draft = said), hint = blockedHint, hintBlocked = true)
+
+  private fun sent(queued: Boolean) =
+    listOf(
+      TimelineEntry(
+        role = "operator",
+        at = at(58),
+        text = "Please look at the cookie rename before lunch.",
+        input = 7,
+        delivery = if (queued) "queued" else "delivered",
+        delivered = if (queued) "" else at(59),
+        queued = queued
+      )
+    ) + conversation
+
+  @Test
+  fun composerQueuedLight() = shot(false, pageState(entries = sent(true), draft = ""))
+
+  @Test
+  fun composerQueuedDark() = shot(true, pageState(entries = sent(true), draft = ""))
+
+  @Test
+  fun composerDeliveredLight() = shot(false, pageState(entries = sent(false)))
+
+  @Test
+  fun composerDeliveredDark() = shot(true, pageState(entries = sent(false)))
+
+  @Test
+  fun composerRetryLight() = shot(false, pageState(draft = said, sendError = UNSURE_SENT))
+
+  @Test
+  fun composerRetryDark() = shot(true, pageState(draft = said, sendError = UNSURE_SENT))
+
+  @Test
+  fun composerAlreadySentLight() =
+    shot(false, pageState(sendNote = "Already sent, delivered 04:40"))
+
+  @Test
+  fun composerAlreadySentDark() =
+    shot(true, pageState(sendNote = "Already sent, delivered 04:40"))
+
+  @Test
+  fun composerNoSupervisorLight() =
+    shot(false, pageState(draft = said), hint = noSupervisorHint, head = stoppedHead)
+
+  @Test
+  fun composerNoSupervisorDark() =
+    shot(true, pageState(draft = said), hint = noSupervisorHint, head = stoppedHead)
 
   @Test
   fun composerNoteLight() = shot(false, pageState(draft = said, draftNote = "Draft saved 12:40"))

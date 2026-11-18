@@ -246,7 +246,27 @@ the answer's `Timeline` replaces the conversation, so the operator's bubble read
 `delivered HH:mm` from the Board's own `queued`, `delivery` and `delivered` fields, never from a
 receipt the app makes up. A refusal keeps the text and shows the Board's `message` in the box's foot
 row, where the hint sits; an answer that cannot be read still empties the box and reads the
-conversation again, because the message is in. The hint is `Status.composer_hint` verbatim, follows
+conversation again, because the message is in. The API has no idempotency key, so a send whose
+answer is lost or times out (`Lost`, `TimedOut`) reads "Not sure the message was sent." and its
+button reads **Retry**: before it posts again it reads the timeline and, when an operator entry with
+the same text and an `input` newer than any held at the send is there, it clears the box instead of
+posting and says "Already sent, delivered HH:mm" (or the entry's `queued`) in the foot row until the
+next edit or send; when that read fails it does not post at all. This is a check, not a guarantee,
+and a message can still repeat in three windows: the Board accepts it late, after a `TimedOut`
+and after the timeline read (or between a Retry's read and its post), so the entry is not there yet;
+the process or Activity dies while the post is in flight, before `Lost` is known, so the draft
+returns but the check does not; and nothing in the API names a send, so there is no key to ask by.
+The same gap works the other way: an entry with the same text from another client after the send is
+taken for this one, and the box clears with the note. The text is compared with CRLF folded, which
+the Board does too, and the ends trimmed, which is the app's own tolerance. The Retry label shows
+after any send error, not only after `Lost` or `TimedOut`: the draft is kept, so a refused text can
+be sent again or edited, and only `Lost` and `TimedOut` make the next send read the timeline first.
+Every refusal shows its own sentence: the answer's `message` for `bad_request`, `forbidden` (or "The
+Board's controls are off." when it has none) and `internal`; "Your laptop is busy. Try again.",
+"Your laptop is not reachable." and "The Board is not running." for the transport's failures. With
+the keyboard up, `adjustResize` and the fleet screen's drawing insets keep the box above it, the tab
+bar hides while Chat is open, and the box's height cap is 40 % of what the keyboard leaves
+(`composerMaxDp`). The hint is `Status.composer_hint` verbatim, follows
 the fleet's `status` event or the 5-second poll and needs no timer of its own; while `agent_state`
 is `blocked` it takes the accent and opens Needs. The draft is one per fleet in the app's private
 `drafts` preferences file: written 300 ms after the last keystroke (each keystroke restarts the
@@ -254,7 +274,10 @@ wait) and when the Chat screen stops,
 restored only into an empty box, dropped by a successful send or by emptying the box by hand, kept by
 a failed send, and ignored once it is 30 days old. Each entry's key is `<fleet id>@<saved at, epoch
 ms>` and its value is the draft text alone; a decision's note lives in the same file under
-`<fleet id>/<dN>`.
+`<fleet id>/<dN>`. A `Lost` or `TimedOut` send also writes `<fleet id>!unsure` with the text and the
+newest operator `input` held at the send; a draft restored with that same text shows "Not sure the
+message was sent." and checks the timeline before it posts, so the check survives the process. Any
+edit away from that text, a successful send or an empty draft removes the key.
 
 `TaskScreen` reads `GET /api/v1/task/{tN}` once when it opens, with the envelope's cursor on later
 reads, and shows the Board's phone column: the open decisions and unread reports waiting on the
