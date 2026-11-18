@@ -704,6 +704,7 @@ internal fun ChatComposer(
   blocked: Boolean,
   sending: Boolean,
   error: String,
+  sendNote: String,
   note: String,
   draft: String,
   input: MutableState<TextFieldValue>,
@@ -762,6 +763,8 @@ internal fun ChatComposer(
           when {
             error.isNotEmpty() ->
               Text(error, Modifier.weight(1f), color = hand.ink(Tone.Fail), style = type.bodySmall)
+            sendNote.isNotEmpty() ->
+              Text(sendNote, Modifier.weight(1f), color = hand.muted, style = type.bodySmall)
             hint.isNotEmpty() ->
               Text(
                 hint,
@@ -880,6 +883,7 @@ fun ChatScreen(
             blocked = hintBlocked,
             sending = state.sending,
             error = state.sendError,
+            sendNote = state.sendNote,
             note = state.draftNote,
             draft = state.draft,
             input = input,

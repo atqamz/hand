@@ -104,6 +104,7 @@ private fun pageState(
   draftNote: String = "",
   sending: Boolean = false,
   sendError: String = "",
+  sendNote: String = "",
   now: Long = NOW
 ) =
   ChatState(
@@ -123,6 +124,7 @@ private fun pageState(
     draftNote = draftNote,
     sending = sending,
     sendError = sendError,
+    sendNote = sendNote,
     now = now
   )
 
@@ -408,6 +410,14 @@ class ChatScreenTest {
 
   @Test
   fun composerRetryDark() = shot(true, pageState(draft = said, sendError = UNSURE_SENT))
+
+  @Test
+  fun composerAlreadySentLight() =
+    shot(false, pageState(sendNote = "Already sent, delivered 04:40"))
+
+  @Test
+  fun composerAlreadySentDark() =
+    shot(true, pageState(sendNote = "Already sent, delivered 04:40"))
 
   @Test
   fun composerNoSupervisorLight() =

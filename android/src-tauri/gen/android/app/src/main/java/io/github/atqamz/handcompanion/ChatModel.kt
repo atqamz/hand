@@ -106,6 +106,7 @@ data class ChatState(
   val draftNote: String = "",
   val sending: Boolean = false,
   val sendError: String = "",
+  val sendNote: String = "",
   val now: Long = 0
 )
 
@@ -284,7 +285,15 @@ fun latestCount(current: Int, above: Boolean, added: List<TimelineEntry>) =
 
 const val UNSURE_SENT = "Not sure the message was sent."
 
-private data class UnsureSend(val text: String, val after: Long)
+data class UnsureSend(val text: String, val after: Long)
+
+private sealed interface Arrival {
+  data class Found(val entry: TimelineEntry) : Arrival
+
+  data object Absent : Arrival
+
+  data object Unread : Arrival
+}
 
 private fun sameMessage(entry: String, sent: String) =
   entry.replace("\r\n", "\n").trim() == sent.replace("\r\n", "\n").trim()
@@ -296,6 +305,19 @@ interface ComposerDrafts {
   fun read(fleet: String, now: Long): String
 
   fun write(fleet: String, text: String, now: Long)
+
+  fun readUnsure(fleet: String): UnsureSend?
+
+  fun writeUnsure(fleet: String, sent: UnsureSend?)
+}
+
+fun unsureKey(fleet: String) = "$fleet!unsure"
+
+fun encodeUnsure(sent: UnsureSend) = "${sent.after}\n${sent.text}"
+
+fun decodeUnsure(raw: String): UnsureSend? {
+  val after = raw.substringBefore('\n').toLongOrNull() ?: return null
+  return UnsureSend(raw.substringAfter('\n'), after)
 }
 
 fun draftKey(fleet: String, at: Long) = "$fleet@$at"
@@ -327,15 +349,31 @@ class PrefsComposerDrafts(
     val all = prefs.all
     val held = liveDraft(all, fleet, now, ttl)
     val keys = fleetDraftKeys(all, fleet)
-    if (held.isEmpty() && keys.isNotEmpty()) prefs.edit().apply { keys.forEach { remove(it) } }.apply()
+    if (held.isEmpty() && keys.isNotEmpty()) {
+      prefs.edit().apply {
+        keys.forEach { remove(it) }
+        remove(unsureKey(fleet))
+      }.apply()
+    }
     return held
+  }
+
+  override fun readUnsure(fleet: String): UnsureSend? {
+    return decodeUnsure(prefs.getString(unsureKey(fleet), null) ?: return null)
+  }
+
+  override fun writeUnsure(fleet: String, sent: UnsureSend?) {
+    prefs.edit().apply {
+      if (sent == null) remove(unsureKey(fleet))
+      else putString(unsureKey(fleet), encodeUnsure(sent))
+    }.apply()
   }
 
   override fun write(fleet: String, text: String, now: Long) {
     val keys = fleetDraftKeys(prefs.all, fleet)
     prefs.edit().apply {
       keys.forEach { remove(it) }
-      if (text.isNotEmpty()) putString(draftKey(fleet, now), text)
+      if (text.isNotEmpty()) putString(draftKey(fleet, now), text) else remove(unsureKey(fleet))
     }.apply()
   }
 }
@@ -383,14 +421,29 @@ class ChatModel(
   fun restoreDraft() {
     val held = drafts.read(fleet, nowMillis())
     if (held.isEmpty()) return
+    val restored = drafts.readUnsure(fleet)?.takeIf { it.text == held }
     mutableState.update {
-      if (it.draft.isNotEmpty()) it else it.copy(draft = held, draftNote = "Draft restored")
+      if (it.draft.isNotEmpty()) it
+      else {
+        unsure = restored
+        it.copy(
+          draft = held,
+          draftNote = "Draft restored",
+          sendError = if (restored == null) it.sendError else UNSURE_SENT
+        )
+      }
     }
   }
 
   fun edit(text: String) {
-    mutableState.update { it.copy(draft = text, sendError = "") }
+    if (unsure?.let { it.text != text } == true) holdUnsure(null)
+    mutableState.update { it.copy(draft = text, sendError = "", sendNote = "") }
     edits.trySend(Unit)
+  }
+
+  private fun holdUnsure(sent: UnsureSend?) {
+    unsure = sent
+    drafts.writeUnsure(fleet, sent)
   }
 
   fun flushDraft() {
@@ -430,22 +483,26 @@ class ChatModel(
     val state = mutableState.value
     if (state.sending || state.draft.isBlank()) return
     val text = state.draft
-    mutableState.update { it.copy(sending = true, sendError = "") }
+    mutableState.update { it.copy(sending = true, sendError = "", sendNote = "") }
     flushDraft()
     try {
       val prior = unsure?.takeIf { it.text == text }
       if (prior != null) {
-        when (landed(text, prior.after)) {
-          true -> {
-            unsure = null
+        when (val found = landed(text, prior.after)) {
+          is Arrival.Found -> {
+            holdUnsure(null)
             accepted(text)
+            val words = deliveryWords(found.entry)
+            mutableState.update {
+              it.copy(sendNote = if (words.isEmpty()) "Already sent" else "Already sent, $words")
+            }
             return
           }
-          null -> {
+          Arrival.Unread -> {
             mutableState.update { it.copy(sendError = UNSURE_SENT) }
             return
           }
-          false -> unsure = null
+          Arrival.Absent -> holdUnsure(null)
         }
       }
       val after = lastInput()
@@ -467,9 +524,9 @@ class ChatModel(
           error == BoardError.Unpaired ->
             mutableState.update { it.copy(unpaired = true, sending = false) }
           error == BoardError.Lost || error == BoardError.TimedOut -> {
-            unsure = UnsureSend(text, after)
-            if (landed(text, after) == true) {
-              unsure = null
+            holdUnsure(UnsureSend(text, after))
+            if (landed(text, after) is Arrival.Found) {
+              holdUnsure(null)
               accepted(text)
             } else {
               mutableState.update { it.copy(sendError = sendWords(error)) }
@@ -488,17 +545,17 @@ class ChatModel(
       .filter { it.entry.role == "operator" }
       .maxOfOrNull { it.entry.input } ?: 0L
 
-  private suspend fun landed(text: String, after: Long): Boolean? =
+  private suspend fun landed(text: String, after: Long): Arrival =
     try {
       val read = client.read("timeline", TimelineData.serializer())
       cursor = read.cursor
       fill(read.data)
-      read.data.entries.any {
-        it.role == "operator" && it.input > after && sameMessage(it.text, text)
-      }
+      read.data.entries
+        .firstOrNull { it.role == "operator" && it.input > after && sameMessage(it.text, text) }
+        ?.let { Arrival.Found(it) } ?: Arrival.Absent
     } catch (error: BoardError) {
       if (error == BoardError.Unpaired) mutableState.update { it.copy(unpaired = true) }
-      null
+      Arrival.Unread
     }
 
   private fun accepted(sent: String) {
