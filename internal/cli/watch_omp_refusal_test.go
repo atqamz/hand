@@ -78,7 +78,7 @@ func TestWatchAnOmpRefusalLineThatReturnsIsNeverAnAPIError(t *testing.T) {
 	if n := strings.Count(got, ",attempt.limited,"); n != 1 {
 		t.Fatalf("attempt.limited recorded %d times for one line: %q", n, got)
 	}
-	if strings.Contains(got, "api error") || !strings.Contains(got, `,attempt.quiet,t1,"a1: turn ended without a new report; will not clear by itself: 402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002) (type=insufficient_balance_error param=invalid_request_error)"`) {
+	if strings.Contains(got, "api error") || !strings.Contains(got, `,attempt.quiet,t1,"a1: turn ended without a new report: will not clear by itself: 402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002) (type=insufficient_balance_error param=invalid_request_error)"`) {
 		t.Fatalf("wait = %q", got)
 	}
 }

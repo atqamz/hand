@@ -145,7 +145,7 @@ func Refusal(e Event) (string, bool) {
 		return strings.CutPrefix(rest, Refused)
 	case "attempt.quiet", "attempt.idle":
 		if strings.HasPrefix(rest, "turn ended") {
-			_, cause, ok := strings.Cut(rest, "; "+Refused)
+			_, cause, ok := strings.Cut(rest, ": "+Refused)
 			return cause, ok
 		}
 	}

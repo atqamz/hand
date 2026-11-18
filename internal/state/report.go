@@ -260,7 +260,7 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64, apiError strin
 			}
 		}
 		if refused {
-			detail += "; " + apiError
+			detail += ": " + apiError
 		}
 		last, _, err := lastAttemptEvent(ctx, tx, attemptID)
 		if err != nil {

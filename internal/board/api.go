@@ -2439,7 +2439,7 @@ var screenKinds = map[string]bool{
 }
 
 func fromScreen(detail string) bool {
-	return strings.Contains(detail, "api error: ") || strings.Contains(detail, state.Refused)
+	return strings.Contains(detail, "api error: ") || strings.Contains(detail, "turn ended") && strings.Contains(detail, ": "+state.Refused)
 }
 
 func apiEvent(e state.Event) APIEvent {

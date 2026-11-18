@@ -2424,6 +2424,7 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 			rec("assistant", ago(19), "All good.", 0),
 			rec("user", ago(2), "Please investigate api error: timeout", 0),
 			rec("user", ago(1), "[hand v1 wake]\nattempt.limited a1: SECRET-SCREEN-TEXT; leaked-after-semicolon", 0),
+			rec("user", ago(1), "[hand v1 wake]\nattempt.quiet a1: turn ended without a new report: will not clear by itself: SECRET-SCREEN-TEXT; leaked-quiet-tail", 0),
 		})
 		h := fx.handler()
 		for _, c := range []string{
@@ -2460,6 +2461,9 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		}
 		if !conversation {
 			t.Fatal("the timeline dropped conversation text that names an API error")
+		}
+		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-quiet-tail") {
+			t.Fatalf("the timeline kept a repeated refusal after a semicolon:\n%s", raw)
 		}
 		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-after-semicolon") {
 			t.Fatalf("the timeline kept a screen detail after a semicolon:\n%s", raw)

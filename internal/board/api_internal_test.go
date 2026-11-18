@@ -224,3 +224,17 @@ func TestAPanicWhileReadingTheVersionIsAnError(t *testing.T) {
 		t.Fatalf("a version read that panicked = %v", err)
 	}
 }
+
+func TestFromScreenKeepsATimerNoteThatQuotesTheRefusalWords(t *testing.T) {
+	for detail, want := range map[string]bool{
+		"turn ended without a new report: will not clear by itself: 402 x":  true,
+		"turn ended; reported r1 progress: will not clear by itself: 402 x": true,
+		"api error: API Error: boom":                                        true,
+		"t1: This will not clear by itself: check the deploy":               false,
+		"turn ended without a new report":                                   false,
+	} {
+		if got := fromScreen(detail); got != want {
+			t.Errorf("fromScreen(%q) = %v, want %v", detail, got, want)
+		}
+	}
+}
