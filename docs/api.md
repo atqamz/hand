@@ -327,9 +327,9 @@ A file reaches the supervisor in two steps, as it does from the web composer: up
 {"name": "20261101-050000-1-shot.png", "label": "shot.png", "kind": "image", "size": 40}
 ```
 
-`name` is the file's name in `inbox/` and the only handle to it. `label` is the name the operator sees (`name` without its stamp), `kind` is `image` or `file`, and `size` is the stored bytes. The answer is `200`, like every action's, and carries no receipt.
+`name` is the file's name in `inbox/` and the only handle to it. `label` is the name the operator sees (`name` without its stamp), `kind` is `image` or `file`, and `size` is the stored bytes, and an empty file is stored as the page stores it, with `size` `0`. The answer is `200`, like every action's, and carries no receipt.
 
-- `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`.
+- `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`; a part with no file name is a value, not a file.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired phone.
 - `413 too_large`: a file over 10 MiB (`a file can be at most 10 MiB`) or a post over 11 MiB (`the request is too large`). Nothing is stored.
