@@ -309,6 +309,27 @@ func TestLastAttemptEventMatchesTheExactRef(t *testing.T) {
 	}
 }
 
+func TestContextMarksMatchTheExactRefAndLeaveTheLastEventAlone(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	for _, e := range [][2]string{{"attempt.quiet", "a1: turn ended"}, {"attempt.context", "a1: 100000: context 101000"}, {"attempt.context", "a10: 150000: context 151000"}, {"attempt.context_unknown", "a1: copilot reports no context"}} {
+		if err := s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), e[0], 0, e[1]) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marks, unknown, err := s.ContextMarks(ctx, 1)
+	if err != nil || len(marks) != 1 || !marks[100000] || !unknown {
+		t.Fatalf("a1: %v, %v, %v", marks, unknown, err)
+	}
+	marks, unknown, err = s.ContextMarks(ctx, 10)
+	if err != nil || len(marks) != 1 || !marks[150000] || unknown {
+		t.Fatalf("a10: %v, %v, %v", marks, unknown, err)
+	}
+	if kind, err := s.LastAttemptEvent(ctx, 1); err != nil || kind != "attempt.quiet" {
+		t.Fatalf("a1 last: %q, %v", kind, err)
+	}
+}
+
 func TestAttemptSignalsNameEachLiveAttemptsLatestEvent(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
