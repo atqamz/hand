@@ -215,7 +215,7 @@ func TestRolloverStartsAFreshSessionOnceTheSupervisorIsOverTheLimitAndStill(t *t
 		}
 	}
 	note := filepath.Join(fx.h.home, "memory", "handoff.md")
-	has(t, "request", ask, "350k tokens", "300k", note, "`done`", "open offer")
+	has(t, "request", ask, "350k tokens", "300k", note, "`done`", "open offer", "never shorten an open offer")
 	sups := fx.supervisors(t)
 	if sups[0].Status != state.AttemptStopped || !sups[1].Live() || sups[1].Harness != "claude" || sups[1].Model != "sonnet" || sups[1].Effort != "low" || sups[1].Session == old {
 		t.Fatalf("supervisors = %+v", sups)

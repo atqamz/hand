@@ -666,7 +666,7 @@ func TestFleetImportRemovesATruncatedArchiveFile(t *testing.T) {
 
 func TestFleetImportLeavesTheLastTurnsFileBehind(t *testing.T) {
 	fx := importFixture(t)
-	for name, body := range map[string]string{"last-turns.md": "conversation text\n", "handoff.md": "the note\n"} {
+	for name, body := range map[string]string{"last-turns.md": "conversation text\n", ".last-turns.md-482913": "partial conversation text\n", "handoff.md": "the note\n"} {
 		p := filepath.Join(fx.src, "memory", name)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -676,8 +676,10 @@ func TestFleetImportLeavesTheLastTurnsFileBehind(t *testing.T) {
 		}
 	}
 	fx.h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
-	if _, err := os.Stat(filepath.Join(fx.dest, "memory", "last-turns.md")); !os.IsNotExist(err) {
-		t.Fatalf("last-turns.md was imported: %v", err)
+	for _, name := range []string{"last-turns.md", ".last-turns.md-482913"} {
+		if _, err := os.Stat(filepath.Join(fx.dest, "memory", name)); !os.IsNotExist(err) {
+			t.Fatalf("%s was imported: %v", name, err)
+		}
 	}
 	if got, err := os.ReadFile(filepath.Join(fx.dest, "memory", "handoff.md")); err != nil || string(got) != "the note\n" {
 		t.Fatalf("handoff.md: %q, %v", got, err)

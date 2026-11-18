@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -92,8 +93,8 @@ func TestLastTurnsCutsOnRuneBoundaries(t *testing.T) {
 
 func TestLastTurnsStopsAtAnOversizedEntryInTheMiddle(t *testing.T) {
 	big := strings.Repeat("x", 4000)
-	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "oldest"), tailTurn("supervisor", big), tailTurn("operator", "newest")})
-	if !strings.Contains(got, "newest") || !strings.Contains(got, "bytes cut") || strings.Contains(got, "oldest") {
+	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "Y"), tailTurn("operator", "oldest"), tailTurn("supervisor", big), tailTurn("operator", "newest")})
+	if !strings.Contains(got, "newest") || !strings.Contains(got, "bytes cut") || strings.Contains(got, "oldest") || strings.Contains(got, "\n\nY\n") {
 		t.Fatalf("%s", got)
 	}
 }
@@ -192,5 +193,138 @@ func TestWriteLastTurnsLeavesOnlyTheFileAndReplacesAnOldOne(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Join(home, "memory"))
 	if len(entries) != 1 || entries[0].Name() != "last-turns.md" {
 		t.Fatalf("memory/ holds %v", entries)
+	}
+}
+
+func TestCutMiddleKeepsWholeRunesOnBothSides(t *testing.T) {
+	for _, r := range []string{"é", "日", "😀"} {
+		for shift := 0; shift < len(r); shift++ {
+			for _, left := range []int{300, 301, 302, 303, 3068, 3069, 3070, 3071, 3072, 3073, 3074, 3075, 3076} {
+				text := strings.Repeat("a", shift) + strings.Repeat(r, 2000)
+				got := cutMiddle(text, left)
+				if !utf8.ValidString(got) {
+					t.Fatalf("%q shift %d left %d: invalid UTF-8", r, shift, left)
+				}
+				_, rest, ok := strings.Cut(got, " bytes cut …]\n")
+				if !ok || strings.Trim(rest, r) != "" || rest == "" {
+					t.Fatalf("%q shift %d left %d: the end is not whole runes: %q", r, shift, left, rest)
+				}
+			}
+		}
+	}
+}
+
+func TestCutMiddleLandsOnAContinuationByteOfEveryWidth(t *testing.T) {
+	for _, r := range []string{"é", "日", "😀"} {
+		hit := false
+		for shift := 0; shift < len(r); shift++ {
+			for left := 3068; left <= 3076; left++ {
+				text := strings.Repeat("a", shift) + strings.Repeat(r, 2000)
+				keep := left - len(fmt.Sprintf("\n[… %d bytes cut …]\n", len(text)))
+				if i := len(text) - (keep - keep/3); !utf8.RuneStart(text[i]) {
+					hit = true
+				}
+			}
+		}
+		if !hit {
+			t.Fatalf("%q: the tail index never lands inside a rune", r)
+		}
+	}
+}
+
+func TestLastTurnsKeepsTheTextWithinTheBudgetAndThePinnedSize(t *testing.T) {
+	body := func(got string) string {
+		_, b, _ := strings.Cut(got[strings.Index(got, "## supervisor"):], "\n\n")
+		return strings.TrimSuffix(b, "\n")
+	}
+	if tailBytes != 3072 {
+		t.Fatalf("tailBytes = %d", tailBytes)
+	}
+	exact := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("supervisor", strings.Repeat("a", 3072))})
+	if strings.Contains(exact, "bytes cut") || len(body(exact)) != 3072 {
+		t.Fatalf("an entry of exactly 3072 bytes was cut: %d", len(body(exact)))
+	}
+	for _, n := range []int{3073, 3074, 3100, 9999, 10000, 100000} {
+		got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("supervisor", strings.Repeat("a", n))})
+		if b := body(got); !strings.Contains(b, "bytes cut") || len(b) > 3072 || len(b) < 3050 {
+			t.Fatalf("%d bytes became %d: %s", n, len(b), b)
+		}
+	}
+	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", strings.Repeat("O", 1000)), tailTurn("supervisor", strings.Repeat("K", 2000)), tailTurn("operator", strings.Repeat("Q", 2000))})
+	if n := strings.Count(got, "Q"); n != 2000 {
+		t.Fatalf("newest entry: %d bytes", n)
+	}
+	if n := strings.Count(got, "K"); n == 0 || n > 3072-2000 || strings.Contains(got, "O") || !strings.Contains(got, "bytes cut") {
+		t.Fatalf("older entry: %d bytes, %s", n, got[:300])
+	}
+}
+
+func TestLastTurnsDropsAnEntryWhenNothingFitsBesideTheMarker(t *testing.T) {
+	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "older"), tailTurn("supervisor", strings.Repeat("s", 5000)), tailTurn("operator", strings.Repeat("n", 3060))})
+	if strings.Contains(got, "bytes cut") || strings.Contains(got, "ssss") || strings.Contains(got, "older") || !strings.Contains(got, strings.Repeat("n", 3060)) {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestLastTurnsHeaderIsInUTC(t *testing.T) {
+	now := time.Date(2026, 11, 18, 19, 17, 42, 0, time.FixedZone("west", 7*3600))
+	if got := lastTurns("s1", now, []transcript.Entry{tailTurn("operator", "hi")}); !strings.Contains(got, "ended at 2026-11-18T12:17:42Z.") {
+		t.Fatalf("%s", got)
+	}
+}
+
+func tailWatcher(t *testing.T) (*watcher, *bytes.Buffer, string) {
+	t.Helper()
+	home := t.TempDir()
+	var out bytes.Buffer
+	return &watcher{r: &runner{env: Env{Stdout: &out, Now: func() time.Time { return tailNow }}, home: home}}, &out, home
+}
+
+func TestSettleTailRemovesTheStaleFileAndSaysOnceWhenTheWriteFails(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		fill  bool
+		stays bool
+	}{{"stale file replaced by an empty folder", false, false}, {"the stale path cannot be removed", true, true}} {
+		t.Run(c.name, func(t *testing.T) {
+			w, out, home := tailWatcher(t)
+			path := lastTurnsPath(home)
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if c.fill {
+				if err := os.WriteFile(filepath.Join(path, "x"), []byte("x"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := w.settleTail("text\n", nil); got != "" {
+				t.Fatalf("settleTail returned %q", got)
+			}
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) == c.stays {
+				t.Fatalf("stat %s: %v", path, err)
+			}
+			if n := strings.Count(out.String(), "last turns not carried"); n != 1 || strings.Count(out.String(), "\n") > 2 {
+				t.Fatalf("%d log lines: %q", n, out.String())
+			}
+			if c.stays && !strings.Contains(out.String(), "the old file stays") {
+				t.Fatalf("%q", out.String())
+			}
+			left, _ := os.ReadDir(filepath.Join(home, "memory"))
+			for _, e := range left {
+				if e.Name() != "last-turns.md" {
+					t.Fatalf("a temp file stays: %s", e.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestSettleTailWritesTheFileAndSaysNothingWhenItWorks(t *testing.T) {
+	w, out, home := tailWatcher(t)
+	if got := w.settleTail("text\n", nil); got != lastTurnsPath(home) || out.Len() != 0 {
+		t.Fatalf("%q, log %q", got, out.String())
+	}
+	if got, err := os.ReadFile(lastTurnsPath(home)); err != nil || string(got) != "text\n" {
+		t.Fatalf("%q, %v", got, err)
 	}
 }

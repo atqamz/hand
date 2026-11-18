@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+var dashes = strings.Repeat("-", 5)
+
 func TestTextRemovesEachKnownShape(t *testing.T) {
 	cases := []struct{ name, in, kind string }{
 		{"ghp", "ghp_" + strings.Repeat("a", 36), "github-token"},
@@ -20,6 +22,11 @@ func TestTextRemovesEachKnownShape(t *testing.T) {
 		{"jwt", "eyJ" + strings.Repeat("a", 10) + ".eyJ" + strings.Repeat("b", 10) + "." + strings.Repeat("c", 10), "jwt"},
 		{"private key", "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat("Zm9v", 20) + "\n-----END RSA PRIVATE KEY-----", "private-key"},
 		{"bearer", "Bearer " + strings.Repeat("g", 24), "bearer"},
+		{"lowercase bearer", "bearer " + strings.Repeat("g", 24), "bearer"},
+		{"stripe live", "sk_live_" + strings.Repeat("h", 24), "api-key"},
+		{"stripe restricted test", "rk_test_" + strings.Repeat("H", 24), "api-key"},
+		{"npm", "npm_" + strings.Repeat("n", 36), "npm-token"},
+		{"pgp block", dashes + "BEGIN PGP PRIVATE KEY BLOCK" + dashes + "\nlQdG\n" + dashes + "END PGP PRIVATE KEY BLOCK" + dashes, "private-key"},
 	}
 	for _, c := range cases {
 		got := Text("before " + c.in + " after")
@@ -86,5 +93,75 @@ func TestTextHandlesALargeInputInBoundedTime(t *testing.T) {
 	Text(in)
 	if d := time.Since(start); d > time.Minute {
 		t.Fatalf("took %s", d)
+	}
+}
+
+func TestTextKeepsTheBasicSchemeButNotTheCredentials(t *testing.T) {
+	cred := "dXNlcjpwYXNzd29yZDEy"
+	cases := map[string]string{
+		"Authorization: Basic " + cred + "==":     "Authorization: Basic [redacted:basic-auth]",
+		`-H "authorization: basic ` + cred + `"`:  `-H "authorization: basic [redacted:basic-auth]"`,
+		"Proxy-Authorization: Basic " + cred:      "Proxy-Authorization: Basic [redacted:basic-auth]",
+		`{"Authorization": "Basic ` + cred + `"}`: `{"Authorization": "Basic [redacted:basic-auth]"}`,
+		"Basic " + cred + " outside a header":     "Basic " + cred + " outside a header",
+		"Authorization: Basic":                    "Authorization: Basic",
+	}
+	for in, want := range cases {
+		got := Text(in)
+		if got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+		if again := Text(got); again != got {
+			t.Errorf("%q then %q", got, again)
+		}
+	}
+}
+
+func TestTextRemovesAQuotedMultiWordValue(t *testing.T) {
+	cases := map[string]string{
+		"password='two words here'":                              `password='[redacted:assignment]'`,
+		`password: "correct horse battery staple"`:               `password: "[redacted:assignment]"`,
+		`{"passphrase": "a long phrase, with commas"}`:           `{"passphrase": "[redacted:assignment]"}`,
+		`"token": "123456789012"`:                                `"token": "123456789012"`,
+		`password: "[redacted:jwt]"`:                             `password: "[redacted:jwt]"`,
+		"PASSWORD='two words'":                                   "PASSWORD='two words'",
+		`{"token": "short", "note": "this is plain prose here"}`: `{"token": "short", "note": "this is plain prose here"}`,
+	}
+	for in, want := range cases {
+		got := Text(in)
+		if got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+		if again := Text(got); again != got {
+			t.Errorf("%q then %q", got, again)
+		}
+	}
+}
+
+func TestTextOnlyTakesSecretNamesNotWordsThatStartWithOne(t *testing.T) {
+	long := strings.Repeat("v", 20)
+	for _, in := range []string{
+		"secret_santa: organise_the_party_soon",
+		"token_expires_at: 2026-11-18T10:00:00Z",
+		"credential_helper = osxkeychain-store-long",
+		"passwordless: yes_for_the_whole_fleet",
+	} {
+		if got := Text(in); got != in {
+			t.Errorf("%q -> %q", in, got)
+		}
+	}
+	for in, want := range map[string]string{
+		"aws_secret_access_key = " + long: "aws_secret_access_key = [redacted:assignment]",
+		"AWS_SECRET_ACCESS_KEY=" + long:   "AWS_SECRET_ACCESS_KEY=[redacted:assignment]",
+		"SECRET_KEY_BASE: " + long:        "SECRET_KEY_BASE: [redacted:assignment]",
+		"client_secret_value=" + long:     "client_secret_value=[redacted:assignment]",
+		"api_key_id: " + long:             "api_key_id: [redacted:assignment]",
+		"GITHUB_TOKEN=" + long:            "GITHUB_TOKEN=[redacted:assignment]",
+		"credentials: " + long:            "credentials: [redacted:assignment]",
+		"private_key=" + long:             "private_key=[redacted:assignment]",
+	} {
+		if got := Text(in); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
 	}
 }

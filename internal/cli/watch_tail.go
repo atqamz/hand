@@ -19,6 +19,8 @@ import (
 const (
 	tailEntries = 6
 	tailBytes   = 3072
+
+	lastTurnsTemp = ".last-turns.md-"
 )
 
 var errNoTurns = errors.New("the session holds no operator or supervisor turn")
@@ -52,19 +54,19 @@ func lastTurns(ref string, now time.Time, entries []transcript.Entry) string {
 		if text == "" {
 			continue
 		}
-		last := false
 		if len(text) > left {
-			text, last = cutMiddle(text, left), true
+			text, left = cutMiddle(text, left), 0
+		} else {
+			left -= len(text)
 		}
-		left -= len(text)
+		if text == "" {
+			continue
+		}
 		head := "## " + kept[i].Role
 		if kept[i].At != "" {
 			head += ", " + kept[i].At
 		}
 		parts = append([]string{head + "\n\n" + text}, parts...)
-		if last {
-			break
-		}
 	}
 	if len(parts) == 0 {
 		return ""
@@ -73,15 +75,20 @@ func lastTurns(ref string, now time.Time, entries []transcript.Entry) string {
 }
 
 func cutMiddle(text string, left int) string {
-	head := left / 3
+	const marker = "\n[… %d bytes cut …]\n"
+	keep := left - len(fmt.Sprintf(marker, len(text)))
+	if keep <= 0 {
+		return ""
+	}
+	head := keep / 3
 	for head > 0 && !utf8.RuneStart(text[head]) {
 		head--
 	}
-	tail := len(text) - (left - left/3)
+	tail := len(text) - (keep - keep/3)
 	for tail < len(text) && !utf8.RuneStart(text[tail]) {
 		tail++
 	}
-	return fmt.Sprintf("%s\n[… %d bytes cut …]\n%s", text[:head], tail-head, text[tail:])
+	return text[:head] + fmt.Sprintf(marker, tail-head) + text[tail:]
 }
 
 func writeLastTurns(home, text string) error {
@@ -89,7 +96,7 @@ func writeLastTurns(home, text string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, ".last-turns.md-")
+	f, err := os.CreateTemp(dir, lastTurnsTemp)
 	if err != nil {
 		return err
 	}
