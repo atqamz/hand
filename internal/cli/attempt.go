@@ -132,10 +132,10 @@ func cmdAttemptStart(r *runner, args []string) error {
 	}
 	var compact int
 	if spec.Harness == "claude" {
-		if p, err := harness.LoadPolicy(r.home); err != nil {
-			r.warn(fmt.Sprintf("the worker starts without worker.compact_percent: %v", err))
-		} else {
+		if p, err := harness.LoadPolicy(r.home); err == nil {
 			compact = p.Worker.CompactPercent
+		} else if _, serr := os.Stat(filepath.Join(r.home, harness.PolicyFile)); !errors.Is(serr, os.ErrNotExist) {
+			r.warn(fmt.Sprintf("the worker starts without worker.compact_percent: %v", err))
 		}
 	}
 	exe, err := os.Executable()

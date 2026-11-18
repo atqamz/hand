@@ -39,7 +39,7 @@ func cmdAttemptExec(r *runner, args []string) error {
 		return usageError{fmt.Sprintf("attempt _exec: %v", err)}
 	}
 	if *compact < 0 || *compact > 100 {
-		return usageError{fmt.Sprintf("attempt _exec: --compact-percent is %d; give 1 to 100", *compact)}
+		return usageError{fmt.Sprintf("attempt _exec: --compact-percent is %d; give 0 to 100, 0 is off", *compact)}
 	}
 	argv := fs.Args()
 	scratch, err := attemptScratch(*root, *dir, argv)

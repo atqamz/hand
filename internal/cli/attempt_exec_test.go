@@ -762,7 +762,11 @@ func TestAttemptLaunchPassesTheCompactPercentOnlyToAClaudeWorker(t *testing.T) {
 		{"claude with the key", `{"worker":{"compact_percent":60}}`, "claude", "60", true},
 		{"claude without the key", `{}`, "claude", "90", false},
 		{"claude with the key off", `{"worker":{"compact_percent":0}}`, "claude", "90", false},
+		{"claude with the key at 100", `{"worker":{"compact_percent":100}}`, "claude", "100", true},
 		{"codex with the key", `{"worker":{"compact_percent":60}}`, "codex", "90", false},
+		{"omp with the key", `{"worker":{"compact_percent":60}}`, "omp", "90", false},
+		{"agy with the key", `{"worker":{"compact_percent":60}}`, "agy", "90", false},
+		{"copilot with the key", `{"worker":{"compact_percent":60}}`, "copilot", "90", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fx := newAttemptFixture(t)
@@ -775,7 +779,11 @@ func TestAttemptLaunchPassesTheCompactPercentOnlyToAClaudeWorker(t *testing.T) {
 			dir := t.TempDir()
 			fakebin.Install(t, dir, tc.harness, "env", map[string]string{"out": out})
 			fx.h.vars["PATH"] = dir
-			fx.h.ok("attempt", "start", "--harness", tc.harness, "--model", "m", "--effort", "low", "--prompt-file", fx.brief, "t1")
+			args := []string{"--effort", "low"}
+			if tc.harness == "agy" {
+				args = nil
+			}
+			fx.h.ok(append([]string{"attempt", "start", "--harness", tc.harness, "--model", "m"}, append(args, "--prompt-file", fx.brief, "t1")...)...)
 			eventually(t, func() bool { return envWritten(out) })
 			env, _ := readScratchEnv(t, out)
 			if env[name] != tc.want {
@@ -818,5 +826,26 @@ func TestAttemptExecRefusesACompactPercentOutOfRange(t *testing.T) {
 		if !errors.As(err, &exited) || exited.ExitCode() != 2 || !strings.Contains(string(out), "--compact-percent") {
 			t.Fatalf("%s: exit = %v, output %q; want 2 naming the flag", v, err, out)
 		}
+	}
+}
+
+func TestAttemptStartWithoutRoutingJSONStartsSilently(t *testing.T) {
+	fx := newAttemptFixture(t)
+	t.Setenv("HAND_TEST_AS_HAND", "1")
+	fx.rt.env = append(fx.rt.env, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90")
+	if err := os.Remove(filepath.Join(fx.h.home, "routing.json")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "env")
+	dir := t.TempDir()
+	fakebin.Install(t, dir, "claude", "env", map[string]string{"out": out})
+	fx.h.vars["PATH"] = dir
+	started := fx.h.ok("attempt", "start", "--harness", "claude", "--model", "m", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if strings.Contains(started, "compact_percent") {
+		t.Fatalf("start output %q; a missing routing.json must start without a warn", started)
+	}
+	eventually(t, func() bool { return envWritten(out) })
+	if env, _ := readScratchEnv(t, out); env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] != "90" {
+		t.Errorf("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = %q, want the inherited 90", env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"])
 	}
 }

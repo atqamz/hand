@@ -237,7 +237,7 @@ func LoadPolicy(home string) (Policy, error) {
 		return Policy{}, fmt.Errorf("%w: %s: supervisor.rollover_tokens is %d; give a token count, or 0 to turn the rollover off", state.ErrInvalid, path, p.Supervisor.RolloverTokens)
 	}
 	if p.Worker.CompactPercent < 0 || p.Worker.CompactPercent > 100 {
-		return Policy{}, fmt.Errorf("%w: %s: worker.compact_percent is %d; give a percentage from 1 to 100, or leave it out", state.ErrInvalid, path, p.Worker.CompactPercent)
+		return Policy{}, fmt.Errorf("%w: %s: worker.compact_percent is %d; give a percentage from 0 to 100 (0 is off), or leave it out", state.ErrInvalid, path, p.Worker.CompactPercent)
 	}
 	if p.Removed != nil {
 		return Policy{}, fmt.Errorf("%w: %s: \"profiles\" was removed; delete the key and start workers with --harness, --model and --effort (see docs/update.md)", state.ErrInvalid, path)
