@@ -204,7 +204,7 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	holdWatchLock(t, fx.h.home)
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
-	window, entry := rows["desktop window"], rows["desktop entry"]
+	window, entry, shortcut := rows["desktop window"], rows["desktop entry"], rows["start menu shortcut"]
 	if runtime.GOOS != "windows" {
 		if window[0] != "" {
 			t.Fatalf("a desktop window row off Windows: %q", window)
@@ -216,6 +216,46 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	}
 	if entry[0] != "" {
 		t.Fatalf("a launcher entry row on Windows: %q", entry)
+	}
+	if shortcut[0] != "warn" || !strings.Contains(shortcut[1], "is missing") {
+		t.Fatalf("start menu shortcut = %q", shortcut)
+	}
+}
+
+func TestDoctorStartMenuShortcutRow(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the Start Menu shortcut is written on Windows only")
+	}
+	fx := newDoctorFixture(t)
+	buildChannel(t, "edge")
+	holdWatchLock(t, fx.h.home)
+	roaming := t.TempDir()
+	fx.h.vars["APPDATA"] = roaming
+	getenv := func(k string) string { return fx.h.vars[k] }
+	lnk := filepath.Join(roaming, "Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")
+	row := func() [2]string { return checkRows(t, fx.h.ok("doctor"))["start menu shortcut"] }
+	if r := row(); r[0] != "" {
+		t.Fatalf("a row without hand-desktop: %q", r)
+	}
+	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+	if r := row(); r[0] != "warn" || !strings.Contains(r[1], "is missing") {
+		t.Fatalf("missing = %q", r)
+	}
+	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"], runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := launcher.Sync(getenv, bin); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); r[0] != "ok" {
+		t.Fatalf("synced = %q", r)
+	}
+	if err := os.WriteFile(lnk, []byte("not a shortcut"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); r[0] != "warn" || !strings.Contains(r[1], "not Hand's launcher entry") {
+		t.Fatalf("foreign = %q", r)
 	}
 }
 

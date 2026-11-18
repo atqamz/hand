@@ -398,11 +398,15 @@ func (o Options) launcher(rep *Report, on bool, bin string) {
 	} else {
 		skipped, err = launcher.Remove(o.Getenv)
 	}
+	rep.launcherResult(skipped, err)
+}
+
+func (rep *Report) launcherResult(skipped string, err error) {
 	if err != nil {
 		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
 	}
 	if skipped != "" {
-		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (no X-Hand-Managed=true line); it was left alone", skipped))
+		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker))
 	}
 }
 
@@ -424,6 +428,7 @@ func (o Options) dropWindow(rep *Report, desktopOn bool, bin string) {
 		return
 	}
 	rep.Desktop += "; removed the installed " + name
+	rep.launcherResult(launcher.Remove(o.Getenv))
 }
 
 func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string, string, error) {

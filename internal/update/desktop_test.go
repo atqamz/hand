@@ -622,3 +622,81 @@ func TestRunReportsAFailedRemovalOfTheInstalledWindowAndFinishes(t *testing.T) {
 	}
 	f.windowKept(t)
 }
+
+func skipUnlessWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("the Start Menu shortcut is written on Windows only, and the downloaded hand must run")
+	}
+}
+
+func TestRunWritesTheStartMenuShortcutOnAWindowsEdgeUpdate(t *testing.T) {
+	skipUnlessWindows(t)
+	f := windowFixture(t, "edge")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || len(rep.Help) != 0 {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if state, where := launcher.Check(f.o.Getenv, desktopPath(f.target, "windows")); state != launcher.OK {
+		t.Fatalf("the shortcut is %q at %s", state, where)
+	}
+	f.o.Check = true
+	f.isCurrent()
+	if err := os.Remove(filepath.Join(f.data, "Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	if state, _ := launcher.Check(f.o.Getenv, desktopPath(f.target, "windows")); state != launcher.Missing {
+		t.Fatalf("--check wrote the shortcut: %q", state)
+	}
+}
+
+func TestRunRemovesTheStartMenuShortcutWithTheWindowOnAStableWindowsUpdate(t *testing.T) {
+	skipUnlessWindows(t)
+	for _, current := range []bool{false, true} {
+		f := windowFixture(t, "stable")
+		bin := desktopPath(f.target, "windows")
+		if _, err := launcher.Sync(f.o.Getenv, bin); err != nil {
+			t.Fatal(err)
+		}
+		lnk := filepath.Join(f.data, "Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")
+		if current {
+			f.isCurrent()
+		}
+		f.o.Check = true
+		if _, err := Run(context.Background(), f.o); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(lnk); err != nil {
+			t.Fatalf("--check removed the shortcut: %v", err)
+		}
+		f.o.Check = false
+		if rep, err := Run(context.Background(), f.o); err != nil || rep.Failed || len(rep.Help) != 0 {
+			t.Fatalf("report = %+v, %v", rep, err)
+		}
+		absent(t, bin)
+		absent(t, lnk)
+		absent(t, filepath.Join(filepath.Dir(bin), "hand.ico"))
+	}
+}
+
+func TestRunLeavesAUsersOwnStartMenuShortcutAloneOnAStableWindowsUpdate(t *testing.T) {
+	skipUnlessWindows(t)
+	f := windowFixture(t, "stable")
+	lnk := filepath.Join(f.data, "Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")
+	if err := os.MkdirAll(filepath.Dir(lnk), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lnk, []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || len(rep.Help) != 1 || !strings.Contains(rep.Help[0], lnk+" is not Hand's launcher entry") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if b, _ := os.ReadFile(lnk); string(b) != "mine" {
+		t.Fatalf("the user's shortcut changed: %q", b)
+	}
+}

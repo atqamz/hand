@@ -1,6 +1,8 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package launcher
+
+const Marker = ""
 
 func Sync(func(string) string, string) (string, error) { return "", nil }
 
