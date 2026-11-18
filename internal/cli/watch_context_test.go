@@ -184,6 +184,7 @@ func TestAWorkerOnAHarnessWithoutContextRecordsUnknownOnce(t *testing.T) {
 	session := harness.NewSessionID()
 	a := f.attempt("copilot", []string{"copilot", "--session-id", session}, f.t.TempDir())
 	agy := f.attempt("agy", []string{"agy"}, f.t.TempDir())
+	opencode := f.attempt("opencode", []string{"opencode", "--standalone", "--auto", "--session", "ses_hand" + strings.Repeat("a", 26)}, f.t.TempDir())
 	w := f.watcher()
 	f.sweep(w)
 	f.sweep(w)
@@ -191,7 +192,7 @@ func TestAWorkerOnAHarnessWithoutContextRecordsUnknownOnce(t *testing.T) {
 	for _, c := range []struct {
 		a    state.Attempt
 		name string
-	}{{a, "copilot"}, {agy, "agy"}} {
+	}{{a, "copilot"}, {agy, "agy"}, {opencode, "opencode"}} {
 		if got := f.events(c.a, "attempt.context_unknown"); !sameStrings(got, []string{c.name + " has no context mark"}) {
 			t.Fatalf("%s unknown events: %v", c.name, got)
 		}
@@ -403,12 +404,29 @@ func TestWatcherReadsACodexWorkersContext(t *testing.T) {
 	body := `{"timestamp":"2026-11-18T09:00:01Z","type":"session_meta","payload":{"id":"codex-w","cwd":` + strconv.Quote(real) + `,"timestamp":"2026-11-18T09:00:01Z"}}` + "\n" +
 		`{"timestamp":"2026-11-18T09:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":` + strconv.Quote(prompt) + `}]}}` + "\n" +
 		`{"timestamp":"2026-11-18T09:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":120000},"model_context_window":258400}}}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-11-18T09-00-01-codex-w.jsonl"), []byte(body), 0o644); err != nil {
+	rollout := filepath.Join(dir, "rollout-2026-11-18T09-00-01-codex-w.jsonl")
+	if err := os.WriteFile(rollout, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f.sweep(f.watcher())
+	w := f.watcher()
+	f.sweep(w)
 	if got := f.events(a, "attempt.context"); !sameStrings(got, []string{"100000: context 120000"}) {
 		t.Fatalf("codex events: %v", got)
+	}
+	more := `{"timestamp":"2026-11-18T09:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":160000},"model_context_window":258400}}}` + "\n"
+	fh, err := os.OpenFile(rollout, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fh.WriteString(more); err != nil {
+		t.Fatal(err)
+	}
+	if err := fh.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.sweep(w)
+	if got := f.events(a, "attempt.context"); !sameStrings(got, []string{"100000: context 120000", "150000: context 160000"}) {
+		t.Fatalf("codex events after a second sweep: %v", got)
 	}
 	if got := f.events(a, "attempt.context_unknown"); len(got) != 0 {
 		t.Fatalf("codex unknown: %v", got)
