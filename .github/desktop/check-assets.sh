@@ -18,7 +18,7 @@ while read -r stem ext exe want; do
 	.zip) unzip -q "$stem$ext" -d "$tmp/x" ;;
 	*) tar -xzf "$stem$ext" -C "$tmp/x" ;;
 	esac
-	test "$(ls "$tmp/x")" = "hand-desktop$exe" || { echo "$stem$ext holds '$(ls "$tmp/x")', want hand-desktop$exe" >&2; exit 1; }
+	test "$(ls -A "$tmp/x")" = "hand-desktop$exe" || { echo "$stem$ext holds '$(ls -A "$tmp/x")', want hand-desktop$exe" >&2; exit 1; }
 	got=$(file -b "$tmp/x/hand-desktop$exe")
 	printf '%s: %s\n' "$stem$ext" "$got"
 	printf '%s\n' "$got" | grep -q "$want" || { echo "$stem$ext: not $want" >&2; exit 1; }
