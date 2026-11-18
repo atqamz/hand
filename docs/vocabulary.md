@@ -537,7 +537,7 @@ The Board's navigation: a 56px column of icons at the left edge from 900px, and 
 
 `board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie named for that one fleet, which only that fleet accepts. The cookie is kept for 400 days, or until `board.token` changes, only when the login link carries `keep=1` (plain `hand open` adds it), the board is on a loopback address and the request has no proxy header (`X-Forwarded-For` or `Forwarded`). Any other login, such as a `hand open --print` link, a proxy, a header-less forwarder or `ssh -L`, or a network address, lasts until the browser quits. The cookie goes to every page of the board, which is how the rail knows the other fleets the browser can open. `hand open` logs the browser in with it without printing it, and only that login is kept; `hand open --print` prints a login link that holds it, for another device or browser. A [companion](#companion) never holds it, and changing it signs every companion out.
 
-### Hand's Android Companion
+### Hand's Companion
 
 The phone app that dials the host's [hand-iroh](#hand-iroh) endpoint ID and shows the Board in a web view. It is for Android only; the Android app is in `android/` of this repository, built against the same [contract](#companion-contract). Hand's iOS Companion is deferred, and nothing targets iOS.
 

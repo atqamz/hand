@@ -1,4 +1,4 @@
-Hand Companion is the phone side of Hand (<a href="https://github.com/atqamz/hand">https://github.com/atqamz/hand</a>). It needs a laptop that runs Hand. Without one the app has nothing to show.
+Hand's Companion is the phone side of Hand (<a href="https://github.com/atqamz/hand">https://github.com/atqamz/hand</a>). It needs a laptop that runs Hand. Without one the app has nothing to show.
 
 You pair the phone with the laptop once, with a link or a QR code that the laptop shows. After that the phone dials the laptop over iroh (<a href="https://www.iroh.computer">https://www.iroh.computer</a>), through a relay or directly.
 
