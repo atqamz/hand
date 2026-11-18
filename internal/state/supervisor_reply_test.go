@@ -199,6 +199,19 @@ func TestABodyIsRedactedBeforeItIsStoredAndTheCapSeesTheRedactedText(t *testing.
 	}
 }
 
+func TestASecretThatStraddlesTheCapIsRedactedBeforeTheCut(t *testing.T) {
+	s, _, sup := replyStore(t)
+	token := "ghp_" + strings.Repeat("b", 36)
+	body := strings.Repeat("x", MaxReplyBody-48-31) + " " + token + strings.Repeat("y", 200)
+	if _, err := s.AddSupervisorReplies(context.Background(), sup.ID, "sess1", []Reply{{"t1", 0, body}}); err != nil {
+		t.Fatal(err)
+	}
+	rows := replyRows(t, s)
+	if len(rows) != 1 || strings.Contains(rows[0], "ghp_") || !strings.Contains(rows[0], "[redacted:github-token]") {
+		t.Fatalf("a token cut by the cap was stored: %d rows", len(rows))
+	}
+}
+
 func TestAnEmptyBatchWritesNothingAndRecordsNothing(t *testing.T) {
 	s, _, sup := replyStore(t)
 	ctx := context.Background()

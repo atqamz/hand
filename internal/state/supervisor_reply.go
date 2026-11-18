@@ -33,19 +33,22 @@ func (s *Store) AddSupervisorReplies(ctx context.Context, supervisorID int64, se
 	if session == "" {
 		return 0, fmt.Errorf("%w: a reply needs the session it came from", ErrInvalid)
 	}
+	bodies := make([]string, len(replies))
+	for i, r := range replies {
+		if r.N < 0 {
+			return 0, fmt.Errorf("%w: reply number %d is negative", ErrInvalid, r.N)
+		}
+		bodies[i] = capReply(redact.Text(r.Body))
+	}
 	inserted := 0
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		inserted = 0
 		var first, last int64
-		for _, r := range replies {
-			if r.N < 0 {
-				return fmt.Errorf("%w: reply number %d is negative", ErrInvalid, r.N)
-			}
-			body := capReply(redact.Text(r.Body))
-			if body == "" {
+		for i, r := range replies {
+			if bodies[i] == "" {
 				continue
 			}
-			res, err := tx.Exec(`INSERT INTO supervisor_reply(supervisor_id, session, at, n, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(session, at, n) DO NOTHING`, supervisorID, session, r.At, r.N, body)
+			res, err := tx.Exec(`INSERT INTO supervisor_reply(supervisor_id, session, at, n, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(session, at, n) DO NOTHING`, supervisorID, session, r.At, r.N, bodies[i])
 			if err != nil {
 				return err
 			}
