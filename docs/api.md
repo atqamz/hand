@@ -442,9 +442,9 @@ The Board's Phone page (`/<fleet id>/connect`) is one fleet's page that reads ev
             "failed": [{"id": "f00000000e0cc", "name": "web", "reason": "the fleet did not answer"}]}}
 ```
 
-`revoked` holds the fleets where a record was removed; a fleet that held none is in neither list. `failed` holds the fleets the revoke could not reach, whose record of the phone, if it has one, is still active: `reason` is `this session is not signed in to that fleet` or `the fleet did not answer`, in fixed words, never the error's own text or a path. The answer is `200` when some or all failed, so a client reads `revoke.failed`; `warn` then carries the page's sentence ("Revoked in hand. web could not be reached: … Press Revoke again when it is back."), and `receipt` is absent. Press Revoke again for the same phone when the fleet is back: the call repeats safely, and a phone already revoked is an empty report. Revoking an `id` that is not there is an empty report too, as on the page.
+`revoked` holds the fleets where a record was removed; a fleet that held none is in neither list. `failed` holds the fleets the revoke could not reach, whose record of the phone, if it has one, is still active: `reason` is `the fleet did not answer`, in fixed words, never the error's own text or a path. The answer is `200` when some or all failed, so a client reads `revoke.failed`; `warn` then carries the page's sentence ("Revoked in hand. web could not be reached: … Press Revoke everywhere again when it is back."), and `receipt` is absent. Press Revoke everywhere again for the same phone when the fleet is back: the call repeats safely, and a phone already revoked is an empty report. Revoking an `id` that is not there is an empty report too, as on the page.
 
-A paired phone is refused on all four paths: it manages no phones, and the page lets it sign out only itself. Every refusal below leaves everything as it was, and none mints a code.
+A paired phone is refused on all four paths: it manages no phones, and the page lets it sign out only itself. The board reads what an answer needs before it acts, so every refusal below leaves everything as it was, and none mints a code or revokes a device.
 
 - `400 bad_request`: a body that is not one JSON object as above; for `code`, a `base` that is not `scheme://host` (no path, login, query or fragment); for `revoke`, a body without exactly one of `phone` (16 lowercase hex characters) and `id` (positive), or with `fleet` and no `phone`.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
@@ -484,7 +484,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "version": "0.14.0",
-    "features": ["events", "fleets", "pair"],
+    "features": ["events", "fleets", "pair", "phone"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -497,6 +497,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
 | `pair` | `POST /api/v1/pair` |
+| `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 
 Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a phone on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 

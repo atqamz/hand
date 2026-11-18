@@ -28,7 +28,9 @@ type railLink struct {
 
 const railOthers = 7
 
-func (b *Board) fleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, fleetsKey{}) }
+func (b *Board) fleets(ctx context.Context) []railLink {
+	return capRail(b.fleetsFrom(ctx, fleetsKey{}))
+}
 
 func (b *Board) hostFleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, hostKey{}) }
 
@@ -49,6 +51,10 @@ func (b *Board) fleetsFrom(ctx context.Context, key any) []railLink {
 	if !found {
 		out = append([]railLink{{FleetLink{ID: current, Name: f.Name}, true}}, out...)
 	}
+	return out
+}
+
+func capRail(out []railLink) []railLink {
 	kept, others := out[:0], 0
 	for _, l := range out {
 		if l.Current || others < railOthers {

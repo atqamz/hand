@@ -3,7 +3,6 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"hash/fnv"
 	"net/http"
 	"slices"
@@ -106,6 +105,10 @@ func (b *Board) apiPhoneData(ctx context.Context) (APIPhone, error) {
 	if err != nil {
 		return APIPhone{}, err
 	}
+	return b.apiPhoneDataFrom(ctx, own), nil
+}
+
+func (b *Board) apiPhoneDataFrom(ctx context.Context, own []PhoneRecord) APIPhone {
 	entries, unread := b.phoneEntries(ctx, own)
 	out := APIPhone{Devices: make([]APIPhoneDevice, 0, len(entries)), Unreachable: unread}
 	for _, e := range entries {
@@ -134,7 +137,7 @@ func (b *Board) apiPhoneData(ctx context.Context) (APIPhone, error) {
 		set = live.fleets
 		switch {
 		case live.app:
-			if link, err := appLink(st.ID, st.Relay, b.fleetID(), code); err == nil && st.State == sidecar.Ready {
+			if link, err := appLink(st.ID, st.Relay, b.fleetID(), code); err == nil {
 				out.App = &APIPhoneApp{Link: link, ExpiresAt: apiClock(live.until)}
 			}
 		default:
@@ -145,7 +148,7 @@ func (b *Board) apiPhoneData(ctx context.Context) (APIPhone, error) {
 	for _, c := range b.pairChoices(ctx, set) {
 		out.Fleets = append(out.Fleets, APIPhoneFleet{ID: c.ID, Name: c.Name, Current: c.Current, Selected: c.Ticked})
 	}
-	return out, nil
+	return out
 }
 
 func (b *Board) apiPhoneCode(ctx context.Context, code string, live pairCode) *APIPhoneCode {
@@ -210,17 +213,24 @@ func (b *Board) apiPhone(w http.ResponseWriter, r *http.Request) {
 	b.apiPhoneSend(w, f, since, v)
 }
 
-func (b *Board) apiPhoneAnswer(w http.ResponseWriter, r *http.Request, reply apiReply, mark func(*APIPhone)) {
+// apiPhonePrepare reads everything an action's answer needs before the action
+// changes anything, so a refusal cannot leave a code minted or a device revoked.
+func (b *Board) apiPhonePrepare(w http.ResponseWriter, r *http.Request) (state.Fleet, []PhoneRecord, bool) {
 	f, err := b.st.Fleet(r.Context())
 	if err != nil {
 		b.apiFailErr(w, err)
-		return
+		return state.Fleet{}, nil, false
 	}
-	v, err := b.apiPhoneData(r.Context())
+	own, err := b.PhoneRecords(r.Context())
 	if err != nil {
 		b.apiFailErr(w, err)
-		return
+		return state.Fleet{}, nil, false
 	}
+	return f, own, true
+}
+
+func (b *Board) apiPhoneAnswer(ctx context.Context, w http.ResponseWriter, f state.Fleet, own []PhoneRecord, reply apiReply, mark func(*APIPhone)) {
+	v := b.apiPhoneDataFrom(ctx, own)
 	if mark != nil {
 		mark(&v)
 	}
@@ -246,8 +256,12 @@ func (b *Board) apiPhoneCodeNew(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusForbidden, "forbidden", "this session is not signed in to every fleet you chose; read the phone again and choose from its fleets")
 		return
 	}
+	f, own, ok := b.apiPhonePrepare(w, r)
+	if !ok {
+		return
+	}
 	b.mint(b.now(), set, base, false)
-	b.apiPhoneAnswer(w, r, apiReply{}, nil)
+	b.apiPhoneAnswer(r.Context(), w, f, own, apiReply{}, nil)
 }
 
 func (b *Board) apiPhoneApp(w http.ResponseWriter, r *http.Request) {
@@ -263,15 +277,12 @@ func (b *Board) apiPhoneApp(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusInternalServerError, "internal", "This host cannot show a pairing link: its iroh relay address does not fit one.")
 		return
 	}
-	b.mint(b.now(), []string{b.fleetID()}, "", true)
-	b.apiPhoneAnswer(w, r, apiReply{}, nil)
-}
-
-func revokeReason(err error) string {
-	if errors.Is(err, errNotProven) {
-		return "this session is not signed in to that fleet"
+	f, own, ok := b.apiPhonePrepare(w, r)
+	if !ok {
+		return
 	}
-	return "the fleet did not answer"
+	b.mint(b.now(), []string{b.fleetID()}, "", true)
+	b.apiPhoneAnswer(r.Context(), w, f, own, apiReply{}, nil)
 }
 
 func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +302,14 @@ func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	report := &APIPhoneRevoke{Revoked: []APIFleet{}, Failed: []APIPhoneFailed{}}
+	var f state.Fleet
+	var own []PhoneRecord
 	if byID {
+		var ok bool
+		f, own, ok = b.apiPhonePrepare(w, r)
+		if !ok {
+			return
+		}
 		d, err := b.revokeDevice(ctx, in.ID)
 		if err != nil {
 			b.apiFailErr(w, err)
@@ -300,6 +318,7 @@ func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
 		if d != nil {
 			b.closePeers(*d)
 			report.Revoked = append(report.Revoked, APIFleet{ID: b.fleetID(), Name: b.fleetNames(ctx, []string{b.fleetID()})[0]})
+			own = slices.DeleteFunc(own, func(r PhoneRecord) bool { return r.ID == in.ID })
 		}
 	} else {
 		targets := b.hostFleets(ctx)
@@ -311,12 +330,20 @@ func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
 			}
 			targets = targets[i : i+1]
 		}
+		var ok bool
+		f, own, ok = b.apiPhonePrepare(w, r)
+		if !ok {
+			return
+		}
 		done, failed := b.revokeAcross(ctx, targets, in.Phone)
 		for _, l := range done {
 			report.Revoked = append(report.Revoked, APIFleet{ID: l.ID, Name: l.Name})
 		}
 		for _, f := range failed {
-			report.Failed = append(report.Failed, APIPhoneFailed{ID: f.ID, Name: f.Name, Reason: revokeReason(f.err)})
+			report.Failed = append(report.Failed, APIPhoneFailed{ID: f.ID, Name: f.Name, Reason: "the fleet did not answer"})
+		}
+		if slices.ContainsFunc(done, func(l railLink) bool { return l.ID == b.fleetID() }) {
+			own = slices.DeleteFunc(own, func(r PhoneRecord) bool { return r.Phone == in.Phone })
 		}
 	}
 	var done, failed []string
@@ -327,11 +354,15 @@ func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
 		failed = append(failed, f.Name)
 	}
 	reply := apiReply{}
+	again := "Revoke everywhere"
+	if in.Fleet != "" {
+		again = "Revoke"
+	}
 	switch {
 	case len(failed) > 0:
-		reply.warn = revokeText(done, failed, "Revoke")
+		reply.warn = revokeText(done, failed, again)
 	case len(done) > 0:
 		reply.receipt = "Revoked in " + joined(done)
 	}
-	b.apiPhoneAnswer(w, r, reply, func(v *APIPhone) { v.Revoke = report })
+	b.apiPhoneAnswer(ctx, w, f, own, reply, func(v *APIPhone) { v.Revoke = report })
 }

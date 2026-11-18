@@ -3,6 +3,7 @@ package board_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/sidecar"
+	"github.com/atqamz/hand/internal/state"
 )
 
 const (
@@ -668,7 +670,7 @@ func TestAPIPhoneRevokeReportsAPartialFailureWithoutAHostPath(t *testing.T) {
 	if len(got.Revoke.Failed) != 1 || got.Revoke.Failed[0] != (board.APIPhoneFailed{ID: c.id, Name: "gamma", Reason: "the fleet did not answer"}) {
 		t.Fatalf("failed = %+v", got.Revoke.Failed)
 	}
-	const warn = "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke again when it is back."
+	const warn = "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back."
 	if env.Receipt != "" || env.Warn != warn || rec.Header().Get("X-Hand-Warn") != url.PathEscape(warn) {
 		t.Fatalf("receipt %q warn %q", env.Receipt, env.Warn)
 	}
@@ -1108,5 +1110,79 @@ func TestAPIPhoneCursorIsNotAPlainHashOfTheCode(t *testing.T) {
 		if sum == strconv.FormatUint(h.Sum64(), 16) {
 			t.Fatalf("the cursor is a plain hash of the answer that holds the code: %s", sum)
 		}
+	}
+}
+
+func TestAPIPhoneUsesEveryFleetTheSessionProves(t *testing.T) {
+	p := newCompanionHost(t, true, "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9")
+	home := p.fleets[0]
+	all := p.fleets[1:]
+	code, shown := p.apiCode(home, "https://host.example", all...)
+	if len(shown.Code.Fleets) != 9 {
+		t.Fatalf("the code names %d fleets, want 9", len(shown.Code.Fleets))
+	}
+	if len(shown.Fleets) != 9 {
+		t.Fatalf("the phone offers %d fleets, want 9", len(shown.Fleets))
+	}
+	cookies := companionCookiesOf(p.redeem(home, code, nil, nil))
+	if len(cookies) != 9 {
+		t.Fatalf("paired %d fleets, want 9", len(cookies))
+	}
+	_, got := apiBody[board.APIPhone](t, p.papi(home, "GET", "/phone", nil, p.hosts(p.fleets...)))
+	if len(got.Fleets) != 9 || len(got.Devices) != 1 || len(got.Devices[0].Fleets) != 9 || len(got.Unreachable) != 0 {
+		t.Fatalf("phone = %d fleets, %d devices, %+v unreachable %v", len(got.Fleets), len(got.Devices), got.Devices, got.Unreachable)
+	}
+	label := got.Devices[0].Phone
+	_, got = apiBody[board.APIPhone](t, p.papi(home, "POST", "/phone/revoke", map[string]any{"phone": label}, p.hosts(p.fleets...)))
+	if len(got.Revoke.Revoked) != 9 || len(got.Revoke.Failed) != 0 {
+		t.Fatalf("revoke = %+v", got.Revoke)
+	}
+	for _, f := range p.fleets {
+		if n := len(p.devicesOf(f)); n != 0 {
+			t.Errorf("%s still holds %d devices", f.name, n)
+		}
+	}
+	if !strings.Contains(p.phonePage(home, p.hosts(p.fleets...)...), "a9") {
+		t.Fatalf("the page does not offer the ninth fleet")
+	}
+}
+
+func TestAPIPhoneAnActionThatCannotBeAnsweredChangesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	st, err := state.Open(path, func() time.Time { return frozen })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO fleet(only, id, name) VALUES (1, ?, 'golden')`, phoneFleet); err != nil {
+		t.Fatal(err)
+	}
+	fx := &fixture{st: st, options: board.Options{Controls: true, Now: func() time.Time { return frozen }, Base: "/" + phoneFleet, Tick: apiTick, Iroh: func() sidecar.Status { return readyIroh }}}
+	h := fx.handler()
+	body := map[string]any{"base": "https://host.example"}
+	_, first := apiBody[board.APIPhone](t, phoneDo(h, "POST", "/api/v1/phone/code", body, token, true))
+	if first.Code == nil {
+		t.Fatalf("no first code: %+v", first)
+	}
+	if _, err := db.Exec(`ALTER TABLE device RENAME TO device_away`); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		path string
+		body any
+	}{{"/phone/code", body}, {"/phone/app", nil}} {
+		testAPIError(t, phoneDo(h, "POST", "/api/v1"+c.path, c.body, token, true), http.StatusInternalServerError, "internal")
+	}
+	if _, err := db.Exec(`ALTER TABLE device_away RENAME TO device`); err != nil {
+		t.Fatal(err)
+	}
+	_, got := apiBody[board.APIPhone](t, phoneDo(h, "GET", "/api/v1/phone", nil, "", true))
+	if got.Code == nil || got.Code.Code != first.Code.Code || got.App != nil {
+		t.Fatalf("a failed action changed the code: %+v app %+v", got.Code, got.App)
 	}
 }
