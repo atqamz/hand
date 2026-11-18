@@ -64,6 +64,8 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
+| `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | none yet; `hand history search` |
+| `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply or report whole | none yet; `hand history search --full REF` |
 | `GET /api/v1/phone` | `Phone`: the paired phones, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Phone page](#the-phone-page) | `/connect`, the Phone page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
@@ -187,6 +189,16 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 `groups` are the page's day groups in order, newest first: `name` (`Mon 2 Jan UTC`), `count` and `tasks`. Rows in a group are ordered newest first by finish time, or by `updated_at` when no finish event exists. A row uses the `Tasks` row's fields and adds `updated_at`, the time an unfinished row is grouped and sorted by, and `open_decisions`, how many decisions are open on the task (absent at zero). `finished_at` is present only for a done or abandoned task. Sub-tasks are not placed under their parent. `q` echoes the value with its surrounding spaces trimmed; `project`, `since` and `until` echo the values as asked, empty when they were not; `status` echoes the same way, as above.
 
 `page` is `1` unless asked, `page_size` is `50`, `total` is every task the query matches, and `pages` is `total` divided by `page_size`, rounded up (`0` when nothing matches). A page past the last one is `200` with no groups. A `status` outside those words, a `since` or `until` that is not a date, and a `page` that is not a number from 1 to 1,000,000 are `400` with `bad_request` and the board's sentence. An empty result is `200` with zero rows. Here `since` is the finished-on-or-after filter, not the change cursor, so this endpoint has no `?since=` poll and always answers `200`. The answer's `X-Hand-Cursor` is the board's change cursor, not a cursor for this path: do not store it and send it back as `since`, where it would be refused as a date.
+
+### `HistorySearch.data`
+
+`HistorySearch` searches what was said in this fleet: the operator's messages (`iN`), the supervisor's prose replies (`yN`) and the reports (`rN`); never a worker's conversation or a tool's output. `q` is SQLite FTS5 syntax over words, case and accents ignored: `amber kiln` needs both words, `amber OR kiln`, `"amber kiln"` as a phrase, `kil*` as a prefix; a ref such as `t12` or `y412` is one word. A `q` FTS5 cannot parse is searched as its whitespace-separated words, each quoted and all required, so `"unterminated` still works. A missing, blank or over 1,024-byte `q` is `400`.
+
+`who` limits the source: `operator`, `supervisor` or `report`. `since` is `7d`, `36h` or a UTC date `YYYY-MM-DD` (here it is a time bound, not the change cursor, so this route takes no `?since=` poll and sends no `304`). `task` is a `tN`: a report of that task, and an operator message or reply that names `tN` as a word. `limit` is 1 to 50 (default 5) and `context` 0 to 5 (default 0). A value outside those, or a `who`, `since` or `task` it cannot read, is `400` with `bad_request` and the board's sentence. The answer echoes `q`, `who`, `since` and `task` as asked, and `limit` and `context` as applied.
+
+`hits` are ordered by relevance (bm25 within each source, so mixing sources is approximate), then newest first, at most `limit`; `total` is every match under the filters and `more` is `total > len(hits)`. A hit has `ref`, `who`, `at`, `text` (a snippet of at most 300 bytes on one line, the match between `«` and `»`, a cut shown as `…`) and `context`; a reply carries `supervisor` (`sN`), a report carries `task`, an operator message carries neither. With `context` above 0, `context` lists up to that many entries before and then after a message or reply hit in the merged conversation of messages and replies, oldest first, each as `ref`, `who`, `at`, `text` (clipped the same way) and `supervisor` for a reply; a report hit has an empty `context`. Every returned text passes through the same redaction as a stored reply (`internal/redact`), because operator messages and reports are stored as written.
+
+`GET /api/v1/history/{ref}` takes `iN`, `rN` or `yN` and answers `ref`, `who`, `at`, `supervisor`, `task`, `text` and `truncated`. `text` is the whole body, redacted, at most 16 KiB; `truncated` is `true` when it was cut at a character boundary. An unknown or malformed ref is `404`. The answer reads this fleet's database only: there is no fleet or `all` parameter, and the route takes the refusals of every read below. The envelope's `cursor` is a fingerprint of the answer, not a change cursor.
 
 ### `Projects.data`
 
@@ -484,7 +496,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "version": "0.14.0",
-    "features": ["events", "fleets", "pair", "phone"],
+    "features": ["events", "fleets", "history", "pair", "phone"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -496,6 +508,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 |---|---|
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
+| `history` | `GET /api/v1/history/search` and `GET /api/v1/history/{ref}` |
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 
@@ -624,7 +637,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from` or `lines`), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
