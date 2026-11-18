@@ -17,9 +17,9 @@ var (
 		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(API Error:[^\n]*)`),
 	}
 	turnBullet = regexp.MustCompile(`(?m)^●`)
-	ompBanner  = regexp.MustCompile(`(?m)^[ \t]*((?:Error: |✘ )[^\n]*(?:\n[ \t]*\S[^\n]*)*?)\n[ \t]*Dismissed when you send your next message\.[ \t]*$`)
+	ompBanner  = regexp.MustCompile(`(?m)^((?:Error: |✘ )[^\n]*(?:\n[ \t]*\S[^\n]*)*?)\nDismissed when you send your next message\.[ \t]*(?:\n[^\n]*){0,6}\z`)
 	ompEntry   = regexp.MustCompile(`^(?:Error: |✘ Retry failed after \d+ attempts?: )(.*)$`)
-	ompNoRetry = regexp.MustCompile(`(?i)^(?:40[123]\b|.*\b(?:insufficient[_ ]balance|insufficient[_ ]quota|quota[_ ](?:exhausted|exceeded)|invalid[_ ]api[_ ]key|api[_ ]key[_ ](?:is[_ ])?(?:invalid|expired))\b)`)
+	ompNoRetry = regexp.MustCompile(`(?i)^(?:[a-z][\w .-]{0,40}: )?40[12]\b|insufficient[_ ](?:balance|funds|credits?|quota)|credit balance|payment|billing|(?:invalid|expired)[_ ](?:x-)?api[_ -]?key|api[_ -]?key[_ ](?:is[_ ])?(?:invalid|expired)`)
 	wrapped    = regexp.MustCompile(`\s*\n\s*`)
 )
 
@@ -80,7 +80,7 @@ func Refusal(name, screen string) (string, bool) {
 }
 
 func ompFailure(screen string) (string, bool) {
-	all := ompBanner.FindAllStringSubmatch(strings.ReplaceAll(screen, "\r", ""), -1)
+	all := ompBanner.FindAllStringSubmatch(strings.TrimRight(strings.ReplaceAll(screen, "\r", ""), " \t\n"), -1)
 	if all == nil {
 		return "", false
 	}

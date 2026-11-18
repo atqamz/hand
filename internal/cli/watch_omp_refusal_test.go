@@ -46,13 +46,72 @@ func TestWatchRecordsAnOmpRefusalAsLimitedInsideTheLaunchWindow(t *testing.T) {
 	if !strings.Contains(got, `,attempt.limited,t1,"a1: will not clear by itself: 402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002)`) || strings.Contains(got, ",attempt.quiet,") {
 		t.Fatalf("wait = %q", got)
 	}
-	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running limited: will not clear by itself") {
+	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running refused: 402 Insufficient Balance…") {
 		t.Fatalf("orient = %q", out)
 	}
-	ompDone(fx, ompScreen(t, "omp-402-refused.txt"))
-	time.Sleep(200 * time.Millisecond)
-	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.limited,"); n != 1 {
-		t.Fatalf("attempt.limited recorded %d times for one screen", n)
+}
+
+func ompWorking(t *testing.T, fx *attemptFixture) {
+	t.Helper()
+	count := func() int { return strings.Count(fx.h.ok("orient"), ",attempt.working,") }
+	n := count()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "omp"})
+	eventually(t, func() bool { return count() > n })
+}
+
+func TestWatchAnOmpRefusalLineThatReturnsIsNeverAnAPIError(t *testing.T) {
+	old := *cli.QuietGrace
+	*cli.QuietGrace = time.Hour
+	t.Cleanup(func() { *cli.QuietGrace = old })
+
+	fx := newAttemptFixture(t)
+	fx.startOmp()
+	stop := startWatch(t, fx)
+	defer stop()
+	screen := ompScreen(t, "omp-402-refused.txt")
+	ompDone(fx, screen)
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	ompWorking(t, fx)
+	ompDone(fx, screen)
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
+	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if n := strings.Count(got, ",attempt.limited,"); n != 1 {
+		t.Fatalf("attempt.limited recorded %d times for one line: %q", n, got)
+	}
+	if strings.Contains(got, "api error") || !strings.Contains(got, `,attempt.quiet,t1,"a1: turn ended without a new report"`) {
+		t.Fatalf("wait = %q", got)
+	}
+}
+
+func TestWatchAnOmpRefusalWithANewLineIsLimitedAgain(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.startOmp()
+	stop := startWatch(t, fx)
+	defer stop()
+	screen := ompScreen(t, "omp-402-refused.txt")
+	ompDone(fx, screen)
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	ompWorking(t, fx)
+	ompDone(fx, strings.ReplaceAll(screen, "000000000002", "000000000003"))
+	eventually(t, func() bool {
+		return strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.limited,") == 2
+	})
+}
+
+func TestWatchRecordsAClaudeAPIErrorAsQuietInsideTheLaunchWindow(t *testing.T) {
+	old := *cli.QuietGrace
+	*cli.QuietGrace = time.Hour
+	t.Cleanup(func() { *cli.QuietGrace = old })
+
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "API Error: 529 Overloaded\n\n> " })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	if got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(got, `,attempt.quiet,t1,"a1: api error: API Error: 529 Overloaded"`) {
+		t.Fatalf("wait = %q", got)
 	}
 }
 
