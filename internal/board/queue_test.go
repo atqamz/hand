@@ -651,6 +651,20 @@ func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 	}
 }
 
+func TestARefusedWorkerJoinsNeedsAndSaysContinueWillFail(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "idle"}
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "limited", state.Refused+"402 Insufficient Balance (request_id: x)"); err != nil {
+		t.Fatal(err)
+	}
+	fx.options.Now = func() time.Time { return time.Date(2026, 9, 26, 0, 1, 0, 0, time.UTC) }
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "refused item", q, `data-kind="limited"`, "LIMITED", "will not clear by itself: 402 Insufficient Balance (request_id: x)", "a1 on t1 “Fix login” stopped because its provider refused the request, and sending “continue” will fail again.")
+	lacks(t, "refused item", q, "usage limit")
+}
+
 func TestALimitedSupervisorJoinsNeeds(t *testing.T) {
 	fx := newFixture(t)
 	fx.status = "idle"

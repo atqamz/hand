@@ -79,8 +79,9 @@ A `[hand v1 rollover]` message is not a wake either: your context passed the siz
 
 - `attempt.reported`: `hand report show rN`, act on it, then `hand report ack rN`.
 - `attempt.quiet` "without a new report": a likely false done or a crash. Look once with `hand attempt read aN`, then `hand attempt send --text "..." aN` or `hand attempt stop aN`.
-- `attempt.quiet` "api error: API Error: …": the turn ended on a failed request, so nothing finished. Check the partial edit, then send "continue". Hand never resends.
-- `attempt.limited`: the worker stopped at its harness's usage limit; the detail is the limit line and its reset time.
+- `attempt.quiet` "api error: …" (claude's `API Error: …`, omp's `Error: …` or `Retry failed after N attempts: …`): the turn ended on a failed request, so nothing finished. Check the partial edit, then send "continue". Hand never resends.
+- `attempt.limited` "will not clear by itself: …" (omp: `402 Insufficient Balance`, a 401 or 403 for an invalid or expired API key, an exhausted quota): the provider refuses every request, and nothing resets. Never send "continue": it fails again. `hand attempt stop aN`, then start a fresh attempt on a model of another provider, or ask the operator with `hand decision ask tN "QUESTION"` when the fix is theirs (credit, key, plan).
+- `attempt.limited` otherwise: the worker stopped at its harness's usage limit; the detail is the limit line and its reset time.
   - A claude worker whose reset is within about an hour: leave it. The line gives the reset in the time zone it names, so compare it with `TZ=<that zone> date`, for example `TZ=Asia/Jakarta date`. Claude Code continues by itself at the reset, and a message could cancel that.
   - Otherwise wait for the reset, or ask the operator with `hand decision ask tN "QUESTION"`.
 - `attempt.long`: the worker's turn has run 60 minutes. Look once with `hand attempt read aN`. A healthy long wait, such as a CI or review poll, needs nothing. Otherwise steer it with `hand attempt send --text "..." aN` or `hand attempt stop aN`.

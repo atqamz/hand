@@ -42,6 +42,7 @@ type waiting struct {
 	Cut              bool
 	Prompt           prompt
 	Command          string
+	Refused          bool
 }
 
 type prompt struct {
@@ -250,6 +251,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 		w := waiting{Kind: kind, Ref: state.AttemptRef(a.ID), Task: t, Attempt: &a, Title: "Its turn ended without a report"}
 		if kind != "quiet" {
 			w.Title = strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": ")
+			w.Refused = kind == "limited" && strings.HasPrefix(w.Title, state.Refused)
 		}
 		if kind == "worker" {
 			if w.Title == "" {

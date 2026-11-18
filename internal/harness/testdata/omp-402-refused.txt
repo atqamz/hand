@@ -1,0 +1,4 @@
+Error: 402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000001) (type=insufficient_balance_error param=invalid_request_error)
+✘ Retry failed after 1 attempts: 402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002) (type=insufficient_balance_error param=invalid_request_error)
+Dismissed when you send your next message.
+π > ◒ DeepSeek-V4.1-Flash > ...

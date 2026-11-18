@@ -136,6 +136,8 @@ func (s *Store) AttemptSignal(ctx context.Context, attemptID int64) (Event, bool
 	return lastAttemptEvent(ctx, s.db, attemptID)
 }
 
+const Refused = "will not clear by itself: "
+
 func (s *Store) LastLimit(ctx context.Context, attemptID int64) (string, error) {
 	prefix := AttemptRef(attemptID) + ": "
 	var detail string

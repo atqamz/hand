@@ -157,3 +157,66 @@ func TestQuestionReadsWhatCodexAsksTheOperator(t *testing.T) {
 		t.Fatal("a working screen is no question")
 	}
 }
+
+const ompRefused = "402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002) (type=insufficient_balance_error param=invalid_request_error)"
+
+func TestRefusalReadsAnOmpPaneThatEndedOnAnInsufficientBalance(t *testing.T) {
+	screen := copilotScreen(t, "omp-402-refused.txt")
+	got, ok := Refusal("omp", screen)
+	if !ok || got != ompRefused {
+		t.Fatalf("Refusal = %q, %v; want %q", got, ok, ompRefused)
+	}
+	if got, ok := APIError("omp", screen); !ok || !strings.HasPrefix(got, "402 Insufficient Balance (request_id: ") {
+		t.Fatalf("APIError = %q, %v", got, ok)
+	}
+	wrapped := strings.Replace(screen, " (request_id", "\n  (request_id", 2)
+	if got, ok := Refusal("omp", strings.ReplaceAll(wrapped, "\n", "\r\n")); !ok || got != ompRefused {
+		t.Fatalf("wrapped Refusal = %q, %v", got, ok)
+	}
+}
+
+func TestRefusalClassifiesTheOmpErrorLines(t *testing.T) {
+	banner := func(line string) string {
+		return "Error: " + line + "\n✘ Retry failed after 3 attempts: " + line + "\nDismissed when you send your next message.\nπ > ◒ m > ...\n"
+	}
+	for line, refused := range map[string]bool{
+		"402 Insufficient Balance (request_id: x)":                    true,
+		"401 Unauthorized: invalid api key":                           true,
+		"403 Forbidden":                                               true,
+		"429 You exceeded your quota_exceeded plan":                   true,
+		"400 insufficient_quota":                                      true,
+		"529 Overloaded (request_id: x)":                              false,
+		"500 Internal Server Error":                                   false,
+		"429 Too Many Requests":                                       false,
+		"Connection error.":                                           false,
+		"503 upstream said 402 on the way, request_id 4020-403-40300": false,
+	} {
+		screen := banner(line)
+		if got, ok := Refusal("omp", screen); ok != refused || ok && got != line {
+			t.Errorf("Refusal(%q) = %q, %v; want refused %v", line, got, ok, refused)
+		}
+		if got, ok := APIError("omp", screen); !ok || got != line {
+			t.Errorf("APIError(%q) = %q, %v", line, got, ok)
+		}
+	}
+}
+
+func TestOmpFailureNeedsTheBannerAtTheBottomOfTheScreen(t *testing.T) {
+	for name, screen := range map[string]string{
+		"finished pane": copilotScreen(t, "omp-18.18.0-idle.txt"),
+		"quoted":        "I saw `Error: 402 Insufficient Balance` in the log.\nπ > ◒ m > ...\n",
+		"no dismissal":  "Error: 402 Insufficient Balance\n\nπ > ◒ m > ...\n",
+	} {
+		if got, ok := Refusal("omp", screen); ok {
+			t.Errorf("%s: Refusal = %q", name, got)
+		}
+		if got, ok := APIError("omp", screen); ok {
+			t.Errorf("%s: APIError = %q", name, got)
+		}
+	}
+	for _, name := range []string{"claude", "codex", "opencode", "agy", "copilot"} {
+		if got, ok := Refusal(name, copilotScreen(t, "omp-402-refused.txt")); ok {
+			t.Errorf("Refusal(%s) = %q", name, got)
+		}
+	}
+}

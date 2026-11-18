@@ -763,7 +763,11 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			return err
 		}
 		w.r.screens.put(a.ID, s.Text)
-		if line, ok := harness.Limit(a.Harness, s.Text); ok {
+		line, ok := harness.Limit(a.Harness, s.Text)
+		if refusal, refused := harness.Refusal(a.Harness, s.Text); refused {
+			line, ok = state.Refused+refusal, true
+		}
+		if ok {
 			seen, err := w.st.LastLimit(ctx, a.ID)
 			if err != nil {
 				return err
@@ -788,10 +792,10 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if t != nil {
 			start = t.since
 		}
-		if age := w.r.env.Now().Sub(start); !since.IsZero() && age >= 0 && age < quietGrace {
+		apiError, _ := harness.APIError(a.Harness, s.Text)
+		if age := w.r.env.Now().Sub(start); apiError == "" && !since.IsZero() && age >= 0 && age < quietGrace {
 			return nil
 		}
-		apiError, _ := harness.APIError(a.Harness, s.Text)
 		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
 		if errors.Is(err, state.ErrConflict) {
 			return nil
