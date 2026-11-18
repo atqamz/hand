@@ -800,15 +800,15 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn a_failed_board_write_then_a_clean_end_is_still_a_board_error() {
+    async fn ask_a_board_whose_write_fails(answer: &[u8]) -> Result<Vec<u8>, ReadToEndError> {
         let sidecar = sidecar(closed_port().await, 4, WAIT).await;
         sidecar.served.abort();
         let endpoint = sidecar.endpoint.clone();
+        let (read, mut held) = tokio::io::duplex(64);
+        held.write_all(answer).await.unwrap();
         let relayed = tokio::spawn(async move {
             let connection = endpoint.accept().await.unwrap().await.unwrap();
             let (send, recv) = connection.accept_bi().await.unwrap();
-            let (read, held) = tokio::io::duplex(1);
             relay(
                 send,
                 recv,
@@ -824,16 +824,25 @@ mod tests {
         let connection = client.connect(sidecar.addr.clone(), ALPN).await.unwrap();
         let (mut send, mut recv) = connection.open_bi().await.unwrap();
         send.write_all(b"ping").await.unwrap();
-        let error = timeout(WAIT, recv.read_to_end(1 << 20))
-            .await
-            .unwrap()
-            .unwrap_err();
+        let result = timeout(WAIT, recv.read_to_end(1 << 20)).await.unwrap();
+        connection.close(VarInt::from_u32(0), b"done");
+        relayed.await.unwrap();
+        result
+    }
+
+    #[tokio::test]
+    async fn a_failed_board_write_then_a_clean_end_is_still_a_board_error() {
+        let error = ask_a_board_whose_write_fails(b"").await.unwrap_err();
         assert!(
             matches!(error, ReadToEndError::Read(ReadError::Reset(code)) if code == BOARD_ERROR_CODE),
             "{error:?}"
         );
-        connection.close(VarInt::from_u32(0), b"done");
-        relayed.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_failed_board_write_after_an_answer_still_delivers_the_answer() {
+        let answer = ask_a_board_whose_write_fails(b"answer").await.unwrap();
+        assert_eq!(answer, b"answer");
     }
 
     #[cfg(unix)]
