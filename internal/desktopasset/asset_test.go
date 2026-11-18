@@ -84,7 +84,9 @@ func TestSupportedIsLinuxOnly(t *testing.T) {
 		{"linux", "arm64", true},
 		{"linux", "386", false},
 		{"darwin", "arm64", false},
+		{"darwin", "amd64", false},
 		{"windows", "amd64", false},
+		{"windows", "arm64", false},
 	} {
 		if got := Supported(c.goos, c.goarch); got != c.ok {
 			t.Fatalf("Supported(%s, %s) = %v", c.goos, c.goarch, got)
