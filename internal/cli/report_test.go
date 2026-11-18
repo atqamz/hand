@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -227,19 +228,20 @@ func TestGitIgnoresStderrWarnings(t *testing.T) {
 func TestReportShowCutsALongBodyAndFullPrintsIt(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
-	body := "Fixed login\n" + strings.Repeat(strings.Repeat("x", 99)+"\n", 200) + "Delivered: https://example.com/pr/1\n"
+	body := "Fixed login\n" + strings.Repeat(strings.Repeat("x", 99)+"\n", 100) + "Delivered: /abs/mid.md\n" + strings.Repeat(strings.Repeat("y", 99)+"\n", 100) + "Gate: CHANGES\nDelivered: https://example.com/pr/1\n"
 	fx.h.in = strings.NewReader(body)
 	fx.h.cwd = fx.h.worktree("t1-a1")
 	fx.h.ok("report", "add", "--status", "done", "--file", "-")
 	fx.h.cwd = ""
 	cut := field(fx.h.ok("report", "show", "r1"), "body")
-	lines := strings.Split(cut, "\n")
+	lines := strings.Split(strings.TrimRight(cut, "\n"), "\n")
 	n := len(lines)
-	if lines[0] != "Fixed login" || lines[n-1] != "Delivered: https://example.com/pr/1" {
-		t.Fatalf("summary or delivered line lost: %q ... %q", lines[0], lines[n-1])
+	if lines[0] != "Fixed login" || lines[n-1] != "Delivered: https://example.com/pr/1" || lines[n-2] != "Gate: CHANGES" {
+		t.Fatalf("summary or closing lines lost: %q ... %q", lines[0], lines[n-2:])
 	}
-	if note := lines[n-2]; !strings.Contains(note, "bytes omitted") || !strings.Contains(note, "hand report show --full r1") {
-		t.Fatalf("elision line = %q", note)
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "bytes omitted") })
+	if i < 0 || !strings.Contains(lines[i], "`hand report show --full r1`") || lines[i+1] != "Delivered: /abs/mid.md" {
+		t.Fatalf("elision line or kept delivered line wrong: %q", lines)
 	}
 	if len(cut) > 8<<10+200 {
 		t.Fatalf("body is %d bytes", len(cut))

@@ -133,7 +133,7 @@ func cmdTaskShow(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	if !*full {
-		t.Goal = elide(t.Goal, goalShowBytes, "hand task show --full "+state.TaskRef(id))
+		t.Goal = elide(t.Goal, goalShowBytes, r.env.command()+" task show --full "+state.TaskRef(id))
 	}
 	taskFields(&d, t)
 	if t.ParentID != 0 {

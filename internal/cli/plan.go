@@ -88,7 +88,7 @@ func cmdPlanShow(r *runner, args []string) error {
 	d.Field("plan", state.PlanRef(p.Revision))
 	body := p.Body
 	if !*full {
-		body = elide(body, planShowBytes, "hand plan show --full "+state.TaskRef(id))
+		body = elide(body, planShowBytes, r.env.command()+" plan show --full "+state.TaskRef(id))
 	}
 	d.Field("body", body)
 	return r.print(&d)

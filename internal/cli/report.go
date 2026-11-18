@@ -207,7 +207,7 @@ func cmdReportShow(r *runner, args []string) error {
 	}
 	body := rep.Body
 	if !*full {
-		body = elide(body, reportShowBytes, "hand report show --full "+state.ReportRef(rep.ID))
+		body = elide(body, reportShowBytes, r.env.command()+" report show --full "+state.ReportRef(rep.ID))
 	}
 	d.Field("body", body)
 	if rep.AckedAt == "" {
