@@ -2255,7 +2255,15 @@ func apiWakeText(text string) string {
 	if !strings.HasPrefix(text, prefix) {
 		return text
 	}
-	parts := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	split := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	parts := make([]string, 0, len(split))
+	for _, p := range split {
+		if n := len(parts); n > 0 && strings.HasPrefix(p, "reported r") && strings.HasSuffix(parts[n-1], "turn ended") {
+			parts[n-1] += "; " + p
+			continue
+		}
+		parts = append(parts, p)
+	}
 	out := make([]string, 0, len(parts))
 	drop := false
 	for _, line := range parts {
@@ -2273,7 +2281,7 @@ func apiWakeText(text string) string {
 		}
 		ref := rest[:end]
 		detail := strings.TrimLeft(rest[end:], " \t:")
-		drop = screenKinds[kind] || strings.Contains(detail, "api error: ")
+		drop = screenKinds[kind] || fromScreen(detail)
 		if drop {
 			out = append(out, strings.TrimSpace(kind+" "+ref))
 		} else {
@@ -2289,7 +2297,7 @@ func apiEntry(c chatItem) APIEntry {
 	case c.Role == "hand" && strings.HasPrefix(text, "wake: "):
 		text = Scrub(apiWakeText(text))
 	case c.Kind != "":
-		if screenKinds[c.Kind] || strings.Contains(text, "api error: ") {
+		if screenKinds[c.Kind] || fromScreen(text) {
 			text = ""
 		} else {
 			text = Scrub(text)
@@ -2438,9 +2446,13 @@ var screenKinds = map[string]bool{
 	"supervisor.limited": true,
 }
 
+func fromScreen(detail string) bool {
+	return strings.Contains(detail, "api error: ") || strings.Contains(detail, "turn ended") && strings.Contains(detail, ": "+state.Refused)
+}
+
 func apiEvent(e state.Event) APIEvent {
 	out := APIEvent{Seq: e.Seq, At: e.At, Kind: e.Kind}
-	if !screenKinds[e.Kind] && !strings.Contains(e.Detail, "api error: ") {
+	if !screenKinds[e.Kind] && !fromScreen(e.Detail) {
 		out.Detail = Scrub(e.Detail)
 	}
 	if e.TaskID != 0 {

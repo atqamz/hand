@@ -136,6 +136,22 @@ func (s *Store) AttemptSignal(ctx context.Context, attemptID int64) (Event, bool
 	return lastAttemptEvent(ctx, s.db, attemptID)
 }
 
+const Refused = "will not clear by itself: "
+
+func Refusal(e Event) (string, bool) {
+	_, rest, _ := strings.Cut(e.Detail, ": ")
+	switch e.Kind {
+	case "attempt.limited":
+		return strings.CutPrefix(rest, Refused)
+	case "attempt.quiet", "attempt.idle":
+		if strings.HasPrefix(rest, "turn ended") {
+			_, cause, ok := strings.Cut(rest, ": "+Refused)
+			return cause, ok
+		}
+	}
+	return "", false
+}
+
 func (s *Store) LastLimit(ctx context.Context, attemptID int64) (string, error) {
 	prefix := AttemptRef(attemptID) + ": "
 	var detail string

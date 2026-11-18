@@ -233,6 +233,7 @@ func (s *Store) UnackedReportCount(ctx context.Context) (int, error) {
 
 func (s *Store) RecordQuiet(ctx context.Context, attemptID int64, apiError string) (kind, detail string, err error) {
 	detail = "turn ended without a new report"
+	refused := strings.HasPrefix(apiError, Refused)
 	err = s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, attemptID)
 		if err != nil {
@@ -254,9 +255,12 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64, apiError strin
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		default:
-			if apiError != "" {
+			if apiError != "" && !refused {
 				detail = "api error: " + apiError
 			}
+		}
+		if refused {
+			detail += ": " + apiError
 		}
 		last, _, err := lastAttemptEvent(ctx, tx, attemptID)
 		if err != nil {
