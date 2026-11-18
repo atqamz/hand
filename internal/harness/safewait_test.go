@@ -6,7 +6,7 @@ import (
 )
 
 func TestKnownWaitAllowsEveryWaitForm(t *testing.T) {
-	absHand := filepath.Join(t.TempDir(), "hand") + " wait --timeout 5m"
+	absHand := "'" + filepath.ToSlash(filepath.Join(t.TempDir(), "hand")) + "' wait --timeout 5m"
 	for _, cmd := range []string{
 		`sleep 30`,
 		`sleep 2.5`,
