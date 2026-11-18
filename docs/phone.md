@@ -10,12 +10,14 @@ Any other phone, browser or second computer needs a tunnel you set up yourself: 
 
 ## Alerts that open the app
 
-Hand never sends an alert itself: the `notify` command in `routing.json` does ([Alerts on your phone](alerts.md)). Hand puts two links in its environment:
+The app is the phone path for alerts (no app release is published yet; build it from `android/`, see its [README](../android/README.md)): it reads the [alert feed](alerts.md#the-alert-feed) and shows each alert as an Android notification, and a tap opens the item. Setting the app's Battery to **Unrestricted** in Android's settings is recommended against Doze, which is not yet measured on a device. Known gaps: after a memory-pressure restart the app's alert service may stall until you open the app (not reproduced, not fixed), and the app does not start at boot, so after a reboot, an app update or a force stop alerts stay off until you open it; on Linux and macOS hosts the desktop notification, which is on while no `notify` key is set, covers both ([Alerts on your phone](alerts.md#the-desktop-notification)).
+
+The `notify` command in `routing.json` is a generic hook for any other service ([a custom command](alerts.md#a-custom-command)). Hand puts two links in its environment:
 
 - `HAND_NOTIFY_APP_URL` is `handboard://open/<fleet id>/<page>`, the link the Hand app opens ([The open link](companion.md#the-open-link)): `task/t3`, `decision/d3`, `attempt/a7`, `task/t3#r5` for a report, or the fleet page. It holds no token, no code and no endpoint ID, so it is safe to send through a service such as ntfy.sh, and it is set whether or not the board runs with `--iroh`.
 - `HAND_NOTIFY_URL` is the page on the host, `http://127.0.0.1:7777/<fleet id>/...`, from the address the board wrote to `board.addr`. It is empty when the board listens on a network address. A phone cannot open it.
 
-With ntfy, put the app link in the `Click` header and fall back to the host's page: `Click: ${HAND_NOTIFY_APP_URL:-$HAND_NOTIFY_URL}`, as the command in [Alerts on your phone](alerts.md) does. Tapping the alert opens the item in the app, which is already paired. If the app cannot reach the host, it says so; tap the alert again once the host is back. `hand open --print REF` prints the same link as `app`, beside the `url` that holds the fleet's token.
+With a service such as ntfy, put the app link in the `Click` header and fall back to the host's page: `Click: ${HAND_NOTIFY_APP_URL:-$HAND_NOTIFY_URL}`, as the example in [a custom command](alerts.md#a-custom-command) does. Tapping the alert opens the item in the app, which is already paired. If the app cannot reach the host, it says so; tap the alert again once the host is back. `hand open --print REF` prints the same link as `app`, beside the `url` that holds the fleet's token.
 
 ntfy documents a custom scheme in `Click` as "the responsible app may open". If your phone does not open the app from the tap, send the link as a button instead: `-H "Actions: view, Open in Hand, $HAND_NOTIFY_APP_URL"`.
 
