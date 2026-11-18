@@ -3,26 +3,30 @@ use std::time::Duration;
 const BASE_MAX: u64 = 30;
 const JITTER: f64 = 0.25;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Backoff {
     failures: u32,
+    max: u64,
+}
+
+impl Default for Backoff {
+    fn default() -> Self {
+        Self::capped(BASE_MAX)
+    }
 }
 
 impl Backoff {
+    pub fn capped(max: u64) -> Self {
+        Self { failures: 0, max }
+    }
+
     pub fn reset(&mut self) {
         self.failures = 0;
     }
 
     pub fn next_delay(&mut self) -> Duration {
-        let base = match self.failures {
-            0 => 1,
-            1 => 2,
-            2 => 4,
-            3 => 8,
-            4 => 16,
-            _ => BASE_MAX,
-        };
-        self.failures = (self.failures + 1).min(5);
+        let base = (1u64 << self.failures).min(self.max);
+        self.failures = (self.failures + 1).min(16);
         let jitter = rand::random_range(0.0..=JITTER);
         Duration::from_secs_f64(base as f64 * (1.0 + jitter))
     }

@@ -225,6 +225,57 @@ impl Dialer {
         }
     }
 
+    pub async fn report(&self) -> String {
+        let metrics = self.inner.endpoint.metrics();
+        let (socket, net) = (&metrics.socket, &metrics.net_report);
+        let mut line = format!(
+            "iroh send_v4={} send_v6={} send_relay={} recv_v4={} recv_v6={} recv_relay={} recv_datagrams={} relay_home_change={} relay_conns_ok={} relay_conns_failed={} holepunch_attempts={} restun_ticks={} portmap_ticks={} link_changes={} main_ticks={} msg_ticks={} net_reports={} net_reports_full={} portmap_attempts={}",
+            socket.send_ipv4.get(),
+            socket.send_ipv6.get(),
+            socket.send_relay.get(),
+            socket.recv_data_ipv4.get(),
+            socket.recv_data_ipv6.get(),
+            socket.recv_data_relay.get(),
+            socket.recv_datagrams.get(),
+            socket.relay_home_change.get(),
+            socket.relay_conns_success.get(),
+            socket.relay_conns_failed.get(),
+            socket.holepunch_attempts.get(),
+            socket.actor_tick_re_stun.get(),
+            socket.actor_tick_portmap_changed.get(),
+            socket.actor_link_change.get(),
+            socket.actor_tick_main.get(),
+            socket.actor_tick_msg.get(),
+            net.reports.get(),
+            net.reports_full.get(),
+            net.portmap_attempts.get(),
+        );
+        let (mut paths, mut ip, mut relay) = (0, 0, 0);
+        let connection = self.live().await;
+        if let Some(connection) = &connection {
+            for path in &connection.paths() {
+                paths += 1;
+                ip += u32::from(path.is_ip());
+                relay += u32::from(path.is_relay());
+            }
+        }
+        let stats = connection.map(|connection| connection.stats());
+        let (tx_packets, tx_bytes, rx_datagrams, rx_bytes, lost) =
+            stats.map_or((0, 0, 0, 0, 0), |stats| {
+                (
+                    stats.sent_packets,
+                    stats.sent_bytes,
+                    stats.udp_rx.datagrams,
+                    stats.udp_rx.bytes,
+                    stats.lost_packets,
+                )
+            });
+        line.push_str(&format!(
+            " paths={paths} paths_ip={ip} paths_relay={relay} conn_tx_packets={tx_packets} conn_tx_bytes={tx_bytes} conn_rx_datagrams={rx_datagrams} conn_rx_bytes={rx_bytes} conn_lost_packets={lost}"
+        ));
+        line
+    }
+
     pub async fn disconnect(&self) {
         let mut state = self.inner.state.lock().await;
         if let Some(active) = state.connection.take() {
@@ -630,6 +681,42 @@ mod tests {
         assert!(dialer.inner.keep(connection, &addr).await.is_none());
         assert!(dialer.live().await.is_none());
         assert_eq!(dialer.target().await, Some(other.addr()));
+    }
+
+    fn counts(line: &str) -> std::collections::BTreeMap<String, u64> {
+        let words: Vec<&str> = line.split(' ').collect();
+        assert_eq!(words[0], "iroh");
+        words[1..]
+            .iter()
+            .map(|word| {
+                let (key, value) = word.split_once('=').expect(word);
+                (key.to_owned(), value.parse().expect(word))
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_report_holds_counts_and_nothing_that_names_a_peer() {
+        let server = local().await;
+        let dialer = Dialer::new(local().await, Some(server.addr()));
+        let before = counts(&dialer.report().await);
+        assert_eq!(before["paths"], 0);
+        assert_eq!(before["conn_tx_packets"], 0);
+        serve(server, Arc::new(AtomicU32::new(0)));
+        dialer.attempt().await.unwrap();
+
+        let after = counts(&dialer.report().await);
+
+        assert_eq!(after["paths"], 1);
+        assert_eq!(after["paths_ip"], 1);
+        assert_eq!(after["paths_relay"], 0);
+        assert!(after["conn_tx_packets"] > 0);
+        assert!(after["send_v4"] > 0);
+        assert!(after["recv_datagrams"] > 0);
+        assert_eq!(
+            before.keys().collect::<std::collections::BTreeSet<_>>(),
+            after.keys().collect()
+        );
     }
 
     fn serve(server: Endpoint, accepted: Arc<AtomicU32>) {

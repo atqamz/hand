@@ -20,7 +20,9 @@ pub use alerts::{
     Alert, AlertSink, CookieSource, Feed, Fleet, RESCAN, Stop, Supervisor, WAIT, paired_fleets,
 };
 pub use codes::{BOARD_ERROR, BOARD_UNREACHABLE, FULL, IDLE, STREAM_IDLE};
-pub use companion::{Companion, CompanionConfig, ConfirmError, OpenLinkError, StartError};
+pub use companion::{
+    Companion, CompanionConfig, ConfirmError, OpenLinkError, Reporter, StartError,
+};
 pub use dialer::{
     ALPN, BACKOFF_RESET, Dialer, HANDSHAKE_DEADLINE, Notice, OpenError, STREAMS_PER_CONNECTION,
     StreamRecv, StreamSend, parse_target,
