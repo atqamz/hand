@@ -1114,7 +1114,7 @@ func TestAPIPhoneCursorIsNotAPlainHashOfTheCode(t *testing.T) {
 }
 
 func TestAPIPhoneListsAndRevokesEveryFleetButACodeNamesEight(t *testing.T) {
-	p := newCompanionHost(t, true, "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9")
+	p := newCompanionHost(t, true, "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "ninthfleet")
 	home := p.fleets[0]
 	for _, f := range p.fleets {
 		if _, err := f.st.AddDevice(context.Background(), "Pixel", "", phoneHash, phoneLabel); err != nil {
@@ -1125,6 +1125,9 @@ func TestAPIPhoneListsAndRevokesEveryFleetButACodeNamesEight(t *testing.T) {
 	_, got := apiBody[board.APIPhone](t, p.papi(home, "GET", "/phone", nil, all))
 	if len(got.Devices) != 1 || len(got.Devices[0].Fleets) != 9 || len(got.Unreachable) != 0 {
 		t.Fatalf("phone = %d devices, %+v, unreachable %v", len(got.Devices), got.Devices, got.Unreachable)
+	}
+	if page := p.phonePage(home, all...); !strings.Contains(page, "ninthfleet") || len(checkboxRe.FindAllString(page, -1)) != 8 {
+		t.Fatalf("the page does not list the ninth fleet's phone, or offers a code more than this fleet and 7 others")
 	}
 	if len(got.Fleets) != 8 || !got.Fleets[0].Current {
 		t.Fatalf("a code is offered %d fleets, want this one and 7 others: %+v", len(got.Fleets), got.Fleets)
@@ -1158,9 +1161,6 @@ func TestAPIPhoneListsAndRevokesEveryFleetButACodeNamesEight(t *testing.T) {
 		if n := len(p.devicesOf(f)); n != 0 {
 			t.Errorf("%s still holds %d devices", f.name, n)
 		}
-	}
-	if !strings.Contains(p.phonePage(home, all...), "a9") {
-		t.Fatalf("the page does not list the ninth fleet")
 	}
 }
 
