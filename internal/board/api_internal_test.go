@@ -214,8 +214,13 @@ func TestAnAnswerWhoseFleetCannotBeReadWritesNothing(t *testing.T) {
 }
 
 func TestAPanicWhileReadingTheVersionIsAnError(t *testing.T) {
-	b := &Board{}
-	if _, err := b.sharedVersion(context.Background(), false); err == nil {
-		t.Fatal("a version read without a store did not fail")
+	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	b := &Board{st: st, o: Options{Now: func() time.Time { panic("clock") }}}
+	if _, err := b.sharedVersion(context.Background(), false); err == nil || !strings.Contains(err.Error(), "clock") {
+		t.Fatalf("a version read that panicked = %v", err)
 	}
 }
