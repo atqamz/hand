@@ -632,10 +632,24 @@ func TestDroppingSeveralFilesAttachesEachInOrderAndRefusesTheFolder(t *testing.T
 	}
 	tt.Frame()
 	mustText(t, tt, attachImage, attachLog, "empty.txt", "screens/", "A folder is not copied. Paste its path instead.")
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, folder) || strings.Contains(s, dir) {
+			t.Errorf("%q shows a host path", s)
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.uploaded) != 3 || len(f.inbox[f.uploaded[0]]) != 212<<10 || len(f.inbox[f.uploaded[1]]) != 0 || len(f.inbox[f.uploaded[2]]) != 1468006 {
-		t.Fatalf("uploaded %d files, want the image, the empty file and the log in the order dropped", len(f.uploaded))
+	want := []struct {
+		name string
+		size int
+	}{{attachImage, 212 << 10}, {"empty.txt", 0}, {attachLog, 1468006}}
+	if len(f.uploaded) != len(want) {
+		t.Fatalf("uploaded %d files, want %d", len(f.uploaded), len(want))
+	}
+	for i, w := range want {
+		if got := f.uploaded[i]; !strings.HasSuffix(got, "-"+w.name) || len(f.inbox[got]) != w.size {
+			t.Errorf("upload %d is %q with %d bytes, want %q with %d", i, got, len(f.inbox[got]), w.name, w.size)
+		}
 	}
 	if len(app.Chips) != 4 {
 		t.Fatalf("%d chips, want 3 attached and the refused folder", len(app.Chips))

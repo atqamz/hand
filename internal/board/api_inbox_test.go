@@ -203,9 +203,12 @@ func TestAPIInboxEmptyUploads(t *testing.T) {
 		if e := testAPIError(t, rec, http.StatusBadRequest, "bad_request"); strings.Contains(e.Message, api.options.Home) {
 			t.Errorf("%s: the refusal names the host folder: %q", c.what, e.Message)
 		}
-	}
-	if got := inboxFiles(t, api.options.Home); len(got) != 1 {
-		t.Fatalf("inbox = %q, want only the empty file", got)
+		if files := inboxFiles(t, api.options.Home); !slices.Equal(files, []string{got.Name}) {
+			t.Fatalf("%s: inbox = %q, want only %q", c.what, files, got.Name)
+		}
+		if b, err := os.ReadFile(filepath.Join(api.options.Home, "inbox", got.Name)); err != nil || len(b) != 0 {
+			t.Fatalf("%s: the empty file holds %d bytes (%v)", c.what, len(b), err)
+		}
 	}
 }
 
