@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -224,9 +226,31 @@ func TestHistorySearchFullPrintsOneEntryWhole(t *testing.T) {
 		t.Fatalf("out = %q", out)
 	}
 	s.reply(2, 5, "2026-11-10T11:00:00Z", strings.Repeat("0123456789abcdef", 2000))
-	out = h.ok("history", "search", "--full", "y2")
-	if !strings.Contains(out, "supervisor: s5\n") || strings.Contains(out, "task:") || !strings.Contains(out, "… 15616 bytes omitted at 16 KiB\n") || len(out) > 16<<10+600 {
-		t.Fatalf("a long reply prints %d bytes: %q", len(out), out[len(out)-120:])
+	s.reply(3, 5, "2026-11-10T11:01:00Z", strings.Repeat("x\n", 12000))
+	s.reply(4, 5, "2026-11-10T11:02:00Z", strings.Repeat("y", 16384))
+	s.reply(5, 5, "2026-11-10T11:03:00Z", strings.Repeat("€", 9000))
+	notice := regexp.MustCompile(`\n  … (\d+) bytes omitted at 16 KiB\n$`)
+	for ref, c := range map[string]struct{ total, perLine int }{"y2": {32000, 0}, "y3": {24000, 2}, "y4": {16384, 0}, "y5": {27000, 0}} {
+		out := h.ok("history", "search", "--full", ref)
+		m := notice.FindStringSubmatch(out)
+		if len(out) > 16<<10 || m == nil || !strings.Contains(out, "supervisor: s5\n") || strings.Contains(out, "task:") {
+			t.Fatalf("%s prints %d bytes, notice %v: %.100q", ref, len(out), m, out[len(out)-100:])
+		}
+		omitted, _ := strconv.Atoi(m[1])
+		body := strings.TrimPrefix(notice.ReplaceAllString(out[strings.Index(out, "text: |\n")+len("text: |\n"):], ""), "  ")
+		kept := len(body)
+		if c.perLine > 0 {
+			kept = strings.Count(body, "x\n") * c.perLine
+		}
+		if omitted+kept != c.total {
+			t.Fatalf("%s: kept %d and omitted %d is not %d", ref, kept, omitted, c.total)
+		}
+		if len(out) < 16<<10-2000 {
+			t.Fatalf("%s prints only %d bytes", ref, len(out))
+		}
+	}
+	if out := h.ok("history", "search", "--full", "r1"); strings.Contains(out, "omitted") {
+		t.Fatalf("a short entry reports an omission: %q", out)
 	}
 }
 
@@ -252,6 +276,15 @@ func TestHistorySearchShowsFiveHitsByDefaultAndSaysHowManyMore(t *testing.T) {
 		t.Fatalf("out = %q", out)
 	}
 	if out := h.ok("history", "search", "amber", "--limit", "7"); !strings.Contains(out, "hits[7]{") || strings.Contains(out, " more;") || strings.Contains(out, "context[") {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestHistorySearchNamesTheCommandItWasRunAs(t *testing.T) {
+	h, s := newHistorySeed(t)
+	s.input(1, "2026-11-10T10:00:00Z", "amber")
+	h.name = "hand-next"
+	if out := h.ok("history", "search", "amber"); !strings.Contains(out, "`hand-next history search --full REF`") {
 		t.Fatalf("out = %q", out)
 	}
 }
