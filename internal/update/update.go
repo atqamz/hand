@@ -35,9 +35,9 @@ type Options struct {
 	Now                                 func() time.Time
 	Client                              func(e fleet.Entry) luvus.Client
 	Hold                                func()
-	Watch, Board                        func(ctx context.Context, home string) error
+	Watch, Board                        func(ctx context.Context, e fleet.Entry) error
 	Stop, Kill                          func(pid int, marker string) error
-	Start                               func(ctx context.Context, home string) error
+	Start                               func(ctx context.Context, e fleet.Entry) error
 	Version                             func(ctx context.Context, e fleet.Entry) (string, error)
 	Sleep                               func(ctx context.Context, d time.Duration) error
 }
@@ -440,7 +440,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 	case !full:
 		init = "skipped: current"
 	}
-	var homes, later []string
+	var homes, later []fleet.Entry
 	for _, e := range fleets {
 		fr := FleetResult{Name: e.Name, Init: init, Luvus: "kept"}
 		if e.State != "ok" {
@@ -448,7 +448,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 			r.Fleets = append(r.Fleets, fr)
 			continue
 		}
-		homes = append(homes, e.Home)
+		homes = append(homes, e)
 		if why := r.broken[e.ID]; why != "" {
 			fr.Luvus = "failed: " + why
 			r.Fleets = append(r.Fleets, fr)
@@ -501,10 +501,10 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 		}
 		switch {
 		case did && stopped && full:
-			later = append(later, e.Home)
+			later = append(later, e)
 		case did:
 			if stopped {
-				r.start(ctx, o, "watch "+e.Home, []string{e.Home}, o.Watch)
+				r.start(ctx, o, "watch "+e.Home, []fleet.Entry{e}, o.Watch)
 			}
 			r.unrecord(o, func(j *journal) { j.Watcher = without(j.Watcher, e.Home) })
 		}
@@ -513,15 +513,20 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 	if len(homes) == 0 || !full {
 		return
 	}
-	if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid"), func(j *journal) { j.Board = append(j.Board, homes...) }); did {
+	trackBoard := func(j *journal) {
+		for _, e := range homes {
+			j.Board = append(j.Board, e.Home)
+		}
+	}
+	if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid"), trackBoard); did {
 		if stopped {
 			r.start(ctx, o, "board", homes, o.Board)
 		}
 		r.unrecord(o, func(j *journal) { j.Board = nil })
 	}
-	for _, home := range later {
-		r.start(ctx, o, "watch "+home, []string{home}, o.Watch)
-		r.unrecord(o, func(j *journal) { j.Watcher = without(j.Watcher, home) })
+	for _, e := range later {
+		r.start(ctx, o, "watch "+e.Home, []fleet.Entry{e}, o.Watch)
+		r.unrecord(o, func(j *journal) { j.Watcher = without(j.Watcher, e.Home) })
 	}
 }
 
@@ -530,14 +535,14 @@ func (r *Report) fail(help string) {
 	r.Help = append(r.Help, help)
 }
 
-func (r *Report) start(ctx context.Context, o Options, name string, homes []string, ensure func(context.Context, string) error) {
+func (r *Report) start(ctx context.Context, o Options, name string, entries []fleet.Entry, ensure func(context.Context, fleet.Entry) error) {
 	res := UnitResult{Name: name, Action: "start", Result: "ok"}
 	if o.Check {
 		res.Result = "would run"
 	} else {
 		var err error
-		for _, home := range homes {
-			if err = ensure(ctx, home); err == nil {
+		for _, e := range entries {
+			if err = ensure(ctx, e); err == nil {
 				break
 			}
 		}
@@ -710,7 +715,7 @@ func (o Options) stopServer(ctx context.Context, e fleet.Entry) error {
 }
 
 func (o Options) startServer(ctx context.Context, e fleet.Entry, to string) error {
-	if err := o.Start(ctx, e.Home); err != nil {
+	if err := o.Start(ctx, e); err != nil {
 		return err
 	}
 	got, err := o.client(e).Version(ctx)
