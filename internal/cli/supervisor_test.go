@@ -650,6 +650,24 @@ func publishStatus(fx *attemptFixture, pane, status string) {
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": pane, "status": status, "agent": "claude"})
 }
 
+func holdSupervisorDelivery(t *testing.T, home string) func() {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(home, "locks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(home, "locks", "supervisor.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := flock.Lock(f, true); !ok || err != nil {
+		t.Fatalf("held the supervisor delivery lock: %v, %v", ok, err)
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { _ = flock.Release(f) }) }
+	t.Cleanup(release)
+	return release
+}
+
 func openStore(t *testing.T, h *harness) *state.Store {
 	t.Helper()
 	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
@@ -807,7 +825,7 @@ func TestABurstOfTenEventsIsOneWakeAndNothingWakesForIt(t *testing.T) {
 	}
 }
 
-func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
+func TestPendingMessagesAreDeliveredByTheNextWatchTickAfterALockMiss(t *testing.T) {
 	fx := newAttemptFixture(t)
 	startClaudeSupervisor(fx.h)
 	fx.start()
@@ -824,13 +842,13 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 		t.Fatalf("prompts after resume = %q, want only the resume note", got)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	release := holdSupervisorDelivery(t, fx.h.home)
+	waitHandled := watchedEvents(t, fx)
 	stop := startWatch(t, fx, "--every", "200ms")
-	eventually(t, func() bool { return len(fx.rt.prompts()) == 3 })
 	publishStatus(fx, pane, "idle")
+	waitHandled("pane.agent_status_changed", 1)
+	release()
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 4 })
-	n := explains(fx.rt)
-	publishStatus(fx, pane, "idle")
-	eventually(t, func() bool { return explains(fx.rt) > n })
 	stop()
 	got := fx.rt.prompts()
 	if len(got) != 4 || got[1] != "first" || got[2] != "second" || !strings.HasPrefix(got[3], "[hand v1 wake]\n") || !strings.Contains(got[3], "attempt.interrupted a1: luvus server restarted") || strings.Contains(got[3], "attempt.blocked") {
@@ -2173,7 +2191,7 @@ func TestSupervisorForceDeliversNormallyWhenNotBlocked(t *testing.T) {
 	}
 }
 
-func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
+func TestDeliverHoldsWakesOnTheTickThatRetriesALockMiss(t *testing.T) {
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
@@ -2181,13 +2199,13 @@ func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
 	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	release := holdSupervisorDelivery(t, fx.h.home)
+	waitHandled := watchedEvents(t, fx)
 	stop := startWatch(t, fx, "--every", "200ms")
+	publishStatus(fx, pane, "idle")
+	waitHandled("pane.agent_status_changed", 1)
+	release()
 	eventually(t, func() bool { return supervisorLimitedRows(t, fx) == 1 })
-	for _, status := range []string{"idle", "working", "idle"} {
-		n := explains(fx.rt)
-		publishStatus(fx, pane, status)
-		eventually(t, func() bool { return explains(fx.rt) > n })
-	}
 	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "why: \"supervisor limited: You've hit your session limit · resets 6:10am (Asia/Jakarta)\"")
 	has(t, "send", fx.h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
 	out, _ := stop()
