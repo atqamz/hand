@@ -16,7 +16,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-var onlyLinux = true
+var gated = true
 
 type options struct {
 	version bool
@@ -73,8 +73,8 @@ func main() {
 		fmt.Println(desktopasset.Stamp())
 		return
 	}
-	if onlyLinux && runtime.GOOS != "linux" {
-		fmt.Fprintln(os.Stderr, "hand-desktop runs on Linux for now; the Board still works in a browser on this system.")
+	if gated && !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, desktopasset.Channel) {
+		fmt.Fprintln(os.Stderr, "hand-desktop: "+desktopasset.Unsupported(runtime.GOOS, runtime.GOARCH))
 		os.Exit(2)
 	}
 	if !mygo.App.RequestSingleInstanceLock() {

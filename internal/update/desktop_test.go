@@ -75,8 +75,15 @@ func installDesktop(t *testing.T, f *fixture, version, commit string) {
 
 func skipUnlessDesktop(t *testing.T) {
 	t.Helper()
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
-		t.Skip("hand-desktop assets are Linux only")
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
+		t.Skip("hand-desktop assets are for Linux and Windows only")
+	}
+}
+
+func skipUnlessLauncher(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("the launcher entry is written on Linux only")
 	}
 }
 
@@ -313,7 +320,7 @@ func TestRunSaysWhenTheTargetHasNoDesktop(t *testing.T) {
 
 func TestRunSaysWhenThePlatformHasNoDesktop(t *testing.T) {
 	f := newFetch(t)
-	if desktopasset.Supported(f.o.OS, f.o.Arch) {
+	if desktopasset.Supported(f.o.OS, f.o.Arch, f.o.Channel) {
 		t.Skip("this update target supports hand-desktop")
 	}
 	rep, err := Run(context.Background(), f.o)
@@ -355,7 +362,7 @@ func TestRunFinishesTheStaleFleetCycleWhenTheDesktopCannotBeVerified(t *testing.
 }
 
 func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
-	skipUnlessDesktop(t)
+	skipUnlessLauncher(t)
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	entry := filepath.Join(f.data, "applications", "hand-desktop.desktop")
 	pic := filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
@@ -388,7 +395,7 @@ func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
 }
 
 func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
-	skipUnlessDesktop(t)
+	skipUnlessLauncher(t)
 	f := newFetch(t)
 	if _, err := launcher.Sync(f.o.Getenv, f.desktop()); err != nil {
 		t.Fatal(err)
@@ -399,4 +406,23 @@ func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
 	}
 	absent(t, filepath.Join(f.data, "applications", "hand-desktop.desktop"))
 	absent(t, filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png"))
+}
+
+func TestRunSaysAStableBuildHasNoDesktopOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the downloaded hand must run, so this needs a Windows host")
+	}
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "24", "0.14.4") {
+		f.srv.set(name, body)
+	}
+	f.o.Channel = "stable"
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Desktop != "unsupported on windows/amd64" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForDesktop() {
+		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
+	}
+	absent(t, f.desktop())
 }

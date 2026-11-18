@@ -13,14 +13,22 @@ import (
 	"github.com/atqamz/hand/internal/launcher"
 )
 
+func buildChannel(t *testing.T, channel string) {
+	t.Helper()
+	saved := cli.Channel
+	t.Cleanup(func() { cli.Channel = saved })
+	cli.Channel = channel
+}
+
 func installDesktop(t *testing.T, fx *doctorFixture, params map[string]string) {
 	t.Helper()
 	fakebin.Install(t, fx.tools, desktopasset.Name, "desktop", params)
 }
 
 func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
-		t.Skip("hand-desktop assets are Linux only")
+	buildChannel(t, "edge")
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
+		t.Skip("hand-desktop assets are for Linux and Windows only")
 	}
 	commit, version := cli.Commit, cli.Version
 	t.Cleanup(func() { cli.Commit, cli.Version = commit, version })
@@ -76,8 +84,9 @@ func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
 }
 
 func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
-	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
-		t.Skip("this platform supports hand-desktop")
+	buildChannel(t, "stable")
+	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "stable") {
+		t.Skip("this platform supports hand-desktop on a stable build")
 	}
 	fx := newDoctorFixture(t)
 	holdWatchLock(t, fx.h.home)
@@ -89,8 +98,9 @@ func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
 }
 
 func TestDoctorDesktopReadsTheBinaryNextToHand(t *testing.T) {
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
-		t.Skip("hand-desktop assets are Linux only")
+	buildChannel(t, "edge")
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
+		t.Skip("hand-desktop assets are for Linux and Windows only")
 	}
 	fx := newDoctorFixture(t)
 	holdWatchLock(t, fx.h.home)
@@ -125,8 +135,9 @@ func TestDoctorDesktopRowNeedsNoSecondhandFolder(t *testing.T) {
 }
 
 func TestDoctorDesktopEntryRow(t *testing.T) {
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
-		t.Skip("hand-desktop assets are Linux only")
+	buildChannel(t, "edge")
+	if runtime.GOOS != "linux" {
+		t.Skip("the launcher entry is written on Linux only")
 	}
 	fx := newDoctorFixture(t)
 	holdWatchLock(t, fx.h.home)
@@ -180,5 +191,29 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 	}
 	if row := checkRows(t, fx.h.ok("doctor"))["desktop entry"]; row[0] != "ok" {
 		t.Fatalf("synced = %q", row)
+	}
+}
+
+func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
+	buildChannel(t, "edge")
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
+		t.Skip("hand-desktop assets are for Linux and Windows only")
+	}
+	fx := newDoctorFixture(t)
+	holdWatchLock(t, fx.h.home)
+	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+	rows := checkRows(t, fx.h.ok("doctor"))
+	window, entry := rows["desktop window"], rows["desktop entry"]
+	if runtime.GOOS != "windows" {
+		if window[0] != "" {
+			t.Fatalf("a desktop window row off Windows: %q", window)
+		}
+		return
+	}
+	if window[0] != "info" || !strings.Contains(window[1], "edge builds only") || !strings.Contains(window[1], "CI runner, not yet on a real Windows PC") {
+		t.Fatalf("desktop window = %q", window)
+	}
+	if entry[0] != "" {
+		t.Fatalf("a launcher entry row on Windows: %q", entry)
 	}
 }

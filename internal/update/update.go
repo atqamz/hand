@@ -218,7 +218,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	desktopNext := desktopPath(o.Target, o.OS)
-	desktopOn := desktopasset.Supported(o.OS, o.Arch)
+	desktopOn := desktopasset.Supported(o.OS, o.Arch, o.Channel)
 	desktopStale := false
 	if desktopOn {
 		gotVersion, gotCommit, err := desktopasset.BinaryVersion(ctx, desktopNext)

@@ -10,7 +10,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 exe=$(go env GOEXE)
 handflags="-s -w -X github.com/atqamz/hand/internal/cli.Version=$version -X github.com/atqamz/hand/internal/cli.Channel=source -X github.com/atqamz/hand/internal/cli.Commit=$commit"
-deskflags="-s -w -X github.com/egoist/mygo.production=1 -X github.com/atqamz/hand/internal/desktopasset.Version=$version -X github.com/atqamz/hand/internal/desktopasset.Commit=$commit"
+deskflags="-s -w -X github.com/egoist/mygo.production=1 -X github.com/atqamz/hand/internal/desktopasset.Version=$version -X github.com/atqamz/hand/internal/desktopasset.Channel=stable -X github.com/atqamz/hand/internal/desktopasset.Commit=$commit"
 if [ "$exe" = .exe ]; then
 	deskflags="$deskflags -H=windowsgui"
 fi
@@ -26,3 +26,16 @@ test "$got" = "hand-desktop $want" || {
 	exit 1
 }
 printf 'hand-desktop --version: %s\n' "$got"
+
+if [ "$(go env GOOS)" != linux ]; then
+	code=0
+	"$out/hand-desktop$exe" >"$out/refusal" 2>&1 </dev/null || code=$?
+	test "$code" = 2 || {
+		echo "a stable hand-desktop on $(go env GOOS) exited $code, want 2" >&2
+		exit 1
+	}
+	grep -q '^hand-desktop: unsupported on ' "$out/refusal" || {
+		echo "a stable hand-desktop on $(go env GOOS) printed '$(cat "$out/refusal")'" >&2
+		exit 1
+	}
+fi
