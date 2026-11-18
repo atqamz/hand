@@ -82,10 +82,7 @@ func (w *watcher) stampAnswers(ctx context.Context) {
 		if !live[k] {
 			continue
 		}
-		dir := w.r.home
-		if k.harness == "omp" {
-			dir = harness.OmpAgent(w.r.env.Getenv, w.r.home)
-		}
+		dir := w.transcriptDir(k.harness)
 		read := w.answers.Read
 		if ended[k] {
 			read = w.answers.ReadEnded
@@ -108,4 +105,11 @@ func (w *watcher) stampAnswers(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (w *watcher) transcriptDir(name string) string {
+	if name == "omp" {
+		return harness.OmpAgent(w.r.env.Getenv, w.r.home)
+	}
+	return w.r.home
 }
