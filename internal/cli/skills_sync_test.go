@@ -2,10 +2,16 @@ package cli_test
 
 import (
 	"encoding/json"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/cli"
 )
 
 func row(out, name string) string {
@@ -47,7 +53,7 @@ func TestSkillsAddSubscribesAndRemoveForgets(t *testing.T) {
 	h.ok("skills", "add", "--fleet", url)
 	commit := skillGit(t, tool.work, "rev-parse", "HEAD")
 	set := subscribedSet(t, filepath.Join(h.home, "skills.json"))
-	if got := set["triage"]; got.Source != "atqamz/skills" || got.Ref != "main" {
+	if got := set["triage"]; got.Source != ownName || got.Ref != "main" {
 		t.Fatalf("own repo = %+v", got)
 	}
 	if got := set["tool-skill"]; got.Source != url || got.Ref != commit {
@@ -119,13 +125,16 @@ func TestSkillsSyncShowsAThirdPartyDiffAndAppliesOnlyWithYes(t *testing.T) {
 	if len(backups(t, filepath.Join(h.home, ".agents", "skills-backups"), "tool-skill")) != 0 {
 		t.Fatal("a backup without an apply")
 	}
-	if out, errOut, code := h.run("skills", "sync", "--fleet", "--yes"); code != 3 || !strings.Contains(out, "--yes applies only to a skill you name") {
-		t.Fatalf("--yes without a name: code=%d stdout=%q stderr=%q", code, out, errOut)
+	if !strings.Contains(out, "sync --yes tool-skill@"+moved) {
+		t.Fatalf("the row does not name the commit: %q", out)
+	}
+	if out, errOut, code := h.run("skills", "sync", "--fleet", "--yes", "tool-skill"); code != 3 || !strings.Contains(out, "--yes takes NAME@COMMIT") {
+		t.Fatalf("--yes without a commit: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if got := readSkill(t, skillPath(h.home, ".claude", "tool-skill")); !strings.Contains(got, "\nv1\n") {
-		t.Fatalf("--yes without a name applied: %q", got)
+		t.Fatalf("--yes without a commit applied: %q", got)
 	}
-	out = h.ok("skills", "sync", "--fleet", "--yes", "tool-skill")
+	out = h.ok("skills", "sync", "--fleet", "--yes", "tool-skill@"+moved)
 	if !strings.Contains(out, "tool-skill,updated,"+old[:12]+" -> "+moved[:12]) {
 		t.Fatalf("sync --yes = %q", out)
 	}
@@ -155,7 +164,7 @@ func TestSkillsSyncMovesAThirdPartyPinOnlyAfterYes(t *testing.T) {
 	if out := h.ok("skills", "sync", "--fleet"); !strings.Contains(out, "tool-skill,behind,") {
 		t.Fatalf("a moved pin applied or was missed: %q", out)
 	}
-	if out := h.ok("skills", "sync", "--fleet", "--yes", "tool-skill"); !strings.Contains(out, "tool-skill,updated,") {
+	if out := h.ok("skills", "sync", "--fleet", "--yes", "tool-skill@"+moved); !strings.Contains(out, "tool-skill,updated,") {
 		t.Fatalf("sync --yes = %q", out)
 	}
 	if e := skillState(t, h.home)["tool-skill"]; e.Commit != moved || e.Ref != moved {
@@ -238,7 +247,7 @@ func TestSkillsSyncInAProjectKeepsTheSubscriptionInTheCheckout(t *testing.T) {
 	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"]})
 	isolateGit(t, hub.bare)
 	h.ok("skills", "add", "triage")
-	if got := subscribedSet(t, filepath.Join(repo, ".agents", "skills", "skills.json"))["triage"]; got.Source != "atqamz/skills" || got.Ref != "main" {
+	if got := subscribedSet(t, filepath.Join(repo, ".agents", "skills", "skills.json"))["triage"]; got.Source != ownName || got.Ref != "main" {
 		t.Fatalf("subscription = %+v", got)
 	}
 	gitIn(t, repo, "add", "-A")
@@ -271,4 +280,232 @@ func TestSkillsSyncInAProjectKeepsTheSubscriptionInTheCheckout(t *testing.T) {
 	if out, _, code := h.run("skills", "sync"); code != 3 || !strings.Contains(out, "uncommitted") || strings.Contains(readSkill(t, filepath.Join(repo, ".agents", "skills", "triage", "SKILL.md")), "\nv3\n") {
 		t.Fatalf("a dirty project copy: code=%d stdout=%q", code, out)
 	}
+}
+
+func editJSON(t *testing.T, path string, edit func(skills map[string]map[string]any)) {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(readSkill(t, path)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	skills := map[string]map[string]any{}
+	for name, v := range doc["skills"].(map[string]any) {
+		skills[name] = v.(map[string]any)
+	}
+	edit(skills)
+	doc["skills"] = skills
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSkillsSyncDoesNotTrustAPlantedLockEntry(t *testing.T) {
+	h := skillsHarness(t)
+	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+	url := "file://" + filepath.ToSlash(tool.bare)
+	h.ok("skills", "add", "--fleet", "--ref", "main", url)
+	old := skillGit(t, tool.work, "rev-parse", "HEAD")
+	editJSON(t, fleetLock(h.home), func(skills map[string]map[string]any) {
+		skills["tool-skill"]["source"], skills["tool-skill"]["sourceType"], skills["tool-skill"]["sourceUrl"] = ownName, "github", url
+	})
+	editJSON(t, filepath.Join(h.home, "skills.json"), func(skills map[string]map[string]any) {
+		skills["tool-skill"]["source"] = ownName
+	})
+	tool.commit(skillFiles("tool-skill", "v2"))
+	out := h.ok("skills", "sync", "--fleet")
+	if !strings.Contains(out, "tool-skill,behind,") || !strings.Contains(out, "+v2") {
+		t.Fatalf("sync = %q", out)
+	}
+	if got := readSkill(t, skillPath(h.home, ".claude", "tool-skill")); !strings.Contains(got, "\nv1\n") {
+		t.Fatalf("a planted lock entry applied third-party content: %q", got)
+	}
+	if e := skillState(t, h.home)["tool-skill"]; e.Commit != old {
+		t.Fatalf("lock = %+v", e)
+	}
+}
+
+func TestSkillsSyncAppliesAnOwnRepoOnlyWhenTheSubscriptionNamesIt(t *testing.T) {
+	h := skillsHarness(t)
+	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v1")["SKILL.md"]})
+	isolateGit(t, hub.bare)
+	h.ok("skills", "add", "--fleet", "triage")
+	editJSON(t, filepath.Join(h.home, "skills.json"), func(skills map[string]map[string]any) {
+		skills["triage"]["source"] = "someone/else"
+	})
+	hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"]})
+	if out := h.ok("skills", "sync", "--fleet"); !strings.Contains(out, "triage,behind,") {
+		t.Fatalf("sync = %q", out)
+	}
+	if got := readSkill(t, skillPath(h.home, ".claude", "triage")); !strings.Contains(got, "\nv1\n") {
+		t.Fatalf("applied: %q", got)
+	}
+}
+
+func TestSkillsAddRefusesAPullRequestRef(t *testing.T) {
+	h := skillsHarness(t)
+	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+	url := "file://" + filepath.ToSlash(tool.bare)
+	for _, ref := range []string{"refs/pull/1/head", "pull/1/head", "Refs/heads/main", "merge-requests/2/head", "a..b"} {
+		if _, errOut, code := h.run("skills", "add", "--fleet", "--ref", ref, url); code != 2 || !strings.Contains(errOut, "is not a branch, tag or commit name") {
+			t.Fatalf("--ref %s: code=%d stderr=%q", ref, code, errOut)
+		}
+	}
+	h.ok("skills", "add", "--fleet", "--ref", "main", url)
+}
+
+func TestSkillsSyncYesAppliesOnlyTheCommitThatWasDiffed(t *testing.T) {
+	h := skillsHarness(t)
+	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+	url := "file://" + filepath.ToSlash(tool.bare)
+	h.ok("skills", "add", "--fleet", "--ref", "main", url)
+	shown := tool.commit(skillFiles("tool-skill", "v2"))
+	if out := h.ok("skills", "sync", "--fleet"); !strings.Contains(out, "sync --yes tool-skill@"+shown) || !strings.Contains(out, "+v2") {
+		t.Fatalf("sync = %q", out)
+	}
+	latest := tool.commit(skillFiles("tool-skill", "v3 NEVER SHOWN"))
+	out, errOut, code := h.run("skills", "sync", "--fleet", "--yes", "tool-skill@"+shown)
+	if code != 3 || !strings.Contains(out, "moved since the diff you read") || !strings.Contains(out, "+v3 NEVER SHOWN") || !strings.Contains(out, "tool-skill@"+latest) {
+		t.Fatalf("a moved branch: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	if got := readSkill(t, skillPath(h.home, ".claude", "tool-skill")); !strings.Contains(got, "\nv1\n") {
+		t.Fatalf("applied a commit nobody read: %q", got)
+	}
+	if out := h.ok("skills", "sync", "--fleet", "--yes", "tool-skill@"+latest[:8]); !strings.Contains(out, "tool-skill,updated,") {
+		t.Fatalf("sync --yes = %q", out)
+	}
+	if e := skillState(t, h.home)["tool-skill"]; e.Commit != latest {
+		t.Fatalf("lock = %+v", e)
+	}
+}
+
+func TestSkillsSyncYesIgnoresAnotherSkillsCommit(t *testing.T) {
+	h := skillsHarness(t)
+	a := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-a.git"), skillFiles("tool-a", "v1"))
+	b := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-b.git"), skillFiles("tool-b", "v1"))
+	for _, r := range []*skillRemote{a, b} {
+		h.ok("skills", "add", "--fleet", "--ref", "main", "file://"+filepath.ToSlash(r.bare))
+	}
+	movedA := a.commit(skillFiles("tool-a", "v2"))
+	b.commit(skillFiles("tool-b", "v2"))
+	out := h.ok("skills", "sync", "--fleet", "--yes", "tool-a@"+movedA)
+	if !strings.Contains(out, "tool-a,updated,") || !strings.Contains(out, "tool-b,behind,") {
+		t.Fatalf("sync = %q", out)
+	}
+	if got := readSkill(t, skillPath(h.home, ".claude", "tool-b")); !strings.Contains(got, "\nv1\n") {
+		t.Fatalf("a yes for one skill moved another: %q", got)
+	}
+}
+
+func TestSkillsSyncYesNeverOverwritesAnEditedOrConflictingCopy(t *testing.T) {
+	h := skillsHarness(t)
+	remotes := map[string]*skillRemote{}
+	for _, name := range []string{"tool-edit", "tool-both"} {
+		remotes[name] = newSkillRemote(t, filepath.Join(t.TempDir(), name+".git"), skillFiles(name, "v1"))
+		h.ok("skills", "add", "--fleet", "--ref", "main", "file://"+filepath.ToSlash(remotes[name].bare))
+	}
+	mine := map[string]string{}
+	for name := range remotes {
+		path := skillPath(h.home, ".claude", name)
+		mine[name] = readSkill(t, path) + "\nmy own line\n"
+		if err := os.WriteFile(path, []byte(mine[name]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	moved := remotes["tool-both"].commit(skillFiles("tool-both", "v2"))
+	for name, want := range map[string]string{"tool-edit": "edited", "tool-both": "conflict"} {
+		out := h.ok("skills", "sync", "--fleet", "--yes", name+"@"+moved)
+		if r := row(out, name); !strings.HasPrefix(r, name+","+want+",") {
+			t.Fatalf("%s = %q", name, r)
+		}
+		if got := readSkill(t, skillPath(h.home, ".claude", name)); got != mine[name] {
+			t.Fatalf("--yes overwrote the %s copy %s: %q", want, name, got)
+		}
+	}
+}
+
+func TestSkillsUpdateTakesABackupOfThePreviousCopy(t *testing.T) {
+	h := skillsHarness(t)
+	src := skillSource(t, "notes", "v1")
+	h.ok("skills", "add", "--fleet", src)
+	writeFiles(t, src, skillFiles("notes", "v2"))
+	if out := h.ok("skills", "update", "--fleet"); !strings.Contains(out, "notes,updated,") {
+		t.Fatalf("update = %q", out)
+	}
+	saved := backups(t, filepath.Join(h.home, ".agents", "skills-backups"), "notes")
+	if len(saved) != 1 || !strings.Contains(readSkill(t, saved[0]), "\nv1\n") {
+		t.Fatalf("backups = %q", saved)
+	}
+}
+
+func TestSkillsFetchStopsAtTheGitLimit(t *testing.T) {
+	cli.SetSkillFetchLimits(t, 400*time.Millisecond, time.Minute)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	h := skillsHarness(t)
+	start := time.Now()
+	_, errOut, code := h.run("skills", "add", "--fleet", "git://"+ln.Addr().String()+"/tool-skill")
+	if code == 0 || !strings.Contains(errOut, "limit") || time.Since(start) > 20*time.Second {
+		t.Fatalf("a hung remote: code=%d after %s: %q", code, time.Since(start), errOut)
+	}
+}
+
+func TestSkillsFetchOncePerSourceInACommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the counting git is a shell script")
+	}
+	h := skillsHarness(t)
+	hub := newSkillRemote(t, filepath.Join(t.TempDir(), "hub.git"), map[string]string{
+		"skills/a/SKILL.md": skillFiles("a", "v1")["SKILL.md"], "skills/b/SKILL.md": skillFiles("b", "v1")["SKILL.md"], "skills/c/SKILL.md": skillFiles("c", "v1")["SKILL.md"],
+	})
+	isolateGit(t, hub.bare)
+	for _, name := range []string{"a", "b", "c"} {
+		h.ok("skills", "add", "--fleet", name)
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "calls")
+	writeFiles(t, bin, map[string]string{"git": "#!/bin/sh\necho \"$@\" >> '" + log + "'\nexec '" + real + "' \"$@\"\n"})
+	if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, cmd := range []string{"outdated", "sync"} {
+		_ = os.Remove(log)
+		out := h.ok("skills", cmd, "--fleet")
+		for _, name := range []string{"a", "b", "c"} {
+			if r := row(out, name); !strings.Contains(r, ","+name+",") && !strings.HasPrefix(r, name+",current,") {
+				t.Fatalf("%s %s = %q", cmd, name, r)
+			}
+		}
+		if n := strings.Count(readFile(t, log), " fetch "); n != 1 {
+			t.Fatalf("%s ran %d fetches for one source", cmd, n)
+		}
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

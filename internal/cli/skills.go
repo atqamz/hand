@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/gitcfg"
@@ -21,7 +22,13 @@ import (
 
 const skillsRepo = "https://github.com/atqamz/skills.git"
 
-var skillRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+var (
+	skillRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+	oddRef   = regexp.MustCompile(`(?i)^(refs|pull|merge-requests|changes|notes)/|\.\.`)
+
+	skillGitTimeout  = 90 * time.Second
+	skillFetchBudget = 3 * time.Minute
+)
 
 var githubRepo = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$`)
 
@@ -55,7 +62,7 @@ func (r *runner) scopeFlags(cmd string, args []string, most int, extra func(*fla
 	if err := set.Parse(args); err != nil {
 		return f, nil, helpOr(set, err, usageError{fmt.Sprintf("skills %s: %v", cmd, err)})
 	}
-	usage := usageError{fmt.Sprintf("usage: hand skills %s [--project NAME|--fleet|--user]%s", cmd, map[string]string{"list": "", "add": " [--ref REF] NAME|PATH|URL", "update": " [NAME]", "remove": " [NAME]", "outdated": " [--all]", "sync": " [--yes] [NAME]"}[cmd])}
+	usage := usageError{fmt.Sprintf("usage: hand skills %s [--project NAME|--fleet|--user]%s", cmd, map[string]string{"list": "", "add": " [--ref REF] NAME|PATH|URL", "update": " [NAME]", "remove": " [NAME]", "outdated": " [--all]", "sync": " [--yes NAME@COMMIT] [NAME]"}[cmd])}
 	if set.NArg() > most || (most == 1 && cmd == "add" && set.NArg() == 0) {
 		return f, nil, usage
 	}
@@ -212,36 +219,86 @@ func localSource(base, source string) string {
 	return filepath.Join(base, source)
 }
 
-func fetchSkill(ctx context.Context, base string, e fleet.Managed) (dir, commit string, cleanup func(), err error) {
-	cleanup = func() {}
+type cloned struct {
+	repo, commit string
+	err          error
+}
+
+type fetchCache struct {
+	tmp    string
+	ctx    context.Context
+	cancel context.CancelFunc
+	clones map[string]cloned
+}
+
+func (r *runner) closeFetches() {
+	if r.fetches.cancel != nil {
+		r.fetches.cancel()
+	}
+	if r.fetches.tmp != "" {
+		_ = os.RemoveAll(r.fetches.tmp)
+	}
+	r.fetches = fetchCache{}
+}
+
+func (r *runner) clone(url, ref string) cloned {
+	key := url + "\x00" + ref
+	if c, ok := r.fetches.clones[key]; ok {
+		return c
+	}
+	c := r.fetchClone(url, ref)
+	if r.fetches.clones == nil {
+		r.fetches.clones = map[string]cloned{}
+	}
+	r.fetches.clones[key] = c
+	return c
+}
+
+func (r *runner) fetchClone(url, ref string) cloned {
+	fc := &r.fetches
+	if fc.tmp == "" {
+		tmp, err := os.MkdirTemp("", "hand-skills-")
+		if err != nil {
+			return cloned{err: err}
+		}
+		fc.tmp = tmp
+		fc.ctx, fc.cancel = context.WithTimeout(r.ctx(), skillFetchBudget)
+	}
+	dir, err := os.MkdirTemp(fc.tmp, "c")
+	if err != nil {
+		return cloned{err: err}
+	}
+	repo := filepath.Join(dir, "repo")
+	for _, args := range [][]string{{"init", "--quiet", "repo"}, {"-C", "repo", "fetch", "--quiet", "--depth", "1", "--", url, ref}, {"-C", "repo", "checkout", "--quiet", "FETCH_HEAD"}} {
+		if _, err := gitcfg.RunBounded(fc.ctx, dir, skillGitTimeout, args...); err != nil {
+			return cloned{err: err}
+		}
+	}
+	out, err := gitcfg.RunBounded(fc.ctx, repo, skillGitTimeout, "rev-parse", "HEAD")
+	if err != nil {
+		return cloned{err: err}
+	}
+	return cloned{repo: repo, commit: strings.TrimSpace(out)}
+}
+
+func (r *runner) fetchSkill(base string, e fleet.Managed) (dir, commit string, err error) {
 	if e.Local() {
 		src := localSource(base, e.Source)
 		if _, err := os.Stat(filepath.Join(src, "SKILL.md")); err != nil {
-			return "", "", cleanup, fmt.Errorf("source missing: %s", src)
+			return "", "", fmt.Errorf("source missing: %s", src)
 		}
-		return src, "", cleanup, nil
+		return src, "", nil
 	}
 	ref := cmp.Or(e.Ref, "HEAD")
-	if !skillRef.MatchString(ref) {
-		return "", "", cleanup, fmt.Errorf("%w: %q is not a branch, tag or commit name", state.ErrInvalid, ref)
+	if !skillRef.MatchString(ref) || oddRef.MatchString(ref) {
+		return "", "", fmt.Errorf("%w: %q is not a branch, tag or commit name", state.ErrInvalid, ref)
 	}
-	tmp, err := os.MkdirTemp("", "hand-skills-")
-	if err != nil {
-		return "", "", cleanup, err
+	c := r.clone(e.URL(), ref)
+	if c.err != nil {
+		return "", "", c.err
 	}
-	cleanup = func() { _ = os.RemoveAll(tmp) }
-	repo := filepath.Join(tmp, "repo")
-	for _, args := range [][]string{{"init", "--quiet", "repo"}, {"-C", "repo", "fetch", "--quiet", "--depth", "1", "--", e.URL(), ref}, {"-C", "repo", "checkout", "--quiet", "FETCH_HEAD"}} {
-		if _, err := gitcfg.Run(ctx, tmp, args...); err != nil {
-			return "", "", cleanup, err
-		}
-	}
-	out, err := gitcfg.Run(ctx, repo, "rev-parse", "HEAD")
-	if err != nil {
-		return "", "", cleanup, err
-	}
-	dir, err = clonedSkillDir(repo, e.Path())
-	return dir, strings.TrimSpace(out), cleanup, err
+	dir, err = clonedSkillDir(c.repo, e.Path())
+	return dir, c.commit, err
 }
 
 func clonedSkillDir(clone, skill string) (string, error) {
@@ -340,9 +397,10 @@ func cmdSkillsAdd(r *runner, args []string) error {
 		return fmt.Errorf("%w: a local source has no ref", state.ErrInvalid)
 	}
 	e.Ref = ref
-	if e.Ref == "" && !e.Local() && trusted(e) {
+	if e.Ref == "" && !e.Local() && ownURL(e.URL()) {
 		e.Ref = "main"
 	}
+	defer r.closeFetches()
 	if err := r.refuseDirty(s, name); err != nil {
 		return err
 	}
@@ -375,8 +433,7 @@ func cmdSkillsAdd(r *runner, args []string) error {
 }
 
 func (r *runner) fetchStaged(s fleet.Skills, name string, e fleet.Managed) (staged, sum, commit string, err error) {
-	src, commit, cleanup, err := fetchSkill(r.ctx(), s.Base, e)
-	defer cleanup()
+	src, commit, err := r.fetchSkill(s.Base, e)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -425,6 +482,7 @@ func (r *runner) eachSkill(cmd string, args []string, extra func(*flag.FlagSet),
 			return fmt.Errorf("%w: %q is not a skill name", state.ErrInvalid, name)
 		}
 	}
+	defer r.closeFetches()
 	unlock, err := s.Lock()
 	if err != nil {
 		return err

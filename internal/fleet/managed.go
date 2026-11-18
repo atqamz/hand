@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,7 +85,7 @@ func (s Skills) Load() (map[string]Managed, error) {
 			return nil, fmt.Errorf("read %s: %s: %w", s.lockPath(), name, err)
 		}
 		if want, ok := sub.Skills[name]; ok {
-			e.Ref = want.Ref
+			e.Ref, e.Subscribed = want.Ref, want.Source
 		}
 		out[name] = e
 	}
@@ -144,7 +145,7 @@ func (s Skills) Save(managed map[string]Managed) error {
 			return err
 		}
 		l.Skills[name] = b
-		sub.Skills[name] = subscription{Source: e.Source, Ref: e.Ref}
+		sub.Skills[name] = subscription{Source: cmp.Or(e.Subscribed, e.Source), Ref: e.Ref}
 		if e.Next != "" {
 			pending[name] = e.Next
 		}

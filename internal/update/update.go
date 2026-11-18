@@ -354,6 +354,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	rep.cycle(ctx, o, fleets, true, server)
+	var inited []string
 	for i, e := range fleets {
 		if e.State != "ok" {
 			continue
@@ -368,11 +369,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Fleets[i].Init = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there; if hand.version there names a newer hand, run `hand update --channel edge` first", e.Home, err))
 		} else {
-			rep.skills(ctx, o, e.Home)
+			inited = append(inited, e.Home)
 		}
 		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}
 	rep.clearJournal(o)
+	for _, home := range inited {
+		rep.skills(ctx, o, home)
+	}
 	o.launcher(&rep, desktopOn, desktopNext)
 	rep.Status = "updated"
 	return rep, nil
@@ -896,28 +900,50 @@ func childOutput(ctx context.Context, o Options, home string, args ...string) (s
 	defer cancel()
 	cmd := exec.CommandContext(ctx, o.Target, args...)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = home, append(append([]string{}, o.Env...), "HAND_HOME="+home), time.Second
-	proc.NewGroup(cmd)
+	proc.KillGroupOnCancel(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("%w: %s", err, clip(string(out)))
 	}
 	return string(out), nil
 }
 
+func clip(out string) string {
+	out = strings.TrimSpace(out)
+	lines := strings.SplitN(out, "\n", 4)
+	if len(lines) > 3 {
+		out = strings.Join(lines[:3], "\n") + "\n…"
+	}
+	if len(out) > 300 {
+		out = strings.ToValidUTF8(out[:300], "") + "…"
+	}
+	return out
+}
+
 func (r *Report) skills(ctx context.Context, o Options, home string) {
 	if err := child(ctx, o, home, "skills", "sync", "--fleet"); err != nil {
-		r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` failed in %s (%v); run it there", home, err))
+		r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` failed in %s (%v); run it there to see the rest", home, err))
 	}
 	out, err := childOutput(ctx, o, home, "skills", "outdated", "--all")
 	if err != nil {
-		r.Help = append(r.Help, fmt.Sprintf("`hand skills outdated --all` failed in %s (%v); run it there", home, err))
+		r.Help = append(r.Help, fmt.Sprintf("`hand skills outdated --all` failed in %s (%v); run it there to see the rest", home, err))
 		return
 	}
 	behind := map[string]int{}
+	var broken []string
 	for line := range strings.Lines(out) {
-		if cells := strings.SplitN(strings.TrimSpace(line), ",", 4); len(cells) == 4 && slices.Contains([]string{"behind", "edited", "conflict"}, cells[1]) {
+		cells := strings.SplitN(strings.TrimSpace(line), ",", 4)
+		switch {
+		case len(cells) < 4:
+		case slices.Contains([]string{"behind", "edited", "conflict"}, cells[1]):
 			behind[cells[2]]++
+		case cells[1] == "error" && !slices.Contains(broken, cells[2]):
+			broken = append(broken, cells[2])
 		}
+	}
+	if len(broken) > 0 {
+		slices.Sort(broken)
+		r.Help = append(r.Help, fmt.Sprintf("skills of %s could not be checked in %s; `hand skills outdated --all` there shows why", strings.Join(broken, ", "), home))
 	}
 	for _, scope := range slices.Sorted(maps.Keys(behind)) {
 		flag := "--fleet"

@@ -296,16 +296,19 @@ func Toplevel(ctx context.Context, dir string) (string, error) {
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
-	return runEnv(ctx, dir, nil, args...)
+	return runEnv(ctx, dir, nil, false, args...)
 }
 
-func runEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
+func runEnv(ctx context.Context, dir string, env []string, kill bool, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}, args...)...)
 	cmd.WaitDelay = time.Second
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
 	}
 	proc.NoWindow(cmd)
+	if kill {
+		proc.KillGroupOnCancel(cmd)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -316,6 +319,20 @@ func runEnv(ctx context.Context, dir string, env []string, args ...string) (stri
 }
 
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
+	return runGit(ctx, dir, false, args...)
+}
+
+func RunBounded(ctx context.Context, dir string, limit time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	out, err := runGit(ctx, dir, true, args...)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("%w (stopped at the %s limit)", err, limit)
+	}
+	return out, err
+}
+
+func runGit(ctx context.Context, dir string, kill bool, args ...string) (string, error) {
 	env := []string{"GIT_TERMINAL_PROMPT=0"}
 	if os.Getenv("GIT_SSH_COMMAND") == "" && os.Getenv("GIT_SSH") == "" {
 		ssh := "ssh"
@@ -324,5 +341,5 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 		env = append(env, "GIT_SSH_COMMAND="+ssh+" -o BatchMode=yes")
 	}
-	return runEnv(ctx, dir, env, args...)
+	return runEnv(ctx, dir, env, kill, args...)
 }

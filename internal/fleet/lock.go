@@ -31,7 +31,8 @@ type LockEntry struct {
 
 type Managed struct {
 	LockEntry
-	Next string
+	Next       string
+	Subscribed string
 }
 
 func (e Managed) Local() bool { return e.SourceType == "local" }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,10 +18,18 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const ownSkills = "atqamz/skills"
+var ownRepo = githubRepo.FindStringSubmatch(skillsRepo)[1]
 
-func trusted(e fleet.Managed) bool {
-	return e.Local() || strings.EqualFold(e.Source, ownSkills)
+func ownURL(url string) bool {
+	m := githubRepo.FindStringSubmatch(url)
+	return m != nil && m[1] == ownRepo
+}
+
+func trusted(s fleet.Skills, e fleet.Managed) bool {
+	if e.Local() {
+		return s.Scope != "project" && e.Source != "" && e.Subscribed == e.Source
+	}
+	return ownURL(e.URL()) && (e.Subscribed == ownRepo || ownURL(e.Subscribed))
 }
 
 type probed struct{ state, commit, staged, sum string }
@@ -143,11 +152,9 @@ func cmdSkillsOutdated(r *runner, args []string) error {
 }
 
 func cmdSkillsSync(r *runner, args []string) error {
-	var yes bool
-	var parsed *flag.FlagSet
+	var yes string
 	set := func(f *flag.FlagSet) {
-		parsed = f
-		f.BoolVar(&yes, "yes", false, "apply the update of the third-party skill `NAME`, after reading its diff")
+		f.StringVar(&yes, "yes", "", "apply the update of the third-party skill `NAME@COMMIT` whose diff you read")
 	}
 	diffs := map[string]string{}
 	pending := false
@@ -167,15 +174,22 @@ func cmdSkillsSync(r *runner, args []string) error {
 		case "edited", "conflict":
 			return p.state, "changed here since the copy; sync leaves it alone", nil
 		}
-		if !trusted(e) && yes && parsed.NArg() == 0 {
-			return "", "", fmt.Errorf("--yes applies only to a skill you name: `hand skills sync --yes %s`", name)
-		}
-		if !trusted(e) && !yes {
-			if diffs[name], err = skillDiff(r, s, name, p.staged); err != nil {
-				return "", "", err
+		if !trusted(s, e) {
+			id := cmp.Or(p.commit, p.sum)
+			yesName, yesID, _ := strings.Cut(yes, "@")
+			if yes != "" && (yesName == "" || len(yesID) < 7) {
+				return "", "", fmt.Errorf("--yes takes NAME@COMMIT of the diff you read: `hand skills sync --yes %s@%s`", name, id)
 			}
-			pending = true
-			return "behind", fmt.Sprintf("third-party, latest %s; read the diff, then `hand skills sync --yes %s`", short(p.commit), name), nil
+			if name != yesName || !strings.HasPrefix(id, yesID) {
+				if diffs[name], err = skillDiff(r, s, name, p.staged); err != nil {
+					return "", "", err
+				}
+				pending = true
+				if name == yesName {
+					return "", "", fmt.Errorf("%w: %s moved since the diff you read: latest %s; read the diff above, then `hand skills sync --yes %s@%s`", state.ErrConflict, name, id, name, id)
+				}
+				return "behind", fmt.Sprintf("third-party, latest %s; read the diff, then `hand skills sync --yes %s@%s`", id, name, id), nil
+			}
 		}
 		if err := r.refuseDirty(s, name); err != nil {
 			return "", "", err
@@ -189,7 +203,7 @@ func cmdSkillsSync(r *runner, args []string) error {
 			d.Text("diff-"+name, diffs[name])
 		}
 		if pending {
-			d.Help("a third-party update is never applied without a yes: read the diff, then `hand skills sync --yes NAME`")
+			d.Help("a third-party update is never applied without a yes: read the diff, then `hand skills sync --yes NAME@COMMIT`")
 		}
 	})
 }
