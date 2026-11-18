@@ -80,6 +80,7 @@ type watcher struct {
 	matched        map[int64]bool
 	sources        map[string]modelSource
 	modelSessions  map[int64]modelSession
+	contextSeen    map[int64]*contextSeen
 	supModel       modelSession
 	busy           map[string]bool
 	heldAt         map[int64]time.Time

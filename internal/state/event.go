@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -132,6 +133,29 @@ func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, 
 	return e.Kind, err
 }
 
+func (s *Store) ContextMarks(ctx context.Context, attemptID int64) (map[int64]bool, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT kind, substr(detail, ?) FROM event WHERE kind IN ('attempt.context', 'attempt.context_unknown') AND detail LIKE ?`, len(AttemptRef(attemptID))+3, AttemptRef(attemptID)+": %")
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	marks, unknown := map[int64]bool{}, false
+	for rows.Next() {
+		var kind, detail string
+		if err := rows.Scan(&kind, &detail); err != nil {
+			return nil, false, err
+		}
+		if kind == "attempt.context_unknown" {
+			unknown = true
+		} else if mark, _, _ := strings.Cut(detail, ":"); mark != "" {
+			if n, err := strconv.ParseInt(mark, 10, 64); err == nil {
+				marks[n] = true
+			}
+		}
+	}
+	return marks, unknown, rows.Err()
+}
+
 func (s *Store) AttemptSignal(ctx context.Context, attemptID int64) (Event, bool, error) {
 	return lastAttemptEvent(ctx, s.db, attemptID)
 }
@@ -201,7 +225,7 @@ func attemptEventBefore(ctx context.Context, q interface {
 		where, args = ` AND seq < ?`, append(args, seq)
 	}
 	var e Event
-	err := q.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?)`+where+` ORDER BY seq DESC LIMIT 1`, args...).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
+	err := q.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND kind NOT IN ('attempt.context', 'attempt.context_unknown') AND (detail = ? OR detail LIKE ?)`+where+` ORDER BY seq DESC LIMIT 1`, args...).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Event{}, false, nil
 	}
