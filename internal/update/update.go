@@ -228,7 +228,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	switch {
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
-		o.dropDesktop(&rep, desktopNext)
+		if o.Check && o.hasWindow(desktopNext) {
+			rep.Desktop += "; would remove the installed " + filepath.Base(desktopNext)
+		}
 	case !desktopStale:
 	case o.Check:
 		exists, err := probeDesktop(ctx, o.HandBase, o.Channel, o.OS, o.Arch)
@@ -254,6 +256,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	if current && !repin {
+		o.dropWindow(&rep, desktopOn, desktopNext)
 		var stale []fleet.Entry
 		if !o.KeepLuvus {
 			stale = slices.DeleteFunc(slices.Clone(fleets), func(e fleet.Entry) bool { return e.State != "ok" || server(e) != "no" })
@@ -333,6 +336,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err := rep.journal.save(o.Root); err != nil {
 		return rep, fmt.Errorf("update: cannot write %s: %w", journalPath(o.Root), err)
 	}
+	o.dropWindow(&rep, desktopOn, desktopNext)
 	if !current {
 		if desktopBin != "" {
 			if err := swap(desktopBin, desktopNext); err != nil {
@@ -402,25 +406,22 @@ func (o Options) launcher(rep *Report, on bool, bin string) {
 	}
 }
 
-func (o Options) dropDesktop(rep *Report, bin string) {
-	if o.OS != "windows" {
-		return
-	}
-	if fi, err := os.Stat(bin); err != nil || !fi.Mode().IsRegular() {
+func (o Options) hasWindow(bin string) bool {
+	fi, err := os.Stat(bin)
+	return o.OS == "windows" && err == nil && fi.Mode().IsRegular()
+}
+
+func (o Options) dropWindow(rep *Report, desktopOn bool, bin string) {
+	if o.Check || desktopOn || !o.hasWindow(bin) {
 		return
 	}
 	name := filepath.Base(bin)
-	switch {
-	case o.Check:
-		rep.Desktop += "; would remove the installed " + name
-	default:
-		if err := remove(bin); err != nil {
-			rep.Desktop += "; failed to remove the installed " + name + ": " + err.Error()
-			rep.fail(fmt.Sprintf("the installed %s was not removed (%v); it is built for edge and must not run against a stable hand", name, err))
-			return
-		}
-		rep.Desktop += "; removed the installed " + name
+	if err := remove(bin); err != nil {
+		rep.Desktop += "; failed to remove the installed " + name + ": " + err.Error()
+		rep.fail(fmt.Sprintf("the installed %s was not removed (%v); it is built for edge and must not run against a stable hand", name, err))
+		return
 	}
+	rep.Desktop += "; removed the installed " + name
 }
 
 func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string, string, error) {

@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/launcher"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func desktopName(goos, arch string) string { return desktopasset.Name + "-" + goos + "-" + arch }
@@ -419,7 +421,7 @@ func TestRunSaysAStableBuildHasNoDesktopOnWindows(t *testing.T) {
 		t.Skip("the downloaded hand must run, so this needs a Windows host")
 	}
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
-	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "24", "0.14.4") {
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", strconv.Itoa(state.SchemaVersion), "0.14.4") {
 		f.srv.set(name, body)
 	}
 	f.o.Channel = "stable"
@@ -438,7 +440,7 @@ func TestRunRemovesTheInstalledWindowOnAStableWindowsUpdate(t *testing.T) {
 		t.Skip("the downloaded hand must run, so this needs a Windows host")
 	}
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
-	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "24", "0.14.4") {
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", strconv.Itoa(state.SchemaVersion), "0.14.4") {
 		f.srv.set(name, body)
 	}
 	f.o.Channel = "stable"
