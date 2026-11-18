@@ -268,6 +268,8 @@ func TestRolloverCarriesTheLastTurnsWhenTheNoteOmitsAnOffer(t *testing.T) {
 	fx.advanceUntil(t, 10*time.Minute, func() bool { return len(fx.rolledOver(t)) == 1 })
 	stop()
 
+	source, _ := os.ReadFile(transcriptPath)
+	has(t, "source transcript", string(source), "[hand v1 rollover]", `"text":"done"`)
 	note, _ := os.ReadFile(filepath.Join(fx.h.home, "memory", "handoff.md"))
 	lacks(t, "handoff note", string(note), "Amber Kiln", "Birch Ferry", "Cobalt Loom")
 	tailPath := filepath.Join(fx.h.home, "memory", "last-turns.md")

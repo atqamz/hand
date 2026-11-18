@@ -29,15 +29,17 @@ var rules = []rule{
 	{regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@`), "${1}" + mark("url-credentials") + "@"},
 }
 
-const secretName = `(?i)((?:secret|token|password|passwd|passphrase|api_key|private_key|credential)(?:s|[_.-]?(?:key|id|token|secret|value|string|access|base))*)`
+const secretName = `(?i)((?:secret|token|password|passwd|passphrase|api[_.-]?key|private_key|credential)(?:s|[_.-]?(?:key|id|token|secret|value|string|access|base))*)`
 
 var (
-	quotedAssignment = regexp.MustCompile(secretName + `(["']?[ \t]*[:=][ \t]*)("[^"\n]{12,}"|'[^'\n]{12,}')`)
+	quotedAssignment = regexp.MustCompile(secretName + `(["']?[ \t]*[:=][ \t]*)("(?:[^"\\\n]|\\.){12,}"|'(?:[^'\\\n]|\\.){12,}')`)
 	assignment       = regexp.MustCompile(secretName + `(["']?[ \t]*[:=][ \t]*)(["']?)([^\s"']{12,})`)
 )
 
+var marker = regexp.MustCompile(`^\[redacted:[a-z-]+\]$`)
+
 func secretValue(v string) bool {
-	return !strings.HasPrefix(v, "[redacted:") && strings.Trim(v, "0123456789") != ""
+	return !marker.MatchString(v) && strings.Trim(v, "0123456789") != ""
 }
 
 func Text(s string) string {

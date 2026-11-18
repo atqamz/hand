@@ -71,7 +71,7 @@ func lastTurns(ref string, now time.Time, entries []transcript.Entry) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("# Last turns of %s\n\nHand copied these from the session %s ended at %s. Verbatim, newest last. Secrets are removed and long text is cut; tool calls and thinking are not included. This is not a summary.\n\n%s\n", ref, ref, now.UTC().Format("2006-01-02T15:04:05Z"), strings.Join(parts, "\n\n"))
+	return fmt.Sprintf("# Last turns of %s\n\nHand copied these from the session %s ended at %s. Verbatim, newest last. Known secret shapes are removed and long text is cut; tool calls and thinking are not included. This is not a summary.\n\n%s\n", ref, ref, now.UTC().Format("2006-01-02T15:04:05Z"), strings.Join(parts, "\n\n"))
 }
 
 func cutMiddle(text string, left int) string {

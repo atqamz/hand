@@ -165,3 +165,28 @@ func TestTextOnlyTakesSecretNamesNotWordsThatStartWithOne(t *testing.T) {
 		}
 	}
 }
+
+func TestTextTakesApiKeyHeadersAndEscapedQuotesAndPartialMarkers(t *testing.T) {
+	long := strings.Repeat("v", 20)
+	ghp := "ghp_" + strings.Repeat("a", 36)
+	cases := map[string]string{
+		"X-API-Key: " + long:                    "X-API-Key: [redacted:assignment]",
+		"apikey=" + long:                        "apikey=[redacted:assignment]",
+		"api-key: " + long:                      "api-key: [redacted:assignment]",
+		"api_key_count: " + long:                "api_key_count: " + long,
+		`{"password": "a\"bcdefghijklmnop"}`:    `{"password": "[redacted:assignment]"}`,
+		`{"password": "a\\\\bcdefghijkl"}`:      `{"password": "[redacted:assignment]"}`,
+		`password="` + ghp + ` and more words"`: `password="[redacted:assignment]"`,
+		"password=" + ghp + "_tail":             "password=[redacted:assignment]",
+		"password=" + ghp:                       "password=[redacted:github-token]",
+	}
+	for in, want := range cases {
+		got := Text(in)
+		if got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+		if again := Text(got); again != got {
+			t.Errorf("%q then %q", got, again)
+		}
+	}
+}
