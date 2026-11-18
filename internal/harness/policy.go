@@ -55,6 +55,9 @@ type Policy struct {
 		AnswerWithin   Span  `json:"answer_within,omitzero"`
 		Interrupt      bool  `json:"interrupt,omitempty"`
 	} `json:"supervisor,omitzero"`
+	Worker struct {
+		CompactPercent int `json:"compact_percent,omitempty"`
+	} `json:"worker,omitzero"`
 }
 
 var StarterPolicy = Policy{}
@@ -232,6 +235,9 @@ func LoadPolicy(home string) (Policy, error) {
 	}
 	if p.Supervisor.RolloverTokens < 0 {
 		return Policy{}, fmt.Errorf("%w: %s: supervisor.rollover_tokens is %d; give a token count, or 0 to turn the rollover off", state.ErrInvalid, path, p.Supervisor.RolloverTokens)
+	}
+	if p.Worker.CompactPercent < 0 || p.Worker.CompactPercent > 100 {
+		return Policy{}, fmt.Errorf("%w: %s: worker.compact_percent is %d; give a percentage from 1 to 100, or leave it out", state.ErrInvalid, path, p.Worker.CompactPercent)
 	}
 	if p.Removed != nil {
 		return Policy{}, fmt.Errorf("%w: %s: \"profiles\" was removed; delete the key and start workers with --harness, --model and --effort (see docs/update.md)", state.ErrInvalid, path)

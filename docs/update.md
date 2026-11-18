@@ -91,6 +91,8 @@ The `secondhand` skill and the fleet's `AGENTS.md` now tell the supervisor never
 
 The watcher now interrupts a supervisor's wait for a message that has gone unanswered past `answer_within`, off by default (experimental until it is checked against a real Claude Code session) and, when turned on, only while the running call is a known wait ([A message that interrupts a wait](supervisor.md#a-message-that-interrupts-a-wait)). A message waits for the end of the turn unless `routing.json` holds `"supervisor": {"interrupt": true}`; an older `hand` rejects the `interrupt` key too, so remove it before you go back to an older build. It needs no schema change: the receipt uses the input's `reason` column.
 
+A claude worker can compact earlier: `routing.json` takes `worker.compact_percent` ([Worker](vocabulary.md#worker)), absent by default. An older `hand` rejects the `worker` key, so remove it before you go back to an older build.
+
 ## Options
 
 The options:

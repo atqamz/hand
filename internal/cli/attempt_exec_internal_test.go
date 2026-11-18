@@ -11,7 +11,7 @@ import (
 )
 
 func TestScratchEnvironmentReplacesEveryTempVariable(t *testing.T) {
-	got := scratchEnvironment([]string{"A=1", "TMPDIR=/tmp", "TMP=/tmp", "TEMP=/tmp", "GOTMPDIR=/tmp", "CLAUDE_CODE_TMPDIR=/tmp", "B=2"}, "/scratch")
+	got := scratchEnvironment([]string{"A=1", "TMPDIR=/tmp", "TMP=/tmp", "TEMP=/tmp", "GOTMPDIR=/tmp", "CLAUDE_CODE_TMPDIR=/tmp", "B=2"}, "/scratch", 0)
 	want := []string{"A=1", "B=2", "TMPDIR=/scratch", "TMP=/scratch", "TEMP=/scratch", "GOTMPDIR=/scratch", "CLAUDE_CODE_TMPDIR=/scratch"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("environment = %q, want %q", got, want)
@@ -48,5 +48,36 @@ func TestProcessExitCodeTranslatesANonzeroExit(t *testing.T) {
 	}
 	if code, ok := processExitCode(errors.New("not a process exit")); ok {
 		t.Fatalf("processExitCode of a plain error = %d, true; want false", code)
+	}
+}
+
+func TestScratchEnvironmentSetsTheCompactPercentOnlyWhenGiven(t *testing.T) {
+	old := envNamesFold
+	envNamesFold = false
+	t.Cleanup(func() { envNamesFold = old })
+	inherited := []string{"A=1", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90", "claude_autocompact_pct_override=80"}
+	if got := scratchEnvironment(inherited, "/scratch", 0); !slices.Contains(got, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90") || !slices.Contains(got, "claude_autocompact_pct_override=80") {
+		t.Fatalf("environment without a percent = %q, want the inherited values kept", got)
+	}
+	got := scratchEnvironment(inherited, "/scratch", 60)
+	var found []string
+	for _, kv := range got {
+		if strings.EqualFold(strings.SplitN(kv, "=", 2)[0], "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") {
+			found = append(found, kv)
+		}
+	}
+	if want := []string{"claude_autocompact_pct_override=80", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=60"}; !slices.Equal(found, want) {
+		t.Fatalf("percent entries = %q, want %q (an exact-case inherited value replaced, a differently cased one kept on a case-sensitive system)", found, want)
+	}
+}
+
+func TestScratchEnvironmentReplacesTheCompactPercentInAnyCaseOnWindows(t *testing.T) {
+	old := envNamesFold
+	envNamesFold = true
+	t.Cleanup(func() { envNamesFold = old })
+	got := scratchEnvironment([]string{"Claude_Autocompact_Pct_Override=90", "A=1"}, "/scratch", 60)
+	want := []string{"A=1", "TMPDIR=/scratch", "TMP=/scratch", "TEMP=/scratch", "GOTMPDIR=/scratch", "CLAUDE_CODE_TMPDIR=/scratch", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=60"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("environment = %q, want %q", got, want)
 	}
 }
