@@ -99,7 +99,7 @@ func TestRunHintFollowsTheTargetsChannel(t *testing.T) {
 		t.Fatalf("edge target: err = %v", err)
 	}
 	g := newFetch(t)
-	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "25", "0.14.4") {
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "26", "0.14.4") {
 		g.srv.set(name, body)
 	}
 	g.o.Channel = "stable"
