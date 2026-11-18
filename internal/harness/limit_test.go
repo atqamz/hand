@@ -202,6 +202,10 @@ func TestRefusalClassifiesTheOmpErrorLines(t *testing.T) {
 			"400 Bad Request: messages.0.content is empty":                             false,
 			"503 Service Unavailable: payment gateway timeout, retry":                  false,
 			"500 billing service unavailable":                                          false,
+			"400 Invalid schema for function 'process_payment': missing type":          false,
+			"404 model not found: billing-v2":                                          false,
+			"413 Payload Too Large: attachment billing.pdf is 40MB":                    false,
+			"400 Bad Request. 500 billing issue":                                       false,
 			"Connection error: payment.example.com unreachable":                        false,
 			"Provider error: 502 billing backend down":                                 false,
 		},
@@ -260,13 +264,15 @@ func TestRefusalReadsABannerAbovePromptBoxAndFooterRows(t *testing.T) {
 
 func TestOmpFailureNeedsTheBannerAtTheBottomOfTheScreen(t *testing.T) {
 	for name, screen := range map[string]string{
-		"finished pane":             copilotScreen(t, "omp-18.18.0-idle.txt"),
-		"quoted":                    "I saw `Error: 402 Insufficient Balance` in the log.\nπ > ◒ m > ...\n",
-		"no dismissal":              "Error: 402 Insufficient Balance\n\nπ > ◒ m > ...\n",
-		"banner above later output": copilotScreen(t, "omp-402-refused.txt") + "● Fixed login\n\nI changed auth.go.\nTests pass.\nNothing else left.\nDone.\nShipped.\nπ > ◒ m > ...\n",
-		"indented error":            "  Error: 402 Insufficient Balance\nDismissed when you send your next message.\nπ > ◒ m > ...\n",
-		"indented dismissal":        "Error: 402 Insufficient Balance\n  Dismissed when you send your next message.\nπ > ◒ m > ...\n",
-		"indented copy":             "  Error: 402 Insufficient Balance\n  Dismissed when you send your next message.\nπ > ◒ m > ...\n",
+		"finished pane":                    copilotScreen(t, "omp-18.18.0-idle.txt"),
+		"quoted":                           "I saw `Error: 402 Insufficient Balance` in the log.\nπ > ◒ m > ...\n",
+		"no dismissal":                     "Error: 402 Insufficient Balance\n\nπ > ◒ m > ...\n",
+		"banner above later output":        copilotScreen(t, "omp-402-refused.txt") + "● Fixed login\n\nI changed auth.go.\nTests pass.\nNothing else left.\nDone.\nShipped.\nπ > ◒ m > ...\n",
+		"banner above a bullet and a line": copilotScreen(t, "omp-402-refused.txt") + "● Fixed login\nTests pass.\nπ > ◒ m > ...\n",
+		"banner above a plain line":        copilotScreen(t, "omp-402-refused.txt") + "Tests pass.\nπ > ◒ m > ...\n",
+		"indented error":                   "  Error: 402 Insufficient Balance\nDismissed when you send your next message.\nπ > ◒ m > ...\n",
+		"indented dismissal":               "Error: 402 Insufficient Balance\n  Dismissed when you send your next message.\nπ > ◒ m > ...\n",
+		"indented copy":                    "  Error: 402 Insufficient Balance\n  Dismissed when you send your next message.\nπ > ◒ m > ...\n",
 	} {
 		if got, ok := Refusal("omp", screen); ok {
 			t.Errorf("%s: Refusal = %q", name, got)

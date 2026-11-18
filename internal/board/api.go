@@ -2269,7 +2269,7 @@ func apiWakeText(text string) string {
 		}
 		ref := rest[:end]
 		detail := strings.TrimLeft(rest[end:], " \t:")
-		drop = screenKinds[kind] || strings.Contains(detail, "api error: ")
+		drop = screenKinds[kind] || fromScreen(detail)
 		if drop {
 			out = append(out, strings.TrimSpace(kind+" "+ref))
 		} else {
@@ -2285,7 +2285,7 @@ func apiEntry(c chatItem) APIEntry {
 	case c.Role == "hand" && strings.HasPrefix(text, "wake: "):
 		text = Scrub(apiWakeText(text))
 	case c.Kind != "":
-		if screenKinds[c.Kind] || strings.Contains(text, "api error: ") {
+		if screenKinds[c.Kind] || fromScreen(text) {
 			text = ""
 		} else {
 			text = Scrub(text)
@@ -2434,9 +2434,13 @@ var screenKinds = map[string]bool{
 	"supervisor.limited": true,
 }
 
+func fromScreen(detail string) bool {
+	return strings.Contains(detail, "api error: ") || strings.Contains(detail, state.Refused)
+}
+
 func apiEvent(e state.Event) APIEvent {
 	out := APIEvent{Seq: e.Seq, At: e.At, Kind: e.Kind}
-	if !screenKinds[e.Kind] && !strings.Contains(e.Detail, "api error: ") {
+	if !screenKinds[e.Kind] && !fromScreen(e.Detail) {
 		out.Detail = Scrub(e.Detail)
 	}
 	if e.TaskID != 0 {

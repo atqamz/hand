@@ -798,7 +798,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			return nil
 		}
 		if refused {
-			apiError = ""
+			apiError = state.Refused + refusal
 		}
 		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
 		if errors.Is(err, state.ErrConflict) {

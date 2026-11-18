@@ -17,9 +17,9 @@ var (
 		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(API Error:[^\n]*)`),
 	}
 	turnBullet = regexp.MustCompile(`(?m)^●`)
-	ompBanner  = regexp.MustCompile(`(?m)^((?:Error: |✘ )[^\n]*(?:\n[ \t]*\S[^\n]*)*?)\nDismissed when you send your next message\.[ \t]*(?:\n[^\n]*){0,7}\z`)
+	ompBanner  = regexp.MustCompile(`(?m)^((?:Error: |✘ )[^\n]*(?:\n[ \t]*\S[^\n]*)*?)\nDismissed when you send your next message\.[ \t]*(?:\n(?:[ \t]*|[^\w\n●][^\n]*)){0,7}\z`)
 	ompEntry   = regexp.MustCompile(`^(?:Error: |✘ Retry failed after \d+ attempts?: )(.*)$`)
-	ompNoRetry = regexp.MustCompile(`(?i)^(?:[a-z][\w .-]{0,40}: )?(?:40[12]\b|4\d\d\b.*(?:insufficient[_ ](?:balance|funds|credits?|quota)|credit balance|payment|billing|(?:invalid|expired)[_ ](?:x-)?api[_ -]?key|api[_ -]?key[_ ](?:is[_ ])?(?:invalid|expired)))`)
+	ompNoRetry = regexp.MustCompile(`(?i)^(?:[a-z][\w .-]{0,40}: )?(?:40[12]\b|4\d\d\b.*(?:insufficient[_ ](?:balance|funds|credits?|quota)|credit balance|payment[_ ](?:required|method)|billing[_ ]details|billing_(?:hard_limit|not_active)|(?:invalid|expired)[_ ](?:x-)?api[_ -]?key|api[_ -]?key[_ ](?:is[_ ])?(?:invalid|expired)))`)
 	wrapped    = regexp.MustCompile(`\s*\n\s*`)
 )
 

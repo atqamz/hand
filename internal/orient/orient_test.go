@@ -512,6 +512,49 @@ func TestOrientLabelsALimitedWorkerAndARefusedOne(t *testing.T) {
 	}
 }
 
+func TestOrientKeepsARepeatedRefusalAndDropsALabelOnAStoppedAttempt(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "omp", Model: "m", Effort: "low", Argv: []string{"/bin/x", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	line := state.Refused + "402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002)"
+	if err := st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.RecordQuiet(ctx, a.ID, line); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, `"a1 running refused: 402 Insufficient Balance…"`) || strings.Contains(out, "running quiet") {
+		t.Fatalf("orient after a repeated refusal:\n%s", out)
+	}
+	signals, err := st.AttemptSignals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptStopped, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := taskCells(ctx, st, task, signals, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.attempt != "a1 stopped" {
+		t.Fatalf("a stopped attempt reads %q", c.attempt)
+	}
+}
+
 func TestOrientTellsASessionWhetherItIsTheSupervisor(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()

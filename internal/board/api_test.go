@@ -2413,6 +2413,9 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		if err := fx.st.NoteAttempt(ctx, 1, "limited", "You've hit your limit · resets 3pm"); err != nil {
 			t.Fatal(err)
 		}
+		if _, _, err := fx.st.RecordQuiet(ctx, 1, state.Refused+"SECRET-SCREEN-TEXT"); err != nil {
+			t.Fatal(err)
+		}
 		if err := fx.st.NoteSupervisor(ctx, 1, "blocked", `copilot does not have model "SECRET-SCREEN-TEXT" and runs on auto instead; check the screen`); err != nil {
 			t.Fatal(err)
 		}
