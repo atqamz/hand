@@ -133,3 +133,5 @@ jobs:
           sh .github/scripts/build-desktop.sh "$version" stable "$GITHUB_SHA" "$out"
           sh .github/desktop/check-assets.sh "$out"
           ls -l "$out"
+      - name: Check the Windows asset carries its channel
+        run: sh .github/desktop/check-stamp.sh

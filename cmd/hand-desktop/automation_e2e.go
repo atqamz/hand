@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	onlyLinux = false
+	gated = false
 	if os.Getenv("MYGO_AUTOMATION") == "" {
 		return
 	}

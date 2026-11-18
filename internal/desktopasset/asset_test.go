@@ -75,24 +75,28 @@ func TestVerifyRequiresTheVersionAndCommitOfThisHand(t *testing.T) {
 	}
 }
 
-func TestSupportedIsLinuxOnly(t *testing.T) {
+func TestSupportedIsLinuxAndEdgeWindows(t *testing.T) {
 	for _, c := range []struct {
-		goos, goarch string
-		ok           bool
+		goos, goarch, channel string
+		ok                    bool
 	}{
-		{"linux", "amd64", true},
-		{"linux", "arm64", true},
-		{"linux", "386", false},
-		{"darwin", "arm64", false},
-		{"darwin", "amd64", false},
-		{"windows", "amd64", false},
-		{"windows", "arm64", false},
+		{"linux", "amd64", "stable", true},
+		{"linux", "arm64", "edge", true},
+		{"linux", "amd64", "source", true},
+		{"linux", "386", "edge", false},
+		{"windows", "amd64", "edge", true},
+		{"windows", "amd64", "stable", false},
+		{"windows", "amd64", "source", false},
+		{"windows", "amd64", "", false},
+		{"windows", "arm64", "edge", false},
+		{"darwin", "arm64", "edge", false},
+		{"darwin", "amd64", "stable", false},
 	} {
-		if got := Supported(c.goos, c.goarch); got != c.ok {
-			t.Fatalf("Supported(%s, %s) = %v", c.goos, c.goarch, got)
+		if got := Supported(c.goos, c.goarch, c.channel); got != c.ok {
+			t.Fatalf("Supported(%s, %s, %s) = %v", c.goos, c.goarch, c.channel, got)
 		}
 	}
-	if why := Unsupported("darwin", "arm64"); !strings.Contains(why, "darwin/arm64") || !strings.Contains(why, "Linux") {
+	if why := Unsupported("darwin", "arm64"); !strings.Contains(why, "darwin/arm64") || !strings.Contains(why, "Linux") || !strings.Contains(why, "edge builds only, on Windows") {
 		t.Fatalf("Unsupported = %q", why)
 	}
 }
@@ -149,5 +153,14 @@ func TestLocateTakesTheSystemAsAnArgument(t *testing.T) {
 	}
 	if _, err := Locate(self, t.TempDir(), "linux"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Locate for linux found the .exe: %v", err)
+	}
+}
+
+func TestAnUnstampedBuildIsNotEdge(t *testing.T) {
+	if Channel != "source" {
+		t.Fatalf("the default Channel is %q, want source: only a build stamped edge may open the window on Windows", Channel)
+	}
+	if Supported("windows", "amd64", Channel) {
+		t.Fatal("an unstamped build supports Windows")
 	}
 }

@@ -23,6 +23,8 @@ var Version = "0.14.0"
 
 var Commit = ""
 
+var Channel = "source"
+
 const (
 	versionMax = 4096
 	reasonMax  = 200
@@ -43,12 +45,18 @@ func exeExt(goos string) string {
 	return ""
 }
 
-func Supported(goos, goarch string) bool {
-	return goos == "linux" && (goarch == "amd64" || goarch == "arm64")
+func Supported(goos, goarch, channel string) bool {
+	switch goos {
+	case "linux":
+		return goarch == "amd64" || goarch == "arm64"
+	case "windows":
+		return goarch == "amd64" && channel == "edge"
+	}
+	return false
 }
 
 func Unsupported(goos, goarch string) string {
-	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux (amd64 and arm64) for now, and the Board works in a browser"
+	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux (amd64 and arm64) and, in edge builds only, on Windows (amd64); the Board works in a browser"
 }
 
 func Path(self, goos string) string {

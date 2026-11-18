@@ -7,7 +7,7 @@ commit=${3:?usage: build-desktop.sh VERSION CHANNEL COMMIT [OUTDIR]}
 mkdir -p "${4:-.}"
 out=$(cd "${4:-.}" && pwd)
 pkg=github.com/atqamz/hand/internal/desktopasset
-flags="-s -w -X github.com/egoist/mygo.production=1 -X $pkg.Version=$version -X $pkg.Commit=$commit"
+flags="-s -w -X github.com/egoist/mygo.production=1 -X $pkg.Version=$version -X $pkg.Channel=$channel -X $pkg.Commit=$commit"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 

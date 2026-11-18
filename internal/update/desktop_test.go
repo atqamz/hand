@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/launcher"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func desktopName(goos, arch string) string { return desktopasset.Name + "-" + goos + "-" + arch }
@@ -75,8 +77,15 @@ func installDesktop(t *testing.T, f *fixture, version, commit string) {
 
 func skipUnlessDesktop(t *testing.T) {
 	t.Helper()
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH) {
-		t.Skip("hand-desktop assets are Linux only")
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
+		t.Skip("hand-desktop assets are for Linux and Windows only")
+	}
+}
+
+func skipUnlessLauncher(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("the launcher entry is written on Linux only")
 	}
 }
 
@@ -133,7 +142,7 @@ func TestRunInstallsTheDesktopNextToTheNewHand(t *testing.T) {
 		if b, err := os.ReadFile(f.desktop()); err != nil || string(b) == "the old desktop" || len(b) == 0 {
 			t.Fatalf("had %v: the desktop next to hand = %d bytes, %v", had, len(b), err)
 		}
-		if fi, err := os.Stat(f.desktop()); err != nil || fi.Mode().Perm()&0o111 == 0 {
+		if fi, err := os.Stat(f.desktop()); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm()&0o111 == 0) {
 			t.Fatalf("had %v: the desktop is not executable: %v, %v", had, fi, err)
 		}
 		if out := Render(rep).String(); !strings.Contains(out, "desktop: 0.9.0 0123456789ab installed\n") {
@@ -268,6 +277,9 @@ func TestRunKeepsTheOldBinariesWhenTheDesktopDoesNotRun(t *testing.T) {
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	asset, sums := hostDesktop()
 	archive := tarball(t, desktopasset.Name, "not a program")
+	if runtime.GOOS == "windows" {
+		archive = zipball(t, desktopasset.Name+".exe", "not a program")
+	}
 	f.srv.set(asset, archive)
 	f.srv.set(sums, []byte(sum(archive)+"  "+asset+"\n"))
 	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "the downloaded hand-desktop does not run") {
@@ -278,6 +290,9 @@ func TestRunKeepsTheOldBinariesWhenTheDesktopDoesNotRun(t *testing.T) {
 
 func TestRunDoesNotReplaceHandWhenTheDesktopCannotBePlaced(t *testing.T) {
 	skipUnlessDesktop(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows moves a folder in the way aside as .old and places the file")
+	}
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	if err := os.MkdirAll(filepath.Join(f.desktop(), "inside"), 0o755); err != nil {
 		t.Fatal(err)
@@ -313,7 +328,7 @@ func TestRunSaysWhenTheTargetHasNoDesktop(t *testing.T) {
 
 func TestRunSaysWhenThePlatformHasNoDesktop(t *testing.T) {
 	f := newFetch(t)
-	if desktopasset.Supported(f.o.OS, f.o.Arch) {
+	if desktopasset.Supported(f.o.OS, f.o.Arch, f.o.Channel) {
 		t.Skip("this update target supports hand-desktop")
 	}
 	rep, err := Run(context.Background(), f.o)
@@ -355,7 +370,7 @@ func TestRunFinishesTheStaleFleetCycleWhenTheDesktopCannotBeVerified(t *testing.
 }
 
 func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
-	skipUnlessDesktop(t)
+	skipUnlessLauncher(t)
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
 	entry := filepath.Join(f.data, "applications", "hand-desktop.desktop")
 	pic := filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
@@ -388,7 +403,7 @@ func TestRunKeepsTheLauncherEntryInStepWithTheDesktop(t *testing.T) {
 }
 
 func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
-	skipUnlessDesktop(t)
+	skipUnlessLauncher(t)
 	f := newFetch(t)
 	if _, err := launcher.Sync(f.o.Getenv, f.desktop()); err != nil {
 		t.Fatal(err)
@@ -399,4 +414,211 @@ func TestRunRemovesTheLauncherEntryWithoutADesktop(t *testing.T) {
 	}
 	absent(t, filepath.Join(f.data, "applications", "hand-desktop.desktop"))
 	absent(t, filepath.Join(f.data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png"))
+}
+
+func TestRunSaysAStableBuildHasNoDesktopOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the downloaded hand must run, so this needs a Windows host")
+	}
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", strconv.Itoa(state.SchemaVersion), "0.14.4") {
+		f.srv.set(name, body)
+	}
+	f.o.Channel = "stable"
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Desktop != "unsupported on windows/amd64" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForDesktop() {
+		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
+	}
+	absent(t, f.desktop())
+}
+
+func TestRunRemovesTheInstalledWindowOnAStableWindowsUpdate(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the downloaded hand must run, so this needs a Windows host")
+	}
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", strconv.Itoa(state.SchemaVersion), "0.14.4") {
+		f.srv.set(name, body)
+	}
+	f.o.Channel = "stable"
+	if err := os.WriteFile(f.desktop(), []byte("the edge desktop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !strings.Contains(rep.Desktop, "would remove the installed hand-desktop.exe") {
+		t.Fatalf("check report = %+v, %v", rep, err)
+	}
+	if b, _ := os.ReadFile(f.desktop()); string(b) != "the edge desktop" {
+		t.Fatalf("a check touched the installed window: %q", b)
+	}
+	f.o.Check = false
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || rep.Failed || !strings.Contains(rep.Desktop, "removed the installed hand-desktop.exe") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForDesktop() {
+		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
+	}
+	absent(t, f.desktop())
+}
+
+func TestRemoveDeletesTheInstalledWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand-desktop")
+	if err := os.WriteFile(path, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := remove(path); err != nil {
+		t.Fatal(err)
+	}
+	absent(t, path)
+}
+
+func windowFixture(t *testing.T, channel string) *fixture {
+	t.Helper()
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	for name, body := range fakeHand(t, "0.9.0", channel, "0123456789ab", strconv.Itoa(state.SchemaVersion), "0.14.4", "0.1.0") {
+		f.srv.set(name, body)
+	}
+	f.o.OS, f.o.Arch, f.o.Channel = "windows", "amd64", channel
+	if err := os.WriteFile(desktopPath(f.target, "windows"), []byte("the edge desktop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func (f *fixture) windowKept(t *testing.T) {
+	t.Helper()
+	if b, err := os.ReadFile(desktopPath(f.target, "windows")); err != nil || string(b) != "the edge desktop" {
+		t.Fatalf("the installed window changed: %q, %v", b, err)
+	}
+}
+
+func (f *fixture) isCurrent() {
+	f.o.From = Build{Version: "0.9.0", Channel: f.o.Channel, Commit: "0123456789ab", Schema: state.SchemaVersion, Luvus: "0.14.4"}
+}
+
+func TestRunRemovesTheInstalledWindowOnAStableUpdateOfAWindowsTarget(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !strings.Contains(rep.Desktop, "would remove the installed hand-desktop.exe") {
+		t.Fatalf("check report = %+v, %v", rep, err)
+	}
+	f.windowKept(t)
+	f.o.Check = false
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || rep.Failed || rep.Desktop != "unsupported on windows/amd64; removed the installed hand-desktop.exe" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, desktopPath(f.target, "windows"))
+	if f.asksForDesktop() {
+		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
+	}
+}
+
+func TestRunRemovesTheInstalledWindowWhenHandIsAlreadyStable(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.isCurrent()
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !strings.Contains(rep.Desktop, "would remove the installed hand-desktop.exe") {
+		t.Fatalf("check report = %+v, %v", rep, err)
+	}
+	f.windowKept(t)
+	f.o.Check = false
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || rep.Failed || !strings.Contains(rep.Desktop, "removed the installed hand-desktop.exe") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, desktopPath(f.target, "windows"))
+}
+
+func TestRunKeepsTheInstalledWindowOnAnEdgeUpdate(t *testing.T) {
+	f := windowFixture(t, "edge")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || strings.Contains(rep.Desktop, "removed") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	f.isCurrent()
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || strings.Contains(rep.Desktop, "removed") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if _, err := os.Stat(desktopPath(f.target, "windows")); err != nil {
+		t.Fatalf("an edge update removed the window: %v", err)
+	}
+}
+
+func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the downloaded hand for another OS cannot run on a Windows host")
+	}
+	for _, tc := range []struct{ goos, arch string }{{"darwin", "arm64"}} {
+		for _, current := range []bool{false, true} {
+			t.Run(tc.goos+"-"+tc.arch+"-"+strconv.FormatBool(current), func(t *testing.T) {
+				f := windowFixture(t, "stable")
+				f.o.OS, f.o.Arch = tc.goos, tc.arch
+				p := desktopPath(f.target, tc.goos)
+				if err := os.WriteFile(p, []byte("the installed desktop"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if current {
+					f.isCurrent()
+				}
+				rep, err := Run(context.Background(), f.o)
+				if err != nil || strings.Contains(rep.Desktop, "remov") {
+					t.Fatalf("report = %+v, %v", rep, err)
+				}
+				if b, err := os.ReadFile(p); err != nil || string(b) != "the installed desktop" {
+					t.Fatalf("the installed desktop changed: %q, %v", b, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRunKeepsTheInstalledWindowWhenADownloadFails(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.srv.set("hand-iroh-windows-amd64.zip", []byte("garbage"))
+	f.srv.set("hand-iroh-windows-amd64.sha256", []byte(sum([]byte("other"))+"  hand-iroh-windows-amd64.zip\n"))
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a corrupt sidecar did not fail the update")
+	}
+	f.windowKept(t)
+}
+
+func TestRunKeepsTheInstalledWindowWhenTheLuvusDownloadFails(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	newFleet(t, f.root, "alpha")
+	name := "luvus-v0.14.4-x86_64-pc-windows-msvc"
+	f.srv.set(name+".zip", []byte("garbage"))
+	f.srv.set(name+".sha256", []byte(sum([]byte("other"))+"  "+name+".zip\n"))
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a corrupt Luvus did not fail the update")
+	}
+	f.windowKept(t)
+}
+
+func TestRunReportsAFailedRemovalOfTheInstalledWindowAndFinishes(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.isCurrent()
+	was := removeWindow
+	t.Cleanup(func() { removeWindow = was })
+	removeWindow = func(string) error { return errors.New("access is denied") }
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatalf("a failed removal aborted the update: %v", err)
+	}
+	if !rep.Failed || !strings.Contains(rep.Desktop, "failed to remove the installed hand-desktop.exe: access is denied") || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "was not removed") }) {
+		t.Fatalf("report = %+v", rep)
+	}
+	if rep.Status != "up to date" {
+		t.Fatalf("status = %q", rep.Status)
+	}
+	f.windowKept(t)
 }
