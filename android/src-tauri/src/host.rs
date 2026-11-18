@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
-    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Reporter, Request, RequestError,
-    Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
+    Live, LiveSink, Method, OPEN_REJECTED, PairError, Polled, RESCAN, Reporter, Request,
+    RequestError, Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jlong, jstring};
@@ -66,6 +66,12 @@ impl Core {
         if let Some(running) = self.live.lock().unwrap().take() {
             running.stop();
         }
+    }
+
+    fn quiet(&self) {
+        self.stop_live();
+        self.reporter.lock().unwrap().take();
+        self.alerts.pause();
     }
 }
 
@@ -512,6 +518,59 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
         core.reporter.lock().unwrap().take();
         core.alerts.stop();
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_sleep<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        core.quiet();
+        runtime().block_on(async {
+            core.companion.sleep().await;
+            info(&core.companion.report().await);
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_wake<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let Some(core) = core() else {
+        return 1;
+    };
+    match runtime().block_on(core.companion.wake()) {
+        Ok(()) => 1,
+        Err(error) => {
+            warn(&format!("wake failed: {error}"));
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_poll<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let Some(core) = core() else {
+        return 1;
+    };
+    runtime().block_on(async {
+        let polled = core.companion.poll_asleep(core.alerts.poll_once()).await;
+        info(&core.companion.report().await);
+        match polled {
+            Ok(Polled::Missed) => 0,
+            Ok(_) => 1,
+            Err(error) => {
+                warn(&format!("poll failed: {error}"));
+                0
+            }
+        }
+    })
 }
 
 #[unsafe(no_mangle)]

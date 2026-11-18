@@ -58,6 +58,22 @@ class ManifestTest {
   }
 
   @Test
+  fun theIdlePollNeedsAWakeLockAndNoExactAlarmPermission() {
+    val permissions = root.children("uses-permission").map { it.getAttributeNS(ANDROID, "name") }
+    assertTrue("android.permission.WAKE_LOCK" in permissions)
+    assertFalse("android.permission.SCHEDULE_EXACT_ALARM" in permissions)
+    assertFalse("android.permission.USE_EXACT_ALARM" in permissions)
+  }
+
+  @Test
+  fun theAlarmReceiverIsPrivateAndTakesNoIntentFilter() {
+    val receiver = root.children("receiver").single()
+    assertTrue(receiver.named(".PollReceiver"))
+    assertEquals("false", receiver.getAttributeNS(ANDROID, "exported"))
+    assertTrue(receiver.children("intent-filter").isEmpty())
+  }
+
+  @Test
   fun noBuildTypeAddsItsOwnManifest() {
     assertFalse(File("src/debug/AndroidManifest.xml").exists())
   }

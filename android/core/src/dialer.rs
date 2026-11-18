@@ -89,7 +89,8 @@ pub struct Dialer {
 }
 
 struct Inner {
-    endpoint: Endpoint,
+    endpoint: StdMutex<Endpoint>,
+    down: AtomicBool,
     target: RwLock<Option<EndpointAddr>>,
     state: Mutex<State>,
     dial: Mutex<()>,
@@ -123,7 +124,8 @@ impl Dialer {
     pub fn new(endpoint: Endpoint, target: Option<EndpointAddr>) -> Self {
         Self {
             inner: Arc::new(Inner {
-                endpoint,
+                endpoint: StdMutex::new(endpoint),
+                down: AtomicBool::new(false),
                 target: RwLock::new(target),
                 state: Mutex::new(State { connection: None }),
                 dial: Mutex::new(()),
@@ -140,8 +142,23 @@ impl Dialer {
         }
     }
 
-    pub fn endpoint(&self) -> &Endpoint {
-        &self.inner.endpoint
+    pub fn endpoint(&self) -> Endpoint {
+        self.inner.endpoint.lock().unwrap().clone()
+    }
+
+    pub fn is_down(&self) -> bool {
+        self.inner.down.load(Ordering::SeqCst)
+    }
+
+    pub async fn close(&self) {
+        self.inner.down.store(true, Ordering::SeqCst);
+        self.endpoint().close().await;
+    }
+
+    pub fn open(&self, endpoint: Endpoint) {
+        *self.inner.endpoint.lock().unwrap() = endpoint;
+        self.inner.reset();
+        self.inner.down.store(false, Ordering::SeqCst);
     }
 
     pub fn notice(&self) -> Notice {
@@ -169,11 +186,7 @@ impl Dialer {
                     .connection
                     .close(VarInt::from_u32(0), b"target changed");
             }
-            self.inner.lost.store(0, Ordering::Relaxed);
-            self.inner.board_unreachable.store(0, Ordering::Relaxed);
-            *self.inner.backoff.lock().unwrap() = Backoff::default();
-            *self.inner.retry_at.lock().unwrap() = None;
-            *self.inner.notice.lock().unwrap() = Notice::None;
+            self.inner.reset();
         }
     }
 
@@ -190,13 +203,16 @@ impl Dialer {
             if let Some(connection) = self.live().await {
                 return Ok(connection);
             }
+            if self.is_down() {
+                return Err(OpenError::Lost);
+            }
             let Some(target) = self.target().await else {
                 self.set_notice(Notice::NoTarget);
                 return Err(OpenError::NotConfigured);
             };
             match timeout(
                 HANDSHAKE_DEADLINE,
-                self.inner.endpoint.connect(target.clone(), ALPN),
+                self.endpoint().connect(target.clone(), ALPN),
             )
             .await
             {
@@ -226,7 +242,8 @@ impl Dialer {
     }
 
     pub async fn report(&self) -> String {
-        let metrics = self.inner.endpoint.metrics();
+        let endpoint = self.endpoint();
+        let metrics = endpoint.metrics();
         let (socket, net) = (&metrics.socket, &metrics.net_report);
         let mut line = format!(
             "iroh send_v4={} send_v6={} send_relay={} recv_v4={} recv_v6={} recv_relay={} recv_datagrams={} relay_home_change={} relay_conns_ok={} relay_conns_failed={} holepunch_attempts={} restun_ticks={} portmap_ticks={} link_changes={} main_ticks={} msg_ticks={} net_reports={} net_reports_full={} portmap_attempts={}",
@@ -347,6 +364,9 @@ impl Dialer {
             return Ok(connection);
         }
         loop {
+            if self.is_down() {
+                return Err(OpenError::Lost);
+            }
             let Some(target) = self.target().await else {
                 self.set_notice(Notice::NoTarget);
                 return Err(OpenError::NotConfigured);
@@ -354,7 +374,7 @@ impl Dialer {
             self.inner.wait_retry().await;
             let attempted = timeout(
                 HANDSHAKE_DEADLINE,
-                self.inner.endpoint.connect(target.clone(), ALPN),
+                self.endpoint().connect(target.clone(), ALPN),
             )
             .await;
             match attempted {
@@ -424,6 +444,14 @@ impl Inner {
             gate.reached.notify_one();
             gate.resume.notified().await;
         }
+    }
+
+    fn reset(&self) {
+        self.lost.store(0, Ordering::Relaxed);
+        self.board_unreachable.store(0, Ordering::Relaxed);
+        *self.backoff.lock().unwrap() = Backoff::default();
+        *self.retry_at.lock().unwrap() = None;
+        *self.notice.lock().unwrap() = Notice::None;
     }
 
     fn next_delay(&self) -> Duration {
@@ -681,6 +709,34 @@ mod tests {
         assert!(dialer.inner.keep(connection, &addr).await.is_none());
         assert!(dialer.live().await.is_none());
         assert_eq!(dialer.target().await, Some(other.addr()));
+    }
+
+    #[tokio::test]
+    async fn a_closed_dialer_fails_every_dial_at_once_and_keeps_its_notice_until_it_opens() {
+        let server = local().await;
+        let addr = server.addr();
+        let dialer = Dialer::new(local().await, Some(addr));
+        tokio::spawn(async move {
+            let incoming = server.accept().await.unwrap();
+            let accepted = incoming.accept().unwrap().await.unwrap();
+            accepted.closed().await;
+        });
+        dialer.set_notice(Notice::Busy);
+
+        dialer.close().await;
+
+        assert!(dialer.is_down());
+        assert!(dialer.endpoint().is_closed());
+        assert_eq!(dialer.connection().await.err(), Some(OpenError::Lost));
+        assert_eq!(dialer.attempt().await.err(), Some(OpenError::Lost));
+        assert_eq!(dialer.open_with(b"x").await.err(), Some(OpenError::Lost));
+        assert_eq!(dialer.notice(), Notice::Busy);
+
+        dialer.open(local().await);
+
+        assert!(!dialer.is_down());
+        assert_eq!(dialer.notice(), Notice::None);
+        assert!(dialer.connection().await.is_ok());
     }
 
     fn counts(line: &str) -> std::collections::BTreeMap<String, u64> {
