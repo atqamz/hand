@@ -144,6 +144,9 @@ func TestRemoveLeavesAUsersOwnShortcutAlone(t *testing.T) {
 	f := newWin(t)
 	before := f.foreign(t)
 	ico := icoPath(f.bin)
+	if err := os.MkdirAll(filepath.Dir(ico), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(ico, []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
