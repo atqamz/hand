@@ -18,7 +18,10 @@ var (
 	interruptSettle, interruptPoll = 5 * time.Second, 200 * time.Millisecond
 )
 
-const minAnswerWithin = 5 * time.Second
+const (
+	minAnswerWithin = 5 * time.Second
+	maxAnswerWithin = time.Hour
+)
 
 func (w *watcher) preempt(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
 	inputs, err := w.st.DeliveredSupervisorInputs(ctx, answerLookback)
@@ -26,12 +29,12 @@ func (w *watcher) preempt(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		return
 	}
 	now := w.r.env.Now()
-	stale := func(in state.SupervisorInput, bound time.Duration) bool {
+	stale := func(in state.SupervisorInput, bound time.Duration, gate bool) bool {
 		at, err := time.Parse(time.RFC3339Nano, in.DeliveredAt)
 		age := now.Sub(at)
-		return err == nil && in.AnsweredAt == "" && in.Reason != state.ReasonInterrupted && !w.interrupted[in.ID] && age > bound && age <= answerHorizon
+		return err == nil && in.AnsweredAt == "" && in.Reason != state.ReasonInterrupted && !w.interrupted[in.ID] && age > bound && (gate && age <= maxAnswerWithin+answerHorizon || age <= bound+answerHorizon)
 	}
-	if !slices.ContainsFunc(inputs, func(in state.SupervisorInput) bool { return stale(in, minAnswerWithin) }) {
+	if !slices.ContainsFunc(inputs, func(in state.SupervisorInput) bool { return stale(in, minAnswerWithin, true) }) {
 		w.calls = nil
 		return
 	}
@@ -57,7 +60,7 @@ func (w *watcher) preempt(ctx context.Context, c luvus.Client, caps luvus.Capabi
 			continue
 		}
 		sent = append(sent, transcript.Sent{ID: in.ID, Body: in.Body, CreatedAt: in.CreatedAt})
-		if stale(in, time.Duration(p.Supervisor.AnswerWithin)) {
+		if stale(in, time.Duration(p.Supervisor.AnswerWithin), false) {
 			due = append(due, in)
 		}
 	}

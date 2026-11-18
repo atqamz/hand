@@ -146,6 +146,20 @@ func TestTheBoundIsTheSettingNotAConstant(t *testing.T) {
 	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonInterrupted })
 }
 
+func TestABoundLongerThanTheAnswerHorizonStillInterrupts(t *testing.T) {
+	f := newInterruptFixture(t, `{"supervisor":{"answer_within":"45m"}}`)
+	f.h.ok("supervisor", "send", "--text", "status?")
+	f.running("sleep 300")
+	startWatch(t, f.attemptFixture, "--every", "1h")
+	f.h.advance(40 * time.Minute)
+	f.quiet(t)
+	if got := f.rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys before a 45m bound = %q", got)
+	}
+	f.h.advance(6 * time.Minute)
+	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonInterrupted })
+}
+
 func TestAMessageDuringACommandThatIsNotAKnownWaitWaitsWithTheReason(t *testing.T) {
 	f := newInterruptFixture(t, "")
 	f.h.ok("supervisor", "send", "--text", "status?")

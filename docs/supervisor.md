@@ -88,7 +88,7 @@ No line appears while the supervisor is idle, blocked or not managed, or when Lu
 
 ## A message that interrupts a wait
 
-A supervisor that holds a turn open inside a wait (a `sleep`, a CI poll) answers a message only when the wait ends. When a delivered message has gone unanswered for longer than `supervisor.answer_within` (the bound above, `60s` by default) while the supervisor's turn runs, the watcher presses the harness's interrupt key once, waits for the turn to stop, and types the message again as a fresh prompt. It does this only while the tool call that runs is a known wait, and it never does it twice for the same message. The setting is on by default and sits beside `answer_within` in `routing.json`:
+A supervisor that holds a turn open inside a wait (a `sleep`, a CI poll) answers a message only when the wait ends. When a delivered message has gone unanswered for longer than `supervisor.answer_within` (the bound above, `60s` by default) while the supervisor's turn runs, the watcher presses the harness's interrupt key once, waits for the turn to stop, and types the message again as a fresh prompt. It does this only while the tool call that runs is a known wait, and it never does it twice for the same message. It looks at a message only for 30 minutes after the bound passes, so a longer `answer_within` still works. The setting is on by default and sits beside `answer_within` in `routing.json`:
 
 ```json
 "supervisor": {"answer_within": "60s", "interrupt": true}
