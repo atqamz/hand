@@ -285,34 +285,21 @@ func TestAPolicyWithoutAnAnswerWithinSurvivesAJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPolicyReadsTheInterruptSettingAndDefaultsItOn(t *testing.T) {
+func TestPolicyReadsTheInterruptSettingAndDefaultsItOff(t *testing.T) {
 	for body, want := range map[string]bool{
-		`{}`:                                 true,
-		`{"supervisor":{"autoresume":true}}`: true,
+		`{}`:                                 false,
+		`{"supervisor":{"autoresume":true}}`: false,
 		`{"supervisor":{"interrupt":true}}`:  true,
 		`{"supervisor":{"interrupt":false}}`: false,
-		`{"supervisor":{"interrupt":false,"answer_within":"2m"}}`: false,
+		`{"supervisor":{"interrupt":true,"answer_within":"2m"}}`: true,
 	} {
-		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.InterruptOn() != want {
-			t.Fatalf("policy %s: interrupt on = %v, %v; want %v", body, p.InterruptOn(), err, want)
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Supervisor.Interrupt != want {
+			t.Fatalf("policy %s: interrupt = %v, %v; want %v", body, p.Supervisor.Interrupt, err, want)
 		}
 	}
 	for _, body := range []string{`{"supervisor":{"interrupt":"off"}}`, `{"supervisor":{"interrupt":0}}`} {
 		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "interrupt") {
 			t.Fatalf("policy %s err = %v", body, err)
 		}
-	}
-}
-
-func TestAPolicyWithoutTheInterruptSettingStaysOnThroughAJSONRoundTrip(t *testing.T) {
-	p := StarterPolicy
-	p.Supervisor.Autoresume = true
-	b, err := json.Marshal(p)
-	if err != nil || strings.Contains(string(b), "interrupt") {
-		t.Fatalf("marshal = %s, %v", b, err)
-	}
-	back, err := LoadPolicy(writePolicy(t, string(b)))
-	if err != nil || !back.InterruptOn() {
-		t.Fatalf("round trip: on = %v, %v", back.InterruptOn(), err)
 	}
 }

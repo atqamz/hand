@@ -23,10 +23,11 @@ type interruptFixture struct {
 func newInterruptFixture(t *testing.T, routing string) *interruptFixture {
 	t.Helper()
 	h, rt := newSupervisorFixture(t)
-	if routing != "" {
-		if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(routing), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	if routing == "" {
+		routing = `{"supervisor":{"interrupt":true}}`
+	}
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(routing), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	startClaudeSupervisor(h)
 	dir := filepath.Join(h.vars["HOME"], ".claude", "projects", "p")
@@ -38,7 +39,7 @@ func newInterruptFixture(t *testing.T, routing string) *interruptFixture {
 		t.Fatal(err)
 	}
 	rt.set(func(rt *fakeRuntime) {
-		rt.status, rt.screen, rt.afterKeys = "working", "idle prompt\n❯ \nfooter", "idle"
+		rt.status, rt.screen, rt.afterKeys, rt.revision = "working", "idle prompt\n❯ \nfooter", "idle", 7
 	})
 	setWait(t, cli.PreemptEvery, 10*time.Millisecond)
 	setWait(t, cli.InterruptPoll, 10*time.Millisecond)
@@ -89,8 +90,11 @@ func (f *interruptFixture) pastTheBound() { f.h.advance(61 * time.Second) }
 
 func (f *interruptFixture) quiet(t *testing.T) {
 	t.Helper()
-	time.Sleep(300 * time.Millisecond)
+	before := explains(f.rt)
+	eventually(t, func() bool { return explains(f.rt) >= before+3 })
 }
+
+func (f *interruptFixture) stillQuiet() { time.Sleep(300 * time.Millisecond) }
 
 func TestAMessageWaitingPastTheBoundDuringAKnownWaitInterruptsOnceAndIsTypedAgain(t *testing.T) {
 	f := newInterruptFixture(t, "")
@@ -99,10 +103,13 @@ func TestAMessageWaitingPastTheBoundDuringAKnownWaitInterruptsOnceAndIsTypedAgai
 	stop := startWatch(t, f.attemptFixture, "--every", "1h")
 	f.pastTheBound()
 	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonInterrupted })
-	f.quiet(t)
+	f.stillQuiet()
 	stop()
 	if got := f.rt.keysSent(); !slices.Equal(got, []string{"esc"}) {
 		t.Fatalf("keys = %q, want one esc", got)
+	}
+	if got := f.rt.keyRevisions(); !slices.Equal(got, []int64{7}) {
+		t.Fatalf("key revisions = %v, want the screen's 7", got)
 	}
 	if got := f.rt.prompts(); !slices.Equal(got, []string{"status?", "status?"}) {
 		t.Fatalf("prompts = %q, want the message typed again", got)
@@ -121,7 +128,7 @@ func TestAMessageIsNotInterruptedBeforeTheBound(t *testing.T) {
 	f.running("sleep 300")
 	startWatch(t, f.attemptFixture, "--every", "1h")
 	f.h.advance(30 * time.Second)
-	f.quiet(t)
+	f.stillQuiet()
 	if got := f.rt.keysSent(); len(got) != 0 {
 		t.Fatalf("keys before the bound = %q", got)
 	}
@@ -133,12 +140,12 @@ func TestAMessageIsNotInterruptedBeforeTheBound(t *testing.T) {
 }
 
 func TestTheBoundIsTheSettingNotAConstant(t *testing.T) {
-	f := newInterruptFixture(t, `{"supervisor":{"answer_within":"5m"}}`)
+	f := newInterruptFixture(t, `{"supervisor":{"answer_within":"5m","interrupt":true}}`)
 	f.h.ok("supervisor", "send", "--text", "status?")
 	f.running("sleep 300")
 	startWatch(t, f.attemptFixture, "--every", "1h")
 	f.pastTheBound()
-	f.quiet(t)
+	f.stillQuiet()
 	if got := f.rt.keysSent(); len(got) != 0 {
 		t.Fatalf("keys under a 5m bound after 61s = %q", got)
 	}
@@ -147,12 +154,12 @@ func TestTheBoundIsTheSettingNotAConstant(t *testing.T) {
 }
 
 func TestABoundLongerThanTheAnswerHorizonStillInterrupts(t *testing.T) {
-	f := newInterruptFixture(t, `{"supervisor":{"answer_within":"45m"}}`)
+	f := newInterruptFixture(t, `{"supervisor":{"answer_within":"45m","interrupt":true}}`)
 	f.h.ok("supervisor", "send", "--text", "status?")
 	f.running("sleep 300")
 	startWatch(t, f.attemptFixture, "--every", "1h")
 	f.h.advance(40 * time.Minute)
-	f.quiet(t)
+	f.stillQuiet()
 	if got := f.rt.keysSent(); len(got) != 0 {
 		t.Fatalf("keys before a 45m bound = %q", got)
 	}
@@ -199,22 +206,30 @@ func TestAMixedCompoundCommandIsNotAWait(t *testing.T) {
 	}
 }
 
-func TestWithTheSettingOffAMessageWaitsAndSaysSo(t *testing.T) {
-	f := newInterruptFixture(t, `{"supervisor":{"interrupt":false}}`)
-	f.h.ok("supervisor", "send", "--text", "status?")
-	f.running("sleep 300")
-	startWatch(t, f.attemptFixture, "--every", "1h")
-	f.pastTheBound()
-	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonWaited })
-	f.quiet(t)
-	if in := f.input(t, 1); in.ReasonDetail != state.WaitOff {
-		t.Fatalf("input = %+v", in)
-	}
-	if got := f.rt.keysSent(); len(got) != 0 {
-		t.Fatalf("keys with the setting off = %q", got)
-	}
-	if got := f.rt.prompts(); !slices.Equal(got, []string{"status?"}) {
-		t.Fatalf("prompts = %q", got)
+func TestWithTheSettingOffOrAbsentAMessageWaitsAndSaysSo(t *testing.T) {
+	for name, routing := range map[string]string{
+		"false":  `{"supervisor":{"interrupt":false}}`,
+		"absent": `{"supervisor":{"answer_within":"60s"}}`,
+		"empty":  `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newInterruptFixture(t, routing)
+			f.h.ok("supervisor", "send", "--text", "status?")
+			f.running("sleep 300")
+			startWatch(t, f.attemptFixture, "--every", "1h")
+			f.pastTheBound()
+			eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonWaited })
+			f.quiet(t)
+			if in := f.input(t, 1); in.ReasonDetail != state.WaitOff {
+				t.Fatalf("input = %+v", in)
+			}
+			if got := f.rt.keysSent(); len(got) != 0 {
+				t.Fatalf("keys with the setting off = %q", got)
+			}
+			if got := f.rt.prompts(); !slices.Equal(got, []string{"status?"}) {
+				t.Fatalf("prompts = %q", got)
+			}
+		})
 	}
 }
 
@@ -229,7 +244,7 @@ func TestAMessageIsNeverInterruptedTwice(t *testing.T) {
 	f.finished()
 	f.running("sleep 300")
 	f.h.advance(2 * time.Minute)
-	f.quiet(t)
+	f.stillQuiet()
 	if got := f.rt.keysSent(); !slices.Equal(got, []string{"esc"}) {
 		t.Fatalf("keys after a second sweep = %q, want still one esc", got)
 	}
@@ -273,7 +288,7 @@ func TestALimitedOrIdleSupervisorIsNeverInterrupted(t *testing.T) {
 			set(f)
 			startWatch(t, f.attemptFixture, "--every", "1h")
 			f.pastTheBound()
-			f.quiet(t)
+			f.stillQuiet()
 			if got := f.rt.keysSent(); len(got) != 0 {
 				t.Fatalf("keys = %q", got)
 			}
@@ -307,7 +322,7 @@ func TestAMessageIsNotInterruptedAfterTheOperatorPressedKeys(t *testing.T) {
 	f.running("sleep 300")
 	f.rt.set(func(rt *fakeRuntime) { rt.afterKeys = "" })
 	f.h.advance(time.Second)
-	f.h.ok("supervisor", "keys", "--revision", "0", "down")
+	f.h.ok("supervisor", "keys", "--revision", "7", "down")
 	f.rt.set(func(rt *fakeRuntime) { rt.keyed, rt.afterKeys = nil, "idle" })
 	startWatch(t, f.attemptFixture, "--every", "1h")
 	f.pastTheBound()
@@ -367,7 +382,7 @@ func TestAnAnsweredMessageIsNotInterrupted(t *testing.T) {
 	}
 	startWatch(t, f.attemptFixture, "--every", "1h")
 	f.pastTheBound()
-	f.quiet(t)
+	f.stillQuiet()
 	if got := f.rt.keysSent(); len(got) != 0 {
 		t.Fatalf("keys for an answered message = %q", got)
 	}
@@ -375,6 +390,9 @@ func TestAnAnsweredMessageIsNotInterrupted(t *testing.T) {
 
 func TestAHarnessWhoseRecordShowsNoRunningCallNeverInterrupts(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{"supervisor":{"interrupt":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	h.ok("supervisor", "start", "--harness", "opencode")
 	rt.set(func(rt *fakeRuntime) {
 		rt.status, rt.screen, rt.afterKeys = "working", "idle prompt\n❯ \nfooter", "idle"
@@ -405,5 +423,81 @@ func TestIfTheTurnDoesNotStopTheMessageIsNotTypedAgainAndTheReceiptSaysSo(t *tes
 	}
 	if got := f.rt.prompts(); !slices.Equal(got, []string{"status?"}) {
 		t.Fatalf("prompts = %q, want no second typing into a turn that did not stop", got)
+	}
+}
+
+func TestNoKeyIsSentWhenTheRecordShowsAMutationRunningByTheTimeOfTheKey(t *testing.T) {
+	f := newInterruptFixture(t, "")
+	f.h.ok("supervisor", "send", "--text", "status?")
+	f.running("sleep 300")
+	startWatch(t, f.attemptFixture, "--every", "1h")
+	f.stillQuiet()
+	var reads int
+	var hook func()
+	hook = func() {
+		reads++
+		if reads == 3 {
+			f.finished()
+			f.running("git push origin hand/x")
+			return
+		}
+		f.rt.onRead = hook
+	}
+	f.rt.set(func(rt *fakeRuntime) { rt.onRead = hook })
+	f.pastTheBound()
+	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonWaited })
+	f.quiet(t)
+	if reads != 3 {
+		t.Fatalf("the hook fired on read %d, want the third, inside the key press", reads)
+	}
+	if in := f.input(t, 1); in.ReasonDetail != state.WaitNotWait {
+		t.Fatalf("input = %+v", in)
+	}
+	if got := f.rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys = %q, want none while the record shows git push", got)
+	}
+	if got := f.rt.prompts(); !slices.Equal(got, []string{"status?"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+}
+
+func TestIfTheQueuedTextCameBackToThePromptTheMessageIsNotTypedAgain(t *testing.T) {
+	f := newInterruptFixture(t, "")
+	f.rt.set(func(rt *fakeRuntime) { rt.afterScreen = "idle\n❯ status?\nfooter" })
+	f.h.ok("supervisor", "send", "--text", "status?")
+	f.running("sleep 300")
+	startWatch(t, f.attemptFixture, "--every", "1h")
+	f.pastTheBound()
+	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonInterrupted })
+	if in := f.input(t, 1); in.ReasonDetail != "not sent again: the prompt holds text" {
+		t.Fatalf("input = %+v", in)
+	}
+	if got := f.rt.prompts(); !slices.Equal(got, []string{"status?"}) {
+		t.Fatalf("prompts = %q, want no second typing over text in the prompt", got)
+	}
+}
+
+func TestEveryUnansweredMessageInTheQueueIsTypedAgainInOrderNotOnlyTheDueOne(t *testing.T) {
+	f := newInterruptFixture(t, "")
+	f.h.ok("supervisor", "send", "--text", "first")
+	f.h.advance(40 * time.Second)
+	f.h.ok("supervisor", "send", "--text", "second")
+	f.h.ok("supervisor", "send", "--text", "third")
+	f.record(`{"type":"user","timestamp":"2026-09-26T00:00:41.000Z","message":{"role":"user","content":"third"}}`)
+	f.h.advance(25 * time.Second)
+	f.running("sleep 300")
+	startWatch(t, f.attemptFixture, "--every", "1h")
+	eventually(t, func() bool { return f.input(t, 1).Reason == state.ReasonInterrupted })
+	if got := f.rt.prompts(); !slices.Equal(got, []string{"first", "second", "third", "first", "second"}) {
+		t.Fatalf("prompts = %q, want first and second typed again, not third (the harness took it)", got)
+	}
+	if in := f.input(t, 2); in.Reason != state.ReasonInterrupted || in.ReasonDetail != "" {
+		t.Fatalf("second = %+v, want it recorded as sent again", in)
+	}
+	if in := f.input(t, 3); in.Reason != "" {
+		t.Fatalf("third = %+v, want it left alone", in)
+	}
+	if got := f.rt.keysSent(); !slices.Equal(got, []string{"esc"}) {
+		t.Fatalf("keys = %q, want one esc", got)
 	}
 }

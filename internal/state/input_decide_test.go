@@ -53,11 +53,34 @@ func TestWaitingIsOneEventPerChangeOfWhyAndLeavesQueuedAndAnsweredInputsAlone(t 
 			t.Fatalf("input %d took reason %q", id, in.Reason)
 		}
 	}
-	if err := s.WaitInputs(ctx, ids[:2], WaitUnknown); err != nil {
+	if err := s.WaitInputs(ctx, ids[:2], WaitTyped); err != nil {
 		t.Fatal(err)
 	}
-	if ev := inputEvents(t, s, "input.waited"); !slices.Equal(ev, []string{"i1, i2: not_wait", "i1, i2: unknown"}) {
+	if ev := inputEvents(t, s, "input.waited"); !slices.Equal(ev, []string{"i1, i2: not_wait", "i1, i2: typed"}) {
 		t.Fatalf("a new why records one more event: %q", ev)
+	}
+}
+
+func TestUnknownAndNotWaitDoNotTakeTurnsAsEvents(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	ids := sendDelivered(t, s, 1)
+	for _, why := range []string{WaitUnknown, WaitNotWait, WaitUnknown, WaitNotWait} {
+		if err := s.WaitInputs(ctx, ids, why); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ev := inputEvents(t, s, "input.waited"); !slices.Equal(ev, []string{"i1: unknown"}) {
+		t.Fatalf("waited events = %q, want the first reason only", ev)
+	}
+	if err := s.WaitInputs(ctx, ids, WaitOff); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WaitInputs(ctx, ids, WaitNotWait); err != nil {
+		t.Fatal(err)
+	}
+	if ev := inputEvents(t, s, "input.waited"); !slices.Equal(ev, []string{"i1: unknown", "i1: off", "i1: not_wait"}) {
+		t.Fatalf("waited events = %q, want off and a later not_wait kept", ev)
 	}
 }
 

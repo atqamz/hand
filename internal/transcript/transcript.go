@@ -34,7 +34,7 @@ type Entry struct {
 }
 
 type Call struct {
-	ID, Tool, Command, At string
+	ID, Tool, Command string
 }
 
 var (

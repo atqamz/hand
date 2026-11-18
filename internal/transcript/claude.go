@@ -126,7 +126,7 @@ func (s *session) claudeLine(line []byte) {
 		}
 		for _, b := range blocks {
 			if b.Type == "tool_use" && b.ID != "" {
-				s.startCall(Call{ID: b.ID, Tool: b.Name, Command: commandOf(b.Input), At: rec.Timestamp})
+				s.startCall(Call{ID: b.ID, Tool: b.Name, Command: commandOf(b.Input)})
 			}
 		}
 		final := rec.Message.StopReason == "end_turn" || rec.Message.StopReason == "stop_sequence"

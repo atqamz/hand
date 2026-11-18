@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -17,6 +18,8 @@ var (
 	preemptEvery                   = 5 * time.Second
 	interruptSettle, interruptPoll = 5 * time.Second, 200 * time.Millisecond
 )
+
+var errTurnMovedOn = errors.New("the supervisor's running call changed before the key")
 
 const (
 	minAnswerWithin = 5 * time.Second
@@ -51,15 +54,14 @@ func (w *watcher) preempt(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	if err != nil || err2 != nil || !ok || !sup.Managed(caps.ServerGeneration) || sup.Switching() {
 		return
 	}
-	var due []state.SupervisorInput
-	var sent []transcript.Sent
+	var due, mine []state.SupervisorInput
 	slices.Reverse(inputs)
 	for _, in := range inputs {
 		at, _ := time.Parse(time.RFC3339Nano, in.DeliveredAt)
 		if to, ok := deliveredTo(sups, at); !ok || to.ID != sup.ID {
 			continue
 		}
-		sent = append(sent, transcript.Sent{ID: in.ID, Body: in.Body, CreatedAt: in.CreatedAt})
+		mine = append(mine, in)
 		if stale(in, time.Duration(p.Supervisor.AnswerWithin), false) {
 			due = append(due, in)
 		}
@@ -76,12 +78,12 @@ func (w *watcher) preempt(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		return
 	}
 	switch {
-	case !p.InterruptOn():
+	case !p.Supervisor.Interrupt:
 		w.waited(ctx, due, state.WaitOff)
 	case sup.Harness != "claude":
 		w.waited(ctx, due, state.WaitUnknown)
 	default:
-		w.judge(ctx, c, sup, sent, due)
+		w.judge(ctx, c, sup, mine, due)
 	}
 }
 
@@ -111,7 +113,7 @@ func inputIDs(in []state.SupervisorInput) []int64 {
 	return ids
 }
 
-func (w *watcher) judge(ctx context.Context, c luvus.Client, sup state.Supervisor, sent []transcript.Sent, due []state.SupervisorInput) {
+func (w *watcher) judge(ctx context.Context, c luvus.Client, sup state.Supervisor, mine, due []state.SupervisorInput) {
 	if w.calls == nil {
 		w.calls = &transcript.Reader{Paths: w.r.transcriptPaths()}
 	}
@@ -119,6 +121,10 @@ func (w *watcher) judge(ctx context.Context, c luvus.Client, sup state.Superviso
 	if err != nil {
 		w.waited(ctx, due, state.WaitUnknown)
 		return
+	}
+	sent := make([]transcript.Sent, len(mine))
+	for i, in := range mine {
+		sent[i] = transcript.Sent{ID: in.ID, Body: in.Body, CreatedAt: in.CreatedAt}
 	}
 	taken := transcript.Pair(entries, sent)
 	if due = slices.DeleteFunc(due, func(in state.SupervisorInput) bool { _, ok := taken[in.ID]; return ok }); len(due) == 0 {
@@ -133,15 +139,26 @@ func (w *watcher) judge(ctx context.Context, c luvus.Client, sup state.Superviso
 		w.waited(ctx, due, state.WaitTyped)
 		return
 	}
+	if why := w.verdict(ctx, sup); why != "" {
+		w.waited(ctx, due, why)
+		return
+	}
+	again := slices.DeleteFunc(slices.Clone(mine[slices.IndexFunc(mine, func(in state.SupervisorInput) bool { return in.ID == due[0].ID }):]), func(in state.SupervisorInput) bool {
+		_, ok := taken[in.ID]
+		return ok || in.AnsweredAt != ""
+	})
+	w.interrupt(ctx, c, sup, due, again)
+}
+
+func (w *watcher) verdict(ctx context.Context, sup state.Supervisor) string {
 	calls, err := w.calls.Running(ctx, sup.Harness, sup.Session, w.r.home)
 	switch {
 	case err != nil || len(calls) == 0:
-		w.waited(ctx, due, state.WaitUnknown)
+		return state.WaitUnknown
 	case slices.ContainsFunc(calls, func(call transcript.Call) bool { return call.Tool != "Bash" || !harness.KnownWait(call.Command) }):
-		w.waited(ctx, due, state.WaitNotWait)
-	default:
-		w.interrupt(ctx, c, sup, due)
+		return state.WaitNotWait
 	}
+	return ""
 }
 
 func (w *watcher) typed(ctx context.Context, c luvus.Client, sup state.Supervisor, first state.SupervisorInput) (bool, error) {
@@ -154,26 +171,51 @@ func (w *watcher) typed(ctx context.Context, c luvus.Client, sup state.Superviso
 	if ok && strings.HasPrefix(e.Detail, state.SupervisorRef(sup.ID)+": ") && pressed.After(delivered) {
 		return true, nil
 	}
+	return promptHoldsText(ctx, c, sup)
+}
+
+func promptHoldsText(ctx context.Context, c luvus.Client, sup state.Supervisor) (bool, error) {
 	s, err := c.Read(ctx, sup.PaneID, 40)
 	return err == nil && !emptyPrompt(s.Text), err
 }
 
-func (w *watcher) interrupt(ctx context.Context, c luvus.Client, sup state.Supervisor, due []state.SupervisorInput) {
+func (w *watcher) interrupt(ctx context.Context, c luvus.Client, sup state.Supervisor, due, again []state.SupervisorInput) {
 	if w.interrupted == nil {
 		w.interrupted = map[int64]bool{}
 	}
-	for _, in := range due {
+	for _, in := range again {
 		w.interrupted[in.ID] = true
 	}
-	if _, err := interruptSupervisor(ctx, c, sup); err != nil {
+	var moved string
+	recheck := func() error {
+		if moved = w.verdict(ctx, sup); moved != "" {
+			return errTurnMovedOn
+		}
+		return nil
+	}
+	if _, err := interruptSupervisor(ctx, c, sup, recheck); err != nil {
+		if errors.Is(err, errTurnMovedOn) {
+			for _, in := range again {
+				delete(w.interrupted, in.ID)
+			}
+			w.waited(ctx, due, moved)
+			return
+		}
 		w.say("supervisor interrupt: " + err.Error())
 		w.waited(ctx, due, state.WaitFailed)
 		return
 	}
 	n, why := 0, "the turn did not stop"
 	if status := settled(ctx, c, sup); status != "" {
-		for ; n < len(due); n++ {
-			if _, err := sendToSupervisor(ctx, c, sup, status, due[n].Body); err != nil {
+		for ; n < len(again); n++ {
+			if held, err := promptHoldsText(ctx, c, sup); err != nil || held {
+				why = "the prompt holds text"
+				if err != nil {
+					why = err.Error()
+				}
+				break
+			}
+			if _, err := sendToSupervisor(ctx, c, sup, status, again[n].Body); err != nil {
 				why = err.Error()
 				break
 			}
@@ -185,7 +227,7 @@ func (w *watcher) interrupt(ctx context.Context, c luvus.Client, sup state.Super
 	for _, r := range []struct {
 		ids    []int64
 		detail string
-	}{{inputIDs(due[:n]), ""}, {inputIDs(due[n:]), "not sent again: " + why}} {
+	}{{inputIDs(again[:n]), ""}, {inputIDs(again[n:]), "not sent again: " + why}} {
 		if err := w.st.InterruptInputs(ctx, r.ids, r.detail); err != nil {
 			w.say("supervisor interrupt: " + err.Error())
 		}

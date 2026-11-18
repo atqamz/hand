@@ -590,10 +590,11 @@ func (s *Store) InterruptInputs(ctx context.Context, ids []int64, detail string)
 }
 
 func (s *Store) decideInputs(ctx context.Context, ids []int64, reason, detail string) error {
+	flap := reason == ReasonWaited && (detail == WaitUnknown || detail == WaitNotWait)
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		var refs []string
 		for _, id := range ids {
-			res, err := tx.Exec(`UPDATE supervisor_input SET reason = ?, reason_detail = ? WHERE id = ? AND delivered_at != '' AND answered_at = '' AND reason != ? AND (reason != ? OR reason_detail != ?)`, reason, detail, id, ReasonInterrupted, reason, detail)
+			res, err := tx.Exec(`UPDATE supervisor_input SET reason = ?, reason_detail = ? WHERE id = ? AND delivered_at != '' AND answered_at = '' AND reason != ? AND (reason != ? OR reason_detail != ?) AND NOT (? AND reason = ? AND reason_detail IN (?, ?))`, reason, detail, id, ReasonInterrupted, reason, detail, flap, ReasonWaited, WaitUnknown, WaitNotWait)
 			if err != nil {
 				return err
 			}
