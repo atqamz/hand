@@ -178,8 +178,8 @@ func cmdSkillsSync(r *runner, args []string) error {
 		if !trusted(s, e) {
 			id := cmp.Or(p.commit, p.sum)
 			yesName, yesID, _ := strings.Cut(yes, "@")
-			if yes != "" && (yesName == "" || yesID == "" || name == yesName && yesID != id && strings.HasPrefix(id, yesID)) {
-				return "", "", fmt.Errorf("--yes takes the whole NAME@COMMIT of the diff you read: `hand skills sync --yes %s@%s`", name, id)
+			if yes != "" && (yesName == "" || yesID == "") {
+				return "", "", fmt.Errorf("--yes takes the whole NAME@COMMIT of the diff you read: `hand skills sync --yes NAME@COMMIT`")
 			}
 			if name != yesName || yesID != id {
 				if diffs[name], err = skillDiff(r, s, name, p.staged); err != nil {

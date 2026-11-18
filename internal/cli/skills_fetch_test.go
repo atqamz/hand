@@ -26,7 +26,7 @@ func isolateTemp(t *testing.T) string {
 
 func tempLeft(t *testing.T, dir string) []string {
 	t.Helper()
-	left, err := filepath.Glob(filepath.Join(dir, "hand-skills-*"))
+	left, err := filepath.Glob(filepath.Join(dir, "hand-skill*"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +58,9 @@ func TestSkillsCommandsLeaveNoTempFolder(t *testing.T) {
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	h.ok("skills", "add", "--fleet", "--ref", "main", "file://"+filepath.ToSlash(tool.bare))
+	if left := tempLeft(t, tmp); len(left) != 0 {
+		t.Fatalf("hand skills add left %q", left)
+	}
 	tool.commit(skillFiles("tool-skill", "v2"))
 	scenario := func(name string) {
 		for _, args := range [][]string{
@@ -214,15 +217,14 @@ func TestSkillsSyncYesNeedsTheWholeCommitNotAPrefix(t *testing.T) {
 	}
 	push(evil)
 	installed := func() string { return readSkill(t, skillPath(h.home, ".claude", "tool-skill")) }
-	for _, yes := range []string{benign[:7], benign[:12], benign[:39], evil[:39], benign} {
+	for _, yes := range []string{benign[:7], benign[:12], benign[:39], evil[:7], evil[:39], benign} {
 		out, errOut, code := h.run("skills", "sync", "--fleet", "--yes", "tool-skill@"+yes)
 		if code != 3 || strings.Contains(installed(), "EVIL") || strings.Contains(installed(), "benign") {
 			t.Fatalf("--yes tool-skill@%s: code=%d stdout=%q stderr=%q, copy %q", yes, code, out, errOut, installed())
 		}
-	}
-	out, _, _ := h.run("skills", "sync", "--fleet", "--yes", "tool-skill@"+benign[:7])
-	if !strings.Contains(out, "takes the whole NAME@COMMIT") || !strings.Contains(out, "tool-skill@"+evil) {
-		t.Fatalf("a prefix = %q", out)
+		if !strings.Contains(out, "+v2 EVIL") || !strings.Contains(out, "moved since the diff you read") || !strings.Contains(out, "read the diff above") {
+			t.Fatalf("--yes tool-skill@%s refused without showing the diff of the commit it would apply: %q", yes, out)
+		}
 	}
 	if out := h.ok("skills", "sync", "--fleet", "--yes", "tool-skill@"+evil); !strings.Contains(out, "tool-skill,updated,") || !strings.Contains(installed(), "EVIL") {
 		t.Fatalf("the whole commit: %q", out)
