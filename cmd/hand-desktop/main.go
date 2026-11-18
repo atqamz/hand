@@ -16,6 +16,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+var onlyLinux = true
+
 type options struct {
 	version bool
 	fleet   string
@@ -71,7 +73,7 @@ func main() {
 		fmt.Println(desktopasset.Stamp())
 		return
 	}
-	if runtime.GOOS != "linux" {
+	if onlyLinux && runtime.GOOS != "linux" {
 		fmt.Fprintln(os.Stderr, "hand-desktop runs on Linux for now; the Board still works in a browser on this system.")
 		os.Exit(2)
 	}

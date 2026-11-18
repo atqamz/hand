@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -131,5 +132,25 @@ func TestSecondInstanceWithAHostileLinkIsRefusedOnScreen(t *testing.T) {
 		if app.Err == "" || app.Screen != desktop.BoardScreen || len(app.Err) > 400 || strings.ContainsAny(app.Err, "\x1b\x07") {
 			t.Fatalf("%.100q: screen %d, err %.200q", args, app.Screen, app.Err)
 		}
+	}
+}
+
+func TestAutomationPluginOnlyInTheE2EBuild(t *testing.T) {
+	const plugin = "github.com/egoist/mygo/plugins/automation"
+	deps := func(tags string) string {
+		out, err := exec.Command("go", "list", "-deps", "-tags", tags, ".").CombinedOutput()
+		if err != nil {
+			t.Fatalf("go list -tags %q: %v\n%s", tags, err, out)
+		}
+		return string(out)
+	}
+	if strings.Contains(deps(""), plugin) {
+		t.Fatal("the default hand-desktop build links the automation plugin")
+	}
+	if strings.Contains(deps("mygo_noinspector"), plugin) {
+		t.Fatal("the release hand-desktop build links the automation plugin")
+	}
+	if !strings.Contains(deps("e2e"), plugin) {
+		t.Fatal("the e2e hand-desktop build lacks the automation plugin")
 	}
 }

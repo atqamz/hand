@@ -86,6 +86,18 @@ node .github/e2e/first-run.mjs
 
 The install phase changes your user `PATH` in the registry and puts it back when it ends. `smoke.mjs` needs Playwright: `npm install playwright@1.63.0` in `$E2E_TMP/pw` (`$Env:E2E_TMP\pw` in PowerShell), then `npx playwright install chromium` there. `upgrade.mjs` needs `gh`. The phases refuse to run when a harness is on `PATH`; set `E2E_PATH` to a `PATH` without one (`E2E_PATH=... node ...` in `sh`, `$Env:E2E_PATH = ...` in PowerShell). A Board already on port 7777 makes `hand open` fail, so set `E2E_BOARD_ADDR=127.0.0.1:17777`.
 
+## What CI checks in the desktop window
+
+The `window` job of [`desktop.yaml`](../../.github/workflows/desktop.yaml) runs `TestRealWindow` (`cmd/hand-desktop/window_e2e_test.go`, build tag `e2e`) on `ubuntu-latest` (under `xvfb-run`, a 1600x1000 screen), `macos-latest` and `windows-latest`, for every pull request that touches the window, `internal/board` or the workflow, and on demand. In folders of its own under the runner's temp folder, with no secret and no real fleet, the test:
+- builds `hand` and `hand-desktop` with `-tags e2e` (a GUI-subsystem build on Windows), which adds MyGo's automation plugin and lifts the Linux-only refusal; the default and release builds link neither, and `go test ./cmd/hand-desktop` fails if either does;
+- makes a fleet named `Window Check` with `hand init` (no Luvus download), starts a Board on a free loopback port and mints the fleet's token with `hand open --print`;
+- starts the window with `MYGO_AUTOMATION` naming a socket, waits for the window to settle, and fails unless its element tree holds the fleet's name and the `Needs` head, and a capture is a PNG that is not blank;
+- saves the capture, the element tree and the Board's and window's logs, and quits the window by closing its stdin, which the automation protocol has no call for; it fails unless the window exits with status 0.
+
+The files are the `window-<os>` artifact, kept 14 days.
+
+This proves a window opens and renders on each system and shows what a Board served. It is not a test on a real machine: a runner has no GPU, so the window draws on the CPU, and the real GPU path, scale factors, the Dock, the taskbar and the Start Menu stay unseen. To run it on Linux: `HAND_WINDOW_OUT=/tmp/hand-window xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run TestRealWindow -count=1 -v`.
+
 ## What CI checks on the Board's layout
 
 [`render-check.yaml`](../../.github/workflows/render-check.yaml) renders the Board's fixture scenes in Chromium on `ubuntu-latest`, `macos-latest` and `windows-latest`, for every pull request that touches `internal/board` and on demand. The scenes come from `TestRenderScenes` in `internal/board/scenes_test.go`: 25 pages (eighteen fleet pages from an empty fleet to a busy one with decisions, nested tasks, documents, an `ask` worker's permission prompt, a kept worktree with old files, the Screen page, the Phone page, the Alerts page, the nav menu open, the document viewer dialog, the document page, the supervisor log, a task, a decision and an attempt), served from fleets in temporary folders with a frozen clock, a fixed fleet id and a fixed home path under the system temporary folder, so run one check at a time on a machine. The test does nothing unless `SCENES_ADDR` is set, so `go test ./...` skips it. `.github/render/check.mjs` builds that test, starts it, and renders each scene at 1440, 1024 and 390 px (390 is a phone: touch and a mobile viewport), light and dark, with reduced motion, `Asia/Jakarta` as the time zone and the browser's clock set to the same frozen instant as the server's.
