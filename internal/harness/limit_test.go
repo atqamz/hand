@@ -184,6 +184,7 @@ func TestRefusalClassifiesTheOmpErrorLines(t *testing.T) {
 			"402 Insufficient Balance (request_id: x)": true,
 			"402 Payment Required":                     true,
 			"Provider error: 402 Insufficient Balance": true,
+			"402 Upstream said no":                     true,
 			"4020 retry later":                         false,
 		},
 		"insufficient balance": {
@@ -199,12 +200,17 @@ func TestRefusalClassifiesTheOmpErrorLines(t *testing.T) {
 			"400 Payment method declined":                                              true,
 			"400 billing_hard_limit_reached":                                           true,
 			"400 Bad Request: messages.0.content is empty":                             false,
+			"503 Service Unavailable: payment gateway timeout, retry":                  false,
+			"500 billing service unavailable":                                          false,
+			"Connection error: payment.example.com unreachable":                        false,
+			"Provider error: 502 billing backend down":                                 false,
 		},
 		"401": {
-			"401 Unauthorized":           true,
-			"401 invalid x-api-key":      true,
-			"400 Invalid API key":        true,
-			"400 the API key is expired": true,
+			"401 Unauthorized":                                            true,
+			"Provider error: 401 Unauthorized":                            true,
+			"400 invalid x-api-key":                                       true,
+			"400 Invalid API key":                                         true,
+			"400 the API key is expired":                                  true,
 			"503 upstream said 402 on the way, request_id 4020-403-40300": false,
 		},
 		"403 and 429 that clear": {
@@ -237,6 +243,18 @@ func TestRefusalReadsABannerAboveTheFooterAndBlankRows(t *testing.T) {
 	screen := copilotScreen(t, "omp-402-refused.txt") + "─────\n DeepSeek > ompscreen 0.8%\n  ⇧⇥ to change thinking effort\n" + strings.Repeat("\n", 12)
 	if got, ok := Refusal("omp", screen); !ok || got != ompRefused {
 		t.Fatalf("Refusal = %q, %v", got, ok)
+	}
+}
+
+func TestRefusalReadsABannerAbovePromptBoxAndFooterRows(t *testing.T) {
+	banner := "Error: " + ompRefused + "\nDismissed when you send your next message.\n"
+	box := "╭──────╮\n│ > \n╰──────╯\n"
+	footer := " DeepSeek > ompscreen 0.8%\n  ⇧⇥ to change thinking effort\n  esc to interrupt\n  ctrl+c to clear\n"
+	if got, ok := Refusal("omp", banner+box+footer); !ok || got != ompRefused {
+		t.Fatalf("seven rows: Refusal = %q, %v", got, ok)
+	}
+	if got, ok := Refusal("omp", banner+box+footer+"  one more\n"); ok {
+		t.Fatalf("eight rows: Refusal = %q", got)
 	}
 }
 
