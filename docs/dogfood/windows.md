@@ -444,7 +444,7 @@ $text = "Head word: ALPHA-7431`n`n" + ((1..80 | ForEach-Object { "Paragraph ${_}
 (Get-Item "$D\long.md").Length
 ```
 
-The size must print between 11000 and 15000.
+The size must print between 11000 and 14000.
 
 **2.** Start a codex worker on it, and wait for the report:
 

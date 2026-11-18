@@ -112,7 +112,9 @@ func cmdTaskParent(r *runner, args []string) error {
 }
 
 func cmdTaskShow(r *runner, args []string) error {
-	pos, err := parse(flags("task show"), args, 1)
+	fs := flags("task show")
+	full := fs.Bool("full", false, "print the whole goal, not its first 4 KB")
+	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
 	}
@@ -130,6 +132,9 @@ func cmdTaskShow(r *runner, args []string) error {
 		return err
 	}
 	var d toon.Doc
+	if !*full {
+		t.Goal = elide(t.Goal, goalShowBytes, r.env.command()+" task show --full "+state.TaskRef(id))
+	}
 	taskFields(&d, t)
 	if t.ParentID != 0 {
 		d.Field("parent", state.TaskRef(t.ParentID))

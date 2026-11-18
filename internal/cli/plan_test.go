@@ -43,3 +43,37 @@ func TestPlanSetUnreadableBodyFileIsUsageError(t *testing.T) {
 		t.Fatalf("code = %d, want 2", code)
 	}
 }
+
+func TestTaskAndPlanShowBoundTheirText(t *testing.T) {
+	h := initWithProject(t)
+	goal := strings.Repeat(strings.Repeat("g", 99)+"\n", 100)
+	h.ok("task", "add", "--goal", goal, "hand", "Fix login")
+	file := filepath.Join(t.TempDir(), "plan.md")
+	plan := strings.Repeat(strings.Repeat("p", 99)+"\n", 200)
+	if err := os.WriteFile(file, []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.ok("plan", "set", "--body-file", file, "t1")
+	for _, c := range []struct {
+		args []string
+		name string
+		full string
+		max  int
+	}{
+		{[]string{"task", "show"}, "goal", goal, 4 << 10},
+		{[]string{"plan", "show"}, "body", plan, 8 << 10},
+	} {
+		cut := field(h.ok(append(c.args, "t1")...), c.name)
+		if !strings.Contains(cut, "bytes omitted") || !strings.Contains(cut, c.args[0]+" show --full t1") || len(cut) > c.max+200 {
+			t.Fatalf("%v: %d bytes, %q", c.args, len(cut), cut[max(0, len(cut)-120):])
+		}
+		if got := field(h.ok(append(c.args, "--full", "t1")...), c.name); got != c.full {
+			t.Fatalf("%v --full: %d bytes, want %d", c.args, len(got), len(c.full))
+		}
+		h.name = "hand-foo"
+		if named := field(h.ok(append(c.args, "t1")...), c.name); !strings.Contains(named, "`hand-foo "+c.args[0]+" show --full t1`") {
+			t.Fatalf("%v: note does not name the invoked binary: %q", c.args, named[max(0, len(named)-120):])
+		}
+		h.name = ""
+	}
+}
