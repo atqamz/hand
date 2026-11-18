@@ -56,8 +56,9 @@ func TestScratchEnvironmentSetsTheCompactPercentOnlyWhenGiven(t *testing.T) {
 	envNamesFold = false
 	t.Cleanup(func() { envNamesFold = old })
 	inherited := []string{"A=1", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90", "claude_autocompact_pct_override=80"}
-	if got := scratchEnvironment(inherited, "/scratch", 0); !slices.Contains(got, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90") || !slices.Contains(got, "claude_autocompact_pct_override=80") {
-		t.Fatalf("environment without a percent = %q, want the inherited values kept", got)
+	want0 := []string{"A=1", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90", "claude_autocompact_pct_override=80", "TMPDIR=/scratch", "TMP=/scratch", "TEMP=/scratch", "GOTMPDIR=/scratch", "CLAUDE_CODE_TMPDIR=/scratch"}
+	if got := scratchEnvironment(inherited, "/scratch", 0); !slices.Equal(got, want0) {
+		t.Fatalf("environment without a percent = %q, want %q", got, want0)
 	}
 	got := scratchEnvironment(inherited, "/scratch", 60)
 	var found []string

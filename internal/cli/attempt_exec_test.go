@@ -748,6 +748,11 @@ func TestGCSkipsALiveAttemptsScratch(t *testing.T) {
 	}
 }
 
+func envWritten(out string) bool {
+	b, err := os.ReadFile(out)
+	return err == nil && strings.Contains(string(b), "argv=")
+}
+
 func TestAttemptLaunchPassesTheCompactPercentOnlyToAClaudeWorker(t *testing.T) {
 	const name = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
 	for _, tc := range []struct {
@@ -771,7 +776,7 @@ func TestAttemptLaunchPassesTheCompactPercentOnlyToAClaudeWorker(t *testing.T) {
 			fakebin.Install(t, dir, tc.harness, "env", map[string]string{"out": out})
 			fx.h.vars["PATH"] = dir
 			fx.h.ok("attempt", "start", "--harness", tc.harness, "--model", "m", "--effort", "low", "--prompt-file", fx.brief, "t1")
-			eventually(t, func() bool { return exists(out) })
+			eventually(t, func() bool { return envWritten(out) })
 			env, _ := readScratchEnv(t, out)
 			if env[name] != tc.want {
 				t.Errorf("%s = %q, want %q", name, env[name], tc.want)
@@ -798,7 +803,7 @@ func TestAttemptStartWarnsAndGoesWithoutABadCompactPercent(t *testing.T) {
 	if !strings.Contains(started, "warn:") || !strings.Contains(started, "worker.compact_percent") {
 		t.Fatalf("start output %q; want a warn field naming worker.compact_percent", started)
 	}
-	eventually(t, func() bool { return exists(out) })
+	eventually(t, func() bool { return envWritten(out) })
 	if env, _ := readScratchEnv(t, out); env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] != "90" {
 		t.Errorf("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = %q, want the inherited 90", env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"])
 	}
