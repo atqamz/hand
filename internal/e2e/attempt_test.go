@@ -16,7 +16,7 @@ import (
 
 const reportBody = "Created hello.txt as briefed.\n\nThe e2e worker ran the scripted report command."
 
-const briefTarget = 15000
+const briefTarget = 14000
 
 func longBrief() string {
 	paragraphs := []string{
