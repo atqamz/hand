@@ -282,7 +282,7 @@ func TestRepliesAreNotAWake(t *testing.T) {
 func TestTheOrientEventViewsSkipRepliedEvents(t *testing.T) {
 	s, _, sup := replyStore(t)
 	ctx := context.Background()
-	if _, err := s.AddProject(ctx, "app", "/x/app", ""); err != nil {
+	if _, err := s.AddProject(ctx, "app", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	cursor, _ := s.LastEventSeq(ctx)
@@ -317,7 +317,7 @@ func TestTheOrientEventViewsSkipRepliedEvents(t *testing.T) {
 func TestAVersion24DatabaseMigratesToTheReplyTableKeepingItsRows(t *testing.T) {
 	s, path, sup := replyStore(t)
 	ctx := context.Background()
-	if _, err := s.AddProject(ctx, "app", "/x/app", ""); err != nil {
+	if _, err := s.AddProject(ctx, "app", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	in, err := s.AddSupervisorInput(ctx, "hello")
