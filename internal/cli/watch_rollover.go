@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/transcript"
 	"github.com/atqamz/hand/internal/update"
 )
 
@@ -167,9 +168,10 @@ func (w *watcher) rolled(ctx context.Context, c luvus.Client, sup state.Supervis
 	} else if !current {
 		return fail(strings.TrimPrefix(r.staleGeneration(sup).Error(), "conflict: "))
 	}
+	tail, tailErr := w.tailOf(ctx, &transcript.Reader{Paths: r.transcriptPaths()}, sup)
 	path := handoffPath(r.home)
 	before := readHandoff(path)
-	ask := fmt.Sprintf("%s Your context holds %s tokens, over the %s Hand keeps. Hand will end this session and start a fresh one. Write your handoff note to %s now: the tasks in flight and the next step for each, the decisions waiting on the operator, the timers that matter, and anything not in Hand's state. Keep it short. Then answer `done` and start no other work.", rolloverHeader, tokens(used), tokens(limit), path)
+	ask := fmt.Sprintf("%s Your context holds %s tokens, over the %s Hand keeps. Hand will end this session and start a fresh one. Write your handoff note to %s now: the tasks in flight and the next step for each, the decisions waiting on the operator, every open offer (a list, options or a question you put to the operator that they have not answered yet, quoted word for word), the timers that matter, and anything not in Hand's state. Keep it short, but never shorten an open offer. Then answer `done` and start no other work.", rolloverHeader, tokens(used), tokens(limit), path)
 	if err := w.askForNote(ctx, c, sup, ask); err != nil {
 		return fail("Hand could not send the request for a handoff note: " + err.Error())
 	}
@@ -201,7 +203,7 @@ func (w *watcher) rolled(ctx context.Context, c luvus.Client, sup state.Supervis
 	if err != nil || !ok || cur.ID != sup.ID || cur.Status != state.AttemptRunning || cur.Switching() {
 		return false
 	}
-	next, stopped, err := w.replace(ctx, c, cur, used)
+	next, stopped, err := w.replace(ctx, c, cur, used, w.settleTail(tail, tailErr))
 	if err != nil {
 		if !stopped {
 			return fail(fmt.Sprintf("it wrote its handoff note but Hand could not replace it, and nothing was stopped: %v", err))
@@ -230,7 +232,7 @@ func (w *watcher) askForNote(ctx context.Context, c luvus.Client, sup state.Supe
 	return err
 }
 
-func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervisor, used int64) (state.Supervisor, bool, error) {
+func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervisor, used int64, tail string) (state.Supervisor, bool, error) {
 	r := w.r
 	unlock, ok, err := r.guardGeneration(ctx, w.st, sup)
 	if err != nil {
@@ -259,6 +261,9 @@ func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervi
 	}
 	cmd := r.env.command()
 	note := "You continue " + ref + ", which Hand ended at " + tokens(used) + " tokens of context: run the full `" + cmd + " orient`, then read `" + handoffPath(r.home) + "`, the handoff note " + ref + " wrote for you."
+	if tail != "" {
+		note += " Then read `" + tail + "`: Hand's verbatim copy of " + ref + "'s last turns. It can hold a list or a question the operator has not answered yet; check it before you reply."
+	}
 	next, err := r.startSupervisor(ctx, w.st, c, spec, note, sup.WakeCursor)
 	if errors.Is(err, errLaunchUnknown) {
 		return next, true, fmt.Errorf("%w; %s may still start, and Hand fails it %s after it started if it does not: then continue %s with `%s supervisor resume`", err, state.SupervisorRef(next.ID), launchGrace, ref, cmd)

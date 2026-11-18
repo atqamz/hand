@@ -230,6 +230,9 @@ func importContent(srcHome, dstHome, srcID string, res state.ImportResult, dry b
 				out.Failed = append(out.Failed, importFilePair{Source: path, Reason: err.Error()})
 				return nil
 			}
+			if filepath.ToSlash(filepath.Dir(rel)) == "memory" && (filepath.Base(rel) == "last-turns.md" || strings.HasPrefix(filepath.Base(rel), lastTurnsTemp)) {
+				return nil
+			}
 			to := rel
 			switch {
 			case filepath.ToSlash(rel) == "memory/operator.md":
