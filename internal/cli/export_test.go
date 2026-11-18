@@ -10,6 +10,7 @@ import (
 var (
 	WakeDigest       = wakeDigest
 	TrustWait        = &trustWait
+	WatcherStartWait = &watcherStartWait
 	TrustConfirm     = &trustConfirm
 	TrustGrace       = &trustGrace
 	QuietGrace       = &quietGrace
