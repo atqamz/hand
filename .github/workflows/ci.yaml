@@ -423,10 +423,10 @@ jobs:
             git push --force origin "$GITHUB_SHA:refs/tags/edge"
             gh release create edge --prerelease --title Edge --notes "$notes" --verify-tag
           fi
-          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 hand-desktop-linux-amd64.tar.gz hand-desktop-linux-amd64.sha256 hand-desktop-linux-arm64.tar.gz hand-desktop-linux-arm64.sha256 --clobber
+          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 hand-desktop-linux-amd64.tar.gz hand-desktop-linux-amd64.sha256 hand-desktop-linux-arm64.tar.gz hand-desktop-linux-arm64.sha256 hand-desktop-darwin-arm64.tar.gz hand-desktop-darwin-arm64.sha256 hand-desktop-darwin-amd64.tar.gz hand-desktop-darwin-amd64.sha256 hand-desktop-windows-amd64.zip hand-desktop-windows-amd64.sha256 --clobber
           for name in $(gh release view edge --json assets --jq '.assets[].name'); do
             case "$name" in
-              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256) ;;
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256 | hand-desktop-darwin-arm64.tar.gz | hand-desktop-darwin-arm64.sha256 | hand-desktop-darwin-amd64.tar.gz | hand-desktop-darwin-amd64.sha256 | hand-desktop-windows-amd64.zip | hand-desktop-windows-amd64.sha256) ;;
               *) gh release delete-asset edge "$name" -y ;;
             esac
           done
@@ -442,4 +442,5 @@ jobs:
             hand-windows-amd64.zip
             hand-windows-amd64.sha256
             hand-desktop-*.tar.gz
+            hand-desktop-windows-amd64.zip
             hand-desktop-*.sha256

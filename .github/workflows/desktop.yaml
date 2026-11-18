@@ -79,7 +79,5 @@ jobs:
           test -n "$version"
           out=$RUNNER_TEMP/desktop
           sh .github/scripts/build-desktop.sh "$version" stable "$GITHUB_SHA" "$out"
-          cd "$out"
-          for sum in hand-desktop-*.sha256; do sha256sum -c "$sum"; done
-          for archive in hand-desktop-*.tar.gz; do tar -tzf "$archive"; done
-          ls -l
+          sh .github/desktop/check-assets.sh "$out"
+          ls -l "$out"
