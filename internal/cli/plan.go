@@ -56,7 +56,9 @@ func cmdPlanSet(r *runner, args []string) error {
 }
 
 func cmdPlanShow(r *runner, args []string) error {
-	pos, err := parse(flags("plan show"), args, 1)
+	fs := flags("plan show")
+	full := fs.Bool("full", false, "print the whole plan, not its first 8 KB")
+	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
 	}
@@ -84,6 +86,10 @@ func cmdPlanShow(r *runner, args []string) error {
 		return r.print(&d)
 	}
 	d.Field("plan", state.PlanRef(p.Revision))
-	d.Field("body", p.Body)
+	body := p.Body
+	if !*full {
+		body = elide(body, planShowBytes, "hand plan show --full "+state.TaskRef(id))
+	}
+	d.Field("body", body)
 	return r.print(&d)
 }

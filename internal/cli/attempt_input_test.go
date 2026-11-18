@@ -140,3 +140,17 @@ func TestAttemptKeysRefuseAfterANewerPress(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestAttemptReadCapsLines(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	if out := fx.h.ok("attempt", "read", "--lines", "100000", "a1"); !strings.Contains(out, "lines: capped at 500") {
+		t.Fatalf("read = %q", out)
+	}
+	if out := fx.h.ok("attempt", "read", "--lines", "500", "a1"); strings.Contains(out, "capped") {
+		t.Fatalf("read = %q", out)
+	}
+	if _, errOut, code := fx.h.run("attempt", "read", "--lines", "0", "a1"); code == 0 || !strings.Contains(errOut, "--lines must be at least 1") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}

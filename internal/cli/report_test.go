@@ -223,3 +223,41 @@ func TestGitIgnoresStderrWarnings(t *testing.T) {
 		t.Fatalf("report add = %q", out)
 	}
 }
+
+func TestReportShowCutsALongBodyAndFullPrintsIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	body := "Fixed login\n" + strings.Repeat(strings.Repeat("x", 99)+"\n", 200) + "Delivered: https://example.com/pr/1\n"
+	fx.h.in = strings.NewReader(body)
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	fx.h.ok("report", "add", "--status", "done", "--file", "-")
+	fx.h.cwd = ""
+	cut := field(fx.h.ok("report", "show", "r1"), "body")
+	lines := strings.Split(cut, "\n")
+	n := len(lines)
+	if lines[0] != "Fixed login" || lines[n-1] != "Delivered: https://example.com/pr/1" {
+		t.Fatalf("summary or delivered line lost: %q ... %q", lines[0], lines[n-1])
+	}
+	if note := lines[n-2]; !strings.Contains(note, "bytes omitted") || !strings.Contains(note, "hand report show --full r1") {
+		t.Fatalf("elision line = %q", note)
+	}
+	if len(cut) > 8<<10+200 {
+		t.Fatalf("body is %d bytes", len(cut))
+	}
+	if full := field(fx.h.ok("report", "show", "--full", "r1"), "body"); full != body {
+		t.Fatalf("--full body = %d bytes, want %d", len(full), len(body))
+	}
+}
+
+func TestReportShowLeavesAShortBodyAlone(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	body := "Fixed login\nDelivered: https://example.com/pr/1\n"
+	fx.h.in = strings.NewReader(body)
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	fx.h.ok("report", "add", "--status", "done", "--file", "-")
+	fx.h.cwd = ""
+	if got := field(fx.h.ok("report", "show", "r1"), "body"); got != body {
+		t.Fatalf("body = %q", got)
+	}
+}
