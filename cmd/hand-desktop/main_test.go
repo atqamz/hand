@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktopasset"
 )
 
 func TestFleetTitle(t *testing.T) {
@@ -152,5 +153,37 @@ func TestAutomationPluginOnlyInTheE2EBuild(t *testing.T) {
 	}
 	if !strings.Contains(deps("e2e"), plugin) {
 		t.Fatal("the e2e hand-desktop build lacks the automation plugin")
+	}
+}
+
+func TestRefusalFollowsTheStampedChannel(t *testing.T) {
+	channel, was := desktopasset.Channel, gated
+	t.Cleanup(func() { desktopasset.Channel, gated = channel, was })
+	gated = true
+	desktopasset.Channel = "source"
+	if refusal("windows", "amd64") == "" {
+		t.Fatal("an unstamped build did not refuse on Windows")
+	}
+	desktopasset.Channel = "stable"
+	if refusal("windows", "amd64") == "" {
+		t.Fatal("a stable build did not refuse on Windows")
+	}
+	desktopasset.Channel = "edge"
+	if msg := refusal("windows", "amd64"); msg != "" {
+		t.Fatalf("an edge build refused on Windows: %q", msg)
+	}
+	for _, c := range []string{"source", "stable", "edge"} {
+		desktopasset.Channel = c
+		if msg := refusal("darwin", "arm64"); msg == "" {
+			t.Fatalf("a %s build did not refuse on macOS", c)
+		}
+		if msg := refusal("linux", "amd64"); msg != "" {
+			t.Fatalf("a %s build refused on Linux: %q", c, msg)
+		}
+	}
+	gated = false
+	desktopasset.Channel = "stable"
+	if msg := refusal("darwin", "arm64"); msg != "" {
+		t.Fatalf("the automation build refused: %q", msg)
 	}
 }

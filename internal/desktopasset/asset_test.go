@@ -155,3 +155,12 @@ func TestLocateTakesTheSystemAsAnArgument(t *testing.T) {
 		t.Fatalf("Locate for linux found the .exe: %v", err)
 	}
 }
+
+func TestAnUnstampedBuildIsNotEdge(t *testing.T) {
+	if Channel != "source" {
+		t.Fatalf("the default Channel is %q, want source: only a build stamped edge may open the window on Windows", Channel)
+	}
+	if Supported("windows", "amd64", Channel) {
+		t.Fatal("an unstamped build supports Windows")
+	}
+}

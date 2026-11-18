@@ -42,6 +42,13 @@ func swap(src, target string) error {
 	return nil
 }
 
+func remove(target string) error {
+	if err := os.Remove(target); err == nil || errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return fsx.Rename(target, target+".old-"+rand.Text())
+}
+
 func CleanOld(exe string) { cleanOld(exe) }
 
 func syncDir(string) error { return nil }

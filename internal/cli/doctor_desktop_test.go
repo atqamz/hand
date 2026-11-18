@@ -202,6 +202,9 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	fx := newDoctorFixture(t)
 	buildChannel(t, "edge")
 	holdWatchLock(t, fx.h.home)
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop window"]; row[0] != "" {
+		t.Fatalf("a desktop window row without an installed window: %q", row)
+	}
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
 	window, entry := rows["desktop window"], rows["desktop entry"]

@@ -16,9 +16,6 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		c.add("desktop", "info", desktopasset.Unsupported(runtime.GOOS, runtime.GOARCH))
 		return
 	}
-	if runtime.GOOS == "windows" {
-		c.add("desktop window", "info", "Windows runs the window in "+Channel+" builds only; a real window has opened on a CI runner, not yet on a real Windows PC; if it does not start, `hand open` shows the Board in a browser")
-	}
 	bin, err := desktopasset.Locate(selfPath(), path, runtime.GOOS)
 	if err != nil {
 		if state, where := launcher.Check(r.env.Getenv, ""); runtime.GOOS == "linux" && state == launcher.Elsewhere {
@@ -26,6 +23,9 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		}
 		c.add("desktop", "info", "not installed; run `hand update` to put hand-desktop next to hand")
 		return
+	}
+	if runtime.GOOS == "windows" {
+		c.add("desktop window", "info", "Windows runs the window in "+Channel+" builds only; a real window has opened on a CI runner, not yet on a real Windows PC; if it does not start, `hand open` shows the Board in a browser")
 	}
 	switch state, where := launcher.Check(r.env.Getenv, bin); {
 	case runtime.GOOS != "linux":

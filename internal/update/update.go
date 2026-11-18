@@ -228,6 +228,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	switch {
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
+		o.dropDesktop(&rep, desktopNext)
 	case !desktopStale:
 	case o.Check:
 		exists, err := probeDesktop(ctx, o.HandBase, o.Channel, o.OS, o.Arch)
@@ -398,6 +399,27 @@ func (o Options) launcher(rep *Report, on bool, bin string) {
 	}
 	if skipped != "" {
 		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (no X-Hand-Managed=true line); it was left alone", skipped))
+	}
+}
+
+func (o Options) dropDesktop(rep *Report, bin string) {
+	if o.OS != "windows" {
+		return
+	}
+	if fi, err := os.Stat(bin); err != nil || !fi.Mode().IsRegular() {
+		return
+	}
+	name := filepath.Base(bin)
+	switch {
+	case o.Check:
+		rep.Desktop += "; would remove the installed " + name
+	default:
+		if err := remove(bin); err != nil {
+			rep.Desktop += "; failed to remove the installed " + name + ": " + err.Error()
+			rep.fail(fmt.Sprintf("the installed %s was not removed (%v); it is built for edge and must not run against a stable hand", name, err))
+			return
+		}
+		rep.Desktop += "; removed the installed " + name
 	}
 }
 

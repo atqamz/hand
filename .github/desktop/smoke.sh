@@ -38,4 +38,5 @@ if [ "$(go env GOOS)" != linux ]; then
 		echo "a stable hand-desktop on $(go env GOOS) printed '$(cat "$out/refusal")'" >&2
 		exit 1
 	}
+	printf 'stable build refuses on %s: %s\n' "$(go env GOOS)" "$(cat "$out/refusal")"
 fi

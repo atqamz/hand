@@ -432,3 +432,45 @@ func TestRunSaysAStableBuildHasNoDesktopOnWindows(t *testing.T) {
 	}
 	absent(t, f.desktop())
 }
+
+func TestRunRemovesTheInstalledWindowOnAStableWindowsUpdate(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the downloaded hand must run, so this needs a Windows host")
+	}
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "24", "0.14.4") {
+		f.srv.set(name, body)
+	}
+	f.o.Channel = "stable"
+	if err := os.WriteFile(f.desktop(), []byte("the edge desktop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !strings.Contains(rep.Desktop, "would remove the installed hand-desktop.exe") {
+		t.Fatalf("check report = %+v, %v", rep, err)
+	}
+	if b, _ := os.ReadFile(f.desktop()); string(b) != "the edge desktop" {
+		t.Fatalf("a check touched the installed window: %q", b)
+	}
+	f.o.Check = false
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || rep.Failed || !strings.Contains(rep.Desktop, "removed the installed hand-desktop.exe") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForDesktop() {
+		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
+	}
+	absent(t, f.desktop())
+}
+
+func TestRemoveDeletesTheInstalledWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand-desktop")
+	if err := os.WriteFile(path, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := remove(path); err != nil {
+		t.Fatal(err)
+	}
+	absent(t, path)
+}
