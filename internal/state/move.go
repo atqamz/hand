@@ -48,6 +48,7 @@ var moveRefs = map[string]string{
 	"report":           "'r' || id",
 	"supervisor":       "'s' || id",
 	"supervisor_input": "'i' || id",
+	"supervisor_reply": "'y' || id",
 	"task":             "'t' || id",
 	"timer":            "'w' || id",
 }

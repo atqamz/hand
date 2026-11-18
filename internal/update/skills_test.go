@@ -21,7 +21,7 @@ func TestUpdateSyncsTheFleetSkillsAfterInit(t *testing.T) {
 
 func TestUpdateSyncsTheFleetSkillsWhenTheBinaryIsCurrent(t *testing.T) {
 	f := newCycle(t)
-	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 24, Luvus: "0.14.4"}
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 25, Luvus: "0.14.4"}
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || rep.Status != "up to date" {
 		t.Fatalf("report = %+v, %v", rep, err)
@@ -45,7 +45,7 @@ func TestUpdateCheckDoesNotSyncSkills(t *testing.T) {
 
 func TestUpdateCheckOnACurrentBinaryRunsNoSkills(t *testing.T) {
 	f := newCycle(t)
-	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 24, Luvus: "0.14.4"}
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 25, Luvus: "0.14.4"}
 	f.o.Check = true
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
