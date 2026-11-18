@@ -37,6 +37,7 @@ type rpc struct {
 	conn net.Conn
 	r    *bufio.Reader
 	next int
+	wait time.Duration
 }
 
 func (c *rpc) call(method string, params any, into any) error {
@@ -45,7 +46,11 @@ func (c *rpc) call(method string, params any, into any) error {
 	if _, err := c.conn.Write(append(line, '\n')); err != nil {
 		return err
 	}
-	_ = c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	wait := c.wait
+	if wait <= 0 {
+		wait = 60 * time.Second
+	}
+	_ = c.conn.SetReadDeadline(time.Now().Add(wait))
 	answer, err := c.r.ReadBytes('\n')
 	if err != nil {
 		return err
@@ -144,14 +149,15 @@ func TestRealWindow(t *testing.T) {
 	if err := board.Start(); err != nil {
 		t.Fatalf("hand board: %v", err)
 	}
-	boardDone := make(chan error, 1)
-	go func() { boardDone <- board.Wait() }()
+	boardDone := make(chan struct{})
+	go func() { _ = board.Wait(); close(boardDone) }()
 	t.Cleanup(func() {
 		_ = run(exec.Command(handBin, "board", "stop")).Run()
 		select {
 		case <-boardDone:
 		case <-time.After(15 * time.Second):
 			_ = board.Process.Kill()
+			<-boardDone
 		}
 	})
 	for i := 0; ; i++ {
@@ -183,20 +189,19 @@ func TestRealWindow(t *testing.T) {
 	if err := win.Start(); err != nil {
 		t.Fatalf("hand-desktop: %v", err)
 	}
-	winDone := make(chan error, 1)
-	go func() { winDone <- win.Wait() }()
-	quit := false
+	var winErr error
+	winDone := make(chan struct{})
+	go func() { winErr = win.Wait(); close(winDone) }()
 	t.Cleanup(func() {
-		if !quit {
-			_ = win.Process.Kill()
-		}
+		_ = win.Process.Kill()
+		<-winDone
 	})
 
 	var conn net.Conn
 	for i := 0; conn == nil; i++ {
 		select {
-		case err := <-winDone:
-			t.Fatalf("the window ended before it listened: %v", err)
+		case <-winDone:
+			t.Fatalf("the window ended before it listened: %v", winErr)
 		default:
 		}
 		if conn, err = net.Dial("unix", sock); err != nil {
@@ -211,15 +216,18 @@ func TestRealWindow(t *testing.T) {
 	c := &rpc{conn: conn, r: bufio.NewReader(conn)}
 
 	var windows struct{ Windows []struct{ ID int } }
-	for i := 0; len(windows.Windows) == 0; i++ {
-		if err := c.call("windows", nil, &windows); err != nil && i >= 300 {
-			t.Fatal(err)
-		}
-		if i >= 300 {
+	opened := time.Now().Add(30 * time.Second)
+	for len(windows.Windows) == 0 {
+		c.wait = time.Until(opened)
+		if c.wait <= 0 {
 			t.Fatal("no window opened in 30 s")
+		}
+		if err := c.call("windows", nil, &windows); err != nil {
+			t.Fatalf("no window opened in 30 s: %v", err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	c.wait = 0
 	id := windows.Windows[0].ID
 
 	var nodes []node
@@ -292,11 +300,10 @@ func TestRealWindow(t *testing.T) {
 	}
 
 	_ = stdin.Close()
-	quit = true
 	select {
-	case err := <-winDone:
-		if err != nil {
-			t.Fatalf("the window did not quit cleanly: %v", err)
+	case <-winDone:
+		if winErr != nil {
+			t.Fatalf("the window did not quit cleanly: %v", winErr)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the window did not end 30 s after it was told to quit")
