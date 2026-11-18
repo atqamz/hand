@@ -1653,17 +1653,9 @@ func cmdSupervisorInterrupt(r *runner, args []string) error {
 		if err := supervisorOnScreen(sup, *expect); err != nil {
 			return err
 		}
-		presses := 1
-		if sup.Harness == "opencode" {
-			presses = 2
-		}
-		for i := range presses {
-			if i > 0 {
-				time.Sleep(escGap)
-			}
-			if err := pressEsc(ctx, c, sup); err != nil {
-				return err
-			}
+		presses, err := interruptSupervisor(ctx, c, sup, nil)
+		if err != nil {
+			return err
 		}
 		var d toon.Doc
 		d.Field("supervisor", state.SupervisorRef(sup.ID))
@@ -1672,7 +1664,23 @@ func cmdSupervisorInterrupt(r *runner, args []string) error {
 	})
 }
 
-func pressEsc(ctx context.Context, c luvus.Client, sup state.Supervisor) error {
+func interruptSupervisor(ctx context.Context, c luvus.Client, sup state.Supervisor, recheck func() error) (int, error) {
+	presses := 1
+	if sup.Harness == "opencode" {
+		presses = 2
+	}
+	for i := range presses {
+		if i > 0 {
+			time.Sleep(escGap)
+		}
+		if err := pressEsc(ctx, c, sup, recheck); err != nil {
+			return i, err
+		}
+	}
+	return presses, nil
+}
+
+func pressEsc(ctx context.Context, c luvus.Client, sup state.Supervisor, recheck func() error) error {
 	for range 3 {
 		s, err := c.Read(ctx, sup.PaneID, 1)
 		if err != nil {
@@ -1680,6 +1688,11 @@ func pressEsc(ctx context.Context, c luvus.Client, sup state.Supervisor) error {
 		}
 		if s.TerminalID != sup.TerminalID {
 			return fmt.Errorf("%w: pane %s now shows another terminal; nothing more was sent", state.ErrConflict, sup.PaneID)
+		}
+		if recheck != nil {
+			if err := recheck(); err != nil {
+				return err
+			}
 		}
 		err = c.Keys(ctx, sup.PaneID, []string{"esc"}, s.ContentRevision, sup.TerminalID)
 		if err == nil {

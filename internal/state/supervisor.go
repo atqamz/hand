@@ -1,6 +1,7 @@
 package state
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -73,6 +74,17 @@ const (
 	ReasonHeld         = "held"
 )
 
+const (
+	ReasonWaited      = "waited"
+	ReasonInterrupted = "interrupted"
+
+	WaitOff     = "off"
+	WaitUnknown = "unknown"
+	WaitNotWait = "not_wait"
+	WaitTyped   = "typed"
+	WaitFailed  = "failed"
+)
+
 var InputReasons = []string{ReasonBlocked, ReasonLimited, ReasonLost, ReasonSwitching, ReasonTurn, ReasonNoSupervisor, ReasonHeld}
 
 func (in SupervisorInput) Status() string {
@@ -98,6 +110,19 @@ func ReasonText(code, detail string) string {
 		return "turn"
 	case ReasonBlocked, ReasonLimited, ReasonLost:
 		return strings.TrimSpace(code + ": " + detail)
+	case ReasonWaited:
+		return "waited: " + map[string]string{
+			WaitOff:     "interrupt is off",
+			WaitUnknown: "Hand cannot tell what the supervisor runs",
+			WaitNotWait: "the supervisor is not in a known wait",
+			WaitTyped:   "someone typed in the pane",
+			WaitFailed:  "the interrupt key was not accepted",
+		}[cmp.Or(detail, WaitUnknown)]
+	case ReasonInterrupted:
+		if detail == "" {
+			return "interrupted, sent again"
+		}
+		return "interrupted: " + detail
 	}
 	return detail
 }
@@ -553,6 +578,36 @@ func (s *Store) HoldSupervisorInputs(ctx context.Context, reason, detail string)
 			return err
 		}
 		return emit(tx, s.stamp(), "supervisor.held", 0, strings.Join(refs, ", ")+": "+strings.TrimSuffix(reason+": "+detail, ": "))
+	})
+}
+
+func (s *Store) WaitInputs(ctx context.Context, ids []int64, why string) error {
+	return s.decideInputs(ctx, ids, ReasonWaited, why)
+}
+
+func (s *Store) InterruptInputs(ctx context.Context, ids []int64, detail string) error {
+	return s.decideInputs(ctx, ids, ReasonInterrupted, detail)
+}
+
+func (s *Store) decideInputs(ctx context.Context, ids []int64, reason, detail string) error {
+	flap := reason == ReasonWaited && (detail == WaitUnknown || detail == WaitNotWait)
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		var refs []string
+		for _, id := range ids {
+			res, err := tx.Exec(`UPDATE supervisor_input SET reason = ?, reason_detail = ? WHERE id = ? AND delivered_at != '' AND answered_at = '' AND reason != ? AND (reason != ? OR reason_detail != ?) AND NOT (? AND reason = ? AND reason_detail IN (?, ?))`, reason, detail, id, ReasonInterrupted, reason, detail, flap, ReasonWaited, WaitUnknown, WaitNotWait)
+			if err != nil {
+				return err
+			}
+			if n, err := res.RowsAffected(); err != nil {
+				return err
+			} else if n > 0 {
+				refs = append(refs, inputRef(id))
+			}
+		}
+		if len(refs) == 0 {
+			return nil
+		}
+		return emit(tx, s.stamp(), "input."+reason, 0, strings.Join(refs, ", ")+strings.TrimSuffix(": "+detail, ": "))
 	})
 }
 
