@@ -132,6 +132,13 @@ enum Step {
     Next(bool),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Once {
+    Answered,
+    Retry,
+    Stopped(Stop),
+}
+
 impl Feed {
     pub fn new(dialer: Dialer, dir: PathBuf) -> Self {
         Self {
@@ -216,9 +223,9 @@ impl Feed {
         cookies: &impl CookieSource,
         sink: &impl AlertSink,
         refused_before: bool,
-    ) -> Option<Stop> {
+    ) -> Once {
         let Some(mut cycle) = self.cycle(fleet, refused_before) else {
-            return Some(Stop::CookieGone);
+            return Once::Stopped(Stop::CookieGone);
         };
         let mut more = false;
         loop {
@@ -226,8 +233,9 @@ impl Feed {
                 .step(&mut cycle, cookies, sink, more, Duration::ZERO)
                 .await
             {
-                Step::Stop(stop) => return Some(stop),
-                Step::Retry | Step::Next(false) => return None,
+                Step::Stop(stop) => return Once::Stopped(stop),
+                Step::Retry => return Once::Retry,
+                Step::Next(false) => return Once::Answered,
                 Step::Next(true) => more = true,
             }
         }
@@ -401,7 +409,7 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         }));
     }
 
-    pub fn stop(&self) {
+    pub fn pause(&self) {
         let mut state = self.state.lock().unwrap();
         if let Some(scanner) = state.scanner.take() {
             scanner.abort();
@@ -409,7 +417,11 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         for (_, running) in state.loops.drain() {
             running.task.abort();
         }
-        state.stopped.clear();
+    }
+
+    pub fn stop(&self) {
+        self.pause();
+        self.state.lock().unwrap().stopped.clear();
     }
 
     pub fn nudge(&self) {
@@ -487,12 +499,11 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         }
     }
 
-    pub async fn poll_once(self: &Arc<Self>) {
+    pub async fn poll_once(self: &Arc<Self>) -> bool {
         let present = match self.cookies.cookies().await {
             Ok(header) => paired_cookies(header.as_deref().unwrap_or_default()),
-            Err(_) => return,
+            Err(_) => return false,
         };
-        let now = Instant::now();
         let due: Vec<(String, String, bool)> = {
             let mut state = self.state.lock().unwrap();
             state
@@ -504,7 +515,7 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                     let stopped = state.stopped.get(&fleet);
                     if let Some(stopped) = stopped
                         && stopped.cookie == cookie
-                        && stopped.retry_at.is_none_or(|at| now < at)
+                        && stopped.retry_at.is_none()
                     {
                         return None;
                     }
@@ -514,15 +525,17 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                 })
                 .collect()
         };
+        let mut reached = due.is_empty();
         for (fleet, cookie, refused_before) in due {
-            let stop = self
+            let once = self
                 .feed
                 .once(&fleet, &self.cookies, &self.sink, refused_before)
                 .await;
+            reached |= once != Once::Retry;
             let mut state = self.state.lock().unwrap();
-            match stop {
-                Some(Stop::Forgotten) => {}
-                Some(stop) => {
+            match once {
+                Once::Stopped(Stop::Forgotten) | Once::Retry => {}
+                Once::Stopped(stop) => {
                     state.stopped.insert(
                         fleet,
                         Stopped {
@@ -532,11 +545,12 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                         },
                     );
                 }
-                None => {
+                Once::Answered => {
                     state.stopped.remove(&fleet);
                 }
             }
         }
+        reached
     }
 }
 

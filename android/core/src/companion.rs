@@ -28,7 +28,14 @@ use crate::proxy::{self, Proxy};
 use crate::sessions::{Jar, Paired, Sessions};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
-const POLL_DEADLINE: Duration = Duration::from_secs(30);
+pub const POLL_DEADLINE: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Polled {
+    Live,
+    Reached,
+    Missed,
+}
 
 fn builder(transport: QuicTransportConfig) -> Builder {
     Endpoint::builder(presets::N0)
@@ -405,16 +412,31 @@ impl Companion {
         Ok(())
     }
 
-    pub async fn poll_asleep(&self, poll: impl Future<Output = ()>) -> Result<bool, StartError> {
+    pub async fn poll_asleep(
+        &self,
+        poll: impl Future<Output = bool>,
+    ) -> Result<Polled, StartError> {
+        self.poll_asleep_within(POLL_DEADLINE, poll).await
+    }
+
+    pub async fn poll_asleep_within(
+        &self,
+        deadline: Duration,
+        poll: impl Future<Output = bool>,
+    ) -> Result<Polled, StartError> {
         let _turn = self.duty.power.lock().await;
         if !self.asleep() {
-            return Ok(false);
+            return Ok(Polled::Live);
         }
         self.dialer.open(self.binding.bind().await?);
-        let _ = timeout(POLL_DEADLINE, poll).await;
+        let reached = timeout(deadline, poll).await.unwrap_or(false);
         self.dialer.close().await;
         self.duty.polls.fetch_add(1, Ordering::Relaxed);
-        Ok(true)
+        Ok(if reached {
+            Polled::Reached
+        } else {
+            Polled::Missed
+        })
     }
 
     pub async fn report(&self) -> String {
@@ -1351,5 +1373,67 @@ mod tests {
             OpenLinkError::Failed(ConfirmError::Open(OpenError::Lost)).message(),
             crate::dialer::Notice::Lost.message()
         );
+    }
+
+    #[test]
+    fn a_poll_may_run_for_thirty_seconds() {
+        assert_eq!(POLL_DEADLINE, Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn a_poll_that_outlasts_its_deadline_is_missed_and_the_endpoint_is_closed_again() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        companion.sleep().await;
+
+        let polled = companion
+            .poll_asleep_within(Duration::from_millis(50), std::future::pending())
+            .await
+            .unwrap();
+
+        assert_eq!(polled, Polled::Missed);
+        assert!(companion.asleep() && companion.dialer().is_down());
+        assert!(companion.dialer().endpoint().is_closed());
+        assert!(companion.report().await.contains(" polls=1"));
+        companion.wake().await.unwrap();
+        assert!(!companion.asleep());
+    }
+
+    #[tokio::test]
+    async fn a_wake_that_lands_in_a_poll_waits_for_it() {
+        let dir = TempDir::new();
+        let companion = Arc::new(Companion::start(config(&dir)).await.unwrap());
+        companion.sleep().await;
+        let release = Arc::new(tokio::sync::Notify::new());
+        let inside = Arc::new(tokio::sync::Notify::new());
+
+        let polling = tokio::spawn({
+            let (companion, release, inside) = (companion.clone(), release.clone(), inside.clone());
+            async move {
+                companion
+                    .poll_asleep(async {
+                        inside.notify_one();
+                        release.notified().await;
+                        true
+                    })
+                    .await
+            }
+        });
+        inside.notified().await;
+        let mut waking = tokio::spawn({
+            let companion = companion.clone();
+            async move { companion.wake().await }
+        });
+
+        assert!(
+            timeout(Duration::from_millis(300), &mut waking)
+                .await
+                .is_err()
+        );
+        assert!(companion.asleep());
+        release.notify_one();
+        assert_eq!(polling.await.unwrap().unwrap(), Polled::Reached);
+        waking.await.unwrap().unwrap();
+        assert!(!companion.asleep());
     }
 }

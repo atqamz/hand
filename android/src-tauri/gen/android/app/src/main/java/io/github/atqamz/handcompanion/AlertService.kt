@@ -21,6 +21,7 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
 class AlertService : Service(), IdleEffects {
@@ -31,14 +32,13 @@ class AlertService : Service(), IdleEffects {
   private val pending = AtomicBoolean(false)
   private val worker = Executors.newSingleThreadExecutor()
   private val idle = IdleCycle(this)
-  private val graceElapsed = Runnable { idle.onGrace() }
   private val tell = Runnable {
     pending.set(false)
     if (!idle.asleep) Core.networkChange()
   }
-  private val pollLock by lazy {
+  private val workLock by lazy {
     getSystemService(PowerManager::class.java)
-      .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$TAG:poll")
+      .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$TAG:work")
       .apply { setReferenceCounted(false) }
   }
   private val alarmIntent by lazy {
@@ -46,6 +46,14 @@ class AlertService : Service(), IdleEffects {
       this,
       0,
       Intent(this, PollReceiver::class.java),
+      PendingIntent.FLAG_IMMUTABLE
+    )
+  }
+  private val graceIntent by lazy {
+    PendingIntent.getBroadcast(
+      this,
+      1,
+      Intent(this, PollReceiver::class.java).setAction(ACTION_GRACE),
       PendingIntent.FLAG_IMMUTABLE
     )
   }
@@ -110,8 +118,7 @@ class AlertService : Service(), IdleEffects {
     current = this
     if (!started) {
       started = true
-      Core.wake()
-      Core.watch()
+      awaken()
       watchNetwork()
       watchInputs()
     }
@@ -138,45 +145,67 @@ class AlertService : Service(), IdleEffects {
     )
   }
 
-  override fun armGrace(delayMs: Long) {
-    handler.postDelayed(graceElapsed, delayMs)
-  }
+  override fun armGrace(delayMs: Long) = arm(graceIntent, delayMs)
 
-  override fun cancelGrace() {
-    handler.removeCallbacks(graceElapsed)
-  }
+  override fun cancelGrace() = getSystemService(AlarmManager::class.java).cancel(graceIntent)
 
   override fun sleep() {
     Log.i(TAG, "idle sleep")
-    worker.execute { Core.sleep() }
+    held { Core.sleep() }
   }
 
   override fun wake() {
     Log.i(TAG, "idle wake")
-    worker.execute { if (Core.wake()) Core.watch() }
+    awaken()
   }
 
-  override fun armAlarm(delayMs: Long) {
+  private fun awaken() {
+    worker.execute {
+      if (Core.wake()) {
+        Core.watch()
+      } else {
+        onMain {
+          if (!idle.onWakeFailed()) Log.w(TAG, "wake failed, giving up until the next idle cycle")
+        }
+      }
+    }
+  }
+
+  override fun armAlarm(delayMs: Long) = arm(alarmIntent, delayMs)
+
+  private fun arm(intent: PendingIntent, delayMs: Long) =
     getSystemService(AlarmManager::class.java)
       .setAndAllowWhileIdle(
         AlarmManager.ELAPSED_REALTIME_WAKEUP,
         SystemClock.elapsedRealtime() + delayMs,
-        alarmIntent
+        intent
       )
-  }
 
-  override fun cancelAlarm() {
-    getSystemService(AlarmManager::class.java).cancel(alarmIntent)
-  }
+  override fun cancelAlarm() = getSystemService(AlarmManager::class.java).cancel(alarmIntent)
 
   override fun poll() {
-    pollLock.acquire(POLL_LOCK_MS)
-    worker.execute {
-      try {
-        Core.poll()
-      } finally {
-        if (pollLock.isHeld) pollLock.release()
+    held {
+      val reached = Core.poll()
+      onMain { idle.onPolled(reached) }
+    }
+  }
+
+  private fun onMain(task: () -> Unit) {
+    handler.post { if (current === this) task() }
+  }
+
+  private fun held(task: () -> Unit) {
+    workLock.acquire(WORK_LOCK_MS)
+    try {
+      worker.execute {
+        try {
+          task()
+        } finally {
+          if (workLock.isHeld) workLock.release()
+        }
       }
+    } catch (error: RejectedExecutionException) {
+      if (workLock.isHeld) workLock.release()
     }
   }
 
@@ -197,8 +226,10 @@ class AlertService : Service(), IdleEffects {
       unregisterReceiver(inputs)
       listening = false
     }
-    handler.removeCallbacks(graceElapsed)
-    if (started) cancelAlarm()
+    if (started) {
+      cancelAlarm()
+      cancelGrace()
+    }
     if (watching) {
       try {
         getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkChanged)
@@ -218,7 +249,8 @@ class AlertService : Service(), IdleEffects {
   companion object {
     private const val TAG = "HandAlerts"
     private const val COALESCE_MS = 1000L
-    private const val POLL_LOCK_MS = 60_000L
+    private const val WORK_LOCK_MS = 60_000L
+    const val ACTION_GRACE = "io.github.atqamz.handcompanion.GRACE"
 
     @Volatile private var current: AlertService? = null
 
@@ -237,6 +269,11 @@ class AlertService : Service(), IdleEffects {
     fun alarm(context: Context) {
       val service = current
       if (service == null) start(context) else service.idle.onAlarm()
+    }
+
+    fun graceAlarm(context: Context) {
+      val service = current
+      if (service == null) start(context) else service.idle.onGrace()
     }
 
     fun stop(context: Context) {

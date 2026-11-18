@@ -5,7 +5,7 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hand_android_core::{Companion, CompanionConfig};
+use hand_android_core::{Companion, CompanionConfig, Polled};
 use support::{
     Behavior, Board, PlainCipher, Sidecar, SidecarOptions, TempDir, body, request, sidecar_bin,
 };
@@ -94,19 +94,25 @@ async fn a_poll_binds_for_its_work_and_sleeps_again_and_a_live_companion_is_not_
 
     let ran = std::sync::atomic::AtomicBool::new(false);
     let live = companion
-        .poll_asleep(async { ran.store(true, std::sync::atomic::Ordering::SeqCst) })
+        .poll_asleep(async {
+            ran.store(true, std::sync::atomic::Ordering::SeqCst);
+            true
+        })
         .await
         .unwrap();
-    assert!(!live && !ran.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(live == Polled::Live && !ran.load(std::sync::atomic::Ordering::SeqCst));
 
     companion.sleep().await;
     let mut seen = false;
     let polled = companion
-        .poll_asleep(async { seen = served(port, "/poll").await })
+        .poll_asleep(async {
+            seen = served(port, "/poll").await;
+            seen
+        })
         .await
         .unwrap();
 
-    assert!(polled && seen);
+    assert!(polled == Polled::Reached && seen);
     assert!(companion.asleep());
     assert!(companion.dialer().is_down());
     assert!(

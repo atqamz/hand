@@ -42,7 +42,7 @@ object Core {
 
   @JvmStatic external fun wake(): Boolean
 
-  @JvmStatic external fun poll()
+  @JvmStatic external fun poll(): Boolean
 
   @JvmStatic external fun live(fleet: String)
 

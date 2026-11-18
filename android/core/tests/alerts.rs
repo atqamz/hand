@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use hand_android_core::{Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Stop, Supervisor};
+use hand_android_core::{
+    Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Once, Stop, Supervisor,
+};
 use serde_json::{Value, json};
 use support::{
     FeedBoard, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, endpoint,
@@ -1216,10 +1218,16 @@ async fn a_poll_asleep_continues_the_live_cursor_and_the_live_feed_continues_the
 
     harness.sleep_and_wake_for_a_poll().await;
     let feed = harness.feed();
-    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(
+        feed.once(FLEET, &Cookies, &harness.sink, false).await,
+        Once::Answered
+    );
     assert_eq!(harness.seqs(), [6, 7, 8, 9]);
     assert_eq!(harness.cursor().as_deref(), Some("9"));
-    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(
+        feed.once(FLEET, &Cookies, &harness.sink, false).await,
+        Once::Answered
+    );
     assert_eq!(harness.seqs(), [6, 7, 8, 9]);
 
     harness.dialer.close().await;
@@ -1241,7 +1249,8 @@ async fn a_poll_asleep_continues_the_live_cursor_and_the_live_feed_continues_the
 }
 
 #[tokio::test]
-async fn a_poll_that_the_sink_fails_leaves_the_cursor_and_repeats_only_the_unposted_alerts() {
+async fn a_poll_that_the_sink_fails_leaves_the_cursor_so_the_next_poll_delivers_again_at_least_once()
+ {
     let Some(bin) = sidecar_bin() else {
         return;
     };
@@ -1272,12 +1281,18 @@ async fn a_poll_that_the_sink_fails_leaves_the_cursor_and_repeats_only_the_unpos
     harness.sleep_and_wake_for_a_poll().await;
     let feed = harness.feed();
 
-    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(
+        feed.once(FLEET, &Cookies, &harness.sink, false).await,
+        Once::Retry
+    );
     assert_eq!(harness.cursor().as_deref(), Some("10"));
     assert_eq!(harness.seqs(), [11]);
 
     harness.sink.0.lock().unwrap().fail_on = None;
-    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(
+        feed.once(FLEET, &Cookies, &harness.sink, false).await,
+        Once::Answered
+    );
     assert_eq!(harness.cursor().as_deref(), Some("12"));
     assert_eq!(harness.seqs(), [11, 11, 12]);
 }
@@ -1316,7 +1331,10 @@ async fn a_poll_follows_more_with_no_wait_and_a_failed_poll_changes_nothing() {
     harness.keep_cursor(0);
     let feed = harness.feed();
 
-    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(
+        feed.once(FLEET, &Cookies, &harness.sink, false).await,
+        Once::Answered
+    );
     assert_eq!(harness.seqs(), [1, 2]);
     assert_eq!(
         harness.polled(),
@@ -1326,47 +1344,125 @@ async fn a_poll_follows_more_with_no_wait_and_a_failed_poll_changes_nothing() {
         ]
     );
 
-    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(
+        feed.once(FLEET, &Cookies, &harness.sink, false).await,
+        Once::Retry
+    );
     assert_eq!(harness.cursor().as_deref(), Some("2"));
     assert_eq!(harness.seqs(), [1, 2]);
     assert_eq!(harness.board.seen().len(), 3);
 }
 
+fn refusing_supervisor(harness: &Harness, cookies: &Shared) -> Arc<Supervisor<Shared, Sink>> {
+    cookies.set(Some(OWN));
+    Supervisor::new(
+        harness.feed(),
+        cookies.clone(),
+        harness.sink.clone(),
+        Duration::from_millis(1),
+    )
+}
+
 #[tokio::test]
-async fn a_refused_fleet_is_skipped_by_the_next_poll_until_its_cookie_changes() {
+async fn a_refused_fleet_is_polled_again_when_its_cookie_changes_and_not_when_it_is_gone() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |n, _| match n {
-        0 | 1 => Reply::status(403).header("X-Hand-Error", GONE),
-        _ => answer(4, vec![]),
+    let harness = Harness::start(&bin, 60, |_, _| {
+        Reply::status(403).header("X-Hand-Error", GONE)
     })
     .await;
     harness.keep_cursor(4);
     let cookies = Shared::default();
-    cookies.set(Some(OWN));
-    let supervisor = Supervisor::new(
-        harness.feed(),
-        cookies.clone(),
-        harness.sink.clone(),
-        Duration::from_secs(600),
-    );
+    let supervisor = refusing_supervisor(&harness, &cookies);
 
-    supervisor.poll_once().await;
+    assert!(supervisor.poll_once().await);
     assert_eq!(harness.sink.unpaired().len(), 1);
-    supervisor.poll_once().await;
-    assert_eq!(harness.board.seen().len(), 1);
-    assert_eq!(harness.cursor().as_deref(), Some("4"));
 
     cookies.set(Some("hand_phone_f0123456789ab=changed"));
     supervisor.poll_once().await;
     assert_eq!(harness.board.seen().len(), 2);
     assert_eq!(harness.sink.unpaired().len(), 2);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
 
     cookies.set(None);
     supervisor.poll_once().await;
     assert_eq!(harness.board.seen().len(), 2);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
+}
+
+#[tokio::test]
+async fn a_refusal_a_failed_poll_and_a_refusal_announce_once_and_delete_the_cursor() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        1 => Reply::status(503),
+        _ => Reply::status(403).header("X-Hand-Error", GONE),
+    })
+    .await;
+    harness.keep_cursor(4);
+    let cookies = Shared::default();
+    let supervisor = refusing_supervisor(&harness, &cookies);
+
+    assert!(supervisor.poll_once().await);
+    assert_eq!(harness.sink.unpaired().len(), 1);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+    assert!(!supervisor.poll_once().await);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+    assert!(supervisor.poll_once().await);
+
+    assert_eq!(harness.sink.unpaired().len(), 1);
+    assert!(harness.cursor().is_none());
+}
+
+#[tokio::test]
+async fn a_sleep_between_refused_polls_keeps_the_refusal_and_a_service_stop_forgets_it() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |_, _| {
+        Reply::status(403).header("X-Hand-Error", GONE)
+    })
+    .await;
+    harness.keep_cursor(4);
+    let cookies = Shared::default();
+    let supervisor = refusing_supervisor(&harness, &cookies);
+
+    supervisor.poll_once().await;
+    supervisor.pause();
+    supervisor.poll_once().await;
+    supervisor.pause();
+    supervisor.poll_once().await;
+
+    assert_eq!(harness.sink.unpaired().len(), 1);
+    assert!(harness.cursor().is_none());
+
+    harness.keep_cursor(4);
+    supervisor.stop();
+    supervisor.poll_once().await;
+    assert_eq!(harness.sink.unpaired().len(), 2);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+}
+
+#[tokio::test]
+async fn a_poll_the_board_never_answers_is_not_reached_and_one_it_answers_is() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => Reply::status(503),
+        _ => answer(4, vec![]),
+    })
+    .await;
+    harness.keep_cursor(4);
+    let cookies = Shared::default();
+    let supervisor = refusing_supervisor(&harness, &cookies);
+
+    assert!(!supervisor.poll_once().await);
+    assert!(supervisor.poll_once().await);
+    cookies.set(None);
+    assert!(supervisor.poll_once().await);
 }
 
 #[tokio::test]
@@ -1383,7 +1479,7 @@ async fn a_second_refusal_in_a_poll_deletes_the_cursor_without_a_notice() {
 
     let stop = feed.once(FLEET, &Cookies, &harness.sink, true).await;
 
-    assert_eq!(stop, Some(Stop::BoardGone));
+    assert_eq!(stop, Once::Stopped(Stop::BoardGone));
     assert!(harness.cursor().is_none());
     assert!(harness.sink.unpaired().is_empty());
 }

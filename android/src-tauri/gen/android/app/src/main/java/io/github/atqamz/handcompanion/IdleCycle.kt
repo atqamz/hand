@@ -23,6 +23,9 @@ class IdleCycle(private val effects: IdleEffects) {
   private var screenOn = true
   private var charging = false
   private var grace = false
+  private var wakeRetry = false
+  private var wakeTries = 0
+  private var pollMs = POLL_MS
 
   private val idle
     get() = !screenOn && !charging
@@ -52,15 +55,36 @@ class IdleCycle(private val effects: IdleEffects) {
     grace = false
     if (idle && !asleep) {
       asleep = true
+      wakeRetry = false
+      pollMs = POLL_MS
       effects.sleep()
-      effects.armAlarm(POLL_MS)
+      effects.armAlarm(pollMs)
     }
   }
 
   fun onAlarm() {
+    if (wakeRetry) {
+      wakeRetry = false
+      effects.wake()
+      return
+    }
     if (!asleep) return
-    effects.armAlarm(POLL_MS)
+    effects.armAlarm(pollMs)
     effects.poll()
+  }
+
+  fun onPolled(reached: Boolean) {
+    if (!asleep) return
+    pollMs = if (reached) POLL_MS else minOf(pollMs * 2, POLL_MAX_MS)
+    effects.armAlarm(pollMs)
+  }
+
+  fun onWakeFailed(): Boolean {
+    if (asleep || wakeTries >= WAKE_TRIES) return false
+    wakeTries++
+    wakeRetry = true
+    effects.armAlarm(WAKE_RETRY_MS)
+    return true
   }
 
   private fun settle() {
@@ -77,6 +101,8 @@ class IdleCycle(private val effects: IdleEffects) {
     }
     if (asleep) {
       asleep = false
+      pollMs = POLL_MS
+      wakeTries = 0
       effects.cancelAlarm()
       effects.wake()
     }
@@ -85,5 +111,8 @@ class IdleCycle(private val effects: IdleEffects) {
   companion object {
     const val GRACE_MS = 2 * 60 * 1000L
     const val POLL_MS = 5 * 60 * 1000L
+    const val POLL_MAX_MS = 40 * 60 * 1000L
+    const val WAKE_RETRY_MS = 30 * 1000L
+    const val WAKE_TRIES = 3
   }
 }

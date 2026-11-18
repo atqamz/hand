@@ -17,11 +17,13 @@ mod testutil;
 pub mod proxy;
 
 pub use alerts::{
-    Alert, AlertSink, CookieSource, Feed, Fleet, RESCAN, Stop, Supervisor, WAIT, paired_fleets,
+    Alert, AlertSink, CookieSource, Feed, Fleet, Once, RESCAN, Stop, Supervisor, WAIT,
+    paired_fleets,
 };
 pub use codes::{BOARD_ERROR, BOARD_UNREACHABLE, FULL, IDLE, STREAM_IDLE};
 pub use companion::{
-    Companion, CompanionConfig, ConfirmError, OpenLinkError, Reporter, StartError,
+    Companion, CompanionConfig, ConfirmError, OpenLinkError, POLL_DEADLINE, Polled, Reporter,
+    StartError,
 };
 pub use dialer::{
     ALPN, BACKOFF_RESET, Dialer, HANDSHAKE_DEADLINE, Notice, OpenError, STREAMS_PER_CONNECTION,

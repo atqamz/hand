@@ -283,4 +283,125 @@ class IdleCycleTest {
     time.advance(5 * MINUTE)
     assertEquals(listOf("armAlarm 300000", "poll"), time.take())
   }
+
+  @Test
+  fun aGraceDeliveredLateAfterASuspendStillSleepsAndThePollCountsFromTheDelivery() {
+    cycle.start(screenOn = true, charging = false)
+    cycle.onScreen(false)
+    time.take()
+
+    time.graceAt = null
+    time.now += 40 * MINUTE
+    cycle.onGrace()
+
+    assertEquals(listOf("sleep", "armAlarm 300000"), time.take())
+    assertEquals(time.now + 5 * MINUTE, time.alarmAt)
+    assertTrue(cycle.asleep)
+  }
+
+  @Test
+  fun anUnreachableLaptopDoublesTheAlarmToAFortyMinuteCapAndOneAnswerResetsIt() {
+    asleep()
+    val gaps = mutableListOf<String>()
+    repeat(5) {
+      time.advance(time.alarmAt!! - time.now)
+      time.take()
+      cycle.onPolled(reached = false)
+      gaps += time.take().single()
+    }
+
+    assertEquals(
+      listOf("armAlarm 600000", "armAlarm 1200000", "armAlarm 2400000", "armAlarm 2400000", "armAlarm 2400000"),
+      gaps
+    )
+
+    cycle.onPolled(reached = true)
+    assertEquals(listOf("armAlarm 300000"), time.take())
+  }
+
+  @Test
+  fun anAlarmAfterAMissedPollIsArmedAtTheBackedOffGapBeforeItPolls() {
+    asleep()
+    time.advance(5 * MINUTE)
+    time.take()
+    cycle.onPolled(reached = false)
+    time.take()
+
+    time.advance(10 * MINUTE)
+
+    assertEquals(listOf("armAlarm 600000", "poll"), time.take())
+  }
+
+  @Test
+  fun aWakeResetsTheBackoffAndALatePollResultWhileLiveIsIgnored() {
+    asleep()
+    time.advance(5 * MINUTE)
+    cycle.onPolled(reached = false)
+    cycle.onScreen(true)
+    time.take()
+
+    cycle.onPolled(reached = false)
+    cycle.onScreen(false)
+    time.advance(2 * MINUTE)
+    assertEquals(listOf("armGrace 120000", "sleep", "armAlarm 300000"), time.take())
+  }
+
+  @Test
+  fun aFailedWakeIsRetriedAfterThirtySecondsAtMostThreeTimes() {
+    asleep()
+    cycle.onScreen(true)
+    time.take()
+
+    repeat(3) {
+      assertTrue(cycle.onWakeFailed())
+      assertEquals(listOf("armAlarm 30000"), time.take())
+      time.advance(30 * 1000)
+      assertEquals(listOf("wake"), time.take())
+    }
+
+    assertFalse(cycle.onWakeFailed())
+    time.advance(60 * MINUTE)
+    assertEquals(emptyList<String>(), time.take())
+  }
+
+  @Test
+  fun aWakeThatFailsWhileTheCycleIsAsleepIsNotRetried() {
+    asleep()
+
+    assertFalse(cycle.onWakeFailed())
+    assertEquals(emptyList<String>(), time.take())
+  }
+
+  @Test
+  fun aFailedWakeThenSleepingAgainPollsInsteadOfWaking() {
+    asleep()
+    cycle.onScreen(true)
+    cycle.onWakeFailed()
+    cycle.onScreen(false)
+    time.take()
+
+    time.graceAt = null
+    cycle.onGrace()
+    assertEquals(listOf("sleep", "armAlarm 300000"), time.take())
+    time.advance(5 * MINUTE)
+
+    assertEquals(listOf("armAlarm 300000", "poll"), time.take())
+  }
+
+  @Test
+  fun aNewWakeStartsItsRetriesAgain() {
+    asleep()
+    cycle.onScreen(true)
+    repeat(3) {
+      cycle.onWakeFailed()
+      time.advance(30 * 1000)
+    }
+    assertFalse(cycle.onWakeFailed())
+    cycle.onScreen(false)
+    time.advance(2 * MINUTE)
+    cycle.onScreen(true)
+    time.take()
+
+    assertTrue(cycle.onWakeFailed())
+  }
 }
