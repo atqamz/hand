@@ -427,8 +427,10 @@ type fleetChoice struct {
 	Current, Ticked bool
 }
 
+func (b *Board) pairFleets(ctx context.Context) []railLink { return capRail(b.hostFleets(ctx)) }
+
 func (b *Board) pairChoices(ctx context.Context, set []string) []fleetChoice {
-	list := b.hostFleets(ctx)
+	list := b.pairFleets(ctx)
 	if len(list) < 2 {
 		return nil
 	}
@@ -507,7 +509,7 @@ func (b *Board) chosenFleets(r *http.Request) ([]string, bool) {
 func (b *Board) chosenFleetsFrom(ctx context.Context, ids []string) ([]string, bool) {
 	own := b.fleetID()
 	offered := map[string]bool{}
-	for _, l := range b.hostFleets(ctx) {
+	for _, l := range b.pairFleets(ctx) {
 		offered[l.ID] = true
 	}
 	set := []string{own}

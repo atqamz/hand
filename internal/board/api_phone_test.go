@@ -1113,27 +1113,44 @@ func TestAPIPhoneCursorIsNotAPlainHashOfTheCode(t *testing.T) {
 	}
 }
 
-func TestAPIPhoneUsesEveryFleetTheSessionProves(t *testing.T) {
+func TestAPIPhoneListsAndRevokesEveryFleetButACodeNamesEight(t *testing.T) {
 	p := newCompanionHost(t, true, "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9")
 	home := p.fleets[0]
-	all := p.fleets[1:]
-	code, shown := p.apiCode(home, "https://host.example", all...)
-	if len(shown.Code.Fleets) != 9 {
-		t.Fatalf("the code names %d fleets, want 9", len(shown.Code.Fleets))
+	for _, f := range p.fleets {
+		if _, err := f.st.AddDevice(context.Background(), "Pixel", "", phoneHash, phoneLabel); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if len(shown.Fleets) != 9 {
-		t.Fatalf("the phone offers %d fleets, want 9", len(shown.Fleets))
+	all := p.hosts(p.fleets...)
+	_, got := apiBody[board.APIPhone](t, p.papi(home, "GET", "/phone", nil, all))
+	if len(got.Devices) != 1 || len(got.Devices[0].Fleets) != 9 || len(got.Unreachable) != 0 {
+		t.Fatalf("phone = %d devices, %+v, unreachable %v", len(got.Devices), got.Devices, got.Unreachable)
 	}
-	cookies := companionCookiesOf(p.redeem(home, code, nil, nil))
-	if len(cookies) != 9 {
-		t.Fatalf("paired %d fleets, want 9", len(cookies))
+	if len(got.Fleets) != 8 || !got.Fleets[0].Current {
+		t.Fatalf("a code is offered %d fleets, want this one and 7 others: %+v", len(got.Fleets), got.Fleets)
 	}
-	_, got := apiBody[board.APIPhone](t, p.papi(home, "GET", "/phone", nil, p.hosts(p.fleets...)))
-	if len(got.Fleets) != 9 || len(got.Devices) != 1 || len(got.Devices[0].Fleets) != 9 || len(got.Unreachable) != 0 {
-		t.Fatalf("phone = %d fleets, %d devices, %+v unreachable %v", len(got.Fleets), len(got.Devices), got.Devices, got.Unreachable)
+	for _, c := range []struct {
+		ticked []railFleet
+		status int
+	}{{p.fleets[1:], http.StatusForbidden}, {p.fleets[1:8], http.StatusOK}, {p.fleets[8:], http.StatusForbidden}} {
+		ids := []string{}
+		for _, f := range c.ticked {
+			ids = append(ids, f.id)
+		}
+		rec := p.papi(home, "POST", "/phone/code", map[string]any{"base": "https://host.example", "fleets": ids}, all)
+		if rec.Code != c.status {
+			t.Fatalf("a code for %d other fleets = %d, want %d:\n%s", len(c.ticked), rec.Code, c.status, rec.Body)
+		}
+		if c.status == http.StatusForbidden {
+			testAPIError(t, rec, http.StatusForbidden, "forbidden")
+			continue
+		}
+		_, shown := apiBody[board.APIPhone](t, rec)
+		if shown.Code == nil || len(shown.Code.Fleets) != 8 {
+			t.Fatalf("code = %+v", shown.Code)
+		}
 	}
-	label := got.Devices[0].Phone
-	_, got = apiBody[board.APIPhone](t, p.papi(home, "POST", "/phone/revoke", map[string]any{"phone": label}, p.hosts(p.fleets...)))
+	_, got = apiBody[board.APIPhone](t, p.papi(home, "POST", "/phone/revoke", map[string]any{"phone": phoneLabel}, all))
 	if len(got.Revoke.Revoked) != 9 || len(got.Revoke.Failed) != 0 {
 		t.Fatalf("revoke = %+v", got.Revoke)
 	}
@@ -1142,12 +1159,13 @@ func TestAPIPhoneUsesEveryFleetTheSessionProves(t *testing.T) {
 			t.Errorf("%s still holds %d devices", f.name, n)
 		}
 	}
-	if !strings.Contains(p.phonePage(home, p.hosts(p.fleets...)...), "a9") {
-		t.Fatalf("the page does not offer the ninth fleet")
+	if !strings.Contains(p.phonePage(home, all...), "a9") {
+		t.Fatalf("the page does not list the ninth fleet")
 	}
 }
 
-func TestAPIPhoneAnActionThatCannotBeAnsweredChangesNothing(t *testing.T) {
+func phoneBrokenDB(t *testing.T) (http.Handler, *state.Store, *sql.DB) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "hand.db")
 	st, err := state.Open(path, func() time.Time { return frozen })
 	if err != nil {
@@ -1158,12 +1176,16 @@ func TestAPIPhoneAnActionThatCannotBeAnsweredChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Exec(`INSERT INTO fleet(only, id, name) VALUES (1, ?, 'golden')`, phoneFleet); err != nil {
 		t.Fatal(err)
 	}
 	fx := &fixture{st: st, options: board.Options{Controls: true, Now: func() time.Time { return frozen }, Base: "/" + phoneFleet, Tick: apiTick, Iroh: func() sidecar.Status { return readyIroh }}}
-	h := fx.handler()
+	return fx.handler(), st, db
+}
+
+func TestAPIPhoneAnActionThatCannotBeAnsweredChangesNothing(t *testing.T) {
+	h, _, db := phoneBrokenDB(t)
 	body := map[string]any{"base": "https://host.example"}
 	_, first := apiBody[board.APIPhone](t, phoneDo(h, "POST", "/api/v1/phone/code", body, token, true))
 	if first.Code == nil {
@@ -1184,5 +1206,24 @@ func TestAPIPhoneAnActionThatCannotBeAnsweredChangesNothing(t *testing.T) {
 	_, got := apiBody[board.APIPhone](t, phoneDo(h, "GET", "/api/v1/phone", nil, "", true))
 	if got.Code == nil || got.Code.Code != first.Code.Code || got.App != nil {
 		t.Fatalf("a failed action changed the code: %+v app %+v", got.Code, got.App)
+	}
+}
+
+func TestAPIPhoneARevokeByIDThatCannotBeAnsweredRevokesNothing(t *testing.T) {
+	h, st, db := phoneBrokenDB(t)
+	d, err := st.AddDevice(context.Background(), "Old phone", "", phoneHash, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`ALTER TABLE fleet RENAME TO fleet_away`); err != nil {
+		t.Fatal(err)
+	}
+	testAPIError(t, phoneDo(h, "POST", "/api/v1/phone/revoke", map[string]any{"id": d.ID}, token, true), http.StatusInternalServerError, "internal")
+	if _, err := db.Exec(`ALTER TABLE fleet_away RENAME TO fleet`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM device`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("a refused revoke left %d devices, err %v, want 1", n, err)
 	}
 }
