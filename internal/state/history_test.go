@@ -294,6 +294,15 @@ func TestAQueryCannotEscapeTheTaskOrWhoFilter(t *testing.T) {
 	h.reply(t, at, 0, "zed reply")
 	h.report(t, h.attempt.TaskID, at, "zed report")
 	want := h.input(t, at, "zed or zed for t5")
+	h.input(t, at, "zed for t50")
+	for _, q := range []string{"zed OR zed", "zed*"} {
+		for _, who := range []string{"operator", ""} {
+			res := h.search(t, HistoryQuery{Q: q, Who: who, TaskID: 5})
+			if got := refs(res); res.Total != 1 || !slices.Equal(got, []string{want}) {
+				t.Errorf("%q with who %q and task t5 returned %v of %d", q, who, got, res.Total)
+			}
+		}
+	}
 	for _, q := range []string{"zed) OR (zed", "zed) OR zed OR (zed", `zed" OR "zed`, "(zed) OR (zed"} {
 		res := h.search(t, HistoryQuery{Q: q, Who: "operator", TaskID: 5})
 		if got := refs(res); res.Total != 1 || !slices.Equal(got, []string{want}) {
