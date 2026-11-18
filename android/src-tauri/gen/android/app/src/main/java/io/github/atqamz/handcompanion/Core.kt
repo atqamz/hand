@@ -44,6 +44,8 @@ object Core {
 
   @JvmStatic external fun resume()
 
+  @JvmStatic external fun networkChange()
+
   @JvmStatic
   external fun request(
     fleet: String,

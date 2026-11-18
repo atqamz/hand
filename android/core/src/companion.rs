@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
-use iroh::endpoint::{Endpoint, QuicTransportConfig, VarInt, presets};
+use iroh::address_lookup::{DnsAddressLookup, PkarrResolver};
+use iroh::endpoint::{Builder, Endpoint, PortmapperConfig, QuicTransportConfig, VarInt, presets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -24,6 +25,16 @@ use crate::proxy::{self, Proxy};
 use crate::sessions::{Jar, Paired, Sessions};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn builder(transport: QuicTransportConfig) -> Builder {
+    Endpoint::builder(presets::N0)
+        .clear_address_lookup()
+        .address_lookup(PkarrResolver::n0_dns())
+        .address_lookup(DnsAddressLookup::n0_dns())
+        .portmapper_config(PortmapperConfig::Disabled)
+        .alpns(vec![ALPN.to_vec()])
+        .transport_config(transport)
+}
 
 pub struct CompanionConfig {
     pub data_dir: PathBuf,
@@ -67,10 +78,8 @@ impl Companion {
             .max_concurrent_bidi_streams(VarInt::from_u32(STREAMS_PER_CONNECTION as u32))
             .max_concurrent_uni_streams(VarInt::from_u32(0))
             .build();
-        let endpoint = Endpoint::builder(presets::N0)
+        let endpoint = builder(transport)
             .secret_key(secret_key)
-            .alpns(vec![ALPN.to_vec()])
-            .transport_config(transport)
             .bind()
             .await
             .map_err(|error| StartError::Bind(error.to_string()))?;
@@ -330,6 +339,17 @@ impl Companion {
     pub async fn reconnect_on_resume(&self) {
         self.dialer.disconnect().await;
     }
+
+    pub async fn report_every(&self, period: Duration, emit: impl Fn(&str)) {
+        loop {
+            emit(&self.dialer.report().await);
+            tokio::time::sleep(period).await;
+        }
+    }
+
+    pub async fn network_change(&self) {
+        self.dialer.endpoint().network_change().await;
+    }
 }
 
 #[derive(Debug)]
@@ -443,6 +463,19 @@ mod tests {
     use crate::http::Method;
     use crate::key::CipherError;
     use crate::testutil::TempDir;
+
+    #[tokio::test]
+    async fn the_endpoint_maps_no_ports_publishes_no_address_and_keeps_the_https_probes() {
+        let builder = builder(QuicTransportConfig::default());
+        let text = format!("{builder:?}");
+        assert!(text.contains("portmapper_config: Disabled"), "{text}");
+        assert!(text.contains("https_probes: true"), "{text}");
+        let endpoint = builder.bind().await.unwrap();
+        let lookup = endpoint.address_lookup().unwrap();
+        assert_eq!(lookup.len(), 2, "{lookup:?}");
+        assert!(!format!("{lookup:?}").contains("Publisher"), "{lookup:?}");
+        endpoint.close().await;
+    }
 
     const LINK: &str = "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P";
     const SECOND_LINK: &str = "handboard://c#v=1&e=d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5&f=fa1b2c3d4e5f6&c=0123456789";

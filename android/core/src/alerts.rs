@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, sleep_until};
 
@@ -19,6 +20,7 @@ pub const WAIT: Duration = Duration::from_secs(25);
 pub const RESCAN: Duration = Duration::from_secs(10);
 const ANSWER_SLACK: Duration = Duration::from_secs(10);
 const MIN_POLL: Duration = Duration::from_secs(1);
+const UNREACHABLE_BACKOFF_MAX: u64 = 5 * 60;
 const MAX_BODY: usize = 64 * 1024;
 const MAX_ALERTS: usize = 50;
 const MAX_TEXT: usize = 200;
@@ -95,6 +97,7 @@ pub struct Feed {
     dir: PathBuf,
     wait: Duration,
     generation: Mutex<u64>,
+    nudges: watch::Sender<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,6 +120,18 @@ impl Feed {
             dir,
             wait: WAIT,
             generation: Mutex::new(0),
+            nudges: watch::channel(0).0,
+        }
+    }
+
+    pub fn nudge(&self) {
+        self.nudges.send_modify(|count| *count += 1);
+    }
+
+    async fn pause(backoff: &mut Backoff, nudges: &mut watch::Receiver<u64>) {
+        tokio::select! {
+            _ = sleep(backoff.next_delay()) => {}
+            _ = nudges.changed() => backoff.reset(),
         }
     }
 
@@ -160,7 +175,8 @@ impl Feed {
         let generation = self.generation();
         let path = self.dir.join(format!("{fleet}.cursor"));
         let mut cursor = read_cursor(&path);
-        let mut backoff = Backoff::default();
+        let mut backoff = Backoff::capped(UNREACHABLE_BACKOFF_MAX);
+        let mut nudges = self.nudges.subscribe();
         let mut more = false;
         let mut refused_before = refused_before;
         let mut name: Option<String> = None;
@@ -188,7 +204,7 @@ impl Feed {
                     return Stop::BoardGone;
                 }
                 Err(Failure::Retry) => {
-                    sleep(backoff.next_delay()).await;
+                    Self::pause(&mut backoff, &mut nudges).await;
                     continue;
                 }
             };
@@ -214,7 +230,7 @@ impl Feed {
                 }
             }
             if !delivered {
-                sleep(backoff.next_delay()).await;
+                Self::pause(&mut backoff, &mut nudges).await;
                 continue;
             }
             backoff.reset();
@@ -331,6 +347,10 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
             running.task.abort();
         }
         state.stopped.clear();
+    }
+
+    pub fn nudge(&self) {
+        self.feed.nudge();
     }
 
     pub fn forget_all(&self) {
@@ -553,6 +573,8 @@ fn write_cursor(path: &Path, cursor: u64) -> io::Result<()> {
 mod tests {
     use serde_json::{Value, json};
 
+    use tokio::time::timeout;
+
     use super::*;
     use crate::testutil::TempDir;
 
@@ -566,6 +588,33 @@ mod tests {
 
     fn alert(seq: u64) -> Value {
         json!({"seq": seq, "at": "2026-11-10T03:12:00Z", "kind": "attempt.failed", "ref": "a1", "text": "a1 failed", "link": ""})
+    }
+
+    #[tokio::test]
+    async fn a_nudge_ends_the_wait_and_starts_the_backoff_again() {
+        let feed = Feed::new(
+            Dialer::new(
+                iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+                    .bind()
+                    .await
+                    .unwrap(),
+                None,
+            ),
+            PathBuf::new(),
+        );
+        let mut backoff = Backoff::capped(UNREACHABLE_BACKOFF_MAX);
+        for _ in 0..8 {
+            backoff.next_delay();
+        }
+        let mut nudges = feed.nudges.subscribe();
+        feed.nudge();
+        timeout(
+            Duration::from_secs(1),
+            Feed::pause(&mut backoff, &mut nudges),
+        )
+        .await
+        .expect("the nudge ends a wait of minutes");
+        assert!(backoff.next_delay() <= Duration::from_millis(1250));
     }
 
     #[test]

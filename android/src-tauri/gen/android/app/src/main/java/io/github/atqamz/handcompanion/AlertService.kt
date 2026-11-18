@@ -4,12 +4,25 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 
 class AlertService : Service() {
+  private var watching = false
+
+  private val networkChanged =
+    object : ConnectivityManager.NetworkCallback() {
+      override fun onAvailable(network: Network) = Core.networkChange()
+
+      override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
+        Core.networkChange()
+    }
+
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -43,11 +56,26 @@ class AlertService : Service() {
     }
     running = true
     Core.watch()
+    watchNetwork()
     return true
+  }
+
+  private fun watchNetwork() {
+    if (watching) return
+    try {
+      getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkChanged)
+      watching = true
+    } catch (error: Exception) {
+      Log.w(TAG, "network callback refused: ${error.javaClass.simpleName}")
+    }
   }
 
   override fun onDestroy() {
     running = false
+    if (watching) {
+      getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkChanged)
+      watching = false
+    }
     Core.unwatch()
     Log.i(TAG, "service stop")
     super.onDestroy()
