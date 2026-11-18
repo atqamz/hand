@@ -217,7 +217,7 @@ func LoadPolicy(home string) (Policy, error) {
 	path := filepath.Join(home, PolicyFile)
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Policy{}, fmt.Errorf("%w: no routing policy at %s; run `hand init` to write a starter", state.ErrInvalid, path)
+		return Policy{}, fmt.Errorf("%w: no routing policy at %s; run `hand init` to write a starter (%w)", state.ErrInvalid, path, fs.ErrNotExist)
 	}
 	if err != nil {
 		return Policy{}, err

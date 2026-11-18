@@ -41,7 +41,7 @@ func TestLoadPolicyRejectsBadFiles(t *testing.T) {
 			t.Fatalf("policy %q err = %v", body, err)
 		}
 	}
-	if _, err := LoadPolicy(t.TempDir()); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "hand init") {
+	if _, err := LoadPolicy(t.TempDir()); !errors.Is(err, state.ErrInvalid) || !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "hand init") {
 		t.Fatalf("missing policy err = %v", err)
 	}
 }
