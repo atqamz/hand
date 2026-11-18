@@ -16,6 +16,13 @@ var (
 )
 
 func Find(name string, env Env) (string, error) {
+	if env.Finds == nil {
+		return search(name, env)
+	}
+	return env.Finds.find(name, env)
+}
+
+func search(name string, env Env) (string, error) {
 	bin, err := LookPath(name, env.Path)
 	if err == nil {
 		return bin, nil
@@ -133,4 +140,35 @@ func npmPrefix(env Env) string {
 	}
 	npmPrefixes.Store(key, prefix)
 	return prefix
+}
+
+type FindCache struct {
+	ttl time.Duration
+	now func() time.Time
+	mu  sync.Mutex
+	hit map[string]foundBin
+}
+
+type foundBin struct {
+	bin string
+	err error
+	at  time.Time
+}
+
+func NewFindCache(ttl time.Duration, now func() time.Time) *FindCache {
+	return &FindCache{ttl: ttl, now: now, hit: map[string]foundBin{}}
+}
+
+func (c *FindCache) find(name string, env Env) (string, error) {
+	c.mu.Lock()
+	e, ok := c.hit[name]
+	c.mu.Unlock()
+	if ok && c.now().Sub(e.at) < c.ttl {
+		return e.bin, e.err
+	}
+	bin, err := search(name, env)
+	c.mu.Lock()
+	c.hit[name] = foundBin{bin: bin, err: err, at: c.now()}
+	c.mu.Unlock()
+	return bin, err
 }
