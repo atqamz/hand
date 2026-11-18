@@ -63,6 +63,7 @@ type runner struct {
 	refused    string
 	migrated   bool
 	noAdopt    bool
+	fetches    fetchCache
 }
 
 type usageError struct{ msg string }

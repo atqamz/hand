@@ -110,6 +110,8 @@ func readSkill(t *testing.T, path string) string {
 
 const skillsURL = "https://github.com/atqamz/skills.git"
 
+var ownName = strings.TrimSuffix(strings.TrimPrefix(skillsURL, "https://github.com/"), ".git")
+
 func fleetLock(base string) string { return filepath.Join(base, "skills-lock.json") }
 
 func userLock(base string) string { return filepath.Join(base, ".agents", "skills-lock.json") }
