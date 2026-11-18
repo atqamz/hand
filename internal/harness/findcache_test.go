@@ -7,6 +7,7 @@ import (
 )
 
 func TestACachedFindSkipsTheSearchUntilTheTTLEnds(t *testing.T) {
+	t.Setenv("PATHEXT", ".EXE")
 	dir := t.TempDir()
 	now := time.Unix(1000, 0)
 	env := Env{Path: dir, Finds: NewFindCache(5*time.Second, func() time.Time { return now })}
@@ -32,6 +33,7 @@ func TestACachedFindSkipsTheSearchUntilTheTTLEnds(t *testing.T) {
 }
 
 func TestFindWithoutACacheSearchesEveryTime(t *testing.T) {
+	t.Setenv("PATHEXT", ".EXE")
 	dir := t.TempDir()
 	env := Env{Path: dir}
 	if _, err := Find("tool", env); err == nil {

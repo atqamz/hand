@@ -166,9 +166,12 @@ func (c *FindCache) find(name string, env Env) (string, error) {
 	if ok && c.now().Sub(e.at) < c.ttl {
 		return e.bin, e.err
 	}
+	start := c.now()
 	bin, err := search(name, env)
 	c.mu.Lock()
-	c.hit[name] = foundBin{bin: bin, err: err, at: c.now()}
+	if cur, ok := c.hit[name]; !ok || !cur.at.After(start) {
+		c.hit[name] = foundBin{bin: bin, err: err, at: start}
+	}
 	c.mu.Unlock()
 	return bin, err
 }
