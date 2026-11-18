@@ -1,28 +1,67 @@
 package io.github.atqamz.handcompanion
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.os.BatteryManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-class AlertService : Service() {
+class AlertService : Service(), IdleEffects {
   private var watching = false
+  private var started = false
+  private var listening = false
   private val handler = Handler(Looper.getMainLooper())
   private val pending = AtomicBoolean(false)
+  private val worker = Executors.newSingleThreadExecutor()
+  private val idle = IdleCycle(this)
+  private val graceElapsed = Runnable { idle.onGrace() }
   private val tell = Runnable {
     pending.set(false)
-    Core.networkChange()
+    if (!idle.asleep) Core.networkChange()
   }
+  private val pollLock by lazy {
+    getSystemService(PowerManager::class.java)
+      .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$TAG:poll")
+      .apply { setReferenceCounted(false) }
+  }
+  private val alarmIntent by lazy {
+    PendingIntent.getBroadcast(
+      this,
+      0,
+      Intent(this, PollReceiver::class.java),
+      PendingIntent.FLAG_IMMUTABLE
+    )
+  }
+
+  private val inputs =
+    object : BroadcastReceiver() {
+      override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+          Intent.ACTION_SCREEN_ON -> idle.onScreen(true)
+          Intent.ACTION_SCREEN_OFF -> idle.onScreen(false)
+          Intent.ACTION_USER_PRESENT -> idle.onUnlocked()
+          Intent.ACTION_POWER_CONNECTED -> idle.onCharging(true)
+          Intent.ACTION_POWER_DISCONNECTED -> idle.onCharging(false)
+        }
+      }
+    }
 
   private fun changed() {
     if (pending.compareAndSet(false, true)) handler.postDelayed(tell, COALESCE_MS)
@@ -68,9 +107,77 @@ class AlertService : Service() {
       return false
     }
     running = true
-    Core.watch()
-    watchNetwork()
+    current = this
+    if (!started) {
+      started = true
+      Core.wake()
+      Core.watch()
+      watchNetwork()
+      watchInputs()
+    }
     return true
+  }
+
+  private fun watchInputs() {
+    val filter =
+      IntentFilter().apply {
+        addAction(Intent.ACTION_SCREEN_ON)
+        addAction(Intent.ACTION_SCREEN_OFF)
+        addAction(Intent.ACTION_USER_PRESENT)
+        addAction(Intent.ACTION_POWER_CONNECTED)
+        addAction(Intent.ACTION_POWER_DISCONNECTED)
+      }
+    ContextCompat.registerReceiver(this, inputs, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    listening = true
+    val plugged =
+      registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        ?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+    idle.start(
+      screenOn = getSystemService(PowerManager::class.java).isInteractive,
+      charging = plugged != 0
+    )
+  }
+
+  override fun armGrace(delayMs: Long) {
+    handler.postDelayed(graceElapsed, delayMs)
+  }
+
+  override fun cancelGrace() {
+    handler.removeCallbacks(graceElapsed)
+  }
+
+  override fun sleep() {
+    Log.i(TAG, "idle sleep")
+    worker.execute { Core.sleep() }
+  }
+
+  override fun wake() {
+    Log.i(TAG, "idle wake")
+    worker.execute { if (Core.wake()) Core.watch() }
+  }
+
+  override fun armAlarm(delayMs: Long) {
+    getSystemService(AlarmManager::class.java)
+      .setAndAllowWhileIdle(
+        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+        SystemClock.elapsedRealtime() + delayMs,
+        alarmIntent
+      )
+  }
+
+  override fun cancelAlarm() {
+    getSystemService(AlarmManager::class.java).cancel(alarmIntent)
+  }
+
+  override fun poll() {
+    pollLock.acquire(POLL_LOCK_MS)
+    worker.execute {
+      try {
+        Core.poll()
+      } finally {
+        if (pollLock.isHeld) pollLock.release()
+      }
+    }
   }
 
   private fun watchNetwork() {
@@ -85,6 +192,13 @@ class AlertService : Service() {
 
   override fun onDestroy() {
     running = false
+    if (current === this) current = null
+    if (listening) {
+      unregisterReceiver(inputs)
+      listening = false
+    }
+    handler.removeCallbacks(graceElapsed)
+    if (started) cancelAlarm()
     if (watching) {
       try {
         getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkChanged)
@@ -95,6 +209,8 @@ class AlertService : Service() {
     }
     handler.removeCallbacks(tell)
     Core.unwatch()
+    worker.execute { Core.wake() }
+    worker.shutdown()
     Log.i(TAG, "service stop")
     super.onDestroy()
   }
@@ -102,6 +218,9 @@ class AlertService : Service() {
   companion object {
     private const val TAG = "HandAlerts"
     private const val COALESCE_MS = 1000L
+    private const val POLL_LOCK_MS = 60_000L
+
+    @Volatile private var current: AlertService? = null
 
     @Volatile var running = false
       private set
@@ -113,6 +232,11 @@ class AlertService : Service() {
       } catch (error: Exception) {
         Log.w(TAG, "foreground start refused: ${error.javaClass.simpleName}")
       }
+    }
+
+    fun alarm(context: Context) {
+      val service = current
+      if (service == null) start(context) else service.idle.onAlarm()
     }
 
     fun stop(context: Context) {

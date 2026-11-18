@@ -38,6 +38,12 @@ object Core {
 
   @JvmStatic external fun unwatch()
 
+  @JvmStatic external fun sleep()
+
+  @JvmStatic external fun wake(): Boolean
+
+  @JvmStatic external fun poll()
+
   @JvmStatic external fun live(fleet: String)
 
   @JvmStatic external fun unlive()

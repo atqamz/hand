@@ -5,9 +5,10 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
+use iroh::SecretKey;
 use iroh::address_lookup::{DnsAddressLookup, PkarrResolver};
 use iroh::endpoint::{Builder, Endpoint, PortmapperConfig, QuicTransportConfig, VarInt, presets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -27,6 +28,7 @@ use crate::proxy::{self, Proxy};
 use crate::sessions::{Jar, Paired, Sessions};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+const POLL_DEADLINE: Duration = Duration::from_secs(30);
 
 fn builder(transport: QuicTransportConfig) -> Builder {
     Endpoint::builder(presets::N0)
@@ -36,6 +38,30 @@ fn builder(transport: QuicTransportConfig) -> Builder {
         .portmapper_config(PortmapperConfig::Disabled)
         .alpns(vec![ALPN.to_vec()])
         .transport_config(transport)
+}
+
+struct Binding {
+    secret_key: SecretKey,
+    transport: QuicTransportConfig,
+}
+
+impl Binding {
+    async fn bind(&self) -> Result<Endpoint, StartError> {
+        builder(self.transport.clone())
+            .secret_key(self.secret_key.clone())
+            .bind()
+            .await
+            .map_err(|error| StartError::Bind(error.to_string()))
+    }
+}
+
+#[derive(Default)]
+struct Duty {
+    power: tokio::sync::Mutex<()>,
+    asleep: AtomicBool,
+    sleeps: AtomicU64,
+    wakes: AtomicU64,
+    polls: AtomicU64,
 }
 
 pub struct CompanionConfig {
@@ -59,6 +85,8 @@ pub struct Companion {
     pairing: std::sync::Arc<StdMutex<Pairing>>,
     store: std::sync::Arc<StdMutex<()>>,
     network_changes: Arc<AtomicU64>,
+    binding: Arc<Binding>,
+    duty: Arc<Duty>,
     #[cfg(test)]
     gate: std::sync::Arc<StdMutex<Option<std::sync::Arc<Gate>>>>,
 }
@@ -81,11 +109,11 @@ impl Companion {
             .max_concurrent_bidi_streams(VarInt::from_u32(STREAMS_PER_CONNECTION as u32))
             .max_concurrent_uni_streams(VarInt::from_u32(0))
             .build();
-        let endpoint = builder(transport)
-            .secret_key(secret_key)
-            .bind()
-            .await
-            .map_err(|error| StartError::Bind(error.to_string()))?;
+        let binding = Arc::new(Binding {
+            secret_key,
+            transport,
+        });
+        let endpoint = binding.bind().await?;
         let (proxy, listeners) = Proxy::bind(&config.data_dir).await?;
         let dialer = Dialer::new(endpoint, None);
         for listener in listeners {
@@ -97,6 +125,8 @@ impl Companion {
             pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
             store: std::sync::Arc::new(StdMutex::new(())),
             network_changes: Arc::new(AtomicU64::new(0)),
+            binding,
+            duty: Arc::new(Duty::default()),
             #[cfg(test)]
             gate: std::sync::Arc::new(StdMutex::new(None)),
         })
@@ -231,7 +261,7 @@ impl Companion {
         };
         let link = link.ok_or(PairError::NoPending)?;
         let target = link.target().map_err(|_| PairError::NoPending)?;
-        let dialer = Dialer::new(self.dialer.endpoint().clone(), Some(target));
+        let dialer = Dialer::new(self.dialer.endpoint(), Some(target));
         let redeemed = redeem(&dialer, &link, name).await;
         dialer.disconnect().await;
         match redeemed {
@@ -351,11 +381,51 @@ impl Companion {
         then();
     }
 
+    pub fn asleep(&self) -> bool {
+        self.duty.asleep.load(Ordering::SeqCst)
+    }
+
+    pub async fn sleep(&self) {
+        let _turn = self.duty.power.lock().await;
+        if self.duty.asleep.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.dialer.close().await;
+        self.duty.sleeps.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub async fn wake(&self) -> Result<(), StartError> {
+        let _turn = self.duty.power.lock().await;
+        if !self.asleep() {
+            return Ok(());
+        }
+        self.dialer.open(self.binding.bind().await?);
+        self.duty.asleep.store(false, Ordering::SeqCst);
+        self.duty.wakes.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    pub async fn poll_asleep(&self, poll: impl Future<Output = ()>) -> Result<bool, StartError> {
+        let _turn = self.duty.power.lock().await;
+        if !self.asleep() {
+            return Ok(false);
+        }
+        self.dialer.open(self.binding.bind().await?);
+        let _ = timeout(POLL_DEADLINE, poll).await;
+        self.dialer.close().await;
+        self.duty.polls.fetch_add(1, Ordering::Relaxed);
+        Ok(true)
+    }
+
     pub async fn report(&self) -> String {
         format!(
-            "{} network_changes={}",
+            "{} network_changes={} state={} sleeps={} wakes={} polls={}",
             self.dialer.report().await,
-            self.network_changes.load(Ordering::Relaxed)
+            self.network_changes.load(Ordering::Relaxed),
+            if self.asleep() { "asleep" } else { "live" },
+            self.duty.sleeps.load(Ordering::Relaxed),
+            self.duty.wakes.load(Ordering::Relaxed),
+            self.duty.polls.load(Ordering::Relaxed),
         )
     }
 

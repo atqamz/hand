@@ -117,6 +117,21 @@ enum Failure {
     Retry,
 }
 
+struct Cycle<'a> {
+    fleet: &'a str,
+    generation: u64,
+    path: PathBuf,
+    cursor: Option<u64>,
+    name: Option<String>,
+    refused_before: bool,
+}
+
+enum Step {
+    Stop(Stop),
+    Retry,
+    Next(bool),
+}
+
 impl Feed {
     pub fn new(dialer: Dialer, dir: PathBuf) -> Self {
         Self {
@@ -173,76 +188,119 @@ impl Feed {
         sink: &impl AlertSink,
         refused_before: bool,
     ) -> Stop {
-        if !valid_fleet(fleet) {
+        let Some(mut cycle) = self.cycle(fleet, refused_before) else {
             return Stop::CookieGone;
-        }
-        let generation = self.generation();
-        let path = self.dir.join(format!("{fleet}.cursor"));
-        let mut cursor = read_cursor(&path);
+        };
         let mut backoff = unreachable_backoff();
         let mut nudges = self.nudges.subscribe();
         let mut more = false;
-        let mut refused_before = refused_before;
-        let mut name: Option<String> = None;
         loop {
             let started = Instant::now();
-            let answer = match self.poll(fleet, cookies, cursor, more).await {
-                Ok(answer) => answer,
-                Err(Failure::CookieGone) => {
-                    if self.generation() != generation {
-                        return Stop::Forgotten;
+            match self.step(&mut cycle, cookies, sink, more, self.wait).await {
+                Step::Stop(stop) => return stop,
+                Step::Retry => Self::pause(&mut backoff, &mut nudges).await,
+                Step::Next(next) => {
+                    backoff.reset();
+                    more = next;
+                    if !more {
+                        sleep_until(started + MIN_POLL).await;
                     }
-                    let _ = fs::remove_file(&path);
-                    sink.unpaired(fleet, name.as_deref()).await;
-                    return Stop::CookieGone;
                 }
-                Err(Failure::BoardGone) => {
-                    if self.generation() != generation {
-                        return Stop::Forgotten;
-                    }
-                    if refused_before {
-                        let _ = fs::remove_file(&path);
-                    } else {
-                        sink.unpaired(fleet, name.as_deref()).await;
-                    }
-                    return Stop::BoardGone;
-                }
-                Err(Failure::Retry) => {
-                    Self::pause(&mut backoff, &mut nudges).await;
-                    continue;
-                }
-            };
-            refused_before = false;
-            name = Some(answer.fleet.name.clone());
-            let mut delivered = true;
-            for alert in &answer.alerts {
-                if self.generation() != generation {
-                    return Stop::Forgotten;
-                }
-                if sink.alert(&answer.fleet, alert).await.is_err() {
-                    delivered = false;
-                    break;
-                }
-            }
-            if delivered && cursor != Some(answer.cursor) {
-                let Some(written) = self.advance(generation, &path, answer.cursor) else {
-                    return Stop::Forgotten;
-                };
-                delivered = written.is_ok();
-                if delivered {
-                    cursor = Some(answer.cursor);
-                }
-            }
-            if !delivered {
-                Self::pause(&mut backoff, &mut nudges).await;
-                continue;
-            }
-            backoff.reset();
-            more = answer.more;
-            if !more {
-                sleep_until(started + MIN_POLL).await;
             }
         }
+    }
+
+    pub async fn once(
+        &self,
+        fleet: &str,
+        cookies: &impl CookieSource,
+        sink: &impl AlertSink,
+        refused_before: bool,
+    ) -> Option<Stop> {
+        let Some(mut cycle) = self.cycle(fleet, refused_before) else {
+            return Some(Stop::CookieGone);
+        };
+        let mut more = false;
+        loop {
+            match self
+                .step(&mut cycle, cookies, sink, more, Duration::ZERO)
+                .await
+            {
+                Step::Stop(stop) => return Some(stop),
+                Step::Retry | Step::Next(false) => return None,
+                Step::Next(true) => more = true,
+            }
+        }
+    }
+
+    fn cycle<'a>(&self, fleet: &'a str, refused_before: bool) -> Option<Cycle<'a>> {
+        valid_fleet(fleet).then(|| {
+            let path = self.dir.join(format!("{fleet}.cursor"));
+            Cycle {
+                fleet,
+                generation: self.generation(),
+                cursor: read_cursor(&path),
+                path,
+                name: None,
+                refused_before,
+            }
+        })
+    }
+
+    async fn step(
+        &self,
+        cycle: &mut Cycle<'_>,
+        cookies: &impl CookieSource,
+        sink: &impl AlertSink,
+        more: bool,
+        wait: Duration,
+    ) -> Step {
+        let answer = match self
+            .poll(cycle.fleet, cookies, cycle.cursor, more, wait)
+            .await
+        {
+            Ok(answer) => answer,
+            Err(Failure::CookieGone) => {
+                if self.generation() != cycle.generation {
+                    return Step::Stop(Stop::Forgotten);
+                }
+                let _ = fs::remove_file(&cycle.path);
+                sink.unpaired(cycle.fleet, cycle.name.as_deref()).await;
+                return Step::Stop(Stop::CookieGone);
+            }
+            Err(Failure::BoardGone) => {
+                if self.generation() != cycle.generation {
+                    return Step::Stop(Stop::Forgotten);
+                }
+                if cycle.refused_before {
+                    let _ = fs::remove_file(&cycle.path);
+                } else {
+                    sink.unpaired(cycle.fleet, cycle.name.as_deref()).await;
+                }
+                return Step::Stop(Stop::BoardGone);
+            }
+            Err(Failure::Retry) => return Step::Retry,
+        };
+        cycle.refused_before = false;
+        cycle.name = Some(answer.fleet.name.clone());
+        for alert in &answer.alerts {
+            if self.generation() != cycle.generation {
+                return Step::Stop(Stop::Forgotten);
+            }
+            if sink.alert(&answer.fleet, alert).await.is_err() {
+                return Step::Retry;
+            }
+        }
+        if cycle.cursor != Some(answer.cursor) {
+            let Some(written) = self.advance(cycle.generation, &cycle.path, answer.cursor) else {
+                return Step::Stop(Stop::Forgotten);
+            };
+            if written.is_err() {
+                return Step::Retry;
+            }
+            cycle.cursor = Some(answer.cursor);
+        }
+        Step::Next(answer.more)
     }
 
     async fn poll(
@@ -251,6 +309,7 @@ impl Feed {
         cookies: &impl CookieSource,
         cursor: Option<u64>,
         more: bool,
+        wait: Duration,
     ) -> Result<Answer, Failure> {
         let header = cookies
             .cookies()
@@ -260,7 +319,7 @@ impl Feed {
         let request = Request::new(
             Method::Get,
             fleet,
-            &feed_path(cursor, (!more).then_some(self.wait)),
+            &feed_path(cursor, (!more).then_some(wait)),
             Some(&header),
             None,
             &[],
@@ -269,7 +328,7 @@ impl Feed {
             RequestError::Unpaired => Failure::CookieGone,
             _ => Failure::Retry,
         })?
-        .within(self.wait + ANSWER_SLACK)
+        .within(wait + ANSWER_SLACK)
         .up_to(MAX_BODY)
         .by_length();
         let response = exchange(&self.dialer, &request)
@@ -425,6 +484,58 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
             });
             state.stopped.remove(&fleet);
             state.loops.insert(fleet, Running { task, cookie });
+        }
+    }
+
+    pub async fn poll_once(self: &Arc<Self>) {
+        let present = match self.cookies.cookies().await {
+            Ok(header) => paired_cookies(header.as_deref().unwrap_or_default()),
+            Err(_) => return,
+        };
+        let now = Instant::now();
+        let due: Vec<(String, String, bool)> = {
+            let mut state = self.state.lock().unwrap();
+            state
+                .stopped
+                .retain(|fleet, _| present.iter().any(|(id, _)| id == fleet));
+            present
+                .into_iter()
+                .filter_map(|(fleet, cookie)| {
+                    let stopped = state.stopped.get(&fleet);
+                    if let Some(stopped) = stopped
+                        && stopped.cookie == cookie
+                        && stopped.retry_at.is_none_or(|at| now < at)
+                    {
+                        return None;
+                    }
+                    let refused_before =
+                        stopped.is_some_and(|s| s.cookie == cookie && s.board_gone);
+                    Some((fleet, cookie, refused_before))
+                })
+                .collect()
+        };
+        for (fleet, cookie, refused_before) in due {
+            let stop = self
+                .feed
+                .once(&fleet, &self.cookies, &self.sink, refused_before)
+                .await;
+            let mut state = self.state.lock().unwrap();
+            match stop {
+                Some(Stop::Forgotten) => {}
+                Some(stop) => {
+                    state.stopped.insert(
+                        fleet,
+                        Stopped {
+                            cookie,
+                            retry_at: Some(Instant::now() + self.rescan * RETRY_SCANS),
+                            board_gone: stop == Stop::BoardGone,
+                        },
+                    );
+                }
+                None => {
+                    state.stopped.remove(&fleet);
+                }
+            }
         }
     }
 }

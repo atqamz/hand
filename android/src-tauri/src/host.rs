@@ -67,6 +67,12 @@ impl Core {
             running.stop();
         }
     }
+
+    fn quiet(&self) {
+        self.stop_live();
+        self.reporter.lock().unwrap().take();
+        self.alerts.stop();
+    }
 }
 
 struct State {
@@ -511,6 +517,52 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
     if let Some(core) = core() {
         core.reporter.lock().unwrap().take();
         core.alerts.stop();
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_sleep<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        core.quiet();
+        runtime().block_on(async {
+            core.companion.sleep().await;
+            info(&core.companion.report().await);
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_wake<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let Some(core) = core() else {
+        return 1;
+    };
+    match runtime().block_on(core.companion.wake()) {
+        Ok(()) => 1,
+        Err(error) => {
+            warn(&format!("wake failed: {error}"));
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_poll<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        runtime().block_on(async {
+            if let Err(error) = core.companion.poll_asleep(core.alerts.poll_once()).await {
+                warn(&format!("poll failed: {error}"));
+            }
+            info(&core.companion.report().await);
+        });
     }
 }
 

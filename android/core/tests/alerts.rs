@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use hand_android_core::{Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Stop, Supervisor};
 use serde_json::{Value, json};
 use support::{
-    FeedBoard, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, sessions,
-    sidecar_bin,
+    FeedBoard, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, endpoint,
+    sessions, sidecar_bin,
 };
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -1144,4 +1144,246 @@ async fn the_feed_sends_the_imported_cookie_and_keeps_it_when_the_jar_changes() 
         assert_eq!(request.cookie.as_deref(), Some(stored.as_str()));
     }
     task.abort();
+}
+
+impl Harness {
+    async fn sleep_and_wake_for_a_poll(&self) {
+        self.dialer.close().await;
+        assert!(self.dialer.is_down());
+        self.dialer.open(endpoint().await);
+    }
+
+    fn polled(&self) -> Vec<String> {
+        self.board
+            .seen()
+            .into_iter()
+            .map(|seen| seen.target)
+            .collect()
+    }
+
+    fn seqs(&self) -> Vec<u64> {
+        self.sink
+            .alerts()
+            .iter()
+            .map(|(_, alert)| alert.seq)
+            .collect()
+    }
+}
+
+#[tokio::test]
+async fn a_poll_asleep_continues_the_live_cursor_and_the_live_feed_continues_the_poll() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer(5, vec![]),
+        1 => answer(
+            7,
+            vec![
+                alert(6, "attempt.failed", "a6", "a6 failed", &link("attempt/a6")),
+                alert(7, "attempt.failed", "a7", "a7 failed", &link("attempt/a7")),
+            ],
+        ),
+        2 => answer(7, vec![]).held(Duration::from_secs(5)),
+        3 => answer(
+            9,
+            vec![
+                alert(8, "attempt.failed", "a8", "a8 failed", &link("attempt/a8")),
+                alert(9, "attempt.failed", "a9", "a9 failed", &link("attempt/a9")),
+            ],
+        ),
+        4 => answer(9, vec![]),
+        5 => answer(
+            10,
+            vec![alert(
+                10,
+                "attempt.failed",
+                "a10",
+                "a10 failed",
+                &link("attempt/a10"),
+            )],
+        ),
+        _ => answer(10, vec![]).held(Duration::from_secs(5)),
+    })
+    .await;
+    let live = harness.run(harness.feed());
+    assert!(
+        wait_for(|| harness.board.seen().len() >= 3 && harness.cursor().as_deref() == Some("7"))
+            .await
+    );
+    live.abort();
+    let _ = live.await;
+
+    harness.sleep_and_wake_for_a_poll().await;
+    let feed = harness.feed();
+    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(harness.seqs(), [6, 7, 8, 9]);
+    assert_eq!(harness.cursor().as_deref(), Some("9"));
+    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(harness.seqs(), [6, 7, 8, 9]);
+
+    harness.dialer.close().await;
+    harness.dialer.open(endpoint().await);
+    let live = harness.run(harness.feed());
+    assert!(wait_for(|| harness.seqs().len() == 5).await);
+    live.abort();
+
+    assert_eq!(harness.seqs(), [6, 7, 8, 9, 10]);
+    assert_eq!(harness.cursor().as_deref(), Some("10"));
+    assert_eq!(
+        harness.polled()[3..6],
+        [
+            format!("/{FLEET}/alerts/feed?after=7&wait=0"),
+            format!("/{FLEET}/alerts/feed?after=9&wait=0"),
+            format!("/{FLEET}/alerts/feed?after=9&wait=25"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_poll_that_the_sink_fails_leaves_the_cursor_and_repeats_only_the_unposted_alerts() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let two = || {
+        answer(
+            12,
+            vec![
+                alert(
+                    11,
+                    "attempt.failed",
+                    "a11",
+                    "a11 failed",
+                    &link("attempt/a11"),
+                ),
+                alert(
+                    12,
+                    "attempt.failed",
+                    "a12",
+                    "a12 failed",
+                    &link("attempt/a12"),
+                ),
+            ],
+        )
+    };
+    let harness = Harness::start(&bin, 60, move |_, _| two()).await;
+    harness.keep_cursor(10);
+    harness.sink.fail_on(12);
+    harness.sleep_and_wake_for_a_poll().await;
+    let feed = harness.feed();
+
+    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(harness.cursor().as_deref(), Some("10"));
+    assert_eq!(harness.seqs(), [11]);
+
+    harness.sink.0.lock().unwrap().fail_on = None;
+    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(harness.cursor().as_deref(), Some("12"));
+    assert_eq!(harness.seqs(), [11, 11, 12]);
+}
+
+#[tokio::test]
+async fn a_poll_follows_more_with_no_wait_and_a_failed_poll_changes_nothing() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 => answer_for(
+            FLEET,
+            1,
+            true,
+            vec![alert(
+                1,
+                "attempt.failed",
+                "a1",
+                "a1 failed",
+                &link("attempt/a1"),
+            )],
+        ),
+        1 => answer(
+            2,
+            vec![alert(
+                2,
+                "attempt.failed",
+                "a2",
+                "a2 failed",
+                &link("attempt/a2"),
+            )],
+        ),
+        _ => Reply::status(503),
+    })
+    .await;
+    harness.keep_cursor(0);
+    let feed = harness.feed();
+
+    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(harness.seqs(), [1, 2]);
+    assert_eq!(
+        harness.polled(),
+        [
+            format!("/{FLEET}/alerts/feed?after=0&wait=0"),
+            format!("/{FLEET}/alerts/feed?after=1"),
+        ]
+    );
+
+    assert_eq!(feed.once(FLEET, &Cookies, &harness.sink, false).await, None);
+    assert_eq!(harness.cursor().as_deref(), Some("2"));
+    assert_eq!(harness.seqs(), [1, 2]);
+    assert_eq!(harness.board.seen().len(), 3);
+}
+
+#[tokio::test]
+async fn a_refused_fleet_is_skipped_by_the_next_poll_until_its_cookie_changes() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |n, _| match n {
+        0 | 1 => Reply::status(403).header("X-Hand-Error", GONE),
+        _ => answer(4, vec![]),
+    })
+    .await;
+    harness.keep_cursor(4);
+    let cookies = Shared::default();
+    cookies.set(Some(OWN));
+    let supervisor = Supervisor::new(
+        harness.feed(),
+        cookies.clone(),
+        harness.sink.clone(),
+        Duration::from_secs(600),
+    );
+
+    supervisor.poll_once().await;
+    assert_eq!(harness.sink.unpaired().len(), 1);
+    supervisor.poll_once().await;
+    assert_eq!(harness.board.seen().len(), 1);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+
+    cookies.set(Some("hand_phone_f0123456789ab=changed"));
+    supervisor.poll_once().await;
+    assert_eq!(harness.board.seen().len(), 2);
+    assert_eq!(harness.sink.unpaired().len(), 2);
+
+    cookies.set(None);
+    supervisor.poll_once().await;
+    assert_eq!(harness.board.seen().len(), 2);
+    assert_eq!(harness.cursor().as_deref(), Some("4"));
+}
+
+#[tokio::test]
+async fn a_second_refusal_in_a_poll_deletes_the_cursor_without_a_notice() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let harness = Harness::start(&bin, 60, |_, _| {
+        Reply::status(403).header("X-Hand-Error", GONE)
+    })
+    .await;
+    harness.keep_cursor(4);
+    let feed = harness.feed();
+
+    let stop = feed.once(FLEET, &Cookies, &harness.sink, true).await;
+
+    assert_eq!(stop, Some(Stop::BoardGone));
+    assert!(harness.cursor().is_none());
+    assert!(harness.sink.unpaired().is_empty());
 }
