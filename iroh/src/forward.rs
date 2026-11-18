@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -11,9 +11,8 @@ use iroh::EndpointId;
 use iroh::endpoint::{
     Connection, Endpoint, Incoming, IncomingAddr, RecvStream, SendStream, VarInt,
 };
-use tokio::io::{AsyncWrite, AsyncWriteExt, copy};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, copy};
 use tokio::net::TcpStream;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep_until, timeout};
@@ -244,18 +243,41 @@ async fn forward(
         let _ = recv.stop(BOARD_UNREACHABLE_CODE);
         return;
     };
-    let activity = Arc::new(Activity::new(Some(connection_activity)));
     let (board_read, board_write) = board.into_split();
+    relay(
+        send,
+        recv,
+        board_read,
+        board_write,
+        config.idle,
+        connection_activity,
+    )
+    .await;
+}
+
+async fn relay<R, W>(
+    send: SendStream,
+    mut recv: RecvStream,
+    board_read: R,
+    board_write: W,
+    idle: Duration,
+    connection_activity: Arc<Activity>,
+) where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let activity = Arc::new(Activity::new(Some(connection_activity)));
     let mut board_write = Touch::wrap(board_write, activity.clone());
     let mut send = Touch::wrap(send, activity.clone());
+    let write_failed = AtomicBool::new(false);
     let quiet = tokio::select! {
         _ = async {
             tokio::join!(
-                upload(&mut recv, &mut board_write),
-                download(board_read, &mut send),
+                upload(&mut recv, &mut board_write, &write_failed),
+                download(board_read, &mut send, &write_failed),
             )
         } => false,
-        () = activity.quiet_for(config.idle) => true,
+        () = activity.quiet_for(idle) => true,
     };
     if quiet {
         let _ = send.inner.reset(STREAM_IDLE_CODE);
@@ -263,19 +285,31 @@ async fn forward(
     }
 }
 
-async fn upload(recv: &mut RecvStream, board: &mut Touch<OwnedWriteHalf>) {
+async fn upload<W: AsyncWrite + Unpin>(
+    recv: &mut RecvStream,
+    board: &mut Touch<W>,
+    write_failed: &AtomicBool,
+) {
     match copy(recv, board).await {
         Ok(_) => {
             let _ = board.shutdown().await;
         }
         Err(_) => {
+            write_failed.store(true, Ordering::Relaxed);
             let _ = recv.stop(BOARD_ERROR_CODE);
         }
     }
 }
 
-async fn download(mut board: OwnedReadHalf, send: &mut Touch<SendStream>) {
+async fn download<R: AsyncRead + Unpin>(
+    mut board: R,
+    send: &mut Touch<SendStream>,
+    write_failed: &AtomicBool,
+) {
     match copy(&mut board, send).await {
+        Ok(0) if write_failed.load(Ordering::Relaxed) => {
+            let _ = send.inner.reset(BOARD_ERROR_CODE);
+        }
         Ok(_) => {
             let _ = send.inner.finish();
         }
@@ -725,6 +759,7 @@ mod tests {
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
                 reader.read_line(&mut line).await.unwrap();
+                reader.read_exact(&mut [0u8; 4]).await.unwrap();
                 reader.get_ref().set_zero_linger().unwrap();
             }
         });
@@ -742,6 +777,63 @@ mod tests {
             "{error:?}"
         );
         assert!(connection.close_reason().is_none());
+    }
+
+    struct Broken(Option<tokio::io::DuplexStream>);
+
+    impl AsyncWrite for Broken {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.0.take();
+            Poll::Ready(Err(io::ErrorKind::ConnectionReset.into()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_board_write_then_a_clean_end_is_still_a_board_error() {
+        let sidecar = sidecar(closed_port().await, 4, WAIT).await;
+        sidecar.served.abort();
+        let endpoint = sidecar.endpoint.clone();
+        let relayed = tokio::spawn(async move {
+            let connection = endpoint.accept().await.unwrap().await.unwrap();
+            let (send, recv) = connection.accept_bi().await.unwrap();
+            let (read, held) = tokio::io::duplex(1);
+            relay(
+                send,
+                recv,
+                read,
+                Broken(Some(held)),
+                WAIT,
+                Arc::new(Activity::new(None)),
+            )
+            .await;
+            connection.closed().await;
+        });
+        let client = dialer().await;
+        let connection = client.connect(sidecar.addr.clone(), ALPN).await.unwrap();
+        let (mut send, mut recv) = connection.open_bi().await.unwrap();
+        send.write_all(b"ping").await.unwrap();
+        let error = timeout(WAIT, recv.read_to_end(1 << 20))
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            matches!(error, ReadToEndError::Read(ReadError::Reset(code)) if code == BOARD_ERROR_CODE),
+            "{error:?}"
+        );
+        connection.close(VarInt::from_u32(0), b"done");
+        relayed.await.unwrap();
     }
 
     #[cfg(unix)]
