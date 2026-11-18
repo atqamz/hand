@@ -173,6 +173,42 @@ func TestAPIInboxUploadRefusals(t *testing.T) {
 	}
 }
 
+func TestAPIInboxEmptyUploads(t *testing.T) {
+	api, page := apiInboxFixture(t), newFixture(t)
+	page.options.Now = api.options.Now
+	got := apiStored(t, api.handler(), "empty.txt", nil)
+	_, name, kind := saved(t, upload(page.handler(), "empty.txt", nil, token))
+	if got.Name != name || got.Kind != kind || got.Size != 0 || got.Label != "empty.txt" {
+		t.Fatalf("an empty file: API %+v, Board %q %q", got, name, kind)
+	}
+	if b, err := os.ReadFile(filepath.Join(api.options.Home, "inbox", got.Name)); err != nil || len(b) != 0 {
+		t.Fatalf("stored %d bytes (%v), want an empty file", len(b), err)
+	}
+	for _, c := range []struct {
+		what  string
+		field bool
+	}{{"a part with no file name", true}, {"no part at all", false}} {
+		var body bytes.Buffer
+		w := multipart.NewWriter(&body)
+		if c.field {
+			_ = w.WriteField("file", "text")
+		}
+		_ = w.Close()
+		req := httptest.NewRequest("POST", "/api/v1/inbox", &body)
+		req.Header.Set("Content-Type", w.FormDataContentType())
+		req.Header.Set("X-Hand-CSRF", token)
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+		rec := httptest.NewRecorder()
+		api.handler().ServeHTTP(rec, req)
+		if e := testAPIError(t, rec, http.StatusBadRequest, "bad_request"); strings.Contains(e.Message, api.options.Home) {
+			t.Errorf("%s: the refusal names the host folder: %q", c.what, e.Message)
+		}
+	}
+	if got := inboxFiles(t, api.options.Home); len(got) != 1 {
+		t.Fatalf("inbox = %q, want only the empty file", got)
+	}
+}
+
 func TestAPIInboxStoreFailureKeepsTheHostPathOut(t *testing.T) {
 	fx := apiInboxFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.options.Home, "inbox"), []byte("not a folder"), 0o600); err != nil {

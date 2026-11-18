@@ -616,6 +616,32 @@ func TestDroppingAFileOnTheChatPaneAttachesIt(t *testing.T) {
 	}
 }
 
+func TestDroppingSeveralFilesAttachesEachInOrderAndRefusesTheFolder(t *testing.T) {
+	f := sentFixture(t)
+	app := newApp(t, f)
+	dir, img, log := twoFiles(t)
+	folder := filepath.Join(dir, "screens")
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	empty := fileOf(t, dir, "empty.txt", 0)
+	tt := sized(t, app, 1100, 760, false)
+	head, _ := tt.Find("Supervisor")
+	if !tt.DropFiles(head.X+40, 300, img, folder, empty, log) {
+		t.Fatal("the chat pane did not take the dropped files")
+	}
+	tt.Frame()
+	mustText(t, tt, attachImage, attachLog, "empty.txt", "screens/", "A folder is not copied. Paste its path instead.")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.uploaded) != 3 || len(f.inbox[f.uploaded[0]]) != 212<<10 || len(f.inbox[f.uploaded[1]]) != 0 || len(f.inbox[f.uploaded[2]]) != 1468006 {
+		t.Fatalf("uploaded %d files, want the image, the empty file and the log in the order dropped", len(f.uploaded))
+	}
+	if len(app.Chips) != 4 {
+		t.Fatalf("%d chips, want 3 attached and the refused folder", len(app.Chips))
+	}
+}
+
 func TestAPastedImageUploadsAsAChip(t *testing.T) {
 	f := sentFixture(t)
 	app := newApp(t, f)
