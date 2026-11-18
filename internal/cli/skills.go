@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"cmp"
 	"context"
+	"flag"
 	"fmt"
 	"maps"
 	"os"
@@ -19,59 +21,82 @@ import (
 
 const skillsRepo = "https://github.com/atqamz/skills.git"
 
+var skillRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+
 var githubRepo = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$`)
 
 var skillsCommands = map[string]handler{
-	"list":   cmdSkillsList,
-	"add":    cmdSkillsAdd,
-	"update": cmdSkillsUpdate,
-	"remove": cmdSkillsRemove,
+	"list":     cmdSkillsList,
+	"add":      cmdSkillsAdd,
+	"update":   cmdSkillsUpdate,
+	"remove":   cmdSkillsRemove,
+	"outdated": cmdSkillsOutdated,
+	"sync":     cmdSkillsSync,
 }
 
 func init() {
 	commands["skills"] = func(r *runner, args []string) error { return sub(r, args, "skills", skillsCommands) }
 }
 
-func (r *runner) skillScope(cmd string, args []string, most int) (fleet.Skills, []string, error) {
+type scopeFlags struct {
+	user, fleet bool
+	project     string
+}
+
+func (r *runner) scopeFlags(cmd string, args []string, most int, extra func(*flag.FlagSet)) (scopeFlags, []string, error) {
 	set := flags("skills " + cmd)
-	user := set.Bool("user", false, "act on the worker skills in ~/.agents/skills and its sibling folders")
-	fleetHome := set.Bool("fleet", false, "act on the supervisor's skills in the fleet home")
-	project := set.String("project", "", "act on `NAME`, a project of this fleet, in its checkout's .agents/skills")
-	if err := set.Parse(args); err != nil {
-		return fleet.Skills{}, nil, helpOr(set, err, usageError{fmt.Sprintf("skills %s: %v", cmd, err)})
+	var f scopeFlags
+	set.BoolVar(&f.user, "user", false, "act on the worker skills in ~/.agents/skills and its sibling folders")
+	set.BoolVar(&f.fleet, "fleet", false, "act on the supervisor's skills in the fleet home")
+	set.StringVar(&f.project, "project", "", "act on `NAME`, a project of this fleet, in its checkout's .agents/skills")
+	if extra != nil {
+		extra(set)
 	}
-	usage := usageError{fmt.Sprintf("usage: hand skills %s [--project NAME|--fleet|--user]%s", cmd, map[string]string{"list": "", "add": " NAME|PATH|URL", "update": " [NAME]", "remove": " [NAME]"}[cmd])}
+	if err := set.Parse(args); err != nil {
+		return f, nil, helpOr(set, err, usageError{fmt.Sprintf("skills %s: %v", cmd, err)})
+	}
+	usage := usageError{fmt.Sprintf("usage: hand skills %s [--project NAME|--fleet|--user]%s", cmd, map[string]string{"list": "", "add": " [--ref REF] NAME|PATH|URL", "update": " [NAME]", "remove": " [NAME]", "outdated": " [--all]", "sync": " [--yes] [NAME]"}[cmd])}
 	if set.NArg() > most || (most == 1 && cmd == "add" && set.NArg() == 0) {
-		return fleet.Skills{}, nil, usage
+		return f, nil, usage
 	}
 	chosen := 0
-	for _, on := range []bool{*user, *fleetHome, *project != ""} {
+	for _, on := range []bool{f.user, f.fleet, f.project != ""} {
 		if on {
 			chosen++
 		}
 	}
 	if chosen > 1 {
-		return fleet.Skills{}, nil, usage
+		return f, nil, usage
 	}
-	var s fleet.Skills
-	var err error
+	return f, set.Args(), nil
+}
+
+func (r *runner) resolveScope(f scopeFlags) (fleet.Skills, error) {
 	switch {
-	case *user:
+	case f.user:
 		home := r.env.Getenv("HOME")
 		if home == "" {
-			return fleet.Skills{}, nil, fmt.Errorf("%w: HOME is not set", state.ErrInvalid)
+			return fleet.Skills{}, fmt.Errorf("%w: HOME is not set", state.ErrInvalid)
 		}
-		s = fleet.Skills{Base: home, Scope: "user"}
-	case *fleetHome:
-		if err = r.needHome(); err == nil {
-			s = fleet.Skills{Base: r.home, Scope: "fleet"}
+		return fleet.Skills{Base: home, Scope: "user"}, nil
+	case f.fleet:
+		if err := r.needHome(); err != nil {
+			return fleet.Skills{}, err
 		}
-	case *project != "":
-		s, err = r.fleetProject(*project)
-	default:
-		s, err = r.checkoutSkills()
+		return fleet.Skills{Base: r.home, Scope: "fleet"}, nil
+	case f.project != "":
+		return r.fleetProject(f.project)
 	}
-	return s, set.Args(), err
+	return r.checkoutSkills()
+}
+
+func (r *runner) skillScope(cmd string, args []string, most int, extra func(*flag.FlagSet)) (fleet.Skills, []string, error) {
+	f, rest, err := r.scopeFlags(cmd, args, most, extra)
+	if err != nil {
+		return fleet.Skills{}, nil, err
+	}
+	s, err := r.resolveScope(f)
+	return s, rest, err
 }
 
 func (r *runner) fleetProject(name string) (fleet.Skills, error) {
@@ -196,19 +221,26 @@ func fetchSkill(ctx context.Context, base string, e fleet.Managed) (dir, commit 
 		}
 		return src, "", cleanup, nil
 	}
+	ref := cmp.Or(e.Ref, "HEAD")
+	if !skillRef.MatchString(ref) {
+		return "", "", cleanup, fmt.Errorf("%w: %q is not a branch, tag or commit name", state.ErrInvalid, ref)
+	}
 	tmp, err := os.MkdirTemp("", "hand-skills-")
 	if err != nil {
 		return "", "", cleanup, err
 	}
 	cleanup = func() { _ = os.RemoveAll(tmp) }
-	if _, err := gitcfg.Run(ctx, tmp, "clone", "--quiet", "--depth", "1", "--", e.URL(), "repo"); err != nil {
-		return "", "", cleanup, err
+	repo := filepath.Join(tmp, "repo")
+	for _, args := range [][]string{{"init", "--quiet", "repo"}, {"-C", "repo", "fetch", "--quiet", "--depth", "1", "--", e.URL(), ref}, {"-C", "repo", "checkout", "--quiet", "FETCH_HEAD"}} {
+		if _, err := gitcfg.Run(ctx, tmp, args...); err != nil {
+			return "", "", cleanup, err
+		}
 	}
-	out, err := gitcfg.Run(ctx, filepath.Join(tmp, "repo"), "rev-parse", "HEAD")
+	out, err := gitcfg.Run(ctx, repo, "rev-parse", "HEAD")
 	if err != nil {
 		return "", "", cleanup, err
 	}
-	dir, err = clonedSkillDir(filepath.Join(tmp, "repo"), e.Path())
+	dir, err = clonedSkillDir(repo, e.Path())
 	return dir, strings.TrimSpace(out), cleanup, err
 }
 
@@ -247,7 +279,7 @@ func skillState(s fleet.Skills, name string, e fleet.Managed) (string, error) {
 }
 
 func cmdSkillsList(r *runner, args []string) error {
-	s, _, err := r.skillScope("list", args, 0)
+	s, _, err := r.skillScope("list", args, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -293,13 +325,23 @@ func cmdSkillsList(r *runner, args []string) error {
 }
 
 func cmdSkillsAdd(r *runner, args []string) error {
-	s, rest, err := r.skillScope("add", args, 1)
+	var ref string
+	s, rest, err := r.skillScope("add", args, 1, func(f *flag.FlagSet) {
+		f.StringVar(&ref, "ref", "", "track the branch, or pin the tag or commit, `REF`; a third-party source without one is pinned to its current commit")
+	})
 	if err != nil {
 		return err
 	}
 	name, e, err := parseSkillSource(rest[0])
 	if err != nil {
 		return err
+	}
+	if ref != "" && e.Local() {
+		return fmt.Errorf("%w: a local source has no ref", state.ErrInvalid)
+	}
+	e.Ref = ref
+	if e.Ref == "" && !e.Local() && trusted(e) {
+		e.Ref = "main"
 	}
 	if err := r.refuseDirty(s, name); err != nil {
 		return err
@@ -332,23 +374,49 @@ func cmdSkillsAdd(r *runner, args []string) error {
 	return r.print(&d)
 }
 
-func (r *runner) installSkill(s fleet.Skills, name string, e *fleet.Managed) error {
-	src, commit, cleanup, err := fetchSkill(r.ctx(), s.Base, *e)
+func (r *runner) fetchStaged(s fleet.Skills, name string, e fleet.Managed) (staged, sum, commit string, err error) {
+	src, commit, cleanup, err := fetchSkill(r.ctx(), s.Base, e)
 	defer cleanup()
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
-	staged, sum, err := fleet.Stage(src, name)
+	staged, sum, err = fleet.Stage(src, name)
+	return staged, sum, commit, err
+}
+
+func (r *runner) installSkill(s fleet.Skills, name string, e *fleet.Managed) error {
+	staged, sum, commit, err := r.fetchStaged(s, name, *e)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(staged)
 	e.Commit, e.ComputedHash = commit, sum
+	if e.Ref == "" && !e.Local() {
+		e.Ref = commit
+	}
 	return s.Install(name, staged, nil)
 }
 
-func (r *runner) eachSkill(cmd string, args []string, fn func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error)) error {
-	s, rest, err := r.skillScope(cmd, args, 1)
+func (r *runner) apply(s fleet.Skills, managed map[string]fleet.Managed, name string, e fleet.Managed, staged, sum, commit string) error {
+	if _, err := s.Backup(name, r.env.Now().UTC().Format("20060102T150405Z")); err != nil {
+		return err
+	}
+	record := func() error {
+		pending := e
+		pending.Next = sum
+		managed[name] = pending
+		return s.Save(managed)
+	}
+	if err := s.Install(name, staged, record); err != nil {
+		return err
+	}
+	e.Commit, e.ComputedHash, e.Next = commit, sum, ""
+	managed[name] = e
+	return nil
+}
+
+func (r *runner) eachSkill(cmd string, args []string, extra func(*flag.FlagSet), fn func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error), more func(*toon.Doc)) error {
+	s, rest, err := r.skillScope(cmd, args, 1, extra)
 	if err != nil {
 		return err
 	}
@@ -387,11 +455,14 @@ func (r *runner) eachSkill(cmd string, args []string, fn func(s fleet.Skills, ma
 	}
 	var d toon.Doc
 	d.Rows("skills", []string{"name", "state", "detail"}, rows)
+	if more != nil {
+		more(&d)
+	}
 	if err := r.print(&d); err != nil {
 		return err
 	}
 	if refused > 0 {
-		return fmt.Errorf("%w: %d skill(s) not %s; see the detail column", state.ErrConflict, refused, map[string]string{"update": "updated", "remove": "removed"}[cmd])
+		return fmt.Errorf("%w: %d skill(s) not %s; see the detail column", state.ErrConflict, refused, map[string]string{"update": "updated", "remove": "removed", "sync": "synced"}[cmd])
 	}
 	return nil
 }
@@ -415,7 +486,7 @@ func refuseUnlessClean(s fleet.Skills, name string, e fleet.Managed, ok bool) (s
 }
 
 func cmdSkillsUpdate(r *runner, args []string) error {
-	return r.eachSkill("update", args, func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error) {
+	return r.eachSkill("update", args, nil, func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error) {
 		e, ok := managed[name]
 		if !ok {
 			return "", "", fmt.Errorf("%s has no recorded source; `hand skills add` records one", name)
@@ -427,40 +498,24 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 		if err != nil {
 			return "", "", err
 		}
-		src, commit, cleanup, err := fetchSkill(r.ctx(), s.Base, e)
-		defer cleanup()
-		if err != nil {
-			return "", "", err
-		}
-		staged, sum, err := fleet.Stage(src, name)
+		staged, sum, commit, err := r.fetchStaged(s, name, e)
 		if err != nil {
 			return "", "", err
 		}
 		defer os.RemoveAll(staged)
 		moved := sum != e.ComputedHash
-		if !e.Local() {
-			moved = commit != e.Commit
-		}
 		if !moved && kind == "" {
 			return "current", e.Commit, nil
 		}
-		record := func() error {
-			pending := e
-			pending.Next = sum
-			managed[name] = pending
-			return s.Save(managed)
-		}
-		if err := s.Install(name, staged, record); err != nil {
+		if err := r.apply(s, managed, name, e, staged, sum, commit); err != nil {
 			return "", "", err
 		}
-		e.Commit, e.ComputedHash, e.Next = commit, sum, ""
-		managed[name] = e
 		return map[bool]string{true: "updated", false: "restored"}[moved], commit, nil
-	})
+	}, nil)
 }
 
 func cmdSkillsRemove(r *runner, args []string) error {
-	return r.eachSkill("remove", args, func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error) {
+	return r.eachSkill("remove", args, nil, func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error) {
 		e, ok := managed[name]
 		if err := r.refuseDirty(s, name); err != nil {
 			return "", "", err
@@ -476,7 +531,7 @@ func cmdSkillsRemove(r *runner, args []string) error {
 			return "", "", err
 		}
 		return "removed", "", nil
-	})
+	}, nil)
 }
 
 func (r *runner) doctorSkills(c *checks) {

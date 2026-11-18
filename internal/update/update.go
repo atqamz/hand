@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -265,6 +266,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if len(stale) > 0 && !o.Check {
 			rep.clearJournal(o)
 		}
+		if !o.Check {
+			for _, e := range fleets {
+				if e.State == "ok" {
+					rep.skills(ctx, o, e.Home)
+				}
+			}
+		}
 		o.launcher(&rep, desktopOn, desktopNext)
 		switch {
 		case o.Check && len(stale) > 0:
@@ -359,6 +367,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if err := child(ctx, o, e.Home, "init"); err != nil {
 			rep.Fleets[i].Init = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there; if hand.version there names a newer hand, run `hand update --channel edge` first", e.Home, err))
+		} else {
+			rep.skills(ctx, o, e.Home)
 		}
 		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}
@@ -877,15 +887,45 @@ func rootAlive(r luvus.Root) bool {
 }
 
 func child(ctx context.Context, o Options, home string, args ...string) error {
+	_, err := childOutput(ctx, o, home, args...)
+	return err
+}
+
+func childOutput(ctx context.Context, o Options, home string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, o.Target, args...)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = home, append(append([]string{}, o.Env...), "HAND_HOME="+home), time.Second
 	proc.NewGroup(cmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return string(out), nil
+}
+
+func (r *Report) skills(ctx context.Context, o Options, home string) {
+	if err := child(ctx, o, home, "skills", "sync", "--fleet"); err != nil {
+		r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` failed in %s (%v); run it there", home, err))
+	}
+	out, err := childOutput(ctx, o, home, "skills", "outdated", "--all")
+	if err != nil {
+		r.Help = append(r.Help, fmt.Sprintf("`hand skills outdated --all` failed in %s (%v); run it there", home, err))
+		return
+	}
+	behind := map[string]int{}
+	for line := range strings.Lines(out) {
+		if cells := strings.SplitN(strings.TrimSpace(line), ",", 4); len(cells) == 4 && slices.Contains([]string{"behind", "edited", "conflict"}, cells[1]) {
+			behind[cells[2]]++
+		}
+	}
+	for _, scope := range slices.Sorted(maps.Keys(behind)) {
+		flag := "--fleet"
+		if name, ok := strings.CutPrefix(scope, "project/"); ok {
+			flag = "--project " + name
+		}
+		r.Help = append(r.Help, fmt.Sprintf("%d skill(s) of %s are behind or edited in %s; `hand skills outdated %s` there", behind[scope], scope, home, flag))
+	}
 }
 
 func stage(src, target string) (string, error) {

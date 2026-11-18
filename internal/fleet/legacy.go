@@ -42,11 +42,16 @@ func (s Skills) migrate() error {
 		return err
 	}
 	moved := 0
+	kept := map[string]legacyEntry{}
 	for name, e := range old {
 		if !SkillName.MatchString(name) {
 			return fmt.Errorf("read %s: %q is not a skill name", path, name)
 		}
-		if _, taken := l.Skills[name]; taken || !s.legacyClean(name, e.Sum) {
+		if _, taken := l.Skills[name]; taken {
+			continue
+		}
+		if !s.legacyClean(name, e.Sum) {
+			kept[name] = e
 			continue
 		}
 		files, ok, err := s.remarked(name)
@@ -54,6 +59,7 @@ func (s Skills) migrate() error {
 			return err
 		}
 		if !ok {
+			kept[name] = e
 			continue
 		}
 		for file, text := range files {
@@ -82,7 +88,14 @@ func (s Skills) migrate() error {
 	if err := s.writeLock(l); err != nil {
 		return err
 	}
-	return os.Remove(path)
+	if len(kept) == 0 {
+		return os.Remove(path)
+	}
+	rest, err := json.MarshalIndent(kept, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, append(rest, '\n'))
 }
 
 func (s Skills) remarked(name string) (map[string]string, bool, error) {

@@ -66,6 +66,9 @@ func fakeHandMain(args []string) int {
 		fmt.Fprintln(os.Stderr, "stop failed")
 		return 1
 	}
+	if out := os.Getenv("HAND_OUT"); out != "" && len(args) > 1 && args[0]+" "+args[1] == "skills outdated" {
+		fmt.Print(out)
+	}
 	if len(args) > 1 && args[0]+" "+args[1] == "supervisor stop" {
 		fakeStop()
 	}

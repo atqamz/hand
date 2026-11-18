@@ -110,7 +110,7 @@ func (f *fixture) log(t *testing.T, keep ...string) []string {
 			word = line[:i+3]
 		}
 		for _, k := range keep {
-			if strings.Contains(word, k) {
+			if strings.Contains(word, k) && (k == "hand skills" || !strings.HasPrefix(word, "hand skills")) {
 				out = append(out, line)
 				break
 			}

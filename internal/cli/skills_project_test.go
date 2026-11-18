@@ -3,6 +3,7 @@ package cli_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,8 +66,8 @@ func TestSkillsAddInACheckoutInstallsOneRootAndTheRepoLock(t *testing.T) {
 	if filepath.IsAbs(e.Source) || filepath.ToSlash(e.Source) != e.Source || !strings.HasPrefix(e.Source, "../") || filepath.Clean(filepath.Join(repo, filepath.FromSlash(e.Source))) != filepath.Clean(src) {
 		t.Fatalf("lock source %q is not the portable path to %s", e.Source, src)
 	}
-	if got := untracked(t, repo); !slices.Equal(got, []string{"?? .agents/skills/notes/SKILL.md", "?? skills-lock.json"}) {
-		t.Fatalf("the checkout holds more than the skill and its lock: %q", got)
+	if got := untracked(t, repo); !slices.Equal(got, []string{"?? .agents/skills/notes/SKILL.md", "?? .agents/skills/skills.json", "?? skills-lock.json"}) {
+		t.Fatalf("the checkout holds more than the skill, its subscription and its lock: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(h.home, "skills-lock.json")); !os.IsNotExist(err) {
 		t.Fatalf("the fleet got the project's lock: %v", err)
@@ -335,8 +336,9 @@ func TestSkillsMigrateThePreV2StateOnceOnRead(t *testing.T) {
 			t.Fatalf("list missing %q:\n%s", want, list)
 		}
 	}
-	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Fatalf("the old state file stays: %v", err)
+	var rest map[string]json.RawMessage
+	if b, err := os.ReadFile(old); err != nil || json.Unmarshal(b, &rest) != nil || len(rest) != 2 || rest["edited"] == nil || rest["bodyonly"] == nil {
+		t.Fatalf("the old state file keeps exactly the entries that did not move: %q, %v", b, err)
 	}
 	e := skillState(t, h.home)["kept"]
 	if want, _ := fleet.ComputedHash(filepath.Join(h.home, ".agents", "skills", "kept")); e.ComputedHash != want || e.Commit != "c0ffee" || e.SkillPath != "skills/kept/SKILL.md" {
