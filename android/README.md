@@ -1,4 +1,4 @@
-# Hand's Android Companion
+# Hand's Companion
 
 Reach a Hand Board from an Android phone over iroh.
 
@@ -62,7 +62,7 @@ Make the key on a machine you trust, outside the repository. The password stays 
 mkdir -p ~/hand-android-key && cd ~/hand-android-key
 read -rsp 'Release key password: ' RELEASE_KEYSTORE_PASSWORD && export RELEASE_KEYSTORE_PASSWORD
 keytool -genkeypair -storetype PKCS12 -keystore release.jks -alias handcompanion \
-  -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=Hand's Android Companion" \
+  -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=Hand's Companion" \
   -storepass:env RELEASE_KEYSTORE_PASSWORD
 ```
 

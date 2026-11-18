@@ -1,6 +1,6 @@
 # Contributing
 
-Hand's Android Companion is a personal project under the [MIT license](../LICENSE). Changes from others are welcome, and the maintainer decides every merge.
+Hand's Companion is a personal project under the [MIT license](../LICENSE). Changes from others are welcome, and the maintainer decides every merge.
 
 - For anything beyond a small fix, open an issue first and say what you want to change.
 - Send one pull request per change, and say in it what changed and why.

@@ -3,7 +3,7 @@ name = "hand-android-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
-description = "The Rust core of Hand's Android Companion"
+description = "The Rust core of Hand's Companion"
 license = "MIT"
 publish = false
 

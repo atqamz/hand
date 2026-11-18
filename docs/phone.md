@@ -1,6 +1,6 @@
 # Reach the board from a phone
 
-The board listens on `127.0.0.1:7777`, so a phone cannot open it. The way in is the Hand app: an Android app that dials your [host](vocabulary.md#host) over [iroh](https://docs.iroh.computer/), with no address to type, no account and no public name. The app, the [peer listener](#the-peer-listener) and the [`hand-iroh` sidecar](#the-hand-iroh-sidecar) are all of it, and the app's contract is [The Android Companion contract](companion.md). Hand's iOS Companion comes later.
+The board listens on `127.0.0.1:7777`, so a phone cannot open it. The way in is the Hand app: an Android app that dials your [host](vocabulary.md#host) over [iroh](https://docs.iroh.computer/), with no address to type, no account and no public name. The app, the [peer listener](#the-peer-listener) and the [`hand-iroh` sidecar](#the-hand-iroh-sidecar) are all of it, and the app's contract is [Hand's Companion contract](companion.md). Hand's iOS Companion comes later.
 
 Any other phone, browser or second computer needs a tunnel you set up yourself: see [Other paths](#other-paths). Hand sets up none of them and changes no setting. Never publish the board with a quick tunnel, Tailscale Funnel or any proxy that has no access control of its own: see [Safe use](safe-use.md).
 
@@ -39,11 +39,11 @@ A phone's own **Sign out this phone** writes the signed-out page and flushes it 
 
 ## The hand-iroh sidecar
 
-**What it is.** [`hand-iroh`](vocabulary.md#hand-iroh) is a program that lets a phone reach the [peer listener](#the-peer-listener) over [iroh](https://docs.iroh.computer/): the phone dials the host's endpoint ID, through a public relay or directly, and the sidecar turns each stream it opens into one connection to the peer listener, with the [peer preface](vocabulary.md#peer-preface) in front. It is a separate Rust program in `iroh/`, so `hand` stays a static Go binary with no new Go dependency. The phone side is [Hand's Android Companion](vocabulary.md#hands-android-companion), an app for Android; Hand's iOS Companion comes later, and nothing here targets iOS.
+**What it is.** [`hand-iroh`](vocabulary.md#hand-iroh) is a program that lets a phone reach the [peer listener](#the-peer-listener) over [iroh](https://docs.iroh.computer/): the phone dials the host's endpoint ID, through a public relay or directly, and the sidecar turns each stream it opens into one connection to the peer listener, with the [peer preface](vocabulary.md#peer-preface) in front. It is a separate Rust program in `iroh/`, so `hand` stays a static Go binary with no new Go dependency. The phone side is [Hand's Companion](vocabulary.md#hands-companion), an app for Android; Hand's iOS Companion comes later, and nothing here targets iOS.
 
 **What works today, and what does not.** The Board can start the sidecar, find it, check its version and show its state, and the installers and `hand update` fetch it. A phone pairs through it from the Phone page's **Pair the Hand app** link, and Revoke closes that phone's live iroh connections. The sidecar still does not know who is paired, so it cannot keep connection slots for a paired phone; a stranger who dials the endpoint ID reaches only the pairing page and the pair endpoint, under the peer listener's limits.
 
-What an app may rely on when it dials the sidecar (the protocol name, the streams, the codes, the caps) and the link it reads to pair are fixed in [The Android Companion contract](companion.md).
+What an app may rely on when it dials the sidecar (the protocol name, the streams, the codes, the caps) and the link it reads to pair are fixed in [Hand's Companion contract](companion.md).
 
 **Turn it on.** Start the board with `--iroh`:
 

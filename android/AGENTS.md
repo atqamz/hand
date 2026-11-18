@@ -1,4 +1,4 @@
-# Hand's Android Companion
+# Hand's Companion
 
 The phone app of Hand: native Jetpack Compose screens over a Rust core, Android only. It dials a laptop's `hand-iroh` sidecar over iroh, reads the Board's `/api/v1` and draws it, and opens the Board's pages in a plain `WebView` where no native screen exists yet. Status: the iroh dialer, the loopback proxy, pairing, the alert feed and its foreground service, the session store and the native fleet, Needs, Tasks, Decision, Pair and fallback screens are built; the signed release build is built, and publishing it is not. See the roadmap in `README.md`.
 
