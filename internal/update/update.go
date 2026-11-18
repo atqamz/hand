@@ -898,14 +898,19 @@ func child(ctx context.Context, o Options, home string, args ...string) error {
 func childOutput(ctx context.Context, o Options, home string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, o.Target, args...)
-	cmd.Dir, cmd.Env, cmd.WaitDelay = home, append(append([]string{}, o.Env...), "HAND_HOME="+home), time.Second
-	proc.KillGroupOnCancel(cmd)
-	out, err := cmd.CombinedOutput()
+	out, err := childCmd(ctx, o, home, args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", err, clip(string(out)))
 	}
 	return string(out), nil
+}
+
+func childCmd(ctx context.Context, o Options, home string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, o.Target, args...)
+	cmd.Dir, cmd.Env, cmd.WaitDelay = home, append(append([]string{}, o.Env...), "HAND_HOME="+home), time.Second
+	proc.NewGroup(cmd)
+	proc.KillGroupOnCancel(cmd)
+	return cmd
 }
 
 func clip(out string) string {

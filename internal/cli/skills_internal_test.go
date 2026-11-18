@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ func TestTrustFollowsTheFetchedURLAndTheSubscription(t *testing.T) {
 		return fleet.Managed{LockEntry: fleet.LockEntry{Source: "/src/tool", SourceType: "local"}, Subscribed: sub}
 	}
 	own := "https://github.com/" + ownRepo + ".git"
+	kelvin := strings.ReplaceAll(ownRepo, "k", "\u212a")
 	for name, tc := range map[string]struct {
 		scope string
 		e     fleet.Managed
@@ -34,8 +36,8 @@ func TestTrustFollowsTheFetchedURLAndTheSubscription(t *testing.T) {
 		"planted source, other url":     {"fleet", git(ownRepo, "file:///elsewhere/tool.git", ownRepo), false},
 		"planted source, no url":        {"fleet", git(ownRepo, "", ownRepo), false},
 		"subscription names another":    {"fleet", git(ownRepo, own, "someone/else"), false},
-		"kelvin sign":                   {"fleet", git("atqamz/sKills", "https://github.com/atqamz/sKills.git", "atqamz/sKills"), false},
-		"upper case":                    {"fleet", git(ownRepo, "https://github.com/ATQAMZ/SKILLS.git", ownRepo), false},
+		"kelvin sign":                   {"fleet", git(kelvin, "https://github.com/"+kelvin+".git", kelvin), false},
+		"upper case":                    {"fleet", git(ownRepo, "https://github.com/"+strings.ToUpper(ownRepo)+".git", ownRepo), false},
 		"longer name":                   {"fleet", git(ownRepo, "https://github.com/"+ownRepo+"-x.git", ownRepo), false},
 		"other owner":                   {"fleet", git(ownRepo, "https://github.com/evil/skills.git", ownRepo), false},
 		"ssh form":                      {"fleet", git(ownRepo, "git@github.com:"+ownRepo+".git", ownRepo), false},

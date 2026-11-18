@@ -128,7 +128,7 @@ func TestSkillsSyncShowsAThirdPartyDiffAndAppliesOnlyWithYes(t *testing.T) {
 	if !strings.Contains(out, "sync --yes tool-skill@"+moved) {
 		t.Fatalf("the row does not name the commit: %q", out)
 	}
-	if out, errOut, code := h.run("skills", "sync", "--fleet", "--yes", "tool-skill"); code != 3 || !strings.Contains(out, "--yes takes NAME@COMMIT") {
+	if out, errOut, code := h.run("skills", "sync", "--fleet", "--yes", "tool-skill"); code != 3 || !strings.Contains(out, "--yes takes the whole NAME@COMMIT") {
 		t.Fatalf("--yes without a commit: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if got := readSkill(t, skillPath(h.home, ".claude", "tool-skill")); !strings.Contains(got, "\nv1\n") {
@@ -349,7 +349,7 @@ func TestSkillsAddRefusesAPullRequestRef(t *testing.T) {
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	url := "file://" + filepath.ToSlash(tool.bare)
-	for _, ref := range []string{"refs/pull/1/head", "pull/1/head", "Refs/heads/main", "merge-requests/2/head", "a..b"} {
+	for _, ref := range []string{"refs/pull/1/head", "pull/1/head", "Refs/heads/main", "merge-requests/2/head", "changes/12/1234/1", "Notes/commits", "a..b"} {
 		if _, errOut, code := h.run("skills", "add", "--fleet", "--ref", ref, url); code != 2 || !strings.Contains(errOut, "is not a branch, tag or commit name") {
 			t.Fatalf("--ref %s: code=%d stderr=%q", ref, code, errOut)
 		}
@@ -374,7 +374,7 @@ func TestSkillsSyncYesAppliesOnlyTheCommitThatWasDiffed(t *testing.T) {
 	if got := readSkill(t, skillPath(h.home, ".claude", "tool-skill")); !strings.Contains(got, "\nv1\n") {
 		t.Fatalf("applied a commit nobody read: %q", got)
 	}
-	if out := h.ok("skills", "sync", "--fleet", "--yes", "tool-skill@"+latest[:8]); !strings.Contains(out, "tool-skill,updated,") {
+	if out := h.ok("skills", "sync", "--fleet", "--yes", "tool-skill@"+latest); !strings.Contains(out, "tool-skill,updated,") {
 		t.Fatalf("sync --yes = %q", out)
 	}
 	if e := skillState(t, h.home)["tool-skill"]; e.Commit != latest {

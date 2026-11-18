@@ -88,6 +88,7 @@ func (r *runner) outdatedRows(s fleet.Skills, label string) ([][]string, error) 
 }
 
 func cmdSkillsOutdated(r *runner, args []string) error {
+	defer r.closeFetches()
 	var all bool
 	f, _, err := r.scopeFlags("outdated", args, 0, func(set *flag.FlagSet) {
 		set.BoolVar(&all, "all", false, "check the fleet's skills and those of every project of this fleet")
@@ -154,7 +155,7 @@ func cmdSkillsOutdated(r *runner, args []string) error {
 func cmdSkillsSync(r *runner, args []string) error {
 	var yes string
 	set := func(f *flag.FlagSet) {
-		f.StringVar(&yes, "yes", "", "apply the update of the third-party skill `NAME@COMMIT` whose diff you read")
+		f.StringVar(&yes, "yes", "", "apply the update of the third-party skill `NAME@COMMIT` (the whole commit id) whose diff you read")
 	}
 	diffs := map[string]string{}
 	pending := false
@@ -177,10 +178,10 @@ func cmdSkillsSync(r *runner, args []string) error {
 		if !trusted(s, e) {
 			id := cmp.Or(p.commit, p.sum)
 			yesName, yesID, _ := strings.Cut(yes, "@")
-			if yes != "" && (yesName == "" || len(yesID) < 7) {
-				return "", "", fmt.Errorf("--yes takes NAME@COMMIT of the diff you read: `hand skills sync --yes %s@%s`", name, id)
+			if yes != "" && (yesName == "" || yesID == "" || name == yesName && yesID != id && strings.HasPrefix(id, yesID)) {
+				return "", "", fmt.Errorf("--yes takes the whole NAME@COMMIT of the diff you read: `hand skills sync --yes %s@%s`", name, id)
 			}
-			if name != yesName || !strings.HasPrefix(id, yesID) {
+			if name != yesName || yesID != id {
 				if diffs[name], err = skillDiff(r, s, name, p.staged); err != nil {
 					return "", "", err
 				}
