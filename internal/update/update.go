@@ -406,6 +406,8 @@ func (o Options) launcher(rep *Report, on bool, bin string) {
 	}
 }
 
+var removeWindow = remove
+
 func (o Options) hasWindow(bin string) bool {
 	fi, err := os.Stat(bin)
 	return o.OS == "windows" && err == nil && fi.Mode().IsRegular()
@@ -416,7 +418,7 @@ func (o Options) dropWindow(rep *Report, desktopOn bool, bin string) {
 		return
 	}
 	name := filepath.Base(bin)
-	if err := remove(bin); err != nil {
+	if err := removeWindow(bin); err != nil {
 		rep.Desktop += "; failed to remove the installed " + name + ": " + err.Error()
 		rep.fail(fmt.Sprintf("the installed %s was not removed (%v); it is built for edge and must not run against a stable hand", name, err))
 		return

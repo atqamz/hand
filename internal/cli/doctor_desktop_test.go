@@ -202,9 +202,6 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	fx := newDoctorFixture(t)
 	buildChannel(t, "edge")
 	holdWatchLock(t, fx.h.home)
-	if row := checkRows(t, fx.h.ok("doctor"))["desktop window"]; row[0] != "" {
-		t.Fatalf("a desktop window row without an installed window: %q", row)
-	}
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
 	window, entry := rows["desktop window"], rows["desktop entry"]
@@ -219,5 +216,17 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	}
 	if entry[0] != "" {
 		t.Fatalf("a launcher entry row on Windows: %q", entry)
+	}
+}
+
+func TestDoctorHasNoWindowRowBeforeTheWindowIsInstalled(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the desktop window row exists only on Windows")
+	}
+	fx := newDoctorFixture(t)
+	buildChannel(t, "edge")
+	holdWatchLock(t, fx.h.home)
+	if row := checkRows(t, fx.h.ok("doctor"))["desktop window"]; row[0] != "" {
+		t.Fatalf("a desktop window row without an installed window: %q", row)
 	}
 }

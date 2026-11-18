@@ -476,3 +476,146 @@ func TestRemoveDeletesTheInstalledWindow(t *testing.T) {
 	}
 	absent(t, path)
 }
+
+func windowFixture(t *testing.T, channel string) *fixture {
+	t.Helper()
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	for name, body := range fakeHand(t, "0.9.0", channel, "0123456789ab", strconv.Itoa(state.SchemaVersion), "0.14.4", "0.1.0") {
+		f.srv.set(name, body)
+	}
+	f.o.OS, f.o.Arch, f.o.Channel = "windows", "amd64", channel
+	if err := os.WriteFile(desktopPath(f.target, "windows"), []byte("the edge desktop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func (f *fixture) windowKept(t *testing.T) {
+	t.Helper()
+	if b, err := os.ReadFile(desktopPath(f.target, "windows")); err != nil || string(b) != "the edge desktop" {
+		t.Fatalf("the installed window changed: %q, %v", b, err)
+	}
+}
+
+func (f *fixture) isCurrent() {
+	f.o.From = Build{Version: "0.9.0", Channel: f.o.Channel, Commit: "0123456789ab", Schema: state.SchemaVersion, Luvus: "0.14.4"}
+}
+
+func TestRunRemovesTheInstalledWindowOnAStableUpdateOfAWindowsTarget(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !strings.Contains(rep.Desktop, "would remove the installed hand-desktop.exe") {
+		t.Fatalf("check report = %+v, %v", rep, err)
+	}
+	f.windowKept(t)
+	f.o.Check = false
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || rep.Failed || rep.Desktop != "unsupported on windows/amd64; removed the installed hand-desktop.exe" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, desktopPath(f.target, "windows"))
+	if f.asksForDesktop() {
+		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
+	}
+}
+
+func TestRunRemovesTheInstalledWindowWhenHandIsAlreadyStable(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.isCurrent()
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !strings.Contains(rep.Desktop, "would remove the installed hand-desktop.exe") {
+		t.Fatalf("check report = %+v, %v", rep, err)
+	}
+	f.windowKept(t)
+	f.o.Check = false
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || rep.Failed || !strings.Contains(rep.Desktop, "removed the installed hand-desktop.exe") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, desktopPath(f.target, "windows"))
+}
+
+func TestRunKeepsTheInstalledWindowOnAnEdgeUpdate(t *testing.T) {
+	f := windowFixture(t, "edge")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || strings.Contains(rep.Desktop, "removed") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	f.isCurrent()
+	rep, err = Run(context.Background(), f.o)
+	if err != nil || strings.Contains(rep.Desktop, "removed") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if _, err := os.Stat(desktopPath(f.target, "windows")); err != nil {
+		t.Fatalf("an edge update removed the window: %v", err)
+	}
+}
+
+func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
+	for _, tc := range []struct{ goos, arch string }{{"darwin", "arm64"}} {
+		for _, current := range []bool{false, true} {
+			t.Run(tc.goos+"-"+tc.arch+"-"+strconv.FormatBool(current), func(t *testing.T) {
+				f := windowFixture(t, "stable")
+				f.o.OS, f.o.Arch = tc.goos, tc.arch
+				p := desktopPath(f.target, tc.goos)
+				if err := os.WriteFile(p, []byte("the installed desktop"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if current {
+					f.isCurrent()
+				}
+				rep, err := Run(context.Background(), f.o)
+				if err != nil || strings.Contains(rep.Desktop, "remov") {
+					t.Fatalf("report = %+v, %v", rep, err)
+				}
+				if b, err := os.ReadFile(p); err != nil || string(b) != "the installed desktop" {
+					t.Fatalf("the installed desktop changed: %q, %v", b, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRunKeepsTheInstalledWindowWhenADownloadFails(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.srv.set("hand-iroh-windows-amd64.zip", []byte("garbage"))
+	f.srv.set("hand-iroh-windows-amd64.sha256", []byte(sum([]byte("other"))+"  hand-iroh-windows-amd64.zip\n"))
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a corrupt sidecar did not fail the update")
+	}
+	f.windowKept(t)
+}
+
+func TestRunKeepsTheInstalledWindowWhenTheLuvusDownloadFails(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	newFleet(t, f.root, "alpha")
+	name := "luvus-v0.14.4-x86_64-pc-windows-msvc"
+	f.srv.set(name+".zip", []byte("garbage"))
+	f.srv.set(name+".sha256", []byte(sum([]byte("other"))+"  "+name+".zip\n"))
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a corrupt Luvus did not fail the update")
+	}
+	f.windowKept(t)
+}
+
+func TestRunReportsAFailedRemovalOfTheInstalledWindowAndFinishes(t *testing.T) {
+	f := windowFixture(t, "stable")
+	f.isCurrent()
+	was := removeWindow
+	t.Cleanup(func() { removeWindow = was })
+	removeWindow = func(string) error { return errors.New("access is denied") }
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatalf("a failed removal aborted the update: %v", err)
+	}
+	if !rep.Failed || !strings.Contains(rep.Desktop, "failed to remove the installed hand-desktop.exe: access is denied") || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "was not removed") }) {
+		t.Fatalf("report = %+v", rep)
+	}
+	if rep.Status != "up to date" {
+		t.Fatalf("status = %q", rep.Status)
+	}
+	f.windowKept(t)
+}
