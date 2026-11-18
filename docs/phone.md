@@ -10,7 +10,7 @@ Any other phone, browser or second computer needs a tunnel you set up yourself: 
 
 ## Alerts that open the app
 
-The app is the default phone path for alerts: it reads the [alert feed](alerts.md#the-alert-feed) and shows each alert as an Android notification, and a tap opens the item. Set the app's Battery to **Unrestricted** in Android's settings, or Doze can hold the notifications back. Known gap: after a memory-pressure restart the app's alert service may stall until you open the app (not reproduced, not fixed); the desktop notification on the host, which is on while no `notify` key is set, covers it ([Alerts on your phone](alerts.md#the-desktop-notification)).
+The app is the phone path for alerts (no app release is published yet; build it from `android/`, see its [README](../android/README.md)): it reads the [alert feed](alerts.md#the-alert-feed) and shows each alert as an Android notification, and a tap opens the item. Setting the app's Battery to **Unrestricted** in Android's settings is recommended against Doze, which is not yet measured on a device. Known gaps: after a memory-pressure restart the app's alert service may stall until you open the app (not reproduced, not fixed), and the app does not start at boot, so after a reboot, an app update or a force stop alerts stay off until you open it; on Linux and macOS hosts the desktop notification, which is on while no `notify` key is set, covers both ([Alerts on your phone](alerts.md#the-desktop-notification)).
 
 The `notify` command in `routing.json` is a generic hook for any other service ([a custom command](alerts.md#a-custom-command)). Hand puts two links in its environment:
 
