@@ -72,28 +72,93 @@ func TestElideKeepsTheHeadTheTailAndDeliveredLines(t *testing.T) {
 	if len(got) > 1000+len(marker)+100 {
 		t.Fatalf("result is %d bytes", len(got))
 	}
-	if want := len(body) - (len(got) - len(marker) - 3); omitted != want {
+	if want := len(body) - len(head) - len(after); omitted != want {
+		t.Fatalf("omitted = %d, want %d", omitted, want)
+	}
+}
+
+func TestElideCountsKeptDeliveredLinesAsShown(t *testing.T) {
+	x := strings.Repeat("x", 99) + "\n"
+	body := strings.Repeat(x, 30) + strings.Repeat("Delivered: /abs/f\n", 5) + strings.Repeat(x, 30)
+	head, _, after, omitted := markerLine(t, elide(body, 1000, elideCmd))
+	if strings.Count(after, "Delivered:") != 5 {
+		t.Fatalf("after = %q", after)
+	}
+	if want := len(body) - len(head) - len(after); omitted != want {
 		t.Fatalf("omitted = %d, want %d", omitted, want)
 	}
 }
 
 func TestElideKeepsTheTailOfOneHugeLineAfterAShortFirstLine(t *testing.T) {
-	body := "Summary\n" + strings.Repeat("x", 40000) + "\nVerdict: stuck\n"
-	got := elide(body, reportShowBytes, elideCmd)
-	head, _, after, _ := markerLine(t, got)
-	if len(head) < reportShowBytes*3/4 {
-		t.Fatalf("head is %d bytes of %d allowed", len(head), reportShowBytes)
+	for _, first := range []int{7, 3000} {
+		body := strings.Repeat("s", first) + "\n" + strings.Repeat("x", 40000) + "\nVerdict: stuck\n"
+		got := elide(body, reportShowBytes, elideCmd)
+		head, _, after, _ := markerLine(t, got)
+		if len(head) < reportShowBytes*3/4 {
+			t.Fatalf("first line %d: head is %d bytes of %d allowed", first, len(head), reportShowBytes)
+		}
+		if !strings.HasSuffix(after, "\nVerdict: stuck\n") || len(got) > reportShowBytes+200 {
+			t.Fatalf("first line %d: tail lost or result too big (%d bytes)", first, len(got))
+		}
 	}
-	if !strings.HasSuffix(after, "\nVerdict: stuck\n") || len(got) > reportShowBytes+200 {
-		t.Fatalf("tail lost or result too big (%d bytes)", len(got))
+}
+
+func TestElideCutsTheHeadAtTheLastLineThatFits(t *testing.T) {
+	const limit, share = 1256, 1256 - 157
+	for _, c := range []struct {
+		line int
+		want int
+	}{{100, share}, {367, 733}} {
+		body := strings.Repeat(strings.Repeat("h", c.line-1)+"\n", 30)
+		head, _, _, _ := markerLine(t, elide(body, limit, elideCmd))
+		if len(head) != c.want {
+			t.Fatalf("lines of %d bytes: head is %d bytes, want %d", c.line, len(head), c.want)
+		}
+	}
+}
+
+func TestElideStartsTheTailAtTheFirstLineItKeepsWhole(t *testing.T) {
+	const limit, tail = 1000, 125
+	prefix := strings.Repeat("a", 3000) + "\n"
+	for _, c := range []struct {
+		name, text string
+		want       int
+	}{
+		{"line start at the tail", strings.Repeat("t", tail), tail},
+		{"line break one byte before", "u" + strings.Repeat("t", tail), tail},
+		{"blank line first", "\n" + strings.Repeat("t", tail-1), tail - 1},
+		{"blank CRLF line first", "\r\n" + strings.Repeat("t", tail-2), tail - 2},
+	} {
+		_, _, after, _ := markerLine(t, elide(prefix+c.text, limit, elideCmd))
+		if len(after) != c.want || strings.HasPrefix(after, "\n") || strings.HasPrefix(after, "\r") {
+			t.Fatalf("%s: tail is %d bytes %q, want %d", c.name, len(after), after[:min(len(after), 8)], c.want)
+		}
+	}
+}
+
+func TestElideTrimsCRLFFromTheHeadAndKeptLines(t *testing.T) {
+	x := strings.Repeat("x", 98) + "\r\n"
+	body := strings.Repeat(x, 30) + "Delivered: /abs/mid.md\r\n" + strings.Repeat(x, 30)
+	head, _, after, _ := markerLine(t, elide(body, 1000, elideCmd))
+	if strings.HasSuffix(head, "\r") || !strings.HasPrefix(after, "Delivered: /abs/mid.md\n") {
+		t.Fatalf("head ends %q, after starts %q", head[len(head)-3:], after[:30])
+	}
+}
+
+func TestElideKeepsListedDeliveredLines(t *testing.T) {
+	x := strings.Repeat("x", 99) + "\n"
+	body := strings.Repeat(x, 30) + "- Delivered: /a\n* Delivered: /b\n \tDelivered: /c\n" + strings.Repeat(x, 30)
+	_, _, after, _ := markerLine(t, elide(body, 1000, elideCmd))
+	if !strings.HasPrefix(after, "- Delivered: /a\n* Delivered: /b\n \tDelivered: /c\n") {
+		t.Fatalf("after = %q", after[:60])
 	}
 }
 
 func TestElideCutsLongLinesOnRuneBoundaries(t *testing.T) {
 	for _, r := range []string{"é", "🚀"} {
-		got := elide(strings.Repeat(r, 2000), 1001, elideCmd)
+		got := elide(strings.Repeat(r, 2000), 1000, elideCmd)
 		head, _, after, _ := markerLine(t, got)
-		if !utf8.ValidString(head) || !utf8.ValidString(after) || len(head) > 1001 || len(head) < 800 || len(after) < 100 {
+		if !utf8.ValidString(head) || !utf8.ValidString(after) || len(head) > 1000 || len(head) < 800 || len(after) < 100 {
 			t.Fatalf("%q: head %d bytes, tail %d bytes, valid cut %v", r, len(head), len(after), utf8.ValidString(head+after))
 		}
 	}
@@ -110,6 +175,25 @@ func TestElideBoundsTheDeliveredLinesItKeeps(t *testing.T) {
 	}
 	if strings.Contains(got, strings.Repeat("y", 100)) {
 		t.Fatal("a huge delivered line was kept")
+	}
+}
+
+func TestElideKeepsDeliveredLinesUpToExactlyAEighthOfTheLimit(t *testing.T) {
+	x := strings.Repeat("x", 99) + "\n"
+	for _, c := range []struct {
+		name  string
+		lines []string
+		want  int
+	}{
+		{"second line is one byte over", []string{"Delivered: " + strings.Repeat("a", 51), "Delivered: " + strings.Repeat("b", 51)}, 1},
+		{"one line fills the share", []string{"Delivered: " + strings.Repeat("c", 113)}, 1},
+		{"one line is a byte over", []string{"Delivered: " + strings.Repeat("c", 114)}, 0},
+	} {
+		body := strings.Repeat(x, 20) + strings.Join(c.lines, "\n") + "\n" + strings.Repeat(x, 30)
+		_, _, after, _ := markerLine(t, elide(body, 1000, elideCmd))
+		if got := strings.Count(after, "Delivered:"); got != c.want {
+			t.Fatalf("%s: kept %d lines, want %d", c.name, got, c.want)
+		}
 	}
 }
 

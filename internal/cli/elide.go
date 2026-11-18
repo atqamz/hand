@@ -33,9 +33,9 @@ func elide(s string, limit int, command string) string {
 	keptBytes := 0
 	for _, l := range strings.Split(s[headEnd:tailStart], "\n") {
 		l = strings.TrimRight(l, "\r")
-		if strings.HasPrefix(strings.TrimLeft(l, " \t-*"), "Delivered:") && keptBytes+len(l) <= tail {
+		if strings.HasPrefix(strings.TrimLeft(l, " \t-*"), "Delivered:") && keptBytes+len(l)+1 <= tail {
 			kept = append(kept, l)
-			keptBytes += len(l)
+			keptBytes += len(l) + 1
 		}
 	}
 	omitted := len(s) - len(head) - keptBytes - len(end)

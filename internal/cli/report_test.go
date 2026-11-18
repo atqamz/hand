@@ -249,6 +249,10 @@ func TestReportShowCutsALongBodyAndFullPrintsIt(t *testing.T) {
 	if full := field(fx.h.ok("report", "show", "--full", "r1"), "body"); full != body {
 		t.Fatalf("--full body = %d bytes, want %d", len(full), len(body))
 	}
+	fx.h.name = "hand-foo"
+	if named := field(fx.h.ok("report", "show", "r1"), "body"); !strings.Contains(named, "`hand-foo report show --full r1`") {
+		t.Fatalf("note does not name the invoked binary: %q", named)
+	}
 }
 
 func TestReportShowLeavesAShortBodyAlone(t *testing.T) {

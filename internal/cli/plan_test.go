@@ -70,5 +70,10 @@ func TestTaskAndPlanShowBoundTheirText(t *testing.T) {
 		if got := field(h.ok(append(c.args, "--full", "t1")...), c.name); got != c.full {
 			t.Fatalf("%v --full: %d bytes, want %d", c.args, len(got), len(c.full))
 		}
+		h.name = "hand-foo"
+		if named := field(h.ok(append(c.args, "t1")...), c.name); !strings.Contains(named, "`hand-foo "+c.args[0]+" show --full t1`") {
+			t.Fatalf("%v: note does not name the invoked binary: %q", c.args, named[max(0, len(named)-120):])
+		}
+		h.name = ""
 	}
 }
