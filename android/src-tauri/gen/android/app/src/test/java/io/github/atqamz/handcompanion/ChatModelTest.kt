@@ -1176,4 +1176,175 @@ class ChatModelTest {
     assertEquals("theirs", liveDraft(all, other, 6L, DRAFT_TTL_MILLIS))
     assertEquals("", liveDraft(all, "f00000000000f", 6L, DRAFT_TTL_MILLIS))
   }
+
+  private suspend fun failing(failure: () -> Raw, text: String = "hello from the desktop"): Triple<ChatModel, ChatBoard, ComposingDrafts> {
+    val board = ChatBoard(messageAnswer = { failure() })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit(text)
+    chat.sendNow()
+    return Triple(chat, board, drafts)
+  }
+
+  @Test
+  fun eachErrorCodeSaysItsOwnWordsAndKeepsTheDraft() = runBlocking {
+    val cases =
+      listOf<Pair<() -> Raw, String>>(
+        { refused(400, "bad_request", "invalid: message is empty") } to "invalid: message is empty",
+        { refused(403, "forbidden", "controls are off on this board") } to "controls are off on this board",
+        { refused(403, "forbidden", "") } to CONTROLS_OFF,
+        { refused(500, "internal", "the supervisor path failed") } to "the supervisor path failed",
+        { refused(500, "internal", "") } to "Could not send the message.",
+        { throw BoardError.Busy } to "Your laptop is busy. Try again.",
+        { throw BoardError.Unreachable } to "Your laptop is not reachable.",
+        { throw BoardError.NoLaptop } to "Your laptop is not reachable.",
+        { throw BoardError.BoardNotRunning } to "The Board is not running.",
+        { throw BoardError.Lost } to UNSURE_SENT,
+        { throw BoardError.TimedOut } to UNSURE_SENT
+      )
+    for ((failure, words) in cases) {
+      val (chat, board, drafts) = failing(failure)
+      assertEquals(words, chat.state.value.sendError)
+      assertEquals("hello from the desktop", chat.state.value.draft)
+      assertEquals("hello from the desktop", drafts.text())
+      assertFalse(chat.state.value.sending)
+      assertEquals(1, board.posts.size)
+    }
+  }
+
+  @Test
+  fun anUnpairedSendStopsTheFleetAndKeepsTheDraft() = runBlocking {
+    val (chat, _, drafts) = failing({ throw BoardError.Unpaired })
+    assertTrue(chat.state.value.unpaired)
+    assertEquals("hello from the desktop", drafts.text())
+    assertFalse(chat.state.value.sending)
+  }
+
+  @Test
+  fun aLostSendThatTheTimelineShowsIsNotSentAgain() = runBlocking {
+    val board =
+      ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.sendError)
+    assertTrue(chat.state.value.page.any { it.key == "i1" })
+  }
+
+  @Test
+  fun aRetryWaitsForTheEntryAndNeverSendsAMessageTwice() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(UNSURE_SENT, chat.state.value.sendError)
+    assertEquals("hello from the desktop", chat.state.value.draft)
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.sendError)
+  }
+
+  @Test
+  fun aRetryThatCannotReadTheTimelineDoesNotSend() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.TimedOut })
+    val chat = model(board)
+    chat.load()
+    chat.edit("did it arrive?")
+    chat.sendNow()
+    board.timelineAnswer = { throw BoardError.Unreachable }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals(UNSURE_SENT, chat.state.value.sendError)
+    assertEquals("did it arrive?", chat.state.value.draft)
+    assertFalse(chat.state.value.sending)
+  }
+
+  @Test
+  fun aRetryWithNoEntryOnTheTimelineSendsOnceMore() = runBlocking {
+    var answers = 0
+    val board =
+      ChatBoard(
+        messageAnswer = {
+          if (answers++ == 0) throw BoardError.Lost else Raw(200, golden("message-sent"))
+        }
+      )
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    chat.sendNow()
+    assertEquals(2, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", chat.state.value.sendError)
+  }
+
+  @Test
+  fun anEditedTextAfterALostSendIsPostedWithoutTheCheck() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("first")
+    chat.sendNow()
+    val reads = timelineReads(board).size
+    chat.edit("second")
+    chat.sendNow()
+    assertEquals(listOf("""{"text":"first"}""", """{"text":"second"}"""), board.posts.toList())
+    assertEquals(reads + 1, timelineReads(board).size)
+  }
+
+  @Test
+  fun anEntryAlreadyOnThePageIsNotTakenForTheRetriedMessage() = runBlocking {
+    val board =
+      ChatBoard(
+        timelineAnswer = { Raw(200, golden("message-sent")) },
+        messageAnswer = { throw BoardError.Lost }
+      )
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(UNSURE_SENT, chat.state.value.sendError)
+    assertEquals("hello from the desktop", chat.state.value.draft)
+    assertEquals(1, board.posts.size)
+  }
+
+  @Test
+  fun theQueuedAndAnsweredGoldenReadsQueuedThenDelivered() = runBlocking {
+    val board = ChatBoard(timelineAnswer = { Raw(200, golden("message-states")) })
+    val chat = model(board)
+    chat.load()
+    val operator = chat.state.value.page.map { it.entry }.filter { it.role == "operator" }
+    assertEquals(
+      listOf("queued", "delivered 04:40", ""),
+      operator.map { deliveryWords(it, UTC) }
+    )
+    assertEquals(listOf(2L, 1L, 0L), operator.map { it.input })
+  }
+
+  @Test
+  fun theKeyboardInsetIsAPureFunctionOfTheInsets() {
+    assertFalse(keyboardShown(imeBottom = 0, navBottom = 48))
+    assertFalse(keyboardShown(imeBottom = 48, navBottom = 48))
+    assertTrue(keyboardShown(imeBottom = 800, navBottom = 48))
+    assertTrue(tabsVisible(Tab.Chat, keyboard = false))
+    assertFalse(tabsVisible(Tab.Chat, keyboard = true))
+    assertFalse(tabsVisible(null, keyboard = true))
+    assertTrue(tabsVisible(Tab.Tasks, keyboard = true))
+    assertTrue(tabsVisible(Tab.Needs, keyboard = true))
+    assertEquals(320, composerMaxDp(screenDp = 800, imeDp = 0))
+    assertEquals(112, composerMaxDp(screenDp = 800, imeDp = 520))
+    assertEquals(44, composerMaxDp(screenDp = 600, imeDp = 560))
+  }
 }

@@ -246,7 +246,18 @@ the answer's `Timeline` replaces the conversation, so the operator's bubble read
 `delivered HH:mm` from the Board's own `queued`, `delivery` and `delivered` fields, never from a
 receipt the app makes up. A refusal keeps the text and shows the Board's `message` in the box's foot
 row, where the hint sits; an answer that cannot be read still empties the box and reads the
-conversation again, because the message is in. The hint is `Status.composer_hint` verbatim, follows
+conversation again, because the message is in. The API has no idempotency key, so a send whose
+answer is lost or times out (`Lost`, `TimedOut`) reads "Not sure the message was sent." and its
+button reads **Retry**: before it posts again it reads the timeline and, when an operator entry with
+the same text and an `input` newer than any held at the send is there, it clears the box instead of
+posting; when that read fails it does not post at all. The text is compared with CRLF folded and the
+ends trimmed, as the Board normalises it, and a message the Board accepted late can still repeat
+once. Every refusal shows its own sentence: the answer's `message` for `bad_request`, `forbidden`
+(or "The Board's controls are off." when it has none) and `internal`; "Your laptop is busy. Try
+again.", "Your laptop is not reachable." and "The Board is not running." for the transport's
+failures. With the keyboard up, `adjustResize` and the fleet screen's drawing insets keep the box
+above it, the tab bar hides while Chat is open, and the box's height cap is 40 % of what the
+keyboard leaves (`composerMaxDp`). The hint is `Status.composer_hint` verbatim, follows
 the fleet's `status` event or the 5-second poll and needs no timer of its own; while `agent_state`
 is `blocked` it takes the accent and opens Needs. The draft is one per fleet in the app's private
 `drafts` preferences file: written 300 ms after the last keystroke (each keystroke restarts the

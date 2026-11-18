@@ -272,8 +272,22 @@ fun aboveBottom(firstIndex: Int, offset: Int, threshold: Int) =
 fun pinned(firstIndex: Int, offset: Int, threshold: Int) =
   !aboveBottom(firstIndex, offset, threshold)
 
+fun keyboardShown(imeBottom: Int, navBottom: Int) = imeBottom > navBottom
+
+fun composerMaxDp(screenDp: Int, imeDp: Int, floor: Int = 44) =
+  maxOf(floor, (screenDp - imeDp) * 2 / 5)
+
+fun tabsVisible(tab: Tab?, keyboard: Boolean) = !(keyboard && (tab ?: Tab.Chat) == Tab.Chat)
+
 fun latestCount(current: Int, above: Boolean, added: List<TimelineEntry>) =
   if (!above) 0 else current + added.count { it.role == "supervisor" }
+
+const val UNSURE_SENT = "Not sure the message was sent."
+
+private data class UnsureSend(val text: String, val after: Long)
+
+private fun sameMessage(entry: String, sent: String) =
+  entry.replace("\r\n", "\n").trim() == sent.replace("\r\n", "\n").trim()
 
 const val DRAFT_MILLIS = 300L
 const val DRAFT_TTL_MILLIS = 30L * 24 * 60 * 60 * 1000
@@ -346,6 +360,7 @@ class ChatModel(
   @Volatile private var cursor: String? = null
   @Volatile private var supported: Boolean? = null
   @Volatile private var pending = false
+  @Volatile private var unsure: UnsureSend? = null
 
   suspend fun run() {
     pending = false
@@ -417,29 +432,74 @@ class ChatModel(
     val text = state.draft
     mutableState.update { it.copy(sending = true, sendError = "") }
     flushDraft()
-    val body = buildJsonObject { put("text", text) }.toString()
     try {
-      when (val sent = client.write("message", body, TimelineData.serializer())) {
-        is Write.Updated -> {
-          cursor = sent.envelope.cursor
-          fill(sent.envelope.data)
+      val prior = unsure?.takeIf { it.text == text }
+      if (prior != null) {
+        when (landed(text, prior.after)) {
+          true -> {
+            unsure = null
+            accepted(text)
+            return
+          }
+          null -> {
+            mutableState.update { it.copy(sendError = UNSURE_SENT) }
+            return
+          }
+          false -> unsure = null
         }
-        is Write.Accepted -> reread()
       }
-      accepted(text)
-    } catch (_: BoardError.AppliedUnread) {
-      accepted(text)
-      reread()
-    } catch (error: BoardError) {
-      mutableState.update {
-        if (error == BoardError.Unpaired) it.copy(unpaired = true, sending = false)
-        else it.copy(sending = false, sendError = sendWords(error))
+      val after = lastInput()
+      val body = buildJsonObject { put("text", text) }.toString()
+      try {
+        when (val sent = client.write("message", body, TimelineData.serializer())) {
+          is Write.Updated -> {
+            cursor = sent.envelope.cursor
+            fill(sent.envelope.data)
+          }
+          is Write.Accepted -> reread()
+        }
+        accepted(text)
+      } catch (_: BoardError.AppliedUnread) {
+        accepted(text)
+        reread()
+      } catch (error: BoardError) {
+        when {
+          error == BoardError.Unpaired ->
+            mutableState.update { it.copy(unpaired = true, sending = false) }
+          error == BoardError.Lost || error == BoardError.TimedOut -> {
+            unsure = UnsureSend(text, after)
+            if (landed(text, after) == true) {
+              unsure = null
+              accepted(text)
+            } else {
+              mutableState.update { it.copy(sendError = sendWords(error)) }
+            }
+          }
+          else -> mutableState.update { it.copy(sendError = sendWords(error)) }
+        }
       }
-      if (error == BoardError.Lost || error == BoardError.TimedOut) reread()
     } finally {
       mutableState.update { it.copy(sending = false) }
     }
   }
+
+  private fun lastInput(): Long =
+    displayEntries(mutableState.value.page, mutableState.value.older)
+      .filter { it.entry.role == "operator" }
+      .maxOfOrNull { it.entry.input } ?: 0L
+
+  private suspend fun landed(text: String, after: Long): Boolean? =
+    try {
+      val read = client.read("timeline", TimelineData.serializer())
+      cursor = read.cursor
+      fill(read.data)
+      read.data.entries.any {
+        it.role == "operator" && it.input > after && sameMessage(it.text, text)
+      }
+    } catch (error: BoardError) {
+      if (error == BoardError.Unpaired) mutableState.update { it.copy(unpaired = true) }
+      null
+    }
 
   private fun accepted(sent: String) {
     val held = mutableState.value.draft
@@ -744,11 +804,12 @@ class ChatModel(
   private fun sendWords(error: BoardError): String =
     when (error) {
       BoardError.Lost,
-      BoardError.TimedOut -> "Not sure the message was sent."
+      BoardError.TimedOut -> UNSURE_SENT
       BoardError.Busy -> "Your laptop is busy. Try again."
       BoardError.Unreachable,
       BoardError.NoLaptop -> "Your laptop is not reachable."
       BoardError.BoardNotRunning -> "The Board is not running."
+      is BoardError.Forbidden -> error.message?.takeIf(String::isNotBlank) ?: CONTROLS_OFF
       else -> error.message?.takeIf(String::isNotBlank) ?: "Could not send the message."
     }
 
