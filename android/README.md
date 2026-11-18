@@ -257,16 +257,16 @@ and after the timeline read (or between a Retry's read and its post), so the ent
 the process or Activity dies while the post is in flight, before `Lost` is known, so the draft
 returns but the check does not; and nothing in the API names a send, so there is no key to ask by.
 The same gap works the other way: an entry with the same text from another client after the send is
-taken for this one, and the box clears with the note. The text is compared with CRLF folded, which the Board does
-too, and the ends trimmed, which is the app's own tolerance. The Retry label shows after any send
-error, not only after `Lost` or `TimedOut`: the draft is kept, so a refused text can be sent again
-or edited, and only `Lost` and `TimedOut` make the next send read the timeline first. Every refusal
-shows its own sentence: the answer's `message` for `bad_request`, `forbidden`
-(or "The Board's controls are off." when it has none) and `internal`; "Your laptop is busy. Try
-again.", "Your laptop is not reachable." and "The Board is not running." for the transport's
-failures. With the keyboard up, `adjustResize` and the fleet screen's drawing insets keep the box
-above it, the tab bar hides while Chat is open, and the box's height cap is 40 % of what the
-keyboard leaves (`composerMaxDp`). The hint is `Status.composer_hint` verbatim, follows
+taken for this one, and the box clears with the note. The text is compared with CRLF folded, which
+the Board does too, and the ends trimmed, which is the app's own tolerance. The Retry label shows
+after any send error, not only after `Lost` or `TimedOut`: the draft is kept, so a refused text can
+be sent again or edited, and only `Lost` and `TimedOut` make the next send read the timeline first.
+Every refusal shows its own sentence: the answer's `message` for `bad_request`, `forbidden` (or "The
+Board's controls are off." when it has none) and `internal`; "Your laptop is busy. Try again.",
+"Your laptop is not reachable." and "The Board is not running." for the transport's failures. With
+the keyboard up, `adjustResize` and the fleet screen's drawing insets keep the box above it, the tab
+bar hides while Chat is open, and the box's height cap is 40 % of what the keyboard leaves
+(`composerMaxDp`). The hint is `Status.composer_hint` verbatim, follows
 the fleet's `status` event or the 5-second poll and needs no timer of its own; while `agent_state`
 is `blocked` it takes the accent and opens Needs. The draft is one per fleet in the app's private
 `drafts` preferences file: written 300 ms after the last keystroke (each keystroke restarts the

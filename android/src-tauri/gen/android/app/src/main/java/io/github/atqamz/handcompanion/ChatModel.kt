@@ -316,6 +316,7 @@ fun unsureKey(fleet: String) = "$fleet!unsure"
 fun encodeUnsure(sent: UnsureSend) = "${sent.after}\n${sent.text}"
 
 fun decodeUnsure(raw: String): UnsureSend? {
+  if ('\n' !in raw) return null
   val after = raw.substringBefore('\n').toLongOrNull() ?: return null
   return UnsureSend(raw.substringAfter('\n'), after)
 }
@@ -491,10 +492,11 @@ class ChatModel(
         when (val found = landed(text, prior.after)) {
           is Arrival.Found -> {
             holdUnsure(null)
-            accepted(text)
-            val words = deliveryWords(found.entry)
-            mutableState.update {
-              it.copy(sendNote = if (words.isEmpty()) "Already sent" else "Already sent, $words")
+            if (accepted(text)) {
+              val words = deliveryWords(found.entry)
+              mutableState.update {
+                it.copy(sendNote = if (words.isEmpty()) "Already sent" else "Already sent, $words")
+              }
             }
             return
           }
@@ -558,7 +560,7 @@ class ChatModel(
       Arrival.Unread
     }
 
-  private fun accepted(sent: String) {
+  private fun accepted(sent: String): Boolean {
     val held = mutableState.value.draft
     if (held == sent) {
       drafts.write(fleet, "", nowMillis())
@@ -570,6 +572,7 @@ class ChatModel(
       drafts.write(fleet, held, nowMillis())
       mutableState.update { it.copy(sending = false) }
     }
+    return held == sent
   }
 
   suspend fun poll(): Nothing {

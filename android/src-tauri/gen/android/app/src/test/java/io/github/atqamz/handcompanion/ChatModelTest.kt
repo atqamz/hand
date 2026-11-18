@@ -1,5 +1,6 @@
 package io.github.atqamz.handcompanion
 
+import android.content.SharedPreferences
 import java.util.TimeZone
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -159,6 +160,70 @@ private suspend fun eventually(what: String, check: () -> Boolean) {
   withTimeout(5_000) {
     while (!check()) delay(5)
   }
+}
+
+private class MemoryPrefs(initial: Map<String, String> = emptyMap()) : SharedPreferences {
+  val values = initial.toMutableMap<String, Any?>()
+
+  override fun getAll(): MutableMap<String, *> = values.toMutableMap()
+
+  override fun getString(key: String, defValue: String?) = values[key] as? String ?: defValue
+
+  override fun contains(key: String) = key in values
+
+  override fun edit(): SharedPreferences.Editor = MemoryEditor(values)
+
+  override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? = TODO()
+
+  override fun getInt(key: String, defValue: Int): Int = TODO()
+
+  override fun getLong(key: String, defValue: Long): Long = TODO()
+
+  override fun getFloat(key: String, defValue: Float): Float = TODO()
+
+  override fun getBoolean(key: String, defValue: Boolean): Boolean = TODO()
+
+  override fun registerOnSharedPreferenceChangeListener(
+    listener: SharedPreferences.OnSharedPreferenceChangeListener
+  ) = TODO()
+
+  override fun unregisterOnSharedPreferenceChangeListener(
+    listener: SharedPreferences.OnSharedPreferenceChangeListener
+  ) = TODO()
+}
+
+private class MemoryEditor(private val target: MutableMap<String, Any?>) : SharedPreferences.Editor {
+  private val puts = mutableMapOf<String, String>()
+  private val removed = mutableSetOf<String>()
+
+  override fun putString(key: String, value: String?) = apply {
+    removed -= key
+    puts[key] = value.orEmpty()
+  }
+
+  override fun remove(key: String) = apply {
+    puts -= key
+    removed += key
+  }
+
+  override fun apply() {
+    removed.forEach { target -= it }
+    target.putAll(puts)
+  }
+
+  override fun commit(): Boolean = true.also { apply() }
+
+  override fun putStringSet(key: String, values: MutableSet<String>?): SharedPreferences.Editor = TODO()
+
+  override fun putInt(key: String, value: Int): SharedPreferences.Editor = TODO()
+
+  override fun putLong(key: String, value: Long): SharedPreferences.Editor = TODO()
+
+  override fun putFloat(key: String, value: Float): SharedPreferences.Editor = TODO()
+
+  override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor = TODO()
+
+  override fun clear(): SharedPreferences.Editor = TODO()
 }
 
 class ChatModelTest {
@@ -1383,6 +1448,80 @@ class ChatModelTest {
     assertEquals("Already sent, queued", chat.state.value.sendNote)
     chat.edit("next")
     assertEquals("", chat.state.value.sendNote)
+  }
+
+  @Test
+  fun anEmptyWriteRemovesTheDraftAndItsLostSendKey() {
+    val other = "f000000000009"
+    val prefs =
+      MemoryPrefs(
+        mapOf(
+          draftKey(FLEET, 5L) to "ok",
+          unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3)),
+          draftKey(other, 5L) to "theirs",
+          unsureKey(other) to encodeUnsure(UnsureSend("theirs", 4))
+        )
+      )
+    val drafts = PrefsComposerDrafts(prefs)
+    drafts.write(FLEET, "", 9L)
+    assertEquals(setOf(draftKey(other, 5L), unsureKey(other)), prefs.values.keys)
+    assertNull(drafts.readUnsure(FLEET))
+    assertEquals(UnsureSend("theirs", 4), drafts.readUnsure(other))
+  }
+
+  @Test
+  fun aNonEmptyWriteKeepsTheLostSendKey() {
+    val prefs = MemoryPrefs(mapOf(unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3))))
+    val drafts = PrefsComposerDrafts(prefs)
+    drafts.write(FLEET, "ok", 9L)
+    assertEquals(UnsureSend("ok", 3), drafts.readUnsure(FLEET))
+    assertEquals(setOf(draftKey(FLEET, 9L), unsureKey(FLEET)), prefs.values.keys)
+  }
+
+  @Test
+  fun anExpiredDraftTakesItsLostSendKeyWithIt() {
+    val other = "f000000000009"
+    val prefs =
+      MemoryPrefs(
+        mapOf(
+          draftKey(FLEET, 1_000L) to "ok",
+          unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3)),
+          draftKey(other, 1_000L) to "theirs",
+          unsureKey(other) to encodeUnsure(UnsureSend("theirs", 4))
+        )
+      )
+    val drafts = PrefsComposerDrafts(prefs, ttl = 100L)
+    assertEquals("ok", drafts.read(FLEET, 1_099L))
+    assertEquals(UnsureSend("ok", 3), drafts.readUnsure(FLEET))
+    assertEquals("", drafts.read(FLEET, 1_100L))
+    assertNull(drafts.readUnsure(FLEET))
+    assertEquals(setOf(draftKey(other, 1_000L), unsureKey(other)), prefs.values.keys)
+  }
+
+  @Test
+  fun aCorruptLostSendKeyIsNotTrusted() {
+    assertNull(decodeUnsure("123"))
+    assertNull(decodeUnsure(""))
+    val prefs = MemoryPrefs(mapOf(unsureKey(FLEET) to "123"))
+    assertNull(PrefsComposerDrafts(prefs).readUnsure(FLEET))
+  }
+
+  @Test
+  fun aSendNoteIsNotSetBesideADraftTypedDuringTheRetryRead() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    board.timelineAnswer = {
+      chat.edit("typed during the read")
+      Raw(200, golden("message-sent"))
+    }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("typed during the read", chat.state.value.draft)
+    assertEquals("", chat.state.value.sendNote)
+    assertEquals("", chat.state.value.sendError)
   }
 
   @Test
