@@ -25,17 +25,17 @@ func TestThePhonePageShowsTheSidecarsState(t *testing.T) {
 		want []string
 	}{
 		"ready": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "https://relay.test./"}, []string{
-			`<span class="badge" data-tone="pass">ready</span>`, "Phone access over iroh is online. The Hand app can pair with this host.",
+			`<span class="badge" data-tone="pass">ready</span>`, "Companion access over iroh is online. The Hand app can pair with this host.",
 			`Endpoint ID <code class="ref">` + irohEndpoint + `</code>.`}},
 		"no relay": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "none"}, []string{
-			`<span class="badge" data-tone="wait">no relay</span>`, "Phone access over iroh is running, but it reached no relay, so a phone elsewhere cannot dial it.",
+			`<span class="badge" data-tone="wait">no relay</span>`, "Companion access over iroh is running, but it reached no relay, so a Companion elsewhere cannot dial it.",
 			`Endpoint ID <code class="ref">` + irohEndpoint + `</code>.`}},
 		"starting": {sidecar.Status{State: sidecar.Starting}, []string{
-			`<span class="badge" data-tone="wait">starting</span>`, "Phone access over iroh is starting."}},
+			`<span class="badge" data-tone="wait">starting</span>`, "Companion access over iroh is starting."}},
 		"restarting": {sidecar.Status{State: sidecar.Starting, Reason: "exit status 1: cannot open the endpoint"}, []string{
-			`data-tone="wait">starting</span>`, "Phone access over iroh is restarting after: exit status 1: cannot open the endpoint."}},
+			`data-tone="wait">starting</span>`, "Companion access over iroh is restarting after: exit status 1: cannot open the endpoint."}},
 		"failed": {sidecar.Status{State: sidecar.Failed, Reason: "hand-iroh not found: it is not next to hand (/home/me/bin) or on PATH"}, []string{
-			`<span class="badge" data-tone="fail">failed</span>`, "Phone access over iroh is hand-iroh not found: it is not next to hand (bin) or on PATH."}},
+			`<span class="badge" data-tone="fail">failed</span>`, "Companion access over iroh is hand-iroh not found: it is not next to hand (bin) or on PATH."}},
 	} {
 		page := irohRig(t, &tc.st).do("GET", "/connect", nil, host, nil).Body.String()
 		for _, want := range tc.want {

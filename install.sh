@@ -67,7 +67,7 @@ if [ -n "$want" ]; then
 		got=$(printf '%s\n' "$out" | sed -n '1s/^[[:space:]]*hand-iroh \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) iroh [^[:space:]][^[:space:]]*[[:space:]]*$/\1/p')
 		[ "$got" = "$want" ] || die "$iroh.tar.gz is hand-iroh ${got:-unknown}, but this hand needs $want"
 		;;
-	404) printf 'this release has no %s.tar.gz; phone access over iroh is not installed\n' "$iroh" ;;
+	404) printf 'this release has no %s.tar.gz; Companion access over iroh is not installed\n' "$iroh" ;;
 	*) die "download failed: $url/$iroh.tar.gz (HTTP $status)" ;;
 	esac
 fi

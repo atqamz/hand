@@ -1,42 +1,42 @@
 {{define "connect.html"}}{{template "head" .}}{{template "top" .}}<main class="thread connect">
 <header class="thread-head">
-{{template "crumb" .}} / phone</p>
-<h2 class="thread-title">{{if .Phone}}This phone{{else}}Connect your phone{{end}}</h2>
+{{template "crumb" .}} / companion</p>
+<h2 class="thread-title">{{if .Phone}}This Companion{{else}}Connect your Companion{{end}}</h2>
 </header>
 <p class="meta"><a href="{{.Base}}/alerts">Recent alerts</a>, as the Hand app reads them.</p>
 {{with .Revoked}}<div class="doc-notice revoke-note" role="status"><p>{{.Text}}</p><form method="post" action="{{$.Base}}/connect/revoke/{{.Action}}">{{template "csrf" $.Token}}<input type="hidden" name="phone" value="{{.Phone}}">{{with .Fleet}}<input type="hidden" name="fleet" value="{{.}}">{{end}}<button>{{.Button}}</button></form></div>
 {{end}}{{if .Phone}}<section class="card connect-part" aria-labelledby="this-head">
 <header class="slug"><h3 id="this-head">Paired</h3></header>
 <div class="part-body"><p>Paired as <b>{{.Phone.Name}}</b>. It stays signed in for 90 days from pairing, or until it is revoked.</p>
-<form method="post" action="{{.Base}}/connect/revoke">{{template "csrf" .Token}}<input type="hidden" name="id" value="{{.Phone.ID}}"><button>Sign out this phone</button></form>
+<form method="post" action="{{.Base}}/connect/revoke">{{template "csrf" .Token}}<input type="hidden" name="id" value="{{.Phone.ID}}"><button>Sign out this Companion</button></form>
 </div></section>{{else}}<section class="card connect-part" aria-labelledby="net-head">
 <header class="slug"><h3 id="net-head">Network</h3></header>
-<div class="part-body"><p>This Board listens on this computer only. A phone reaches it through a tunnel you set up, such as an SSH tunnel or WireGuard. Type the address the phone opens, below.</p>
-{{with .Iroh}}<ul class="net"><li><span class="badge" data-tone="{{.Tone}}">{{.State}}</span><span>Phone access over iroh is {{.Text}}{{with .ID}} Endpoint ID <code class="ref">{{.}}</code>.{{end}}</span></li></ul>{{end}}</div>
+<div class="part-body"><p>This Board listens on this computer only. A Companion reaches it through a tunnel you set up, such as an SSH tunnel or WireGuard. Type the address the Companion opens, below.</p>
+{{with .Iroh}}<ul class="net"><li><span class="badge" data-tone="{{.Tone}}">{{.State}}</span><span>Companion access over iroh is {{.Text}}{{with .ID}} Endpoint ID <code class="ref">{{.}}</code>.{{end}}</span></li></ul>{{end}}</div>
 </section>
 <section class="card connect-part" aria-labelledby="pair-head">
-<header class="slug"><h3 id="pair-head">Pair a phone</h3></header>
+<header class="slug"><h3 id="pair-head">Pair a Companion</h3></header>
 <div class="part-body">
 <form class="pair-form" method="post" action="{{.Base}}/connect/code" data-address>{{template "csrf" .Token}}
-<label for="base">Address the phone opens</label>
+<label for="base">Address the Companion opens</label>
 <input id="base" name="base" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="{{.Address}}" placeholder="https://host.example"{{with .AddressError}} aria-invalid="true" aria-describedby="base-error"{{end}}>
 {{with .AddressError}}<p class="field-error" id="base-error">{{.}}</p>{{end}}
-{{with .Choices}}<fieldset class="pair-fleets"><legend>Fleets this phone may open</legend>
+{{with .Choices}}<fieldset class="pair-fleets"><legend>Fleets this Companion may open</legend>
 {{range .}}<label class="pair-fleet"><input type="checkbox" name="fleet" value="{{.ID}}"{{if .Ticked}} checked{{end}}{{if .Current}} disabled{{end}}><span>{{.Name}}{{if .Current}} (this fleet){{end}}</span></label>
-{{end}}<p class="meta">The phone can read every fleet you tick and message its supervisor. Tick only the fleets it needs.</p>
+{{end}}<p class="meta">The Companion can read every fleet you tick and message its supervisor. Tick only the fleets it needs.</p>
 </fieldset>{{end}}
 <button class="primary">{{if .Code}}New code{{else}}Show pairing code{{end}}</button>
 </form>
 {{with .Code}}<div class="pair-code">
 {{with $.QR}}{{.}}
 {{end}}<div class="pair-copy">
-<p>{{if $.QR}}Scan the code with the phone's camera, or open this link on the phone:{{else}}On the phone, open this link:{{end}}</p>
+<p>{{if $.QR}}Scan the code with the Companion's camera, or open this link on the Companion:{{else}}On the Companion, open this link:{{end}}</p>
 <p class="pair-link"><code class="ref">{{$.PairLink}}</code> <button type="button" class="doc-copy" data-copy="link" data-text="{{$.PairLink}}">Copy link</button></p>
 <p>Or open <code class="ref">{{$.PairURL}}</code> and type the code:</p>
 <p class="code-big" aria-label="Pairing code {{.}}">{{.}}</p>
-{{with $.PairsWith}}<p>It pairs the phone with {{.}}.</p>
+{{with $.PairsWith}}<p>It pairs the Companion with {{.}}.</p>
 {{end}}<p class="meta">It works once, until <time datetime="{{$.Expires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.Expires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
-{{if $.Plain}}<p class="doc-notice">This address is plain HTTP on a network. The code and the phone's session cross it unencrypted unless the tunnel encrypts them, as SSH and WireGuard do.</p>{{end}}
+{{if $.Plain}}<p class="doc-notice">This address is plain HTTP on a network. The code and the Companion's session cross it unencrypted unless the tunnel encrypts them, as SSH and WireGuard do.</p>{{end}}
 </div>
 </div>{{end}}
 </div></section>
@@ -49,20 +49,20 @@
 {{with .AppLink}}<div class="pair-code">
 {{with $.AppQR}}{{.}}{{end}}
 <div class="pair-copy">
-<p>Scan the code with the Hand app, or open this link on the phone:</p>
+<p>Scan the code with the Hand app, or open this link on the Companion:</p>
 <p class="pair-link"><code class="ref">{{.}}</code> <button type="button" class="doc-copy" data-copy="link" data-text="{{.}}">Copy link</button></p>
-<p class="meta">It pairs one phone with this fleet, once, until <time datetime="{{$.AppExpires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.AppExpires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
-<p class="meta">A QR code that may have leaked is worth revoking after the phone pairs.</p>
+<p class="meta">It pairs one Companion with this fleet, once, until <time datetime="{{$.AppExpires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.AppExpires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
+<p class="meta">A QR code that may have leaked is worth revoking after the Companion pairs.</p>
 </div></div>{{end}}
 {{with .AppPaired}}<p>paired: {{.}}</p>{{end}}
 </div></section>{{end}}
 <section class="card connect-part" aria-labelledby="dev-head">
-<header class="slug"><h3 id="dev-head">Paired phones</h3></header>
-<div class="part-body">{{with .Unread}}<p class="doc-notice">{{.}} could not be reached, so its phones are not listed here.</p>
+<header class="slug"><h3 id="dev-head">Paired Companions</h3></header>
+<div class="part-body">{{with .Unread}}<p class="doc-notice">{{.}} could not be reached, so its Companions are not listed here.</p>
 {{end}}{{with .Devices}}<ul class="devices">{{range .}}{{if .Fleets}}{{$phone := .}}<li class="device device-group"><span class="dev-text"><span class="dev-name">{{.Name}}</span><span class="dev-note">{{with .Login}}{{.}} · {{end}}paired <time datetime="{{.PairedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.PairedAt.Format "2 Jan"}}</time>{{if not .Seen.IsZero}}, seen <time datetime="{{.Seen.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{.Seen.Format "15:04"}}</time>{{end}}</span></span>{{if gt (len .Fleets) 1}}<form method="post" action="{{$.Base}}/connect/revoke/everywhere">{{template "csrf" $.Token}}<input type="hidden" name="phone" value="{{.Phone}}"><button aria-label="Revoke {{.Name}} everywhere">Revoke everywhere</button></form>{{end}}
 <ul class="dev-fleets">{{range .Fleets}}<li class="dev-fleet"><span>{{.Name}}{{if .Current}} (this fleet){{end}}{{if .Expired}} · signed out after 90 days{{end}}</span><form method="post" action="{{$.Base}}/connect/revoke/in">{{template "csrf" $.Token}}<input type="hidden" name="phone" value="{{$phone.Phone}}"><input type="hidden" name="fleet" value="{{.ID}}"><button aria-label="Revoke {{$phone.Name}} in {{.Name}}">Revoke</button></form></li>{{end}}</ul></li>{{else}}<li class="device"><span class="dev-text"><span class="dev-name">{{.Name}}</span><span class="dev-note">{{if .Expired}}signed out after 90 days · {{end}}{{if not .Phone}}this fleet only · {{end}}{{with .Login}}{{.}} · {{end}}paired <time datetime="{{.PairedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.PairedAt.Format "2 Jan"}}</time>{{if not .Seen.IsZero}}, seen <time datetime="{{.Seen.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{.Seen.Format "15:04"}}</time>{{end}}</span></span><form method="post" action="{{$.Base}}/connect/revoke">{{template "csrf" $.Token}}<input type="hidden" name="id" value="{{.ID}}"><button aria-label="Revoke {{.Name}}">Revoke</button></form></li>{{end}}{{end}}</ul>
-{{else}}<p class="quiet">No phone is paired.</p>{{end}}
-<p class="meta">A phone stays signed in for 90 days, or until you revoke it here. Revoke signs a phone out of one fleet{{if .Choices}}, and Revoke everywhere out of every fleet this browser is signed in to; a fleet it is not signed in to is left alone{{end}}. A phone that reads “this fleet only” was paired before one code could pair several fleets: pair it again with more fleets ticked.</p>
+{{else}}<p class="quiet">No Companion is paired.</p>{{end}}
+<p class="meta">A Companion stays signed in for 90 days, or until you revoke it here. Revoke signs a Companion out of one fleet{{if .Choices}}, and Revoke everywhere out of every fleet this browser is signed in to; a fleet it is not signed in to is left alone{{end}}. A Companion that reads “this fleet only” was paired before one code could pair several fleets: pair it again with more fleets ticked.</p>
 </div></section>{{end}}
 </main>
 {{template "foot"}}{{end}}

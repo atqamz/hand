@@ -43,9 +43,9 @@ func cmdBoard(r *runner, args []string) error {
 		return cmdBoardStart(r, args[1:])
 	}
 	fs := flags("board")
-	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a phone on the LAN")
+	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a Companion on the LAN")
 	peerAddr := fs.String("peer-addr", "", "a second loopback address for a local tunnel or sidecar; every request on it counts as remote; off by default")
-	iroh := fs.Bool("iroh", false, "start hand-iroh so a phone can reach the board over iroh; opens the peer listener on a free loopback port unless --peer-addr names one; off by default")
+	iroh := fs.Bool("iroh", false, "start hand-iroh so a Companion can reach the board over iroh; opens the peer listener on a free loopback port unless --peer-addr names one; off by default")
 	every := fs.Duration("update-every", 0, "run `hand update` this often, which also switches a quiet fleet's Luvus server; 0 is off, the least is "+updateMin.String())
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -154,14 +154,14 @@ func cmdBoard(r *runner, args []string) error {
 	if side != nil {
 		d.Field("iroh", sidecar.Starting)
 	}
-	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone with the Hand app, or through ssh -L"
+	control := "Chat with the supervisor and control it from its fleet's page; reach it from a Companion with the Hand app, or through ssh -L"
 	if !loopback {
 		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L")
 		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
 	help := []string{"Open a fleet's page with `hand open` from inside the fleet; keep its link private, since the token is the only thing guarding that fleet", control}
 	if side != nil {
-		help = append(help, "`hand doctor` shows the iroh row and, once it is ready, the endpoint ID a phone dials")
+		help = append(help, "`hand doctor` shows the iroh row and, once it is ready, the endpoint ID a Companion dials")
 	}
 	d.Help(help...)
 	if err := r.print(&d); err != nil {

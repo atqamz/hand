@@ -1,16 +1,16 @@
 {{define "pair.html"}}{{template "head" .}}<main class="thread pair">
-{{if .Paired}}<header class="thread-head"><h2 class="thread-title">Phone paired</h2></header>
+{{if .Paired}}<header class="thread-head"><h2 class="thread-title">Companion paired</h2></header>
 <section class="card pair-card"><div class="part-body">
 <p>Paired with {{.PairedWith}}.</p>
-{{if .Missed}}<p class="doc-notice">{{if eq .Missed 1}}1 fleet was{{else}}{{.Missed}} fleets were{{end}} not reachable. Pair {{if eq .Missed 1}}it{{else}}them{{end}} from the host's Board, on its Phone page.</p>{{end}}
+{{if .Missed}}<p class="doc-notice">{{if eq .Missed 1}}1 fleet was{{else}}{{.Missed}} fleets were{{end}} not reachable. Pair {{if eq .Missed 1}}it{{else}}them{{end}} from the host's Board, on its Companion page.</p>{{end}}
 <ul class="devices">{{range .Paired}}<li class="device"><span class="dev-text"><span class="dev-name">{{.Name}}</span></span><form method="get" action="/{{.ID}}/"><button class="primary" aria-label="Open {{.Name}}">Open</button></form></li>{{end}}</ul>
 </div></section>
-{{else}}<header class="thread-head"><h2 class="thread-title">Pair this phone</h2></header>
+{{else}}<header class="thread-head"><h2 class="thread-title">Pair this Companion</h2></header>
 <form class="card pair-card" method="post" data-pair><div class="part-body pair-form">
 <label for="code">Code from the Board</label>
 <input id="code" name="code" required autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXXX-XXXXX" maxlength="13"{{with .Error}} aria-invalid="true" aria-describedby="code-error"{{end}}>
 {{with .Error}}<p class="field-error" id="code-error" role="alert">{{.}}</p>{{end}}
-<label for="name">Name for this phone</label>
+<label for="name">Name for this Companion</label>
 <input id="name" name="name" maxlength="40" autocomplete="off" value="{{.Name}}">
 {{with .Login}}<p class="meta">Pairing over the Hand app as {{.}}.</p>{{end}}
 <button class="primary">Pair</button>

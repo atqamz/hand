@@ -3631,7 +3631,7 @@ func TestAPairedPhoneCannotRefreshModels(t *testing.T) {
 	companion := r.mustPair(c, f)
 	csrf := r.csrfOf(c, f, companion)
 	rep := r.post(c, f, "models/refresh", `{"harness":"claude"}`, csrf, companion)
-	if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"code":"forbidden"`) || !strings.Contains(rep.Body, "a paired phone cannot refresh model lists; use the host's Board") {
+	if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"code":"forbidden"`) || !strings.Contains(rep.Body, "a paired Companion cannot refresh model lists; use the host's Board") {
 		t.Fatalf("a phone's refresh = %d:\n%s", rep.Code, rep.Body)
 	}
 }

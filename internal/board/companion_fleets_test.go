@@ -132,9 +132,9 @@ func TestAPhoneListsExactlyTheFleetsItIsPairedWith(t *testing.T) {
 				t.Fatalf("GET / = %d:\n%s", rec.Code, body)
 			}
 			if c.home == nil {
-				contains(t, c.what, body, "pair it on the host, on the fleet's Phone page")
+				contains(t, c.what, body, "pair it on the host, on the fleet's Companion page")
 			} else {
-				lacks(t, c.what, body, "pair it on the host, on the fleet's Phone page", "No fleets yet")
+				lacks(t, c.what, body, "pair it on the host, on the fleet's Companion page", "No fleets yet")
 			}
 			for i, f := range p.fleets {
 				if slices.Contains(c.home, i) {
@@ -153,11 +153,11 @@ func TestOnlyAProxyHidesTheFleetListAndAPhoneBringsItBack(t *testing.T) {
 		p := newCompanionHost(t, true, "alpha", "bravo", "charlie")
 		companions := []*http.Cookie{p.pair(p.fleets[0], headers), p.pair(p.fleets[1], headers)}
 		bare := p.send("GET", "/", nil, nil, headers).Body.String()
-		contains(t, fmt.Sprint(headers), bare, "pair it on the host, on the fleet's Phone page")
+		contains(t, fmt.Sprint(headers), bare, "pair it on the host, on the fleet's Companion page")
 		lacks(t, fmt.Sprint(headers), bare, "alpha", "bravo", "charlie")
 		listed := p.send("GET", "/", nil, companions, headers).Body.String()
 		contains(t, fmt.Sprint(headers), listed, `href="/`+p.fleets[0].id+`/"`, `href="/`+p.fleets[1].id+`/"`)
-		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the host, on the fleet's Phone page")
+		lacks(t, fmt.Sprint(headers), listed, "charlie", p.fleets[2].id, "pair it on the host, on the fleet's Companion page")
 		direct := p.send("GET", "/", nil, companions, nil).Body.String()
 		contains(t, "direct", direct, "alpha", "bravo", "charlie")
 	}
@@ -207,7 +207,7 @@ func TestAPhoneSwitchesBetweenItsFleetsWithoutANewLogin(t *testing.T) {
 	if gone.Code != http.StatusForbidden {
 		t.Fatalf("a fleet revoked between the list and the click = %d", gone.Code)
 	}
-	contains(t, "revoked click", gone.Body.String(), "This phone is no longer paired with this fleet", "<title>403 · this Board</title>")
+	contains(t, "revoked click", gone.Body.String(), "This Companion is no longer paired with this fleet", "<title>403 · this Board</title>")
 	lacks(t, "revoked click", gone.Body.String(), "bravo", "alpha")
 	p.advance(91 * 24 * time.Hour)
 	late := p.send("GET", "/"+p.fleets[0].id+"/", nil, cookies, op)

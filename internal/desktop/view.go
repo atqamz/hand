@@ -181,7 +181,7 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 		a.OpenScreen()
 	}
-	if draw(kit.NavItem{Key: "screen:phone", Label: "Phone", Icon: "phone"}) {
+	if draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone"}) {
 		a.OpenPhone()
 	}
 	if len(a.Fleets) > 0 {

@@ -188,7 +188,7 @@ func (r *runner) doctorPin(ctx context.Context, d *toon.Doc, c *checks, root, pa
 }
 
 func (r *runner) doctorLayout(c *checks, root, id string) {
-	c.add("machine-local", "info", fmt.Sprintf("this machine keeps worktrees/, index/, board.* and iroh/ (the Board's pid, address, peer secret and phone key), models/ (keeps the fleets from each refreshing the same lists) and backups/hand.* (old hand binaries) in %s; the fleet keeps luvus/%s-%s, backups/ and cache/models", root, runtime.GOOS, runtime.GOARCH))
+	c.add("machine-local", "info", fmt.Sprintf("this machine keeps worktrees/, index/, board.* and iroh/ (the Board's pid, address, peer secret and Companion key), models/ (keeps the fleets from each refreshing the same lists) and backups/hand.* (old hand binaries) in %s; the fleet keeps luvus/%s-%s, backups/ and cache/models", root, runtime.GOOS, runtime.GOARCH))
 	points := fleet.RestorePoints(root, id, r.home)
 	if len(points) == 0 {
 		c.add("restore points", "info", "no hand.db backup yet; `hand update` and the watcher make them")

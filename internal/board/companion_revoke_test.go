@@ -113,8 +113,8 @@ func TestAPhoneIsListedOnceWithTheFleetsTheHostIsSignedInTo(t *testing.T) {
 		{"three fleets", []int{0, 1, 2}, []int{0, 1, 2}, 0, nil, nil, []int{0, 1, 2}, ""},
 		{"the host is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, 0, nil, nil, []int{0, 1}, ""},
 		{"the host is signed in to the other two only", []int{0, 1, 2}, []int{0, 2}, 0, nil, nil, []int{0, 2}, ""},
-		{"read from a fleet the phone is not paired with", []int{1, 2}, []int{0, 1, 2}, 0, nil, nil, []int{1, 2}, ""},
-		{"read from a fleet the phone is paired with, beside one it is not", []int{1}, []int{0, 1, 2}, 0, nil, nil, []int{1}, ""},
+		{"read from a fleet the Companion is not paired with", []int{1, 2}, []int{0, 1, 2}, 0, nil, nil, []int{1, 2}, ""},
+		{"read from a fleet the Companion is paired with, beside one it is not", []int{1}, []int{0, 1, 2}, 0, nil, nil, []int{1}, ""},
 		{"a fleet that was removed", []int{0, 1, 2}, []int{0, 1, 2}, 0, nil, []int{2}, []int{0, 1}, ""},
 		{"a fleet that is down", []int{0, 1, 2}, []int{0, 1, 2}, 0, []int{1}, nil, []int{0, 2}, "beta"},
 		{"two fleets that are down", []int{0, 1, 2}, []int{0, 1, 2}, 0, []int{1, 2}, nil, nil, "beta and gamma"},
@@ -171,7 +171,7 @@ func TestAPhoneIsListedOnceWithTheFleetsTheHostIsSignedInTo(t *testing.T) {
 				t.Fatalf("the label sits in %d forms, want %d", n, forms)
 			}
 			if c.unread != "" {
-				contains(t, "the notice", body, c.unread+" could not be reached, so its phones are not listed here.")
+				contains(t, "the notice", body, c.unread+" could not be reached, so its Companions are not listed here.")
 			} else {
 				lacks(t, "the page", body, "could not be reached")
 			}
@@ -258,12 +258,12 @@ func TestRevokingEverywhereRevokesEveryFleetTheHostIsSignedInTo(t *testing.T) {
 		{"one fleet", []int{0}, []int{0}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0}, nil},
 		{"three fleets", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1, 2}, nil},
 		{"the host is signed in to two of three", []int{0, 1, 2}, []int{0, 1}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, []int{2}},
-		{"a fleet the host holds a token for and the phone is not in", []int{0, 1}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
-		{"one fleet is down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1}, nil, nil, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
-		{"one fleet's store fails", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, []int{2}, http.StatusOK, "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 1}, []int{2}},
-		{"one fleet cannot revoke", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, []int{1}, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
-		{"two fleets are down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Revoked in alpha. beta and gamma could not be reached: their records of this phone, if they have any, are still active. Press Revoke everywhere again when they are back.", []int{0}, []int{1, 2}},
-		{"every fleet that holds it is down", []int{1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Nothing was revoked. beta and gamma could not be reached: their records of this phone, if they have any, are still active. Press Revoke everywhere again when they are back.", nil, []int{1, 2}},
+		{"a fleet the host holds a token for and the Companion is not in", []int{0, 1}, []int{0, 1, 2}, nil, nil, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
+		{"one fleet is down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1}, nil, nil, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this Companion, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
+		{"one fleet's store fails", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, nil, []int{2}, http.StatusOK, "Revoked in alpha and beta. gamma could not be reached: its record of this Companion, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 1}, []int{2}},
+		{"one fleet cannot revoke", []int{0, 1, 2}, []int{0, 1, 2}, nil, nil, []int{1}, nil, http.StatusOK, "Revoked in alpha and gamma. beta could not be reached: its record of this Companion, if it has one, is still active. Press Revoke everywhere again when it is back.", []int{0, 2}, []int{1}},
+		{"two fleets are down", []int{0, 1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Revoked in alpha. beta and gamma could not be reached: their records of this Companion, if they have any, are still active. Press Revoke everywhere again when they are back.", []int{0}, []int{1, 2}},
+		{"every fleet that holds it is down", []int{1, 2}, []int{0, 1, 2}, []int{1, 2}, nil, nil, nil, http.StatusOK, "Nothing was revoked. beta and gamma could not be reached: their records of this Companion, if they have any, are still active. Press Revoke everywhere again when they are back.", nil, []int{1, 2}},
 		{"a fleet was removed", []int{0, 1, 2}, []int{0, 1, 2}, nil, []int{2}, nil, nil, http.StatusSeeOther, "", []int{0, 1}, nil},
 	}
 	for _, c := range cases {
@@ -437,7 +437,7 @@ func TestRevokingInAFleetThatIsDownSaysSoAndOffersTheSamePress(t *testing.T) {
 		t.Fatalf("revoke in a fleet that is down = %d", rec.Code)
 	}
 	contains(t, "the result", rec.Body.String(),
-		"Nothing was revoked. beta could not be reached: its record of this phone, if it has one, is still active. Press Revoke again when it is back.",
+		"Nothing was revoked. beta could not be reached: its record of this Companion, if it has one, is still active. Press Revoke again when it is back.",
 		`action="/`+a.id+`/connect/revoke/in"`, `name="fleet" value="`+b.id+`"`, `name="phone" value="`+label+`"`, "<button>Revoke</button>")
 	if len(p.devicesOf(a)) != 1 || len(p.revoked(a)) != 0 {
 		t.Fatal("a revoke in beta touched alpha")
@@ -496,7 +496,7 @@ func TestAPhoneSessionCannotListRevokeOrLearnOfAnotherPhone(t *testing.T) {
 	theirID := strings.SplitN(other[a.id].Value, ".", 2)[0]
 	p.resetCounts()
 	page := p.send("GET", "/"+a.id+"/connect", nil, sent, operator).Body.String()
-	lacks(t, "a phone's page", page, "Tablet", own, theirs, "Revoke everywhere", "/connect/revoke/", "dev-fleets", "Paired phones")
+	lacks(t, "a Companion's page", page, "Tablet", own, theirs, "Revoke everywhere", "/connect/revoke/", "dev-fleets", "Paired Companions")
 	for _, f := range p.fleets {
 		if got := p.counts(p.lists, f); got != 0 {
 			t.Fatalf("a phone's page listed fleet %s", f.name)
@@ -535,7 +535,7 @@ func TestAPhoneSessionCannotListRevokeOrLearnOfAnotherPhone(t *testing.T) {
 		}
 	}
 	cleared := p.send("POST", "/"+b.id+"/connect/revoke", url.Values{"csrf": {token(b)}, "id": {strings.SplitN(mine[b.id].Value, ".", 2)[0]}}, sent, operator)
-	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body.String(), "This phone is signed out") {
+	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body.String(), "This Companion is signed out") {
 		t.Fatalf("a phone signing itself out of beta = %d:\n%s", cleared.Code, cleared.Body.String())
 	}
 	for i, f := range p.fleets {
@@ -611,7 +611,7 @@ func TestACrossFleetRevokeNeedsTheHostsProofForEveryFleet(t *testing.T) {
 		"alpha's token with no login for beta":          send(a, "in", a.token, b, p.hosts(a)...),
 		"a stale login for beta":                        send(a, "in", a.token, b, p.host(a), stale(b, strings.Repeat("0", 32))),
 		"gamma's login under beta's name":               send(a, "in", a.token, b, p.host(a), stale(b, c.token)),
-		"a phone's own cookie for beta":                 send(a, "in", a.token, b, p.host(a), cookies[b.id]),
+		"a Companion's own cookie for beta":             send(a, "in", a.token, b, p.host(a), cookies[b.id]),
 		"an unregistered fleet":                         send(a, "in", a.token, railFleet{id: "f00000000dead"}, p.hosts(a, b)...),
 		"a fleet id that is a path":                     send(a, "in", a.token, railFleet{id: "../" + b.id}, p.hosts(a, b)...),
 	} {
@@ -688,7 +688,7 @@ func TestARevokedPhoneIsSignedOutOfEveryFleetAndItsStreamsClose(t *testing.T) {
 		if got.Code != http.StatusForbidden {
 			t.Fatalf("a revoked phone opens fleet %s = %d", f.name, got.Code)
 		}
-		contains(t, "the page of fleet "+f.name, got.Body.String(), "This phone is no longer paired with this fleet", "Phone, in its menu")
+		contains(t, "the page of fleet "+f.name, got.Body.String(), "This Companion is no longer paired with this fleet", "Companion, in its menu")
 		lacks(t, "the page of fleet "+f.name, got.Body.String(), f.name, a.name+" ")
 		if got := p.opens(f, operator, keep[f.id]); got != http.StatusOK {
 			t.Fatalf("another phone in fleet %s = %d", f.name, got)
@@ -834,7 +834,7 @@ func TestRevokingWritesNoLabelCodeSecretOrTokenToTheLogOrTheEvents(t *testing.T)
 			t.Fatalf("the board logged %q in %q", bad, buf.String())
 		}
 	}
-	for _, want := range []string{"revoking a phone could not reach fleet " + b.id, "revoking a phone in fleet " + c.id + " failed"} {
+	for _, want := range []string{"revoking a Companion could not reach fleet " + b.id, "revoking a Companion in fleet " + c.id + " failed"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Fatalf("the log lacks %q: %q", want, buf.String())
 		}

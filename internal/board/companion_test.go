@@ -496,7 +496,7 @@ func TestAnIdentityHeaderAloneGrantsNothing(t *testing.T) {
 	p := newCompanionRig(t)
 	for _, path := range []string{"/", "/connect", "/tasks", "/events", "/supervisor/log", "/task/t1", "/attempt/a1", "/doc/inbox"} {
 		rec := p.do("GET", path, nil, nil, viaServe)
-		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "Pair this phone first") {
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "Pair this Companion first") {
 			t.Fatalf("GET %s with an identity header and no session = %d:\n%s", path, rec.Code, rec.Body.String())
 		}
 	}
@@ -532,7 +532,7 @@ func TestRevokingAPhoneSignsItOutAtOnce(t *testing.T) {
 		t.Fatalf("revoke = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	rec = p.do("GET", "/", nil, companion, viaServe)
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "This phone is no longer paired with this fleet") || !strings.Contains(rec.Body.String(), "Phone, in its menu") {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "This Companion is no longer paired with this fleet") || !strings.Contains(rec.Body.String(), "Companion, in its menu") {
 		t.Fatalf("revoked phone = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	if rec := p.do("POST", "/supervisor/send", url.Values{"csrf": {"x"}, "text": {"x"}}, companion, viaServe); rec.Code != http.StatusForbidden {
@@ -593,8 +593,8 @@ func TestAPhoneSignsItselfOutAndNobodyElse(t *testing.T) {
 	companion, other := p.pair(), p.pair()
 	own := csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, companion, viaServe).Body.String())[1]
 	page := p.do("GET", "/connect", nil, companion, viaServe).Body.String()
-	contains(t, "This phone", page, "This phone", "Paired as <b>Pixel</b>", "It stays signed in for 90 days from pairing, or until it is revoked.", "Sign out this phone", `action="/connect/revoke"`)
-	lacks(t, "This phone", page, "Paired phones", "Show pairing code", `name="base"`, `value="`+p.deviceID(other)+`"`)
+	contains(t, "This Companion", page, "This Companion", "Paired as <b>Pixel</b>", "It stays signed in for 90 days from pairing, or until it is revoked.", "Sign out this Companion", `action="/connect/revoke"`)
+	lacks(t, "This Companion", page, "Paired Companions", "Show pairing code", `name="base"`, `value="`+p.deviceID(other)+`"`)
 	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {own}, "id": {p.deviceID(other)}}, companion, viaServe); rec.Code != http.StatusForbidden {
 		t.Fatalf("a phone revoked another phone = %d", rec.Code)
 	}
@@ -606,7 +606,7 @@ func TestAPhoneSignsItselfOutAndNobodyElse(t *testing.T) {
 	for _, c := range rec.Result().Cookies() {
 		cleared = cleared || (c.Name == "__Host-hand_phone" && c.MaxAge < 0 && c.Secure && c.Path == "/" && c.Value == "")
 	}
-	if rec.Code != http.StatusOK || !cleared || !strings.Contains(rec.Body.String(), "This phone is signed out") {
+	if rec.Code != http.StatusOK || !cleared || !strings.Contains(rec.Body.String(), "This Companion is signed out") {
 		t.Fatalf("sign out = %d, cleared %v:\n%s", rec.Code, cleared, rec.Body.String())
 	}
 	if rec := p.do("GET", "/", nil, companion, viaServe); rec.Code != http.StatusForbidden {
@@ -650,7 +650,7 @@ func TestThePairedPhonesAndTheirEventsHoldNoSecret(t *testing.T) {
 	list := p.do("GET", "/connect", nil, host, nil).Body.String()
 	own := csrfRe.FindStringSubmatch(p.do("GET", "/", nil, companion, viaServe).Body.String())[1]
 	for _, leak := range []string{secret, own, companion.Value} {
-		lacks(t, "the host's Phone page", list, leak)
+		lacks(t, "the host's Companion page", list, leak)
 	}
 	contains(t, "events", strings.Join(p.events("board.paired"), "\n"), "board.paired "+p.deviceID(companion)+" Pixel")
 	all, err := p.fx.st.RecentEvents(context.Background(), 100)
@@ -715,8 +715,8 @@ func TestThePhonePageIsOnTheRailAndDoesNotKeepTheCode(t *testing.T) {
 	code := p.code()
 	page := p.do("GET", "/connect", nil, host, nil)
 	body := page.Body.String()
-	contains(t, "Phone page", body, `<a href="/connect" aria-current="page">`, `<span class="label">Phone</span>`, "Connect your phone", "Show pairing code", `name="base"`, `data-address`, "No phone is paired.", "Network", "SSH tunnel")
-	lacks(t, "Phone page", body, code, `style=`, "Desk", `data-region=`, "Tailscale", "tailnet")
+	contains(t, "Companion page", body, `<a href="/connect" aria-current="page">`, `<span class="label">Companion</span>`, "Connect your Companion", "Show pairing code", `name="base"`, `data-address`, "No Companion is paired.", "Network", "SSH tunnel")
+	lacks(t, "Companion page", body, code, `style=`, "Desk", `data-region=`, "Tailscale", "tailnet")
 	if page.Header().Get("Cache-Control") == "" && strings.Contains(body, code) {
 		t.Fatal("a page with a code is cacheable")
 	}
@@ -845,7 +845,7 @@ func TestTheFleetListStaysHiddenFromAProxy(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		body := rec.Body.String()
-		if strings.Contains(body, "alpha") || strings.Contains(body, "bravo") || strings.Contains(body, f[0].id) || !strings.Contains(body, "pair it on the host, on the fleet's Phone page") {
+		if strings.Contains(body, "alpha") || strings.Contains(body, "bravo") || strings.Contains(body, f[0].id) || !strings.Contains(body, "pair it on the host, on the fleet's Companion page") {
 			t.Fatalf("a proxied request (%v) sees the fleet list:\n%s", header, body)
 		}
 	}
@@ -1032,7 +1032,7 @@ func TestTheCodePageShowsThePairingLinkAsAQRCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "code page", body, string(want), `aria-label="QR code for the pairing link"`, "Scan the code with the phone's camera, or open this link on the phone:",
+	contains(t, "code page", body, string(want), `aria-label="QR code for the pairing link"`, "Scan the code with the Companion's camera, or open this link on the Companion:",
 		`<code class="ref">https://host.tailnet.example/pair#`+code+`</code>`, `class="code-big" aria-label="Pairing code `+code+`"`)
 	if rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
@@ -1067,7 +1067,7 @@ func TestALinkTooLongForAQRCodeFallsBackToText(t *testing.T) {
 		}
 		contains(t, "code page", body, `<code class="ref">`+base+"/pair#"+m[1]+"</code>", `<button type="button" class="doc-copy" data-copy="link"`)
 		if !c.picture {
-			contains(t, "code page", body, "On the phone, open this link:")
+			contains(t, "code page", body, "On the Companion, open this link:")
 			lacks(t, "code page", body, "Scan the code", "QR code")
 		}
 	}

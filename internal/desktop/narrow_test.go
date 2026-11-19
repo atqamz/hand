@@ -128,7 +128,7 @@ func TestTheSheetOpensFromTheMastheadAndClosesOnEscapeOrAPick(t *testing.T) {
 	if _, ok := tt.Find("Pages and fleets"); !ok {
 		t.Fatal("the sheet is not drawn")
 	}
-	mustText(t, tt, "Board", "Screen", "Phone", "golden", "second")
+	mustText(t, tt, "Board", "Screen", "Companion", "golden", "second")
 	if _, ok := tt.Find("Show labels"); ok {
 		t.Error("the rail is drawn beside the sheet")
 	}

@@ -27,7 +27,7 @@ import (
 
 var launchWait = 2 * time.Second
 
-const openUsage = "usage: hand open [supervisor | screen | phone | tasks [--] [QUERY] | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
+const openUsage = "usage: hand open [supervisor | screen | companion | phone | tasks [--] [QUERY] | tN | dN | rN | aN] [--delivered] | hand open --doc PATH"
 
 func init() {
 	commands["open"] = cmdOpen
@@ -134,7 +134,7 @@ func cmdOpen(r *runner, args []string) error {
 	page := "http://" + addr + "/" + r.fleet.ID + path
 	if *printed {
 		app := ""
-		if !*delivered && *doc == "" && !slices.Contains([]string{"screen", "phone", "tasks"}, ref) {
+		if !*delivered && *doc == "" && !slices.Contains([]string{"screen", "companion", "phone", "tasks"}, ref) {
 			app = appLink(r.fleet.ID, path, frag)
 		}
 		return r.printLink(page+sep+"token="+token+frag, app, "The link holds the fleet's token; paste it only into your own browser")
@@ -149,7 +149,7 @@ func boardPage(ctx context.Context, st *state.Store, ref string) (string, string
 	switch ref {
 	case "screen":
 		return "/supervisor", "", nil
-	case "phone":
+	case "companion", "phone":
 		return "/connect", "", nil
 	case "tasks":
 		return "/tasks", "", nil

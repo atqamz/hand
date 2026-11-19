@@ -277,7 +277,7 @@ func (h *Host) listIn(current string, r *http.Request) func(context.Context, str
 		}
 		f, err := h.handler(id)
 		if err != nil {
-			log.Printf("board: the Phone page could not reach fleet %s: %v", id, err)
+			log.Printf("board: the Companion page could not reach fleet %s: %v", id, err)
 			return nil, err
 		}
 		defer f.busy.Done()
@@ -287,7 +287,7 @@ func (h *Host) listIn(current string, r *http.Request) func(context.Context, str
 		}
 		got, err := l.PhoneRecords(ctx)
 		if err != nil {
-			log.Printf("board: listing the phones of fleet %s failed: %v", id, err)
+			log.Printf("board: listing the Companions of fleet %s failed: %v", id, err)
 		}
 		return got, err
 	}
@@ -300,7 +300,7 @@ func (h *Host) revokeIn(current string, r *http.Request) func(context.Context, s
 		}
 		f, err := h.handler(id)
 		if err != nil {
-			log.Printf("board: revoking a phone could not reach fleet %s: %v", id, err)
+			log.Printf("board: revoking a Companion could not reach fleet %s: %v", id, err)
 			return 0, err
 		}
 		defer f.busy.Done()
@@ -310,7 +310,7 @@ func (h *Host) revokeIn(current string, r *http.Request) func(context.Context, s
 		}
 		n, err := rv.RevokePhone(ctx, &Revocation{fleet: id, label: label})
 		if err != nil {
-			log.Printf("board: revoking a phone in fleet %s failed: %v", id, err)
+			log.Printf("board: revoking a Companion in fleet %s failed: %v", id, err)
 		}
 		return n, err
 	}

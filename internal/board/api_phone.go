@@ -129,7 +129,7 @@ func (b *Board) apiPhoneDataFrom(ctx context.Context, own []PhoneRecord) APIPhon
 	}
 	st := b.irohStatus()
 	if v := irohView(st); v != nil {
-		out.Iroh = &APIPhoneIroh{State: v.State, Tone: v.Tone, Text: "Phone access over iroh is " + v.Text, ID: v.ID}
+		out.Iroh = &APIPhoneIroh{State: v.State, Tone: v.Tone, Text: "Companion access over iroh is " + v.Text, ID: v.ID}
 	}
 	code, live, showing := b.showing(b.now())
 	var set []string
@@ -191,7 +191,7 @@ func (b *Board) apiPhoneSend(w http.ResponseWriter, f state.Fleet, since string,
 
 func (b *Board) apiPhoneHost(w http.ResponseWriter, r *http.Request) bool {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired phone cannot manage phones; use the host's session")
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot manage Companions; use the host's session")
 		return false
 	}
 	return true
@@ -253,7 +253,7 @@ func (b *Board) apiPhoneCodeNew(w http.ResponseWriter, r *http.Request) {
 	}
 	set, ok := b.chosenFleetsFrom(r.Context(), in.Fleets)
 	if !ok {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "this session is not signed in to every fleet you chose; read the phone again and choose from its fleets")
+		b.apiFail(w, http.StatusForbidden, "forbidden", "this session is not signed in to every fleet you chose; read the Companion again and choose from its fleets")
 		return
 	}
 	f, own, ok := b.apiPhonePrepare(w, r)
@@ -270,7 +270,7 @@ func (b *Board) apiPhoneApp(w http.ResponseWriter, r *http.Request) {
 	}
 	st := b.irohStatus()
 	if st.State != sidecar.Ready || st.ID == "" || st.Relay == "" || st.Relay == "none" {
-		b.apiFail(w, http.StatusConflict, "conflict", "Phone access over iroh is not ready with a relay, so a phone cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state in the phone data.")
+		b.apiFail(w, http.StatusConflict, "conflict", "Companion access over iroh is not ready with a relay, so a Companion cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state in the Companion data.")
 		return
 	}
 	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P"); err != nil {
@@ -325,7 +325,7 @@ func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
 		if in.Fleet != "" {
 			i := slices.IndexFunc(targets, func(l railLink) bool { return l.ID == in.Fleet })
 			if i < 0 {
-				b.apiFail(w, http.StatusForbidden, "forbidden", "this session is not signed in to that fleet; read the phone again")
+				b.apiFail(w, http.StatusForbidden, "forbidden", "this session is not signed in to that fleet; read the Companion again")
 				return
 			}
 			targets = targets[i : i+1]

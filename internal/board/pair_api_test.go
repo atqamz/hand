@@ -212,12 +212,12 @@ func TestOnlyThePairPathIsOpenToAnUnpairedPeerOnTheAPI(t *testing.T) {
 	f := r.fleets[0]
 	c := r.as(peerA)
 	for _, path := range []string{"status", "session", "events", "timeline", "tasks", "task/t1", "pair/x", "pair/"} {
-		if rep := r.apiGet(c, f, path, nil); rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, "Pair this phone first") {
+		if rep := r.apiGet(c, f, path, nil); rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, "Pair this Companion first") {
 			t.Fatalf("GET %s = %d:\n%s", path, rep.Code, rep.Body)
 		}
 	}
 	for _, path := range []string{"message", "pair/x", "supervisor/stop"} {
-		if rep := r.post(c, f, path, "{}", "x"); rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, "Pair this phone first") {
+		if rep := r.post(c, f, path, "{}", "x"); rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, "Pair this Companion first") {
 			t.Fatalf("POST %s = %d:\n%s", path, rep.Code, rep.Body)
 		}
 	}

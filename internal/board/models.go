@@ -73,7 +73,7 @@ func (b *Board) refreshModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot refresh model lists; use the host's Board")
+		b.fail(w, http.StatusForbidden, "a paired Companion cannot refresh model lists; use the host's Board")
 		return
 	}
 	names := refreshable

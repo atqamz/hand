@@ -79,7 +79,7 @@ func (b *Board) APIRead(r *http.Request) bool {
 
 func (h *Host) apiReadable(w http.ResponseWriter, r *http.Request) (map[string]bool, bool) {
 	if !h.o.Loopback || proxied(r) {
-		hostAPIFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board or to a paired phone")
+		hostAPIFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board or to a paired Companion")
 		return nil, false
 	}
 	proven := h.tokenFleets("", r)
@@ -96,7 +96,7 @@ func (h *Host) apiReadable(w http.ResponseWriter, r *http.Request) (map[string]b
 		}
 	}
 	if held && len(proven) == 0 {
-		hostAPIFail(w, http.StatusForbidden, "forbidden", "the API answers on the peer listener only to a phone paired with its own key")
+		hostAPIFail(w, http.StatusForbidden, "forbidden", "the API answers on the peer listener only to a Companion paired with its own key")
 		return nil, false
 	}
 	if len(proven) == 0 {

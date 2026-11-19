@@ -18,7 +18,7 @@ import (
 const (
 	siteURL   = "https://hand.atqamz.com"
 	repoURL   = "https://github.com/atqamz/hand"
-	companion = `<h3 id="hand-companion">Hand's Companion</h3><p>Hand's Companion is the Android app for a paired phone. It needs a Hand host running the board, because the phone reaches that host through Hand and the app does not run Hand itself. Its source is <a href="https://github.com/atqamz/hand/tree/main/android" rel="noopener">atqamz/hand's android/</a>.</p>`
+	companion = `<h3 id="hand-companion">Hand's Companion</h3><p>Hand's Companion is the Android app that pairs with a Hand host. It needs a Hand host running the board, because the Companion reaches that host through Hand and the app does not run Hand itself. Its source is <a href="https://github.com/atqamz/hand/tree/main/android" rel="noopener">atqamz/hand's android/</a>.</p>`
 )
 
 type navItem struct {
@@ -194,7 +194,7 @@ func nav(url string) []navItem {
 		{Name: "Install", Href: "/install/"},
 		{Name: "Update", Href: "/update/"},
 		{Name: "Board", Href: "/board/"},
-		{Name: "Phone", Href: "/phone/"},
+		{Name: "Companion", Href: "/phone/"},
 		{Name: "API", Href: "/api/"},
 		{Name: "Fleets", Href: "/fleets/"},
 		{Name: "Safe use", Href: "/safe-use/"},
