@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -42,5 +43,23 @@ func TestBundleRemoveMovesHandAppAsideBeforeDeletingIt(t *testing.T) {
 	}
 	if _, err := os.Lstat(x.b.app); !os.IsNotExist(err) {
 		t.Fatalf("a Remove that failed part way left Hand.app in place: %v", err)
+	}
+}
+
+func TestBundleSyncLeavesNothingBehindWhenItsFirstWriteFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only folder")
+	}
+	x := newTree(t)
+	if err := os.MkdirAll(filepath.Dir(x.b.app), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := syscall.Umask(0o222)
+	defer syscall.Umask(old)
+	if _, err := bundleSync(x.home, x.b.window(), x.hand); err == nil {
+		t.Fatal("Sync wrote into a folder that is not writable")
+	}
+	if _, err := os.Lstat(x.b.app); !os.IsNotExist(err) {
+		t.Fatalf("a Sync that failed left %s: %v", x.b.app, err)
 	}
 }
