@@ -564,7 +564,7 @@ class FleetModelTest {
   }
 
   @Test
-  fun anUnreachableLaptopShowsTheBandAndKeepsTheLastItems() {
+  fun anUnreachableHostShowsTheBandAndKeepsTheLastItems() {
     var down = false
     val board = Board({ if (down) throw BoardError.Unreachable else status(listOf(report)) })
     val model = model(board)
@@ -579,7 +579,7 @@ class FleetModelTest {
   }
 
   @Test
-  fun aFirstOpenWithTheLaptopDownKeepsTheNameShowsTheBandAndPicksNoTabYet() {
+  fun aFirstOpenWithTheHostDownKeepsTheNameShowsTheBandAndPicksNoTabYet() {
     val model = model(Board({ throw BoardError.Unreachable }), "atlas")
     runBlocking { model.refresh() }
     val state = model.now()

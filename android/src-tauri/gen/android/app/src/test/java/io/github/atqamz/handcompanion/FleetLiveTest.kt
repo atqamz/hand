@@ -177,7 +177,7 @@ class FleetLiveTest {
   }
 
   @Test
-  fun aLaptopWithoutTheFeaturePollsInsteadOfOpeningAStream() = runBlocking {
+  fun aHostWithoutTheFeaturePollsInsteadOfOpeningAStream() = runBlocking {
     val board = LiveBoard(features = listOf("fleets", "pair"))
     val model = model(board)
     val job = launch(Dispatchers.Default) { model.run() }

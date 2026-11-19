@@ -12,12 +12,12 @@ private val replacing =
   PairState(name = "Pixel 8", confirm = Confirm("7c1e…a2f9", replaceNotice(fleets)))
 private val failed =
   plain.copy(
-    error = "That code has expired. A code works for 5 minutes. Show a new code on your laptop."
+    error = "That code has expired. A code works for 5 minutes. Show a new code on the Board."
   )
 private val rejected =
   PairState(
     link = "hello",
-    error = "This is not a Hand pairing code. Show a new one on your laptop."
+    error = "This is not a Hand pairing code. Show a new one on the Board."
   )
 
 class PairScreenTest {

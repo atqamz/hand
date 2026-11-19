@@ -710,7 +710,7 @@ fn offered(text: &str) -> serde_json::Value {
         return failed(PairError::NoPending);
     };
     match core.companion.offer_link(text) {
-        Ok(offer) => serde_json::json!({ "laptop": offer.host, "replaces": offer.replaces }),
+        Ok(offer) => serde_json::json!({ "host": offer.host, "replaces": offer.replaces }),
         Err(error) => serde_json::json!({ "failure": "link", "message": error.message() }),
     }
 }

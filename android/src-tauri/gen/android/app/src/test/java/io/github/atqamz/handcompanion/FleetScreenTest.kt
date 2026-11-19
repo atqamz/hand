@@ -167,7 +167,7 @@ private val liveLost =
     band =
       Band(
         "Can't reach 4d92…6ed6 since 12:41",
-        "Check that the laptop is on, that Hand's Board is running, and that this phone has internet.",
+        "Check that the host is on, that Hand's Board is running, and that this phone has internet.",
         retry = false,
         live = true
       )

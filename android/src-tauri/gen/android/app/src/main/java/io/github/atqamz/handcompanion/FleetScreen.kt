@@ -171,7 +171,7 @@ fun FleetScreen(
         Body.Unpaired ->
           Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
             Text("No longer paired", color = LocalHand.current.ink(Tone.Fail), style = type.titleMedium)
-            Meta("Pair this phone again on the laptop's Board.")
+            Meta("Pair this Companion again on the host's Board.")
           }
         Body.Loading -> Loading()
         Body.Needs -> NeedsScreen(state, onToggle, onReport, onWeb, onPress, onForce, onAttempt, choice)

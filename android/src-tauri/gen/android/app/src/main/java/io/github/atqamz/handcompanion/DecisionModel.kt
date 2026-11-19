@@ -95,7 +95,7 @@ private fun sendRefusal(ref: String, error: BoardError) =
   when (error) {
     BoardError.Lost,
     BoardError.TimedOut -> "Not sure $ref was sent. The answer may have been sent."
-    BoardError.Busy -> "Your laptop is busy. Try again."
+    BoardError.Busy -> "Your host is busy. Try again."
     else -> "Could not send $ref."
   }
 

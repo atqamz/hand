@@ -42,7 +42,7 @@ private val blocked = answer(ONE, "atlas", "failing", "blocked", needs(5, "block
 private val clear =
   answer(TWO, "orchard", "ready", "ready", needs(0, null, 0, "neutral", "2026-11-01T12:41:00Z"))
 
-private class Laptop(var script: (String, String) -> Raw) : Transport {
+private class Host(var script: (String, String) -> Raw) : Transport {
   val paths = mutableListOf<String>()
 
   override fun request(
@@ -57,8 +57,8 @@ private class Laptop(var script: (String, String) -> Raw) : Transport {
   }
 }
 
-private fun model(laptop: Laptop, clock: () -> String = { "12:41" }) =
-  FleetsModel(laptop, { listOf(ONE, TWO) }, { "4d92…6ed6" }, clock = clock)
+private fun model(host: Host, clock: () -> String = { "12:41" }) =
+  FleetsModel(host, { listOf(ONE, TWO) }, { "4d92…6ed6" }, clock = clock)
 
 private fun FleetsModel.row(id: String) = state.value.rows.single { it.id == id }
 
@@ -73,10 +73,10 @@ class FleetsModelTest {
 
   @Test
   fun aChangedPollFillsTheRowOfEachFleet() {
-    val model = model(Laptop { fleet, _ -> both(fleet) })
+    val model = model(Host { fleet, _ -> both(fleet) })
     runBlocking { model.refresh() }
     val state = model.state.value
-    assertEquals("4d92…6ed6", state.laptop)
+    assertEquals("4d92…6ed6", state.host)
     assertNull(state.band)
     val first = model.row(ONE)
     assertEquals("atlas", first.name)
@@ -94,7 +94,7 @@ class FleetsModelTest {
 
   @Test
   fun theLauncherShowsLoadingUntilItsFirstAnswer() {
-    val model = model(Laptop { fleet, _ -> both(fleet) })
+    val model = model(Host { fleet, _ -> both(fleet) })
     assertEquals(FleetsBody.Loading, fleetsBody(model.state.value))
     runBlocking { model.refresh() }
     assertEquals(FleetsBody.Rows, fleetsBody(model.state.value))
@@ -102,7 +102,7 @@ class FleetsModelTest {
 
   @Test
   fun aFirstAnswerWithNoFleetStillEndsTheLoadingLine() {
-    val model = FleetsModel(Laptop { _, _ -> blocked }, { emptyList() }, { "4d92…6ed6" })
+    val model = FleetsModel(Host { _, _ -> blocked }, { emptyList() }, { "4d92…6ed6" })
     runBlocking { model.refresh() }
     assertTrue(model.state.value.rows.isEmpty())
     assertEquals(FleetsBody.Rows, fleetsBody(model.state.value))
@@ -110,23 +110,23 @@ class FleetsModelTest {
 
   @Test
   fun anUnchangedPollKeepsTheRowAndMovesTheTimeSeen() {
-    val laptop = Laptop { fleet, path ->
+    val host = Host { fleet, path ->
       if (path.contains("since=")) Raw(304, "") else both(fleet)
     }
     var now = "12:41"
-    val model = model(laptop) { now }
+    val model = model(host) { now }
     runBlocking { model.refresh() }
     val before = model.row(ONE)
     now = "12:46"
     runBlocking { model.refresh() }
     assertEquals(before.copy(seen = "12:46"), model.row(ONE))
-    assertTrue(laptop.paths.any { it.startsWith(ONE) && it.contains("since=c1") })
+    assertTrue(host.paths.any { it.startsWith(ONE) && it.contains("since=c1") })
   }
 
   @Test
   fun aChangedPollReplacesTheRow() {
     var next = blocked
-    val model = model(Laptop { fleet, _ -> if (fleet == ONE) next else clear })
+    val model = model(Host { fleet, _ -> if (fleet == ONE) next else clear })
     runBlocking { model.refresh() }
     next = answer(ONE, "atlas", "working", "working", needs(2, "waiting", 2, "wait", null), "c2")
     runBlocking { model.refresh() }
@@ -136,17 +136,17 @@ class FleetsModelTest {
   }
 
   @Test
-  fun aBusyLaptopShowsTheSentenceAndNoRetry() {
-    val model = model(Laptop { _, _ -> throw BoardError.Busy })
+  fun aBusyHostShowsTheSentenceAndNoRetry() {
+    val model = model(Host { _, _ -> throw BoardError.Busy })
     runBlocking { model.refresh() }
-    assertEquals(Band("Your laptop is busy. Trying again.", retry = false), model.state.value.band)
+    assertEquals(Band("Your host is busy. Trying again.", retry = false), model.state.value.band)
   }
 
   @Test
-  fun anUnreachableLaptopKeepsTheRowsAndNamesWhenItWentAway() {
+  fun anUnreachableHostKeepsTheRowsAndNamesWhenItWentAway() {
     var up = true
     var now = "12:41"
-    val model = model(Laptop { fleet, _ -> if (up) both(fleet) else throw BoardError.Unreachable }) { now }
+    val model = model(Host { fleet, _ -> if (up) both(fleet) else throw BoardError.Unreachable }) { now }
     runBlocking { model.refresh() }
     up = false
     now = "12:50"
@@ -156,7 +156,7 @@ class FleetsModelTest {
     val band = model.state.value.band!!
     assertEquals("Can't reach 4d92…6ed6 since 12:50", band.title)
     assertEquals(
-      "Check that the laptop is on, that Hand's Board is running, and that this phone has internet.",
+      "Check that the host is on, that Hand's Board is running, and that this phone has internet.",
       band.body
     )
     assertTrue(band.retry)
@@ -169,18 +169,18 @@ class FleetsModelTest {
   }
 
   @Test
-  fun anUnreachableLaptopIsAskedOnceAndNotOncePerFleet() {
-    val laptop = Laptop { _, _ -> throw BoardError.Unreachable }
-    runBlocking { model(laptop).refresh() }
-    assertEquals(1, laptop.paths.size)
+  fun anUnreachableHostIsAskedOnceAndNotOncePerFleet() {
+    val host = Host { _, _ -> throw BoardError.Unreachable }
+    runBlocking { model(host).refresh() }
+    assertEquals(1, host.paths.size)
   }
 
   @Test
   fun aBoardThatIsNotRunningSaysSo() {
-    val model = model(Laptop { _, _ -> throw BoardError.BoardNotRunning })
+    val model = model(Host { _, _ -> throw BoardError.BoardNotRunning })
     runBlocking { model.refresh() }
     assertEquals(
-      Band("Your laptop answers, but the Board is not running.", "Start it on the laptop."),
+      Band("Your host answers, but the Board is not running.", "Start it on the host."),
       model.state.value.band
     )
   }
@@ -188,7 +188,7 @@ class FleetsModelTest {
   @Test
   fun aFleetThePhoneIsNoLongerPairedInTurnsToPairAgainAndTheOthersStay() {
     val model =
-      model(Laptop { fleet, _ -> if (fleet == ONE) throw BoardError.Unpaired else clear })
+      model(Host { fleet, _ -> if (fleet == ONE) throw BoardError.Unpaired else clear })
     runBlocking { model.refresh() }
     assertNull(model.state.value.band)
     assertFalse(model.row(ONE).paired)
@@ -198,7 +198,7 @@ class FleetsModelTest {
   @Test
   fun anAnswerThatCannotBeReadMarksThatFleetAndTheRoundGoesOn() {
     val model =
-      model(Laptop { fleet, _ -> if (fleet == ONE) throw BoardError.Malformed else clear })
+      model(Host { fleet, _ -> if (fleet == ONE) throw BoardError.Malformed else clear })
     runBlocking { model.refresh() }
     assertNull(model.state.value.band)
     assertTrue(model.row(ONE).unreadable)
@@ -207,7 +207,7 @@ class FleetsModelTest {
   }
 
   @Test
-  fun eachErrorThatIsNotAboutTheLaptopStaysOnItsFleet() {
+  fun eachErrorThatIsNotAboutTheHostStaysOnItsFleet() {
     val errors =
       listOf(
         BoardError.UnsupportedVersion(2),
@@ -219,7 +219,7 @@ class FleetsModelTest {
         BoardError.AppliedUnread(RuntimeException())
       )
     for (error in errors) {
-      val model = model(Laptop { fleet, _ -> if (fleet == ONE) throw error else clear })
+      val model = model(Host { fleet, _ -> if (fleet == ONE) throw error else clear })
       runBlocking { model.refresh() }
       assertNull(error.toString(), model.state.value.band)
       assertTrue(error.toString(), model.row(ONE).unreadable)
@@ -231,7 +231,7 @@ class FleetsModelTest {
   fun aReadableAnswerClearsTheMark() {
     var step = 0
     val model =
-      model(Laptop { fleet, path ->
+      model(Host { fleet, path ->
         when {
           fleet == TWO -> clear
           step == 1 -> throw BoardError.Malformed
@@ -252,7 +252,7 @@ class FleetsModelTest {
   @Test
   fun aFleetThatCameBackAfterUnpairedStartsWithoutTheOldCursor() {
     var step = 0
-    val laptop = Laptop { fleet, _ ->
+    val host = Host { fleet, _ ->
       if (fleet == TWO) clear
       else
         when (step) {
@@ -260,22 +260,22 @@ class FleetsModelTest {
           else -> blocked
         }
     }
-    val model = model(laptop)
+    val model = model(host)
     runBlocking { model.refresh() }
     step = 1
     runBlocking { model.refresh() }
     step = 2
     runBlocking { model.refresh() }
     assertTrue(model.row(ONE).paired)
-    val ones = laptop.paths.filter { it.startsWith(ONE) }
+    val ones = host.paths.filter { it.startsWith(ONE) }
     assertTrue(ones[1].contains("since=c1"))
     assertFalse(ones[2].contains("since="))
   }
 
   @Test
-  fun lostTimedOutAndNoLaptopEachShowTheUnreachableBand() {
-    for (error in listOf(BoardError.Lost, BoardError.TimedOut, BoardError.NoLaptop)) {
-      val model = model(Laptop { _, _ -> throw error })
+  fun lostTimedOutAndNoHostEachShowTheUnreachableBand() {
+    for (error in listOf(BoardError.Lost, BoardError.TimedOut, BoardError.NoHost)) {
+      val model = model(Host { _, _ -> throw error })
       runBlocking { model.refresh() }
       val band = model.state.value.band!!
       assertEquals(error.toString(), "Can't reach 4d92…6ed6 since 12:41", band.title)
@@ -288,7 +288,7 @@ class FleetsModelTest {
     var up = false
     var now = "12:41"
     val model =
-      model(Laptop { fleet, _ -> if (up) both(fleet) else throw BoardError.Unreachable }) { now }
+      model(Host { fleet, _ -> if (up) both(fleet) else throw BoardError.Unreachable }) { now }
     runBlocking { model.refresh() }
     up = true
     now = "12:50"
@@ -300,10 +300,10 @@ class FleetsModelTest {
   }
 
   @Test
-  fun aBusyLaptopDoesNotStartTheOutageClock() {
+  fun aBusyHostDoesNotStartTheOutageClock() {
     var error: BoardError = BoardError.Busy
     var now = "12:41"
-    val model = model(Laptop { _, _ -> throw error }) { now }
+    val model = model(Host { _, _ -> throw error }) { now }
     runBlocking { model.refresh() }
     error = BoardError.Unreachable
     now = "12:50"
@@ -322,7 +322,7 @@ class FleetsModelTest {
       )) {
       val model =
         model(
-          Laptop { _, _ ->
+          Host { _, _ ->
             answer(ONE, "atlas", "ready", "ready", needs(0, null, 0, "neutral", iso))
           }
         )
@@ -334,18 +334,18 @@ class FleetsModelTest {
   @Test
   fun aFleetThatLeavesTheCookieJarLeavesTheList() {
     var fleets = listOf(ONE, TWO)
-    val model = FleetsModel(Laptop { f, _ -> both(f) }, { fleets }, { null }) { "12:41" }
+    val model = FleetsModel(Host { f, _ -> both(f) }, { fleets }, { null }) { "12:41" }
     runBlocking { model.refresh() }
     fleets = listOf(TWO)
     runBlocking { model.refresh() }
     assertEquals(listOf(TWO), model.state.value.rows.map { it.id })
-    assertNull(model.state.value.laptop)
+    assertNull(model.state.value.host)
   }
 
   @Test
   fun pairingsTheCoreCouldNotSaveAreSaidSoWhileTheRowsStayLive() {
     var unsaved = true
-    val model = FleetsModel(Laptop { f, _ -> both(f) }, { listOf(ONE) }, { null }, { unsaved }) { "12:41" }
+    val model = FleetsModel(Host { f, _ -> both(f) }, { listOf(ONE) }, { null }, { unsaved }) { "12:41" }
     runBlocking { model.refresh() }
     assertEquals(UNSAVED, model.state.value.band)
     assertEquals("blocked", model.row(ONE).pill?.text)
@@ -356,9 +356,9 @@ class FleetsModelTest {
   }
 
   @Test
-  fun anUnreachableLaptopIsSaidBeforeAnUnsavedStore() {
+  fun anUnreachableHostIsSaidBeforeAnUnsavedStore() {
     val model =
-      FleetsModel(Laptop { _, _ -> throw BoardError.Unreachable }, { listOf(ONE) }, { null }, { true }) {
+      FleetsModel(Host { _, _ -> throw BoardError.Unreachable }, { listOf(ONE) }, { null }, { true }) {
         "12:41"
       }
     runBlocking { model.refresh() }
@@ -375,11 +375,11 @@ class FleetsModelTest {
   }
 
   @Test
-  fun theLaptopShowsTheEndsOfItsId() {
-    val file = folder.newFile("laptop")
+  fun theHostShowsTheEndsOfItsId() {
+    val file = folder.newFile("host")
     file.writeText("4d92" + "0".repeat(56) + "6ed6\n")
-    assertEquals("4d92…6ed6", laptopId(file))
-    assertNull(laptopId(File(folder.root, "missing")))
+    assertEquals("4d92…6ed6", hostId(file))
+    assertNull(hostId(File(folder.root, "missing")))
   }
 
   @Test
@@ -392,7 +392,7 @@ class FleetsModelTest {
   @Test
   fun forgettingAsksFirstAndTheMenuOnlyOpensTheQuestion() {
     var forgotten = 0
-    val model = FleetsModel(Laptop { fleet, _ -> both(fleet) }, { listOf(ONE) }, { "4d92…6ed6" }, forgetter = { forgotten++; true })
+    val model = FleetsModel(Host { fleet, _ -> both(fleet) }, { listOf(ONE) }, { "4d92…6ed6" }, forgetter = { forgotten++; true })
     model.ask(true)
     assertTrue(model.state.value.asking)
     assertEquals(0, forgotten)
@@ -406,7 +406,7 @@ class FleetsModelTest {
     var paired = listOf(ONE, TWO)
     val model =
       FleetsModel(
-        Laptop { fleet, _ -> both(fleet) },
+        Host { fleet, _ -> both(fleet) },
         { paired },
         { "4d92…6ed6" },
         forgetter = {
@@ -417,7 +417,7 @@ class FleetsModelTest {
     runBlocking { model.refresh() }
     model.alerts(true)
     model.ask(true)
-    runBlocking { model.forgetLaptop() }
+    runBlocking { model.forgetHost() }
     val state = model.state.value
     assertTrue(state.rows.isEmpty())
     assertFalse(state.asking)
@@ -428,10 +428,10 @@ class FleetsModelTest {
   @Test
   fun aForgetThatFailsIsShownAndKeepsWhatTheCoreStillHolds() {
     val model =
-      FleetsModel(Laptop { fleet, _ -> both(fleet) }, { listOf(ONE) }, { "4d92…6ed6" }, forgetter = { false })
+      FleetsModel(Host { fleet, _ -> both(fleet) }, { listOf(ONE) }, { "4d92…6ed6" }, forgetter = { false })
     runBlocking { model.refresh() }
     model.ask(true)
-    runBlocking { model.forgetLaptop() }
+    runBlocking { model.forgetHost() }
     val state = model.state.value
     assertEquals("Can't clear the saved login. Try again.", state.notice)
     assertFalse(state.asking)
@@ -440,7 +440,7 @@ class FleetsModelTest {
 
   @Test
   fun aNoticeGoesWhenTheUserAsksOrSaysSomethingElse() {
-    val model = model(Laptop { fleet, _ -> both(fleet) })
+    val model = model(Host { fleet, _ -> both(fleet) })
     model.say("This is not a link Hand can open.")
     assertEquals("This is not a link Hand can open.", model.state.value.notice)
     model.ask(true)
@@ -452,7 +452,7 @@ class FleetsModelTest {
 
   @Test
   fun aPollKeepsTheAlertsLineAndTheNotice() {
-    val model = model(Laptop { fleet, _ -> both(fleet) })
+    val model = model(Host { fleet, _ -> both(fleet) })
     model.alerts(true)
     model.say("kept")
     runBlocking { model.refresh() }

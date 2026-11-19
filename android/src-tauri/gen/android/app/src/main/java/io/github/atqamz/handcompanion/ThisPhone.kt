@@ -17,7 +17,7 @@ data class FleetLine(val id: String, val name: String, val dates: String)
 
 data class ThisPhone(
   val loaded: Boolean = true,
-  val laptop: String? = null,
+  val host: String? = null,
   val link: String = "connected",
   val fleets: List<FleetLine> = emptyList(),
   val alerts: String = "Alerts are on",
@@ -74,7 +74,7 @@ fun thisPhone(state: FleetsState, app: String): ThisPhone {
     }
   return ThisPhone(
     loaded = state.loaded,
-    laptop = state.laptop,
+    host = state.host,
     link = link,
     fleets = fleets,
     alerts = alerts,

@@ -14,7 +14,7 @@ import org.junit.Test
 
 private const val ONE = "f00000000e0aa"
 private const val TWO = "f000000000005"
-private const val LAPTOP = "4d92…6ed6"
+private const val HOST = "4d92…6ed6"
 private const val DAY = 24 * 60 * 60L
 
 private fun seconds(iso: String) = Instant.parse(iso).epochSecond
@@ -35,7 +35,7 @@ private fun state(
   phone: PhoneInfo? = null,
   band: Band? = null,
   alertsOff: Boolean = false
-) = FleetsState(LAPTOP, rows, band, alertsOff, loaded = true, phone = phone)
+) = FleetsState(HOST, rows, band, alertsOff, loaded = true, phone = phone)
 
 class ThisPhoneTest {
   private val zone = TimeZone.getDefault()
@@ -110,7 +110,7 @@ class ThisPhoneTest {
       FleetsModel(
         board,
         { listOf(ONE) },
-        { LAPTOP },
+        { HOST },
         phone = { answer(stored(ONE, "stored name", seconds("2026-11-03T12:00:00Z"))) }
       )
     runBlocking { model.refresh() }
@@ -142,7 +142,7 @@ class ThisPhoneTest {
     )
     assertEquals(
       "Hand is not connected · watching 1 fleet",
-      thisPhone(state(phone = one, band = band(BoardError.Unreachable, LAPTOP, "12:41")), "0.2.0")
+      thisPhone(state(phone = one, band = band(BoardError.Unreachable, HOST, "12:41")), "0.2.0")
         .alertsDetail
     )
     thisPhone(state(phone = info, alertsOff = true), "0.2.0").let {
@@ -156,12 +156,12 @@ class ThisPhoneTest {
   }
 
   @Test
-  fun theLaptopIsConnectedUnlessTheListShowsABand() {
+  fun theHostIsConnectedUnlessTheListShowsABand() {
     assertEquals("connected", thisPhone(state(), "0.2.0").link)
     assertEquals("connected", thisPhone(state(band = UNSAVED), "0.2.0").link)
     assertEquals(
       "not connected",
-      thisPhone(state(band = band(BoardError.Unreachable, LAPTOP, "12:41")), "0.2.0").link
+      thisPhone(state(band = band(BoardError.Unreachable, HOST, "12:41")), "0.2.0").link
     )
   }
 
@@ -190,16 +190,16 @@ class ThisPhoneTest {
         "0.2.0"
       )
     assertTrue(shown.fleets.isEmpty())
-    assertNull(shown.laptop)
+    assertNull(shown.host)
     assertEquals("No fleet is paired.", shown.alertsDetail)
   }
 
   @Test
-  fun aStateWithFleetsKeepsThemAndTheLaptop() {
+  fun aStateWithFleetsKeepsThemAndTheHost() {
     val info = PhoneInfo("a…b", "0.1.0", listOf(PairedFleet(ONE, "hand", 1)))
     val shown = thisPhone(state(listOf(FleetRow(ONE)), info), "0.2.0")
     assertEquals(listOf(ONE), shown.fleets.map { it.id })
-    assertEquals(LAPTOP, shown.laptop)
+    assertEquals(HOST, shown.host)
   }
 
   @Test

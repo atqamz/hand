@@ -865,9 +865,9 @@ class ChatModel(
     when (error) {
       BoardError.Lost,
       BoardError.TimedOut -> UNSURE_SENT
-      BoardError.Busy -> "Your laptop is busy. Try again."
+      BoardError.Busy -> "Your host is busy. Try again."
       BoardError.Unreachable,
-      BoardError.NoLaptop -> "Your laptop is not reachable."
+      BoardError.NoHost -> "Your host is not reachable."
       BoardError.BoardNotRunning -> "The Board is not running."
       is BoardError.Forbidden -> error.message?.takeIf(String::isNotBlank) ?: CONTROLS_OFF
       else -> error.message?.takeIf(String::isNotBlank) ?: "Could not send the message."

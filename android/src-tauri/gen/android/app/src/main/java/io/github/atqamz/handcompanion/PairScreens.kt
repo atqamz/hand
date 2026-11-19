@@ -79,7 +79,7 @@ const val START_MILLIS = 15_000L
 
 enum class Scan(val message: String) {
   Starting("Starting the camera…"),
-  Preview("Point the camera at the code on your laptop."),
+  Preview("Point the camera at the code on the Board."),
   Refused(CAMERA_REFUSED),
   Failed("The camera could not start. Try again, or paste the link."),
   TimedOut("The camera took too long to start. Try again, or paste the link.")
@@ -152,7 +152,7 @@ fun AddFleetScreen(
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(
         buildAnnotatedString {
-          append("On your laptop, open the fleet's Phone page and choose ")
+          append("On the host, open the fleet's Companion page and choose ")
           withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("Pair the Hand app") }
           append(". Scan the code it shows.")
         },
@@ -196,13 +196,13 @@ fun ConfirmScreen(
   val hand = LocalHand.current
   val confirm = state.confirm ?: return
   Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState())) {
-    Bar("Pair with this laptop?", HandIcons.Close, "Cancel", onCancel, enabled = !state.busy)
+    Bar("Pair with this host?", HandIcons.Close, "Cancel", onCancel, enabled = !state.busy)
     HorizontalDivider(color = hand.line)
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Column {
-        Meta("Laptop")
-        Text(confirm.laptop, style = HandMono.copy(fontSize = 28.sp, lineHeight = 36.sp))
-        Meta("Check these characters against the Phone page on that laptop.")
+        Meta("Host")
+        Text(confirm.host, style = HandMono.copy(fontSize = 28.sp, lineHeight = 36.sp))
+        Meta("Check these characters against the Companion page on that host.")
       }
       confirm.notice?.let {
         Column(
@@ -212,11 +212,11 @@ fun ConfirmScreen(
             .padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-          Text("This replaces your current laptop", style = type.titleMedium)
+          Text("This replaces your current host", style = type.titleMedium)
           Text(it, style = type.bodyMedium)
         }
       }
-      Text("Name for this phone", style = type.labelLarge)
+      Text("Name for this Companion", style = type.labelLarge)
       Field(state.name, onName, onDone = onPair)
       state.error?.let { Text(it, color = hand.ink(Tone.Fail), style = type.bodyMedium) }
       Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
