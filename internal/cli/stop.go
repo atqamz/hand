@@ -100,7 +100,7 @@ func cmdBoardStop(r *runner, args []string) error {
 	}
 	return r.stopReport("board", filepath.Join(root, "board.pid"),
 		"Fleet watchers keep running; stop one with `hand watch stop` in its fleet",
-		"Start the board again with `hand open` from a fleet, or `hand board --iroh`. `hand board` alone clears the recorded phone access. A systemd unit or LaunchAgent does not restart a board that stopped cleanly")
+		"Start the board again with `hand open` from a fleet, or `hand board --iroh`. `hand board` alone clears the recorded Companion access. A systemd unit or LaunchAgent does not restart a board that stopped cleanly")
 }
 
 func cmdWatchStop(r *runner, args []string) error {

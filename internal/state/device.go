@@ -77,13 +77,13 @@ func scanDevice(row scanner) (Device, error) {
 func (s *Store) AddDevice(ctx context.Context, name, login, secretHash, phone string) (Device, error) {
 	d := Device{Name: cleanDeviceText(name, MaxDeviceName), Login: CleanLogin(login), Phone: phone, PairedAt: s.now().UTC()}
 	if d.Name == "" {
-		d.Name = "Phone"
+		d.Name = "Companion"
 	}
 	if len(secretHash) != 64 {
 		return Device{}, fmt.Errorf("%w: a device secret is stored as a 64-character hash", ErrInvalid)
 	}
 	if !validPhoneLabel(phone) {
-		return Device{}, fmt.Errorf("%w: a phone label is empty or %d lowercase hex characters", ErrInvalid, PhoneLabelLen)
+		return Device{}, fmt.Errorf("%w: a Companion label is empty or %d lowercase hex characters", ErrInvalid, PhoneLabelLen)
 	}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		err := tx.QueryRow(`INSERT INTO device(name, login, secret_hash, phone, paired_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
@@ -138,7 +138,7 @@ func (s *Store) RevokeDevice(ctx context.Context, id int64) (Device, error) {
 		row := tx.QueryRow(`DELETE FROM device WHERE id = ? RETURNING id, name, login, phone, paired_at`, id)
 		var err error
 		if d, err = scanDevice(row); errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: no paired phone %d", ErrNotFound, id)
+			return fmt.Errorf("%w: no paired Companion %d", ErrNotFound, id)
 		} else if err != nil {
 			return err
 		}
@@ -149,7 +149,7 @@ func (s *Store) RevokeDevice(ctx context.Context, id int64) (Device, error) {
 
 func (s *Store) RevokePhone(ctx context.Context, label string) ([]Device, error) {
 	if !ValidPhoneLabel(label) {
-		return nil, fmt.Errorf("%w: a phone label is %d lowercase hex characters", ErrInvalid, PhoneLabelLen)
+		return nil, fmt.Errorf("%w: a Companion label is %d lowercase hex characters", ErrInvalid, PhoneLabelLen)
 	}
 	var out []Device
 	err := s.tx(ctx, func(tx *sql.Tx) error {

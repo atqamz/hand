@@ -51,7 +51,7 @@ func (r *runner) doctorIroh(ctx context.Context, d *toon.Doc, c *checks, root, p
 		if on {
 			c.add("iroh", "warn", err.Error()+"; the board runs without it: run `hand update`, or install a release that carries it")
 		} else {
-			c.add("iroh", "info", "not installed; phone access over iroh needs hand-iroh: run `hand update`, or install a release that carries it")
+			c.add("iroh", "info", "not installed; Companion access over iroh needs hand-iroh: run `hand update`, or install a release that carries it")
 		}
 		return
 	}
@@ -75,7 +75,7 @@ func (r *runner) doctorIroh(ctx context.Context, d *toon.Doc, c *checks, root, p
 	case st.State == sidecar.Ready:
 		d.Field("iroh_id", st.ID)
 		if st.Relay == "none" {
-			c.add("iroh", "warn", "running, but it reached no relay within 10 seconds, so a phone elsewhere cannot dial it; check that this machine can reach the internet, then restart the board")
+			c.add("iroh", "warn", "running, but it reached no relay within 10 seconds, so a Companion elsewhere cannot dial it; check that this machine can reach the internet, then restart the board")
 			return
 		}
 		c.add("iroh", "ok", "")

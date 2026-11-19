@@ -255,7 +255,7 @@ func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case over:
 		w.Header().Set("Connection", "close")
-		hostFail(w, http.StatusTooManyRequests, "This connection has asked for too much before pairing. Pair this phone first, or open a new connection.")
+		hostFail(w, http.StatusTooManyRequests, "This connection has asked for too much before pairing. Pair this Companion first, or open a new connection.")
 	case funnel:
 		hostFail(w, http.StatusForbidden, funnelRefusal)
 	case !public && !proved:

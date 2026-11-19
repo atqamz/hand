@@ -163,9 +163,9 @@ async function board(box, srv, made) {
   matches(textOf(funnel.text), /does not answer the public internet/, 'the Funnel refusal says why');
 
   const connect = await host.get(`/${id}/connect`);
-  equal(connect.status, 200, 'the host opens the Phone page');
+  equal(connect.status, 200, 'the host opens the Companion page');
   const csrf = connect.text.match(/name="csrf" value="([^"]+)"/)?.[1];
-  check(Boolean(csrf), 'the Phone page carries a form token');
+  check(Boolean(csrf), 'the Companion page carries a form token');
   const minted = await host.post(`/${id}/connect/code`, { csrf, base: origin });
   equal(minted.status, 200, 'the host mints a pairing code');
   const code = minted.text.match(/class="code-big"[^>]*>([A-Z0-9]{5}-[A-Z0-9]{5})</)?.[1];
@@ -206,7 +206,7 @@ async function board(box, srv, made) {
   equal(strange.status, 200, 'a proxied request without a session gets the fleet list page');
   check(!strange.text.includes(id), 'it names no fleet');
   const mine = await phone.get(`/${id}/connect`);
-  matches(textOf(mine.text), /This phone/, 'the Phone page reads "This phone" on the phone');
+  matches(textOf(mine.text), /This Companion/, 'the Companion page reads "This Companion" on the Companion');
   const nested = await phone.post(`/${id}/connect/code`, { csrf: mine.text.match(/name="csrf" value="([^"]+)"/)?.[1], base: origin });
   equal(nested.status, 403, 'a paired phone cannot mint a code');
 
@@ -266,7 +266,7 @@ async function iroh(box, made) {
   const host = new Client(link.origin);
   await host.get(`${link.pathname}${link.search}`);
   const connect = await host.get(`/${id}/connect`);
-  matches(textOf(connect.text), new RegExp(`Phone access over iroh is online\\. The Hand app can pair with this host\\. Endpoint ID ${endpoint}`), 'the Phone page shows the sidecar ready, with its endpoint ID');
+  matches(textOf(connect.text), new RegExp(`Companion access over iroh is online\\. The Hand app can pair with this host\\. Endpoint ID ${endpoint}`), 'the Companion page shows the sidecar ready, with its endpoint ID');
   const csrf = connect.text.match(/name="csrf" value="([^"]+)"/)?.[1];
   const app = await host.post(`/${id}/connect/app`, { csrf });
   equal(app.status, 200, 'the host asks for a Hand app link');

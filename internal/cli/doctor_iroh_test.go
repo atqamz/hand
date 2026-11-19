@@ -17,7 +17,7 @@ func TestDoctorIrohRowFollowsWhatIsInstalledAndWhatTheBoardSays(t *testing.T) {
 		id               string
 		set              func(t *testing.T, fx *doctorFixture, root string)
 	}{
-		{"not installed and off", "info", "not installed; phone access over iroh needs hand-iroh", "", func(*testing.T, *doctorFixture, string) {}},
+		{"not installed and off", "info", "not installed; Companion access over iroh needs hand-iroh", "", func(*testing.T, *doctorFixture, string) {}},
 		{"not installed but switched on", "warn", "hand-iroh not found: it is not next to hand", "", func(t *testing.T, fx *doctorFixture, root string) { recordIrohState(t, root, "stopped") }},
 		{"another program under the name", "warn", "not a hand-iroh binary", "", func(t *testing.T, fx *doctorFixture, root string) {
 			installSidecar(t, fx, map[string]string{"version": "luvus 0.14.3", "raw": "1"})
@@ -35,7 +35,7 @@ func TestDoctorIrohRowFollowsWhatIsInstalledAndWhatTheBoardSays(t *testing.T) {
 			recordIrohState(t, root, "ready "+irohID+" "+relayURL)
 			liveBoard(t, root)
 		}},
-		{"ready without a relay", "warn", "reached no relay within 10 seconds, so a phone elsewhere cannot dial it", irohID, func(t *testing.T, fx *doctorFixture, root string) {
+		{"ready without a relay", "warn", "reached no relay within 10 seconds, so a Companion elsewhere cannot dial it", irohID, func(t *testing.T, fx *doctorFixture, root string) {
 			installSidecar(t, fx, nil)
 			recordIrohState(t, root, "ready "+irohID+" none")
 			liveBoard(t, root)

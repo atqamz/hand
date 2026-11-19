@@ -38,7 +38,7 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 		contains(t, "board.css", css, "\n"+rule+"\n")
 	}
 	block := css[strings.Index(css, "\n.connect-part h3{margin:0}"):strings.Index(css, "\n.pair-fleets{")]
-	lacks(t, "the phone rules", block, "user-select", "min-height", "\nheight:", ";height:", "{height:", "#fff", "#000", "!important", "@media")
+	lacks(t, "the Companion rules", block, "user-select", "min-height", "\nheight:", ";height:", "{height:", "#fff", "#000", "!important", "@media")
 	for _, m := range regexp.MustCompile(`font-size:(\d+)px`).FindAllStringSubmatch(block, -1) {
 		switch m[1] {
 		case "12", "14", "15", "18", "22":
@@ -135,11 +135,11 @@ func TestThePhonePagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
 			t.Errorf("%s page has %d script tags, want the one app.js", name, n)
 		}
 	}
-	contains(t, "pair", pages["pair"], `<input id="code" name="code" required autocomplete="one-time-code" autocapitalize="characters"`, `<input id="name" name="name" maxlength="40" autocomplete="off" value="Phone">`, `<button class="primary">Pair</button>`)
+	contains(t, "pair", pages["pair"], `<input id="code" name="code" required autocomplete="one-time-code" autocapitalize="characters"`, `<input id="name" name="name" maxlength="40" autocomplete="off" value="Companion">`, `<button class="primary">Pair</button>`)
 	lacks(t, "pair", pages["pair"], `<input type="hidden"`, `name="csrf"`, `name="base"`)
 	contains(t, "code", pages["code"], `<div class="pair-code">`+"\n"+`<svg class="qr" viewBox="0 0 41 41" role="img" aria-label="QR code for the pairing link"`, `<div class="pair-copy">`, `<p class="pair-link"><code class="ref">`, `<p class="code-big"`, `<button type="button" class="doc-copy" data-copy="link"`)
 	for _, name := range []string{"connect", "code"} {
-		contains(t, name, pages[name], `<label for="base">Address the phone opens</label>`, `<input id="base" name="base" type="url" inputmode="url"`, `class="pair-form" method="post" action="/connect/code" data-address`)
+		contains(t, name, pages[name], `<label for="base">Address the Companion opens</label>`, `<input id="base" name="base" type="url" inputmode="url"`, `class="pair-form" method="post" action="/connect/code" data-address`)
 	}
 	contains(t, "connect", pages["connect"], `<button aria-label="Revoke Pixel">Revoke</button>`, `class="device"`)
 	for _, name := range []string{"pair", "pair bad", "phone", "revoked", "funnel"} {

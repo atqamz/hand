@@ -437,7 +437,7 @@ func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
 	}
 	_, page = send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://host.example"}, "fleet": {idB}}, host)
 	m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
-	if m == nil || !strings.Contains(page, "It pairs the phone with alpha and beta.") {
+	if m == nil || !strings.Contains(page, "It pairs the Companion with alpha and beta.") {
 		t.Fatalf("no code for two fleets:\n%s", page)
 	}
 	res, result := send("POST", urlA+"/pair", url.Values{"code": {m[1]}, "name": {"Pixel"}}, nil)
@@ -765,7 +765,7 @@ func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
 		}
 	}
 	_, after := proxiedSend(t, "GET", urlA+"/connect", nil, all[:3])
-	if !strings.Contains(after, "No phone is paired.") {
+	if !strings.Contains(after, "No Companion is paired.") {
 		t.Fatalf("the Phone page after a revoke everywhere:\n%s", after)
 	}
 }

@@ -48,7 +48,7 @@ func neutralRequests(prefix string, f railFleet, forged string, cookies map[stri
 		{"a wrong token link", "GET", prefix + "/?token=wrong", nil, nil, nil, 403},
 		{"a revoked phone", "GET", prefix + "/", nil, []*http.Cookie{cookies["revoked"]}, op, 403},
 		{"a lapsed phone", "GET", prefix + "/", nil, []*http.Cookie{cookies["lapsed"]}, op, 403},
-		{"a phone reaching the board another way", "GET", prefix + "/", nil, []*http.Cookie{cookies["live"]}, nil, 403},
+		{"a Companion reaching the board another way", "GET", prefix + "/", nil, []*http.Cookie{cookies["live"]}, nil, 403},
 		{"a forged phone cookie", "GET", prefix + "/", nil, []*http.Cookie{{Name: "__Host-hand_phone" + strings.ReplaceAll(prefix, "/", "_"), Value: forged}}, op, 403},
 		{"funnel", "GET", prefix + "/", nil, []*http.Cookie{cookies["live"]}, funnel, 403},
 		{"funnel on the pair page", "GET", prefix + "/pair", nil, nil, funnel, 403},

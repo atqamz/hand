@@ -146,7 +146,7 @@ func TestBoardIrohStartsTheSidecarAsItsChildAndShowsItsState(t *testing.T) {
 		secret = strings.TrimSpace(string(b))
 	}
 	page := phonePage(t, fleetURL, token)
-	for _, want := range []string{"Phone access over iroh is online", irohID, "The Hand app can pair with this host", `data-tone="pass"`} {
+	for _, want := range []string{"Companion access over iroh is online", irohID, "The Hand app can pair with this host", `data-tone="pass"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the Phone page lacks %q", want)
 		}
@@ -245,7 +245,7 @@ func TestBoardIrohWithNoSidecarStillServesAndSaysWhyItIsOff(t *testing.T) {
 		t.Fatalf("board.iroh = %q", got)
 	}
 	page := phonePage(t, fleetURL, token)
-	for _, want := range []string{`data-tone="fail"`, "Phone access over iroh is hand-iroh not found"} {
+	for _, want := range []string{`data-tone="fail"`, "Companion access over iroh is hand-iroh not found"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the Phone page lacks %q", want)
 		}
@@ -329,7 +329,7 @@ func TestBoardIrohStopsShowingReadyWhenThePeerListenerFails(t *testing.T) {
 	if row[0] != "info" || !strings.Contains(row[1], "stopped") {
 		t.Fatalf("iroh row = %q", row)
 	}
-	if page := phonePage(t, fleetURL, token); strings.Contains(page, irohID) || strings.Contains(page, "Phone access over iroh is online") {
+	if page := phonePage(t, fleetURL, token); strings.Contains(page, irohID) || strings.Contains(page, "Companion access over iroh is online") {
 		t.Fatalf("the Phone page still shows the sidecar ready")
 	}
 	out := stop()

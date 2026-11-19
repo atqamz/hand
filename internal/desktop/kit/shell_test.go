@@ -144,7 +144,7 @@ func tipShown(t *testing.T, n NavItem) bool {
 
 func TestAClosedRailNamesEveryItemOnHoverEvenAnInertOne(t *testing.T) {
 	for _, inert := range []bool{false, true} {
-		if !tipShown(t, NavItem{Key: "a", Label: "Phone", Icon: "phone", Inert: inert}) {
+		if !tipShown(t, NavItem{Key: "a", Label: "Companion", Icon: "phone", Inert: inert}) {
 			t.Errorf("no tooltip, inert=%v", inert)
 		}
 	}
@@ -156,7 +156,7 @@ func inertRail(clicked *[]string) *ui.Tester {
 		Rail(c, k, false, func() {}, func() {
 			for _, n := range []NavItem{
 				{Key: "board", Label: "Board", Icon: "board"},
-				{Key: "phone", Label: "Phone", Icon: "phone", Inert: true},
+				{Key: "phone", Label: "Companion", Icon: "phone", Inert: true},
 				{Key: "tasks", Label: "Tasks", Icon: "tasks"},
 			} {
 				if Nav(c, k, n) {
@@ -170,7 +170,7 @@ func inertRail(clicked *[]string) *ui.Tester {
 func TestAnInertItemIsNeverClicked(t *testing.T) {
 	var clicked []string
 	tt := inertRail(&clicked)
-	if err := tt.Click("Phone"); err != nil {
+	if err := tt.Click("Companion"); err != nil {
 		t.Fatal(err)
 	}
 	if len(clicked) != 0 {
@@ -187,14 +187,14 @@ func TestTabSkipsAnInertItem(t *testing.T) {
 	seen := map[string]bool{}
 	for range 6 {
 		tt.Key(0, ui.KeyTab)
-		for _, l := range []string{"Board", "Phone", "Tasks"} {
+		for _, l := range []string{"Board", "Companion", "Tasks"} {
 			if tt.Focused(l) {
 				seen[l] = true
 			}
 		}
 	}
-	if seen["Phone"] {
-		t.Error("Tab focused the inert Phone item")
+	if seen["Companion"] {
+		t.Error("Tab focused the inert Companion item")
 	}
 	if !seen["Board"] || !seen["Tasks"] {
 		t.Errorf("Tab reached only %v", seen)

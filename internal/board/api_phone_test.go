@@ -506,10 +506,10 @@ func TestAPIPhoneIrohStateIsThePagesWords(t *testing.T) {
 		state, tone string
 		text        string
 	}{
-		"ready":    {readyIroh, "ready", "pass", "Phone access over iroh is online. The Hand app can pair with this host."},
-		"no relay": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "none"}, "no relay", "wait", "Phone access over iroh is running, but it reached no relay, so a phone elsewhere cannot dial it."},
-		"starting": {sidecar.Status{State: sidecar.Starting, Reason: "exit status 1: cannot open the endpoint"}, "starting", "wait", "Phone access over iroh is restarting after: exit status 1: cannot open the endpoint."},
-		"failed":   {sidecar.Status{State: sidecar.Failed, Reason: "hand-iroh not found: it is not next to hand (/home/me/bin) or on PATH"}, "failed", "fail", "Phone access over iroh is hand-iroh not found: it is not next to hand (bin) or on PATH."},
+		"ready":    {readyIroh, "ready", "pass", "Companion access over iroh is online. The Hand app can pair with this host."},
+		"no relay": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "none"}, "no relay", "wait", "Companion access over iroh is running, but it reached no relay, so a Companion elsewhere cannot dial it."},
+		"starting": {sidecar.Status{State: sidecar.Starting, Reason: "exit status 1: cannot open the endpoint"}, "starting", "wait", "Companion access over iroh is restarting after: exit status 1: cannot open the endpoint."},
+		"failed":   {sidecar.Status{State: sidecar.Failed, Reason: "hand-iroh not found: it is not next to hand (/home/me/bin) or on PATH"}, "failed", "fail", "Companion access over iroh is hand-iroh not found: it is not next to hand (bin) or on PATH."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, h := phoneFixture(t, &c.st)
@@ -670,7 +670,7 @@ func TestAPIPhoneRevokeReportsAPartialFailureWithoutAHostPath(t *testing.T) {
 	if len(got.Revoke.Failed) != 1 || got.Revoke.Failed[0] != (board.APIPhoneFailed{ID: c.id, Name: "gamma", Reason: "the fleet did not answer"}) {
 		t.Fatalf("failed = %+v", got.Revoke.Failed)
 	}
-	const warn = "Revoked in alpha and beta. gamma could not be reached: its record of this phone, if it has one, is still active. Press Revoke everywhere again when it is back."
+	const warn = "Revoked in alpha and beta. gamma could not be reached: its record of this Companion, if it has one, is still active. Press Revoke everywhere again when it is back."
 	if env.Receipt != "" || env.Warn != warn || rec.Header().Get("X-Hand-Warn") != url.PathEscape(warn) {
 		t.Fatalf("receipt %q warn %q", env.Receipt, env.Warn)
 	}

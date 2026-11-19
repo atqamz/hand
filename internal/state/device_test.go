@@ -57,7 +57,7 @@ func TestADeviceNameIsOneShortLineAndHasADefault(t *testing.T) {
 		t.Fatalf("long name = %q, %v", long.Name, err)
 	}
 	blank, err := s.AddDevice(ctx, " \n\t\x07 ", "", hashB, "")
-	if err != nil || blank.Name != "Phone" {
+	if err != nil || blank.Name != "Companion" {
 		t.Fatalf("blank name = %q, %v", blank.Name, err)
 	}
 	broken, err := s.AddDevice(ctx, "ok\xff\xfe", "a\x1b[31m@example.com", hashB, "")
@@ -263,7 +263,7 @@ func TestRevokingAPhoneRemovesEveryRecordOfItsLabelAndOnlyThose(t *testing.T) {
 		events []string
 	}{
 		{"one record of the label", label, []string{"Pixel"}, []string{"Old", "Tablet", "Twin"}, []string{"board.revoked 1 Pixel"}},
-		{"another phone's label", other, []string{"Tablet", "Twin"}, []string{"Old", "Pixel"}, []string{"board.revoked 3 Tablet", "board.revoked 4 Twin"}},
+		{"another Companion's label", other, []string{"Tablet", "Twin"}, []string{"Old", "Pixel"}, []string{"board.revoked 3 Tablet", "board.revoked 4 Twin"}},
 		{"a label nobody holds", "aaaaaaaaaaaaaaaa", nil, []string{"Old", "Pixel", "Tablet", "Twin"}, nil},
 	}
 	for _, c := range cases {

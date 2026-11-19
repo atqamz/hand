@@ -142,12 +142,12 @@ func TestAPhonePostNeedsItsTokenWhateverCookieItCarries(t *testing.T) {
 	}
 	for _, r := range routes {
 		refused := map[string]*httptest.ResponseRecorder{
-			"no token":              p.do("POST", r.path, with(r.form, "", ""), companion, viaServe),
-			"an empty token":        p.do("POST", r.path, with(r.form, "csrf", ""), companion, viaServe),
-			"the fleet token":       p.do("POST", r.path, with(r.form, "csrf", token), companion, viaServe),
-			"another phone's token": p.do("POST", r.path, with(r.form, "csrf", csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, other, viaServe).Body.String())[1]), companion, viaServe),
-			"the token in the URL":  p.do("POST", r.path+"?csrf="+own, with(r.form, "", ""), companion, viaServe),
-			"its token, no cookie":  p.do("POST", r.path, with(r.form, "csrf", own), nil, viaServe),
+			"no token":                  p.do("POST", r.path, with(r.form, "", ""), companion, viaServe),
+			"an empty token":            p.do("POST", r.path, with(r.form, "csrf", ""), companion, viaServe),
+			"the fleet token":           p.do("POST", r.path, with(r.form, "csrf", token), companion, viaServe),
+			"another Companion's token": p.do("POST", r.path, with(r.form, "csrf", csrfRe.FindStringSubmatch(p.do("GET", "/connect", nil, other, viaServe).Body.String())[1]), companion, viaServe),
+			"the token in the URL":      p.do("POST", r.path+"?csrf="+own, with(r.form, "", ""), companion, viaServe),
+			"its token, no cookie":      p.do("POST", r.path, with(r.form, "csrf", own), nil, viaServe),
 		}
 		for what, rec := range refused {
 			if rec.Code != http.StatusForbidden {

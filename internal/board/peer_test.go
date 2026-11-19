@@ -298,7 +298,7 @@ func TestAnUnpairedPeerReachesOnlyThePairPageAndItsAssets(t *testing.T) {
 	f := r.fleets[0]
 	for name, c := range map[string]*peerClient{"identified": r.as(peerA), "anonymous": r.anonymous()} {
 		page := c.do("GET", "/"+f.id+"/pair", nil, nil)
-		if page.Code != http.StatusOK || !strings.Contains(page.Body, "Pair this phone") {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body, "Pair this Companion") {
 			t.Fatalf("%s: the pair page = %d", name, page.Code)
 		}
 		asset := staticRe.FindString(page.Body)
@@ -1010,7 +1010,7 @@ func TestASignOutOverAPeerConnectionIsAcknowledged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("signing out over the peer connection: %v", err)
 	}
-	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, "This phone is signed out") {
+	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, "This Companion is signed out") {
 		t.Fatalf("the sign-out = %d:\n%s", rep.Code, rep.Body)
 	}
 	if !c.closed() {

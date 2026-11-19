@@ -595,12 +595,12 @@ func apiPath(path string) bool {
 
 func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	if !b.o.Controls || proxied(r) {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board or to a paired phone")
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers only on a loopback board or to a paired Companion")
 		return
 	}
 	if r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/pair" {
 		if deviceLogin(r) == "" {
-			b.apiFail(w, http.StatusForbidden, "forbidden", "a phone pairs through the API only from a peer with its own key")
+			b.apiFail(w, http.StatusForbidden, "forbidden", "a Companion pairs through the API only from a peer with its own key")
 			return
 		}
 		b.apiPair(w, r)
@@ -612,7 +612,7 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if peerOf(r) != nil && (s.Device == nil || !strings.HasPrefix(s.Device.Login, "iroh:")) {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers on the peer listener only to a phone paired with its own key")
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the API answers on the peer listener only to a Companion paired with its own key")
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
@@ -897,7 +897,7 @@ func (b *Board) apiPair(w http.ResponseWriter, r *http.Request) {
 	code := *in["code"]
 	name := *in["name"]
 	if strings.ContainsFunc(name, unicode.IsControl) || utf8.RuneCountInString(strings.TrimSpace(name)) > state.MaxDeviceName {
-		b.apiFail(w, http.StatusBadRequest, "bad_name", fmt.Sprintf("a phone's name is at most %d characters and has no control character", state.MaxDeviceName))
+		b.apiFail(w, http.StatusBadRequest, "bad_name", fmt.Sprintf("a Companion's name is at most %d characters and has no control character", state.MaxDeviceName))
 		return
 	}
 	f, err := b.st.Fleet(r.Context())
@@ -1188,7 +1188,7 @@ func (b *Board) apiRefreshModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s, _ := ctx.Value(sessionKey{}).(session); s.Device != nil {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired phone cannot refresh model lists; use the host's Board")
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot refresh model lists; use the host's Board")
 		return
 	}
 	var in apiHarnessBody

@@ -10,7 +10,7 @@
     "iroh": {
       "state": "ready",
       "tone": "pass",
-      "text": "Phone access over iroh is online. The Hand app can pair with this host.",
+      "text": "Companion access over iroh is online. The Hand app can pair with this host.",
       "id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     },
     "fleets": [],

@@ -144,9 +144,9 @@ func TestOneCodePairsAPhoneWithTheFleetsTheHostChose(t *testing.T) {
 		{"two fleets", []int{0, 1}, []int{1}, nil, nil, http.StatusOK, []int{0, 1}, "", "Paired with alpha and beta."},
 		{"three fleets", []int{0, 1, 2}, []int{1, 2}, nil, nil, http.StatusOK, []int{0, 1, 2}, "", "Paired with alpha, beta and gamma."},
 		{"one of three unticked", []int{0, 1, 2}, []int{2}, nil, nil, http.StatusOK, []int{0, 2}, "", "Paired with alpha and gamma."},
-		{"one fleet down at redeem", []int{0, 1, 2}, []int{1, 2}, []int{1}, nil, http.StatusOK, []int{0, 2}, "1 fleet was not reachable. Pair it from the host's Board, on its Phone page.", "Paired with alpha and gamma."},
-		{"one fleet removed after the code was shown", []int{0, 1, 2}, []int{1, 2}, nil, []int{2}, http.StatusOK, []int{0, 1}, "1 fleet was not reachable. Pair it from the host's Board, on its Phone page.", "Paired with alpha and beta."},
-		{"every other fleet unreachable", []int{0, 1, 2}, []int{1, 2}, []int{1}, []int{2}, http.StatusOK, []int{0}, "2 fleets were not reachable. Pair them from the host's Board, on its Phone page.", "Paired with alpha."},
+		{"one fleet down at redeem", []int{0, 1, 2}, []int{1, 2}, []int{1}, nil, http.StatusOK, []int{0, 2}, "1 fleet was not reachable. Pair it from the host's Board, on its Companion page.", "Paired with alpha and gamma."},
+		{"one fleet removed after the code was shown", []int{0, 1, 2}, []int{1, 2}, nil, []int{2}, http.StatusOK, []int{0, 1}, "1 fleet was not reachable. Pair it from the host's Board, on its Companion page.", "Paired with alpha and beta."},
+		{"every other fleet unreachable", []int{0, 1, 2}, []int{1, 2}, []int{1}, []int{2}, http.StatusOK, []int{0}, "2 fleets were not reachable. Pair them from the host's Board, on its Companion page.", "Paired with alpha."},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestOneCodePairsAPhoneWithTheFleetsTheHostChose(t *testing.T) {
 				return
 			}
 			body := rec.Body.String()
-			contains(t, "result page", body, c.said, `<h2 class="thread-title">Phone paired</h2>`)
+			contains(t, "result page", body, c.said, `<h2 class="thread-title">Companion paired</h2>`)
 			if c.missed != "" {
 				contains(t, "result page", body, c.missed)
 			} else {
@@ -255,7 +255,7 @@ func TestAChosenFleetTheHostIsNotProvenForGetsNoCode(t *testing.T) {
 			return []*http.Cookie{p.host(p.fleets[0]), {Name: "hand_board_f00000000dead", Value: p.fleets[0].token}}
 		}, func(p *companionHost) []string { return []string{"f00000000dead"} }},
 		{"an id that is not a fleet id", func(p *companionHost) []*http.Cookie { return p.hosts(p.fleets[0]) }, func(p *companionHost) []string { return []string{"../" + p.fleets[1].id, "", " ", "%00"} }},
-		{"a fleet the phone is paired with, not the host", func(p *companionHost) []*http.Cookie {
+		{"a fleet the Companion is paired with, not the host", func(p *companionHost) []*http.Cookie {
 			return []*http.Cookie{p.host(p.fleets[0]), p.pair(p.fleets[1], op)}
 		}, func(p *companionHost) []string { return []string{p.fleets[1].id} }},
 	}
@@ -302,7 +302,7 @@ func TestOnlyTheFleetsTheHostHoldsATokenForAreOffered(t *testing.T) {
 		return rec.Body.String()
 	}
 	alone := page(p.host(a))
-	lacks(t, "the page of a host signed in to one fleet", alone, `name="fleet"`, "Fleets this phone may open", b.name, c.name, d.name)
+	lacks(t, "the page of a host signed in to one fleet", alone, `name="fleet"`, "Fleets this Companion may open", b.name, c.name, d.name)
 
 	both := page(p.host(b), p.host(a))
 	if got := checkboxRe.FindAllStringSubmatch(both, -1); len(got) != 2 {
@@ -315,7 +315,7 @@ func TestOnlyTheFleetsTheHostHoldsATokenForAreOffered(t *testing.T) {
 
 	companionC := p.pair(c, op)
 	withCompanion := p.send("GET", "/"+a.id+"/connect", nil, []*http.Cookie{p.host(a), p.host(b), companionC}, op).Body.String()
-	contains(t, "the rail of a host that also holds a phone's cookie", withCompanion, `href="/`+c.id+`/"`)
+	contains(t, "the rail of a host that also holds a Companion's cookie", withCompanion, `href="/`+c.id+`/"`)
 	var values []string
 	for _, m := range checkboxRe.FindAllStringSubmatch(withCompanion, -1) {
 		values = append(values, m[1])
@@ -330,7 +330,7 @@ func TestOnlyTheFleetsTheHostHoldsATokenForAreOffered(t *testing.T) {
 	lacks(t, "a removed fleet", page(p.host(a), p.host(b)), b.name, b.id, `name="fleet"`)
 
 	form := p.send("POST", "/"+a.id+"/connect/code", url.Values{"csrf": {a.token}, "base": {"https://host.example"}, "fleet": {c.id}}, p.hosts(a, c), nil)
-	contains(t, "the code page", form.Body.String(), `name="fleet" value="`+c.id+`" checked>`, "It pairs the phone with alpha and gamma.")
+	contains(t, "the code page", form.Body.String(), `name="fleet" value="`+c.id+`" checked>`, "It pairs the Companion with alpha and gamma.")
 	lacks(t, "the code page", form.Body.String(), `value="`+c.id+`" checked disabled`)
 	if got := checkboxRe.FindAllStringSubmatch(form.Body.String(), -1); len(got) != 2 {
 		t.Fatalf("checkboxes on the code page = %v", got)
@@ -345,8 +345,8 @@ func TestAFleetListedOnTheCodePageKeepsItsTickWhenTheAddressIsWrong(t *testing.T
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad address = %d", rec.Code)
 	}
-	contains(t, "the page", rec.Body.String(), `name="fleet" value="`+b.id+`" checked>`, "type the address your phone opens")
-	lacks(t, "the page", rec.Body.String(), "pairs the phone with")
+	contains(t, "the page", rec.Body.String(), `name="fleet" value="`+b.id+`" checked>`, "type the address your Companion opens")
+	lacks(t, "the page", rec.Body.String(), "pairs the Companion with")
 	if list := p.devicesOf(a); len(list) != 0 {
 		t.Fatalf("a bad address left %v", list)
 	}
@@ -373,7 +373,7 @@ func TestAPhoneCannotMintACodeOrAddAFleet(t *testing.T) {
 		}
 	}
 	page := p.send("GET", "/"+a.id+"/connect", nil, []*http.Cookie{companionA, companionB}, op).Body.String()
-	lacks(t, "a phone's Phone page", page, `name="fleet"`, "Fleets this phone may open", `action="/`+a.id+`/connect/code"`)
+	lacks(t, "a Companion's Companion page", page, `name="fleet"`, "Fleets this Companion may open", `action="/`+a.id+`/connect/code"`)
 	if rec := p.redeem(a, "AAAAA-AAAAA", nil, op); rec.Code != http.StatusForbidden {
 		t.Fatalf("redeem after the refused mints = %d", rec.Code)
 	}
@@ -792,7 +792,7 @@ func TestAFunnelRequestPairsNothingAndSpendsNoCode(t *testing.T) {
 func TestABoardOnANetworkAddressPairsOnlyItsOwnFleet(t *testing.T) {
 	p := newCompanionHost(t, false, "alpha", "beta")
 	a, b := p.fleets[0], p.fleets[1]
-	lacks(t, "the Phone page", p.send("GET", "/"+a.id+"/connect", nil, p.hosts(a, b), nil).Body.String(), `name="fleet"`, b.name)
+	lacks(t, "the Companion page", p.send("GET", "/"+a.id+"/connect", nil, p.hosts(a, b), nil).Body.String(), `name="fleet"`, b.name)
 	if rec := p.mint(a, p.hosts(a, b), b); rec.Code != http.StatusForbidden || codeRe.MatchString(rec.Body.String()) {
 		t.Fatalf("a second fleet on a network address board = %d", rec.Code)
 	}
@@ -890,7 +890,7 @@ func TestThePairPageBeforeRedeemingNamesNoFleetAndTheMarkupHoldsNoInlineCode(t *
 	for _, name := range []string{"pair", "pair bad"} {
 		lacks(t, name+" page", pages[name], a.name, b.name, c.name, b.id, c.id)
 	}
-	contains(t, "connect", pages["connect"], `<fieldset class="pair-fleets"><legend>Fleets this phone may open</legend>`)
+	contains(t, "connect", pages["connect"], `<fieldset class="pair-fleets"><legend>Fleets this Companion may open</legend>`)
 	boxes := checkboxRe.FindAllStringSubmatch(pages["connect"], -1)
 	if len(boxes) != 3 {
 		t.Fatalf("checkboxes = %v", boxes)

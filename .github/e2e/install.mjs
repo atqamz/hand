@@ -69,7 +69,7 @@ async function one(shell, good, bad, badIroh) {
       await installed(other, `${shell}: ${name}`);
       if (prefix === '/download/edge/') {
         check(!fs.existsSync(path.join(other, `hand-iroh${exe}`)), `${shell}: the edge channel carries no sidecar, so none is installed`);
-        matches(res.out, new RegExp(`^this release has no ${escape(irohAsset)}; phone access over iroh is not installed\\r?$`, 'm'), `${shell}: the installer says the release has no sidecar`);
+        matches(res.out, new RegExp(`^this release has no ${escape(irohAsset)}; Companion access over iroh is not installed\\r?$`, 'm'), `${shell}: the installer says the release has no sidecar`);
       } else {
         check(fs.existsSync(path.join(other, `hand-iroh${exe}`)), `${shell}: ${name} installs the sidecar`);
       }

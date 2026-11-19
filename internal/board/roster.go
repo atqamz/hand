@@ -220,9 +220,9 @@ func revokeText(done, failed []string, again string) string {
 	}
 	back := "it is back"
 	if len(failed) == 1 {
-		sb.WriteString(failed[0] + " could not be reached: its record of this phone, if it has one, is still active. ")
+		sb.WriteString(failed[0] + " could not be reached: its record of this Companion, if it has one, is still active. ")
 	} else {
-		sb.WriteString(joined(failed) + " could not be reached: their records of this phone, if they have any, are still active. ")
+		sb.WriteString(joined(failed) + " could not be reached: their records of this Companion, if they have any, are still active. ")
 		back = "they are back"
 	}
 	sb.WriteString("Press " + again + " again when " + back + ".")
@@ -233,12 +233,12 @@ func (b *Board) connectRevokePhone(everywhere bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		if s, _ := ctx.Value(sessionKey{}).(session); s.Device != nil {
-			b.fail(w, http.StatusForbidden, "a paired phone can sign out only itself")
+			b.fail(w, http.StatusForbidden, "a paired Companion can sign out only itself")
 			return
 		}
 		label := r.PostFormValue("phone")
 		if !state.ValidPhoneLabel(label) {
-			b.fail(w, http.StatusBadRequest, "no phone was named")
+			b.fail(w, http.StatusBadRequest, "no Companion was named")
 			return
 		}
 		targets, note := b.hostFleets(ctx), revokeNote{Action: "everywhere", Phone: label, Button: "Revoke everywhere"}
@@ -246,7 +246,7 @@ func (b *Board) connectRevokePhone(everywhere bool) http.HandlerFunc {
 			id := r.PostFormValue("fleet")
 			i := slices.IndexFunc(targets, func(l railLink) bool { return l.ID == id })
 			if i < 0 {
-				b.fail(w, http.StatusForbidden, "this browser is not signed in to that fleet; reload the Phone page")
+				b.fail(w, http.StatusForbidden, "this browser is not signed in to that fleet; reload the Companion page")
 				return
 			}
 			targets, note = targets[i:i+1], revokeNote{Action: "in", Fleet: id, Phone: label, Button: "Revoke"}

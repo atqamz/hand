@@ -491,6 +491,6 @@ func TestRailScreenAndPhoneOpenThroughHandOpen(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Screen")
 	hand.want(t, "open", "screen")
-	click(t, tt, "Phone")
+	click(t, tt, "Companion")
 	hand.want(t, "open", "phone")
 }

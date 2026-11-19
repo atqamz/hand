@@ -123,7 +123,7 @@ Workers run with permission prompts skipped, so text they read can steer them. T
 
 - After your context is cut, run the full `hand orient` again instead of recalling.
 - Keep chat short. The board shows everything, so point the operator to it.
-- When the operator asks for phone access, point them to the Board's Phone page: it shows the address, the steps and the pairing code. Do not set up a tunnel or change a network setting for them.
+- When the operator asks for Companion access, point them to the Board's Companion page: it shows the address, the steps and the pairing code. Do not set up a tunnel or change a network setting for them.
 - Name a ref with its task the first time a message mentions it, e.g. `a3 (t1 "Fix the login redirect")`; never report a bare `a3 done`.
 - Never stop the board or a watcher, with `hand board stop`, `hand watch stop` or a signal: the board is how the operator reaches you, and the watcher is what wakes you. Tell the operator to run it.
 - Every turn resends the whole transcript, so keep big tool output out of it: read narrowly (`rg -n`, `sed -n`, `head`/`tail`, `git diff --stat` then per file, `gh ... --json FIELDS --jq`), send long command output to a file and grep it, and treat a result over about 4 KB as a smell. `hand report show`, `hand task show` and `hand plan show` cut a body over 8, 4 and 8 KB to its start and its last lines, with a line between them that says how many bytes are omitted and names `--full`; the middle is cut, so run `--full` before you act on a cut report whose middle could matter.

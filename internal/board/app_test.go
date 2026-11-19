@@ -75,7 +75,7 @@ func TestTheHandAppLinkIsShownAsTextAndAQRCode(t *testing.T) {
 	esc := html.EscapeString(want)
 	for _, want := range []string{string(qr), `<code class="ref">` + esc + `</code>`,
 		`data-copy="link" data-text="` + esc + `"`,
-		"worth revoking after the phone pairs"} {
+		"worth revoking after the Companion pairs"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("app page missing %q:\n%s", want, redactAppPage(body))
 		}
@@ -128,7 +128,7 @@ func TestThePhonePageNamesTheDevicePairedOverIroh(t *testing.T) {
 	if _, err := p.fx.st.AddDevice(context.Background(), "Pixel", "iroh:"+appEndpoint, strings.Repeat("a", 64), "0123456789abcdef"); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "Phone page", page(), "paired: Pixel")
+	contains(t, "Companion page", page(), "paired: Pixel")
 	if strings.Contains(page(), "&c=") {
 		t.Fatal("the Phone page shows a link before one is asked for")
 	}
@@ -147,7 +147,7 @@ func TestTheHandAppLinkNeedsASidecarWithARelay(t *testing.T) {
 		}
 		for text, want := range map[string]string{
 			"starting": "It is starting.",
-			"no relay": "It is running, but it reached no relay, so a phone elsewhere cannot dial it.",
+			"no relay": "It is running, but it reached no relay, so a Companion elsewhere cannot dial it.",
 			"failed":   "It is x.",
 		} {
 			if name == text && !strings.Contains(page(), want) {
@@ -188,5 +188,5 @@ func TestThePhonePageHasTheHandAppCardAndNoInstallCard(t *testing.T) {
 			t.Fatalf("the Phone page lacks %q", want)
 		}
 	}
-	lacks(t, "the Phone page", body, `id="app-head"`, "data-install")
+	lacks(t, "the Companion page", body, `id="app-head"`, "data-install")
 }

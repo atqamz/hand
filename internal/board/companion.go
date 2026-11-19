@@ -245,11 +245,11 @@ func (b *Board) companionIdentify(r *http.Request) (session, sessionFault) {
 func sessionFaults(f sessionFault, viaProxy bool) string {
 	switch {
 	case f == companionGone:
-		return "This phone is no longer paired with this fleet. Pair it again from the host's Board: Phone, in its menu."
+		return "This Companion is no longer paired with this fleet. Pair it again from the host's Board: Companion, in its menu."
 	case f == companionOther:
-		return "This phone was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from the host's Board."
+		return "This Companion was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from the host's Board."
 	case viaProxy:
-		return "Pair this phone first: open this fleet's Board, choose Phone in its menu, and show a pairing code."
+		return "Pair this Companion first: open this fleet's Board, choose Companion in its menu, and show a pairing code."
 	}
 	return "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints."
 }
@@ -401,7 +401,7 @@ func (b *Board) redeem(addr, typed string, now time.Time) (pairResult, []string)
 func cleanBase(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Trim(u.Path, "/") != "" {
-		return "", errors.New("type the address your phone opens, like https://host.example")
+		return "", errors.New("type the address your Companion opens, like https://host.example")
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
@@ -456,7 +456,7 @@ func irohView(st sidecar.Status) *irohInfo {
 	switch st.State {
 	case sidecar.Ready:
 		if st.Relay == "none" {
-			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a phone elsewhere cannot dial it."}
+			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a Companion elsewhere cannot dial it."}
 		}
 		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. The Hand app can pair with this host."}
 	case sidecar.Starting:
@@ -474,7 +474,7 @@ func irohView(st sidecar.Status) *irohInfo {
 func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, extra map[string]any) {
 	ctx := r.Context()
 	s, _ := ctx.Value(sessionKey{}).(session)
-	data := map[string]any{"Title": "phone", "Page": "connect", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": s.CSRF, "Phone": s.Device}
+	data := map[string]any{"Title": "companion", "Page": "connect", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": s.CSRF, "Phone": s.Device}
 	if s.Device == nil {
 		own, err := b.PhoneRecords(ctx)
 		if err != nil {
@@ -549,12 +549,12 @@ func (b *Board) fleetNames(ctx context.Context, set []string) []string {
 
 func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the code on the host's Board")
+		b.fail(w, http.StatusForbidden, "a paired Companion cannot pair another device; show the code on the host's Board")
 		return
 	}
 	set, ok := b.chosenFleets(r)
 	if !ok {
-		b.fail(w, http.StatusForbidden, "this browser is not signed in to every fleet you chose; reload the Phone page and choose again")
+		b.fail(w, http.StatusForbidden, "this browser is not signed in to every fleet you chose; reload the Companion page and choose again")
 		return
 	}
 	base, err := cleanBase(r.PostFormValue("base"))
@@ -575,7 +575,7 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the link on the host's Board")
+		b.fail(w, http.StatusForbidden, "a paired Companion cannot pair another device; show the link on the host's Board")
 		return
 	}
 	var st sidecar.Status
@@ -583,7 +583,7 @@ func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 		st = b.o.Iroh()
 	}
 	if st.State != sidecar.Ready || st.ID == "" || st.Relay == "" || st.Relay == "none" {
-		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AppError": "Phone access over iroh is not ready with a relay, so a phone cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state above."})
+		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AppError": "Companion access over iroh is not ready with a relay, so a Companion cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state above."})
 		return
 	}
 	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P"); err != nil {
@@ -605,11 +605,11 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	s, _ := r.Context().Value(sessionKey{}).(session)
 	id, err := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
 	if err != nil {
-		b.fail(w, http.StatusBadRequest, "no phone was named")
+		b.fail(w, http.StatusBadRequest, "no Companion was named")
 		return
 	}
 	if s.Device != nil && s.Device.ID != id {
-		b.fail(w, http.StatusForbidden, "a paired phone can sign out only itself")
+		b.fail(w, http.StatusForbidden, "a paired Companion can sign out only itself")
 		return
 	}
 	revoked, err := b.revokeDevice(r.Context(), id)
@@ -619,7 +619,7 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Device != nil {
 		http.SetCookie(w, &http.Cookie{Name: b.companionCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
-		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the host's Board: Phone, in its menu.")
+		b.fail(w, http.StatusOK, "This Companion is signed out. Pair it again from the host's Board: Companion, in its menu.")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -642,7 +642,7 @@ var pairFailure = map[pairResult]struct {
 	pairExpired: {http.StatusForbidden, "code_expired", "That code has expired. A code works for 5 minutes. Show a new code on the Board."},
 	pairUsed:    {http.StatusForbidden, "code_used", "That code was already used. A code works once. Show a new code on the Board."},
 	pairBurned:  {http.StatusForbidden, "codes_cancelled", "Too many wrong codes. Every code was cancelled. Show a new code on the Board."},
-	pairBlocked: {http.StatusTooManyRequests, "rate_limited", "Too many wrong codes from this phone. Wait a minute, then try again."},
+	pairBlocked: {http.StatusTooManyRequests, "rate_limited", "Too many wrong codes from this Companion. Wait a minute, then try again."},
 }
 
 func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg, name string) {
@@ -698,12 +698,12 @@ func (b *Board) pairSet(r *http.Request, set []string, name string) (*Redeemed, 
 
 func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		b.pairPage(w, r, http.StatusOK, "", "Phone")
+		b.pairPage(w, r, http.StatusOK, "", "Companion")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := r.ParseForm(); err != nil {
-		b.pairPage(w, r, http.StatusBadRequest, "That form could not be read. Reload the page and try again.", "Phone")
+		b.pairPage(w, r, http.StatusBadRequest, "That form could not be read. Reload the page and try again.", "Companion")
 		return
 	}
 	name := r.PostFormValue("name")

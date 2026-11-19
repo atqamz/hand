@@ -159,7 +159,7 @@
                 }
             }
             else {
-                Write-Output "this release has no $irohStem.zip; phone access over iroh is not installed"
+                Write-Output "this release has no $irohStem.zip; Companion access over iroh is not installed"
             }
         }
 

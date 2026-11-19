@@ -409,7 +409,7 @@ func TestInstallScriptKeepsWorkingWhenTheReleaseHasNoSidecar(t *testing.T) {
 	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand"}) || errOut != "" {
 		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
 	}
-	if !strings.Contains(out, "this release has no hand-iroh-linux-amd64.tar.gz; phone access over iroh is not installed\n") || !strings.Contains(out, "installed hand ") || strings.Contains(out, "installed hand-iroh") {
+	if !strings.Contains(out, "this release has no hand-iroh-linux-amd64.tar.gz; Companion access over iroh is not installed\n") || !strings.Contains(out, "installed hand ") || strings.Contains(out, "installed hand-iroh") {
 		t.Fatalf("out %q", out)
 	}
 	if !slices.Contains(srv.asked(), "/download/edge/hand-iroh-linux-amd64.tar.gz") {
