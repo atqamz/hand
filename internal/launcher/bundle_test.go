@@ -177,6 +177,29 @@ func TestBundleRemoveTakesOnlyHands(t *testing.T) {
 	}
 }
 
+func TestBundleRemoveKeepsABundleThatTurnsForeignBeforeTheMove(t *testing.T) {
+	x := newTree(t)
+	x.sync(t)
+	real := moveAside
+	moveAside = func(from, to string) error {
+		if err := os.WriteFile(x.b.plist(), []byte("<plist>mine</plist>"), 0o644); err != nil {
+			return err
+		}
+		return real(from, to)
+	}
+	t.Cleanup(func() { moveAside = real })
+	if skipped, err := bundleRemove(x.home); skipped != "" || err == nil || !strings.Contains(err.Error(), "was not deleted") {
+		t.Fatalf("Remove = %q, %v", skipped, err)
+	}
+	moved, _ := filepath.Glob(filepath.Join(filepath.Dir(x.b.app), ".hand-desktop.removed-*"))
+	if len(moved) != 1 {
+		t.Fatalf("the foreign bundle is at %v", moved)
+	}
+	if b, _ := os.ReadFile(filepath.Join(moved[0], "Contents", "Info.plist")); string(b) != "<plist>mine</plist>" {
+		t.Fatalf("the foreign Info.plist: %q", b)
+	}
+}
+
 func TestBundleCheckNamesWhatIsWrong(t *testing.T) {
 	x := newTree(t)
 	x.sync(t)

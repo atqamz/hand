@@ -159,6 +159,8 @@ func bundleSync(home, bin, hand string) (skipped string, err error) {
 	return "", nil
 }
 
+var moveAside = os.Rename
+
 func bundleRemove(home string) (skipped string, err error) {
 	b, err := bundleAt(home)
 	if err != nil {
@@ -172,8 +174,11 @@ func bundleRemove(home string) (skipped string, err error) {
 		return b.app, nil
 	}
 	gone := filepath.Join(filepath.Dir(b.app), ".hand-desktop.removed-"+rand.Text())
-	if err := os.Rename(b.app, gone); err != nil {
+	if err := moveAside(b.app, gone); err != nil {
 		return "", fmt.Errorf("launcher: cannot remove %s: %w", b.app, err)
+	}
+	if kept, _ := (bundle{gone}).managed(); !kept {
+		return "", fmt.Errorf("launcher: %s changed while it was being removed; it is now at %s and was not deleted", b.app, gone)
 	}
 	if err := os.RemoveAll(gone); err != nil {
 		return "", fmt.Errorf("launcher: %s was moved to %s but not all of it could be removed: %w", b.app, gone, err)
