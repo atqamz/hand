@@ -301,3 +301,16 @@ func TestAFleetPinRefusesASymlinkLeadingOutside(t *testing.T) {
 		t.Fatalf("LoadPin is lexical: %v %v", ok, err)
 	}
 }
+
+func TestVCRuntimeHintNamesTheMissingDLLStatus(t *testing.T) {
+	for _, code := range []int{0xc0000135, -1073741515} {
+		if h := luvus.VCRuntimeHint(code); !strings.Contains(h, "winget install Microsoft.VCRedist.2015+.x64") || !strings.Contains(h, "hand luvus pin") {
+			t.Fatalf("code %d: hint = %q", code, h)
+		}
+	}
+	for _, code := range []int{0, 1, 255, -1, 0xc0000005, 0xc0000139} {
+		if h := luvus.VCRuntimeHint(code); h != "" {
+			t.Fatalf("code %d: hint = %q", code, h)
+		}
+	}
+}
