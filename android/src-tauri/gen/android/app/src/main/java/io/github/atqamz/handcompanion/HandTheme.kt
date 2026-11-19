@@ -88,7 +88,7 @@ val DarkHand =
     fg = Color(0xFFE8EAEE),
     panel = Color(0xFF15181D),
     card = Color(0xFF1B1F25),
-    muted = Color(0xFF9BA2AD),
+    muted = Color(0xFFB0B6BF),
     line = Color(0xFF262B32),
     lineStrong = Color(0xFF6B7482),
     primary = Color(0xFFE8EAEE),
@@ -100,7 +100,7 @@ val DarkHand =
         0xFF5B8FE0, 0xFF8B82EA, 0xFFB06FE3, 0xFFD955CC, 0xFFE0628F, 0xFFE06A5E,
         0xFFC18A3C, 0xFF9AA13A, 0xFF6EA73D, 0xFF45AD50, 0xFF3FAC7C, 0xFF3FA6B0
       ),
-    ink = tones(0xFFFF6B6B, 0xFFE6AC45, 0xFF56C77A, 0xFF9BA2AD, 0xFF7EA6FF),
+    ink = tones(0xFFFF9999, 0xFFE6AC45, 0xFF56C77A, 0xFFB0B6BF, 0xFF9BB6FF),
     fill = tones(0xFF2C1719, 0xFF2A2212, 0xFF13281B, 0xFF1E232A, 0xFF172238)
   )
 
