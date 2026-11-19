@@ -160,3 +160,38 @@ func TestRunRemovesTheBundleOfAWindowThatIsGone(t *testing.T) {
 	}
 	absent(t, app)
 }
+
+func TestRunSkipsABundleThatTurnsForeignDuringTheUpdate(t *testing.T) {
+	for _, current := range []bool{false, true} {
+		f := macFixture(t)
+		if current {
+			f.o.From = currentBuild()
+		}
+		app, window := f.bundle()
+		plist := filepath.Join(app, "Contents", "Info.plist")
+		getenv, once := f.o.Getenv, false
+		f.o.Getenv = func(k string) string {
+			if k == "HOME" && !once && f.asksForDesktop() {
+				once = true
+				if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+					t.Error(err)
+				}
+				if err := os.WriteFile(plist, []byte("<plist>mine</plist>"), 0o644); err != nil {
+					t.Error(err)
+				}
+			}
+			return getenv(k)
+		}
+		rep, err := Run(context.Background(), f.o)
+		if err != nil || rep.Failed || rep.Desktop != "skipped: "+app+" is not Hand's" || len(rep.Help) != 1 || !strings.Contains(rep.Help[0], app+" is not Hand's launcher entry") {
+			t.Fatalf("current %v: report = %+v, %v", current, rep, err)
+		}
+		if !once {
+			t.Fatalf("current %v: the bundle never turned foreign", current)
+		}
+		absent(t, window)
+		if b, _ := os.ReadFile(plist); string(b) != "<plist>mine</plist>" {
+			t.Fatalf("current %v: the foreign Info.plist changed: %q", current, b)
+		}
+	}
+}
