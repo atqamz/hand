@@ -61,14 +61,12 @@ $inno = Join-Path $Work 'inno'
 $run = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', "/DIR=`"$inno`"" -Wait -PassThru
 if ($run.ExitCode -ne 0) { throw "build-setup: the Inno Setup installer exited $($run.ExitCode)" }
 $iscc = Join-Path $inno 'ISCC.exe'
-$seen = (Get-Item -LiteralPath $iscc).VersionInfo.FileVersion
-if (-not $seen -or -not $seen.StartsWith($innoVersion)) { throw "build-setup: ISCC.exe is $seen, want $innoVersion" }
-Write-Output "Inno Setup $seen"
-
 $defs = @("/DVersion=$version", "/DSource=$stage")
 if ($iroh) { $defs += '/DIroh' }
-& $iscc /Q "/O$Out" @defs $iss
+$log = @(& $iscc "/O$Out" @defs $iss 2>&1 | ForEach-Object { "$_" })
+$log | ForEach-Object { Write-Host $_ }
 if ($LASTEXITCODE -ne 0) { throw "build-setup: ISCC.exe exited $LASTEXITCODE" }
+if (-not ($log -match "Inno Setup $([regex]::Escape($innoVersion))\b")) { throw "build-setup: the compiler does not report Inno Setup $innoVersion" }
 
 $name = "Hand-Setup-$version-x64.exe"
 $exe = Join-Path $Out $name
