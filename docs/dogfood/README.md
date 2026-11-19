@@ -32,7 +32,7 @@ One run issue per session, titled `dogfood(<os>): <hand version> on <OS version>
 
 A ticked box means `pass`. Update results by editing the issue body, not by commenting. Answers to `needs human` questions go into the body too.
 
-One issue per failed check, titled `<ID>: <summary>`, with the labels `bug` and `platform: <os>`, and a body with the steps, the expected result, the actual result and redacted evidence, plus a line `Check: <ID>` and a link to the run issue. The issue forms `dogfood-macos`, `dogfood-windows` and `dogfood-linux` apply the labels for you. Search open issues for the same check ID first: when one exists, add your evidence there as a comment and link it from the run issue.
+One issue per failed check, titled `<ID>: <summary>`, with the labels `bug` and `platform: <os>`, and a body with the steps, the expected result, the actual result and redacted evidence, plus a line `Check: <ID>` and a link to the run issue. A screenshot is named `<id>-<what>.png` in lower case, such as `wd4-first-launch.png` or `md2-finder.png`: the check ID, then a short word for what it shows. The issue forms `dogfood-macos`, `dogfood-windows` and `dogfood-linux` apply the labels for you. Search open issues for the same check ID first: when one exists, add your evidence there as a comment and link it from the run issue.
 
 ## Safety rules
 
