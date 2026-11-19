@@ -229,6 +229,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	switch {
 	case foreign != "":
 		rep.Desktop = "skipped: " + foreign + " is not Hand's"
+		rep.launcherResult(foreign, nil)
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
 		if o.Check && o.hasWindow(desktopNext) {
@@ -428,7 +429,10 @@ func (rep *Report) launcherResult(skipped string, err error) {
 		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
 	}
 	if skipped != "" {
-		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker))
+		line := fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker)
+		if !slices.Contains(rep.Help, line) {
+			rep.Help = append(rep.Help, line)
+		}
 	}
 }
 

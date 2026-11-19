@@ -99,34 +99,52 @@ func (f *fixture) asksForDesktopSince(n int) bool {
 
 func TestRunLeavesAForeignHandAppAlone(t *testing.T) {
 	for _, current := range []bool{false, true} {
-		f := macFixture(t)
-		if current {
-			f.o.From = currentBuild()
+		for _, held := range []bool{false, true} {
+			f := macFixture(t)
+			if current {
+				f.o.From = currentBuild()
+			}
+			app, window := f.bundle()
+			plist := filepath.Join(app, "Contents", "Info.plist")
+			if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(plist, []byte("<plist>mine</plist>"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := "Hand.app Contents Info.plist"
+			if held {
+				if err := os.MkdirAll(filepath.Dir(window), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(window, []byte("mine too"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				want = "Hand.app Contents Info.plist MacOS hand-desktop"
+			}
+			rep, err := Run(context.Background(), f.o)
+			if err != nil || rep.Failed || rep.Desktop != "skipped: "+app+" is not Hand's" || len(rep.Help) != 1 || !strings.Contains(rep.Help[0], app+" is not Hand's launcher entry") {
+				t.Fatalf("current %v, window %v: report = %+v, %v", current, held, rep, err)
+			}
+			if f.asksForDesktop() {
+				t.Fatalf("current %v, window %v: a desktop was fetched for a bundle that is not Hand's: %q", current, held, f.srv.asked())
+			}
+			var names []string
+			_ = filepath.WalkDir(app, func(p string, _ os.DirEntry, _ error) error { names = append(names, filepath.Base(p)); return nil })
+			if got := strings.Join(names, " "); got != want {
+				t.Fatalf("current %v, window %v: the foreign bundle now holds %q, want %q", current, held, got, want)
+			}
+			if b, _ := os.ReadFile(plist); string(b) != "<plist>mine</plist>" {
+				t.Fatalf("current %v, window %v: the foreign Info.plist changed: %q", current, held, b)
+			}
+			if held {
+				if b, _ := os.ReadFile(window); string(b) != "mine too" {
+					t.Fatalf("current %v: the window in the foreign bundle changed: %q", current, b)
+				}
+			} else {
+				absent(t, window)
+			}
 		}
-		app, window := f.bundle()
-		plist := filepath.Join(app, "Contents", "Info.plist")
-		if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(plist, []byte("<plist>mine</plist>"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		rep, err := Run(context.Background(), f.o)
-		if err != nil || rep.Failed || rep.Desktop != "skipped: "+app+" is not Hand's" || len(rep.Help) != 1 || !strings.Contains(rep.Help[0], app+" is not Hand's launcher entry") {
-			t.Fatalf("current %v: report = %+v, %v", current, rep, err)
-		}
-		if f.asksForDesktop() {
-			t.Fatalf("current %v: a desktop was fetched for a bundle that is not Hand's: %q", current, f.srv.asked())
-		}
-		var names []string
-		_ = filepath.WalkDir(app, func(p string, _ os.DirEntry, _ error) error { names = append(names, filepath.Base(p)); return nil })
-		if got := strings.Join(names, " "); got != "Hand.app Contents Info.plist" {
-			t.Fatalf("current %v: the foreign bundle now holds %q", current, got)
-		}
-		if b, _ := os.ReadFile(plist); string(b) != "<plist>mine</plist>" {
-			t.Fatalf("current %v: the foreign Info.plist changed: %q", current, b)
-		}
-		absent(t, window)
 	}
 }
 
