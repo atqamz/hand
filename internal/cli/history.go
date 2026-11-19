@@ -16,6 +16,7 @@ const historyCeiling = 16 << 10
 
 var historyCommands = map[string]handler{
 	"search": cmdHistorySearch,
+	"import": cmdHistoryImport,
 }
 
 func init() {
@@ -74,15 +75,19 @@ func cmdHistorySearch(r *runner, args []string) error {
 }
 
 func historyDoc(res state.HistoryResult, command string) *toon.Doc {
-	lo, hi := 0, len(res.Hits)
+	return fitRows(len(res.Hits), func(n int) *toon.Doc { return historyPage(res, n, command) })
+}
+
+func fitRows(total int, page func(n int) *toon.Doc) *toon.Doc {
+	lo, hi := 0, total
 	for lo < hi {
-		if mid := (lo + hi + 1) / 2; len(historyPage(res, mid, command).String()) <= historyCeiling {
+		if mid := (lo + hi + 1) / 2; len(page(mid).String()) <= historyCeiling {
 			lo = mid
 		} else {
 			hi = mid - 1
 		}
 	}
-	return historyPage(res, lo, command)
+	return page(lo)
 }
 
 func historyPage(res state.HistoryResult, n int, command string) *toon.Doc {

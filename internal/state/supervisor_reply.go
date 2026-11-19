@@ -79,3 +79,33 @@ func (s *Store) AddSupervisorReplies(ctx context.Context, supervisorID int64, se
 	}
 	return inserted, nil
 }
+
+func (s *Store) NewReplies(ctx context.Context, session string, replies []Reply) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT at, n FROM supervisor_reply WHERE session = ?`, session)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	type key struct {
+		at string
+		n  int
+	}
+	known := map[key]bool{}
+	for rows.Next() {
+		var k key
+		if err := rows.Scan(&k.at, &k.n); err != nil {
+			return 0, err
+		}
+		known[k] = true
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	fresh := 0
+	for _, r := range replies {
+		if !known[key{r.At, r.N}] {
+			fresh++
+		}
+	}
+	return fresh, nil
+}
