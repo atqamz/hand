@@ -101,13 +101,23 @@ func TestColorsKeepWCAGContrast(t *testing.T) {
 	}
 }
 
+func TestAPCAKnownAnswers(t *testing.T) {
+	black, white := ui.Hex("#000000"), ui.Hex("#ffffff")
+	if got := apcaLc(black, white); math.Abs(got-106.04) > 0.01 {
+		t.Errorf("black on white: Lc %.2f, want 106.04", got)
+	}
+	if got := apcaLc(white, black); math.Abs(got+107.88) > 0.01 {
+		t.Errorf("white on black: Lc %.2f, want -107.88", got)
+	}
+}
+
 func TestDarkSecondaryColorsReachAPCA60(t *testing.T) {
 	c := ColorsFor(true)
 	for _, fg := range []struct {
 		name string
 		c    ui.Color
 		chip ui.Color
-	}{{"Muted", c.Muted, c.NeutralBG}, {"Accent", c.Accent, c.AccentBG}, {"Fail", c.Fail, c.FailBG}} {
+	}{{"Muted", c.Muted, c.NeutralBG}, {"Neutral", c.Neutral, c.NeutralBG}, {"Accent", c.Accent, c.AccentBG}, {"Fail", c.Fail, c.FailBG}} {
 		for bgName, bg := range map[string]ui.Color{"BG": c.BG, "Panel": c.Panel, "Card": c.Card, "Hover": c.Hover, "chip": fg.chip} {
 			if got := math.Abs(apcaLc(fg.c, bg)); got < 60 {
 				t.Errorf("dark %s on %s: APCA Lc %.1f, want at least 60", fg.name, bgName, got)

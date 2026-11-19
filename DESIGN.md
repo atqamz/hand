@@ -36,7 +36,7 @@ colors:
   fail-dark: "#ff9999"
   wait-dark: "#e6ac45"
   pass-dark: "#56c77a"
-  neutral-dark: "#9ba2ad"
+  neutral-dark: "#b0b6bf"
   accent-dark: "#9bb6ff"
   fail-bg-dark: "#2c1719"
   wait-bg-dark: "#2a2212"
@@ -765,7 +765,7 @@ Every code block in rendered markdown (replies, plans, reports, decision text, t
 - **Place and size:** the button is `--control` square (32px; 44px on coarse pointers) in the block's top right corner, 4px in, on the block's own surface with a `line-strong` edge and 6px corners. The wrapper holds it, so it stays put while a long line scrolls under it; the block keeps a right padding of `--control` plus 12px so the end of a line clears it, and a minimum height that holds the button. A scrolled line passes under the button.
 - **When it shows:** on hover or focus within the block at desk, always on coarse pointers, and whenever the button is focused or has a state. It takes the 2px accent focus ring.
 - **Copy:** the `pre`'s text exactly, through `navigator.clipboard.writeText`, or a hidden `textarea` and `execCommand("copy")` where the clipboard API is absent or refuses. For 1.5s the icon is a green tick and the name reads "Copied", or a red cross and "Copy failed"; then it returns to "Copy code". The state is spoken through one visually hidden `role=status` region. It never opens an alert.
-- **Colour:** the icon is `muted` on the block's surface (6.15:1 on `bg`, 5.52:1 on `card`, night 7.23:1 and 6.43:1); the edge is `line-strong` (3.2:1 or better on both surfaces). With forced colours the icon and edge take `ButtonText`.
+- **Colour:** the icon is `muted` on the block's surface (6.15:1 on `bg`, 5.52:1 on `card`, night 9.11:1 and 8.11:1); the edge is `line-strong` (3.2:1 or better on both surfaces). With forced colours the icon and edge take `ButtonText`.
 - **Motion:** the fade-in is .15s and stops under `prefers-reduced-motion`.
 
 ### Scroll to latest button

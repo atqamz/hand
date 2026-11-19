@@ -35,7 +35,7 @@ func ColorsFor(dark bool) Colors {
 		return Colors{
 			BG: ui.Hex("#111317"), Panel: ui.Hex("#15181d"), Card: ui.Hex("#1b1f25"), FG: ui.Hex("#e8eaee"), Muted: ui.Hex("#b0b6bf"),
 			Line: ui.Hex("#262b32"), LineStrong: ui.Hex("#6b7482"), Hover: ui.Hex("#1e232a"),
-			Fail: ui.Hex("#ff9999"), Wait: ui.Hex("#e6ac45"), Pass: ui.Hex("#56c77a"), Neutral: ui.Hex("#9ba2ad"), Accent: ui.Hex("#9bb6ff"),
+			Fail: ui.Hex("#ff9999"), Wait: ui.Hex("#e6ac45"), Pass: ui.Hex("#56c77a"), Neutral: ui.Hex("#b0b6bf"), Accent: ui.Hex("#9bb6ff"),
 			FailBG: ui.Hex("#2c1719"), WaitBG: ui.Hex("#2a2212"), PassBG: ui.Hex("#13281b"), NeutralBG: ui.Hex("#1e232a"), AccentBG: ui.Hex("#172238"),
 			Screen: ui.Hex("#08090b"), ScreenFG: ui.Hex("#d8dde4"), Primary: ui.Hex("#e8eaee"), OnPrimary: ui.Hex("#111317"), Shadow: ui.RGBA(0, 0, 0, .55), Backdrop: ui.RGBA(0, 0, 0, .32),
 			Tint: [12]ui.Color{

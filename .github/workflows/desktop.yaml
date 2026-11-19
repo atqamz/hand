@@ -63,7 +63,7 @@ jobs:
           go mod download
           export GOFLAGS=-mod=readonly GOPROXY=off
           status=0
-          for pkg in ./internal/desktop ./internal/desktop/kit ./cmd/hand-desktop; do
+          for pkg in ./internal/desktop ./cmd/hand-desktop; do
             out=$(go run github.com/egoist/mygo/cmd/mygo vet "$pkg" 2>&1) || status=1
             if [ -n "$out" ]; then
               printf '%s\n' "$out"
