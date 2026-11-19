@@ -1719,7 +1719,7 @@ func TestTopicIndexIsCappedAndTitlesClipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := doc.String()
-	for _, want := range []string{"operator_topics[12]{file,bytes,title}:\n  t100.md,", "\n  t111.md,", "operator_topics_more: 12 of 14 shown; list "} {
+	for _, want := range []string{"operator_topics[12]{file,bytes,title}:\n  t100.md,", "\n  t111.md,", "operator_topics_more: 12 of 14 shown; list memory/operator/\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}

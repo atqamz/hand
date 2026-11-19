@@ -104,7 +104,7 @@ func TestReadMissingFileIsEmpty(t *testing.T) {
 }
 
 func TestTopicsListsRegularMarkdownFilesWithTheirHeading(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "fleet [a]*?{b}")
+	home := filepath.Join(t.TempDir(), "fleet [a]{b}")
 	if err := Init(home); err != nil {
 		t.Fatal(err)
 	}

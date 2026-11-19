@@ -607,7 +607,7 @@ func render(home string, f state.Fleet, move, supervisor, you string, turn Turn,
 			d.Rows("operator_topics", []string{"file", "bytes", "title"}, om.topics)
 		}
 		if len(om.topics) < om.topicTotal {
-			d.Field("operator_topics_more", fmt.Sprintf("%d of %d shown; list %s", len(om.topics), om.topicTotal, filepath.Join(home, "memory", "operator")))
+			d.Field("operator_topics_more", fmt.Sprintf("%d of %d shown; list memory/operator/", len(om.topics), om.topicTotal))
 		}
 	}
 	help := []string{"Capture every new request first: `hand task add --goal TEXT PROJECT TITLE`",
