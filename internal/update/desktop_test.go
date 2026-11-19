@@ -80,7 +80,7 @@ func skipUnlessDesktop(t *testing.T) {
 		t.Skip("the macOS bundle is tested in desktop_darwin_test.go")
 	}
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux and Windows only")
+		t.Skip("hand-desktop assets are not built for this OS and architecture")
 	}
 }
 
@@ -324,6 +324,60 @@ func TestRunSaysWhenThePlatformHasNoDesktop(t *testing.T) {
 	}
 	if out := Render(rep).String(); !strings.Contains(out, "desktop: unsupported on ") {
 		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func unsupportedTarget(t *testing.T) *fixture {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the downloaded hand for another OS cannot run on a Windows host")
+	}
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "26", "0.14.4")
+	archive := files["hand-linux-amd64.tar.gz"]
+	f.srv.set("hand-linux-386.tar.gz", archive)
+	f.srv.set("checksums.txt", append(files["checksums.txt"], []byte(sum(archive)+"  hand-linux-386.tar.gz\n")...))
+	f.o.OS, f.o.Arch = "linux", "386"
+	if desktopasset.Supported(f.o.OS, f.o.Arch, f.o.Channel) {
+		t.Fatal("linux/386 has a desktop")
+	}
+	return f
+}
+
+func TestRunSaysWhenTheTargetHasNoDesktop(t *testing.T) {
+	f := unsupportedTarget(t)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || rep.Desktop != "unsupported on linux/386" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForDesktop() {
+		t.Fatalf("an unsupported target fetched a desktop: %q", f.srv.asked())
+	}
+	if out := Render(rep).String(); !strings.Contains(out, "desktop: unsupported on linux/386\n") {
+		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
+	for _, current := range []bool{false, true} {
+		for _, check := range []bool{false, true} {
+			f := unsupportedTarget(t)
+			if current {
+				f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 26, Luvus: "0.14.4"}
+			}
+			f.o.Check = check
+			path := filepath.Join(filepath.Dir(f.target), desktopasset.Name)
+			if err := os.WriteFile(path, []byte("the installed desktop"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			rep, err := Run(context.Background(), f.o)
+			if err != nil || rep.Failed || rep.Desktop != "unsupported on linux/386" {
+				t.Fatalf("current %v, check %v: report = %+v, %v", current, check, rep, err)
+			}
+			if b, err := os.ReadFile(path); err != nil || string(b) != "the installed desktop" {
+				t.Fatalf("current %v, check %v: the installed window changed: %q, %v", current, check, b, err)
+			}
+		}
 	}
 }
 
