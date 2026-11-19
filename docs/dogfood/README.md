@@ -13,8 +13,8 @@ Both paths run the same checks, which live only in the OS files. Each entry poin
 
 | OS | Checks | IDs |
 |---|---|---|
-| macOS on Apple silicon (Intel is not tested) | [`macos.md`](macos.md) | `M0`, `M1`... |
-| Windows 10 or 11, amd64, run twice: with Git for Windows and without Git Bash | [`windows.md`](windows.md) | `W0`, `W1`... |
+| macOS on Apple silicon (Intel is not tested) | [`macos.md`](macos.md) | `M0`, `M1`..., and `MD1` to `MD9` for `Hand.app`, the window and uninstall |
+| Windows 10 or 11, amd64, run twice: with Git for Windows and without Git Bash | [`windows.md`](windows.md) | `W0`, `W1`..., and `WD1` to `WD11` for the window, the Start Menu shortcut, the wizard and uninstall |
 | Linux without a systemd user session (plain SSH), and Linux arm64 | [`linux.md`](linux.md) | `L0`, `L1`... |
 
 Each check names the row of the [Platform support](../platforms.md) table that it proves, and says whether an agent can run it to the end or it ends in `needs human`: a question that only a person at the screen can answer (a window flash, a notification, a Gatekeeper, SmartScreen or Defender prompt, a logoff and logon, the browser opening, a Startup shortcut). An agent never pretends to see the screen.
@@ -98,7 +98,7 @@ On `macos-latest` the job runs a second test, `TestRealWindowFromBundle`, which 
 
 The files are the `window-<os>` artifact, kept 14 days.
 
-This proves a window opens and renders on each system and shows what a Board served. It is not a test on a real machine: a runner has no GPU, so the window draws on the CPU, and the real GPU path, scale factors, the Dock, the taskbar and the Start Menu stay unseen. To run it on Linux: `HAND_WINDOW_OUT=/tmp/hand-window xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run TestRealWindow -count=1 -v`.
+This proves a window opens and renders on each system and shows what a Board served. It is not a test on a real machine: a runner has no GPU, so the window draws on the CPU, and the real GPU path, scale factors, the Dock, the taskbar and the Start Menu stay unseen. To run it on Linux: `HAND_WINDOW_OUT=/tmp/hand-window xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run TestRealWindow -count=1 -v`. The checks that put a person in front of the window are `WD1` to `WD11` in [`windows.md`](windows.md#wd1-to-wd11-the-window-the-shortcut-the-wizard-and-uninstall) (a virtual machine will do for a first run) and `MD1` to `MD9` in [`macos.md`](macos.md#md1-to-md9-the-window-handapp-and-uninstall); whoever runs one first changes the label in [`docs/platforms.md`](../platforms.md) and in `hand doctor`.
 
 ## What CI checks on the Board's layout
 

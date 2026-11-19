@@ -26,6 +26,15 @@ The order is by risk, riskiest first. `M0` comes first because every other check
 | M9 | A notification appears | Desktop notifications | needs human | 0 |
 | M10 | `hand update` from the latest release | `hand update` | agent, then needs human | 0 |
 | M11 | The LaunchAgent starts the board at login | Start the board at login | agent, then needs human | 0 (a resume) |
+| MD1 | Install, `hand update` builds `Hand.app`, and `hand doctor` | `hand update` keeps a launcher entry for the window in step with it | agent, then needs human | 0 |
+| MD2 | `Hand.app` in Finder, Launchpad and Spotlight | `hand update` keeps a launcher entry for the window in step with it | needs human | 0 |
+| MD3 | First launch of the window | `hand-desktop` opens a real window | needs human | 0 |
+| MD4 | The window starts the Board for a new fleet | `hand-desktop` over a running board | needs human | 0 |
+| MD5 | Narrow layout, dark appearance and Retina scale | `hand-desktop` opens a real window | needs human | 0 |
+| MD6 | A message from the composer | `hand-desktop` over a running board | needs human | 0 |
+| MD7 | A second start, the Dock icon and quitting | `hand-desktop --open LINK` and the single-instance lock | needs human | 0 |
+| MD8 | `hand update` with the window open | `hand update`; The release carries `hand-desktop` | agent, then needs human | 0 |
+| MD9 | `hand uninstall --dry-run`, then the real one | `hand uninstall` | agent, then needs human | 0 |
 
 M1, M2, M3, M5 and M7 hand the supervisor on to each other, and each says whether the supervisor must be running or stopped. A supervisor that runs spends nothing while it is idle.
 
@@ -608,6 +617,32 @@ Expected:
 Evidence: `{ launchctl list | grep dev.secondhand.dogfood; hand orient | sed -n 1,5p; ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='; } 2>&1 | ev M11`, and the owner's answer.
 
 If it fails: file the output above and `tail -20 $SECONDHAND_HOME/board.log`.
+
+## MD1 to MD9: the window, `Hand.app` and uninstall
+
+No person has seen the window on a Mac, and no real Mac has run `Hand.app`. CI proves the build for both architectures, the headless scenes, `hand update` building `~/Applications/Hand.app` in a runner's home, and a real window opened from that bundle on the arm64 runner, drawn on the CPU (`docs/platforms.md`). Until MD1 to MD9 pass, the macOS rows for the window, the launcher, update and uninstall read "CI, real window on a runner; not run on a real Mac", and `hand doctor`'s `desktop window` row says `untested on a real Mac`. Unseen: text sharpness on a Retina display, the Dock icon, the menu bar, Launchpad and Spotlight, drawing with Metal on a real GPU, macOS versions other than the runner's, and the Intel build, which has never run anywhere (this file covers Apple silicon only).
+
+**Whoever runs these first changes the label.** In the pull request that records the run, change the macOS cells of the window, launcher, update and uninstall rows in [`docs/platforms.md`](../platforms.md) from "not run on a real Mac" to the run issue's link, and change the `desktop window` row of `hand doctor` (`internal/cli/doctor_desktop.go`) with its tests and [`docs/install.md`](../install.md) in step.
+
+These checks install into your profile: `~/.local/bin` and `~/Applications/Hand.app`, and the window reads `~/.secondhand` as the real home. Run them on a Mac where you have no Hand install and no fleet you care about; do not run them in the `M0` temporary home. If `~/Applications/Hand.app` exists and is not Hand's, stop. The app is unsigned, so the supported route is `hand update`: a copy that arrives with a quarantine mark (AirDrop, a browser download) is stopped by Gatekeeper, and that is a finding, not a bug in this guide. Each check names the screenshot to keep (`Shift-Command-5`, saved under the names below). If one fails, file the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), one issue per failed check titled `MD<n>: <summary>`, labels `bug`, `platform: macos` and `area: desktop`, with the screenshots redacted as [`README.md`](README.md) says, a line `Check: MD<n>` and a link to the run issue. The run issue records the macOS version, the chip, the display and its scale.
+
+U13 (the window starts the Board, #1308) and U4 (two panes, #1250) are on `main`; no check waits on them. Compare with `docs/images/desktop/20-panes-1100x760-light.png`, which is the headless scene.
+
+Before MD1, `command -v hand` must print nothing and `test -e ~/Applications/Hand.app; echo $?` must print `1`.
+
+| Check | Do | Expect | Capture |
+|---|---|---|---|
+| MD1 | Install with `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && sh -c "$s"`, open a new terminal, run `hand update`, then `hand doctor` and `ls -R ~/Applications/Hand.app/Contents`. If `hand doctor` says `none in this release` for `desktop`, install again with `HAND_INSTALL_VERSION=edge` first. | `Hand.app` holds `Info.plist`, `PkgInfo`, `MacOS/hand-desktop`, `MacOS/hand` (a symlink to the installed `hand`) and `Resources/Hand.icns`. `hand doctor` shows `desktop` ok, `desktop app` ok and a `desktop window` row that says `untested on a real Mac`. | `md1-doctor.png` |
+| MD2 | In Finder, open `~/Applications`. Then look for Hand in Launchpad and Spotlight (`Command-Space`, `Hand`). Open it from Finder. | `Hand.app` shows the Hand icon, and Launchpad and Spotlight list it (Spotlight may take a minute to index). Opening it from Finder starts the window with no Gatekeeper dialog; if one appears, write down its exact text. No Terminal window opens. | `md2-finder.png`, `md2-launchpad.png`, `md2-spotlight.png` |
+| MD3 | Look at the window and the Dock. | One window, the Hand icon in the Dock, a menu bar with the app's name. The first card reads "No fleet on this computer yet" and shows `hand init`. Text is sharp on the Retina display. | `md3-first-launch.png`, `md3-dock.png` |
+| MD4 | In a terminal: `mkdir md-fleet && cd md-fleet && hand init`. In the window press **Look again**. | The fleet appears in the rail, then "Starting the Board…", then the shell with Needs, Tasks and Conversation, with no command from you to start the Board. | `md4-fleet-found.png`, `md4-starting.png`, `md4-board.png` |
+| MD5 | Drag the window narrower than 900 px, then wider. In System Settings, Appearance, choose Dark, then Light. | Below 900 px there are three tabs, Needs, Tasks and Chat; above it two panes. The window follows the appearance; write down whether at once or after a restart. Text is sharp and nothing is clipped. | `md5-narrow.png`, `md5-dark.png` |
+| MD6 | Type a message in the composer and press Command-Return. | The message is sent and shows in the Conversation. A fleet with no supervisor says so (a `No supervisor` item in Needs). Write down the exact wording and whether the composer cleared. | `md6-sent.png` |
+| MD7 | With the window open, open `Hand.app` again from Finder, then quit with Command-Q. | The second start brings the first window to the front and opens no second one. Command-Q quits the window; `pgrep hand-desktop` prints nothing afterwards. | `md7-second-start.png` |
+| MD8 | With the window open: `hand update`, then `hand doctor`. | The update finishes with the window open; if the channel has no newer build it says there is none, and then you write "no newer build" and leave the rest. `desktop` and `desktop app` stay ok, and the window opens again from Finder and shows the fleet. | `md8-update.png` |
+| MD9 | `hand uninstall --dry-run`, then `hand board stop` and `hand watch stop` in `md-fleet`, then `hand uninstall`, then `ls ~/Applications`. | The dry run lists what it would remove and what it keeps (the fleets, `~/.secondhand`, the composer drafts under `~/.local/state/hand-desktop`) and changes nothing. While a Board or watcher of this install runs, `hand uninstall` exits 3 and names the two stop commands. After they stop it removes `~/Applications/Hand.app`, `hand-iroh` and `hand`, last. `~/.secondhand` and `md-fleet` remain. | `md9-dry-run.png`, `md9-refused.png`, `md9-removed.png` |
+
+Record each result in the run issue as every other check. A pass changes the label as described above. A pass on a Mac still leaves the Intel build, other macOS versions and a quarantined copy unproven.
 
 ## Teardown
 
