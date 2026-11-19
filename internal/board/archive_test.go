@@ -54,7 +54,11 @@ func (a *archive) finish(t *testing.T, project, title, to string, at time.Time) 
 	}
 }
 
-func (a *archive) handler() http.Handler { return board.New(a.st, token, board.Options{}) }
+func (a *archive) handler() http.Handler { return a.handlerIn(time.UTC) }
+
+func (a *archive) handlerIn(zone *time.Location) http.Handler {
+	return board.New(a.st, token, board.Options{Controls: true, Zone: zone})
+}
 
 var rowTitle = regexp.MustCompile(`<a class="check-title"[^>]*>([^<]*)</a>`)
 

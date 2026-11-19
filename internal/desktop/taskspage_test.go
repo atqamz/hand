@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -80,9 +81,47 @@ func pageTwoSearch() desktop.TaskSearch {
 
 func searchApp(t *testing.T, f *fixture) (*desktop.App, *ui.Tester) {
 	t.Helper()
+	inUTC(t)
 	app := newApp(t, f)
 	app.Show(desktop.TasksScreen)
 	return app, newTester(app)
+}
+
+func inZone(t *testing.T, name string) {
+	t.Helper()
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		t.Skipf("no zone database: %v", err)
+	}
+	old := time.Local
+	time.Local = loc
+	t.Cleanup(func() { time.Local = old })
+}
+
+func TestTheTasksPageClockFollowsTheHostZone(t *testing.T) {
+	for _, c := range []struct{ zone, group, clock, not string }{
+		{"UTC", "Mon 5 Oct UTC", "17:30", "00:30"},
+		{"Asia/Jakarta", "Tue 6 Oct WIB", "00:30", "17:30"},
+		{"America/New_York", "Mon 5 Oct EDT", "13:30", "17:30"},
+	} {
+		for _, dark := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s dark=%t", c.zone, dark), func(t *testing.T) {
+				f := goldenFixture(t)
+				row := taskSearchRow("t1", "Fix login", "hand", "done", "passing")
+				row.FinishedAt = "2026-10-05T17:30:00Z"
+				row.UpdatedAt = row.FinishedAt
+				f.search[desktop.TaskSearchQuery{Page: 1}] = desktop.TaskSearch{
+					Page: 1, PageSize: 50, Total: 1, Pages: 1,
+					Groups: []desktop.TaskSearchGroup{{Name: c.group, Count: 1, Tasks: []desktop.TaskSearchRow{row}}},
+				}
+				app, _ := searchApp(t, f)
+				inZone(t, c.zone)
+				tt := sized(t, app, windowWidth, windowHeight, dark)
+				mustText(t, tt, c.group, "Fix login", c.clock)
+				mustNotText(t, tt, c.not)
+			})
+		}
+	}
 }
 
 func TestScenesTheTasksSearch(t *testing.T) {

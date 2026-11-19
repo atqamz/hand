@@ -8,12 +8,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/taskscope"
 )
 
 type taskGroup struct {
+	Day    string
 	Name   string
 	Count  int
 	Checks []check
@@ -218,9 +220,10 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 		if at == "" {
 			at = t.UpdatedAt
 		}
-		label := parse(at).UTC().Format("Mon 2 Jan") + " UTC"
-		if n := len(out.Groups); n == 0 || out.Groups[n-1].Name != label {
-			out.Groups = append(out.Groups, taskGroup{Name: label})
+		local := parse(at).In(b.zone())
+		day := local.Format(time.DateOnly)
+		if n := len(out.Groups); n == 0 || out.Groups[n-1].Day != day {
+			out.Groups = append(out.Groups, taskGroup{Day: day, Name: local.Format("Mon 2 Jan MST")})
 		}
 		g := &out.Groups[len(out.Groups)-1]
 		g.Checks, g.Count = append(g.Checks, c), g.Count+1

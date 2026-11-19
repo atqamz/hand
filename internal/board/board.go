@@ -166,6 +166,7 @@ type Options struct {
 	Tick       time.Duration
 	Beat       time.Duration
 	Now        func() time.Time
+	Zone       *time.Location
 	Harness    harness.Env
 	Models     harness.Options
 	Iroh       func() sidecar.Status
@@ -540,6 +541,13 @@ func (b *Board) describe(ctx context.Context, ref string) string {
 		}
 	}
 	return ""
+}
+
+func (b *Board) zone() *time.Location {
+	if b.o.Zone != nil {
+		return b.o.Zone
+	}
+	return time.Local
 }
 
 func (b *Board) now() time.Time {
