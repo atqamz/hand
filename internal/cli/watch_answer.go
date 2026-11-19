@@ -107,9 +107,11 @@ func (w *watcher) stampAnswers(ctx context.Context) {
 	}
 }
 
-func (w *watcher) transcriptDir(name string) string {
+func (w *watcher) transcriptDir(name string) string { return w.r.transcriptDir(name) }
+
+func (r *runner) transcriptDir(name string) string {
 	if name == "omp" {
-		return harness.OmpAgent(w.r.env.Getenv, w.r.home)
+		return harness.OmpAgent(r.env.Getenv, r.home)
 	}
-	return w.r.home
+	return r.home
 }
