@@ -130,7 +130,7 @@ jobs:
 
   publish:
     needs: wizard
-    if: ${{ inputs.tag != '' }}
+    if: ${{ !cancelled() && inputs.tag != '' && needs.wizard.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -149,3 +149,7 @@ jobs:
           cd "$RUNNER_TEMP/out/setup"
           sha256sum -c Hand-Setup-*-x64.sha256
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" Hand-Setup-*-x64.exe Hand-Setup-*-x64.sha256 --clobber
+          names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name | select(startswith("Hand-Setup-"))')
+          for name in $names; do
+            [ -e "$name" ] || gh release delete-asset "$TAG" --repo "$GITHUB_REPOSITORY" "$name" -y
+          done
