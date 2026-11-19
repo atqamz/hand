@@ -89,6 +89,7 @@ private fun opens(need: Need) =
   when (need.kind) {
     "report" -> Opens.Report
     "blocked" -> Opens.Card
+    "worker" -> if (need.keys != null) Opens.Card else Opens.Web
     "decision" -> Opens.Choice
     "failure" -> Opens.Row
     else -> Opens.Web
@@ -219,7 +220,7 @@ fun FleetState.openKey(): String? {
 
 fun FleetState.deadline(): Long? {
   val entry = bands.flatMap { it.entries }.firstOrNull { it.key == openKey() }
-  return if (entry?.need?.kind == "blocked") epoch(entry.need.denyAt) else null
+  return if (entry != null && entry.need.kind in SCREEN_KINDS) epoch(entry.need.denyAt) else null
 }
 
 fun remaining(deadline: Long, now: Long): String? {
@@ -256,6 +257,8 @@ private fun FleetState.filled(status: Status, name: String): FleetState {
     stopArmedUntil = if (supervisor == status.supervisor) stopArmedUntil else null
   )
 }
+
+internal val SCREEN_KINDS = setOf("blocked", "worker")
 
 private const val NOTICE_MILLIS = 4_000L
 private const val SCREEN_MOVED = "The screen moved; nothing was sent."
@@ -543,50 +546,68 @@ class FleetModel(
     }
   }
 
-  fun press(keys: List<String>) {
-    viewModelScope.launch { pressAndExpire(keys) }
+  fun press(entry: String, keys: List<String>) {
+    viewModelScope.launch { pressAndExpire(entry, keys) }
   }
 
-  suspend fun pressAndExpire(keys: List<String>) {
-    send(keys)?.let { expire(it.notice, it.entry) }
+  suspend fun pressAndExpire(entry: String, keys: List<String>) {
+    send(entry, keys)?.let { expire(it.notice, it.entry) }
   }
 
-  suspend fun pressNow(keys: List<String>): Notice? = send(keys)?.notice
+  suspend fun pressNow(entry: String, keys: List<String>): Notice? = send(entry, keys)?.notice
 
-  private suspend fun send(keys: List<String>): Receipt? {
+  private suspend fun send(entryKey: String, keys: List<String>): Receipt? {
     val state = mutableState.value
-    val supervisor = state.supervisor ?: return null
-    val guard = supervisor.keys ?: return null
+    if (entryKey != state.openKey()) return null
     val entry =
       state.bands.flatMap { it.entries }.firstOrNull {
-        it.key == state.openKey() && it.need.kind == "blocked"
+        it.key == entryKey && it.need.kind in SCREEN_KINDS
       } ?: return null
-    if (entry.key in state.pressing) return null
+    val worker = entry.need.kind == "worker"
+    val supervisor = state.supervisor
+    val ref =
+      if (worker) entry.need.attempt?.takeIf(String::isNotEmpty) ?: entry.need.ref ?: return null
+      else supervisor?.ref ?: return null
+    val guard =
+      if (worker) entry.need.keys?.let { Keys(it.revision, it.digest, it.pressed) }
+      else supervisor?.keys
+    if (guard == null || entry.key in state.pressing) return null
     mutableState.update { it.noticed(null).copy(pressing = it.pressing + entry.key) }
-    val body = buildJsonObject {
-      put("keys", JsonArray(keys.map(::JsonPrimitive)))
-      put("revision", guard.revision)
-      put("digest", guard.digest)
-      put("after", guard.pressed)
-      put("ref", supervisor.ref)
-    }
     try {
-      when (val sent = client.write("supervisor/keys", body.toString(), Status.serializer())) {
-        is Write.Updated -> apply(sent.envelope)
-        is Write.Accepted -> refresh()
+      if (worker) {
+        val body = buildJsonObject {
+          put("key", keys.joinToString(" "))
+          put("revision", guard.revision)
+          put("after", guard.pressed)
+          if (guard.digest.isNotEmpty()) put("screen", guard.digest)
+        }
+        client.write("attempt/$ref/keys", body.toString(), JsonElement.serializer())
+        refresh()
+      } else {
+        val body = buildJsonObject {
+          put("keys", JsonArray(keys.map(::JsonPrimitive)))
+          put("revision", guard.revision)
+          put("digest", guard.digest)
+          put("after", guard.pressed)
+          put("ref", ref)
+        }
+        when (val sent = client.write("supervisor/keys", body.toString(), Status.serializer())) {
+          is Write.Updated -> apply(sent.envelope)
+          is Write.Accepted -> refresh()
+        }
       }
-      return pressed(entry, keys, supervisor.ref)
+      return pressed(entry, keys, ref)
     } catch (_: BoardError.AppliedUnread) {
       refresh()
-      return pressed(entry, keys, supervisor.ref)
+      return pressed(entry, keys, ref)
     } catch (error: BoardError) {
       if (error == BoardError.Unpaired) {
         mutableState.update { it.copy(unpaired = true) }
         return null
       }
       val notice =
-        if (error is BoardError.Conflict) Notice(supervisor.ref, SCREEN_MOVED)
-        else Notice(supervisor.ref, pressRefusal(supervisor.ref, error))
+        if (error is BoardError.Conflict) Notice(ref, SCREEN_MOVED)
+        else Notice(ref, pressRefusal(ref, error))
       if (error is BoardError.Conflict) refresh()
       mutableState.update { it.noticed(notice).copy(open = entry.key) }
       return Receipt(notice, entry.key)
@@ -760,9 +781,11 @@ class FleetModel(
       return null
     }
     denied = deadline
+    val entries = state.bands.flatMap { it.entries }
     val ref =
-      state.supervisor?.ref
-        ?: state.bands.flatMap { it.entries }.firstOrNull { it.need.kind == "blocked" }?.need?.ref
+      entries.firstOrNull { it.key == state.openKey() && it.need.kind == "worker" }?.need?.ref
+        ?: state.supervisor?.ref
+        ?: entries.firstOrNull { it.need.kind == "blocked" }?.need?.ref
     val notice = Notice(ref.orEmpty(), SCREEN_DENIED)
     mutableState.update { it.noticed(notice).copy(deadline = null, left = null) }
     refresh()

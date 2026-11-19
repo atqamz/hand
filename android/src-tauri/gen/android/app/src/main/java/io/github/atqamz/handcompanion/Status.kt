@@ -37,6 +37,8 @@ data class Supervisor(
   val reason: String? = null
 )
 
+@Serializable data class NeedAttempt(val harness: String? = null)
+
 @Serializable
 data class Need(
   val kind: String,
@@ -48,6 +50,7 @@ data class Need(
   val decision: String? = null,
   val report: String? = null,
   val attempt: String? = null,
+  @SerialName("attempt_meta") val attemptMeta: NeedAttempt? = null,
   val headline: String? = null,
   val status: String? = null,
   @SerialName("created_at") val createdAt: String? = null,

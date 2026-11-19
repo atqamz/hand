@@ -157,7 +157,7 @@ fun FleetScreen(
   onWeb: () -> Unit,
   onTask: (String) -> Unit,
   onShowAll: () -> Unit,
-  onPress: (List<String>) -> Unit,
+  onPress: (String, List<String>) -> Unit,
   onForce: () -> Unit,
   onAttempt: (String) -> Unit,
   chat: @Composable () -> Unit,
