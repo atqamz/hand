@@ -210,12 +210,9 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if err != nil {
 		return nil, err
 	}
-	topics, err := memory.Topics(home)
-	if err != nil {
-		return nil, err
-	}
-	om := &operatorMemory{core: core, lines: core.Lines, budget: b.MemoryBytes, topicTotal: len(topics)}
-	for _, t := range topics[:min(maxTopics, len(topics))] {
+	topics, topicTotal := memory.Topics(home, maxTopics)
+	om := &operatorMemory{core: core, lines: core.Lines, budget: b.MemoryBytes, topicTotal: topicTotal}
+	for _, t := range topics {
 		om.topics = append(om.topics, []string{t.File, strconv.FormatInt(t.Bytes, 10), Clip(t.Title, b.TitleBytes)})
 	}
 
@@ -595,12 +592,17 @@ func render(home string, f state.Fleet, move, supervisor, you string, turn Turn,
 	}
 	d.List("operator_memory", om.lines)
 	over := len(om.lines) < om.core.Total
+	split := over && om.core.Bytes > om.budget
 	if over {
 		largest := make([]string, len(om.core.Largest))
 		for i, l := range om.core.Largest {
 			largest[i] = fmt.Sprintf("%d=%d", l.N, l.Bytes)
 		}
-		d.Field("operator_memory_over", fmt.Sprintf("%d bytes, budget %d; %d of %d lines shown; largest: %s; split it, see the secondhand skill", om.core.Bytes, om.budget, len(om.lines), om.core.Total, strings.Join(largest, ", ")))
+		advice := "split it, see the secondhand skill"
+		if !split {
+			advice = "within budget, cut by the output size cap"
+		}
+		d.Field("operator_memory_over", fmt.Sprintf("%d bytes, budget %d; %d of %d lines shown; largest: %s; %s", om.core.Bytes, om.budget, len(om.lines), om.core.Total, strings.Join(largest, ", "), advice))
 	}
 	if om.topicTotal > 0 {
 		if len(om.topics) > 0 {
@@ -613,7 +615,7 @@ func render(home string, f state.Fleet, move, supervisor, you string, turn Turn,
 	help := []string{"Capture every new request first: `hand task add --goal TEXT PROJECT TITLE`",
 		"Ask the operator only through `hand decision ask TASK QUESTION`",
 		"Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running; the managed supervisor gets wakes as messages instead)"}
-	if over {
+	if split {
 		help = append(help, "Operator memory is over budget: before dispatching, split it as the secondhand skill says; the operator approves the new core through `hand decision ask TASK QUESTION`")
 	}
 	if resumable {

@@ -1735,3 +1735,90 @@ func TestTopicIndexIsCappedAndTitlesClipped(t *testing.T) {
 		}
 	}
 }
+
+func TestOrientIgnoresATopicFolderItCannotRead(t *testing.T) {
+	st, home := setup(t)
+	dir := filepath.Join(home, "memory", "operator")
+	if err := os.WriteFile(dir, []byte("not a folder\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil || strings.Contains(doc.String(), "operator_topics") {
+		t.Fatalf("regular file: err %v:\n%s", err, doc)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	writeTopics(t, home, 2, "t")
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Skip("chmod unavailable:", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := os.ReadDir(dir); err == nil {
+		t.Skip("folder stays readable with mode 000 here")
+	}
+	doc, err = Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil || strings.Contains(doc.String(), "operator_topics") || !strings.Contains(doc.String(), "operator_memory[") {
+		t.Fatalf("mode 000: err %v:\n%s", err, doc)
+	}
+}
+
+func TestOverLineSaysSplitOnlyWhenTheCoreIsOverBudget(t *testing.T) {
+	st, home := setup(t)
+	var lines []string
+	for i := range 5 {
+		lines = append(lines, padded("- rule "+strconv.Itoa(i)+" ", 600))
+	}
+	core := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(core), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := DefaultBudget
+	b.Bytes = 2000
+	doc, err := Build(context.Background(), st, home, "", true, true, Turn{}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if shown := len(shownMemory(out)); shown == 0 || shown == 5 {
+		t.Fatalf("%d of 5 lines shown, want the size cap to cut some:\n%s", shown, out)
+	}
+	for _, want := range []string{"operator_memory_over: \"3005 bytes, budget 4000;", "within budget, cut by the output size cap"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "split it") || strings.Contains(out, "over budget") {
+		t.Fatalf("a core within budget is told to split:\n%s", out)
+	}
+
+	big := core + strings.Repeat("- more "+strings.Repeat("y", 400)+"\n", 3)
+	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err = Build(context.Background(), st, home, "", true, true, Turn{}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"split it, see the secondhand skill", "Operator memory is over budget"} {
+		if !strings.Contains(doc.String(), want) {
+			t.Fatalf("orient missing %q:\n%s", want, doc)
+		}
+	}
+}
+
+func TestBytesOverBudgetWithEveryLineShownIsNotOver(t *testing.T) {
+	st, home := setup(t)
+	core := "- rule one\n- rule two\n" + strings.Repeat("\n", 4100)
+	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(core), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(context.Background(), st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if strings.Contains(out, "operator_memory_over") || strings.Contains(out, "over budget") || len(shownMemory(out)) != 2 {
+		t.Fatalf("a core with every line shown is flagged:\n%s", out)
+	}
+}

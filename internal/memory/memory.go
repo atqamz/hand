@@ -80,27 +80,27 @@ func Read(home, name string, budget int) (Core, error) {
 	return c, nil
 }
 
-func Topics(home string) ([]Topic, error) {
+func Topics(home string, limit int) ([]Topic, int) {
 	dir := filepath.Join(home, "memory", "operator")
 	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
-		return nil, err
+		return nil, 0
+	}
+	var names []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") {
+			names = append(names, e.Name())
+		}
 	}
 	var out []Topic
-	for _, e := range entries {
-		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		fi, err := e.Info()
+	for _, name := range names[:min(limit, len(names))] {
+		fi, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
-		out = append(out, Topic{e.Name(), fi.Size(), heading(filepath.Join(dir, e.Name()))})
+		out = append(out, Topic{name, fi.Size(), heading(filepath.Join(dir, name))})
 	}
-	return out, nil
+	return out, len(names)
 }
 
 func heading(path string) string {

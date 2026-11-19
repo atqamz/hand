@@ -59,6 +59,23 @@ func TestReadCutsAtALineBoundary(t *testing.T) {
 	}
 }
 
+func TestReadBudgetBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		size, shown int
+	}{{4000, 2}, {4001, 1}} {
+		home := t.TempDir()
+		body := strings.Repeat("a", 3990) + "\n" + strings.Repeat("b", tc.size-3991)
+		writeOperator(t, home, body)
+		c, err := Read(home, OperatorFile, 4000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(c.Lines) != tc.shown || c.Total != 2 || c.Bytes != tc.size {
+			t.Fatalf("%d bytes: shown %d of %d, bytes %d; want shown %d of 2", tc.size, len(c.Lines), c.Total, c.Bytes, tc.shown)
+		}
+	}
+}
+
 func TestReadCountsAnOversizedLineAsHidden(t *testing.T) {
 	home := t.TempDir()
 	writeOperator(t, home, "- "+strings.Repeat("x", 50)+"\n- short\n")
@@ -126,9 +143,9 @@ func TestTopicsListsRegularMarkdownFilesWithTheirHeading(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "a.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Log("symlinks unavailable:", err)
 	}
-	got, err := Topics(home)
-	if err != nil {
-		t.Fatal(err)
+	got, total := Topics(home, 12)
+	if total != 3 {
+		t.Fatalf("total = %d, want 3", total)
 	}
 	want := []Topic{{"a.md", int64(len(files["a.md"])), "A: first"}, {"b.md", int64(len(files["b.md"])), "B: read it when asked"}, {"none.md", int64(len(files["none.md"])), ""}}
 	if len(got) != len(want) {
@@ -142,8 +159,67 @@ func TestTopicsListsRegularMarkdownFilesWithTheirHeading(t *testing.T) {
 }
 
 func TestTopicsMissingFolderIsEmpty(t *testing.T) {
-	got, err := Topics(t.TempDir())
-	if err != nil || len(got) != 0 {
-		t.Fatalf("Topics = %+v, %v", got, err)
+	got, total := Topics(t.TempDir(), 12)
+	if len(got) != 0 || total != 0 {
+		t.Fatalf("Topics = %+v, %d", got, total)
+	}
+}
+
+func TestTopicsFolderThatIsAFileIsEmpty(t *testing.T) {
+	home := t.TempDir()
+	if err := Init(home); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "memory", "operator"), []byte("not a folder\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, total := Topics(home, 12)
+	if len(got) != 0 || total != 0 {
+		t.Fatalf("Topics = %+v, %d", got, total)
+	}
+}
+
+func TestTopicsUnreadableFolderIsEmpty(t *testing.T) {
+	home := t.TempDir()
+	if err := Init(home); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "memory", "operator")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Skip("chmod unavailable:", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := os.ReadDir(dir); err == nil {
+		t.Skip("folder stays readable with mode 000 here")
+	}
+	got, total := Topics(home, 12)
+	if len(got) != 0 || total != 0 {
+		t.Fatalf("Topics = %+v, %d", got, total)
+	}
+}
+
+func TestTopicsReadsTheHeadingOfTheShownFilesOnly(t *testing.T) {
+	home := t.TempDir()
+	if err := Init(home); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "memory", "operator")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"a", "b", "c"} {
+		if err := os.WriteFile(filepath.Join(dir, n+".md"), []byte("# "+n+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, total := Topics(home, 2)
+	if total != 3 || len(got) != 2 || got[0].Title != "a" || got[1].Title != "b" {
+		t.Fatalf("Topics = %+v, %d; want a and b of 3", got, total)
 	}
 }
