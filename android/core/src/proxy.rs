@@ -200,6 +200,8 @@ mod tests {
     fn a_no_longer_paired_refusal_is_recognised_by_its_header() {
         let head = b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\nX-Hand-Error: This%20phone%20is%20no%20longer%20paired%20with%20this%20fleet\r\n\r\n";
         assert!(unpaired_403(head));
+        let renamed = b"HTTP/1.1 403 Forbidden\r\nX-Hand-Error: This%20Companion%20is%20no%20longer%20paired%20with%20this%20fleet\r\n\r\n";
+        assert!(unpaired_403(renamed));
         let other = b"HTTP/1.1 403 Forbidden\r\nX-Hand-Error: Pair%20this%20phone%20first\r\n\r\n";
         assert!(!unpaired_403(other));
         let ok = b"HTTP/1.1 200 OK\r\nX-Hand-Error: no longer paired\r\n\r\n";

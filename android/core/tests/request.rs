@@ -164,7 +164,7 @@ async fn a_large_post_body_arrives_whole() {
 }
 
 #[tokio::test]
-async fn a_full_laptop_is_busy_when_the_deadline_comes() {
+async fn a_full_host_is_busy_when_the_deadline_comes() {
     let Some(bin) = sidecar_bin() else {
         return;
     };

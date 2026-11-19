@@ -5,7 +5,7 @@ use std::fmt;
 use crate::dialer::parse_target;
 
 pub const MAX_LEN: usize = 213;
-pub const LINK_REJECTED: &str = "This is not a Hand pairing code. Show a new one on your laptop.";
+pub const LINK_REJECTED: &str = "This is not a Hand pairing code. Show a new one on the Board.";
 pub const LINK_NEEDS_UPDATE: &str = "This code needs a newer Hand app. Update the app.";
 
 const CODE_ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn the_confirmation_shows_the_ends_of_the_laptop_id_and_never_the_code() {
+    fn the_confirmation_shows_the_ends_of_the_host_id_and_never_the_code() {
         let link = parse_link(&link()).unwrap();
         assert_eq!(link.confirmation(), "4d92…6ed6");
         assert!(!link.confirmation().contains(&link.code));

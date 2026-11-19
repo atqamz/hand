@@ -284,7 +284,7 @@ async fn the_stream_opens_on_the_first_byte_and_not_before() {
 }
 
 #[tokio::test]
-async fn a_full_laptop_backs_off_before_the_next_dial() {
+async fn a_full_host_backs_off_before_the_next_dial() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
@@ -313,7 +313,7 @@ async fn a_full_laptop_backs_off_before_the_next_dial() {
     let mut response = Vec::new();
     recv_read_to_end(&mut recv, &mut response).await;
     assert_eq!(body(&response), b"hello from the board\n");
-    eprintln!("full laptop: first successful stream after {elapsed:?}");
+    eprintln!("full host: first successful stream after {elapsed:?}");
     assert!(elapsed >= Duration::from_millis(950), "{elapsed:?}");
     assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
 }

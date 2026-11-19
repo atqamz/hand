@@ -38,19 +38,19 @@ impl Notice {
         match self {
             Self::None => "",
             Self::Connected => "Connected.",
-            Self::NoTarget => "No laptop selected.",
-            Self::Busy => "Your laptop is busy. Trying again.",
+            Self::NoTarget => "No host selected.",
+            Self::Busy => "Your host is busy. Trying again.",
             Self::Idle => "",
             Self::BoardUnreachable => {
-                "Your laptop answers, but the Board is not running. Start it on the laptop."
+                "Your host answers, but the Board is not running. Start it on the host."
             }
             Self::StreamIdle => "",
             Self::BoardError => "",
             Self::Lost => {
-                "Your laptop closed the connection. If you removed this phone there, pair it again."
+                "Your host closed the connection. If you removed this Companion there, pair it again."
             }
             Self::Unreachable => {
-                "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet."
+                "Can't reach your host. Check that it is on, that Hand's Board is running, and that this phone has internet."
             }
         }
     }

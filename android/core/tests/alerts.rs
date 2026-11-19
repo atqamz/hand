@@ -392,7 +392,7 @@ async fn a_server_error_or_throttle_backs_off_one_two_then_resets_on_success() {
 }
 
 #[tokio::test]
-async fn a_connection_the_laptop_closed_with_code_two_is_dialed_again() {
+async fn a_connection_the_host_closed_with_code_two_is_dialed_again() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
