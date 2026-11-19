@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQAxODhjOWFiNDkyOTFhMGMz.5PypjTuCE2KsXyYw9nvUPg",
+  "cursor": "ZjAwMDAwMDAwZTBhYQBlMWJmOGJhMDk3MDU4Y2Qw.UEEKTMWxiE9XSTkvCDYRkg",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "q": "cookie",
@@ -13,9 +13,25 @@
     "task": "",
     "limit": 5,
     "context": 1,
-    "total": 3,
+    "total": 5,
     "more": false,
     "hits": [
+      {
+        "ref": "t6",
+        "who": "task",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "Rename the «cookie»",
+        "task": "t6",
+        "context": []
+      },
+      {
+        "ref": "d1",
+        "who": "decision",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "Keep the old «cookie» name? 1. Yes, keep it 2. No, rename it",
+        "task": "t1",
+        "context": []
+      },
       {
         "ref": "i1",
         "who": "operator",
