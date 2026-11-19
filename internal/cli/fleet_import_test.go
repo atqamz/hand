@@ -86,6 +86,7 @@ func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
 	}
 	write(fx.src, "memory/operator.md", "source operator\n")
 	write(fx.dest, "memory/operator.md", "dest operator\n")
+	write(fx.src, "memory/operator/topic.md", "# topic: when\n")
 	write(fx.src, "memory/projects/common.md", "source common\n")
 	write(fx.dest, "memory/projects/common.md", "dest common\n")
 	write(fx.src, "memory/projects/same.md", "same\n")
@@ -154,7 +155,7 @@ func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
 		"d5fe72c",
 		"t4-cont",
 		"reports_exported: 1",
-		"copied,5",
+		"copied,6",
 		"same,1",
 		"collision,1",
 		"collisions[1]{source,destination,reason}:",
@@ -185,8 +186,14 @@ func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
 	if got := readFileString(t, filepath.Join(fx.dest, "memory", "operator.md")); got != "dest operator\n" {
 		t.Fatalf("destination operator = %q", got)
 	}
-	if got := readFileString(t, filepath.Join(fx.dest, "memory", "operator."+fx.srcID+".md")); got != "source operator\n" {
+	if got := readFileString(t, filepath.Join(fx.dest, "memory", "operator", "imported-"+fx.srcID+".md")); got != "source operator\n" {
 		t.Fatalf("source operator = %q", got)
+	}
+	if got := readFileString(t, filepath.Join(fx.dest, "memory", "operator", "topic.md")); got != "# topic: when\n" {
+		t.Fatalf("source topic file = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(fx.dest, "memory", "operator."+fx.srcID+".md")); !os.IsNotExist(err) {
+		t.Fatalf("old import name written: %v", err)
 	}
 	if got := readFileString(t, filepath.Join(fx.dest, "memory", "projects", "common.md")); got != "dest common\n" {
 		t.Fatalf("collision overwrote destination: %q", got)
@@ -683,5 +690,19 @@ func TestFleetImportLeavesTheLastTurnsFileBehind(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(fx.dest, "memory", "handoff.md")); err != nil || string(got) != "the note\n" {
 		t.Fatalf("handoff.md: %q, %v", got, err)
+	}
+}
+
+func TestFleetImportLeavesAnImportedOperatorNameCollisionAlone(t *testing.T) {
+	fx := importFixture(t)
+	writeImportFile(t, fx.src, "memory/operator.md", "source operator\n")
+	rel := filepath.Join("memory", "operator", "imported-"+fx.srcID+".md")
+	writeImportFile(t, fx.dest, rel, "kept\n")
+	out := fx.h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
+	if want := filepath.Join("memory", "operator.md") + "," + rel + ",different content"; !strings.Contains(out, want) {
+		t.Fatalf("manifest lacks the collision %q:\n%s", want, out)
+	}
+	if got := readFileString(t, filepath.Join(fx.dest, rel)); got != "kept\n" {
+		t.Fatalf("collision overwrote the destination: %q", got)
 	}
 }

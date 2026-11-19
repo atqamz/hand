@@ -92,6 +92,12 @@ func (fx *doctorFixture) remove(path string) {
 	}
 }
 
+func (fx *doctorFixture) removeAll(path string) {
+	if err := os.RemoveAll(path); err != nil {
+		fx.h.t.Fatal(err)
+	}
+}
+
 func (fx *doctorFixture) removeHarnesses() {
 	for _, name := range state.Harnesses {
 		fx.remove(exe(fx.tools, name))
@@ -132,7 +138,7 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 		t.Fatalf("luvus = %q", field(out, "luvus"))
 	}
 	rows := checkRows(t, out)
-	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "hand.version", "schema", "fleet", "routing.json", "skills", "luvus server", "board", "watcher"}
+	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "hand.version", "schema", "fleet", "routing.json", "skills", "memory", "luvus server", "board", "watcher"}
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}
@@ -236,6 +242,22 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		{"routing.json with profiles", "routing.json", "fail", `was removed; delete the key and start workers with --harness, --model and --effort`, 1, func(fx *doctorFixture) {
 			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{}}`)
 		}},
+		{"memory over budget", "memory", "warn", "memory/operator.md is 5508 bytes, budget 4000; largest lines: 2=3000, 3=2500, 1=5; split it, see the secondhand skill", 0, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.md"), "short\n"+strings.Repeat("x", 3000)+"\n"+strings.Repeat("y", 2500)+"\n")
+		}},
+		{"stray operator file", "memory", "warn", "memory/operator.abc.md, memory/operator.def.md never shown by `hand orient`; move each into memory/operator/", 0, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.def.md"), "x\n")
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.abc.md"), "x\n")
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.md.bak"), "x\n")
+		}},
+		{"over budget and stray", "memory", "warn", "split it, see the secondhand skill; memory/operator.abc.md never shown", 0, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.md"), strings.Repeat("x", 4001)+"\n")
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.abc.md"), "x\n")
+		}},
+		{"core at the budget", "memory", "ok", "", 0, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "memory", "operator.md"), strings.Repeat("x", 3999)+"\n")
+		}},
+		{"no memory folder", "memory", "ok", "", 0, func(fx *doctorFixture) { fx.removeAll(filepath.Join(fx.h.home, "memory")) }},
 		{"server stale", "luvus server", "warn", "run `hand update`", 0, func(fx *doctorFixture) { fx.serve("0.14.2") }},
 		{"server not running", "luvus server", "info", "not running", 0, func(fx *doctorFixture) {
 			fx.h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(fx.h.t.TempDir(), "none.sock")

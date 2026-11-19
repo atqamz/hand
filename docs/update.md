@@ -94,6 +94,10 @@ There is a window between `hand update` and the edit. Until you delete the key, 
 2. Run `hand update`, then delete only the `profiles` key from each fleet's `routing.json`. The file keeps `notify` and any other key; `hand init` writes `{}` for a new fleet.
 3. Run `hand doctor` in each fleet, and rewrite the profile mentions in the fleet's memory.
 
+## Operator memory over 4000 bytes
+
+`hand update` does not move or shorten `memory/operator.md`. A core over 4000 bytes shows as `operator_memory_over` in `hand orient`, with the first whole lines that fit, and as a `warn` on the `memory` row of `hand doctor`; the supervisor splits it by the `secondhand` skill. A `memory/operator.<source id>.md` left by `hand fleet import` of an older `hand` is never shown by orient: `hand doctor` names it, and you move it into `memory/operator/` (for example as `imported-<source id>.md`). `hand fleet import` now writes that path itself.
+
 ## The supervisor waits with timers
 
 The `secondhand` skill and the fleet's `AGENTS.md` now tell the supervisor never to hold a turn to wait, and `routing.json` takes `supervisor.answer_within` ([A turn that runs long](supervisor.md#a-turn-that-runs-long)). `hand update` rewrites the skill and `AGENTS.md` in every fleet, but a supervisor session that is already running keeps the old text in its context until a new session starts (a rollover, `hand supervisor stop` and `start`, or **New session**). An older `hand` rejects the new `answer_within` key, so remove it from `routing.json` before you go back to an older build.

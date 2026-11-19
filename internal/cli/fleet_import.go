@@ -236,7 +236,7 @@ func importContent(srcHome, dstHome, srcID string, res state.ImportResult, dry b
 			to := rel
 			switch {
 			case filepath.ToSlash(rel) == "memory/operator.md":
-				to = filepath.Join("memory", "operator."+srcID+".md")
+				to = filepath.Join("memory", "operator", "imported-"+srcID+".md")
 			case filepath.ToSlash(filepath.Dir(rel)) == "memory/projects" && strings.HasSuffix(rel, ".md"):
 				name := strings.TrimSuffix(filepath.Base(rel), ".md")
 				if as, ok := projectAs[name]; ok && as != name {
