@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQAzNmUyMWFmNDBhMDY2NDdj.woREYC28rY3N0A2HbrXZ8A",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "ref": "r1",
+    "who": "report",
+    "at": "2026-11-01T04:40:00Z",
+    "task": "t1",
+    "text": "Cookie fixed\nPR: https://github.com/example/hand/pull/42\n\nAll tests pass.",
+    "truncated": false
+  }
+}
+

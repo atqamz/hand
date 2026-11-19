@@ -224,6 +224,9 @@ func TestRolloverStartsAFreshSessionOnceTheSupervisorIsOverTheLimitAndStill(t *t
 	prompt := first[len(first)-1]
 	has(t, "first message", prompt, "run `hand orient` now", "You continue s1, which Hand ended at 350k tokens of context: run the full `hand orient`, then read `"+note+"`")
 	lacks(t, "first message", prompt, "last turns")
+	if n := strings.Count(prompt, "history search WORDS"); n != 1 || !strings.Contains(prompt, "`hand history search WORDS` finds") {
+		t.Fatalf("the first message names the search %d times: %q", n, prompt)
+	}
 	if _, err := os.Stat(filepath.Join(fx.h.home, "memory", "last-turns.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("last-turns.md after a session with no conversation: %v", err)
 	}

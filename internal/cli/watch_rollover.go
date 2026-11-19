@@ -264,6 +264,7 @@ func (w *watcher) replace(ctx context.Context, c luvus.Client, sup state.Supervi
 	if tail != "" {
 		note += " Then read `" + tail + "`: Hand's verbatim copy of " + ref + "'s last turns. It can hold a list or a question the operator has not answered yet; check it before you reply."
 	}
+	note += " Anything said earlier that you cannot find, in your context or those files, `" + cmd + " history search WORDS` finds."
 	next, err := r.startSupervisor(ctx, w.st, c, spec, note, sup.WakeCursor)
 	if errors.Is(err, errLaunchUnknown) {
 		return next, true, fmt.Errorf("%w; %s may still start, and Hand fails it %s after it started if it does not: then continue %s with `%s supervisor resume`", err, state.SupervisorRef(next.ID), launchGrace, ref, cmd)

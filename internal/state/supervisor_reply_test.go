@@ -344,7 +344,7 @@ func TestAVersion24DatabaseMigratesToTheReplyTableKeepingItsRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`DROP TABLE supervisor_reply`, `PRAGMA user_version = 24`, `PRAGMA wal_checkpoint(TRUNCATE)`} {
+	for _, q := range append(slices.Clone(dropHistoryIndex), `DROP TABLE supervisor_reply`, `PRAGMA user_version = 24`, `PRAGMA wal_checkpoint(TRUNCATE)`) {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}
@@ -372,7 +372,7 @@ func TestAVersion24DatabaseMigratesToTheReplyTableKeepingItsRows(t *testing.T) {
 	}
 	defer m.Close()
 	var v int
-	if err := m.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 25 {
+	if err := m.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if got, err := m.Supervisors(ctx); err != nil || len(got) != 1 || got[0].ID != sup.ID {

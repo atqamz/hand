@@ -938,7 +938,7 @@ func TestAPINeverReturnsAPairingCodeOutsideItsOwnFields(t *testing.T) {
 		if !strings.Contains(get.Body.String(), shown.Code.Code) {
 			t.Fatal("GET /phone does not show the code, so the scan below proves nothing")
 		}
-		paths := []string{"/api/v1", "/api/v1/status", "/api/v1/models", "/api/v1/timeline", "/api/v1/tasks", "/api/v1/tasks/search", "/api/v1/tasks/search?q=cookie", "/api/v1/projects",
+		paths := []string{"/api/v1", "/api/v1/status", "/api/v1/models", "/api/v1/timeline", "/api/v1/tasks", "/api/v1/tasks/search", "/api/v1/tasks/search?q=cookie", "/api/v1/projects", "/api/v1/history/search", "/api/v1/history/search?q=cookie", "/api/v1/history/r1",
 			"/api/v1/task/t1", "/api/v1/attempt/a1", "/api/v1/decision/d1", "/api/v1/report/r1", "/api/v1/session", "/api/v1/doc/reports", "/api/v1/inbox/x",
 			"/", "/connect", "/alerts", "/alerts/feed", "/tasks", "/supervisor", "/task/t1", "/attempt/a1", "/decision/d1"}
 		for _, rt := range board.APIRoutes() {

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQAxODhjOWFiNDkyOTFhMGMz.5PypjTuCE2KsXyYw9nvUPg",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "q": "cookie",
+    "who": "",
+    "since": "",
+    "task": "",
+    "limit": 5,
+    "context": 1,
+    "total": 3,
+    "more": false,
+    "hits": [
+      {
+        "ref": "i1",
+        "who": "operator",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "Please check the «cookie» rename before we release",
+        "context": [
+          {
+            "ref": "y1",
+            "who": "supervisor",
+            "at": "2026-11-01T04:41:00Z",
+            "supervisor": "s1",
+            "text": "Two options for the cookie: 1. Keep the old name 2. Rename it"
+          }
+        ]
+      },
+      {
+        "ref": "y1",
+        "who": "supervisor",
+        "at": "2026-11-01T04:41:00Z",
+        "supervisor": "s1",
+        "text": "Two options for the «cookie»: 1. Keep the old name 2. Rename it",
+        "context": [
+          {
+            "ref": "i1",
+            "who": "operator",
+            "at": "2026-11-01T04:40:00Z",
+            "text": "Please check the cookie rename before we release"
+          },
+          {
+            "ref": "y2",
+            "who": "supervisor",
+            "at": "2026-11-01T04:42:00Z",
+            "supervisor": "s1",
+            "text": "Renaming; nothing else changes."
+          }
+        ]
+      },
+      {
+        "ref": "r1",
+        "who": "report",
+        "at": "2026-11-01T04:40:00Z",
+        "text": "«Cookie» fixed PR: https://github.com/example/hand/pull/42 All tests pass.",
+        "task": "t1",
+        "context": []
+      }
+    ]
+  }
+}
+

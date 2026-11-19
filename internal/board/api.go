@@ -58,6 +58,8 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/timeline", func(b *Board) http.HandlerFunc { return b.apiTimeline }},
 	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
 	{http.MethodGet, "/tasks/search", func(b *Board) http.HandlerFunc { return b.apiTaskSearch }},
+	{http.MethodGet, "/history/search", func(b *Board) http.HandlerFunc { return b.apiHistorySearch }},
+	{http.MethodGet, "/history/{ref}", func(b *Board) http.HandlerFunc { return b.apiHistoryEntry }},
 	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
 	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
 	{http.MethodGet, "/phone", func(b *Board) http.HandlerFunc { return b.apiPhone }},
@@ -386,6 +388,42 @@ type APITaskSearch struct {
 	Total    int                  `json:"total"`
 	Pages    int                  `json:"pages"`
 	Groups   []APITaskSearchGroup `json:"groups"`
+}
+
+type APIHistoryNear struct {
+	Ref        string `json:"ref"`
+	Who        string `json:"who"`
+	At         string `json:"at"`
+	Supervisor string `json:"supervisor,omitempty"`
+	Text       string `json:"text"`
+}
+
+type APIHistoryHit struct {
+	APIHistoryNear
+	Task    string           `json:"task,omitempty"`
+	Context []APIHistoryNear `json:"context"`
+}
+
+type APIHistorySearch struct {
+	Q       string          `json:"q"`
+	Who     string          `json:"who"`
+	Since   string          `json:"since"`
+	Task    string          `json:"task"`
+	Limit   int             `json:"limit"`
+	Context int             `json:"context"`
+	Total   int             `json:"total"`
+	More    bool            `json:"more"`
+	Hits    []APIHistoryHit `json:"hits"`
+}
+
+type APIHistoryEntry struct {
+	Ref        string `json:"ref"`
+	Who        string `json:"who"`
+	At         string `json:"at"`
+	Supervisor string `json:"supervisor,omitempty"`
+	Task       string `json:"task,omitempty"`
+	Text       string `json:"text"`
+	Truncated  bool   `json:"truncated"`
 }
 
 type APIProjects struct {
@@ -1517,6 +1555,93 @@ func (b *Board) apiTaskSearchQuery(w http.ResponseWriter, q url.Values) bool {
 		}
 	}
 	return true
+}
+
+var historyTask = regexp.MustCompile(`^t[1-9][0-9]*$`)
+
+func historyNumber(q url.Values, name string, def, lo, hi int) (int, error) {
+	v := q.Get(name)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < lo || n > hi {
+		return 0, fmt.Errorf("%w: %s must be a number from %d to %d", state.ErrInvalid, name, lo, hi)
+	}
+	return n, nil
+}
+
+func (b *Board) apiHistoryQuery(q url.Values) (state.HistoryQuery, error) {
+	hq := state.HistoryQuery{Q: q.Get("q"), Who: q.Get("who")}
+	var err error
+	if hq.Limit, err = historyNumber(q, "limit", 5, 1, state.MaxHistoryLimit); err != nil {
+		return hq, err
+	}
+	if hq.Context, err = historyNumber(q, "context", 0, 0, state.MaxHistoryNear); err != nil {
+		return hq, err
+	}
+	if hq.Since, err = state.ParseSince(q.Get("since"), b.now()); err != nil {
+		return hq, err
+	}
+	if t := q.Get("task"); t != "" {
+		if !historyTask.MatchString(t) {
+			return hq, fmt.Errorf("%w: task %q must be a task ref like t12", state.ErrInvalid, t)
+		}
+		if hq.TaskID, err = strconv.ParseInt(t[1:], 10, 64); err != nil {
+			return hq, fmt.Errorf("%w: task %q must be a task ref like t12", state.ErrInvalid, t)
+		}
+	}
+	return hq, nil
+}
+
+func (b *Board) apiHistorySearch(w http.ResponseWriter, r *http.Request) {
+	ctx, q := r.Context(), r.URL.Query()
+	hq, err := b.apiHistoryQuery(q)
+	if err != nil {
+		b.apiRejected(w, err)
+		return
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	res, err := b.st.SearchHistory(ctx, hq)
+	if err != nil {
+		if errors.Is(err, state.ErrInvalid) {
+			b.apiRejected(w, err)
+		} else {
+			b.apiFailErr(w, err)
+		}
+		return
+	}
+	near := func(e state.HistoryEntry) APIHistoryNear {
+		return APIHistoryNear{Ref: e.Ref, Who: e.Who, At: e.At, Supervisor: e.Supervisor, Text: e.Text}
+	}
+	out := APIHistorySearch{Q: hq.Q, Who: hq.Who, Since: q.Get("since"), Task: q.Get("task"), Limit: hq.Limit, Context: hq.Context, Total: res.Total, More: res.Total > len(res.Hits), Hits: make([]APIHistoryHit, 0, len(res.Hits))}
+	for _, h := range res.Hits {
+		hit := APIHistoryHit{APIHistoryNear: near(h.HistoryEntry), Task: h.Task, Context: make([]APIHistoryNear, 0, len(h.Context))}
+		for _, c := range h.Context {
+			hit.Context = append(hit.Context, near(c))
+		}
+		out.Hits = append(out.Hits, hit)
+	}
+	b.apiOK(w, f, "", out)
+}
+
+func (b *Board) apiHistoryEntry(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	e, err := b.st.HistoryEntry(ctx, r.PathValue("ref"))
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiOK(w, f, "", APIHistoryEntry{Ref: e.Ref, Who: e.Who, At: e.At, Supervisor: e.Supervisor, Task: e.Task, Text: e.Text, Truncated: e.Truncated})
 }
 
 func (b *Board) apiProjects(w http.ResponseWriter, r *http.Request) {
