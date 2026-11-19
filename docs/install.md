@@ -58,7 +58,7 @@ Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
-The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. It fetches `hand-iroh-windows-amd64.zip` too, as `install.sh` fetches its sidecar, and puts `hand-iroh.exe` next to `hand.exe`; a running one is renamed to `hand-iroh.exe.old` as `hand.exe` is. The release carries `hand-desktop-windows-amd64.zip`. This script does not install it, and `hand update` installs it for `edge` builds only, untested on a real Windows PC; on a stable build use the Board in a browser. Open a new terminal afterwards.
+The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. It fetches `hand-iroh-windows-amd64.zip` too, as `install.sh` fetches its sidecar, and puts `hand-iroh.exe` next to `hand.exe`; a running one is renamed to `hand-iroh.exe.old` as `hand.exe` is. The release carries `hand-desktop-windows-amd64.zip`. This script does not install it (the [setup wizard](#the-setup-wizard) does), and `hand update` installs it for `edge` builds only, untested on a real Windows PC; on a stable build use the Board in a browser. Open a new terminal afterwards.
 
 Set the options as environment variables before the command, as in `$env:HAND_INSTALL_VERSION = 'edge'; irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex`:
 - `HAND_INSTALL_VERSION`: `edge` for the rolling build of `main` that passed CI, or a pinned release such as `v0.14.0`;
@@ -77,6 +77,23 @@ Or pass them as switches, which win over the variables:
 - `-Dir PATH`;
 - `-Base URL`;
 - `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300). It has no variable.
+
+### The setup wizard
+
+`Hand-Setup-VERSION-x64.exe` is a setup wizard for the same install, attached to the `edge` [release](https://github.com/atqamz/hand/releases/tag/edge) only, until the Windows window runs on stable builds. It installs for your user, with no administrator prompt, into `%LOCALAPPDATA%\hand\bin`, the folder `install.ps1` uses, so `hand update` keeps either install current. It puts `hand.exe`, `hand-desktop.exe`, `hand.ico` and, when the release has it, `hand-iroh.exe` there (the `edge` release has no `hand-iroh`, so its wizard has none), writes the Start Menu shortcut `Hand` for the window, adds the folder to your user `PATH`, and offers "Start Hand" on its last page. A desktop icon is off unless you tick it. It does not install Git, Luvus or a harness: `hand init` and `hand doctor` say what is missing. The window runs on Windows in `edge` builds only, so the wizard comes from the `edge` release until it runs on stable.
+
+The wizard is not signed. A copy you download with a browser shows "Windows protected your PC": press **More info**, then **Run anyway**. Check the download first against the `.sha256` beside it; the line must print `True`:
+
+```powershell
+$want = (Get-Content .\Hand-Setup-VERSION-x64.sha256).Split(' ')[0]
+(Get-FileHash .\Hand-Setup-VERSION-x64.exe -Algorithm SHA256).Hash -eq $want
+```
+
+The `irm ... | iex` command at the top of this section stays the route with no prompt: a file that PowerShell fetches carries no download mark, so SmartScreen does not ask.
+
+Running an older wizard over a newer install, one that `hand update` has brought forward, downgrades it to the wizard's version.
+
+To uninstall, use Settings, Apps, Hand, or run `unins000.exe` in `%LOCALAPPDATA%\hand`. It removes the files it installed, any `*.old*` file that `hand update` left, the shortcuts and the `PATH` entry, and closes the Hand window if it is open. It keeps `%USERPROFILE%\.secondhand`, your fleet folders and the window's composer drafts, and says so. It never ends a fleet's work: while a Board or a watcher of this install runs, it stops and names the two commands to run first, `hand board stop` and `hand watch stop`. A `Hand.lnk` in your Start Menu that is not Hand's is left alone, by the install and by the uninstall. In CI the wizard is installed and uninstalled silently on a Windows runner ([Platform support](platforms.md)); nobody has run it on a real Windows PC yet.
 
 Hand runs its own git with `core.longpaths=true`, and starts Luvus with `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` set to the same, so a worker's git inherits it unless you already set `GIT_CONFIG_COUNT`. A Luvus server you started yourself does not have it. For the git you run and as a fallback, allow long paths once:
 
