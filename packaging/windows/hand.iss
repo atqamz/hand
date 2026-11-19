@@ -47,8 +47,8 @@ Source: "{#Source}\hand-desktop.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourcePath}hand.ico"; DestDir: "{app}\bin"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Check: StartMenuIsFree
-Name: "{userdesktop}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Tasks: desktopicon
+Name: "{userprograms}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Flags: uninsneveruninstall; Check: StartMenuIsFree
+Name: "{userdesktop}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Flags: uninsneveruninstall; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; Description: "Start Hand"; Flags: nowait postinstall skipifsilent
@@ -150,20 +150,35 @@ begin
   end;
 end;
 
-function StartMenuIsFree: Boolean;
+function IsHands(const Lnk: String): Boolean;
 var
-  Lnk: String;
   Raw, Needle: AnsiString;
   I: Integer;
 begin
-  Lnk := ExpandConstant('{userprograms}\Hand.lnk');
-  Result := not FileExists(Lnk);
-  if Result then
-    Exit;
-  Needle := '';
+  Needle := Chr(Length(Description)) + #0;
   for I := 1 to Length(Description) do
     Needle := Needle + Description[I] + #0;
   Result := LoadStringFromFile(Lnk, Raw) and (Pos(Needle, Raw) > 0);
+end;
+
+function StartMenuIsFree: Boolean;
+var
+  Lnk: String;
+begin
+  Lnk := ExpandConstant('{userprograms}\Hand.lnk');
+  Result := not FileExists(Lnk) or IsHands(Lnk);
+end;
+
+procedure RemoveIfHands(const Lnk: String);
+begin
+  if FileExists(Lnk) and IsHands(Lnk) then
+    DeleteFile(Lnk);
+end;
+
+procedure RemoveHandsLinks;
+begin
+  RemoveIfHands(ExpandConstant('{userprograms}\Hand.lnk'));
+  RemoveIfHands(ExpandConstant('{userdesktop}\Hand.lnk'));
 end;
 
 procedure EditPath(Add: Boolean);
@@ -226,5 +241,8 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
+  begin
+    RemoveHandsLinks;
     EditPath(False);
+  end;
 end;

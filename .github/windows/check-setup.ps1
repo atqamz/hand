@@ -14,6 +14,7 @@ $programs = [Environment]::GetFolderPath('Programs')
 $lnk = Join-Path $programs 'Hand.lnk'
 $deskLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Hand.lnk'
 $description = 'Hand, the supervisor window for your agent fleets'
+$foreign = "$description (custom)"
 $icon = Join-Path $PSScriptRoot '..\..\packaging\windows\hand.ico'
 $secondhand = Join-Path $env:USERPROFILE '.secondhand'
 $drafts = Join-Path $env:LOCALAPPDATA 'hand-desktop\drafts'
@@ -147,21 +148,21 @@ try {
     Expect-Kept
 
     Write-Host '== a shortcut that is not Hand''s, and the desktop icon'
-    Write-Link $lnk 'not Hand'
+    Write-Link $lnk $foreign
     Expect ((Invoke-Setup @('/TASKS="desktopicon"') (Join-Path $logs 'install-foreign.log')) -eq 0) 'the install beside a foreign shortcut failed'
     Expect-Installed $true
-    Expect ((Read-Link $lnk).Description -eq 'not Hand') 'the install replaced a Hand.lnk that is not Hand''s'
+    Expect ((Read-Link $lnk).Description -eq $foreign) 'the install replaced a Hand.lnk that is not Hand''s'
     Expect ((Read-Link $deskLnk).Description -eq $description) 'the desktop icon is not Hand''s'
     Expect ((Invoke-Uninstall (Join-Path $logs 'uninstall-foreign.log')) -eq 0) 'the second silent uninstall failed'
     Expect-Removed
-    Expect ((Test-Path -LiteralPath $lnk) -and (Read-Link $lnk).Description -eq 'not Hand') 'the uninstall removed a Hand.lnk that is not Hand''s'
+    Expect ((Test-Path -LiteralPath $lnk) -and (Read-Link $lnk).Description -eq $foreign) 'the uninstall removed a Hand.lnk that is not Hand''s'
     Expect-Kept
     Write-Host 'the wizard installs and removes what it should, and keeps what it should'
 }
 finally {
     foreach ($p in $board, $stand) { if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
     Remove-Item Env:SECONDHAND_HOME -ErrorAction SilentlyContinue
-    if ((Test-Path -LiteralPath $lnk) -and (Read-Link $lnk).Description -eq 'not Hand') { Remove-Item -LiteralPath $lnk -Force }
+    if ((Test-Path -LiteralPath $lnk) -and (Read-Link $lnk).Description -eq $foreign) { Remove-Item -LiteralPath $lnk -Force }
     Remove-Item -LiteralPath (Split-Path $keep[0]) -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $keep[1] -Force -ErrorAction SilentlyContinue
     if (-not $hadSecondhand -and -not (Get-ChildItem -LiteralPath $secondhand -Force -ErrorAction SilentlyContinue)) {
