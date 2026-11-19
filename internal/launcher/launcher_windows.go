@@ -68,8 +68,11 @@ func Sync(getenv func(string) string, bin string) (skipped string, err error) {
 	if _, err := put(ico, iconFile()); err != nil {
 		return "", fmt.Errorf("launcher: cannot write %s: %w", ico, err)
 	}
-	if state, _ := Check(getenv, bin); state == OK {
+	switch state, _ := Check(getenv, bin); state {
+	case OK:
 		return "", nil
+	case Foreign:
+		return lnk, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(lnk), 0o755); err != nil {
 		return "", fmt.Errorf("launcher: cannot write %s: %w", lnk, err)
