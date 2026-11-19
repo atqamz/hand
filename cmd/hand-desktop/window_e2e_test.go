@@ -119,11 +119,17 @@ func realWindow(t *testing.T, fromBundle bool) {
 		exe = ".exe"
 	}
 	handBin, deskBin := filepath.Join(bin, "hand"+exe), filepath.Join(bin, "hand-desktop"+exe)
-	goBuild(t, "../..", handBin, "", ".")
+	handArgs, deskArgs := []string{"."}, []string{"."}
+	if fromBundle {
+		const mod = "github.com/atqamz/hand/internal/"
+		handArgs = []string{"-ldflags=-X " + mod + "cli.Channel=edge -X " + mod + "cli.Commit=0123456789ab", "."}
+		deskArgs = []string{"-ldflags=-X " + mod + "desktopasset.Channel=edge -X " + mod + "desktopasset.Commit=0123456789ab", "."}
+	}
+	goBuild(t, "../..", handBin, "", handArgs...)
 	if runtime.GOOS == "windows" {
 		goBuild(t, ".", deskBin, "e2e", "-ldflags=-H=windowsgui", ".")
 	} else {
-		goBuild(t, ".", deskBin, "e2e", ".")
+		goBuild(t, ".", deskBin, "e2e", deskArgs...)
 	}
 
 	sock := filepath.Join(dir("s"), "w.sock")
