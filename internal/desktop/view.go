@@ -774,6 +774,10 @@ func (a *App) markdownAt(c *ui.Context, src string, theme *markdown.Theme) {
 				return
 			}
 		}
+		if ref, ok := refPath(a.Fleet.ID, dest); ok {
+			a.OpenRef(ref)
+			return
+		}
 		target, board := a.linkTarget(dest)
 		switch {
 		case board && a.openDocLink(target):
@@ -784,7 +788,7 @@ func (a *App) markdownAt(c *ui.Context, src string, theme *markdown.Theme) {
 		}
 	}
 	a.md.Theme = theme
-	markdown.View(c, src, &a.md)
+	markdown.View(c, a.linked(src), &a.md)
 	a.md.Theme = nil
 }
 

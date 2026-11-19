@@ -488,3 +488,24 @@ func TestAnEntryArrivingWhileScrolledUpMovesNothing(t *testing.T) {
 	}
 	mustText(t, tt, "Scroll to latest message")
 }
+
+func TestScenesRefsInAReplyAreLinks(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		t.Run(name, func(t *testing.T) {
+			app, _ := states(t)
+			f := goldenFixture(t)
+			tl := f.timeline[fleetID]
+			tl.Entries = []desktop.Entry{{Role: "supervisor", Ref: "s1", Model: "sonnet low", No: 9, At: "2026-10-31T12:06:00Z",
+				Text: "Task t1 is green: attempt a1 reported in r1, and decision d1 waits for you.\n\n- `t1` stays code, as does a2 in `a2`\n- see [the report](https://example.com/t1) and w5, #6"}}
+			f.timeline[fleetID] = tl
+			app = newApp(t, f)
+			tt := sized(t, app, 1100, 760, dark)
+			mustText(t, tt, "t1", "a1", "r1", "d1")
+			shotSized(t, tt, "77-reply-refs-"+name, 1100, 760)
+		})
+	}
+}

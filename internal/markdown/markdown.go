@@ -485,8 +485,8 @@ func (sc scan) marker(i int) (string, int) {
 		if href := sc.path(p); href != "" {
 			return pathLink(href, html.EscapeString(p)), len(p)
 		}
-	case sc.o.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && !strings.ContainsRune(`/\_`, rune(s[i-1]))):
-		if n := refLen(rest); n > 0 {
+	case sc.o.refs != "":
+		if n := RefAt(s, i); n > 0 {
 			return `<a class="ref" href="` + html.EscapeString(sc.o.refs+rest[:n]) + `">` + rest[:n] + `</a>`, n
 		}
 	}
@@ -624,6 +624,13 @@ func safe(raw string) bool {
 func anchor(raw, text string) string {
 	u, _ := url.Parse(raw)
 	return `<a href="` + html.EscapeString(u.String()) + `" target="_blank" rel="noopener noreferrer">` + text + `</a>`
+}
+
+func RefAt(s string, i int) int {
+	if i < 0 || i >= len(s) || strings.IndexByte("tdar", s[i]) < 0 || i > 0 && (word(s[i-1]) || strings.ContainsRune(`/\_`, rune(s[i-1]))) {
+		return 0
+	}
+	return refLen(s[i:])
 }
 
 func refLen(rest string) int {
