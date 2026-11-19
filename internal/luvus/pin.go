@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -95,16 +94,21 @@ func vcRuntimeHint(code int) string {
 	if uint32(code) != statusDLLNotFound {
 		return ""
 	}
-	return "; luvus.exe needs the Visual C++ runtime: run `winget install Microsoft.VCRedist.2015+.x64` (or open https://aka.ms/vs/17/release/vc_redist.x64.exe), then `hand luvus pin`"
+	return "; luvus.exe needs the Visual C++ runtime: run `winget install Microsoft.VCRedist.2015+.x64` (or open https://aka.ms/vs/17/release/vc_redist.x64.exe)"
+}
+
+var versionOutput = func(ctx context.Context, env []string, bin string) ([]byte, error) {
+	return command(ctx, env, bin, "--version").Output()
 }
 
 func BinaryVersion(ctx context.Context, bin string, env []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := command(ctx, env, bin, "--version").Output()
+	out, err := versionOutput(ctx, env, bin)
 	if err != nil {
 		hint := ""
-		if ee := (*exec.ExitError)(nil); errors.As(err, &ee) {
+		var ee interface{ ExitCode() int }
+		if errors.As(err, &ee) {
 			hint = vcRuntimeHint(ee.ExitCode())
 		}
 		return "", fmt.Errorf("%w: %s: --version failed: %v%s", ErrNotLuvus, bin, err, hint)

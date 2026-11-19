@@ -18,7 +18,7 @@ func (r *runner) doctorVCRuntime(c *checks) {
 		c.add("visual c++ runtime", "ok", "")
 		return
 	}
-	c.add("visual c++ runtime", "warn", strings.Join(missing, ", ")+" missing, and luvus.exe needs them; run `winget install Microsoft.VCRedist.2015+.x64` (or open https://aka.ms/vs/17/release/vc_redist.x64.exe), then `hand luvus pin`")
+	c.add("visual c++ runtime", "warn", strings.Join(missing, ", ")+" missing, and luvus.exe needs them; run `winget install Microsoft.VCRedist.2015+.x64` (or open https://aka.ms/vs/17/release/vc_redist.x64.exe)")
 }
 
 func missingDLLs(dir string) []string {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -303,14 +304,42 @@ func TestAFleetPinRefusesASymlinkLeadingOutside(t *testing.T) {
 }
 
 func TestVCRuntimeHintNamesTheMissingDLLStatus(t *testing.T) {
-	for _, code := range []int{0xc0000135, -1073741515} {
-		if h := luvus.VCRuntimeHint(code); !strings.Contains(h, "winget install Microsoft.VCRedist.2015+.x64") || !strings.Contains(h, "hand luvus pin") {
+	u := uint32(0xc0000135)
+	for _, code := range []int{int(u), int(int32(u))} {
+		if h := luvus.VCRuntimeHint(code); !strings.Contains(h, "winget install Microsoft.VCRedist.2015+.x64") || strings.Contains(h, "hand luvus pin") {
 			t.Fatalf("code %d: hint = %q", code, h)
 		}
 	}
-	for _, code := range []int{0, 1, 255, -1, 0xc0000005, 0xc0000139} {
+	for _, code := range []int{0, 1, 255, -1, int(int32(-1073741819)), int(int32(-1073741511))} {
 		if h := luvus.VCRuntimeHint(code); h != "" {
 			t.Fatalf("code %d: hint = %q", code, h)
+		}
+	}
+}
+
+type exitCode int
+
+func (e exitCode) Error() string { return "exit status " + strconv.FormatUint(uint64(uint32(e)), 10) }
+func (e exitCode) ExitCode() int { return int(e) }
+
+func TestBinaryVersionAppendsTheRuntimeHintForTheMissingDLLStatus(t *testing.T) {
+	var fail error
+	old := *luvus.VersionOutput
+	*luvus.VersionOutput = func(context.Context, []string, string) ([]byte, error) { return nil, fail }
+	t.Cleanup(func() { *luvus.VersionOutput = old })
+	u := uint32(0xc0000135)
+	for _, err := range []error{exitCode(int(u)), exitCode(int32(u)), fmt.Errorf("wrapped: %w", exitCode(int32(u)))} {
+		fail = err
+		_, got := luvus.BinaryVersion(context.Background(), "luvus.exe", nil)
+		if !errors.Is(got, luvus.ErrNotLuvus) || !strings.Contains(got.Error(), "winget install Microsoft.VCRedist.2015+.x64") || !strings.HasSuffix(got.Error(), luvus.VCRuntimeHint(int(int32(u)))) {
+			t.Fatalf("err = %v", got)
+		}
+	}
+	for _, err := range []error{exitCode(1), exitCode(-1), exitCode(-1073741819), errors.New("start failed")} {
+		fail = err
+		_, got := luvus.BinaryVersion(context.Background(), "luvus.exe", nil)
+		if want := "not a luvus binary: luvus.exe: --version failed: " + err.Error(); !errors.Is(got, luvus.ErrNotLuvus) || got.Error() != want {
+			t.Fatalf("err = %q, want %q", got, want)
 		}
 	}
 }

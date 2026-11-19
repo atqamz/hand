@@ -4,6 +4,8 @@ var Gone = gone
 
 var VCRuntimeHint = vcRuntimeHint
 
+var VersionOutput = &versionOutput
+
 var (
 	ServerExitBy = &serverExitBy
 	PingWait     = &pingWait
