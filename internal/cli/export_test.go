@@ -10,6 +10,7 @@ import (
 var (
 	WakeDigest       = wakeDigest
 	TrustWait        = &trustWait
+	WatcherStartWait = &watcherStartWait
 	TrustConfirm     = &trustConfirm
 	TrustGrace       = &trustGrace
 	QuietGrace       = &quietGrace
@@ -46,6 +47,9 @@ var (
 	RolloverPoll     = &rolloverPoll
 	RolloverStill    = &rolloverStill
 	EventHandled     = &eventHandled
+	PreemptEvery     = &preemptEvery
+	InterruptSettle  = &interruptSettle
+	InterruptPoll    = &interruptPoll
 )
 
 func Control(env Env, home string) func(context.Context, ...string) (string, error) {

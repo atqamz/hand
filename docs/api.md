@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired phone over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh, and the Phone page's pairing codes, links and revokes. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint, and never returns a pairing code or link outside the Phone endpoints ([The Phone page](#the-phone-page)). `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -46,7 +46,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). A session, an attempt and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
 
 - No `?since=`: always `200` with the full data.
 - `?since=` equal to the cursor the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first: for the pages above it costs no build and no body.
@@ -64,6 +64,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
+| `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | none yet; `hand history search` |
+| `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply or report whole | none yet; `hand history search --full REF` |
+| `GET /api/v1/phone` | `Phone`: the paired phones, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Phone page](#the-phone-page) | `/connect`, the Phone page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
@@ -81,6 +84,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message; takes `attachments`, a list of inbox names | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
+| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Phone page's Show pairing code |
+| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Phone page's Pair the Hand app |
+| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Phone page's Revoke and Revoke everywhere |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
@@ -170,7 +176,7 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 
 ### `Timeline.data`
 
-`entries` is the page's conversation, newest first. An entry has `role` (`supervisor`, `operator`, `hand`, `wakes`) plus `at`, `text`, `no`, and where it applies `ref`, `model`, `delivery`, `delivered`, `input`, `queued`, `wakes`, `shots`. An operator entry that carries an `input` also has `status` (`queued`, `delivered` or `answered`), and where it applies `answered_at`, `reason` (`blocked`, `limited`, `lost`, `switching`, `turn`, `no_supervisor` or `held`, only while it is `queued`), `reason_detail` and, for `blocked`, `reason_keys` (the keys that clear the screen, as `POST /api/v1/supervisor/keys` takes them). `reason_detail` is Hand's own words and goes through the same absolute-path scrub as the rest of the API: for `turn` the time of the last delivery to the supervisor (the turn began then or earlier), for `switching` the model and effort, for `lost` and `held` the sentence. `blocked` and `limited` carry no detail, since theirs would be a screen line; a client that wants the blocking question reads the supervisor's `ask` from `Status`, and `reason_keys` is the full set of keys Hand can press (`enter`, `esc`, `up`, `down`, `1`, `2`, `3`), not a computed minimum: Hand does not know which one clears a screen. `delivery` keeps its old values (`queued`, `delivered`, `typed anyway`) and stays `delivered` once the input is answered. A message the supervisor's harness has not yet recorded stays in `entries` while it is `delivered` (while the supervisor works, and otherwise until the first render 2 minutes after its delivery: the board renders on a change, not on a timer), with the same `input`, so its key `i<input>` does not change when the harness records it. The same fields ride the `timeline` event and the answer of `POST /api/v1/message`. A `wakes` entry groups several Hand wake lines in `wakes`. An entry for a screen-derived supervisor event (`supervisor.blocked`, `supervisor.limited`), or one whose text is a harness API error, has no `text`: its `role`, `at` and `ref` remain. A Hand wake line keeps its event kinds and refs but drops a screen-derived detail. `working` is the supervisor's current turn (`ref`, `since`, `on`, `from`, `last`, `input`), absent when it is not working. `older` is the `before` value for the next page, or `0`.
+`entries` is the page's conversation, newest first. An entry has `role` (`supervisor`, `operator`, `hand`, `wakes`) plus `at`, `text`, `no`, and where it applies `ref`, `model`, `delivery`, `delivered`, `input`, `queued`, `wakes`, `shots`. An operator entry that carries an `input` also has `status` (`queued`, `delivered` or `answered`), and where it applies `answered_at`, `reason` (`blocked`, `limited`, `lost`, `switching`, `turn`, `no_supervisor` or `held`, only while it is `queued`; a `delivered` or `answered` message may instead carry `waited`, with the `reason_detail` codes `off`, `unknown`, `not_wait`, `typed` or `failed`, or `interrupted`, with an empty `reason_detail` or, when Hand did not type the message again, a sentence beginning `not sent again:`), `reason_detail` and, for `blocked`, `reason_keys` (the keys that clear the screen, as `POST /api/v1/supervisor/keys` takes them). `reason_detail` is Hand's own words and goes through the same absolute-path scrub as the rest of the API: for `turn` the time of the last delivery to the supervisor (the turn began then or earlier), for `switching` the model and effort, for `lost` and `held` the sentence. `blocked` and `limited` carry no detail, since theirs would be a screen line; a client that wants the blocking question reads the supervisor's `ask` from `Status`, and `reason_keys` is the full set of keys Hand can press (`enter`, `esc`, `up`, `down`, `1`, `2`, `3`), not a computed minimum: Hand does not know which one clears a screen. `delivery` keeps its old values (`queued`, `delivered`, `typed anyway`) and stays `delivered` once the input is answered. A message the supervisor's harness has not yet recorded stays in `entries` while it is `delivered` (while the supervisor works, and otherwise until the first render 2 minutes after its delivery: the board renders on a change, not on a timer), with the same `input`, so its key `i<input>` does not change when the harness records it. The same fields ride the `timeline` event and the answer of `POST /api/v1/message`. A `wakes` entry groups several Hand wake lines in `wakes`. An entry for a screen-derived supervisor event (`supervisor.blocked`, `supervisor.limited`), or one whose text is a harness API error, has no `text`: its `role`, `at` and `ref` remain. A Hand wake line keeps its event kinds and refs but drops a screen-derived detail. `working` is the supervisor's current turn (`ref`, `since`, `on`, `from`, `last`, `input`), absent when it is not working. `older` is the `before` value for the next page, or `0`.
 
 ### `Tasks.data`
 
@@ -183,6 +189,16 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 `groups` are the page's day groups in order, newest first: `name` (`Mon 2 Jan UTC`), `count` and `tasks`. Rows in a group are ordered newest first by finish time, or by `updated_at` when no finish event exists. A row uses the `Tasks` row's fields and adds `updated_at`, the time an unfinished row is grouped and sorted by, and `open_decisions`, how many decisions are open on the task (absent at zero). `finished_at` is present only for a done or abandoned task. Sub-tasks are not placed under their parent. `q` echoes the value with its surrounding spaces trimmed; `project`, `since` and `until` echo the values as asked, empty when they were not; `status` echoes the same way, as above.
 
 `page` is `1` unless asked, `page_size` is `50`, `total` is every task the query matches, and `pages` is `total` divided by `page_size`, rounded up (`0` when nothing matches). A page past the last one is `200` with no groups. A `status` outside those words, a `since` or `until` that is not a date, and a `page` that is not a number from 1 to 1,000,000 are `400` with `bad_request` and the board's sentence. An empty result is `200` with zero rows. Here `since` is the finished-on-or-after filter, not the change cursor, so this endpoint has no `?since=` poll and always answers `200`. The answer's `X-Hand-Cursor` is the board's change cursor, not a cursor for this path: do not store it and send it back as `since`, where it would be refused as a date.
+
+### `HistorySearch.data`
+
+`HistorySearch` searches what was said in this fleet: the operator's messages (`iN`), the supervisor's prose replies (`yN`) and the reports (`rN`); never a worker's conversation or a tool's output. `q` is SQLite FTS5 syntax over words, case and Latin accents ignored: `amber kiln` needs both words, `amber OR kiln`, `"amber kiln"` as a phrase, `kil*` as a prefix; a ref such as `t12` or `y412` is one word. A `q` FTS5 cannot parse is searched as its whitespace-separated words, each quoted and all required, so `"unterminated` still works. A missing, blank or over 1,024-byte `q` is `400`. Search matches the stored text and prints it redacted, so a `q` can confirm that a string occurs in an operator message or report even where `text` shows `[redacted:…]`; a paired phone can do this too, but the Board already serves operator messages and reports as stored, so the oracle gives it nothing it cannot already read; the routes add reach over older entries at most (see History in the [vocabulary](vocabulary.md#history)).
+
+`who` limits the source: `operator`, `supervisor` or `report`. `since` is `7d`, `36h` or a UTC date `YYYY-MM-DD` (here it is a time bound, not the change cursor, so this route takes no `?since=` poll and sends no `304`). `task` is a `tN`: a report of that task, and an operator message or reply that names `tN` as a word. `limit` is 1 to 50 (default 5) and `context` 0 to 5 (default 0). A value outside those, or a `who`, `since` or `task` it cannot read, is `400` with `bad_request` and the board's sentence. The answer echoes `q`, `who`, `since` and `task` as asked, and `limit` and `context` as applied.
+
+`hits` are ordered by relevance (bm25 within each source, so mixing sources is approximate), then newest first, at most `limit`; `total` is every match under the filters and `more` is `total > len(hits)`. A hit has `ref`, `who`, `at`, `text` (a snippet of at most 300 bytes on one line, the match between `«` and `»`, a cut shown as `…`) and `context`; a reply carries `supervisor` (`sN`), a report carries `task`, an operator message carries neither. With `context` above 0, `context` lists up to that many entries before and then after a message or reply hit in the merged conversation of messages and replies, oldest first, each as `ref`, `who`, `at`, `text` (clipped the same way) and `supervisor` for a reply; a report hit has an empty `context`. Every returned text passes through the same redaction as a stored reply (`internal/redact`), because operator messages and reports are stored as written.
+
+`GET /api/v1/history/{ref}` takes `iN`, `rN` or `yN` and answers `ref`, `who`, `at`, `supervisor`, `task`, `text` and `truncated`. `text` is the whole body, redacted, at most 16 KiB; `truncated` is `true` when it was cut at a character boundary. An unknown or malformed ref is `404`. The answer reads this fleet's database only: there is no fleet or `all` parameter, and the route takes the refusals of every read below. The envelope's `cursor` is a fingerprint of the answer, not a change cursor.
 
 ### `Projects.data`
 
@@ -288,8 +304,9 @@ An action's answer says what the Board's toast would say, in two places: the env
 | `POST /models/refresh` | `Refreshing models…` |
 | `POST /supervisor/keys` | `Sent down enter to s1` |
 | `POST /attempt/{aN}/keys` | `Sent enter to a1` |
+| `POST /phone/revoke` | `Revoked in alpha and beta`, absent when nothing was revoked |
 
-The supervisor named is the one the Board's own button would name, read before the control runs. Sending a message carries no receipt, because the Board's composer shows none: the answer's timeline is the confirmation. Pairing carries none either.
+The supervisor named is the one the Board's own button would name, read before the control runs. Sending a message carries no receipt, because the Board's composer shows none: the answer's timeline is the confirmation. Pairing carries none either, and a pairing code or an app link is never put in a receipt or a warning: they hold only fleet names.
 
 `warn` is the caveat the Board shows beside the receipt, for 12 seconds rather than 4: the warning the control printed while it succeeded (an unverified model, for one), joined with `; ` when several apply, and the caveat of a write that went through but whose result could not be read, `{"accepted": true}`, which says `the action went through, but the status could not be read: <reason>; refresh to see it` for a control or a key press, and `the message was sent, but the conversation could not be read: <reason>; refresh to see it` for a message. The decision answer, the report ack, a worker's keys and a model refresh say the same in their own words: `the answer was saved, but its decision could not be read: …`, `the report was marked read, but its detail could not be read: …`, `the press went through, but the attempt could not be read: …`, and `the refresh started, but the model lists could not be read: …`. A client shows `receipt` for 4 seconds, `warn` for 12, and both together as `receipt; warn`, as the Board's `app.js` does. A client that shows no toast ignores both.
 
@@ -322,9 +339,9 @@ A file reaches the supervisor in two steps, as it does from the web composer: up
 {"name": "20261101-050000-1-shot.png", "label": "shot.png", "kind": "image", "size": 40}
 ```
 
-`name` is the file's name in `inbox/` and the only handle to it. `label` is the name the operator sees (`name` without its stamp), `kind` is `image` or `file`, and `size` is the stored bytes. The answer is `200`, like every action's, and carries no receipt.
+`name` is the file's name in `inbox/` and the only handle to it. `label` is the name the operator sees (`name` without its stamp), `kind` is `image` or `file`, and `size` is the stored bytes, and an empty file is stored as the page stores it, with `size` `0`. The answer is `200`, like every action's, and carries no receipt.
 
-- `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`.
+- `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`; a part with no file name is a value, not a file.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired phone.
 - `413 too_large`: a file over 10 MiB (`a file can be at most 10 MiB`) or a post over 11 MiB (`the request is too large`). Nothing is stored.
@@ -394,6 +411,63 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
 - `429 rate_limited`: 5 wrong codes from this endpoint in the last minute.
 - `200` with `Paired`.
 
+### The Phone page
+
+The Board's Phone page (`/<fleet id>/connect`) is one fleet's page that reads every fleet the host session proves, so its API is a fleet's, at `/<fleet id>/api/v1/phone`, not a host path. It is built from the page's own code, so the rules are the page's: a code works once for 5 minutes, one code shows at a time (a new code or link cancels the unused one before it), and codes live in the board's memory only, so restarting the board cancels them.
+
+`GET /api/v1/phone` answers `Phone`:
+
+```json
+{
+  "iroh": {"state": "ready", "tone": "pass",
+           "text": "Phone access over iroh is online. The Hand app can pair with this host.", "id": "9f2c…(64 hex characters)"},
+  "fleets": [{"id": "f00000000e0aa", "name": "hand", "current": true, "selected": true},
+             {"id": "f00000000e0bb", "name": "api"}],
+  "code": {"code": "K7QM3-XRD2P", "link": "https://laptop.example/f00000000e0aa/pair#K7QM3-XRD2P",
+           "url": "https://laptop.example/f00000000e0aa/pair", "address": "https://laptop.example",
+           "fleets": [{"id": "f00000000e0aa", "name": "hand"}], "expires_at": "2026-11-01T05:05:00Z"},
+  "app": {"link": "handboard://c#v=1&e=9f2c…&f=f00000000e0aa&c=K7QM3XRD2P", "expires_at": "2026-11-01T05:05:00Z"},
+  "devices": [
+    {"phone": "0123456789abcdef", "name": "Pixel 9", "login": "iroh:9f2c…", "paired_at": "2026-11-01T04:40:00Z",
+     "seen_at": "2026-11-01T04:59:00Z",
+     "fleets": [{"id": "f00000000e0aa", "name": "hand", "current": true}, {"id": "f00000000e0bb", "name": "api", "expired": true}]},
+    {"id": 3, "name": "Old phone", "paired_at": "2026-10-01T04:40:00Z", "expired": true}
+  ],
+  "unreachable": ["web"]
+}
+```
+
+- `iroh` is the sidecar's state as the page words it, and is absent when the board runs without `--iroh`. `state` is `ready`, `no relay`, `starting` or `failed`, `tone` is the page's badge (`pass`, `wait` or `fail`), and `text` is its sentence. The app link can be made only while `state` is `ready`; the page offers the button on the same condition.
+- `fleets` is the page's list of fleets a code may cover: the current fleet first and at most 7 other fleets the session proves, the page's list, so one code names at most 8, each with `current` and `selected` (ticked: the current fleet always, and the fleets of the code that shows). It is empty when the session proves only this fleet, as the page then shows no choice.
+- `code` and `app` are present only while one shows: unused and not past its `expires_at`. `code` is the web code: `code` to type, `link` (the page's link with the code in its fragment), `url` and `address` (what to open and type, and what was typed), `plain_http` when the address is plain HTTP on a network, and `fleets` the code pairs. `app` is the Hand app's `handboard://` link, which holds its own code and pairs one phone with this fleet. A client draws the QR code from `link`. Both stop showing when the phone redeems, when the time passes, when a new code or link is made, and for `app` when the sidecar is no longer `ready`.
+- `devices` are the page's phone list, read from every fleet the session proves, not only the 8 that `fleets` offers, oldest pairing first. `phone` is the label one pairing code gave every fleet it paired, the handle to revoke with. `fleets` lists where the phone is paired, with `expired` once its 90 days have passed there; it is absent for a phone paired with this fleet alone, and for a phone paired before one code could pair several fleets, which has no `phone` and is revoked by its `id` (the number is this fleet's own and means nothing in another). `expired` is then the phone's own. `login` is the device's login (`iroh:` and its endpoint ID for the app), `seen_at` the last time it read this board since the board started.
+- `unreachable` names the fleets the session proves but whose phones could not be read; their phones are missing from `devices`, as the page says.
+
+`POST /api/v1/phone/code` takes one JSON object, `{"base": "https://laptop.example", "fleets": ["f00000000e0bb"]}`: `base` is the address the phone opens (scheme and host only, as the page's field), and `fleets` the other fleets to pair; the current fleet is always paired, and a repeated id is one. A code names at most 8 fleets, this one and 7 others: a ninth fleet id is refused with `403 forbidden`, as is any fleet the `fleets` list did not offer, and no code is made. It answers `Phone` with `code` showing.
+
+`POST /api/v1/phone/app` takes no body and answers `Phone` with `app` showing.
+
+`POST /api/v1/phone/revoke` takes one JSON object, `{"phone": "0123456789abcdef"}` to revoke that phone in every fleet the session proves, `{"phone": "...", "fleet": "f00000000e0bb"}` for one fleet, or `{"id": 3}` for a phone with no label in this fleet. It answers `Phone` as it stands after, with `revoke`:
+
+```json
+{"revoke": {"revoked": [{"id": "f00000000e0aa", "name": "hand"}],
+            "failed": [{"id": "f00000000e0cc", "name": "web", "reason": "the fleet did not answer"}]}}
+```
+
+`revoked` holds the fleets where a record was removed; a fleet that held none is in neither list. `failed` holds the fleets the revoke could not reach, whose record of the phone, if it has one, is still active: `reason` is `the fleet did not answer`, in fixed words, never the error's own text or a path. The answer is `200` when some or all failed, so a client reads `revoke.failed`; `warn` then carries the page's sentence ("Revoked in hand. web could not be reached: … Press Revoke everywhere again when it is back."), and `receipt` is absent. Press Revoke everywhere again for the same phone when the fleet is back: the call repeats safely, and a phone already revoked is an empty report. Revoking an `id` that is not there is an empty report too, as on the page.
+
+A paired phone is refused on all four paths: it manages no phones, and the page lets it sign out only itself. The board reads what an answer needs before it acts, so every refusal below leaves everything as it was, and none mints a code or revokes a device. The answer to an action is built from that read, with the revoked records removed, not read again: a phone that pairs or is seen in this fleet between the read and the answer is missing from that one answer, and the next read has it.
+
+- `400 bad_request`: a body that is not one JSON object as above; for `code`, a `base` that is not `scheme://host` (no path, login, query or fragment); for `revoke`, a body without exactly one of `phone` (16 lowercase hex characters) and `id` (positive), or with `fleet` and no `phone`.
+- `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
+- `403 forbidden`: a paired phone; a network board or a proxied request; for `code`, a fleet id the `fleets` list did not offer: one this session does not prove, or one beyond the 7 others a code may name; for `revoke`, a fleet that this session does not prove (revoke reaches every fleet the session proves, with no cap of 8).
+- `409 conflict`: `app` while the sidecar is not `ready` with a relay.
+- `500 internal`: the phone list could not be read; the message names no path.
+
+The code and the link are credentials: a phone that holds either becomes a paired device of this fleet. They are returned only by these endpoints, to the host's session behind the same cookie, CSRF and loopback rules as every action, in `code.code`, `code.link` and `app.link` and nowhere else: not in `receipt`, `warn`, an error, the event stream, another endpoint, a page other than the one that showed it, the database or a log. A client keeps them in memory, never logs or stores them, and stops showing them at `expires_at`. The `cursor` of `phone` fingerprints a keyed digest of the code, not the code, so it is safe to log.
+
+Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page learns when the phone paired (the code leaves, the device arrives) or the time passed, sending the cursor it last read: an unchanged answer is `304`. Without a code on screen it reads once when the page opens and after each action, which already answers the fresh data.
+
 ### The fleet list and the features
 
 `GET /api/v1/fleets` and `GET /api/v1/meta` answer on the host, not under a fleet prefix: `/api/v1/fleets`, never `/<fleet id>/api/v1/fleets`. A phone paired with several fleets holds one `hand_phone_<fleet id>` cookie for each, and sends all of them in every request, over its one iroh connection; only the host sees them together, as it does for the rail. Their envelope has no `fleet` and no `cursor`, because they belong to no fleet and have no change stream: a client re-reads them when it opens the fleet list and when a fleet's own stream reports a change.
@@ -422,7 +496,7 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "version": "0.14.0",
-    "features": ["events", "fleets", "pair"],
+    "features": ["events", "fleets", "history", "pair", "phone"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -434,7 +508,9 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
 |---|---|
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
+| `history` | `GET /api/v1/history/search` and `GET /api/v1/history/{ref}` |
 | `pair` | `POST /api/v1/pair` |
+| `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 
 Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a phone on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 
@@ -561,11 +637,11 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from` or `lines`), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, or an attachment that is not an inbox name |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
+| `403` | `forbidden` | a paired phone on a Phone endpoint, a fleet a Phone action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `403` | `wrong_code` | `pair` with a code the board does not hold |
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |
@@ -573,7 +649,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `403` | `codes_cancelled` | `pair` was the tenth wrong code, so every code is cancelled |
 | `404` | `not_found` | an unknown route or ref, a document path that does not exist, or an inbox name that is not a regular file in `inbox/` (to read it, or to attach it) |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
-| `409` | `conflict` | a state conflict while reading or acting, or a document that changed while it was opened |
+| `409` | `conflict` | `phone/app` while the sidecar is not ready with a relay, a state conflict while reading or acting, or a document that changed while it was opened |
 | `413` | `too_large` | a page form only, answered with the page's HTML error page and not this shape: a `POST` over the board's 11 MiB post limit, refused by the page's guard before the route runs, or a file over 10 MiB on `POST /supervisor/image`; a v1 action reads at most 64 KiB of JSON and answers `400 bad_request` above that, except `POST /api/v1/inbox`, which answers this shape with `413` for a file over 10 MiB or a post over 11 MiB |
 | `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute, or `models/refresh` for a list inside its 30-second cooldown |
 | `500` | `internal` | any other failure |

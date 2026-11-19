@@ -1234,3 +1234,35 @@ func TestANetworkAddressBoardKeepsTheAPIClosedToAPairedPhone(t *testing.T) {
 		t.Fatalf("a network-address board answered the API = %d", rep.Code)
 	}
 }
+
+func TestAPairedPhoneSearchesItsOwnFleetsHistoryOnly(t *testing.T) {
+	r := newPeerRig(t, "alpha", "bravo")
+	f := r.fleets[0]
+	seed(t, f.st)
+	if _, err := f.st.AddSupervisorInput(context.Background(), "Please check the cookie rename"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.fleets[1].st.AddSupervisorInput(context.Background(), "Only bravo knows the cookie recipe"); err != nil {
+		t.Fatal(err)
+	}
+	c := r.as(peerA)
+	companion := r.mustPair(c, f)
+	var found apiReply[board.APIHistorySearch]
+	rep := r.apiGet(c, f, "history/search?q=cookie", nil, companion)
+	if rep.Code != http.StatusOK || json.Unmarshal([]byte(rep.Body), &found) != nil || found.Data.Total == 0 {
+		t.Fatalf("search = %d:\n%s", rep.Code, rep.Body)
+	}
+	for _, h := range found.Data.Hits {
+		if strings.Contains(h.Text, "bravo") {
+			t.Fatalf("a hit from another fleet: %+v", h)
+		}
+	}
+	if rep := r.apiGet(c, f, "history/i1", nil, companion); rep.Code != http.StatusOK || strings.Contains(rep.Body, "bravo") {
+		t.Fatalf("entry = %d:\n%s", rep.Code, rep.Body)
+	}
+	for _, path := range []string{"history/search?q=cookie", "history/i1"} {
+		if rep := r.apiGet(c, r.fleets[1], path, nil, companion); rep.Code != http.StatusUnauthorized {
+			t.Fatalf("another fleet's %s with this fleet's cookie = %d", path, rep.Code)
+		}
+	}
+}

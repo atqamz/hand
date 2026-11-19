@@ -49,6 +49,8 @@ type pairCode struct {
 	until  time.Time
 	used   bool
 	fleets []string
+	base   string
+	app    bool
 }
 
 type Redeemed struct {
@@ -305,7 +307,7 @@ func normCode(s string) string {
 	return s[:5] + "-" + s[5:]
 }
 
-func (b *Board) mint(now time.Time, fleets []string) (string, time.Time) {
+func (b *Board) mint(now time.Time, fleets []string, base string, app bool) (string, time.Time) {
 	code, until := newCode(), now.Add(pairLife)
 	b.companions.mu.Lock()
 	defer b.companions.mu.Unlock()
@@ -315,8 +317,21 @@ func (b *Board) mint(now time.Time, fleets []string) (string, time.Time) {
 			delete(b.companions.codes, c)
 		}
 	}
-	b.companions.codes[code] = pairCode{until: until, fleets: slices.Clone(fleets)}
+	b.companions.codes[code] = pairCode{until: until, fleets: slices.Clone(fleets), base: base, app: app}
 	return code, until
+}
+
+func (b *Board) showing(now time.Time) (string, pairCode, bool) {
+	b.companions.mu.Lock()
+	defer b.companions.mu.Unlock()
+	var code string
+	var live pairCode
+	for c, v := range b.companions.codes {
+		if !v.used && !now.After(v.until) && (code == "" || v.until.After(live.until)) {
+			code, live = c, v
+		}
+	}
+	return code, live, code != ""
 }
 
 func (p *companions) prune(now time.Time) {
@@ -412,8 +427,10 @@ type fleetChoice struct {
 	Current, Ticked bool
 }
 
+func (b *Board) pairFleets(ctx context.Context) []railLink { return capRail(b.hostFleets(ctx)) }
+
 func (b *Board) pairChoices(ctx context.Context, set []string) []fleetChoice {
-	list := b.hostFleets(ctx)
+	list := b.pairFleets(ctx)
 	if len(list) < 2 {
 		return nil
 	}
@@ -486,13 +503,17 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 }
 
 func (b *Board) chosenFleets(r *http.Request) ([]string, bool) {
+	return b.chosenFleetsFrom(r.Context(), r.PostForm["fleet"])
+}
+
+func (b *Board) chosenFleetsFrom(ctx context.Context, ids []string) ([]string, bool) {
 	own := b.fleetID()
 	offered := map[string]bool{}
-	for _, l := range b.hostFleets(r.Context()) {
+	for _, l := range b.pairFleets(ctx) {
 		offered[l.ID] = true
 	}
 	set := []string{own}
-	for _, id := range r.PostForm["fleet"] {
+	for _, id := range ids {
 		if id == own || slices.Contains(set, id) {
 			continue
 		}
@@ -541,7 +562,7 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AddressError": err.Error(), "Address": r.PostFormValue("base"), "Set": set})
 		return
 	}
-	code, until := b.mint(b.now(), set)
+	code, until := b.mint(b.now(), set, base, false)
 	link := base + b.o.Base + "/pair#" + code
 	qr, _ := qrSVG(link, "QR code for the pairing link")
 	w.Header().Set("Cache-Control", "no-store")
@@ -569,7 +590,7 @@ func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
 		return
 	}
-	code, until := b.mint(b.now(), []string{b.fleetID()})
+	code, until := b.mint(b.now(), []string{b.fleetID()}, "", true)
 	link, err := appLink(st.ID, st.Relay, b.fleetID(), code)
 	if err != nil {
 		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
@@ -591,18 +612,11 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusForbidden, "a paired phone can sign out only itself")
 		return
 	}
-	var revoked *state.Device
-	if d, err := b.st.RevokeDevice(r.Context(), id); err != nil {
-		if !errors.Is(err, state.ErrNotFound) {
-			b.failErr(w, err)
-			return
-		}
-	} else {
-		revoked = &d
+	revoked, err := b.revokeDevice(r.Context(), id)
+	if err != nil {
+		b.failErr(w, err)
+		return
 	}
-	b.companions.mu.Lock()
-	delete(b.companions.seen, id)
-	b.companions.mu.Unlock()
 	if s.Device != nil {
 		http.SetCookie(w, &http.Cookie{Name: b.companionCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
 		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the host's Board: Phone, in its menu.")

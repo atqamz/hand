@@ -141,6 +141,9 @@ func TestAWatcherReseedsWhenTheBoardGenerationChanges(t *testing.T) {
 	h.vars["HAND_TEST_REAL_WATCH"] = "1"
 	t.Cleanup(func() { h.run("watch", "stop") })
 	root := h.vars["SECONDHAND_HOME"]
+	was := *cli.WatcherStartWait
+	*cli.WatcherStartWait = time.Minute
+	t.Cleanup(func() { *cli.WatcherStartWait = was })
 	first := liveGeneration(t, os.Getpid())
 	second := liveGeneration(t, holdProcess(t))
 	writeGeneration(t, h, first)
@@ -148,11 +151,11 @@ func TestAWatcherReseedsWhenTheBoardGenerationChanges(t *testing.T) {
 	if _, err := cli.EnsureWatcher(context.Background(), env, h.home, root, first); err != nil {
 		t.Fatal(err)
 	}
-	waitLive(t, "the watcher of the first generation", func() bool { return watchGeneration(h.home) == first })
-	oldPID, err := os.ReadFile(filepath.Join(h.home, "watch.pid"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	var oldPID []byte
+	waitLive(t, "the watcher of the first generation", func() bool {
+		oldPID, _ = os.ReadFile(filepath.Join(h.home, "watch.pid"))
+		return bytes.HasSuffix(oldPID, []byte("\n")) && watchGeneration(h.home) == first
+	})
 	writeGeneration(t, h, second)
 	if _, err := cli.EnsureWatcher(context.Background(), env, h.home, root, second); err != nil {
 		t.Fatal(err)
@@ -161,7 +164,6 @@ func TestAWatcherReseedsWhenTheBoardGenerationChanges(t *testing.T) {
 		pid, err := os.ReadFile(filepath.Join(h.home, "watch.pid"))
 		return err == nil && !bytes.Equal(pid, oldPID) && watchGeneration(h.home) == second
 	})
-	settle()
 	if err := term.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}

@@ -16,27 +16,27 @@ const REFUSALS: [(&str, &str); 6] = [
     ),
     (
         "wrong_code",
-        "That code is not right. Check it against the one on your laptop, or show a new code there.",
+        "That code is not right. Check it against the one on the Board, or show a new code there.",
     ),
     (
         "code_expired",
-        "That code has expired. A code works for 5 minutes. Show a new code on your laptop.",
+        "That code has expired. A code works for 5 minutes. Show a new code on the Board.",
     ),
     (
         "code_used",
-        "That code was already used. A code works once. Show a new code on your laptop.",
+        "That code was already used. A code works once. Show a new code on the Board.",
     ),
     (
         "codes_cancelled",
-        "Too many wrong codes. Every code was cancelled. Show a new code on your laptop.",
+        "Too many wrong codes. Every code was cancelled. Show a new code on the Board.",
     ),
     (
         "rate_limited",
-        "Too many wrong codes from this phone. Wait a minute, then try again.",
+        "Too many wrong codes from this Companion. Wait a minute, then try again.",
     ),
 ];
 const REFUSED: &str =
-    "The laptop did not pair this phone. Show a new code on your laptop and try again.";
+    "The host did not pair this Companion. Show a new code on the Board and try again.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairError {
@@ -61,21 +61,21 @@ impl PairError {
             Self::NoPending => "This pairing was closed. Scan or paste the code again.",
             Self::NotSaved => concat!(
                 "The phone could not save the pairing. Check its storage. ",
-                "The laptop may hold an unfinished device: remove it on the laptop's Phone page, then show a new code and try again."
+                "The host may hold an unfinished device: remove it on the Board's Companion page, then show a new code and try again."
             ),
-            Self::Request(RequestError::Busy) => "Your laptop is busy. Try again in a moment.",
-            Self::Request(RequestError::NoLaptop | RequestError::Unreachable) => {
-                "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet."
+            Self::Request(RequestError::Busy) => "Your host is busy. Try again in a moment.",
+            Self::Request(RequestError::NoHost | RequestError::Unreachable) => {
+                "Can't reach your host. Check that it is on, that Hand's Board is running, and that this phone has internet."
             }
             Self::Request(RequestError::BoardNotRunning) => {
-                "Your laptop answers, but the Board is not running. Start it on the laptop."
+                "Your host answers, but the Board is not running. Start it on the host."
             }
             Self::Request(RequestError::Lost | RequestError::TimedOut) => {
-                "The connection broke while pairing. If it fails again, show a new code on your laptop."
+                "The connection broke while pairing. If it fails again, show a new code on the Board."
             }
             Self::Request(_) => concat!(
-                "The laptop's answer could not be read. ",
-                "The laptop may hold an unfinished device: remove it on the laptop's Phone page, then show a new code and try again."
+                "The host's answer could not be read. ",
+                "The host may hold an unfinished device: remove it on the Board's Companion page, then show a new code and try again."
             ),
             Self::Refused(code) => REFUSALS
                 .iter()
@@ -222,23 +222,23 @@ mod tests {
         };
         assert_eq!(
             sentence("wrong_code"),
-            "That code is not right. Check it against the one on your laptop, or show a new code there."
+            "That code is not right. Check it against the one on the Board, or show a new code there."
         );
         assert_eq!(
             sentence("code_expired"),
-            "That code has expired. A code works for 5 minutes. Show a new code on your laptop."
+            "That code has expired. A code works for 5 minutes. Show a new code on the Board."
         );
         assert_eq!(
             sentence("code_used"),
-            "That code was already used. A code works once. Show a new code on your laptop."
+            "That code was already used. A code works once. Show a new code on the Board."
         );
         assert_eq!(
             sentence("codes_cancelled"),
-            "Too many wrong codes. Every code was cancelled. Show a new code on your laptop."
+            "Too many wrong codes. Every code was cancelled. Show a new code on the Board."
         );
         assert_eq!(
             sentence("rate_limited"),
-            "Too many wrong codes from this phone. Wait a minute, then try again."
+            "Too many wrong codes from this Companion. Wait a minute, then try again."
         );
         assert_eq!(
             sentence("bad_name"),
@@ -246,7 +246,7 @@ mod tests {
         );
         assert_eq!(
             sentence("forbidden"),
-            "The laptop did not pair this phone. Show a new code on your laptop and try again."
+            "The host did not pair this Companion. Show a new code on the Board and try again."
         );
         assert_eq!(
             parse_answer(500, b"not json").err(),
@@ -255,13 +255,13 @@ mod tests {
     }
 
     #[test]
-    fn a_failure_of_the_laptop_has_its_sentence() {
+    fn a_failure_of_the_host_has_its_sentence() {
         let message = |error| PairError::Request(error).message();
         assert_eq!(
             message(RequestError::Busy),
-            "Your laptop is busy. Try again in a moment."
+            "Your host is busy. Try again in a moment."
         );
-        assert!(message(RequestError::Unreachable).starts_with("Can't reach your laptop."));
+        assert!(message(RequestError::Unreachable).starts_with("Can't reach your host."));
         assert!(message(RequestError::BoardNotRunning).contains("the Board is not running"));
         assert!(message(RequestError::Lost).contains("show a new code"));
         assert!(message(RequestError::Malformed).contains("could not be read"));
@@ -270,7 +270,7 @@ mod tests {
             message(RequestError::TooLarge),
             PairError::NotSaved.message(),
         ] {
-            assert!(unfinished.contains("remove it on the laptop's Phone page"));
+            assert!(unfinished.contains("remove it on the Board's Companion page"));
         }
     }
 

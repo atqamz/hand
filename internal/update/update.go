@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -217,7 +218,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	desktopNext := desktopPath(o.Target, o.OS)
-	desktopOn := desktopasset.Supported(o.OS, o.Arch)
+	desktopOn := desktopasset.Supported(o.OS, o.Arch, o.Channel)
 	desktopStale := false
 	if desktopOn {
 		gotVersion, gotCommit, err := desktopasset.BinaryVersion(ctx, desktopNext)
@@ -227,6 +228,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	switch {
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
+		if o.Check && o.hasWindow(desktopNext) {
+			rep.Desktop += "; would remove the installed " + filepath.Base(desktopNext)
+		}
 	case !desktopStale:
 	case o.Check:
 		exists, err := probeDesktop(ctx, o.HandBase, o.Channel, o.OS, o.Arch)
@@ -252,6 +256,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	if current && !repin {
+		o.dropWindow(&rep, desktopOn, desktopNext)
 		var stale []fleet.Entry
 		if !o.KeepLuvus {
 			stale = slices.DeleteFunc(slices.Clone(fleets), func(e fleet.Entry) bool { return e.State != "ok" || server(e) != "no" })
@@ -264,6 +269,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 		if len(stale) > 0 && !o.Check {
 			rep.clearJournal(o)
+		}
+		if !o.Check {
+			for _, e := range fleets {
+				if e.State == "ok" {
+					rep.skills(ctx, o, e.Home)
+				}
+			}
 		}
 		o.launcher(&rep, desktopOn, desktopNext)
 		switch {
@@ -324,6 +336,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err := rep.journal.save(o.Root); err != nil {
 		return rep, fmt.Errorf("update: cannot write %s: %w", journalPath(o.Root), err)
 	}
+	o.dropWindow(&rep, desktopOn, desktopNext)
 	if !current {
 		if desktopBin != "" {
 			if err := swap(desktopBin, desktopNext); err != nil {
@@ -346,6 +359,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	rep.cycle(ctx, o, fleets, true, server)
+	var inited []string
 	for i, e := range fleets {
 		if e.State != "ok" {
 			continue
@@ -359,32 +373,60 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if err := child(ctx, o, e.Home, "init"); err != nil {
 			rep.Fleets[i].Init = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there; if hand.version there names a newer hand, run `hand update --channel edge` first", e.Home, err))
+		} else {
+			inited = append(inited, e.Home)
 		}
 		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}
 	rep.clearJournal(o)
+	for _, home := range inited {
+		rep.skills(ctx, o, home)
+	}
 	o.launcher(&rep, desktopOn, desktopNext)
 	rep.Status = "updated"
 	return rep, nil
 }
 
 func (o Options) launcher(rep *Report, on bool, bin string) {
-	if o.Check || !on {
+	if o.Check {
 		return
 	}
-	var skipped string
-	var err error
-	if fi, serr := os.Stat(bin); serr == nil && fi.Mode().IsRegular() {
-		skipped, err = launcher.Sync(o.Getenv, bin)
-	} else {
-		skipped, err = launcher.Remove(o.Getenv)
+	fi, serr := os.Stat(bin)
+	switch {
+	case serr != nil || !fi.Mode().IsRegular():
+		rep.launcherResult(launcher.Remove(o.Getenv))
+	case on:
+		rep.launcherResult(launcher.Sync(o.Getenv, bin))
 	}
+}
+
+func (rep *Report) launcherResult(skipped string, err error) {
 	if err != nil {
 		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
 	}
 	if skipped != "" {
-		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (no X-Hand-Managed=true line); it was left alone", skipped))
+		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker))
 	}
+}
+
+var removeWindow = remove
+
+func (o Options) hasWindow(bin string) bool {
+	fi, err := os.Stat(bin)
+	return o.OS == "windows" && err == nil && fi.Mode().IsRegular()
+}
+
+func (o Options) dropWindow(rep *Report, desktopOn bool, bin string) {
+	if o.Check || desktopOn || !o.hasWindow(bin) {
+		return
+	}
+	name := filepath.Base(bin)
+	if err := removeWindow(bin); err != nil {
+		rep.Desktop += "; failed to remove the installed " + name + ": " + err.Error()
+		rep.fail(fmt.Sprintf("the installed %s was not removed (%v); it is built for edge and must not run against a stable hand", name, err))
+		return
+	}
+	rep.Desktop += "; removed the installed " + name
 }
 
 func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string, string, error) {
@@ -877,15 +919,72 @@ func rootAlive(r luvus.Root) bool {
 }
 
 func child(ctx context.Context, o Options, home string, args ...string) error {
+	_, err := childOutput(ctx, o, home, args...)
+	return err
+}
+
+func childOutput(ctx context.Context, o Options, home string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	out, err := childCmd(ctx, o, home, args...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, clip(string(out)))
+	}
+	return string(out), nil
+}
+
+func childCmd(ctx context.Context, o Options, home string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, o.Target, args...)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = home, append(append([]string{}, o.Env...), "HAND_HOME="+home), time.Second
 	proc.NewGroup(cmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	proc.KillGroupOnCancel(cmd)
+	return cmd
+}
+
+func clip(out string) string {
+	out = strings.TrimSpace(out)
+	lines := strings.SplitN(out, "\n", 4)
+	if len(lines) > 3 {
+		out = strings.Join(lines[:3], "\n") + "\n…"
 	}
-	return nil
+	if len(out) > 300 {
+		out = strings.ToValidUTF8(out[:300], "") + "…"
+	}
+	return out
+}
+
+func (r *Report) skills(ctx context.Context, o Options, home string) {
+	if err := child(ctx, o, home, "skills", "sync", "--fleet"); err != nil {
+		r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` failed in %s (%v); run it there to see the rest", home, err))
+	}
+	out, err := childOutput(ctx, o, home, "skills", "outdated", "--all")
+	if err != nil {
+		r.Help = append(r.Help, fmt.Sprintf("`hand skills outdated --all` failed in %s (%v); run it there to see the rest", home, err))
+		return
+	}
+	behind := map[string]int{}
+	var broken []string
+	for line := range strings.Lines(out) {
+		cells := strings.SplitN(strings.TrimSpace(line), ",", 4)
+		switch {
+		case len(cells) < 4:
+		case slices.Contains([]string{"behind", "edited", "conflict"}, cells[1]):
+			behind[cells[2]]++
+		case cells[1] == "error" && !slices.Contains(broken, cells[2]):
+			broken = append(broken, cells[2])
+		}
+	}
+	if len(broken) > 0 {
+		slices.Sort(broken)
+		r.Help = append(r.Help, fmt.Sprintf("skills of %s could not be checked in %s; `hand skills outdated --all` there shows why", strings.Join(broken, ", "), home))
+	}
+	for _, scope := range slices.Sorted(maps.Keys(behind)) {
+		flag := "--fleet"
+		if name, ok := strings.CutPrefix(scope, "project/"); ok {
+			flag = "--project " + name
+		}
+		r.Help = append(r.Help, fmt.Sprintf("%d skill(s) of %s are behind or edited in %s; `hand skills outdated %s` there", behind[scope], scope, home, flag))
+	}
 }
 
 func stage(src, target string) (string, error) {

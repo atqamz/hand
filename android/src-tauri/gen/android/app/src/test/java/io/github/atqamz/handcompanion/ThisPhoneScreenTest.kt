@@ -17,7 +17,7 @@ internal val phoneSeveral =
 
 internal fun phoneOf(fleets: List<FleetLine>) =
   ThisPhone(
-    laptop = "4d92…6ed6",
+    host = "4d92…6ed6",
     fleets = fleets,
     alertsDetail = "Hand is connected · watching ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}",
     phoneId = "9ab2…11fe",

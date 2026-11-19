@@ -58,8 +58,11 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/timeline", func(b *Board) http.HandlerFunc { return b.apiTimeline }},
 	{http.MethodGet, "/tasks", func(b *Board) http.HandlerFunc { return b.apiTasks }},
 	{http.MethodGet, "/tasks/search", func(b *Board) http.HandlerFunc { return b.apiTaskSearch }},
+	{http.MethodGet, "/history/search", func(b *Board) http.HandlerFunc { return b.apiHistorySearch }},
+	{http.MethodGet, "/history/{ref}", func(b *Board) http.HandlerFunc { return b.apiHistoryEntry }},
 	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
 	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
+	{http.MethodGet, "/phone", func(b *Board) http.HandlerFunc { return b.apiPhone }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
 	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
@@ -67,6 +70,9 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/report/{id}", func(b *Board) http.HandlerFunc { return b.apiReport }},
 	{http.MethodPost, "/pair", nil},
 	{http.MethodPost, "/inbox", func(b *Board) http.HandlerFunc { return b.apiInboxUpload }},
+	{http.MethodPost, "/phone/code", func(b *Board) http.HandlerFunc { return b.apiPhoneCodeNew }},
+	{http.MethodPost, "/phone/app", func(b *Board) http.HandlerFunc { return b.apiPhoneApp }},
+	{http.MethodPost, "/phone/revoke", func(b *Board) http.HandlerFunc { return b.apiPhoneRevoke }},
 	{http.MethodPost, "/message", func(b *Board) http.HandlerFunc { return b.apiMessage }},
 	{http.MethodPost, "/supervisor/start", func(b *Board) http.HandlerFunc { return b.apiStart }},
 	{http.MethodPost, "/supervisor/resume", func(b *Board) http.HandlerFunc {
@@ -382,6 +388,42 @@ type APITaskSearch struct {
 	Total    int                  `json:"total"`
 	Pages    int                  `json:"pages"`
 	Groups   []APITaskSearchGroup `json:"groups"`
+}
+
+type APIHistoryNear struct {
+	Ref        string `json:"ref"`
+	Who        string `json:"who"`
+	At         string `json:"at"`
+	Supervisor string `json:"supervisor,omitempty"`
+	Text       string `json:"text"`
+}
+
+type APIHistoryHit struct {
+	APIHistoryNear
+	Task    string           `json:"task,omitempty"`
+	Context []APIHistoryNear `json:"context"`
+}
+
+type APIHistorySearch struct {
+	Q       string          `json:"q"`
+	Who     string          `json:"who"`
+	Since   string          `json:"since"`
+	Task    string          `json:"task"`
+	Limit   int             `json:"limit"`
+	Context int             `json:"context"`
+	Total   int             `json:"total"`
+	More    bool            `json:"more"`
+	Hits    []APIHistoryHit `json:"hits"`
+}
+
+type APIHistoryEntry struct {
+	Ref        string `json:"ref"`
+	Who        string `json:"who"`
+	At         string `json:"at"`
+	Supervisor string `json:"supervisor,omitempty"`
+	Task       string `json:"task,omitempty"`
+	Text       string `json:"text"`
+	Truncated  bool   `json:"truncated"`
 }
 
 type APIProjects struct {
@@ -1515,6 +1557,93 @@ func (b *Board) apiTaskSearchQuery(w http.ResponseWriter, q url.Values) bool {
 	return true
 }
 
+var historyTask = regexp.MustCompile(`^t[1-9][0-9]*$`)
+
+func historyNumber(q url.Values, name string, def, lo, hi int) (int, error) {
+	v := q.Get(name)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < lo || n > hi {
+		return 0, fmt.Errorf("%w: %s must be a number from %d to %d", state.ErrInvalid, name, lo, hi)
+	}
+	return n, nil
+}
+
+func (b *Board) apiHistoryQuery(q url.Values) (state.HistoryQuery, error) {
+	hq := state.HistoryQuery{Q: q.Get("q"), Who: q.Get("who")}
+	var err error
+	if hq.Limit, err = historyNumber(q, "limit", 5, 1, state.MaxHistoryLimit); err != nil {
+		return hq, err
+	}
+	if hq.Context, err = historyNumber(q, "context", 0, 0, state.MaxHistoryNear); err != nil {
+		return hq, err
+	}
+	if hq.Since, err = state.ParseSince(q.Get("since"), b.now()); err != nil {
+		return hq, err
+	}
+	if t := q.Get("task"); t != "" {
+		if !historyTask.MatchString(t) {
+			return hq, fmt.Errorf("%w: task %q must be a task ref like t12", state.ErrInvalid, t)
+		}
+		if hq.TaskID, err = strconv.ParseInt(t[1:], 10, 64); err != nil {
+			return hq, fmt.Errorf("%w: task %q must be a task ref like t12", state.ErrInvalid, t)
+		}
+	}
+	return hq, nil
+}
+
+func (b *Board) apiHistorySearch(w http.ResponseWriter, r *http.Request) {
+	ctx, q := r.Context(), r.URL.Query()
+	hq, err := b.apiHistoryQuery(q)
+	if err != nil {
+		b.apiRejected(w, err)
+		return
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	res, err := b.st.SearchHistory(ctx, hq)
+	if err != nil {
+		if errors.Is(err, state.ErrInvalid) {
+			b.apiRejected(w, err)
+		} else {
+			b.apiFailErr(w, err)
+		}
+		return
+	}
+	near := func(e state.HistoryEntry) APIHistoryNear {
+		return APIHistoryNear{Ref: e.Ref, Who: e.Who, At: e.At, Supervisor: e.Supervisor, Text: e.Text}
+	}
+	out := APIHistorySearch{Q: hq.Q, Who: hq.Who, Since: q.Get("since"), Task: q.Get("task"), Limit: hq.Limit, Context: hq.Context, Total: res.Total, More: res.Total > len(res.Hits), Hits: make([]APIHistoryHit, 0, len(res.Hits))}
+	for _, h := range res.Hits {
+		hit := APIHistoryHit{APIHistoryNear: near(h.HistoryEntry), Task: h.Task, Context: make([]APIHistoryNear, 0, len(h.Context))}
+		for _, c := range h.Context {
+			hit.Context = append(hit.Context, near(c))
+		}
+		out.Hits = append(out.Hits, hit)
+	}
+	b.apiOK(w, f, "", out)
+}
+
+func (b *Board) apiHistoryEntry(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	e, err := b.st.HistoryEntry(ctx, r.PathValue("ref"))
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiOK(w, f, "", APIHistoryEntry{Ref: e.Ref, Who: e.Who, At: e.At, Supervisor: e.Supervisor, Task: e.Task, Text: e.Text, Truncated: e.Truncated})
+}
+
 func (b *Board) apiProjects(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	f, cursor, ok := b.apiRead(w, r)
@@ -2251,7 +2380,15 @@ func apiWakeText(text string) string {
 	if !strings.HasPrefix(text, prefix) {
 		return text
 	}
-	parts := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	split := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	parts := make([]string, 0, len(split))
+	for _, p := range split {
+		if n := len(parts); n > 0 && strings.HasPrefix(p, "reported r") && strings.HasSuffix(parts[n-1], "turn ended") {
+			parts[n-1] += "; " + p
+			continue
+		}
+		parts = append(parts, p)
+	}
 	out := make([]string, 0, len(parts))
 	drop := false
 	for _, line := range parts {
@@ -2269,7 +2406,7 @@ func apiWakeText(text string) string {
 		}
 		ref := rest[:end]
 		detail := strings.TrimLeft(rest[end:], " \t:")
-		drop = screenKinds[kind] || strings.Contains(detail, "api error: ")
+		drop = screenKinds[kind] || fromScreen(detail)
 		if drop {
 			out = append(out, strings.TrimSpace(kind+" "+ref))
 		} else {
@@ -2285,7 +2422,7 @@ func apiEntry(c chatItem) APIEntry {
 	case c.Role == "hand" && strings.HasPrefix(text, "wake: "):
 		text = Scrub(apiWakeText(text))
 	case c.Kind != "":
-		if screenKinds[c.Kind] || strings.Contains(text, "api error: ") {
+		if screenKinds[c.Kind] || fromScreen(text) {
 			text = ""
 		} else {
 			text = Scrub(text)
@@ -2434,9 +2571,13 @@ var screenKinds = map[string]bool{
 	"supervisor.limited": true,
 }
 
+func fromScreen(detail string) bool {
+	return strings.Contains(detail, "api error: ") || strings.Contains(detail, "turn ended") && strings.Contains(detail, ": "+state.Refused)
+}
+
 func apiEvent(e state.Event) APIEvent {
 	out := APIEvent{Seq: e.Seq, At: e.At, Kind: e.Kind}
-	if !screenKinds[e.Kind] && !strings.Contains(e.Detail, "api error: ") {
+	if !screenKinds[e.Kind] && !fromScreen(e.Detail) {
 		out.Detail = Scrub(e.Detail)
 	}
 	if e.TaskID != 0 {

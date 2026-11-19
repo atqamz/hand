@@ -129,9 +129,9 @@ class FallbackScreenTest {
       Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, chat = { Loading() }) {} }
     }
 
-  @Test fun listMenuLight() = shot(false) { Over(listOf("Forget this laptop" to {})) { fleets(connected) } }
+  @Test fun listMenuLight() = shot(false) { Over(listOf("Forget this host" to {})) { fleets(connected) } }
 
-  @Test fun listMenuDark() = shot(true) { Over(listOf("Forget this laptop" to {})) { fleets(connected) } }
+  @Test fun listMenuDark() = shot(true) { Over(listOf("Forget this host" to {})) { fleets(connected) } }
 
   @Test fun forgetLight() = shot(false) { fleets(connected.copy(asking = true)) }
 
@@ -161,7 +161,7 @@ class FallbackScreenTest {
       }
     }
 
-  @Test fun startFailureLight() = shot(false) { StartFailure("the phone's key could not start the companion: the Keystore is unavailable") }
+  @Test fun startFailureLight() = shot(false) { StartFailure("this Companion's key could not start it: the Keystore is unavailable") }
 
-  @Test fun startFailureDark() = shot(true) { StartFailure("the phone's key could not start the companion: the Keystore is unavailable") }
+  @Test fun startFailureDark() = shot(true) { StartFailure("this Companion's key could not start it: the Keystore is unavailable") }
 }

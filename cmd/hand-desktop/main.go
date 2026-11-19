@@ -10,11 +10,14 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
+
+var gated = true
 
 type options struct {
 	version bool
@@ -61,6 +64,13 @@ func handoff(app *desktop.App, args []string) {
 	}
 }
 
+func refusal(goos, goarch string) string {
+	if gated && !desktopasset.Supported(goos, goarch, desktopasset.Channel) {
+		return desktopasset.Unsupported(goos, goarch)
+	}
+	return ""
+}
+
 func main() {
 	opts, err := parseArgs(os.Args[1:])
 	if err != nil {
@@ -71,8 +81,8 @@ func main() {
 		fmt.Println(desktopasset.Stamp())
 		return
 	}
-	if runtime.GOOS != "linux" {
-		fmt.Fprintln(os.Stderr, "hand-desktop runs on Linux for now; the Board still works in a browser on this system.")
+	if msg := refusal(runtime.GOOS, runtime.GOARCH); msg != "" {
+		fmt.Fprintln(os.Stderr, "hand-desktop: "+msg)
 		os.Exit(2)
 	}
 	if !mygo.App.RequestSingleInstanceLock() {
@@ -110,6 +120,9 @@ func main() {
 			MinWidth: desktop.MinWindowWidth, MinHeight: desktop.MinWindowHeight,
 			Content: ui.View(app.View),
 		})
+		if runtime.GOOS == "windows" {
+			_ = win.SetIcon(brand.Icon512)
+		}
 		app.Post = win.Update
 		app.Pick = func() []string {
 			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Attach files", Multiple: true})

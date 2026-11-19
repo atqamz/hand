@@ -17,13 +17,15 @@ type answerFixture struct {
 	w    *watcher
 	st   *state.Store
 	file string
+	db   string
 	now  *time.Time
 }
 
 func newAnswerFixture(t *testing.T) *answerFixture {
 	t.Helper()
 	now := time.Date(2026, 11, 17, 4, 40, 0, 0, time.UTC)
-	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return now })
+	db := filepath.Join(t.TempDir(), "hand.db")
+	st, err := state.Open(db, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func newAnswerFixture(t *testing.T) *answerFixture {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return &answerFixture{t: t, w: &watcher{r: r, st: st}, st: st, file: file, now: &now}
+	return &answerFixture{t: t, w: &watcher{r: r, st: st}, st: st, file: file, db: db, now: &now}
 }
 
 func (f *answerFixture) send(body string) int64 {

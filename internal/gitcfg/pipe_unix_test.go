@@ -6,7 +6,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -50,5 +52,32 @@ func TestRunMakesSSHFailInsteadOfPrompting(t *testing.T) {
 				t.Fatalf("out=%q err=%v", out, err)
 			}
 		})
+	}
+}
+
+func TestRunBoundedKillsTheWholeProcessGroupAtTheLimit(t *testing.T) {
+	bin, pidFile := t.TempDir(), filepath.Join(t.TempDir(), "pid")
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nsleep 60 &\necho $! > '"+pidFile+"'\nwait\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GIT_SSH_COMMAND", "ssh")
+	began := time.Now()
+	_, err := RunBounded(context.Background(), t.TempDir(), 500*time.Millisecond, "fetch")
+	if err == nil || !strings.Contains(err.Error(), "limit") || time.Since(began) > 10*time.Second {
+		t.Fatalf("err = %v after %s", err, time.Since(began))
+	}
+	b, rerr := os.ReadFile(pidFile)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	deadline := time.Now().Add(5 * time.Second)
+	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		t.Fatalf("the child of git (%d) outlived the limit", pid)
 	}
 }

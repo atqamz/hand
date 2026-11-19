@@ -214,8 +214,27 @@ func TestAnAnswerWhoseFleetCannotBeReadWritesNothing(t *testing.T) {
 }
 
 func TestAPanicWhileReadingTheVersionIsAnError(t *testing.T) {
-	b := &Board{}
-	if _, err := b.sharedVersion(context.Background(), false); err == nil {
-		t.Fatal("a version read without a store did not fail")
+	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	b := &Board{st: st, o: Options{Now: func() time.Time { panic("clock") }}}
+	if _, err := b.sharedVersion(context.Background(), false); err == nil || !strings.Contains(err.Error(), "clock") {
+		t.Fatalf("a version read that panicked = %v", err)
+	}
+}
+
+func TestFromScreenKeepsATimerNoteThatQuotesTheRefusalWords(t *testing.T) {
+	for detail, want := range map[string]bool{
+		"turn ended without a new report: will not clear by itself: 402 x":  true,
+		"turn ended; reported r1 progress: will not clear by itself: 402 x": true,
+		"api error: API Error: boom":                                        true,
+		"t1: This will not clear by itself: check the deploy":               false,
+		"turn ended without a new report":                                   false,
+	} {
+		if got := fromScreen(detail); got != want {
+			t.Errorf("fromScreen(%q) = %v, want %v", detail, got, want)
+		}
 	}
 }

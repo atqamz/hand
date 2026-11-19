@@ -2,10 +2,14 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,6 +61,14 @@ func writeContext(home, session string, tokens int) error {
 	}
 	line := `{"type":"assistant","timestamp":"2026-09-26T00:00:01Z","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":` + strconv.Itoa(tokens) + `,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[]}}` + "\n"
 	return os.WriteFile(path, []byte(line), 0o644)
+}
+
+func writeTranscript(home, session string, lines ...string) error {
+	path := filepath.Join(home, ".claude", "projects", "p", session+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 func (fx *rolloverFixture) context(session string, tokens int) {
@@ -203,7 +215,7 @@ func TestRolloverStartsAFreshSessionOnceTheSupervisorIsOverTheLimitAndStill(t *t
 		}
 	}
 	note := filepath.Join(fx.h.home, "memory", "handoff.md")
-	has(t, "request", ask, "350k tokens", "300k", note, "`done`")
+	has(t, "request", ask, "350k tokens", "300k", note, "`done`", "open offer", "never shorten an open offer")
 	sups := fx.supervisors(t)
 	if sups[0].Status != state.AttemptStopped || !sups[1].Live() || sups[1].Harness != "claude" || sups[1].Model != "sonnet" || sups[1].Effort != "low" || sups[1].Session == old {
 		t.Fatalf("supervisors = %+v", sups)
@@ -211,9 +223,126 @@ func TestRolloverStartsAFreshSessionOnceTheSupervisorIsOverTheLimitAndStill(t *t
 	first := fx.rt.lastCreate().Command
 	prompt := first[len(first)-1]
 	has(t, "first message", prompt, "run `hand orient` now", "You continue s1, which Hand ended at 350k tokens of context: run the full `hand orient`, then read `"+note+"`")
+	lacks(t, "first message", prompt, "last turns")
+	if n := strings.Count(prompt, "history search WORDS"); n != 1 || !strings.Contains(prompt, "`hand history search WORDS` finds") {
+		t.Fatalf("the first message names the search %d times: %q", n, prompt)
+	}
+	if _, err := os.Stat(filepath.Join(fx.h.home, "memory", "last-turns.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("last-turns.md after a session with no conversation: %v", err)
+	}
 	events := fx.rolledOver(t)
 	if len(events) != 1 || events[0] != "s2: continues s1 (session "+old+", 350000 tokens); new session "+sups[1].Session {
 		t.Fatalf("events = %q", events)
+	}
+}
+
+func TestRolloverCarriesTheLastTurnsWhenTheNoteOmitsAnOffer(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	old := fx.session()
+	offer := "Three candidates for the next experiment:\n1. Amber Kiln\n2. Birch Ferry\n3. Cobalt Loom\nWhich one should I brief?"
+	text, _ := json.Marshal(offer)
+	if err := writeTranscript(fx.h.vars["HOME"], old,
+		`{"type":"user","timestamp":"2026-09-26T00:00:01Z","message":{"content":"Suggest the next experiment."}}`,
+		`{"type":"assistant","timestamp":"2026-09-26T00:00:02Z","message":{"id":"m1","model":"claude-sonnet-5-5","stop_reason":"end_turn","usage":{"input_tokens":350000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":`+string(text)+`}]}}`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	fx.writesNote()
+	transcriptPath := filepath.Join(fx.h.vars["HOME"], ".claude", "projects", "p", old+".jsonl")
+	fx.rt.set(func(rt *fakeRuntime) {
+		noteWriter := rt.onPrompt
+		rt.onPrompt = func() {
+			noteWriter()
+			p := rt.sent[len(rt.sent)-1]
+			if !strings.HasPrefix(p, "[hand v1 rollover]") {
+				return
+			}
+			ask, _ := json.Marshal(p)
+			f, err := os.OpenFile(transcriptPath, os.O_APPEND|os.O_WRONLY, 0o644)
+			if err != nil {
+				return
+			}
+			defer f.Close()
+			fmt.Fprintln(f, `{"type":"user","timestamp":"2026-09-26T00:00:03Z","message":{"content":`+string(ask)+`}}`)
+			fmt.Fprintln(f, `{"type":"assistant","timestamp":"2026-09-26T00:00:04Z","message":{"id":"m2","model":"claude-sonnet-5-5","stop_reason":"end_turn","usage":{"input_tokens":350000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"done"}]}}`)
+		}
+	})
+	stop := startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.advanceUntil(t, 10*time.Minute, func() bool { return len(fx.rolledOver(t)) == 1 })
+	stop()
+
+	source, _ := os.ReadFile(transcriptPath)
+	has(t, "source transcript", string(source), "[hand v1 rollover]", `"text":"done"`)
+	note, _ := os.ReadFile(filepath.Join(fx.h.home, "memory", "handoff.md"))
+	lacks(t, "handoff note", string(note), "Amber Kiln", "Birch Ferry", "Cobalt Loom")
+	tailPath := filepath.Join(fx.h.home, "memory", "last-turns.md")
+	tail, err := os.ReadFile(tailPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	has(t, "last turns", string(tail), "# Last turns of s1", "## operator, 2026-09-26T00:00:01Z", "Suggest the next experiment.", "1. Amber Kiln", "2. Birch Ferry", "3. Cobalt Loom", "Which one should I brief?")
+	lacks(t, "last turns", string(tail), "asked for a handoff note", "[hand v1 rollover]", "done")
+	if len(tail) > 4096 {
+		t.Fatalf("last-turns.md is %d bytes", len(tail))
+	}
+	first := fx.rt.lastCreate().Command
+	prompt := first[len(first)-1]
+	m := regexp.MustCompile("read `([^`]*last-turns\\.md)`").FindStringSubmatch(prompt)
+	if m == nil || filepath.Clean(m[1]) != filepath.Clean(tailPath) {
+		t.Fatalf("the first message does not name %s: %q", tailPath, prompt)
+	}
+	named, err := os.ReadFile(m[1])
+	if err != nil || !strings.Contains(string(named), "Cobalt Loom") {
+		t.Fatalf("the file the first message names does not hold the offer: %v", err)
+	}
+	lacks(t, "first message", prompt, "Cobalt Loom")
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(tailPath); err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("last-turns.md mode: %v, %v", info, err)
+		}
+	}
+	names := []string{}
+	entries, _ := os.ReadDir(filepath.Join(fx.h.home, "memory"))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	for _, want := range []string{"handoff.md", "last-turns.md"} {
+		if !slices.Contains(names, want) {
+			t.Fatalf("memory/ holds %q", names)
+		}
+	}
+	for _, name := range names {
+		lacks(t, "memory entry", name, ".last-turns.md-")
+	}
+	events := fx.rolledOver(t)
+	if len(events) != 1 || strings.Contains(events[0], "last-turns") {
+		t.Fatalf("events = %q", events)
+	}
+}
+
+func TestRolloverStillRollsOverWhenTheTailIsEmpty(t *testing.T) {
+	fx := newRolloverFixture(t, "")
+	old := fx.session()
+	fx.context(old, 350000)
+	stale := filepath.Join(fx.h.home, "memory", "last-turns.md")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("# Last turns of s0\nOld Offer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.writesNote()
+	stop := startWatch(t, fx.attemptFixture, "--every", "30ms")
+	fx.advanceUntil(t, 10*time.Minute, func() bool { return len(fx.rolledOver(t)) == 1 })
+	stop()
+
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the stale last-turns.md stays: %v", err)
+	}
+	first := fx.rt.lastCreate().Command
+	lacks(t, "first message", first[len(first)-1], "last turns")
+	if n := fx.asked(); n != 1 {
+		t.Fatalf("asked %d times", n)
 	}
 }
 

@@ -11,8 +11,8 @@
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models; signed out, Hand has no agy list and warns.
 - Optional: oh-my-pi (`omp`, from `s=$(curl -fsSL https://omp.sh/install) && sh -c "$s"`), logged in, for the supervisor and workers. Hand lists its models with `omp models --json`, reads its agent folder from `PI_CODING_AGENT_DIR` (give an absolute path, and the same one in the Luvus server's environment, the watcher's and the Board's), else `$PI_CONFIG_DIR/agent` (a relative value is under the home directory), else `~/.omp/agent`, and finds a supervisor's session under that folder's `sessions/`. Measured on Linux only: Windows and macOS have not run a real `omp`, and Hand starts no `.cmd` shim for it.
 - Optional: the GitHub Copilot CLI (`copilot`, from `npm install -g @github/copilot`, or downloaded by running `gh copilot` once), logged in with `copilot login`, for workers only. Hand looks for `copilot` in four places and takes the first hit: `PATH`; mise's `shims` folder, as above; npm's global `bin` folder (`NPM_CONFIG_PREFIX`, else what `npm prefix -g` prints, which Hand asks once per process, 3 seconds at most, without a shell; `prefix` itself on Windows); and the folder `gh copilot` downloads to, `gh/copilot` under `$XDG_DATA_HOME`, else `~/.local/share/gh/copilot` (on Windows `%LOCALAPPDATA%\GitHub CLI\copilot`). The harness then starts by that absolute path, so a board started before you changed `PATH` finds it too. Hand does not check the login: signed out, Copilot shows `Please use /login to sign in` and drops the brief, and Hand notes the attempt blocked when it sees that line at launch.
-- Optional: the native window, `hand-desktop`, on Linux amd64 and arm64 (one window per user; an alert's **Open** and `hand-desktop --open LINK` use it). It needs a display (X11 or Wayland; no cgo) and a running Board, which it reads over loopback; `hand update` installs it next to `hand` from a release that carries it, together with a launcher entry (`$XDG_DATA_HOME/applications/hand-desktop.desktop`, default `~/.local/share/applications`, and the icon `$XDG_DATA_HOME/icons/hicolor/512x512/apps/hand-desktop.png`) so any XDG launcher opens it as `Hand`, and its asset names are `hand-desktop-linux-amd64.tar.gz` and `hand-desktop-linux-arm64.tar.gz`. macOS and Windows have no desktop asset yet and run the Board in a browser (`hand open`).
-- Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` runs `rundll32 url.dll,FileProtocolHandler` and there are no built-in notifications; see [Alerts on your phone](alerts.md) for a PowerShell recipe), and a systemd user session to keep the watcher, the board and Luvus running.
+- Optional: the native window, `hand-desktop`, on Linux amd64 and arm64 (one window per user; an alert's **Open** and `hand-desktop --open LINK` use it). It needs a display (X11 or Wayland; no cgo) and a running Board, which it reads over loopback; `hand update` installs it next to `hand` from a release that carries it, together with a launcher entry (`$XDG_DATA_HOME/applications/hand-desktop.desktop`, default `~/.local/share/applications`, and the icon `$XDG_DATA_HOME/icons/hicolor/512x512/apps/hand-desktop.png`) so any XDG launcher opens it as `Hand`, and its asset names are `hand-desktop-linux-amd64.tar.gz` and `hand-desktop-linux-arm64.tar.gz`. On Windows amd64, `hand update` installs `hand-desktop.exe` next to `hand.exe` for `edge` builds only (`hand update --channel edge`): it has opened a window on a CI runner and not yet on a real Windows PC, writes a Start Menu shortcut `Hand` (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Hand.lnk`, with `hand.ico` beside `hand-desktop.exe`), and `hand doctor` says in its `desktop window` row once it is installed that no real Windows PC has run it, and in its `start menu shortcut` row whether the shortcut is in place. A stable build on Windows, and macOS, run the Board in a browser (`hand open`); the release also carries the macOS asset (untested on real Macs) that nothing installs yet.
+- Optional: `notify-send` for desktop notifications (the Hand app's alert feed needs neither it nor a `notify` command) and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` runs `rundll32 url.dll,FileProtocolHandler` and there are no built-in notifications; see [Alerts on your phone](alerts.md) for a PowerShell recipe), and a systemd user session to keep the watcher, the board and Luvus running.
 
 ## Install a release
 
@@ -58,7 +58,7 @@ Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
-The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. It fetches `hand-iroh-windows-amd64.zip` too, as `install.sh` fetches its sidecar, and puts `hand-iroh.exe` next to `hand.exe`; a running one is renamed to `hand-iroh.exe.old` as `hand.exe` is. There is no `hand-desktop` asset for Windows yet: use the Board in a browser. Open a new terminal afterwards.
+The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. It fetches `hand-iroh-windows-amd64.zip` too, as `install.sh` fetches its sidecar, and puts `hand-iroh.exe` next to `hand.exe`; a running one is renamed to `hand-iroh.exe.old` as `hand.exe` is. The release carries `hand-desktop-windows-amd64.zip`. This script does not install it (the [setup wizard](#the-setup-wizard) does), and `hand update` installs it for `edge` builds only, untested on a real Windows PC; on a stable build use the Board in a browser. Open a new terminal afterwards.
 
 Set the options as environment variables before the command, as in `$env:HAND_INSTALL_VERSION = 'edge'; irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex`:
 - `HAND_INSTALL_VERSION`: `edge` for the rolling build of `main` that passed CI, or a pinned release such as `v0.14.0`;
@@ -77,6 +77,23 @@ Or pass them as switches, which win over the variables:
 - `-Dir PATH`;
 - `-Base URL`;
 - `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300). It has no variable.
+
+### The setup wizard
+
+`Hand-Setup-VERSION-x64.exe` is a setup wizard for the same install, attached to the `edge` [release](https://github.com/atqamz/hand/releases/tag/edge) only, until the Windows window runs on stable builds. It installs for your user, with no administrator prompt, into `%LOCALAPPDATA%\hand\bin`, the folder `install.ps1` uses, so `hand update` keeps either install current. It puts `hand.exe`, `hand-desktop.exe`, `hand.ico` and, when the release has it, `hand-iroh.exe` there (the `edge` release has no `hand-iroh`, so its wizard has none), writes the Start Menu shortcut `Hand` for the window, adds the folder to your user `PATH`, and offers "Start Hand" on its last page. A desktop icon is off unless you tick it. It does not install Git, Luvus or a harness: `hand init` and `hand doctor` say what is missing. The window runs on Windows in `edge` builds only, so the wizard comes from the `edge` release until it runs on stable.
+
+The wizard is not signed. A copy you download with a browser shows "Windows protected your PC": press **More info**, then **Run anyway**. Check the download first against the `.sha256` beside it; the line must print `True`:
+
+```powershell
+$want = (Get-Content .\Hand-Setup-VERSION-x64.sha256).Split(' ')[0]
+(Get-FileHash .\Hand-Setup-VERSION-x64.exe -Algorithm SHA256).Hash -eq $want
+```
+
+The `irm ... | iex` command at the top of this section stays the route with no prompt: a file that PowerShell fetches carries no download mark, so SmartScreen does not ask.
+
+Running an older wizard over a newer install, one that `hand update` has brought forward, downgrades it to the wizard's version.
+
+To uninstall, use Settings, Apps, Hand, or run `unins000.exe` in `%LOCALAPPDATA%\hand`. It removes the files it installed, any `*.old*` file that `hand update` left, the shortcuts and the `PATH` entry, and closes the Hand window if it is open. It keeps `%USERPROFILE%\.secondhand`, your fleet folders and the window's composer drafts, and says so. It never ends a fleet's work: while a Board or a watcher of this install runs, it stops and names the two commands to run first, `hand board stop` and `hand watch stop`. A `Hand.lnk` in your Start Menu that is not Hand's is left alone, by the install and by the uninstall. In CI the wizard is installed and uninstalled silently on a Windows runner ([Platform support](platforms.md)); nobody has run it on a real Windows PC yet.
 
 Hand runs its own git with `core.longpaths=true`, and starts Luvus with `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` set to the same, so a worker's git inherits it unless you already set `GIT_CONFIG_COUNT`. A Luvus server you started yourself does not have it. For the git you run and as a fallback, allow long paths once:
 
@@ -102,7 +119,7 @@ Windows user profile folders whose names contain spaces or non-ASCII characters 
 
 What differs from Linux and macOS:
 - there are no units: no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, the running board starts the watchers again within 30 seconds of a crash, and Luvus starts directly;
-- desktop notifications are off: the watcher's notify step does nothing;
+- desktop notifications are off: the watcher's notify step does nothing, while the alert feed for the Hand app still works;
 - stopping a worker ends the root and its descendants at once, found by parent process ID, with no graceful phase. The root is `hand`, with the harness as its child, whereas Linux and macOS replace `hand` with the harness and signal the worker's process group instead, and Linux also ends the processes left in the attempt's worktree; macOS does not. What each reaches is in [Attempt](vocabulary.md#attempt);
 - `hand update` swaps the binary by renaming the running `hand.exe` to `hand.exe.old`, stops the watcher and the board by their process IDs, and starts them again. The next `hand` run deletes the old file.
 

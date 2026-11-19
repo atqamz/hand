@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQAyYjkwZjgyNTUzOTBhNGFj.VxkVC4UvwRjWO1Y9uE3gQg",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "q": "nothing",
+    "who": "",
+    "since": "",
+    "task": "",
+    "limit": 5,
+    "context": 0,
+    "total": 1,
+    "more": false,
+    "hits": [
+      {
+        "ref": "y2",
+        "who": "supervisor",
+        "at": "2026-11-01T04:42:00Z",
+        "supervisor": "s1",
+        "text": "Renaming; «nothing» else changes.",
+        "context": []
+      }
+    ]
+  }
+}
+

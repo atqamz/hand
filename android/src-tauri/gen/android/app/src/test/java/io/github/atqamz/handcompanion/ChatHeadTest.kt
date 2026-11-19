@@ -79,7 +79,7 @@ class ChatHeadTest {
   }
 
   @Test
-  fun anUnreachableLaptopDisablesEveryControlWithTheBandSentence() {
+  fun anUnreachableHostDisablesEveryControlWithTheBandSentence() {
     val head =
       chatHead(sup(), "working", reachable = false, reason = "Can't reach 4d92…6ed6 since 12:41")
     assertFalse(head.enabled)

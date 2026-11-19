@@ -651,6 +651,46 @@ func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 	}
 }
 
+func TestARefusedWorkerJoinsNeedsAndSaysContinueWillFail(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "idle"}
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "limited", state.Refused+"402 Insufficient Balance (request_id: x)"); err != nil {
+		t.Fatal(err)
+	}
+	fx.options.Now = func() time.Time { return time.Date(2026, 9, 26, 0, 1, 0, 0, time.UTC) }
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "refused item", q, `data-kind="limited"`, "LIMITED", "will not clear by itself: 402 Insufficient Balance (request_id: x)", "a1 on t1 “Fix login” stopped because its provider refused the request, and sending “continue” will fail again.")
+	lacks(t, "refused item", q, "usage limit")
+}
+
+func TestARepeatedRefusalStaysRefusedInNeeds(t *testing.T) {
+	for _, repeats := range []int{1, 2} {
+		fx := newFixture(t)
+		fx.panes = map[string]string{"3": "idle"}
+		fx.supervisor(t, state.AttemptRunning, "gen-1")
+		ctx := context.Background()
+		a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+		if err := fx.st.NoteAttempt(ctx, a.ID, "limited", state.Refused+"402 Insufficient Balance (request_id: x)"); err != nil {
+			t.Fatal(err)
+		}
+		for range repeats {
+			if _, _, err := fx.st.RecordQuiet(ctx, a.ID, state.Refused+"402 Insufficient Balance (request_id: x)"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		fx.options.Now = func() time.Time { return time.Date(2026, 9, 26, 0, 1, 0, 0, time.UTC) }
+		q := region(get(t, fx.handler(), "/"), "queue")
+		contains(t, "repeated refusal", q, `data-kind="limited"`, "will not clear by itself: 402 Insufficient Balance (request_id: x)", "sending “continue” will fail again.")
+		lacks(t, "repeated refusal", q, "Its turn ended without a report", `data-kind="quiet"`)
+		fx.panes = map[string]string{"3": "working"}
+		if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Contains(kinds, "limited") {
+			t.Fatalf("a working worker still sits in Needs as refused: %q", kinds)
+		}
+	}
+}
+
 func TestALimitedSupervisorJoinsNeeds(t *testing.T) {
 	fx := newFixture(t)
 	fx.status = "idle"

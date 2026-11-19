@@ -140,3 +140,31 @@ func TestAttemptKeysRefuseAfterANewerPress(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestAttemptReadCapsLines(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	if out := fx.h.ok("attempt", "read", "--lines", "100000", "a1"); !strings.Contains(out, "lines: capped at 500") {
+		t.Fatalf("read = %q", out)
+	}
+	if out := fx.h.ok("attempt", "read", "--lines", "500", "a1"); strings.Contains(out, "capped") {
+		t.Fatalf("read = %q", out)
+	}
+	fx.h.ok("attempt", "read", "--lines", "7", "a1")
+	var asked []int
+	for _, raw := range fx.rt.srv.Calls("agent.read") {
+		var p struct {
+			Lines int `json:"lines"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatal(err)
+		}
+		asked = append(asked, p.Lines)
+	}
+	if len(asked) < 3 || !slices.Equal(asked[len(asked)-3:], []int{500, 500, 7}) {
+		t.Fatalf("lines asked of Luvus = %v, want [500 500 7]", asked)
+	}
+	if _, errOut, code := fx.h.run("attempt", "read", "--lines", "0", "a1"); code == 0 || !strings.Contains(errOut, "--lines must be at least 1") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}

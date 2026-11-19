@@ -74,9 +74,17 @@ type watcher struct {
 	reapWarned     atomic.Bool
 	transcripts    *transcript.Reader
 	answers        *transcript.Reader
+	replies        *transcript.Reader
+	replyMarks     map[answerSession]replyMark
+	repliesPrev    state.Supervisor
+	repliesSeen    bool
+	calls          *transcript.Reader
+	interrupted    map[int64]bool
+	interruptWarn  bool
 	matched        map[int64]bool
 	sources        map[string]modelSource
 	modelSessions  map[int64]modelSession
+	contextSeen    map[int64]*contextSeen
 	supModel       modelSession
 	busy           map[string]bool
 	heldAt         map[int64]time.Time
@@ -254,6 +262,8 @@ func (w *watcher) session(ctx context.Context) error {
 	w.sweepModels(ctx)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
+	preemptTick := time.NewTicker(preemptEvery)
+	defer preemptTick.Stop()
 	for {
 		select {
 		case <-sctx.Done():
@@ -289,6 +299,8 @@ func (w *watcher) session(ctx context.Context) error {
 				w.refreshModels(ctx)
 				w.sweepModels(ctx)
 			}
+		case <-preemptTick.C:
+			w.preempt(sctx, c, caps)
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
 			eventHandled(ev.Event)
@@ -763,7 +775,12 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			return err
 		}
 		w.r.screens.put(a.ID, s.Text)
-		if line, ok := harness.Limit(a.Harness, s.Text); ok {
+		line, ok := harness.Limit(a.Harness, s.Text)
+		refusal, refused := harness.Refusal(a.Harness, s.Text)
+		if refused {
+			line, ok = state.Refused+refusal, true
+		}
+		if ok {
 			seen, err := w.st.LastLimit(ctx, a.ID)
 			if err != nil {
 				return err
@@ -788,10 +805,13 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if t != nil {
 			start = t.since
 		}
-		if age := w.r.env.Now().Sub(start); !since.IsZero() && age >= 0 && age < quietGrace {
+		apiError, _ := harness.APIError(a.Harness, s.Text)
+		if age := w.r.env.Now().Sub(start); apiError == "" && !since.IsZero() && age >= 0 && age < quietGrace {
 			return nil
 		}
-		apiError, _ := harness.APIError(a.Harness, s.Text)
+		if refused {
+			apiError = state.Refused + refusal
+		}
 		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
 		if errors.Is(err, state.ErrConflict) {
 			return nil

@@ -57,6 +57,15 @@ func has(t *testing.T, what, out string, wants ...string) {
 	}
 }
 
+func lacks(t *testing.T, what, out string, unwanted ...string) {
+	t.Helper()
+	for _, bad := range unwanted {
+		if strings.Contains(out, bad) {
+			t.Fatalf("%s = %q, holds %q", what, out, bad)
+		}
+	}
+}
+
 func startClaudeSupervisor(h *harness) string {
 	h.t.Helper()
 	return h.ok("supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low")

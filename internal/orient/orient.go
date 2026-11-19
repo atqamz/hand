@@ -283,10 +283,20 @@ func taskCells(ctx context.Context, st *state.Store, t state.Task, signals map[i
 	}
 	if ok {
 		c.attempt = state.AttemptRef(a.ID) + " " + a.Status
-		switch e := signals[a.ID]; e.Kind {
-		case "attempt.quiet", "attempt.idle":
+		e := signals[a.ID]
+		cause, refused := state.Refusal(e)
+		switch {
+		case !a.Live():
+		case refused:
+			c.attempt += " refused: " + Clip(cause, 40)
+		case e.Kind == "attempt.quiet", e.Kind == "attempt.idle":
 			c.attempt += " quiet"
-		case "attempt.blocked":
+		case e.Kind == "attempt.limited":
+			c.attempt += " limited"
+			if hint := strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": "); hint != "" {
+				c.attempt += ": " + Clip(hint, 40)
+			}
+		case e.Kind == "attempt.blocked":
 			c.attempt += " blocked"
 			if hint := strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": "); hint != "" {
 				c.attempt += ": " + Clip(hint, 40)

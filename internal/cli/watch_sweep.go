@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -28,6 +29,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 		defer w.pending.Done()
 		defer w.sweepBusy.Store(false)
 		w.stampAnswers(ctx)
+		w.ingestReplies(ctx)
 		if w.sources == nil {
 			w.transcripts = &transcript.Reader{Paths: w.r.transcriptPaths()}
 			w.modelSessions = map[int64]modelSession{}
@@ -77,6 +79,9 @@ func (w *watcher) sweepModels(ctx context.Context) {
 		running := map[int64]bool{}
 		for _, a := range live {
 			running[a.ID] = true
+			if a.Status == state.AttemptRunning && !contextHarness(a.Harness) {
+				w.noteContextUnknown(ctx, a)
+			}
 			src := w.sources[a.Harness]
 			if src == nil || ctx.Err() != nil {
 				continue
@@ -94,6 +99,14 @@ func (w *watcher) sweepModels(ctx context.Context) {
 				model, effort = settle(a.Harness, a.Model, a.Effort, model, effort)
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
+			if a.Status == state.AttemptRunning && contextHarness(a.Harness) {
+				w.noteContext(ctx, a, w.transcripts.Status(a.Harness, id).Context)
+			}
+		}
+		for id := range w.contextSeen {
+			if !running[id] {
+				delete(w.contextSeen, id)
+			}
 		}
 		for id, session := range w.modelSessions {
 			if !running[id] {
@@ -102,6 +115,53 @@ func (w *watcher) sweepModels(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func contextHarness(name string) bool { return rolloverHarness(name) || name == "codex" }
+
+var contextMarks = []int64{100_000, 150_000, 200_000, 300_000}
+
+type contextSeen struct {
+	marks   map[int64]bool
+	unknown bool
+}
+
+func (w *watcher) contextOf(ctx context.Context, id int64) *contextSeen {
+	seen := w.contextSeen[id]
+	if seen == nil {
+		if w.contextSeen == nil {
+			w.contextSeen = map[int64]*contextSeen{}
+		}
+		marks, unknown, err := w.st.ContextMarks(ctx, id)
+		if err != nil {
+			return nil
+		}
+		seen = &contextSeen{marks, unknown}
+		w.contextSeen[id] = seen
+	}
+	return seen
+}
+
+func (w *watcher) noteContext(ctx context.Context, a state.Attempt, tokens int64) {
+	seen := w.contextOf(ctx, a.ID)
+	for _, mark := range contextMarks {
+		if seen == nil || ctx.Err() != nil || tokens < mark || seen.marks[mark] {
+			continue
+		}
+		if w.st.NoteAttempt(ctx, a.ID, "context", fmt.Sprintf("%d: context %d", mark, tokens)) == nil {
+			seen.marks[mark] = true
+		}
+	}
+}
+
+func (w *watcher) noteContextUnknown(ctx context.Context, a state.Attempt) {
+	seen := w.contextOf(ctx, a.ID)
+	if seen == nil || seen.unknown || ctx.Err() != nil {
+		return
+	}
+	if w.st.NoteAttempt(ctx, a.ID, "context_unknown", a.Harness+" has no context mark") == nil {
+		seen.unknown = true
+	}
 }
 
 func settle(name, storedModel, storedEffort, model, effort string) (string, string) {

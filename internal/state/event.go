@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,7 +57,7 @@ func closeAll(tx *sql.Tx, taskID int64, now, kind string, ref func(int64) string
 
 func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, task_id, detail FROM (
-		SELECT seq, at, kind, COALESCE(task_id, 0) AS task_id, detail FROM event ORDER BY seq DESC LIMIT ?
+		SELECT seq, at, kind, COALESCE(task_id, 0) AS task_id, detail FROM event WHERE kind != 'supervisor.replied' ORDER BY seq DESC LIMIT ?
 	) ORDER BY seq`, limit)
 	if err != nil {
 		return nil, err
@@ -132,8 +133,47 @@ func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, 
 	return e.Kind, err
 }
 
+func (s *Store) ContextMarks(ctx context.Context, attemptID int64) (map[int64]bool, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT kind, substr(detail, ?) FROM event WHERE kind IN ('attempt.context', 'attempt.context_unknown') AND detail LIKE ?`, len(AttemptRef(attemptID))+3, AttemptRef(attemptID)+": %")
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	marks, unknown := map[int64]bool{}, false
+	for rows.Next() {
+		var kind, detail string
+		if err := rows.Scan(&kind, &detail); err != nil {
+			return nil, false, err
+		}
+		if kind == "attempt.context_unknown" {
+			unknown = true
+		} else if mark, _, _ := strings.Cut(detail, ":"); mark != "" {
+			if n, err := strconv.ParseInt(mark, 10, 64); err == nil {
+				marks[n] = true
+			}
+		}
+	}
+	return marks, unknown, rows.Err()
+}
+
 func (s *Store) AttemptSignal(ctx context.Context, attemptID int64) (Event, bool, error) {
 	return lastAttemptEvent(ctx, s.db, attemptID)
+}
+
+const Refused = "will not clear by itself: "
+
+func Refusal(e Event) (string, bool) {
+	_, rest, _ := strings.Cut(e.Detail, ": ")
+	switch e.Kind {
+	case "attempt.limited":
+		return strings.CutPrefix(rest, Refused)
+	case "attempt.quiet", "attempt.idle":
+		if strings.HasPrefix(rest, "turn ended") {
+			_, cause, ok := strings.Cut(rest, ": "+Refused)
+			return cause, ok
+		}
+	}
+	return "", false
 }
 
 func (s *Store) LastLimit(ctx context.Context, attemptID int64) (string, error) {
@@ -185,7 +225,7 @@ func attemptEventBefore(ctx context.Context, q interface {
 		where, args = ` AND seq < ?`, append(args, seq)
 	}
 	var e Event
-	err := q.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?)`+where+` ORDER BY seq DESC LIMIT 1`, args...).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
+	err := q.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND kind NOT IN ('attempt.context', 'attempt.context_unknown') AND (detail = ? OR detail LIKE ?)`+where+` ORDER BY seq DESC LIMIT 1`, args...).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Event{}, false, nil
 	}
@@ -269,10 +309,10 @@ func (s *Store) NewestEventsAfter(ctx context.Context, after int64, first []stri
 		args = append(args, k)
 	}
 	var total, firstTotal int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*), COALESCE(sum(`+in+`), 0) FROM event WHERE seq > ?`, append(args[1:], after)...).Scan(&total, &firstTotal); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), COALESCE(sum(`+in+`), 0) FROM event WHERE seq > ? AND kind != 'supervisor.replied'`, append(args[1:], after)...).Scan(&total, &firstTotal); err != nil {
 		return nil, 0, 0, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? ORDER BY +`+in+` DESC, seq DESC LIMIT ?`, append(args, limit)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ? AND kind != 'supervisor.replied' ORDER BY +`+in+` DESC, seq DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, 0, 0, err
 	}

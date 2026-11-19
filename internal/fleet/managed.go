@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,6 +71,10 @@ func (s Skills) Load() (map[string]Managed, error) {
 	if err != nil {
 		return nil, err
 	}
+	sub, err := s.readSubscribed()
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]Managed{}
 	for name, raw := range l.Skills {
 		if !SkillName.MatchString(name) || !s.owned(name) {
@@ -78,6 +83,9 @@ func (s Skills) Load() (map[string]Managed, error) {
 		e := Managed{Next: pending[name]}
 		if err := json.Unmarshal(raw, &e.LockEntry); err != nil {
 			return nil, fmt.Errorf("read %s: %s: %w", s.lockPath(), name, err)
+		}
+		if want, ok := sub.Skills[name]; ok {
+			e.Ref, e.Subscribed = want.Ref, want.Source
 		}
 		out[name] = e
 	}
@@ -123,6 +131,10 @@ func (s Skills) Save(managed map[string]Managed) error {
 	if err != nil {
 		return err
 	}
+	sub, err := s.readSubscribed()
+	if err != nil {
+		return err
+	}
 	pending := map[string]string{}
 	for name, e := range managed {
 		if s.Scope == "project" && e.Local() {
@@ -133,11 +145,15 @@ func (s Skills) Save(managed map[string]Managed) error {
 			return err
 		}
 		l.Skills[name] = b
+		sub.Skills[name] = subscription{Source: cmp.Or(e.Subscribed, e.Source), Ref: e.Ref}
 		if e.Next != "" {
 			pending[name] = e.Next
 		}
 	}
 	if err := s.writeLock(l); err != nil {
+		return err
+	}
+	if err := s.writeSubscribed(sub); err != nil {
 		return err
 	}
 	return s.writePending(pending)
@@ -163,7 +179,15 @@ func (s Skills) Forget(name string) error {
 		return err
 	}
 	delete(l.Skills, name)
-	return s.writeLock(l)
+	if err := s.writeLock(l); err != nil {
+		return err
+	}
+	sub, err := s.readSubscribed()
+	if err != nil {
+		return err
+	}
+	delete(sub.Skills, name)
+	return s.writeSubscribed(sub)
 }
 
 func writeAtomic(path string, b []byte) error {
@@ -384,6 +408,35 @@ func (s Skills) Install(name, staged string, beforeSwap func() error) error {
 		}
 	}
 	return first
+}
+
+func (s Skills) backupDir() string {
+	if s.Meta != "" {
+		return filepath.Join(s.Meta, "backups")
+	}
+	return filepath.Join(s.Base, SkillRoots[1], "skills-backups")
+}
+
+func (s Skills) Backup(name, stamp string) (string, error) {
+	for _, root := range s.Roots() {
+		if _, err := os.Lstat(s.Dir(root, name)); err != nil {
+			continue
+		}
+		parent := filepath.Join(s.backupDir(), name)
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return "", err
+		}
+		dst, err := os.MkdirTemp(parent, stamp+"-")
+		if err != nil {
+			return "", err
+		}
+		if err := Copy(s.Dir(root, name), dst); err != nil {
+			_ = os.RemoveAll(dst)
+			return "", err
+		}
+		return dst, nil
+	}
+	return "", nil
 }
 
 func (s Skills) Remove(name string) error {

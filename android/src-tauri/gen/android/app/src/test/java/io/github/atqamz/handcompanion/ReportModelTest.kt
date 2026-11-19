@@ -384,7 +384,7 @@ class ReportModelTest {
   }
 
   @Test
-  fun aLaptopWithoutTheStreamPollsAndStopsWithTheScreen() = runBlocking {
+  fun aHostWithoutTheStreamPollsAndStopsWithTheScreen() = runBlocking {
     val board = ReportBoard(features = listOf("fleets"))
     val report = model(board, pollMillis = 20)
     val job = launch(Dispatchers.Default) { report.run() }

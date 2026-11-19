@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA5ZDYxZWQwMjdmM2ExNmM0.3-hBZHNAsgZIByYLsO-ufA",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "ref": "i1",
+    "who": "operator",
+    "at": "2026-11-01T04:40:00Z",
+    "text": "Please check the cookie rename before we release",
+    "truncated": false
+  }
+}
+

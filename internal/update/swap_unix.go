@@ -20,6 +20,8 @@ func swap(src, target string) error {
 	return nil
 }
 
+func remove(target string) error { return os.Remove(target) }
+
 func CleanOld(string) {}
 
 func syncDir(dir string) error {

@@ -237,13 +237,15 @@ The app sends it as any other request through the sidecar: `Host: localhost`, th
 - **Empty.** An answer with `alerts: []` at the end of the wait is the heartbeat. Send the next request at once.
 - **`kind`.** One of the kinds in [Alerts on your phone](alerts.md), as `kinds` in the vectors lists. The set can grow inside this version: treat a kind you do not know as an ordinary alert, never as an error.
 - **`ref`.** `tN`, `dN`, `aN` or `supervisor`.
-- **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as the ntfy recipe already sends.
+- **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as a custom-command recipe can send.
 - **`link`.** A `handboard://open/<fleet id>/<page>` link for the app's own open-link entry point: `<page>` is `task/tN`, `decision/dN`, `attempt/aN`, or empty for the fleet's root (`supervisor` alerts). The numbers have 1 to 9 digits and no leading zero. The app must check the link with its own parser, and that its fleet is the one it polled, before it opens anything; a link that fails the check is no link, and the alert is still shown. `link` is empty when Hand cannot place the ref. The `open` vectors are the grammar. The link holds no secret.
 - **Nothing else.** No token, cookie, pairing code, endpoint ID or path is in any field.
 
 ### Receipts
 
 The Board records two times per alert, for the reliability trial: `fetched_at`, when the alert is written to an answer, and `acked_at`, when the next request arrives with `after` at or above its `seq`. That next request is the acknowledgment: the app sends `after` only after it has posted its notifications, which makes delivery at-least-once, and a repeat is harmless when the app tags a notification by `<fleet id>/<ref>`. The receipts are per fleet, not per phone. Each request also counts as the phone being seen on the Phone page. The Board lists the week, with the delay from raised to acknowledged, at `/<fleet id>/alerts`.
+
+**Polling while idle.** An app may hold no request and poll instead: one `wait=0` request per fleet at an interval, over a connection it opens for the poll and closes after, following `more` at once. The Android app does this once the screen has been off for 2 minutes with no charger: it closes its iroh endpoint and, from an Android alarm every 5 minutes (about 9 in Doze, and up to 40 while the laptop does not answer), opens one, asks each fleet once and closes it again. The screen turning on, an unlock or a charger ends it and the held request resumes. An alert then reaches the phone up to the interval late and none is lost; a repeat is possible, because the cursor moves only after the notifications, as above. The route, the numbers and the vectors do not change.
 
 ### Refusals
 

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::alerts::{COOKIE_PREFIX, CookieSource, paired_cookies};
 use crate::key::{CipherError, KeyCipher, create_dir, create_private, sync_dir};
-use crate::pairing::read_laptop;
+use crate::pairing::read_host;
 
 const DIR: &str = "sessions";
 const FILE: &str = "sessions.sealed";
@@ -24,12 +24,13 @@ pub trait Jar: Send + Sync {
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 struct Data {
-    laptops: Vec<Laptop>,
+    #[serde(rename = "laptops")]
+    hosts: Vec<Host>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-struct Laptop {
+struct Host {
     endpoint: String,
     fleets: Vec<Entry>,
 }
@@ -110,7 +111,7 @@ impl<J: Jar> Sessions<J> {
         let mut next = Data::default();
         import(
             &mut next,
-            read_laptop(&self.root).0,
+            read_host(&self.root).0,
             &paired_cookies(&cookies.unwrap_or_default()),
         );
         *data = next.clone();
@@ -122,9 +123,9 @@ impl<J: Jar> Sessions<J> {
         let mut data = self.data.lock().unwrap();
         let _ = self.import(&mut data);
         let header = data
-            .laptops
+            .hosts
             .iter()
-            .flat_map(|laptop| &laptop.fleets)
+            .flat_map(|host| &host.fleets)
             .map(|entry| {
                 format!(
                     "{COOKIE_PREFIX}{}={}.{}",
@@ -139,9 +140,9 @@ impl<J: Jar> Sessions<J> {
     pub fn listed(&self) -> Vec<Listed> {
         let mut data = self.data.lock().unwrap();
         let _ = self.import(&mut data);
-        data.laptops
+        data.hosts
             .iter()
-            .flat_map(|laptop| &laptop.fleets)
+            .flat_map(|host| &host.fleets)
             .map(|entry| Listed {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
@@ -180,24 +181,23 @@ impl<J: Jar> Sessions<J> {
         self.import(&mut data)?;
         let mut next = data.clone();
         let replaces = next
-            .laptops
+            .hosts
             .iter()
-            .any(|laptop| laptop.endpoint != endpoint && !laptop.fleets.is_empty());
-        next.laptops
-            .retain(|laptop| !replaces && laptop.endpoint == endpoint);
-        if next.laptops.is_empty() {
-            next.laptops.push(Laptop {
+            .any(|host| host.endpoint != endpoint && !host.fleets.is_empty());
+        next.hosts
+            .retain(|host| !replaces && host.endpoint == endpoint);
+        if next.hosts.is_empty() {
+            next.hosts.push(Host {
                 endpoint: endpoint.to_owned(),
                 fleets: Vec::new(),
             });
         }
-        let laptop = &mut next.laptops[0];
-        laptop
-            .fleets
+        let host = &mut next.hosts[0];
+        host.fleets
             .retain(|entry| !fleets.iter().any(|paired| paired.id == entry.id));
         for paired in fleets {
             let (device, secret) = paired.value.split_once('.').unwrap_or_default();
-            laptop.fleets.push(Entry {
+            host.fleets.push(Entry {
                 device: device.to_owned(),
                 secret: secret.to_owned(),
                 id: paired.id.clone(),
@@ -295,13 +295,13 @@ fn quarantine(dir: &Path, path: &Path) -> io::Result<(Data, bool, bool)> {
     Ok((Data::default(), true, false))
 }
 
-fn import(data: &mut Data, laptop: Option<String>, jar: &[(String, String)]) {
-    let Some(at) = laptop.map(|endpoint| {
-        data.laptops.push(Laptop {
+fn import(data: &mut Data, host: Option<String>, jar: &[(String, String)]) {
+    let Some(at) = host.map(|endpoint| {
+        data.hosts.push(Host {
             endpoint,
             fleets: Vec::new(),
         });
-        data.laptops.len() - 1
+        data.hosts.len() - 1
     }) else {
         return;
     };
@@ -309,7 +309,7 @@ fn import(data: &mut Data, laptop: Option<String>, jar: &[(String, String)]) {
         let Some((device, secret)) = shaped(value) else {
             continue;
         };
-        data.laptops[at].fleets.push(Entry {
+        data.hosts[at].fleets.push(Entry {
             id: id.clone(),
             name: String::new(),
             device: device.to_owned(),
@@ -341,7 +341,7 @@ mod tests {
     use super::*;
     use crate::testutil::{FakeCipher, TempDir};
 
-    const LAPTOP: &str = "4d92c10d0b7e3f5a9c1e6b2d8f4a7c3e5b9d1f6a2c8e4b7d3f5a9c1e6b2d6ed6";
+    const HOST: &str = "4d92c10d0b7e3f5a9c1e6b2d8f4a7c3e5b9d1f6a2c8e4b7d3f5a9c1e6b2d6ed6";
     const FLEET: &str = "f0123456789ab";
     const OTHER: &str = "f999999999999";
     const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -392,7 +392,7 @@ mod tests {
     impl Setup {
         fn new(jar: &[&str]) -> Self {
             let dir = TempDir::new();
-            fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+            fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
             let setup = Self {
                 dir,
                 cipher: Arc::new(FakeCipher::new()),
@@ -420,7 +420,7 @@ mod tests {
         let setup = Setup::new(&[COOKIE, SECOND]);
         let sessions = setup.open().unwrap();
         assert_eq!(sessions.header().as_deref(), Some(BOTH));
-        sessions.data.lock().unwrap().laptops[0].fleets[0].name = "hand".to_owned();
+        sessions.data.lock().unwrap().hosts[0].fleets[0].name = "hand".to_owned();
         let next = sessions.data.lock().unwrap().clone();
         sessions.commit(&mut Data::default(), next).unwrap();
 
@@ -431,8 +431,8 @@ mod tests {
         assert!(!reopened.quarantined());
         assert_eq!(reopened.header().as_deref(), Some(BOTH));
         let data = reopened.data.lock().unwrap();
-        assert_eq!(data.laptops[0].fleets[0].name, "hand");
-        assert_eq!(data.laptops[0].endpoint, LAPTOP);
+        assert_eq!(data.hosts[0].fleets[0].name, "hand");
+        assert_eq!(data.hosts[0].endpoint, HOST);
     }
 
     #[test]
@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn the_laptop_file_is_imported_once_and_the_store_keeps_it() {
+    fn the_host_file_is_imported_once_and_the_store_keeps_it() {
         let setup = Setup::new(&[]);
         let sessions = setup.open().unwrap();
         assert_eq!(sessions.header(), None);
@@ -505,7 +505,7 @@ mod tests {
         fs::remove_file(setup.dir.path().join("laptop")).unwrap();
 
         let reopened = setup.open().unwrap();
-        assert_eq!(reopened.data.lock().unwrap().laptops[0].endpoint, LAPTOP);
+        assert_eq!(reopened.data.lock().unwrap().hosts[0].endpoint, HOST);
     }
 
     #[test]
@@ -569,7 +569,7 @@ mod tests {
 
         setup.jar.fail_read.store(false, Ordering::SeqCst);
         sessions
-            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .pair(HOST, &[paired(OTHER, "9", C)], || {})
             .unwrap();
 
         let expected = vec![
@@ -587,7 +587,7 @@ mod tests {
         let sessions = setup.open().unwrap();
         setup.jar.fail_read.store(true, Ordering::SeqCst);
 
-        let result = sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {});
+        let result = sessions.pair(HOST, &[paired(OTHER, "9", C)], || {});
 
         assert!(result.is_err());
         assert!(!setup.file().exists());
@@ -628,7 +628,7 @@ mod tests {
         let before = fs::read(setup.file()).unwrap();
 
         let mut next = sessions.data.lock().unwrap().clone();
-        next.laptops[0].fleets.clear();
+        next.hosts[0].fleets.clear();
         sessions.stage(&next).unwrap();
         drop(sessions);
 
@@ -663,8 +663,8 @@ mod tests {
         let sessions = setup.open().unwrap();
         let dir = setup.dir.path().join(DIR);
         let mut next = Data::default();
-        next.laptops.push(Laptop {
-            endpoint: LAPTOP.to_owned(),
+        next.hosts.push(Host {
+            endpoint: HOST.to_owned(),
             fleets: Vec::new(),
         });
         let mut data = Data::default();
@@ -682,7 +682,7 @@ mod tests {
     fn a_store_missing_fields_still_opens() {
         let setup = Setup::new(&[]);
         let plain = format!(
-            r#"{{"laptops":[{{"endpoint":"{LAPTOP}","fleets":[{{"id":"{FLEET}","device":"7","secret":"{A}"}}]}}]}}"#
+            r#"{{"laptops":[{{"endpoint":"{HOST}","fleets":[{{"id":"{FLEET}","device":"7","secret":"{A}"}}]}}]}}"#
         );
         fs::create_dir_all(setup.file().parent().unwrap()).unwrap();
         fs::write(setup.file(), setup.cipher.seal(plain.as_bytes()).unwrap()).unwrap();
@@ -693,7 +693,29 @@ mod tests {
         assert_eq!(sessions.header().as_deref(), Some(COOKIE));
     }
 
-    const NEW_LAPTOP: &str = "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5";
+    #[test]
+    fn a_store_sealed_under_the_laptops_key_keeps_its_pairing_and_is_written_under_it() {
+        let setup = Setup::new(&[]);
+        let old = format!(
+            r#"{{"laptops":[{{"endpoint":"{HOST}","fleets":[{{"id":"{FLEET}","name":"hand","device":"7","secret":"{A}"}}]}}]}}"#
+        );
+        fs::create_dir_all(setup.file().parent().unwrap()).unwrap();
+        fs::write(setup.file(), setup.cipher.seal(old.as_bytes()).unwrap()).unwrap();
+
+        let sessions = setup.open().unwrap();
+        assert_eq!(sessions.header().as_deref(), Some(COOKIE));
+        sessions
+            .pair(HOST, &[paired(OTHER, "9", C)], || {})
+            .unwrap();
+
+        let plain = setup.cipher.open(&fs::read(setup.file()).unwrap()).unwrap();
+        let text = String::from_utf8(plain).unwrap();
+        assert!(text.starts_with(r#"{"laptops":["#), "{text}");
+        assert!(!text.contains("\"hosts\""), "{text}");
+        assert_eq!(setup.open().unwrap().header().as_deref(), Some(BOTH));
+    }
+
+    const NEW_HOST: &str = "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5";
 
     fn paired(id: &str, device: &str, secret: &str) -> Paired {
         Paired {
@@ -719,11 +741,7 @@ mod tests {
         let setup = Setup::new(&[]);
         let sessions = setup.open().unwrap();
         sessions
-            .pair(
-                LAPTOP,
-                &[paired(FLEET, "7", A), paired(OTHER, "9", C)],
-                || {},
-            )
+            .pair(HOST, &[paired(FLEET, "7", A), paired(OTHER, "9", C)], || {})
             .unwrap();
 
         assert_eq!(sessions.cookie(FLEET).as_deref(), Some(COOKIE));
@@ -745,7 +763,7 @@ mod tests {
         assert_eq!(imported[0].id, FLEET);
         assert_eq!(imported[0].paired, 0);
         sessions
-            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .pair(HOST, &[paired(OTHER, "9", C)], || {})
             .unwrap();
         let named = setup.open().unwrap().listed();
         assert_eq!(
@@ -770,7 +788,7 @@ mod tests {
 
         sessions
             .pair(
-                LAPTOP,
+                HOST,
                 &[paired(OTHER, "9", C), paired("f111111111111", "5", B)],
                 || replaced = true,
             )
@@ -788,7 +806,7 @@ mod tests {
         assert_eq!(header_of(&sessions), expected);
         assert_eq!(header_of(&setup.open().unwrap()), expected);
         let data = sessions.data.lock().unwrap();
-        assert_eq!(data.laptops[0].fleets[2].name, "name of f111111111111");
+        assert_eq!(data.hosts[0].fleets[2].name, "name of f111111111111");
         assert!(!sessions.unsaved());
     }
 
@@ -798,7 +816,7 @@ mod tests {
         let sessions = setup.open().unwrap();
 
         sessions
-            .pair(LAPTOP, &[paired(FLEET, "8", B)], || {})
+            .pair(HOST, &[paired(FLEET, "8", B)], || {})
             .unwrap();
         setup.jar.hold(&[COOKIE, SECOND]);
 
@@ -818,7 +836,7 @@ mod tests {
         let before = fs::read(setup.file()).unwrap();
 
         setup.cipher.fail_next_seal();
-        let failed = sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {});
+        let failed = sessions.pair(HOST, &[paired(OTHER, "9", C)], || {});
 
         assert!(failed.is_err());
         assert!(sessions.unsaved());
@@ -828,7 +846,7 @@ mod tests {
         assert!(!setup.dir.path().join(DIR).join(STAGED).exists());
 
         sessions
-            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .pair(HOST, &[paired(OTHER, "9", C)], || {})
             .unwrap();
         assert!(!sessions.unsaved());
         assert_eq!(header_of(&sessions).len(), 2);
@@ -842,14 +860,14 @@ mod tests {
         let mut stopped = 0;
 
         sessions
-            .pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {
+            .pair(NEW_HOST, &[paired("f111111111111", "5", B)], || {
                 stopped += 1
             })
             .unwrap();
 
         assert_eq!(stopped, 1);
         assert!(sessions.unsaved());
-        fs::write(setup.dir.path().join("laptop"), format!("{NEW_LAPTOP}\n")).unwrap();
+        fs::write(setup.dir.path().join("laptop"), format!("{NEW_HOST}\n")).unwrap();
         assert_eq!(
             header_of(&sessions)
                 .into_iter()
@@ -872,9 +890,9 @@ mod tests {
         let sessions = setup.open().unwrap();
         setup.jar.fail_clear.store(true, Ordering::SeqCst);
         sessions
-            .pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {})
+            .pair(NEW_HOST, &[paired("f111111111111", "5", B)], || {})
             .unwrap();
-        fs::write(setup.dir.path().join("laptop"), format!("{NEW_LAPTOP}\n")).unwrap();
+        fs::write(setup.dir.path().join("laptop"), format!("{NEW_HOST}\n")).unwrap();
         let only = ["hand_phone_f111111111111=5.".to_owned() + B];
 
         assert!(sessions.unsaved());
@@ -888,7 +906,7 @@ mod tests {
         assert_eq!(header_of(&sessions), only);
         assert!(sessions.unsaved());
         sessions
-            .pair(NEW_LAPTOP, &[paired("f222222222222", "6", C)], || {})
+            .pair(NEW_HOST, &[paired("f222222222222", "6", C)], || {})
             .unwrap();
         assert!(!sessions.unsaved());
     }
@@ -899,7 +917,7 @@ mod tests {
         let sessions = setup.open().unwrap();
         setup.jar.fail_clear.store(true, Ordering::SeqCst);
         sessions
-            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .pair(HOST, &[paired(OTHER, "9", C)], || {})
             .unwrap();
         assert!(sessions.unsaved());
         setup.jar.fail_clear.store(false, Ordering::SeqCst);
@@ -918,7 +936,7 @@ mod tests {
         let dir = setup.dir.path().join(DIR);
 
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o300)).unwrap();
-        let done = sessions.pair(LAPTOP, &[paired(OTHER, "9", C)], || {});
+        let done = sessions.pair(HOST, &[paired(OTHER, "9", C)], || {});
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
 
         assert!(done.is_ok());
@@ -927,38 +945,38 @@ mod tests {
     }
 
     #[test]
-    fn a_pairing_with_another_laptop_replaces_every_fleet_and_stops_the_feeds_once() {
+    fn a_pairing_with_another_host_replaces_every_fleet_and_stops_the_feeds_once() {
         let setup = Setup::new(&[COOKIE, SECOND]);
         let sessions = setup.open().unwrap();
         let mut stopped = 0;
 
         sessions
-            .pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {
+            .pair(NEW_HOST, &[paired("f111111111111", "5", B)], || {
                 stopped += 1
             })
             .unwrap();
 
         assert_eq!(stopped, 1);
-        fs::write(setup.dir.path().join("laptop"), format!("{NEW_LAPTOP}\n")).unwrap();
+        fs::write(setup.dir.path().join("laptop"), format!("{NEW_HOST}\n")).unwrap();
         assert_eq!(
             header_of(&sessions),
             ["hand_phone_f111111111111=5.".to_owned() + B]
         );
         let data = sessions.data.lock().unwrap();
-        assert_eq!(data.laptops.len(), 1);
-        assert_eq!(data.laptops[0].endpoint, NEW_LAPTOP);
+        assert_eq!(data.hosts.len(), 1);
+        assert_eq!(data.hosts[0].endpoint, NEW_HOST);
         assert!(setup.jar.cookies().unwrap().is_none());
     }
 
     #[test]
-    fn a_replacement_that_fails_leaves_the_old_laptop_and_stops_no_feed_when_it_cannot_save() {
+    fn a_replacement_that_fails_leaves_the_old_host_and_stops_no_feed_when_it_cannot_save() {
         let setup = Setup::new(&[COOKIE]);
         let sessions = setup.open().unwrap();
         sessions.header();
         let mut stopped = 0;
 
         setup.cipher.fail_next_seal();
-        let failed = sessions.pair(NEW_LAPTOP, &[paired("f111111111111", "5", B)], || {
+        let failed = sessions.pair(NEW_HOST, &[paired("f111111111111", "5", B)], || {
             stopped += 1
         });
 
@@ -973,7 +991,7 @@ mod tests {
         let setup = Setup::new(&[COOKIE]);
         let sessions = setup.open().unwrap();
         sessions
-            .pair(LAPTOP, &[paired(OTHER, "9", C)], || {})
+            .pair(HOST, &[paired(OTHER, "9", C)], || {})
             .unwrap();
         assert!(sessions.header().is_some());
 

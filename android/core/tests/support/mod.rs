@@ -686,7 +686,7 @@ impl Jar for MemoryJar {
     }
 }
 
-pub fn sessions(dir: &Path, laptop: EndpointId, jar: &MemoryJar) -> Arc<Sessions<MemoryJar>> {
-    fs::write(dir.join("laptop"), format!("{laptop}\n")).unwrap();
+pub fn sessions(dir: &Path, host: EndpointId, jar: &MemoryJar) -> Arc<Sessions<MemoryJar>> {
+    fs::write(dir.join("laptop"), format!("{host}\n")).unwrap();
     Arc::new(Sessions::open(dir, jar.clone(), Arc::new(PlainCipher)).unwrap())
 }

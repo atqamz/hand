@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "fleet": {
+    "id": "f00000000e0aa",
+    "name": "golden"
+  },
+  "cursor": "ZjAwMDAwMDAwZTBhYQA0ZTdkNmVlNjVkMzI0ZWQ2.SMciBKethWo09Y35mtWSMg",
+  "generated_at": "2026-11-01T05:00:00Z",
+  "data": {
+    "ref": "y1",
+    "who": "supervisor",
+    "at": "2026-11-01T04:41:00Z",
+    "supervisor": "s1",
+    "text": "Two options for the cookie:\n1. Keep the old name\n2. Rename it",
+    "truncated": false
+  }
+}
+

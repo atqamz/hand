@@ -22,6 +22,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -449,7 +451,7 @@ private fun ChatUnpaired() {
       color = LocalHand.current.ink(Tone.Fail),
       style = type.titleMedium
     )
-    Meta("Pair this phone again on the laptop's Board.")
+    Meta("Pair this Companion again on the host's Board.")
   }
 }
 
@@ -702,6 +704,7 @@ internal fun ChatComposer(
   blocked: Boolean,
   sending: Boolean,
   error: String,
+  sendNote: String,
   note: String,
   draft: String,
   input: MutableState<TextFieldValue>,
@@ -717,7 +720,9 @@ internal fun ChatComposer(
   val interactions = remember { MutableInteractionSource() }
   val focused by interactions.collectIsFocusedAsState()
   val shape = RoundedCornerShape(10.dp)
-  val maxText = (configuration.screenHeightDp * 0.4f).dp
+  val density = LocalDensity.current
+  val imeDp = with(density) { WindowInsets.ime.getBottom(density).toDp().value.toInt() }
+  val maxText = composerMaxDp(configuration.screenHeightDp, imeDp).dp
   LaunchedEffect(draft) {
     if (input.value.text != draft) input.value = TextFieldValue(draft, TextRange(draft.length))
   }
@@ -758,6 +763,8 @@ internal fun ChatComposer(
           when {
             error.isNotEmpty() ->
               Text(error, Modifier.weight(1f), color = hand.ink(Tone.Fail), style = type.bodySmall)
+            sendNote.isNotEmpty() ->
+              Text(sendNote, Modifier.weight(1f), color = hand.muted, style = type.bodySmall)
             hint.isNotEmpty() ->
               Text(
                 hint,
@@ -771,7 +778,7 @@ internal fun ChatComposer(
           val sendShape = RoundedCornerShape(6.dp)
           val sendModifier = Modifier.heightIn(min = if (coarse) 44.dp else 32.dp)
           val send: @Composable () -> Unit = {
-            Text("Send", style = type.labelLarge)
+            Text(if (error.isEmpty()) "Send" else "Retry", style = type.labelLarge)
           }
           if (primary) {
             Button(
@@ -876,6 +883,7 @@ fun ChatScreen(
             blocked = hintBlocked,
             sending = state.sending,
             error = state.sendError,
+            sendNote = state.sendNote,
             note = state.draftNote,
             draft = state.draft,
             input = input,

@@ -82,16 +82,16 @@ fun ThisPhoneScreen(
       horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
       IconButton(onBack) { Icon(HandIcons.Back, "Back", Modifier.size(20.dp)) }
-      Text("This phone", style = type.headlineSmall)
+      Text("This Companion", style = type.headlineSmall)
     }
     HorizontalDivider(color = LocalHand.current.line)
     if (!phone.loaded) {
       Loading()
     } else {
       Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-        Section("Laptop")
-        Line(phone.laptop ?: "No laptop paired", if (phone.laptop == null) null else phone.link, mono = true) {
-          if (phone.laptop != null || phone.fleets.isNotEmpty()) Action("Forget", { onAsk(true) })
+        Section("Host")
+        Line(phone.host ?: "No host paired", if (phone.host == null) null else phone.link, mono = true) {
+          if (phone.host != null || phone.fleets.isNotEmpty()) Action("Forget", { onAsk(true) })
         }
         Section("Fleets")
         if (phone.fleets.isEmpty()) Line("No fleet is paired", null)
@@ -107,12 +107,12 @@ fun ThisPhoneScreen(
         Section("Alerts")
         Line(phone.alerts, phone.alertsDetail) { Action("Settings", onSettings) }
         Section("About")
-        Line("This phone's ID", phone.phoneId ?: "unknown", monoDetail = true)
+        Line("This Companion's ID", phone.phoneId ?: "unknown", monoDetail = true)
         Line("Hand's Companion ${phone.app}", phone.core?.let { "core $it" })
       }
     }
   }
-  if (phone.asking) ForgetDialog(phone.laptop, phone.fleets.size, onForget) { onAsk(false) }
+  if (phone.asking) ForgetDialog(phone.host, phone.fleets.size, onForget) { onAsk(false) }
 }
 
 @Composable

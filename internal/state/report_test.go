@@ -258,6 +258,39 @@ func TestRecordQuietLabelsAnAPIErrorOnlyWithoutAnUnseenReport(t *testing.T) {
 	}
 }
 
+func TestRecordQuietKeepsARefusalAndRefusalReadsItBack(t *testing.T) {
+	s, _ := openTest(t)
+	a := runningAttempt(t, s)
+	ctx := context.Background()
+	line := "402 Insufficient Balance; retry later"
+	if _, got, err := s.RecordQuiet(ctx, a.ID, Refused+line); err != nil || got != "turn ended without a new report: "+Refused+line {
+		t.Fatalf("RecordQuiet = %q, %v", got, err)
+	}
+	e, found, err := s.AttemptSignal(ctx, a.ID)
+	if err != nil || !found {
+		t.Fatalf("AttemptSignal = %+v, %v, %v", e, found, err)
+	}
+	if cause, ok := Refusal(e); !ok || cause != line {
+		t.Fatalf("Refusal(%+v) = %q, %v", e, cause, ok)
+	}
+	if _, err := s.AddReport(ctx, a.ID, ReportProgress, "Halfway"); err != nil {
+		t.Fatal(err)
+	}
+	if _, got, err := s.RecordQuiet(ctx, a.ID, Refused+line); err != nil || got != "turn ended; reported r1 progress: "+Refused+line {
+		t.Fatalf("RecordQuiet after a report = %q, %v", got, err)
+	}
+	if _, got, err := s.RecordQuiet(ctx, a.ID, "API Error: "+Refused); err != nil || got != "api error: API Error: "+Refused {
+		t.Fatalf("an API error that quotes the words = %q, %v", got, err)
+	}
+	e, found, err = s.AttemptSignal(ctx, a.ID)
+	if err != nil || !found || !strings.HasPrefix(e.Detail, "a1: api error: ") {
+		t.Fatalf("AttemptSignal = %+v, %v, %v", e, found, err)
+	}
+	if cause, ok := Refusal(e); ok {
+		t.Fatalf("an API error reads as a refusal: %q", cause)
+	}
+}
+
 func TestNoTurnSignalIsRecordedForAnEndedAttempt(t *testing.T) {
 	s, _ := openTest(t)
 	a := runningAttempt(t, s)

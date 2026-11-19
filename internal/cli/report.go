@@ -35,6 +35,8 @@ const reportMarker = "When you finish, report to Hand"
 
 var worktreeName = regexp.MustCompile(`^t[0-9]+-a([0-9]+)$`)
 
+const bigOutputNote = "Every turn resends the whole transcript, so keep big tool output out of it: read narrowly (`rg -n`, `sed -n`, `head`/`tail`, `git diff --stat` then per file, `gh ... --json FIELDS --jq`), send long command output to a file and grep it, and treat a result over about 4 KB as a smell. Report changed lines and evidence, not whole files or logs.\n"
+
 func reportFooter(exe string) string { return reportFooterFor(runtime.GOOS, exe) }
 
 func reportFooterFor(goos, exe string) string {
@@ -59,6 +61,7 @@ func windowsFooterHead(exe string) string {
 		name + " report add --status done --file PATH\n" + full +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of the fleet's `reports/` and `shots/`: write their path and hash in the report instead, and keep that file outside your worktree: Hand removes a finished worktree, ignored files included. Hand reads your report, not your terminal.\n" +
+		bigOutputNote +
 		"Every temporary file, build output, log and download belongs in this attempt's scratch folder, which is `%TEMP%` (and `%TMP%`), not directly under `%USERPROFILE%`.\n"
 }
 
@@ -70,6 +73,7 @@ func unixFooterHead(exe string) string {
 		end + "\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of the fleet's `reports/` and `shots/`: write their path and hash in the report instead, and keep that file outside your worktree: Hand removes a finished worktree, ignored files included. Hand reads your report, not your terminal.\n" +
+		bigOutputNote +
 		"Every temporary file, build output, log and download belongs in this attempt's scratch folder, which is `$TMPDIR` (and `$GOTMPDIR`), not directly under `$HOME`.\n"
 }
 
@@ -171,7 +175,9 @@ func cmdReportAdd(r *runner, args []string) error {
 }
 
 func cmdReportShow(r *runner, args []string) error {
-	pos, err := parse(flags("report show"), args, 1)
+	fs := flags("report show")
+	full := fs.Bool("full", false, "print the whole body, not its first 8 KB")
+	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
 	}
@@ -199,7 +205,11 @@ func cmdReportShow(r *runner, args []string) error {
 	} else {
 		d.Field("acked", rep.AckedAt+" by "+rep.AckedBy)
 	}
-	d.Field("body", rep.Body)
+	body := rep.Body
+	if !*full {
+		body = elide(body, reportShowBytes, r.env.command()+" report show --full "+state.ReportRef(rep.ID))
+	}
+	d.Field("body", body)
 	if rep.AckedAt == "" {
 		d.Help("Acknowledge it once read: `hand report ack " + state.ReportRef(rep.ID) + "`")
 	}

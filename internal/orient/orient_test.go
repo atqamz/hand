@@ -479,6 +479,82 @@ func TestOrientShowsWorkerSignal(t *testing.T) {
 	}
 }
 
+func TestOrientLabelsALimitedWorkerAndARefusedOne(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	for i, c := range []struct{ harness, detail string }{
+		{"claude", "You've hit your session limit · resets 3pm (Asia/Jakarta)"},
+		{"omp", state.Refused + "402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002)"},
+	} {
+		task, _ := st.AddTask(ctx, "hand", "Task "+strconv.Itoa(i), "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: c.harness, Model: "m", Effort: "low", Argv: []string{"/bin/x", "x"}}, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t" + strconv.Itoa(i), PaneID: strconv.Itoa(i + 2), PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.NoteAttempt(ctx, a.ID, "limited", c.detail); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	for _, want := range []string{`"a1 running limited: You've hit your session limit ·…"`, `"a2 running refused: 402 Insufficient Balance…"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestOrientKeepsARepeatedRefusalAndDropsALabelOnAStoppedAttempt(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "omp", Model: "m", Effort: "low", Argv: []string{"/bin/x", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	line := state.Refused + "402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002)"
+	if err := st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.RecordQuiet(ctx, a.ID, line); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, `"a1 running refused: 402 Insufficient Balance…"`) || strings.Contains(out, "running quiet") {
+		t.Fatalf("orient after a repeated refusal:\n%s", out)
+	}
+	signals, err := st.AttemptSignals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptStopped, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := taskCells(ctx, st, task, signals, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.attempt != "a1 stopped" {
+		t.Fatalf("a stopped attempt reads %q", c.attempt)
+	}
+}
+
 func TestOrientTellsASessionWhetherItIsTheSupervisor(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
@@ -1394,5 +1470,69 @@ func TestTurnWarningPrintsOnceWithoutAHint(t *testing.T) {
 		if n := strings.Count(d.String(), "turn_warn: \"routing.json unreadable"); n != 1 || strings.Contains(d.String(), "turn_long: ") {
 			t.Fatalf("warning lines = %d in\n%s", n, d)
 		}
+	}
+}
+
+func withoutCursor(t *testing.T, doc string) (string, int64) {
+	t.Helper()
+	var kept []string
+	var cursor int64
+	for _, l := range strings.Split(doc, "\n") {
+		if v, ok := strings.CutPrefix(l, "cursor: "); ok {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cursor = n
+			continue
+		}
+		kept = append(kept, l)
+	}
+	return strings.Join(kept, "\n"), cursor
+}
+
+func TestOrientPrintsTheSameAfterAHundredSupervisorReplies(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Argv: []string{"claude"}, Session: "sess1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(since int64) (string, string, int64) {
+		full, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		short, err := Short(ctx, st, since, "", true, true, Turn{}, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, c := withoutCursor(t, full.String())
+		s, _ := withoutCursor(t, short.String())
+		return f, s, c
+	}
+	cursor, _ := st.LastEventSeq(ctx)
+	fullBefore, shortBefore, cursorBefore := render(cursor)
+	_, shortFrom0Before, _ := render(0)
+	var replies []state.Reply
+	for i := range 100 {
+		replies = append(replies, state.Reply{At: "2026-11-18T10:00:00Z", N: i, Body: "reply " + strconv.Itoa(i)})
+	}
+	if n, err := st.AddSupervisorReplies(ctx, sup.ID, "sess1", replies); err != nil || n != 100 {
+		t.Fatalf("insert = %d, %v", n, err)
+	}
+	fullAfter, shortAfter, cursorAfter := render(cursor)
+	_, shortFrom0After, _ := render(0)
+	if fullAfter != fullBefore || shortAfter != shortBefore || shortFrom0After != shortFrom0Before {
+		t.Fatalf("orient changed after the replies:\n%s\n---\n%s\n%s\n---\n%s", fullBefore, fullAfter, shortBefore, shortAfter)
+	}
+	if cursorAfter != cursorBefore+1 {
+		t.Fatalf("cursor %d to %d: one batch must be one event", cursorBefore, cursorAfter)
+	}
+	if strings.Contains(fullAfter, "supervisor.replied") || strings.Contains(shortAfter, "supervisor.replied") {
+		t.Fatal("orient names the replied event")
 	}
 }

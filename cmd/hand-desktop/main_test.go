@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktopasset"
 )
 
 func TestFleetTitle(t *testing.T) {
@@ -131,5 +133,57 @@ func TestSecondInstanceWithAHostileLinkIsRefusedOnScreen(t *testing.T) {
 		if app.Err == "" || app.Screen != desktop.BoardScreen || len(app.Err) > 400 || strings.ContainsAny(app.Err, "\x1b\x07") {
 			t.Fatalf("%.100q: screen %d, err %.200q", args, app.Screen, app.Err)
 		}
+	}
+}
+
+func TestAutomationPluginOnlyInTheE2EBuild(t *testing.T) {
+	const plugin = "github.com/egoist/mygo/plugins/automation"
+	deps := func(tags string) string {
+		out, err := exec.Command("go", "list", "-deps", "-tags", tags, ".").CombinedOutput()
+		if err != nil {
+			t.Fatalf("go list -tags %q: %v\n%s", tags, err, out)
+		}
+		return string(out)
+	}
+	if strings.Contains(deps(""), plugin) {
+		t.Fatal("the default hand-desktop build links the automation plugin")
+	}
+	if strings.Contains(deps("mygo_noinspector"), plugin) {
+		t.Fatal("the release hand-desktop build links the automation plugin")
+	}
+	if !strings.Contains(deps("e2e"), plugin) {
+		t.Fatal("the e2e hand-desktop build lacks the automation plugin")
+	}
+}
+
+func TestRefusalFollowsTheStampedChannel(t *testing.T) {
+	channel, was := desktopasset.Channel, gated
+	t.Cleanup(func() { desktopasset.Channel, gated = channel, was })
+	gated = true
+	desktopasset.Channel = "source"
+	if refusal("windows", "amd64") == "" {
+		t.Fatal("an unstamped build did not refuse on Windows")
+	}
+	desktopasset.Channel = "stable"
+	if refusal("windows", "amd64") == "" {
+		t.Fatal("a stable build did not refuse on Windows")
+	}
+	desktopasset.Channel = "edge"
+	if msg := refusal("windows", "amd64"); msg != "" {
+		t.Fatalf("an edge build refused on Windows: %q", msg)
+	}
+	for _, c := range []string{"source", "stable", "edge"} {
+		desktopasset.Channel = c
+		if msg := refusal("darwin", "arm64"); msg == "" {
+			t.Fatalf("a %s build did not refuse on macOS", c)
+		}
+		if msg := refusal("linux", "amd64"); msg != "" {
+			t.Fatalf("a %s build refused on Linux: %q", c, msg)
+		}
+	}
+	gated = false
+	desktopasset.Channel = "stable"
+	if msg := refusal("darwin", "arm64"); msg != "" {
+		t.Fatalf("the automation build refused: %q", msg)
 	}
 }

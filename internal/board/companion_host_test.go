@@ -35,6 +35,7 @@ type companionHost struct {
 	bare      map[string]bool
 	down      map[string]bool
 	gone      map[string]bool
+	failWith  map[string]error
 	paths     map[string]string
 	closePeer func(string)
 	iroh      func() sidecar.Status
@@ -138,10 +139,13 @@ func (p *companionHost) restart() {
 		Iroh:     p.iroh,
 		Resolve: func(id string) (string, error) {
 			p.mu.Lock()
-			down, gone := p.down[id], p.gone[id]
+			down, gone, fail := p.down[id], p.gone[id], p.failWith[id]
 			p.mu.Unlock()
 			if _, ok := byID[id]; !ok || gone {
 				return "", state.ErrNotFound
+			}
+			if fail != nil {
+				return "", fail
 			}
 			if down {
 				return "", errors.New("fleet is down")

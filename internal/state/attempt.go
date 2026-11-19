@@ -383,7 +383,7 @@ func (s *Store) NoteAttempt(ctx context.Context, id int64, kind, detail string) 
 		if err != nil {
 			return err
 		}
-		if !a.Live() && slices.Contains([]string{"blocked", "working", "limited", "long"}, kind) {
+		if !a.Live() && slices.Contains([]string{"blocked", "working", "limited", "long", "context", "context_unknown"}, kind) {
 			return fmt.Errorf("%w: attempt %s is %s", ErrConflict, AttemptRef(id), a.Status)
 		}
 		return emit(tx, s.stamp(), "attempt."+kind, a.TaskID, AttemptRef(id)+": "+detail)

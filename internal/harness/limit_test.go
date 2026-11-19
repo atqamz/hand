@@ -157,3 +157,133 @@ func TestQuestionReadsWhatCodexAsksTheOperator(t *testing.T) {
 		t.Fatal("a working screen is no question")
 	}
 }
+
+const ompRefused = "402 Insufficient Balance (request_id: 00000000-0000-4000-8000-000000000002) (type=insufficient_balance_error param=invalid_request_error)"
+
+func TestRefusalReadsAnOmpPaneThatEndedOnAnInsufficientBalance(t *testing.T) {
+	screen := copilotScreen(t, "omp-402-refused.txt")
+	got, ok := Refusal("omp", screen)
+	if !ok || got != ompRefused {
+		t.Fatalf("Refusal = %q, %v; want %q", got, ok, ompRefused)
+	}
+	if got, ok := APIError("omp", screen); !ok || !strings.HasPrefix(got, "402 Insufficient Balance (request_id: ") {
+		t.Fatalf("APIError = %q, %v", got, ok)
+	}
+	wrapped := strings.Replace(screen, " (request_id", "\n  (request_id", 2)
+	if got, ok := Refusal("omp", strings.ReplaceAll(wrapped, "\n", "\r\n")); !ok || got != ompRefused {
+		t.Fatalf("wrapped Refusal = %q, %v", got, ok)
+	}
+}
+
+func TestRefusalClassifiesTheOmpErrorLines(t *testing.T) {
+	banner := func(line string) string {
+		return "Error: " + line + "\n✘ Retry failed after 3 attempts: " + line + "\nDismissed when you send your next message.\nπ > ◒ m > ...\n"
+	}
+	for class, lines := range map[string]map[string]bool{
+		"402": {
+			"402 Insufficient Balance (request_id: x)": true,
+			"402 Payment Required":                     true,
+			"Provider error: 402 Insufficient Balance": true,
+			"402 Upstream said no":                     true,
+			"4020 retry later":                         false,
+		},
+		"insufficient balance": {
+			"400 (type=insufficient_balance_error)": true,
+			"400 insufficient funds":                true,
+			"400 Insufficient credits":              true,
+			"400 insufficient_quota":                true,
+			"503 balance lookup failed, try again":  false,
+		},
+		"billing": {
+			"400 Your credit balance is too low to access the Anthropic API":           true,
+			"429 You exceeded your current quota, check your plan and billing details": true,
+			"400 Payment method declined":                                              true,
+			"400 billing_hard_limit_reached":                                           true,
+			"400 Bad Request: messages.0.content is empty":                             false,
+			"503 Service Unavailable: payment gateway timeout, retry":                  false,
+			"500 billing service unavailable":                                          false,
+			"400 Invalid schema for function 'process_payment': missing type":          false,
+			"404 model not found: billing-v2":                                          false,
+			"413 Payload Too Large: attachment billing.pdf is 40MB":                    false,
+			"400 Bad Request. 500 billing issue":                                       false,
+			"Connection error: payment.example.com unreachable":                        false,
+			"Provider error: 502 billing backend down":                                 false,
+		},
+		"401": {
+			"401 Unauthorized":                                            true,
+			"Provider error: 401 Unauthorized":                            true,
+			"400 invalid x-api-key":                                       true,
+			"400 Invalid API key":                                         true,
+			"400 the API key is expired":                                  true,
+			"503 upstream said 402 on the way, request_id 4020-403-40300": false,
+		},
+		"403 and 429 that clear": {
+			"403 Forbidden":                                          false,
+			"403 Forbidden by edge, try again":                       false,
+			"429 Too Many Requests":                                  false,
+			"429 You exceeded your quota_exceeded plan":              false,
+			"429 Quota exceeded for metric per minute, retry in 20s": false,
+			"429 quota exhausted for this minute":                    false,
+		},
+		"retriable": {
+			"529 Overloaded (request_id: x)": false,
+			"500 Internal Server Error":      false,
+			"Connection error.":              false,
+		},
+	} {
+		for line, refused := range lines {
+			screen := banner(line)
+			if got, ok := Refusal("omp", screen); ok != refused || ok && got != line {
+				t.Errorf("%s: Refusal(%q) = %q, %v; want refused %v", class, line, got, ok, refused)
+			}
+			if got, ok := APIError("omp", screen); !ok || got != line {
+				t.Errorf("%s: APIError(%q) = %q, %v", class, line, got, ok)
+			}
+		}
+	}
+}
+
+func TestRefusalReadsABannerAboveTheFooterAndBlankRows(t *testing.T) {
+	screen := copilotScreen(t, "omp-402-refused.txt") + "─────\n DeepSeek > ompscreen 0.8%\n  ⇧⇥ to change thinking effort\n" + strings.Repeat("\n", 12)
+	if got, ok := Refusal("omp", screen); !ok || got != ompRefused {
+		t.Fatalf("Refusal = %q, %v", got, ok)
+	}
+}
+
+func TestRefusalReadsABannerAbovePromptBoxAndFooterRows(t *testing.T) {
+	banner := "Error: " + ompRefused + "\nDismissed when you send your next message.\n"
+	box := "╭──────╮\n│ > \n╰──────╯\n"
+	footer := " DeepSeek > ompscreen 0.8%\n  ⇧⇥ to change thinking effort\n  esc to interrupt\n  ctrl+c to clear\n"
+	if got, ok := Refusal("omp", banner+box+footer); !ok || got != ompRefused {
+		t.Fatalf("seven rows: Refusal = %q, %v", got, ok)
+	}
+	if got, ok := Refusal("omp", banner+box+footer+"  one more\n"); ok {
+		t.Fatalf("eight rows: Refusal = %q", got)
+	}
+}
+
+func TestOmpFailureNeedsTheBannerAtTheBottomOfTheScreen(t *testing.T) {
+	for name, screen := range map[string]string{
+		"finished pane":                    copilotScreen(t, "omp-18.18.0-idle.txt"),
+		"quoted":                           "I saw `Error: 402 Insufficient Balance` in the log.\nπ > ◒ m > ...\n",
+		"no dismissal":                     "Error: 402 Insufficient Balance\n\nπ > ◒ m > ...\n",
+		"banner above later output":        copilotScreen(t, "omp-402-refused.txt") + "● Fixed login\n\nI changed auth.go.\nTests pass.\nNothing else left.\nDone.\nShipped.\nπ > ◒ m > ...\n",
+		"banner above a bullet and a line": copilotScreen(t, "omp-402-refused.txt") + "● Fixed login\nTests pass.\nπ > ◒ m > ...\n",
+		"banner above a plain line":        copilotScreen(t, "omp-402-refused.txt") + "Tests pass.\nπ > ◒ m > ...\n",
+		"indented error":                   "  Error: 402 Insufficient Balance\nDismissed when you send your next message.\nπ > ◒ m > ...\n",
+		"indented dismissal":               "Error: 402 Insufficient Balance\n  Dismissed when you send your next message.\nπ > ◒ m > ...\n",
+		"indented copy":                    "  Error: 402 Insufficient Balance\n  Dismissed when you send your next message.\nπ > ◒ m > ...\n",
+	} {
+		if got, ok := Refusal("omp", screen); ok {
+			t.Errorf("%s: Refusal = %q", name, got)
+		}
+		if got, ok := APIError("omp", screen); ok {
+			t.Errorf("%s: APIError = %q", name, got)
+		}
+	}
+	for _, name := range []string{"claude", "codex", "opencode", "agy", "copilot"} {
+		if got, ok := Refusal(name, copilotScreen(t, "omp-402-refused.txt")); ok {
+			t.Errorf("Refusal(%s) = %q", name, got)
+		}
+	}
+}

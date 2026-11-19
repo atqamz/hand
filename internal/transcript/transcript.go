@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,9 +33,14 @@ type Entry struct {
 	Queued bool
 }
 
+type Call struct {
+	ID, Tool, Command string
+}
+
 var (
 	ErrNoSession  = errors.New("waiting for the session…")
 	ErrUnreadable = errors.New("transcript not readable (format may have changed)")
+	ErrNoCalls    = errors.New("the harness's record does not show which tool call is running")
 )
 
 type Paths struct {
@@ -62,6 +68,8 @@ type session struct {
 	known    int
 	turn     *Entry
 	shown    bool
+	calls    []Call
+	callMsg  string
 	exported time.Time
 	stamp    time.Time
 	file     string
@@ -105,6 +113,36 @@ func (r *Reader) read(ctx context.Context, harness, id, dir string, ended bool) 
 		return nil, err
 	}
 	return slices.Clone(s.entries), nil
+}
+
+func (r *Reader) Running(ctx context.Context, harness, id, dir string) ([]Call, error) {
+	if harness != "claude" {
+		return nil, ErrNoCalls
+	}
+	if err := r.fetch(ctx, harness, id, dir, false); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, err := r.load(harness, id, dir)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Clone(s.calls), nil
+}
+
+func commandOf(args json.RawMessage) string {
+	var a struct {
+		Command string `json:"command"`
+	}
+	_ = json.Unmarshal(args, &a)
+	return a.Command
+}
+
+func (s *session) startCall(c Call) { s.calls = append(s.calls, c) }
+
+func (s *session) endCall(id string) {
+	s.calls = slices.DeleteFunc(s.calls, func(c Call) bool { return c.ID == id })
 }
 
 func (r *Reader) Refresh(ctx context.Context, harness, id, dir string) error {

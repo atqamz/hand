@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
-    Live, LiveSink, Method, OPEN_REJECTED, PairError, RESCAN, Reporter, Request, RequestError,
-    Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
+    Live, LiveSink, Method, OPEN_REJECTED, PairError, Polled, RESCAN, Reporter, Request,
+    RequestError, Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
 };
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jlong, jstring};
@@ -66,6 +66,12 @@ impl Core {
         if let Some(running) = self.live.lock().unwrap().take() {
             running.stop();
         }
+    }
+
+    fn quiet(&self) {
+        self.stop_live();
+        self.reporter.lock().unwrap().take();
+        self.alerts.pause();
     }
 }
 
@@ -383,7 +389,7 @@ fn start(
         let cipher = Arc::new(HostCipher(host.clone()));
         let sessions = Sessions::open(&data_dir, HostJar(host.clone()), cipher.clone())
             .map(Arc::new)
-            .map_err(|error| format!("the phone's pairings could not be read: {error}"))?;
+            .map_err(|error| format!("this Companion's pairings could not be read: {error}"))?;
         if sessions.quarantined() {
             let _ = host.unreadable();
         }
@@ -393,7 +399,7 @@ fn start(
                 cipher,
             }))
             .map(Arc::new)
-            .map_err(|error| format!("the phone's key could not start the companion: {error}"))?;
+            .map_err(|error| format!("this Companion's key could not start it: {error}"))?;
         let feed = Feed::new(companion.dialer(), data_dir.join("alerts"));
         let alerts = Supervisor::new(feed, sessions.clone(), HostSink(host.clone()), RESCAN);
         let restored = companion.clone();
@@ -515,6 +521,59 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_sleep<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) {
+    if let Some(core) = core() {
+        core.quiet();
+        runtime().block_on(async {
+            core.companion.sleep().await;
+            info(&core.companion.report().await);
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_wake<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let Some(core) = core() else {
+        return 1;
+    };
+    match runtime().block_on(core.companion.wake()) {
+        Ok(()) => 1,
+        Err(error) => {
+            warn(&format!("wake failed: {error}"));
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_poll<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    let Some(core) = core() else {
+        return 1;
+    };
+    runtime().block_on(async {
+        let polled = core.companion.poll_asleep(core.alerts.poll_once()).await;
+        info(&core.companion.report().await);
+        match polled {
+            Ok(Polled::Missed) => 0,
+            Ok(_) => 1,
+            Err(error) => {
+                warn(&format!("poll failed: {error}"));
+                0
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_live<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -581,7 +640,7 @@ fn send(
         .unwrap()
         .core
         .clone()
-        .ok_or(RequestError::NoLaptop)?;
+        .ok_or(RequestError::NoHost)?;
     let fleet = text(env, fleet)?.ok_or(RequestError::Malformed)?;
     let path = text(env, path)?.ok_or(RequestError::Malformed)?;
     let csrf = text(env, csrf)?;
@@ -651,7 +710,7 @@ fn offered(text: &str) -> serde_json::Value {
         return failed(PairError::NoPending);
     };
     match core.companion.offer_link(text) {
-        Ok(offer) => serde_json::json!({ "laptop": offer.laptop, "replaces": offer.replaces }),
+        Ok(offer) => serde_json::json!({ "host": offer.host, "replaces": offer.replaces }),
         Err(error) => serde_json::json!({ "failure": "link", "message": error.message() }),
     }
 }
@@ -771,7 +830,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
     let forgotten = catch_unwind(AssertUnwindSafe(|| {
         core().is_none_or(|core| {
             runtime()
-                .block_on(core.companion.forget_laptop(forget_alerts))
+                .block_on(core.companion.forget_host(forget_alerts))
                 .is_ok()
         })
     }));

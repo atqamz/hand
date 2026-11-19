@@ -96,6 +96,48 @@ func TestUnwatchedNamesActiveTasksThatNothingWatches(t *testing.T) {
 	want(nil, 0, 0)
 }
 
+func TestAStoredReplyDoesNotResetTheStallCount(t *testing.T) {
+	var mu sync.Mutex
+	now := fixed
+	s, err := Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	task := activeTask(t, s)
+	sup, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "claude", Argv: []string{"/bin/claude"}, Session: "sess1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []time.Duration{20 * time.Minute, 40 * time.Minute} {
+		mu.Lock()
+		now = now.Add(step)
+		mu.Unlock()
+		if err := s.NoteSupervisor(ctx, sup.ID, "stalled", "idle"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	now = now.Add(5 * time.Minute)
+	mu.Unlock()
+	before, err := s.Unwatched(ctx, true)
+	if err != nil || before.Stalls != 2 || before.Idle != time.Hour+5*time.Minute {
+		t.Fatalf("before = %+v, %v", before, err)
+	}
+	if n, err := s.AddSupervisorReplies(ctx, sup.ID, "sess1", []Reply{{"t1", 0, "still here"}}); err != nil || n != 1 {
+		t.Fatalf("replies = %d, %v", n, err)
+	}
+	after, err := s.Unwatched(ctx, true)
+	if err != nil || after.Stalls != before.Stalls || after.Idle != before.Idle || !after.Since.Equal(before.Since) || !after.Last.Equal(before.Last) || !slices.Equal(after.Tasks, []int64{task.ID}) {
+		t.Fatalf("after = %+v, %v; before = %+v", after, err, before)
+	}
+}
+
 func TestIdleForReadsInHoursAndMinutes(t *testing.T) {
 	for d, want := range map[time.Duration]string{
 		0:                               "<1m",

@@ -1,5 +1,6 @@
 package io.github.atqamz.handcompanion
 
+import android.content.SharedPreferences
 import java.util.TimeZone
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -76,7 +77,20 @@ private class ComposingDrafts(initial: Map<String, Pair<String, Long>> = emptyMa
 
   override fun write(fleet: String, text: String, now: Long) {
     writes++
-    if (text.isEmpty()) saved.remove(fleet) else saved[fleet] = text to now
+    if (text.isEmpty()) {
+      saved.remove(fleet)
+      unsure.remove(fleet)
+    } else {
+      saved[fleet] = text to now
+    }
+  }
+
+  val unsure = mutableMapOf<String, UnsureSend>()
+
+  override fun readUnsure(fleet: String) = unsure[fleet]
+
+  override fun writeUnsure(fleet: String, sent: UnsureSend?) {
+    if (sent == null) unsure.remove(fleet) else unsure[fleet] = sent
   }
 
   fun text(fleet: String = FLEET) = saved[fleet]?.first.orEmpty()
@@ -146,6 +160,70 @@ private suspend fun eventually(what: String, check: () -> Boolean) {
   withTimeout(5_000) {
     while (!check()) delay(5)
   }
+}
+
+private class MemoryPrefs(initial: Map<String, String> = emptyMap()) : SharedPreferences {
+  val values = initial.toMutableMap<String, Any?>()
+
+  override fun getAll(): MutableMap<String, *> = values.toMutableMap()
+
+  override fun getString(key: String, defValue: String?) = values[key] as? String ?: defValue
+
+  override fun contains(key: String) = key in values
+
+  override fun edit(): SharedPreferences.Editor = MemoryEditor(values)
+
+  override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? = TODO()
+
+  override fun getInt(key: String, defValue: Int): Int = TODO()
+
+  override fun getLong(key: String, defValue: Long): Long = TODO()
+
+  override fun getFloat(key: String, defValue: Float): Float = TODO()
+
+  override fun getBoolean(key: String, defValue: Boolean): Boolean = TODO()
+
+  override fun registerOnSharedPreferenceChangeListener(
+    listener: SharedPreferences.OnSharedPreferenceChangeListener
+  ) = TODO()
+
+  override fun unregisterOnSharedPreferenceChangeListener(
+    listener: SharedPreferences.OnSharedPreferenceChangeListener
+  ) = TODO()
+}
+
+private class MemoryEditor(private val target: MutableMap<String, Any?>) : SharedPreferences.Editor {
+  private val puts = mutableMapOf<String, String>()
+  private val removed = mutableSetOf<String>()
+
+  override fun putString(key: String, value: String?) = apply {
+    removed -= key
+    puts[key] = value.orEmpty()
+  }
+
+  override fun remove(key: String) = apply {
+    puts -= key
+    removed += key
+  }
+
+  override fun apply() {
+    removed.forEach { target -= it }
+    target.putAll(puts)
+  }
+
+  override fun commit(): Boolean = true.also { apply() }
+
+  override fun putStringSet(key: String, values: MutableSet<String>?): SharedPreferences.Editor = TODO()
+
+  override fun putInt(key: String, value: Int): SharedPreferences.Editor = TODO()
+
+  override fun putLong(key: String, value: Long): SharedPreferences.Editor = TODO()
+
+  override fun putFloat(key: String, value: Float): SharedPreferences.Editor = TODO()
+
+  override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor = TODO()
+
+  override fun clear(): SharedPreferences.Editor = TODO()
 }
 
 class ChatModelTest {
@@ -1175,5 +1253,464 @@ class ChatModelTest {
     assertEquals("mine", liveDraft(all, FLEET, 6L, DRAFT_TTL_MILLIS))
     assertEquals("theirs", liveDraft(all, other, 6L, DRAFT_TTL_MILLIS))
     assertEquals("", liveDraft(all, "f00000000000f", 6L, DRAFT_TTL_MILLIS))
+  }
+
+  private suspend fun failing(failure: () -> Raw, text: String = "hello from the desktop"): Triple<ChatModel, ChatBoard, ComposingDrafts> {
+    val board = ChatBoard(messageAnswer = { failure() })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit(text)
+    chat.sendNow()
+    return Triple(chat, board, drafts)
+  }
+
+  @Test
+  fun eachErrorCodeSaysItsOwnWordsAndKeepsTheDraft() = runBlocking {
+    val cases =
+      listOf<Pair<() -> Raw, String>>(
+        { refused(400, "bad_request", "invalid: message is empty") } to "invalid: message is empty",
+        { refused(403, "forbidden", "controls are off on this board") } to "controls are off on this board",
+        { refused(403, "forbidden", "") } to CONTROLS_OFF,
+        { refused(500, "internal", "the supervisor path failed") } to "the supervisor path failed",
+        { refused(500, "internal", "") } to "Could not send the message.",
+        { throw BoardError.Busy } to "Your host is busy. Try again.",
+        { throw BoardError.Unreachable } to "Your host is not reachable.",
+        { throw BoardError.NoHost } to "Your host is not reachable.",
+        { throw BoardError.BoardNotRunning } to "The Board is not running.",
+        { throw BoardError.Lost } to UNSURE_SENT,
+        { throw BoardError.TimedOut } to UNSURE_SENT
+      )
+    for ((failure, words) in cases) {
+      val (chat, board, drafts) = failing(failure)
+      assertEquals(words, chat.state.value.sendError)
+      assertEquals("hello from the desktop", chat.state.value.draft)
+      assertEquals("hello from the desktop", drafts.text())
+      assertFalse(chat.state.value.sending)
+      assertEquals(1, board.posts.size)
+    }
+  }
+
+  @Test
+  fun anUnpairedSendStopsTheFleetAndKeepsTheDraft() = runBlocking {
+    val (chat, _, drafts) = failing({ throw BoardError.Unpaired })
+    assertTrue(chat.state.value.unpaired)
+    assertEquals("hello from the desktop", drafts.text())
+    assertFalse(chat.state.value.sending)
+  }
+
+  @Test
+  fun aLostSendThatTheTimelineShowsIsNotSentAgain() = runBlocking {
+    val board =
+      ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.sendError)
+    assertTrue(chat.state.value.page.any { it.key == "i1" })
+  }
+
+  @Test
+  fun aRetryWaitsForTheEntryBeforeItSendsAgain() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(UNSURE_SENT, chat.state.value.sendError)
+    assertEquals("hello from the desktop", chat.state.value.draft)
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", drafts.text())
+    assertEquals("", chat.state.value.sendError)
+  }
+
+  @Test
+  fun aRetryReadsTheTimelineFirstAndSkipsTheRepeatWhenTheEntryIsThere() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    val reads = timelineReads(board).size
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals(reads + 1, timelineReads(board).size)
+    assertEquals("", chat.state.value.draft)
+  }
+
+  @Test
+  fun aRestoredDraftAfterALostSendStillChecksTheTimelineFirst() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val first = model(board, drafts = drafts)
+    first.load()
+    first.edit("ok")
+    first.sendNow()
+    assertEquals(1, board.posts.size)
+    board.timelineAnswer = {
+      Raw(200, timeline(0, entry("i1", "operator", "2026-11-01T04:40:00Z", "ok", input = 1)))
+    }
+    val fresh = model(board, drafts = drafts)
+    fresh.restoreDraft()
+    assertEquals("ok", fresh.state.value.draft)
+    assertEquals(UNSURE_SENT, fresh.state.value.sendError)
+    val reads = timelineReads(board).size
+    fresh.sendNow()
+    assertEquals(reads + 1, timelineReads(board).size)
+    assertEquals(1, board.posts.size)
+    assertEquals("", fresh.state.value.draft)
+    assertEquals(null, drafts.readUnsure(FLEET))
+  }
+
+  @Test
+  fun aRestoredDraftThatWasNeverLostSendsWithoutTheCheck() = runBlocking {
+    val board = ChatBoard()
+    val drafts = ComposingDrafts(mapOf(FLEET to ("ok" to 1_760_000_000_000)))
+    val fresh = model(board, drafts = drafts)
+    fresh.restoreDraft()
+    assertEquals("", fresh.state.value.sendError)
+    fresh.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals(0, timelineReads(board).size)
+  }
+
+  @Test
+  fun anEditAwayFromTheHeldTextForgetsTheLostSend() = runBlocking {
+    var answers = 0
+    val board =
+      ChatBoard(
+        messageAnswer = {
+          if (answers++ == 0) throw BoardError.Lost else Raw(200, golden("message-sent"))
+        }
+      )
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("first")
+    chat.sendNow()
+    assertEquals(UnsureSend("first", 0), drafts.readUnsure(FLEET))
+    chat.edit("first, but longer")
+    assertEquals(null, drafts.readUnsure(FLEET))
+    chat.edit("first")
+    val reads = timelineReads(board).size
+    chat.sendNow()
+    assertEquals(2, board.posts.size)
+    assertEquals(reads, timelineReads(board).size)
+  }
+
+  @Test
+  fun aLostSendIsKeptWithTheDraftAndClearedWithIt() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val drafts = ComposingDrafts()
+    val chat = model(board, drafts = drafts)
+    chat.load()
+    chat.edit("ok")
+    chat.sendNow()
+    assertEquals(UnsureSend("ok", 0), drafts.readUnsure(FLEET))
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(null, drafts.readUnsure(FLEET))
+    assertEquals("", drafts.text())
+  }
+
+  @Test
+  fun theLostSendRoundTripsThroughItsStoredForm() {
+    val sent = UnsureSend("line one\n\nline two  ", 42)
+    assertEquals(sent, decodeUnsure(encodeUnsure(sent)))
+    assertEquals(null, decodeUnsure("not a number\nhi"))
+  }
+
+  @Test
+  fun aRetryThatFindsTheEntryTellsTheOperatorItWasAlreadySent() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    board.timelineAnswer = { Raw(200, golden("message-sent")) }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", chat.state.value.sendError)
+    assertEquals("Already sent, queued", chat.state.value.sendNote)
+    chat.edit("next")
+    assertEquals("", chat.state.value.sendNote)
+  }
+
+  @Test
+  fun anEmptyWriteRemovesTheDraftAndItsLostSendKey() {
+    val other = "f000000000009"
+    val prefs =
+      MemoryPrefs(
+        mapOf(
+          draftKey(FLEET, 5L) to "ok",
+          unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3)),
+          draftKey(other, 5L) to "theirs",
+          unsureKey(other) to encodeUnsure(UnsureSend("theirs", 4))
+        )
+      )
+    val drafts = PrefsComposerDrafts(prefs)
+    drafts.write(FLEET, "", 9L)
+    assertEquals(setOf(draftKey(other, 5L), unsureKey(other)), prefs.values.keys)
+    assertNull(drafts.readUnsure(FLEET))
+    assertEquals(UnsureSend("theirs", 4), drafts.readUnsure(other))
+  }
+
+  @Test
+  fun aNonEmptyWriteKeepsTheLostSendKey() {
+    val prefs = MemoryPrefs(mapOf(unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3))))
+    val drafts = PrefsComposerDrafts(prefs)
+    drafts.write(FLEET, "ok", 9L)
+    assertEquals(UnsureSend("ok", 3), drafts.readUnsure(FLEET))
+    assertEquals(setOf(draftKey(FLEET, 9L), unsureKey(FLEET)), prefs.values.keys)
+  }
+
+  @Test
+  fun anExpiredDraftTakesItsLostSendKeyWithIt() {
+    val other = "f000000000009"
+    val prefs =
+      MemoryPrefs(
+        mapOf(
+          draftKey(FLEET, 1_000L) to "ok",
+          unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3)),
+          draftKey(other, 1_000L) to "theirs",
+          unsureKey(other) to encodeUnsure(UnsureSend("theirs", 4))
+        )
+      )
+    val drafts = PrefsComposerDrafts(prefs, ttl = 100L)
+    assertEquals("ok", drafts.read(FLEET, 1_099L))
+    assertEquals(UnsureSend("ok", 3), drafts.readUnsure(FLEET))
+    assertEquals("", drafts.read(FLEET, 1_100L))
+    assertNull(drafts.readUnsure(FLEET))
+    assertEquals(setOf(draftKey(other, 1_000L), unsureKey(other)), prefs.values.keys)
+  }
+
+  @Test
+  fun aCorruptLostSendKeyIsNotTrusted() {
+    assertNull(decodeUnsure("123"))
+    assertNull(decodeUnsure(""))
+    val prefs = MemoryPrefs(mapOf(unsureKey(FLEET) to "123"))
+    assertNull(PrefsComposerDrafts(prefs).readUnsure(FLEET))
+  }
+
+  @Test
+  fun aSendNoteIsNotSetBesideADraftTypedDuringTheRetryRead() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    board.timelineAnswer = {
+      chat.edit("typed during the read")
+      Raw(200, golden("message-sent"))
+    }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("typed during the read", chat.state.value.draft)
+    assertEquals("", chat.state.value.sendNote)
+    assertEquals("", chat.state.value.sendError)
+  }
+
+  @Test
+  fun aRetryThatFindsADeliveredEntryNamesItsDelivery() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("ok")
+    chat.sendNow()
+    board.timelineAnswer = {
+      Raw(
+        200,
+        timeline(
+          0,
+          entry("i1", "operator", "2026-11-01T04:40:00Z", "ok", input = 1, delivery = "delivered")
+        )
+      )
+    }
+    chat.sendNow()
+    assertEquals("Already sent, delivered", chat.state.value.sendNote)
+  }
+
+  @Test
+  fun aSendThatPostsLeavesNoAlreadySentNote() = runBlocking {
+    val board = ChatBoard()
+    val chat = model(board)
+    chat.load()
+    chat.edit("ok")
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.sendNote)
+  }
+
+  @Test
+  fun aNewerOperatorEntryWithOtherTextIsNotTheRetriedMessage() = runBlocking {
+    val board =
+      ChatBoard(
+        timelineAnswer = {
+          Raw(200, timeline(0, entry("i1", "operator", "2026-11-01T04:40:00Z", "earlier", input = 1)))
+        },
+        messageAnswer = { throw BoardError.Lost }
+      )
+    val chat = model(board)
+    chat.load()
+    chat.edit("ok")
+    chat.sendNow()
+    board.timelineAnswer = {
+      Raw(
+        200,
+        timeline(
+          0,
+          entry("i2", "operator", "2026-11-01T04:41:00Z", "something else", input = 2),
+          entry("i1", "operator", "2026-11-01T04:40:00Z", "earlier", input = 1)
+        )
+      )
+    }
+    chat.sendNow()
+    assertEquals(2, board.posts.size)
+    assertEquals("", chat.state.value.sendNote)
+  }
+
+  @Test
+  fun aNewerEntryWithCrlfAndTrailingSpaceIsTheRetriedMessage() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("line one\nline two")
+    chat.sendNow()
+    board.timelineAnswer = {
+      Raw(
+        200,
+        timeline(
+          0,
+          entry("i1", "operator", "2026-11-01T04:40:00Z", "line one\\r\\nline two  \\n", input = 1)
+        )
+      )
+    }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", chat.state.value.sendError)
+  }
+
+  @Test
+  fun anIdenticalEntryOlderThanTheSendIsNotTheRetriedMessage() = runBlocking {
+    val old = entry("i3", "operator", "2026-11-01T04:30:00Z", "ok", input = 3, delivery = "delivered")
+    val board =
+      ChatBoard(
+        timelineAnswer = { Raw(200, timeline(0, old)) },
+        messageAnswer = { throw BoardError.Lost }
+      )
+    val chat = model(board)
+    chat.load()
+    chat.edit("ok")
+    chat.sendNow()
+    chat.sendNow()
+    assertEquals(2, board.posts.size)
+    assertEquals("", chat.state.value.sendNote)
+  }
+
+  @Test
+  fun aRetryThatCannotReadTheTimelineDoesNotSend() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.TimedOut })
+    val chat = model(board)
+    chat.load()
+    chat.edit("did it arrive?")
+    chat.sendNow()
+    board.timelineAnswer = { throw BoardError.Unreachable }
+    chat.sendNow()
+    assertEquals(1, board.posts.size)
+    assertEquals(UNSURE_SENT, chat.state.value.sendError)
+    assertEquals("did it arrive?", chat.state.value.draft)
+    assertFalse(chat.state.value.sending)
+  }
+
+  @Test
+  fun aRetryWithNoEntryOnTheTimelineSendsOnceMore() = runBlocking {
+    var answers = 0
+    val board =
+      ChatBoard(
+        messageAnswer = {
+          if (answers++ == 0) throw BoardError.Lost else Raw(200, golden("message-sent"))
+        }
+      )
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    chat.sendNow()
+    assertEquals(2, board.posts.size)
+    assertEquals("", chat.state.value.draft)
+    assertEquals("", chat.state.value.sendError)
+  }
+
+  @Test
+  fun anEditedTextAfterALostSendIsPostedWithoutTheCheck() = runBlocking {
+    val board = ChatBoard(messageAnswer = { throw BoardError.Lost })
+    val chat = model(board)
+    chat.load()
+    chat.edit("first")
+    chat.sendNow()
+    val reads = timelineReads(board).size
+    chat.edit("second")
+    chat.sendNow()
+    assertEquals(listOf("""{"text":"first"}""", """{"text":"second"}"""), board.posts.toList())
+    assertEquals(reads + 1, timelineReads(board).size)
+  }
+
+  @Test
+  fun anEntryAlreadyOnThePageIsNotTakenForTheRetriedMessage() = runBlocking {
+    val board =
+      ChatBoard(
+        timelineAnswer = { Raw(200, golden("message-sent")) },
+        messageAnswer = { throw BoardError.Lost }
+      )
+    val chat = model(board)
+    chat.load()
+    chat.edit("hello from the desktop")
+    chat.sendNow()
+    assertEquals(UNSURE_SENT, chat.state.value.sendError)
+    assertEquals("hello from the desktop", chat.state.value.draft)
+    assertEquals(1, board.posts.size)
+  }
+
+  @Test
+  fun theQueuedAndAnsweredGoldenReadsQueuedThenDelivered() = runBlocking {
+    val board = ChatBoard(timelineAnswer = { Raw(200, golden("message-states")) })
+    val chat = model(board)
+    chat.load()
+    val operator = chat.state.value.page.map { it.entry }.filter { it.role == "operator" }
+    assertEquals(
+      listOf("queued", "delivered 04:40", ""),
+      operator.map { deliveryWords(it, UTC) }
+    )
+    assertEquals(listOf(2L, 1L, 0L), operator.map { it.input })
+  }
+
+  @Test
+  fun theKeyboardInsetIsAPureFunctionOfTheInsets() {
+    assertFalse(keyboardShown(imeBottom = 0, navBottom = 48))
+    assertFalse(keyboardShown(imeBottom = 48, navBottom = 48))
+    assertTrue(keyboardShown(imeBottom = 800, navBottom = 48))
+    assertTrue(tabsVisible(Tab.Chat, keyboard = false))
+    assertFalse(tabsVisible(Tab.Chat, keyboard = true))
+    assertFalse(tabsVisible(null, keyboard = true))
+    assertTrue(tabsVisible(Tab.Tasks, keyboard = true))
+    assertTrue(tabsVisible(Tab.Needs, keyboard = true))
+    assertEquals(320, composerMaxDp(screenDp = 800, imeDp = 0))
+    assertEquals(112, composerMaxDp(screenDp = 800, imeDp = 520))
+    assertEquals(44, composerMaxDp(screenDp = 600, imeDp = 560))
   }
 }

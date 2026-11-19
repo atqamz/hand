@@ -412,7 +412,7 @@ class TaskModelTest {
   }
 
   @Test
-  fun aLaptopWithoutTheStreamPollsTheDetail() = runBlocking {
+  fun aHostWithoutTheStreamPollsTheDetail() = runBlocking {
     val board = TaskBoard(features = listOf("fleets"), detailAnswer = { answer(detail()) })
     val task = model(board, pollMillis = 20)
     val job = launch(Dispatchers.Default) { task.run() }
