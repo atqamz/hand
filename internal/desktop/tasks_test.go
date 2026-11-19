@@ -90,7 +90,7 @@ func TestTaskRowsAreFortyEightHigh(t *testing.T) {
 
 func TestTheTaskIconFollowsItsState(t *testing.T) {
 	tt := sized(t, newApp(t, taskFixture(t)), windowWidth, windowHeight, false)
-	for _, want := range []string{"state waiting", "state failing", "state running", "state idle", "state passing"} {
+	for _, want := range []string{"state waiting", "state failing", "state running", "state inbox", "state done"} {
 		if _, ok := tt.Find(want); !ok {
 			t.Errorf("no icon for %q in %q", want, tt.Texts())
 		}

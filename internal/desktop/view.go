@@ -611,6 +611,9 @@ func stateIconName(state string) string {
 	case "running", "working":
 		return "running"
 	}
+	if state == "abandoned" {
+		return "close"
+	}
 	switch toneOf(state) {
 	case "fail":
 		return "failure"

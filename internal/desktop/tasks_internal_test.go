@@ -64,3 +64,29 @@ func TestTaskProjectKeepsTwentyFourCharacters(t *testing.T) {
 		}
 	}
 }
+
+func TestATaskRowIsDrawnFromItsStatus(t *testing.T) {
+	cases := []struct {
+		status, state, word, icon string
+	}{
+		{"abandoned", "idle", "abandoned", "close"},
+		{"abandoned", "failing", "abandoned", "close"},
+		{"inbox", "idle", "inbox", "idle"},
+		{"inbox", "waiting", "inbox", "idle"},
+		{"done", "idle", "done", "passing"},
+		{"done", "failing", "done", "passing"},
+		{"active", "waiting", "waiting", "waiting"},
+		{"active", "running", "running", "running"},
+		{"active", "failing", "failing", "failure"},
+		{"active", "", "", "idle"},
+	}
+	for _, tc := range cases {
+		state := taskState(TaskRow{Status: tc.status, State: tc.state})
+		if state != tc.word {
+			t.Errorf("status %q state %q is drawn as %q, want %q", tc.status, tc.state, state, tc.word)
+		}
+		if got := stateIconName(state); got != tc.icon {
+			t.Errorf("status %q state %q draws the %q icon, want %q", tc.status, tc.state, got, tc.icon)
+		}
+	}
+}

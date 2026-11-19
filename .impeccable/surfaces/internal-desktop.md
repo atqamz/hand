@@ -118,6 +118,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `42-menu-stop-armed-<light or dark>.png` | Stop after its first press in the model menu's slice: "Press again to stop" |
 | `42-menu-stop-<light or dark>.png` | the same head at rest: Stop |
 | `43-tasks-search-1100x760-<light or dark>.png` | the Tasks page: the breadcrumb, the search field with its Search button, the filters, the two day groups with their counts, and rows with the state icon, ref, title, attempt line and finish time |
+| `79-tasks-search-subtasks-1100x760-<light or dark>.png` | the Tasks page with a parent, its children and a plain task: `under tN` and `N sub-tasks` as links, a done, an abandoned and an inbox child drawn from the task status, and the open-decisions badge |
 | `44-tasks-search-page-2-1100x760-<light or dark>.png` | the second of two pages: Previous, the second day's rows, and Page 2 of 2 |
 | `45-tasks-search-filters-1100x760-<light or dark>.png` | every filter applied: the status, project, since and until fields, the five chips, the total, and a row with its project badge |
 | `46-tasks-search-empty-1100x760-<light or dark>.png` | a search with no result: "No tasks match." and 0 tasks |
@@ -143,6 +144,7 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `66-doc-folder-880x760-<light or dark>.png` | a folder below 900 px |
 | `67-doc-text-880x760-<light or dark>.png` | a text window below 900 px |
 | `viewer-task-1100x760-<light or dark>.png` | a task's page in the viewer: the strip, the head, the waiting rows, the reports and the aside |
+| `80-viewer-subtasks-1100x760-<light or dark>.png` | a task's page with a parent link ("Sub-task of tN") and sub-task rows that show the task status |
 | `viewer-cards-1100x760-<light or dark>.png` | the same page scrolled to the report cards, three tones, Mark read in flight |
 | `viewer-stack-1100x760-<light or dark>.png` | an attempt's page two deep in the stack, Back enabled |
 | `viewer-attempt-<width>x<height>-<light or dark>.png` | an attempt's page: the head, its model note, the toned report cards, the brief, the transcript with a queued turn, the timeline and the facts aside with the branch and duration |
