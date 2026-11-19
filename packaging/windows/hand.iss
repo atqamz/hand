@@ -67,7 +67,7 @@ function CloseHandle(Handle: Integer): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
 function SetEnvironmentVariableW(Name, Value: String): Boolean;
   external 'SetEnvironmentVariableW@kernel32.dll stdcall';
-function ExpandEnvironmentStringsW(Source: String; var Target: String; Size: Integer): Integer;
+function ExpandEnvironmentStringsW(Source, Target: String; Size: Integer): Integer;
   external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
 
 function ExpandEnv(const Text: String): String;
