@@ -29,7 +29,9 @@ A fleet folder looks like this:
 ├── hand.version       the hand that last opened the fleet
 ├── routing.json       fleet settings
 ├── memory/
-│   ├── operator.md    your standing preferences
+│   ├── operator.md    your standing preferences: the core, whole lines up to 4000 bytes
+│   ├── operator/      topic files (NAME.md), read when a core line points at one
+│   ├── archive/       copies made before a split, never read by Hand
 │   ├── handoff.md     the supervisor's note at a rollover
 │   ├── last-turns.md  Hand's copy of the old session's last turns, written at a rollover
 │   └── projects/      one file of lessons per project
@@ -38,7 +40,7 @@ A fleet folder looks like this:
 └── board.token        the board's token for this fleet
 ```
 
-`hand init` rewrites `AGENTS.md`, `CLAUDE.md` and the skills every time, so put your own preferences in `memory/operator.md` instead. `hand orient` shows the supervisor up to 4000 bytes of that file at the start of a session and after a resume.
+`hand init` rewrites `AGENTS.md`, `CLAUDE.md` and the skills every time, so put your own preferences in `memory/operator.md` instead. `hand orient` shows the supervisor the whole lines of that file that fit in 4000 bytes at the start of a session and after a resume, then lists `memory/operator/*.md` with each file's size and first heading. A core over 4000 bytes prints `operator_memory_over` and the supervisor splits it by the `secondhand` skill: details move verbatim to topic files, the original stays in `memory/archive/`, and you approve the new core.
 
 ## Import another fleet
 

@@ -38,6 +38,16 @@ const (
 
 var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Events: 10, Changes: 20, ShortBytes: 3000, MemoryBytes: 4000, TitleBytes: 50, Bytes: 6000}
 
+const maxTopics = 12
+
+type operatorMemory struct {
+	core       memory.Core
+	lines      []string
+	budget     int
+	topics     [][]string
+	topicTotal int
+}
+
 type section struct {
 	name   string
 	fields []string
@@ -196,11 +206,18 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	folder := inboxFolder(home)
 	artifacts, gcCommand := artifactWarning(home)
 
-	mem, truncated, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
+	core, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
 	if err != nil {
 		return nil, err
 	}
-	memLines := lines(mem)
+	topics, err := memory.Topics(home)
+	if err != nil {
+		return nil, err
+	}
+	om := &operatorMemory{core: core, lines: core.Lines, budget: b.MemoryBytes, topicTotal: len(topics)}
+	for _, t := range topics[:min(maxTopics, len(topics))] {
+		om.topics = append(om.topics, []string{t.File, strconv.FormatInt(t.Bytes, 10), Clip(t.Title, b.TitleBytes)})
+	}
 
 	activeFields := []string{"id", "project", "title", "plan", "attempt", "report", "open_decisions"}
 	if activeNested {
@@ -218,17 +235,21 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, move, supervisor, you, turn, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
+		d := render(home, f, move, supervisor, you, turn, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, om)
 		if len(d.String()) < b.Bytes {
 			return d, nil
+		}
+		if len(om.topics) > 0 {
+			om.topics = om.topics[:len(om.topics)-1]
+			continue
 		}
 		if dropLast(sections) {
 			continue
 		}
-		if len(memLines) == 0 {
+		if len(om.lines) == 0 {
 			return d, nil
 		}
-		memLines, truncated = memLines[:len(memLines)-1], true
+		om.lines = om.lines[:len(om.lines)-1]
 	}
 }
 
@@ -521,7 +542,7 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, move, supervisor, you string, turn Turn, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, move, supervisor, you string, turn Turn, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, om *operatorMemory) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
@@ -572,13 +593,29 @@ func render(home string, f state.Fleet, move, supervisor, you string, turn Turn,
 			d.Field(s.name+"_more", fmt.Sprintf("%d of %d shown; run `%s`", len(s.rows), s.total, s.cmd))
 		}
 	}
-	d.List("operator_memory", memLines)
-	if truncated {
-		d.Field("operator_memory_truncated", "read "+filepath.Join(home, "memory", memory.OperatorFile)+" for the rest")
+	d.List("operator_memory", om.lines)
+	over := len(om.lines) < om.core.Total
+	if over {
+		largest := make([]string, len(om.core.Largest))
+		for i, l := range om.core.Largest {
+			largest[i] = fmt.Sprintf("%d=%d", l.N, l.Bytes)
+		}
+		d.Field("operator_memory_over", fmt.Sprintf("%d bytes, budget %d; %d of %d lines shown; largest: %s; split it, see the secondhand skill", om.core.Bytes, om.budget, len(om.lines), om.core.Total, strings.Join(largest, ", ")))
+	}
+	if om.topicTotal > 0 {
+		if len(om.topics) > 0 {
+			d.Rows("operator_topics", []string{"file", "bytes", "title"}, om.topics)
+		}
+		if len(om.topics) < om.topicTotal {
+			d.Field("operator_topics_more", fmt.Sprintf("%d of %d shown; list %s", len(om.topics), om.topicTotal, filepath.Join(home, "memory", "operator")))
+		}
 	}
 	help := []string{"Capture every new request first: `hand task add --goal TEXT PROJECT TITLE`",
 		"Ask the operator only through `hand decision ask TASK QUESTION`",
 		"Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running; the managed supervisor gets wakes as messages instead)"}
+	if over {
+		help = append(help, "Operator memory is over budget: before dispatching, split it as the secondhand skill says; the operator approves the new core through `hand decision ask TASK QUESTION`")
+	}
 	if resumable {
 		help = append(help, "Resume the supervisor: `hand supervisor resume`")
 	}
@@ -613,14 +650,4 @@ func Clip(s string, n int) string {
 		return cut + "…"
 	}
 	return "…"
-}
-
-func lines(s string) []string {
-	var out []string
-	for _, l := range strings.Split(s, "\n") {
-		if strings.TrimSpace(l) != "" {
-			out = append(out, l)
-		}
-	}
-	return out
 }
