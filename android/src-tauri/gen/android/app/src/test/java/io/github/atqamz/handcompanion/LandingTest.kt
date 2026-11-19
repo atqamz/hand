@@ -84,7 +84,7 @@ class LandingTest {
       landing("handboard://open/$HOME/decision/d123456789") { path(HOME, "decision/d123456789") }
     )
     assertEquals(
-      Landing.Web(HOME, "/$HOME/task/t3#r5"),
+      Landing.Thread(HOME, listOf("t3", "r5")),
       landing("handboard://open/$HOME/task/t3#r5") { path(HOME, "task/t3#r5") }
     )
   }
@@ -98,19 +98,27 @@ class LandingTest {
   }
 
   @Test
-  fun everyOtherPageOpensTheFleetWithTheWebFallback() {
+  fun aTaskAttemptOrReportLinkOpensItsNativeScreen() {
     val cases =
       listOf(
-        "task/t3" to "/$HOME/task/t3",
-        "attempt/a7" to "/$HOME/attempt/a7",
-        "task/t3#r5" to "/$HOME/task/t3#r5"
+        "task/t3" to listOf("t3"),
+        "attempt/a7" to listOf("a7"),
+        "task/t3#r5" to listOf("t3", "r5")
       )
-    for ((page, expected) in cases) {
+    for ((page, refs) in cases) {
       assertEquals(
-        Landing.Web(HOME, expected),
+        Landing.Thread(HOME, refs),
         landing("handboard://open/$HOME/$page") { path(HOME, page) }
       )
     }
+  }
+
+  @Test
+  fun aPageWithNoNativeScreenKeepsTheWebFallback() {
+    assertEquals(
+      Landing.Web(HOME, "/$HOME/connect"),
+      landing("handboard://open/$HOME/connect") { path(HOME, "connect") }
+    )
   }
 
   @Test

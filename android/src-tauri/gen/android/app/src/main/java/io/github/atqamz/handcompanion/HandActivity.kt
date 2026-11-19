@@ -406,6 +406,10 @@ class HandActivity : ComponentActivity() {
               decision = to.ref
             }
             is Landing.Fleet -> show(to.fleet)
+            is Landing.Thread -> {
+              show(to.fleet)
+              threads = to.refs.fold("", ::pushTask)
+            }
             is Landing.Web -> {
               show(to.fleet)
               web = to.path

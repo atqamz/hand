@@ -23,6 +23,7 @@ private fun need(kind: String, word: String, tone: String, extra: String = "") =
 
 private val blocked = need("blocked", "BLOCKED", "fail")
 private val worker = need("worker", "BLOCKED", "fail")
+private val limited = need("limited", "LIMITED", "fail")
 private val failure = need("failure", "FAILED", "fail", ""","title":"Flaky test"""")
 private val decision = need("decision", "DECISION", "wait", ""","title":"Pin it?"""")
 private val report =
@@ -65,6 +66,15 @@ private fun blockedNeed(deny: String? = null): String =
     """"excerpt":"Bash command\n   rm -f x"""" +
     (deny?.let { ""","deny_at":"$it"""" } ?: "") +
     "}"
+
+private fun workerNeed(digest: String = DIGEST, deny: String? = null): String =
+  """{"kind":"worker","ref":"a1","attempt":"a1","task":"t9","title":"Bash: git push --force","word":"BLOCKED",""" +
+    """"tone":"fail","attempt_meta":{"harness":"codex"},""" +
+    """"excerpt":"Run git push?\n1. Yes\n2. No",""" +
+    (deny?.let { """"deny_at":"$it",""" } ?: "") +
+    """"options":[{"label":"1 Yes","keys":["1"]},{"label":"2 No","keys":["2"]}],""" +
+    """"keys":{"options":[{"label":"1 Yes","keys":["1"]},{"label":"2 No","keys":["2"]}],""" +
+    """"revision":6,"digest":"$digest","pressed":2}}"""
 
 private fun refused(status: Int, code: String, message: String = "no") =
   Raw(status, """{"error":{"code":"$code","message":"$message"}}""")
@@ -410,7 +420,69 @@ class FleetModelTest {
     assertEquals(Opens.Row, opensOf(failure))
     assertEquals(Opens.Report, opensOf(report))
     assertEquals(Opens.Web, opensOf(worker))
+    assertEquals(Opens.Card, opensOf(workerNeed()))
+    assertEquals(Opens.Web, opensOf(limited))
     assertEquals(Opens.Web, opensOf(need("artifacts", "OLD FILES", "neutral")))
+  }
+
+  @Test
+  fun aWorkerPressSendsOneKeyWithTheItemsOwnGuardToItsAttempt() {
+    val board = Board({ status(listOf(workerNeed())) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertEquals("worker:a1", model.now().openKey())
+      assertEquals(Notice("a1", "Sent down enter to a1"), model.pressNow(listOf("down", "enter")))
+    }
+    assertEquals(
+      listOf("/api/v1/attempt/a1/keys" to """{"key":"down enter","revision":6,"after":2,"screen":"$DIGEST"}"""),
+      board.posts
+    )
+    assertEquals("Sent down enter · waiting…", model.now().pressed["worker:a1"])
+    assertEquals("", model.now().open)
+  }
+
+  @Test
+  fun aWorkerPressLeavesOutAnEmptyDigest() {
+    val board = Board({ status(listOf(workerNeed(digest = ""))) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.pressNow(listOf("1"))
+    }
+    assertEquals("""{"key":"1","revision":6,"after":2}""", board.posts.single().second)
+  }
+
+  @Test
+  fun aWorkerConflictKeepsTheCardOpenAndSaysTheScreenMoved() {
+    val board = Board({ status(listOf(workerNeed())) }, ackAnswer = { refused(409, "conflict") })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.pressNow(listOf("1"))
+    }
+    assertEquals("worker:a1", model.now().open)
+    assertEquals(Notice("a1", "The screen moved; nothing was sent."), model.now().notice)
+    assertTrue(model.now().pressed.isEmpty())
+  }
+
+  @Test
+  fun aWorkerWithNoScreenHasNoCardAndNothingToPress() {
+    val board = Board({ status(listOf(worker)) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertNull(model.now().openKey())
+      assertNull(model.pressNow(listOf("1")))
+    }
+    assertTrue(board.posts.isEmpty())
+  }
+
+  @Test
+  fun anOpenWorkerCardCountsDownToItsDenyTime() {
+    val model = model(Board({ status(listOf(workerNeed(deny = "2026-11-01T12:00:00Z"))) }))
+    runBlocking { model.refresh() }
+    assertEquals(epoch("2026-11-01T12:00:00Z"), model.now().deadline())
   }
 
   @Test

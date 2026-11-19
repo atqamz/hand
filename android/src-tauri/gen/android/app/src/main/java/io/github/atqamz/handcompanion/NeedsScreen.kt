@@ -23,6 +23,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +57,9 @@ private fun meta(entry: Entry, supervisor: Supervisor?, sent: String?): String {
   val need = entry.need
   return when (need.kind) {
     "blocked" -> listOfNotNull(need.ref, supervisorLabel(supervisor)).joinToString(" · ")
-    else -> listOfNotNull(need.ref, need.task, need.createdAt?.let(::localTime)).joinToString(" · ")
+    else ->
+      listOfNotNull(need.ref, need.task, need.attemptMeta?.harness, need.createdAt?.let(::localTime))
+        .joinToString(" · ")
   }
 }
 
@@ -182,15 +185,9 @@ private fun Misread(ref: String, onForce: () -> Unit) {
 }
 
 @Composable
-private fun BlockedBody(
-  need: Need,
-  supervisor: Supervisor?,
-  pressing: Boolean,
-  onPress: (List<String>) -> Unit,
-  onForce: () -> Unit
-) {
+private fun ScreenExcerpt(excerpt: String?) {
   val hand = LocalHand.current
-  need.excerpt?.let {
+  excerpt?.let {
     Box(
       Modifier.fillMaxWidth()
         .clip(MaterialTheme.shapes.medium)
@@ -200,6 +197,17 @@ private fun BlockedBody(
       Text(it, color = hand.screenFg, style = HandMono)
     }
   }
+}
+
+@Composable
+private fun BlockedBody(
+  need: Need,
+  supervisor: Supervisor?,
+  pressing: Boolean,
+  onPress: (List<String>) -> Unit,
+  onForce: () -> Unit
+) {
+  ScreenExcerpt(need.excerpt)
   val ask = supervisor?.ask
   val enabled = supervisor?.keys != null && !pressing
   if (ask != null) {
@@ -208,6 +216,22 @@ private fun BlockedBody(
     KeyRow(FIXED_KEYS.map { it to listOf(it) }, enabled, onPress)
   }
   Misread(need.ref.orEmpty(), onForce)
+}
+
+@Composable
+private fun WorkerBody(
+  need: Need,
+  pressing: Boolean,
+  onPress: (List<String>) -> Unit,
+  onOpen: () -> Unit
+) {
+  ScreenExcerpt(need.excerpt)
+  KeyRow(need.keys?.options.orEmpty().map { it.label to it.keys }, !pressing, onPress)
+  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+    TextButton(onOpen) {
+      Text("Open ${need.attempt ?: need.ref.orEmpty()}", color = LocalHand.current.ink(Tone.Accent), style = type.bodyMedium)
+    }
+  }
 }
 
 @Composable
@@ -261,7 +285,7 @@ fun NeedsScreen(
               entry,
               state.supervisor,
               sent,
-              if (entry.need.kind == "blocked") state.left else null,
+              if (entry.need.kind in SCREEN_KINDS) state.left else null,
               { onToggle(entry.key) }
             ) {
               when {
@@ -273,6 +297,10 @@ fun NeedsScreen(
                     onPress,
                     onForce
                   )
+                entry.need.kind == "worker" ->
+                  WorkerBody(entry.need, entry.key in state.pressing, onPress) {
+                    onAttempt(attempt ?: ref)
+                  }
                 else -> choice(ref)
               }
             }

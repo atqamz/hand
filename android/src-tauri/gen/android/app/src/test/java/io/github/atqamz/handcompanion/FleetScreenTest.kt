@@ -160,6 +160,49 @@ private fun blocked(
     notice = notice
   )
 
+private val workerScreen =
+  "Run git push --force origin fix-arm64?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, tell codex what to do"
+
+private fun worker(left: String? = null, notice: Notice? = null): FleetState =
+  FleetState(
+    name = "atlas",
+    pill = Badge("working", Tone.Pass),
+    waiting = 2,
+    tone = Tone.Fail,
+    loaded = true,
+    tab = Tab.Needs,
+    bands =
+      bands(
+        listOf(
+          Need(
+            "worker",
+            "a61",
+            "Bash: git push --force · proceed?",
+            "BLOCKED",
+            "fail",
+            task = "t39",
+            attempt = "a61",
+            attemptMeta = NeedAttempt("codex"),
+            excerpt = workerScreen,
+            keys =
+              NeedKeys(
+                listOf(
+                  AskOption("1 Yes", listOf("1")),
+                  AskOption("2 Yes, always", listOf("2")),
+                  AskOption("3 No", listOf("3"))
+                ),
+                6,
+                DIGEST,
+                0
+              )
+          ),
+          need("decision", "DECISION", "wait", "d12", "Pin the parser to which version?", "t40", "2026-11-01T11:40:00Z")
+        )
+      ),
+    left = left,
+    notice = notice
+  )
+
 private val reconnecting = several.copy(band = Band("Reconnecting…", retry = false, live = true))
 
 private val liveLost =
@@ -243,4 +286,8 @@ class FleetScreenTest {
   @Test
   fun blockedStaleDark() =
     shot(true, "f000000000003", blocked(notice = Notice("s3", "The screen moved; nothing was sent.")))
+
+  @Test fun workerCardLight() = shot(false, "f000000000003", worker(left = "1:48"))
+
+  @Test fun workerCardDark() = shot(true, "f000000000003", worker(left = "1:48"))
 }

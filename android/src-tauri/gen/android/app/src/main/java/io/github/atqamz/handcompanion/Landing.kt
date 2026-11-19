@@ -11,6 +11,8 @@ sealed interface Landing {
 
   data class Fleet(val fleet: String) : Landing
 
+  data class Thread(val fleet: String, val refs: List<String>) : Landing
+
   data class Web(val fleet: String, val path: String) : Landing
 
   data class Refused(val message: String) : Landing
@@ -31,6 +33,12 @@ fun landing(link: String, open: (String) -> String?): Landing {
   return when {
     page.isEmpty() -> Landing.Fleet(fleet)
     page.startsWith("decision/") -> Landing.Decision(fleet, page.removePrefix("decision/"))
+    page.startsWith("task/") -> {
+      val task = page.removePrefix("task/").substringBefore('#')
+      val report = page.substringAfter('#', "")
+      Landing.Thread(fleet, listOf(task) + listOfNotNull(report.takeIf(String::isNotEmpty)))
+    }
+    page.startsWith("attempt/") -> Landing.Thread(fleet, listOf(page.removePrefix("attempt/")))
     else -> Landing.Web(fleet, path)
   }
 }
