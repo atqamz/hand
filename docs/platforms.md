@@ -23,6 +23,7 @@ In the table:
 | Install script fetches `hand-iroh` next to `hand`, and keeps the old binaries when its checksum, version or archive fails | CI e2e, CI | CI e2e | CI e2e, in PowerShell 5.1 and 7, for a corrupted sidecar archive |
 | `hand init` and the Luvus pin | daily, CI e2e | real Mac (#895), CI e2e | CI e2e |
 | Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
+| Luvus's Visual C++ 2015-2022 x64 runtime | not needed | not needed | a prerequisite (`winget install Microsoft.VCRedist.2015+.x64`); CI runners have it, so no run has been without it; `hand doctor` checks its three DLLs in `System32`, and a pin refused with exit `0xc0000135` names the fix |
 | Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
 | Start claude, and accept its trust screen | daily; CI, real harness | CI, real harness | CI, real harness |
 | Start codex or agy | real; codex: CI, real harness | codex: CI, real harness; agy: CI, fake | codex: CI, real harness; agy: CI, fake |

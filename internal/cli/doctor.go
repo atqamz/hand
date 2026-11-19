@@ -74,6 +74,9 @@ func cmdDoctor(r *runner, args []string) error {
 			c.add("systemd", "info", "no systemd user session: Hand starts the board, the watchers and Luvus as detached processes")
 		}
 	}
+	if runtime.GOOS == "windows" {
+		r.doctorVCRuntime(&c)
+	}
 	r.doctorDesktop(ctx, &d, &c, path)
 	root, err := r.rootDir()
 	if err != nil {
