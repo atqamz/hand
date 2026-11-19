@@ -27,7 +27,7 @@ func installDesktop(t *testing.T, fx *doctorFixture, params map[string]string) {
 
 func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux and Windows only")
+		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
 	}
 	commit, version := cli.Commit, cli.Version
 	t.Cleanup(func() { cli.Commit, cli.Version = commit, version })
@@ -98,7 +98,7 @@ func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
 
 func TestDoctorDesktopReadsTheBinaryNextToHand(t *testing.T) {
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux and Windows only")
+		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
 	}
 	fx := newDoctorFixture(t)
 	buildChannel(t, "edge")
@@ -183,7 +183,7 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 	if err := os.Remove(entry); err != nil {
 		t.Fatal(err)
 	}
-	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"], runtime.GOOS)
+	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"], runtime.GOOS, fx.h.vars["HOME"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +195,9 @@ func TestDoctorDesktopEntryRow(t *testing.T) {
 	}
 }
 
-func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
+func TestDoctorSaysHowFarTheWindowWasTried(t *testing.T) {
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux and Windows only")
+		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
 	}
 	fx := newDoctorFixture(t)
 	buildChannel(t, "edge")
@@ -205,6 +205,15 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
 	window, entry, shortcut := rows["desktop window"], rows["desktop entry"], rows["start menu shortcut"]
+	if runtime.GOOS == "darwin" {
+		if window[0] != "info" || !strings.Contains(window[1], "untested on a real Mac") || !strings.Contains(window[1], "amd64 build has never run") {
+			t.Fatalf("desktop window = %q", window)
+		}
+		if shortcut[0] != "" || entry[0] != "" {
+			t.Fatalf("a Windows or Linux row on macOS: %q %q", shortcut, entry)
+		}
+		return
+	}
 	if runtime.GOOS != "windows" {
 		if window[0] != "" {
 			t.Fatalf("a desktop window row off Windows: %q", window)
@@ -219,6 +228,50 @@ func TestDoctorSaysHowFarTheWindowWasTriedOnWindows(t *testing.T) {
 	}
 	if shortcut[0] != "warn" || !strings.Contains(shortcut[1], "is missing") {
 		t.Fatalf("start menu shortcut = %q", shortcut)
+	}
+}
+
+func TestDoctorDesktopAppRow(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Hand.app is written on macOS only")
+	}
+	fx := newDoctorFixture(t)
+	holdWatchLock(t, fx.h.home)
+	getenv := func(k string) string { return fx.h.vars[k] }
+	app := filepath.Join(fx.h.vars["HOME"], "Applications", "Hand.app")
+	row := func() [2]string { return checkRows(t, fx.h.ok("doctor"))["desktop app"] }
+	if r := row(); r[0] != "" {
+		t.Fatalf("a row without hand-desktop: %q", r)
+	}
+	if _, err := launcher.Sync(getenv, filepath.Join(app, "Contents", "MacOS", "hand-desktop")); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); r[0] != "warn" || !strings.Contains(r[1], "left over") || !strings.Contains(r[1], "hand update") {
+		t.Fatalf("left over = %q", r)
+	}
+	if err := os.RemoveAll(app); err != nil {
+		t.Fatal(err)
+	}
+	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+	if r := row(); r[0] != "warn" || !strings.Contains(r[1], "is missing") {
+		t.Fatalf("missing = %q", r)
+	}
+	bin := filepath.Join(app, "Contents", "MacOS", "hand-desktop")
+	if _, err := launcher.Sync(getenv, bin); err != nil {
+		t.Fatal(err)
+	}
+	b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+	if err := os.WriteFile(bin, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); r[0] != "ok" {
+		t.Fatalf("synced = %q", r)
+	}
+	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); r[0] != "warn" || !strings.Contains(r[1], "not Hand's launcher entry") {
+		t.Fatalf("foreign = %q", r)
 	}
 }
 
@@ -241,7 +294,7 @@ func TestDoctorStartMenuShortcutRow(t *testing.T) {
 	if r := row(); r[0] != "warn" || !strings.Contains(r[1], "is missing") {
 		t.Fatalf("missing = %q", r)
 	}
-	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"], runtime.GOOS)
+	bin, err := desktopasset.Locate(filepath.Join(fx.self, "hand"), fx.h.vars["PATH"], runtime.GOOS, fx.h.vars["HOME"])
 	if err != nil {
 		t.Fatal(err)
 	}

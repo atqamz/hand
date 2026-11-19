@@ -89,10 +89,12 @@ The install phase changes your user `PATH` in the registry and puts it back when
 ## What CI checks in the desktop window
 
 The `window` job of [`desktop.yaml`](../../.github/workflows/desktop.yaml) runs `TestRealWindow` (`cmd/hand-desktop/window_e2e_test.go`, build tag `e2e`) on `ubuntu-latest` (under `xvfb-run`, a 1600x1000 screen), `macos-latest` and `windows-latest`, for every pull request that touches the window, `internal/board` or the workflow, and on demand. In folders of its own under the runner's temp folder, with no secret and no real fleet, the test:
-- builds `hand` and `hand-desktop` with `-tags e2e` (a GUI-subsystem build on Windows), which adds MyGo's automation plugin and lifts the refusal that keeps macOS, and a stable build on Windows, from starting; the default and release builds link neither, and `go test ./cmd/hand-desktop` fails if either does;
+- builds `hand` and `hand-desktop` with `-tags e2e` (a GUI-subsystem build on Windows), which adds MyGo's automation plugin and lifts the refusal that keeps a stable build on Windows from starting; the default and release builds link neither, and `go test ./cmd/hand-desktop` fails if either does;
 - makes a fleet named `Window Check` with `hand init` (no Luvus download), starts a Board on a free loopback port and mints the fleet's token with `hand open --print`;
 - starts the window with `MYGO_AUTOMATION` naming a socket, waits for the window to settle, and fails unless its element tree holds the fleet's name and the `Needs` head, and a capture is a PNG that is not blank;
 - saves the capture, the element tree and the Board's and window's logs, and quits the window by closing its stdin, which the automation protocol has no call for; it fails unless the window exits with status 0.
+
+On `macos-latest` the job runs a second test, `TestRealWindowFromBundle`, which builds the same two binaries, serves them from a fake `edge` release on `127.0.0.1`, and runs `hand update --channel edge` in a temporary home, as a Mac user does. It fails unless `~/Applications/Hand.app` holds `Info.plist` (which `plutil -lint` accepts), `PkgInfo`, `Resources/Hand.icns` (which `iconutil` reads as ten images), the window as the release served it, executable, and `MacOS/hand` as a symlink to the installed `hand`, and then it runs the checks above against the window started from inside the bundle, with the short `PATH` that Finder gives an app (`/usr/bin:/bin:/usr/sbin:/sbin`). Its files are in the `bundle` folder of the artifact. It does not open the app through Finder, Spotlight or Launchpad, and the runner is arm64: the amd64 window has never run.
 
 The files are the `window-<os>` artifact, kept 14 days.
 

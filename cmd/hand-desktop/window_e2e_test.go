@@ -81,10 +81,22 @@ func goBuild(t *testing.T, dir, out, tags string, args ...string) {
 	}
 }
 
-func TestRealWindow(t *testing.T) {
+func TestRealWindow(t *testing.T) { realWindow(t, false) }
+
+func TestRealWindowFromBundle(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Hand.app is built on macOS only")
+	}
+	realWindow(t, true)
+}
+
+func realWindow(t *testing.T, fromBundle bool) {
 	outDir := os.Getenv("HAND_WINDOW_OUT")
 	if outDir == "" {
 		t.Skip("set HAND_WINDOW_OUT to a folder to run a real window and keep its picture there")
+	}
+	if fromBundle {
+		outDir = filepath.Join(outDir, "bundle")
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -135,6 +147,9 @@ func TestRealWindow(t *testing.T) {
 		cmd.Dir = fleet
 		return cmd
 	}
+	if fromBundle {
+		deskBin = bundleFromUpdate(t, run, handBin, deskBin, home, outDir)
+	}
 	if b, err := run(exec.Command(handBin, "init", "--name", fleetName)).CombinedOutput(); err != nil {
 		t.Fatalf("hand init: %v\n%s", err, b)
 	}
@@ -181,6 +196,9 @@ func TestRealWindow(t *testing.T) {
 	defer winLog.Close()
 	win := run(exec.Command(deskBin))
 	win.Env = append(win.Env, "MYGO_AUTOMATION="+sock)
+	if fromBundle {
+		win.Env = append(win.Env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
+	}
 	win.Stdout, win.Stderr = winLog, winLog
 	stdin, err := win.StdinPipe()
 	if err != nil {

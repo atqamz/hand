@@ -81,7 +81,7 @@ func newFetch(t *testing.T) *fixture {
 	f.srv = release(t, files)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
 	f.data = t.TempDir()
-	env := []string{"HAND_CALLS=" + f.calls, "XDG_DATA_HOME=" + f.data, "APPDATA=" + f.data}
+	env := []string{"HAND_CALLS=" + f.calls, "XDG_DATA_HOME=" + f.data, "APPDATA=" + f.data, "HOME=" + f.data}
 	goos, arch := hostTarget()
 	f.o = Options{
 		Target:    f.target,

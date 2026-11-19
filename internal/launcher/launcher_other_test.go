@@ -1,4 +1,4 @@
-//go:build !linux && !windows
+//go:build !linux && !windows && !darwin
 
 package launcher
 
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestNoLauncherEntryOutsideLinux(t *testing.T) {
+func TestNoLauncherEntryOnOtherSystems(t *testing.T) {
 	home := t.TempDir()
 	getenv := func(k string) string {
 		if k == "XDG_DATA_HOME" || k == "HOME" || k == "USERPROFILE" {

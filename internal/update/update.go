@@ -78,11 +78,6 @@ func sidecarPath(target, goos string) string {
 	return filepath.Join(filepath.Dir(target), sidecar.Name+exe)
 }
 
-func desktopPath(target, goos string) string {
-	_, exe := packaging(goos)
-	return filepath.Join(filepath.Dir(target), desktopasset.Name+exe)
-}
-
 func lockFile(root string) (*os.File, bool, error) {
 	f, err := os.OpenFile(filepath.Join(root, "update.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -217,8 +212,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			}
 		}
 	}
-	desktopNext := desktopPath(o.Target, o.OS)
+	desktopNext := desktopasset.Path(o.Target, o.OS, o.Getenv("HOME"))
 	desktopOn := desktopasset.Supported(o.OS, o.Arch, o.Channel)
+	foreign := ""
+	if desktopOn && o.OS == "darwin" {
+		if state, where := launcher.Check(o.Getenv, desktopNext); state == launcher.Foreign {
+			desktopOn, foreign = false, where
+		}
+	}
 	desktopStale := false
 	if desktopOn {
 		gotVersion, gotCommit, err := desktopasset.BinaryVersion(ctx, desktopNext)
@@ -226,6 +227,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	var desktopBin string
 	switch {
+	case foreign != "":
+		rep.Desktop = "skipped: " + foreign + " is not Hand's"
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
 		if o.Check && o.hasWindow(desktopNext) {
@@ -248,7 +251,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.fail(fmt.Sprintf("hand-desktop was not replaced (%v); the rest of the update finished", err))
 		} else {
 			if bin != "" {
-				if err := swap(bin, desktopNext); err != nil {
+				if err := o.swapWindow(bin, desktopNext); err != nil {
 					return rep, err
 				}
 			}
@@ -339,7 +342,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	o.dropWindow(&rep, desktopOn, desktopNext)
 	if !current {
 		if desktopBin != "" {
-			if err := swap(desktopBin, desktopNext); err != nil {
+			if err := o.swapWindow(desktopBin, desktopNext); err != nil {
 				_ = os.Remove(journalPath(o.Root))
 				return rep, err
 			}
@@ -385,6 +388,15 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	o.launcher(&rep, desktopOn, desktopNext)
 	rep.Status = "updated"
 	return rep, nil
+}
+
+func (o Options) swapWindow(src, dst string) error {
+	if o.OS == "darwin" {
+		if _, err := launcher.Sync(o.Getenv, dst); err != nil {
+			return fmt.Errorf("update: cannot prepare %s: %w", dst, err)
+		}
+	}
+	return swap(src, dst)
 }
 
 func (o Options) launcher(rep *Report, on bool, bin string) {

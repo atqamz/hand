@@ -27,7 +27,7 @@ test "$got" = "hand-desktop $want" || {
 }
 printf 'hand-desktop --version: %s\n' "$got"
 
-if [ "$(go env GOOS)" != linux ]; then
+if [ "$(go env GOOS)" = windows ]; then
 	code=0
 	"$out/hand-desktop$exe" >"$out/refusal" 2>&1 </dev/null || code=$?
 	test "$code" = 2 || {
