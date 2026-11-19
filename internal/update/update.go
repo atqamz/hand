@@ -388,17 +388,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 }
 
 func (o Options) launcher(rep *Report, on bool, bin string) {
-	if o.Check || !on {
+	if o.Check {
 		return
 	}
-	var skipped string
-	var err error
-	if fi, serr := os.Stat(bin); serr == nil && fi.Mode().IsRegular() {
-		skipped, err = launcher.Sync(o.Getenv, bin)
-	} else {
-		skipped, err = launcher.Remove(o.Getenv)
+	fi, serr := os.Stat(bin)
+	switch {
+	case serr != nil || !fi.Mode().IsRegular():
+		rep.launcherResult(launcher.Remove(o.Getenv))
+	case on:
+		rep.launcherResult(launcher.Sync(o.Getenv, bin))
 	}
-	rep.launcherResult(skipped, err)
 }
 
 func (rep *Report) launcherResult(skipped string, err error) {
@@ -428,7 +427,6 @@ func (o Options) dropWindow(rep *Report, desktopOn bool, bin string) {
 		return
 	}
 	rep.Desktop += "; removed the installed " + name
-	rep.launcherResult(launcher.Remove(o.Getenv))
 }
 
 func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string, string, error) {

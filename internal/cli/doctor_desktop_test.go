@@ -259,6 +259,24 @@ func TestDoctorStartMenuShortcutRow(t *testing.T) {
 	}
 }
 
+func TestDoctorStartMenuShortcutLeftOverRow(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the Start Menu shortcut is written on Windows only")
+	}
+	fx := newDoctorFixture(t)
+	buildChannel(t, "edge")
+	holdWatchLock(t, fx.h.home)
+	fx.h.vars["APPDATA"] = t.TempDir()
+	getenv := func(k string) string { return fx.h.vars[k] }
+	if _, err := launcher.Sync(getenv, filepath.Join(t.TempDir(), "hand-desktop.exe")); err != nil {
+		t.Fatal(err)
+	}
+	row := checkRows(t, fx.h.ok("doctor"))["start menu shortcut"]
+	if row[0] != "warn" || !strings.Contains(row[1], "left over") || !strings.Contains(row[1], "hand update") {
+		t.Fatalf("left over = %q", row)
+	}
+}
+
 func TestDoctorHasNoWindowRowBeforeTheWindowIsInstalled(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("the desktop window row exists only on Windows")

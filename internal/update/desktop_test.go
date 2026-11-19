@@ -700,3 +700,36 @@ func TestRunLeavesAUsersOwnStartMenuShortcutAloneOnAStableWindowsUpdate(t *testi
 		t.Fatalf("the user's shortcut changed: %q", b)
 	}
 }
+
+func TestRunRemovesALauncherEntryLeftWithoutAWindowOnAStableUpdate(t *testing.T) {
+	var entry string
+	switch runtime.GOOS {
+	case "linux":
+		entry = filepath.Join("applications", "hand-desktop.desktop")
+	case "windows":
+		entry = filepath.Join("Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")
+	default:
+		t.Skip("the launcher entry is written on Linux and Windows only")
+	}
+	f := windowFixture(t, "stable")
+	f.isCurrent()
+	bin := desktopPath(f.target, "windows")
+	if _, err := launcher.Sync(f.o.Getenv, bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(bin); err != nil {
+		t.Fatal(err)
+	}
+	f.o.Check = true
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.data, entry)); err != nil {
+		t.Fatalf("--check removed the entry: %v", err)
+	}
+	f.o.Check = false
+	if rep, err := Run(context.Background(), f.o); err != nil || rep.Failed || len(rep.Help) != 0 {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, filepath.Join(f.data, entry))
+}

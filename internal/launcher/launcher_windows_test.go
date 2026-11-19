@@ -140,6 +140,28 @@ func TestSyncLeavesAUsersOwnShortcutAlone(t *testing.T) {
 	}
 }
 
+func TestSyncLeavesAShortcutAloneThatTurnsForeignWhileItRuns(t *testing.T) {
+	f := newWin(t)
+	var before []byte
+	real := putIcon
+	putIcon = func(path string, want []byte) (bool, error) {
+		changed, err := real(path, want)
+		before = f.foreign(t)
+		return changed, err
+	}
+	t.Cleanup(func() { putIcon = real })
+	skipped, err := Sync(f.getenv, f.bin)
+	if skipped != f.lnk || err != nil {
+		t.Fatalf("Sync = %q, %v", skipped, err)
+	}
+	if f.writes != 0 {
+		t.Fatalf("PowerShell ran %d times over a shortcut that turned foreign", f.writes)
+	}
+	if after, _ := os.ReadFile(f.lnk); string(after) != string(before) {
+		t.Fatal("Sync changed the shortcut that turned foreign")
+	}
+}
+
 func TestRemoveLeavesAUsersOwnShortcutAlone(t *testing.T) {
 	f := newWin(t)
 	before := f.foreign(t)

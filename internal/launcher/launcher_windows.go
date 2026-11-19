@@ -22,6 +22,8 @@ const (
 		`$l.IconLocation=$env:HAND_ICON+',0';$l.Description=$env:HAND_DESC;$l.Save()`
 )
 
+var putIcon = put
+
 var writeLnk = func(env []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -65,7 +67,7 @@ func Sync(getenv func(string) string, bin string) (skipped string, err error) {
 		return lnk, nil
 	}
 	ico := icoPath(bin)
-	if _, err := put(ico, iconFile()); err != nil {
+	if _, err := putIcon(ico, iconFile()); err != nil {
 		return "", fmt.Errorf("launcher: cannot write %s: %w", ico, err)
 	}
 	switch state, _ := Check(getenv, bin); state {
@@ -121,7 +123,6 @@ func Check(getenv func(string) string, bin string) (State, string) {
 		return Foreign, lnk
 	}
 	ico := icoPath(bin)
-	// shortcut: the target is not read (LinkInfo keeps it as lossy ANSI); the working folder and icon stand for it, so a hand-edited target goes unseen.
 	if !strings.EqualFold(s.WorkDir, filepath.Dir(bin)) || !strings.EqualFold(strings.TrimSuffix(s.Icon, ",0"), ico) {
 		return Elsewhere, lnk
 	}
