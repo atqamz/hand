@@ -166,6 +166,9 @@ func TestBundleRemoveTakesOnlyHands(t *testing.T) {
 	if _, err := os.Stat(neighbour); err != nil {
 		t.Fatalf("a neighbour went too: %v", err)
 	}
+	if entries, _ := os.ReadDir(filepath.Dir(x.b.app)); len(entries) != 1 {
+		t.Fatalf("Applications holds %v, want only the neighbour", entries)
+	}
 	if _, err := os.Stat(x.hand); !os.IsNotExist(err) {
 		t.Fatalf("the hand behind the link: %v", err)
 	}

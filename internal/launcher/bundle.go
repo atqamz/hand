@@ -171,8 +171,12 @@ func bundleRemove(home string) (skipped string, err error) {
 	if !owned {
 		return b.app, nil
 	}
-	if err := os.RemoveAll(b.app); err != nil {
+	gone := filepath.Join(filepath.Dir(b.app), ".hand-desktop.removed-"+rand.Text())
+	if err := os.Rename(b.app, gone); err != nil {
 		return "", fmt.Errorf("launcher: cannot remove %s: %w", b.app, err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		return "", fmt.Errorf("launcher: %s was moved to %s but not all of it could be removed: %w", b.app, gone, err)
 	}
 	return "", nil
 }
