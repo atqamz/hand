@@ -23,7 +23,7 @@ pub enum Method {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RequestError {
     Busy,
-    NoLaptop,
+    NoHost,
     Unreachable,
     Unpaired,
     Lost,
@@ -37,7 +37,7 @@ impl RequestError {
     pub fn name(self) -> &'static str {
         match self {
             Self::Busy => "busy",
-            Self::NoLaptop => "no_laptop",
+            Self::NoHost => "no_laptop",
             Self::Unreachable => "unreachable",
             Self::Unpaired => "unpaired",
             Self::Lost => "lost",
@@ -54,7 +54,7 @@ impl From<OpenError> for RequestError {
         match error {
             OpenError::Busy => Self::Busy,
             OpenError::Lost => Self::Lost,
-            OpenError::NotConfigured => Self::NoLaptop,
+            OpenError::NotConfigured => Self::NoHost,
             OpenError::Unreachable => Self::Unreachable,
         }
     }
@@ -737,7 +737,7 @@ mod tests {
     fn every_failure_has_the_name_kotlin_reads() {
         let names = [
             (RequestError::Busy, "busy"),
-            (RequestError::NoLaptop, "no_laptop"),
+            (RequestError::NoHost, "no_laptop"),
             (RequestError::Unreachable, "unreachable"),
             (RequestError::Unpaired, "unpaired"),
             (RequestError::Lost, "lost"),
@@ -1149,7 +1149,7 @@ mod tests {
     }
 
     #[test]
-    fn open_failures_keep_their_kind_and_a_missing_laptop_is_its_own() {
+    fn open_failures_keep_their_kind_and_a_missing_host_is_its_own() {
         assert_eq!(RequestError::from(OpenError::Busy), RequestError::Busy);
         assert_eq!(RequestError::from(OpenError::Lost), RequestError::Lost);
         assert_eq!(
@@ -1158,7 +1158,7 @@ mod tests {
         );
         assert_eq!(
             RequestError::from(OpenError::NotConfigured),
-            RequestError::NoLaptop
+            RequestError::NoHost
         );
     }
 

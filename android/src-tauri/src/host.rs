@@ -389,7 +389,7 @@ fn start(
         let cipher = Arc::new(HostCipher(host.clone()));
         let sessions = Sessions::open(&data_dir, HostJar(host.clone()), cipher.clone())
             .map(Arc::new)
-            .map_err(|error| format!("the phone's pairings could not be read: {error}"))?;
+            .map_err(|error| format!("this Companion's pairings could not be read: {error}"))?;
         if sessions.quarantined() {
             let _ = host.unreadable();
         }
@@ -399,7 +399,7 @@ fn start(
                 cipher,
             }))
             .map(Arc::new)
-            .map_err(|error| format!("the phone's key could not start the companion: {error}"))?;
+            .map_err(|error| format!("this Companion's key could not start it: {error}"))?;
         let feed = Feed::new(companion.dialer(), data_dir.join("alerts"));
         let alerts = Supervisor::new(feed, sessions.clone(), HostSink(host.clone()), RESCAN);
         let restored = companion.clone();
@@ -640,7 +640,7 @@ fn send(
         .unwrap()
         .core
         .clone()
-        .ok_or(RequestError::NoLaptop)?;
+        .ok_or(RequestError::NoHost)?;
     let fleet = text(env, fleet)?.ok_or(RequestError::Malformed)?;
     let path = text(env, path)?.ok_or(RequestError::Malformed)?;
     let csrf = text(env, csrf)?;
@@ -710,7 +710,7 @@ fn offered(text: &str) -> serde_json::Value {
         return failed(PairError::NoPending);
     };
     match core.companion.offer_link(text) {
-        Ok(offer) => serde_json::json!({ "laptop": offer.laptop, "replaces": offer.replaces }),
+        Ok(offer) => serde_json::json!({ "laptop": offer.host, "replaces": offer.replaces }),
         Err(error) => serde_json::json!({ "failure": "link", "message": error.message() }),
     }
 }
@@ -830,7 +830,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
     let forgotten = catch_unwind(AssertUnwindSafe(|| {
         core().is_none_or(|core| {
             runtime()
-                .block_on(core.companion.forget_laptop(forget_alerts))
+                .block_on(core.companion.forget_host(forget_alerts))
                 .is_ok()
         })
     }));

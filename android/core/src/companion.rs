@@ -192,7 +192,7 @@ impl Companion {
     pub fn cant_reach(&self) -> String {
         match self.pairing.lock().unwrap().active() {
             Some(active) => format!("Can't reach {}.", short_id(active)),
-            None => "Can't reach your laptop.".to_owned(),
+            None => "Can't reach your host.".to_owned(),
         }
     }
 
@@ -200,7 +200,7 @@ impl Companion {
         self.pairing.lock().unwrap().clear_pending();
     }
 
-    pub async fn forget_laptop(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+    pub async fn forget_host(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
         let forgotten = {
             let _store = self.store.lock().unwrap();
             clear()?;
@@ -533,7 +533,7 @@ impl OpenLinkError {
             Self::Rejected => OPEN_REJECTED,
             Self::NotPaired => NOT_PAIRED,
             Self::Failed(ConfirmError::Open(OpenError::Busy)) => {
-                "Your laptop is busy. Tap the link again."
+                "Your host is busy. Tap the link again."
             }
             Self::Failed(error) => error.message(),
         }
@@ -697,7 +697,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_request_with_no_laptop_paired_says_so() {
+    async fn a_request_with_no_host_paired_says_so() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let request = Request::new(
@@ -709,10 +709,7 @@ mod tests {
             b"",
         )
         .unwrap();
-        assert_eq!(
-            companion.request(&request).await,
-            Err(RequestError::NoLaptop)
-        );
+        assert_eq!(companion.request(&request).await, Err(RequestError::NoHost));
     }
 
     #[tokio::test]
@@ -720,7 +717,7 @@ mod tests {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let offer = companion.offer_link(LINK).unwrap();
-        assert_eq!(offer.laptop, "4d92…6ed6");
+        assert_eq!(offer.host, "4d92…6ed6");
         assert!(companion.dialer.target().await.is_none());
     }
 
@@ -730,8 +727,8 @@ mod tests {
         let companion = Companion::start(config(&dir)).await.unwrap();
         let padded = format!("\n\t {LINK} \r\n");
         let offer = companion.offer_link(&padded).unwrap();
-        assert_eq!(offer.laptop, "4d92…6ed6");
-        assert_eq!(companion.pending_offer().unwrap().laptop, offer.laptop);
+        assert_eq!(offer.host, "4d92…6ed6");
+        assert_eq!(companion.pending_offer().unwrap().host, offer.host);
     }
 
     #[tokio::test]
@@ -743,11 +740,11 @@ mod tests {
             companion.offer_link(SECOND_LINK).unwrap_err(),
             OfferError::Pending
         );
-        assert_eq!(companion.pending_offer().unwrap().laptop, first.laptop);
+        assert_eq!(companion.pending_offer().unwrap().host, first.host);
     }
 
     #[tokio::test]
-    async fn a_relaunch_without_a_laptop_stays_on_the_pairing_screen() {
+    async fn a_relaunch_without_a_host_stays_on_the_pairing_screen() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         assert_eq!(companion.open_board().await.unwrap(), None);
@@ -755,9 +752,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_relaunch_with_an_unreachable_laptop_fails_and_keeps_the_laptop() {
+    async fn a_relaunch_with_an_unreachable_host_fails_and_keeps_the_host() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let error = companion.open_board().await.unwrap_err();
         assert!(matches!(error, ConfirmError::Open(_)), "{error:?}");
@@ -767,11 +764,11 @@ mod tests {
                 .target()
                 .await
                 .map(|target| target.id.to_string()),
-            Some(LAPTOP.to_owned())
+            Some(HOST.to_owned())
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{LAPTOP}\n")
+            format!("{HOST}\n")
         );
     }
 
@@ -821,9 +818,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_pairing_that_cannot_reach_the_laptop_changes_nothing_and_stays_pending() {
+    async fn a_pairing_that_cannot_reach_the_host_changes_nothing_and_stays_pending() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
         companion.open_board().await.unwrap_err();
@@ -844,11 +841,11 @@ mod tests {
                 .target()
                 .await
                 .map(|target| target.id.to_string()),
-            Some(LAPTOP.to_owned())
+            Some(HOST.to_owned())
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{LAPTOP}\n")
+            format!("{HOST}\n")
         );
         assert_eq!(sessions.header(), None);
     }
@@ -862,9 +859,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_paired_laptop_becomes_the_laptop_and_its_fleets_are_stored_and_replace_the_old() {
+    async fn a_paired_host_becomes_the_host_and_its_fleets_are_stored_and_replace_the_old() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
         let sessions = Sessions::open(dir.path(), held(Some(old)), Arc::new(TestCipher)).unwrap();
@@ -947,12 +944,12 @@ mod tests {
                 .map(|target| target.id.to_string()),
             Some(link.endpoint_id.clone())
         );
-        assert_eq!(companion.pending_offer().unwrap().laptop, "4d92…6ed6");
+        assert_eq!(companion.pending_offer().unwrap().host, "4d92…6ed6");
         assert!(sessions.header().is_some());
     }
 
     #[tokio::test]
-    async fn a_laptop_file_that_cannot_be_written_still_ends_the_pairing_and_says_so() {
+    async fn a_host_file_that_cannot_be_written_still_ends_the_pairing_and_says_so() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
@@ -989,14 +986,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_pairing_taken_before_a_forget_does_not_keep_the_laptop() {
+    async fn a_pairing_taken_before_a_forget_does_not_keep_the_host() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
-        companion.forget_laptop(|| Ok(())).await.unwrap();
+        companion.forget_host(|| Ok(())).await.unwrap();
         let result = companion
             .settle(
                 &sessions,
@@ -1015,7 +1012,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_forget_that_lands_while_a_pairing_commits_leaves_no_store_laptop_or_target() {
+    async fn a_forget_that_lands_while_a_pairing_commits_leaves_no_store_host_or_target() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
@@ -1051,7 +1048,7 @@ mod tests {
         let cleared = {
             let sessions = sessions.clone();
             companion
-                .forget_laptop(move || {
+                .forget_host(move || {
                     let cleared = sessions.forget();
                     gate.resume.notify_one();
                     let _ = settled.recv_timeout(Duration::from_secs(1));
@@ -1079,7 +1076,7 @@ mod tests {
             let companion = companion.clone();
             tokio::spawn(async move {
                 companion
-                    .forget_laptop(move || {
+                    .forget_host(move || {
                         let _ = entered.send(());
                         released
                             .recv_timeout(Duration::from_secs(30))
@@ -1106,7 +1103,7 @@ mod tests {
         assert_eq!(
             tapped.expect("the offer and the cancel waited behind the clear"),
             Ok(Offer {
-                laptop: "4d92…6ed6".to_owned(),
+                host: "4d92…6ed6".to_owned(),
                 replaces: false,
             })
         );
@@ -1116,9 +1113,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_forget_between_reading_a_laptop_and_dialing_it_leaves_no_target() {
+    async fn a_forget_between_reading_a_host_and_dialing_it_leaves_no_target() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let gate = std::sync::Arc::new(Gate {
             reached: tokio::sync::Notify::new(),
@@ -1130,7 +1127,7 @@ mod tests {
             tokio::spawn(async move { companion.open_board().await })
         };
         gate.reached.notified().await;
-        companion.forget_laptop(|| Ok(())).await.unwrap();
+        companion.forget_host(|| Ok(())).await.unwrap();
         gate.resume.notify_one();
 
         assert_eq!(opening.await.unwrap().unwrap(), None);
@@ -1139,9 +1136,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_forget_between_reading_a_laptop_and_an_open_link_leaves_no_target() {
+    async fn a_forget_between_reading_a_host_and_an_open_link_leaves_no_target() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let gate = std::sync::Arc::new(Gate {
             reached: tokio::sync::Notify::new(),
@@ -1153,7 +1150,7 @@ mod tests {
             tokio::spawn(async move { companion.open_link_after(OPEN, |_| async { Ok(()) }).await })
         };
         gate.reached.notified().await;
-        companion.forget_laptop(|| Ok(())).await.unwrap();
+        companion.forget_host(|| Ok(())).await.unwrap();
         gate.resume.notify_one();
 
         assert!(matches!(
@@ -1165,7 +1162,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_pairing_that_cannot_be_saved_leaves_the_laptop_file_unwritten() {
+    async fn a_pairing_that_cannot_be_saved_leaves_the_host_file_unwritten() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let cipher = Arc::new(crate::testutil::FakeCipher::new());
@@ -1216,23 +1213,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_unreachable_message_names_the_saved_laptop() {
+    async fn the_unreachable_message_names_the_saved_host() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        assert_eq!(companion.cant_reach(), "Can't reach your laptop.");
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        assert_eq!(companion.cant_reach(), "Can't reach your host.");
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         assert_eq!(companion.cant_reach(), "Can't reach 4d92…6ed6.");
     }
 
     const OPEN: &str = "handboard://open/f0123456789ab/task/t3#r5";
-    const LAPTOP: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
+    const HOST: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
     const RELAY: &str = "https://relay.example.test:7842/";
 
     #[tokio::test]
     async fn a_saved_relay_is_dialed_when_a_link_reopens_the_board() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n{RELAY}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n{RELAY}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
 
         companion
@@ -1241,7 +1238,7 @@ mod tests {
             .unwrap();
 
         let target = companion.dialer.target().await.unwrap();
-        assert_eq!(target.id.to_string(), LAPTOP);
+        assert_eq!(target.id.to_string(), HOST);
         assert_eq!(
             target.relay_urls().next().map(|relay| relay.to_string()),
             Some(RELAY.to_owned())
@@ -1249,12 +1246,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_open_link_with_no_laptop_dials_nothing_and_says_to_pair_first() {
+    async fn an_open_link_with_no_host_dials_nothing_and_says_to_pair_first() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let error = companion.open_link(OPEN).await.unwrap_err();
         assert!(matches!(error, OpenLinkError::NotPaired));
-        assert_eq!(error.message(), "Pair this phone with your laptop first.");
+        assert_eq!(error.message(), "Pair this Companion with your host first.");
         assert!(companion.dialer.target().await.is_none());
         assert!(!dir.path().join("laptop").exists());
     }
@@ -1262,24 +1259,24 @@ mod tests {
     #[tokio::test]
     async fn an_open_link_while_a_pairing_is_pending_is_dropped_and_the_offer_stays() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let offer = companion.offer_link(SECOND_LINK).unwrap();
         let error = companion.open_link(OPEN).await.unwrap_err();
         assert!(matches!(error, OpenLinkError::Pending));
         assert_eq!(error.message(), PAIRING_PENDING);
-        assert_eq!(companion.pending_offer().unwrap().laptop, offer.laptop);
+        assert_eq!(companion.pending_offer().unwrap().host, offer.host);
         assert!(companion.dialer.target().await.is_none());
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{LAPTOP}\n")
+            format!("{HOST}\n")
         );
     }
 
     #[tokio::test]
     async fn a_hostile_open_link_dials_nothing() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         for text in [
             "handboard://open/f0123456789ab/task/t3/extra",
@@ -1298,7 +1295,7 @@ mod tests {
     #[tokio::test]
     async fn an_open_link_to_a_reachable_board_returns_its_proxy_url_and_changes_nothing() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let reached = std::sync::Mutex::new(Vec::new());
         let url = companion
@@ -1320,19 +1317,19 @@ mod tests {
                 .target()
                 .await
                 .map(|target| target.id.to_string()),
-            Some(LAPTOP.to_owned())
+            Some(HOST.to_owned())
         );
         assert_eq!(
             std::fs::read(dir.path().join("laptop")).unwrap(),
-            format!("{LAPTOP}\n").into_bytes()
+            format!("{HOST}\n").into_bytes()
         );
         assert!(companion.pending_offer().is_none());
     }
 
     #[tokio::test]
-    async fn an_open_link_to_an_unreachable_laptop_fails_before_any_navigation() {
+    async fn an_open_link_to_an_unreachable_host_fails_before_any_navigation() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{LAPTOP}\n")).unwrap();
+        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let error = companion.open_link(OPEN).await.unwrap_err();
         assert!(
@@ -1346,20 +1343,20 @@ mod tests {
                 .target()
                 .await
                 .map(|target| target.id.to_string()),
-            Some(LAPTOP.to_owned())
+            Some(HOST.to_owned())
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{LAPTOP}\n")
+            format!("{HOST}\n")
         );
         assert!(companion.pending_offer().is_none());
     }
 
     #[test]
-    fn a_busy_laptop_asks_for_another_tap_and_the_other_failures_keep_their_messages() {
+    fn a_busy_host_asks_for_another_tap_and_the_other_failures_keep_their_messages() {
         assert_eq!(
             OpenLinkError::Failed(ConfirmError::Open(OpenError::Busy)).message(),
-            "Your laptop is busy. Tap the link again."
+            "Your host is busy. Tap the link again."
         );
         assert_eq!(
             OpenLinkError::Failed(ConfirmError::BoardDown).message(),

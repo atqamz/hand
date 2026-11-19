@@ -62,7 +62,7 @@ mod tests {
     }
 
     #[test]
-    fn a_close_with_code_one_is_a_full_laptop() {
+    fn a_close_with_code_one_is_a_full_host() {
         let full = ConnectionError::ApplicationClosed(ApplicationClose {
             error_code: VarInt::from_u32(1),
             reason: Default::default(),

@@ -108,7 +108,7 @@ async fn every_pair_vector_is_sent_as_the_contract_says_and_answered_as_it_says(
 }
 
 #[tokio::test]
-async fn a_laptop_that_resets_the_stream_fails_the_pairing_with_a_request_error() {
+async fn a_host_that_resets_the_stream_fails_the_pairing_with_a_request_error() {
     let Some(bin) = sidecar_bin() else {
         return;
     };

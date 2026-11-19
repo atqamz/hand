@@ -1,5 +1,5 @@
 pub const OPEN_REJECTED: &str = "This is not a link Hand can open.";
-pub const NOT_PAIRED: &str = "Pair this phone with your laptop first.";
+pub const NOT_PAIRED: &str = "Pair this Companion with your host first.";
 
 const HOST_PREFIX: &str = "handboard://open";
 const PREFIX: &str = "handboard://open/";
