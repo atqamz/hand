@@ -18,6 +18,12 @@ func SetBoardStartTimeout(d time.Duration) func() {
 	return func() { boardStartTimeout = old }
 }
 
+func SetInitTimeout(d time.Duration) func() {
+	old := initTimeout
+	initTimeout = d
+	return func() { initTimeout = old }
+}
+
 var LocalRoot = localRoot
 
 func DraftNote(a *App) string { return a.draftNote() }
@@ -86,3 +92,5 @@ func SetShotDecode(f func([]byte, int64) (*ui.Bitmap, string)) func() {
 	shotDecode = f
 	return func() { shotDecode = old }
 }
+
+func NewFleetForm(a *App) (name, folder string) { return a.nf.name, a.nf.folder }
