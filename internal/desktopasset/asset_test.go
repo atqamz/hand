@@ -162,6 +162,9 @@ func TestPathIsInsideTheBundleOnMacOS(t *testing.T) {
 	if got := Path(self, "darwin", ""); got != filepath.Join(filepath.Dir(self), Name) {
 		t.Fatalf("without a home Path = %q", got)
 	}
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
 		t.Fatal(err)
 	}
