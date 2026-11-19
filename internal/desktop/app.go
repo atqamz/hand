@@ -215,6 +215,7 @@ type App struct {
 	errScreen     bool
 	writer        *draftWriter
 	md            markdown.Options
+	refMemo       map[refKey]string
 	loadID        int
 	cancel        context.CancelFunc
 	stop          context.CancelFunc

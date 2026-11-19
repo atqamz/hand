@@ -143,6 +143,10 @@ func boardViewerRef(fleet, dest string) (string, bool) {
 		}
 		return "", false
 	}
+	return refPath(fleet, dest)
+}
+
+func refPath(fleet, dest string) (string, bool) {
 	u, err := url.Parse(dest)
 	if err != nil || fleet == "" {
 		return "", false
