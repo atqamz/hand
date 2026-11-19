@@ -505,3 +505,26 @@ func TestTheModelPickerRules(t *testing.T) {
 	contains(t, "container stack", css, "@container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}}")
 	contains(t, "phone stack", block(t, css, "@media (max-width:599px){"), ".others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}")
 }
+
+func TestARefreshSearchesPathAfreshWhereTheBoardReadsAreCached(t *testing.T) {
+	p := newCompanionRig(t)
+	bin, home := t.TempDir(), t.TempDir()
+	vars := map[string]string{"PATH": bin, "HOME": t.TempDir(), "SECONDHAND_HOME": home}
+	env := harness.EnvOf(func(k string) string { return vars[k] })
+	env.Finds = harness.NewFindCache(time.Hour, nil)
+	p.fx.options.Harness = env
+	p.fx.options.Models = harness.Options{Environ: []string{"PATH=" + bin}}
+	p.h = p.fx.handler()
+	if _, err := harness.Find("agy", env); err == nil {
+		t.Fatal("found agy before it was installed")
+	}
+	fakebin.Install(t, bin, "agy", "agy", map[string]string{"models": agyModels})
+	if _, err := harness.Find("agy", env); err == nil {
+		t.Fatal("the cached miss was searched again")
+	}
+	rec := p.do("POST", "/models/refresh", url.Values{"harness": {"agy"}, "csrf": {token}}, host, map[string]string{"X-Hand-Fetch": "1"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("refresh = %d", rec.Code)
+	}
+	waitFor(t, "the listing of the harness installed after the cached miss", func() bool { return harness.StatusOf("agy", harness.EnvOf(env.Getenv), time.Now()).Found })
+}

@@ -16,6 +16,13 @@ var (
 )
 
 func Find(name string, env Env) (string, error) {
+	if env.Finds == nil {
+		return search(name, env)
+	}
+	return env.Finds.find(name, env)
+}
+
+func search(name string, env Env) (string, error) {
 	bin, err := LookPath(name, env.Path)
 	if err == nil {
 		return bin, nil
@@ -133,4 +140,45 @@ func npmPrefix(env Env) string {
 	}
 	npmPrefixes.Store(key, prefix)
 	return prefix
+}
+
+type FindCache struct {
+	ttl    time.Duration
+	now    func() time.Time
+	search func(string, Env) (string, error)
+	mu     sync.Mutex
+	hit    map[findKey]foundBin
+}
+
+type findKey struct{ name, path string }
+
+type foundBin struct {
+	bin string
+	err error
+	at  time.Time
+}
+
+func NewFindCache(ttl time.Duration, now func() time.Time) *FindCache {
+	if now == nil {
+		now = time.Now
+	}
+	return &FindCache{ttl: ttl, now: now, search: search, hit: map[findKey]foundBin{}}
+}
+
+func (c *FindCache) find(name string, env Env) (string, error) {
+	key := findKey{name, env.Path}
+	c.mu.Lock()
+	e, ok := c.hit[key]
+	c.mu.Unlock()
+	if ok && c.now().Sub(e.at) < c.ttl {
+		return e.bin, e.err
+	}
+	start := c.now()
+	bin, err := c.search(name, env)
+	c.mu.Lock()
+	if cur, ok := c.hit[key]; !ok || !cur.at.After(start) {
+		c.hit[key] = foundBin{bin: bin, err: err, at: start}
+	}
+	c.mu.Unlock()
+	return bin, err
 }

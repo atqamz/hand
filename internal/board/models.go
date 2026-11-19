@@ -50,6 +50,8 @@ func (r *refresher) end(name string) {
 func (b *Board) beginRefresh(names []string) (int, string) {
 	var refused string
 	started := 0
+	env := b.o.Harness
+	env.Finds = nil
 	for _, name := range names {
 		if why := b.refresh.begin(name, b.now()); why != "" {
 			refused = why
@@ -60,7 +62,7 @@ func (b *Board) beginRefresh(names []string) (int, string) {
 			ctx, cancel := context.WithTimeout(context.Background(), refreshWait)
 			defer cancel()
 			defer b.refresh.end(name)
-			if _, err := harness.Refresh(ctx, name, b.o.Harness, b.o.Models); err != nil {
+			if _, err := harness.Refresh(ctx, name, env, b.o.Models); err != nil {
 				log.Printf("board: refreshing the %s models failed: %v", name, err)
 			}
 		}()

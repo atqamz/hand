@@ -264,6 +264,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 	henv := harness.EnvOf(r.env.Getenv)
 	henv.Dir = home
 	henv.Cache = fleet.ModelsCache(home)
+	henv.Finds = harness.NewFindCache(5*time.Second, r.env.Now)
 	fb := &fleetBoard{home: home, st: st, opts: board.Options{
 		Controls:   loopback,
 		Control:    control(r.env, home, r.generation),
