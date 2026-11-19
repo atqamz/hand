@@ -143,11 +143,14 @@ func npmPrefix(env Env) string {
 }
 
 type FindCache struct {
-	ttl time.Duration
-	now func() time.Time
-	mu  sync.Mutex
-	hit map[string]foundBin
+	ttl    time.Duration
+	now    func() time.Time
+	search func(string, Env) (string, error)
+	mu     sync.Mutex
+	hit    map[findKey]foundBin
 }
+
+type findKey struct{ name, path string }
 
 type foundBin struct {
 	bin string
@@ -156,21 +159,25 @@ type foundBin struct {
 }
 
 func NewFindCache(ttl time.Duration, now func() time.Time) *FindCache {
-	return &FindCache{ttl: ttl, now: now, hit: map[string]foundBin{}}
+	if now == nil {
+		now = time.Now
+	}
+	return &FindCache{ttl: ttl, now: now, search: search, hit: map[findKey]foundBin{}}
 }
 
 func (c *FindCache) find(name string, env Env) (string, error) {
+	key := findKey{name, env.Path}
 	c.mu.Lock()
-	e, ok := c.hit[name]
+	e, ok := c.hit[key]
 	c.mu.Unlock()
 	if ok && c.now().Sub(e.at) < c.ttl {
 		return e.bin, e.err
 	}
 	start := c.now()
-	bin, err := search(name, env)
+	bin, err := c.search(name, env)
 	c.mu.Lock()
-	if cur, ok := c.hit[name]; !ok || !cur.at.After(start) {
-		c.hit[name] = foundBin{bin: bin, err: err, at: start}
+	if cur, ok := c.hit[key]; !ok || !cur.at.After(start) {
+		c.hit[key] = foundBin{bin: bin, err: err, at: start}
 	}
 	c.mu.Unlock()
 	return bin, err

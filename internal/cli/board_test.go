@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func runBoard(t *testing.T, h *harness, addr ...string) string {
@@ -767,5 +768,43 @@ func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
 	_, after := proxiedSend(t, "GET", urlA+"/connect", nil, all[:3])
 	if !strings.Contains(after, "No phone is paired.") {
 		t.Fatalf("the Phone page after a revoke everywhere:\n%s", after)
+	}
+}
+
+func TestTheBoardCachesItsHarnessLookupForFiveSeconds(t *testing.T) {
+	h := newHarness(t)
+	bin := t.TempDir()
+	h.vars["PATH"] = bin
+	base, _ := startBoard(t, h, "127.0.0.1")
+	fleetURL, token := fleetPage(t, base, h)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	page := func() string {
+		t.Helper()
+		res, err := client.Get(fleetURL + "/?token=" + token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	const missing = "codex not found on the board&#39;s PATH"
+	if !strings.Contains(page(), missing) {
+		t.Fatalf("codex was found before it was installed")
+	}
+	fakebin.Install(t, bin, "codex", "printer", map[string]string{"out": ""})
+	if !strings.Contains(page(), missing) {
+		t.Fatal("the board searched PATH again inside the cache window")
+	}
+	h.advance(6 * time.Second)
+	if strings.Contains(page(), missing) {
+		t.Fatal("the board kept the cached miss after the cache window")
 	}
 }
