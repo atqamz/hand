@@ -38,3 +38,22 @@ func TestCleanOldRemovesTheSidecarsAndTheWindowsOldCopiesToo(t *testing.T) {
 		t.Fatalf("left %v, want %v", left, want)
 	}
 }
+
+func TestOldFilesNamesWhatCleanOldWouldRemoveAndRemovesNothing(t *testing.T) {
+	dir := t.TempDir()
+	hand := filepath.Join(dir, "hand.exe")
+	for _, name := range []string{"hand.exe", "hand.exe.old", "hand-iroh.exe.old", "other.exe.old", "hand.exe.older"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := OldFiles(hand)
+	slices.Sort(got)
+	want := []string{filepath.Join(dir, "hand-iroh.exe.old"), filepath.Join(dir, "hand.exe.old")}
+	if !slices.Equal(got, want) {
+		t.Fatalf("OldFiles = %v, want %v", got, want)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 5 {
+		t.Fatalf("OldFiles removed something: %d files left", len(entries))
+	}
+}

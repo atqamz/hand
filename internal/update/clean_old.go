@@ -12,18 +12,26 @@ import (
 
 var oldSuffix = regexp.MustCompile(`^\.old(-[A-Z2-7]{26})?$`)
 
-func cleanOld(exe string) {
+func OldFiles(exe string) []string {
 	dir := filepath.Dir(exe)
 	entries, _ := os.ReadDir(dir)
+	var out []string
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		for _, name := range []string{filepath.Base(exe), sidecar.Name + ".exe", desktopasset.Name + ".exe"} {
 			if rest, ok := strings.CutPrefix(e.Name(), name); ok && oldSuffix.MatchString(rest) {
-				_ = os.Remove(filepath.Join(dir, e.Name()))
+				out = append(out, filepath.Join(dir, e.Name()))
 				break
 			}
 		}
+	}
+	return out
+}
+
+func cleanOld(exe string) {
+	for _, p := range OldFiles(exe) {
+		_ = os.Remove(p)
 	}
 }

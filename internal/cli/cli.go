@@ -142,7 +142,7 @@ func exitCode(err error) int {
 	return 1
 }
 
-var homeless = map[string]bool{"version": true, "skills": true, "fleet": true, "board": true, "unit": true, "update": true, "doctor": true, "models": true}
+var homeless = map[string]bool{"version": true, "skills": true, "fleet": true, "board": true, "unit": true, "update": true, "uninstall": true, "doctor": true, "models": true}
 
 func dispatch(args []string, env Env) error {
 	flagHome := ""

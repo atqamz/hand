@@ -274,3 +274,23 @@ func TestOnlyATopLevelKeyMarksABundleAsHands(t *testing.T) {
 		}
 	}
 }
+
+func TestBundleOwnedNamesTheBundleOnlyWhenItIsHands(t *testing.T) {
+	x := newTree(t)
+	if found, foreign, err := bundleOwned(x.home); len(found) != 0 || foreign != "" || err != nil {
+		t.Fatalf("bundleOwned with nothing there = %v, %q, %v", found, foreign, err)
+	}
+	x.sync(t)
+	if found, foreign, err := bundleOwned(x.home); len(found) != 1 || found[0] != x.b.app || foreign != "" || err != nil {
+		t.Fatalf("bundleOwned = %v, %q, %v", found, foreign, err)
+	}
+	if err := os.WriteFile(x.b.plist(), []byte("<plist><dict><key>CFBundleName</key><string>Hand</string></dict></plist>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, foreign, err := bundleOwned(x.home); len(found) != 0 || foreign != x.b.app || err != nil {
+		t.Fatalf("bundleOwned with a foreign bundle = %v, %q, %v", found, foreign, err)
+	}
+	if _, _, err := bundleOwned("relative"); err == nil {
+		t.Fatal("bundleOwned accepted a relative home")
+	}
+}

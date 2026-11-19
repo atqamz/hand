@@ -41,6 +41,7 @@ In the table:
 | `hand attach` | CI, fake | real Mac (#895), stand-in claude | not run |
 | Start the watcher on demand, and the board keeps watchers alive | daily | real Mac (#895) | CI, fake |
 | `hand update` | daily, CI e2e from v0.13.0 | real Mac from v0.11.0 (#895) and CI e2e from v0.13.0 | CI e2e from v0.13.0, the running executable renamed to `hand.exe.old` |
+| `hand uninstall` removes the window, its launcher entry, `hand-iroh` and `hand`, keeps the fleets, `~/.secondhand` and the drafts, refuses while a Board or a watcher of this install runs, and on Windows removes the `PATH` entry and renames `hand.exe` to `hand.exe.old` | CI, unit tests in temp homes, the real `.desktop` entry | CI, unit tests in temp homes, the bundle written by the real code; not run on a real Mac | CI, unit tests in temp homes, the real shortcut and a real registry key of its own; not run on a real PC |
 | Luvus switch on repin: stop the server through UHP and `server.pid` | CI, fake | CI, fake | CI, fake |
 | Luvus switch of a quiet fleet: stop the supervisor and the server, start the pin, resume the supervisor | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 | `hand board --update-every`, the timer's `hand update` | CI, fake | CI, fake | CI, fake |

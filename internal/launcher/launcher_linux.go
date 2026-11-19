@@ -105,19 +105,37 @@ func Sync(getenv func(string) string, bin string) (skipped string, err error) {
 	return "", nil
 }
 
-func Remove(getenv func(string) string) (skipped string, err error) {
+func targets(getenv func(string) string) (apps string, found []string, foreign string, err error) {
 	apps, entry, pic, err := paths(getenv)
 	if err != nil {
-		return "", err
+		return "", nil, "", err
 	}
 	owned, exists := managed(entry)
-	if !exists {
-		return "", nil
-	}
-	if !owned {
-		return entry, nil
+	switch {
+	case !exists:
+		return apps, nil, "", nil
+	case !owned:
+		return apps, nil, entry, nil
 	}
 	for _, p := range []string{entry, pic} {
+		if _, err := os.Lstat(p); err == nil {
+			found = append(found, p)
+		}
+	}
+	return apps, found, "", nil
+}
+
+func Owned(getenv func(string) string) (found []string, foreign string, err error) {
+	_, found, foreign, err = targets(getenv)
+	return found, foreign, err
+}
+
+func Remove(getenv func(string) string) (skipped string, err error) {
+	apps, found, foreign, err := targets(getenv)
+	if err != nil || foreign != "" || len(found) == 0 {
+		return foreign, err
+	}
+	for _, p := range found {
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("launcher: cannot remove %s: %w", p, err)
 		}

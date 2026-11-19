@@ -48,6 +48,26 @@ go build -o ~/.local/bin/hand .
 
 To try it next to an older Hand, build it under another name such as `~/.local/bin/hand-next`. Hand calls itself by its binary's name in the fleet's `AGENTS.md`, its skill, its help lines and its errors, so a supervisor in that fleet runs `hand-next`. When you later install it as plain `hand`, run that `hand init` in each fleet to rewrite them.
 
+## Uninstall
+
+`hand uninstall` removes what `hand update` and the install scripts placed, prints every path it removed and every path it kept, and removes `hand` itself last. `hand uninstall --dry-run` prints the same two lists and changes nothing.
+
+- **Removed:** `hand`, `hand-iroh` and the window `hand-desktop` that sit beside it, and the window's launcher entry. A file that is not a regular file, such as a symlink or a folder with one of those names, is kept and listed; the command never follows a symlink.
+- **Kept, always:** your fleet folders, `~/.secondhand` (or `$SECONDHAND_HOME`: the fleet index, the worktrees and the backups) and the window's composer drafts and preferences (`$XDG_STATE_HOME/hand-desktop`, `~/.local/state/hand-desktop`, `%LOCALAPPDATA%\hand-desktop` on Windows). Delete them yourself if you want them gone.
+- **Refuses**, with exit code 3 and nothing removed, while a Board or a watcher of this install runs. It names `hand board stop` and `hand watch stop` (run that one in each fleet's folder). A Board that another `hand` runs does not block it.
+- **A step that fails** leaves `hand` in place, so you can run the command again. A second run, with nothing left to remove, prints `nothing to remove` and exits 0.
+- **Not removed:** a systemd unit, LaunchAgent or scheduled task that you made to start the Board ([Autostart](autostart.md)), Luvus, git and the harnesses. It removes the `hand` that runs it, so a build you made yourself is removed too.
+
+**Linux.** `~/.local/bin/hand`, `hand-iroh` and `hand-desktop`, and the launcher entry: `$XDG_DATA_HOME/applications/hand-desktop.desktop` and its icon `icons/hicolor/512x512/apps/hand-desktop.png`. An entry without the `X-Hand-Managed=true` line is not Hand's and is kept.
+
+**macOS.** `~/.local/bin/hand` and `hand-iroh`, and the bundle `~/Applications/Hand.app` with the window inside it. A bundle whose `Contents/Info.plist` has no `HandManaged` key is not Hand's and is kept.
+
+**Windows.** `hand.exe`, `hand-iroh.exe` and `hand-desktop.exe` in the install folder (`%LOCALAPPDATA%\hand\bin` by default), `hand.ico`, the Start Menu shortcut `Hand.lnk`, every `*.old` file that `hand update` left, and the install folder's entry in your user `PATH`. A `Hand.lnk` whose description is not Hand's is kept.
+- A running program cannot delete its own file, so `hand.exe` is renamed to `hand.exe.old` and the command prints the one PowerShell line that deletes it; run it after the command has exited. Open a new terminal for the `PATH` change.
+- An install made by the setup wizard is removed from Windows Settings, Apps, Hand (the [wizard](#the-setup-wizard) also has `unins000.exe`). `hand uninstall` detects it, says so and changes nothing.
+
+If `hand` is already gone, delete the files above by hand.
+
 ## Windows
 
 Native Windows is supported, without WSL. It has run in CI and not yet on a real Windows machine, so report any problem through the issue form. [Platform support](platforms.md) lists what CI covers, and [`docs/dogfood/windows.md`](dogfood/windows.md) has the checks for a real Windows machine.

@@ -211,6 +211,24 @@ func bookmarkIDs(root string) ([]string, error) {
 	return ids, nil
 }
 
+func Homes(root string) ([]string, error) {
+	ids, err := bookmarkIDs(root)
+	if err != nil {
+		return nil, err
+	}
+	var homes []string
+	for _, id := range ids {
+		b, err := os.ReadFile(bookmark(root, id))
+		if errors.Is(err, fs.ErrNotExist) {
+			b, err = os.ReadFile(legacyBookmark(root, id))
+		}
+		if home := strings.TrimSpace(string(b)); err == nil && home != "" {
+			homes = append(homes, home)
+		}
+	}
+	return homes, nil
+}
+
 func registeredIDs(root string) ([]string, error) {
 	unlock, err := lockIndex(root)
 	if err != nil {

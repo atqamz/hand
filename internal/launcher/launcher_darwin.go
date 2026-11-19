@@ -24,6 +24,10 @@ func Sync(getenv func(string) string, bin string) (string, error) {
 	return bundleSync(getenv("HOME"), bin, handPath())
 }
 
+func Owned(getenv func(string) string) ([]string, string, error) {
+	return bundleOwned(getenv("HOME"))
+}
+
 func Remove(getenv func(string) string) (string, error) { return bundleRemove(getenv("HOME")) }
 
 func Check(getenv func(string) string, bin string) (State, string) {

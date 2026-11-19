@@ -891,3 +891,36 @@ func TestListCallsAnUnenterableHomeUnreadableNotMissing(t *testing.T) {
 		t.Fatalf("list = %+v, %v; want one unreadable entry", entries, err)
 	}
 }
+
+func TestHomesReadsTheBookmarksAndWritesNothing(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	if homes, err := fleet.Homes(root); err != nil || len(homes) != 0 {
+		t.Fatalf("Homes of a missing root = %v, %v", homes, err)
+	}
+	if _, err := os.Lstat(root); err == nil {
+		t.Fatal("Homes created the root")
+	}
+	for name, body := range map[string]string{"index/f0123456789ab": "/one\n", "index/f0123456789ac": " \n", "index/notafleet": "/x", "fleets/f0123456789ad": "/legacy"} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	homes, err := fleet.Homes(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(homes)
+	if want := []string{"/legacy", "/one"}; !slices.Equal(homes, want) {
+		t.Fatalf("Homes = %v, want %v", homes, want)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "index.lock")); err == nil {
+		t.Fatal("Homes took the index lock")
+	}
+	if _, err := os.Lstat(filepath.Join(root, "fleets")); err != nil {
+		t.Fatal("Homes migrated the legacy folder")
+	}
+}

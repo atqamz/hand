@@ -186,3 +186,25 @@ func TestPathEscapingAndNewlines(t *testing.T) {
 		t.Fatalf("entry:\n%s", got)
 	}
 }
+
+func TestOwnedListsWhatRemoveWouldDelete(t *testing.T) {
+	getenv, data := env(t)
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
+	if found, foreign, err := Owned(getenv); len(found) != 0 || foreign != "" || err != nil {
+		t.Fatalf("Owned with nothing written = %v, %q, %v", found, foreign, err)
+	}
+	if _, err := Sync(getenv, "/x/hand-desktop"); err != nil {
+		t.Fatal(err)
+	}
+	found, foreign, err := Owned(getenv)
+	if err != nil || foreign != "" || strings.Join(found, " ") != entry+" "+pic {
+		t.Fatalf("Owned = %v, %q, %v", found, foreign, err)
+	}
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, foreign, err := Owned(getenv); len(found) != 0 || foreign != entry || err != nil {
+		t.Fatalf("Owned with a foreign entry = %v, %q, %v", found, foreign, err)
+	}
+}
