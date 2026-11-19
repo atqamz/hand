@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"image/png"
+	"os"
 	"testing"
 	"unicode/utf16"
 )
@@ -86,5 +87,15 @@ func TestIconIsAnIcoOfTheEmbeddedPNG(t *testing.T) {
 	}
 	if !bytes.Equal(b, iconFile()) {
 		t.Fatal("the icon changes between calls")
+	}
+}
+
+func TestWizardShipsTheSameIcon(t *testing.T) {
+	have, err := os.ReadFile("../../packaging/windows/hand.ico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(have, iconFile()) {
+		t.Fatal("packaging/windows/hand.ico differs from the icon hand update writes; regenerate it from iconFile()")
 	}
 }

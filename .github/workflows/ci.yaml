@@ -444,3 +444,15 @@ jobs:
             hand-desktop-*.tar.gz
             hand-desktop-windows-amd64.zip
             hand-desktop-*.sha256
+
+  setup:
+    needs: edge
+    if: ${{ !cancelled() && needs.edge.result == 'success' }}
+    permissions:
+      contents: write
+    concurrency:
+      group: edge-setup
+      cancel-in-progress: false
+    uses: ./.github/workflows/setup.yaml
+    with:
+      tag: edge

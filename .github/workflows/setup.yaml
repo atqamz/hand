@@ -1,0 +1,148 @@
+name: Windows setup
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag whose Windows archives the wizard is built from and attached to. Empty builds from this checkout and publishes nothing.
+        type: string
+        default: ""
+  pull_request:
+    branches: [main]
+    paths:
+      - packaging/windows/**
+      - .github/windows/**
+      - .github/scripts/build-dist.sh
+      - .github/scripts/build-desktop.sh
+      - .github/workflows/setup.yaml
+      - internal/launcher/**
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: setup-${{ github.workflow }}-${{ inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  archives:
+    if: ${{ inputs.tag == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build the Windows archives as a release does, with a stand-in hand-iroh for stable
+        run: |
+          set -eu
+          version=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
+          iroh=$(sed -n 's/^[[:space:]]*Version = "\(.*\)"$/\1/p' internal/sidecar/sidecar.go)
+          test -n "$version" && test -n "$iroh"
+          for channel in stable edge; do
+            out=$RUNNER_TEMP/archives/$channel
+            sh .github/scripts/build-dist.sh "$version" "$channel" "$GITHUB_SHA" "$out"
+            sh .github/scripts/build-desktop.sh "$version" "$channel" "$GITHUB_SHA" "$out"
+            rm -f "$out"/checksums.txt "$out"/hand-linux-* "$out"/hand-darwin-* "$out"/hand-desktop-linux-* "$out"/hand-desktop-darwin-*
+          done
+          stem=hand-iroh-windows-amd64
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$iroh" -o "$RUNNER_TEMP/hand-iroh.exe" .github/e2e/stub-iroh/main.go
+          (cd "$RUNNER_TEMP" && zip -X "$RUNNER_TEMP/archives/stable/$stem.zip" hand-iroh.exe)
+          (cd "$RUNNER_TEMP/archives/stable" && sha256sum "$stem.zip" >"$stem.sha256")
+          ls -l "$RUNNER_TEMP"/archives/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: setup-archives
+          path: ${{ runner.temp }}/archives
+          retention-days: 3
+          if-no-files-found: error
+
+  fetch:
+    if: ${{ inputs.tag != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release's Windows archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/archives/release" --pattern 'hand-windows-amd64.*' --pattern 'hand-desktop-windows-amd64.*' --pattern 'hand-iroh-windows-amd64.*'
+          ls -l "$RUNNER_TEMP/archives/release"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: setup-archives
+          path: ${{ runner.temp }}/archives
+          retention-days: 3
+          if-no-files-found: error
+
+  wizard:
+    name: wizard ${{ matrix.variant }}
+    needs: [archives, fetch]
+    if: ${{ !cancelled() && (needs.archives.result == 'success' || needs.fetch.result == 'success') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.tag == '' && '["stable","edge"]' || '["release"]') }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VARIANT: ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || '' }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: setup-archives
+          path: ${{ runner.temp }}/in
+      - name: Check the archives and build the wizard
+        shell: pwsh
+        run: ./.github/windows/build-setup.ps1 -Archives "$env:RUNNER_TEMP\in\$env:VARIANT" -Out "$env:RUNNER_TEMP\setup" -Work "$env:RUNNER_TEMP\build"
+      - name: Install it silently, check it, uninstall it silently
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem "$env:RUNNER_TEMP\setup" -Filter 'Hand-Setup-*-x64.exe').FullName
+          $iroh = Test-Path "$env:RUNNER_TEMP\in\$env:VARIANT\hand-iroh-windows-amd64.zip"
+          if ($iroh) { ./.github/windows/check-setup.ps1 -Setup $exe -Work "$env:RUNNER_TEMP\check" -Iroh }
+          else { ./.github/windows/check-setup.ps1 -Setup $exe -Work "$env:RUNNER_TEMP\check" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: setup-${{ matrix.variant }}
+          path: |
+            ${{ runner.temp }}/setup
+            ${{ runner.temp }}/check/logs
+          retention-days: 3
+          if-no-files-found: ignore
+
+  publish:
+    needs: wizard
+    if: ${{ inputs.tag != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: setup-release
+          path: ${{ runner.temp }}/out
+      - name: Attach the wizard and its checksum to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP/out/setup"
+          sha256sum -c Hand-Setup-*-x64.sha256
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" Hand-Setup-*-x64.exe Hand-Setup-*-x64.sha256 --clobber

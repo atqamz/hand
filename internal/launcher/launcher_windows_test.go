@@ -262,3 +262,22 @@ func TestAShortcutThatCannotBeReadIsNotHands(t *testing.T) {
 		t.Fatalf("Check = %q", state)
 	}
 }
+
+func TestWizardWritesTheShortcutHandUpdateOwns(t *testing.T) {
+	b, err := os.ReadFile("../../packaging/windows/hand.iss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		`Comment: "` + description + `"`,
+		`{userprograms}\Hand"`,
+		`WorkingDir: "{app}\bin"`,
+		`IconFilename: "{app}\bin\hand.ico"`,
+		`Description = '` + description + `'`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("hand.iss lacks %s", want)
+		}
+	}
+}

@@ -33,6 +33,8 @@
 !/iroh/**
 !/android/
 !/android/**
+!/packaging/
+!/packaging/**
 
 # Agent harnesses
 !/.github/

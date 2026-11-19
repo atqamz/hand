@@ -100,3 +100,12 @@ jobs:
     with:
       ref: ${{ needs.e2e.outputs.sha }}
       tag: ${{ inputs.tag || github.ref_name }}
+
+  setup:
+    needs: [binaries, iroh]
+    if: ${{ !cancelled() && needs.binaries.result == 'success' && (needs.iroh.result == 'success' || needs.iroh.result == 'skipped') }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/setup.yaml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
