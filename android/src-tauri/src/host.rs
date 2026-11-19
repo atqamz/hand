@@ -437,7 +437,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_nativeStart<'loc
     context: JObject<'local>,
 ) -> JString<'local> {
     unowned_env
-        .with_env(|env| match start(env, &data_dir, &host, &context) {
+        .with_env_no_catch(|env| match start(env, &data_dir, &host, &context) {
             Ok(()) => Ok(JString::null()),
             Err(message) => env.new_string(message),
         })
@@ -474,7 +474,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fleets<'local>(
         .map(|header| paired_fleets(&header).join(" "))
         .unwrap_or_default();
     unowned_env
-        .with_env(|env| env.new_string(ids))
+        .with_env_no_catch(|env| env.new_string(ids))
         .resolve::<LogErrorAndDefault>()
 }
 
@@ -499,7 +499,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_phone<'local>(
     .ok()
     .flatten();
     unowned_env
-        .with_env(|env| match answer {
+        .with_env_no_catch(|env| match answer {
             Some(answer) => reply(env, answer),
             None => Ok(JString::null()),
         })
@@ -590,7 +590,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_live<'local>(
     fleet: JString<'local>,
 ) {
     let fleet = unowned_env
-        .with_env(|env| -> jni::errors::Result<_> { Ok(text(env, &fleet).ok().flatten()) })
+        .with_env_no_catch(|env| -> jni::errors::Result<_> { Ok(text(env, &fleet).ok().flatten()) })
         .resolve::<LogErrorAndDefault>();
     let Some(fleet) = fleet else {
         return;
@@ -691,7 +691,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_request<'local>(
     body: JByteArray<'local>,
 ) -> JString<'local> {
     unowned_env
-        .with_env(|env| {
+        .with_env_no_catch(|env| {
             let sent = catch_unwind(AssertUnwindSafe(|| {
                 send(env, &fleet, post, &path, &csrf, &body)
             }));
@@ -757,7 +757,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_offer<'local>(
     link: JString<'local>,
 ) -> JString<'local> {
     unowned_env
-        .with_env(|env| {
+        .with_env_no_catch(|env| {
             let answer = catch_unwind(AssertUnwindSafe(|| match text(env, &link) {
                 Ok(Some(link)) => offered(&link),
                 _ => serde_json::json!({ "failure": "link", "message": hand_android_core::LINK_REJECTED }),
@@ -775,7 +775,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_pair<'local>(
     name: JString<'local>,
 ) -> JString<'local> {
     unowned_env
-        .with_env(|env| {
+        .with_env_no_catch(|env| {
             let answer = catch_unwind(AssertUnwindSafe(|| match text(env, &name) {
                 Ok(Some(name)) => paired(&name),
                 _ => failed(PairError::Refused("bad_name")),
@@ -811,7 +811,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_open<'local>(
     link: JString<'local>,
 ) -> JString<'local> {
     unowned_env
-        .with_env(|env| {
+        .with_env_no_catch(|env| {
             let answer = catch_unwind(AssertUnwindSafe(|| {
                 let paired = core()
                     .and_then(|core| core.sessions.header())
@@ -839,7 +839,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fallback<'local>
     fleet: JString<'local>,
 ) -> JString<'local> {
     unowned_env
-        .with_env(|env| {
+        .with_env_no_catch(|env| {
             let answer = catch_unwind(AssertUnwindSafe(|| {
                 let board = text(env, &fleet).ok().flatten().and_then(|fleet| {
                     let core = core()?;
