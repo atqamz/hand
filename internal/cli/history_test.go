@@ -70,6 +70,31 @@ func TestHistorySearchPrintsOneRowPerHit(t *testing.T) {
 	}
 }
 
+func TestHistorySearchPrintsDecisionsAndTaskTitlesAndReadsThemWhole(t *testing.T) {
+	h, s := newHistorySeed(t)
+	s.exec(`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (7, 'p', 'amber kiln copy', 'goal words', 'active', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z')`)
+	s.exec(`INSERT INTO decision(id, task_id, question, status, answer, answered_by, created_at) VALUES (3, 7, 'Amber or birch?
+1. amber 2. birch', 'answered', 'birch, then', 'operator', '2026-11-11T10:00:00Z')`)
+	out := h.ok("history", "search", "amber")
+	for _, row := range []string{
+		`d3,"2026-11-11T10:00:00Z",decision,t7,"","«Amber» or birch? 1. «amber» 2. birch birch, then"`,
+		`t7,"2026-11-10T10:00:00Z",task,t7,"",«amber» kiln copy`,
+	} {
+		if !strings.Contains(out, "\n  "+row+"\n") {
+			t.Errorf("no row %q in %q", row, out)
+		}
+	}
+	if out := h.ok("history", "search", "birch", "--who", "decision"); !strings.HasPrefix(out, "total: 1\n") {
+		t.Errorf("who decision: %q", out)
+	}
+	if out := h.ok("history", "search", "--full", "d3"); !strings.Contains(out, "who: decision\n") || !strings.Contains(out, "task: t7\n") || !strings.Contains(out, "1. amber 2. birch\n") || !strings.Contains(out, "birch, then") {
+		t.Errorf("full d3: %q", out)
+	}
+	if out := h.ok("history", "search", "--full", "t7"); !strings.Contains(out, "who: task\n") || !strings.Contains(out, "amber kiln copy") {
+		t.Errorf("full t7: %q", out)
+	}
+}
+
 func TestHistorySearchTakesFlagsAfterTheQueryAndJoinsWords(t *testing.T) {
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-11-10T10:00:00Z", "amber kiln")
@@ -125,7 +150,7 @@ func TestHistorySearchRefusesWhatItCannotRun(t *testing.T) {
 		"task":          {"history", "search", "a", "--task", "x"},
 		"flag":          {"history", "search", "a", "--nope"},
 		"full and text": {"history", "search", "a", "--full", "i1"},
-		"full ref":      {"history", "search", "--full", "t1"},
+		"full ref":      {"history", "search", "--full", "x1"},
 		"no subcommand": {"history"},
 		"subcommand":    {"history", "find"},
 	} {

@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-var dropHistoryIndex = []string{`DROP TRIGGER supervisor_input_fts_insert`, `DROP TRIGGER supervisor_input_fts_delete`, `DROP TRIGGER supervisor_input_fts_update`, `DROP TRIGGER report_fts_insert`, `DROP TRIGGER report_fts_delete`, `DROP TRIGGER report_fts_update`, `DROP TRIGGER supervisor_reply_fts_insert`, `DROP TRIGGER supervisor_reply_fts_delete`, `DROP TRIGGER supervisor_reply_fts_update`, `DROP TABLE supervisor_input_fts`, `DROP TABLE report_fts`, `DROP TABLE supervisor_reply_fts`}
+var dropHistoryIndex = []string{`DROP TRIGGER supervisor_input_fts_insert`, `DROP TRIGGER supervisor_input_fts_delete`, `DROP TRIGGER supervisor_input_fts_update`, `DROP TRIGGER report_fts_insert`, `DROP TRIGGER report_fts_delete`, `DROP TRIGGER report_fts_update`, `DROP TRIGGER supervisor_reply_fts_insert`, `DROP TRIGGER supervisor_reply_fts_delete`, `DROP TRIGGER supervisor_reply_fts_update`, `DROP TABLE supervisor_input_fts`, `DROP TABLE report_fts`, `DROP TABLE supervisor_reply_fts`, `DROP TRIGGER decision_fts_insert`, `DROP TRIGGER decision_fts_delete`, `DROP TRIGGER decision_fts_update`, `DROP TRIGGER task_fts_insert`, `DROP TRIGGER task_fts_delete`, `DROP TRIGGER task_fts_update`, `DROP TABLE decision_fts`, `DROP TABLE task_fts`, `DROP VIEW history_decision`, `DROP VIEW history_task`}
 
 type historyDB struct {
 	t       *Store
@@ -84,12 +84,12 @@ func TestFTS5IsInTheBuild(t *testing.T) {
 		t.Fatalf("this build has no FTS5, so no hand command can open hand.db: %v", err)
 	}
 	var n int
-	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name LIKE '%\_fts' ESCAPE '\' AND type = 'table'`).Scan(&n); err != nil || n != 3 {
-		t.Fatalf("fts tables = %d, %v; want 3", n, err)
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name LIKE '%\_fts' ESCAPE '\' AND type = 'table'`).Scan(&n); err != nil || n != 5 {
+		t.Fatalf("fts tables = %d, %v; want 5", n, err)
 	}
 	var triggers int
-	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%\_fts\_%' ESCAPE '\'`).Scan(&triggers); err != nil || triggers != 9 {
-		t.Fatalf("fts triggers = %d, %v; want 9", triggers, err)
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%\_fts\_%' ESCAPE '\'`).Scan(&triggers); err != nil || triggers != 15 {
+		t.Fatalf("fts triggers = %d, %v; want 15", triggers, err)
 	}
 }
 
@@ -561,7 +561,7 @@ func TestHistoryEntryReadsOneRowWhole(t *testing.T) {
 			t.Errorf("%s = %+v, %v; want %+v", ref, got, err, want)
 		}
 	}
-	for _, ref := range []string{"i99", "r99", "y99", "t1", "x", "", "i0", "i-1", "y01", "i99999999999999999999"} {
+	for _, ref := range []string{"i99", "r99", "y99", "d99", "t99", "x", "", "i0", "i-1", "y01", "i99999999999999999999"} {
 		if _, err := h.t.HistoryEntry(ctx, ref); !errors.Is(err, ErrNotFound) {
 			t.Errorf("%q err = %v, want ErrNotFound", ref, err)
 		}

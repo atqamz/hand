@@ -40,7 +40,7 @@ func asOldSchema(t *testing.T, home string, version int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`DROP TRIGGER supervisor_input_fts_insert`, `DROP TRIGGER supervisor_input_fts_delete`, `DROP TRIGGER supervisor_input_fts_update`, `DROP TRIGGER report_fts_insert`, `DROP TRIGGER report_fts_delete`, `DROP TRIGGER report_fts_update`, `DROP TRIGGER supervisor_reply_fts_insert`, `DROP TRIGGER supervisor_reply_fts_delete`, `DROP TRIGGER supervisor_reply_fts_update`, `DROP TABLE supervisor_input_fts`, `DROP TABLE report_fts`, `DROP TABLE supervisor_reply_fts`, fmt.Sprintf(`PRAGMA user_version = %d`, version)} {
+	for _, q := range []string{`DROP TRIGGER decision_fts_insert`, `DROP TRIGGER decision_fts_delete`, `DROP TRIGGER decision_fts_update`, `DROP TRIGGER task_fts_insert`, `DROP TRIGGER task_fts_delete`, `DROP TRIGGER task_fts_update`, `DROP TABLE decision_fts`, `DROP TABLE task_fts`, `DROP VIEW history_decision`, `DROP VIEW history_task`, fmt.Sprintf(`PRAGMA user_version = %d`, version)} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}

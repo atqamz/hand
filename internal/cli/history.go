@@ -23,16 +23,16 @@ func init() {
 	commands["history"] = func(r *runner, args []string) error { return sub(r, args, "history", historyCommands) }
 }
 
-var historyRefArg = regexp.MustCompile(`^[iry][1-9][0-9]*$`)
+var historyRefArg = regexp.MustCompile(`^[irydt][1-9][0-9]*$`)
 
 func cmdHistorySearch(r *runner, args []string) error {
 	fs := flags("history search")
 	limit := fs.Int("limit", 5, "hits to print, 1 to 50")
 	since := fs.String("since", "", "only entries at or after this, like 7d, 36h or 2026-11-01")
-	who := fs.String("who", "", "only operator messages (operator), supervisor replies (supervisor) or reports (report)")
-	task := fs.String("task", "", "only this task: its reports, and messages and replies that name it, like t12")
+	who := fs.String("who", "", "only operator messages (operator), supervisor replies (supervisor), reports (report), decisions (decision) or task titles (task)")
+	task := fs.String("task", "", "only this task: its reports, decisions and title, and messages and replies that name it, like t12")
 	around := fs.Int("context", 0, "entries before and after each message or reply hit, 0 to 5")
-	full := fs.String("full", "", "print this entry whole, iN, rN or yN, capped at 16 KiB; no QUERY needed")
+	full := fs.String("full", "", "print this entry whole, iN, yN, rN, dN or tN, capped at 16 KiB; no QUERY needed")
 	var words []string
 	for rest := args; ; {
 		if err := fs.Parse(rest); err != nil {
@@ -50,7 +50,7 @@ func cmdHistorySearch(r *runner, args []string) error {
 		return historyFull(r, *full)
 	}
 	if len(words) == 0 {
-		return usageError{"usage: hand history search QUERY [--limit N] [--since 7d] [--who operator|supervisor|report] [--task tN] [--context N] [--full REF]"}
+		return usageError{"usage: hand history search QUERY [--limit N] [--since 7d] [--who operator|supervisor|report|decision|task] [--task tN] [--context N] [--full REF]"}
 	}
 	q := state.HistoryQuery{Q: strings.Join(words, " "), Who: *who, Limit: *limit, Context: *around}
 	var err error
@@ -118,7 +118,7 @@ func historyPage(res state.HistoryResult, n int, command string) *toon.Doc {
 
 func historyFull(r *runner, ref string) error {
 	if !historyRefArg.MatchString(ref) {
-		return usageError{fmt.Sprintf("history search: --full %q is not a ref; want iN, rN or yN", ref)}
+		return usageError{fmt.Sprintf("history search: --full %q is not a ref; want iN, yN, rN, dN or tN", ref)}
 	}
 	st, err := r.store()
 	if err != nil {
