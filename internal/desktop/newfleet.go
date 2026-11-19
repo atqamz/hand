@@ -26,8 +26,6 @@ type NewFleetRequest struct {
 	Made         *NewFleetResult
 }
 
-// NewFleetResult is what a try left behind: ID is set once `hand init`
-// succeeded, Cmd is the command the operator can run by hand after a failure.
 type NewFleetResult struct {
 	ID, Folder, Warn, Cmd string
 }
@@ -36,10 +34,6 @@ type fieldError string
 
 func (e fieldError) Error() string { return string(e) }
 
-// NewFleet returns the window's way to make a fleet before any Board can serve
-// the step: it checks the form, runs `hand init`, then always `hand board
-// start` in the new folder, because a new fleet has no board.token until that
-// verb makes one, even when another Board already answers.
 func NewFleet(getenv func(string) string) func(context.Context, NewFleetRequest) (NewFleetResult, error) {
 	return func(ctx context.Context, req NewFleetRequest) (NewFleetResult, error) {
 		var res NewFleetResult
@@ -68,7 +62,7 @@ func NewFleet(getenv func(string) string) func(context.Context, NewFleetRequest)
 			}
 			res.Warn = luvusWarning(out)
 		}
-		res.Cmd = shellJoin(runtime.GOOS, "hand", "--home", res.Folder, "board", "start")
+		res.Cmd = boardStartCommand(res.Folder)
 		out, err := runHand(ctx, boardStartTimeout, res.Folder, "--home", res.Folder, "board", "start")
 		if err != nil {
 			return res, errors.New("The fleet was made, but its Board did not start: " + handLine("board start", out, err))
@@ -86,9 +80,12 @@ func checkNewFleet(getenv func(string) string, goos string, req NewFleetRequest)
 	case len(name) > 64 || !utf8.ValidString(name) || strings.ContainsFunc(name, unicode.IsControl):
 		return "", "", fieldError("Name must be 1 to 64 bytes of printable text.")
 	}
+	if why := unquotable(goos, name); why != "" {
+		return "", "", fieldError("Name " + why)
+	}
 	for _, f := range req.Fleets {
-		if f.Name == name {
-			return "", "", fieldError(fmt.Sprintf("A fleet named %q already exists. Pick another name.", name))
+		if strings.EqualFold(f.Name, name) {
+			return "", "", fieldError(fmt.Sprintf("A fleet named %q already exists. Pick another name.", f.Name))
 		}
 	}
 	dir := expandHome(getenv, goos, strings.TrimSpace(req.Folder))
@@ -96,6 +93,9 @@ func checkNewFleet(getenv func(string) string, goos string, req NewFleetRequest)
 		return "", "", fieldError("Folder must be an absolute path.")
 	}
 	dir = filepath.Clean(dir)
+	if why := unquotable(goos, dir); why != "" {
+		return "", "", fieldError("Folder " + why)
+	}
 	switch info, err := os.Stat(dir); {
 	case err == nil && !info.IsDir():
 		return "", "", fieldError("That folder is a file. Pick a new or empty folder.")
@@ -161,7 +161,16 @@ func luvusWarning(out []byte) string {
 	return "Luvus is not pinned; run `hand luvus pin`."
 }
 
-var plainArg = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./\\-]+$`)
+var plainArg = regexp.MustCompile(`^[A-Za-z0-9_./:-]+$`)
+
+var powerShellQuote = strings.NewReplacer("'", "''", "\u2018", "\u2018\u2018", "\u2019", "\u2019\u2019", "\u201a", "\u201a\u201a", "\u201b", "\u201b\u201b")
+
+func unquotable(goos, arg string) string {
+	if goos == "windows" && (strings.Contains(arg, `"`) || strings.HasSuffix(arg, `\`)) {
+		return "cannot contain a double quote or end in a backslash: the command shown for PowerShell could not be quoted safely."
+	}
+	return ""
+}
 
 func shellJoin(goos string, argv ...string) string {
 	parts := make([]string, len(argv))
@@ -170,12 +179,23 @@ func shellJoin(goos string, argv ...string) string {
 		case plainArg.MatchString(a):
 			parts[i] = a
 		case goos == "windows":
-			parts[i] = `"` + strings.ReplaceAll(a, `"`, `\"`) + `"`
+			parts[i] = "'" + powerShellQuote.Replace(a) + "'"
 		default:
 			parts[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func boardStartCommand(folder string) string {
+	return shellJoin(runtime.GOOS, "hand", "--home", folder, "board", "start")
+}
+
+func terminalName(goos string) string {
+	if goos == "windows" {
+		return "PowerShell"
+	}
+	return "a terminal"
 }
 
 func folderFor(name string) string {
@@ -207,7 +227,7 @@ func (a *App) submitNewFleet() {
 		a.nf.busy = false
 		switch {
 		case err == nil:
-			a.nf.done, a.nf.made = true, nil
+			a.nf.done, a.nf.made = true, &res
 			a.pendingFleet, a.pendingWarn = res.ID, res.Warn
 			a.Refresh()
 		default:
@@ -236,15 +256,18 @@ func (a *App) newFleetFields(c *ui.Context, k kit.Colors, p palette) {
 		a.nf.auto = a.nf.folder
 	}
 	kit.FieldLabel(c, k, "Name")
-	ui.TextInput(c, &a.nf.name).Placeholder("Fleet name").Label("Fleet name")
+	submit := ui.TextInput(c, &a.nf.name).Placeholder("Fleet name").Label("Fleet name").Submitted()
 	kit.FieldLabel(c, k, "Folder")
-	ui.TextInput(c, &a.nf.folder).Placeholder("Absolute folder").Label("Fleet folder")
+	submit = ui.TextInput(c, &a.nf.folder).Placeholder("Absolute folder").Label("Fleet folder").Submitted() || submit
+	if submit {
+		a.submitNewFleet()
+	}
 	if a.nf.err == "" {
 		return
 	}
 	ui.Text(c, a.nf.err).FontSize(kit.Body.Size).TextColor(p.fail)
 	if a.nf.cmd != "" {
-		ui.Text(c, "Run it yourself in a terminal:").FontSize(kit.Meta.Size).TextColor(k.Muted)
+		ui.Text(c, "Run it yourself in "+terminalName(runtime.GOOS)+":").FontSize(kit.Meta.Size).TextColor(k.Muted)
 		ui.Text(c, a.nf.cmd).Font("monospace").FontSize(kit.Body.Size)
 	}
 }
@@ -259,4 +282,13 @@ func (a *App) newFleetLabel() string {
 		return "Start the Board"
 	}
 	return "Create fleet"
+}
+
+func (a *App) newFleetUnlisted() {
+	if !a.nf.done {
+		return
+	}
+	a.nf.done = false
+	a.nf.err = "The fleet was made in " + a.nf.made.Folder + ", but this window does not list it yet. Start the Board to look again."
+	a.nf.cmd = boardStartCommand(a.nf.made.Folder)
 }

@@ -58,11 +58,17 @@ func StartBoard(getenv func(string) string) func(context.Context, string) (strin
 var (
 	errHandMissing = errors.New("`hand` was not found next to hand-desktop or on PATH; install it or add it to PATH")
 	errHandTimeout = errors.New("`hand` did not finish in time")
+	errHandRefused = errors.New("hand-desktop runs only `hand init` and `hand board start`")
 )
 
-// runHand runs the hand next to hand-desktop, or on PATH, with argv as one
-// vector and no shell. dir "" keeps the window's own working folder.
+func allowedHandArgs(argv []string) bool {
+	return len(argv) == 4 && (argv[0] == "init" && argv[1] == "--name" || argv[0] == "--home" && argv[2] == "board" && argv[3] == "start")
+}
+
 func runHand(ctx context.Context, timeout time.Duration, dir string, argv ...string) ([]byte, error) {
+	if !allowedHandArgs(argv) {
+		return nil, errHandRefused
+	}
 	bin, err := handBinary()
 	if err != nil {
 		return nil, errHandMissing
@@ -149,8 +155,9 @@ func (a *App) maybeStart() {
 }
 
 func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
+	minW, maxW := float32(0), float32(840)
 	card := func(label string, tone ui.Color, meta, title, body, command, foot string, form, buttons func()) {
-		ui.Column(c).MaxWidth(840).AlignSelf(ui.Center).Border(1, k.Line).Radius(kit.RadiusLG).
+		ui.Column(c).MinWidth(minW).MaxWidth(maxW).AlignSelf(ui.Center).Border(1, k.Line).Radius(kit.RadiusLG).
 			Clip().Background(k.BG).Children(func() {
 			ui.Row(c).Background(k.Card).Height(kit.Row).Padding(0, 15).Gap(kit.Space10).
 				AlignItems(ui.Center).Children(func() {
@@ -212,6 +219,7 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 				}
 			})
 	case a.noFleets:
+		minW, maxW = 640, 640
 		card("Fleets", k.Muted, "none yet", "No fleet on this computer yet.",
 			"A fleet is a folder with its own supervisor. Name it and choose its folder:",
 			"", "Made one in a terminal instead? Look again finds it.",

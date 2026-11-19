@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,6 +86,7 @@ func TestNewFleetChecksTheFormBeforeAnyExec(t *testing.T) {
 		{"long name", strings.Repeat("a", 65), fresh, "1 to 64 bytes"},
 		{"control name", "a\nb", fresh, "1 to 64 bytes"},
 		{"duplicate name", "taken", fresh, `A fleet named "taken" already exists`},
+		{"duplicate name in another case", " TaKeN ", fresh, `A fleet named "taken" already exists`},
 		{"relative folder", "new", "fleets/new", "absolute"},
 		{"dot folder", "new", ".", "absolute"},
 		{"empty folder", "new", "", "absolute"},
@@ -106,6 +109,153 @@ func TestNewFleetChecksTheFormBeforeAnyExec(t *testing.T) {
 				t.Fatalf("hand ran: %q", got)
 			}
 		})
+	}
+}
+
+var nastyArgs = []string{
+	`a\b`, `a\`, `\`, `it's`, `'`, `''`, `$HOME`, "`id`", `$(id)`, `a b`, `"q"`, `a"b`, "a\nb",
+	"-x", "--", "é", "日本", `;`, `*`, `!`, `a;b`, `~`, `%s`, `%PATH%`, `a,b`, `@x`, `\'`, "a\tb",
+}
+
+func TestShellJoinQuotesForPOSIX(t *testing.T) {
+	cases := map[string]string{
+		`new`:        `new`,
+		`/srv/a-b.c`: `/srv/a-b.c`,
+		`-x`:         `-x`,
+		`a\b`:        `'a\b'`,
+		`a\`:         `'a\'`,
+		`it's`:       `'it'\''s'`,
+		`a b`:        `'a b'`,
+		`$HOME`:      `'$HOME'`,
+		"`id`":       "'`id`'",
+		`"q"`:        `'"q"'`,
+		"a\nb":       "'a\nb'",
+		`~`:          `'~'`,
+		`é`:          `'é'`,
+		`%PATH%`:     `'%PATH%'`,
+		`a,b`:        `'a,b'`,
+		`@x`:         `'@x'`,
+	}
+	for arg, want := range cases {
+		if got := desktop.ShellJoin("linux", arg); got != want {
+			t.Errorf("%q: got %s, want %s", arg, got, want)
+		}
+		if got := desktop.ShellJoin("darwin", arg); got != want {
+			t.Errorf("%q on darwin: got %s, want %s", arg, got, want)
+		}
+	}
+}
+
+func TestShellJoinRunsAsShownInASh(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil || runtime.GOOS == "windows" {
+		t.Skip("no sh")
+	}
+	for _, arg := range nastyArgs {
+		line := desktop.ShellJoin("linux", "printf", "%s|", "x", arg)
+		out, err := exec.Command(sh, "-c", line).Output()
+		if err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		if want := "x|" + arg + "|"; string(out) != want {
+			t.Errorf("%s printed %q, want %q", line, out, want)
+		}
+	}
+}
+
+func TestShellJoinQuotesForPowerShell(t *testing.T) {
+	cases := map[string]string{
+		`new`:               `new`,
+		`C:/srv/a-b.c`:      `C:/srv/a-b.c`,
+		`-x`:                `-x`,
+		`C:\Users\me\fleet`: `'C:\Users\me\fleet'`,
+		`it's`:              `'it''s'`,
+		"\u2018q\u2019":     "'\u2018\u2018q\u2019\u2019'",
+		"\u201a\u201b":      "'\u201a\u201a\u201b\u201b'",
+		`a b`:               `'a b'`,
+		`$env:Path`:         `'$env:Path'`,
+		"a`b":               "'a`b'",
+		`%PATH%`:            `'%PATH%'`,
+		`a,b`:               `'a,b'`,
+		`@x`:                `'@x'`,
+		`a;b`:               `'a;b'`,
+		`é`:                 `'é'`,
+	}
+	for arg, want := range cases {
+		if got := desktop.ShellJoin("windows", arg); got != want {
+			t.Errorf("%q: got %s, want %s", arg, got, want)
+		}
+	}
+	if got := desktop.ShellJoin("windows", "hand", "--home", `C:\my fleet`, "board", "start"); got != `hand --home 'C:\my fleet' board start` {
+		t.Errorf("command: %s", got)
+	}
+}
+
+func TestWindowsRefusesWhatPowerShellCannotQuote(t *testing.T) {
+	dir := t.TempDir()
+	getenv := getenvFor(t.TempDir(), dir)
+	cases := []struct{ name, folder, want string }{
+		{`a"b`, filepath.Join(dir, "ok"), "Name cannot contain a double quote or end in a backslash"},
+		{`a\`, filepath.Join(dir, "ok"), "Name cannot contain a double quote or end in a backslash"},
+		{"ok", filepath.Join(dir, `a"b`), "Folder cannot contain a double quote or end in a backslash"},
+	}
+	for _, tc := range cases {
+		_, _, err := desktop.CheckNewFleet(getenv, "windows", desktop.NewFleetRequest{Name: tc.name, Folder: tc.folder})
+		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "PowerShell") {
+			t.Errorf("%q %q: %v", tc.name, tc.folder, err)
+		}
+	}
+	for _, name := range []string{`a"b`, `a\`} {
+		if _, _, err := desktop.CheckNewFleet(getenv, "linux", desktop.NewFleetRequest{Name: name, Folder: filepath.Join(dir, "ok")}); err != nil {
+			t.Errorf("%q on linux: %v", name, err)
+		}
+	}
+}
+
+func TestTheCardNamesTheShellItsCommandIsFor(t *testing.T) {
+	if got := desktop.TerminalName("windows"); got != "PowerShell" {
+		t.Errorf("windows: %q", got)
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		if got := desktop.TerminalName(goos); got != "a terminal" {
+			t.Errorf("%s: %q", goos, got)
+		}
+	}
+}
+
+func TestTheWindowRunsOnlyInitAndBoardStart(t *testing.T) {
+	hand := installFakeHand(t)
+	for _, argv := range [][]string{
+		nil,
+		{"open"},
+		{"board", "stop"},
+		{"board", "start"},
+		{"init"},
+		{"init", "--name", "x"},
+		{"init", "--yes", "x", "y"},
+		{"init", "--name", "x", "y", "z"},
+		{"--home", "x", "board", "stop"},
+		{"--home", "x", "init", "--name"},
+		{"--home", "x", "luvus", "pin"},
+		{"--home", "x", "board", "start", "--all"},
+		{"luvus", "pin", "a", "b"},
+		{"task", "list", "a", "b"},
+	} {
+		_, err := desktop.RunHand(context.Background(), time.Minute, "", argv...)
+		if err == nil || !strings.Contains(err.Error(), "runs only `hand init` and `hand board start`") {
+			t.Errorf("%q: %v", argv, err)
+		}
+	}
+	if got := hand.calls(t); len(got) != 0 {
+		t.Fatalf("hand ran: %q", got)
+	}
+	for _, argv := range [][]string{{"init", "--name", "x", "/y"}, {"--home", "/y", "board", "start"}} {
+		if _, err := desktop.RunHand(context.Background(), time.Minute, "", argv...); err != nil {
+			t.Errorf("%q: %v", argv, err)
+		}
+	}
+	if got := hand.calls(t); len(got) != 4 {
+		t.Fatalf("calls = %q", got)
 	}
 }
 
@@ -374,7 +524,7 @@ func TestAFailedCreateKeepsTheFormAndShowsTheCommand(t *testing.T) {
 
 	click(t, tt, "Create fleet")
 	tt.Frame()
-	mustText(t, tt, "error: conflict: boom", "hand init --name new /x", "Copy the command")
+	mustText(t, tt, "error: conflict: boom", "Run it yourself in "+desktop.TerminalName(runtime.GOOS)+":", "hand init --name new /x", "Copy the command")
 	if name, folder := desktop.NewFleetForm(app); name != "new" || folder != "~/fleets/new" {
 		t.Fatalf("form = %q %q", name, folder)
 	}
@@ -450,5 +600,104 @@ func TestScenesNewFleet(t *testing.T) {
 			mustText(t, tt, "Copy the command")
 			shot(t, tt, "new-fleet-failed-"+theme)
 		})
+	}
+}
+
+func asyncZeroFleetApp(t *testing.T, run func(context.Context, desktop.NewFleetRequest) (desktop.NewFleetResult, error)) (*desktop.App, *ui.Tester, chan func()) {
+	t.Helper()
+	app := startApp(t, noFleets, (&startSpy{}).run)
+	app.NewFleet = run
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	app.StartRefresh()
+	tt.Frame()
+	for settle := time.Now().Add(300 * time.Millisecond); time.Now().Before(settle); {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	tt.Frame()
+	return app, tt, posted
+}
+
+func TestThreeSubmitsRunInitOnce(t *testing.T) {
+	var calls atomic.Int32
+	release := make(chan struct{})
+	_, tt, posted := asyncZeroFleetApp(t, func(context.Context, desktop.NewFleetRequest) (desktop.NewFleetResult, error) {
+		calls.Add(1)
+		<-release
+		return desktop.NewFleetResult{}, errors.New("stopped")
+	})
+	click(t, tt, "Create fleet")
+	tt.Frame()
+	click(t, tt, "Creating…")
+	click(t, tt, "Creating…")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	close(release)
+	waitPost(t, posted)()
+	tt.Frame()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("init ran %d times, want 1", got)
+	}
+	mustText(t, tt, "stopped", "Create fleet")
+}
+
+func TestASuccessIsNotSubmittedAgainWhileItOpens(t *testing.T) {
+	var calls atomic.Int32
+	app, tt, posted := asyncZeroFleetApp(t, func(context.Context, desktop.NewFleetRequest) (desktop.NewFleetResult, error) {
+		calls.Add(1)
+		return desktop.NewFleetResult{ID: fleetID, Folder: "/x"}, nil
+	})
+	_ = app
+	click(t, tt, "Create fleet")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Opening…")
+	click(t, tt, "Opening…")
+	click(t, tt, "Opening…")
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("init ran %d times, want 1", got)
+	}
+}
+
+func TestEnterInTheNameOrFolderSubmits(t *testing.T) {
+	for _, field := range []string{"Fleet name", "Fleet folder"} {
+		t.Run(field, func(t *testing.T) {
+			spy := &newFleetSpy{res: []desktop.NewFleetResult{{}}, errs: []error{errors.New("stopped")}}
+			_, tt := zeroFleetApp(t, noFleets, spy)
+			click(t, tt, "Fleet name")
+			tt.Type("atlas")
+			tt.Frame()
+			click(t, tt, field)
+			tt.Key(0, ui.KeyEnter)
+			tt.Frame()
+			if len(spy.reqs) != 1 || spy.reqs[0].Name != "atlas" {
+				t.Fatalf("requests = %+v", spy.reqs)
+			}
+			mustText(t, tt, "stopped")
+		})
+	}
+}
+
+func TestACreateTheWindowCannotListDoesNotStick(t *testing.T) {
+	spy := &newFleetSpy{
+		res:  []desktop.NewFleetResult{{ID: fleetID, Folder: "/srv/atlas"}, {ID: fleetID, Folder: "/srv/atlas"}},
+		errs: []error{nil, errors.New("The fleet was made, but its Board did not start: bind failed")},
+	}
+	_, tt := zeroFleetApp(t, noFleets, spy)
+	click(t, tt, "Fleet name")
+	tt.Type("atlas")
+	tt.Frame()
+	click(t, tt, "Create fleet")
+	tt.Frame()
+	mustText(t, tt, "The fleet was made in /srv/atlas, but this window does not list it yet.", "Start the Board", "Copy the command", "hand --home /srv/atlas board start")
+	mustNotText(t, tt, "Opening…")
+	click(t, tt, "Start the Board")
+	if len(spy.reqs) != 2 || spy.reqs[1].Made == nil || spy.reqs[1].Made.Folder != "/srv/atlas" {
+		t.Fatalf("requests = %+v", spy.reqs)
 	}
 }

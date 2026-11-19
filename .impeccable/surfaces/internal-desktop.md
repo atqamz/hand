@@ -34,7 +34,7 @@ related_targets:
 - **Audience and load:** the sole operator, at the same desk as the Board, with a few fleets and seven or more tasks in one.
 - **Job:** answer "is anything paged?" without a browser, open one task, attempt or decision to read it, and send the supervisor one message.
 - **Constraints:**
-  - the window is a client, never a second owner of state: it reads `/api/v1` over loopback, writes only a message, an answer, an acknowledgement or a supervisor control (start, resume, stop, interrupt, force and keys), and keeps its composer drafts in its own state folder;
+  - the window is a client, never a second owner of state: it reads `/api/v1` over loopback, writes only a message, an answer, an acknowledgement or a supervisor control (start, resume, stop, interrupt, force and keys), and, with no fleet, runs `hand init` and `hand board start` from the New fleet form (no other `hand` verb), and keeps its composer drafts in its own state folder;
   - it lists a fleet when its link resolves and its `hand.db` is there, names it from the board when the board answers, and shows a fleet whose `board.token` is missing or unreadable with the `hand open` fix;
   - the credential is the token the board already writes, `board.token` in the fleet home, sent as the fleet's session cookie `hand_board_<fleet id>`. The desktop reads it; it never prints it and never adds it to a URL. A mutation reads the session's CSRF token from `GET /api/v1/session` and sends it as `X-Hand-CSRF`;
   - the board address is `board.addr` in `$SECONDHAND_HOME`, the file `hand open` writes, and it must be a loopback address, because the API answers nowhere else;
@@ -168,7 +168,7 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 ## Rules
 
-**The Actions Rule.** The only forms v1 renders are the composer, an open decision's answer, a report's Ack, the model menu's model, effort and harness fields and the Start strip's; the supervisor controls are buttons in the pane head, and the ask's option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except Open in browser in the overflow menu, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
+**The Actions Rule.** The only forms v1 renders are the New fleet form on the zero-fleet card (a name and a folder), the composer, an open decision's answer, a report's Ack, the model menu's model, effort and harness fields and the Start strip's; the supervisor controls are buttons in the pane head, and the ask's option buttons and key toolbar press keys, with no fields. Every other click only changes which screen is shown, except Open in browser in the overflow menu, which runs `hand open` for the screen's object in the fleet's folder and writes nothing itself. The composer sends text only; attachments wait for an API contract that carries an inbox file by name.
 
 **The One Owner Rule.** The board owns state. The window reads `board.token`, `board.addr` and the fleet links, opens no fleet database, writes only its composer draft file and `prefs.json` beside it (and, with no fleet, runs `hand init` and `hand board start` from the New fleet form, the only steps taken before a Board can serve them), and does not import the CLI, the board service or the state store.
 

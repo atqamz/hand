@@ -94,3 +94,10 @@ func SetShotDecode(f func([]byte, int64) (*ui.Bitmap, string)) func() {
 }
 
 func NewFleetForm(a *App) (name, folder string) { return a.nf.name, a.nf.folder }
+
+var (
+	ShellJoin     = shellJoin
+	CheckNewFleet = checkNewFleet
+	TerminalName  = terminalName
+	RunHand       = runHand
+)

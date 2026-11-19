@@ -512,6 +512,9 @@ func (a *App) SelectFleet(id string) {
 func (a *App) install(f found, keep bool) {
 	a.setErr("")
 	a.auth = f.Auth
+	if f.Model == nil || len(f.Fleets) == 0 {
+		a.newFleetUnlisted()
+	}
 	if f.Err != nil {
 		a.setErr(friendly(f.Err))
 	}
