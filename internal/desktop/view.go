@@ -766,6 +766,10 @@ func (a *App) markdownCopy(c *ui.Context, src string) {
 }
 
 func (a *App) markdownAt(c *ui.Context, src string, theme *markdown.Theme) {
+	a.markdownOf(c, a.linked(src), theme)
+}
+
+func (a *App) markdownOf(c *ui.Context, linked string, theme *markdown.Theme) {
 	a.md.ShareSelection = true
 	a.md.OnLink = func(dest string) {
 		if a.Screen == DocScreen {
@@ -788,7 +792,7 @@ func (a *App) markdownAt(c *ui.Context, src string, theme *markdown.Theme) {
 		}
 	}
 	a.md.Theme = theme
-	markdown.View(c, a.linked(src), &a.md)
+	markdown.View(c, linked, &a.md)
 	a.md.Theme = nil
 }
 

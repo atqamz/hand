@@ -278,11 +278,13 @@ func TestARefPathOnAnotherHostStaysExternalOrRefused(t *testing.T) {
 	hand := installFakeHand(t)
 	https := "https://evil.example/" + fleetID + "/ref/t77"
 	http := "http://localhost:1/" + fleetID + "/ref/t77"
-	body := "Result\n\n[one](" + https + ") [two](" + http + ") [three](//evil.example/" + fleetID + "/ref/t77)"
+	body := "Result\n\n[one](" + https + ") [two](" + http + ") [three](//evil.example/" + fleetID + "/ref/t77) [four](file:///" + fleetID + "/ref/t77) [five](https://x@/" + fleetID + "/ref/t77)"
 	app, tt := reportAppAt(t, body, hand.home)
 	click(t, tt, "one")
 	click(t, tt, "two")
 	click(t, tt, "three")
+	click(t, tt, "four")
+	click(t, tt, "five")
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("a link to another host opened %v %q", app.Screen, app.Ref)
 	}
