@@ -84,7 +84,7 @@ One autostart is enough: run `hand board` once at login, and the board starts ev
 
 ## If something does not work
 
-Run `hand doctor` in the fleet folder. It checks Hand, git, the harnesses, Luvus, the fleet, each project's git settings, the board, the phone address and the watcher, and prints a fix for each problem. It repairs nothing and spends no tokens, so paste its output into a bug report. The board finds `claude` and the other harnesses on the `PATH` it started with, which can differ from your shell's: restart the board after you install one with `hand board stop` and `hand board`, or restart its unit (a systemd unit keeps the `PATH` from when you ran `hand unit board`, see [Linux](docs/autostart.md#linux)).
+Run `hand doctor` in the fleet folder. It checks Hand, git, the harnesses, Luvus, the fleet, each project's git settings, the board, the Companion address and the watcher, and prints a fix for each problem. It repairs nothing and spends no tokens, so paste its output into a bug report. The board finds `claude` and the other harnesses on the `PATH` it started with, which can differ from your shell's: restart the board after you install one with `hand board stop` and `hand board`, or restart its unit (a systemd unit keeps the `PATH` from when you ran `hand unit board`, see [Linux](docs/autostart.md#linux)).
 
 Report a problem with the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), and a vulnerability as [`SECURITY.md`](SECURITY.md) says.
 
@@ -100,11 +100,11 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 - [Platform support](docs/platforms.md): how each part is verified on Linux, macOS and Windows.
 - [Fleets](docs/fleets.md): where Hand finds a fleet, and what its folder and `~/.secondhand` hold.
 - [Autostart](docs/autostart.md): how the watcher and the board keep running, and how to start the board at login.
-- [The board](docs/board.md): the fleet page, `hand open` and reaching the board from a phone.
+- [The board](docs/board.md): the fleet page, `hand open` and reaching the board from a Companion.
 - [JSON API](docs/api.md): the board's `/api/v1` views and its actions (a message, a decision's answer, a report's ack and the supervisor controls), the keys guards, the change cursor, and the auth, CSRF and error contract.
-- [Reach the board from a phone](docs/phone.md): the Hand app over iroh, and an SSH tunnel, Cloudflare Tunnel with Access, WireGuard and a LAN address, with what each exposes.
+- [Reach the board from a Companion](docs/companion-app.md): the Hand app over iroh, and an SSH tunnel, Cloudflare Tunnel with Access, WireGuard and a LAN address, with what each exposes.
 - [The supervisor](docs/supervisor.md): its harness flags, trust screens, attachments, reboots, idle wakes and timers.
-- [Alerts on your phone](docs/alerts.md): send every alert to your own command.
+- [Alerts on your Companion](docs/alerts.md): send every alert to your own command.
 - [Clean the inbox](docs/inbox.md): prune old attachments.
 - [Safe use](docs/safe-use.md): what the agents can do with prompts skipped, how to run Hand safer, and what nothing prevents yet.
 - [Commands](docs/commands.md): every `hand` command.

@@ -6,7 +6,7 @@ docs/board.md
 docs/fleets.md
 docs/supervisor.md
 docs/companion.md
-docs/phone.md
+docs/companion-app.md
 docs/alerts.md
 docs/inbox.md
 docs/safe-use.md

@@ -122,10 +122,14 @@ func build(root, out, version string, rs []release, note string) error {
 	return nil
 }
 
+// companion-app.md keeps /phone/, the address old links and the nav use.
 func pageURL(src string) string {
 	base := strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
 	if strings.EqualFold(base, "README") {
 		return "/"
+	}
+	if base == "companion-app" {
+		return "/phone/"
 	}
 	return "/" + strings.ToLower(base) + "/"
 }
