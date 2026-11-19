@@ -25,7 +25,7 @@ func fakeDesktop(t *testing.T, version, commit string) map[string][]byte {
 	script := string(fakebin.Embed(t, "desktop", map[string]string{"version": version, "commit": commit}))
 	archive, archiveZip := tarball(t, desktopasset.Name, script), zipball(t, desktopasset.Name+".exe", script)
 	files := map[string][]byte{}
-	for _, name := range []string{desktopName("linux", "amd64"), desktopName("linux", "arm64")} {
+	for _, name := range []string{desktopName("linux", "amd64"), desktopName("linux", "arm64"), desktopName("darwin", "arm64"), desktopName("darwin", "amd64")} {
 		files[name+".tar.gz"] = archive
 		files[name+".sha256"] = []byte(sum(archive) + "  " + name + ".tar.gz\n")
 	}
@@ -51,8 +51,7 @@ func newDesktopFetch(t *testing.T, version, commit string) *fixture {
 }
 
 func (f *fixture) desktop() string {
-	_, exe := packaging(hostTargetOS())
-	return filepath.Join(filepath.Dir(f.target), desktopasset.Name+exe)
+	return desktopasset.Path(f.target, hostTargetOS(), f.o.Getenv("HOME"))
 }
 
 func hostTargetOS() string {
@@ -77,8 +76,11 @@ func installDesktop(t *testing.T, f *fixture, version, commit string) {
 
 func skipUnlessDesktop(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "darwin" {
+		t.Skip("the macOS bundle is tested in desktop_darwin_test.go")
+	}
 	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux and Windows only")
+		t.Skip("hand-desktop assets are not built for this OS and architecture")
 	}
 }
 
@@ -308,24 +310,6 @@ func TestRunDoesNotReplaceHandWhenTheDesktopCannotBePlaced(t *testing.T) {
 	}
 }
 
-func TestRunSaysWhenTheTargetHasNoDesktop(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the fixture's target script has no .exe")
-	}
-	f := newFetch(t)
-	f.o.OS, f.o.Arch = "darwin", "arm64"
-	rep, err := Run(context.Background(), f.o)
-	if err != nil || rep.Desktop != "unsupported on darwin/arm64" {
-		t.Fatalf("report = %+v, %v", rep, err)
-	}
-	if f.asksForDesktop() {
-		t.Fatalf("an unsupported platform fetched a desktop: %q", f.srv.asked())
-	}
-	if out := Render(rep).String(); !strings.Contains(out, "desktop: unsupported on darwin/arm64\n") {
-		t.Fatalf("render:\n%s", out)
-	}
-}
-
 func TestRunSaysWhenThePlatformHasNoDesktop(t *testing.T) {
 	f := newFetch(t)
 	if desktopasset.Supported(f.o.OS, f.o.Arch, f.o.Channel) {
@@ -340,6 +324,60 @@ func TestRunSaysWhenThePlatformHasNoDesktop(t *testing.T) {
 	}
 	if out := Render(rep).String(); !strings.Contains(out, "desktop: unsupported on ") {
 		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func unsupportedTarget(t *testing.T) *fixture {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the downloaded hand for another OS cannot run on a Windows host")
+	}
+	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "26", "0.14.4")
+	archive := files["hand-linux-amd64.tar.gz"]
+	f.srv.set("hand-linux-386.tar.gz", archive)
+	f.srv.set("checksums.txt", append(files["checksums.txt"], []byte(sum(archive)+"  hand-linux-386.tar.gz\n")...))
+	f.o.OS, f.o.Arch = "linux", "386"
+	if desktopasset.Supported(f.o.OS, f.o.Arch, f.o.Channel) {
+		t.Fatal("linux/386 has a desktop")
+	}
+	return f
+}
+
+func TestRunSaysWhenTheTargetHasNoDesktop(t *testing.T) {
+	f := unsupportedTarget(t)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || rep.Desktop != "unsupported on linux/386" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForDesktop() {
+		t.Fatalf("an unsupported target fetched a desktop: %q", f.srv.asked())
+	}
+	if out := Render(rep).String(); !strings.Contains(out, "desktop: unsupported on linux/386\n") {
+		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
+	for _, current := range []bool{false, true} {
+		for _, check := range []bool{false, true} {
+			f := unsupportedTarget(t)
+			if current {
+				f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 26, Luvus: "0.14.4"}
+			}
+			f.o.Check = check
+			path := filepath.Join(filepath.Dir(f.target), desktopasset.Name)
+			if err := os.WriteFile(path, []byte("the installed desktop"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			rep, err := Run(context.Background(), f.o)
+			if err != nil || rep.Failed || rep.Desktop != "unsupported on linux/386" {
+				t.Fatalf("current %v, check %v: report = %+v, %v", current, check, rep, err)
+			}
+			if b, err := os.ReadFile(path); err != nil || string(b) != "the installed desktop" {
+				t.Fatalf("current %v, check %v: the installed window changed: %q, %v", current, check, b, err)
+			}
+		}
 	}
 }
 
@@ -484,7 +522,7 @@ func windowFixture(t *testing.T, channel string) *fixture {
 		f.srv.set(name, body)
 	}
 	f.o.OS, f.o.Arch, f.o.Channel = "windows", "amd64", channel
-	if err := os.WriteFile(desktopPath(f.target, "windows"), []byte("the edge desktop"), 0o755); err != nil {
+	if err := os.WriteFile(desktopasset.Path(f.target, "windows", ""), []byte("the edge desktop"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -492,7 +530,7 @@ func windowFixture(t *testing.T, channel string) *fixture {
 
 func (f *fixture) windowKept(t *testing.T) {
 	t.Helper()
-	if b, err := os.ReadFile(desktopPath(f.target, "windows")); err != nil || string(b) != "the edge desktop" {
+	if b, err := os.ReadFile(desktopasset.Path(f.target, "windows", "")); err != nil || string(b) != "the edge desktop" {
 		t.Fatalf("the installed window changed: %q, %v", b, err)
 	}
 }
@@ -514,7 +552,7 @@ func TestRunRemovesTheInstalledWindowOnAStableUpdateOfAWindowsTarget(t *testing.
 	if err != nil || rep.Failed || rep.Desktop != "unsupported on windows/amd64; removed the installed hand-desktop.exe" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	absent(t, desktopPath(f.target, "windows"))
+	absent(t, desktopasset.Path(f.target, "windows", ""))
 	if f.asksForDesktop() {
 		t.Fatalf("a stable build on Windows fetched a desktop: %q", f.srv.asked())
 	}
@@ -534,7 +572,7 @@ func TestRunRemovesTheInstalledWindowWhenHandIsAlreadyStable(t *testing.T) {
 	if err != nil || rep.Failed || !strings.Contains(rep.Desktop, "removed the installed hand-desktop.exe") {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	absent(t, desktopPath(f.target, "windows"))
+	absent(t, desktopasset.Path(f.target, "windows", ""))
 }
 
 func TestRunKeepsTheInstalledWindowOnAnEdgeUpdate(t *testing.T) {
@@ -548,36 +586,8 @@ func TestRunKeepsTheInstalledWindowOnAnEdgeUpdate(t *testing.T) {
 	if err != nil || strings.Contains(rep.Desktop, "removed") {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	if _, err := os.Stat(desktopPath(f.target, "windows")); err != nil {
+	if _, err := os.Stat(desktopasset.Path(f.target, "windows", "")); err != nil {
 		t.Fatalf("an edge update removed the window: %v", err)
-	}
-}
-
-func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the downloaded hand for another OS cannot run on a Windows host")
-	}
-	for _, tc := range []struct{ goos, arch string }{{"darwin", "arm64"}} {
-		for _, current := range []bool{false, true} {
-			t.Run(tc.goos+"-"+tc.arch+"-"+strconv.FormatBool(current), func(t *testing.T) {
-				f := windowFixture(t, "stable")
-				f.o.OS, f.o.Arch = tc.goos, tc.arch
-				p := desktopPath(f.target, tc.goos)
-				if err := os.WriteFile(p, []byte("the installed desktop"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if current {
-					f.isCurrent()
-				}
-				rep, err := Run(context.Background(), f.o)
-				if err != nil || strings.Contains(rep.Desktop, "remov") {
-					t.Fatalf("report = %+v, %v", rep, err)
-				}
-				if b, err := os.ReadFile(p); err != nil || string(b) != "the installed desktop" {
-					t.Fatalf("the installed desktop changed: %q, %v", b, err)
-				}
-			})
-		}
 	}
 }
 
@@ -637,7 +647,7 @@ func TestRunWritesTheStartMenuShortcutOnAWindowsEdgeUpdate(t *testing.T) {
 	if err != nil || rep.Failed || len(rep.Help) != 0 {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	if state, where := launcher.Check(f.o.Getenv, desktopPath(f.target, "windows")); state != launcher.OK {
+	if state, where := launcher.Check(f.o.Getenv, desktopasset.Path(f.target, "windows", "")); state != launcher.OK {
 		t.Fatalf("the shortcut is %q at %s", state, where)
 	}
 	f.o.Check = true
@@ -648,7 +658,7 @@ func TestRunWritesTheStartMenuShortcutOnAWindowsEdgeUpdate(t *testing.T) {
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
 	}
-	if state, _ := launcher.Check(f.o.Getenv, desktopPath(f.target, "windows")); state != launcher.Missing {
+	if state, _ := launcher.Check(f.o.Getenv, desktopasset.Path(f.target, "windows", "")); state != launcher.Missing {
 		t.Fatalf("--check wrote the shortcut: %q", state)
 	}
 }
@@ -657,7 +667,7 @@ func TestRunRemovesTheStartMenuShortcutWithTheWindowOnAStableWindowsUpdate(t *te
 	skipUnlessWindows(t)
 	for _, current := range []bool{false, true} {
 		f := windowFixture(t, "stable")
-		bin := desktopPath(f.target, "windows")
+		bin := desktopasset.Path(f.target, "windows", "")
 		if _, err := launcher.Sync(f.o.Getenv, bin); err != nil {
 			t.Fatal(err)
 		}
@@ -713,7 +723,7 @@ func TestRunRemovesALauncherEntryLeftWithoutAWindowOnAStableUpdate(t *testing.T)
 	}
 	f := windowFixture(t, "stable")
 	f.isCurrent()
-	bin := desktopPath(f.target, "windows")
+	bin := desktopasset.Path(f.target, "windows", "")
 	if _, err := launcher.Sync(f.o.Getenv, bin); err != nil {
 		t.Fatal(err)
 	}

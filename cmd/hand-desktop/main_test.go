@@ -174,8 +174,14 @@ func TestRefusalFollowsTheStampedChannel(t *testing.T) {
 	}
 	for _, c := range []string{"source", "stable", "edge"} {
 		desktopasset.Channel = c
-		if msg := refusal("darwin", "arm64"); msg == "" {
-			t.Fatalf("a %s build did not refuse on macOS", c)
+		if msg := refusal("darwin", "arm64"); msg != "" {
+			t.Fatalf("a %s build refused on macOS: %q", c, msg)
+		}
+		if msg := refusal("darwin", "amd64"); msg != "" {
+			t.Fatalf("a %s build refused on Intel macOS: %q", c, msg)
+		}
+		if msg := refusal("freebsd", "amd64"); msg == "" {
+			t.Fatalf("a %s build did not refuse on FreeBSD", c)
 		}
 		if msg := refusal("linux", "amd64"); msg != "" {
 			t.Fatalf("a %s build refused on Linux: %q", c, msg)
@@ -183,7 +189,7 @@ func TestRefusalFollowsTheStampedChannel(t *testing.T) {
 	}
 	gated = false
 	desktopasset.Channel = "stable"
-	if msg := refusal("darwin", "arm64"); msg != "" {
+	if msg := refusal("freebsd", "arm64"); msg != "" {
 		t.Fatalf("the automation build refused: %q", msg)
 	}
 }

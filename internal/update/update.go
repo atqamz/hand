@@ -78,11 +78,6 @@ func sidecarPath(target, goos string) string {
 	return filepath.Join(filepath.Dir(target), sidecar.Name+exe)
 }
 
-func desktopPath(target, goos string) string {
-	_, exe := packaging(goos)
-	return filepath.Join(filepath.Dir(target), desktopasset.Name+exe)
-}
-
 func lockFile(root string) (*os.File, bool, error) {
 	f, err := os.OpenFile(filepath.Join(root, "update.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -217,8 +212,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			}
 		}
 	}
-	desktopNext := desktopPath(o.Target, o.OS)
+	desktopNext := desktopasset.Path(o.Target, o.OS, o.Getenv("HOME"))
 	desktopOn := desktopasset.Supported(o.OS, o.Arch, o.Channel)
+	skip := ""
+	if desktopOn && o.OS == "darwin" {
+		if !filepath.IsAbs(o.Getenv("HOME")) {
+			desktopOn, skip = false, "HOME is not an absolute path"
+		} else if state, where := launcher.Check(o.Getenv, desktopNext); state == launcher.Foreign {
+			desktopOn, skip = false, where+" is not Hand's"
+			rep.launcherResult(where, nil)
+		}
+	}
 	desktopStale := false
 	if desktopOn {
 		gotVersion, gotCommit, err := desktopasset.BinaryVersion(ctx, desktopNext)
@@ -226,6 +230,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	var desktopBin string
 	switch {
+	case skip != "":
+		rep.Desktop = "skipped: " + skip
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
 		if o.Check && o.hasWindow(desktopNext) {
@@ -247,12 +253,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Desktop = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("hand-desktop was not replaced (%v); the rest of the update finished", err))
 		} else {
+			rep.Desktop = status
 			if bin != "" {
-				if err := swap(bin, desktopNext); err != nil {
+				skipped, err := o.swapWindow(bin, desktopNext)
+				if err != nil {
 					return rep, err
 				}
+				if skipped != "" {
+					rep.Desktop = "skipped: " + skipped + " is not Hand's"
+				}
 			}
-			rep.Desktop = status
 		}
 	}
 	if current && !repin {
@@ -339,9 +349,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	o.dropWindow(&rep, desktopOn, desktopNext)
 	if !current {
 		if desktopBin != "" {
-			if err := swap(desktopBin, desktopNext); err != nil {
+			skipped, err := o.swapWindow(desktopBin, desktopNext)
+			if err != nil {
 				_ = os.Remove(journalPath(o.Root))
 				return rep, err
+			}
+			if skipped != "" {
+				rep.Desktop = "skipped: " + skipped + " is not Hand's"
 			}
 		}
 		if irohBin != "" {
@@ -387,6 +401,18 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	return rep, nil
 }
 
+func (o Options) swapWindow(src, dst string) (skipped string, err error) {
+	if o.OS == "darwin" {
+		if skipped, err = launcher.Sync(o.Getenv, dst); err != nil {
+			return "", fmt.Errorf("update: cannot prepare %s: %w", dst, err)
+		}
+		if skipped != "" {
+			return skipped, nil
+		}
+	}
+	return "", swap(src, dst)
+}
+
 func (o Options) launcher(rep *Report, on bool, bin string) {
 	if o.Check {
 		return
@@ -405,7 +431,10 @@ func (rep *Report) launcherResult(skipped string, err error) {
 		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
 	}
 	if skipped != "" {
-		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker))
+		line := fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker)
+		if !slices.Contains(rep.Help, line) {
+			rep.Help = append(rep.Help, line)
+		}
 	}
 }
 

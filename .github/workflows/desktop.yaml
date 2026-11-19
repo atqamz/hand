@@ -9,6 +9,8 @@ on:
     paths:
       - internal/desktop/**
       - internal/desktopasset/**
+      - internal/launcher/**
+      - internal/update/**
       - internal/board/**
       - cmd/hand-desktop/**
       - internal/cli/cli.go
@@ -102,6 +104,12 @@ jobs:
             go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindow$' -count=1 -v
           fi
           test -s "$HAND_WINDOW_OUT/window.png"
+      - name: Build Hand.app with hand update from a fake release, open the window from it and quit
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowFromBundle$' -count=1 -v
+          test -s "$HAND_WINDOW_OUT/bundle/window.png"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:

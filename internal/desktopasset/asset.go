@@ -17,7 +17,10 @@ import (
 	"github.com/atqamz/hand/internal/proc"
 )
 
-const Name = "hand-desktop"
+const (
+	Name   = "hand-desktop"
+	Bundle = "Hand.app"
+)
 
 var Version = "0.14.0"
 
@@ -49,6 +52,8 @@ func Supported(goos, goarch, channel string) bool {
 	switch goos {
 	case "linux":
 		return goarch == "amd64" || goarch == "arm64"
+	case "darwin":
+		return goarch == "amd64" || goarch == "arm64"
 	case "windows":
 		return goarch == "amd64" && channel == "edge"
 	}
@@ -56,15 +61,18 @@ func Supported(goos, goarch, channel string) bool {
 }
 
 func Unsupported(goos, goarch string) string {
-	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux (amd64 and arm64) and, in edge builds only, on Windows (amd64); the Board works in a browser"
+	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux and macOS (amd64 and arm64) and, in edge builds only, on Windows (amd64); the Board works in a browser"
 }
 
-func Path(self, goos string) string {
+func Path(self, goos, home string) string {
+	if goos == "darwin" && filepath.IsAbs(home) {
+		return filepath.Join(home, "Applications", Bundle, "Contents", "MacOS", Name)
+	}
 	return filepath.Join(filepath.Dir(self), Name+exeExt(goos))
 }
 
-func Locate(self, path, goos string) (string, error) {
-	next := Path(self, goos)
+func Locate(self, path, goos, home string) (string, error) {
+	next := Path(self, goos, home)
 	if fi, err := os.Stat(next); err == nil && fi.Mode().IsRegular() && (goos == "windows" || fi.Mode()&0o111 != 0) {
 		return next, nil
 	}

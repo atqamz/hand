@@ -16,7 +16,7 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		c.add("desktop", "info", desktopasset.Unsupported(runtime.GOOS, runtime.GOARCH))
 		return
 	}
-	bin, err := desktopasset.Locate(selfPath(), path, runtime.GOOS)
+	bin, err := desktopasset.Locate(selfPath(), path, runtime.GOOS, r.env.Getenv("HOME"))
 	if err != nil {
 		if state, where := launcher.Check(r.env.Getenv, ""); state == launcher.Elsewhere {
 			c.add(entryRow(), "warn", where+" is left over and hand-desktop is not installed; run `hand update` to remove it")
@@ -24,11 +24,13 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		c.add("desktop", "info", "not installed; run `hand update` to put hand-desktop next to hand")
 		return
 	}
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		c.add("desktop window", "info", "Windows runs the window in "+Channel+" builds only; a real window has opened on a CI runner, not yet on a real Windows PC; if it does not start, `hand open` shows the Board in a browser")
+	case "darwin":
+		c.add("desktop window", "info", "untested on a real Mac: a real window has opened from Hand.app on a CI runner (arm64 only; the amd64 build has never run); a copy that arrives with a quarantine mark is stopped by Gatekeeper, so install it with `hand update`; if it does not start, `hand open` shows the Board in a browser")
 	}
 	switch state, where := launcher.Check(r.env.Getenv, bin); {
-	case runtime.GOOS == "darwin":
 	case state == launcher.OK:
 		c.add(entryRow(), "ok", "")
 	case state == launcher.Missing:
@@ -59,8 +61,11 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 }
 
 func entryRow() string {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return "start menu shortcut"
+	case "darwin":
+		return "desktop app"
 	}
 	return "desktop entry"
 }

@@ -75,7 +75,7 @@ func TestVerifyRequiresTheVersionAndCommitOfThisHand(t *testing.T) {
 	}
 }
 
-func TestSupportedIsLinuxAndEdgeWindows(t *testing.T) {
+func TestSupportedIsLinuxMacOSAndEdgeWindows(t *testing.T) {
 	for _, c := range []struct {
 		goos, goarch, channel string
 		ok                    bool
@@ -89,14 +89,17 @@ func TestSupportedIsLinuxAndEdgeWindows(t *testing.T) {
 		{"windows", "amd64", "source", false},
 		{"windows", "amd64", "", false},
 		{"windows", "arm64", "edge", false},
-		{"darwin", "arm64", "edge", false},
-		{"darwin", "amd64", "stable", false},
+		{"darwin", "arm64", "edge", true},
+		{"darwin", "arm64", "stable", true},
+		{"darwin", "amd64", "stable", true},
+		{"darwin", "amd64", "source", true},
+		{"darwin", "386", "edge", false},
 	} {
 		if got := Supported(c.goos, c.goarch, c.channel); got != c.ok {
 			t.Fatalf("Supported(%s, %s, %s) = %v", c.goos, c.goarch, c.channel, got)
 		}
 	}
-	if why := Unsupported("darwin", "arm64"); !strings.Contains(why, "darwin/arm64") || !strings.Contains(why, "Linux") || !strings.Contains(why, "edge builds only, on Windows") {
+	if why := Unsupported("freebsd", "arm64"); !strings.Contains(why, "freebsd/arm64") || !strings.Contains(why, "Linux and macOS") || !strings.Contains(why, "edge builds only, on Windows") {
 		t.Fatalf("Unsupported = %q", why)
 	}
 }
@@ -105,16 +108,16 @@ func TestLocatePrefersTheFolderOfHandThenPath(t *testing.T) {
 	self := filepath.Join(t.TempDir(), "hand")
 	next := install(t, filepath.Dir(self), "desktop", nil)
 	onPath := install(t, t.TempDir(), "desktop", nil)
-	got, err := Locate(self, filepath.Dir(onPath), runtime.GOOS)
+	got, err := Locate(self, filepath.Dir(onPath), nextOS(), "")
 	if err != nil || got != next {
 		t.Fatalf("Locate next to hand = %q, %v", got, err)
 	}
 	os.Remove(next)
-	got, err = Locate(self, filepath.Dir(onPath), runtime.GOOS)
+	got, err = Locate(self, filepath.Dir(onPath), nextOS(), "")
 	if err != nil || got != onPath {
 		t.Fatalf("Locate on PATH = %q, %v", got, err)
 	}
-	if _, err := Locate(self, t.TempDir(), runtime.GOOS); !errors.Is(err, ErrNotFound) {
+	if _, err := Locate(self, t.TempDir(), nextOS(), ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -128,17 +131,51 @@ func TestLocateRefusesSomethingThatIsNotExecutable(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Locate(self, t.TempDir(), runtime.GOOS); !errors.Is(err, ErrNotFound) {
+	if _, err := Locate(self, t.TempDir(), nextOS(), ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
+func nextOS() string {
+	if runtime.GOOS == "windows" {
+		return "windows"
+	}
+	return "linux"
+}
+
 func TestPathIsNextToHand(t *testing.T) {
 	for goos, want := range map[string]string{"linux": "hand-desktop", "windows": "hand-desktop.exe"} {
-		got := filepath.Base(Path(filepath.Join("bin", "hand"), goos))
+		got := filepath.Base(Path(filepath.Join("bin", "hand"), goos, ""))
 		if got != want {
 			t.Fatalf("%s: Path = %q, want %q", goos, got, want)
 		}
+	}
+}
+
+func TestPathIsInsideTheBundleOnMacOS(t *testing.T) {
+	home := t.TempDir()
+	self := filepath.Join(home, ".local", "bin", "hand")
+	want := filepath.Join(home, "Applications", "Hand.app", "Contents", "MacOS", "hand-desktop")
+	if got := Path(self, "darwin", home); got != want {
+		t.Fatalf("Path = %q, want %q", got, want)
+	}
+	if got := Path(self, "darwin", ""); got != filepath.Join(filepath.Dir(self), Name) {
+		t.Fatalf("without a home Path = %q", got)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(want, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Locate(self, t.TempDir(), "darwin", home); err != nil || got != want {
+		t.Fatalf("Locate = %q, %v", got, err)
+	}
+	if _, err := Locate(self, t.TempDir(), "darwin", t.TempDir()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Locate in an empty home = %v", err)
 	}
 }
 
@@ -148,10 +185,10 @@ func TestLocateTakesTheSystemAsAnArgument(t *testing.T) {
 	if err := os.WriteFile(exe, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := Locate(self, t.TempDir(), "windows"); err != nil || got != exe {
+	if got, err := Locate(self, t.TempDir(), "windows", ""); err != nil || got != exe {
 		t.Fatalf("Locate for windows = %q, %v", got, err)
 	}
-	if _, err := Locate(self, t.TempDir(), "linux"); !errors.Is(err, ErrNotFound) {
+	if _, err := Locate(self, t.TempDir(), "linux", ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Locate for linux found the .exe: %v", err)
 	}
 }
