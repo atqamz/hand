@@ -26,7 +26,7 @@ related_targets:
   - an open decision's options, its note field and Send answer, a report's Ack, a message to the supervisor, and the supervisor controls: start, resume, stop, interrupt, force, and, while it is blocked, the ask's option buttons or the fixed key toolbar;
   - the empty and error states, including no board, no fleet, a token the board refuses and an action the board refuses;
   - auto-refresh: the selected fleet's status, its tasks list and the open page's data poll while the window is open (see Refresh).
-- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer's Find, Copy contents, Download, CSV tables and Follow, phone pairing, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
+- **Not in v1:** any other write (attachments, because the API sends text only), the document viewer's Find, Copy contents, Download, CSV tables and Follow, Companion pairing, and a server-push channel: updates arrive by polling, never over Server-Sent Events.
 - **Mode:** Operate.
 
 ## Audience, job and constraints

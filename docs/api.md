@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired Companion over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh, and the Companion page's pairing codes, links and revokes. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint, and never returns a pairing code or link outside the Phone endpoints ([The Companion page](#the-companion-page)). `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh, and the Companion page's pairing codes, links and revokes. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint, and never returns a pairing code or link outside the Companion endpoints ([The Companion page](#the-companion-page)). `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -420,7 +420,7 @@ The Board's Companion page (`/<fleet id>/connect`) is one fleet's page that read
 ```json
 {
   "iroh": {"state": "ready", "tone": "pass",
-           "text": "Companion access over iroh is online. The Hand app can pair with this host.", "id": "9f2c…(64 hex characters)"},
+           "text": "Companion access over iroh is online. The Companion can pair with this host.", "id": "9f2c…(64 hex characters)"},
   "fleets": [{"id": "f00000000e0aa", "name": "hand", "current": true, "selected": true},
              {"id": "f00000000e0bb", "name": "api"}],
   "code": {"code": "K7QM3-XRD2P", "link": "https://host.example/f00000000e0aa/pair#K7QM3-XRD2P",
@@ -641,7 +641,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | a paired Companion on a Phone endpoint, a fleet a Phone action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
+| `403` | `forbidden` | a paired Companion on a Companion endpoint, a fleet a Companion action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `403` | `wrong_code` | `pair` with a code the board does not hold |
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |

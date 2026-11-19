@@ -458,7 +458,7 @@ func irohView(st sidecar.Status) *irohInfo {
 		if st.Relay == "none" {
 			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a Companion elsewhere cannot dial it."}
 		}
-		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. The Hand app can pair with this host."}
+		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. The Companion can pair with this host."}
 	case sidecar.Starting:
 		text := "starting."
 		if st.Reason != "" {

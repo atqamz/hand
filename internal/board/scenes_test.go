@@ -515,7 +515,7 @@ func scenes() []scene {
 			notes, _ := fx.st.AddTaskUnder(ctx, release.ID, "hand", "Write the release notes", "")
 			_, _ = fx.st.Transition(ctx, notes.ID, state.StatusActive)
 		}},
-		{"f00000000e015", "phone", func(t *testing.T, fx *fixture) {
+		{"f00000000e015", "companion", func(t *testing.T, fx *fixture) {
 			fx.options.Iroh = func() sidecar.Status {
 				return sidecar.Status{State: sidecar.Ready, ID: strings.Repeat("0123456789abcdef", 4), Relay: "https://relay.example/"}
 			}

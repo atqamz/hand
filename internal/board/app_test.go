@@ -120,7 +120,7 @@ func (p *companionRig) tryPairAt(id, code string) *httptest.ResponseRecorder {
 	return p.do("POST", "/pair", url.Values{"code": {code}, "name": {"Pixel"}}, nil, nil)
 }
 
-func TestThePhonePageNamesTheDevicePairedOverIroh(t *testing.T) {
+func TestTheCompanionPageNamesTheDevicePairedOverIroh(t *testing.T) {
 	p, _, page := appRig(t, &sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay})
 	if strings.Contains(page(), "paired: Pixel") {
 		t.Fatal("the page names a phone before one is paired")
@@ -175,7 +175,7 @@ func TestTheHandAppFlowLogsNoCodeOrLink(t *testing.T) {
 	}
 }
 
-func TestThePhonePageHasTheHandAppCardAndNoInstallCard(t *testing.T) {
+func TestTheCompanionPageHasTheHandAppCardAndNoInstallCard(t *testing.T) {
 	p := newCompanionHost(t, true, "alpha")
 	f := p.fleets[0]
 	p.iroh = func() sidecar.Status {

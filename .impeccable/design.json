@@ -2032,7 +2032,7 @@
       },
       {
         "name": "The Black On White Rule",
-        "body": "The QR code is the one picture the Board colours with literals, never with tokens: black modules on a white ground with a quiet zone of at least 4 modules, in the light and in the dark theme. A scanner needs the dark-on-light contrast whatever the page does, and a themed QR would fail it. The colours are `fill` attributes in the SVG; `board.css` holds no `#fff` or `#000` for it (`TestThePhonePagesStyleEveryPartTheyAdd`).",
+        "body": "The QR code is the one picture the Board colours with literals, never with tokens: black modules on a white ground with a quiet zone of at least 4 modules, in the light and in the dark theme. A scanner needs the dark-on-light contrast whatever the page does, and a themed QR would fail it. The colours are `fill` attributes in the SVG; `board.css` holds no `#fff` or `#000` for it (`TestTheCompanionPagesStyleEveryPartTheyAdd`).",
         "section": "components"
       }
     ],

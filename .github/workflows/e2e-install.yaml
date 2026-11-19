@@ -111,7 +111,7 @@ jobs:
       - name: Install the installers' way
         timeout-minutes: 10
         run: node .github/e2e/install.mjs
-      - name: First run, Board and phone pairing
+      - name: First run, Board and Companion pairing
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: node .github/e2e/first-run.mjs

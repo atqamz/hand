@@ -855,7 +855,7 @@ func TestRevokingWritesNoLabelCodeSecretOrTokenToTheLogOrTheEvents(t *testing.T)
 	}
 }
 
-func TestEveryNewFormOnThePhonePageHoldsNoInlineCodeAndKeepsTheCopyableText(t *testing.T) {
+func TestEveryNewFormOnTheCompanionPageHoldsNoInlineCodeAndKeepsTheCopyableText(t *testing.T) {
 	p := newCompanionHost(t, true, "alpha", "beta", "gamma")
 	a, b, c := p.fleets[0], p.fleets[1], p.fleets[2]
 	p.companionWith("Pixel", a, b, c)
