@@ -118,6 +118,7 @@ func Check(getenv func(string) string, bin string) (State, string) {
 		return Foreign, lnk
 	}
 	ico := icoPath(bin)
+	// shortcut: the target is not read (LinkInfo keeps it as lossy ANSI); the working folder and icon stand for it, so a hand-edited target goes unseen.
 	if !strings.EqualFold(s.WorkDir, filepath.Dir(bin)) || !strings.EqualFold(strings.TrimSuffix(s.Icon, ",0"), ico) {
 		return Elsewhere, lnk
 	}
