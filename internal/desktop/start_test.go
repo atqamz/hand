@@ -226,20 +226,6 @@ func TestTheDidNotStartCardShowsTheLastLineAndTriesAgain(t *testing.T) {
 	}
 }
 
-func TestTheNoFleetsCardSaysHowToMakeOne(t *testing.T) {
-	spy := &startSpy{}
-	app := startApp(t, func() (desktop.ReadModel, error) { return noFleetsFixture(), nil }, spy.run)
-	posted := make(chan func(), 8)
-	app.Post = func(fn func()) { posted <- fn }
-	tt := newTester(app)
-	app.StartRefresh()
-	tt.Frame()
-	mustText(t, tt, "No fleet on this computer yet.", "cd ~/work && hand init", "Look again")
-	if spy.count() != 0 {
-		t.Fatalf("starts = %d, want 0", spy.count())
-	}
-}
-
 func TestLookAgainStartsTheBoardOnceAFleetExists(t *testing.T) {
 	f := goldenFixture(t)
 	var mu sync.Mutex
@@ -507,8 +493,13 @@ func TestABoardThatStopsAfterBootStartsOnce(t *testing.T) {
 }
 
 func TestTheCopyButtonSaysCopied(t *testing.T) {
-	app := startApp(t, func() (desktop.ReadModel, error) { return noFleetsFixture(), nil }, (&startSpy{}).run)
-	app.Post = func(func()) {}
+	const last = "hand board: listen tcp 127.0.0.1:7777: bind: address already in use"
+	spy := &startSpy{line: last, err: errors.New(last)}
+	app := startApp(t, func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard }, spy.run)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.StartRefresh()
+	waitPost(t, posted)()
 	tt := newTester(app)
 	tt.Frame()
 	click(t, tt, "Copy the command")
@@ -552,19 +543,6 @@ func TestScenesBoardDidNotStart(t *testing.T) {
 			tt := darkTester(app, dark)
 			mustText(t, tt, "The Board did not start.", last, "Try again")
 			shot(t, tt, "board-did-not-start-"+theme)
-		})
-	}
-}
-
-func TestScenesNoFleets(t *testing.T) {
-	for _, dark := range []bool{false, true} {
-		theme := map[bool]string{false: "light", true: "dark"}[dark]
-		t.Run(theme, func(t *testing.T) {
-			app := startApp(t, func() (desktop.ReadModel, error) { return noFleetsFixture(), nil }, (&startSpy{}).run)
-			app.Post = func(func()) {}
-			tt := darkTester(app, dark)
-			mustText(t, tt, "No fleet on this computer yet.", "cd ~/work && hand init")
-			shot(t, tt, "no-fleets-"+theme)
 		})
 	}
 }

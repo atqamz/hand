@@ -143,6 +143,7 @@ type App struct {
 	attachNote string
 	attachSay  string
 	Pick       func() []string
+	NewFleet   func(context.Context, NewFleetRequest) (NewFleetResult, error)
 
 	shots     map[string]*shotState
 	shotQueue []string
@@ -246,6 +247,8 @@ type App struct {
 	wantStart     bool
 	autoStarted   bool
 	pendingFleet  string
+	pendingWarn   string
+	nf            newFleetForm
 	pendingLink   string
 	copiedKey     string
 	copiedAt      time.Time
@@ -412,6 +415,10 @@ func (a *App) applyPending() {
 	if ref := a.pendingFleet; ref != "" {
 		a.pendingFleet = ""
 		a.OpenFleet(ref)
+		if warn := a.pendingWarn; warn != "" {
+			a.pendingWarn = ""
+			a.ActionErr, a.ActionWarn = warn, true
+		}
 	}
 	if link := a.pendingLink; link != "" {
 		a.pendingLink = ""
@@ -505,6 +512,9 @@ func (a *App) SelectFleet(id string) {
 func (a *App) install(f found, keep bool) {
 	a.setErr("")
 	a.auth = f.Auth
+	if f.Model == nil || len(f.Fleets) == 0 {
+		a.newFleetUnlisted()
+	}
 	if f.Err != nil {
 		a.setErr(friendly(f.Err))
 	}
@@ -516,6 +526,9 @@ func (a *App) install(f found, keep bool) {
 	}
 	a.Model, a.Fleets = f.Model, f.Fleets
 	a.noFleets = len(a.Fleets) == 0
+	if !a.noFleets {
+		a.nf = newFleetForm{}
+	}
 	if f.Offline && a.Start != nil && !a.autoStarted {
 		a.resetPoll()
 		a.Fleet = Fleet{}
