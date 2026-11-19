@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -19,9 +20,11 @@ func TestMain(m *testing.M) {
 	if base != "hand" {
 		os.Exit(m.Run())
 	}
-	if msg := os.Getenv("FAKE_HAND_FAIL"); msg != "" {
-		os.Stderr.WriteString(msg + "\n")
-		os.Exit(3)
+	if verb := os.Getenv("FAKE_HAND_FAIL_VERB"); verb == "" || slices.Contains(os.Args[1:], verb) {
+		if msg := os.Getenv("FAKE_HAND_FAIL"); msg != "" {
+			os.Stderr.WriteString(msg + "\n")
+			os.Exit(3)
+		}
 	}
 	if os.Getenv("FAKE_HAND_SLEEPER") != "" {
 		stop := os.Getenv("FAKE_HAND_STOP")
@@ -41,6 +44,17 @@ func TestMain(m *testing.M) {
 	}
 	f.WriteString(line)
 	f.Close()
+	if argv := os.Getenv("FAKE_HAND_ARGV"); argv != "" {
+		b, _ := json.Marshal(os.Args[1:])
+		if af, err := os.OpenFile(argv, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			af.Write(append(b, '\n'))
+			af.Close()
+		}
+	}
+	if len(os.Args) > 1 && os.Args[1] == "init" {
+		os.MkdirAll(os.Args[len(os.Args)-1], 0o755)
+	}
+	os.Stdout.WriteString(os.Getenv("FAKE_HAND_OUT"))
 	if os.Getenv("FAKE_HAND_SLEEP") != "" {
 		time.Sleep(8 * time.Second)
 	}

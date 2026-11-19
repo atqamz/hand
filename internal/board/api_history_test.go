@@ -65,7 +65,7 @@ func TestAPIHistorySearchTakesItsFilters(t *testing.T) {
 	if got := get("q=cookie&who=supervisor"); refs(got) != "y1" || got.Hits[0].Supervisor != "s1" || got.Hits[0].Task != "" {
 		t.Fatalf("supervisor = %+v", got)
 	}
-	if got := get("q=cookie&limit=1"); len(got.Hits) != 1 || got.Total != 3 || !got.More || got.Limit != 1 {
+	if got := get("q=cookie&limit=1"); len(got.Hits) != 1 || got.Total != 5 || !got.More || got.Limit != 1 {
 		t.Fatalf("limit = %+v", got)
 	}
 	if got := get("q=cookie"); got.Limit != 5 || got.Context != 0 || got.Hits[0].Context == nil {
@@ -92,6 +92,43 @@ func TestAPIHistorySearchTakesItsFilters(t *testing.T) {
 	}
 }
 
+func TestAPIHistorySearchOrdersDecisionsAndTasksAsTheStoreDoes(t *testing.T) {
+	fx := historyFixture(t)
+	ctx := context.Background()
+	d, err := fx.st.Ask(ctx, 1, "Which cookie name?\n1. keep 2. rename")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, d.ID, "rename the cookie", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.AddTask(ctx, "hand", "cookie banner copy", ""); err != nil {
+		t.Fatal(err)
+	}
+	want, err := fx.st.SearchHistory(ctx, state.HistoryQuery{Q: "cookie", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, got := apiInto[board.APIHistorySearch](t, fx.handler(), "/api/v1/history/search?q=cookie&limit=50")
+	if got.Total != want.Total || len(got.Hits) != len(want.Hits) || len(got.Hits) < 5 {
+		t.Fatalf("api = %d of %d, store = %d of %d", len(got.Hits), got.Total, len(want.Hits), want.Total)
+	}
+	who := map[string]bool{}
+	for i, h := range want.Hits {
+		if got.Hits[i].Ref != h.Ref || got.Hits[i].Text != h.Text || got.Hits[i].Task != h.Task {
+			t.Fatalf("hit %d: api %+v, store %+v", i, got.Hits[i], h.HistoryEntry)
+		}
+		who[got.Hits[i].Who] = true
+	}
+	if !who["decision"] || !who["task"] {
+		t.Fatalf("no decision or task among %v", who)
+	}
+	_, e := apiInto[board.APIHistoryEntry](t, fx.handler(), "/api/v1/history/d2")
+	if e.Who != "decision" || e.Task != "t1" || !strings.HasSuffix(e.Text, "\nrename the cookie") {
+		t.Fatalf("d2 = %+v", e)
+	}
+}
+
 func TestAPIHistoryAnswersWithTheUsualHeaders(t *testing.T) {
 	h := historyFixture(t).handler()
 	for _, path := range []string{"/api/v1/history/search?q=cookie", "/api/v1/history/i1"} {
@@ -115,7 +152,7 @@ func TestAPIHistorySearchRefusesBadParameters(t *testing.T) {
 		{"q=", "a search needs words to look for"},
 		{"q=%20%20", "a search needs words to look for"},
 		{"q=" + strings.Repeat("a", 1025), "a search takes at most 1024 bytes"},
-		{"q=a&who=worker", `who "worker" must be operator, supervisor or report`},
+		{"q=a&who=worker", `who "worker" must be operator, supervisor, report, decision or task`},
 		{"q=a&since=soon", `since "soon" is not Nd, Nh or a date; want 7d, 36h or YYYY-MM-DD`},
 		{"q=a&since=2026-13-01", `since "2026-13-01" is not Nd, Nh or a date; want 7d, 36h or YYYY-MM-DD`},
 		{"q=a&limit=0", "limit must be a number from 1 to 50"},
@@ -144,7 +181,7 @@ func TestAPIHistoryEntryAnswersOneEntryWhole(t *testing.T) {
 	if r.Who != "report" || r.Task != "t1" || r.Supervisor != "" {
 		t.Fatalf("r1 = %+v", r)
 	}
-	for _, ref := range []string{"i99", "r99", "y99", "t1", "x", "i0", "y-1", "search1"} {
+	for _, ref := range []string{"i99", "r99", "y99", "d99", "t99", "x", "i0", "y-1", "search1"} {
 		testAPIError(t, request(h, "GET", "/api/v1/history/"+ref, nil, true), http.StatusNotFound, "not_found")
 	}
 }

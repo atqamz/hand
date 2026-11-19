@@ -60,11 +60,13 @@ var historySources = []historySource{
 	{"operator", "supervisor_input_fts", "supervisor_input", "created_at", "0", "0"},
 	{"supervisor", "supervisor_reply_fts", "supervisor_reply", "at", "t.supervisor_id", "0"},
 	{"report", "report_fts", "report", "created_at", "0", "t.task_id"},
+	{"decision", "decision_fts", "history_decision", "created_at", "0", "t.task_id"},
+	{"task", "task_fts", "history_task", "created_at", "0", "t.task_id"},
 }
 
-var historyWho = map[string]string{"operator": "i", "supervisor": "y", "report": "r"}
+var historyWho = map[string]string{"operator": "i", "supervisor": "y", "report": "r", "decision": "d", "task": "t"}
 
-var historyRef = regexp.MustCompile(`^([iry])([1-9][0-9]*)$`)
+var historyRef = regexp.MustCompile(`^([irydt])([1-9][0-9]*)$`)
 
 var historyMarked = regexp.MustCompile(`«([^»]*)»`)
 
@@ -102,7 +104,7 @@ func (q HistoryQuery) validate() error {
 	case len(q.Q) > MaxHistoryQuery:
 		return fmt.Errorf("%w: a search takes at most %d bytes", ErrInvalid, MaxHistoryQuery)
 	case q.Who != "" && historyWho[q.Who] == "":
-		return fmt.Errorf("%w: who %q must be operator, supervisor or report", ErrInvalid, q.Who)
+		return fmt.Errorf("%w: who %q must be operator, supervisor, report, decision or task", ErrInvalid, q.Who)
 	case q.Limit < 1 || q.Limit > MaxHistoryLimit:
 		return fmt.Errorf("%w: limit must be a number from 1 to %d", ErrInvalid, MaxHistoryLimit)
 	case q.Context < 0 || q.Context > MaxHistoryNear:
@@ -122,8 +124,8 @@ func (src historySource) where(since string, taskID int64) (string, []any) {
 	}
 	switch {
 	case taskID == 0:
-	case src.who == "report":
-		w += ` AND t.task_id = ?`
+	case src.task != "0":
+		w += ` AND ` + src.task + ` = ?`
 		args = append(args, taskID)
 	default:
 		w += ` AND t.id IN (SELECT rowid FROM ` + src.fts + ` WHERE ` + src.fts + ` MATCH ?)`
@@ -205,7 +207,7 @@ func (s *Store) SearchHistory(ctx context.Context, q HistoryQuery) (HistoryResul
 		}
 		hit := HistoryHit{HistoryEntry: historyEntry(src.who, k.id, k.at, k.sup, k.task)}
 		hit.Text = clipLine(redactSnippet(snip, body))
-		if q.Context > 0 && src.who != "report" {
+		if q.Context > 0 && src.task == "0" {
 			if hit.Context, err = s.historyNear(ctx, src.who, k.id, k.at, q.Context); err != nil {
 				return HistoryResult{}, err
 			}
@@ -344,11 +346,11 @@ func (s *Store) historyNear(ctx context.Context, who string, id int64, at string
 func (s *Store) HistoryEntry(ctx context.Context, ref string) (HistoryEntry, error) {
 	m := historyRef.FindStringSubmatch(ref)
 	if m == nil {
-		return HistoryEntry{}, fmt.Errorf("%w: %q is not a history ref; want iN, rN or yN", ErrNotFound, ref)
+		return HistoryEntry{}, fmt.Errorf("%w: %q is not a history ref; want iN, yN, rN, dN or tN", ErrNotFound, ref)
 	}
 	id, err := strconv.ParseInt(m[2], 10, 64)
 	if err != nil {
-		return HistoryEntry{}, fmt.Errorf("%w: %q is not a history ref; want iN, rN or yN", ErrNotFound, ref)
+		return HistoryEntry{}, fmt.Errorf("%w: %q is not a history ref; want iN, yN, rN, dN or tN", ErrNotFound, ref)
 	}
 	var src historySource
 	for who, letter := range historyWho {
