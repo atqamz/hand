@@ -76,8 +76,9 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 		Padding(kit.Space4, kit.Space4, kit.Space4, kit.Space4+indent).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("task " + r.Ref)
 	el.Children(func() {
-		ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p)).
-			Label("state " + stateWord(r.State))
+		state := taskState(r)
+		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
+			Label("state " + stateWord(state))
 		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent).SingleLine()
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
@@ -114,14 +115,30 @@ func (a *App) taskSubline(c *ui.Context, p palette, r TaskRow, under string, dep
 				FixedLineHeight(18).SingleLine()
 		}
 		if under != "" {
-			ui.Text(c, "under "+under).FontSize(kit.Meta.Size).TextColor(p.neutral).
-				FixedLineHeight(18).SingleLine()
+			a.taskLink(c, p, "under:"+r.Ref, under, "under "+under)
 		}
 		if r.Children > 0 {
-			ui.Textf(c, "%d %s", r.Children, taskSubtasks(r.Children)).FontSize(kit.Meta.Size).
-				TextColor(p.neutral).FixedLineHeight(18).SingleLine()
+			a.taskLink(c, p, "subs:"+r.Ref, r.Ref, fmt.Sprintf("%d %s", r.Children, taskSubtasks(r.Children)))
 		}
 	})
+}
+
+func (a *App) taskLink(c *ui.Context, p palette, key, ref, text string) {
+	el := ui.ButtonBase(c.Key(key)).Cursor(ui.CursorPointer).Shrink(0).Label(text)
+	el.Children(func() {
+		ui.Text(c, text).FontSize(kit.Meta.Size).TextColor(p.accent).FixedLineHeight(18).SingleLine()
+	})
+	if el.Clicked() {
+		a.OpenRef(ref)
+	}
+}
+
+func taskState(r TaskRow) string {
+	switch r.Status {
+	case "done", "abandoned", "inbox":
+		return r.Status
+	}
+	return r.State
 }
 
 func (a *App) taskDeliverable(c *ui.Context, p palette, d Deliverable) {

@@ -183,7 +183,7 @@ func (a *App) taskHead(c *ui.Context, p palette) {
 					FixedLineHeight(kit.Meta.Line).SingleLine()
 			}
 			if t.Task.Parent != "" {
-				ui.Text(c, "Sub-task of "+shownText(t.Task.Parent)).FontSize(kit.Meta.Size).TextColor(p.neutral)
+				a.taskLink(c, p, "parent:"+t.Task.Parent, t.Task.Parent, "Sub-task of "+shownText(t.Task.Parent))
 			}
 			if t.Plan != nil {
 				ui.Text(c, "plan "+shownText(t.Plan.Ref)).FontSize(kit.Meta.Size).
@@ -840,11 +840,12 @@ func (a *App) subtaskRow(c *ui.Context, p palette, r TaskRow) {
 	el := ui.ButtonBase(c.Key("sub:" + r.Ref)).MinHeight(kit.Row).Padding(kit.Space4).
 		Gap(kit.Space8).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("task " + r.Ref)
 	el.Children(func() {
-		ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p)).
-			Label("state " + stateWord(r.State))
+		state := taskState(r)
+		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
+			Label("state " + stateWord(state))
 		ui.Text(c, shownText(r.Ref)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent)
 		ui.Text(c, shownText(r.Title)).FontSize(kit.Body.Size).Grow(1).MinWidth(0).SingleLine()
-		ui.Text(c, stateWord(r.State)).FontSize(kit.Meta.Size).TextColor(stateColor(r.State, p))
+		ui.Text(c, stateWord(state)).FontSize(kit.Meta.Size).TextColor(stateColor(state, p))
 	})
 	if el.Clicked() {
 		a.OpenRef(r.Ref)

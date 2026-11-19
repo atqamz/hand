@@ -405,27 +405,32 @@ func (a *App) searchGroup(c *ui.Context, p palette, g TaskSearchGroup) {
 	})
 	ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 		for _, row := range g.Tasks {
-			a.searchRow(c, p, row.TaskRow, row.FinishedAt)
+			a.searchRow(c, p, row, row.FinishedAt)
 		}
 	})
 }
 
-func (a *App) searchRow(c *ui.Context, p palette, r TaskRow, finished string) {
+func (a *App) searchRow(c *ui.Context, p palette, sr TaskSearchRow, finished string) {
+	r := sr.TaskRow
 	el := ui.ButtonBase(c.Key("search-task:"+r.Ref)).Height(kit.RowLG).Gap(kit.Space8).
 		Padding(kit.Space4).AlignItems(ui.Center).Cursor(ui.CursorPointer).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("task " + r.Ref)
 	el.Children(func() {
-		ui.Icon(c, stateIcon(r.State)).TextColor(stateColor(r.State, p)).
-			Label("state " + stateWord(r.State))
+		state := taskState(r)
+		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
+			Label("state " + stateWord(state))
 		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent).SingleLine()
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
-			if a.Status.Projects > 1 && r.Project != "" || r.Attempt != nil || r.Waits != nil || r.Delivered != nil {
-				row := r
-				row.Children = 0
-				a.taskSubline(c, p, row, "", 0)
+			if a.Status.Projects > 1 && r.Project != "" || r.Attempt != nil || r.Waits != nil || r.Delivered != nil ||
+				r.Parent != "" || r.Children > 0 {
+				a.taskSubline(c, p, r, r.Parent, 0)
 			}
 		})
+		if n := sr.OpenDecisions; n > 0 {
+			ui.Badge(c, fmt.Sprintf("%d %s", n, decisionWord(n))).Background(p.waitBG).TextColor(p.wait).
+				Label(fmt.Sprintf("%d open %s", n, decisionWord(n))).Shrink(0)
+		}
 		if finished != "" {
 			ui.Text(c, taskClock(finished)).Font("monospace").FontSize(kit.Meta.Size).
 				TextColor(p.neutral).FontFeatures("tnum").SingleLine()
@@ -434,6 +439,13 @@ func (a *App) searchRow(c *ui.Context, p palette, r TaskRow, finished string) {
 	if el.Clicked() {
 		a.OpenRef(r.Ref)
 	}
+}
+
+func decisionWord(n int) string {
+	if n == 1 {
+		return "decision"
+	}
+	return "decisions"
 }
 
 func taskClock(at string) string {
