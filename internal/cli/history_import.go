@@ -109,6 +109,9 @@ func importSession(ctx context.Context, r *runner, st *state.Store, group []stat
 	case first.Session == "":
 		row.status = "no session recorded"
 		return row, nil
+	case first.Harness == "opencode" && group[len(group)-1].Live():
+		row.status = "still live"
+		return row, nil
 	case first.Harness == "opencode" && paths.Opencode == "":
 		row.status = "harness missing"
 		return row, nil
@@ -131,9 +134,11 @@ func importSession(ctx context.Context, r *runner, st *state.Store, group []stat
 		if e.Role != "supervisor" {
 			continue
 		}
-		owner := first
+		owner := group[len(group)-1]
 		if at, err := time.Parse(time.RFC3339Nano, e.At); err == nil {
 			if s, ok := deliveredTo(group, at); ok {
+				owner = s
+			} else if s, ok := bornAfter(group, at); ok {
 				owner = s
 			}
 		}
@@ -163,6 +168,15 @@ func importSession(ctx context.Context, r *runner, st *state.Store, group []stat
 		}
 	}
 	return row, nil
+}
+
+func bornAfter(group []state.Supervisor, at time.Time) (state.Supervisor, bool) {
+	for _, s := range group {
+		if born, err := time.Parse(time.RFC3339Nano, s.CreatedAt); err == nil && at.Before(born) {
+			return s, true
+		}
+	}
+	return state.Supervisor{}, false
 }
 
 func importPage(rows []importRow, n int, total string, dry bool, command string) *toon.Doc {
