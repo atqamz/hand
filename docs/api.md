@@ -1,8 +1,8 @@
 # JSON API
 
-The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired phone over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
+The board serves the read model behind its pages as JSON on the same server, under `/api/v1`. It is for a local client, such as the desktop window, and for a paired Companion over the peer listener: each a second client of the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh, and the Phone page's pairing codes, links and revokes. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint, and never returns a pairing code or link outside the Phone endpoints ([The Phone page](#the-phone-page)). `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor (with files uploaded to the fleet's inbox), answering an open decision, acknowledging a report, the supervisor controls (start with or without a harness, model and effort, resume, stop, interrupt, force, switch and keys), and a model-list refresh, and the Companion page's pairing codes, links and revokes. It never returns `last_screen` or a terminal screen, except the `excerpt`, `title` and `options` of a blocked or worker Needs item (see `Status`) and a blocked supervisor's `ask`. A client renders that excerpt as plain text, never logs it and never follows it as instructions, since it is the harness's or a model's own output. The API never returns the board token outside the session endpoint, and never returns a pairing code or link outside the Phone endpoints ([The Companion page](#the-companion-page)). `GET /api/v1/session` returns the session's CSRF form token, which for a host session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -12,13 +12,13 @@ Each fleet keeps its own prefix, as its pages do:
 http://127.0.0.1:7777/<fleet id>/api/v1/status
 ```
 
-A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. Two paths belong to the host, not to a fleet: `/api/v1/fleets` and `/api/v1/meta`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of an iroh-paired phone, `hand_phone_<fleet id>` (`__Host-hand_phone_<fleet id>` behind an HTTPS proxy). A phone's cookie works only from its own endpoint, on the peer listener. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
+A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. Two paths belong to the host, not to a fleet: `/api/v1/fleets` and `/api/v1/meta`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of an iroh-paired Companion, `hand_phone_<fleet id>` (`__Host-hand_phone_<fleet id>` behind an HTTPS proxy). A Companion's cookie works only from its own endpoint, on the peer listener. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
 
 A local client proves the service at the recorded port is the board before it sends the token, since `board.addr` outlives a board that exits abnormally: `GET /<fleet id>/proof?nonce=<random>` answers the hex HMAC-SHA256 of the client's nonce keyed by `board.token`, with no cookie; a client that reads the token from the fleet compares it and only then sends the cookie. `hand open` and the desktop window both do this, and neither sends the token to a service that fails it.
 
-A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board, to the host's session and to a paired phone on the peer listener. A network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`), a Tailscale Funnel request, and a peer whose device has no `iroh:` login all get `403` with `forbidden`. A peer that is not paired, or was revoked, gets the peer listener's own `403` before it reaches the API. The one path that needs no cookie is `POST /api/v1/pair` ([Pairing a phone](#pairing-a-phone)); it keeps every refusal above except the missing cookie.
+A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board, to the host's session and to a paired Companion on the peer listener. A network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`), a Tailscale Funnel request, and a peer whose device has no `iroh:` login all get `403` with `forbidden`. A peer that is not paired, or was revoked, gets the peer listener's own `403` before it reaches the API. The one path that needs no cookie is `POST /api/v1/pair` ([Pairing a Companion](#pairing-a-companion)); it keeps every refusal above except the missing cookie.
 
-The actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a host session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
+The actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a host session's value is `board.token`, the same token the cookie holds, and a paired Companion's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
 
 ## Envelope
 
@@ -66,7 +66,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
 | `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | none yet; `hand history search` |
 | `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply or report whole | none yet; `hand history search --full REF` |
-| `GET /api/v1/phone` | `Phone`: the paired phones, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Phone page](#the-phone-page) | `/connect`, the Phone page |
+| `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
@@ -84,9 +84,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message; takes `attachments`, a list of inbox names | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
-| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Phone page's Show pairing code |
-| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Phone page's Pair the Hand app |
-| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Phone page's Revoke and Revoke everywhere |
+| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code |
+| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app |
+| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
@@ -192,7 +192,7 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 
 ### `HistorySearch.data`
 
-`HistorySearch` searches what was said in this fleet: the operator's messages (`iN`), the supervisor's prose replies (`yN`) and the reports (`rN`); never a worker's conversation or a tool's output. `q` is SQLite FTS5 syntax over words, case and Latin accents ignored: `amber kiln` needs both words, `amber OR kiln`, `"amber kiln"` as a phrase, `kil*` as a prefix; a ref such as `t12` or `y412` is one word. A `q` FTS5 cannot parse is searched as its whitespace-separated words, each quoted and all required, so `"unterminated` still works. A missing, blank or over 1,024-byte `q` is `400`. Search matches the stored text and prints it redacted, so a `q` can confirm that a string occurs in an operator message or report even where `text` shows `[redacted:…]`; a paired phone can do this too, but the Board already serves operator messages and reports as stored, so the oracle gives it nothing it cannot already read; the routes add reach over older entries at most (see History in the [vocabulary](vocabulary.md#history)).
+`HistorySearch` searches what was said in this fleet: the operator's messages (`iN`), the supervisor's prose replies (`yN`) and the reports (`rN`); never a worker's conversation or a tool's output. `q` is SQLite FTS5 syntax over words, case and Latin accents ignored: `amber kiln` needs both words, `amber OR kiln`, `"amber kiln"` as a phrase, `kil*` as a prefix; a ref such as `t12` or `y412` is one word. A `q` FTS5 cannot parse is searched as its whitespace-separated words, each quoted and all required, so `"unterminated` still works. A missing, blank or over 1,024-byte `q` is `400`. Search matches the stored text and prints it redacted, so a `q` can confirm that a string occurs in an operator message or report even where `text` shows `[redacted:…]`; a paired Companion can do this too, but the Board already serves operator messages and reports as stored, so the oracle gives it nothing it cannot already read; the routes add reach over older entries at most (see History in the [vocabulary](vocabulary.md#history)).
 
 `who` limits the source: `operator`, `supervisor` or `report`. `since` is `7d`, `36h` or a UTC date `YYYY-MM-DD` (here it is a time bound, not the change cursor, so this route takes no `?since=` poll and sends no `304`). `task` is a `tN`: a report of that task, and an operator message or reply that names `tN` as a word. `limit` is 1 to 50 (default 5) and `context` 0 to 5 (default 0). A value outside those, or a `who`, `since` or `task` it cannot read, is `400` with `bad_request` and the board's sentence. The answer echoes `q`, `who`, `since` and `task` as asked, and `limit` and `context` as applied.
 
@@ -280,7 +280,7 @@ A blocked screen's countdown does not send an event each second. A `blocked` or 
 
 The board does not read a worker's screen on each version tick (`TestTheEventLoopLeavesWorkerScreensUnread`), so while the last sent `Status` has a `worker` item the stream rebuilds the status once per beat (15 s), and a changed worker prompt reaches the stream within one beat. A supervisor's excerpt follows its own screen at once. A `status` event over 64 KiB, which many blocked workers can cause, is sent as `resync` with `{"topics": ["status"]}`, and the client re-reads `GET /api/v1/status`, which has no cap.
 
-The stream ends when the client closes, when the session is revoked, and when the board shuts down. A write that takes longer than twice `beat_ms` ends it too, so a client that stops reading cannot hold the board. `HEAD` answers `200` with the stream's headers and no body, and does not start a stream. Where the peer listener serves the API to a paired phone, a half-close also ends the stream, as it ends `/events`.
+The stream ends when the client closes, when the session is revoked, and when the board shuts down. A write that takes longer than twice `beat_ms` ends it too, so a client that stops reading cannot hold the board. `HEAD` answers `200` with the stream's headers and no body, and does not start a stream. Where the peer listener serves the API to a paired Companion, a half-close also ends the stream, as it ends `/events`.
 
 ## The actions
 
@@ -343,7 +343,7 @@ A file reaches the supervisor in two steps, as it does from the web composer: up
 
 - `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`; a part with no file name is a value, not a file.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
-- `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired phone.
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired Companion.
 - `413 too_large`: a file over 10 MiB (`a file can be at most 10 MiB`) or a post over 11 MiB (`the request is too large`). Nothing is stored.
 - `507 no_space`: the disk was full.
 - `500 internal`: the folder could not be written; the message names no path.
@@ -373,7 +373,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 {"choice": "1. Yes, keep it", "note": "the docs keep the old name"}
 ```
 
-`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. Send one JSON object under 64 KiB: a second object or trailing text is refused before the board changes anything. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)` for the host's session and `phone (<device name>)` for a paired phone.
+`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. Send one JSON object under 64 KiB: a second object or trailing text is refused before the board changes anything. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)` for the host's session and `phone (<device name>)` for a paired Companion.
 
 - `400 bad_request`: an empty answer, an `other` option with no note, or a body that is not a JSON object.
 - `404 not_found`: an unknown ref.
@@ -382,11 +382,11 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 
 ### Acknowledging a report
 
-`POST /api/v1/report/{rN}/ack` takes no body. It sets `acked_at` and `acked_by` (`operator (desktop)`, or `phone (<device name>)` for a paired phone) and answers the updated `ReportDetail`. An unknown ref is `404`; a report already acknowledged is `409 conflict`.
+`POST /api/v1/report/{rN}/ack` takes no body. It sets `acked_at` and `acked_by` (`operator (desktop)`, or `phone (<device name>)` for a paired Companion) and answers the updated `ReportDetail`. An unknown ref is `404`; a report already acknowledged is `409 conflict`.
 
 A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read. When the answer or the ack went through but the board could not read it back, the answer is `200` with `{"accepted": true}` and the caveat in `warn`: the change is in, so a client does not send it again, shows the warn and refreshes the detail instead.
 
-### Pairing a phone
+### Pairing a Companion
 
 `POST /api/v1/pair` is the app's way to redeem a pairing code without the pair page. It needs no cookie and no `X-Hand-CSRF`, and it is the only API path an unpaired peer on the peer listener may reach. It answers only a peer that sent its endpoint ID: on the loopback listener, or on a peer connection with no preface, it is `403 forbidden`, although every other API request on loopback is served with a session. The answer carries the device secret in a readable body, where the form sets an `HttpOnly` cookie, and a device with no `iroh:` login is one the API refuses anyway. Send one `application/json` object under 4 KiB, with exactly the keys `code` and `name`, both strings (a missing, extra, differently cased or `null` key is `bad_request`):
 
@@ -394,7 +394,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after either 
 {"code": "K7QM3-XRD2P", "name": "Pixel"}
 ```
 
-It runs the pair form's code path, so the limits are the form's: a code works once for 5 minutes, 5 wrong codes in a minute from one endpoint block it, and 10 wrong codes from anyone cancel every code. The device is bound to the peer's iroh endpoint ID (`iroh:<endpoint id>`) and recorded as the form records it. `name` may be an empty string, which stores `Phone`. Unlike the form, which cleans a name, the API refuses a name with a control character, even a trailing newline, or over 40 characters once trimmed, before it spends the code. A request through a proxy, through Funnel, to a network-address board, or on the loopback listener is refused as every API request is. A body that is refused as `bad_request` never counts as a wrong code. A fleet that does not open answers `404 not_found` to any method on this path, as the form's page does, not `401`. The peer listener admits any method to the path; on an open fleet only `POST` pairs, and the others get `401 unauthorized` like any API request without a session.
+It runs the pair form's code path, so the limits are the form's: a code works once for 5 minutes, 5 wrong codes in a minute from one endpoint block it, and 10 wrong codes from anyone cancel every code. The device is bound to the peer's iroh endpoint ID (`iroh:<endpoint id>`) and recorded as the form records it. `name` may be an empty string, which stores `Companion`. Unlike the form, which cleans a name, the API refuses a name with a control character, even a trailing newline, or over 40 characters once trimmed, before it spends the code. A request through a proxy, through Funnel, to a network-address board, or on the loopback listener is refused as every API request is. A body that is refused as `bad_request` never counts as a wrong code. A fleet that does not open answers `404 not_found` to any method on this path, as the form's page does, not `401`. The peer listener admits any method to the path; on an open fleet only `POST` pairs, and the others get `401 unauthorized` like any API request without a session.
 
 The answer is the usual envelope. `data` is `Paired`:
 
@@ -402,7 +402,7 @@ The answer is the usual envelope. `data` is `Paired`:
 {"fleets": [{"id": "f00000000e0aa", "name": "hand", "cookie_name": "hand_phone_f00000000e0aa", "cookie_value": "7.4d1c…(64 hex characters)"}], "missed": 0}
 ```
 
-A code may name several fleets: `fleets` holds each one that paired, and `missed` counts the ones that did not. The client keeps `cookie_value` as the device secret and sends it as the cookie `cookie_name` on that fleet's `/api/v1` requests; it reads the CSRF value from `GET /api/v1/session`, as for any phone. The secret is in this answer only. The board never logs a code or a secret, and the client must not either.
+A code may name several fleets: `fleets` holds each one that paired, and `missed` counts the ones that did not. The client keeps `cookie_value` as the device secret and sends it as the cookie `cookie_name` on that fleet's `/api/v1` requests; it reads the CSRF value from `GET /api/v1/session`, as for any Companion. The secret is in this answer only. The board never logs a code or a secret, and the client must not either.
 
 - `400 bad_request`: a body that is not one JSON object with `code` and `name`, over 4 KiB, or not `application/json`.
 - `400 bad_name`: a name with a control character, or over 40 characters once trimmed.
@@ -411,20 +411,20 @@ A code may name several fleets: `fleets` holds each one that paired, and `missed
 - `429 rate_limited`: 5 wrong codes from this endpoint in the last minute.
 - `200` with `Paired`.
 
-### The Phone page
+### The Companion page
 
-The Board's Phone page (`/<fleet id>/connect`) is one fleet's page that reads every fleet the host session proves, so its API is a fleet's, at `/<fleet id>/api/v1/phone`, not a host path. It is built from the page's own code, so the rules are the page's: a code works once for 5 minutes, one code shows at a time (a new code or link cancels the unused one before it), and codes live in the board's memory only, so restarting the board cancels them.
+The Board's Companion page (`/<fleet id>/connect`) is one fleet's page that reads every fleet the host session proves, so its API is a fleet's, at `/<fleet id>/api/v1/phone`, not a host path. It is built from the page's own code, so the rules are the page's: a code works once for 5 minutes, one code shows at a time (a new code or link cancels the unused one before it), and codes live in the board's memory only, so restarting the board cancels them.
 
 `GET /api/v1/phone` answers `Phone`:
 
 ```json
 {
   "iroh": {"state": "ready", "tone": "pass",
-           "text": "Phone access over iroh is online. The Hand app can pair with this host.", "id": "9f2c…(64 hex characters)"},
+           "text": "Companion access over iroh is online. The Hand app can pair with this host.", "id": "9f2c…(64 hex characters)"},
   "fleets": [{"id": "f00000000e0aa", "name": "hand", "current": true, "selected": true},
              {"id": "f00000000e0bb", "name": "api"}],
-  "code": {"code": "K7QM3-XRD2P", "link": "https://laptop.example/f00000000e0aa/pair#K7QM3-XRD2P",
-           "url": "https://laptop.example/f00000000e0aa/pair", "address": "https://laptop.example",
+  "code": {"code": "K7QM3-XRD2P", "link": "https://host.example/f00000000e0aa/pair#K7QM3-XRD2P",
+           "url": "https://host.example/f00000000e0aa/pair", "address": "https://host.example",
            "fleets": [{"id": "f00000000e0aa", "name": "hand"}], "expires_at": "2026-11-01T05:05:00Z"},
   "app": {"link": "handboard://c#v=1&e=9f2c…&f=f00000000e0aa&c=K7QM3XRD2P", "expires_at": "2026-11-01T05:05:00Z"},
   "devices": [
@@ -439,38 +439,38 @@ The Board's Phone page (`/<fleet id>/connect`) is one fleet's page that reads ev
 
 - `iroh` is the sidecar's state as the page words it, and is absent when the board runs without `--iroh`. `state` is `ready`, `no relay`, `starting` or `failed`, `tone` is the page's badge (`pass`, `wait` or `fail`), and `text` is its sentence. The app link can be made only while `state` is `ready`; the page offers the button on the same condition.
 - `fleets` is the page's list of fleets a code may cover: the current fleet first and at most 7 other fleets the session proves, the page's list, so one code names at most 8, each with `current` and `selected` (ticked: the current fleet always, and the fleets of the code that shows). It is empty when the session proves only this fleet, as the page then shows no choice.
-- `code` and `app` are present only while one shows: unused and not past its `expires_at`. `code` is the web code: `code` to type, `link` (the page's link with the code in its fragment), `url` and `address` (what to open and type, and what was typed), `plain_http` when the address is plain HTTP on a network, and `fleets` the code pairs. `app` is the Hand app's `handboard://` link, which holds its own code and pairs one phone with this fleet. A client draws the QR code from `link`. Both stop showing when the phone redeems, when the time passes, when a new code or link is made, and for `app` when the sidecar is no longer `ready`.
-- `devices` are the page's phone list, read from every fleet the session proves, not only the 8 that `fleets` offers, oldest pairing first. `phone` is the label one pairing code gave every fleet it paired, the handle to revoke with. `fleets` lists where the phone is paired, with `expired` once its 90 days have passed there; it is absent for a phone paired with this fleet alone, and for a phone paired before one code could pair several fleets, which has no `phone` and is revoked by its `id` (the number is this fleet's own and means nothing in another). `expired` is then the phone's own. `login` is the device's login (`iroh:` and its endpoint ID for the app), `seen_at` the last time it read this board since the board started.
-- `unreachable` names the fleets the session proves but whose phones could not be read; their phones are missing from `devices`, as the page says.
+- `code` and `app` are present only while one shows: unused and not past its `expires_at`. `code` is the web code: `code` to type, `link` (the page's link with the code in its fragment), `url` and `address` (what to open and type, and what was typed), `plain_http` when the address is plain HTTP on a network, and `fleets` the code pairs. `app` is the Hand app's `handboard://` link, which holds its own code and pairs one Companion with this fleet. A client draws the QR code from `link`. Both stop showing when the Companion redeems, when the time passes, when a new code or link is made, and for `app` when the sidecar is no longer `ready`.
+- `devices` are the page's phone list, read from every fleet the session proves, not only the 8 that `fleets` offers, oldest pairing first. `phone` is the label one pairing code gave every fleet it paired, the handle to revoke with. `fleets` lists where the Companion is paired, with `expired` once its 90 days have passed there; it is absent for a Companion paired with this fleet alone, and for a Companion paired before one code could pair several fleets, which has no `phone` and is revoked by its `id` (the number is this fleet's own and means nothing in another). `expired` is then the Companion's own. `login` is the device's login (`iroh:` and its endpoint ID for the app), `seen_at` the last time it read this board since the board started.
+- `unreachable` names the fleets the session proves but whose Companions could not be read; their Companions are missing from `devices`, as the page says.
 
-`POST /api/v1/phone/code` takes one JSON object, `{"base": "https://laptop.example", "fleets": ["f00000000e0bb"]}`: `base` is the address the phone opens (scheme and host only, as the page's field), and `fleets` the other fleets to pair; the current fleet is always paired, and a repeated id is one. A code names at most 8 fleets, this one and 7 others: a ninth fleet id is refused with `403 forbidden`, as is any fleet the `fleets` list did not offer, and no code is made. It answers `Phone` with `code` showing.
+`POST /api/v1/phone/code` takes one JSON object, `{"base": "https://host.example", "fleets": ["f00000000e0bb"]}`: `base` is the address the Companion opens (scheme and host only, as the page's field), and `fleets` the other fleets to pair; the current fleet is always paired, and a repeated id is one. A code names at most 8 fleets, this one and 7 others: a ninth fleet id is refused with `403 forbidden`, as is any fleet the `fleets` list did not offer, and no code is made. It answers `Phone` with `code` showing.
 
 `POST /api/v1/phone/app` takes no body and answers `Phone` with `app` showing.
 
-`POST /api/v1/phone/revoke` takes one JSON object, `{"phone": "0123456789abcdef"}` to revoke that phone in every fleet the session proves, `{"phone": "...", "fleet": "f00000000e0bb"}` for one fleet, or `{"id": 3}` for a phone with no label in this fleet. It answers `Phone` as it stands after, with `revoke`:
+`POST /api/v1/phone/revoke` takes one JSON object, `{"phone": "0123456789abcdef"}` to revoke that Companion in every fleet the session proves, `{"phone": "...", "fleet": "f00000000e0bb"}` for one fleet, or `{"id": 3}` for a Companion with no label in this fleet. It answers `Phone` as it stands after, with `revoke`:
 
 ```json
 {"revoke": {"revoked": [{"id": "f00000000e0aa", "name": "hand"}],
             "failed": [{"id": "f00000000e0cc", "name": "web", "reason": "the fleet did not answer"}]}}
 ```
 
-`revoked` holds the fleets where a record was removed; a fleet that held none is in neither list. `failed` holds the fleets the revoke could not reach, whose record of the phone, if it has one, is still active: `reason` is `the fleet did not answer`, in fixed words, never the error's own text or a path. The answer is `200` when some or all failed, so a client reads `revoke.failed`; `warn` then carries the page's sentence ("Revoked in hand. web could not be reached: … Press Revoke everywhere again when it is back."), and `receipt` is absent. Press Revoke everywhere again for the same phone when the fleet is back: the call repeats safely, and a phone already revoked is an empty report. Revoking an `id` that is not there is an empty report too, as on the page.
+`revoked` holds the fleets where a record was removed; a fleet that held none is in neither list. `failed` holds the fleets the revoke could not reach, whose record of the Companion, if it has one, is still active: `reason` is `the fleet did not answer`, in fixed words, never the error's own text or a path. The answer is `200` when some or all failed, so a client reads `revoke.failed`; `warn` then carries the page's sentence ("Revoked in hand. web could not be reached: … Press Revoke everywhere again when it is back."), and `receipt` is absent. Press Revoke everywhere again for the same Companion when the fleet is back: the call repeats safely, and a Companion already revoked is an empty report. Revoking an `id` that is not there is an empty report too, as on the page.
 
-A paired phone is refused on all four paths: it manages no phones, and the page lets it sign out only itself. The board reads what an answer needs before it acts, so every refusal below leaves everything as it was, and none mints a code or revokes a device. The answer to an action is built from that read, with the revoked records removed, not read again: a phone that pairs or is seen in this fleet between the read and the answer is missing from that one answer, and the next read has it.
+A paired Companion is refused on all four paths: it manages no Companions, and the page lets it sign out only itself. The board reads what an answer needs before it acts, so every refusal below leaves everything as it was, and none mints a code or revokes a device. The answer to an action is built from that read, with the revoked records removed, not read again: a Companion that pairs or is seen in this fleet between the read and the answer is missing from that one answer, and the next read has it.
 
 - `400 bad_request`: a body that is not one JSON object as above; for `code`, a `base` that is not `scheme://host` (no path, login, query or fragment); for `revoke`, a body without exactly one of `phone` (16 lowercase hex characters) and `id` (positive), or with `fleet` and no `phone`.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
-- `403 forbidden`: a paired phone; a network board or a proxied request; for `code`, a fleet id the `fleets` list did not offer: one this session does not prove, or one beyond the 7 others a code may name; for `revoke`, a fleet that this session does not prove (revoke reaches every fleet the session proves, with no cap of 8).
+- `403 forbidden`: a paired Companion; a network board or a proxied request; for `code`, a fleet id the `fleets` list did not offer: one this session does not prove, or one beyond the 7 others a code may name; for `revoke`, a fleet that this session does not prove (revoke reaches every fleet the session proves, with no cap of 8).
 - `409 conflict`: `app` while the sidecar is not `ready` with a relay.
-- `500 internal`: the phone list could not be read; the message names no path.
+- `500 internal`: the Companion list could not be read; the message names no path.
 
-The code and the link are credentials: a phone that holds either becomes a paired device of this fleet. They are returned only by these endpoints, to the host's session behind the same cookie, CSRF and loopback rules as every action, in `code.code`, `code.link` and `app.link` and nowhere else: not in `receipt`, `warn`, an error, the event stream, another endpoint, a page other than the one that showed it, the database or a log. A client keeps them in memory, never logs or stores them, and stops showing them at `expires_at`. The `cursor` of `phone` fingerprints a keyed digest of the code, not the code, so it is safe to log.
+The code and the link are credentials: a Companion that holds either becomes a paired device of this fleet. They are returned only by these endpoints, to the host's session behind the same cookie, CSRF and loopback rules as every action, in `code.code`, `code.link` and `app.link` and nowhere else: not in `receipt`, `warn`, an error, the event stream, another endpoint, a page other than the one that showed it, the database or a log. A client keeps them in memory, never logs or stores them, and stops showing them at `expires_at`. The `cursor` of `phone` fingerprints a keyed digest of the code, not the code, so it is safe to log.
 
-Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page learns when the phone paired (the code leaves, the device arrives) or the time passed, sending the cursor it last read: an unchanged answer is `304`. Without a code on screen it reads once when the page opens and after each action, which already answers the fresh data.
+Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page learns when the Companion paired (the code leaves, the device arrives) or the time passed, sending the cursor it last read: an unchanged answer is `304`. Without a code on screen it reads once when the page opens and after each action, which already answers the fresh data.
 
 ### The fleet list and the features
 
-`GET /api/v1/fleets` and `GET /api/v1/meta` answer on the host, not under a fleet prefix: `/api/v1/fleets`, never `/<fleet id>/api/v1/fleets`. A phone paired with several fleets holds one `hand_phone_<fleet id>` cookie for each, and sends all of them in every request, over its one iroh connection; only the host sees them together, as it does for the rail. Their envelope has no `fleet` and no `cursor`, because they belong to no fleet and have no change stream: a client re-reads them when it opens the fleet list and when a fleet's own stream reports a change.
+`GET /api/v1/fleets` and `GET /api/v1/meta` answer on the host, not under a fleet prefix: `/api/v1/fleets`, never `/<fleet id>/api/v1/fleets`. A Companion paired with several fleets holds one `hand_phone_<fleet id>` cookie for each, and sends all of them in every request, over its one iroh connection; only the host sees them together, as it does for the rail. Their envelope has no `fleet` and no `cursor`, because they belong to no fleet and have no change stream: a client re-reads them when it opens the fleet list and when a fleet's own stream reports a change.
 
 ```json
 {
@@ -486,7 +486,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 }
 ```
 
-`fleets` holds every fleet the request's cookies prove, in the Board's rail order, and nothing else: a fleet it does not prove never appears, not by id, name or count. The rail draws the current fleet plus at most seven others, so the list keeps the rail's order but may carry more fleets than the narrow rail shows. A host session proves each fleet whose `hand_board_<fleet id>` cookie holds that fleet's token, a paired phone each fleet whose `hand_phone_<fleet id>` cookie proves it from this endpoint. `pill` and `line` are `Status.pill` and `Status.line` of that fleet, and `needs` carries `waiting`, `worst`, `worst_word`, `worst_count` and `summary` as `Status.needs` does; the two are one computation, so a list and a status read agree. A proven fleet that will not open has `unavailable: true` and no `pill` or `needs`. A fleet that has left the Board's list, and a phone's fleet that will not open, are not listed, as the rail does not list them. The list carries no path, ref or item text.
+`fleets` holds every fleet the request's cookies prove, in the Board's rail order, and nothing else: a fleet it does not prove never appears, not by id, name or count. The rail draws the current fleet plus at most seven others, so the list keeps the rail's order but may carry more fleets than the narrow rail shows. A host session proves each fleet whose `hand_board_<fleet id>` cookie holds that fleet's token, a paired Companion each fleet whose `hand_phone_<fleet id>` cookie proves it from this endpoint. `pill` and `line` are `Status.pill` and `Status.line` of that fleet, and `needs` carries `waiting`, `worst`, `worst_word`, `worst_count` and `summary` as `Status.needs` does; the two are one computation, so a list and a status read agree. A proven fleet that will not open has `unavailable: true` and no `pill` or `needs`. A fleet that has left the Board's list, and a Companion's fleet that will not open, are not listed, as the rail does not list them. The list carries no path, ref or item text.
 
 `GET /api/v1/meta` answers any caller that can read a fleet's `status`:
 
@@ -512,7 +512,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 
-Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a phone on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
+Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a Companion on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 
 ### The supervisor controls
 
@@ -585,10 +585,10 @@ The answer is the `Status` the GET serves, after the switch, or `{"accepted": tr
 {"harness": "claude"}
 ```
 
-It runs the same refresh as the menu's Refresh models, in the background, one per harness, and answers the `Models` the GET serves with the receipt `Refreshing models…`. The new lists arrive in `GET /api/v1/models` when each refresh finishes, which is a few seconds and no event. The names it takes are `claude`, `codex`, `agy`, `copilot` and `omp`; `opencode` lists its own models when it is asked, so it has none to refresh. A harness that is busy, or was refreshed less than 30 seconds ago, is `429 rate_limited` with the board's sentence, `claude models were refreshed 12 s ago; try again in a moment`, or `claude models are already refreshing`. No body refreshes all five, and is refused only when every one of them is inside its cooldown. A paired phone cannot refresh a host's lists.
+It runs the same refresh as the menu's Refresh models, in the background, one per harness, and answers the `Models` the GET serves with the receipt `Refreshing models…`. The new lists arrive in `GET /api/v1/models` when each refresh finishes, which is a few seconds and no event. The names it takes are `claude`, `codex`, `agy`, `copilot` and `omp`; `opencode` lists its own models when it is asked, so it has none to refresh. A harness that is busy, or was refreshed less than 30 seconds ago, is `429 rate_limited` with the board's sentence, `claude models were refreshed 12 s ago; try again in a moment`, or `claude models are already refreshing`. No body refreshes all five, and is refused only when every one of them is inside its cooldown. A paired Companion cannot refresh a host's lists.
 
 - `400 bad_request`: a body that is not one JSON object, or a harness outside those five.
-- `403 forbidden`: the board has its controls off, the request is not on a loopback board, or the session is a paired phone's.
+- `403 forbidden`: the board has its controls off, the request is not on a loopback board, or the session is a paired Companion's.
 - `429 rate_limited`: every named list is inside its 30-second cooldown, or already refreshing.
 - `200` with the `Models` the GET serves, or `{"accepted": true}` when they could not be read back.
 
@@ -618,7 +618,7 @@ It runs the same refresh as the menu's Refresh models, in the background, one pe
 `key` is one button's `keys`, joined with spaces when it holds more than one (`"down enter"`); every key is one of the board's allowed keys, `enter`, `esc`, `up`, `down`, `1`, `2` and `3`, or a single digit from `4` to `9` on a worker's screen. `revision` and `after` are required and are the `revision` and `pressed` of the item's `keys`; `screen` is that `keys` object's `digest`, and an empty one is left out, as the Board's own form does. The board runs the same `attempt keys --revision N --screen DIGEST --after SEQ aN KEY...` path as `/attempt/aN`'s buttons, so a press is refused if the screen moved, another key was pressed since the client read the item, or the attempt is no longer running. The answer is the `AttemptDetail` the GET returns, after the press.
 
 - `400 bad_request`: a body that is not one JSON object, no key, a key outside the set, a negative revision or `after`, or a screen that is not 32 lowercase hex characters.
-- `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired phone.
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired Companion.
 - `404 not_found`: the attempt is not in this fleet.
 - `409 conflict`: the screen changed since the given revision or digest, another key was pressed after `after`, or the attempt is not running; nothing was sent.
 - `200` with the updated `AttemptDetail`, or `{"accepted": true}` with the caveat in `warn` when the press went through but the attempt could not be read back.
@@ -641,7 +641,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | a paired phone on a Phone endpoint, a fleet a Phone action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
+| `403` | `forbidden` | a paired Companion on a Phone endpoint, a fleet a Phone action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `403` | `wrong_code` | `pair` with a code the board does not hold |
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |

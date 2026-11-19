@@ -1,10 +1,10 @@
 # Hand's Companion contract
 
-The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests read it by path.
+The Companion is an Android app that holds an [iroh](https://docs.iroh.computer/) connection to your host and shows the Board in a web view. It lives in [`android/`](../android/README.md) of this repository. This page is the contract it is built against, and the Board's side of it is built to the same words: it fixes what the app dials, what it reads from a pairing link, what it may rely on, and what it must never do. [`companion-vectors.json`](companion-vectors.json) holds the test vectors; the app's tests read it by path.
 
 **Status.** Three kinds of statement share this page, and each says which it is:
 
-- **Today** describes code in `main`: the [peer listener](phone.md#the-peer-listener), the [`hand-iroh` sidecar](phone.md#the-hand-iroh-sidecar), the Phone page's "Pair the Hand app" link, and what revoking does to a live connection. A test in `internal/companion` reads the numbers of this page from the vectors file and checks them against that code, so a change to one without the other fails CI.
+- **Today** describes code in `main`: the [peer listener](companion-app.md#the-peer-listener), the [`hand-iroh` sidecar](companion-app.md#the-hand-iroh-sidecar), the Companion page's "Pair the Hand app" link, and what revoking does to a live connection. A test in `internal/companion` reads the numbers of this page from the vectors file and checks them against that code, so a change to one without the other fails CI.
 - **The alert feed** is [its own section](#the-alert-feed), also in `main`.
 - **Step 3** describes what pairing over iroh still has to build: telling the sidecar which IDs are paired, so it can keep connection slots for them.
 
@@ -16,7 +16,7 @@ The words *must*, *must not* and *may* bind the app or the Board as the sentence
 
 The app is an iroh endpoint with a key of its own, made on first run. Its public key is the identity the Board sees. It dials the host's endpoint ID from the link, 32 bytes written as 64 lowercase hexadecimal characters, with the ALPN `hand-board` (ten bytes, no version suffix). If the link carries a relay URL, the app gives it to iroh as a relay hint for that endpoint. The link never carries IP addresses, and the app must not store or send any it learns.
 
-The app holds **one connection to a host at a time** and opens every stream on it. A host admits 16 connections by default and 4 from one source (one direct IPv4 address or IPv6 /64, or one relayed endpoint ID), so a second connection from the same phone is a cost, not a speed-up.
+The app holds **one connection to a host at a time** and opens every stream on it. A host admits 16 connections by default and 4 from one source (one direct IPv4 address or IPv6 /64, or one relayed endpoint ID), so a second connection from the same Companion is a cost, not a speed-up.
 
 ### Streams
 
@@ -56,7 +56,7 @@ Codes 1 to 5 exist today. Every other code is unassigned.
 | 3 | `board_unreachable` | Stream reset and stop | The sidecar could not reach the peer listener | Closes the web view's socket. The connection stays open | After 2 in a row: "Your host answers, but the Board is not running. Start it on the host." |
 | 4 | `stream_idle` | Stream reset and stop | No byte moved on this stream for the idle time | Closes the web view's socket | Nothing: the page reconnects |
 | 5 | `board_error` | Stream reset or stop | The Board's TCP connection broke | Closes the web view's socket. Keeps any answer already delivered | Nothing |
-| other | n/a | Either | Never today | Treats it as a lost connection: backoff, three tries, then the message of a lost connection | "Your host closed the connection. If you removed this phone there, pair it again." |
+| other | n/a | Either | Never today | Treats it as a lost connection: backoff, three tries, then the message of a lost connection | "Your host closed the connection. If you removed this Companion there, pair it again." |
 
 **Refusals.** A dialer is also refused before the handshake finishes, with no application code, when 16 connections are open, when 8 handshakes are running, or when 4 connections from its source are open. A refusal arrives at once, before any handshake, and the app treats it as code 1. A handshake that does not finish in 3 seconds is dropped with no code at all: the app cannot tell that drop from a host that is off, so it keeps dialing until its own 20-second deadline and then says the host does not answer, as below.
 
@@ -77,11 +77,11 @@ Codes 1 to 5 exist today. Every other code is unassigned.
 
 Only a byte moves the idle clock. QUIC keepalive packets, opening a stream and ending one do not. The app cannot learn the host's setting, so it must assume 60 seconds and treat any connection or stream as one that may end. The Board's live pages send a heartbeat every 15 seconds, which keeps a page's event stream under the default.
 
-The Board also bounds what an unpaired connection may do; see [What the Board does with a paired phone](#what-the-board-does-with-a-paired-phone).
+The Board also bounds what an unpaired connection may do; see [What the Board does with a paired Companion](#what-the-board-does-with-a-paired-companion).
 
 ## The pairing link
 
-The link is what the host's QR code and its text form carry. It is not the Phone page's `ADDRESS/<fleet id>/pair#CODE` link, which a browser opens.
+The link is what the host's QR code and its text form carry. It is not the Companion page's `ADDRESS/<fleet id>/pair#CODE` link, which a browser opens.
 
 ### Grammar
 
@@ -106,7 +106,7 @@ Any other key is ignored, so that a later version can add one.
 
 A canonical link is `v`, `e`, `f`, `c`, then `r`: `handboard://c#v=1&e=ID&f=FLEET&c=CODE&r=RELAY`. The Board emits only that order. The app accepts any order.
 
-**Why a fragment, and what must not be in the query.** Everything after `#` stays on the phone: an operating system hands a custom-scheme link to the app whole, and no browser or server that a link might pass through reads it. The code is a credential and must be in the fragment. A link that has a `?` before its `#` is rejected, so that nothing secret is ever put where a log or a preview could keep it, and a link with no `#` is rejected even if its query carries every field.
+**Why a fragment, and what must not be in the query.** Everything after `#` stays on the Companion: an operating system hands a custom-scheme link to the app whole, and no browser or server that a link might pass through reads it. The code is a credential and must be in the fragment. A link that has a `?` before its `#` is rejected, so that nothing secret is ever put where a log or a preview could keep it, and a link with no `#` is rejected even if its query carries every field.
 
 **The relay URL.** It is `https://`, a lowercase DNS host (an optional final dot is allowed), an optional port from 1 to 65535 with no leading zero, and an optional single `/`. A host whose last label is a number, decimal or `0x` hexadecimal, is read as an IPv4 address by URL parsers, not as a DNS host, and is rejected, so no IP address is ever in a link. There is no user information, path, query or fragment. It is percent-encoded byte by byte: `A-Z a-z 0-9 - . _ ~` stay as they are and every other byte becomes `%` and two uppercase hexadecimal digits. A decoder rejects a lowercase escape, a truncated escape, and an escape of a byte that needed none, so that each URL has one spelling. Example: `https://relay.example.test:7842/` is `https%3A%2F%2Frelay.example.test%3A7842%2F`. The longest relay the 213 bytes allow is 97 encoded characters.
 
@@ -134,7 +134,7 @@ The app trims surrounding whitespace that a scanner or a paste adds, and then pa
 
 Check 8 comes before every check of a field, so that a later version may change anything after `v=` and an old app still says "needs a newer app" and not "invalid". An app also rejects, as `endpoint_id`, an ID its iroh library will not turn into a public key: the reference parser checks only the shape.
 
-The app shows the user the first four and last four characters of the host's ID and asks for confirmation before it dials: any other app may open a custom-scheme link, and a link must not pair the phone with a stranger's host on one tap. A link that arrives while a pairing is open replaces nothing until the user confirms.
+The app shows the user the first four and last four characters of the host's ID and asks for confirmation before it dials: any other app may open a custom-scheme link, and a link must not pair the Companion with a stranger's host on one tap. A link that arrives while a pairing is open replaces nothing until the user confirms.
 
 ### What the app opens
 
@@ -146,20 +146,20 @@ http://localhost:PORT/<fleet id>/pair#<code>
 
 with `PORT` the proxy's port. **The host is the name `localhost`, never an IP address.** On a real phone, an Android web view refused cleartext HTTP to `http://127.0.0.1:PORT`, and loaded the same page from `http://localhost:PORT` once the app's network security config allowed cleartext to `localhost`.
 
-The fragment keeps the code out of the request: the Board's pair page reads it with a script, puts it in the form's code field, and removes it from the address bar. The user then types a name for the phone and taps the button. So the web view must have JavaScript on, and the app must not submit the form for the user.
+The fragment keeps the code out of the request: the Board's pair page reads it with a script, puts it in the form's code field, and removes it from the address bar. The user then types a name for the Companion and taps the button. So the web view must have JavaScript on, and the app must not submit the form for the user.
 
-The app may instead redeem the code itself with `POST /<fleet id>/api/v1/pair` and `{code, name}` as JSON ([Pairing a phone](api.md#pairing-a-phone)), over the same stream and with the same limits. The answer holds the cookie name and value the app keeps as its device secret. The `cookie_value` is the device's number in digits with no leading zero, a dot, and the secret as 64 lowercase hexadecimal characters (`^[1-9][0-9]*\.[0-9a-f]{64}$`, the `cookie_value` of the `pair` vectors); an app accepts a stored value only in that shape, and `cookie_name` is `hand_phone_<fleet id>`. The web form is still the user's: the app must not submit it, and must not call this endpoint with a code or a name the user did not give.
+The app may instead redeem the code itself with `POST /<fleet id>/api/v1/pair` and `{code, name}` as JSON ([Pairing a Companion](api.md#pairing-a-companion)), over the same stream and with the same limits. The answer holds the cookie name and value the app keeps as its device secret. The `cookie_value` is the device's number in digits with no leading zero, a dot, and the secret as 64 lowercase hexadecimal characters (`^[1-9][0-9]*\.[0-9a-f]{64}$`, the `cookie_value` of the `pair` vectors); an app accepts a stored value only in that shape, and `cookie_name` is `hand_phone_<fleet id>`. The web form is still the user's: the app must not submit it, and must not call this endpoint with a code or a name the user did not give.
 
 ### The loopback proxy
 
 - It listens on `127.0.0.1` and `[::1]`, never on any other address, because the name `localhost` resolves to either one.
 - Its port is chosen once at install from 49152 to 65535 and kept, so that the page's origin, and the drafts the Board keeps for it, survive a restart. If the port is taken at launch, the app picks and keeps another one.
 - It adds no header and removes none. The Board drops every proxy header itself, and reads the identity from the connection.
-- Any app on the phone can reach the port while the proxy runs. It gets what an unpaired phone gets, the pair page, unless it also holds the web view's cookie. The proxy therefore must not be on the LAN, and the app must use the cookie only as the rules for the app allow.
+- Any app on the Companion can reach the port while the proxy runs. It gets what an unpaired Companion gets, the pair page, unless it also holds the web view's cookie. The proxy therefore must not be on the LAN, and the app must use the cookie only as the rules for the app allow.
 
 ## The open link
 
-An alert can open an item in the app. The link is `handboard://open/<fleet id>/<page>[#<report ref>]`, and Hand puts it in `HAND_NOTIFY_APP_URL` for the `notify` command ([Alerts that open the app](phone.md#alerts-that-open-the-app)) and prints it as `app` with `hand open --print`. `<page>` is the Board's own path for the item.
+An alert can open an item in the app. The link is `handboard://open/<fleet id>/<page>[#<report ref>]`, and Hand puts it in `HAND_NOTIFY_APP_URL` for the `notify` command ([Alerts that open the app](companion-app.md#alerts-that-open-the-app)) and prints it as `app` with `hand open --print`. `<page>` is the Board's own path for the item.
 
 | Item | Link |
 |---|---|
@@ -175,25 +175,25 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 
 **What it holds.** No token, no pairing code and no endpoint ID, because an alert service reads it and the app has one host per install. It names the fleet and an item, nothing more.
 
-**What the app does.** The app must treat it as a request to show one read page through the proxy it already has, never as a pairing. It must not clear cookies, change the host, replace a pending pairing or pair a phone. With a host paired, it dials, sets up the loopback proxy and loads `http://localhost:PORT/<fleet id>/<page>` (with `#rN` kept as the fragment). With no host it shows "Pair this phone with your host first." and drops the link. When the host is unreachable it shows the unreachable screen, and tapping the alert again retries. A phone that is not paired for the fleet gets the Board's own refusal. A hostile link from another app can open one read page of an already paired host, and a change on the Board needs a POST with the form token, so the link grants nothing.
+**What the app does.** The app must treat it as a request to show one read page through the proxy it already has, never as a pairing. It must not clear cookies, change the host, replace a pending pairing or pair a Companion. With a host paired, it dials, sets up the loopback proxy and loads `http://localhost:PORT/<fleet id>/<page>` (with `#rN` kept as the fragment). With no host it shows "Pair this Companion with your host first." and drops the link. When the host is unreachable it shows the unreachable screen, and tapping the alert again retries. A Companion that is not paired for the fleet gets the Board's own refusal. A hostile link from another app can open one read page of an already paired host, and a change on the Board needs a POST with the form token, so the link grants nothing.
 
 **Vectors.** [`companion-vectors.json`](companion-vectors.json) holds 6 valid and 61 invalid open links under the key `open`. Valid entries carry the parsed `fleet`, `page`, `report` and the `path` to open, and every one is a link Hand emits (`canonical`); an emitter must reproduce its `link` from `fleet`, `page` and `report`. Invalid entries carry only the `link`; they are the app's main reject table, and the reference parser's anchored fleet check also rejects the app's extra right-length fleet cases, which only `internal/companion/companion_test.go` (the reference parser test) holds, not the vectors file. `go test ./internal/companion` runs the reference parser over both lists, and `go test ./internal/cli` checks that Hand's emitter reproduces every valid link. The app runs its parser over them as written.
 
 **Versions.** A new link with a new host needs no new version: an old app has no filter for the host `open`, so it never receives the link. The vectors are new entries, and no earlier vector changes.
 
-## What the Board does with a paired phone
+## What the Board does with a paired Companion
 
 ### Today
 
-- **Where it arrives.** The sidecar's streams arrive at the [peer listener](phone.md#the-peer-listener) (`hand board --peer-addr 127.0.0.1:7778`), where every request counts as remote and proxy headers are dropped.
-- **Before pairing.** The connection may ask only for `/<fleet id>/pair`, `/<fleet id>/api/v1/pair` (only a `POST` pairs) and `/static/…`. It is closed after 32 requests or 64 KiB without a paired phone's cookie, after a request body that takes over 10 seconds, and after 30 seconds with no request, paired or not. Each stream is one such connection, so a page that opens many streams starts each one capped.
-- **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the phone's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The host shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-should-see).
+- **Where it arrives.** The sidecar's streams arrive at the [peer listener](companion-app.md#the-peer-listener) (`hand board --peer-addr 127.0.0.1:7778`), where every request counts as remote and proxy headers are dropped.
+- **Before pairing.** The connection may ask only for `/<fleet id>/pair`, `/<fleet id>/api/v1/pair` (only a `POST` pairs) and `/static/…`. It is closed after 32 requests or 64 KiB without a paired Companion's cookie, after a request body that takes over 10 seconds, and after 30 seconds with no request, paired or not. Each stream is one such connection, so a page that opens many streams starts each one capped.
+- **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the Companion's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The host shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-should-see).
 - **The device.** A good code creates a device whose login is `iroh:<endpoint id>`, the name the user typed, and a hash of a secret. The page sets the cookie `hand_phone_<fleet id>`: `HttpOnly`, `SameSite=Lax`, path `/`, 90 days. It has neither `Secure` nor the `__Host-` prefix, because the Board dropped `X-Forwarded-Proto` and the origin is plain HTTP. Then it redirects to `/<fleet id>/`.
-- **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the phone's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
+- **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the Companion's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
 - **After pairing.** The whole Board, with the supervisor's controls, except `/<fleet id>/proof`; and the host-level `/api/v1/fleets` and `/api/v1/meta`. A request that carries a cookie that no longer proves puts the connection's caps back.
-- **The app link.** The Phone page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this host's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
-- **Revoking.** On the Phone page, **Revoke** deletes the device and **Revoke everywhere** deletes the phone's devices in every fleet. The cookie fails at once and the page answers 403 "This phone is no longer paired with this fleet". That endpoint ID's live connections are closed, and the host then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
-- **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired phone. A key that is not paired may still dial and reaches only the pair page and the pair endpoint.
+- **The app link.** The Companion page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this host's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
+- **Revoking.** On the Companion page, **Revoke** deletes the device and **Revoke everywhere** deletes the Companion's devices in every fleet. The cookie fails at once and the page answers 403 "This Companion is no longer paired with this fleet". That endpoint ID's live connections are closed, and the host then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
+- **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired Companion. A key that is not paired may still dial and reaches only the pair page and the pair endpoint.
 
 ### Step 3
 
@@ -201,7 +201,7 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 
 ## The alert feed
 
-**Today**, from schema 22. The app reads the alerts the watcher raises from the Board, over the connection it already holds, instead of from a push service. The route is on the fleet's prefix, so a phone reads only the fleets whose `hand_phone_<fleet id>` cookie the web view holds. [`companion-vectors.json`](companion-vectors.json) holds the numbers, the link grammar and five exchanges under the key `alerts`; `go test ./internal/board` runs every exchange against the Board's handler, and `go test ./internal/companion` reads the numbers back out of the code.
+**Today**, from schema 22. The app reads the alerts the watcher raises from the Board, over the connection it already holds, instead of from a push service. The route is on the fleet's prefix, so a Companion reads only the fleets whose `hand_phone_<fleet id>` cookie the web view holds. [`companion-vectors.json`](companion-vectors.json) holds the numbers, the link grammar and five exchanges under the key `alerts`; `go test ./internal/board` runs every exchange against the Board's handler, and `go test ./internal/companion` reads the numbers back out of the code.
 
 ### The request
 
@@ -233,9 +233,9 @@ The app sends it as any other request through the sidecar: `Host: localhost`, th
 | `alerts` | at most 50, oldest first, each with `seq` (a number that only grows and is never reused), `at` (UTC, to the second), `kind`, `ref`, `text` and `link` |
 
 - **No `after`, or one the Board has not reached.** `cursor` is the latest `seq` and `alerts` is empty, at once, without holding. A first call therefore never replays history, and a database that was recreated (its latest `seq` below the app's cursor) tells the app to start again from the answer's `cursor`.
-- **Which alerts.** Those of the last 24 hours that come after `after`. The Board keeps 7 days of alerts and answers only the last 24 hours, so a phone that was off for two days is not buried, and a cursor older than the window simply skips what has aged out.
+- **Which alerts.** Those of the last 24 hours that come after `after`. The Board keeps 7 days of alerts and answers only the last 24 hours, so a Companion that was off for two days is not buried, and a cursor older than the window simply skips what has aged out.
 - **Empty.** An answer with `alerts: []` at the end of the wait is the heartbeat. Send the next request at once.
-- **`kind`.** One of the kinds in [Alerts on your phone](alerts.md), as `kinds` in the vectors lists. The set can grow inside this version: treat a kind you do not know as an ordinary alert, never as an error.
+- **`kind`.** One of the kinds in [Alerts on your Companion](alerts.md), as `kinds` in the vectors lists. The set can grow inside this version: treat a kind you do not know as an ordinary alert, never as an error.
 - **`ref`.** `tN`, `dN`, `aN` or `supervisor`.
 - **`text`.** What `notify` gets as `HAND_NOTIFY_TEXT`, with control characters replaced by spaces and cut to 200 characters. It is plain text; show it as text. It can hold a line from a worker's screen, as a custom-command recipe can send.
 - **`link`.** A `handboard://open/<fleet id>/<page>` link for the app's own open-link entry point: `<page>` is `task/tN`, `decision/dN`, `attempt/aN`, or empty for the fleet's root (`supervisor` alerts). The numbers have 1 to 9 digits and no leading zero. The app must check the link with its own parser, and that its fleet is the one it polled, before it opens anything; a link that fails the check is no link, and the alert is still shown. `link` is empty when Hand cannot place the ref. The `open` vectors are the grammar. The link holds no secret.
@@ -243,13 +243,13 @@ The app sends it as any other request through the sidecar: `Host: localhost`, th
 
 ### Receipts
 
-The Board records two times per alert, for the reliability trial: `fetched_at`, when the alert is written to an answer, and `acked_at`, when the next request arrives with `after` at or above its `seq`. That next request is the acknowledgment: the app sends `after` only after it has posted its notifications, which makes delivery at-least-once, and a repeat is harmless when the app tags a notification by `<fleet id>/<ref>`. The receipts are per fleet, not per phone. Each request also counts as the phone being seen on the Phone page. The Board lists the week, with the delay from raised to acknowledged, at `/<fleet id>/alerts`.
+The Board records two times per alert, for the reliability trial: `fetched_at`, when the alert is written to an answer, and `acked_at`, when the next request arrives with `after` at or above its `seq`. That next request is the acknowledgment: the app sends `after` only after it has posted its notifications, which makes delivery at-least-once, and a repeat is harmless when the app tags a notification by `<fleet id>/<ref>`. The receipts are per fleet, not per Companion. Each request also counts as the Companion being seen on the Companion page. The Board lists the week, with the delay from raised to acknowledged, at `/<fleet id>/alerts`.
 
-**Polling while idle.** An app may hold no request and poll instead: one `wait=0` request per fleet at an interval, over a connection it opens for the poll and closes after, following `more` at once. The Android app does this once the screen has been off for 2 minutes with no charger: it closes its iroh endpoint and, from an Android alarm every 5 minutes (about 9 in Doze, and up to 40 while the laptop does not answer), opens one, asks each fleet once and closes it again. The screen turning on, an unlock or a charger ends it and the held request resumes. An alert then reaches the phone up to the interval late and none is lost; a repeat is possible, because the cursor moves only after the notifications, as above. The route, the numbers and the vectors do not change.
+**Polling while idle.** An app may hold no request and poll instead: one `wait=0` request per fleet at an interval, over a connection it opens for the poll and closes after, following `more` at once. The Android app does this once the screen has been off for 2 minutes with no charger: it closes its iroh endpoint and, from an Android alarm every 5 minutes (about 9 in Doze, and up to 40 while the laptop does not answer), opens one, asks each fleet once and closes it again. The screen turning on, an unlock or a charger ends it and the held request resumes. An alert then reaches the Companion up to the interval late and none is lost; a repeat is possible, because the cursor moves only after the notifications, as above. The route, the numbers and the vectors do not change.
 
 ### Refusals
 
-The route answers as every other Board page does. An unpaired phone, a cookie of another fleet and a cookie of another endpoint ID get `403`. A phone revoked while its request is held gets `403` with the `X-Hand-Error` of ["no longer paired"](#errors-and-what-the-user-should-see) at the next check, within about a second, and the app stops polling that fleet. A `429` or a `5xx`, a reset with code 3, 4 or 5, or no answer within 35 seconds is a failed poll: the app backs off as it does for any lost connection and tries again.
+The route answers as every other Board page does. An unpaired Companion, a cookie of another fleet and a cookie of another endpoint ID get `403`. A Companion revoked while its request is held gets `403` with the `X-Hand-Error` of ["no longer paired"](#errors-and-what-the-user-should-see) at the next check, within about a second, and the app stops polling that fleet. A `429` or a `5xx`, a reset with code 3, 4 or 5, or no answer within 35 seconds is a failed poll: the app backs off as it does for any lost connection and tries again.
 
 ## Errors and what the user should see
 
@@ -259,7 +259,7 @@ The app's own screens say the left column. A page the Board serves appears in th
 |---|---|---|
 | The link is rejected | A reason from the table above | For `version_unsupported`: "This code needs a newer Hand app. Update the app." For every other reason: "This is not a Hand pairing code. Show a new one on the Board." The app never shows the reason code to the user, the link or the code |
 | The camera is refused | The OS | "Allow the camera to scan the code, or paste the link." |
-| The host does not answer | No handshake within the app's 20-second deadline | "Can't reach your host. Check that it is on, that Hand's Board is running, and that this phone has internet." |
+| The host does not answer | No handshake within the app's 20-second deadline | "Can't reach your host. Check that it is on, that Hand's Board is running, and that this Companion has internet." |
 | The host is full or refuses | Code 1, or a refusal | "Your host is busy. Trying again." |
 | The Board is not running | Code 3 twice in a row | "Your host answers, but the Board is not running. Start it on the host." |
 | The connection is lost | Any other close | "Reconnecting…", and after three tries "Can't reach your host." |
@@ -267,9 +267,9 @@ The app's own screens say the left column. A page the Board serves appears in th
 | An expired code | The pair page's 403, or `code_expired` | "That code has expired. A code works for 5 minutes. Show a new code on the Board." |
 | A used code | The pair page's 403, or `code_used` | "That code was already used. A code works once. Show a new code on the Board." |
 | Too many wrong codes (all cancelled) | The pair page's 403, or `codes_cancelled` | "Too many wrong codes. Every code was cancelled. Show a new code on the Board." |
-| Too many wrong codes from this phone | The pair page's 429, or `rate_limited` | "Too many wrong codes from this phone. Wait a minute, then try again." |
-| The phone is still paired in another fleet, and this fleet's pairing was removed on the host | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
-| The phone's only paired fleet was removed on the host | The Board's 403 "Pair this phone first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
+| Too many wrong codes from this Companion | The pair page's 429, or `rate_limited` | "Too many wrong codes from this Companion. Wait a minute, then try again." |
+| The Companion is still paired in another fleet, and this fleet's pairing was removed on the host | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
+| The Companion's only paired fleet was removed on the host | The Board's 403 "Pair this Companion first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
 | Too much asked before pairing | The Board's 429 | The page; the web view reconnects, which opens a new stream |
 
 A name the Board refuses is `bad_name`: the app limits the field to 40 characters and no control character, so the user never sees it. The pair page's texts on the right are the Board's, and the API's `message` carries the same text; the app may show them in its own words but must keep their meaning, and must not add the code.
@@ -279,7 +279,7 @@ A name the Board refuses is `bad_name`: the app limits the field to 40 character
 - **Never log the code, the link or a cookie**, in the app's logs, crash reports, analytics, clipboard, notifications, intents it sends, or the URL it passes to an error screen. The reason code of a rejected link is the most a log may hold.
 - **The app never holds the sidecar's secret.** It is in `board.peer` on the host and the app is never given it. The device's secret is in an `HttpOnly` cookie that the web view sends. The app reads only the `hand_phone_<fleet id>` cookie, and may send it only on that fleet's own `/<fleet id>/alerts/feed` and `/<fleet id>/api/v1` requests (the [JSON API](api.md)). It may keep the secret in a file of its own sealed by a Keystore key, and nowhere else. It never logs it and never sends it to any other path or fleet. It must not read, copy or export any other cookie of the web view.
 - **Block screenshots, recents thumbnails and screen recording of the pairing screen and of the pair page** where the OS can (on Android, `FLAG_SECURE` on that screen), because the code is on it in clear.
-- **Keep the app's iroh key in the keystore.** Make 32 random bytes on first run and keep them encrypted under a non-exportable key of the Android Keystore (hardware-backed when the phone has it), in storage private to the app and excluded from backups and device-to-device transfer, so that a copy of the phone does not copy the identity. A reinstall makes a new key, which the Board treats as a new phone.
+- **Keep the app's iroh key in the keystore.** Make 32 random bytes on first run and keep them encrypted under a non-exportable key of the Android Keystore (hardware-backed when the Companion has it), in storage private to the app and excluded from backups and device-to-device transfer, so that a copy of the Companion does not copy the identity. A reinstall makes a new key, which the Board treats as a new Companion.
 - **One host per install.** Cookies are scoped to the name `localhost`, not a port, so a second host's Board would be sent the first one's cookies. Pairing a second host first clears the web view's cookies and storage and forgets the first.
 - **Load only the proxy's origin** in the web view. Every other address opens in the system browser. Do not enable file access, content access, or a JavaScript bridge to the web view.
 - **Cleartext only to `localhost`.** The network security config allows cleartext to that name and to nothing else.
