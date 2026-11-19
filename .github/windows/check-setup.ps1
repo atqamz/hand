@@ -88,7 +88,7 @@ function Expect-Kept {
 }
 
 $logs = Join-Path $Work 'logs'
-New-Item -ItemType Directory -Path $logs, (Split-Path $keep[0]), $drafts, $fleet -Force | Out-Null
+New-Item -ItemType Directory -Path $logs, (Split-Path $keep[0]), $drafts, $fleet, (Join-Path $Work 'cwd'), (Join-Path $Work 'home') -Force | Out-Null
 foreach ($k in $keep) { Set-Content -LiteralPath $k -Value 'keep' }
 Expect (-not (Test-Path -LiteralPath $lnk)) "$lnk exists before the install"
 Expect ((Get-PathCount) -eq 0) "$bin is on the user PATH before the install"
@@ -107,7 +107,6 @@ try {
     foreach ($line in @(& (Join-Path $bin 'hand.exe') version)) { if ($line -match '^channel: (\S+)\s*$') { $channel = $Matches[1] } }
     if ($channel -eq 'edge') {
         $env:SECONDHAND_HOME = Join-Path $Work 'home'
-        New-Item -ItemType Directory -Path $env:SECONDHAND_HOME, (Join-Path $Work 'cwd') -Force | Out-Null
         Push-Location (Join-Path $Work 'cwd')
         try { $doctor = (@(& (Join-Path $bin 'hand.exe') doctor 2>&1 | Out-String) -join '') }
         finally { Pop-Location }
@@ -120,7 +119,6 @@ try {
 
     Write-Host '== a Board of this install blocks the uninstall'
     $env:SECONDHAND_HOME = Join-Path $Work 'home'
-    New-Item -ItemType Directory -Path $env:SECONDHAND_HOME -Force | Out-Null
     $board = Start-Process -FilePath (Join-Path $bin 'hand.exe') -ArgumentList 'board', '--addr', '127.0.0.1:0' -WorkingDirectory (Join-Path $Work 'cwd') -PassThru -WindowStyle Hidden
     Start-Sleep -Seconds 5
     Expect (-not $board.HasExited) 'the Board did not stay up'
