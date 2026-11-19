@@ -213,3 +213,27 @@ func TestRunSkipsABundleThatTurnsForeignDuringTheUpdate(t *testing.T) {
 		}
 	}
 }
+
+func TestRunSkipsTheDesktopWhenHomeIsNotAbsolute(t *testing.T) {
+	for _, home := range []string{"", "relative"} {
+		f := macFixture(t)
+		getenv := f.o.Getenv
+		f.o.Getenv = func(k string) string {
+			if k == "HOME" {
+				return home
+			}
+			return getenv(k)
+		}
+		rep, err := Run(context.Background(), f.o)
+		if err != nil || rep.Failed || rep.Status != "updated" || rep.Desktop != "skipped: HOME is not an absolute path" {
+			t.Fatalf("HOME %q: report = %+v, %v", home, rep, err)
+		}
+		if f.asksForDesktop() {
+			t.Fatalf("HOME %q: a desktop was fetched: %q", home, f.srv.asked())
+		}
+		absent(t, filepath.Join(filepath.Dir(f.target), desktopasset.Name))
+		if b, _ := os.ReadFile(f.target); string(b) == f.old {
+			t.Fatalf("HOME %q: hand was not replaced", home)
+		}
+	}
+}

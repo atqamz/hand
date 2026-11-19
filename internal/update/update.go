@@ -214,10 +214,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	desktopNext := desktopasset.Path(o.Target, o.OS, o.Getenv("HOME"))
 	desktopOn := desktopasset.Supported(o.OS, o.Arch, o.Channel)
-	foreign := ""
+	skip := ""
 	if desktopOn && o.OS == "darwin" {
-		if state, where := launcher.Check(o.Getenv, desktopNext); state == launcher.Foreign {
-			desktopOn, foreign = false, where
+		if !filepath.IsAbs(o.Getenv("HOME")) {
+			desktopOn, skip = false, "HOME is not an absolute path"
+		} else if state, where := launcher.Check(o.Getenv, desktopNext); state == launcher.Foreign {
+			desktopOn, skip = false, where+" is not Hand's"
+			rep.launcherResult(where, nil)
 		}
 	}
 	desktopStale := false
@@ -227,9 +230,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	var desktopBin string
 	switch {
-	case foreign != "":
-		rep.Desktop = "skipped: " + foreign + " is not Hand's"
-		rep.launcherResult(foreign, nil)
+	case skip != "":
+		rep.Desktop = "skipped: " + skip
 	case !desktopOn:
 		rep.Desktop = "unsupported on " + o.OS + "/" + o.Arch
 		if o.Check && o.hasWindow(desktopNext) {
