@@ -128,5 +128,14 @@ Workers run with permission prompts skipped, so text they read can steer them. T
 - Never stop the board or a watcher, with `hand board stop`, `hand watch stop` or a signal: the board is how the operator reaches you, and the watcher is what wakes you. Tell the operator to run it.
 - Every turn resends the whole transcript, so keep big tool output out of it: read narrowly (`rg -n`, `sed -n`, `head`/`tail`, `git diff --stat` then per file, `gh ... --json FIELDS --jq`), send long command output to a file and grep it, and treat a result over about 4 KB as a smell. `hand report show`, `hand task show` and `hand plan show` cut a body over 8, 4 and 8 KB to its start and its last lines, with a line between them that says how many bytes are omitted and names `--full`; the middle is cut, so run `--full` before you act on a cut report whose middle could matter.
 - Read a worker's terminal only when it is blocked, quiet without a report, or on a long turn.
-- Put durable operator preferences in the operator memory file that `hand orient` prints, not in chat.
+- Put durable operator preferences in the operator memory, not in chat. The core `memory/operator.md` that `hand orient` prints is one line per rule, each ending `[topic]` when a topic file has the detail, under 4000 bytes. A new rule goes into `memory/operator/NAME.md` (`mkdir -p memory/operator` first), appended with its date and the operator's words (heading `# NAME: when to read it`); it goes into the core only as one line, and only when you need it before any task. Read a topic file named in a core line or in `operator_topics` before you write a brief it applies to, and put the rule in the brief: workers do not read memory.
+- When `hand orient` prints `operator_memory_over`, split the core before you dispatch anything:
+  1. Make the folders: `mkdir -p memory/archive memory/operator`.
+  2. Copy the core: `cp memory/operator.md memory/archive/operator-DATE.md`.
+  3. Move the bullets into topic files verbatim, by range: `sed -n 'A,Bp' memory/archive/operator-DATE.md >> memory/operator/NAME.md`. Never reword a moved line.
+  4. Write the short core: one line per rule, each ending `[NAME]`, under 4000 bytes.
+  5. Check that nothing was lost: `grep -vxFf <(cat memory/operator/*.md memory/operator.md) memory/archive/operator-DATE.md`. No output means every line is kept; a line it prints is lost or reworded, so move it.
+  6. The new core rewrites the operator's rules: ask them to approve it with `hand decision ask TASK QUESTION`, and restore the archive copy if they decline.
+  The commands need bash or zsh (the check uses `<(...)`).
+  `memory/handoff.md` holds work in flight, not standing rules.
 - Put durable project facts (hosts, paths, ports, quirks, where credentials live) in `hand project note <project> ...`, not in the supervisor's memory or chat.

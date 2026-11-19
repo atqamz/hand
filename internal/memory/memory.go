@@ -1,10 +1,12 @@
 package memory
 
 import (
+	"bufio"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -30,17 +32,89 @@ func Init(home string) error {
 	return f.Close()
 }
 
-func Read(home, name string, budget int) (string, bool, error) {
+type Line struct {
+	N, Bytes int
+}
+
+type Core struct {
+	Lines   []string
+	Total   int
+	Bytes   int
+	Largest []Line
+}
+
+type Topic struct {
+	File  string
+	Bytes int64
+	Title string
+}
+
+func Read(home, name string, budget int) (Core, error) {
 	b, err := os.ReadFile(filepath.Join(home, "memory", name))
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", false, nil
+		return Core{}, nil
 	}
 	if err != nil {
-		return "", false, err
+		return Core{}, err
 	}
-	truncated := len(b) > budget
-	if truncated {
-		b = b[:budget]
+	c := Core{Bytes: len(b)}
+	var sized []Line
+	used, fits := 0, true
+	for n, raw := range strings.SplitAfter(string(b), "\n") {
+		used += len(raw)
+		l := strings.TrimRight(raw, "\r\n")
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		c.Total++
+		sized = append(sized, Line{n + 1, len(l)})
+		if fits && used > budget {
+			fits = false
+		}
+		if fits {
+			c.Lines = append(c.Lines, strings.ToValidUTF8(l, ""))
+		}
 	}
-	return strings.ToValidUTF8(string(b), ""), truncated, nil
+	sort.SliceStable(sized, func(i, j int) bool { return sized[i].Bytes > sized[j].Bytes })
+	c.Largest = sized[:min(3, len(sized))]
+	return c, nil
+}
+
+func Topics(home string, limit int) ([]Topic, int) {
+	dir := filepath.Join(home, "memory", "operator")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, 0
+	}
+	var names []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") {
+			names = append(names, e.Name())
+		}
+	}
+	var out []Topic
+	for _, name := range names[:min(limit, len(names))] {
+		fi, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		out = append(out, Topic{name, fi.Size(), heading(filepath.Join(dir, name))})
+	}
+	return out, len(names)
+}
+
+func heading(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(nil, 1<<20)
+	for sc.Scan() {
+		if l := strings.TrimRight(sc.Text(), "\r"); strings.HasPrefix(l, "#") {
+			return strings.ToValidUTF8(strings.TrimSpace(strings.TrimLeft(l, "#")), "")
+		}
+	}
+	return ""
 }
