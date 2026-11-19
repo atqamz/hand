@@ -109,12 +109,7 @@ jobs:
           path: ${{ runner.temp }}/in
       - name: Check the archives and build the wizard
         shell: pwsh
-        env:
-          TAG: ${{ inputs.tag }}
-        run: |
-          $more = @{}
-          if ("$env:TAG".StartsWith('v')) { $more.RequireIroh = $true }
-          ./.github/windows/build-setup.ps1 -Archives "$env:RUNNER_TEMP\in\$env:VARIANT" -Out "$env:RUNNER_TEMP\setup" -Work "$env:RUNNER_TEMP\build" @more
+        run: ./.github/windows/build-setup.ps1 -Archives "$env:RUNNER_TEMP\in\$env:VARIANT" -Out "$env:RUNNER_TEMP\setup" -Work "$env:RUNNER_TEMP\build"
       - name: Install it silently, check it, uninstall it silently
         shell: pwsh
         run: |
