@@ -224,3 +224,19 @@ func TestSyncRefusesUnusablePaths(t *testing.T) {
 		t.Fatal("no APPDATA")
 	}
 }
+
+func TestAShortcutThatCannotBeReadIsNotHands(t *testing.T) {
+	f := newWin(t)
+	if err := os.MkdirAll(f.lnk, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if skipped, err := Sync(f.getenv, f.bin); skipped != f.lnk || err != nil || f.writes != 0 {
+		t.Fatalf("Sync = %q, %v after %d writes", skipped, err, f.writes)
+	}
+	if skipped, err := Remove(f.getenv); skipped != f.lnk || err != nil {
+		t.Fatalf("Remove = %q, %v", skipped, err)
+	}
+	if state, _ := Check(f.getenv, f.bin); state != Foreign {
+		t.Fatalf("Check = %q", state)
+	}
+}

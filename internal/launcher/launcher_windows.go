@@ -47,7 +47,7 @@ func icoPath(bin string) string { return filepath.Join(filepath.Dir(bin), "hand.
 func managed(lnk string) (s lnkStrings, owned, exists bool) {
 	b, err := os.ReadFile(lnk)
 	if err != nil {
-		return s, false, false
+		return s, false, !errors.Is(err, fs.ErrNotExist)
 	}
 	s, ok := readLnk(b)
 	return s, ok && s.Name == description, true
