@@ -7,13 +7,14 @@ import (
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
-const refMemoMax = 512
+const (
+	refMemoMax      = 512
+	refMemoSrcMax   = 64 << 10
+	refMemoBytesMax = 4 << 20
+)
 
 type refKey struct{ fleet, src string }
 
-// linkRefs turns each tNNN, aNNN, dNNN and rNNN of src's plain text into a
-// link to its page, on the Board's boundary rules (markdown.RefAt). Text of
-// a link, a code span, a code block, HTML or an autolink is left as written.
 func linkRefs(fleet, src string) string {
 	if !refFleet(fleet) || !strings.ContainsAny(src, "tdar") {
 		return src
@@ -24,13 +25,25 @@ func linkRefs(fleet, src string) string {
 	last := 0
 	for i := 0; i < d.Len(); i++ {
 		in := d.Inlines(i)
+		var open []emph
 		for j := 0; j < len(in); {
+			for len(open) > 0 && open[len(open)-1].next <= j {
+				open = open[:len(open)-1]
+			}
 			switch in[j].Kind {
 			case parser.Link, parser.Image:
 				j = in[j].Next
 				continue
+			case parser.Strong, parser.Emphasis, parser.Strikethrough:
+				if e, ok := emphOf(src, in[j]); ok {
+					open = append(open, e)
+				}
 			case parser.Text:
-				last = linkText(&b, fleet, src, in, j, last)
+				lo, hi := 0, len(src)
+				if n := len(open); n > 0 {
+					lo, hi = open[n-1].lo, open[n-1].hi
+				}
+				last = linkText(&b, fleet, src, in[j], lo, hi, last)
 			}
 			j++
 		}
@@ -42,12 +55,10 @@ func linkRefs(fleet, src string) string {
 	return b.String()
 }
 
-func linkText(b *strings.Builder, fleet, src string, in []parser.Inline, j, last int) int {
-	t := in[j]
+func linkText(b *strings.Builder, fleet, src string, t parser.Inline, lo, hi, last int) int {
 	if t.Start < last || t.End > len(src) || src[t.Start:t.End] != t.Text && strings.Contains(src[t.Start:t.End], "\n") {
 		return last
 	}
-	lo, hi := innerOf(src, in, j)
 	for k := t.Start; k < t.End; k++ {
 		n := markdown.RefAt(src[lo:hi], k-lo)
 		if n == 0 || k+n > t.End {
@@ -61,31 +72,19 @@ func linkText(b *strings.Builder, fleet, src string, in []parser.Inline, j, last
 	return last
 }
 
-// innerOf bounds the text a ref at in[j] is read in: the inside of the
-// nearest emphasis around it, as the Board reads it, else the whole source.
-func innerOf(src string, in []parser.Inline, j int) (int, int) {
-	for p := j - 1; p >= 0; p-- {
-		e := in[p]
-		if e.Next <= j {
-			continue
-		}
-		d := 1
-		switch e.Kind {
-		case parser.Strong:
+type emph struct{ lo, hi, next int }
+
+func emphOf(src string, e parser.Inline) (emph, bool) {
+	d := 1
+	switch e.Kind {
+	case parser.Strong:
+		d = 2
+	case parser.Strikethrough:
+		if strings.HasPrefix(src[e.Start:], "~~") {
 			d = 2
-		case parser.Strikethrough:
-			if strings.HasPrefix(src[e.Start:], "~~") {
-				d = 2
-			}
-		case parser.Emphasis:
-		default:
-			continue
-		}
-		if e.Start+d <= e.End-d {
-			return e.Start + d, e.End - d
 		}
 	}
-	return 0, len(src)
+	return emph{e.Start + d, e.End - d, e.Next}, e.Start+d <= e.End-d
 }
 
 func refFleet(id string) bool {
@@ -105,10 +104,15 @@ func (a *App) linked(src string) string {
 	if s, ok := a.refMemo[k]; ok {
 		return s
 	}
-	if a.refMemo == nil || len(a.refMemo) >= refMemoMax {
-		a.refMemo = map[refKey]string{}
-	}
 	s := linkRefs(k.fleet, src)
+	n := len(src) + len(s)
+	if len(src) > refMemoSrcMax {
+		return s
+	}
+	if a.refMemo == nil || len(a.refMemo) >= refMemoMax || a.refMemoBytes+n > refMemoBytesMax {
+		a.refMemo, a.refMemoBytes = map[refKey]string{}, 0
+	}
 	a.refMemo[k] = s
+	a.refMemoBytes += n
 	return s
 }

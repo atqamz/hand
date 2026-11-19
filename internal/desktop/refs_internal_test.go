@@ -2,8 +2,10 @@ package desktop
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/markdown"
 )
@@ -130,5 +132,47 @@ func TestLinkRefsIsIdempotentOnItsOutput(t *testing.T) {
 	once := linkRefs("f1", "t1 and `a2` and [d3](x) r4")
 	if twice := linkRefs("f1", once); twice != once {
 		t.Fatalf("second pass changed %q to %q", once, twice)
+	}
+}
+
+func TestLinkRefsStaysLinearInTheInlinesOfOneParagraph(t *testing.T) {
+	src := strings.Repeat("*a* t1 ", 20000)
+	start := time.Now()
+	got := linkRefs("f1", src)
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("linkRefs took %v", d)
+	}
+	if n := strings.Count(got, "/f1/ref/t1"); n != 20000 {
+		t.Fatalf("linked %d refs, want 20000", n)
+	}
+}
+
+func TestTheRefMemoKeepsWhatItLinkedAndStaysBounded(t *testing.T) {
+	a := &App{Fleet: Fleet{ID: "f1"}}
+	if got := a.linked("see t1"); got != "see "+ref("t1") {
+		t.Fatalf("got %q", got)
+	}
+	k := refKey{"f1", "see t1"}
+	a.refMemo[k] = "kept"
+	if got := a.linked("see t1"); got != "kept" {
+		t.Fatalf("the memo was not read: %q", got)
+	}
+	for i := 0; i < 3*refMemoMax; i++ {
+		a.linked("t" + strconv.Itoa(i+1))
+		if len(a.refMemo) > refMemoMax {
+			t.Fatalf("memo holds %d entries after %d", len(a.refMemo), i+1)
+		}
+	}
+	big := strings.Repeat("x ", refMemoSrcMax) + "t1"
+	a.linked(big)
+	if _, ok := a.refMemo[refKey{"f1", big}]; ok {
+		t.Fatal("a source over the cap was kept")
+	}
+	mid := strings.Repeat("x ", refMemoSrcMax/4)
+	for i := 0; i < 200; i++ {
+		a.linked(mid + strconv.Itoa(i) + " t1")
+		if a.refMemoBytes > refMemoBytesMax {
+			t.Fatalf("memo holds %d bytes", a.refMemoBytes)
+		}
 	}
 }

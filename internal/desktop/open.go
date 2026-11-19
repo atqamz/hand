@@ -148,7 +148,7 @@ func boardViewerRef(fleet, dest string) (string, bool) {
 
 func refPath(fleet, dest string) (string, bool) {
 	u, err := url.Parse(dest)
-	if err != nil || fleet == "" {
+	if err != nil || fleet == "" || u.Scheme != "" || u.Host != "" {
 		return "", false
 	}
 	rest, ok := strings.CutPrefix(u.Path, "/"+fleet+"/ref/")

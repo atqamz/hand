@@ -216,6 +216,7 @@ type App struct {
 	writer        *draftWriter
 	md            markdown.Options
 	refMemo       map[refKey]string
+	refMemoBytes  int
 	loadID        int
 	cancel        context.CancelFunc
 	stop          context.CancelFunc

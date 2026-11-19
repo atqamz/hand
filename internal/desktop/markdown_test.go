@@ -274,6 +274,38 @@ func TestRefsInCodeLinksAndOtherFleetsDoNothing(t *testing.T) {
 	}
 }
 
+func TestARefPathOnAnotherHostStaysExternalOrRefused(t *testing.T) {
+	hand := installFakeHand(t)
+	https := "https://evil.example/" + fleetID + "/ref/t77"
+	http := "http://localhost:1/" + fleetID + "/ref/t77"
+	body := "Result\n\n[one](" + https + ") [two](" + http + ") [three](//evil.example/" + fleetID + "/ref/t77)"
+	app, tt := reportAppAt(t, body, hand.home)
+	click(t, tt, "one")
+	click(t, tt, "two")
+	click(t, tt, "three")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("a link to another host opened %v %q", app.Screen, app.Ref)
+	}
+	if got := tt.OpenedURLs(); len(got) != 2 || got[0] != https || got[1] != http {
+		t.Fatalf("opened %q", got)
+	}
+	if len(hand.calls(t)) != 0 {
+		t.Fatalf("hand ran %q", hand.calls(t))
+	}
+}
+
+func TestAMalformedRefLinkOpensNothing(t *testing.T) {
+	hand := installFakeHand(t)
+	app, tt := reportAppAt(t, "Result\n\n[broken](/"+fleetID+"/ref/tfoo) now", hand.home)
+	click(t, tt, "broken")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("a malformed ref opened %v %q", app.Screen, app.Ref)
+	}
+	if len(tt.OpenedURLs()) != 0 || len(hand.calls(t)) != 0 {
+		t.Fatalf("opened %q, hand ran %q", tt.OpenedURLs(), hand.calls(t))
+	}
+}
+
 func TestRefsInADocumentOpenTheirPages(t *testing.T) {
 	hand := installFakeHand(t)
 	f := docFixture(t)
