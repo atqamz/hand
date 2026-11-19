@@ -50,13 +50,14 @@ To try it next to an older Hand, build it under another name such as `~/.local/b
 
 ## Uninstall
 
-`hand uninstall` removes what `hand update` and the install scripts placed, prints every path it removed and every path it kept, and removes `hand` itself last. `hand uninstall --dry-run` prints the same two lists and changes nothing.
+`hand uninstall` removes what `hand update` and the install scripts placed, prints every path it removed and every path it kept, and removes `hand` itself last. `hand uninstall --dry-run` prints the same two lists and changes nothing, not even creating `~/.secondhand`; a folder that does not exist is not listed.
 
 - **Removed:** `hand`, `hand-iroh` and the window `hand-desktop` that sit beside it, and the window's launcher entry. A file that is not a regular file, such as a symlink or a folder with one of those names, is kept and listed; the command never follows a symlink.
+- **Kept when they belong to another install:** the launcher entry goes only when it points at the window beside the `hand` that runs the command, so a `go build` copy in another folder leaves the entry of your installed `hand` alone, and it is listed as kept. A `hand` under another name (`hand-next`) that sits beside a file named `hand` removes only itself: `hand`, `hand-iroh`, `hand-desktop`, `hand.ico`, the launcher entry and the Windows `PATH` entry belong to that `hand`, and are kept and listed.
 - **Kept, always:** your fleet folders, `~/.secondhand` (or `$SECONDHAND_HOME`: the fleet index, the worktrees and the backups) and the window's composer drafts and preferences (`$XDG_STATE_HOME/hand-desktop`, `~/.local/state/hand-desktop`, `%LOCALAPPDATA%\hand-desktop` on Windows). Delete them yourself if you want them gone.
 - **Refuses**, with exit code 3 and nothing removed, while a Board or a watcher of this install runs. It names `hand board stop` and `hand watch stop` (run that one in each fleet's folder). A Board that another `hand` runs does not block it.
 - **A step that fails** leaves `hand` in place, so you can run the command again. A second run, with nothing left to remove, prints `nothing to remove` and exits 0.
-- **Not removed:** a systemd unit, LaunchAgent or scheduled task that you made to start the Board ([Autostart](autostart.md)), Luvus, git and the harnesses. It removes the `hand` that runs it, so a build you made yourself is removed too.
+- **Not removed:** a systemd unit, LaunchAgent or scheduled task that you made to start the Board ([Autostart](autostart.md)), Luvus, git and the harnesses. It removes the `hand` that runs it, so a build you made yourself is removed too, with the files beside it that are its own (see above).
 
 **Linux.** `~/.local/bin/hand`, `hand-iroh` and `hand-desktop`, and the launcher entry: `$XDG_DATA_HOME/applications/hand-desktop.desktop` and its icon `icons/hicolor/512x512/apps/hand-desktop.png`. An entry without the `X-Hand-Managed=true` line is not Hand's and is kept.
 

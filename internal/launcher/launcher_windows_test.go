@@ -299,3 +299,24 @@ func TestOwnedListsHandsShortcutAndIconOnly(t *testing.T) {
 		t.Fatalf("Owned with a user's shortcut = %v, %q, %v", found, foreign, err)
 	}
 }
+
+func TestMineIsTrueOnlyForTheWindowTheShortcutPointsAt(t *testing.T) {
+	f := newWin(t)
+	hand := filepath.Join(filepath.Dir(f.bin), "hand.exe")
+	if Mine(f.getenv, hand) {
+		t.Fatal("Mine with nothing written")
+	}
+	if _, err := Sync(f.getenv, f.bin); err != nil {
+		t.Fatal(err)
+	}
+	if !Mine(f.getenv, hand) {
+		t.Fatal("Mine of its own hand = false")
+	}
+	if Mine(f.getenv, filepath.Join(t.TempDir(), "hand.exe")) {
+		t.Fatal("Mine of a hand beside another window = true")
+	}
+	f.foreign(t)
+	if Mine(f.getenv, hand) {
+		t.Fatal("Mine of a user's shortcut = true")
+	}
+}

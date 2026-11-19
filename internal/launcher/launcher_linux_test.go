@@ -208,3 +208,26 @@ func TestOwnedListsWhatRemoveWouldDelete(t *testing.T) {
 		t.Fatalf("Owned with a foreign entry = %v, %q, %v", found, foreign, err)
 	}
 }
+
+func TestMineIsTrueOnlyForTheWindowTheEntryPointsAt(t *testing.T) {
+	getenv, data := env(t)
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	if Mine(getenv, "/x/hand") {
+		t.Fatal("Mine with nothing written")
+	}
+	if _, err := Sync(getenv, "/x/hand-desktop"); err != nil {
+		t.Fatal(err)
+	}
+	if !Mine(getenv, "/x/hand") || !Mine(getenv, "/x/hand-next") {
+		t.Fatal("Mine of a hand beside the window = false")
+	}
+	if Mine(getenv, "/y/hand") {
+		t.Fatal("Mine of a hand beside another window = true")
+	}
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/x/hand-desktop\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if Mine(getenv, "/x/hand") {
+		t.Fatal("Mine of a foreign entry = true")
+	}
+}

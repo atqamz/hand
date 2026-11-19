@@ -173,6 +173,16 @@ func bundleOwned(home string) (found []string, foreign string, err error) {
 	return []string{b.app}, "", nil
 }
 
+func bundleMine(home, hand string) bool {
+	b, err := bundleAt(home)
+	if err != nil {
+		return false
+	}
+	owned, exists := b.managed()
+	target, err := os.Readlink(b.hand())
+	return exists && owned && err == nil && target == hand
+}
+
 var moveAside = os.Rename
 
 func bundleRemove(home string) (skipped string, err error) {

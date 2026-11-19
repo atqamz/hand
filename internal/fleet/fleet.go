@@ -20,14 +20,7 @@ type Entry struct {
 }
 
 func Root(getenv func(string) string) (string, error) {
-	root := getenv("SECONDHAND_HOME")
-	if root == "" {
-		if getenv("HOME") == "" {
-			return "", fmt.Errorf("%w: set HOME or SECONDHAND_HOME", state.ErrInvalid)
-		}
-		root = filepath.Join(getenv("HOME"), ".secondhand")
-	}
-	root, err := filepath.Abs(root)
+	root, err := rootPath(getenv)
 	if err != nil {
 		return "", err
 	}
@@ -35,6 +28,28 @@ func Root(getenv func(string) string) (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(root)
+}
+
+func LookupRoot(getenv func(string) string) (string, error) {
+	root, err := rootPath(getenv)
+	if err != nil {
+		return "", err
+	}
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		return real, nil
+	}
+	return root, nil
+}
+
+func rootPath(getenv func(string) string) (string, error) {
+	root := getenv("SECONDHAND_HOME")
+	if root == "" {
+		if getenv("HOME") == "" {
+			return "", fmt.Errorf("%w: set HOME or SECONDHAND_HOME", state.ErrInvalid)
+		}
+		root = filepath.Join(getenv("HOME"), ".secondhand")
+	}
+	return filepath.Abs(root)
 }
 
 func Session(id string) string { return "secondhand-" + id }

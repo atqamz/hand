@@ -28,6 +28,8 @@ func Owned(getenv func(string) string) ([]string, string, error) {
 	return bundleOwned(getenv("HOME"))
 }
 
+func Mine(getenv func(string) string, hand string) bool { return bundleMine(getenv("HOME"), hand) }
+
 func Remove(getenv func(string) string) (string, error) { return bundleRemove(getenv("HOME")) }
 
 func Check(getenv func(string) string, bin string) (State, string) {

@@ -31,6 +31,8 @@ type install struct {
 	other  string
 	calls  struct{ launcher, pathApply int }
 	onPath bool
+
+	elsewhere bool
 }
 
 func put(t *testing.T, path, body string) string {
@@ -86,6 +88,7 @@ func newInstall(t *testing.T, goos string) *install {
 			return ""
 		},
 		Owned: func(func(string) string) ([]string, string, error) { return x.entry, "", nil },
+		Mine:  func(func(string) string, string) bool { return !x.elsewhere },
 		RemoveLauncher: func(func(string) string) (string, error) {
 			x.calls.launcher++
 			for _, p := range x.entry {
@@ -230,6 +233,101 @@ func TestHandGoesLastAndStaysWhenAStepFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	gone(t, x.target)
+}
+
+func TestAFailedStepDoesNotHeadlineRemoved(t *testing.T) {
+	x := newInstall(t, "linux")
+	x.opts.RemoveLauncher = func(func(string) string) (string, error) { return "", errors.New("disk on fire") }
+	rep, err := x.run(false)
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if out := Render(rep).String(); !strings.Contains(out, "status: failed") || strings.Contains(out, "status: removed") {
+		t.Fatalf("headline of a failed run:\n%s", out)
+	}
+}
+
+func TestADryRunWithABlockerListsNothingAsRemoved(t *testing.T) {
+	x := newInstall(t, "linux")
+	pidFile(t, filepath.Join(x.root, "board.pid"), x.target)
+	rep, err := x.run(true)
+	if err != nil || len(rep.Removed) != 0 {
+		t.Fatalf("removed %v, %v", paths(rep.Removed), err)
+	}
+}
+
+func TestALauncherEntryOfAnotherInstallIsKept(t *testing.T) {
+	for _, goos := range systems {
+		t.Run(goos, func(t *testing.T) {
+			x := newInstall(t, goos)
+			x.elsewhere = true
+			rep, err := x.run(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			there(t, x.entry...)
+			if x.calls.launcher != 0 {
+				t.Fatal("the launcher was asked to remove an entry of another install")
+			}
+			kept := map[string]string{}
+			for _, it := range rep.Kept {
+				kept[it.Path] = it.Note
+			}
+			for _, p := range x.entry {
+				if !strings.Contains(kept[p], "does not point at the window beside") {
+					t.Errorf("%s kept with %q", p, kept[p])
+				}
+				if slices.Contains(paths(rep.Removed), p) {
+					t.Errorf("%s is listed as removed", p)
+				}
+			}
+			gone(t, x.target)
+		})
+	}
+}
+
+func TestACopyNamedDifferentlyBesideHandLeavesTheCompanionsAndTheEntry(t *testing.T) {
+	for _, goos := range systems {
+		t.Run(goos, func(t *testing.T) {
+			x := newInstall(t, goos)
+			next := put(t, filepath.Join(x.bin, withExt("hand-next", goos)), "next")
+			x.opts.Target = next
+			rep, err := x.run(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beside := []string{x.target, filepath.Join(x.bin, withExt("hand-iroh", goos))}
+			if goos != "darwin" {
+				beside = append(beside, filepath.Join(x.bin, withExt("hand-desktop", goos)))
+			}
+			if goos == "windows" {
+				beside = append(beside, filepath.Join(x.bin, "hand.ico"))
+			}
+			there(t, beside...)
+			there(t, x.entry...)
+			if x.calls.launcher != 0 || x.calls.pathApply != 0 {
+				t.Fatalf("launcher=%d path=%d: the copy touched the install it sits beside", x.calls.launcher, x.calls.pathApply)
+			}
+			removed := paths(rep.Removed)
+			for _, p := range append(beside[:len(beside):len(beside)], x.entry...) {
+				if slices.Contains(removed, p) {
+					t.Errorf("%s is listed as removed", p)
+				}
+			}
+			kept := paths(rep.Kept)
+			for _, p := range beside[1:] {
+				if !slices.Contains(kept, p) {
+					t.Errorf("kept %v lacks %s", kept, p)
+				}
+			}
+			if goos == "windows" {
+				gone(t, next)
+				there(t, filepath.Join(x.bin, "hand-desktop.exe.old"+oldTag))
+			} else {
+				gone(t, next)
+			}
+		})
+	}
 }
 
 func TestDryRunChangesNothing(t *testing.T) {
@@ -396,6 +494,21 @@ func TestWindowsRenamesTheRunningHandAndOverwritesAnEarlierOldFile(t *testing.T)
 	}
 	if b, _ := os.ReadFile(x.target + ".old"); string(b) != "hand" {
 		t.Fatalf("hand.exe.old holds %q", b)
+	}
+}
+
+func TestWindowsQuotesAnApostropheInTheDeleteLine(t *testing.T) {
+	x := newInstall(t, "windows")
+	dir := filepath.Join(x.home, "O'Brien", "hand", "bin")
+	x.target = put(t, filepath.Join(dir, "hand.exe"), "hand")
+	x.opts.Target = x.target
+	rep, err := x.run(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Remove-Item -LiteralPath '" + strings.ReplaceAll(x.target+".old", "'", "''") + "'"
+	if !strings.Contains(want, "O''Brien") || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, want) }) {
+		t.Fatalf("help = %q, want a line with %s", rep.Help, want)
 	}
 }
 

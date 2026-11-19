@@ -294,3 +294,26 @@ func TestBundleOwnedNamesTheBundleOnlyWhenItIsHands(t *testing.T) {
 		t.Fatal("bundleOwned accepted a relative home")
 	}
 }
+
+func TestBundleMineWhenItsHandSymlinkPointsAtThisHand(t *testing.T) {
+	x := newTree(t)
+	if bundleMine(x.home, x.hand) {
+		t.Fatal("bundleMine with nothing there")
+	}
+	x.sync(t)
+	if !bundleMine(x.home, x.hand) {
+		t.Fatal("bundleMine of its own hand = false")
+	}
+	if bundleMine(x.home, filepath.Join(t.TempDir(), "hand")) {
+		t.Fatal("bundleMine of another hand = true")
+	}
+	if bundleMine("relative", x.hand) {
+		t.Fatal("bundleMine accepted a relative home")
+	}
+	if err := os.WriteFile(x.b.plist(), []byte("<plist><dict><key>CFBundleName</key><string>Hand</string></dict></plist>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if bundleMine(x.home, x.hand) {
+		t.Fatal("bundleMine of a foreign bundle = true")
+	}
+}

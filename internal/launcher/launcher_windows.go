@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/desktopasset"
 )
 
 const (
@@ -107,6 +109,19 @@ func Owned(getenv func(string) string) (found []string, foreign string, err erro
 	return found, "", nil
 }
 
+func points(s lnkStrings, bin string) bool {
+	return strings.EqualFold(s.WorkDir, filepath.Dir(bin)) && strings.EqualFold(strings.TrimSuffix(s.Icon, ",0"), icoPath(bin))
+}
+
+func Mine(getenv func(string) string, hand string) bool {
+	lnk, err := entry(getenv)
+	if err != nil {
+		return false
+	}
+	s, owned, exists := managed(lnk)
+	return exists && owned && points(s, desktopasset.Path(hand, "windows", ""))
+}
+
 func Remove(getenv func(string) string) (skipped string, err error) {
 	found, foreign, err := Owned(getenv)
 	if err != nil || foreign != "" {
@@ -133,7 +148,7 @@ func Check(getenv func(string) string, bin string) (State, string) {
 		return Foreign, lnk
 	}
 	ico := icoPath(bin)
-	if !strings.EqualFold(s.WorkDir, filepath.Dir(bin)) || !strings.EqualFold(strings.TrimSuffix(s.Icon, ",0"), ico) {
+	if !points(s, bin) {
 		return Elsewhere, lnk
 	}
 	if _, err := os.Stat(ico); err != nil {

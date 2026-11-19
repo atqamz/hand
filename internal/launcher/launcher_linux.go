@@ -130,6 +130,15 @@ func Owned(getenv func(string) string) (found []string, foreign string, err erro
 	return found, foreign, err
 }
 
+func Mine(getenv func(string) string, hand string) bool {
+	_, entry, _, err := paths(getenv)
+	if err != nil {
+		return false
+	}
+	have, err := os.ReadFile(entry)
+	return err == nil && bytes.Equal(have, content(desktopasset.Path(hand, "linux", "")))
+}
+
 func Remove(getenv func(string) string) (skipped string, err error) {
 	apps, found, foreign, err := targets(getenv)
 	if err != nil || foreign != "" || len(found) == 0 {

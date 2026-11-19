@@ -52,3 +52,42 @@ func TestUninstallListsRemovesAndKeeps(t *testing.T) {
 		t.Fatalf("second run: code=%d\n%s", code, out)
 	}
 }
+
+func TestUninstallNeverCreatesTheFleetRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the Windows rules are tested in internal/uninstall")
+	}
+	h := newHarness(t)
+	home := t.TempDir()
+	delete(h.vars, "SECONDHAND_HOME")
+	h.vars["HOME"] = home
+	h.vars["XDG_DATA_HOME"] = filepath.Join(home, "data")
+	h.vars["XDG_STATE_HOME"] = filepath.Join(home, "state")
+	target := filepath.Join(t.TempDir(), "hand")
+	if err := os.WriteFile(target, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cli.UninstallHooks.Target = target
+	t.Cleanup(func() { cli.UninstallHooks.Target = "" })
+	listing := func() string {
+		var lines []string
+		_ = filepath.WalkDir(home, func(p string, d os.DirEntry, err error) error {
+			lines = append(lines, p)
+			return nil
+		})
+		return strings.Join(lines, "\n")
+	}
+	before := listing()
+	for _, args := range [][]string{{"uninstall", "--dry-run"}, {"uninstall"}} {
+		out, errOut, code := h.run(args...)
+		if code != 0 || errOut != "" {
+			t.Fatalf("%v: code=%d stderr=%q", args, code, errOut)
+		}
+		if strings.Contains(out, ".secondhand") {
+			t.Fatalf("%v lists a state folder that does not exist:\n%s", args, out)
+		}
+		if after := listing(); after != before {
+			t.Fatalf("%v changed the home:\nbefore\n%s\nafter\n%s", args, before, after)
+		}
+	}
+}

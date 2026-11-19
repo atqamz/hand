@@ -66,3 +66,36 @@ func TestTheRealLauncherEntryGoesOnlyWhenItIsHands(t *testing.T) {
 		t.Fatalf("kept %v", rep.Kept)
 	}
 }
+
+func TestTheRealLauncherEntryOfAnotherInstallStays(t *testing.T) {
+	primary := newInstall(t, "linux")
+	t.Setenv("PATH", t.TempDir())
+	data := filepath.Join(primary.home, "data")
+	plain := primary.opts.Getenv
+	getenv := func(k string) string {
+		if k == "XDG_DATA_HOME" {
+			return data
+		}
+		return plain(k)
+	}
+	if _, err := launcher.Sync(getenv, filepath.Join(primary.bin, "hand-desktop")); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
+
+	copyBin := filepath.Join(t.TempDir(), "build")
+	copyOf := put(t, filepath.Join(copyBin, "hand"), "go build")
+	put(t, filepath.Join(copyBin, "hand-desktop"), "window")
+	primary.opts.Owned, primary.opts.RemoveLauncher, primary.opts.Mine = nil, nil, nil
+	primary.opts.Getenv, primary.opts.Target = getenv, copyOf
+	rep, err := primary.run(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	there(t, entry, pic, primary.target, filepath.Join(primary.bin, "hand-desktop"))
+	gone(t, copyOf)
+	if kept := paths(rep.Kept); !slices.Contains(kept, entry) || !slices.Contains(kept, pic) {
+		t.Fatalf("kept %v", kept)
+	}
+}

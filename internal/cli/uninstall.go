@@ -4,6 +4,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/uninstall"
 	"github.com/atqamz/hand/internal/update"
 )
@@ -30,9 +31,12 @@ func cmdUninstall(r *runner, args []string) error {
 			return err
 		}
 	}
-	root, err := r.rootDir()
-	if err != nil {
-		return err
+	root := r.root
+	if root == "" {
+		var err error
+		if root, err = fleet.LookupRoot(r.env.Getenv); err != nil {
+			return err
+		}
 	}
 	rep, err := uninstall.Run(uninstall.Options{Target: target, Root: root, OS: runtime.GOOS, Getenv: r.env.Getenv, DryRun: *dry})
 	if err != nil {

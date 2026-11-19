@@ -26,6 +26,7 @@ type Options struct {
 	DryRun           bool
 
 	Owned          func(func(string) string) ([]string, string, error)
+	Mine           func(getenv func(string) string, hand string) bool
 	RemoveLauncher func(func(string) string) (string, error)
 	UserPath       func(dir string, apply bool) (bool, error)
 }
@@ -34,6 +35,7 @@ type Item struct{ Path, Note string }
 
 type Report struct {
 	DryRun  bool
+	Failed  bool
 	Blocked []string
 	Removed []Item
 	Kept    []Item
@@ -48,6 +50,9 @@ type step struct {
 func (o *Options) defaults() {
 	if o.Owned == nil {
 		o.Owned = launcher.Owned
+	}
+	if o.Mine == nil {
+		o.Mine = launcher.Mine
 	}
 	if o.RemoveLauncher == nil {
 		o.RemoveLauncher = launcher.Remove
@@ -123,12 +128,22 @@ func Run(o Options) (Report, error) {
 		}
 	}
 
-	if o.OS != "darwin" {
-		file(filepath.Join(bin, withExt(desktopasset.Name, o.OS)), "window")
+	name := withExt("hand", o.OS)
+	shared := filepath.Base(o.Target) != name && isFile(filepath.Join(bin, name))
+	beside := func(path, what string) {
+		if _, err := os.Lstat(path); err == nil && shared {
+			rep.Kept = append(rep.Kept, Item{path, "belongs to the " + name + " beside " + filepath.Base(o.Target)})
+			return
+		}
+		file(path, what)
 	}
-	file(filepath.Join(bin, withExt(sidecar.Name, o.OS)), "hand-iroh")
+
+	if o.OS != "darwin" {
+		beside(filepath.Join(bin, withExt(desktopasset.Name, o.OS)), "window")
+	}
+	beside(filepath.Join(bin, withExt(sidecar.Name, o.OS)), "hand-iroh")
 	if win {
-		file(filepath.Join(bin, "hand.ico"), "icon")
+		beside(filepath.Join(bin, "hand.ico"), "icon")
 	}
 
 	found, foreign, err := o.Owned(o.Getenv)
@@ -138,10 +153,15 @@ func Run(o Options) (Report, error) {
 	if foreign != "" {
 		rep.Kept = append(rep.Kept, Item{foreign, "not Hand's launcher entry (" + launcher.Marker + ")"})
 	}
+	mine := !shared && len(found) > 0 && o.Mine(o.Getenv, o.Target)
 	var entries []Item
 	for _, p := range found {
-		if !planned(p) {
+		switch {
+		case planned(p):
+		case mine:
 			entries = append(entries, Item{p, "launcher entry"})
+		default:
+			rep.Kept = append(rep.Kept, Item{p, "launcher entry that does not point at the window beside " + filepath.Base(o.Target)})
 		}
 	}
 	if len(entries) > 0 {
@@ -156,13 +176,19 @@ func Run(o Options) (Report, error) {
 
 	if win {
 		for _, p := range update.OldFiles(o.Target) {
-			file(p, "old file")
+			if strings.HasPrefix(filepath.Base(p), filepath.Base(o.Target)) {
+				file(p, "old file")
+			} else {
+				beside(p, "old file")
+			}
 		}
 		onPath, err := o.UserPath(bin, false)
 		if err != nil {
 			rep.Help = append(rep.Help, fmt.Sprintf("the user PATH was not checked (%v)", err))
 		}
-		if onPath {
+		if onPath && shared {
+			rep.Kept = append(rep.Kept, Item{bin, "user PATH entry of the " + name + " beside " + filepath.Base(o.Target)})
+		} else if onPath {
 			add(func() error { _, err := o.UserPath(bin, true); return err }, Item{bin, "user PATH entry"})
 		}
 	}
@@ -185,8 +211,8 @@ func Run(o Options) (Report, error) {
 		last = &step{[]Item{{o.Target, what}}, run}
 	}
 
-	if len(rep.Blocked) > 0 && !o.DryRun {
-		return rep.refuse(false)
+	if len(rep.Blocked) > 0 {
+		return rep.refuse(o.DryRun)
 	}
 
 	var failed []string
@@ -221,6 +247,7 @@ func Run(o Options) (Report, error) {
 
 	rep.keep(o)
 	if len(failed) > 0 {
+		rep.Failed = true
 		return rep, fmt.Errorf("uninstall: %d step(s) failed: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return rep, nil
@@ -284,6 +311,8 @@ func Render(rep Report) *toon.Doc {
 	var d toon.Doc
 	status := "removed"
 	switch {
+	case rep.Failed:
+		status = "failed"
 	case len(rep.Blocked) > 0 && rep.DryRun:
 		status = "would refuse"
 	case rep.DryRun:
