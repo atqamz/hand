@@ -18,8 +18,8 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 	}
 	bin, err := desktopasset.Locate(selfPath(), path, runtime.GOOS)
 	if err != nil {
-		if state, where := launcher.Check(r.env.Getenv, ""); runtime.GOOS == "linux" && state == launcher.Elsewhere {
-			c.add("desktop entry", "warn", where+" is left over and hand-desktop is not installed; run `hand update` to remove it")
+		if state, where := launcher.Check(r.env.Getenv, ""); state == launcher.Elsewhere {
+			c.add(entryRow(), "warn", where+" is left over and hand-desktop is not installed; run `hand update` to remove it")
 		}
 		c.add("desktop", "info", "not installed; run `hand update` to put hand-desktop next to hand")
 		return
@@ -28,15 +28,15 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 		c.add("desktop window", "info", "Windows runs the window in "+Channel+" builds only; a real window has opened on a CI runner, not yet on a real Windows PC; if it does not start, `hand open` shows the Board in a browser")
 	}
 	switch state, where := launcher.Check(r.env.Getenv, bin); {
-	case runtime.GOOS != "linux":
+	case runtime.GOOS == "darwin":
 	case state == launcher.OK:
-		c.add("desktop entry", "ok", "")
+		c.add(entryRow(), "ok", "")
 	case state == launcher.Missing:
-		c.add("desktop entry", "warn", where+" is missing; run `hand update` to write the launcher entry")
+		c.add(entryRow(), "warn", where+" is missing; run `hand update` to write the launcher entry")
 	case state == launcher.Foreign:
-		c.add("desktop entry", "warn", where+" is not Hand's launcher entry (no X-Hand-Managed=true line); hand update leaves it alone")
+		c.add(entryRow(), "warn", where+" is not Hand's launcher entry ("+launcher.Marker+"); hand update leaves it alone")
 	default:
-		c.add("desktop entry", "warn", where+" does not point at "+bin+"; run `hand update` to rewrite it")
+		c.add(entryRow(), "warn", where+" does not point at "+bin+"; run `hand update` to rewrite it")
 	}
 	version, gotCommit, err := desktopasset.BinaryVersion(ctx, bin)
 	if err != nil {
@@ -56,4 +56,11 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 	default:
 		c.add("desktop", "ok", "")
 	}
+}
+
+func entryRow() string {
+	if runtime.GOOS == "windows" {
+		return "start menu shortcut"
+	}
+	return "desktop entry"
 }

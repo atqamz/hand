@@ -388,21 +388,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 }
 
 func (o Options) launcher(rep *Report, on bool, bin string) {
-	if o.Check || !on {
+	if o.Check {
 		return
 	}
-	var skipped string
-	var err error
-	if fi, serr := os.Stat(bin); serr == nil && fi.Mode().IsRegular() {
-		skipped, err = launcher.Sync(o.Getenv, bin)
-	} else {
-		skipped, err = launcher.Remove(o.Getenv)
+	fi, serr := os.Stat(bin)
+	switch {
+	case serr != nil || !fi.Mode().IsRegular():
+		rep.launcherResult(launcher.Remove(o.Getenv))
+	case on:
+		rep.launcherResult(launcher.Sync(o.Getenv, bin))
 	}
+}
+
+func (rep *Report) launcherResult(skipped string, err error) {
 	if err != nil {
 		rep.Help = append(rep.Help, fmt.Sprintf("the launcher entry for hand-desktop was not updated (%v)", err))
 	}
 	if skipped != "" {
-		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (no X-Hand-Managed=true line); it was left alone", skipped))
+		rep.Help = append(rep.Help, fmt.Sprintf("%s is not Hand's launcher entry (%s); it was left alone", skipped, launcher.Marker))
 	}
 }
 

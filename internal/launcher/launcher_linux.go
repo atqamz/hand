@@ -17,7 +17,10 @@ import (
 	"github.com/atqamz/hand/internal/desktopasset"
 )
 
-const marker = "X-Hand-Managed=true\n"
+const (
+	marker = "X-Hand-Managed=true\n"
+	Marker = "no X-Hand-Managed=true line"
+)
 
 func dataHome(getenv func(string) string) (string, error) {
 	if d := getenv("XDG_DATA_HOME"); filepath.IsAbs(d) {
@@ -61,38 +64,6 @@ func content(bin string) []byte {
 		"Terminal=false\n" +
 		"Categories=Development;\n" +
 		"StartupWMClass=" + desktopasset.Name + "\n")
-}
-
-func put(path string, want []byte) (bool, error) {
-	if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, want) {
-		return false, nil
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, err
-	}
-	f, err := os.CreateTemp(dir, ".hand-desktop.*")
-	if err != nil {
-		return false, err
-	}
-	_, err = f.Write(want)
-	if err == nil {
-		err = f.Chmod(0o644)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(f.Name(), path)
-	}
-	if err != nil {
-		_ = os.Remove(f.Name())
-		return false, err
-	}
-	return true, nil
 }
 
 func refresh(apps string) {

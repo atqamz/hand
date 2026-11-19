@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/egoist/mygo"
@@ -119,6 +120,9 @@ func main() {
 			MinWidth: desktop.MinWindowWidth, MinHeight: desktop.MinWindowHeight,
 			Content: ui.View(app.View),
 		})
+		if runtime.GOOS == "windows" {
+			_ = win.SetIcon(brand.Icon512)
+		}
 		app.Post = win.Update
 		app.Pick = func() []string {
 			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Attach files", Multiple: true})
