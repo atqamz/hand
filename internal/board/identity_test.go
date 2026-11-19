@@ -358,9 +358,9 @@ func TestFleetLinksKeepTheirTab(t *testing.T) {
 func TestTheOnCallPalette(t *testing.T) {
 	light, dark := themes(t)
 	want := map[string][2]string{
-		"bg": {"#ffffff", "#111317"}, "panel": {"#f6f7f9", "#15181d"}, "card": {"#f1f3f5", "#1b1f25"}, "fg": {"#15171c", "#e8eaee"}, "muted": {"#5b626e", "#9ba2ad"},
-		"line": {"#e3e6ea", "#262b32"}, "line-strong": {"#80889a", "#6b7482"}, "hover": {"#eef0f3", "#1e232a"}, "fail": {"#c42b32", "#ff6b6b"}, "wait": {"#8a5b00", "#e6ac45"},
-		"pass": {"#1a7a3e", "#56c77a"}, "neutral": {"#5b626e", "#9ba2ad"}, "accent": {"#2457c5", "#7ea6ff"}, "fail-bg": {"#fdeeee", "#2c1719"},
+		"bg": {"#ffffff", "#111317"}, "panel": {"#f6f7f9", "#15181d"}, "card": {"#f1f3f5", "#1b1f25"}, "fg": {"#15171c", "#e8eaee"}, "muted": {"#5b626e", "#b0b6bf"},
+		"line": {"#e3e6ea", "#262b32"}, "line-strong": {"#80889a", "#6b7482"}, "hover": {"#eef0f3", "#1e232a"}, "fail": {"#c42b32", "#ff9999"}, "wait": {"#8a5b00", "#e6ac45"},
+		"pass": {"#1a7a3e", "#56c77a"}, "neutral": {"#5b626e", "#b0b6bf"}, "accent": {"#2457c5", "#9bb6ff"}, "fail-bg": {"#fdeeee", "#2c1719"},
 		"wait-bg": {"#fcf3dc", "#2a2212"}, "pass-bg": {"#e4f4e9", "#13281b"}, "neutral-bg": {"#eef0f3", "#1e232a"}, "accent-bg": {"#ebf1fd", "#172238"},
 		"screen": {"#111418", "#08090b"}, "screen-fg": {"#d8dde4", "#d8dde4"}, "primary": {"#15171c", "#e8eaee"}, "on-primary": {"#ffffff", "#111317"},
 	}
