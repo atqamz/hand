@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"image/png"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	bundleKey = "<key>HandManaged</key>"
+	bundleKey = "HandManaged"
 	pkgInfo   = "APPL????"
 	iconName  = "Hand.icns"
 )
@@ -75,7 +76,35 @@ func (b bundle) managed() (owned, exists bool) {
 		return false, !errors.Is(err, fs.ErrNotExist)
 	}
 	have, err := os.ReadFile(b.plist())
-	return err == nil && bytes.Contains(have, []byte(bundleKey)), true
+	return err == nil && marked(have), true
+}
+
+func marked(plist []byte) bool {
+	dec := xml.NewDecoder(bytes.NewReader(plist))
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			if depth != 3 || t.Name.Local != "key" {
+				continue
+			}
+			var name string
+			if dec.DecodeElement(&name, &t) != nil {
+				return false
+			}
+			depth--
+			if name == bundleKey {
+				return true
+			}
+		case xml.EndElement:
+			depth--
+		}
+	}
 }
 
 func link(path, target string) error {
@@ -104,12 +133,18 @@ func bundleSync(home, bin, hand string) (skipped string, err error) {
 	if err != nil {
 		return "", err
 	}
-	if owned, exists := b.managed(); exists && !owned {
+	owned, existed := b.managed()
+	if existed && !owned {
 		return b.app, nil
 	}
 	if bin != b.window() {
 		return "", fmt.Errorf("launcher: %s is not %s", bin, b.window())
 	}
+	defer func() {
+		if err != nil && !existed {
+			_ = os.RemoveAll(b.app)
+		}
+	}()
 	for _, f := range []struct {
 		path string
 		want []byte

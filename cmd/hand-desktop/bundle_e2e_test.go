@@ -71,8 +71,9 @@ func fakeRelease(t *testing.T, handBin, deskBin string) string {
 
 func bundleFromUpdate(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, deskBin, home, logDir string) string {
 	t.Helper()
+	base := fakeRelease(t, handBin, deskBin)
 	cmd := run(exec.Command(handBin, "update", "--channel", "edge"))
-	cmd.Env = append(cmd.Env, "HAND_INSTALL_BASE="+fakeRelease(t, handBin, deskBin))
+	cmd.Env = append(cmd.Env, "HAND_INSTALL_BASE="+base)
 	out, err := cmd.CombinedOutput()
 	_ = os.WriteFile(filepath.Join(logDir, "update.log"), out, 0o644)
 	if err != nil {
@@ -110,7 +111,9 @@ func bundleFromUpdate(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, desk
 	if entries, err := os.ReadDir(iconset); err != nil || len(entries) < 10 {
 		t.Fatalf("the iconset holds %d images, want 10: %v", len(entries), err)
 	}
-	if b, err := run(exec.Command(handBin, "update", "--channel", "edge", "--check")).CombinedOutput(); err != nil {
+	check := run(exec.Command(handBin, "update", "--channel", "edge", "--check"))
+	check.Env = append(check.Env, "HAND_INSTALL_BASE="+base)
+	if b, err := check.CombinedOutput(); err != nil {
 		t.Fatalf("hand update --check: %v\n%s", err, b)
 	}
 	return filepath.Join(app, "MacOS", "hand-desktop")

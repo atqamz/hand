@@ -250,12 +250,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Desktop = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("hand-desktop was not replaced (%v); the rest of the update finished", err))
 		} else {
+			rep.Desktop = status
 			if bin != "" {
-				if err := o.swapWindow(bin, desktopNext); err != nil {
+				skipped, err := o.swapWindow(bin, desktopNext)
+				if err != nil {
 					return rep, err
 				}
+				if skipped != "" {
+					rep.Desktop = "skipped: " + skipped + " is not Hand's"
+				}
 			}
-			rep.Desktop = status
 		}
 	}
 	if current && !repin {
@@ -342,9 +346,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	o.dropWindow(&rep, desktopOn, desktopNext)
 	if !current {
 		if desktopBin != "" {
-			if err := o.swapWindow(desktopBin, desktopNext); err != nil {
+			skipped, err := o.swapWindow(desktopBin, desktopNext)
+			if err != nil {
 				_ = os.Remove(journalPath(o.Root))
 				return rep, err
+			}
+			if skipped != "" {
+				rep.Desktop = "skipped: " + skipped + " is not Hand's"
 			}
 		}
 		if irohBin != "" {
@@ -390,13 +398,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	return rep, nil
 }
 
-func (o Options) swapWindow(src, dst string) error {
+func (o Options) swapWindow(src, dst string) (skipped string, err error) {
 	if o.OS == "darwin" {
-		if _, err := launcher.Sync(o.Getenv, dst); err != nil {
-			return fmt.Errorf("update: cannot prepare %s: %w", dst, err)
+		if skipped, err = launcher.Sync(o.Getenv, dst); err != nil {
+			return "", fmt.Errorf("update: cannot prepare %s: %w", dst, err)
+		}
+		if skipped != "" {
+			return skipped, nil
 		}
 	}
-	return swap(src, dst)
+	return "", swap(src, dst)
 }
 
 func (o Options) launcher(rep *Report, on bool, bin string) {

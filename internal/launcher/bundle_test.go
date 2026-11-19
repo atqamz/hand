@@ -226,3 +226,25 @@ func TestIcnsHoldsEveryPNGSize(t *testing.T) {
 		t.Fatalf("%d entries, want %d", seen, len(sizes))
 	}
 }
+
+func TestOnlyATopLevelKeyMarksABundleAsHands(t *testing.T) {
+	wrap := func(body string) []byte {
+		return []byte(`<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>` + body + `</dict></plist>`)
+	}
+	for name, c := range map[string]struct {
+		plist []byte
+		want  bool
+	}{
+		"the plist Hand writes": {[]byte(infoPlist), true},
+		"after another key":     {wrap(`<key>CFBundleName</key><string>Hand</string><key>HandManaged</key><true/>`), true},
+		"in a comment":          {wrap(`<!-- <key>HandManaged</key> --><key>CFBundleName</key><string>x</string>`), false},
+		"in a string":           {wrap(`<key>CFBundleName</key><string>HandManaged</string>`), false},
+		"in a nested dict":      {wrap(`<key>Other</key><dict><key>HandManaged</key><true/></dict>`), false},
+		"not XML":               {[]byte("bplist00 HandManaged"), false},
+		"empty":                 {nil, false},
+	} {
+		if got := marked(c.plist); got != c.want {
+			t.Errorf("%s: marked = %v, want %v", name, got, c.want)
+		}
+	}
+}
