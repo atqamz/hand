@@ -152,7 +152,7 @@ func TestTheRefMemoKeepsWhatItLinkedAndStaysBounded(t *testing.T) {
 	if got := a.linked("see t1"); got != "see "+ref("t1") {
 		t.Fatalf("got %q", got)
 	}
-	k := refKey{"f1", "see t1"}
+	k := refKey{"f1", "see t1", false}
 	a.refMemo[k] = "kept"
 	if got := a.linked("see t1"); got != "kept" {
 		t.Fatalf("the memo was not read: %q", got)
@@ -165,7 +165,7 @@ func TestTheRefMemoKeepsWhatItLinkedAndStaysBounded(t *testing.T) {
 	}
 	big := strings.Repeat("x ", refMemoSrcMax) + "t1"
 	a.linked(big)
-	if _, ok := a.refMemo[refKey{"f1", big}]; ok {
+	if _, ok := a.refMemo[refKey{"f1", big, false}]; ok {
 		t.Fatal("a source over the cap was kept")
 	}
 	mid := strings.Repeat("x ", refMemoSrcMax/4)
@@ -174,5 +174,67 @@ func TestTheRefMemoKeepsWhatItLinkedAndStaysBounded(t *testing.T) {
 		if a.refMemoBytes > refMemoBytesMax {
 			t.Fatalf("memo holds %d bytes", a.refMemoBytes)
 		}
+	}
+}
+
+var literalCases = []struct{ name, in, want string }{
+	{"no ref", "run the tests", ""},
+	{"plain kinds", "w5 #6 owner/repo#7 xt1 t01", ""},
+	{"code span", "`t1` and `` a2 ``", ""},
+	{"existing link", "[t1](https://example.com/a2) [x](t3)", ""},
+	{"four kinds", "t1 a2 d3 r4", ref("t1") + " " + ref("a2") + " " + ref("d3") + " " + ref("r4")},
+	{"punctuation is literal", "(t1)*_#-[x]<b>&amp;$\\", "&#40;" + ref("t1") + "&#41;&#42;&#95;&#35;&#45;&#91;x&#93;&#60;b&#62;&#38;amp&#59;&#36;&#92;"},
+	{"newline is a hard break", "t1\nx", ref("t1") + "\\\nx"},
+	{"blank line survives", "t1\n\nx", ref("t1") + "\\\n\\\nx"},
+	{"crlf and lone cr", "t1\r\nx\ry", ref("t1") + "\\\nx\\\ny"},
+	{"trailing space and newlines are dropped", "t1 \n\n\t ", ref("t1")},
+	{"leading space is kept", "t1\n    x\n\ty", ref("t1") + "\\\n&#32;&#32;&#32;&#32;x\\\n&#9;y"},
+	{"inner space is kept", "x  t1", "x  " + ref("t1")},
+	{"unicode", "日 t1 é", "日 " + ref("t1") + " é"},
+	{"unicode neighbours", "日t1 éa2 t3日", ""},
+}
+
+func TestLiteralRefsKeepsTypedTextAndLinksRefs(t *testing.T) {
+	for _, tc := range literalCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := literalRefs("f1", tc.in); got != tc.want {
+				t.Fatalf("literalRefs(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+			}
+		})
+	}
+	if got := literalRefs("", "t1"); got != "" {
+		t.Fatalf("no fleet: %q", got)
+	}
+	if got := literalRefs("f 1", "t1"); got != "" {
+		t.Fatalf("a fleet id that is not one: %q", got)
+	}
+}
+
+func TestLiteralRefsStaysFastOnALongLine(t *testing.T) {
+	src := "t1 " + strings.Repeat("a*b_c <d> t2 ", 100000)
+	start := time.Now()
+	if got := literalRefs("f1", src); !strings.HasPrefix(got, ref("t1")) {
+		t.Fatalf("got %q", got[:40])
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %v", d)
+	}
+}
+
+func TestTheRefMemoIsPerFleetAndPerKind(t *testing.T) {
+	a := &App{Fleet: Fleet{ID: "f1"}}
+	const src = "see t1!"
+	first, firstLit := a.linked(src), a.literal(src)
+	if first != "see "+ref("t1")+"!" || firstLit != "see "+ref("t1")+"&#33;" {
+		t.Fatalf("got %q, %q", first, firstLit)
+	}
+	a.Fleet.ID = "f2"
+	second, secondLit := a.linked(src), a.literal(src)
+	if second != strings.ReplaceAll(first, "/f1/", "/f2/") || secondLit != strings.ReplaceAll(firstLit, "/f1/", "/f2/") {
+		t.Fatalf("a stale entry of the other fleet: %q, %q", second, secondLit)
+	}
+	a.Fleet.ID = "f1"
+	if a.linked(src) != first || a.literal(src) != firstLit {
+		t.Fatal("switching back lost the first fleet's entries")
 	}
 }
