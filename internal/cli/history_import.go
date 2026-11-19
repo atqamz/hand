@@ -109,12 +109,27 @@ func importSession(ctx context.Context, r *runner, st *state.Store, group []stat
 	case first.Session == "":
 		row.status = "no session recorded"
 		return row, nil
-	case first.Harness == "opencode" && group[len(group)-1].Live():
-		row.status = "still live"
-		return row, nil
 	case first.Harness == "opencode" && paths.Opencode == "":
 		row.status = "harness missing"
 		return row, nil
+	}
+	if first.Harness == "opencode" {
+		unlock, _, err := r.supervisorLock(true)
+		if err != nil {
+			return row, err
+		}
+		defer unlock()
+		fresh, err := st.SessionSupervisors(ctx, first.Session)
+		if err != nil {
+			return row, err
+		}
+		if fresh = slices.DeleteFunc(fresh, func(s state.Supervisor) bool { return s.Harness != first.Harness }); len(fresh) > 0 {
+			group = fresh
+		}
+		if group[len(group)-1].Live() {
+			row.status = "still live"
+			return row, nil
+		}
 	}
 	read := &transcript.Reader{Paths: paths}
 	found, err := read.ReadEnded(ctx, first.Harness, first.Session, r.transcriptDir(first.Harness))
