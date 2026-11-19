@@ -546,21 +546,22 @@ class FleetModel(
     }
   }
 
-  fun press(keys: List<String>) {
-    viewModelScope.launch { pressAndExpire(keys) }
+  fun press(entry: String, keys: List<String>) {
+    viewModelScope.launch { pressAndExpire(entry, keys) }
   }
 
-  suspend fun pressAndExpire(keys: List<String>) {
-    send(keys)?.let { expire(it.notice, it.entry) }
+  suspend fun pressAndExpire(entry: String, keys: List<String>) {
+    send(entry, keys)?.let { expire(it.notice, it.entry) }
   }
 
-  suspend fun pressNow(keys: List<String>): Notice? = send(keys)?.notice
+  suspend fun pressNow(entry: String, keys: List<String>): Notice? = send(entry, keys)?.notice
 
-  private suspend fun send(keys: List<String>): Receipt? {
+  private suspend fun send(entryKey: String, keys: List<String>): Receipt? {
     val state = mutableState.value
+    if (entryKey != state.openKey()) return null
     val entry =
       state.bands.flatMap { it.entries }.firstOrNull {
-        it.key == state.openKey() && it.need.kind in SCREEN_KINDS
+        it.key == entryKey && it.need.kind in SCREEN_KINDS
       } ?: return null
     val worker = entry.need.kind == "worker"
     val supervisor = state.supervisor

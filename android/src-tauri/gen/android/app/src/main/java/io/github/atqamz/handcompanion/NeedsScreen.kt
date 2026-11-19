@@ -256,7 +256,7 @@ fun NeedsScreen(
   onToggle: (String) -> Unit,
   onReport: (String) -> Unit,
   onWeb: () -> Unit,
-  onPress: (List<String>) -> Unit,
+  onPress: (String, List<String>) -> Unit,
   onForce: () -> Unit,
   onAttempt: (String) -> Unit,
   choice: @Composable (String) -> Unit
@@ -294,11 +294,11 @@ fun NeedsScreen(
                     entry.need,
                     state.supervisor,
                     entry.key in state.pressing,
-                    onPress,
+                    { onPress(entry.key, it) },
                     onForce
                   )
                 entry.need.kind == "worker" ->
-                  WorkerBody(entry.need, entry.key in state.pressing, onPress) {
+                  WorkerBody(entry.need, entry.key in state.pressing, { onPress(entry.key, it) }) {
                     onAttempt(attempt ?: ref)
                   }
                 else -> choice(ref)

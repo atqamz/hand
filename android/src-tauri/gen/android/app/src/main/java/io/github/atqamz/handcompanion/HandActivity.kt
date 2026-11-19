@@ -408,7 +408,7 @@ class HandActivity : ComponentActivity() {
             is Landing.Fleet -> show(to.fleet)
             is Landing.Thread -> {
               show(to.fleet)
-              threads = to.refs.fold("", ::pushTask)
+              threads = to.stack()
             }
             is Landing.Web -> {
               show(to.fleet)

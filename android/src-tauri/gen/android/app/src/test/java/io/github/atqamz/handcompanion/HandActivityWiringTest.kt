@@ -44,6 +44,12 @@ class HandActivityWiringTest {
   }
 
   @Test
+  fun aThreadLinkStacksItsRefsThroughTheTaskStack() {
+    val thread = activity.substringAfter("is Landing.Thread ->").substringBefore("is Landing.Web")
+    assertTrue(thread.contains("threads = to.stack()"))
+  }
+
+  @Test
   fun theNotificationBuildsItsIntentFromTheTap() {
     val open = body(notifier, "private fun open")
     assertTrue(open.contains("tapOf(spec)"))

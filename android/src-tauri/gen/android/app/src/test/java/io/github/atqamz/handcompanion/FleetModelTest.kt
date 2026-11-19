@@ -67,8 +67,8 @@ private fun blockedNeed(deny: String? = null): String =
     (deny?.let { ""","deny_at":"$it"""" } ?: "") +
     "}"
 
-private fun workerNeed(digest: String = DIGEST, deny: String? = null): String =
-  """{"kind":"worker","ref":"a1","attempt":"a1","task":"t9","title":"Bash: git push --force","word":"BLOCKED",""" +
+private fun workerNeed(digest: String = DIGEST, deny: String? = null, ref: String = "a1"): String =
+  """{"kind":"worker","ref":"$ref","attempt":"$ref","task":"t9","title":"Bash: git push --force","word":"BLOCKED",""" +
     """"tone":"fail","attempt_meta":{"harness":"codex"},""" +
     """"excerpt":"Run git push?\n1. Yes\n2. No",""" +
     (deny?.let { """"deny_at":"$it",""" } ?: "") +
@@ -432,7 +432,7 @@ class FleetModelTest {
     runBlocking {
       model.refresh()
       assertEquals("worker:a1", model.now().openKey())
-      assertEquals(Notice("a1", "Sent down enter to a1"), model.pressNow(listOf("down", "enter")))
+      assertEquals(Notice("a1", "Sent down enter to a1"), model.pressNow("worker:a1", listOf("down", "enter")))
     }
     assertEquals(
       listOf("/api/v1/attempt/a1/keys" to """{"key":"down enter","revision":6,"after":2,"screen":"$DIGEST"}"""),
@@ -448,7 +448,7 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      model.pressNow(listOf("1"))
+      model.pressNow("worker:a1", listOf("1"))
     }
     assertEquals("""{"key":"1","revision":6,"after":2}""", board.posts.single().second)
   }
@@ -459,11 +459,84 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      model.pressNow(listOf("1"))
+      model.pressNow("worker:a1", listOf("1"))
     }
     assertEquals("worker:a1", model.now().open)
     assertEquals(Notice("a1", "The screen moved; nothing was sent."), model.now().notice)
     assertTrue(model.now().pressed.isEmpty())
+  }
+
+  @Test
+  fun aPressForACardThatLeftSendsNothingToTheCardOpenNow() {
+    var needs = listOf(workerNeed(), workerNeed(ref = "a2"))
+    val board = Board({ status(needs) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertEquals("worker:a1", model.now().openKey())
+      needs = listOf(workerNeed(ref = "a2"))
+      model.refresh()
+      assertEquals("worker:a2", model.now().openKey())
+      assertNull(model.pressNow("worker:a1", listOf("1")))
+      assertNull(model.pressNow("worker:a9", listOf("1")))
+    }
+    assertTrue(model.now().pressing.isEmpty())
+    assertTrue(model.now().pressed.isEmpty())
+    assertNull(model.now().notice)
+    assertTrue(board.posts.isEmpty())
+  }
+
+  @Test
+  fun aPressForAnotherCardThanTheOpenOneSendsNothing() {
+    val board = Board({ status(listOf(workerNeed(), workerNeed(ref = "a2"))) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      model.toggle("worker:a2")
+      assertEquals("worker:a2", model.now().openKey())
+      assertNull(model.pressNow("worker:a1", listOf("1")))
+    }
+    assertTrue(board.posts.isEmpty())
+  }
+
+  @Test
+  fun aSupervisorPressForAScreenThatLeftSendsNothingToTheWorkerNowOpen() {
+    var needs = listOf(blockedNeed(), workerNeed())
+    val board = Board({ status(needs, supervisor = supervisor()) })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      assertEquals("blocked:s1", model.now().openKey())
+      needs = listOf(workerNeed())
+      model.refresh()
+      assertEquals("worker:a1", model.now().openKey())
+      assertNull(model.pressNow("blocked:s1", listOf("2")))
+    }
+    assertTrue(board.posts.isEmpty())
+  }
+
+  @Test
+  fun twoQuickPressesOfOneCardSendOnce() {
+    val gate = CompletableDeferred<Unit>()
+    val board =
+      Board({ status(listOf(workerNeed())) }, ackAnswer = {
+        runBlocking { gate.await() }
+        Raw(200, "{}")
+      })
+    val model = model(board)
+    runBlocking {
+      model.refresh()
+      launch(Dispatchers.IO) { model.pressNow("worker:a1", listOf("1")) }
+      try {
+        withTimeout(5_000) { model.state.first { "worker:a1" in it.pressing } }
+        val second = async(Dispatchers.IO) { model.pressNow("worker:a1", listOf("2")) }
+        assertNull(withTimeout(5_000) { second.await() })
+      } finally {
+        gate.complete(Unit)
+      }
+    }
+    assertEquals(1, board.posts.size)
+    assertEquals("""{"key":"1","revision":6,"after":2,"screen":"$DIGEST"}""", board.posts.single().second)
   }
 
   @Test
@@ -473,7 +546,7 @@ class FleetModelTest {
     runBlocking {
       model.refresh()
       assertNull(model.now().openKey())
-      assertNull(model.pressNow(listOf("1")))
+      assertNull(model.pressNow("worker:a1", listOf("1")))
     }
     assertTrue(board.posts.isEmpty())
   }
@@ -678,7 +751,7 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      assertEquals(Notice("s1", "Sent 2 to s1"), model.pressNow(listOf("2")))
+      assertEquals(Notice("s1", "Sent 2 to s1"), model.pressNow("blocked:s1", listOf("2")))
     }
     assertEquals(listOf("POST /api/v1/supervisor/keys"), board.calls.filter { it.startsWith("POST") })
     assertEquals(
@@ -701,7 +774,7 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      model.pressNow(listOf("down", "enter"))
+      model.pressNow("blocked:s1", listOf("down", "enter"))
     }
     assertEquals(
       """{"keys":["down","enter"],"revision":7,"digest":"$DIGEST","after":0,"ref":"s1"}""",
@@ -723,7 +796,7 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      model.pressNow(listOf("2"))
+      model.pressNow("blocked:s1", listOf("2"))
     }
     assertEquals("blocked:s1", model.now().open)
     assertEquals(Notice("s1", "The screen moved; nothing was sent."), model.now().notice)
@@ -738,7 +811,7 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      assertNull(model.pressNow(listOf("2")))
+      assertNull(model.pressNow("blocked:s1", listOf("2")))
     }
     assertTrue(board.posts.isEmpty())
   }
@@ -1055,7 +1128,7 @@ class FleetModelTest {
     runBlocking {
       model.refresh()
       withTimeout(5_000) {
-        val expiry = launch(Dispatchers.IO) { model.pressAndExpire(listOf("2")) }
+        val expiry = launch(Dispatchers.IO) { model.pressAndExpire("blocked:s1", listOf("2")) }
         assertEquals("Sent 2 · waiting…", model.state.first { it.notice != null }.pressed["blocked:s1"])
         model.state.first { it.notice == null }
         expiry.join()
@@ -1076,7 +1149,7 @@ class FleetModelTest {
     val model = model(board)
     runBlocking {
       model.refresh()
-      model.pressNow(listOf("2"))
+      model.pressNow("blocked:s1", listOf("2"))
       assertEquals("Sent 2 · waiting…", model.now().pressed["blocked:s1"])
       model.forceNow()
     }

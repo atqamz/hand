@@ -64,7 +64,7 @@ class DecisionScreenTest {
   private fun inPlace(dark: Boolean) =
     paparazzi.snapshot {
       HandTheme(dark) {
-        FleetScreen("f000000000003", needs, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, chat = {}) {
+        FleetScreen("f000000000003", needs, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, chat = {}) {
           ChoiceForm("d12", recommended, {}, {}, {}, {}) {}
         }
       }

@@ -114,6 +114,22 @@ class LandingTest {
   }
 
   @Test
+  fun aReportLinkStacksAboveItsTaskAndBackReturnsToTheTask() {
+    val thread = landing("handboard://open/$HOME/task/t3#r5") { path(HOME, "task/t3#r5") } as Landing.Thread
+    val stack = thread.stack()
+    assertEquals("r5", currentTask(stack))
+    assertEquals("t3", currentTask(popTask(stack)))
+    assertEquals("", popTask(popTask(stack)))
+    assertEquals("a7", currentTask(Landing.Thread(HOME, listOf("a7")).stack()))
+  }
+
+  @Test
+  fun aPathWithALineBreakIsRefusedBeforeItCanSplitTheStack() {
+    val page = "task/t3\\nr5"
+    assertEquals(Landing.Refused(REJECTED), landing("handboard://open/$HOME/$page") { path(HOME, page) })
+  }
+
+  @Test
   fun aPageWithNoNativeScreenKeepsTheWebFallback() {
     assertEquals(
       Landing.Web(HOME, "/$HOME/connect"),

@@ -20,6 +20,8 @@ sealed interface Landing {
   data object Phone : Landing
 }
 
+fun Landing.Thread.stack() = refs.fold("", ::pushTask)
+
 fun incomingLink(action: String?, data: String?): String? =
   if (action == THIS_PHONE_ACTION) PHONE_LINK else data
 
@@ -28,6 +30,7 @@ fun landing(link: String, open: (String) -> String?): Landing {
   if (link.substringBefore('#') == "handboard://c") return Landing.Pairing(link)
   val answer = parse(open(link))
   val path = answer.field("path") ?: return Landing.Refused(answer.field("message") ?: OPEN_REFUSED)
+  if ('\n' in path) return Landing.Refused(OPEN_REFUSED)
   val fleet = path.removePrefix("/").substringBefore('/')
   val page = path.removePrefix("/$fleet/")
   return when {
