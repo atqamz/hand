@@ -74,7 +74,7 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 	indent := float32(min(depth, 3)) * kit.Space20
 	el := ui.ButtonBase(c.Key("task:"+r.Ref)).Height(kit.RowLG).Gap(kit.Space8).
 		Padding(kit.Space4, kit.Space4, kit.Space4, kit.Space4+indent).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("task " + r.Ref)
+		Cursor(ui.CursorPointer).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Role(ui.RoleListItem).Label("task " + r.Ref)
 	el.Children(func() {
 		state := taskState(r)
 		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).

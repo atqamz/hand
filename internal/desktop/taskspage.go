@@ -414,7 +414,7 @@ func (a *App) searchRow(c *ui.Context, p palette, sr TaskSearchRow, finished str
 	r := sr.TaskRow
 	el := ui.ButtonBase(c.Key("search-task:"+r.Ref)).Height(kit.RowLG).Gap(kit.Space8).
 		Padding(kit.Space4).AlignItems(ui.Center).Cursor(ui.CursorPointer).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Label("task " + r.Ref)
+		BorderWidth(0, 0, 1, 0).BorderColor(p.line).Role(ui.RoleListItem).Label("task " + r.Ref)
 	el.Children(func() {
 		state := taskState(r)
 		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
