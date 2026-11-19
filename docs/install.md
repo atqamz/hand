@@ -89,7 +89,9 @@ $want = (Get-Content .\Hand-Setup-VERSION-x64.sha256).Split(' ')[0]
 (Get-FileHash .\Hand-Setup-VERSION-x64.exe -Algorithm SHA256).Hash -eq $want
 ```
 
-The PowerShell command above stays the route with no prompt: a file that PowerShell fetches carries no download mark, so SmartScreen does not ask.
+The `irm ... | iex` command at the top of this section stays the route with no prompt: a file that PowerShell fetches carries no download mark, so SmartScreen does not ask.
+
+Running an older wizard over a newer install, one that `hand update` has brought forward, downgrades it to the wizard's version.
 
 To uninstall, use Settings, Apps, Hand, or run `unins000.exe` in `%LOCALAPPDATA%\hand`. It removes the files it installed, any `*.old*` file that `hand update` left, the shortcuts and the `PATH` entry, and closes the Hand window if it is open. It keeps `%USERPROFILE%\.secondhand`, your fleet folders and the window's composer drafts, and says so. It never ends a fleet's work: while a Board or a watcher of this install runs, it stops and names the two commands to run first, `hand board stop` and `hand watch stop`. A `Hand.lnk` in your Start Menu that is not Hand's is left alone, by the install and by the uninstall. In CI the wizard is installed and uninstalled silently on a Windows runner ([Platform support](platforms.md)); nobody has run it on a real Windows PC yet.
 

@@ -60,6 +60,7 @@ jobs:
           name: setup-archives
           path: ${{ runner.temp }}/archives
           retention-days: 3
+          overwrite: true
           if-no-files-found: error
 
   fetch:
@@ -82,6 +83,7 @@ jobs:
           name: setup-archives
           path: ${{ runner.temp }}/archives
           retention-days: 3
+          overwrite: true
           if-no-files-found: error
 
   wizard:
@@ -107,7 +109,12 @@ jobs:
           path: ${{ runner.temp }}/in
       - name: Check the archives and build the wizard
         shell: pwsh
-        run: ./.github/windows/build-setup.ps1 -Archives "$env:RUNNER_TEMP\in\$env:VARIANT" -Out "$env:RUNNER_TEMP\setup" -Work "$env:RUNNER_TEMP\build"
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          $more = @{}
+          if ("$env:TAG".StartsWith('v')) { $more.RequireIroh = $true }
+          ./.github/windows/build-setup.ps1 -Archives "$env:RUNNER_TEMP\in\$env:VARIANT" -Out "$env:RUNNER_TEMP\setup" -Work "$env:RUNNER_TEMP\build" @more
       - name: Install it silently, check it, uninstall it silently
         shell: pwsh
         run: |
@@ -123,6 +130,7 @@ jobs:
             ${{ runner.temp }}/setup
             ${{ runner.temp }}/check/logs
           retention-days: 3
+          overwrite: true
           if-no-files-found: ignore
 
   publish:

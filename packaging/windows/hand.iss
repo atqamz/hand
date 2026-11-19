@@ -48,7 +48,7 @@ Source: "{#SourcePath}hand.ico"; DestDir: "{app}\bin"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Flags: uninsneveruninstall; Check: StartMenuIsFree
-Name: "{userdesktop}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Flags: uninsneveruninstall; Tasks: desktopicon
+Name: "{userdesktop}\Hand"; Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\bin\hand.ico"; Comment: "Hand, the supervisor window for your agent fleets"; Flags: uninsneveruninstall; Tasks: desktopicon; Check: DesktopIsFree
 
 [Run]
 Filename: "{app}\bin\hand-desktop.exe"; WorkingDir: "{app}\bin"; Description: "Start Hand"; Flags: nowait postinstall skipifsilent
@@ -65,6 +65,23 @@ function CreateFileW(Name: String; Access, Share, Security, Disposition, Flags, 
   external 'CreateFileW@kernel32.dll stdcall';
 function CloseHandle(Handle: Integer): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
+function SetEnvironmentVariableW(Name, Value: String): Boolean;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+function ExpandEnvironmentStringsW(Source: String; var Target: String; Size: Integer): Integer;
+  external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
+
+function ExpandEnv(const Text: String): String;
+var
+  Buffer: String;
+  Size: Integer;
+begin
+  SetLength(Buffer, 32768);
+  Size := ExpandEnvironmentStringsW(Text, Buffer, 32768);
+  if (Size > 1) and (Size <= 32768) then
+    Result := Copy(Buffer, 1, Size - 1)
+  else
+    Result := Text;
+end;
 
 function BinDir: String;
 begin
@@ -108,15 +125,13 @@ end;
 
 procedure CloseWindow;
 var
-  Exe: String;
   Code: Integer;
 begin
   if not FileExists(BinDir + '\hand-desktop.exe') then
     Exit;
-  Exe := BinDir + '\hand-desktop.exe';
-  StringChangeEx(Exe, '''', '''''', True);
+  SetEnvironmentVariableW('HAND_EXE', BinDir + '\hand-desktop.exe');
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -NonInteractive -Command "Get-Process -Name hand-desktop -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq ''' + Exe + ''' } | ForEach-Object { [void]$_.CloseMainWindow(); [void]$_.WaitForExit(15000) }"',
+    '-NoProfile -NonInteractive -Command "Get-Process -Name hand-desktop -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:HAND_EXE } | ForEach-Object { [void]$_.CloseMainWindow(); [void]$_.WaitForExit(15000) }"',
     '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
@@ -161,12 +176,19 @@ begin
   Result := LoadStringFromFile(Lnk, Raw) and (Pos(Needle, Raw) > 0);
 end;
 
-function StartMenuIsFree: Boolean;
-var
-  Lnk: String;
+function IsFree(const Lnk: String): Boolean;
 begin
-  Lnk := ExpandConstant('{userprograms}\Hand.lnk');
   Result := not FileExists(Lnk) or IsHands(Lnk);
+end;
+
+function StartMenuIsFree: Boolean;
+begin
+  Result := IsFree(ExpandConstant('{userprograms}\Hand.lnk'));
+end;
+
+function DesktopIsFree: Boolean;
+begin
+  Result := IsFree(ExpandConstant('{userdesktop}\Hand.lnk'));
 end;
 
 procedure RemoveIfHands(const Lnk: String);
@@ -208,7 +230,7 @@ begin
     end;
     if Item = '' then
       Continue;
-    if CompareText(RemoveBackslash(Item), Dir) = 0 then
+    if CompareText(RemoveBackslash(ExpandEnv(Item)), Dir) = 0 then
     begin
       Found := True;
       if not Add then

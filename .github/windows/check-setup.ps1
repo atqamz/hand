@@ -35,7 +35,16 @@ function Get-UserPath {
     try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
     finally { $key.Close() }
 }
-function Get-PathCount { @((Get-UserPath).Split(';', [StringSplitOptions]::RemoveEmptyEntries) | Where-Object { $_.TrimEnd('\') -eq $bin }).Count }
+function Get-PathCount { @((Get-UserPath).Split(';', [StringSplitOptions]::RemoveEmptyEntries) | Where-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -eq $bin }).Count }
+function Get-LiteralCount { @((Get-UserPath).Split(';', [StringSplitOptions]::RemoveEmptyEntries) | Where-Object { $_.TrimEnd('\') -eq $bin }).Count }
+function Add-UserPath([string]$Entry) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+    try {
+        $old = Get-UserPath
+        $key.SetValue('Path', $(if ($old) { "$old;$Entry" } else { $Entry }), [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    }
+    finally { $key.Close() }
+}
 function Test-UninstallKey {
     $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($uninstallKey)
     if ($key) { $key.Close() }
@@ -96,9 +105,13 @@ Expect ((Get-PathCount) -eq 0) "$bin is on the user PATH before the install"
 $board = $null
 $stand = $null
 try {
-    Write-Host '== silent install'
+    Write-Host '== silent install, with the PATH entry already there in variable form'
+    $env:HAND_SETUP_CHECK = $Work
+    Add-UserPath '%HAND_SETUP_CHECK%\app\bin'
+    Expect ((Get-PathCount) -eq 1) 'the seeded PATH entry is not read back as the install folder'
     Expect ((Invoke-Setup @() (Join-Path $logs 'install.log')) -eq 0) 'the silent install failed'
     Expect-Installed $false
+    Expect ((Get-LiteralCount) -eq 0) "the install added $bin beside the entry that already named it"
     $l = Read-Link $lnk
     Expect ($l.Target -eq (Join-Path $bin 'hand-desktop.exe')) "the shortcut targets $($l.Target)"
     Expect ($l.Dir -eq $bin) "the shortcut starts in $($l.Dir)"
@@ -157,11 +170,23 @@ try {
     Expect-Removed
     Expect ((Test-Path -LiteralPath $lnk) -and (Read-Link $lnk).Description -eq $foreign) 'the uninstall removed a Hand.lnk that is not Hand''s'
     Expect-Kept
+
+    Write-Host '== a desktop icon that is not Hand''s'
+    Remove-Item -LiteralPath $lnk -Force
+    Write-Link $deskLnk $foreign
+    Expect ((Invoke-Setup @('/TASKS="desktopicon"') (Join-Path $logs 'install-foreign-desktop.log')) -eq 0) 'the install beside a foreign desktop icon failed'
+    Expect ((Read-Link $deskLnk).Description -eq $foreign) 'the install replaced a desktop Hand.lnk that is not Hand''s'
+    Expect (Test-Path -LiteralPath $lnk) 'the Start Menu shortcut is missing'
+    Expect ((Invoke-Uninstall (Join-Path $logs 'uninstall-foreign-desktop.log')) -eq 0) 'the third silent uninstall failed'
+    Expect ((Test-Path -LiteralPath $deskLnk) -and (Read-Link $deskLnk).Description -eq $foreign) 'the uninstall removed a desktop Hand.lnk that is not Hand''s'
+    Expect (-not (Test-Path -LiteralPath $lnk)) 'the Start Menu shortcut is still there'
+    Expect-Kept
     Write-Host 'the wizard installs and removes what it should, and keeps what it should'
 }
 finally {
     foreach ($p in $board, $stand) { if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
-    Remove-Item Env:SECONDHAND_HOME -ErrorAction SilentlyContinue
+    Remove-Item Env:SECONDHAND_HOME, Env:HAND_SETUP_CHECK -ErrorAction SilentlyContinue
+    if ((Test-Path -LiteralPath $deskLnk) -and (Read-Link $deskLnk).Description -eq $foreign) { Remove-Item -LiteralPath $deskLnk -Force }
     if ((Test-Path -LiteralPath $lnk) -and (Read-Link $lnk).Description -eq $foreign) { Remove-Item -LiteralPath $lnk -Force }
     Remove-Item -LiteralPath (Split-Path $keep[0]) -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $keep[1] -Force -ErrorAction SilentlyContinue

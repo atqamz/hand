@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$Archives,
     [Parameter(Mandatory)][string]$Out,
-    [Parameter(Mandatory)][string]$Work
+    [Parameter(Mandatory)][string]$Work,
+    [switch]$RequireIroh
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -38,6 +39,7 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 $hand = Expand-Checked 'hand-windows-amd64' 'hand.exe'
 $desktop = Expand-Checked 'hand-desktop-windows-amd64' 'hand-desktop.exe'
 $irohZip = Join-Path $Archives 'hand-iroh-windows-amd64.zip'
+if ($RequireIroh -and -not (Test-Path -LiteralPath $irohZip)) { throw "build-setup: missing $irohZip" }
 $iroh = if (Test-Path -LiteralPath $irohZip) { Expand-Checked 'hand-iroh-windows-amd64' 'hand-iroh.exe' }
 
 $info = @{}
