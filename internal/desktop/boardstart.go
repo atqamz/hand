@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	noFleetsCommand = "cd ~/work && hand init"
-	copyReceipt     = 1500 * time.Millisecond
+	copyReceipt = 1500 * time.Millisecond
 )
 
 var ErrNoFleets = errors.New("no fleet on this computer yet")
@@ -47,26 +46,53 @@ func StartBoard(getenv func(string) string) func(context.Context, string) (strin
 			}
 			home = fleets[0].Home
 		}
-		bin, err := handBinary()
+		out, err := runHand(ctx, boardStartTimeout, home, "--home", home, "board", "start")
 		if err != nil {
-			return "`hand` was not found next to hand-desktop or on PATH; install it or add it to PATH", err
-		}
-		runCtx, cancel := context.WithTimeout(ctx, boardStartTimeout)
-		defer cancel()
-		cmd := exec.CommandContext(runCtx, bin, "--home", home, "board", "start")
-		cmd.Dir = home
-		cmd.WaitDelay = time.Second
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			if runCtx.Err() != nil && ctx.Err() == nil {
-				const line = "`hand board start` did not finish in time"
-				return line, errors.New(line)
-			}
-			line := failureLine(out, err)
+			line := handLine("board start", out, err)
 			return line, errors.New(line)
 		}
 		return "", nil
 	}
+}
+
+var (
+	errHandMissing = errors.New("`hand` was not found next to hand-desktop or on PATH; install it or add it to PATH")
+	errHandTimeout = errors.New("`hand` did not finish in time")
+	errHandRefused = errors.New("hand-desktop runs only `hand init` and `hand board start`")
+)
+
+func allowedHandArgs(argv []string) bool {
+	return len(argv) == 4 && (argv[0] == "init" && argv[1] == "--name" || argv[0] == "--home" && argv[2] == "board" && argv[3] == "start")
+}
+
+func runHand(ctx context.Context, timeout time.Duration, dir string, argv ...string) ([]byte, error) {
+	if !allowedHandArgs(argv) {
+		return nil, errHandRefused
+	}
+	bin, err := handBinary()
+	if err != nil {
+		return nil, errHandMissing
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, bin, argv...)
+	cmd.Dir = dir
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if err != nil && runCtx.Err() != nil && ctx.Err() == nil {
+		return out, errHandTimeout
+	}
+	return out, err
+}
+
+func handLine(verb string, out []byte, err error) string {
+	switch {
+	case errors.Is(err, errHandMissing):
+		return err.Error()
+	case errors.Is(err, errHandTimeout):
+		return "`hand " + verb + "` did not finish in time"
+	}
+	return failureLine(out, err)
 }
 
 // boardAnswers reports whether board.addr names a service that answers HTTP at
@@ -129,8 +155,9 @@ func (a *App) maybeStart() {
 }
 
 func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
-	card := func(label string, tone ui.Color, meta, title, body, command, foot string, buttons func()) {
-		ui.Column(c).MaxWidth(840).AlignSelf(ui.Center).Border(1, k.Line).Radius(kit.RadiusLG).
+	minW, maxW := float32(0), float32(840)
+	card := func(label string, tone ui.Color, meta, title, body, command, foot string, form, buttons func()) {
+		ui.Column(c).MinWidth(minW).MaxWidth(maxW).AlignSelf(ui.Center).Border(1, k.Line).Radius(kit.RadiusLG).
 			Clip().Background(k.BG).Children(func() {
 			ui.Row(c).Background(k.Card).Height(kit.Row).Padding(0, 15).Gap(kit.Space10).
 				AlignItems(ui.Center).Children(func() {
@@ -144,6 +171,9 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 				}
 				if command != "" {
 					ui.Text(c, command).Font("monospace").FontSize(kit.Body.Size)
+				}
+				if form != nil {
+					form()
 				}
 				if buttons != nil {
 					ui.Row(c).Gap(kit.Space8).Children(buttons)
@@ -168,12 +198,12 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 	case a.Starting:
 		card("Board", p.accent, "starting", "Starting the Board…",
 			"No Board was running on this computer, so this window started one with hand board start. It keeps running after you close the window; closing the window never stops it.",
-			"", "", nil)
+			"", "", nil, nil)
 	case a.StartErr != "":
 		card("Board", p.fail, "did not start", "The Board did not start.",
 			"This window ran hand board start and it stopped:", a.StartErr,
 			"Nothing else was changed. The fleets and their workers keep running without the Board.",
-			func() {
+			nil, func() {
 				if button(c, k, "start:again", "Try again", true) {
 					a.TryStart()
 				}
@@ -183,20 +213,27 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 		card("Board", p.fail, "refused", "The Board refused this window.",
 			"The Board answers, but it did not accept this fleet's token. Open the fleet once in a terminal, then try again:",
 			"hand open", "The fleet and its workers keep running without this window.",
-			func() {
+			nil, func() {
 				if button(c, k, "start:retry", "Try again", true) {
 					a.Refresh()
 				}
 			})
 	case a.noFleets:
+		minW, maxW = 640, 640
 		card("Fleets", k.Muted, "none yet", "No fleet on this computer yet.",
-			"A fleet is a folder with its own supervisor. Make one in a terminal:",
-			noFleetsCommand, "Look again finds a fleet you just made.",
+			"A fleet is a folder with its own supervisor. Name it and choose its folder:",
+			"", "Made one in a terminal instead? Look again finds it.",
+			func() { a.newFleetFields(c, k, p) },
 			func() {
-				if button(c, k, "start:look", "Look again", true) {
+				if button(c, k, "nf:create", a.newFleetLabel(), true) {
+					a.submitNewFleet()
+				}
+				if button(c, k, "start:look", "Look again", false) {
 					a.TryStart()
 				}
-				copyButton("fleets:copy", "Copy the command", noFleetsCommand)
+				if a.nf.cmd != "" {
+					copyButton("fleets:copy", "Copy the command", a.nf.cmd)
+				}
 			})
 	default:
 		a.errorCard(c, p)
