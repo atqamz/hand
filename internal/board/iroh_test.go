@@ -19,13 +19,13 @@ func irohRig(t *testing.T, st *sidecar.Status) *companionRig {
 	return p
 }
 
-func TestThePhonePageShowsTheSidecarsState(t *testing.T) {
+func TestTheCompanionPageShowsTheSidecarsState(t *testing.T) {
 	for name, tc := range map[string]struct {
 		st   sidecar.Status
 		want []string
 	}{
 		"ready": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "https://relay.test./"}, []string{
-			`<span class="badge" data-tone="pass">ready</span>`, "Companion access over iroh is online. The Hand app can pair with this host.",
+			`<span class="badge" data-tone="pass">ready</span>`, "Companion access over iroh is online. The Companion can pair with this host.",
 			`Endpoint ID <code class="ref">` + irohEndpoint + `</code>.`}},
 		"no relay": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "none"}, []string{
 			`<span class="badge" data-tone="wait">no relay</span>`, "Companion access over iroh is running, but it reached no relay, so a Companion elsewhere cannot dial it.",
@@ -49,7 +49,7 @@ func TestThePhonePageShowsTheSidecarsState(t *testing.T) {
 	}
 }
 
-func TestThePhonePageSaysNothingAboutIrohWhileItIsOffOrStopped(t *testing.T) {
+func TestTheCompanionPageSaysNothingAboutIrohWhileItIsOffOrStopped(t *testing.T) {
 	for name, st := range map[string]*sidecar.Status{"no sidecar": nil, "stopped": {State: sidecar.Stopped}, "unset": {}} {
 		if page := irohRig(t, st).do("GET", "/connect", nil, host, nil).Body.String(); strings.Contains(page, "iroh") {
 			t.Errorf("%s: the Phone page mentions iroh", name)

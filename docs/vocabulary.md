@@ -171,7 +171,7 @@ Adopting is the rewrite a fleet gets at its new path: `hand fleet adopt [--from 
 
 ### Host
 
-The machine that runs a fleet: its board, watcher and workers live on it, and a Companion reaches it through the Hand app and the [peer listener](#peer-listener). One host runs several fleets. It is not the Companion, nor a client. A client reads a fleet's Board through the [JSON API](#json-api): the desktop window on the host, or the Companion, which reads, sends, answers decisions and acknowledges reports. The [supervisor controls](#supervisor-controls) need a loopback board, and either client keeps them there. A host session is a browser holding the fleet's `board.token` in its `hand_board_<fleet id>` cookie. `fleet.host` carries its name (see [Host marker](#host-marker)).
+The machine that runs a fleet: its board, watcher and workers live on it, and a Companion reaches it through the [peer listener](#peer-listener). One host runs several fleets. It is not the Companion, nor a client. A client reads a fleet's Board through the [JSON API](#json-api): the desktop window on the host, or the Companion, which reads, sends, answers decisions and acknowledges reports. The [supervisor controls](#supervisor-controls) need a loopback board, and either client keeps them there. A host session is a browser holding the fleet's `board.token` in its `hand_board_<fleet id>` cookie. `fleet.host` carries its name (see [Host marker](#host-marker)).
 
 ### Host marker
 
@@ -571,11 +571,11 @@ The `HAND-PEER 1 <endpoint id> <secret>` line a peer writes before its HTTP on t
 
 ### Companion
 
-The app that pairs to a host: Hand's Android app. A companion redeemed a [pairing code](#pairing-code) and holds the cookie the fleet set for it. It opens the fleets it is paired with on the board, and on a `--peer-addr` connection its cookie is bound to the peer ID in the [peer preface](#peer-preface).
+A device paired to a host through [Hand's Companion](#hands-companion), its Android app. It redeemed a [pairing code](#pairing-code) and holds the cookie the fleet set for it. It opens the fleets it is paired with on the board, and on a `--peer-addr` connection its cookie is bound to the peer ID in the [peer preface](#peer-preface).
 
 ### Pairing code
 
-The one-time code in the [companion link](#companion-link); the whole link is at most 213 bytes, and the code never goes in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [companion](#companion).
+The one-time code in the [companion link](#companion-link); the whole link is at most 213 bytes, and the code never goes in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [Companion](#companion).
 
 ### Companion access over iroh
 

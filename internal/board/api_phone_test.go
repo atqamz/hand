@@ -506,7 +506,7 @@ func TestAPIPhoneIrohStateIsThePagesWords(t *testing.T) {
 		state, tone string
 		text        string
 	}{
-		"ready":    {readyIroh, "ready", "pass", "Companion access over iroh is online. The Hand app can pair with this host."},
+		"ready":    {readyIroh, "ready", "pass", "Companion access over iroh is online. The Companion can pair with this host."},
 		"no relay": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "none"}, "no relay", "wait", "Companion access over iroh is running, but it reached no relay, so a Companion elsewhere cannot dial it."},
 		"starting": {sidecar.Status{State: sidecar.Starting, Reason: "exit status 1: cannot open the endpoint"}, "starting", "wait", "Companion access over iroh is restarting after: exit status 1: cannot open the endpoint."},
 		"failed":   {sidecar.Status{State: sidecar.Failed, Reason: "hand-iroh not found: it is not next to hand (/home/me/bin) or on PATH"}, "failed", "fail", "Companion access over iroh is hand-iroh not found: it is not next to hand (bin) or on PATH."},

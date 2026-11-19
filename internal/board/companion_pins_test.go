@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
+func TestTheCompanionPagesStyleEveryPartTheyAdd(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
 		".connect-part h3{margin:0}",
@@ -69,7 +69,7 @@ func TestThePairPageStylesTheFleetChoices(t *testing.T) {
 	}
 }
 
-func TestThePhonePageStylesAPhoneListedWithItsFleets(t *testing.T) {
+func TestTheCompanionPageStylesAPhoneListedWithItsFleets(t *testing.T) {
 	css := asset(t, "board.css")
 	rules := []string{
 		".device-group{flex-wrap:wrap}",
@@ -108,7 +108,7 @@ func TestThePhoneScriptPinsItsFlow(t *testing.T) {
 	}
 }
 
-func TestThePhonePagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
+func TestTheCompanionPagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
 	p := newCompanionRig(t)
 	code := p.code()
 	companion := p.pair()

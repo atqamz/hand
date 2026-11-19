@@ -710,7 +710,7 @@ func TestTheHostSessionAloneMintsAndListsCodes(t *testing.T) {
 	lacks(t, "localhost", named, `class="doc-notice"`)
 }
 
-func TestThePhonePageIsOnTheRailAndDoesNotKeepTheCode(t *testing.T) {
+func TestTheCompanionPageIsOnTheRailAndDoesNotKeepTheCode(t *testing.T) {
 	p := newCompanionRig(t)
 	code := p.code()
 	page := p.do("GET", "/connect", nil, host, nil)

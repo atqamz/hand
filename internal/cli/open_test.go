@@ -169,6 +169,7 @@ func TestOpenDeepLinks(t *testing.T) {
 		{[]string{"a1"}, "/attempt/a1", ""},
 		{[]string{"screen"}, "/supervisor", ""},
 		{[]string{"phone"}, "/connect", ""},
+		{[]string{"companion"}, "/connect", ""},
 		{[]string{"tasks"}, "/tasks", ""},
 		{[]string{"tasks", "login bug&x=1"}, "/tasks?q=login+bug%26x%3D1", ""},
 	} {
@@ -202,7 +203,7 @@ func TestOpenNeverPrintsTheToken(t *testing.T) {
 			t.Fatalf("open %q leaked the token:\n%s%s", args, out, errOut)
 		}
 	}
-	for _, args := range [][]string{nil, {"supervisor"}, {"screen"}, {"phone"}, {"tasks", "q"}, {"t1"}, {"d1"}, {"r1"}, {"a1"}, {"t1", "--delivered"}, {"t9"}, {"x1"}} {
+	for _, args := range [][]string{nil, {"supervisor"}, {"screen"}, {"phone"}, {"companion"}, {"tasks", "q"}, {"t1"}, {"d1"}, {"r1"}, {"a1"}, {"t1", "--delivered"}, {"t9"}, {"x1"}} {
 		check(args...)
 	}
 	path := fx.h.vars["PATH"]
@@ -608,6 +609,7 @@ func TestOpenPrintOfScreenPhoneAndTasksHasNoAppLink(t *testing.T) {
 	}{
 		{[]string{"--print", "screen"}, "/supervisor?token="},
 		{[]string{"--print", "phone"}, "/connect?token="},
+		{[]string{"--print", "companion"}, "/connect?token="},
 		{[]string{"--print", "tasks", "Q"}, "/tasks?q=Q&token="},
 		{[]string{"tasks", "a b", "--print"}, "/tasks?q=a+b&token="},
 		{[]string{"--print", "tasks", "--", "-x"}, "/tasks?q=-x&token="},
