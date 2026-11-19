@@ -17,6 +17,8 @@ import (
 	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/memory"
+	"github.com/atqamz/hand/internal/orient"
 	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -264,6 +266,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	} else {
 		c.add(harness.PolicyFile, "ok", "")
 	}
+	doctorMemory(c, r.home)
 	version, err := r.client(fleet.Session(f.ID)).Version(ctx)
 	server, match := luvus.Match(pin, pinned, version, err)
 	d.Field("server", server)
@@ -300,6 +303,38 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	default:
 		c.add("watcher", "info", "none runs, and none is needed until a supervisor starts")
 	}
+}
+
+func doctorMemory(c *checks, home string) {
+	budget := orient.DefaultBudget.MemoryBytes
+	core, err := memory.Read(home, memory.OperatorFile, budget)
+	if err != nil {
+		c.add("memory", "warn", err.Error())
+		return
+	}
+	var problems []string
+	if core.Bytes > budget {
+		largest := make([]string, len(core.Largest))
+		for i, l := range core.Largest {
+			largest[i] = fmt.Sprintf("%d=%d", l.N, l.Bytes)
+		}
+		problems = append(problems, fmt.Sprintf("memory/%s is %d bytes, budget %d; largest lines: %s; split it, see the secondhand skill", memory.OperatorFile, core.Bytes, budget, strings.Join(largest, ", ")))
+	}
+	var stray []string
+	entries, _ := os.ReadDir(filepath.Join(home, "memory"))
+	for _, e := range entries {
+		if n := e.Name(); n != memory.OperatorFile && strings.HasPrefix(n, "operator.") && strings.HasSuffix(n, ".md") {
+			stray = append(stray, "memory/"+n)
+		}
+	}
+	if len(stray) > 0 {
+		problems = append(problems, strings.Join(stray, ", ")+" never shown by `hand orient`; move each into memory/operator/, for example as imported-ID.md")
+	}
+	if len(problems) == 0 {
+		c.add("memory", "ok", "")
+		return
+	}
+	c.add("memory", "warn", strings.Join(problems, "; "))
 }
 
 func doctorProjects(ctx context.Context, st *state.Store, c *checks) {
