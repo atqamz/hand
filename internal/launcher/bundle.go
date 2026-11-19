@@ -159,6 +159,30 @@ func bundleSync(home, bin, hand string) (skipped string, err error) {
 	return "", nil
 }
 
+func bundleOwned(home string) (found []string, foreign string, err error) {
+	b, err := bundleAt(home)
+	if err != nil {
+		return nil, "", err
+	}
+	switch owned, exists := b.managed(); {
+	case !exists:
+		return nil, "", nil
+	case !owned:
+		return nil, b.app, nil
+	}
+	return []string{b.app}, "", nil
+}
+
+func bundleMine(home, hand string) bool {
+	b, err := bundleAt(home)
+	if err != nil {
+		return false
+	}
+	owned, exists := b.managed()
+	target, err := os.Readlink(b.hand())
+	return exists && owned && err == nil && target == hand
+}
+
 var moveAside = os.Rename
 
 func bundleRemove(home string) (skipped string, err error) {

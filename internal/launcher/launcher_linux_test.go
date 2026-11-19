@@ -186,3 +186,48 @@ func TestPathEscapingAndNewlines(t *testing.T) {
 		t.Fatalf("entry:\n%s", got)
 	}
 }
+
+func TestOwnedListsWhatRemoveWouldDelete(t *testing.T) {
+	getenv, data := env(t)
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	pic := filepath.Join(data, "icons", "hicolor", "512x512", "apps", "hand-desktop.png")
+	if found, foreign, err := Owned(getenv); len(found) != 0 || foreign != "" || err != nil {
+		t.Fatalf("Owned with nothing written = %v, %q, %v", found, foreign, err)
+	}
+	if _, err := Sync(getenv, "/x/hand-desktop"); err != nil {
+		t.Fatal(err)
+	}
+	found, foreign, err := Owned(getenv)
+	if err != nil || foreign != "" || strings.Join(found, " ") != entry+" "+pic {
+		t.Fatalf("Owned = %v, %q, %v", found, foreign, err)
+	}
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, foreign, err := Owned(getenv); len(found) != 0 || foreign != entry || err != nil {
+		t.Fatalf("Owned with a foreign entry = %v, %q, %v", found, foreign, err)
+	}
+}
+
+func TestMineIsTrueOnlyForTheWindowTheEntryPointsAt(t *testing.T) {
+	getenv, data := env(t)
+	entry := filepath.Join(data, "applications", "hand-desktop.desktop")
+	if Mine(getenv, "/x/hand") {
+		t.Fatal("Mine with nothing written")
+	}
+	if _, err := Sync(getenv, "/x/hand-desktop"); err != nil {
+		t.Fatal(err)
+	}
+	if !Mine(getenv, "/x/hand") || !Mine(getenv, "/x/hand-next") {
+		t.Fatal("Mine of a hand beside the window = false")
+	}
+	if Mine(getenv, "/y/hand") {
+		t.Fatal("Mine of a hand beside another window = true")
+	}
+	if err := os.WriteFile(entry, []byte("[Desktop Entry]\nExec=/x/hand-desktop\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if Mine(getenv, "/x/hand") {
+		t.Fatal("Mine of a foreign entry = true")
+	}
+}

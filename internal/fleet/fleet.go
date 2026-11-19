@@ -20,14 +20,7 @@ type Entry struct {
 }
 
 func Root(getenv func(string) string) (string, error) {
-	root := getenv("SECONDHAND_HOME")
-	if root == "" {
-		if getenv("HOME") == "" {
-			return "", fmt.Errorf("%w: set HOME or SECONDHAND_HOME", state.ErrInvalid)
-		}
-		root = filepath.Join(getenv("HOME"), ".secondhand")
-	}
-	root, err := filepath.Abs(root)
+	root, err := rootPath(getenv)
 	if err != nil {
 		return "", err
 	}
@@ -35,6 +28,28 @@ func Root(getenv func(string) string) (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(root)
+}
+
+func LookupRoot(getenv func(string) string) (string, error) {
+	root, err := rootPath(getenv)
+	if err != nil {
+		return "", err
+	}
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		return real, nil
+	}
+	return root, nil
+}
+
+func rootPath(getenv func(string) string) (string, error) {
+	root := getenv("SECONDHAND_HOME")
+	if root == "" {
+		if getenv("HOME") == "" {
+			return "", fmt.Errorf("%w: set HOME or SECONDHAND_HOME", state.ErrInvalid)
+		}
+		root = filepath.Join(getenv("HOME"), ".secondhand")
+	}
+	return filepath.Abs(root)
 }
 
 func Session(id string) string { return "secondhand-" + id }
@@ -209,6 +224,24 @@ func bookmarkIDs(root string) ([]string, error) {
 	}
 	slices.Sort(ids)
 	return ids, nil
+}
+
+func Homes(root string) ([]string, error) {
+	ids, err := bookmarkIDs(root)
+	if err != nil {
+		return nil, err
+	}
+	var homes []string
+	for _, id := range ids {
+		b, err := os.ReadFile(bookmark(root, id))
+		if errors.Is(err, fs.ErrNotExist) {
+			b, err = os.ReadFile(legacyBookmark(root, id))
+		}
+		if home := strings.TrimSpace(string(b)); err == nil && home != "" {
+			homes = append(homes, home)
+		}
+	}
+	return homes, nil
 }
 
 func registeredIDs(root string) ([]string, error) {

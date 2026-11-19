@@ -29,6 +29,7 @@ var (
 	Reconnect        = &reconnectDelay
 	UpdateMin        = &updateMin
 	UpdateHooks      = &updateHooks
+	UninstallHooks   = &uninstallHooks
 	UnitOS           = &unitOS
 	BoardHint        = boardHint
 	RemoveIfSame     = removeIfSame

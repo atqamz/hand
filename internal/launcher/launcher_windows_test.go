@@ -281,3 +281,42 @@ func TestWizardWritesTheShortcutHandUpdateOwns(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnedListsHandsShortcutAndIconOnly(t *testing.T) {
+	f := newWin(t)
+	if found, foreign, err := Owned(f.getenv); len(found) != 0 || foreign != "" || err != nil {
+		t.Fatalf("Owned with nothing written = %v, %q, %v", found, foreign, err)
+	}
+	if _, err := Sync(f.getenv, f.bin); err != nil {
+		t.Fatal(err)
+	}
+	found, foreign, err := Owned(f.getenv)
+	if err != nil || foreign != "" || len(found) != 2 || found[0] != f.lnk || !strings.EqualFold(found[1], icoPath(f.bin)) {
+		t.Fatalf("Owned = %v, %q, %v", found, foreign, err)
+	}
+	f.foreign(t)
+	if found, foreign, err := Owned(f.getenv); len(found) != 0 || foreign != f.lnk || err != nil {
+		t.Fatalf("Owned with a user's shortcut = %v, %q, %v", found, foreign, err)
+	}
+}
+
+func TestMineIsTrueOnlyForTheWindowTheShortcutPointsAt(t *testing.T) {
+	f := newWin(t)
+	hand := filepath.Join(filepath.Dir(f.bin), "hand.exe")
+	if Mine(f.getenv, hand) {
+		t.Fatal("Mine with nothing written")
+	}
+	if _, err := Sync(f.getenv, f.bin); err != nil {
+		t.Fatal(err)
+	}
+	if !Mine(f.getenv, hand) {
+		t.Fatal("Mine of its own hand = false")
+	}
+	if Mine(f.getenv, filepath.Join(t.TempDir(), "hand.exe")) {
+		t.Fatal("Mine of a hand beside another window = true")
+	}
+	f.foreign(t)
+	if Mine(f.getenv, hand) {
+		t.Fatal("Mine of a user's shortcut = true")
+	}
+}

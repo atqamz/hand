@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/desktopasset"
 )
 
 const (
@@ -86,23 +88,46 @@ func Sync(getenv func(string) string, bin string) (skipped string, err error) {
 	return "", nil
 }
 
-func Remove(getenv func(string) string) (skipped string, err error) {
+func Owned(getenv func(string) string) (found []string, foreign string, err error) {
 	lnk, err := entry(getenv)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	s, owned, exists := managed(lnk)
-	if !exists {
-		return "", nil
+	switch {
+	case !exists:
+		return nil, "", nil
+	case !owned:
+		return nil, lnk, nil
 	}
-	if !owned {
-		return lnk, nil
-	}
-	paths := []string{lnk}
+	found = []string{lnk}
 	if ico := strings.TrimSuffix(s.Icon, ",0"); filepath.Base(ico) == "hand.ico" && filepath.IsAbs(ico) {
-		paths = append(paths, ico)
+		if _, err := os.Lstat(ico); err == nil {
+			found = append(found, ico)
+		}
 	}
-	for _, p := range paths {
+	return found, "", nil
+}
+
+func points(s lnkStrings, bin string) bool {
+	return strings.EqualFold(s.WorkDir, filepath.Dir(bin)) && strings.EqualFold(strings.TrimSuffix(s.Icon, ",0"), icoPath(bin))
+}
+
+func Mine(getenv func(string) string, hand string) bool {
+	lnk, err := entry(getenv)
+	if err != nil {
+		return false
+	}
+	s, owned, exists := managed(lnk)
+	return exists && owned && points(s, desktopasset.Path(hand, "windows", ""))
+}
+
+func Remove(getenv func(string) string) (skipped string, err error) {
+	found, foreign, err := Owned(getenv)
+	if err != nil || foreign != "" {
+		return foreign, err
+	}
+	for _, p := range found {
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("launcher: cannot remove %s: %w", p, err)
 		}
@@ -123,7 +148,7 @@ func Check(getenv func(string) string, bin string) (State, string) {
 		return Foreign, lnk
 	}
 	ico := icoPath(bin)
-	if !strings.EqualFold(s.WorkDir, filepath.Dir(bin)) || !strings.EqualFold(strings.TrimSuffix(s.Icon, ",0"), ico) {
+	if !points(s, bin) {
 		return Elsewhere, lnk
 	}
 	if _, err := os.Stat(ico); err != nil {
