@@ -10,12 +10,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private const val REJECTED = "This is not a Hand pairing code. Show a new one on your laptop."
+private const val REJECTED = "This is not a Hand pairing code. Show a new one on the Board."
 private const val NEWER = "This code needs a newer Hand app. Update the app."
 private const val WRONG =
-  "That code is not right. Check it against the one on your laptop, or show a new code there."
-private const val OFFERED = """{"laptop":"7c1e…a2f9","replaces":false}"""
-private const val REPLACES = """{"laptop":"7c1e…a2f9","replaces":true}"""
+  "That code is not right. Check it against the one on your host, or show a new code there."
+private const val OFFERED = """{"host":"7c1e…a2f9","replaces":false}"""
+private const val REPLACES = """{"host":"7c1e…a2f9","replaces":true}"""
 private const val PAIRED = """{"fleets":[{"id":"f000000000003","name":"atlas"}]}"""
 
 private fun failure(name: String, message: String) =
@@ -58,11 +58,11 @@ class PairModelTest {
   @Test
   fun anAcceptedLinkOpensTheConfirmationAndIsNotKept() {
     val core = FakeCore()
-    val model = model(core) { throw AssertionError("the same laptop loses nothing") }
+    val model = model(core) { throw AssertionError("the same host loses nothing") }
     model.edit("handboard://c#v=1")
     model.offer("handboard://c#v=1")
     val state = model.state.value
-    assertEquals("7c1e…a2f9", state.confirm?.laptop)
+    assertEquals("7c1e…a2f9", state.confirm?.host)
     assertNull(state.confirm?.notice)
     assertEquals("Pair", state.confirm?.action)
     assertEquals("", state.link)
@@ -85,13 +85,13 @@ class PairModelTest {
   }
 
   @Test
-  fun aLinkToAnotherLaptopWarnsByNameAndAsksToReplace() {
+  fun aLinkToAnotherHostWarnsByNameAndAsksToReplace() {
     val model = model(FakeCore(offer = REPLACES))
     model.offer("link")
     val confirm = model.state.value.confirm!!
     assertEquals("Replace and pair", confirm.action)
     assertEquals(
-      "Once paired, this phone leaves 4d92…6ed6 and its 4 fleets: hand, work, research and homelab. " +
+      "Once paired, this Companion leaves 4d92…6ed6 and its 4 fleets: hand, work, research and homelab. " +
         "Their alerts stop. If pairing fails, nothing changes.",
       confirm.notice
     )
@@ -100,21 +100,21 @@ class PairModelTest {
   @Test
   fun theNoticeReadsRightForOneFleetAndForNone() {
     assertEquals(
-      "Once paired, this phone leaves 4d92…6ed6 and its 1 fleet: hand. " +
+      "Once paired, this Companion leaves 4d92…6ed6 and its 1 fleet: hand. " +
         "Its alerts stop. If pairing fails, nothing changes.",
       replaceNotice(Current("4d92…6ed6", listOf("hand")))
     )
     assertEquals(
-      "Once paired, this phone leaves 4d92…6ed6 and its 2 fleets: hand and work. " +
+      "Once paired, this Companion leaves 4d92…6ed6 and its 2 fleets: hand and work. " +
         "Their alerts stop. If pairing fails, nothing changes.",
       replaceNotice(Current("4d92…6ed6", listOf("hand", "work")))
     )
     assertEquals(
-      "Once paired, this phone leaves 4d92…6ed6. If pairing fails, nothing changes.",
+      "Once paired, this Companion leaves 4d92…6ed6. If pairing fails, nothing changes.",
       replaceNotice(Current("4d92…6ed6", emptyList()))
     )
     assertEquals(
-      "Once paired, this phone leaves your current laptop. If pairing fails, nothing changes.",
+      "Once paired, this Companion leaves your current host. If pairing fails, nothing changes.",
       replaceNotice(Current(null, emptyList()))
     )
   }
@@ -155,7 +155,7 @@ class PairModelTest {
     assertEquals(WRONG, state.error)
     assertFalse(state.done)
     assertFalse(state.busy)
-    assertEquals("7c1e…a2f9", state.confirm?.laptop)
+    assertEquals("7c1e…a2f9", state.confirm?.host)
     core.pair = PAIRED
     runBlocking { model.submit() }
     state = model.state.value
@@ -167,12 +167,12 @@ class PairModelTest {
   fun everyFailureTheCoreNamesShowsItsOwnSentence() {
     for (message in
       listOf(
-        "That code has expired. A code works for 5 minutes. Show a new code on your laptop.",
-        "That code was already used. A code works once. Show a new code on your laptop.",
-        "Too many wrong codes. Every code was cancelled. Show a new code on your laptop.",
-        "Too many wrong codes from this phone. Wait a minute, then try again.",
-        "Your laptop is busy. Try again in a moment.",
-        "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet."
+        "That code has expired. A code works for 5 minutes. Show a new code on the Board.",
+        "That code was already used. A code works once. Show a new code on the Board.",
+        "Too many wrong codes. Every code was cancelled. Show a new code on the Board.",
+        "Too many wrong codes from this Companion. Wait a minute, then try again.",
+        "Your host is busy. Try again in a moment.",
+        "Can't reach your host. Check that it is on, that Hand's Board is running, and that this phone has internet."
       )) {
       val model = model(FakeCore(pair = failure("x", message)))
       model.offer("link")
@@ -200,7 +200,7 @@ class PairModelTest {
     model.offer("first")
     core.offer = failure("link", "Finish or dismiss the current pairing first")
     model.offer("second")
-    assertEquals("7c1e…a2f9", model.state.value.confirm?.laptop)
+    assertEquals("7c1e…a2f9", model.state.value.confirm?.host)
     assertEquals("Finish or dismiss the current pairing first", model.state.value.error)
   }
 
@@ -236,7 +236,7 @@ class PairModelTest {
       model.cancel()
       model.offer("another")
       assertTrue(model.state.value.busy)
-      assertEquals("7c1e…a2f9", model.state.value.confirm?.laptop)
+      assertEquals("7c1e…a2f9", model.state.value.confirm?.host)
       assertEquals(listOf("offer", "pair Pixel 8"), core.calls)
       hold.countDown()
       job.join()

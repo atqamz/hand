@@ -300,7 +300,7 @@ class IdleCycleTest {
   }
 
   @Test
-  fun anUnreachableLaptopDoublesTheAlarmToAFortyMinuteCapAndOneAnswerResetsIt() {
+  fun anUnreachableHostDoublesTheAlarmToAFortyMinuteCapAndOneAnswerResetsIt() {
     asleep()
     val gaps = mutableListOf<String>()
     repeat(5) {

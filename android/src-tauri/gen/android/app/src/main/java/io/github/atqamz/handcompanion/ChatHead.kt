@@ -39,7 +39,7 @@ const val WARN_MILLIS = 12_000L
 
 const val NOTHING_TO_RESUME = "There is nothing to resume."
 const val CONTROLS_OFF = "The Board's controls are off."
-const val CONTROL_UNREACHABLE = "Your laptop is not reachable."
+const val CONTROL_UNREACHABLE = "Your host is not reachable."
 
 fun supervisorWords(supervisor: Supervisor?): String =
   when {
@@ -137,8 +137,8 @@ fun headFailure(control: HeadControl, error: BoardError): String =
       error.message?.takeIf(String::isNotBlank) ?: "The Board refused it; nothing was sent."
     error is BoardError.NotFound && control == HeadControl.Resume -> NOTHING_TO_RESUME
     error is BoardError.Forbidden -> CONTROLS_OFF
-    error == BoardError.Unreachable || error == BoardError.NoLaptop -> CONTROL_UNREACHABLE
+    error == BoardError.Unreachable || error == BoardError.NoHost -> CONTROL_UNREACHABLE
     error == BoardError.Lost || error == BoardError.TimedOut ->
-      "Not sure the control reached your laptop."
+      "Not sure the control reached your host."
     else -> error.message?.takeIf(String::isNotBlank) ?: "The control did not run."
   }

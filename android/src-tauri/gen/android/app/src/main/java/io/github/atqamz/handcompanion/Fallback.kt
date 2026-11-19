@@ -17,7 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val NINETY_DAYS = 90 * 24 * 60 * 60
 private val BROWSER = setOf("http", "https", "mailto", "tel")
 
-const val NOT_PAIRED_HERE = "This phone is not paired with this fleet."
+const val NOT_PAIRED_HERE = "This Companion is not paired with this fleet."
 const val COOKIE_REFUSED = "Can't set the saved login for the web Board. Close this and try again."
 const val BOARD_TIMED_OUT = "The web Board took too long to open. Try again."
 const val OPEN_MILLIS = 30_000L

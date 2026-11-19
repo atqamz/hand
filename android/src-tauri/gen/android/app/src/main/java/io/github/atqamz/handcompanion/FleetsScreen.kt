@@ -141,15 +141,15 @@ internal fun Snack(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun ForgetDialog(laptop: String?, count: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
+internal fun ForgetDialog(host: String?, count: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
   val fleets = if (count == 0) "" else " and its $count fleet${if (count == 1) "" else "s"}"
   AlertDialog(
     onDismissRequest = onCancel,
-    title = { Text("Forget this laptop?") },
+    title = { Text("Forget this host?") },
     text = {
       Text(
-        "This phone leaves ${laptop ?: "your laptop"}$fleets. Alerts stop. " +
-          "To use it again, pair with a new code from the laptop."
+        "This Companion leaves ${host ?: "your host"}$fleets. Alerts stop. " +
+          "To use it again, pair with a new code from the Board."
       )
     },
     confirmButton = {
@@ -160,14 +160,14 @@ internal fun ForgetDialog(laptop: String?, count: Int, onConfirm: () -> Unit, on
 }
 
 @Composable
-private fun Strip(laptop: String) {
+private fun Strip(host: String) {
   Row(
     Modifier.fillMaxWidth().background(LocalHand.current.panel).padding(16.dp, 10.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp)
   ) {
-    Meta("Laptop")
-    Text(laptop, style = HandMono)
+    Meta("Host")
+    Text(host, style = HandMono)
     Spacer(Modifier.weight(1f))
     Passing("connected")
   }
@@ -260,14 +260,14 @@ fun FleetsScreen(
     ) {
       Text("Hand", Modifier.weight(1f), style = type.headlineSmall)
       Action("Add fleet", onAddFleet, Modifier.height(36.dp))
-      if (state.laptop != null || state.rows.isNotEmpty()) {
-        Menu(listOf("This phone" to onPhone, "Forget this laptop" to { onAsk(true) }))
+      if (state.host != null || state.rows.isNotEmpty()) {
+        Menu(listOf("This Companion" to onPhone, "Forget this host" to { onAsk(true) }))
       }
     }
     HorizontalDivider(color = line)
     when {
       state.band != null -> BandView(state.band, onRetry)
-      state.laptop != null -> Strip(state.laptop)
+      state.host != null -> Strip(state.host)
     }
     if (state.alertsOff) {
       Box(Modifier.clickable(onClick = onSettings)) {
@@ -290,5 +290,5 @@ fun FleetsScreen(
         }
     }
   }
-  if (state.asking) ForgetDialog(state.laptop, state.rows.size, onForget) { onAsk(false) }
+  if (state.asking) ForgetDialog(state.host, state.rows.size, onForget) { onAsk(false) }
 }

@@ -64,11 +64,11 @@ class HandActivity : ComponentActivity() {
   private val model by viewModels<FleetsModel> {
     viewModelFactory {
       initializer {
-        val laptop = File(applicationContext.dataDir, "laptop")
+        val host = File(applicationContext.dataDir, "laptop")
         FleetsModel(
           CoreTransport,
           { pairedFleets(Core.fleets()) },
-          { laptopId(laptop) },
+          { hostId(host) },
           Core::unsaved,
           forgetter = Core::forget,
           phone = Core::phone
@@ -82,7 +82,7 @@ class HandActivity : ComponentActivity() {
       initializer {
         PairModel(CorePairing, Build.MODEL, {
           val fleets = model.state.value
-          Current(fleets.laptop, fleets.rows.map(FleetRow::name))
+          Current(fleets.host, fleets.rows.map(FleetRow::name))
         })
       }
     }
@@ -144,8 +144,8 @@ class HandActivity : ComponentActivity() {
       this,
       viewModelFactory {
         initializer {
-          val laptop = File(applicationContext.dataDir, "laptop")
-          FleetModel(id, model.state.value.rows.firstOrNull { it.id == id }?.name, CoreTransport, { laptopId(laptop) })
+          val host = File(applicationContext.dataDir, "laptop")
+          FleetModel(id, model.state.value.rows.firstOrNull { it.id == id }?.name, CoreTransport, { hostId(host) })
         }
       }
     )[id, FleetModel::class.java]

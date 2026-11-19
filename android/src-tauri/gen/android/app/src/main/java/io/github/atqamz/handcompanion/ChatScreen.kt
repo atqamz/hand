@@ -451,7 +451,7 @@ private fun ChatUnpaired() {
       color = LocalHand.current.ink(Tone.Fail),
       style = type.titleMedium
     )
-    Meta("Pair this phone again on the laptop's Board.")
+    Meta("Pair this Companion again on the host's Board.")
   }
 }
 

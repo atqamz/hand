@@ -44,7 +44,7 @@ data class Band(
 )
 
 data class FleetsState(
-  val laptop: String? = null,
+  val host: String? = null,
   val rows: List<FleetRow> = emptyList(),
   val band: Band? = null,
   val alertsOff: Boolean = false,
@@ -67,7 +67,7 @@ const val FORGET_FAILED = "Can't clear the saved login. Try again."
 fun pairedFleets(ids: String?): List<String> =
   ids.orEmpty().split(' ').filter(FLEET_ID::matches).distinct()
 
-fun laptopId(file: File): String? =
+fun hostId(file: File): String? =
   try {
     file.readText().trim().takeIf { it.length >= 8 }?.let { "${it.take(4)}…${it.takeLast(4)}" }
   } catch (_: IOException) {
@@ -129,20 +129,20 @@ private fun row(envelope: Envelope<Status>, seen: String): FleetRow {
 }
 
 val UNREACHABLE: Set<BoardError> =
-  setOf(BoardError.Unreachable, BoardError.NoLaptop, BoardError.Lost, BoardError.TimedOut)
+  setOf(BoardError.Unreachable, BoardError.NoHost, BoardError.Lost, BoardError.TimedOut)
 
-val LAPTOP_LEVEL: Set<BoardError> =
+val HOST_LEVEL: Set<BoardError> =
   UNREACHABLE + setOf(BoardError.Busy, BoardError.BoardNotRunning)
 
-fun band(error: BoardError, laptop: String?, since: String?): Band =
+fun band(error: BoardError, host: String?, since: String?): Band =
   when (error) {
-    BoardError.Busy -> Band("Your laptop is busy. Trying again.", retry = false)
+    BoardError.Busy -> Band("Your host is busy. Trying again.", retry = false)
     BoardError.BoardNotRunning ->
-      Band("Your laptop answers, but the Board is not running.", "Start it on the laptop.")
+      Band("Your host answers, but the Board is not running.", "Start it on the host.")
     else ->
       Band(
-        "Can't reach ${laptop ?: "your laptop"} since $since",
-        "Check that the laptop is on, that Hand's Board is running, " +
+        "Can't reach ${host ?: "your host"} since $since",
+        "Check that the host is on, that Hand's Board is running, " +
           "and that this phone has internet."
       )
   }
@@ -157,7 +157,7 @@ val UNSAVED =
 class FleetsModel(
   private val transport: Transport,
   private val fleets: () -> List<String>,
-  private val laptop: () -> String?,
+  private val host: () -> String?,
   private val unsaved: () -> Boolean = { false },
   private val forgetter: () -> Boolean = { true },
   private val clock: () -> String = { hhmm(Date()) },
@@ -188,10 +188,10 @@ class FleetsModel(
   fun ask(on: Boolean) = mutableState.update { it.copy(asking = on, notice = null) }
 
   fun forget() {
-    viewModelScope.launch { forgetLaptop() }
+    viewModelScope.launch { forgetHost() }
   }
 
-  suspend fun forgetLaptop() {
+  suspend fun forgetHost() {
     mutableState.update { it.copy(asking = false, notice = null) }
     val forgotten = withContext(Dispatchers.IO) { forgetter() }
     if (forgotten) mutableState.update { it.copy(alertsOff = false) }
@@ -201,7 +201,7 @@ class FleetsModel(
 
   suspend fun refresh() =
     lock.withLock {
-      val (ids, who) = withContext(Dispatchers.IO) { fleets() to laptop() }
+      val (ids, who) = withContext(Dispatchers.IO) { fleets() to host() }
       val unsaved = withContext(Dispatchers.IO) { unsaved() }
       val info = withContext(Dispatchers.IO) { phoneInfo(phone()) }
       val now = clock()
@@ -223,7 +223,7 @@ class FleetsModel(
                 clients.remove(id)
                 before.copy(paired = false)
               }
-              in LAPTOP_LEVEL -> {
+              in HOST_LEVEL -> {
                 failure = error
                 before
               }
@@ -235,7 +235,7 @@ class FleetsModel(
       downSince = if (failure in UNREACHABLE) downSince ?: now else null
       mutableState.update {
         it.copy(
-          laptop = who,
+          host = who,
           rows = rows,
           loaded = true,
           phone = info,

@@ -17,7 +17,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 const val NAME_MAX = 40
 const val UNREAD =
-  "The phone could not read the laptop's answer. If the fleet is missing, show a new code on your laptop and try again."
+  "This Companion could not read the host's answer. If the fleet is missing, show a new code on the Board and try again."
 
 interface Pairing {
   fun offer(link: String): String?
@@ -35,9 +35,9 @@ object CorePairing : Pairing {
   override fun cancel() = Core.cancel()
 }
 
-class Current(val laptop: String?, val fleets: List<String>)
+class Current(val host: String?, val fleets: List<String>)
 
-class Confirm(val laptop: String, val notice: String?) {
+class Confirm(val host: String, val notice: String?) {
   val action get() = if (notice == null) "Pair" else "Replace and pair"
 }
 
@@ -56,13 +56,13 @@ private fun joined(names: List<String>) =
   if (names.size < 2) names.joinToString() else names.dropLast(1).joinToString() + " and " + names.last()
 
 fun replaceNotice(current: Current): String {
-  val who = current.laptop ?: "your current laptop"
+  val who = current.host ?: "your current host"
   val fleets = current.fleets
   val lost =
     if (fleets.isEmpty()) "" else
       " and its ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}: ${joined(fleets)}. " +
         (if (fleets.size == 1) "Its" else "Their") + " alerts stop"
-  return "Once paired, this phone leaves $who$lost. If pairing fails, nothing changes."
+  return "Once paired, this Companion leaves $who$lost. If pairing fails, nothing changes."
 }
 
 private val json = Json { ignoreUnknownKeys = true }
@@ -92,16 +92,16 @@ class PairModel(
   fun offer(text: String) {
     if (mutableState.value.busy) return
     val answer = parse(core.offer(text))
-    val laptop = answer.field("laptop")
+    val host = answer.field("host")
     mutableState.update {
-      if (laptop == null) {
+      if (host == null) {
         it.copy(link = text, error = answer.field("message") ?: UNREAD)
       } else {
         val replaces = answer["replaces"]?.jsonPrimitive?.boolean == true
         it.copy(
           link = "",
           error = null,
-          confirm = Confirm(laptop, if (replaces) replaceNotice(current()) else null)
+          confirm = Confirm(host, if (replaces) replaceNotice(current()) else null)
         )
       }
     }

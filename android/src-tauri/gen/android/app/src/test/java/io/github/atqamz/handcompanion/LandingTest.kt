@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private const val HOME = "f000000000003"
-private const val NOT_PAIRED = "Pair this phone with your laptop first."
+private const val NOT_PAIRED = "Pair this Companion with your host first."
 private const val REJECTED = "This is not a link Hand can open."
 
 private class Opener(private val paired: Set<String>) : (String) -> String? {

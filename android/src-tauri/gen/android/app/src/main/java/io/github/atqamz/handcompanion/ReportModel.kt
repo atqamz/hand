@@ -64,7 +64,7 @@ private fun readError(error: BoardError) =
   when (error) {
     BoardError.Lost,
     BoardError.TimedOut -> "The Board stopped answering."
-    BoardError.Busy -> "Your laptop is busy. Try again."
+    BoardError.Busy -> "Your host is busy. Try again."
     else -> "The Board's answer could not be read."
   }
 

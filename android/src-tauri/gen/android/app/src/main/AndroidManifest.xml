@@ -45,7 +45,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Holds a connection to the user's own Hand laptop and shows its alerts as notifications" />
+                android:value="Holds a connection to the user's own Hand host and shows its alerts as notifications" />
         </service>
 
         <receiver

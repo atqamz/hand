@@ -418,7 +418,7 @@ class BoardClientTest {
     val names =
       mapOf(
         "busy" to BoardError.Busy,
-        "no_laptop" to BoardError.NoLaptop,
+        "no_host" to BoardError.NoHost,
         "unreachable" to BoardError.Unreachable,
         "unpaired" to BoardError.Unpaired,
         "lost" to BoardError.Lost,

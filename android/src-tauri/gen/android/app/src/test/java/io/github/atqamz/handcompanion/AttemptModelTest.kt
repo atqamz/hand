@@ -255,7 +255,7 @@ class AttemptModelTest {
   }
 
   @Test
-  fun aLaptopWithoutTheStreamKeepsTheFiveSecondRead() = runBlocking {
+  fun aHostWithoutTheStreamKeepsTheFiveSecondRead() = runBlocking {
     val board = AttemptBoard(features = listOf("fleets"))
     val attempt = model(board, pollMillis = 20)
     val job = launch(Dispatchers.Default) { attempt.run() }

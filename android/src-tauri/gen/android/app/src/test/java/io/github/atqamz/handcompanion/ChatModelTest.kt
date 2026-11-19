@@ -1274,9 +1274,9 @@ class ChatModelTest {
         { refused(403, "forbidden", "") } to CONTROLS_OFF,
         { refused(500, "internal", "the supervisor path failed") } to "the supervisor path failed",
         { refused(500, "internal", "") } to "Could not send the message.",
-        { throw BoardError.Busy } to "Your laptop is busy. Try again.",
-        { throw BoardError.Unreachable } to "Your laptop is not reachable.",
-        { throw BoardError.NoLaptop } to "Your laptop is not reachable.",
+        { throw BoardError.Busy } to "Your host is busy. Try again.",
+        { throw BoardError.Unreachable } to "Your host is not reachable.",
+        { throw BoardError.NoHost } to "Your host is not reachable.",
         { throw BoardError.BoardNotRunning } to "The Board is not running.",
         { throw BoardError.Lost } to UNSURE_SENT,
         { throw BoardError.TimedOut } to UNSURE_SENT

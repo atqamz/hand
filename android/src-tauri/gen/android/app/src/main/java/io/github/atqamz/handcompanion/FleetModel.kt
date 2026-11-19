@@ -118,7 +118,7 @@ private fun pressRefusal(ref: String, error: BoardError) =
   when (error) {
     BoardError.Lost,
     BoardError.TimedOut -> "Not sure the key reached $ref."
-    BoardError.Busy -> "Your laptop is busy. Try again."
+    BoardError.Busy -> "Your host is busy. Try again."
     else -> "Could not press a key on $ref."
   }
 
@@ -272,7 +272,7 @@ class FleetModel(
   private val fleet: String,
   name: String?,
   transport: Transport,
-  private val laptop: () -> String?,
+  private val host: () -> String?,
   private val clock: () -> String = { hhmm(Date()) },
   private val noticeMillis: Long = NOTICE_MILLIS,
   private val nowMillis: () -> Long = { System.currentTimeMillis() },
@@ -357,9 +357,9 @@ class FleetModel(
                     state.copy(
                       band =
                         Band(
-                          "Can't reach ${laptop() ?: "your laptop"} since " +
+                          "Can't reach ${host() ?: "your host"} since " +
                             hhmm(Date(link.since.coerceAtLeast(1))),
-                          "Check that the laptop is on, that Hand's Board is running, " +
+                          "Check that the host is on, that Hand's Board is running, " +
                             "and that this phone has internet.",
                           retry = false,
                           live = true
@@ -718,7 +718,7 @@ class FleetModel(
         } else {
           if (error is BoardError.Conflict ||
             error is BoardError.NotFound ||
-            error in LAPTOP_LEVEL
+            error in HOST_LEVEL
           ) {
             refresh()
           }
@@ -822,9 +822,9 @@ class FleetModel(
         when (error) {
           BoardError.Unpaired ->
             mutableState.update { it.copy(unpaired = true, band = null, reachable = false) }
-          in LAPTOP_LEVEL -> {
+          in HOST_LEVEL -> {
             downSince = if (error in UNREACHABLE) downSince ?: now else null
-            mutableState.update { it.copy(band = band(error, laptop(), downSince), reachable = false) }
+            mutableState.update { it.copy(band = band(error, host(), downSince), reachable = false) }
           }
           else -> mutableState.update { it.copy(band = Band("The Board's answer could not be read.")) }
         }

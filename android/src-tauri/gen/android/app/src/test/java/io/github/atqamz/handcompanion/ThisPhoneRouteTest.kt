@@ -137,6 +137,6 @@ class ThisPhoneRouteTest {
   fun noFleetBeingSignedOutShowsThePhoneAndNoWebPage() {
     val calls = shown(phoneOf(phoneSeveral), null) {}
     assertTrue(calls.pages.isEmpty())
-    assertTrue("This phone" in calls.labels)
+    assertTrue("This Companion" in calls.labels)
   }
 }

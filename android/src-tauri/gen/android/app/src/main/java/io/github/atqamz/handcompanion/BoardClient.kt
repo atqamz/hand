@@ -19,7 +19,7 @@ const val API_VERSION = 1
 sealed class BoardError(message: String? = null, open val warn: String? = null) : Exception(message) {
   data object Busy : BoardError()
 
-  data object NoLaptop : BoardError()
+  data object NoHost : BoardError()
 
   data object Unreachable : BoardError()
 
@@ -136,7 +136,7 @@ fun parseWire(text: String?): Raw =
 private fun failure(name: String): BoardError =
   when (name) {
     "busy" -> BoardError.Busy
-    "no_laptop" -> BoardError.NoLaptop
+    "no_host" -> BoardError.NoHost
     "unreachable" -> BoardError.Unreachable
     "unpaired" -> BoardError.Unpaired
     "lost" -> BoardError.Lost

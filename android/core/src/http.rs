@@ -37,7 +37,7 @@ impl RequestError {
     pub fn name(self) -> &'static str {
         match self {
             Self::Busy => "busy",
-            Self::NoHost => "no_laptop",
+            Self::NoHost => "no_host",
             Self::Unreachable => "unreachable",
             Self::Unpaired => "unpaired",
             Self::Lost => "lost",
@@ -737,7 +737,7 @@ mod tests {
     fn every_failure_has_the_name_kotlin_reads() {
         let names = [
             (RequestError::Busy, "busy"),
-            (RequestError::NoHost, "no_laptop"),
+            (RequestError::NoHost, "no_host"),
             (RequestError::Unreachable, "unreachable"),
             (RequestError::Unpaired, "unpaired"),
             (RequestError::Lost, "lost"),
