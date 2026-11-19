@@ -296,7 +296,11 @@ func TestTheFolderFollowsTheNameUntilEdited(t *testing.T) {
 		t.Fatalf("form = %q %q", name, folder)
 	}
 	click(t, tt, "Fleet folder")
-	tt.Key(ui.Ctrl, ui.KeyA)
+	selectAll := ui.Ctrl
+	if runtime.GOOS == "darwin" {
+		selectAll = ui.Cmd
+	}
+	tt.Key(selectAll, ui.KeyA)
 	tt.Type("/srv/mine")
 	tt.Frame()
 	click(t, tt, "Fleet name")
