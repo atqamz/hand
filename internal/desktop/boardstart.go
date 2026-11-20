@@ -218,18 +218,25 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 					a.Refresh()
 				}
 			})
-	case a.noFleets:
+	case a.noFleets || a.nfOpen:
 		minW, maxW = 640, 640
-		card("Fleets", k.Muted, "none yet", "No fleet on this computer yet.",
+		label, meta, title, foot := "Fleets", "none yet", "No fleet on this computer yet.", "Made one in a terminal instead? Look again finds it."
+		if !a.noFleets {
+			meta, title, foot = "new", "Make a fleet.", ""
+		}
+		card(label, k.Muted, meta, title,
 			"A fleet is a folder with its own supervisor. Name it and choose its folder:",
-			"", "Made one in a terminal instead? Look again finds it.",
+			"", foot,
 			func() { a.newFleetFields(c, k, p) },
 			func() {
 				if button(c, k, "nf:create", a.newFleetLabel(), true) {
 					a.submitNewFleet()
 				}
-				if button(c, k, "start:look", "Look again", false) {
+				if a.noFleets && button(c, k, "start:look", "Look again", false) {
 					a.TryStart()
+				}
+				if !a.noFleets && button(c, k, "nf:cancel", "Cancel", false) {
+					a.closeNewFleet()
 				}
 				if a.nf.cmd != "" {
 					copyButton("fleets:copy", "Copy the command", a.nf.cmd)

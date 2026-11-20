@@ -433,7 +433,6 @@ func TestTheZeroFleetCardIsTheNewFleetForm(t *testing.T) {
 		t.Fatalf("folder = %q", folder)
 	}
 	mustNotText(t, tt, "cd ~/work && hand init")
-	mustNotText(t, tt, "Choose...")
 }
 
 func TestTheFolderFollowsTheNameUntilEdited(t *testing.T) {
@@ -583,13 +582,14 @@ func TestScenesNewFleet(t *testing.T) {
 					errors.New("error: conflict: /home/you/fleets/atlas is inside the fleet at /home/you/fleets; make the fleet somewhere else"),
 				},
 			}
-			_, tt := zeroFleetApp(t, noFleets, spy)
+			app, tt := zeroFleetApp(t, noFleets, spy)
+			app.PickFolder = (&folderPicker{}).pick
 			tt.SetDark(dark)
 			click(t, tt, "Fleet name")
 			tt.Type("atlas")
 			tt.Frame()
 			tt.Frame()
-			mustText(t, tt, "No fleet on this computer yet.", "Create fleet")
+			mustText(t, tt, "No fleet on this computer yet.", "Create fleet", "Choose...")
 			shot(t, tt, "new-fleet-"+theme)
 			click(t, tt, "Create fleet")
 			tt.Frame()

@@ -169,11 +169,11 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 		n.Open = open
 		return item(n)
 	}
-	if draw(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: a.underScreen() == BoardScreen,
+	if draw(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: !a.formShown() && a.underScreen() == BoardScreen,
 		Count: a.waitingNeeds(), CountBG: bg, CountFG: fg}) {
 		a.Show(BoardScreen)
 	}
-	if draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: a.underScreen() == TasksScreen}) {
+	if draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: !a.formShown() && a.underScreen() == TasksScreen}) {
 		a.resetTaskForm()
 		a.Show(TasksScreen)
 	}
@@ -184,15 +184,18 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone"}) {
 		a.OpenPhone()
 	}
-	if len(a.Fleets) > 0 {
+	if a.Model != nil {
 		kit.RailHead(c, k, open, "Fleets")
 	}
 	for _, f := range a.Fleets {
 		fleet := f
 		tone, status := a.mark(fleet)
-		if draw(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: fleet.ID == a.Fleet.ID, Tone: tone, Status: status}) {
+		if draw(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}) {
 			a.SelectFleet(fleet.ID)
 		}
+	}
+	if a.Model != nil && draw(kit.NavItem{Key: "fleet:new", Label: "New fleet", Icon: "plus", Current: a.formShown()}) {
+		a.openNewFleet()
 	}
 }
 
@@ -217,7 +220,7 @@ func (a *App) toggleSheet() {
 }
 
 func (a *App) boardShown() bool {
-	return a.Model != nil && a.Fleet.ID != "" && !a.auth && !a.Starting && a.StartErr == ""
+	return a.Model != nil && a.Fleet.ID != "" && !a.auth && !a.Starting && a.StartErr == "" && !a.nfOpen
 }
 
 const (
@@ -356,7 +359,7 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 					a.openCard(c, p)
 				}
 				switch {
-				case a.Starting || a.StartErr != "" || a.auth || a.noFleets:
+				case a.Starting || a.StartErr != "" || a.auth || a.noFleets || a.nfOpen:
 					a.stateCard(c, k, p)
 				case a.Err != "":
 					a.errorCard(c, p)

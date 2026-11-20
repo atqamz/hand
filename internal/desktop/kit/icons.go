@@ -30,6 +30,7 @@ var sources = map[string]string{
 	"sidebar":   svg("", `<path d="M2.75 2.75h10.5a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-8.5a1 1 0 0 1 1-1z"/><path d="M6.25 2.75v10.5"/>`),
 	"interrupt": `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5 4h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>`,
 	"more":      `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M3.5 6.75a1.25 1.25 0 1 0 0 2.5a1.25 1.25 0 1 0 0-2.5zM8 6.75a1.25 1.25 0 1 0 0 2.5a1.25 1.25 0 1 0 0-2.5zM12.5 6.75a1.25 1.25 0 1 0 0 2.5a1.25 1.25 0 1 0 0-2.5z"/></svg>`,
+	"plus":      svg("", `<path d="M8 3v10M3 8h10"/>`),
 	"phone":     svg("", `<path d="M5.25 1.75h5.5a1 1 0 0 1 1 1v10.5a1 1 0 0 1-1 1h-5.5a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1z"/><path d="M7.25 12h1.5"/>`),
 }
 
