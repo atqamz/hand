@@ -213,7 +213,21 @@ func realWindow(t *testing.T, fromBundle, zeroFleet bool) {
 		return cmd
 	}
 	if zeroFleet {
-		t.Cleanup(func() { _ = run(exec.Command(handBin, "board", "stop")).Run() })
+		t.Cleanup(func() {
+			quiet := 0
+			for i := 0; i < 50 && quiet < 3; i++ {
+				b, err := run(exec.Command(handBin, "board", "stop")).CombinedOutput()
+				if err != nil {
+					t.Logf("hand board stop: %v\n%s", err, b)
+				}
+				if err == nil && strings.Contains(string(b), "board: not running") {
+					quiet++
+				} else {
+					quiet = 0
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		})
 	}
 	if fromBundle {
 		deskBin = bundleFromUpdate(t, run, handBin, deskBin, home, outDir)
