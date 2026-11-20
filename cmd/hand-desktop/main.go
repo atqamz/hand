@@ -117,7 +117,7 @@ func main() {
 		area := mygo.Screen.PrimaryDisplay().WorkArea
 		width, height := app.WindowSize(int(area.Width), int(area.Height))
 		win = mygo.NewWindow(mygo.WindowOptions{
-			Title: windowTitle(app.Fleet), Width: width, Height: height,
+			Title: app.Title(), Width: width, Height: height,
 			MinWidth: desktop.MinWindowWidth, MinHeight: desktop.MinWindowHeight,
 			Content: ui.View(app.View),
 		})
@@ -129,7 +129,7 @@ func main() {
 			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Attach files", Multiple: true})
 			return paths
 		}
-		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
+		app.OnTitle = win.SetTitle
 		win.OnFocus(func() { app.SetFocused(true) })
 		win.OnBlur(func() { app.SetFocused(false) })
 		win.OnMinimize(func() { app.SetMinimized(true) })
@@ -152,15 +152,4 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func setFleetTitle(set func(string), f desktop.Fleet) {
-	set(windowTitle(f))
-}
-
-func windowTitle(f desktop.Fleet) string {
-	if f.ID != "" && f.Name != "" {
-		return "Hand · " + f.Name
-	}
-	return "Hand"
 }
