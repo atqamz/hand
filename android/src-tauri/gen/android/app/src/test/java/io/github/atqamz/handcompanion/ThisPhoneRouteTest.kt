@@ -11,7 +11,7 @@ import org.junit.Rule
 import org.junit.Test
 
 private class Calls {
-  val asks = mutableListOf<Boolean>()
+  val asks = mutableListOf<Forgetting?>()
   var forgets = 0
   val signings = mutableListOf<String?>()
   var settings = 0
@@ -57,9 +57,34 @@ class ThisPhoneRouteTest {
   @Test
   fun tappingForgetRaisesTheQuestionAndDoesNotForget() {
     val calls = shown(phoneOf(phoneSeveral), null) { tap("Forget") }
-    assertEquals(listOf(true), calls.asks)
+    assertEquals(listOf(Forgetting("e1", "atqa-laptop", 4)), calls.asks)
     assertEquals(0, calls.forgets)
     assertTrue(calls.signings.isEmpty())
+  }
+
+  @Test
+  fun eachHostForgetNamesItsOwnHostAndForgetEverythingNamesNone() {
+    val two = phoneOf(phoneSeveral, listOf(laptopLine, vpsLine))
+    val calls = shown(two, null) {
+      tap("Forget atqa-laptop")
+      tap("Forget vps-berlin")
+      tap("Forget everything")
+    }
+    assertEquals(
+      listOf(
+        Forgetting("e1", "atqa-laptop", 4),
+        Forgetting("e2", "vps-berlin", 1),
+        Forgetting(null, null, 4)
+      ),
+      calls.asks
+    )
+    assertEquals(0, calls.forgets)
+  }
+
+  @Test
+  fun oneHostHasNoSecondWayToForgetEverything() {
+    val calls = shown(phoneOf(phoneSeveral), null) {}
+    assertTrue("Forget everything" !in calls.labels)
   }
 
   @Test

@@ -106,11 +106,11 @@ class FallbackTest {
   }
 
   @Test
-  fun aFleetTheStoreLacksOpensNothingAndSetsNoCookie() {
+  fun anOpenTheCoreRefusesOpensNothingSetsNoCookieAndCanBeRetried() {
     for (answer in listOf("{}", null, "", """{"port":50123}""", """{"cookie":"$COOKIE"}""")) {
       val events = mutableListOf<String>()
       val page = runBlocking { openBoard("/$FLEET/", { answer }, Jar(events)) }
-      assertEquals(Page.Failed(NOT_PAIRED_HERE), page)
+      assertEquals(Page.Failed(OPEN_FAILED, retry = true), page)
       assertTrue(events.toString(), events.isEmpty())
     }
   }

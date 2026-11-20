@@ -141,17 +141,21 @@ internal fun Snack(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun ForgetDialog(host: String?, count: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
-  val fleets = if (count == 0) "" else " and its $count fleet${if (count == 1) "" else "s"}"
+internal fun ForgetDialog(asking: Forgetting, onConfirm: () -> Unit, onCancel: () -> Unit) {
+  val fleets =
+    if (asking.fleets == 0) "" else " and its ${asking.fleets} fleet${if (asking.fleets == 1) "" else "s"}"
+  val text =
+    if (asking.endpoint == null) {
+      "This Companion leaves every host and all ${asking.fleets} fleets. Alerts stop. " +
+        "To use it again, pair with a new code from the Board."
+    } else {
+      "This Companion leaves ${asking.name ?: "your host"}$fleets. Alerts stop. " +
+        "To use it again, pair with a new code from the Board."
+    }
   AlertDialog(
     onDismissRequest = onCancel,
-    title = { Text("Forget this host?") },
-    text = {
-      Text(
-        "This Companion leaves ${host ?: "your host"}$fleets. Alerts stop. " +
-          "To use it again, pair with a new code from the Board."
-      )
-    },
+    title = { Text(if (asking.endpoint == null) "Forget everything?" else "Forget this host?") },
+    text = { Text(text) },
     confirmButton = {
       TextButton(onConfirm) { Text("Forget", color = LocalHand.current.ink(Tone.Fail)) }
     },
@@ -170,6 +174,25 @@ private fun Strip(host: String) {
     Text(host, style = HandMono)
     Spacer(Modifier.weight(1f))
     Passing("connected")
+  }
+}
+
+@Composable
+private fun HostHeader(group: HostGroup, onRetry: () -> Unit) {
+  Column {
+    Row(
+      Modifier.fillMaxWidth().background(LocalHand.current.panel).padding(16.dp, 10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      Meta("Host")
+      Text(group.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = HandMono)
+      when {
+        group.unpaired -> Meta("Not paired anymore", LocalHand.current.ink(Tone.Fail))
+        group.band == null -> Passing("connected")
+      }
+    }
+    group.band?.let { BandView(it.copy(body = null), onRetry) }
   }
 }
 
@@ -193,7 +216,13 @@ private fun past(row: FleetRow, seen: String) =
   else listOfNotNull(row.badge?.text, "${row.open} open").joinToString(" · ") + " at $seen"
 
 @Composable
-private fun Fleet(row: FleetRow, stale: Boolean, onOpen: (String) -> Unit) {
+private fun Fleet(
+  row: FleetRow,
+  stale: Boolean,
+  onOpen: (String) -> Unit,
+  onPairAgain: () -> Unit,
+  onForgetHost: () -> Unit
+) {
   val hand = LocalHand.current
   Row(
     Modifier.fillMaxWidth()
@@ -230,6 +259,12 @@ private fun Fleet(row: FleetRow, stale: Boolean, onOpen: (String) -> Unit) {
           }
         }
       }
+      if (!row.paired) {
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          Action("Pair again", onPairAgain, Modifier.height(36.dp))
+          Action("Forget this host", onForgetHost, Modifier.height(36.dp))
+        }
+      }
     }
     when {
       !row.paired -> Unit
@@ -246,12 +281,13 @@ fun FleetsScreen(
   onRetry: () -> Unit,
   onAddFleet: () -> Unit,
   onOpen: (String) -> Unit,
-  onAsk: (Boolean) -> Unit,
+  onAsk: (Forgetting?) -> Unit,
   onForget: () -> Unit,
   onSettings: () -> Unit,
   onPhone: () -> Unit = {}
 ) {
   val line = LocalHand.current.line
+  val grouped = state.hosts.size > 1
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
     Row(
       Modifier.fillMaxWidth().height(56.dp).padding(start = 16.dp, end = 4.dp),
@@ -260,14 +296,13 @@ fun FleetsScreen(
     ) {
       Text("Hand", Modifier.weight(1f), style = type.headlineSmall)
       Action("Add fleet", onAddFleet, Modifier.height(36.dp))
-      if (state.host != null || state.rows.isNotEmpty()) {
-        Menu(listOf("This Companion" to onPhone, "Forget this host" to { onAsk(true) }))
-      }
+      if (state.hosts.isNotEmpty()) Menu(listOf("This Companion" to onPhone))
     }
     HorizontalDivider(color = line)
+    val top = state.hosts.singleOrNull()?.band ?: state.band
     when {
-      state.band != null -> BandView(state.band, onRetry)
-      state.host != null -> Strip(state.host)
+      top != null -> BandView(top, onRetry)
+      state.hosts.size == 1 -> Strip(state.hosts[0].name)
     }
     if (state.alertsOff) {
       Box(Modifier.clickable(onClick = onSettings)) {
@@ -286,9 +321,20 @@ fun FleetsScreen(
       FleetsBody.Loading -> Loading()
       FleetsBody.Rows ->
         LazyColumn {
-          items(state.rows, key = { it.id }) { Fleet(it, state.band?.retry == true, onOpen) }
+          for (group in state.hosts) {
+            if (grouped) item(key = group.endpoint) { HostHeader(group, onRetry) }
+            items(group.rows, key = { it.id }) {
+              Fleet(
+                it,
+                group.stale,
+                onOpen,
+                onAddFleet,
+                { onAsk(Forgetting(group.endpoint, group.name, group.rows.size)) }
+              )
+            }
+          }
         }
     }
   }
-  if (state.asking) ForgetDialog(state.host, state.rows.size, onForget) { onAsk(false) }
+  state.asking?.let { ForgetDialog(it, onForget) { onAsk(null) } }
 }

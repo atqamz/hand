@@ -15,6 +15,8 @@ import org.junit.Test
 private const val ONE = "f00000000e0aa"
 private const val TWO = "f000000000005"
 private const val HOST = "4d92…6ed6"
+private const val ENDPOINT = "4d92000000000000000000000000000000000000000000000000000000006ed6"
+private const val NAME = "atqa-laptop"
 private const val DAY = 24 * 60 * 60L
 
 private fun seconds(iso: String) = Instant.parse(iso).epochSecond
@@ -22,8 +24,14 @@ private fun seconds(iso: String) = Instant.parse(iso).epochSecond
 private fun stored(id: String, name: String, paired: Long) =
   """{"id":"$id","name":"$name","paired":$paired}"""
 
-private fun answer(vararg fleets: String, id: String = "9ab2…11fe", core: String = "0.1.0") =
-  """{"id":"$id","core":"$core","fleets":[${fleets.joinToString(",")}]}"""
+private fun host(vararg fleets: String, name: String = NAME) =
+  """{"endpoint":"$ENDPOINT","id":"$HOST","name":"$name","fleets":[${fleets.joinToString(",")}]}"""
+
+private fun answer(vararg hosts: String, id: String = "9ab2…11fe", core: String = "0.1.0") =
+  """{"id":"$id","core":"$core","hosts":[${hosts.joinToString(",")}]}"""
+
+private fun held(vararg fleets: PairedFleet, id: String = "a…b", core: String = "0.1.0") =
+  PhoneInfo(id, core, listOf(PairedHost(ENDPOINT, HOST, NAME, fleets.toList())))
 
 private val status =
   checkNotNull(ThisPhoneTest::class.java.classLoader?.getResource("api/status.json")).readText()
@@ -35,7 +43,14 @@ private fun state(
   phone: PhoneInfo? = null,
   band: Band? = null,
   alertsOff: Boolean = false
-) = FleetsState(HOST, rows, band, alertsOff, loaded = true, phone = phone)
+) =
+  FleetsState(
+    listOf(HostGroup(ENDPOINT, HOST, NAME, rows, band.takeIf { it != UNSAVED })),
+    band.takeIf { it == UNSAVED },
+    alertsOff,
+    loaded = true,
+    phone = phone
+  )
 
 class ThisPhoneTest {
   private val zone = TimeZone.getDefault()
@@ -55,7 +70,7 @@ class ThisPhoneTest {
 
   @Test
   fun theCoreAnswerGivesThePhoneIdTheVersionAndEachPairing() {
-    val info = phoneInfo(answer(stored(ONE, "hand", 1_700_000_000), stored(TWO, "", 0)))
+    val info = phoneInfo(answer(host(stored(ONE, "hand", 1_700_000_000), stored(TWO, "", 0))))
     assertEquals("9ab2…11fe", info?.id)
     assertEquals("0.1.0", info?.core)
     assertEquals(
@@ -66,14 +81,14 @@ class ThisPhoneTest {
 
   @Test
   fun anAnswerThatIsNotTheCoresIsNoInfo() {
-    for (text in listOf(null, "", "{}", "garbage", """{"fleets":[]}""")) {
+    for (text in listOf(null, "", "{}", "garbage", """{"hosts":[]}""")) {
       assertNull(text, phoneInfo(text))
     }
   }
 
   @Test
   fun aFleetWithoutAnIdIsLeftOutAndAMissingTimeReadsAsNone() {
-    val info = phoneInfo("""{"id":"a…b","fleets":[{"name":"x"},5,{"id":"$ONE"}],"extra":1}""")
+    val info = phoneInfo("""{"id":"a…b","hosts":[${host("""{"name":"x"}""", "5", """{"id":"$ONE"}""")}],"extra":1}""")
     assertEquals(listOf(PairedFleet(ONE, "", 0)), info?.fleets)
     assertEquals("", info?.core)
   }
@@ -109,9 +124,7 @@ class ThisPhoneTest {
     val model =
       FleetsModel(
         board,
-        { listOf(ONE) },
-        { HOST },
-        phone = { answer(stored(ONE, "stored name", seconds("2026-11-03T12:00:00Z"))) }
+        { phoneInfo(answer(host(stored(ONE, "stored name", seconds("2026-11-03T12:00:00Z"))))) }
       )
     runBlocking { model.refresh() }
     assertEquals(
@@ -122,16 +135,15 @@ class ThisPhoneTest {
 
   @Test
   fun aFleetTheBoardHasNotAnsweredShowsItsStoredNameThenItsId() {
-    val info =
-      PhoneInfo("9ab2…11fe", "0.1.0", listOf(PairedFleet(ONE, "hand", 0), PairedFleet(TWO, "", 0)))
+    val info = held(PairedFleet(ONE, "hand", 0), PairedFleet(TWO, "", 0))
     val shown = thisPhone(state(listOf(FleetRow(ONE), FleetRow(TWO)), info), "0.2.0").fleets
     assertEquals(listOf("hand", TWO), shown.map { it.name })
   }
 
   @Test
   fun theAlertsLineSaysOnOffAndNothingToWatch() {
-    val info = PhoneInfo("a…b", "0.1.0", listOf(PairedFleet(ONE, "a", 0), PairedFleet(TWO, "b", 0)))
-    val one = PhoneInfo("a…b", "0.1.0", listOf(PairedFleet(ONE, "a", 0)))
+    val info = held(PairedFleet(ONE, "a", 0), PairedFleet(TWO, "b", 0))
+    val one = held(PairedFleet(ONE, "a", 0))
     thisPhone(state(phone = info), "0.2.0").let {
       assertEquals("Alerts are on", it.alerts)
       assertEquals("Hand is connected · watching 2 fleets", it.alertsDetail)
@@ -149,7 +161,7 @@ class ThisPhoneTest {
       assertEquals("Alerts are off", it.alerts)
       assertEquals("Allow notifications in Settings.", it.alertsDetail)
     }
-    thisPhone(state(phone = PhoneInfo("a…b", "0.1.0", emptyList())), "0.2.0").let {
+    thisPhone(state(phone = held()), "0.2.0").let {
       assertEquals("Alerts are off", it.alerts)
       assertEquals("No fleet is paired.", it.alertsDetail)
     }
@@ -157,49 +169,119 @@ class ThisPhoneTest {
 
   @Test
   fun theHostIsConnectedUnlessTheListShowsABand() {
-    assertEquals("connected", thisPhone(state(), "0.2.0").link)
-    assertEquals("connected", thisPhone(state(band = UNSAVED), "0.2.0").link)
-    assertEquals(
-      "not connected",
-      thisPhone(state(band = band(BoardError.Unreachable, HOST, "12:41")), "0.2.0").link
-    )
+    val info = held(PairedFleet(ONE, "hand", 1))
+    fun link(band: Band?) = thisPhone(state(phone = info, band = band), "0.2.0").hosts.single().link
+    assertEquals("connected", link(null))
+    assertEquals("connected", link(UNSAVED))
+    assertEquals("not connected", link(band(BoardError.Unreachable, HOST, "12:41")))
   }
 
   @Test
   fun thePhoneIdAndBothVersionsComeFromTheCoreAndTheApp() {
-    val shown = thisPhone(state(phone = PhoneInfo("9ab2…11fe", "0.1.0", emptyList())), "0.2.0")
+    val shown = thisPhone(state(phone = held(id = "9ab2…11fe")), "0.2.0")
     assertEquals("9ab2…11fe", shown.phoneId)
     assertEquals("0.2.0", shown.app)
     assertEquals("0.1.0", shown.core)
-    assertNull(thisPhone(state(phone = PhoneInfo("a…b", "", emptyList())), "0.2.0").core)
+    assertNull(thisPhone(state(phone = held(core = "")), "0.2.0").core)
     assertNull(thisPhone(state(), "0.2.0").phoneId)
     assertFalse(thisPhone(FleetsState(), "0.2.0").loaded)
   }
 
   @Test
   fun theQuestionFollowsTheListsAsk() {
-    assertFalse(thisPhone(state(), "0.2.0").asking)
-    assertTrue(thisPhone(state().copy(asking = true), "0.2.0").asking)
+    val ask = Forgetting(ENDPOINT, NAME, 1)
+    assertNull(thisPhone(state(), "0.2.0").asking)
+    assertEquals(ask, thisPhone(state().copy(asking = ask), "0.2.0").asking)
   }
 
   @Test
   fun aStateWithNothingPairedEmptiesTheScreen() {
     val shown =
       thisPhone(
-        FleetsState(null, emptyList(), loaded = true, phone = PhoneInfo("a…b", "0.1.0", emptyList())),
+        FleetsState(loaded = true, phone = held()),
         "0.2.0"
       )
     assertTrue(shown.fleets.isEmpty())
-    assertNull(shown.host)
     assertEquals("No fleet is paired.", shown.alertsDetail)
   }
 
   @Test
   fun aStateWithFleetsKeepsThemAndTheHost() {
-    val info = PhoneInfo("a…b", "0.1.0", listOf(PairedFleet(ONE, "hand", 1)))
+    val info = held(PairedFleet(ONE, "hand", 1))
     val shown = thisPhone(state(listOf(FleetRow(ONE)), info), "0.2.0")
     assertEquals(listOf(ONE), shown.fleets.map { it.id })
-    assertEquals(HOST, shown.host)
+    assertEquals(listOf(HostLine(ENDPOINT, NAME, HOST, "connected", 1)), shown.hosts)
+  }
+
+  private val twoHosts =
+    PhoneInfo(
+      "a…b",
+      "0.1.0",
+      listOf(
+        PairedHost(ENDPOINT, HOST, "atqa-laptop", listOf(PairedFleet(ONE, "hand", 1))),
+        PairedHost("e2", "7c1e…a2f9", "vps-berlin", listOf(PairedFleet(TWO, "ops", 1)))
+      )
+    )
+
+  @Test
+  fun theCoreAnswerListsEachHostWithItsFleetsAndAnUnnamedHostShowsItsShortId() {
+    val text =
+      answer(
+        host(stored(ONE, "hand", 1), name = "atqa-laptop"),
+        host(stored(TWO, "ops", 1), name = ""),
+        """{"endpoint":"e3","id":"aaaa…bbbb","fleets":[]}""",
+        """{"id":"no-endpoint"}""",
+        "5"
+      )
+    val info = phoneInfo(text)!!
+    assertEquals(listOf("atqa-laptop", HOST, "aaaa…bbbb"), info.hosts.map { it.name })
+    assertEquals(listOf(ONE, TWO), info.fleets.map { it.id })
+    assertEquals(emptyList<PairedFleet>(), info.hosts.last().fleets)
+  }
+
+  @Test
+  fun eachHostLineShowsNameShortIdFleetCountAndItsOwnLink() {
+    val state =
+      FleetsState(
+        listOf(
+          HostGroup(ENDPOINT, HOST, "atqa-laptop", listOf(FleetRow(ONE))),
+          HostGroup("e2", "7c1e…a2f9", "vps-berlin", listOf(FleetRow(TWO)), band(BoardError.Unreachable, "vps-berlin", "09:12"))
+        ),
+        loaded = true,
+        phone = twoHosts
+      )
+    val shown = thisPhone(state, "0.2.0")
+    assertEquals(
+      listOf(
+        HostLine(ENDPOINT, "atqa-laptop", HOST, "connected", 1),
+        HostLine("e2", "vps-berlin", "7c1e…a2f9", "not connected", 1)
+      ),
+      shown.hosts
+    )
+    assertEquals("4d92…6ed6 · 1 fleet · connected", shown.hosts[0].detail)
+    assertEquals("Hand is partly connected · watching 2 fleets", shown.alertsDetail)
+  }
+
+  @Test
+  fun aHostWithEveryFleetUnpairedSaysSoAndAHostNamedByItsIdDoesNotRepeatIt() {
+    val state =
+      FleetsState(
+        listOf(HostGroup(ENDPOINT, HOST, HOST, listOf(FleetRow(ONE, paired = false), FleetRow(TWO, paired = false)))),
+        loaded = true,
+        phone = PhoneInfo("a…b", "0.1.0", listOf(PairedHost(ENDPOINT, HOST, HOST, listOf(PairedFleet(ONE, "", 1), PairedFleet(TWO, "", 1)))))
+      )
+    val line = thisPhone(state, "0.2.0").hosts.single()
+    assertEquals("not paired anymore", line.link)
+    assertEquals("2 fleets · not paired anymore", line.detail)
+  }
+
+  @Test
+  fun aNoticeNamesItsHostOnlyWhenTwoOrMoreHostsArePaired() {
+    assertEquals("atqa-laptop", noticeHost(twoHosts, ONE))
+    assertEquals("vps-berlin", noticeHost(twoHosts, TWO))
+    assertNull(noticeHost(twoHosts, "f0000000000ff"))
+    assertNull(noticeHost(PhoneInfo("a…b", "0.1.0", twoHosts.hosts.take(1)), ONE))
+    assertNull(noticeHost(null, ONE))
   }
 
   @Test

@@ -70,7 +70,7 @@ private fun Line(
 fun ThisPhoneScreen(
   phone: ThisPhone,
   onBack: () -> Unit,
-  onAsk: (Boolean) -> Unit,
+  onAsk: (Forgetting?) -> Unit,
   onForget: () -> Unit,
   onSignOut: (String) -> Unit,
   onSettings: () -> Unit
@@ -89,9 +89,25 @@ fun ThisPhoneScreen(
       Loading()
     } else {
       Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-        Section("Host")
-        Line(phone.host ?: "No host paired", if (phone.host == null) null else phone.link, mono = true) {
-          if (phone.host != null || phone.fleets.isNotEmpty()) Action("Forget", { onAsk(true) })
+        Section("Hosts")
+        if (phone.hosts.isEmpty()) Line("No host paired", null)
+        phone.hosts.forEach { host ->
+          Line(host.name, host.detail, mono = true) {
+            Action(
+              "Forget",
+              { onAsk(Forgetting(host.endpoint, host.name, host.fleets)) },
+              Modifier.semantics { contentDescription = "Forget ${host.name}" }
+            )
+          }
+        }
+        if (phone.hosts.size > 1) {
+          Line("Forget everything", "Every host and all ${phone.fleets.size} fleets") {
+            Action(
+              "Forget",
+              { onAsk(Forgetting(null, null, phone.fleets.size)) },
+              Modifier.semantics { contentDescription = "Forget everything" }
+            )
+          }
         }
         Section("Fleets")
         if (phone.fleets.isEmpty()) Line("No fleet is paired", null)
@@ -112,7 +128,7 @@ fun ThisPhoneScreen(
       }
     }
   }
-  if (phone.asking) ForgetDialog(phone.host, phone.fleets.size, onForget) { onAsk(false) }
+  phone.asking?.let { ForgetDialog(it, onForget) { onAsk(null) } }
 }
 
 @Composable
@@ -121,7 +137,7 @@ fun ThisPhoneRoute(
   signing: String?,
   onSigning: (String?) -> Unit,
   onBack: () -> Unit,
-  onAsk: (Boolean) -> Unit,
+  onAsk: (Forgetting?) -> Unit,
   onForget: () -> Unit,
   onSettings: () -> Unit,
   web: @Composable (String) -> Unit

@@ -40,7 +40,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,14 +63,12 @@ class HandActivity : ComponentActivity() {
   private val model by viewModels<FleetsModel> {
     viewModelFactory {
       initializer {
-        val host = File(applicationContext.dataDir, "laptop")
         FleetsModel(
           CoreTransport,
-          { pairedFleets(Core.fleets()) },
-          { hostId(host) },
+          { phoneInfo(Core.phone()) },
           Core::unsaved,
           forgetter = Core::forget,
-          phone = Core::phone
+          hostForgetter = Core::forgetHost
         )
       }
     }
@@ -80,9 +77,8 @@ class HandActivity : ComponentActivity() {
   private val pair by viewModels<PairModel> {
     viewModelFactory {
       initializer {
-        PairModel(CorePairing, Build.MODEL, {
-          val fleets = model.state.value
-          Current(fleets.host, fleets.rows.map(FleetRow::name))
+        PairModel(CorePairing, Build.MODEL, { short ->
+          phoneInfo(Core.phone())?.hosts?.firstOrNull { it.id == short }?.name
         })
       }
     }
@@ -144,8 +140,12 @@ class HandActivity : ComponentActivity() {
       this,
       viewModelFactory {
         initializer {
-          val host = File(applicationContext.dataDir, "laptop")
-          FleetModel(id, model.state.value.rows.firstOrNull { it.id == id }?.name, CoreTransport, { hostId(host) })
+          FleetModel(
+            id,
+            model.state.value.rows.firstOrNull { it.id == id }?.name,
+            CoreTransport,
+            { model.state.value.hostOf(id)?.name }
+          )
         }
       }
     )[id, FleetModel::class.java]
@@ -454,7 +454,7 @@ class HandActivity : ComponentActivity() {
           } else if (fleet == null && phone) {
             val state by model.state.collectAsStateWithLifecycle()
             val leave = {
-              model.ask(false)
+              model.ask(null)
               phone = false
             }
             BackHandler(enabled = signing == null, onBack = leave)
@@ -465,8 +465,9 @@ class HandActivity : ComponentActivity() {
               leave,
               model::ask,
               {
+                val leaves = state.hosts.size <= 1 || state.asking?.endpoint == null
                 model.forget()
-                phone = false
+                if (leaves) phone = false
               },
               { notificationSettings() }
             ) { path ->
