@@ -406,22 +406,17 @@ func TestAReadFromBeforeAResetIsDropped(t *testing.T) {
 	app.StartRefresh()
 	app.SetFocused(false)
 	tt := newTester(app)
-	quiet := func(what string) {
-		t.Helper()
-		select {
-		case <-posted:
-			t.Fatalf("%s", what)
-		default:
-		}
-	}
 
 	clock.Advance(desktop.FocusedRefresh)
 	app.SetMinimized(true)
 	app.SetMinimized(false)
-	for len(posted) > 0 {
-		(<-posted)()
+	if len(posted) != 1 {
+		t.Fatalf("%d posted reads, want the one the replaced timer queued", len(posted))
 	}
-	quiet("a timer that a reset replaced started a read")
+	stale := <-posted
+	app.Post = nil
+	stale()
+	app.Post = func(fn func()) { posted <- fn }
 	if got := f.count("attention"); got != 0 {
 		t.Fatalf("%d reads from a timer that a reset replaced", got)
 	}

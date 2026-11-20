@@ -29,6 +29,7 @@ type hostBoard struct {
 	tokens   map[string]string
 	liar     string
 	refuse   map[string]int
+	cutoff   map[string]int
 	bounce   string
 	hangup   string
 	redirect bool
@@ -45,6 +46,13 @@ func (h *hostBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.calls = append(h.calls, call)
 	h.mu.Unlock()
 	if id, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/proof"); ok {
+		if code := h.cutoff[id]; code != 0 {
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(code)
+			io.WriteString(w, "refused")
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler)
+		}
 		if code := h.refuse[id]; code != 0 {
 			http.Error(w, "refused", code)
 			return
@@ -192,6 +200,8 @@ func TestAttentionSendsNoCookieWhenAProofIsRedirectedOrUnanswered(t *testing.T) 
 		"redirect":  func(h *hostBoard) { h.bounce = secondID },
 		"transport": func(h *hostBoard) { h.hangup = secondID },
 		"teapot":    func(h *hostBoard) { h.refuse = map[string]int{secondID: http.StatusTeapot} },
+		"cut-404":   func(h *hostBoard) { h.cutoff = map[string]int{secondID: http.StatusNotFound} },
+		"cut-500":   func(h *hostBoard) { h.cutoff = map[string]int{secondID: http.StatusInternalServerError} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHost()
