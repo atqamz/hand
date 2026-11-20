@@ -69,9 +69,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
-| `GET /api/v1/links?path=PATH[&path=PATH...]` | `Links`: `limit` and `links`, one `{rel, href, dir}` or `null` per `path`, in order; see [Links](#links) | none yet; the Board links the paths in its own text from the same check |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
 | `GET /api/v1/doc/{path}?from=N` or `?lines=M` (either, or both) | `DocWindow`: those lines of a text file and where the next ones start | the viewer's text lines |
+| `GET /api/v1/links?path=PATH[&path=PATH...]` | `Links`: `limit` and `links`, one `{rel, href, dir}` or `null` per `path`, in order; see [Links](#links) | none yet; the Board links the paths in its own text from the same check |
 | `GET /api/v1/inbox/{name}` | not an envelope: the bytes of a file in the fleet's inbox, with the headers the page's `/inbox/{name}` sets; see [Attachments](#attachments) | `/inbox/{name}`, the images and file cards in the conversation |
 | `GET /api/v1/task/{tN}` | `TaskDetail`: task, plan, delivered, waits, open and all decisions, unread and recent reports, attempts, events | `/task/tN` |
 | `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, model_note, duration, reports, events, delivered, transcript | `/attempt/aN` |
@@ -658,7 +658,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, a query that is not valid percent-encoding, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |

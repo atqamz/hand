@@ -65,6 +65,7 @@ func TestAPILinksAnswersWhatDocHrefAnswers(t *testing.T) {
 	t.Setenv("USERPROFILE", filepath.Dir(home))
 	linked := map[string]board.APILink{
 		"reports/t1/design.md":                               {Rel: "reports/t1/design.md", Href: "/doc/reports/t1/design.md"},
+		"reports/t1/a b.md":                                  {Rel: "reports/t1/a b.md", Href: "/doc/reports/t1/a%20b.md"},
 		"./reports/t1/design.md":                             {Rel: "reports/t1/design.md", Href: "/doc/reports/t1/design.md"},
 		"reports/t1/sub":                                     {Rel: "reports/t1/sub", Href: "/doc/reports/t1/sub", Dir: true},
 		"reports/":                                           {Rel: "reports", Href: "/doc/reports", Dir: true},
