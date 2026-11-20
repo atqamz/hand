@@ -411,6 +411,7 @@ type check struct {
 	Agent      string
 	Attempt    *state.Attempt
 	FinishedAt string
+	Clock      string
 	Delivered  *Deliverable
 	Waits      *state.Timer
 	Asked      int

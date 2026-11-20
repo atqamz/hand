@@ -121,7 +121,13 @@ func (fx *fixture) explained() int {
 	return fx.explains
 }
 
-func (fx *fixture) handler() http.Handler { return board.New(fx.st, token, fx.options) }
+func (fx *fixture) handler() http.Handler {
+	o := fx.options
+	if o.Zone == nil {
+		o.Zone = time.UTC
+	}
+	return board.New(fx.st, token, o)
+}
 
 func (fx *fixture) supervisor(t *testing.T, status, generation string) {
 	t.Helper()

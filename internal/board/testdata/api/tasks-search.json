@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQAzZWU0MTI4N2I5MWU5N2Y.2T82u6dYQWQZ28uxGxRR4g",
+  "cursor": "ZjAwMDAwMDAwZTBhYQA1MDQxZTNkMDVlN2RkOTQ4.8tWWK5NYlj-sfUXa3qbeQg",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "q": "",
@@ -18,6 +18,7 @@
     "pages": 1,
     "groups": [
       {
+        "day": "2026-11-01",
         "name": "Sun 1 Nov UTC",
         "count": 6,
         "tasks": [

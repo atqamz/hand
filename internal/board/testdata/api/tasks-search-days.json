@@ -4,7 +4,7 @@
     "id": "f00000000e0aa",
     "name": "golden"
   },
-  "cursor": "ZjAwMDAwMDAwZTBhYQA0ZjYyMDExZDI1ZTc0MzMx._DsAwWa5Pfl9oNH8ZeJGGw",
+  "cursor": "ZjAwMDAwMDAwZTBhYQA3NDk0YWNjNjljOGU0ZmY5.T1ms2SqM87CJhdQGaYHUYg",
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "q": "",
@@ -18,6 +18,7 @@
     "pages": 1,
     "groups": [
       {
+        "day": "2026-10-05",
         "name": "Mon 5 Oct UTC",
         "count": 2,
         "tasks": [
@@ -42,6 +43,7 @@
         ]
       },
       {
+        "day": "2026-10-04",
         "name": "Sun 4 Oct UTC",
         "count": 1,
         "tasks": [
@@ -57,6 +59,7 @@
         ]
       },
       {
+        "day": "2026-10-03",
         "name": "Sat 3 Oct UTC",
         "count": 1,
         "tasks": [
@@ -72,6 +75,7 @@
         ]
       },
       {
+        "day": "2026-10-02",
         "name": "Fri 2 Oct UTC",
         "count": 1,
         "tasks": [
@@ -86,6 +90,7 @@
         ]
       },
       {
+        "day": "2026-10-01",
         "name": "Thu 1 Oct UTC",
         "count": 1,
         "tasks": [

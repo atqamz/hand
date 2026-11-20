@@ -453,7 +453,7 @@ func taskClock(at string) string {
 	if !ok {
 		return ""
 	}
-	return t.UTC().Format("15:04")
+	return t.Format("15:04")
 }
 
 func (a *App) taskPager(c *ui.Context, k kit.Colors, p palette) {

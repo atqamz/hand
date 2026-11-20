@@ -372,6 +372,7 @@ type APITaskSearchRow struct {
 }
 
 type APITaskSearchGroup struct {
+	Day   string             `json:"day"`
 	Name  string             `json:"name"`
 	Count int                `json:"count"`
 	Tasks []APITaskSearchRow `json:"tasks"`
@@ -2081,7 +2082,7 @@ func (b *Board) apiTaskSearchData(ctx context.Context, q url.Values) (APITaskSea
 		Groups:   make([]APITaskSearchGroup, 0, len(v.Groups)),
 	}
 	for _, g := range v.Groups {
-		group := APITaskSearchGroup{Name: g.Name, Count: g.Count, Tasks: make([]APITaskSearchRow, 0, len(g.Checks))}
+		group := APITaskSearchGroup{Day: g.Day, Name: g.Name, Count: g.Count, Tasks: make([]APITaskSearchRow, 0, len(g.Checks))}
 		for _, c := range g.Checks {
 			c.Subs = subs[c.Task.ID]
 			group.Tasks = append(group.Tasks, APITaskSearchRow{
