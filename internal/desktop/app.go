@@ -227,7 +227,14 @@ type App struct {
 	errScreen     bool
 	writer        *draftWriter
 	md            markdown.Options
-	refMemo       map[refKey]string
+	refMemo       map[refKey]refVal
+	pathMemo      map[string]map[string]pathAnswer
+	pathCount     int
+	pathFeat      map[string]pathFeat
+	pathQueue     []pathKey
+	pathQueued    map[pathKey]bool
+	pathBusy      bool
+	pathGen       int
 	refMemoBytes  int
 	loadID        int
 	cancel        context.CancelFunc
@@ -507,6 +514,7 @@ func (a *App) SelectFleet(id string) {
 		a.writer.Flush()
 	}
 	a.shots, a.shotQueue, a.shotBusy = nil, nil, false
+	a.pathQueue, a.pathQueued = nil, nil
 	a.shotGen++
 	if was != a.Fleet.ID || a.Draft == "" {
 		a.Draft = a.drafts().Load(a.Fleet.ID)

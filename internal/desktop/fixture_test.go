@@ -117,6 +117,15 @@ type fixture struct {
 	attnNeeds      map[string]desktop.Needs
 	attnBlock      chan struct{}
 	attnEntered    chan struct{}
+	features       []string
+	featuresErr    error
+	linkTable      map[string]desktop.Link
+	linksErr       error
+	linkReqs       [][]string
+	linkOnly       string
+	linksGate      chan struct{}
+	linksEntered   chan struct{}
+	linksTrim      int
 }
 
 func (f *fixture) Attention(ctx context.Context) ([]desktop.FleetSignal, error) {

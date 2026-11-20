@@ -763,6 +763,10 @@ func (a *App) markdown(c *ui.Context, src string) {
 	a.markdownAt(c, src, nil)
 }
 
+func (a *App) markdownRefs(c *ui.Context, src string) {
+	a.markdownOf(c, a.linkedRefs(src), nil)
+}
+
 // markdownCopy renders a plan or a report body in the Board's Copy type:
 // 15px on a 24px line, filling its card.
 func (a *App) markdownCopy(c *ui.Context, src string) {

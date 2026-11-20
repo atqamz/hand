@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -17,36 +18,75 @@ const (
 type refKey struct {
 	fleet, src string
 	literal    bool
+	paths      bool
+	gen        int
 }
 
-func linkRefs(fleet, src string) string {
-	rs := refRanges(fleet, src)
+type refVal struct {
+	md    string
+	cands []string
+}
+
+type span struct {
+	lo, hi    int
+	cand, rel string
+}
+
+var (
+	newParser = func() *parser.Document { return parser.New(parser.Default) }
+	pathAt    = markdown.PathAt
+)
+
+func linkRefs(fleet, src string, rel func(string) string) (string, []string) {
+	rs, cands := refRanges(fleet, src, rel)
 	if len(rs) == 0 {
-		return src
+		return src, cands
 	}
 	var b strings.Builder
 	last := 0
 	for _, r := range rs {
-		b.WriteString(src[last:r[0]])
-		b.WriteString(refLink(fleet, src[r[0]:r[1]]))
-		last = r[1]
+		b.WriteString(src[last:r.lo])
+		if r.rel != "" {
+			b.WriteString(pathLink(fleet, src[r.lo:r.hi], r.rel))
+		} else {
+			b.WriteString(refLink(fleet, src[r.lo:r.hi]))
+		}
+		last = r.hi
 	}
 	b.WriteString(src[last:])
-	return b.String()
+	return b.String(), cands
+}
+
+var labelEscape = strings.NewReplacer(`\`, `\\`, "*", `\*`, "_", `\_`, "[", "&#91;", "]", "&#93;", "&", `\&`, "~", `\~`, "|", `\|`, "!", `\!`)
+
+func pathLink(fleet, label, rel string) string {
+	if !strings.HasPrefix(label, "`") {
+		label = labelEscape.Replace(label)
+	}
+	return "[" + label + "](/" + fleet + "/doc/" + (&url.URL{Path: rel}).EscapedPath() + ")"
 }
 
 func refLink(fleet, ref string) string {
 	return "[" + ref + "](/" + fleet + "/ref/" + ref + ` "Open ` + ref + `")`
 }
 
-func refRanges(fleet, src string) [][2]int {
-	if !refFleet(fleet) || !strings.ContainsAny(src, "tdar") {
-		return nil
+type walk struct {
+	src      string
+	rel      func(string) string
+	rs       []span
+	cands    []string
+	last     int
+	seen     int
+	pathSkip int
+}
+
+func refRanges(fleet, src string, rel func(string) string) ([]span, []string) {
+	if !refFleet(fleet) || !strings.ContainsAny(src, "tdar") && (rel == nil || !strings.ContainsAny(src, `/\`)) {
+		return nil, nil
 	}
-	d := parser.New(parser.Default)
+	d := newParser()
 	d.Set(src)
-	var rs [][2]int
-	last := 0
+	w := walk{src: src, rel: rel}
 	for i := 0; i < d.Len(); i++ {
 		in := d.Inlines(i)
 		var open []emph
@@ -62,32 +102,78 @@ func refRanges(fleet, src string) [][2]int {
 				if e, ok := emphOf(src, in[j]); ok {
 					open = append(open, e)
 				}
+			case parser.Code:
+				w.code(in[j])
 			case parser.Text:
 				lo, hi := 0, len(src)
 				if n := len(open); n > 0 {
 					lo, hi = open[n-1].lo, open[n-1].hi
 				}
-				rs, last = textRefs(rs, src, in[j], lo, hi, last)
+				w.text(in[j], lo, hi)
 			}
 			j++
 		}
 	}
-	return rs
+	return w.rs, w.cands
 }
 
-func textRefs(rs [][2]int, src string, t parser.Inline, lo, hi, last int) ([][2]int, int) {
-	if t.Start < last || t.End > len(src) || src[t.Start:t.End] != t.Text && strings.Contains(src[t.Start:t.End], "\n") {
-		return rs, last
+func (w *walk) code(c parser.Inline) {
+	if w.rel == nil || c.Start < w.last || c.End > len(w.src) || c.End-c.Start < 3 || w.src[c.Start] != '`' || w.src[c.End-1] != '`' {
+		return
+	}
+	if raw := w.src[c.Start+1 : c.End-1]; !strings.Contains(raw, "`") && markdown.PathCode(raw) {
+		w.cand(c.Start, c.End, raw)
+	}
+}
+
+func (w *walk) cand(lo, hi int, text string) bool {
+	w.seen++
+	if w.seen > pathMax || !askable(text) {
+		return false
+	}
+	w.cands = append(w.cands, text)
+	if rel := w.rel(text); rel != "" {
+		w.rs = append(w.rs, span{lo, hi, text, rel})
+		w.last = hi
+		return true
+	}
+	return false
+}
+
+func askable(p string) bool {
+	if len(p) > pathValueMax {
+		return false
+	}
+	for i := range len(p) {
+		if p[i] < ' ' || p[i] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func (w *walk) text(t parser.Inline, lo, hi int) {
+	src := w.src
+	if t.Start < w.last || t.End > len(src) || src[t.Start:t.End] != t.Text && strings.Contains(src[t.Start:t.End], "\n") {
+		return
 	}
 	for k := t.Start; k < t.End; k++ {
+		if w.rel != nil && k >= w.pathSkip && w.seen < pathMax {
+			if n := pathAt(src[lo:hi], k-lo); n > 0 && k+n <= t.End {
+				w.pathSkip = k + n
+				if w.cand(k, k+n, src[k:k+n]) {
+					k += n - 1
+					continue
+				}
+			}
+		}
 		n := markdown.RefAt(src[lo:hi], k-lo)
 		if n == 0 || k+n > t.End {
 			continue
 		}
-		rs = append(rs, [2]int{k, k + n})
-		last, k = k+n, k+n-1
+		w.rs = append(w.rs, span{lo: k, hi: k + n})
+		w.last, k = k+n, k+n-1
 	}
-	return rs, last
 }
 
 type emph struct{ lo, hi, next int }
@@ -118,7 +204,7 @@ func refFleet(id string) bool {
 }
 
 func literalRefs(fleet, src string) string {
-	rs := refRanges(fleet, src)
+	rs, _ := refRanges(fleet, src, nil)
 	if len(rs) == 0 {
 		return ""
 	}
@@ -126,9 +212,9 @@ func literalRefs(fleet, src string) string {
 	var b strings.Builder
 	bol := true
 	for i := 0; i < end; {
-		if len(rs) > 0 && rs[0][0] == i {
-			b.WriteString(refLink(fleet, src[i:rs[0][1]]))
-			i, rs, bol = rs[0][1], rs[1:], false
+		if len(rs) > 0 && rs[0].lo == i {
+			b.WriteString(refLink(fleet, src[i:rs[0].hi]))
+			i, rs, bol = rs[0].hi, rs[1:], false
 			continue
 		}
 		c := src[i]
@@ -153,29 +239,40 @@ func literalRefs(fleet, src string) string {
 	return b.String()
 }
 
-func (a *App) linked(src string) string { return a.memo(src, false) }
+func (a *App) linked(src string) string { return a.memo(src, false, true) }
 
-func (a *App) literal(src string) string { return a.memo(src, true) }
+func (a *App) linkedRefs(src string) string { return a.memo(src, false, false) }
 
-func (a *App) memo(src string, literal bool) string {
-	k := refKey{a.Fleet.ID, src, literal}
-	if s, ok := a.refMemo[k]; ok {
-		return s
+func (a *App) literal(src string) string { return a.memo(src, true, false) }
+
+func (a *App) memo(src string, literal, paths bool) string {
+	k := refKey{fleet: a.Fleet.ID, src: src, literal: literal, paths: paths}
+	if paths {
+		k.gen = a.pathGen
 	}
-	var s string
+	if v, ok := a.refMemo[k]; ok {
+		a.askPaths(k.fleet, v.cands)
+		return v.md
+	}
+	var v refVal
 	if literal {
-		s = literalRefs(k.fleet, src)
+		v.md = literalRefs(k.fleet, src)
 	} else {
-		s = linkRefs(k.fleet, src)
+		var rel func(string) string
+		if paths {
+			rel = a.pathRel(k.fleet)
+		}
+		v.md, v.cands = linkRefs(k.fleet, src, rel)
+		a.askPaths(k.fleet, v.cands)
 	}
-	n := len(src) + len(s)
+	n := len(src) + len(v.md)
 	if len(src) > refMemoSrcMax {
-		return s
+		return v.md
 	}
 	if a.refMemo == nil || len(a.refMemo) >= refMemoMax || a.refMemoBytes+n > refMemoBytesMax {
-		a.refMemo, a.refMemoBytes = map[refKey]string{}, 0
+		a.refMemo, a.refMemoBytes = map[refKey]refVal{}, 0
 	}
-	a.refMemo[k] = s
+	a.refMemo[k] = v
 	a.refMemoBytes += n
-	return s
+	return v.md
 }

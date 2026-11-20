@@ -63,7 +63,7 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 			a.docRow(c, k, a.doc.row, false)
 			return
 		}
-		a.markdownAt(c, shownText(a.doc.body), kit.DocTheme(c))
+		a.markdownOf(c, a.linkedRefs(shownText(a.doc.body)), kit.DocTheme(c))
 	case "text":
 		a.docText(c, k, p, d)
 	case "image":
