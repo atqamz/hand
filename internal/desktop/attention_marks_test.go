@@ -404,6 +404,7 @@ func TestAReadFromBeforeAResetIsDropped(t *testing.T) {
 	clock := newFakeClock()
 	app.Clock = clock
 	app.StartRefresh()
+	app.SetFocused(false)
 	tt := newTester(app)
 	quiet := func(what string) {
 		t.Helper()
