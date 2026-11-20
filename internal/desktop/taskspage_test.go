@@ -1006,6 +1006,7 @@ func TestClosingTheViewerRefreshesTheSearch(t *testing.T) {
 
 func TestAStatusChangeDuringASearchReRunsItAfter(t *testing.T) {
 	f := searchFixture(t)
+	f.fleets = f.fleets[:1]
 	app, _ := searchApp(t, f)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -1110,6 +1111,7 @@ func TestAWorkerBlockedBoardBacksOffAFailingSearch(t *testing.T) {
 
 func TestAStatusChangeDuringAFailingSearchReRunsAfter(t *testing.T) {
 	f := searchFixture(t)
+	f.fleets = f.fleets[:1]
 	app, _ := searchApp(t, f)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }
@@ -1254,6 +1256,7 @@ func TestADeferredSearchDoesNotRunAfterLeavingTheTasksPage(t *testing.T) {
 
 func TestARetryDoesNotStartWhileASearchIsInFlight(t *testing.T) {
 	f := searchFixture(t)
+	f.fleets = f.fleets[:1]
 	app, _ := quietApp(t, f, false)
 	posted := make(chan func(), 8)
 	app.Post = func(fn func()) { posted <- fn }

@@ -189,7 +189,8 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	}
 	for _, f := range a.Fleets {
 		fleet := f
-		if draw(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: fleet.ID == a.Fleet.ID}) {
+		tone, status := a.mark(fleet)
+		if draw(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: fleet.ID == a.Fleet.ID, Tone: tone, Status: status}) {
 			a.SelectFleet(fleet.ID)
 		}
 	}

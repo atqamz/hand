@@ -82,3 +82,34 @@ func TestInstallWithoutABoardPushesOffline(t *testing.T) {
 		t.Fatalf("pushed %q, want %q", pushed, want)
 	}
 }
+
+func TestSignalMark(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		sig          Signal
+		tone, status string
+	}{
+		{"blocked", Signal{OK: true, Waiting: 1, Worst: "blocked", WorstWord: "blocked"}, "fail", "blocked"},
+		{"worker", Signal{OK: true, Waiting: 1, Worst: "worker", WorstWord: "blocked"}, "fail", "blocked"},
+		{"failure", Signal{OK: true, Waiting: 1, Worst: "failure", WorstWord: "failed"}, "fail", "failed"},
+		{"resume", Signal{OK: true, Waiting: 1, Worst: "resume", WorstWord: "interrupted"}, "fail", "interrupted"},
+		{"fail without a word", Signal{OK: true, Waiting: 1, Worst: "failure"}, "fail", "waiting"},
+		{"decision", Signal{OK: true, Waiting: 2, Worst: "decision", WorstWord: "waiting"}, "wait", "waiting"},
+		{"limited", Signal{OK: true, Waiting: 1, Worst: "limited", WorstWord: "waiting"}, "wait", "waiting"},
+		{"nosup", Signal{OK: true, Waiting: 1, Worst: "nosup", WorstWord: "waiting"}, "wait", "waiting"},
+		{"stalled", Signal{OK: true, Waiting: 1, Worst: "stalled", WorstWord: "waiting"}, "wait", "waiting"},
+		{"report", Signal{OK: true, Waiting: 1, Worst: "report", WorstWord: "waiting"}, "neutral", "waiting"},
+		{"quiet kind", Signal{OK: true, Waiting: 1, Worst: "quiet", WorstWord: "waiting"}, "neutral", "waiting"},
+		{"waiting with no worst", Signal{OK: true, Waiting: 1}, "neutral", "waiting"},
+		{"quiet", Signal{OK: true}, "", "quiet"},
+		{"fail kind left with nothing waiting", Signal{OK: true, Worst: "blocked", WorstWord: "blocked"}, "", "quiet"},
+		{"working is still quiet", Signal{OK: true, Working: true}, "", "quiet"},
+		{"unavailable", Signal{Waiting: 3, Worst: "blocked", WorstWord: "blocked"}, "unavailable", "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tone, status := tc.sig.Mark(); tone != tc.tone || status != tc.status {
+				t.Fatalf("mark = %q, %q; want %q, %q", tone, status, tc.tone, tc.status)
+			}
+		})
+	}
+}

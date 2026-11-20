@@ -88,7 +88,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - supervisor and worker status comes live from Luvus;
   - the conversation comes from harness transcripts;
   - everything else comes from SQLite.
-- **Decided on 2026-09-28:** there is no cross-fleet overview. Each page shows one fleet, and `/` only lists the fleets. The rail names the fleets this browser holds a valid token for, or this companion is paired with, so it switches fleets, and it never shows another fleet's counts.
+- **Decided on 2026-09-28:** there is no cross-fleet overview. Each page shows one fleet, and `/` only lists the fleets. The rail names the fleets this browser holds a valid token for, or this companion is paired with, so it switches fleets, and it never shows another fleet's counts. The rule is about what a client shows: a fleet mark in the desktop window carries a dot for that fleet's worst need and its word in the accessible name (`golden, blocked`), read from `GET /api/v1/fleets`, and a dot is not a count, so no client shows a digit for a fleet that is not the open one.
 
 ## Brand Commitments
 
