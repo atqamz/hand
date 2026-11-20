@@ -177,14 +177,20 @@ func homeRel(home, p string) (string, bool) {
 }
 
 func DocHref(home, base, p string) string {
-	rel, ok := homeRel(home, p)
+	_, href, _, _ := docLink(home, base, p)
+	return href
+}
+
+func docLink(home, base, p string) (rel, href string, dir, ok bool) {
+	hr, ok := homeRel(home, p)
 	if !ok {
-		return ""
+		return "", "", false, false
 	}
-	if _, _, _, err := Resolve(home, rel); err != nil {
-		return ""
+	_, real, fi, err := Resolve(home, hr)
+	if err != nil {
+		return "", "", false, false
 	}
-	return docURL(base, rel)
+	return real, docURL(base, hr), fi.IsDir(), true
 }
 
 func (b *Board) local() func(string) string {
