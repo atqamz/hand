@@ -130,6 +130,7 @@ const (
 	noSession
 	companionGone
 	companionOther
+	companionFailed
 )
 
 func (b *Board) mac(what string) string {
@@ -211,6 +212,11 @@ func (b *Board) CompanionSession(r *http.Request) bool {
 	return fault == signedIn
 }
 
+func (b *Board) CompanionGone(r *http.Request) bool {
+	_, fault := b.companionIdentify(r)
+	return fault == companionGone
+}
+
 func (b *Board) identify(r *http.Request) (session, sessionFault) {
 	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && peerOf(r) == nil && b.valid(c.Value) {
 		return session{CSRF: b.token}, signedIn
@@ -230,7 +236,10 @@ func (b *Board) companionIdentify(r *http.Request) (session, sessionFault) {
 	}
 	hash := b.secretHash(secret)
 	d, ok, err := b.st.DeviceWithSecret(r.Context(), id, hash)
-	if err != nil || !ok {
+	if err != nil {
+		return session{}, companionFailed
+	}
+	if !ok {
 		return session{}, companionGone
 	}
 	if b.lapsed(d) {
@@ -244,7 +253,7 @@ func (b *Board) companionIdentify(r *http.Request) (session, sessionFault) {
 
 func sessionFaults(f sessionFault, viaProxy bool) string {
 	switch {
-	case f == companionGone:
+	case f == companionGone || f == companionFailed:
 		return "This Companion is no longer paired with this fleet. Pair it again from the host's Board: Companion, in its menu."
 	case f == companionOther:
 		return "This Companion was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from the host's Board."

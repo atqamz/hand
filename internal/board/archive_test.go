@@ -400,3 +400,65 @@ func TestTheTasksPageIsTitledTasks(t *testing.T) {
 	contains(t, "empty", empty, `<p class="quiet">No tasks match.</p>`)
 	lacks(t, "empty", empty, "Try fewer words", "clear the dates")
 }
+
+func finishedTitles(t *testing.T, tasks board.APITasks, group string) []string {
+	t.Helper()
+	for _, g := range tasks.Groups {
+		if g.Name == group {
+			var out []string
+			for _, r := range g.Tasks {
+				out = append(out, r.Title)
+			}
+			return out
+		}
+	}
+	return nil
+}
+
+func TestAllTasksListsDoneAndAbandonedNewestFirstByFinishTime(t *testing.T) {
+	a := newArchive(t)
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	a.finish(t, "hand", "Done a", state.StatusDone, day(3))
+	a.finish(t, "hand", "Done b", state.StatusDone, day(1))
+	a.finish(t, "hand", "Done c", state.StatusDone, day(2))
+	a.finish(t, "hand", "Dropped d", state.StatusAbandoned, day(4))
+	a.finish(t, "hand", "Dropped e", state.StatusAbandoned, day(5))
+	a.finish(t, "hand", "Dropped f", state.StatusAbandoned, day(2))
+	a.now = day(6)
+	active(t, a.st, "Live one")
+	active(t, a.st, "Live two")
+	h := a.handler()
+
+	_, tasks := apiInto[board.APITasks](t, h, "/api/v1/tasks?all=1")
+	for group, want := range map[string]string{
+		"Active":    "Live one|Live two",
+		"Done":      "Done a|Done c|Done b",
+		"Abandoned": "Dropped e|Dropped d|Dropped f",
+	} {
+		if got := strings.Join(finishedTitles(t, tasks, group), "|"); got != want {
+			t.Fatalf("%s = %s, want %s", group, got, want)
+		}
+	}
+	if got := strings.Join(titles(region(get(t, h, "/?all=1"), "tasks")), "|"); got != "Live one|Live two|Done a|Done c|Done b|Dropped e|Dropped d|Dropped f" {
+		t.Fatalf("?all=1 rows = %s", got)
+	}
+}
+
+func TestAllTasksCapKeepsTheNewestFinishedRows(t *testing.T) {
+	a := newArchive(t)
+	start := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 502 {
+		a.finish(t, "hand", fmt.Sprintf("Done %d", i), state.StatusDone, start.Add(time.Duration(i)*time.Minute))
+	}
+	a.now = start.Add(24 * time.Hour)
+	active(t, a.st, "Live")
+
+	_, tasks := apiInto[board.APITasks](t, a.handler(), "/api/v1/tasks?all=1")
+	done := finishedTitles(t, tasks, "Done")
+	if len(done) != 499 || done[0] != "Done 501" || done[len(done)-1] != "Done 3" {
+		t.Fatalf("Done has %d rows, first %q, last %q; want 499 rows from Done 501 down to Done 3", len(done), done[0], done[len(done)-1])
+	}
+	if tasks.Hidden != 3 || tasks.FinishedCount != 502 {
+		t.Fatalf("hidden = %d, finished_count = %d, want 3 and 502", tasks.Hidden, tasks.FinishedCount)
+	}
+}

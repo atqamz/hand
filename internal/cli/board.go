@@ -312,6 +312,12 @@ func (f *fleetBoard) CompanionSession(r *http.Request) bool {
 	return err == nil && ok && p.CompanionSession(r)
 }
 
+func (f *fleetBoard) CompanionGone(r *http.Request) bool {
+	h, err := f.current()
+	p, ok := h.(board.Prover)
+	return err == nil && ok && p.CompanionGone(r)
+}
+
 func (f *fleetBoard) FleetSummary(ctx context.Context) (board.APIFleetSummary, error) {
 	h, err := f.current()
 	if err != nil {

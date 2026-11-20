@@ -42,7 +42,13 @@ func (b *Board) buildTasks(ctx context.Context, q url.Values, f facts, c viewCon
 		if len(tasks) >= maxCards {
 			break
 		}
-		part, err := b.st.Tasks(ctx, []string{status}, maxCards-len(tasks))
+		var part []state.Task
+		var err error
+		if status == state.StatusDone || status == state.StatusAbandoned {
+			part, _, err = b.st.SearchTasks(ctx, state.TaskQuery{Statuses: []string{status}, Limit: maxCards - len(tasks)})
+		} else {
+			part, err = b.st.Tasks(ctx, []string{status}, maxCards-len(tasks))
+		}
 		if err != nil {
 			return v, err
 		}

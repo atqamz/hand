@@ -192,7 +192,7 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 - **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the Companion's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
 - **After pairing.** The whole Board, with the supervisor's controls, except `/<fleet id>/proof`; and the host-level `/api/v1/fleets` and `/api/v1/meta`. A request that carries a cookie that no longer proves puts the connection's caps back.
 - **The app link.** The Companion page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this host's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
-- **Revoking.** On the Companion page, **Revoke** deletes the device and **Revoke everywhere** deletes the Companion's devices in every fleet. The cookie fails at once and the page answers 403 "This Companion is no longer paired with this fleet". That endpoint ID's live connections are closed, and the host then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
+- **Revoking.** On the Companion page, **Revoke** deletes the device and **Revoke everywhere** deletes the Companion's devices in every fleet. The cookie fails at once and the page answers 403 "This Companion is no longer paired with this fleet", with `X-Hand-Error`, also when no other fleet still proves the cookie. That endpoint ID's live connections are closed, and the host then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
 - **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired Companion. A key that is not paired may still dial and reaches only the pair page and the pair endpoint.
 
 ### Step 3
@@ -249,7 +249,7 @@ The Board records two times per alert, for the reliability trial: `fetched_at`, 
 
 ### Refusals
 
-The route answers as every other Board page does. An unpaired Companion, a cookie of another fleet and a cookie of another endpoint ID get `403`. A Companion revoked while its request is held gets `403` with the `X-Hand-Error` of ["no longer paired"](#errors-and-what-the-user-should-see) at the next check, within about a second, and the app stops polling that fleet. A `429` or a `5xx`, a reset with code 3, 4 or 5, or no answer within 35 seconds is a failed poll: the app backs off as it does for any lost connection and tries again.
+The route answers as every other Board page does. An unpaired Companion, a cookie of another fleet and a cookie of another endpoint ID get `403`. A Companion that sends this fleet's cookie after its pairing was revoked gets `403` with the `X-Hand-Error` of ["no longer paired"](#errors-and-what-the-user-should-see), whether or not it is paired in another fleet; one revoked while its request is held gets it at the next check, within about a second. The app stops polling that fleet. A `429` or a `5xx`, a reset with code 3, 4 or 5, or no answer within 35 seconds is a failed poll: the app backs off as it does for any lost connection and tries again.
 
 ## Errors and what the user should see
 
@@ -269,7 +269,8 @@ The app's own screens say the left column. A page the Board serves appears in th
 | Too many wrong codes (all cancelled) | The pair page's 403, or `codes_cancelled` | "Too many wrong codes. Every code was cancelled. Show a new code on the Board." |
 | Too many wrong codes from this Companion | The pair page's 429, or `rate_limited` | "Too many wrong codes from this Companion. Wait a minute, then try again." |
 | The Companion is still paired in another fleet, and this fleet's pairing was removed on the host | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
-| The Companion's only paired fleet was removed on the host | The Board's 403 "Pair this Companion first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
+| The Companion's only paired fleet was removed on the host, and it still sends that fleet's cookie | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
+| A Companion that sends no cookie of the fleet it asks | The Board's 403 "Pair this Companion first", with `X-Hand-Error` only when a cookie of another fleet proves the request | The page, which says how to pair again. The app adds no actions |
 | Too much asked before pairing | The Board's 429 | The page; the web view reconnects, which opens a new stream |
 
 A name the Board refuses is `bad_name`: the app limits the field to 40 characters and no control character, so the user never sees it. The pair page's texts on the right are the Board's, and the API's `message` carries the same text; the app may show them in its own words but must keep their meaning, and must not add the code.
