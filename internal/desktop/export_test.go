@@ -106,3 +106,4 @@ func NewFleetOpen(a *App) bool { return a.nfOpen }
 
 func NewFleetBusy(a *App) bool { return a.nf.busy }
 func PathsBusy(a *App) bool    { return a.pathBusy }
+func PathGen(a *App) int       { return a.pathGen }

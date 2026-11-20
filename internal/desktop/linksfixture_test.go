@@ -32,7 +32,7 @@ func (f *fixture) Links(ctx context.Context, id string, paths []string) ([]*desk
 			out[i] = &l
 		}
 	}
-	return out, nil
+	return out[:len(out)-min(f.linksTrim, len(out))], nil
 }
 
 func (f *fixture) requests() [][]string {

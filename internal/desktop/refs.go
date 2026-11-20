@@ -57,15 +57,13 @@ func linkRefs(fleet, src string, rel func(string) string) (string, []string) {
 	return b.String(), cands
 }
 
-var labelEscape = strings.NewReplacer(`\`, `\\`, "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`, "&", `\&`, "~", `\~`, "|", `\|`, "(", `\(`, ")", `\)`, "!", `\!`)
-
-var destEscape = strings.NewReplacer("(", "%28", ")", "%29")
+var labelEscape = strings.NewReplacer(`\`, `\\`, "*", `\*`, "_", `\_`, "[", "&#91;", "]", "&#93;", "&", `\&`, "~", `\~`, "|", `\|`, "!", `\!`)
 
 func pathLink(fleet, label, rel string) string {
 	if !strings.HasPrefix(label, "`") {
 		label = labelEscape.Replace(label)
 	}
-	return "[" + label + "](/" + fleet + "/doc/" + destEscape.Replace((&url.URL{Path: rel}).EscapedPath()) + ")"
+	return "[" + label + "](/" + fleet + "/doc/" + (&url.URL{Path: rel}).EscapedPath() + ")"
 }
 
 func refLink(fleet, ref string) string {

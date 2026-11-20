@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"strings"
@@ -229,6 +230,7 @@ func TestABoardThatGainsTheLinksFeatureIsAskedAgainAfterThirtyOneSeconds(t *test
 }
 
 func TestAModelErrorLeavesTheTextPlainWithoutARetryStorm(t *testing.T) {
+	want := map[string]int{"links": 1, "features": 0}
 	for name, set := range map[string]func(*fixture){
 		"links":    func(f *fixture) { f.linksErr = fmt.Errorf("boom") },
 		"features": func(f *fixture) { f.featuresErr = fmt.Errorf("boom") },
@@ -240,8 +242,8 @@ func TestAModelErrorLeavesTheTextPlainWithoutARetryStorm(t *testing.T) {
 			for range 20 {
 				tt.Frame()
 			}
-			if n := f.count("features") + f.count("links"); n != 1 && !(name == "links" && n == 2) {
-				t.Fatalf("%d requests in 20 frames", n)
+			if features, links := f.count("features"), f.count("links"); features != 1 || links != want[name] {
+				t.Fatalf("%d features and %d links requests in 20 frames, want 1 and %d", features, links, want[name])
 			}
 			notALink(t, tt, app, "reports/a.md")
 		})
@@ -380,6 +382,168 @@ func TestAWorkersTranscriptAndADocumentBodyAreNotLinkedForPaths(t *testing.T) {
 	mustText(t, tt, "Note")
 	if f.count("features") != 0 || f.count("links") != 0 {
 		t.Fatalf("asked for links: features %d, links %d", f.count("features"), f.count("links"))
+	}
+}
+
+func TestAProsePathShowsWholeWhateverPunctuationItHolds(t *testing.T) {
+	for _, path := range []string{
+		"/abs/a(1).md", "/abs/a[1].md", "/abs/a]b.md", "/abs/a[b.md", "/abs/a_b_c.md",
+		"/abs/a&b.md", "/abs/a&amp;b.md", "/abs/a~b~c.md", "/abs/a|b.md", "/abs/a!b.md", "/abs/a!(b).md", `/abs/a\b.md`,
+	} {
+		for _, c := range pathSizes[:2] {
+			t.Run(path+"/"+c.name, func(t *testing.T) {
+				f := pathFixture(t, map[string]string{path: "reports/a.md"}, supervisor("Wrote "+path+" now"))
+				app, tt := pathApp(t, f, c)
+				frames(tt)
+				if got := f.requests(); len(got) != 1 || len(got[0]) != 1 || got[0][0] != path {
+					t.Fatalf("requests = %q, want the path whole", got)
+				}
+				mustText(t, tt, "Wrote "+path+" now")
+				click(t, tt, path)
+				if desktop.DocShown(app) != "reports/a.md" {
+					t.Fatalf("doc %q", desktop.DocShown(app))
+				}
+			})
+		}
+	}
+}
+
+func threeMessagesOfThirtyPaths() (map[string]string, []desktop.Entry) {
+	links := map[string]string{}
+	var entries []desktop.Entry
+	for m := range 3 {
+		var b strings.Builder
+		for i := range 30 {
+			p := fmt.Sprintf("reports/%d-%02d.md", m, i)
+			fmt.Fprintf(&b, "`%s` ", p)
+			links[p] = p
+		}
+		e := supervisor(b.String())
+		e.No, e.Ref = 9+m, fmt.Sprintf("s%d", 1+m)
+		entries = append(entries, e)
+	}
+	return links, entries
+}
+
+func TestARequestCarriesAtMostFiftyPathsAcrossMessagesAndFeaturesAreReadOnce(t *testing.T) {
+	links, entries := threeMessagesOfThirtyPaths()
+	f := pathFixture(t, links, entries...)
+	f.linksGate = make(chan struct{})
+	f.linksEntered = make(chan struct{}, 4)
+	app := newApp(t, f)
+	posted := make(chan func(), 64)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := sized(t, app, 1100, 760, false)
+	tt.Frame()
+	<-f.linksEntered
+	close(f.linksGate)
+	drainUntil(t, posted, tt, func() bool { return len(f.requests()) >= 2 && !desktop.PathsBusy(app) })
+	frames(tt)
+	got := f.requests()
+	total := 0
+	for _, req := range got {
+		total += len(req)
+		if len(req) > 50 {
+			t.Fatalf("a request of %d paths", len(req))
+		}
+	}
+	if total != 90 || len(got) != 3 {
+		t.Fatalf("%d requests carry %d paths", len(got), total)
+	}
+	if n := f.count("features"); n != 1 {
+		t.Fatalf("%d features reads inside thirty seconds, want 1", n)
+	}
+	if desktop.PathGen(app) == 0 {
+		t.Fatal("the answers changed no link")
+	}
+}
+
+func TestAnAnswerOfAnotherLengthThanTheRequestLeavesTheTextPlain(t *testing.T) {
+	f := pathFixture(t, map[string]string{"reports/a.md": "reports/a.md", "reports/b.md": "reports/b.md"},
+		supervisor("`reports/a.md` and `reports/b.md`"))
+	f.linksTrim = 1
+	app, tt := pathApp(t, f, pathSizes[0])
+	frames(tt)
+	if n := len(f.requests()); n != 1 {
+		t.Fatalf("%d requests", n)
+	}
+	notALink(t, tt, app, "reports/a.md")
+	notALink(t, tt, app, "reports/b.md")
+}
+
+func TestTheLinkGenerationMovesOnlyWhenAnAnswerChangesWhatIsShown(t *testing.T) {
+	f := pathFixture(t, nil, supervisor("later `reports/a.md`"))
+	app := newApp(t, f)
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	app.Now = func() time.Time { return now }
+	tt := sized(t, app, 1100, 760, false)
+	frames(tt)
+	if n := len(f.requests()); n != 1 || desktop.PathGen(app) != 0 {
+		t.Fatalf("%d requests, generation %d after a new negative", n, desktop.PathGen(app))
+	}
+	now = now.Add(31 * time.Second)
+	tt.Advance(31 * time.Second)
+	frames(tt)
+	if n := len(f.requests()); n != 2 || desktop.PathGen(app) != 0 {
+		t.Fatalf("%d requests, generation %d after a repeated negative", n, desktop.PathGen(app))
+	}
+	addDoc(f, "reports/a.md")
+	f.mu.Lock()
+	f.linkTable["reports/a.md"] = link("reports/a.md")
+	f.mu.Unlock()
+	now = now.Add(31 * time.Second)
+	tt.Advance(31 * time.Second)
+	frames(tt)
+	if desktop.PathGen(app) != 1 {
+		t.Fatalf("generation %d after the path became a link, want 1", desktop.PathGen(app))
+	}
+}
+
+func TestTheQueueOfAFleetIsDroppedWhenAnotherFleetIsShown(t *testing.T) {
+	links, entries := threeMessagesOfThirtyPaths()
+	f := pathFixture(t, links, entries...)
+	empty := f.timeline[fleetID]
+	empty.Entries = nil
+	f.timeline[secondID] = empty
+	f.status[secondID] = f.status[fleetID]
+	f.tasks[secondID] = f.tasks[fleetID]
+	f.linksGate = make(chan struct{})
+	f.linksEntered = make(chan struct{}, 4)
+	app := newApp(t, f)
+	posted := make(chan func(), 64)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := sized(t, app, 1100, 760, false)
+	tt.Frame()
+	<-f.linksEntered
+	app.SelectFleet(secondID)
+	drainUntil(t, posted, tt, func() bool { return app.Fleet.ID == secondID && len(app.Timeline.Entries) == 0 })
+	close(f.linksGate)
+	drainUntil(t, posted, tt, func() bool { return !desktop.PathsBusy(app) })
+	frames(tt)
+	if got := f.requests(); len(got) != 1 {
+		t.Fatalf("requests = %d, the queue of the fleet left was asked after the switch", len(got))
+	}
+}
+
+func TestALinkDiffersFromAPlainSpanInBothThemes(t *testing.T) {
+	for _, text := range []string{"Read `reports/a.md` now.", "Read /abs/a.md now."} {
+		for _, dark := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/dark=%v", text, dark), func(t *testing.T) {
+				shot := func(known bool) []byte {
+					links := map[string]string{}
+					if known {
+						links["reports/a.md"], links["/abs/a.md"] = "reports/a.md", "reports/a.md"
+					}
+					f := pathFixture(t, links, supervisor(text))
+					_, tt := pathApp(t, f, pathCase{dark: dark, w: 1100, h: 760})
+					frames(tt)
+					return tt.Image().Pix
+				}
+				if bytes.Equal(shot(true), shot(false)) {
+					t.Fatal("a path that is a link is drawn like one that is not")
+				}
+			})
+		}
 	}
 }
 

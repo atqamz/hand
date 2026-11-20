@@ -125,6 +125,7 @@ type fixture struct {
 	linkOnly       string
 	linksGate      chan struct{}
 	linksEntered   chan struct{}
+	linksTrim      int
 }
 
 func (f *fixture) Attention(ctx context.Context) ([]desktop.FleetSignal, error) {
