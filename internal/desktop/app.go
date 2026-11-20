@@ -71,7 +71,7 @@ type App struct {
 	// Post runs fetched state on the window's thread and repaints it. Nil
 	// reads inline, as the tests and Boot do.
 	Post    func(func())
-	OnFleet func(Fleet)
+	OnTitle func(string)
 	// Now is the time the working line counts from; nil uses the wall clock.
 	Now func() time.Time
 
@@ -212,6 +212,7 @@ type App struct {
 	StartErr string
 	// Stale is the last auto-refresh failure; empty when the board answers.
 	Stale         string
+	title         string
 	errStatus     bool
 	errScreen     bool
 	writer        *draftWriter
@@ -504,14 +505,13 @@ func (a *App) SelectFleet(id string) {
 			a.draftRestored = false
 		}
 	}
-	if a.OnFleet != nil {
-		a.OnFleet(a.Fleet)
-	}
 	a.Reload()
 	a.armPoll()
+	a.syncTitle()
 }
 
 func (a *App) install(f found, keep bool) {
+	defer a.syncTitle()
 	a.setErr("")
 	a.auth = f.Auth
 	if f.Model == nil || len(f.Fleets) == 0 {
@@ -544,9 +544,6 @@ func (a *App) install(f found, keep bool) {
 		a.Fleet = Fleet{}
 	case a.hasFleet(a.Fleet.ID) && keep:
 		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
-		if a.OnFleet != nil {
-			a.OnFleet(a.Fleet)
-		}
 		a.Reload()
 		a.armPoll()
 	case a.hasFleet(a.Fleet.ID):
@@ -1039,6 +1036,7 @@ func (a *App) Ack(ref string) {
 			a.ackDone = map[string]bool{}
 		}
 		a.ackDone[ref] = true
+		a.syncTitle()
 		a.nextNeed(ref)
 	}
 	status := func(st Status) {
@@ -1303,6 +1301,7 @@ func (a *App) PressStop() {
 // when the supervisor on screen is no longer the one it armed on.
 func (a *App) setStatus(st Status) {
 	a.Status = st
+	a.syncTitle()
 	if a.StopArmed && (st.Supervisor == nil || st.Supervisor.Ref != a.stopRef) {
 		a.disarmStop()
 	}
@@ -1852,6 +1851,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
 		a.setErr("")
 	}
+	a.syncTitle()
 	a.armPoll()
 }
 
@@ -2040,6 +2040,7 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 }
 
 func (a *App) apply(l loaded) {
+	defer a.syncTitle()
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
 	a.auth = l.Auth
 	a.TimelineErr = l.TimelineErr

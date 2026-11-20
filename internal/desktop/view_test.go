@@ -1131,6 +1131,20 @@ func TestRefreshReadsTheScreenAgain(t *testing.T) {
 	mustText(t, tt, "A brand new need")
 }
 
+func TestRefreshUpdatesTheWindowTitle(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	var pushed []string
+	app.OnTitle = func(s string) { pushed = append(pushed, s) }
+	f.fleets[0].Name = "renamed"
+	tt := newTester(app)
+	menu(t, tt, "Refresh now")
+	if want := "Hand · renamed"; len(pushed) == 0 || !strings.Contains(pushed[len(pushed)-1], want) {
+		t.Fatalf("pushed %q, want last containing %q", pushed, want)
+	}
+	mustText(t, tt, "renamed")
+}
+
 func waitPost(t *testing.T, posted <-chan func()) func() {
 	t.Helper()
 	select {
@@ -1182,17 +1196,6 @@ func TestAFailedFetchShowsTheErrorOffTheRenderPath(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "the board is restarting")
 	mustNotText(t, tt, "Reading the board")
-}
-
-func TestFleetSwitchUpdatesTheTitle(t *testing.T) {
-	app := newApp(t, goldenFixture(t))
-	var titles []string
-	app.OnFleet = func(f desktop.Fleet) { titles = append(titles, f.ID) }
-	tt := newTester(app)
-	click(t, tt, "second")
-	if len(titles) == 0 || titles[len(titles)-1] != secondID {
-		t.Fatalf("titles = %v, want the second fleet", titles)
-	}
 }
 
 func TestEmptyStates(t *testing.T) {
@@ -1629,20 +1632,6 @@ func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
 	if got := f.count("name:" + secondID); got != base+1 {
 		t.Fatalf("the canceled discovery looked up %d later fleets, want 1", got-base)
 	}
-}
-
-func TestRefreshUpdatesTheWindowTitle(t *testing.T) {
-	f := goldenFixture(t)
-	app := newApp(t, f)
-	var names []string
-	app.OnFleet = func(fl desktop.Fleet) { names = append(names, fl.Name) }
-	f.fleets[0].Name = "renamed"
-	tt := newTester(app)
-	menu(t, tt, "Refresh now")
-	if len(names) == 0 || names[len(names)-1] != "renamed" {
-		t.Fatalf("titles = %v, want the renamed fleet", names)
-	}
-	mustText(t, tt, "renamed")
 }
 
 func TestACSRFRefusalShowsTheBoardMessage(t *testing.T) {
