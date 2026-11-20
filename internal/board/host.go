@@ -67,7 +67,10 @@ func capRail(out []railLink) []railLink {
 	return kept
 }
 
-type Prover interface{ CompanionSession(r *http.Request) bool }
+type Prover interface {
+	CompanionSession(r *http.Request) bool
+	CompanionGone(r *http.Request) bool
+}
 
 type HostOptions struct {
 	Loopback bool
@@ -242,6 +245,22 @@ func (h *Host) companionProves(id string, r *http.Request) bool {
 	defer f.busy.Done()
 	p, ok := f.h.(Prover)
 	return ok && p.CompanionSession(r)
+}
+
+func (h *Host) companionGone(id string, r *http.Request) bool {
+	if !state.FleetID.MatchString(id) {
+		return false
+	}
+	if _, err := r.Cookie(companionCookieName(id, false)); err != nil {
+		return false
+	}
+	f, err := h.handler(id)
+	if err != nil {
+		return false
+	}
+	defer f.busy.Done()
+	p, ok := f.h.(Prover)
+	return ok && p.CompanionGone(r)
 }
 
 func (h *Host) tokenFleets(current string, r *http.Request) map[string]bool {

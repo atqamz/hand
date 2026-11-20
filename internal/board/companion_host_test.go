@@ -29,6 +29,7 @@ type companionHost struct {
 	mu        sync.Mutex
 	now       time.Time
 	opened    map[string]int
+	resolved  []string
 	proofs    map[string]int
 	lists     map[string]int
 	revokes   map[string]int
@@ -78,6 +79,14 @@ type bare struct {
 
 func (b bare) CompanionSession(r *http.Request) bool {
 	return b.Handler.(board.Prover).CompanionSession(r)
+}
+
+func (b bare) CompanionGone(r *http.Request) bool {
+	return b.Handler.(board.Prover).CompanionGone(r)
+}
+
+func (c counted) CompanionGone(r *http.Request) bool {
+	return c.Handler.(board.Prover).CompanionGone(r)
 }
 
 func (c counted) CompanionSession(r *http.Request) bool {
@@ -139,6 +148,7 @@ func (p *companionHost) restart() {
 		Iroh:     p.iroh,
 		Resolve: func(id string) (string, error) {
 			p.mu.Lock()
+			p.resolved = append(p.resolved, id)
 			down, gone, fail := p.down[id], p.gone[id], p.failWith[id]
 			p.mu.Unlock()
 			if _, ok := byID[id]; !ok || gone {

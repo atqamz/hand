@@ -209,6 +209,8 @@ type proving struct{ http.Handler }
 
 func (proving) CompanionSession(*http.Request) bool { return true }
 
+func (proving) CompanionGone(*http.Request) bool { return false }
+
 func TestAPairedRequestMayTakeLongerThanTheBodyDeadlineToSendItsBody(t *testing.T) {
 	old := peerBodyWait
 	peerBodyWait = 150 * time.Millisecond
