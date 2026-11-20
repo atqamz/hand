@@ -70,7 +70,7 @@ Schema 26 adds the search index of `hand history search` (see History in the [vo
 
 ## Schema 27: decisions and task titles in the history index
 
-Schema 27 adds two more tables to the index of `hand history search`, `decision_fts` and `task_fts`, with two views that feed them (`history_decision`, `history_task`) and their triggers, and builds both from the decisions and tasks already stored in the same transaction as the migration, under the same lock and with the same update and failure behaviour as schema 26 above: a failed migration leaves the database at schema 26. The index grows by about a third of the question, answer and title text it covers, which is small beside the history index. A `hand` older than this refuses the migrated database (`newer than this hand (26)`).
+Schema 27 adds two more tables to the index of `hand history search`, `decision_fts` and `task_fts`, with two views that feed them (`history_decision`, `history_task`) and their triggers, and builds both from the decisions and tasks already stored in the same transaction as the migration, under the same lock and with the same update and failure behaviour as schema 26 above: a failed migration leaves the database at schema 26. The index grows by about 60% of the question, answer and title text it covers (measured once on a 30 MB database: +0.4 MB, 1.35% of the file), which is small beside the history index. A `hand` older than this refuses the migrated database (`newer than this hand (26)`).
 
 ## Updating from before 0.13.0
 
