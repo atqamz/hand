@@ -9,6 +9,7 @@ use tokio::time::sleep;
 use crate::alerts::CookieSource;
 use crate::backoff::Backoff;
 use crate::dialer::{BACKOFF_RESET, Dialer};
+use crate::dialers::{Route, fixed};
 use crate::http::{Method, Request, RequestError, SseStream};
 
 pub const WATCHDOG: Duration = Duration::from_secs(35);
@@ -55,7 +56,7 @@ pub trait LiveSink: Sync {
 
 #[derive(Clone)]
 pub struct Live {
-    dialer: Dialer,
+    route: Route,
     watchdog: Duration,
 }
 
@@ -67,8 +68,12 @@ enum Attempt {
 
 impl Live {
     pub fn new(dialer: Dialer) -> Self {
+        Self::routed(fixed(dialer))
+    }
+
+    pub fn routed(route: Route) -> Self {
         Self {
-            dialer,
+            route,
             watchdog: WATCHDOG,
         }
     }
@@ -141,19 +146,26 @@ impl Live {
         cancel: &Cancel,
         healthy: &mut u64,
     ) -> Result<(), Attempt> {
-        let header = match cookies.cookies().await {
-            Ok(Some(header)) => header,
+        let cookie = match cookies.cookie(fleet).await {
+            Ok(Some(cookie)) => cookie,
             Ok(None) => return Err(Attempt::Unpaired),
             Err(_) => return Err(Attempt::Lost),
         };
-        let request = Request::new(Method::Get, fleet, EVENTS, Some(&header), None, &[]).map_err(
+        let request = Request::new(Method::Get, fleet, EVENTS, Some(&cookie), None, &[]).map_err(
             |error| match error {
                 RequestError::Unpaired => Attempt::Unpaired,
                 _ => Attempt::Lost,
             },
         )?;
+        let routed = tokio::select! {
+            routed = (self.route)(fleet.to_owned(), cookie.clone()) => routed,
+            _ = cancel.cancelled() => return Err(Attempt::Stopped),
+        };
+        let Some(dialer) = routed else {
+            return Err(Attempt::Lost);
+        };
         let mut stream = tokio::select! {
-            result = SseStream::open(&self.dialer, &request, self.watchdog) => {
+            result = SseStream::open(&dialer, &request, self.watchdog) => {
                 result.map_err(failure)?
             }
             _ = cancel.cancelled() => return Err(Attempt::Stopped),

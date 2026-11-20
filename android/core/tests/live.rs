@@ -7,11 +7,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hand_android_core::{
-    Alert, AlertSink, Cancel, CookieSource, Feed, Fleet, Live, LiveEnd, LiveSink,
+    Alert, AlertSink, Cancel, CookieSource, Feed, Fleet, Held, Live, LiveEnd, LiveSink,
     STREAMS_PER_CONNECTION,
 };
 use serde_json::json;
-use support::{FeedBoard, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, sidecar_bin};
+use support::{
+    FeedBoard, Reply, Seen, Sidecar, SidecarOptions, TempDir, cookie_of, dialer, held_of,
+    sidecar_bin,
+};
 use tokio::time::{sleep, timeout};
 
 const FLEET: &str = "f0123456789ab";
@@ -73,8 +76,12 @@ impl LiveSink for Sink {
 struct Cookies;
 
 impl CookieSource for Cookies {
-    async fn cookies(&self) -> io::Result<Option<String>> {
-        Ok(Some(COOKIES.to_owned()))
+    async fn held(&self) -> io::Result<Vec<Held>> {
+        held_of(Some(COOKIES))
+    }
+
+    async fn cookie(&self, fleet: &str) -> io::Result<Option<String>> {
+        cookie_of(Some(COOKIES), fleet)
     }
 }
 

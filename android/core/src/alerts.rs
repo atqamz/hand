@@ -1,24 +1,27 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::future::Future;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::task::{JoinHandle, JoinSet};
+use tokio::time::{Instant, timeout};
 
 use crate::backoff::Backoff;
 use crate::clock::{Clock, Real};
 use crate::dialer::Dialer;
+use crate::dialers::{Route, fixed};
 use crate::http::{Method, Request, RequestError, exchange};
 use crate::open::{parse_open, valid_fleet};
 
 pub const WAIT: Duration = Duration::from_secs(25);
 pub const RESCAN: Duration = Duration::from_secs(10);
+pub const POLL_HOST: Duration = Duration::from_secs(28);
 const ANSWER_SLACK: Duration = Duration::from_secs(10);
 const MIN_POLL: Duration = Duration::from_secs(1);
 const UNREACHABLE_BACKOFF_MAX: u64 = 5 * 60;
@@ -43,8 +46,17 @@ pub struct Alert {
     pub link: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Held {
+    pub host: String,
+    pub fleet: String,
+    pub value: String,
+}
+
 pub trait CookieSource: Sync {
-    fn cookies(&self) -> impl Future<Output = io::Result<Option<String>>> + Send;
+    fn held(&self) -> impl Future<Output = io::Result<Vec<Held>>> + Send;
+
+    fn cookie(&self, fleet: &str) -> impl Future<Output = io::Result<Option<String>>> + Send;
 }
 
 pub trait AlertSink: Sync {
@@ -94,12 +106,24 @@ pub(crate) fn valid_cookie_value(value: &str) -> bool {
 }
 
 pub struct Feed {
-    dialer: Dialer,
+    route: Route,
     dir: PathBuf,
     wait: Duration,
     clock: Arc<dyn Clock>,
-    generation: Mutex<u64>,
+    generation: Mutex<Generations>,
     nudges: watch::Sender<u64>,
+}
+
+#[derive(Default)]
+struct Generations {
+    all: u64,
+    fleets: HashMap<String, u64>,
+}
+
+impl Generations {
+    fn of(&self, fleet: &str) -> u64 {
+        self.all + self.fleets.get(fleet).copied().unwrap_or(0)
+    }
 }
 
 fn unreachable_backoff() -> Backoff {
@@ -143,12 +167,16 @@ pub enum Once {
 
 impl Feed {
     pub fn new(dialer: Dialer, dir: PathBuf) -> Self {
+        Self::routed(fixed(dialer), dir)
+    }
+
+    pub fn routed(route: Route, dir: PathBuf) -> Self {
         Self {
-            dialer,
+            route,
             dir,
             wait: WAIT,
             clock: Arc::new(Real),
-            generation: Mutex::new(0),
+            generation: Mutex::new(Generations::default()),
             nudges: watch::channel(0).0,
         }
     }
@@ -174,9 +202,17 @@ impl Feed {
         self
     }
 
+    pub fn forget_cursor(&self, fleet: &str) {
+        let mut generation = self.generation.lock().unwrap();
+        *generation.fleets.entry(fleet.to_owned()).or_default() += 1;
+        if valid_fleet(fleet) {
+            let _ = fs::remove_file(self.dir.join(format!("{fleet}.cursor")));
+        }
+    }
+
     pub fn forget_cursors(&self) {
         let mut generation = self.generation.lock().unwrap();
-        *generation += 1;
+        generation.all += 1;
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return;
         };
@@ -187,13 +223,19 @@ impl Feed {
         }
     }
 
-    fn generation(&self) -> u64 {
-        *self.generation.lock().unwrap()
+    fn generation(&self, fleet: &str) -> u64 {
+        self.generation.lock().unwrap().of(fleet)
     }
 
-    fn advance(&self, generation: u64, path: &Path, cursor: u64) -> Option<io::Result<()>> {
+    fn advance(
+        &self,
+        fleet: &str,
+        generation: u64,
+        path: &Path,
+        cursor: u64,
+    ) -> Option<io::Result<()>> {
         let current = self.generation.lock().unwrap();
-        (*current == generation).then(|| write_cursor(path, cursor))
+        (current.of(fleet) == generation).then(|| write_cursor(path, cursor))
     }
 
     pub async fn run(
@@ -254,7 +296,7 @@ impl Feed {
             let path = self.dir.join(format!("{fleet}.cursor"));
             Cycle {
                 fleet,
-                generation: self.generation(),
+                generation: self.generation(fleet),
                 cursor: read_cursor(&path),
                 path,
                 name: None,
@@ -277,7 +319,7 @@ impl Feed {
         {
             Ok(answer) => answer,
             Err(Failure::CookieGone) => {
-                if self.generation() != cycle.generation {
+                if self.generation(cycle.fleet) != cycle.generation {
                     return Step::Stop(Stop::Forgotten);
                 }
                 let _ = fs::remove_file(&cycle.path);
@@ -285,7 +327,7 @@ impl Feed {
                 return Step::Stop(Stop::CookieGone);
             }
             Err(Failure::BoardGone) => {
-                if self.generation() != cycle.generation {
+                if self.generation(cycle.fleet) != cycle.generation {
                     return Step::Stop(Stop::Forgotten);
                 }
                 if cycle.refused_before {
@@ -300,7 +342,7 @@ impl Feed {
         cycle.refused_before = false;
         cycle.name = Some(answer.fleet.name.clone());
         for alert in &answer.alerts {
-            if self.generation() != cycle.generation {
+            if self.generation(cycle.fleet) != cycle.generation {
                 return Step::Stop(Stop::Forgotten);
             }
             if sink.alert(&answer.fleet, alert).await.is_err() {
@@ -308,7 +350,9 @@ impl Feed {
             }
         }
         if cycle.cursor != Some(answer.cursor) {
-            let Some(written) = self.advance(cycle.generation, &cycle.path, answer.cursor) else {
+            let Some(written) =
+                self.advance(cycle.fleet, cycle.generation, &cycle.path, answer.cursor)
+            else {
                 return Step::Stop(Stop::Forgotten);
             };
             if written.is_err() {
@@ -327,8 +371,8 @@ impl Feed {
         more: bool,
         wait: Duration,
     ) -> Result<Answer, Failure> {
-        let header = cookies
-            .cookies()
+        let cookie = cookies
+            .cookie(fleet)
             .await
             .map_err(|_| Failure::Retry)?
             .ok_or(Failure::CookieGone)?;
@@ -336,7 +380,7 @@ impl Feed {
             Method::Get,
             fleet,
             &feed_path(cursor, (!more).then_some(wait)),
-            Some(&header),
+            Some(&cookie),
             None,
             &[],
         )
@@ -347,7 +391,10 @@ impl Feed {
         .within(wait + ANSWER_SLACK)
         .up_to(MAX_BODY)
         .by_length();
-        let response = exchange(&self.dialer, &request)
+        let dialer = (self.route)(fleet.to_owned(), cookie.clone())
+            .await
+            .ok_or(Failure::Retry)?;
+        let response = exchange(&dialer, &request)
             .await
             .map_err(|error| match error {
                 RequestError::Unpaired => Failure::BoardGone,
@@ -454,17 +501,40 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         self.feed.forget_cursors();
     }
 
+    pub fn forget_fleets(&self, fleets: &[String]) {
+        let mut state = self.state.lock().unwrap();
+        for fleet in fleets {
+            if let Some(running) = state.loops.remove(fleet) {
+                running.task.abort();
+                state.stopped.insert(
+                    fleet.clone(),
+                    Stopped {
+                        cookie: running.cookie,
+                        retry_at: None,
+                        board_gone: false,
+                    },
+                );
+            }
+            self.feed.forget_cursor(fleet);
+        }
+    }
+
     pub async fn scan(self: &Arc<Self>) {
-        let present = match self.cookies.cookies().await {
-            Ok(header) => paired_cookies(header.as_deref().unwrap_or_default()),
+        let present = match self.cookies.held().await {
+            Ok(held) => held,
             Err(_) => return,
         };
         let now = self.feed.clock.now();
         let mut state = self.state.lock().unwrap();
         state
             .stopped
-            .retain(|fleet, _| present.iter().any(|(id, _)| id == fleet));
-        for (fleet, cookie) in present {
+            .retain(|fleet, _| present.iter().any(|held| held.fleet == *fleet));
+        for Held {
+            fleet,
+            value: cookie,
+            ..
+        } in present
+        {
             if let Some(running) = state.loops.get_mut(&fleet)
                 && !running.task.is_finished()
             {
@@ -508,39 +578,60 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         }
     }
 
-    pub async fn poll_once(self: &Arc<Self>) -> bool {
-        let present = match self.cookies.cookies().await {
-            Ok(header) => paired_cookies(header.as_deref().unwrap_or_default()),
+    pub async fn poll_once(self: &Arc<Self>, within: Duration) -> bool {
+        let present = match self.cookies.held().await {
+            Ok(held) => held,
             Err(_) => return false,
         };
-        let due: Vec<(String, String, bool)> = {
+        let mut due: BTreeMap<String, Vec<(String, String, bool)>> = BTreeMap::new();
+        {
             let mut state = self.state.lock().unwrap();
             state
                 .stopped
-                .retain(|fleet, _| present.iter().any(|(id, _)| id == fleet));
-            present
-                .into_iter()
-                .filter_map(|(fleet, cookie)| {
-                    let stopped = state.stopped.get(&fleet);
-                    if let Some(stopped) = stopped
-                        && stopped.cookie == cookie
-                        && stopped.retry_at.is_none()
-                    {
-                        return None;
-                    }
-                    let refused_before =
-                        stopped.is_some_and(|s| s.cookie == cookie && s.board_gone);
-                    Some((fleet, cookie, refused_before))
-                })
-                .collect()
-        };
-        let mut reached = due.is_empty();
-        for (fleet, cookie, refused_before) in due {
+                .retain(|fleet, _| present.iter().any(|held| held.fleet == *fleet));
+            for Held {
+                host,
+                fleet,
+                value: cookie,
+            } in present
+            {
+                let stopped = state.stopped.get(&fleet);
+                if let Some(stopped) = stopped
+                    && stopped.cookie == cookie
+                    && stopped.retry_at.is_none()
+                {
+                    continue;
+                }
+                let refused_before = stopped.is_some_and(|s| s.cookie == cookie && s.board_gone);
+                due.entry(host)
+                    .or_default()
+                    .push((fleet, cookie, refused_before));
+            }
+        }
+        if due.is_empty() {
+            return true;
+        }
+        let reached = Arc::new(AtomicBool::new(false));
+        let mut hosts = JoinSet::new();
+        for fleets in due.into_values() {
+            let (this, reached) = (self.clone(), reached.clone());
+            hosts.spawn(async move {
+                let _ = timeout(within, this.poll_host(fleets, &reached)).await;
+            });
+        }
+        while hosts.join_next().await.is_some() {}
+        reached.load(Ordering::SeqCst)
+    }
+
+    async fn poll_host(&self, fleets: Vec<(String, String, bool)>, reached: &AtomicBool) {
+        for (fleet, cookie, refused_before) in fleets {
             let once = self
                 .feed
                 .once(&fleet, &self.cookies, &self.sink, refused_before)
                 .await;
-            reached |= once != Once::Retry;
+            if once != Once::Retry {
+                reached.store(true, Ordering::SeqCst);
+            }
             let mut state = self.state.lock().unwrap();
             match once {
                 Once::Stopped(Stop::Forgotten) | Once::Retry => {}
@@ -559,7 +650,6 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                 }
             }
         }
-        reached
     }
 }
 
@@ -656,7 +746,7 @@ fn validate(fleet: &str, after: Option<u64>, body: &[u8]) -> Option<Answer> {
     })
 }
 
-fn clean(text: &str, max: usize) -> String {
+pub(crate) fn clean(text: &str, max: usize) -> String {
     text.chars()
         .filter_map(|c| match c {
             c if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') => Some(' '),
@@ -726,6 +816,24 @@ mod tests {
 
     fn alert(seq: u64) -> Value {
         json!({"seq": seq, "at": "2026-11-10T03:12:00Z", "kind": "attempt.failed", "ref": "a1", "text": "a1 failed", "link": ""})
+    }
+
+    #[test]
+    fn forgetting_one_fleets_cursor_leaves_every_other_fleets_generation_alone() {
+        let nowhere: Route = Arc::new(|_, _| Box::pin(async { None }));
+        let dir = TempDir::new();
+        let feed = Feed::routed(nowhere, dir.path().to_owned());
+        let before = (
+            feed.generation("f0123456789ab"),
+            feed.generation("f999999999999"),
+        );
+
+        feed.forget_cursor("f0123456789ab");
+
+        assert_ne!(feed.generation("f0123456789ab"), before.0);
+        assert_eq!(feed.generation("f999999999999"), before.1);
+        feed.forget_cursors();
+        assert_ne!(feed.generation("f999999999999"), before.1);
     }
 
     #[test]

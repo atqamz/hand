@@ -4,8 +4,10 @@ mod clock;
 mod codes;
 mod companion;
 mod dialer;
+mod dialers;
 mod http;
 mod key;
+mod legacy;
 mod link;
 mod live;
 mod open;
@@ -18,19 +20,17 @@ mod testutil;
 pub mod proxy;
 
 pub use alerts::{
-    Alert, AlertSink, CookieSource, Feed, Fleet, Once, RESCAN, Stop, Supervisor, WAIT,
-    paired_fleets,
+    Alert, AlertSink, CookieSource, Feed, Fleet, Held, Once, POLL_HOST, RESCAN, Stop, Supervisor,
+    WAIT, paired_fleets,
 };
 pub use clock::{Clock, Real, Sleep};
 pub use codes::{BOARD_ERROR, BOARD_UNREACHABLE, FULL, IDLE, STREAM_IDLE};
-pub use companion::{
-    Companion, CompanionConfig, ConfirmError, OpenLinkError, POLL_DEADLINE, Polled, Reporter,
-    StartError,
-};
+pub use companion::{Companion, CompanionConfig, POLL_DEADLINE, Polled, Reporter, StartError};
 pub use dialer::{
     ALPN, BACKOFF_RESET, Dialer, HANDSHAKE_DEADLINE, Notice, OpenError, STREAMS_PER_CONNECTION,
     StreamRecv, StreamSend, parse_target,
 };
+pub use dialers::{Dialers, Route, fixed};
 pub use http::{MAX_BODY, Method, REQUEST_TIMEOUT, Request, RequestError, Response, exchange};
 pub use key::{CipherError, KeyCipher, key_path, load_or_create as load_or_create_key};
 pub use link::{
@@ -41,6 +41,6 @@ pub use open::{NOT_PAIRED, OPEN_REJECTED, OpenLink, is_open_link, open_paired, p
 pub use pair::{NAME_MAX, PairError, parse_answer, redeem, valid_name};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::Proxy;
-pub use sessions::{Jar, Listed, Paired, Sessions};
+pub use sessions::{HostInfo, Jar, Listed, Paired, Refusal, Sessions};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

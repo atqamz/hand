@@ -1,30 +1,20 @@
-use std::fs;
-use std::io;
-use std::mem;
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 
-use crate::dialer::parse_target;
 use crate::link::{Link, Reject, parse_link_with};
-
-const HOST_FILE: &str = "laptop";
-const RELAY_FILE: &str = "laptop-relay";
-const RELAY_MARK: &str = "\t";
 
 pub const PAIRING_PENDING: &str = "Finish or dismiss the current pairing first";
 
+#[derive(Default)]
 pub struct Pairing {
-    dir: PathBuf,
     pending: Option<Link>,
-    in_flight: bool,
-    active: Option<String>,
-    relay: Option<String>,
+    in_flight: Option<String>,
     generation: u64,
+    hosts: HashMap<String, u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Offer {
     pub host: String,
-    pub replaces: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,26 +33,6 @@ impl OfferError {
 }
 
 impl Pairing {
-    pub fn new(dir: &Path) -> Self {
-        let saved = read_saved(dir);
-        let marked = saved.as_ref().is_some_and(|saved| saved.marked);
-        if saved.is_some() && !marked {
-            let _ = remove_if_present(&dir.join(RELAY_FILE));
-        }
-        let (active, relay) = match saved {
-            Some(saved) => (Some(saved.endpoint), saved.relay),
-            None => (None, None),
-        };
-        Self {
-            dir: dir.to_owned(),
-            pending: None,
-            in_flight: false,
-            active,
-            relay,
-            generation: 0,
-        }
-    }
-
     pub fn offer(&mut self, text: &str) -> Result<Offer, OfferError> {
         if self.pending.is_some() {
             return Err(OfferError::Pending);
@@ -71,13 +41,9 @@ impl Pairing {
             endpoint.parse::<iroh::EndpointId>().is_ok()
         })
         .map_err(OfferError::Rejected)?;
-        let replaces = self
-            .active
-            .as_deref()
-            .is_some_and(|active| active != link.endpoint_id);
         let host = link.confirmation();
         self.pending = Some(link);
-        Ok(Offer { host, replaces })
+        Ok(Offer { host })
     }
 
     pub fn pending(&self) -> Option<&Link> {
@@ -87,427 +53,75 @@ impl Pairing {
     pub fn pending_offer(&self) -> Option<Offer> {
         self.pending.as_ref().map(|link| Offer {
             host: link.confirmation(),
-            replaces: self.replaces(),
         })
     }
 
     pub fn clear_pending(&mut self) {
         self.pending = None;
-        self.in_flight = false;
+        self.in_flight = None;
     }
 
-    pub fn active(&self) -> Option<&str> {
-        self.active.as_deref()
-    }
-
-    pub fn active_relay(&self) -> Option<&str> {
-        self.relay.as_deref()
-    }
-
-    pub fn generation(&self) -> u64 {
+    pub fn generation(&self, endpoint: &str) -> u64 {
         self.generation
+            .wrapping_add(self.hosts.get(endpoint).copied().unwrap_or(0))
     }
 
-    pub fn replaces(&self) -> bool {
-        let Some(pending) = &self.pending else {
-            return false;
-        };
-        self.active
-            .as_deref()
-            .is_some_and(|active| active != pending.endpoint_id)
-    }
-
-    pub fn clear_before_forgetting(
-        &mut self,
-        clear: impl FnOnce() -> io::Result<()>,
-    ) -> io::Result<bool> {
-        if !self.replaces() {
-            return Ok(false);
-        }
-        clear()?;
-        self.forget()?;
-        Ok(true)
-    }
-
-    pub fn forget(&mut self) -> io::Result<()> {
-        self.active = None;
-        self.relay = None;
-        self.in_flight = false;
+    pub fn forget(&mut self) {
+        self.in_flight = None;
         self.generation = self.generation.wrapping_add(1);
-        let host = remove_if_present(&self.dir.join(HOST_FILE));
-        let relay = remove_if_present(&self.dir.join(RELAY_FILE));
-        host.and(relay)
+    }
+
+    pub fn forget_host(&mut self, endpoint: &str) {
+        let count = self.hosts.entry(endpoint.to_owned()).or_default();
+        *count = count.wrapping_add(1);
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|link| link.endpoint_id == endpoint)
+        {
+            self.pending = None;
+        }
+        if self.in_flight.as_deref() == Some(endpoint) {
+            self.in_flight = None;
+        }
     }
 
     pub fn take(&mut self) -> Option<Link> {
         let link = self.pending.take()?;
-        self.in_flight = true;
+        self.in_flight = Some(link.endpoint_id.clone());
         Some(link)
     }
 
     pub fn restore(&mut self, link: Link) {
-        if mem::take(&mut self.in_flight) {
+        if self.in_flight.take().is_some() {
             self.pending.get_or_insert(link);
         }
     }
-
-    pub fn activate(&mut self, link: &Link) -> io::Result<()> {
-        self.active = Some(link.endpoint_id.clone());
-        self.relay = link.relay.clone();
-        let mark = if link.relay.is_some() { RELAY_MARK } else { "" };
-        fs::write(
-            self.dir.join(HOST_FILE),
-            format!("{}{mark}\n", link.endpoint_id),
-        )?;
-        match &link.relay {
-            Some(relay) => fs::write(
-                self.dir.join(RELAY_FILE),
-                format!("{}\n{}\n", link.endpoint_id, relay),
-            ),
-            None => remove_if_present(&self.dir.join(RELAY_FILE)),
-        }
-    }
-}
-
-struct Saved {
-    endpoint: String,
-    relay: Option<String>,
-    marked: bool,
-}
-
-pub(crate) fn read_host(dir: &Path) -> (Option<String>, Option<String>) {
-    match read_saved(dir) {
-        Some(saved) => (Some(saved.endpoint), saved.relay),
-        None => (None, None),
-    }
-}
-
-fn read_saved(dir: &Path) -> Option<Saved> {
-    let text = fs::read_to_string(dir.join(HOST_FILE)).ok()?;
-    let mut lines = text.lines();
-    let line = lines.next()?;
-    let endpoint = line.trim();
-    if !valid_endpoint(endpoint) {
-        return None;
-    }
-    let legacy = lines
-        .next()
-        .map(str::trim)
-        .filter(|relay| parse_target(endpoint, Some(relay)).is_ok())
-        .map(str::to_owned);
-    let marked = line.ends_with(RELAY_MARK);
-    let relay = if marked {
-        read_relay(dir, endpoint).or(legacy)
-    } else {
-        legacy
-    };
-    Some(Saved {
-        endpoint: endpoint.to_owned(),
-        relay,
-        marked,
-    })
-}
-
-fn read_relay(dir: &Path, endpoint: &str) -> Option<String> {
-    let text = fs::read_to_string(dir.join(RELAY_FILE)).ok()?;
-    let mut lines = text.lines();
-    if lines.next().map(str::trim) != Some(endpoint) {
-        return None;
-    }
-    let relay = lines.next().map(str::trim)?;
-    parse_target(endpoint, Some(relay)).ok()?;
-    Some(relay.to_owned())
-}
-
-fn remove_if_present(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-fn valid_endpoint(endpoint: &str) -> bool {
-    endpoint.len() == 64
-        && endpoint
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        && endpoint.parse::<iroh::EndpointId>().is_ok()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-
     use super::*;
-    use crate::testutil::TempDir;
 
     const FIRST: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
     const SECOND: &str = "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5";
     const UNKNOWN: &str = "b6fcff633c251a1f5a8598247c85986e1acc1d0a8d6a3e055f7c4f737843783b";
 
-    fn activate(pairing: &mut Pairing) {
-        let link = pairing.pending().cloned().unwrap();
-        pairing.activate(&link).unwrap();
-    }
-
     fn link(endpoint: &str) -> String {
         format!("handboard://c#v=1&e={endpoint}&f=f0123456789ab&c=K7QM3XRD2P")
     }
 
-    fn relay_link(endpoint: &str) -> String {
-        format!(
-            "handboard://c#v=1&e={endpoint}&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A7842%2F"
-        )
-    }
-
     #[test]
-    fn a_hosts_relay_is_kept_with_it_and_read_again() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
-        pairing.offer(&relay_link(FIRST)).unwrap();
-        let first = pairing.pending().cloned().unwrap();
-        pairing.activate(&first).unwrap();
-
-        let again = Pairing::new(dir.path());
-        assert_eq!(again.active(), Some(FIRST));
-        assert_eq!(
-            again.active_relay(),
-            Some("https://relay.example.test:7842/")
-        );
-        assert_eq!(
-            parse_target(again.active().unwrap(), again.active_relay()).unwrap(),
-            first.target().unwrap()
-        );
-    }
-
-    #[test]
-    fn a_relay_marks_its_one_line_host_and_is_written_beside_it() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
-        pairing.offer(&relay_link(FIRST)).unwrap();
-        activate(&mut pairing);
-
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{FIRST}\t\n")
-        );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
-            format!("{FIRST}\nhttps://relay.example.test:7842/\n")
-        );
-    }
-
-    #[test]
-    fn a_two_line_host_file_from_a_previous_build_is_read_and_migrated() {
-        let dir = TempDir::new();
-        std::fs::write(
-            dir.path().join("laptop"),
-            format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
-        )
-        .unwrap();
-
-        let mut pairing = Pairing::new(dir.path());
-        assert_eq!(pairing.active(), Some(FIRST));
-        assert_eq!(
-            pairing.active_relay(),
-            Some("https://relay.example.test:7842/")
-        );
-
-        pairing.offer(&relay_link(FIRST)).unwrap();
-        activate(&mut pairing);
-
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{FIRST}\t\n")
-        );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop-relay")).unwrap(),
-            format!("{FIRST}\nhttps://relay.example.test:7842/\n")
-        );
-    }
-
-    #[test]
-    fn a_relay_file_for_another_host_is_not_read() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\t\n")).unwrap();
-        std::fs::write(
-            dir.path().join("laptop-relay"),
-            format!("{SECOND}\nhttps://relay.example.test:7842/\n"),
-        )
-        .unwrap();
-
-        let pairing = Pairing::new(dir.path());
-        assert_eq!(pairing.active(), Some(FIRST));
-        assert_eq!(pairing.active_relay(), None);
-        assert!(dir.path().join("laptop-relay").exists());
-    }
-
-    #[test]
-    fn a_read_leaves_the_relay_file_to_the_startup_cleanup() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
-        std::fs::write(
-            dir.path().join("laptop-relay"),
-            format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
-        )
-        .unwrap();
-
-        assert_eq!(read_host(dir.path()), (Some(FIRST.to_owned()), None));
-        assert!(dir.path().join("laptop-relay").exists());
-
-        let rewritten = Pairing::new(dir.path());
-        assert_eq!(rewritten.active(), Some(FIRST));
-        assert_eq!(rewritten.active_relay(), None);
-        assert!(!dir.path().join("laptop-relay").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_read_only_data_dir_keeps_the_relay_file_it_refuses() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
-        std::fs::write(
-            dir.path().join("laptop-relay"),
-            format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
-        let denied = std::fs::write(dir.path().join("probe"), b"").is_err();
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        if !denied {
-            let _ = std::fs::remove_file(dir.path().join("probe"));
-            return;
-        }
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
-
-        let pairing = Pairing::new(dir.path());
-        assert_eq!(pairing.active(), Some(FIRST));
-        assert_eq!(pairing.active_relay(), None);
-        assert_eq!(read_host(dir.path()), (Some(FIRST.to_owned()), None));
-        assert!(dir.path().join("laptop-relay").exists());
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
-
-    #[test]
-    fn a_crlf_line_ending_keeps_the_relay_mark() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\t\r\n")).unwrap();
-        std::fs::write(
-            dir.path().join("laptop-relay"),
-            format!("{FIRST}\r\nhttps://relay.example.test:7842/\r\n"),
-        )
-        .unwrap();
-
-        let pairing = Pairing::new(dir.path());
-        assert_eq!(pairing.active(), Some(FIRST));
-        assert_eq!(
-            pairing.active_relay(),
-            Some("https://relay.example.test:7842/")
-        );
-        assert!(dir.path().join("laptop-relay").exists());
-    }
-
-    #[test]
-    fn a_space_after_or_before_the_newline_drops_the_relay() {
-        for host in [format!("{FIRST}\t \n"), format!("{FIRST} \n")] {
-            let dir = TempDir::new();
-            std::fs::write(dir.path().join("laptop"), host.as_bytes()).unwrap();
-            std::fs::write(
-                dir.path().join("laptop-relay"),
-                format!("{FIRST}\nhttps://relay.example.test:7842/\n"),
-            )
-            .unwrap();
-
-            assert_eq!(read_host(dir.path()), (Some(FIRST.to_owned()), None));
-            assert!(dir.path().join("laptop-relay").exists());
-            let pairing = Pairing::new(dir.path());
-            assert_eq!(pairing.active(), Some(FIRST));
-            assert_eq!(pairing.active_relay(), None);
-            assert!(!dir.path().join("laptop-relay").exists());
-        }
-    }
-
-    #[test]
-    fn a_relay_less_pairing_drops_the_relay_a_previous_one_left_beside_it() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
-        pairing.offer(&relay_link(FIRST)).unwrap();
-        activate(&mut pairing);
-
-        std::fs::write(dir.path().join("laptop"), format!("{FIRST}\n")).unwrap();
-        let rewritten = Pairing::new(dir.path());
-        assert_eq!(rewritten.active(), Some(FIRST));
-        assert_eq!(rewritten.active_relay(), None);
-        assert!(!dir.path().join("laptop-relay").exists());
-
-        let mut again = Pairing::new(dir.path());
-        again.offer(&relay_link(FIRST)).unwrap();
-        activate(&mut again);
-        let repaired = Pairing::new(dir.path());
-        assert_eq!(
-            repaired.active_relay(),
-            Some("https://relay.example.test:7842/")
-        );
-    }
-
-    #[test]
-    fn offering_a_link_dials_nothing_and_changes_no_host() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+    fn offering_a_link_dials_nothing_and_pends_it() {
+        let mut pairing = Pairing::default();
         let offer = pairing.offer(&link(FIRST)).unwrap();
         assert_eq!(offer.host, "4d92…6ed6");
-        assert!(!offer.replaces);
         assert!(pairing.pending().is_some());
-        assert!(pairing.active().is_none());
-        assert!(!pairing.replaces());
-    }
-
-    #[test]
-    fn a_second_host_is_cleared_before_the_first_is_forgotten() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
-        let calls = RefCell::new(Vec::new());
-
-        pairing.offer(&link(FIRST)).unwrap();
-        let switched = pairing
-            .clear_before_forgetting(|| {
-                calls.borrow_mut().push("clear");
-                Ok(())
-            })
-            .unwrap();
-        assert!(!switched);
-        assert!(calls.borrow().is_empty());
-        activate(&mut pairing);
-        pairing.clear_pending();
-        assert_eq!(pairing.active(), Some(FIRST));
-
-        let offer = pairing.offer(&link(SECOND)).unwrap();
-        assert!(offer.replaces);
-        let switched = pairing
-            .clear_before_forgetting(|| {
-                assert_eq!(
-                    std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-                    format!("{FIRST}\n")
-                );
-                calls.borrow_mut().push("clear");
-                Ok(())
-            })
-            .unwrap();
-        assert!(switched);
-        assert_eq!(*calls.borrow(), ["clear"]);
-        assert!(pairing.active().is_none());
-        assert!(Pairing::new(dir.path()).active().is_none());
-        activate(&mut pairing);
-        assert_eq!(pairing.active(), Some(SECOND));
-        assert_eq!(Pairing::new(dir.path()).active(), Some(SECOND));
     }
 
     #[test]
     fn a_taken_link_comes_back_only_when_no_newer_one_has_arrived() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+        let mut pairing = Pairing::default();
         pairing.offer(&link(FIRST)).unwrap();
         let first = pairing.take().unwrap();
         assert!(pairing.pending().is_none());
@@ -528,57 +142,56 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_removes_the_host_from_disk() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
-        pairing.offer(&relay_link(FIRST)).unwrap();
-        activate(&mut pairing);
-        pairing.forget().unwrap();
-        assert!(pairing.active().is_none());
-        assert!(pairing.active_relay().is_none());
-        assert!(!dir.path().join("laptop-relay").exists());
-        let again = Pairing::new(dir.path());
-        assert!(again.active().is_none());
-        assert!(again.active_relay().is_none());
-    }
-
-    #[test]
     fn a_link_taken_before_a_forget_does_not_come_back() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+        let mut pairing = Pairing::default();
         pairing.offer(&link(FIRST)).unwrap();
         let taken = pairing.take().unwrap();
-        let generation = pairing.generation();
+        let generation = pairing.generation(FIRST);
 
-        pairing.forget().unwrap();
+        pairing.forget();
 
-        assert_eq!(pairing.generation(), generation + 1);
+        assert_eq!(pairing.generation(FIRST), generation + 1);
         pairing.restore(taken);
         assert!(pairing.pending().is_none());
     }
 
     #[test]
-    fn a_host_file_that_cannot_be_written_still_changes_the_active_host() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+    fn a_link_taken_before_its_hosts_forget_does_not_come_back_but_another_hosts_does() {
+        let mut pairing = Pairing::default();
         pairing.offer(&link(FIRST)).unwrap();
-        activate(&mut pairing);
+        let taken = pairing.take().unwrap();
+
+        pairing.forget_host(SECOND);
+        pairing.restore(taken.clone());
+        assert_eq!(pairing.pending().unwrap().endpoint_id, FIRST);
+
         pairing.clear_pending();
-        std::fs::remove_file(dir.path().join("laptop")).unwrap();
-        std::fs::create_dir(dir.path().join("laptop")).unwrap();
+        pairing.offer(&link(FIRST)).unwrap();
+        let taken = pairing.take().unwrap();
+        pairing.forget_host(FIRST);
+        pairing.restore(taken);
+        assert!(pairing.pending().is_none());
+    }
 
-        let offer = pairing.offer(&link(SECOND)).unwrap();
-        assert!(offer.replaces);
-        let second = pairing.pending().cloned().unwrap();
-        assert!(pairing.activate(&second).is_err());
+    #[test]
+    fn forgetting_one_host_moves_only_that_hosts_generation_and_drops_its_pending_link() {
+        let mut pairing = Pairing::default();
+        let (first, second) = (pairing.generation(FIRST), pairing.generation(SECOND));
+        pairing.offer(&link(FIRST)).unwrap();
 
-        assert_eq!(pairing.active(), Some(SECOND));
+        pairing.forget_host(SECOND);
+        assert_eq!(pairing.generation(FIRST), first);
+        assert_ne!(pairing.generation(SECOND), second);
+        assert!(pairing.pending().is_some());
+
+        pairing.forget_host(FIRST);
+        assert_ne!(pairing.generation(FIRST), first);
+        assert!(pairing.pending().is_none());
     }
 
     #[test]
     fn a_link_while_one_is_pending_changes_nothing() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+        let mut pairing = Pairing::default();
         let first = pairing.offer(&link(FIRST)).unwrap();
         assert_eq!(pairing.offer(&link(SECOND)), Err(OfferError::Pending));
         assert_eq!(pairing.pending().unwrap().endpoint_id, FIRST);
@@ -588,8 +201,7 @@ mod tests {
 
     #[test]
     fn an_unknown_link_is_rejected_when_nothing_is_pending() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+        let mut pairing = Pairing::default();
         assert_eq!(
             pairing.offer("not-a-link"),
             Err(OfferError::Rejected(Reject::Scheme))
@@ -599,8 +211,7 @@ mod tests {
 
     #[test]
     fn an_iroh_invalid_key_is_endpoint_id_before_fleet_code_or_relay() {
-        let dir = TempDir::new();
-        let mut pairing = Pairing::new(dir.path());
+        let mut pairing = Pairing::default();
         assert_eq!(
             pairing.offer(&format!("handboard://c#v=1&e={UNKNOWN}&f=bad&c=bad&r=bad")),
             Err(OfferError::Rejected(Reject::EndpointId))

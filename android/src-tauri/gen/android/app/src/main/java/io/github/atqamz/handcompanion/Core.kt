@@ -34,6 +34,8 @@ object Core {
 
   @JvmStatic external fun forget(): Boolean
 
+  @JvmStatic external fun forgetHost(host: String): Boolean
+
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()
