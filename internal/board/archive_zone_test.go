@@ -69,6 +69,9 @@ func TestArchiveDayGroupsFollowTheBoardZone(t *testing.T) {
 				}
 				contains(t, "archive page", body, `<h3 class="group">`+g.Name+` <span class="badge">`)
 			}
+			for _, v := range c.times {
+				contains(t, "row clock", body, `datetime="`+v+`" data-clock>`+at(v).In(loc).Format("15:04")+`</time>`)
+			}
 		})
 	}
 }

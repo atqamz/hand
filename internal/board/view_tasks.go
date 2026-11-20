@@ -225,6 +225,9 @@ func (b *Board) buildArchive(ctx context.Context, v url.Values) (archiveView, er
 		if n := len(out.Groups); n == 0 || out.Groups[n-1].Day != day {
 			out.Groups = append(out.Groups, taskGroup{Day: day, Name: local.Format("Mon 2 Jan MST")})
 		}
+		if c.FinishedAt != "" {
+			c.Clock = parse(c.FinishedAt).In(b.zone()).Format("15:04")
+		}
 		g := &out.Groups[len(out.Groups)-1]
 		g.Checks, g.Count = append(g.Checks, c), g.Count+1
 	}
