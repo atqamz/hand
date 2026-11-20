@@ -480,8 +480,8 @@ func (sc scan) marker(i int) (string, int) {
 		if u, n := bare(rest); n > 0 {
 			return anchor(u, html.EscapeString(u)), n
 		}
-	case sc.room() && pathLike(rest) && (i == 0 || !word(s[i-1]) && !strings.ContainsRune(`/\.~-_:`, rune(s[i-1]))):
-		p := token(rest)
+	case sc.room() && PathAt(s, i) > 0:
+		p := rest[:PathAt(s, i)]
 		if href := sc.path(p); href != "" {
 			return pathLink(href, html.EscapeString(p)), len(p)
 		}
@@ -496,11 +496,23 @@ func (sc scan) marker(i int) (string, int) {
 func (sc scan) room() bool { return sc.links && sc.o.local != nil && *sc.o.left > 0 }
 
 func (sc scan) path(p string) string {
-	if !sc.room() || !pathLike(p) && !relLike(p) {
+	if !sc.room() || !PathCode(p) {
 		return ""
 	}
 	*sc.o.left--
 	return sc.o.local(p)
+}
+
+func PathCode(s string) bool { return pathLike(s) || relLike(s) }
+
+func PathAt(s string, i int) int {
+	if i < 0 || i > len(s) || !pathLike(s[i:]) || i > 0 && (word(s[i-1]) || strings.ContainsRune(`/\.~-_:`, rune(s[i-1]))) {
+		return 0
+	}
+	if p := token(s[i:]); PathCode(p) {
+		return len(p)
+	}
+	return 0
 }
 
 func pathLike(p string) bool {
