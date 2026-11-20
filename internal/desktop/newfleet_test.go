@@ -433,7 +433,6 @@ func TestTheZeroFleetCardIsTheNewFleetForm(t *testing.T) {
 		t.Fatalf("folder = %q", folder)
 	}
 	mustNotText(t, tt, "cd ~/work && hand init")
-	mustNotText(t, tt, "Choose...")
 }
 
 func TestTheFolderFollowsTheNameUntilEdited(t *testing.T) {

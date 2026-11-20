@@ -129,6 +129,13 @@ func main() {
 			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Attach files", Multiple: true})
 			return paths
 		}
+		app.PickFolder = func() string {
+			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Choose a folder for the fleet", Directory: true})
+			if len(paths) == 0 {
+				return ""
+			}
+			return paths[0]
+		}
 		app.OnTitle = win.SetTitle
 		win.OnFocus(func() { app.SetFocused(true) })
 		win.OnBlur(func() { app.SetFocused(false) })

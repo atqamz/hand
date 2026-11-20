@@ -143,6 +143,7 @@ type App struct {
 	attachNote string
 	attachSay  string
 	Pick       func() []string
+	PickFolder func() string
 	NewFleet   func(context.Context, NewFleetRequest) (NewFleetResult, error)
 
 	shots     map[string]*shotState
@@ -261,6 +262,7 @@ type App struct {
 	pendingFleet  string
 	pendingWarn   string
 	nf            newFleetForm
+	nfOpen        bool
 	pendingLink   string
 	copiedKey     string
 	copiedAt      time.Time
@@ -459,6 +461,7 @@ func (a *App) fleetByID(id string) (Fleet, bool) {
 
 func (a *App) SelectFleet(id string) {
 	a.flushDraft()
+	a.nfOpen = false
 	was := a.Fleet.ID
 	a.resetPoll()
 	if f, ok := a.fleetByID(id); ok {
@@ -546,7 +549,7 @@ func (a *App) install(f found, keep bool) {
 	a.Model, a.Fleets = f.Model, f.Fleets
 	a.attnFails, a.attnDown, a.attnSoon = 0, false, true
 	a.noFleets = len(a.Fleets) == 0
-	if !a.noFleets {
+	if !a.noFleets && !a.nfOpen {
 		a.nf = newFleetForm{}
 	}
 	if f.Offline && a.Start != nil && !a.autoStarted {
@@ -575,6 +578,7 @@ func (a *App) install(f found, keep bool) {
 const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
+	a.nfOpen = false
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.resetDoc()
 	if s == BoardScreen || s == TasksScreen {

@@ -101,3 +101,5 @@ var (
 	TerminalName  = terminalName
 	RunHand       = runHand
 )
+
+func NewFleetOpen(a *App) bool { return a.nfOpen }

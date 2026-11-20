@@ -198,7 +198,7 @@ func terminalName(goos string) string {
 	return "a terminal"
 }
 
-func folderFor(name string) string {
+func folderFor(parent, name string) string {
 	safe := strings.Map(func(r rune) rune {
 		if strings.ContainsRune(`/\:*?"<>|`, r) || unicode.IsControl(r) {
 			return '-'
@@ -208,13 +208,16 @@ func folderFor(name string) string {
 	if safe == "." || safe == ".." {
 		safe = "-"
 	}
-	return "~/fleets/" + safe
+	if parent == "" {
+		return "~/fleets/" + safe
+	}
+	return filepath.Join(parent, safe)
 }
 
 type newFleetForm struct {
-	name, folder, auto, err, cmd string
-	busy, done                   bool
-	made                         *NewFleetResult
+	name, folder, auto, parent, err, cmd string
+	busy, done                           bool
+	made                                 *NewFleetResult
 }
 
 func (a *App) submitNewFleet() {
@@ -252,13 +255,18 @@ func (a *App) submitNewFleet() {
 
 func (a *App) newFleetFields(c *ui.Context, k kit.Colors, p palette) {
 	if a.nf.folder == a.nf.auto {
-		a.nf.folder = folderFor(a.nf.name)
+		a.nf.folder = folderFor(a.nf.parent, a.nf.name)
 		a.nf.auto = a.nf.folder
 	}
 	kit.FieldLabel(c, k, "Name")
 	submit := ui.TextInput(c, &a.nf.name).Placeholder("Fleet name").Label("Fleet name").Submitted()
 	kit.FieldLabel(c, k, "Folder")
-	submit = ui.TextInput(c, &a.nf.folder).Placeholder("Absolute folder").Label("Fleet folder").Submitted() || submit
+	ui.Row(c).Gap(kit.Space8).Children(func() {
+		submit = ui.TextInput(c, &a.nf.folder).Placeholder("Absolute folder").Label("Fleet folder").Grow(1).Submitted() || submit
+		if a.PickFolder != nil && button(c, k, "nf:choose", "Choose...", false) {
+			a.chooseFolder()
+		}
+	})
 	if submit {
 		a.submitNewFleet()
 	}
@@ -291,4 +299,37 @@ func (a *App) newFleetUnlisted() {
 	a.nf.done = false
 	a.nf.err = "The fleet was made in " + a.nf.made.Folder + ", but this window does not list it yet. Start the Board to look again."
 	a.nf.cmd = boardStartCommand(a.nf.made.Folder)
+}
+
+func (a *App) openNewFleet() {
+	if !a.nfOpen {
+		a.nf = newFleetForm{}
+		a.nfOpen = true
+	}
+}
+
+func (a *App) closeNewFleet() {
+	if a.nf.busy {
+		return
+	}
+	a.nfOpen = false
+	a.nf = newFleetForm{}
+}
+
+func (a *App) chooseFolder() {
+	if a.nf.busy || a.nf.done {
+		return
+	}
+	pick := a.PickFolder
+	a.offload(func() func() {
+		dir := pick()
+		return func() {
+			if dir == "" || !a.nfOpen && !a.noFleets {
+				return
+			}
+			a.nf.parent = dir
+			a.nf.folder = folderFor(dir, a.nf.name)
+			a.nf.auto = a.nf.folder
+		}
+	})
 }
