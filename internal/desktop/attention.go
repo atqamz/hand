@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// Signal is what one fleet asks of the operator, read from a status the
-// window already holds.
 type Signal struct {
 	Name      string
 	Waiting   int
@@ -59,7 +57,6 @@ func (a *App) signal() Signal {
 	return s
 }
 
-// Title is the window title for the selected fleet's current signal.
 func (a *App) Title() string {
 	return a.signal().Title()
 }

@@ -71,8 +71,6 @@ type App struct {
 	// Post runs fetched state on the window's thread and repaints it. Nil
 	// reads inline, as the tests and Boot do.
 	Post    func(func())
-	OnFleet func(Fleet)
-	// OnTitle receives the window title whenever it changes.
 	OnTitle func(string)
 	// Now is the time the working line counts from; nil uses the wall clock.
 	Now func() time.Time
@@ -507,9 +505,6 @@ func (a *App) SelectFleet(id string) {
 			a.draftRestored = false
 		}
 	}
-	if a.OnFleet != nil {
-		a.OnFleet(a.Fleet)
-	}
 	a.Reload()
 	a.armPoll()
 	a.syncTitle()
@@ -549,9 +544,6 @@ func (a *App) install(f found, keep bool) {
 		a.Fleet = Fleet{}
 	case a.hasFleet(a.Fleet.ID) && keep:
 		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
-		if a.OnFleet != nil {
-			a.OnFleet(a.Fleet)
-		}
 		a.Reload()
 		a.armPoll()
 	case a.hasFleet(a.Fleet.ID):

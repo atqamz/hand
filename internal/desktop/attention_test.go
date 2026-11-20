@@ -205,3 +205,15 @@ func TestTitleChangesWithTheFleetBeforeItsStatusLoads(t *testing.T) {
 		t.Fatalf("pushed %q before the load landed, want %q", pushed, want)
 	}
 }
+
+func TestTitleSaysOfflineWhenALoadFails(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	var pushed []string
+	app.OnTitle = func(s string) { pushed = append(pushed, s) }
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	app.Reload()
+	if want := []string{"Hand · golden · offline"}; !slices.Equal(pushed, want) {
+		t.Fatalf("pushed %q after a failed load, want %q", pushed, want)
+	}
+}

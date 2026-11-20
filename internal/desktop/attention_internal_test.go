@@ -1,6 +1,9 @@
 package desktop
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestSignalTitle(t *testing.T) {
 	for _, tc := range []struct {
@@ -62,5 +65,20 @@ func TestAppTitleUsesTheNeedsTheWindowShows(t *testing.T) {
 	}
 	if got, want := a.Title(), "(1) Hand · alpha"; got != want {
 		t.Fatalf("title = %q, want %q: an acknowledged report still counts", got, want)
+	}
+}
+
+func TestInstallWithoutABoardPushesOffline(t *testing.T) {
+	a := &App{Model: struct{ ReadModel }{}, Fleet: Fleet{ID: "f1", Name: "alpha"}}
+	var pushed []string
+	a.OnTitle = func(s string) { pushed = append(pushed, s) }
+	a.syncTitle()
+	a.install(found{Err: ErrNoBoard}, false)
+	if a.Model != nil {
+		t.Fatal("the install kept a model")
+	}
+	want := []string{"Hand · alpha", "Hand · alpha · offline"}
+	if !slices.Equal(pushed, want) {
+		t.Fatalf("pushed %q, want %q", pushed, want)
 	}
 }
