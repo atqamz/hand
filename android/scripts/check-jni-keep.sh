@@ -14,7 +14,7 @@ fail() {
   failed=1
 }
 
-if grep -nE 'find_class|call_static_method|get_static|new_object|get_field|get_method_id' "$sources"/*.rs; then
+if grep -nE 'find_class|load_class|bind_java_type|call_static_method|get_static|new_object|get_field|get_method_id' "$sources"/*.rs; then
   fail "a JNI lookup this script does not follow: extend it and the keep rules"
 fi
 
@@ -22,10 +22,10 @@ grep -qx lib/arm64-v8a/libhand_android_lib.so <<<"$entries" || fail "lib/arm64-v
 ! grep '^lib/' <<<"$entries" | grep -qv '^lib/arm64-v8a/' || fail "the APK holds a library for another ABI"
 
 natives=$(grep -ohP 'Java_io_github_atqamz_handcompanion_\K\w+' "$sources/host.rs" || true)
-calls=$(perl -0ne 'print "$1\n" while /call_method\w*\(\s*[^,]+,\s*"(\w+)"/g' "$sources"/*.rs)
+calls=$(perl -0ne 'print "$1\n" while /call_method\w*\(\s*[^,]+,\s*jni_str!\(\s*"(\w+)"\s*\)/g' "$sources"/*.rs)
 
 call_sites=$(grep -ohE 'call_method\w*\(' "$sources"/*.rs | wc -l)
-[[ $(grep -c . <<<"$calls") -eq $call_sites ]] || fail "a call_method names its method by something other than a string literal"
+[[ $(grep -c . <<<"$calls") -eq $call_sites ]] || fail "a call_method names its method by something other than jni_str!(\"name\")"
 
 for category in natives calls; do
   [[ -n ${!category} ]] || fail "no $category found in $sources: the script no longer reads the sources it checks"

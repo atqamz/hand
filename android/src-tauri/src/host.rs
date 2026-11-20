@@ -3,7 +3,6 @@ use std::io;
 use std::mem;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::ptr;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -12,9 +11,10 @@ use hand_android_core::{
     Live, LiveSink, Method, OPEN_REJECTED, PairError, Polled, RESCAN, Reporter, Request,
     RequestError, Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
 };
-use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
-use jni::sys::{jboolean, jlong, jstring};
-use jni::{JNIEnv, JavaVM};
+use jni::errors::LogErrorAndDefault;
+use jni::objects::{Global, JByteArray, JClass, JObject, JString, JValue};
+use jni::sys::{jboolean, jlong};
+use jni::{Env, EnvUnowned, JavaVM, jni_sig, jni_str};
 
 const REPORT: Duration = Duration::from_secs(60);
 const PROBE: i32 = 0;
@@ -127,18 +127,14 @@ fn info(message: &str) {
 
 struct Host {
     vm: JavaVM,
-    object: GlobalRef,
+    object: Global<JObject<'static>>,
 }
 
 impl Host {
-    fn call<R>(&self, call: impl FnOnce(&mut JNIEnv) -> jni::errors::Result<R>) -> io::Result<R> {
-        let mut env = self.vm.attach_current_thread().map_err(io::Error::other)?;
-        let result = call(&mut env);
-        if env.exception_check().unwrap_or(true) {
-            let _ = env.exception_clear();
-            return Err(io::Error::other("the Android side threw"));
-        }
-        result.map_err(io::Error::other)
+    fn call<R>(&self, call: impl FnOnce(&mut Env) -> jni::errors::Result<R>) -> io::Result<R> {
+        self.vm
+            .attach_current_thread(call)
+            .map_err(io::Error::other)
     }
 
     fn keystore(&self, operation: i32, data: &[u8]) -> io::Result<Vec<u8>> {
@@ -147,24 +143,31 @@ impl Host {
             let output = env
                 .call_method(
                     &self.object,
-                    "keystore",
-                    "(I[B)[B",
+                    jni_str!("keystore"),
+                    jni_sig!("(I[B)[B"),
                     &[JValue::Int(operation), JValue::Object(&input)],
                 )?
                 .l()?;
-            env.convert_byte_array(JByteArray::from(output))
+            let output = env.cast_local::<JByteArray>(output)?;
+            env.convert_byte_array(output)
         })
     }
 
     fn cookies(&self) -> io::Result<Option<String>> {
         self.call(|env| {
             let header = env
-                .call_method(&self.object, "cookies", "()Ljava/lang/String;", &[])?
+                .call_method(
+                    &self.object,
+                    jni_str!("cookies"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )?
                 .l()?;
             if header.as_raw().is_null() {
                 return Ok(None);
             }
-            Ok(Some(env.get_string(&JString::from(header))?.into()))
+            let header = env.cast_local::<JString>(header)?;
+            Ok(Some(header.try_to_string(env)?))
         })
     }
 
@@ -181,8 +184,8 @@ impl Host {
             };
             env.call_method(
                 &self.object,
-                "alert",
-                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+                jni_str!("alert"),
+                jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z"),
                 &[
                     JValue::Object(&id),
                     JValue::Object(&name),
@@ -198,18 +201,21 @@ impl Host {
 
     fn clear_cookies(&self) -> io::Result<bool> {
         self.call(|env| {
-            env.call_method(&self.object, "clearCookies", "()Z", &[])?
+            env.call_method(&self.object, jni_str!("clearCookies"), jni_sig!("()Z"), &[])?
                 .z()
         })
     }
 
     fn unreadable(&self) -> io::Result<()> {
-        self.call(|env| env.call_method(&self.object, "unreadable", "()V", &[])?.v())
+        self.call(|env| {
+            env.call_method(&self.object, jni_str!("unreadable"), jni_sig!("()V"), &[])?
+                .v()
+        })
     }
 
     fn stop_service(&self) -> io::Result<()> {
         self.call(|env| {
-            env.call_method(&self.object, "stopService", "()V", &[])?
+            env.call_method(&self.object, jni_str!("stopService"), jni_sig!("()V"), &[])?
                 .v()
         })
     }
@@ -223,8 +229,8 @@ impl Host {
             };
             env.call_method(
                 &self.object,
-                "unpaired",
-                "(Ljava/lang/String;Ljava/lang/String;)V",
+                jni_str!("unpaired"),
+                jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
                 &[JValue::Object(&id), JValue::Object(&name)],
             )?
             .v()
@@ -238,8 +244,8 @@ impl Host {
             let json = env.new_string(json)?;
             env.call_method(
                 &self.object,
-                "live",
-                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                jni_str!("live"),
+                jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"),
                 &[
                     JValue::Object(&fleet),
                     JValue::Object(&topic),
@@ -256,8 +262,8 @@ impl Host {
             let state = env.new_string(state)?;
             env.call_method(
                 &self.object,
-                "link",
-                "(Ljava/lang/String;Ljava/lang/String;J)V",
+                jni_str!("link"),
+                jni_sig!("(Ljava/lang/String;Ljava/lang/String;J)V"),
                 &[
                     JValue::Object(&fleet),
                     JValue::Object(&state),
@@ -346,7 +352,7 @@ impl AlertSink for HostSink {
     }
 }
 
-fn ensure_context(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
+fn ensure_context(env: &mut Env, context: &JObject) -> Result<(), String> {
     if catch_unwind(ndk_context::android_context).is_ok() {
         return Ok(());
     }
@@ -355,17 +361,14 @@ fn ensure_context(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
         .new_global_ref(context)
         .map_err(|error| error.to_string())?;
     unsafe {
-        ndk_context::initialize_android_context(
-            vm.get_java_vm_pointer().cast(),
-            global.as_obj().as_raw().cast(),
-        );
+        ndk_context::initialize_android_context(vm.get_raw().cast(), global.as_raw().cast());
     }
     mem::forget(global);
     Ok(())
 }
 
 fn start(
-    env: &mut JNIEnv,
+    env: &mut Env,
     data_dir: &JString,
     host: &JObject,
     context: &JObject,
@@ -375,10 +378,11 @@ fn start(
         return Ok(());
     }
     let result: Result<Core, String> = (|| {
-        let data_dir = PathBuf::from(String::from(
-            env.get_string(data_dir)
+        let data_dir = PathBuf::from(
+            data_dir
+                .try_to_string(env)
                 .map_err(|error| error.to_string())?,
-        ));
+        );
         ensure_context(env, context)?;
         let host = Arc::new(Host {
             vm: env.get_java_vm().map_err(|error| error.to_string())?,
@@ -426,23 +430,23 @@ fn start(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_nativeStart<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     data_dir: JString<'local>,
     host: JObject<'local>,
     context: JObject<'local>,
-) -> jstring {
-    match start(&mut env, &data_dir, &host, &context) {
-        Ok(()) => ptr::null_mut(),
-        Err(message) => env
-            .new_string(message)
-            .map_or(ptr::null_mut(), |text| text.into_raw()),
-    }
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| match start(env, &data_dir, &host, &context) {
+            Ok(()) => Ok(JString::null()),
+            Err(message) => env.new_string(message),
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_paired<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jboolean {
     let sessions = STATE
@@ -451,14 +455,14 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_paired<'local>(
         .core
         .as_ref()
         .map(|core| core.sessions.clone());
-    jboolean::from(sessions.is_some_and(|sessions| sessions.header().is_some()))
+    sessions.is_some_and(|sessions| sessions.header().is_some())
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fleets<'local>(
-    env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
-) -> jstring {
+) -> JString<'local> {
     let sessions = STATE
         .lock()
         .unwrap()
@@ -469,15 +473,16 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fleets<'local>(
         .and_then(|sessions| sessions.header())
         .map(|header| paired_fleets(&header).join(" "))
         .unwrap_or_default();
-    env.new_string(ids)
-        .map_or(ptr::null_mut(), |text| text.into_raw())
+    unowned_env
+        .with_env_no_catch(|env| env.new_string(ids))
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_phone<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
-) -> jstring {
+) -> JString<'local> {
     let answer = catch_unwind(AssertUnwindSafe(|| {
         let core = core()?;
         Some(serde_json::json!({
@@ -493,12 +498,17 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_phone<'local>(
     }))
     .ok()
     .flatten();
-    answer.map_or(ptr::null_mut(), |answer| reply(&mut env, answer))
+    unowned_env
+        .with_env_no_catch(|env| match answer {
+            Some(answer) => reply(env, answer),
+            None => Ok(JString::null()),
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_watch<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -511,7 +521,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_watch<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -522,7 +532,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unwatch<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_sleep<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -536,38 +546,38 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_sleep<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_wake<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jboolean {
     let Some(core) = core() else {
-        return 1;
+        return true;
     };
     match runtime().block_on(core.companion.wake()) {
-        Ok(()) => 1,
+        Ok(()) => true,
         Err(error) => {
             warn(&format!("wake failed: {error}"));
-            0
+            false
         }
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_poll<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jboolean {
     let Some(core) = core() else {
-        return 1;
+        return true;
     };
     runtime().block_on(async {
         let polled = core.companion.poll_asleep(core.alerts.poll_once()).await;
         info(&core.companion.report().await);
         match polled {
-            Ok(Polled::Missed) => 0,
-            Ok(_) => 1,
+            Ok(Polled::Missed) => false,
+            Ok(_) => true,
             Err(error) => {
                 warn(&format!("poll failed: {error}"));
-                0
+                false
             }
         }
     })
@@ -575,13 +585,15 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_poll<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_live<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fleet: JString<'local>,
 ) {
-    let fleet = match text(&mut env, &fleet) {
-        Ok(Some(fleet)) => fleet,
-        _ => return,
+    let fleet = unowned_env
+        .with_env_no_catch(|env| -> jni::errors::Result<_> { Ok(text(env, &fleet).ok().flatten()) })
+        .resolve::<LogErrorAndDefault>();
+    let Some(fleet) = fleet else {
+        return;
     };
     if let Some(core) = core() {
         core.start_live(&fleet);
@@ -590,7 +602,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_live<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unlive<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -600,7 +612,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unlive<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_resume<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -610,7 +622,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_resume<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_networkChange<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -618,17 +630,18 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_networkChange<'l
     }
 }
 
-fn text(env: &mut JNIEnv, value: &JString) -> Result<Option<String>, RequestError> {
+fn text(env: &Env, value: &JString) -> Result<Option<String>, RequestError> {
     if value.as_raw().is_null() {
         return Ok(None);
     }
-    env.get_string(value)
-        .map(|text| Some(text.into()))
+    value
+        .try_to_string(env)
+        .map(Some)
         .map_err(|_| RequestError::Malformed)
 }
 
 fn send(
-    env: &mut JNIEnv,
+    env: &Env,
     fleet: &JString,
     post: bool,
     path: &JString,
@@ -669,32 +682,38 @@ fn send(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_request<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fleet: JString<'local>,
     post: jboolean,
     path: JString<'local>,
     csrf: JString<'local>,
     body: JByteArray<'local>,
-) -> jstring {
-    let sent = catch_unwind(AssertUnwindSafe(|| {
-        send(&mut env, &fleet, post != 0, &path, &csrf, &body)
-    }));
-    let answer = match sent {
-        Ok(Ok(response)) => serde_json::json!({
-            "status": response.status,
-            "body": String::from_utf8_lossy(&response.body),
-        }),
-        Ok(Err(error)) => serde_json::json!({ "failure": error.name() }),
-        Err(_) => serde_json::json!({ "failure": RequestError::Malformed.name() }),
-    };
-    reply(&mut env, answer)
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let sent = catch_unwind(AssertUnwindSafe(|| {
+                send(env, &fleet, post, &path, &csrf, &body)
+            }));
+            let answer = match sent {
+                Ok(Ok(response)) => serde_json::json!({
+                    "status": response.status,
+                    "body": String::from_utf8_lossy(&response.body),
+                }),
+                Ok(Err(error)) => serde_json::json!({ "failure": error.name() }),
+                Err(_) => serde_json::json!({ "failure": RequestError::Malformed.name() }),
+            };
+            reply(env, answer)
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
-fn reply(env: &mut JNIEnv, answer: serde_json::Value) -> jstring {
+fn reply<'local>(
+    env: &mut Env<'local>,
+    answer: serde_json::Value,
+) -> jni::errors::Result<JString<'local>> {
     env.new_string(answer.to_string())
         .or_else(|_| env.new_string(r#"{"failure":"malformed"}"#))
-        .map_or(ptr::null_mut(), |text| text.into_raw())
 }
 
 fn core() -> Option<Arc<Core>> {
@@ -733,35 +752,43 @@ fn paired(name: &str) -> serde_json::Value {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_offer<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     link: JString<'local>,
-) -> jstring {
-    let answer = catch_unwind(AssertUnwindSafe(|| match text(&mut env, &link) {
-        Ok(Some(link)) => offered(&link),
-        _ => serde_json::json!({ "failure": "link", "message": hand_android_core::LINK_REJECTED }),
-    }))
-    .unwrap_or_else(|_| failed(PairError::NoPending));
-    reply(&mut env, answer)
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let answer = catch_unwind(AssertUnwindSafe(|| match text(env, &link) {
+                Ok(Some(link)) => offered(&link),
+                _ => serde_json::json!({ "failure": "link", "message": hand_android_core::LINK_REJECTED }),
+            }))
+            .unwrap_or_else(|_| failed(PairError::NoPending));
+            reply(env, answer)
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_pair<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     name: JString<'local>,
-) -> jstring {
-    let answer = catch_unwind(AssertUnwindSafe(|| match text(&mut env, &name) {
-        Ok(Some(name)) => paired(&name),
-        _ => failed(PairError::Refused("bad_name")),
-    }))
-    .unwrap_or_else(|_| failed(PairError::NotSaved));
-    reply(&mut env, answer)
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let answer = catch_unwind(AssertUnwindSafe(|| match text(env, &name) {
+                Ok(Some(name)) => paired(&name),
+                _ => failed(PairError::Refused("bad_name")),
+            }))
+            .unwrap_or_else(|_| failed(PairError::NotSaved));
+            reply(env, answer)
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_cancel<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     if let Some(core) = core() {
@@ -771,60 +798,68 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_cancel<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_unsaved<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jboolean {
-    jboolean::from(core().is_some_and(|core| core.sessions.unsaved()))
+    core().is_some_and(|core| core.sessions.unsaved())
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_open<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     link: JString<'local>,
-) -> jstring {
-    let answer = catch_unwind(AssertUnwindSafe(|| {
-        let paired = core()
-            .and_then(|core| core.sessions.header())
-            .map(|header| paired_fleets(&header))
-            .unwrap_or_default();
-        let opened = match text(&mut env, &link) {
-            Ok(Some(link)) => open_paired(&paired, &link),
-            _ => Err(OPEN_REJECTED),
-        };
-        match opened {
-            Ok(open) => serde_json::json!({ "path": open.path() }),
-            Err(message) => serde_json::json!({ "message": message }),
-        }
-    }))
-    .unwrap_or_else(|_| serde_json::json!({ "message": OPEN_REJECTED }));
-    reply(&mut env, answer)
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let answer = catch_unwind(AssertUnwindSafe(|| {
+                let paired = core()
+                    .and_then(|core| core.sessions.header())
+                    .map(|header| paired_fleets(&header))
+                    .unwrap_or_default();
+                let opened = match text(env, &link) {
+                    Ok(Some(link)) => open_paired(&paired, &link),
+                    _ => Err(OPEN_REJECTED),
+                };
+                match opened {
+                    Ok(open) => serde_json::json!({ "path": open.path() }),
+                    Err(message) => serde_json::json!({ "message": message }),
+                }
+            }))
+            .unwrap_or_else(|_| serde_json::json!({ "message": OPEN_REJECTED }));
+            reply(env, answer)
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fallback<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fleet: JString<'local>,
-) -> jstring {
-    let answer = catch_unwind(AssertUnwindSafe(|| {
-        let board = text(&mut env, &fleet).ok().flatten().and_then(|fleet| {
-            let core = core()?;
-            let cookie = core.sessions.cookie(&fleet)?;
-            Some((core.companion.port(), cookie))
-        });
-        match board {
-            Some((port, cookie)) => serde_json::json!({ "port": port, "cookie": cookie }),
-            None => serde_json::json!({}),
-        }
-    }))
-    .unwrap_or_else(|_| serde_json::json!({}));
-    reply(&mut env, answer)
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let answer = catch_unwind(AssertUnwindSafe(|| {
+                let board = text(env, &fleet).ok().flatten().and_then(|fleet| {
+                    let core = core()?;
+                    let cookie = core.sessions.cookie(&fleet)?;
+                    Some((core.companion.port(), cookie))
+                });
+                match board {
+                    Some((port, cookie)) => serde_json::json!({ "port": port, "cookie": cookie }),
+                    None => serde_json::json!({}),
+                }
+            }))
+            .unwrap_or_else(|_| serde_json::json!({}));
+            reply(env, answer)
+        })
+        .resolve::<LogErrorAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
-    _env: JNIEnv<'local>,
+    _env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jboolean {
     let forgotten = catch_unwind(AssertUnwindSafe(|| {
@@ -834,5 +869,5 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
                 .is_ok()
         })
     }));
-    jboolean::from(forgotten.unwrap_or(false))
+    forgotten.unwrap_or(false)
 }

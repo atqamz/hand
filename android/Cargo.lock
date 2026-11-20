@@ -847,7 +847,7 @@ name = "hand-android"
 version = "0.1.0"
 dependencies = [
  "hand-android-core",
- "jni 0.21.1",
+ "jni 0.22.4",
  "ndk-context",
  "serde_json",
  "tokio",
