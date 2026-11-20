@@ -622,3 +622,17 @@ func TestBeatHostToleratesWindowsTickDriftAfterARename(t *testing.T) {
 		t.Fatalf("orient: code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestTheHostNameIsTheMachinesName(t *testing.T) {
+	want, err := os.Hostname()
+	if err != nil || want == "" {
+		t.Skipf("machine has no name: %q, %v", want, err)
+	}
+	if got := cli.HostName(); got != want {
+		t.Fatalf("host name = %q, want %q", got, want)
+	}
+	name, id := cli.RealIdentity()
+	if name != want || id != boot.ID() {
+		t.Fatalf("identity = %q, %q; want %q, %q", name, id, want, boot.ID())
+	}
+}

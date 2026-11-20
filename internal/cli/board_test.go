@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -303,8 +304,19 @@ func TestTheRealBoardListsItsFleetsAndFeaturesInTheAPI(t *testing.T) {
 		t.Fatalf("fleets = %d:\n%s", code, body)
 	}
 	code, body = get("/api/v1/meta", host)
-	if code != http.StatusOK || !strings.Contains(body, `"version":"`+cli.Version+`"`) || !strings.Contains(body, `"features":["events","fleets","history","links","pair","phone"]`) {
+	if code != http.StatusOK || !strings.Contains(body, `"version":"`+cli.Version+`"`) || !strings.Contains(body, `"features":["events","fleets","history","host","links","pair","phone"]`) {
 		t.Fatalf("meta = %d:\n%s", code, body)
+	}
+	machine := strings.TrimSpace(cli.HostName())
+	if machine == "" || machine == cli.Version {
+		t.Skipf("machine name %q cannot tell the host from the version", machine)
+	}
+	quoted, err := json.Marshal(machine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `"host":`+string(quoted)) {
+		t.Fatalf("meta host is not %s:\n%s", quoted, body)
 	}
 	if code, _ := get("/api/v1/meta"); code != http.StatusUnauthorized {
 		t.Fatalf("meta without a session = %d", code)

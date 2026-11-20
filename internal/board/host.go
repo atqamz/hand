@@ -80,6 +80,7 @@ type HostOptions struct {
 	List     func() ([]FleetLink, error)
 	Valid    func(id, token string) bool
 	Version  string
+	Name     string
 	Iroh     func() sidecar.Status
 }
 

@@ -84,6 +84,8 @@ func Force(ctx context.Context, env Env, home string) error {
 
 var (
 	HostIdentity = &hostIdentity
+	HostName     = hostName
+	RealIdentity = hostIdentity
 	HostBeat     = &hostBeatEvery
 	ErrHostLost  = errHostLost
 )
