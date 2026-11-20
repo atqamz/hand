@@ -297,6 +297,41 @@ func TestEveryFeatureIsNamedInTheAPIDocs(t *testing.T) {
 	}
 }
 
+func TestTheMetaExampleInTheAPIDocsNamesTheHostAndEveryFeature(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	var live struct{ Data board.APIMeta }
+	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.host(p.fleets[0])), nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &live); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := os.ReadFile("../../docs/api.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, after, ok := strings.Cut(string(doc), "`GET /api/v1/meta` answers")
+	if !ok {
+		t.Fatal("docs/api.md has no meta section")
+	}
+	_, after, ok = strings.Cut(after, "```json\n")
+	if !ok {
+		t.Fatal("docs/api.md has no meta example")
+	}
+	example, _, ok := strings.Cut(after, "```")
+	if !ok {
+		t.Fatal("docs/api.md meta example is not closed")
+	}
+	var got struct{ Data board.APIMeta }
+	if err := json.Unmarshal([]byte(example), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Data.Host == "" {
+		t.Error("docs/api.md meta example has no host")
+	}
+	if !slices.Equal(got.Data.Features, live.Data.Features) {
+		t.Errorf("docs/api.md meta example features = %v, want %v", got.Data.Features, live.Data.Features)
+	}
+}
+
 func TestFleetsAndMetaRefuseWhatEveryAPIReadRefuses(t *testing.T) {
 	p := newCompanionHost(t, true, "alpha")
 	a := p.fleets[0]
