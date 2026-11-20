@@ -28,6 +28,9 @@ type hostBoard struct {
 	calls    []hostCall
 	tokens   map[string]string
 	liar     string
+	refuse   map[string]int
+	bounce   string
+	hangup   string
 	redirect bool
 	status   int
 	body     string
@@ -42,6 +45,17 @@ func (h *hostBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.calls = append(h.calls, call)
 	h.mu.Unlock()
 	if id, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/proof"); ok {
+		if code := h.refuse[id]; code != 0 {
+			http.Error(w, "refused", code)
+			return
+		}
+		if id == h.bounce {
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+			return
+		}
+		if id == h.hangup {
+			panic(http.ErrAbortHandler)
+		}
 		token := h.tokens[id]
 		if id == h.liar {
 			token = "not the token"
@@ -65,6 +79,12 @@ func (h *hostBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	io.WriteString(w, h.body)
+}
+
+func (h *hostBoard) snapshot() []hostCall {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]hostCall(nil), h.calls...)
 }
 
 func (h *hostBoard) paths() []string {
@@ -164,6 +184,80 @@ func TestAttentionSendsNoCookieWhenAnyProofFails(t *testing.T) {
 	}
 	if paths := h.paths(); len(paths) != 2 || paths[len(paths)-1] != "/"+secondID+"/proof" {
 		t.Fatalf("requests = %q, want two proofs and no list read", paths)
+	}
+}
+
+func TestAttentionSendsNoCookieWhenAProofIsRedirectedOrUnanswered(t *testing.T) {
+	for name, set := range map[string]func(h *hostBoard){
+		"redirect":  func(h *hostBoard) { h.bounce = secondID },
+		"transport": func(h *hostBoard) { h.hangup = secondID },
+		"teapot":    func(h *hostBoard) { h.refuse = map[string]int{secondID: http.StatusTeapot} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHost()
+			set(h)
+			c := hostClient(t, h, fleetID, secondID, "f00000000e0cc")
+			if _, err := c.Attention(context.Background()); err == nil {
+				t.Fatal("the read went on after a proof that was not a clean refusal")
+			}
+			for _, call := range h.snapshot() {
+				if len(call.cookies) != 0 {
+					t.Fatalf("%s carried %q", call.path, call.cookies)
+				}
+			}
+			for _, p := range h.paths() {
+				if !strings.HasSuffix(p, "/proof") || strings.Contains(p, "f00000000e0cc") {
+					t.Fatalf("requests = %q, want proofs of the first two fleets only", h.paths())
+				}
+			}
+		})
+	}
+}
+
+func TestAttentionMarksOnlyAFleetTheBoardCannotOpenUnavailable(t *testing.T) {
+	for _, code := range []int{http.StatusNotFound, http.StatusInternalServerError} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			h := newHost()
+			h.refuse = map[string]int{secondID: code}
+			c := hostClient(t, h, fleetID, secondID, "f00000000e0cc")
+			got, err := c.Attention(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			byID := map[string]desktop.Signal{}
+			for _, s := range got {
+				byID[s.Fleet] = s.Signal
+			}
+			if len(got) != 3 || byID[secondID].OK || !byID[fleetID].OK || byID[fleetID].Worst != "blocked" || byID[fleetID].Waiting != 2 {
+				t.Fatalf("signals = %+v", got)
+			}
+			last := h.calls[len(h.calls)-1]
+			if last.path != "/api/v1/fleets" {
+				t.Fatalf("requests = %q, want a list read last", h.paths())
+			}
+			want := "hand_board_" + fleetID + "=token-one hand_board_f00000000e0cc=token-three"
+			if strings.Join(last.cookies, " ") != want {
+				t.Fatalf("list cookies = %q, want %q", last.cookies, want)
+			}
+			for _, call := range h.calls[:len(h.calls)-1] {
+				if len(call.cookies) != 0 {
+					t.Fatalf("%s carried %q", call.path, call.cookies)
+				}
+			}
+		})
+	}
+}
+
+func TestAttentionWithEveryFleetRefusedReadsNothingMore(t *testing.T) {
+	h := newHost()
+	h.refuse = map[string]int{fleetID: http.StatusNotFound, secondID: http.StatusInternalServerError}
+	c := hostClient(t, h, fleetID, secondID)
+	got, err := c.Attention(context.Background())
+	if err != nil || len(got) != 2 || got[0].OK || got[1].OK {
+		t.Fatalf("signals = %+v, err = %v", got, err)
+	}
+	if n := len(h.paths()); n != 2 {
+		t.Fatalf("%d requests, want two proofs: %q", n, h.paths())
 	}
 }
 

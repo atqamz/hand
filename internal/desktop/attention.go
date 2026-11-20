@@ -123,7 +123,7 @@ func (a *App) attending() bool {
 
 func (a *App) attentionDelay() time.Duration {
 	if a.attnFails == 0 {
-		if len(a.attn) == 0 {
+		if len(a.attn) == 0 || a.attnSoon {
 			return FocusedRefresh
 		}
 		return AttentionRefresh
@@ -164,7 +164,7 @@ func (a *App) attendOnce(gen int) {
 	if gen != a.attnGen {
 		return
 	}
-	a.attnTimer = nil
+	a.attnTimer, a.attnSoon = nil, false
 	ctx := a.Context
 	if ctx == nil {
 		ctx = context.Background()

@@ -200,6 +200,43 @@ func TestAFailingReadKeepsTheMarksForOneCycleThenMarksThemUnavailable(t *testing
 	mustNotMark(t, tt, "second, unavailable")
 }
 
+func TestARecoveryBringsTheReadBackToFiveSeconds(t *testing.T) {
+	f := markFixture(t)
+	_, clock, _ := markApp(t, f)
+	clock.Advance(desktop.FocusedRefresh)
+	f.attnErr = errors.New("down")
+	for range 6 {
+		clock.Advance(time.Minute)
+	}
+	f.attnErr = nil
+	clock.Advance(time.Minute)
+	before := f.count("attention")
+	clock.Advance(desktop.AttentionRefresh)
+	if got := f.count("attention") - before; got != 1 {
+		t.Fatalf("%d reads in the 5 s after a recovery, want 1", got)
+	}
+}
+
+func TestARefreshAfterAnOutageClearsTheDashAndReadsAtOnce(t *testing.T) {
+	f := markFixture(t)
+	app, clock, tt := markApp(t, f)
+	clock.Advance(desktop.FocusedRefresh)
+	f.attnErr = errors.New("down")
+	for range 3 {
+		clock.Advance(time.Minute)
+	}
+	mustMark(t, tt, "second, unavailable")
+	f.attnErr = nil
+	app.Refresh()
+	mustNotMark(t, tt, "second, unavailable")
+	before := f.count("attention")
+	clock.Advance(desktop.FocusedRefresh)
+	if got := f.count("attention") - before; got != 1 {
+		t.Fatalf("%d reads in the second after Refresh, want 1", got)
+	}
+	mustMark(t, tt, "second, waiting")
+}
+
 func TestAFleetNeverReadIsUnavailableAfterTwoFailedReads(t *testing.T) {
 	f := markFixture(t)
 	f.attnErr = errors.New("down")
@@ -319,7 +356,6 @@ func TestTheAttentionReadRunsOffTheWindowThread(t *testing.T) {
 			tt.Frame()
 		case <-deadline:
 			t.Fatalf("the read never landed: %q", tt.Texts())
-		case <-time.After(5 * time.Millisecond):
 		}
 	}
 	if got := f.count("attention"); got != 1 {
@@ -374,7 +410,7 @@ func TestAReadFromBeforeAResetIsDropped(t *testing.T) {
 		select {
 		case <-posted:
 			t.Fatalf("%s", what)
-		case <-time.After(50 * time.Millisecond):
+		default:
 		}
 	}
 
@@ -404,13 +440,11 @@ func TestAReadFromBeforeAResetIsDropped(t *testing.T) {
 	}
 	app.SetMinimized(true)
 	close(f.attnBlock)
-	for landed := false; !landed; {
-		select {
-		case fn := <-posted:
-			fn()
-		case <-time.After(200 * time.Millisecond):
-			landed = true
-		}
+	select {
+	case fn := <-posted:
+		fn()
+	case <-deadline:
+		t.Fatal("the read never answered")
 	}
 	mustNotMark(t, tt, "second, waiting")
 }

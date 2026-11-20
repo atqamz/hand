@@ -828,11 +828,10 @@ func (c *HTTPClient) postRaw(ctx context.Context, fleet, path, ctype string, raw
 	return env, err
 }
 
-// Attention reads the host's fleet list. Every fleet is proven before any
-// cookie goes out, and a fleet whose token is unreadable is left out.
 func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
 	tokens := map[string]string{}
 	var order []string
+	var out []FleetSignal
 	for _, f := range c.Known {
 		if !fleetIDShape.MatchString(f.ID) {
 			continue
@@ -842,13 +841,21 @@ func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
 			continue
 		}
 		if err := c.prove(ctx, f.ID, token); err != nil {
-			return nil, err
+			var refused refusedProof
+			if !errors.As(err, &refused) {
+				return nil, err
+			}
+			out = append(out, FleetSignal{Fleet: f.ID})
+			continue
 		}
 		tokens[f.ID] = token
 		order = append(order, f.ID)
 	}
 	if len(order) == 0 {
-		return nil, ErrNoBoard
+		if len(out) == 0 {
+			return nil, ErrNoBoard
+		}
+		return out, nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/v1/fleets", nil)
 	if err != nil {
@@ -881,7 +888,6 @@ func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
 	if env.Version != apiVersion {
 		return nil, fmt.Errorf("the board speaks API version %d; this window reads version %d", env.Version, apiVersion)
 	}
-	var out []FleetSignal
 	for _, f := range env.Data.Fleets {
 		if _, ok := tokens[f.ID]; !ok {
 			continue
@@ -964,6 +970,9 @@ func (c *HTTPClient) prove(ctx context.Context, fleet, token string) error {
 	defer res.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 256))
 	if err != nil || res.StatusCode != http.StatusOK || res.Request.URL.String() != u {
+		if err == nil && (res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusInternalServerError) {
+			return refusedProof{c.noBoard(fleet)}
+		}
 		return c.noBoard(fleet)
 	}
 	mac := hmac.New(sha256.New, []byte(token))
@@ -973,6 +982,8 @@ func (c *HTTPClient) prove(ctx context.Context, fleet, token string) error {
 	}
 	return nil
 }
+
+type refusedProof struct{ error }
 
 func (c *HTTPClient) noBoard(fleet string) error {
 	return fmt.Errorf("no board for fleet %s answers at %s; start it with `hand open` in that fleet", fleet, c.Base)

@@ -209,6 +209,7 @@ type App struct {
 
 	attn       map[string]Signal
 	attnDown   bool
+	attnSoon   bool
 	attnFails  int
 	attnGen    int
 	attnBusy   bool
@@ -543,6 +544,7 @@ func (a *App) install(f found, keep bool) {
 		return
 	}
 	a.Model, a.Fleets = f.Model, f.Fleets
+	a.attnFails, a.attnDown, a.attnSoon = 0, false, true
 	a.noFleets = len(a.Fleets) == 0
 	if !a.noFleets {
 		a.nf = newFleetForm{}
