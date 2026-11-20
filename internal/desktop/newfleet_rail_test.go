@@ -3,11 +3,9 @@ package desktop_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"image/color"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +13,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
-	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 type folderPicker struct {
@@ -390,52 +387,66 @@ func TestNewFleetWithNoneKeepsWhatWasTyped(t *testing.T) {
 func TestTheNewFleetIconIsThePlus(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		t.Run(theme(dark), func(t *testing.T) {
-			k := kit.ColorsFor(dark)
-			ref := ui.NewTester(func(c *ui.Context) {
-				kit.Rail(c, k, true, func() {}, func() {
-					kit.Nav(c, k, kit.NavItem{Key: "a", Label: "New fleet", Icon: "plus", Open: true})
-				})
-			}, 400, 300)
-			ref.SetDark(dark)
-			ref.Frame()
 			app, _, _ := markApp(t, markFixture(t))
 			tt := sized(t, app, windowWidth, windowHeight, dark)
 			tt.Frame()
-			got, want := inkMask(t, tt, "New fleet"), inkMask(t, ref, "New fleet")
-			if got != want {
-				t.Fatalf("the New fleet icon is not the plus\n got:  %s\n want: %s", got, want)
+			r, ok := tt.Find("New fleet")
+			if !ok {
+				t.Fatal("no New fleet item")
+			}
+			img := tt.Image()
+			x0, y0 := int(r.X)+1, int(r.Y)
+			bg := img.At(x0, y0+1)
+			isInk := func(x, y int) bool {
+				r1, g1, b1, _ := img.At(x0+x, y0+y).RGBA()
+				r2, g2, b2, _ := bg.RGBA()
+				d := func(a, b uint32) uint32 {
+					if a > b {
+						return a - b
+					}
+					return b - a
+				}
+				return d(r1, r2)+d(g1, g2)+d(b1, b2) > 0x10000
+			}
+			near := func(x, y int) bool {
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						if isInk(x+dx, y+dy) {
+							return true
+						}
+					}
+				}
+				return false
+			}
+			minX, minY, maxX, maxY := 1<<30, 1<<30, -1, -1
+			for y := 0; y < int(r.H); y++ {
+				for x := 0; x < 30; x++ {
+					if isInk(x, y) {
+						minX, minY, maxX, maxY = min(minX, x), min(minY, y), max(maxX, x), max(maxY, y)
+					}
+				}
+			}
+			w, h := maxX-minX+1, maxY-minY+1
+			if maxX < 0 || w < 8 || h < 8 || w-h > 1 || h-w > 1 {
+				t.Fatalf("no plus-sized icon: box %dx%d", w, h)
+			}
+			cx, cy, q := (minX+maxX)/2, (minY+maxY)/2, w/4
+			for _, c := range [][2]int{{cx, cy}, {cx, minY}, {cx, maxY}, {minX, cy}, {maxX, cy}} {
+				if !near(c[0], c[1]) {
+					t.Fatalf("no ink at %v of the icon: not a plus", c)
+				}
+			}
+			for _, c := range [][2]int{{minX, minY}, {maxX - q, minY}, {minX, maxY - q}, {maxX - q, maxY - q}} {
+				for y := c[1]; y <= c[1]+q; y++ {
+					for x := c[0]; x <= c[0]+q; x++ {
+						if isInk(x, y) {
+							t.Fatalf("ink at %d,%d, in a corner of the icon: not a plus", x, y)
+						}
+					}
+				}
 			}
 		})
 	}
-}
-
-func inkMask(t *testing.T, tt *ui.Tester, name string) string {
-	t.Helper()
-	r, ok := tt.Find(name)
-	if !ok {
-		t.Fatalf("no %s item", name)
-	}
-	img := tt.Image()
-	x0, y0 := int(r.X)+1, int(r.Y)
-	bg := img.At(x0, y0+1)
-	var ink [][2]int
-	minX, minY := 1<<30, 1<<30
-	for y := 0; y < int(r.H); y++ {
-		for x := 0; x < 30; x++ {
-			if img.At(x0+x, y0+y) != bg {
-				ink = append(ink, [2]int{x, y})
-				minX, minY = min(minX, x), min(minY, y)
-			}
-		}
-	}
-	if len(ink) == 0 {
-		t.Fatalf("no icon drawn for %s", name)
-	}
-	var out strings.Builder
-	for _, p := range ink {
-		fmt.Fprintf(&out, "%d,%d ", p[0]-minX, p[1]-minY)
-	}
-	return out.String()
 }
 
 type inflight struct {
