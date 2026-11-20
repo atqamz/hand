@@ -75,11 +75,11 @@ func (a *App) mark(f Fleet) (tone, status string) {
 		return "", ""
 	case f.ID == a.Fleet.ID:
 		return a.signal().Mark()
-	case !ok:
-		return "", ""
 	case a.attnDown:
 		sig.OK = false
 		return sig.Mark()
+	case !ok:
+		return "", ""
 	default:
 		return sig.Mark()
 	}

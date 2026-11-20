@@ -200,6 +200,17 @@ func TestAFailingReadKeepsTheMarksForOneCycleThenMarksThemUnavailable(t *testing
 	mustNotMark(t, tt, "second, unavailable")
 }
 
+func TestAFleetNeverReadIsUnavailableAfterTwoFailedReads(t *testing.T) {
+	f := markFixture(t)
+	f.attnErr = errors.New("down")
+	_, clock, tt := markApp(t, f)
+	clock.Advance(desktop.FocusedRefresh)
+	mustMark(t, tt, "second")
+	mustNotMark(t, tt, "second, unavailable")
+	clock.Advance(2 * desktop.AttentionRefresh)
+	mustMark(t, tt, "second, unavailable", "golden, blocked")
+}
+
 func TestBackoffStopsAtOneMinute(t *testing.T) {
 	f := markFixture(t)
 	f.attnErr = errors.New("down")
