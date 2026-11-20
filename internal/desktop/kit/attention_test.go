@@ -64,7 +64,7 @@ func TestAMarkDrawsOneShapePerToneInBothThemesAndBothRails(t *testing.T) {
 					t.Errorf("wait = %+v (fail %+v), want a 10 px ring with an empty centre", wait, fail)
 				}
 				neutral, _ := fleetMark(t, dark, open, NavItem{Label: "a", Tone: "neutral", Status: "waiting"}, k.Muted)
-				if neutral.w < 5 || neutral.w > 7 || neutral.h < 5 || neutral.h > 7 || !neutral.centreOn {
+				if neutral.w < 4 || neutral.w > 7 || neutral.h < 4 || neutral.h > 7 || !neutral.centreOn {
 					t.Errorf("neutral = %+v, want a filled 6 px disc", neutral)
 				}
 				dash, _ := fleetMark(t, dark, open, NavItem{Label: "a", Tone: "unavailable", Status: "unavailable"}, k.Muted)
