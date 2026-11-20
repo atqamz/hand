@@ -270,7 +270,7 @@ The app's own screens say the left column. A page the Board serves appears in th
 | Too many wrong codes from this Companion | The pair page's 429, or `rate_limited` | "Too many wrong codes from this Companion. Wait a minute, then try again." |
 | The Companion is still paired in another fleet, and this fleet's pairing was removed on the host | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
 | The Companion's only paired fleet was removed on the host, and it still sends that fleet's cookie | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this host** |
-| A Companion that sends no cookie of the fleet it asks | The Board's 403 "Pair this Companion first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
+| A Companion that sends no cookie of the fleet it asks | The Board's 403 "Pair this Companion first", with `X-Hand-Error` only when a cookie of another fleet proves the request | The page, which says how to pair again. The app adds no actions |
 | Too much asked before pairing | The Board's 429 | The page; the web view reconnects, which opens a new stream |
 
 A name the Board refuses is `bad_name`: the app limits the field to 40 characters and no control character, so the user never sees it. The pair page's texts on the right are the Board's, and the API's `message` carries the same text; the app may show them in its own words but must keep their meaning, and must not add the code.

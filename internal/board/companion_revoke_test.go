@@ -956,3 +956,97 @@ func TestTheOnlyPairingRevokedAnswersTheFeedWithTheNoLongerPairedHeader(t *testi
 	contains(t, "other endpoint page", other.Body, "Pair this Companion first")
 	lacks(t, "other endpoint page", other.Body, "no longer paired")
 }
+
+func goneNotice(rep peerReply) string {
+	msg, _ := url.PathUnescape(strings.Join(rep.Header.Values("X-Hand-Error"), "|"))
+	return msg
+}
+
+func TestAnUnpairedPeerOpensNoFleetForAnythingButAFleetIDInItsCookie(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	value := &http.Cookie{Value: "1." + strings.Repeat("a", 64)}
+	anonymous := r.as(peerA).do("GET", "/"+f.id+"/alerts/feed?after=0&wait=0", nil, nil)
+	r.mu.Lock()
+	opened, resolved := len(r.opened), len(r.resolved)
+	r.mu.Unlock()
+	if anonymous.Code != http.StatusForbidden || opened != 0 || resolved != 0 || goneNotice(anonymous) != "" {
+		t.Fatalf("no cookie: %d, opened %d, resolved %d, notice %q", anonymous.Code, opened, resolved, goneNotice(anonymous))
+	}
+	for _, id := range []string{"zzz", "..", ".", "api", strings.Repeat("a", 200), ""} {
+		name := "hand_phone"
+		if id != "" {
+			name += "_" + id
+		}
+		rep := r.as(peerA).do("GET", "/"+id+"/alerts/feed", nil, nil, &http.Cookie{Name: name, Value: value.Value})
+		r.mu.Lock()
+		resolved := slices.Clone(r.resolved)
+		r.mu.Unlock()
+		if rep.Code != http.StatusForbidden || len(resolved) != 0 || goneNotice(rep) != "" {
+			t.Fatalf("id %q: %d, resolved %q, notice %q", id, rep.Code, resolved, goneNotice(rep))
+		}
+	}
+}
+
+func TestAStoreFailureIsNotTheNoLongerPairedAnswer(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	feed := "/" + f.id + "/alerts/feed?after=0&wait=0"
+	companion := r.mustPair(r.as(peerA), f)
+	if err := f.st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rep := r.as(peerA).do("GET", feed, nil, nil, companion)
+	if rep.Code != http.StatusForbidden || goneNotice(rep) != "" {
+		t.Fatalf("closed store: %d, notice %q:\n%s", rep.Code, goneNotice(rep), rep.Body)
+	}
+	contains(t, "closed store page", rep.Body, "Pair this Companion first")
+	lacks(t, "closed store page", rep.Body, "no longer paired")
+}
+
+func TestARevokedPeerCookieStillReachesThePairPage(t *testing.T) {
+	r := newPeerRig(t, "alpha", "bravo")
+	a, b := r.fleets[0], r.fleets[1]
+	cA, cB := r.mustPair(r.as(peerA), a), r.mustPair(r.as(peerA), b)
+	r.revoke(a, cA)
+	feed := "/" + a.id + "/alerts/feed?after=0&wait=0"
+	for what, cookies := range map[string][]*http.Cookie{"alone": {cA}, "beside a live pairing": {cA, cB}} {
+		rep := r.as(peerA).do("GET", feed, nil, nil, cookies...)
+		if rep.Code != http.StatusForbidden || !strings.Contains(goneNotice(rep), "no longer paired") {
+			t.Fatalf("%s: %d, notice %q", what, rep.Code, goneNotice(rep))
+		}
+	}
+	if rep := r.as(peerA).do("GET", "/"+a.id+"/pair", nil, nil, cA); rep.Code != http.StatusOK || goneNotice(rep) != "" {
+		t.Fatalf("pair page with a revoked cookie: %d, notice %q", rep.Code, goneNotice(rep))
+	}
+}
+
+func TestALapsedPeerCookieIsAnsweredAsNoLongerPaired(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	feed := "/" + f.id + "/alerts/feed?after=0&wait=0"
+	companion := r.mustPair(r.as(peerA), f)
+	r.advance(91 * 24 * time.Hour)
+	rep := r.as(peerA).do("GET", feed, nil, nil, companion)
+	if rep.Code != http.StatusForbidden || !strings.Contains(goneNotice(rep), "no longer paired") {
+		t.Fatalf("lapsed: %d, notice %q", rep.Code, goneNotice(rep))
+	}
+}
+
+func TestABareFleetDelegatesTheNoLongerPairedAnswer(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	f := p.fleets[0]
+	first := servePeerRig(t, p)
+	live := first.mustPair(first.as(peerA), f)
+	p.bare[f.id] = true
+	p.restart()
+	r := servePeerRig(t, p)
+	feed := "/" + f.id + "/alerts/feed?after=0&wait=0"
+	if rep := r.as(peerB).do("GET", feed, nil, nil, live); rep.Code != http.StatusForbidden || goneNotice(rep) != "" {
+		t.Fatalf("bare other endpoint: %d, notice %q", rep.Code, goneNotice(rep))
+	}
+	p.revoke(f, live)
+	if rep := r.as(peerA).do("GET", feed, nil, nil, live); rep.Code != http.StatusForbidden || !strings.Contains(goneNotice(rep), "no longer paired") {
+		t.Fatalf("bare revoked: %d, notice %q", rep.Code, goneNotice(rep))
+	}
+}

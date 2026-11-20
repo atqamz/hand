@@ -275,3 +275,48 @@ func TestBoardPeerAddrMustBeLoopbackOnALoopbackBoard(t *testing.T) {
 		}
 	}
 }
+
+func TestBoardPeerAnswersAStaleCompanionCookieAsNoLongerPaired(t *testing.T) {
+	h := initWithProject(t)
+	base, peer, _ := startPeerBoard(t, h)
+	fleetURL, _ := fleetPage(t, base, h)
+	id := fleetURL[strings.LastIndex(fleetURL, "/")+1:]
+	b, err := os.ReadFile(peerFile(h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preface := "HAND-PEER 1 " + peerID + " " + strings.TrimSpace(string(b)) + "\n"
+	get := func(cookie string) (int, string) {
+		conn, err := net.Dial("tcp", peer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		req, err := http.NewRequest("GET", "http://localhost/"+id+"/alerts/feed?after=0&wait=0", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "hand_phone_" + id, Value: cookie})
+		}
+		if _, err := io.WriteString(conn, preface); err != nil {
+			t.Fatal(err)
+		}
+		if err := req.Write(conn); err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.ReadResponse(bufio.NewReader(conn), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode, res.Header.Get("X-Hand-Error")
+	}
+	if code, notice := get("1." + strings.Repeat("a", 64)); code != http.StatusForbidden || !strings.Contains(notice, "no%20longer%20paired") {
+		t.Fatalf("a cookie of no device = %d, X-Hand-Error %q", code, notice)
+	}
+	if code, notice := get(""); code != http.StatusForbidden || notice != "" {
+		t.Fatalf("no cookie = %d, X-Hand-Error %q", code, notice)
+	}
+}

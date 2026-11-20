@@ -248,6 +248,9 @@ func (h *Host) companionProves(id string, r *http.Request) bool {
 }
 
 func (h *Host) companionGone(id string, r *http.Request) bool {
+	if !state.FleetID.MatchString(id) {
+		return false
+	}
 	if _, err := r.Cookie(companionCookieName(id, false)); err != nil {
 		return false
 	}

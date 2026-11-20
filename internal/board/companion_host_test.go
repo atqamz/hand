@@ -29,6 +29,7 @@ type companionHost struct {
 	mu        sync.Mutex
 	now       time.Time
 	opened    map[string]int
+	resolved  []string
 	proofs    map[string]int
 	lists     map[string]int
 	revokes   map[string]int
@@ -147,6 +148,7 @@ func (p *companionHost) restart() {
 		Iroh:     p.iroh,
 		Resolve: func(id string) (string, error) {
 			p.mu.Lock()
+			p.resolved = append(p.resolved, id)
 			down, gone, fail := p.down[id], p.gone[id], p.failWith[id]
 			p.mu.Unlock()
 			if _, ok := byID[id]; !ok || gone {
