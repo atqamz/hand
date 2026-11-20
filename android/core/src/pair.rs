@@ -42,6 +42,7 @@ const REFUSED: &str =
 pub enum PairError {
     NoPending,
     NotSaved,
+    Held,
     Request(RequestError),
     Refused(&'static str),
 }
@@ -51,6 +52,7 @@ impl PairError {
         match self {
             Self::NoPending => "no_pending",
             Self::NotSaved => "not_saved",
+            Self::Held => "fleet_held",
             Self::Request(error) => error.name(),
             Self::Refused(code) => code,
         }
@@ -62,6 +64,10 @@ impl PairError {
             Self::NotSaved => concat!(
                 "The phone could not save the pairing. Check its storage. ",
                 "The host may hold an unfinished device: remove it on the Board's Companion page, then show a new code and try again."
+            ),
+            Self::Held => concat!(
+                "This fleet is already paired through another host. ",
+                "A copied fleet folder keeps its fleet ID on every machine. Forget the other host first, or pair only one of the copies."
             ),
             Self::Request(RequestError::Busy) => "Your host is busy. Try again in a moment.",
             Self::Request(RequestError::NoHost | RequestError::Unreachable) => {

@@ -10,12 +10,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hand_android_core::{
-    Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, IDLE, Once, Stop, Supervisor,
+    Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Held, IDLE, Once, Stop, Supervisor,
 };
 use serde_json::{Value, json};
 use support::{
     FeedBoard, Manual, ManualClock, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir,
-    dialer, endpoint, sessions, sidecar_bin,
+    cookie_of, dialer, endpoint, held_of, sessions, sidecar_bin,
 };
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
@@ -24,6 +24,7 @@ const FLEET: &str = "f0123456789ab";
 const OTHER: &str = "f999999999999";
 const SECRET: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 const COOKIES: &str = "session=zzz; hand_phone_f0123456789ab=abc123; hand_phone_f999999999999=nope";
+const POLL: Duration = Duration::from_secs(20);
 const WAIT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Default)]
@@ -72,8 +73,12 @@ impl AlertSink for Sink {
 struct Cookies;
 
 impl CookieSource for Cookies {
-    async fn cookies(&self) -> io::Result<Option<String>> {
-        Ok(Some(COOKIES.to_owned()))
+    async fn held(&self) -> io::Result<Vec<Held>> {
+        held_of(Some(COOKIES))
+    }
+
+    async fn cookie(&self, fleet: &str) -> io::Result<Option<String>> {
+        cookie_of(Some(COOKIES), fleet)
     }
 }
 
@@ -87,27 +92,42 @@ impl Shared {
 }
 
 impl CookieSource for Shared {
-    async fn cookies(&self) -> io::Result<Option<String>> {
-        Ok(self.0.lock().unwrap().clone())
+    async fn held(&self) -> io::Result<Vec<Held>> {
+        held_of(self.0.lock().unwrap().as_deref())
+    }
+
+    async fn cookie(&self, fleet: &str) -> io::Result<Option<String>> {
+        cookie_of(self.0.lock().unwrap().as_deref(), fleet)
     }
 }
 
 struct Header(Option<&'static str>);
 
 impl CookieSource for Header {
-    async fn cookies(&self) -> io::Result<Option<String>> {
-        Ok(self.0.map(str::to_owned))
+    async fn held(&self) -> io::Result<Vec<Held>> {
+        held_of(self.0)
+    }
+
+    async fn cookie(&self, fleet: &str) -> io::Result<Option<String>> {
+        cookie_of(self.0, fleet)
     }
 }
 
 struct FailsOnce(AtomicUsize);
 
 impl CookieSource for FailsOnce {
-    async fn cookies(&self) -> io::Result<Option<String>> {
+    async fn held(&self) -> io::Result<Vec<Held>> {
         if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
             return Err(io::Error::other("the cookie store is not readable"));
         }
-        Ok(Some(COOKIES.to_owned()))
+        held_of(Some(COOKIES))
+    }
+
+    async fn cookie(&self, fleet: &str) -> io::Result<Option<String>> {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(io::Error::other("the cookie store is not readable"));
+        }
+        cookie_of(Some(COOKIES), fleet)
     }
 }
 
@@ -1193,7 +1213,13 @@ async fn a_refused_fleet_is_tried_again_and_only_the_second_refusal_forgets_its_
 struct BlocksThenNone(Arc<AtomicBool>, Release);
 
 impl CookieSource for BlocksThenNone {
-    async fn cookies(&self) -> io::Result<Option<String>> {
+    async fn held(&self) -> io::Result<Vec<Held>> {
+        self.0.store(true, Ordering::SeqCst);
+        let _ = self.1.lock().unwrap().recv();
+        Ok(Vec::new())
+    }
+
+    async fn cookie(&self, _fleet: &str) -> io::Result<Option<String>> {
         self.0.store(true, Ordering::SeqCst);
         let _ = self.1.lock().unwrap().recv();
         Ok(None)
@@ -1514,17 +1540,17 @@ async fn a_refused_fleet_is_polled_again_when_its_cookie_changes_and_not_when_it
     let cookies = Shared::default();
     let supervisor = refusing_supervisor(&harness, &cookies);
 
-    assert!(supervisor.poll_once().await);
+    assert!(supervisor.poll_once(POLL).await);
     assert_eq!(harness.sink.unpaired().len(), 1);
 
     cookies.set(Some("hand_phone_f0123456789ab=changed"));
-    supervisor.poll_once().await;
+    supervisor.poll_once(POLL).await;
     assert_eq!(harness.board.seen().len(), 2);
     assert_eq!(harness.sink.unpaired().len(), 2);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
 
     cookies.set(None);
-    supervisor.poll_once().await;
+    supervisor.poll_once(POLL).await;
     assert_eq!(harness.board.seen().len(), 2);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
 }
@@ -1543,12 +1569,12 @@ async fn a_refusal_a_failed_poll_and_a_refusal_announce_once_and_delete_the_curs
     let cookies = Shared::default();
     let supervisor = refusing_supervisor(&harness, &cookies);
 
-    assert!(supervisor.poll_once().await);
+    assert!(supervisor.poll_once(POLL).await);
     assert_eq!(harness.sink.unpaired().len(), 1);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
-    assert!(!supervisor.poll_once().await);
+    assert!(!supervisor.poll_once(POLL).await);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
-    assert!(supervisor.poll_once().await);
+    assert!(supervisor.poll_once(POLL).await);
 
     assert_eq!(harness.sink.unpaired().len(), 1);
     assert!(harness.cursor().is_none());
@@ -1567,18 +1593,18 @@ async fn a_sleep_between_refused_polls_keeps_the_refusal_and_a_service_stop_forg
     let cookies = Shared::default();
     let supervisor = refusing_supervisor(&harness, &cookies);
 
-    supervisor.poll_once().await;
+    supervisor.poll_once(POLL).await;
     supervisor.pause();
-    supervisor.poll_once().await;
+    supervisor.poll_once(POLL).await;
     supervisor.pause();
-    supervisor.poll_once().await;
+    supervisor.poll_once(POLL).await;
 
     assert_eq!(harness.sink.unpaired().len(), 1);
     assert!(harness.cursor().is_none());
 
     harness.keep_cursor(4);
     supervisor.stop();
-    supervisor.poll_once().await;
+    supervisor.poll_once(POLL).await;
     assert_eq!(harness.sink.unpaired().len(), 2);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
 }
@@ -1597,10 +1623,10 @@ async fn a_poll_the_board_never_answers_is_not_reached_and_one_it_answers_is() {
     let cookies = Shared::default();
     let supervisor = refusing_supervisor(&harness, &cookies);
 
-    assert!(!supervisor.poll_once().await);
-    assert!(supervisor.poll_once().await);
+    assert!(!supervisor.poll_once(POLL).await);
+    assert!(supervisor.poll_once(POLL).await);
     cookies.set(None);
-    assert!(supervisor.poll_once().await);
+    assert!(supervisor.poll_once(POLL).await);
 }
 
 #[tokio::test]

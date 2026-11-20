@@ -5,9 +5,10 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hand_android_core::{Companion, CompanionConfig, Polled};
+use hand_android_core::{Companion, CompanionConfig, Paired, Polled, Sessions};
 use support::{
-    Behavior, Board, PlainCipher, Sidecar, SidecarOptions, TempDir, body, request, sidecar_bin,
+    Behavior, Board, MemoryJar, PlainCipher, Sidecar, SidecarOptions, TempDir, body, request,
+    sidecar_bin,
 };
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -23,6 +24,8 @@ async fn served(port: u16, path: &str) -> bool {
     }
 }
 
+const FLEET: &str = "f0123456789ab";
+
 async fn start(bin: &std::path::Path) -> (Companion, Sidecar, TempDir, Board) {
     let board = Board::start(SECRET, Behavior::Http).await;
     let sidecar = Sidecar::start(bin, SidecarOptions::new(board.addr()).secret(SECRET));
@@ -33,7 +36,21 @@ async fn start(bin: &std::path::Path) -> (Companion, Sidecar, TempDir, Board) {
     })
     .await
     .unwrap();
-    companion.dialer().set_target(Some(sidecar.target())).await;
+    let host = sidecar.id().to_string();
+    let sessions = Sessions::open(dir.path(), MemoryJar::default(), Arc::new(PlainCipher)).unwrap();
+    sessions
+        .pair(
+            &host,
+            None,
+            &[Paired {
+                id: FLEET.to_owned(),
+                name: "hand".to_owned(),
+                value: format!("7.{}", "ab".repeat(32)),
+            }],
+        )
+        .unwrap();
+    companion.dialers().host(&host, sidecar.target()).await;
+    companion.fallback(&sessions, FLEET).await.unwrap();
     (companion, sidecar, dir, board)
 }
 
@@ -55,8 +72,8 @@ async fn a_companion_asleep_keeps_its_port_and_identity_and_serves_again_after_w
     companion.sleep().await;
 
     assert!(companion.asleep());
-    assert!(companion.dialer().is_down());
-    assert!(companion.dialer().endpoint().is_closed());
+    assert!(companion.dialers().is_down());
+    assert!(companion.dialers().endpoint().is_closed());
     assert!(TcpStream::connect(("127.0.0.1", port)).await.is_ok());
     assert!(!served(port, "/two").await);
     assert!(
@@ -69,7 +86,7 @@ async fn a_companion_asleep_keeps_its_port_and_identity_and_serves_again_after_w
     companion.wake().await.unwrap();
 
     assert!(!companion.asleep());
-    assert!(!companion.dialer().endpoint().is_closed());
+    assert!(!companion.dialers().endpoint().is_closed());
     assert_eq!((companion.port(), companion.phone_id()), (port, phone));
     assert!(served(port, "/three").await);
     assert!(
@@ -114,7 +131,7 @@ async fn a_poll_binds_for_its_work_and_sleeps_again_and_a_live_companion_is_not_
 
     assert!(polled == Polled::Reached && seen);
     assert!(companion.asleep());
-    assert!(companion.dialer().is_down());
+    assert!(companion.dialers().is_down());
     assert!(
         companion
             .report()

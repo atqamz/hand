@@ -11,7 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use hand_android_core::{ALPN, CipherError, Dialer, Jar, KeyCipher, Proxy, Sessions};
+use hand_android_core::proxy::Slot;
+use hand_android_core::{
+    ALPN, CipherError, Companion, Dialer, Held, Jar, KeyCipher, Proxy, Route, Sessions,
+};
 use iroh::endpoint::{Endpoint, PortmapperConfig, presets};
 use iroh::{EndpointAddr, EndpointId, RelayMode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -413,7 +416,10 @@ pub async fn proxy(dialer: Dialer) -> (TempDir, u16) {
     let dir = TempDir::new();
     let (proxy, listeners) = Proxy::bind(dir.path()).await.unwrap();
     for listener in listeners {
-        tokio::spawn(hand_android_core::proxy::serve(listener, dialer.clone()));
+        tokio::spawn(hand_android_core::proxy::serve(
+            listener,
+            Slot::holding(dialer.clone()),
+        ));
     }
     (dir, proxy.port())
 }
@@ -663,6 +669,36 @@ async fn serve_feed(
     let _ = stream.write_all(&out).await;
     tokio::time::sleep(reply.after).await;
     let _ = stream.shutdown().await;
+}
+
+pub fn route(companion: &Arc<Companion>, sessions: &Arc<Sessions<MemoryJar>>) -> Route {
+    let (companion, sessions) = (companion.clone(), sessions.clone());
+    Arc::new(move |fleet| {
+        let (companion, sessions) = (companion.clone(), sessions.clone());
+        Box::pin(async move { companion.route(&sessions, &fleet).await })
+    })
+}
+
+pub fn held_of(header: Option<&str>) -> std::io::Result<Vec<Held>> {
+    Ok(header
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            Some(Held {
+                host: String::new(),
+                fleet: name.strip_prefix("hand_phone_")?.to_owned(),
+                value: value.to_owned(),
+            })
+        })
+        .collect())
+}
+
+pub fn cookie_of(header: Option<&str>, fleet: &str) -> std::io::Result<Option<String>> {
+    Ok(held_of(header)?
+        .into_iter()
+        .find(|held| held.fleet == fleet)
+        .map(|held| format!("hand_phone_{fleet}={}", held.value)))
 }
 
 pub struct PlainCipher;

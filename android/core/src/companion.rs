@@ -1,7 +1,6 @@
 use std::fmt;
 use std::future::Future;
 use std::io;
-use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -11,23 +10,19 @@ use std::time::Duration;
 use iroh::SecretKey;
 use iroh::address_lookup::{DnsAddressLookup, PkarrResolver};
 use iroh::endpoint::{Builder, Endpoint, PortmapperConfig, QuicTransportConfig, VarInt, presets};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
+use crate::dialer::{ALPN, Dialer, STREAMS_PER_CONNECTION, parse_target};
+use crate::dialers::Dialers;
 use crate::http::{Request, RequestError, Response, exchange};
 use crate::key::{self, KeyCipher};
-use crate::link::short_id;
-use crate::link::{LINK_REJECTED, Link};
-use crate::open::{NOT_PAIRED, OPEN_REJECTED, parse_open};
+use crate::link::{Link, short_id};
 use crate::pair::{PairError, redeem};
-use crate::pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
-use crate::proxy::{self, Proxy};
-use crate::sessions::{Jar, Paired, Sessions};
+use crate::pairing::{Offer, OfferError, Pairing};
+use crate::proxy::{self, Proxy, Slot};
+use crate::sessions::{Jar, Paired, Refusal, Sessions};
 
-const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,20 +71,14 @@ pub struct CompanionConfig {
     pub cipher: Arc<dyn KeyCipher>,
 }
 
-pub(crate) fn proxy_url(port: u16, path: &str) -> String {
-    let path = if path.starts_with('/') {
-        path.to_owned()
-    } else {
-        format!("/{path}")
-    };
-    format!("http://localhost:{port}{path}")
-}
-
 #[derive(Clone)]
 pub struct Companion {
-    dialer: Dialer,
+    dialers: Dialers,
+    slot: Slot,
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
+    // Lock order: store, then pairing, then the session store's data, then Dialers (a leaf, never
+    // held across an await). Taking one while holding a later one deadlocks, and no test sees it.
     store: std::sync::Arc<StdMutex<()>>,
     network_changes: Arc<AtomicU64>,
     binding: Arc<Binding>,
@@ -105,8 +94,8 @@ struct Gate {
 }
 
 impl Companion {
-    pub fn dialer(&self) -> Dialer {
-        self.dialer.clone()
+    pub fn dialers(&self) -> &Dialers {
+        &self.dialers
     }
 
     pub async fn start(config: CompanionConfig) -> Result<Self, StartError> {
@@ -122,14 +111,15 @@ impl Companion {
         });
         let endpoint = binding.bind().await?;
         let (proxy, listeners) = Proxy::bind(&config.data_dir).await?;
-        let dialer = Dialer::new(endpoint, None);
+        let slot = Slot::default();
         for listener in listeners {
-            tokio::spawn(proxy::serve(listener, dialer.clone()));
+            tokio::spawn(proxy::serve(listener, slot.clone()));
         }
         Ok(Self {
-            dialer,
+            dialers: Dialers::new(endpoint),
+            slot,
             port: proxy.port(),
-            pairing: std::sync::Arc::new(StdMutex::new(Pairing::new(&config.data_dir))),
+            pairing: std::sync::Arc::new(StdMutex::new(Pairing::default())),
             store: std::sync::Arc::new(StdMutex::new(())),
             network_changes: Arc::new(AtomicU64::new(0)),
             binding,
@@ -139,12 +129,38 @@ impl Companion {
         })
     }
 
-    pub async fn request(&self, request: &Request) -> Result<Response, RequestError> {
-        exchange(&self.dialer, request).await
+    pub async fn route<J: Jar>(&self, sessions: &Sessions<J>, fleet: &str) -> Option<Dialer> {
+        let (endpoint, relay) = sessions.route_of(fleet)?;
+        let target = parse_target(&endpoint, relay.as_deref()).ok()?;
+        Some(self.dialers.host(&endpoint, target).await)
+    }
+
+    pub async fn request<J: Jar>(
+        &self,
+        sessions: &Sessions<J>,
+        fleet: &str,
+        request: &Request,
+    ) -> Result<Response, RequestError> {
+        let dialer = self
+            .route(sessions, fleet)
+            .await
+            .ok_or(RequestError::NoHost)?;
+        exchange(&dialer, request).await
+    }
+
+    pub async fn fallback<J: Jar>(
+        &self,
+        sessions: &Sessions<J>,
+        fleet: &str,
+    ) -> Option<(u16, String)> {
+        let cookie = sessions.cookie(fleet)?;
+        let dialer = self.route(sessions, fleet).await?;
+        self.slot.set(Some(dialer));
+        Some((self.port, cookie))
     }
 
     pub fn phone_id(&self) -> String {
-        short_id(&self.dialer.endpoint().id().to_string())
+        short_id(&self.dialers.endpoint().id().to_string())
     }
 
     pub fn port(&self) -> u16 {
@@ -155,59 +171,45 @@ impl Companion {
         self.pairing.lock().unwrap().offer(text.trim())
     }
 
-    pub fn url(&self, path: &str) -> String {
-        proxy_url(self.port, path)
-    }
-
     pub fn pending_offer(&self) -> Option<Offer> {
         self.pairing.lock().unwrap().pending_offer()
-    }
-
-    pub async fn open_board(&self) -> Result<Option<String>, ConfirmError> {
-        let active = {
-            let pairing = self.pairing.lock().unwrap();
-            pairing.active().map(|active| {
-                (
-                    active.to_owned(),
-                    pairing.active_relay().map(str::to_owned),
-                    pairing.generation(),
-                )
-            })
-        };
-        let Some((active, relay, generation)) = active else {
-            return Ok(None);
-        };
-        let target = parse_target(&active, relay.as_deref()).map_err(ConfirmError::Target)?;
-        #[cfg(test)]
-        self.pass_gate().await;
-        self.dialer.set_target(Some(target)).await;
-        if self.pairing.lock().unwrap().generation() != generation {
-            self.dialer.set_target(None).await;
-            return Ok(None);
-        }
-        self.dialer.attempt().await?;
-        Ok(Some(proxy_url(self.port, "/")))
-    }
-
-    pub fn cant_reach(&self) -> String {
-        match self.pairing.lock().unwrap().active() {
-            Some(active) => format!("Can't reach {}.", short_id(active)),
-            None => "Can't reach your host.".to_owned(),
-        }
     }
 
     pub fn cancel_pairing(&self) {
         self.pairing.lock().unwrap().clear_pending();
     }
 
-    pub async fn forget_host(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
-        let forgotten = {
+    pub async fn forget_all(&self, clear: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        let cleared = {
             let _store = self.store.lock().unwrap();
-            clear()?;
-            self.pairing.lock().unwrap().forget()
+            let cleared = clear();
+            self.pairing.lock().unwrap().forget();
+            cleared
         };
-        self.dialer.set_target(None).await;
-        forgotten
+        self.slot.set(None);
+        for dialer in self.dialers.all() {
+            dialer.set_target(None).await;
+        }
+        cleared
+    }
+
+    pub async fn forget_host(
+        &self,
+        endpoint: &str,
+        clear: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<()> {
+        let cleared = {
+            let _store = self.store.lock().unwrap();
+            let cleared = clear();
+            self.pairing.lock().unwrap().forget();
+            cleared
+        };
+        if let Some(dialer) = self.dialers.get(endpoint) {
+            self.slot
+                .set(self.slot.get().filter(|held| !held.same(&dialer)));
+        }
+        self.dialers.remove(endpoint).await;
+        cleared
     }
 
     #[cfg(test)]
@@ -224,42 +226,10 @@ impl Companion {
         }
     }
 
-    pub async fn confirm(
-        &self,
-        clear: impl FnOnce() -> io::Result<()>,
-    ) -> Result<String, ConfirmError> {
-        let link = {
-            let pairing = self.pairing.lock().unwrap();
-            pairing.pending().cloned()
-        };
-        let link = link.ok_or(ConfirmError::NoPending)?;
-        let switched = self
-            .pairing
-            .lock()
-            .unwrap()
-            .clear_before_forgetting(clear)
-            .map_err(ConfirmError::Io)?;
-        if switched {
-            self.dialer.set_target(None).await;
-        }
-        self.pairing
-            .lock()
-            .unwrap()
-            .activate(&link)
-            .map_err(ConfirmError::Io)?;
-        let target = link.target().map_err(ConfirmError::Target)?;
-        self.dialer.set_target(Some(target)).await;
-        self.dialer.attempt().await?;
-        self.probe_pair_page(&link.fleet).await?;
-        self.pairing.lock().unwrap().clear_pending();
-        Ok(link.open_url(self.port))
-    }
-
     pub async fn pair<J: Jar>(
         &self,
         sessions: &Sessions<J>,
         name: &str,
-        replacing: impl FnOnce(),
     ) -> Result<Vec<Paired>, PairError> {
         let (link, generation) = {
             let mut pairing = self.pairing.lock().unwrap();
@@ -267,15 +237,16 @@ impl Companion {
             (pairing.take(), generation)
         };
         let link = link.ok_or(PairError::NoPending)?;
+        if sessions.held_elsewhere(&link.fleet, &link.endpoint_id) {
+            self.pairing.lock().unwrap().restore(link);
+            return Err(PairError::Held);
+        }
         let target = link.target().map_err(|_| PairError::NoPending)?;
-        let dialer = Dialer::new(self.dialer.endpoint(), Some(target));
+        let dialer = Dialer::new(self.dialers.endpoint(), Some(target));
         let redeemed = redeem(&dialer, &link, name).await;
         dialer.disconnect().await;
         match redeemed {
-            Ok(paired) => {
-                self.settle(sessions, &link, generation, paired, replacing)
-                    .await
-            }
+            Ok(paired) => self.settle(sessions, &link, generation, paired).await,
             Err(error) => {
                 self.pairing.lock().unwrap().restore(link);
                 Err(error)
@@ -289,101 +260,44 @@ impl Companion {
         link: &Link,
         generation: u64,
         paired: Vec<Paired>,
-        replacing: impl FnOnce(),
     ) -> Result<Vec<Paired>, PairError> {
         #[cfg(test)]
         self.pass_gate().await;
         let target = link.target().map_err(|_| PairError::NoPending)?;
         {
             let _store = self.store.lock().unwrap();
-            let mut pairing = self.pairing.lock().unwrap();
+            let pairing = self.pairing.lock().unwrap();
             if pairing.generation() != generation {
                 return Err(PairError::NoPending);
             }
             sessions
-                .pair(&link.endpoint_id, &paired, replacing)
-                .map_err(|_| PairError::NotSaved)?;
-            if pairing.activate(link).is_err() {
-                sessions.mark_unsaved();
-            }
+                .pair(&link.endpoint_id, link.relay.as_deref(), &paired)
+                .map_err(|refusal| match refusal {
+                    Refusal::Held => PairError::Held,
+                    Refusal::NotSaved => PairError::NotSaved,
+                })?;
         }
-        self.dialer.set_target(Some(target)).await;
-        if self.pairing.lock().unwrap().generation() != generation {
-            self.dialer.set_target(None).await;
+        self.dialers.host(&link.endpoint_id, target).await;
+        if !sessions
+            .hosts()
+            .iter()
+            .any(|host| host.endpoint == link.endpoint_id)
+        {
+            self.dialers.remove(&link.endpoint_id).await;
             return Err(PairError::NoPending);
         }
         Ok(paired)
     }
 
-    pub async fn open_link(&self, text: &str) -> Result<String, OpenLinkError> {
-        self.open_link_after(text, |fleet| async move {
-            self.dialer.attempt().await.map_err(ConfirmError::Open)?;
-            self.probe_pair_page(&fleet).await
-        })
-        .await
-    }
-
-    async fn open_link_after<Fut>(
-        &self,
-        text: &str,
-        reach: impl FnOnce(String) -> Fut,
-    ) -> Result<String, OpenLinkError>
-    where
-        Fut: Future<Output = Result<(), ConfirmError>>,
-    {
-        let active = {
-            let pairing = self.pairing.lock().unwrap();
-            if pairing.pending().is_some() {
-                return Err(OpenLinkError::Pending);
-            }
-            pairing.active().map(|active| {
-                (
-                    active.to_owned(),
-                    pairing.active_relay().map(str::to_owned),
-                    pairing.generation(),
-                )
-            })
-        };
-        let link = parse_open(text).ok_or(OpenLinkError::Rejected)?;
-        let (active, relay, generation) = active.ok_or(OpenLinkError::NotPaired)?;
-        let target = parse_target(&active, relay.as_deref()).map_err(ConfirmError::Target)?;
-        #[cfg(test)]
-        self.pass_gate().await;
-        self.dialer.set_target(Some(target)).await;
-        if self.pairing.lock().unwrap().generation() != generation {
-            self.dialer.set_target(None).await;
-            return Err(OpenLinkError::NotPaired);
-        }
-        reach(link.fleet.clone()).await?;
-        Ok(proxy_url(self.port, &link.path()))
-    }
-
-    async fn probe_pair_page(&self, fleet: &str) -> Result<(), ConfirmError> {
-        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, self.port))
-            .await
-            .map_err(|_| ConfirmError::BoardDown)?;
-        let request =
-            format!("GET /{fleet}/pair HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
-        let probe = async {
-            stream.write_all(request.as_bytes()).await?;
-            stream.shutdown().await?;
-            let mut head = [0u8; 5];
-            stream.read_exact(&mut head).await?;
-            Ok::<_, io::Error>(())
-        };
-        match timeout(PROBE_TIMEOUT, probe).await {
-            Ok(Ok(())) => Ok(()),
-            _ => Err(ConfirmError::BoardDown),
-        }
-    }
-
     pub async fn reconnect_on_resume(&self, then: impl FnOnce()) {
-        self.dialer.disconnect().await;
+        for dialer in self.dialers.all() {
+            dialer.disconnect().await;
+        }
         then();
     }
 
     pub async fn network_change(&self, then: impl FnOnce()) {
-        self.dialer.endpoint().network_change().await;
+        self.dialers.endpoint().network_change().await;
         self.network_changes.fetch_add(1, Ordering::Relaxed);
         then();
     }
@@ -397,7 +311,7 @@ impl Companion {
         if self.duty.asleep.swap(true, Ordering::SeqCst) {
             return;
         }
-        self.dialer.close().await;
+        self.dialers.close().await;
         self.duty.sleeps.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -406,7 +320,7 @@ impl Companion {
         if !self.asleep() {
             return Ok(());
         }
-        self.dialer.open(self.binding.bind().await?);
+        self.dialers.open(self.binding.bind().await?);
         self.duty.asleep.store(false, Ordering::SeqCst);
         self.duty.wakes.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -428,9 +342,9 @@ impl Companion {
         if !self.asleep() {
             return Ok(Polled::Live);
         }
-        self.dialer.open(self.binding.bind().await?);
+        self.dialers.open(self.binding.bind().await?);
         let reached = timeout(deadline, poll).await.unwrap_or(false);
-        self.dialer.close().await;
+        self.dialers.close().await;
         self.duty.polls.fetch_add(1, Ordering::Relaxed);
         Ok(if reached {
             Polled::Reached
@@ -440,9 +354,18 @@ impl Companion {
     }
 
     pub async fn report(&self) -> String {
+        let dialers = self.dialers.all();
+        let mut connected = 0;
+        for dialer in &dialers {
+            connected += usize::from(dialer.connected().await);
+        }
+        let iroh = match dialers.first() {
+            Some(dialer) => dialer.report().await,
+            None => Dialer::new(self.dialers.endpoint(), None).report().await,
+        };
         format!(
-            "{} network_changes={} state={} sleeps={} wakes={} polls={}",
-            self.dialer.report().await,
+            "{iroh} hosts={} connected={connected} network_changes={} state={} sleeps={} wakes={} polls={}",
+            dialers.len(),
             self.network_changes.load(Ordering::Relaxed),
             if self.asleep() { "asleep" } else { "live" },
             self.duty.sleeps.load(Ordering::Relaxed),
@@ -471,86 +394,6 @@ pub struct Reporter(JoinHandle<()>);
 impl Drop for Reporter {
     fn drop(&mut self) {
         self.0.abort();
-    }
-}
-
-#[derive(Debug)]
-pub enum ConfirmError {
-    NoPending,
-    Target(String),
-    Io(io::Error),
-    Open(OpenError),
-    BoardDown,
-}
-
-impl ConfirmError {
-    pub fn message(&self) -> &'static str {
-        match self {
-            Self::Open(OpenError::Busy) => crate::dialer::Notice::Busy.message(),
-            Self::Open(OpenError::Unreachable) => crate::dialer::Notice::Unreachable.message(),
-            Self::Open(OpenError::Lost) => crate::dialer::Notice::Lost.message(),
-            Self::Open(OpenError::NotConfigured) => crate::dialer::Notice::NoTarget.message(),
-            Self::BoardDown => crate::dialer::Notice::BoardUnreachable.message(),
-            Self::NoPending | Self::Target(_) | Self::Io(_) => LINK_REJECTED,
-        }
-    }
-
-    pub fn retry(&self) -> bool {
-        matches!(self, Self::Open(OpenError::Busy | OpenError::Lost))
-    }
-}
-
-impl fmt::Display for ConfirmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Target(error) => f.write_str(error),
-            Self::Io(error) => write!(f, "{error}"),
-            other => f.write_str(other.message()),
-        }
-    }
-}
-
-impl std::error::Error for ConfirmError {}
-
-impl From<OpenError> for ConfirmError {
-    fn from(error: OpenError) -> Self {
-        Self::Open(error)
-    }
-}
-
-#[derive(Debug)]
-pub enum OpenLinkError {
-    Pending,
-    Rejected,
-    NotPaired,
-    Failed(ConfirmError),
-}
-
-impl OpenLinkError {
-    pub fn message(&self) -> &'static str {
-        match self {
-            Self::Pending => PAIRING_PENDING,
-            Self::Rejected => OPEN_REJECTED,
-            Self::NotPaired => NOT_PAIRED,
-            Self::Failed(ConfirmError::Open(OpenError::Busy)) => {
-                "Your host is busy. Tap the link again."
-            }
-            Self::Failed(error) => error.message(),
-        }
-    }
-}
-
-impl fmt::Display for OpenLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.message())
-    }
-}
-
-impl std::error::Error for OpenLinkError {}
-
-impl From<ConfirmError> for OpenLinkError {
-    fn from(error: ConfirmError) -> Self {
-        Self::Failed(error)
     }
 }
 
@@ -657,10 +500,15 @@ mod tests {
         assert_eq!(lines.load(Ordering::SeqCst), after);
     }
 
+    const HOST: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
+    const OTHER_HOST: &str = "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5";
+    const FLEET: &str = "f0123456789ab";
+    const OTHER_FLEET: &str = "fa1b2c3d4e5f6";
     const LINK: &str = "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P";
     const SECOND_LINK: &str = "handboard://c#v=1&e=d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5&f=fa1b2c3d4e5f6&c=0123456789";
 
-    struct TestCipher;
+    #[derive(Default)]
+    struct TestCipher(AtomicBool);
 
     impl KeyCipher for TestCipher {
         fn probe(&self) -> Result<(), CipherError> {
@@ -668,6 +516,9 @@ mod tests {
         }
 
         fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, CipherError> {
+            if self.0.load(Ordering::SeqCst) {
+                return Err(CipherError::Io(io::Error::other("the keystore refused")));
+            }
             Ok(plaintext.to_vec())
         }
 
@@ -679,15 +530,80 @@ mod tests {
     fn config(dir: &TempDir) -> CompanionConfig {
         CompanionConfig {
             data_dir: dir.path().to_owned(),
-            cipher: Arc::new(TestCipher),
+            cipher: Arc::new(TestCipher::default()),
         }
+    }
+
+    struct EmptyJar;
+
+    impl Jar for EmptyJar {
+        fn cookies(&self) -> io::Result<Option<String>> {
+            Ok(None)
+        }
+
+        fn clear(&self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct UnreadableJar;
+
+    impl Jar for UnreadableJar {
+        fn cookies(&self) -> io::Result<Option<String>> {
+            Err(io::Error::other("the jar is unreadable"))
+        }
+
+        fn clear(&self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn sessions(dir: &TempDir) -> Sessions<EmptyJar> {
+        Sessions::open(dir.path(), EmptyJar, Arc::new(TestCipher::default())).unwrap()
+    }
+
+    fn answered(id: &str) -> Vec<Paired> {
+        vec![Paired {
+            id: id.to_owned(),
+            name: "orchard".to_owned(),
+            value: format!("7.{}", "ab".repeat(32)),
+        }]
+    }
+
+    fn take(companion: &Companion) -> (Link, u64) {
+        let mut pairing = companion.pairing.lock().unwrap();
+        let generation = pairing.generation();
+        (pairing.take().unwrap(), generation)
+    }
+
+    async fn target(companion: &Companion, host: &str) -> Option<String> {
+        companion
+            .dialers()
+            .get(host)?
+            .target()
+            .await
+            .map(|target| target.id.to_string())
+    }
+
+    async fn paired_with(
+        companion: &Companion,
+        sessions: &Sessions<EmptyJar>,
+        link: &str,
+        fleet: &str,
+    ) {
+        companion.offer_link(link).unwrap();
+        let (link, generation) = take(companion);
+        companion
+            .settle(sessions, &link, generation, answered(fleet))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn the_phone_id_is_the_short_form_of_its_own_endpoint_id() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let endpoint = companion.dialer.endpoint().id().to_string();
+        let endpoint = companion.dialers().endpoint().id().to_string();
 
         assert_eq!(endpoint.len(), 64);
         assert_eq!(
@@ -697,28 +613,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_request_with_no_host_paired_says_so() {
+    async fn a_request_for_a_fleet_no_host_holds_says_so() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let request = Request::new(
             Method::Get,
-            "f0123456789ab",
+            FLEET,
             "/api/v1/status",
             Some("hand_phone_f0123456789ab=abc"),
             None,
-            b"",
+            &[],
         )
         .unwrap();
-        assert_eq!(companion.request(&request).await, Err(RequestError::NoHost));
+
+        let result = companion.request(&sessions(&dir), FLEET, &request).await;
+
+        assert_eq!(result.err(), Some(RequestError::NoHost));
     }
 
     #[tokio::test]
-    async fn offering_a_link_dials_nothing_until_confirmed() {
+    async fn offering_a_link_dials_nothing_until_it_is_paired() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let offer = companion.offer_link(LINK).unwrap();
         assert_eq!(offer.host, "4d92…6ed6");
-        assert!(companion.dialer.target().await.is_none());
+        assert!(companion.dialers().all().is_empty());
     }
 
     #[tokio::test]
@@ -744,177 +663,111 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_relaunch_without_a_host_stays_on_the_pairing_screen() {
-        let dir = TempDir::new();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        assert_eq!(companion.open_board().await.unwrap(), None);
-        assert!(companion.dialer.target().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn a_relaunch_with_an_unreachable_host_fails_and_keeps_the_host() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        let error = companion.open_board().await.unwrap_err();
-        assert!(matches!(error, ConfirmError::Open(_)), "{error:?}");
-        assert_eq!(
-            companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(HOST.to_owned())
-        );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{HOST}\n")
-        );
-    }
-
-    fn take(companion: &Companion) -> (Link, u64) {
-        let mut pairing = companion.pairing.lock().unwrap();
-        let generation = pairing.generation();
-        (pairing.take().unwrap(), generation)
-    }
-
-    struct HeldJar(StdMutex<Option<&'static str>>);
-
-    fn held(cookie: Option<&'static str>) -> HeldJar {
-        HeldJar(StdMutex::new(cookie))
-    }
-
-    impl Jar for HeldJar {
-        fn cookies(&self) -> io::Result<Option<String>> {
-            Ok(self.0.lock().unwrap().map(str::to_owned))
-        }
-
-        fn clear(&self) -> io::Result<()> {
-            *self.0.lock().unwrap() = None;
-            Ok(())
-        }
-    }
-
-    struct UnreadableJar(Arc<AtomicBool>);
-
-    impl Jar for UnreadableJar {
-        fn cookies(&self) -> io::Result<Option<String>> {
-            Err(io::Error::other("the jar is unreadable"))
-        }
-
-        fn clear(&self) -> io::Result<()> {
-            self.0.store(true, Ordering::SeqCst);
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
     async fn pairing_without_a_pending_link_says_so() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
-        let result = companion.pair(&sessions, "Pixel", || {}).await;
+        let result = companion.pair(&sessions(&dir), "Pixel").await;
         assert_eq!(result.err(), Some(PairError::NoPending));
     }
 
     #[tokio::test]
     async fn a_pairing_that_cannot_reach_the_host_changes_nothing_and_stays_pending() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
-        companion.open_board().await.unwrap_err();
-        let offer = companion.offer_link(SECOND_LINK).unwrap();
-        assert!(offer.replaces);
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        companion.offer_link(SECOND_LINK).unwrap();
 
-        let result = companion
-            .pair(&sessions, "Pixel", || {
-                panic!("the feeds stop only on success")
-            })
-            .await;
+        let result = companion.pair(&sessions, "Pixel").await;
 
         assert!(matches!(result.err(), Some(PairError::Request(_))));
         assert!(companion.pending_offer().is_some());
-        assert_eq!(
-            companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(HOST.to_owned())
-        );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{HOST}\n")
-        );
-        assert_eq!(sessions.header(), None);
-    }
-
-    fn answered(id: &str) -> Vec<Paired> {
-        vec![Paired {
-            id: id.to_owned(),
-            name: "orchard".to_owned(),
-            value: format!("7.{}", "ab".repeat(32)),
-        }]
+        assert_eq!(sessions.hosts().len(), 1);
+        assert_eq!(companion.dialers().all().len(), 1);
     }
 
     #[tokio::test]
-    async fn a_paired_host_becomes_the_host_and_its_fleets_are_stored_and_replace_the_old() {
+    async fn a_fleet_held_through_another_host_is_refused_before_that_host_is_asked() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-        let sessions = Sessions::open(dir.path(), held(Some(old)), Arc::new(TestCipher)).unwrap();
-        assert!(sessions.header().is_some());
-        let offer = companion.offer_link(SECOND_LINK).unwrap();
-        assert!(offer.replaces);
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        let copied = format!("handboard://c#v=1&e={OTHER_HOST}&f={FLEET}&c=0123456789");
+        companion.offer_link(&copied).unwrap();
+
+        let result = companion.pair(&sessions, "Pixel").await;
+
+        assert_eq!(result.err(), Some(PairError::Held));
+        assert!(companion.pending_offer().is_some());
+        assert_eq!(sessions.hosts().len(), 1);
+        assert!(companion.dialers().get(OTHER_HOST).is_none());
+        assert!(PairError::Held.message().contains("fleet ID"));
+    }
+
+    #[tokio::test]
+    async fn a_set_that_names_a_fleet_held_through_another_host_is_refused_whole() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
-        let mut stopped = 0;
+        let mut set = answered(OTHER_FLEET);
+        set.extend(answered(FLEET));
 
-        let fleets = companion
-            .settle(
-                &sessions,
-                &link,
-                generation,
-                answered("fa1b2c3d4e5f6"),
-                || stopped += 1,
-            )
-            .await
-            .unwrap();
+        let result = companion.settle(&sessions, &link, generation, set).await;
 
-        assert_eq!(stopped, 1);
-        assert_eq!(fleets.len(), 1);
-        assert_eq!(fleets[0].name, "orchard");
-        assert_eq!(
-            sessions.header().as_deref(),
-            Some(format!("hand_phone_fa1b2c3d4e5f6=7.{}", "ab".repeat(32)).as_str())
-        );
+        assert_eq!(result.err(), Some(PairError::Held));
+        assert_eq!(sessions.hosts().len(), 1);
+        assert!(companion.dialers().get(OTHER_HOST).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_second_host_is_added_beside_the_first_and_each_fleet_routes_to_its_own() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
+
         assert!(companion.pending_offer().is_none());
+        assert_eq!(sessions.hosts().len(), 2);
+        assert_eq!(target(&companion, HOST).await.as_deref(), Some(HOST));
         assert_eq!(
-            companion.pairing.lock().unwrap().active(),
-            Some(link.endpoint_id.as_str())
+            target(&companion, OTHER_HOST).await.as_deref(),
+            Some(OTHER_HOST)
         );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{}\n", link.endpoint_id)
-        );
-        assert_eq!(
-            companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(link.endpoint_id.clone())
-        );
-        let again = companion.offer_link(SECOND_LINK).unwrap();
-        assert!(!again.replaces);
+        let first = companion.route(&sessions, FLEET).await.unwrap();
+        let second = companion.route(&sessions, OTHER_FLEET).await.unwrap();
+        assert!(!first.same(&second));
+        assert_eq!(first.target().await.unwrap().id.to_string(), HOST);
+        assert_eq!(second.target().await.unwrap().id.to_string(), OTHER_HOST);
+        assert!(companion.route(&sessions, "f999999999999").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_relay_from_the_link_is_the_hosts_and_a_repair_takes_the_new_one() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        let relayed = format!("{LINK}&r=https%3A%2F%2Frelay.example.test%3A7842%2F");
+        paired_with(&companion, &sessions, &relayed, FLEET).await;
+        let dialer = companion.route(&sessions, FLEET).await.unwrap();
+        assert_eq!(dialer.target().await.unwrap().relay_urls().count(), 1);
+
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+
+        assert_eq!(sessions.hosts()[0].relay, None);
+        let dialer = companion.route(&sessions, FLEET).await.unwrap();
+        assert_eq!(dialer.target().await.unwrap().relay_urls().count(), 0);
+        assert_eq!(companion.dialers().all().len(), 1);
     }
 
     #[tokio::test]
     async fn a_cancel_and_a_new_offer_during_a_pairing_do_not_redirect_what_it_commits() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        let sessions = sessions(&dir);
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
         assert!(companion.pending_offer().is_none());
@@ -922,102 +775,82 @@ mod tests {
         companion.offer_link(LINK).unwrap();
 
         companion
-            .settle(
-                &sessions,
-                &link,
-                generation,
-                answered("fa1b2c3d4e5f6"),
-                || {},
-            )
+            .settle(&sessions, &link, generation, answered(OTHER_FLEET))
             .await
             .unwrap();
 
+        assert_eq!(sessions.hosts()[0].endpoint, OTHER_HOST);
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{}\n", link.endpoint_id)
-        );
-        assert_eq!(
-            companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(link.endpoint_id.clone())
+            target(&companion, OTHER_HOST).await.as_deref(),
+            Some(OTHER_HOST)
         );
         assert_eq!(companion.pending_offer().unwrap().host, "4d92…6ed6");
-        assert!(sessions.header().is_some());
     }
 
     #[tokio::test]
-    async fn a_host_file_that_cannot_be_written_still_ends_the_pairing_and_says_so() {
+    async fn a_pairing_that_cannot_be_saved_leaves_no_host_and_no_dialer() {
+        let dir = TempDir::new();
+        let cipher = Arc::new(TestCipher::default());
+        let companion = Companion::start(CompanionConfig {
+            data_dir: dir.path().to_owned(),
+            cipher: cipher.clone(),
+        })
+        .await
+        .unwrap();
+        let sessions = Sessions::open(dir.path(), EmptyJar, cipher.clone()).unwrap();
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+        cipher.0.store(true, Ordering::SeqCst);
+
+        let result = companion
+            .settle(&sessions, &link, generation, answered(OTHER_FLEET))
+            .await;
+
+        assert_eq!(result.err(), Some(PairError::NotSaved));
+        assert!(sessions.hosts().is_empty());
+        assert!(companion.dialers().all().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pairing_whose_jar_cannot_be_read_is_not_saved_and_changes_nothing() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
-        std::fs::create_dir(dir.path().join("laptop")).unwrap();
+        let sessions =
+            Sessions::open(dir.path(), UnreadableJar, Arc::new(TestCipher::default())).unwrap();
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
-        let paired = companion
-            .settle(
-                &sessions,
-                &link,
-                generation,
-                answered("fa1b2c3d4e5f6"),
-                || {},
-            )
-            .await
-            .unwrap();
+        let result = companion
+            .settle(&sessions, &link, generation, answered(OTHER_FLEET))
+            .await;
 
-        assert_eq!(paired.len(), 1);
-        assert!(sessions.unsaved());
-        assert!(sessions.header().is_some());
-        assert_eq!(
-            companion.pairing.lock().unwrap().active(),
-            Some(link.endpoint_id.as_str())
-        );
-        assert_eq!(
-            companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(link.endpoint_id.clone())
-        );
+        assert_eq!(result.err(), Some(PairError::NotSaved));
+        assert!(companion.dialers().all().is_empty());
     }
 
     #[tokio::test]
     async fn a_pairing_taken_before_a_forget_does_not_keep_the_host() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let sessions = Sessions::open(dir.path(), held(None), Arc::new(TestCipher)).unwrap();
+        let sessions = sessions(&dir);
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
-        companion.forget_host(|| Ok(())).await.unwrap();
+        companion.forget_all(|| Ok(())).await.unwrap();
         let result = companion
-            .settle(
-                &sessions,
-                &link,
-                generation,
-                answered("fa1b2c3d4e5f6"),
-                || {},
-            )
+            .settle(&sessions, &link, generation, answered(OTHER_FLEET))
             .await;
 
         assert_eq!(result.err(), Some(PairError::NoPending));
-        assert!(companion.pairing.lock().unwrap().active().is_none());
-        assert!(sessions.header().is_none());
-        assert!(!dir.path().join("laptop").exists());
-        assert!(companion.dialer.target().await.is_none());
+        assert!(sessions.hosts().is_empty());
+        assert!(companion.dialers().all().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_forget_that_lands_while_a_pairing_commits_leaves_no_store_host_or_target() {
+    async fn a_forget_that_lands_while_a_pairing_commits_leaves_no_store_host_or_dialer() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let old = "hand_phone_f0123456789ab=3.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-        let sessions =
-            Arc::new(Sessions::open(dir.path(), held(Some(old)), Arc::new(TestCipher)).unwrap());
+        let sessions = Arc::new(sessions(&dir));
         companion.offer_link(SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
         let (done, settled) = std::sync::mpsc::channel();
@@ -1031,13 +864,7 @@ mod tests {
             let sessions = sessions.clone();
             tokio::spawn(async move {
                 let result = companion
-                    .settle(
-                        &sessions,
-                        &link,
-                        generation,
-                        answered("fa1b2c3d4e5f6"),
-                        || {},
-                    )
+                    .settle(&sessions, &link, generation, answered(OTHER_FLEET))
                     .await;
                 let _ = done.send(());
                 result
@@ -1048,7 +875,7 @@ mod tests {
         let cleared = {
             let sessions = sessions.clone();
             companion
-                .forget_host(move || {
+                .forget_all(move || {
                     let cleared = sessions.forget();
                     gate.resume.notify_one();
                     let _ = settled.recv_timeout(Duration::from_secs(1));
@@ -1060,10 +887,8 @@ mod tests {
         let result = pairing.await.unwrap();
         assert!(cleared.is_ok());
         assert_eq!(result.err(), Some(PairError::NoPending));
-        assert!(sessions.header().is_none());
-        assert!(companion.pairing.lock().unwrap().active().is_none());
-        assert!(!dir.path().join("laptop").exists());
-        assert!(companion.dialer.target().await.is_none());
+        assert!(sessions.hosts().is_empty());
+        assert!(companion.dialers().all().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1076,7 +901,7 @@ mod tests {
             let companion = companion.clone();
             tokio::spawn(async move {
                 companion
-                    .forget_host(move || {
+                    .forget_all(move || {
                         let _ = entered.send(());
                         released
                             .recv_timeout(Duration::from_secs(30))
@@ -1104,271 +929,124 @@ mod tests {
             tapped.expect("the offer and the cancel waited behind the clear"),
             Ok(Offer {
                 host: "4d92…6ed6".to_owned(),
-                replaces: false,
             })
         );
         assert!(companion.pending_offer().is_none());
-        assert!(companion.pairing.lock().unwrap().active().is_none());
-        assert!(companion.dialer.target().await.is_none());
     }
 
     #[tokio::test]
-    async fn a_forget_between_reading_a_host_and_dialing_it_leaves_no_target() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        let gate = std::sync::Arc::new(Gate {
-            reached: tokio::sync::Notify::new(),
-            resume: tokio::sync::Notify::new(),
-        });
-        companion.arm_gate(gate.clone());
-        let opening = {
-            let companion = companion.clone();
-            tokio::spawn(async move { companion.open_board().await })
-        };
-        gate.reached.notified().await;
-        companion.forget_host(|| Ok(())).await.unwrap();
-        gate.resume.notify_one();
-
-        assert_eq!(opening.await.unwrap().unwrap(), None);
-        assert!(companion.dialer.target().await.is_none());
-        assert!(!dir.path().join("laptop").exists());
-    }
-
-    #[tokio::test]
-    async fn a_forget_between_reading_a_host_and_an_open_link_leaves_no_target() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        let gate = std::sync::Arc::new(Gate {
-            reached: tokio::sync::Notify::new(),
-            resume: tokio::sync::Notify::new(),
-        });
-        companion.arm_gate(gate.clone());
-        let opening = {
-            let companion = companion.clone();
-            tokio::spawn(async move { companion.open_link_after(OPEN, |_| async { Ok(()) }).await })
-        };
-        gate.reached.notified().await;
-        companion.forget_host(|| Ok(())).await.unwrap();
-        gate.resume.notify_one();
-
-        assert!(matches!(
-            opening.await.unwrap(),
-            Err(OpenLinkError::NotPaired)
-        ));
-        assert!(companion.dialer.target().await.is_none());
-        assert!(!dir.path().join("laptop").exists());
-    }
-
-    #[tokio::test]
-    async fn a_pairing_that_cannot_be_saved_leaves_the_host_file_unwritten() {
+    async fn forgetting_one_host_drops_its_dialer_and_slot_and_leaves_the_other() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let cipher = Arc::new(crate::testutil::FakeCipher::new());
-        let sessions = Sessions::open(dir.path(), held(None), cipher.clone()).unwrap();
-        sessions.header();
-        companion.offer_link(SECOND_LINK).unwrap();
-        let (link, generation) = take(&companion);
-        cipher.fail_next_seal();
-
-        let late = companion
-            .settle(
-                &sessions,
-                &link,
-                generation,
-                answered("fa1b2c3d4e5f6"),
-                || {},
-            )
-            .await;
-
-        assert_eq!(late.err(), Some(PairError::NotSaved));
-        assert!(!dir.path().join("laptop").exists());
-    }
-
-    #[tokio::test]
-    async fn a_pairing_whose_jar_cannot_be_read_returns_not_saved_and_changes_nothing() {
-        let dir = TempDir::new();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        let cleared = Arc::new(AtomicBool::new(false));
-        let jar = UnreadableJar(cleared.clone());
-        let sessions = Sessions::open(dir.path(), jar, Arc::new(TestCipher)).unwrap();
-        companion.offer_link(SECOND_LINK).unwrap();
-        let (link, generation) = take(&companion);
-
-        let late = companion
-            .settle(
-                &sessions,
-                &link,
-                generation,
-                answered("fa1b2c3d4e5f6"),
-                || {},
-            )
-            .await;
-
-        assert_eq!(late.err(), Some(PairError::NotSaved));
-        assert!(!cleared.load(Ordering::SeqCst));
-        assert!(!dir.path().join("laptop").exists());
-        assert!(!dir.path().join("sessions/sessions.sealed").exists());
-    }
-
-    #[tokio::test]
-    async fn the_unreachable_message_names_the_saved_host() {
-        let dir = TempDir::new();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        assert_eq!(companion.cant_reach(), "Can't reach your host.");
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        assert_eq!(companion.cant_reach(), "Can't reach 4d92…6ed6.");
-    }
-
-    const OPEN: &str = "handboard://open/f0123456789ab/task/t3#r5";
-    const HOST: &str = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
-    const RELAY: &str = "https://relay.example.test:7842/";
-
-    #[tokio::test]
-    async fn a_saved_relay_is_dialed_when_a_link_reopens_the_board() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n{RELAY}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
+        let kept = companion.route(&sessions, OTHER_FLEET).await.unwrap();
+        companion.fallback(&sessions, FLEET).await.unwrap();
+        assert!(companion.slot.get().is_some());
 
         companion
-            .open_link_after(OPEN, |_| async { Ok(()) })
+            .forget_host(HOST, || sessions.forget_host(HOST))
             .await
             .unwrap();
 
-        let target = companion.dialer.target().await.unwrap();
-        assert_eq!(target.id.to_string(), HOST);
-        assert_eq!(
-            target.relay_urls().next().map(|relay| relay.to_string()),
-            Some(RELAY.to_owned())
-        );
+        assert!(companion.dialers().get(HOST).is_none());
+        assert!(companion.slot.get().is_none());
+        assert!(companion.dialers().get(OTHER_HOST).unwrap().same(&kept));
+        assert_eq!(kept.target().await.unwrap().id.to_string(), OTHER_HOST);
+        assert!(companion.route(&sessions, FLEET).await.is_none());
+        assert_eq!(sessions.hosts().len(), 1);
     }
 
     #[tokio::test]
-    async fn an_open_link_with_no_host_dials_nothing_and_says_to_pair_first() {
+    async fn forgetting_the_host_another_fallback_serves_keeps_that_slot() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let error = companion.open_link(OPEN).await.unwrap_err();
-        assert!(matches!(error, OpenLinkError::NotPaired));
-        assert_eq!(error.message(), "Pair this Companion with your host first.");
-        assert!(companion.dialer.target().await.is_none());
-        assert!(!dir.path().join("laptop").exists());
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
+        companion.fallback(&sessions, OTHER_FLEET).await.unwrap();
+
+        companion
+            .forget_host(HOST, || sessions.forget_host(HOST))
+            .await
+            .unwrap();
+
+        let slot = companion.slot.get().unwrap();
+        assert!(slot.same(&companion.dialers().get(OTHER_HOST).unwrap()));
     }
 
     #[tokio::test]
-    async fn an_open_link_while_a_pairing_is_pending_is_dropped_and_the_offer_stays() {
+    async fn forgetting_everything_drops_every_dialer_target_and_the_slot() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let offer = companion.offer_link(SECOND_LINK).unwrap();
-        let error = companion.open_link(OPEN).await.unwrap_err();
-        assert!(matches!(error, OpenLinkError::Pending));
-        assert_eq!(error.message(), PAIRING_PENDING);
-        assert_eq!(companion.pending_offer().unwrap().host, offer.host);
-        assert!(companion.dialer.target().await.is_none());
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{HOST}\n")
-        );
-    }
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
+        companion.fallback(&sessions, FLEET).await.unwrap();
 
-    #[tokio::test]
-    async fn a_hostile_open_link_dials_nothing() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        for text in [
-            "handboard://open/f0123456789ab/task/t3/extra",
-            "handboard://open/f0123456789ab/task%2Ft3",
-            "handboard://open/f0123456789ab/task/t3?x=1",
-            LINK,
-            "",
-        ] {
-            let error = companion.open_link(text).await.unwrap_err();
-            assert!(matches!(error, OpenLinkError::Rejected), "{text}");
-            assert_eq!(error.message(), "This is not a link Hand can open.");
+        companion.forget_all(|| sessions.forget()).await.unwrap();
+
+        assert!(companion.slot.get().is_none());
+        for dialer in companion.dialers().all() {
+            assert!(dialer.target().await.is_none());
         }
-        assert!(companion.dialer.target().await.is_none());
+        assert!(sessions.hosts().is_empty());
     }
 
     #[tokio::test]
-    async fn an_open_link_to_a_reachable_board_returns_its_proxy_url_and_changes_nothing() {
+    async fn a_fallback_serves_the_host_of_its_fleet_with_only_that_fleets_cookie() {
         let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let reached = std::sync::Mutex::new(Vec::new());
-        let url = companion
-            .open_link_after(OPEN, |fleet| {
-                reached.lock().unwrap().push(fleet);
-                async { Ok(()) }
-            })
-            .await
-            .unwrap();
-        let port = companion.port();
-        assert_eq!(
-            url,
-            format!("http://localhost:{port}/f0123456789ab/task/t3#r5")
-        );
-        assert_eq!(*reached.lock().unwrap(), ["f0123456789ab"]);
-        assert_eq!(
-            companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(HOST.to_owned())
-        );
-        assert_eq!(
-            std::fs::read(dir.path().join("laptop")).unwrap(),
-            format!("{HOST}\n").into_bytes()
-        );
-        assert!(companion.pending_offer().is_none());
-    }
+        let sessions = sessions(&dir);
+        assert!(companion.fallback(&sessions, FLEET).await.is_none());
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
 
-    #[tokio::test]
-    async fn an_open_link_to_an_unreachable_host_fails_before_any_navigation() {
-        let dir = TempDir::new();
-        std::fs::write(dir.path().join("laptop"), format!("{HOST}\n")).unwrap();
-        let companion = Companion::start(config(&dir)).await.unwrap();
-        let error = companion.open_link(OPEN).await.unwrap_err();
+        let (port, cookie) = companion.fallback(&sessions, FLEET).await.unwrap();
+        assert_eq!(port, companion.port());
+        assert_eq!(cookie, format!("hand_phone_{FLEET}=7.{}", "ab".repeat(32)));
         assert!(
-            matches!(error, OpenLinkError::Failed(ConfirmError::Open(_))),
-            "{error:?}"
-        );
-        assert!(!error.message().is_empty());
-        assert_eq!(
             companion
-                .dialer
-                .target()
-                .await
-                .map(|target| target.id.to_string()),
-            Some(HOST.to_owned())
+                .slot
+                .get()
+                .unwrap()
+                .same(&companion.dialers().get(HOST).unwrap())
         );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("laptop")).unwrap(),
-            format!("{HOST}\n")
+
+        let (_, cookie) = companion.fallback(&sessions, OTHER_FLEET).await.unwrap();
+        assert!(cookie.starts_with(&format!("hand_phone_{OTHER_FLEET}=")));
+        assert!(
+            companion
+                .slot
+                .get()
+                .unwrap()
+                .same(&companion.dialers().get(OTHER_HOST).unwrap())
         );
-        assert!(companion.pending_offer().is_none());
     }
 
-    #[test]
-    fn a_busy_host_asks_for_another_tap_and_the_other_failures_keep_their_messages() {
-        assert_eq!(
-            OpenLinkError::Failed(ConfirmError::Open(OpenError::Busy)).message(),
-            "Your host is busy. Tap the link again."
-        );
-        assert_eq!(
-            OpenLinkError::Failed(ConfirmError::BoardDown).message(),
-            crate::dialer::Notice::BoardUnreachable.message()
-        );
-        assert_eq!(
-            OpenLinkError::Failed(ConfirmError::Open(OpenError::Unreachable)).message(),
-            crate::dialer::Notice::Unreachable.message()
-        );
-        assert_eq!(
-            OpenLinkError::Failed(ConfirmError::Open(OpenError::Lost)).message(),
-            crate::dialer::Notice::Lost.message()
+    #[tokio::test]
+    async fn a_new_dialer_made_while_asleep_is_down_and_wake_opens_every_one() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        companion.sleep().await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
+
+        let dialers = companion.dialers().all();
+        assert_eq!(dialers.len(), 2);
+        assert!(dialers.iter().all(Dialer::is_down));
+
+        companion.wake().await.unwrap();
+
+        assert!(dialers.iter().all(|dialer| !dialer.is_down()));
+        let live = companion.dialers().endpoint();
+        assert!(!live.is_closed());
+        assert!(
+            dialers
+                .iter()
+                .all(|dialer| dialer.endpoint().id() == live.id())
         );
     }
 
@@ -1381,6 +1059,9 @@ mod tests {
     async fn a_poll_that_outlasts_its_deadline_is_missed_and_the_endpoint_is_closed_again() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
         companion.sleep().await;
 
         let polled = companion
@@ -1389,8 +1070,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(polled, Polled::Missed);
-        assert!(companion.asleep() && companion.dialer().is_down());
-        assert!(companion.dialer().endpoint().is_closed());
+        assert!(companion.asleep() && companion.dialers().is_down());
+        assert!(companion.dialers().all().iter().all(Dialer::is_down));
+        assert!(companion.dialers().endpoint().is_closed());
         assert!(companion.report().await.contains(" polls=1"));
         companion.wake().await.unwrap();
         assert!(!companion.asleep());

@@ -150,9 +150,21 @@ impl Dialer {
         self.inner.down.load(Ordering::SeqCst)
     }
 
-    pub async fn close(&self) {
+    pub fn same(&self, other: &Dialer) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    pub fn down(&self) {
         self.inner.down.store(true, Ordering::SeqCst);
+    }
+
+    pub async fn close(&self) {
+        self.down();
         self.endpoint().close().await;
+    }
+
+    pub async fn connected(&self) -> bool {
+        self.live().await.is_some()
     }
 
     pub fn open(&self, endpoint: Endpoint) {

@@ -1,6 +1,7 @@
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -57,13 +58,34 @@ impl Proxy {
     }
 }
 
-pub async fn serve(listener: TcpListener, dialer: Dialer) {
-    while let Ok((tcp, _)) = listener.accept().await {
-        tokio::spawn(handle(tcp, dialer.clone()));
+#[derive(Clone, Default)]
+pub struct Slot(Arc<Mutex<Option<Dialer>>>);
+
+impl Slot {
+    pub fn holding(dialer: Dialer) -> Self {
+        Self(Arc::new(Mutex::new(Some(dialer))))
+    }
+
+    pub fn set(&self, dialer: Option<Dialer>) {
+        *self.0.lock().unwrap() = dialer;
+    }
+
+    pub fn get(&self) -> Option<Dialer> {
+        self.0.lock().unwrap().clone()
     }
 }
 
-async fn handle(mut tcp: TcpStream, dialer: Dialer) {
+pub async fn serve(listener: TcpListener, slot: Slot) {
+    while let Ok((tcp, _)) = listener.accept().await {
+        tokio::spawn(handle(tcp, slot.get()));
+    }
+}
+
+async fn handle(mut tcp: TcpStream, dialer: Option<Dialer>) {
+    let Some(dialer) = dialer else {
+        let _ = tcp.shutdown().await;
+        return;
+    };
     let mut first = vec![0u8; 16 << 10];
     let n = match tcp.read(&mut first).await {
         Ok(0) | Err(_) => return,

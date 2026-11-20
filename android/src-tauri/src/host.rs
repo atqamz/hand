@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
-    Live, LiveSink, Method, OPEN_REJECTED, PairError, Polled, RESCAN, Reporter, Request,
-    RequestError, Response, Sessions, Supervisor, VERSION, open_paired, paired_fleets,
+    Live, LiveSink, Method, OPEN_REJECTED, POLL_HOST, PairError, Polled, RESCAN, Reporter, Request,
+    RequestError, Response, Route, Sessions, Supervisor, VERSION, open_paired,
 };
 use jni::errors::LogErrorAndDefault;
 use jni::objects::{Global, JByteArray, JClass, JObject, JString, JValue};
@@ -28,11 +28,13 @@ struct Core {
     alerts: Arc<Alerts>,
     sessions: Arc<Sessions<HostJar>>,
     host: Arc<Host>,
+    route: Route,
     live: Mutex<Option<RunningLive>>,
     reporter: Mutex<Option<Reporter>>,
 }
 
 struct RunningLive {
+    fleet: String,
     task: tokio::task::JoinHandle<()>,
     cancel: Cancel,
 }
@@ -50,7 +52,7 @@ impl Core {
         if let Some(running) = slot.take() {
             running.stop();
         }
-        let live = Live::new(self.companion.dialer());
+        let live = Live::routed(self.route.clone());
         let sessions = self.sessions.clone();
         let sink = HostLive(self.host.clone());
         let cancel = Cancel::default();
@@ -59,11 +61,26 @@ impl Core {
         let task = runtime().spawn(async move {
             let _ = live.run(&id, &sessions, &sink, &token).await;
         });
-        *slot = Some(RunningLive { task, cancel });
+        *slot = Some(RunningLive {
+            fleet: fleet.to_owned(),
+            task,
+            cancel,
+        });
     }
 
     fn stop_live(&self) {
         if let Some(running) = self.live.lock().unwrap().take() {
+            running.stop();
+        }
+    }
+
+    fn stop_live_of(&self, fleets: &[String]) {
+        let mut slot = self.live.lock().unwrap();
+        if slot
+            .as_ref()
+            .is_some_and(|running| fleets.contains(&running.fleet))
+            && let Some(running) = slot.take()
+        {
             running.stop();
         }
     }
@@ -100,6 +117,31 @@ pub fn forget_alerts() -> io::Result<()> {
     core.alerts.forget_all();
     let cleared = core.sessions.forget();
     let _ = core.host.stop_service();
+    if cleared.is_err() {
+        core.alerts.stop();
+        warn("the web view's cookies or the session store could not be cleared");
+    }
+    cleared
+}
+
+pub fn forget_host_alerts(endpoint: &str) -> io::Result<()> {
+    let core = STATE.lock().unwrap().core.clone();
+    let Some(core) = core else {
+        return Ok(());
+    };
+    let fleets: Vec<String> = core
+        .sessions
+        .hosts()
+        .into_iter()
+        .filter(|host| host.endpoint == endpoint)
+        .flat_map(|host| host.fleets.into_iter().map(|fleet| fleet.id))
+        .collect();
+    core.stop_live_of(&fleets);
+    core.alerts.forget_fleets(&fleets);
+    let cleared = core.sessions.forget_host(endpoint);
+    if core.sessions.listed().is_empty() {
+        let _ = core.host.stop_service();
+    }
     if cleared.is_err() {
         core.alerts.stop();
         warn("the web view's cookies or the session store could not be cleared");
@@ -404,17 +446,21 @@ fn start(
             }))
             .map(Arc::new)
             .map_err(|error| format!("this Companion's key could not start it: {error}"))?;
-        let feed = Feed::new(companion.dialer(), data_dir.join("alerts"));
+        let route: Route = {
+            let (companion, sessions) = (companion.clone(), sessions.clone());
+            Arc::new(move |fleet| {
+                let (companion, sessions) = (companion.clone(), sessions.clone());
+                Box::pin(async move { companion.route(&sessions, &fleet).await })
+            })
+        };
+        let feed = Feed::routed(route.clone(), data_dir.join("alerts"));
         let alerts = Supervisor::new(feed, sessions.clone(), HostSink(host.clone()), RESCAN);
-        let restored = companion.clone();
-        runtime().spawn(async move {
-            let _ = restored.open_board().await;
-        });
         Ok(Core {
             companion,
             alerts,
             sessions,
             host,
+            route,
             live: Mutex::new(None),
             reporter: Mutex::new(None),
         })
@@ -455,7 +501,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_paired<'local>(
         .core
         .as_ref()
         .map(|core| core.sessions.clone());
-    sessions.is_some_and(|sessions| sessions.header().is_some())
+    sessions.is_some_and(|sessions| !sessions.listed().is_empty())
 }
 
 #[unsafe(no_mangle)]
@@ -470,9 +516,9 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fleets<'local>(
         .as_ref()
         .map(|core| core.sessions.clone());
     let ids = sessions
-        .and_then(|sessions| sessions.header())
-        .map(|header| paired_fleets(&header).join(" "))
-        .unwrap_or_default();
+        .map(|sessions| fleet_ids(&sessions))
+        .unwrap_or_default()
+        .join(" ");
     unowned_env
         .with_env_no_catch(|env| env.new_string(ids))
         .resolve::<LogErrorAndDefault>()
@@ -492,7 +538,18 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_phone<'local>(
                 .sessions
                 .listed()
                 .iter()
-                .map(|fleet| serde_json::json!({ "id": fleet.id, "name": fleet.name, "paired": fleet.paired }))
+                .map(fleet_json)
+                .collect::<Vec<_>>(),
+            "hosts": core
+                .sessions
+                .hosts()
+                .iter()
+                .map(|host| serde_json::json!({
+                    "endpoint": host.endpoint,
+                    "id": host.short,
+                    "name": host.name,
+                    "fleets": host.fleets.iter().map(fleet_json).collect::<Vec<_>>(),
+                }))
                 .collect::<Vec<_>>(),
         }))
     }))
@@ -570,7 +627,10 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_poll<'local>(
         return true;
     };
     runtime().block_on(async {
-        let polled = core.companion.poll_asleep(core.alerts.poll_once()).await;
+        let polled = core
+            .companion
+            .poll_asleep(core.alerts.poll_once(POLL_HOST))
+            .await;
         info(&core.companion.report().await);
         match polled {
             Ok(Polled::Missed) => false,
@@ -663,21 +723,21 @@ fn send(
         env.convert_byte_array(body)
             .map_err(|_| RequestError::Malformed)?
     };
-    let cookies = core.sessions.header().unwrap_or_default();
+    let cookie = core.sessions.cookie(&fleet).unwrap_or_default();
     let method = if post { Method::Post } else { Method::Get };
     let request = if path == "/api/v1/meta" {
-        Request::host(method, &fleet, &path, &cookies)?
+        Request::host(method, &fleet, &path, &cookie)?
     } else {
-        Request::new(
-            method,
-            &fleet,
-            &path,
-            Some(&cookies),
-            csrf.as_deref(),
-            &body,
-        )?
+        Request::new(method, &fleet, &path, Some(&cookie), csrf.as_deref(), &body)?
     };
-    runtime().block_on(core.companion.request(&request))
+    let response = runtime().block_on(core.companion.request(&core.sessions, &fleet, &request))?;
+    if path == "/api/v1/meta"
+        && response.status == 200
+        && let Some((endpoint, _)) = core.sessions.route_of(&fleet)
+    {
+        core.sessions.name_host(&endpoint, &response.body);
+    }
+    Ok(response)
 }
 
 #[unsafe(no_mangle)]
@@ -716,6 +776,18 @@ fn reply<'local>(
         .or_else(|_| env.new_string(r#"{"failure":"malformed"}"#))
 }
 
+fn fleet_json(fleet: &hand_android_core::Listed) -> serde_json::Value {
+    serde_json::json!({ "id": fleet.id, "name": fleet.name, "paired": fleet.paired })
+}
+
+fn fleet_ids(sessions: &Sessions<HostJar>) -> Vec<String> {
+    sessions
+        .listed()
+        .into_iter()
+        .map(|fleet| fleet.id)
+        .collect()
+}
+
 fn core() -> Option<Arc<Core>> {
     STATE.lock().unwrap().core.clone()
 }
@@ -729,7 +801,7 @@ fn offered(text: &str) -> serde_json::Value {
         return failed(PairError::NoPending);
     };
     match core.companion.offer_link(text) {
-        Ok(offer) => serde_json::json!({ "host": offer.host, "replaces": offer.replaces }),
+        Ok(offer) => serde_json::json!({ "host": offer.host }),
         Err(error) => serde_json::json!({ "failure": "link", "message": error.message() }),
     }
 }
@@ -738,11 +810,7 @@ fn paired(name: &str) -> serde_json::Value {
     let Some(core) = core() else {
         return failed(PairError::NoPending);
     };
-    let stop_feeds = || {
-        core.alerts.forget_all();
-        core.stop_live();
-    };
-    match runtime().block_on(core.companion.pair(&core.sessions, name, stop_feeds)) {
+    match runtime().block_on(core.companion.pair(&core.sessions, name)) {
         Ok(fleets) => serde_json::json!({
             "fleets": fleets.iter().map(|fleet| serde_json::json!({ "id": fleet.id, "name": fleet.name })).collect::<Vec<_>>(),
         }),
@@ -814,8 +882,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_open<'local>(
         .with_env_no_catch(|env| {
             let answer = catch_unwind(AssertUnwindSafe(|| {
                 let paired = core()
-                    .and_then(|core| core.sessions.header())
-                    .map(|header| paired_fleets(&header))
+                    .map(|core| fleet_ids(&core.sessions))
                     .unwrap_or_default();
                 let opened = match text(env, &link) {
                     Ok(Some(link)) => open_paired(&paired, &link),
@@ -843,8 +910,7 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_fallback<'local>
             let answer = catch_unwind(AssertUnwindSafe(|| {
                 let board = text(env, &fleet).ok().flatten().and_then(|fleet| {
                     let core = core()?;
-                    let cookie = core.sessions.cookie(&fleet)?;
-                    Some((core.companion.port(), cookie))
+                    runtime().block_on(core.companion.fallback(&core.sessions, &fleet))
                 });
                 match board {
                     Some((port, cookie)) => serde_json::json!({ "port": port, "cookie": cookie }),
@@ -865,7 +931,32 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forget<'local>(
     let forgotten = catch_unwind(AssertUnwindSafe(|| {
         core().is_none_or(|core| {
             runtime()
-                .block_on(core.companion.forget_host(forget_alerts))
+                .block_on(core.companion.forget_all(forget_alerts))
+                .is_ok()
+        })
+    }));
+    forgotten.unwrap_or(false)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forgetHost<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+) -> jboolean {
+    let host = unowned_env
+        .with_env_no_catch(|env| -> jni::errors::Result<_> { Ok(text(env, &host).ok().flatten()) })
+        .resolve::<LogErrorAndDefault>();
+    let Some(host) = host else {
+        return false;
+    };
+    let forgotten = catch_unwind(AssertUnwindSafe(|| {
+        core().is_none_or(|core| {
+            runtime()
+                .block_on(
+                    core.companion
+                        .forget_host(&host, || forget_host_alerts(&host)),
+                )
                 .is_ok()
         })
     }));
