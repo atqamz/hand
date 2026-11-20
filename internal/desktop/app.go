@@ -263,6 +263,7 @@ type App struct {
 	pendingWarn   string
 	nf            newFleetForm
 	nfOpen        bool
+	nfGen         int
 	pendingLink   string
 	copiedKey     string
 	copiedAt      time.Time
@@ -549,8 +550,8 @@ func (a *App) install(f found, keep bool) {
 	a.Model, a.Fleets = f.Model, f.Fleets
 	a.attnFails, a.attnDown, a.attnSoon = 0, false, true
 	a.noFleets = len(a.Fleets) == 0
-	if !a.noFleets && !a.nfOpen {
-		a.nf = newFleetForm{}
+	if !a.noFleets && !a.nfOpen && !a.nf.busy {
+		a.resetNewFleet()
 	}
 	if f.Offline && a.Start != nil && !a.autoStarted {
 		a.resetPoll()

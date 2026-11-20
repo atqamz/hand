@@ -216,7 +216,7 @@ func folderFor(parent, name string) string {
 
 type newFleetForm struct {
 	name, folder, auto, parent, err, cmd string
-	busy, done                           bool
+	busy, done, picking                  bool
 	made                                 *NewFleetResult
 }
 
@@ -301,11 +301,21 @@ func (a *App) newFleetUnlisted() {
 	a.nf.cmd = boardStartCommand(a.nf.made.Folder)
 }
 
+func (a *App) formShown() bool { return a.nfOpen || a.noFleets }
+
+func (a *App) resetNewFleet() {
+	a.nfGen++
+	a.nf = newFleetForm{}
+}
+
 func (a *App) openNewFleet() {
-	if !a.nfOpen {
-		a.nf = newFleetForm{}
-		a.nfOpen = true
+	if a.noFleets || a.nfOpen {
+		return
 	}
+	if !a.nf.busy {
+		a.resetNewFleet()
+	}
+	a.nfOpen = true
 }
 
 func (a *App) closeNewFleet() {
@@ -313,18 +323,23 @@ func (a *App) closeNewFleet() {
 		return
 	}
 	a.nfOpen = false
-	a.nf = newFleetForm{}
+	a.resetNewFleet()
 }
 
 func (a *App) chooseFolder() {
-	if a.nf.busy || a.nf.done {
+	if a.nf.busy || a.nf.done || a.nf.picking {
 		return
 	}
-	pick := a.PickFolder
+	a.nf.picking = true
+	gen, pick := a.nfGen, a.PickFolder
 	a.offload(func() func() {
 		dir := pick()
 		return func() {
-			if dir == "" || !a.nfOpen && !a.noFleets {
+			if gen != a.nfGen {
+				return
+			}
+			a.nf.picking = false
+			if dir == "" || !a.formShown() || a.nf.busy || a.nf.done {
 				return
 			}
 			a.nf.parent = dir

@@ -1,15 +1,21 @@
 package desktop_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"image/color"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 type folderPicker struct {
@@ -80,13 +86,18 @@ func TestTheRailItemOpensTheFormAndMarksItselfSelected(t *testing.T) {
 	}
 }
 
-func railPixel(t *testing.T, tt *ui.Tester) color.Color {
+func itemPixel(t *testing.T, tt *ui.Tester, name string) color.Color {
 	t.Helper()
-	r, ok := tt.Find("New fleet")
+	r, ok := tt.Find(name)
 	if !ok {
-		t.Fatal("no New fleet item")
+		t.Fatalf("no %s item", name)
 	}
 	return tt.Image().At(int(r.X+r.W)-3, int(r.Y+r.H/2))
+}
+
+func railPixel(t *testing.T, tt *ui.Tester) color.Color {
+	t.Helper()
+	return itemPixel(t, tt, "New fleet")
 }
 
 func TestTheNewFleetItemDrawsSelectedOnlyWhileTheFormShows(t *testing.T) {
@@ -329,4 +340,313 @@ func TestScenesNewFleetFromTheRail(t *testing.T) {
 			shot(t, tt, "new-fleet-rail-"+theme(dark))
 		})
 	}
+}
+
+func TestOnlyNewFleetIsSelectedWhileTheFormShows(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(theme(dark), func(t *testing.T) {
+			for _, screen := range []desktop.Screen{desktop.BoardScreen, desktop.TasksScreen} {
+				app, _, _ := markApp(t, markFixture(t))
+				tt := sized(t, app, windowWidth, windowHeight, dark)
+				app.Show(screen)
+				click(t, tt, "New fleet")
+				tt.Frame()
+				board, tasks, add := itemPixel(t, tt, "Board"), itemPixel(t, tt, "Tasks"), railPixel(t, tt)
+				if board != tasks {
+					t.Fatalf("screen %v: Board %v and Tasks %v differ under the form", screen, board, tasks)
+				}
+				if add == board {
+					t.Fatalf("screen %v: New fleet looks like an unselected item", screen)
+				}
+			}
+			for _, screen := range []desktop.Screen{desktop.BoardScreen, desktop.TasksScreen} {
+				app, tt := zeroFleetApp(t, noFleets, &newFleetSpy{})
+				tt.SetDark(dark)
+				app.Show(screen)
+				tt.Frame()
+				board, tasks, add := itemPixel(t, tt, "Board"), itemPixel(t, tt, "Tasks"), railPixel(t, tt)
+				if board != tasks {
+					t.Fatalf("with none, screen %v: Board %v and Tasks %v differ", screen, board, tasks)
+				}
+				if add == board {
+					t.Fatalf("with none, screen %v: New fleet looks unselected, or an item looks selected with it", screen)
+				}
+			}
+		})
+	}
+}
+
+func TestNewFleetWithNoneKeepsWhatWasTyped(t *testing.T) {
+	app, tt := zeroFleetApp(t, noFleets, &newFleetSpy{})
+	typeInto(t, tt, "Fleet name", "atlas")
+	click(t, tt, "New fleet")
+	tt.Frame()
+	if name, _ := desktop.NewFleetForm(app); name != "atlas" {
+		t.Fatalf("name = %q after a click on the selected item", name)
+	}
+	mustText(t, tt, "Create fleet")
+}
+
+func TestTheNewFleetIconIsThePlus(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(theme(dark), func(t *testing.T) {
+			k := kit.ColorsFor(dark)
+			ref := ui.NewTester(func(c *ui.Context) {
+				kit.Rail(c, k, true, func() {}, func() {
+					kit.Nav(c, k, kit.NavItem{Key: "a", Label: "New fleet", Icon: "plus", Open: true})
+				})
+			}, 400, 300)
+			ref.SetDark(dark)
+			ref.Frame()
+			app, _, _ := markApp(t, markFixture(t))
+			tt := sized(t, app, windowWidth, windowHeight, dark)
+			tt.Frame()
+			got, want := inkMask(t, tt, "New fleet"), inkMask(t, ref, "New fleet")
+			if got != want {
+				t.Fatalf("the New fleet icon is not the plus\n got:  %s\n want: %s", got, want)
+			}
+		})
+	}
+}
+
+func inkMask(t *testing.T, tt *ui.Tester, name string) string {
+	t.Helper()
+	r, ok := tt.Find(name)
+	if !ok {
+		t.Fatalf("no %s item", name)
+	}
+	img := tt.Image()
+	x0, y0 := int(r.X)+1, int(r.Y)
+	bg := img.At(x0, y0+1)
+	var ink [][2]int
+	minX, minY := 1<<30, 1<<30
+	for y := 0; y < int(r.H); y++ {
+		for x := 0; x < 30; x++ {
+			if img.At(x0+x, y0+y) != bg {
+				ink = append(ink, [2]int{x, y})
+				minX, minY = min(minX, x), min(minY, y)
+			}
+		}
+	}
+	if len(ink) == 0 {
+		t.Fatalf("no icon drawn for %s", name)
+	}
+	var out strings.Builder
+	for _, p := range ink {
+		fmt.Fprintf(&out, "%d,%d ", p[0]-minX, p[1]-minY)
+	}
+	return out.String()
+}
+
+type inflight struct {
+	app     *desktop.App
+	tt      *ui.Tester
+	release chan struct{}
+	posted  chan func()
+	starts  atomic.Int32
+}
+
+func blockedCreate(t *testing.T) *inflight {
+	t.Helper()
+	f := &inflight{release: make(chan struct{}), posted: make(chan func(), 16)}
+	f.app, f.tt = railApp(t, &newFleetSpy{}, &folderPicker{})
+	f.app.Post = func(fn func()) { f.posted <- fn }
+	f.app.NewFleet = func(context.Context, desktop.NewFleetRequest) (desktop.NewFleetResult, error) {
+		f.starts.Add(1)
+		<-f.release
+		return desktop.NewFleetResult{}, errors.New("hand init failed: boom")
+	}
+	t.Cleanup(func() {
+		select {
+		case <-f.release:
+		default:
+			close(f.release)
+		}
+	})
+	click(t, f.tt, "New fleet")
+	f.tt.Frame()
+	typeInto(t, f.tt, "Fleet name", "atlas")
+	click(t, f.tt, "Create fleet")
+	f.tt.Frame()
+	if !desktop.NewFleetBusy(f.app) {
+		t.Fatal("the create is not in flight")
+	}
+	return f
+}
+
+func (f *inflight) land(t *testing.T) {
+	t.Helper()
+	for desktop.NewFleetBusy(f.app) {
+		select {
+		case fn := <-f.posted:
+			fn()
+		case <-time.After(5 * time.Second):
+			t.Fatal("the create never landed")
+		}
+	}
+	f.tt.Frame()
+}
+
+func TestAnInFlightCreateSurvivesLeavingAndReopeningTheForm(t *testing.T) {
+	f := blockedCreate(t)
+	click(t, f.tt, "second")
+	f.tt.Frame()
+	if desktop.NewFleetOpen(f.app) {
+		t.Fatal("form still open after picking a fleet")
+	}
+	click(t, f.tt, "New fleet")
+	f.tt.Frame()
+	if !desktop.NewFleetOpen(f.app) || !desktop.NewFleetBusy(f.app) {
+		t.Fatalf("open %v busy %v after reopening", desktop.NewFleetOpen(f.app), desktop.NewFleetBusy(f.app))
+	}
+	if name, _ := desktop.NewFleetForm(f.app); name != "atlas" {
+		t.Fatalf("name = %q on the reopened form", name)
+	}
+	mustText(t, f.tt, "Creating…")
+	click(t, f.tt, "Creating…")
+	f.tt.Frame()
+	close(f.release)
+	f.land(t)
+	if desktop.NewFleetBusy(f.app) {
+		t.Fatal("still busy after the result")
+	}
+	mustText(t, f.tt, "hand init failed: boom", "Create fleet")
+	if n := f.starts.Load(); n != 1 {
+		t.Fatalf("creates started = %d", n)
+	}
+}
+
+func TestACreateInFlightKeepsItsFormThroughARefresh(t *testing.T) {
+	f := blockedCreate(t)
+	click(t, f.tt, "second")
+	f.tt.Frame()
+	f.app.Refresh()
+	for idle := false; !idle; {
+		select {
+		case fn := <-f.posted:
+			fn()
+		case <-time.After(200 * time.Millisecond):
+			idle = true
+		}
+	}
+	f.tt.Frame()
+	if !desktop.NewFleetBusy(f.app) {
+		t.Fatal("a refresh forgot the create")
+	}
+}
+
+func TestCancelIsRefusedWhileACreateRuns(t *testing.T) {
+	f := blockedCreate(t)
+	click(t, f.tt, "Cancel")
+	f.tt.Frame()
+	if !desktop.NewFleetOpen(f.app) || !desktop.NewFleetBusy(f.app) {
+		t.Fatalf("open %v busy %v after Cancel", desktop.NewFleetOpen(f.app), desktop.NewFleetBusy(f.app))
+	}
+}
+
+func TestAPickThatArrivesAfterCancelAndReopenIsDropped(t *testing.T) {
+	app, tt := railApp(t, &newFleetSpy{}, &folderPicker{})
+	release := make(chan string, 1)
+	started := make(chan struct{}, 4)
+	app.PickFolder = func() string { started <- struct{}{}; return <-release }
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	click(t, tt, "New fleet")
+	tt.Frame()
+	click(t, tt, "Choose...")
+	tt.Frame()
+	<-started
+	click(t, tt, "Cancel")
+	tt.Frame()
+	click(t, tt, "New fleet")
+	tt.Frame()
+	_, before := desktop.NewFleetForm(app)
+	release <- "/srv/late"
+	select {
+	case fn := <-posted:
+		fn()
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pick never returned")
+	}
+	if _, folder := desktop.NewFleetForm(app); folder != before {
+		t.Fatalf("folder = %q on the reopened form, want %q", folder, before)
+	}
+	click(t, tt, "Choose...")
+	tt.Frame()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the reopened form cannot start a pick")
+	}
+}
+
+func TestRepeatedChooseClicksStartOneDialog(t *testing.T) {
+	app, tt := railApp(t, &newFleetSpy{}, &folderPicker{})
+	release := make(chan string, 1)
+	started := make(chan struct{}, 4)
+	app.PickFolder = func() string { started <- struct{}{}; return <-release }
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	click(t, tt, "New fleet")
+	tt.Frame()
+	click(t, tt, "Choose...")
+	tt.Frame()
+	<-started
+	click(t, tt, "Choose...")
+	tt.Frame()
+	release <- "/srv/work"
+	(<-posted)()
+	select {
+	case <-started:
+		t.Fatal("a second dialog started")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, folder := desktop.NewFleetForm(app); folder != filepath.Join("/srv/work", "") {
+		t.Fatalf("folder = %q", folder)
+	}
+}
+
+func TestAPickThatArrivesDuringACreateLeavesTheFolder(t *testing.T) {
+	f := &inflight{release: make(chan struct{}), posted: make(chan func(), 16)}
+	f.app, f.tt = railApp(t, &newFleetSpy{}, &folderPicker{})
+	pickRelease := make(chan string, 1)
+	started := make(chan struct{}, 4)
+	f.app.Post = func(fn func()) { f.posted <- fn }
+	f.app.PickFolder = func() string { started <- struct{}{}; return <-pickRelease }
+	f.app.NewFleet = func(context.Context, desktop.NewFleetRequest) (desktop.NewFleetResult, error) {
+		<-f.release
+		return desktop.NewFleetResult{}, errors.New("boom")
+	}
+	t.Cleanup(func() { close(f.release) })
+	click(t, f.tt, "New fleet")
+	f.tt.Frame()
+	typeInto(t, f.tt, "Fleet name", "atlas")
+	click(t, f.tt, "Choose...")
+	f.tt.Frame()
+	<-started
+	click(t, f.tt, "Create fleet")
+	f.tt.Frame()
+	_, before := desktop.NewFleetForm(f.app)
+	pickRelease <- "/srv/late"
+	for idle := false; !idle; {
+		select {
+		case fn := <-f.posted:
+			fn()
+		case <-time.After(200 * time.Millisecond):
+			idle = true
+		}
+	}
+	if _, after := desktop.NewFleetForm(f.app); after != before {
+		t.Fatalf("folder changed from %q to %q under a running create", before, after)
+	}
+}
+
+func TestChooseIsNotOfferedWithoutAPickerAndLookAgainIsNotInTheRailForm(t *testing.T) {
+	app, tt := railApp(t, &newFleetSpy{}, &folderPicker{})
+	app.PickFolder = nil
+	click(t, tt, "New fleet")
+	tt.Frame()
+	mustNotText(t, tt, "Choose...")
+	mustNotText(t, tt, "Look again")
+	mustText(t, tt, "Create fleet", "Cancel")
 }
