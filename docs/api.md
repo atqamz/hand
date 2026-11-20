@@ -180,7 +180,7 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 
 ### `Tasks.data`
 
-`groups` are the page's groups in order: `name`, `count`, and `tasks`. A task row has `ref`, `title`, `project`, `status`, `state`, and where it applies `agent`, `attempt`, `delivered`, `waits`, `finished_at` (only for a done or abandoned task), `parent` (the parent's `tN`, for a sub-task) and `children` (how many sub-tasks the task has, absent at zero). A sub-task follows its parent inside its group, and a sub-task whose parent is in another group or not on the page is a root there that still carries `parent`. `hidden` and `finished_count` are the page's counts.
+`groups` are the page's groups in order: `name`, `count`, and `tasks`. Rows in the Done and Abandoned groups are newest first by finish time and rows in Active and Inbox are oldest first by id. A task row has `ref`, `title`, `project`, `status`, `state`, and where it applies `agent`, `attempt`, `delivered`, `waits`, `finished_at` (only for a done or abandoned task), `parent` (the parent's `tN`, for a sub-task) and `children` (how many sub-tasks the task has, absent at zero). A sub-task follows its parent inside its group, and a sub-task whose parent is in another group or not on the page is a root there that still carries `parent`. `hidden` and `finished_count` are the page's counts.
 
 ### `TaskSearch.data`
 
