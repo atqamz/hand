@@ -56,6 +56,8 @@ type ReadModel interface {
 	PressAttemptKeys(ctx context.Context, fleet, ref, key string, revision, after int64, screen string) (Pressed, error)
 	Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error)
 	Attention(ctx context.Context) ([]FleetSignal, error)
+	Features(ctx context.Context, fleet string) ([]string, error)
+	Links(ctx context.Context, fleet string, paths []string) ([]*Link, error)
 }
 
 type ReadCursor struct {
@@ -347,6 +349,53 @@ func (c *HTTPClient) TaskSearch(ctx context.Context, fleet string, q TaskSearchQ
 	var out TaskSearch
 	_, err = c.getWith(ctx, fleet, token, path, &out)
 	return out, err
+}
+
+func (c *HTTPClient) Links(ctx context.Context, fleet string, paths []string) ([]*Link, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Links []*Link `json:"links"`
+	}
+	if _, err = c.getWith(ctx, fleet, token, "/links?"+url.Values{"path": paths}.Encode(), &out); err != nil {
+		return nil, err
+	}
+	return out.Links, nil
+}
+
+func (c *HTTPClient) Features(ctx context.Context, fleet string) ([]string, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/v1/meta", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet, Value: token})
+	res, err := c.client().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("the board at %s did not answer: %w", c.Base, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, remoteError(res)
+	}
+	var env struct {
+		Version int `json:"version"`
+		Data    struct {
+			Features []string `json:"features"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, maxBody)).Decode(&env); err != nil {
+		return nil, fmt.Errorf("the board's answer is not an envelope: %v", err)
+	}
+	if env.Version != apiVersion {
+		return nil, fmt.Errorf("the board speaks API version %d; this window reads version %d", env.Version, apiVersion)
+	}
+	return env.Data.Features, nil
 }
 
 func (c *HTTPClient) Projects(ctx context.Context, fleet string) (Projects, error) {

@@ -528,3 +528,9 @@ type DocWindow struct {
 	Partial bool     `json:"partial,omitempty"`
 	Cut     []DocCut `json:"cut,omitempty"`
 }
+
+type Link struct {
+	Rel  string `json:"rel"`
+	Href string `json:"href"`
+	Dir  bool   `json:"dir"`
+}

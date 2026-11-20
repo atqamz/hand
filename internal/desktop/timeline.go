@@ -303,7 +303,7 @@ func (a *App) handLine(c *ui.Context, p palette, text, at string, dated bool) {
 }
 
 func (a *App) handText(c *ui.Context, p palette, text string) {
-	rs := refRanges(a.Fleet.ID, text)
+	rs, _ := refRanges(a.Fleet.ID, text, nil)
 	if len(rs) == 0 {
 		ui.Text(c, text).FontSize(kit.Meta.Size).LineHeight(1.5).TextColor(p.neutral).MaxLines(1).MinWidth(0)
 		return
@@ -311,16 +311,16 @@ func (a *App) handText(c *ui.Context, p palette, text string) {
 	ui.RichText(c).FontSize(kit.Meta.Size).LineHeight(1.5).TextColor(p.neutral).MaxLines(1).MinWidth(0).Children(func() {
 		last := 0
 		for _, r := range rs {
-			if last < r[0] {
-				ui.RichText(c, ui.Span{Text: text[last:r[0]]})
+			if last < r.lo {
+				ui.RichText(c, ui.Span{Text: text[last:r.lo]})
 			}
-			ref := text[r[0]:r[1]]
+			ref := text[r.lo:r.hi]
 			l := ui.Link(c, "", "").TextColor(c.Theme().Accent).Tooltip("Open " + ref)
 			l.Children(func() { ui.RichText(c, ui.Span{Text: ref}) })
 			if l.Clicked() {
 				a.OpenRef(ref)
 			}
-			last = r[1]
+			last = r.hi
 		}
 		if last < len(text) {
 			ui.RichText(c, ui.Span{Text: text[last:]})

@@ -377,7 +377,7 @@ func (a *App) attemptSections(c *ui.Context, p palette) {
 						ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
 					}
 				})
-				a.markdown(c, shownText(turn.Text))
+				a.markdownRefs(c, shownText(turn.Text))
 			})
 		}
 		if at.Transcript.More {

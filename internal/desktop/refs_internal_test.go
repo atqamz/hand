@@ -10,7 +10,14 @@ import (
 	"github.com/atqamz/hand/internal/markdown"
 )
 
-func ref(r string) string { return "[" + r + "](/f1/ref/" + r + ` "Open ` + r + `")` }
+func refsOnly(fleet, src string) string {
+	md, _ := linkRefs(fleet, src, nil)
+	return md
+}
+
+func ref(r string) string {
+	return "[" + r + "](/f1/ref/" + r + ` "Open ` + r + `")`
+}
 
 var refCases = []struct {
 	name, in string
@@ -80,7 +87,7 @@ var boardDiffers = map[string]string{
 func TestLinkRefsGrammar(t *testing.T) {
 	for _, tc := range refCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := linkRefs("f1", tc.in)
+			got := refsOnly("f1", tc.in)
 			var found []string
 			for _, m := range regexp.MustCompile(`\[([tdar][0-9]+)\]\(/f1/ref/([tdar][0-9]+) "Open ([tdar][0-9]+)"\)`).FindAllStringSubmatch(got, -1) {
 				if m[1] != m[2] || m[2] != m[3] {
@@ -89,10 +96,10 @@ func TestLinkRefsGrammar(t *testing.T) {
 				found = append(found, m[1])
 			}
 			if strings.Join(found, " ") != strings.Join(tc.want, " ") {
-				t.Fatalf("linkRefs(%q)\n got %q\nwant refs %q", tc.in, got, tc.want)
+				t.Fatalf("refsOnly(%q)\n got %q\nwant refs %q", tc.in, got, tc.want)
 			}
 			if len(tc.want) == 0 && got != tc.in {
-				t.Fatalf("linkRefs(%q) changed the text: %q", tc.in, got)
+				t.Fatalf("refsOnly(%q) changed the text: %q", tc.in, got)
 			}
 		})
 	}
@@ -119,18 +126,18 @@ func TestLinkRefsAgreesWithTheBoard(t *testing.T) {
 
 func TestLinkRefsOtherFleetIDs(t *testing.T) {
 	for _, id := range []string{"", "a b", "a)b", "a/b", "é", "a\"b", "a\nb"} {
-		if got := linkRefs(id, "t1"); got != "t1" {
+		if got := refsOnly(id, "t1"); got != "t1" {
 			t.Errorf("fleet %q: %q", id, got)
 		}
 	}
-	if got := linkRefs("fab28ae721878", "t1"); got != "[t1](/fab28ae721878/ref/t1 \"Open t1\")" {
+	if got := refsOnly("fab28ae721878", "t1"); got != "[t1](/fab28ae721878/ref/t1 \"Open t1\")" {
 		t.Errorf("got %q", got)
 	}
 }
 
 func TestLinkRefsIsIdempotentOnItsOutput(t *testing.T) {
-	once := linkRefs("f1", "t1 and `a2` and [d3](x) r4")
-	if twice := linkRefs("f1", once); twice != once {
+	once := refsOnly("f1", "t1 and `a2` and [d3](x) r4")
+	if twice := refsOnly("f1", once); twice != once {
 		t.Fatalf("second pass changed %q to %q", once, twice)
 	}
 }
@@ -138,7 +145,7 @@ func TestLinkRefsIsIdempotentOnItsOutput(t *testing.T) {
 func TestLinkRefsStaysLinearInTheInlinesOfOneParagraph(t *testing.T) {
 	src := strings.Repeat("*a* t1 ", 20000)
 	start := time.Now()
-	got := linkRefs("f1", src)
+	got := refsOnly("f1", src)
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("linkRefs took %v", d)
 	}
@@ -152,8 +159,8 @@ func TestTheRefMemoKeepsWhatItLinkedAndStaysBounded(t *testing.T) {
 	if got := a.linked("see t1"); got != "see "+ref("t1") {
 		t.Fatalf("got %q", got)
 	}
-	k := refKey{"f1", "see t1", false}
-	a.refMemo[k] = "kept"
+	k := refKey{fleet: "f1", src: "see t1", paths: true}
+	a.refMemo[k] = refVal{md: "kept"}
 	if got := a.linked("see t1"); got != "kept" {
 		t.Fatalf("the memo was not read: %q", got)
 	}
@@ -165,7 +172,7 @@ func TestTheRefMemoKeepsWhatItLinkedAndStaysBounded(t *testing.T) {
 	}
 	big := strings.Repeat("x ", refMemoSrcMax) + "t1"
 	a.linked(big)
-	if _, ok := a.refMemo[refKey{"f1", big, false}]; ok {
+	if _, ok := a.refMemo[refKey{fleet: "f1", src: big, paths: true}]; ok {
 		t.Fatal("a source over the cap was kept")
 	}
 	mid := strings.Repeat("x ", refMemoSrcMax/4)
