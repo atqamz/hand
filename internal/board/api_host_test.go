@@ -279,6 +279,16 @@ func TestMetaHostIsEmptyWhenTheMachineHasNoName(t *testing.T) {
 	}
 }
 
+func TestMetaHostIsTrimmedOnBothSides(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	p.name = " workstation \n"
+	p.restart()
+	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.host(p.fleets[0])), nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"host":"workstation"`) {
+		t.Fatalf("meta = %d:\n%s", rec.Code, rec.Body)
+	}
+}
+
 func TestEveryFeatureIsNamedInTheAPIDocs(t *testing.T) {
 	p := newCompanionHost(t, true, "alpha")
 	var env struct{ Data board.APIMeta }
