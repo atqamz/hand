@@ -1131,6 +1131,20 @@ func TestRefreshReadsTheScreenAgain(t *testing.T) {
 	mustText(t, tt, "A brand new need")
 }
 
+func TestRefreshUpdatesTheWindowTitle(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	var pushed []string
+	app.OnTitle = func(s string) { pushed = append(pushed, s) }
+	f.fleets[0].Name = "renamed"
+	tt := newTester(app)
+	menu(t, tt, "Refresh now")
+	if want := "Hand · renamed"; len(pushed) == 0 || !strings.Contains(pushed[len(pushed)-1], want) {
+		t.Fatalf("pushed %q, want last containing %q", pushed, want)
+	}
+	mustText(t, tt, "renamed")
+}
+
 func waitPost(t *testing.T, posted <-chan func()) func() {
 	t.Helper()
 	select {
