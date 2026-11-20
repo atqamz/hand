@@ -7,11 +7,12 @@ use iroh::{Endpoint, EndpointAddr};
 
 use crate::dialer::Dialer;
 
-pub type Route =
-    Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = Option<Dialer>> + Send>> + Send + Sync>;
+pub type Route = Arc<
+    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Option<Dialer>> + Send>> + Send + Sync,
+>;
 
 pub fn fixed(dialer: Dialer) -> Route {
-    Arc::new(move |_| {
+    Arc::new(move |_, _| {
         let dialer = dialer.clone();
         Box::pin(async move { Some(dialer) })
     })
@@ -23,8 +24,6 @@ struct Held {
     hosts: HashMap<String, Dialer>,
 }
 
-// Last in the lock order (Companion::store, pairing, session data, this): copy what you need out
-// of the guard and drop it before any await.
 #[derive(Clone)]
 pub struct Dialers(Arc<Mutex<Held>>);
 
@@ -81,6 +80,20 @@ impl Dialers {
     pub async fn remove(&self, host: &str) {
         let removed = self.0.lock().unwrap().hosts.remove(host);
         if let Some(dialer) = removed {
+            dialer.set_target(None).await;
+        }
+    }
+
+    pub async fn clear(&self) {
+        let removed: Vec<Dialer> = self
+            .0
+            .lock()
+            .unwrap()
+            .hosts
+            .drain()
+            .map(|(_, d)| d)
+            .collect();
+        for dialer in removed {
             dialer.set_target(None).await;
         }
     }

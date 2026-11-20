@@ -673,9 +673,9 @@ async fn serve_feed(
 
 pub fn route(companion: &Arc<Companion>, sessions: &Arc<Sessions<MemoryJar>>) -> Route {
     let (companion, sessions) = (companion.clone(), sessions.clone());
-    Arc::new(move |fleet| {
+    Arc::new(move |fleet, cookie| {
         let (companion, sessions) = (companion.clone(), sessions.clone());
-        Box::pin(async move { companion.route(&sessions, &fleet).await })
+        Box::pin(async move { companion.route(&sessions, &fleet, &cookie).await })
     })
 }
 

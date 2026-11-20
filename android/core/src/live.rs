@@ -157,7 +157,11 @@ impl Live {
                 _ => Attempt::Lost,
             },
         )?;
-        let Some(dialer) = (self.route)(fleet.to_owned()).await else {
+        let routed = tokio::select! {
+            routed = (self.route)(fleet.to_owned(), cookie.clone()) => routed,
+            _ = cancel.cancelled() => return Err(Attempt::Stopped),
+        };
+        let Some(dialer) = routed else {
             return Err(Attempt::Lost);
         };
         let mut stream = tokio::select! {

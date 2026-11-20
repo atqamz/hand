@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hand_android_core::{
-    Alert, AlertSink, Cancel, Companion, CompanionConfig, Feed, Fleet, Live, LiveSink, Method,
-    Paired, Polled, Request, RequestError, Sessions, Supervisor,
+    Alert, AlertSink, Cancel, Companion, CompanionConfig, Feed, Fleet, Live, LiveEnd, LiveSink,
+    Method, Paired, Polled, Request, RequestError, Route, Sessions, Supervisor,
 };
 use serde_json::json;
 use support::{
@@ -120,6 +120,9 @@ fn responder(fleet: &'static str) -> impl Fn(usize, &Seen) -> Reply + Send + Syn
                 ),
                 Some(after) => answer(fleet, after, vec![]),
             }
+        } else if seen.target.contains("/keepalive") {
+            Reply::raw(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .held_after(Duration::from_secs(60))
         } else if seen.target.contains("/api/v1/events") {
             Reply::raw(&sse()).held_after(Duration::from_secs(30))
         } else {
@@ -249,7 +252,7 @@ impl Rig {
             &[],
         )?;
         self.companion
-            .request(&self.sessions, side.fleet, &request)
+            .request(&self.sessions, side.fleet, &cookie, &request)
             .await
             .map(|response| response.status)
     }
@@ -412,6 +415,89 @@ async fn a_proxy_with_no_host_chosen_serves_nothing_and_a_forgotten_host_is_not_
     assert_eq!(rig.get(&rig.a).await.err(), Some(RequestError::Unpaired));
     assert_eq!(rig.get(&rig.b).await.unwrap(), 200);
     clean(&rig.b, &rig.a);
+}
+
+#[tokio::test]
+async fn a_live_stream_stops_on_cancel_while_its_route_is_still_resolving() {
+    let dir = TempDir::new();
+    let sessions =
+        Arc::new(Sessions::open(dir.path(), MemoryJar::default(), Arc::new(PlainCipher)).unwrap());
+    sessions
+        .pair(
+            "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+            None,
+            &[Paired {
+                id: FLEET_A.to_owned(),
+                name: "hand".to_owned(),
+                value: format!("7.{SECRET_A}"),
+            }],
+        )
+        .unwrap();
+    let pending: Route = Arc::new(|_, _| Box::pin(std::future::pending()));
+    let live = Live::routed(pending);
+    let cancel = Cancel::default();
+    let events = Events::default();
+    let task = {
+        let cancel = cancel.clone();
+        tokio::spawn(async move { live.run(FLEET_A, &sessions, &events, &cancel).await })
+    };
+    sleep(Duration::from_millis(100)).await;
+
+    cancel.cancel();
+
+    assert_eq!(
+        timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap(),
+        LiveEnd::Stopped
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kept_alive_proxy_connection_is_closed_when_another_host_is_chosen() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let rig = rig(&bin, true).await;
+    rig.pair(&rig.a, rig.a.sidecar.as_ref().unwrap().target())
+        .await;
+    rig.pair(&rig.b, rig.b.sidecar.as_ref().unwrap().target())
+        .await;
+    let port = rig.companion.port();
+    rig.companion
+        .fallback(&rig.sessions, FLEET_A)
+        .await
+        .unwrap();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let request = |fleet: &str, cookie: &str| {
+        format!("GET /{fleet}/keepalive HTTP/1.1\r\nHost: localhost\r\nCookie: {cookie}\r\n\r\n")
+    };
+    stream
+        .write_all(request(FLEET_A, &rig.a.cookie()).as_bytes())
+        .await
+        .unwrap();
+    let mut first = [0u8; 12];
+    timeout(WAIT, stream.read_exact(&mut first))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&first, b"HTTP/1.1 200");
+
+    rig.companion
+        .fallback(&rig.sessions, FLEET_B)
+        .await
+        .unwrap();
+    let _ = stream
+        .write_all(request(FLEET_B, &rig.b.cookie()).as_bytes())
+        .await;
+    let mut rest = Vec::new();
+    let _ = timeout(WAIT, stream.read_to_end(&mut rest)).await.unwrap();
+
+    assert!(!String::from_utf8_lossy(&rest).contains(FLEET_B));
+    assert_eq!(rig.a.requests("/keepalive").len(), 1);
+    assert!(rig.b.requests("/keepalive").is_empty());
+    clean(&rig.a, &rig.b);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -391,7 +391,9 @@ impl Feed {
         .within(wait + ANSWER_SLACK)
         .up_to(MAX_BODY)
         .by_length();
-        let dialer = (self.route)(fleet.to_owned()).await.ok_or(Failure::Retry)?;
+        let dialer = (self.route)(fleet.to_owned(), cookie.clone())
+            .await
+            .ok_or(Failure::Retry)?;
         let response = exchange(&dialer, &request)
             .await
             .map_err(|error| match error {
@@ -818,7 +820,7 @@ mod tests {
 
     #[test]
     fn forgetting_one_fleets_cursor_leaves_every_other_fleets_generation_alone() {
-        let nowhere: Route = Arc::new(|_| Box::pin(async { None }));
+        let nowhere: Route = Arc::new(|_, _| Box::pin(async { None }));
         let dir = TempDir::new();
         let feed = Feed::routed(nowhere, dir.path().to_owned());
         let before = (

@@ -77,8 +77,6 @@ pub struct Companion {
     slot: Slot,
     port: u16,
     pairing: std::sync::Arc<StdMutex<Pairing>>,
-    // Lock order: store, then pairing, then the session store's data, then Dialers (a leaf, never
-    // held across an await). Taking one while holding a later one deadlocks, and no test sees it.
     store: std::sync::Arc<StdMutex<()>>,
     network_changes: Arc<AtomicU64>,
     binding: Arc<Binding>,
@@ -129,20 +127,35 @@ impl Companion {
         })
     }
 
-    pub async fn route<J: Jar>(&self, sessions: &Sessions<J>, fleet: &str) -> Option<Dialer> {
-        let (endpoint, relay) = sessions.route_of(fleet)?;
+    pub async fn route<J: Jar>(
+        &self,
+        sessions: &Sessions<J>,
+        fleet: &str,
+        cookie: &str,
+    ) -> Option<Dialer> {
+        let (endpoint, relay) = sessions.route_of(fleet, cookie)?;
         let target = parse_target(&endpoint, relay.as_deref()).ok()?;
-        Some(self.dialers.host(&endpoint, target).await)
+        let dialer = self.dialers.host(&endpoint, target).await;
+        if !sessions
+            .hosts()
+            .iter()
+            .any(|host| host.endpoint == endpoint)
+        {
+            self.dialers.remove(&endpoint).await;
+            return None;
+        }
+        Some(dialer)
     }
 
     pub async fn request<J: Jar>(
         &self,
         sessions: &Sessions<J>,
         fleet: &str,
+        cookie: &str,
         request: &Request,
     ) -> Result<Response, RequestError> {
         let dialer = self
-            .route(sessions, fleet)
+            .route(sessions, fleet, cookie)
             .await
             .ok_or(RequestError::NoHost)?;
         exchange(&dialer, request).await
@@ -154,7 +167,7 @@ impl Companion {
         fleet: &str,
     ) -> Option<(u16, String)> {
         let cookie = sessions.cookie(fleet)?;
-        let dialer = self.route(sessions, fleet).await?;
+        let dialer = self.route(sessions, fleet, &cookie).await?;
         self.slot.set(Some(dialer));
         Some((self.port, cookie))
     }
@@ -187,9 +200,7 @@ impl Companion {
             cleared
         };
         self.slot.set(None);
-        for dialer in self.dialers.all() {
-            dialer.set_target(None).await;
-        }
+        self.dialers.clear().await;
         cleared
     }
 
@@ -201,12 +212,11 @@ impl Companion {
         let cleared = {
             let _store = self.store.lock().unwrap();
             let cleared = clear();
-            self.pairing.lock().unwrap().forget();
+            self.pairing.lock().unwrap().forget_host(endpoint);
             cleared
         };
         if let Some(dialer) = self.dialers.get(endpoint) {
-            self.slot
-                .set(self.slot.get().filter(|held| !held.same(&dialer)));
+            self.slot.clear_if(&dialer);
         }
         self.dialers.remove(endpoint).await;
         cleared
@@ -231,16 +241,19 @@ impl Companion {
         sessions: &Sessions<J>,
         name: &str,
     ) -> Result<Vec<Paired>, PairError> {
-        let (link, generation) = {
-            let mut pairing = self.pairing.lock().unwrap();
-            let generation = pairing.generation();
-            (pairing.take(), generation)
-        };
-        let link = link.ok_or(PairError::NoPending)?;
-        if sessions.held_elsewhere(&link.fleet, &link.endpoint_id) {
-            self.pairing.lock().unwrap().restore(link);
+        let pending = self.pairing.lock().unwrap().pending().cloned();
+        if pending.is_some_and(|link| sessions.held_elsewhere(&link.fleet, &link.endpoint_id)) {
             return Err(PairError::Held);
         }
+        let (link, generation) = {
+            let mut pairing = self.pairing.lock().unwrap();
+            let link = pairing.take();
+            let generation = link
+                .as_ref()
+                .map_or(0, |link| pairing.generation(&link.endpoint_id));
+            (link, generation)
+        };
+        let link = link.ok_or(PairError::NoPending)?;
         let target = link.target().map_err(|_| PairError::NoPending)?;
         let dialer = Dialer::new(self.dialers.endpoint(), Some(target));
         let redeemed = redeem(&dialer, &link, name).await;
@@ -267,13 +280,13 @@ impl Companion {
         {
             let _store = self.store.lock().unwrap();
             let pairing = self.pairing.lock().unwrap();
-            if pairing.generation() != generation {
+            if pairing.generation(&link.endpoint_id) != generation {
                 return Err(PairError::NoPending);
             }
             sessions
                 .pair(&link.endpoint_id, link.relay.as_deref(), &paired)
                 .map_err(|refusal| match refusal {
-                    Refusal::Held => PairError::Held,
+                    Refusal::Held => PairError::HeldAfter,
                     Refusal::NotSaved => PairError::NotSaved,
                 })?;
         }
@@ -572,8 +585,9 @@ mod tests {
 
     fn take(companion: &Companion) -> (Link, u64) {
         let mut pairing = companion.pairing.lock().unwrap();
-        let generation = pairing.generation();
-        (pairing.take().unwrap(), generation)
+        let link = pairing.take().unwrap();
+        let generation = pairing.generation(&link.endpoint_id);
+        (link, generation)
     }
 
     async fn target(companion: &Companion, host: &str) -> Option<String> {
@@ -583,6 +597,15 @@ mod tests {
             .target()
             .await
             .map(|target| target.id.to_string())
+    }
+
+    async fn routed(
+        companion: &Companion,
+        sessions: &Sessions<EmptyJar>,
+        fleet: &str,
+    ) -> Option<Dialer> {
+        let cookie = sessions.cookie(fleet).unwrap_or_default();
+        companion.route(sessions, fleet, &cookie).await
     }
 
     async fn paired_with(
@@ -626,7 +649,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = companion.request(&sessions(&dir), FLEET, &request).await;
+        let result = companion
+            .request(
+                &sessions(&dir),
+                FLEET,
+                "hand_phone_f0123456789ab=abc",
+                &request,
+            )
+            .await;
 
         assert_eq!(result.err(), Some(RequestError::NoHost));
     }
@@ -717,9 +747,10 @@ mod tests {
 
         let result = companion.settle(&sessions, &link, generation, set).await;
 
-        assert_eq!(result.err(), Some(PairError::Held));
+        assert_eq!(result.err(), Some(PairError::HeldAfter));
         assert_eq!(sessions.hosts().len(), 1);
         assert!(companion.dialers().get(OTHER_HOST).is_none());
+        assert!(PairError::HeldAfter.message().contains("unfinished device"));
     }
 
     #[tokio::test]
@@ -737,12 +768,16 @@ mod tests {
             target(&companion, OTHER_HOST).await.as_deref(),
             Some(OTHER_HOST)
         );
-        let first = companion.route(&sessions, FLEET).await.unwrap();
-        let second = companion.route(&sessions, OTHER_FLEET).await.unwrap();
+        let first = routed(&companion, &sessions, FLEET).await.unwrap();
+        let second = routed(&companion, &sessions, OTHER_FLEET).await.unwrap();
         assert!(!first.same(&second));
         assert_eq!(first.target().await.unwrap().id.to_string(), HOST);
         assert_eq!(second.target().await.unwrap().id.to_string(), OTHER_HOST);
-        assert!(companion.route(&sessions, "f999999999999").await.is_none());
+        assert!(
+            routed(&companion, &sessions, "f999999999999")
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -752,13 +787,13 @@ mod tests {
         let sessions = sessions(&dir);
         let relayed = format!("{LINK}&r=https%3A%2F%2Frelay.example.test%3A7842%2F");
         paired_with(&companion, &sessions, &relayed, FLEET).await;
-        let dialer = companion.route(&sessions, FLEET).await.unwrap();
+        let dialer = routed(&companion, &sessions, FLEET).await.unwrap();
         assert_eq!(dialer.target().await.unwrap().relay_urls().count(), 1);
 
         paired_with(&companion, &sessions, LINK, FLEET).await;
 
         assert_eq!(sessions.hosts()[0].relay, None);
-        let dialer = companion.route(&sessions, FLEET).await.unwrap();
+        let dialer = routed(&companion, &sessions, FLEET).await.unwrap();
         assert_eq!(dialer.target().await.unwrap().relay_urls().count(), 0);
         assert_eq!(companion.dialers().all().len(), 1);
     }
@@ -941,7 +976,7 @@ mod tests {
         let sessions = sessions(&dir);
         paired_with(&companion, &sessions, LINK, FLEET).await;
         paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
-        let kept = companion.route(&sessions, OTHER_FLEET).await.unwrap();
+        let kept = routed(&companion, &sessions, OTHER_FLEET).await.unwrap();
         companion.fallback(&sessions, FLEET).await.unwrap();
         assert!(companion.slot.get().is_some());
 
@@ -954,8 +989,61 @@ mod tests {
         assert!(companion.slot.get().is_none());
         assert!(companion.dialers().get(OTHER_HOST).unwrap().same(&kept));
         assert_eq!(kept.target().await.unwrap().id.to_string(), OTHER_HOST);
-        assert!(companion.route(&sessions, FLEET).await.is_none());
+        assert!(routed(&companion, &sessions, FLEET).await.is_none());
         assert_eq!(sessions.hosts().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_cookie_whose_fleet_moved_to_another_host_gets_no_dialer() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        let old = sessions.cookie(FLEET).unwrap();
+        companion
+            .forget_host(HOST, || sessions.forget_host(HOST))
+            .await
+            .unwrap();
+        let moved = format!("handboard://c#v=1&e={OTHER_HOST}&f={FLEET}&c=0123456789");
+        companion.offer_link(&moved).unwrap();
+        let (link, generation) = take(&companion);
+        let fresh = vec![Paired {
+            id: FLEET.to_owned(),
+            name: "orchard".to_owned(),
+            value: format!("8.{}", "cd".repeat(32)),
+        }];
+        companion
+            .settle(&sessions, &link, generation, fresh)
+            .await
+            .unwrap();
+
+        assert!(companion.route(&sessions, FLEET, &old).await.is_none());
+        let current = sessions.cookie(FLEET).unwrap();
+        let dialer = companion.route(&sessions, FLEET, &current).await.unwrap();
+        assert_eq!(dialer.target().await.unwrap().id.to_string(), OTHER_HOST);
+        assert!(companion.dialers().get(HOST).is_none());
+    }
+
+    #[tokio::test]
+    async fn forgetting_one_host_does_not_close_the_pairing_of_another() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        companion.offer_link(SECOND_LINK).unwrap();
+        let (link, generation) = take(&companion);
+
+        companion
+            .forget_host(HOST, || sessions.forget_host(HOST))
+            .await
+            .unwrap();
+        let settled = companion
+            .settle(&sessions, &link, generation, answered(OTHER_FLEET))
+            .await;
+
+        assert!(settled.is_ok());
+        assert_eq!(sessions.hosts().len(), 1);
+        assert_eq!(sessions.hosts()[0].endpoint, OTHER_HOST);
     }
 
     #[tokio::test]
@@ -988,9 +1076,7 @@ mod tests {
         companion.forget_all(|| sessions.forget()).await.unwrap();
 
         assert!(companion.slot.get().is_none());
-        for dialer in companion.dialers().all() {
-            assert!(dialer.target().await.is_none());
-        }
+        assert!(companion.dialers().all().is_empty());
         assert!(sessions.hosts().is_empty());
     }
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::mem;
 
 use crate::link::{Link, Reject, parse_link_with};
@@ -9,6 +10,7 @@ pub struct Pairing {
     pending: Option<Link>,
     in_flight: bool,
     generation: u64,
+    hosts: HashMap<String, u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,13 +62,26 @@ impl Pairing {
         self.in_flight = false;
     }
 
-    pub fn generation(&self) -> u64 {
+    pub fn generation(&self, endpoint: &str) -> u64 {
         self.generation
+            .wrapping_add(self.hosts.get(endpoint).copied().unwrap_or(0))
     }
 
     pub fn forget(&mut self) {
         self.in_flight = false;
         self.generation = self.generation.wrapping_add(1);
+    }
+
+    pub fn forget_host(&mut self, endpoint: &str) {
+        let count = self.hosts.entry(endpoint.to_owned()).or_default();
+        *count = count.wrapping_add(1);
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|link| link.endpoint_id == endpoint)
+        {
+            self.pending = None;
+        }
     }
 
     pub fn take(&mut self) -> Option<Link> {
@@ -129,12 +144,28 @@ mod tests {
         let mut pairing = Pairing::default();
         pairing.offer(&link(FIRST)).unwrap();
         let taken = pairing.take().unwrap();
-        let generation = pairing.generation();
+        let generation = pairing.generation(FIRST);
 
         pairing.forget();
 
-        assert_eq!(pairing.generation(), generation + 1);
+        assert_eq!(pairing.generation(FIRST), generation + 1);
         pairing.restore(taken);
+        assert!(pairing.pending().is_none());
+    }
+
+    #[test]
+    fn forgetting_one_host_moves_only_that_hosts_generation_and_drops_its_pending_link() {
+        let mut pairing = Pairing::default();
+        let (first, second) = (pairing.generation(FIRST), pairing.generation(SECOND));
+        pairing.offer(&link(FIRST)).unwrap();
+
+        pairing.forget_host(SECOND);
+        assert_eq!(pairing.generation(FIRST), first);
+        assert_ne!(pairing.generation(SECOND), second);
+        assert!(pairing.pending().is_some());
+
+        pairing.forget_host(FIRST);
+        assert_ne!(pairing.generation(FIRST), first);
         assert!(pairing.pending().is_none());
     }
 

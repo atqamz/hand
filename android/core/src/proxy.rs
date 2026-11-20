@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::watch;
 
 use crate::dialer::Dialer;
 
@@ -58,26 +59,70 @@ impl Proxy {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct Slot(Arc<Mutex<Option<Dialer>>>);
+#[derive(Clone)]
+pub struct Slot(Arc<Held>);
+
+struct Held {
+    dialer: Mutex<Option<Dialer>>,
+    changes: watch::Sender<u64>,
+}
+
+impl Default for Slot {
+    fn default() -> Self {
+        Self(Arc::new(Held {
+            dialer: Mutex::new(None),
+            changes: watch::channel(0).0,
+        }))
+    }
+}
 
 impl Slot {
     pub fn holding(dialer: Dialer) -> Self {
-        Self(Arc::new(Mutex::new(Some(dialer))))
+        let slot = Self::default();
+        slot.set(Some(dialer));
+        slot
     }
 
     pub fn set(&self, dialer: Option<Dialer>) {
-        *self.0.lock().unwrap() = dialer;
+        let mut held = self.0.dialer.lock().unwrap();
+        let same = match (&*held, &dialer) {
+            (Some(held), Some(dialer)) => held.same(dialer),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            *held = dialer;
+            self.0.changes.send_modify(|count| *count += 1);
+        }
+    }
+
+    pub fn clear_if(&self, dialer: &Dialer) {
+        let mut held = self.0.dialer.lock().unwrap();
+        if held.as_ref().is_some_and(|held| held.same(dialer)) {
+            *held = None;
+            self.0.changes.send_modify(|count| *count += 1);
+        }
     }
 
     pub fn get(&self) -> Option<Dialer> {
-        self.0.lock().unwrap().clone()
+        self.0.dialer.lock().unwrap().clone()
+    }
+
+    fn pin(&self) -> (Option<Dialer>, watch::Receiver<u64>) {
+        let held = self.0.dialer.lock().unwrap();
+        (held.clone(), self.0.changes.subscribe())
     }
 }
 
 pub async fn serve(listener: TcpListener, slot: Slot) {
     while let Ok((tcp, _)) = listener.accept().await {
-        tokio::spawn(handle(tcp, slot.get()));
+        let (dialer, mut changed) = slot.pin();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = handle(tcp, dialer) => {}
+                _ = changed.changed() => {}
+            }
+        });
     }
 }
 

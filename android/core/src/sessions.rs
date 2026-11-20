@@ -211,12 +211,26 @@ impl<J: Jar> Sessions<J> {
             .collect()
     }
 
-    pub fn route_of(&self, fleet: &str) -> Option<(String, Option<String>)> {
+    pub fn route_of(&self, fleet: &str, cookie: &str) -> Option<(String, Option<String>)> {
+        self.read()
+            .hosts
+            .into_iter()
+            .find(|host| {
+                host.fleets.iter().any(|entry| {
+                    entry.id == fleet
+                        && cookie
+                            == format!("{COOKIE_PREFIX}{fleet}={}.{}", entry.device, entry.secret)
+                })
+            })
+            .map(|host| (host.endpoint, host.relay))
+    }
+
+    fn endpoint_of(&self, fleet: &str) -> Option<String> {
         self.read()
             .hosts
             .into_iter()
             .find(|host| host.fleets.iter().any(|entry| entry.id == fleet))
-            .map(|host| (host.endpoint, host.relay))
+            .map(|host| host.endpoint)
     }
 
     pub fn held_elsewhere(&self, fleet: &str, endpoint: &str) -> bool {
@@ -245,7 +259,7 @@ impl<J: Jar> Sessions<J> {
     }
 
     pub fn cookie(&self, fleet: &str) -> Option<String> {
-        let (endpoint, _) = self.route_of(fleet)?;
+        let endpoint = self.endpoint_of(fleet)?;
         let prefix = format!("{COOKIE_PREFIX}{fleet}=");
         self.header_for(&endpoint)?
             .split("; ")
@@ -1261,6 +1275,24 @@ mod tests {
         assert_eq!(failed, Err(Refusal::NotSaved));
         assert_eq!(header_of(&sessions), [COOKIE.to_owned()]);
         assert!(setup.jar.cookies().unwrap().is_some());
+    }
+
+    #[test]
+    fn a_cookie_routes_only_to_the_host_that_issued_it() {
+        let setup = Setup::new(&[COOKIE]);
+        let sessions = setup.open().unwrap();
+        let route = sessions.route_of(FLEET, COOKIE).unwrap();
+        assert_eq!(route.0, HOST);
+        assert!(sessions.route_of(FLEET, NEWER).is_none());
+        assert!(sessions.route_of(OTHER, COOKIE).is_none());
+
+        sessions.forget_host(HOST).unwrap();
+        sessions
+            .pair(NEW_HOST, None, &[paired(FLEET, "8", B)])
+            .unwrap();
+
+        assert!(sessions.route_of(FLEET, COOKIE).is_none());
+        assert_eq!(sessions.route_of(FLEET, NEWER).unwrap().0, NEW_HOST);
     }
 
     #[test]

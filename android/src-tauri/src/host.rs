@@ -448,9 +448,9 @@ fn start(
             .map_err(|error| format!("this Companion's key could not start it: {error}"))?;
         let route: Route = {
             let (companion, sessions) = (companion.clone(), sessions.clone());
-            Arc::new(move |fleet| {
+            Arc::new(move |fleet, cookie| {
                 let (companion, sessions) = (companion.clone(), sessions.clone());
-                Box::pin(async move { companion.route(&sessions, &fleet).await })
+                Box::pin(async move { companion.route(&sessions, &fleet, &cookie).await })
             })
         };
         let feed = Feed::routed(route.clone(), data_dir.join("alerts"));
@@ -730,10 +730,14 @@ fn send(
     } else {
         Request::new(method, &fleet, &path, Some(&cookie), csrf.as_deref(), &body)?
     };
-    let response = runtime().block_on(core.companion.request(&core.sessions, &fleet, &request))?;
+    let response =
+        runtime().block_on(
+            core.companion
+                .request(&core.sessions, &fleet, &cookie, &request),
+        )?;
     if path == "/api/v1/meta"
         && response.status == 200
-        && let Some((endpoint, _)) = core.sessions.route_of(&fleet)
+        && let Some((endpoint, _)) = core.sessions.route_of(&fleet, &cookie)
     {
         core.sessions.name_host(&endpoint, &response.body);
     }
