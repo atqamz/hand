@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image/png"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,7 @@ var denied = regexp.MustCompile(`(?i)^(HAND_|SECONDHAND_|MYGO_|LUVUS_|CLAUDE|ANT
 type node struct {
 	ID     string `json:"id"`
 	Role   string `json:"role"`
+	Key    string `json:"key"`
 	Label  string `json:"label"`
 	Value  string `json:"value"`
 	Parent string `json:"parent"`
@@ -81,22 +83,74 @@ func goBuild(t *testing.T, dir, out, tags string, args ...string) {
 	}
 }
 
-func TestRealWindow(t *testing.T) { realWindow(t, false) }
+func TestRealWindow(t *testing.T) { realWindow(t, false, false) }
+
+func TestRealWindowNewFleet(t *testing.T) { realWindow(t, false, true) }
 
 func TestRealWindowFromBundle(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Hand.app is built on macOS only")
 	}
-	realWindow(t, true)
+	realWindow(t, true, false)
 }
 
-func realWindow(t *testing.T, fromBundle bool) {
+func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, outDir string) {
+	t.Helper()
+	if b, err := run(exec.Command(handBin, "init", "--name", fleetName)).CombinedOutput(); err != nil {
+		t.Fatalf("hand init: %v\n%s", err, b)
+	}
+
+	boardLog, err := os.Create(filepath.Join(outDir, "board.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = boardLog.Close() })
+	board := run(exec.Command(handBin, "board", "--addr", "127.0.0.1:0"))
+	board.Stdout, board.Stderr = boardLog, boardLog
+	if err := board.Start(); err != nil {
+		t.Fatalf("hand board: %v", err)
+	}
+	boardDone := make(chan struct{})
+	go func() { _ = board.Wait(); close(boardDone) }()
+	t.Cleanup(func() {
+		_ = run(exec.Command(handBin, "board", "stop")).Run()
+		select {
+		case <-boardDone:
+		case <-time.After(15 * time.Second):
+			_ = board.Process.Kill()
+			<-boardDone
+		}
+	})
+	for i := 0; ; i++ {
+		if _, err := os.Stat(filepath.Join(sh, "board.addr")); err == nil {
+			break
+		}
+		if i >= 200 {
+			t.Fatal("the board wrote no board.addr in 20 s")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if b, err := run(exec.Command(handBin, "open", "--print")).CombinedOutput(); err != nil {
+		t.Fatalf("hand open --print: %v\n%s", err, b)
+	}
+}
+
+func realWindow(t *testing.T, fromBundle, zeroFleet bool) {
 	outDir := os.Getenv("HAND_WINDOW_OUT")
 	if outDir == "" {
 		t.Skip("set HAND_WINDOW_OUT to a folder to run a real window and keep its picture there")
 	}
 	if fromBundle {
 		outDir = filepath.Join(outDir, "bundle")
+	}
+	if zeroFleet {
+		outDir = filepath.Join(outDir, "newfleet")
+		ln, err := net.Listen("tcp", "127.0.0.1:7777")
+		if err != nil {
+			t.Skipf("the form's Board listens on 127.0.0.1:7777 and it is taken: %v", err)
+		}
+		_ = ln.Close()
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -105,7 +159,12 @@ func realWindow(t *testing.T, fromBundle bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	t.Cleanup(func() {
+		err := os.RemoveAll(root)
+		if _, statErr := os.Stat(root); zeroFleet && (err != nil || statErr == nil) {
+			t.Errorf("the test left %s behind: %v", root, err)
+		}
+	})
 	dir := func(name string) string {
 		p := filepath.Join(root, name)
 		if err := os.MkdirAll(p, 0o755); err != nil {
@@ -153,46 +212,14 @@ func realWindow(t *testing.T, fromBundle bool) {
 		cmd.Dir = fleet
 		return cmd
 	}
+	if zeroFleet {
+		t.Cleanup(func() { _ = run(exec.Command(handBin, "board", "stop")).Run() })
+	}
 	if fromBundle {
 		deskBin = bundleFromUpdate(t, run, handBin, deskBin, home, outDir)
 	}
-	if b, err := run(exec.Command(handBin, "init", "--name", fleetName)).CombinedOutput(); err != nil {
-		t.Fatalf("hand init: %v\n%s", err, b)
-	}
-
-	boardLog, err := os.Create(filepath.Join(outDir, "board.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer boardLog.Close()
-	board := run(exec.Command(handBin, "board", "--addr", "127.0.0.1:0"))
-	board.Stdout, board.Stderr = boardLog, boardLog
-	if err := board.Start(); err != nil {
-		t.Fatalf("hand board: %v", err)
-	}
-	boardDone := make(chan struct{})
-	go func() { _ = board.Wait(); close(boardDone) }()
-	t.Cleanup(func() {
-		_ = run(exec.Command(handBin, "board", "stop")).Run()
-		select {
-		case <-boardDone:
-		case <-time.After(15 * time.Second):
-			_ = board.Process.Kill()
-			<-boardDone
-		}
-	})
-	for i := 0; ; i++ {
-		if _, err := os.Stat(filepath.Join(sh, "board.addr")); err == nil {
-			break
-		}
-		if i >= 200 {
-			t.Fatal("the board wrote no board.addr in 20 s")
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if b, err := run(exec.Command(handBin, "open", "--print")).CombinedOutput(); err != nil {
-		t.Fatalf("hand open --print: %v\n%s", err, b)
+	if !zeroFleet {
+		startFleetBoard(t, run, handBin, sh, outDir)
 	}
 
 	winLog, err := os.Create(filepath.Join(outDir, "window.log"))
@@ -256,38 +283,103 @@ func realWindow(t *testing.T, fromBundle bool) {
 
 	var nodes []node
 	var tree json.RawMessage
-	has := func(role, want string) bool {
+	find := func(role, key, label string) *node {
+		for i, n := range nodes {
+			if (role == "" || n.Role == role) && (key == "" || n.Key == key) && (label == "" || n.Label == label) {
+				return &nodes[i]
+			}
+		}
+		return nil
+	}
+	has := func(role, want string) bool { return find(role, "", want) != nil }
+	until := func(what string, limit time.Duration, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(limit)
+		for {
+			if err := c.call("idle", map[string]any{"window": id, "timeout": 5000}, nil); err != nil && !strings.Contains(err.Error(), "timeout") {
+				t.Fatal(err)
+			}
+			var res struct{ Nodes []node }
+			var raw json.RawMessage
+			if err := c.call("tree", map[string]any{"window": id}, &raw); err != nil {
+				t.Fatal(err)
+			}
+			tree = raw
+			_ = json.Unmarshal(raw, &res)
+			nodes = res.Nodes
+			if cond() {
+				return
+			}
+			if time.Now().After(deadline) {
+				_ = os.WriteFile(filepath.Join(outDir, "tree.json"), tree, 0o644)
+				t.Fatalf("no %s after %s (%d elements); see tree.json", what, limit, len(nodes))
+			}
+			time.Sleep(time.Second)
+		}
+	}
+	hasText := func(sub string) bool {
 		for _, n := range nodes {
-			if n.Label == want && (role == "" || n.Role == role) {
+			if n.Role == "text" && strings.Contains(n.Label, sub) {
 				return true
 			}
 		}
 		return false
 	}
-	deadline := time.Now().Add(90 * time.Second)
-	for {
-		if err := c.call("idle", map[string]any{"window": id, "timeout": 5000}, nil); err != nil && !strings.Contains(err.Error(), "timeout") {
+	set := func(label, text string) {
+		t.Helper()
+		n := find("textField", "", label)
+		if n == nil {
+			t.Fatalf("no %q field", label)
+		}
+		if err := c.call("act", map[string]any{"window": id, "id": n.ID, "action": "setValue", "text": text}, nil); err != nil {
 			t.Fatal(err)
 		}
-		var res struct{ Nodes []node }
-		var raw json.RawMessage
-		if err := c.call("tree", map[string]any{"window": id}, &raw); err != nil {
-			t.Fatal(err)
-		}
-		tree = raw
-		_ = json.Unmarshal(raw, &res)
-		nodes = res.Nodes
-		if has("text", fleetName) && (has("text", "Needs") || has("button", "Needs")) {
-			break
-		}
-		if time.Now().After(deadline) {
-			_ = os.WriteFile(filepath.Join(outDir, "tree.json"), tree, 0o644)
-			t.Fatalf("the element tree holds no %q and a Needs head after 90 s (%d elements); see tree.json", fleetName, len(nodes))
-		}
-		time.Sleep(time.Second)
+		until("the "+label+" field to hold "+text, 30*time.Second, func() bool {
+			n := find("textField", "", label)
+			return n != nil && n.Value == text
+		})
 	}
+	good, refused := filepath.Join(root, "made"), filepath.Join(sh, "inside")
+	if zeroFleet {
+		until("the New fleet form", 60*time.Second, func() bool {
+			return find("textField", "", "Fleet name") != nil && find("button", "nf:create", "") != nil
+		})
+		set("Fleet name", fleetName)
+		set("Fleet folder", refused)
+		if err := c.call("act", map[string]any{"window": id, "key": "nf:create", "action": "press"}, nil); err != nil {
+			t.Fatal(err)
+		}
+		until("the line `hand init` printed for a folder inside Hand's shared folder", 60*time.Second, func() bool {
+			return hasText("is inside Hand's shared folder")
+		})
+		if _, err := os.Stat(refused); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the refused folder exists: %v", err)
+		}
+		if n := find("textField", "", "Fleet name"); n == nil || n.Value != fleetName {
+			t.Fatalf("the form did not keep the name after the failure: %+v", n)
+		}
+		set("Fleet folder", good)
+		if err := c.call("act", map[string]any{"window": id, "key": "nf:create", "action": "press"}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	until("fleet "+fleetName+" and a Needs head", 90*time.Second, func() bool {
+		return has("text", fleetName) && (has("text", "Needs") || has("button", "Needs"))
+	})
 	if err := os.WriteFile(filepath.Join(outDir, "tree.json"), tree, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if zeroFleet {
+		marks, err := os.ReadDir(filepath.Join(sh, "index"))
+		if err != nil || len(marks) != 1 {
+			t.Fatalf("want one bookmark in index: %d, %v", len(marks), err)
+		}
+		if n := find("button", "fleet:"+marks[0].Name(), ""); n == nil || !strings.HasPrefix(n.Label, fleetName+",") {
+			t.Fatalf("the rail has no item for %q with the bookmarked id: %+v", fleetName, n)
+		}
+		if find("button", "nf:create", "") != nil || find("textField", "", "Fleet name") != nil {
+			t.Fatal("the New fleet form is still open")
+		}
 	}
 
 	var shot struct {
@@ -334,5 +426,65 @@ func realWindow(t *testing.T, fromBundle bool) {
 	}
 	if _, err := os.Stat(sock); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the window left its socket behind: %v", err)
+	}
+	if zeroFleet {
+		checkMadeFleet(t, run, handBin, sh, good)
+	}
+}
+
+func checkMadeFleet(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, folder string) {
+	t.Helper()
+	if info, err := os.Stat(filepath.Join(folder, "hand.db")); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("the fleet folder holds no hand.db: %v", err)
+	}
+	marks, _ := os.ReadDir(filepath.Join(sh, "index"))
+	if len(marks) != 1 {
+		t.Fatalf("want one bookmark in index: %d", len(marks))
+	}
+	b, err := os.ReadFile(filepath.Join(sh, "index", marks[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(folder)
+	if got, _ := filepath.EvalSymlinks(strings.TrimSpace(string(b))); got != want {
+		t.Fatalf("the bookmark names %q, want %q", got, want)
+	}
+
+	addr, err := os.ReadFile(filepath.Join(sh, "board.addr"))
+	if err != nil {
+		t.Fatalf("the form started no board: %v", err)
+	}
+	host := strings.TrimSpace(string(addr))
+	web := &http.Client{Timeout: 10 * time.Second}
+	res, err := web.Get("http://" + host + "/api/v1/meta")
+	if err != nil {
+		t.Fatalf("the board does not answer at %s: %v", host, err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode >= 500 {
+		t.Fatalf("the board answered %s", res.Status)
+	}
+
+	if b, err := run(exec.Command(handBin, "board", "stop")).CombinedOutput(); err != nil || !strings.Contains(string(b), "board: stopped") {
+		t.Fatalf("hand board stop: %v\n%s", err, b)
+	}
+	for i := 0; ; i++ {
+		conn, err := net.DialTimeout("tcp", host, time.Second)
+		if err != nil {
+			break
+		}
+		_ = conn.Close()
+		if i >= 150 {
+			t.Fatalf("the board still answers at %s 15 s after it was stopped", host)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	for _, f := range []string{"board.pid", "board.addr"} {
+		if _, err := os.Stat(filepath.Join(sh, f)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a stopped board left %s: %v", f, err)
+		}
+	}
+	if b, err := run(exec.Command(handBin, "board", "stop")).CombinedOutput(); err != nil || !strings.Contains(string(b), "board: not running") {
+		t.Errorf("a second hand board stop: %v\n%s", err, b)
 	}
 }

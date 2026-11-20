@@ -117,6 +117,15 @@ jobs:
             go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindow$' -count=1 -v
           fi
           test -s "$HAND_WINDOW_OUT/window.png"
+      - name: Make a fleet from the New fleet form with real hand init and board start, then stop the Board
+        run: |
+          set -eu
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowNewFleet$' -count=1 -v
+          else
+            go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowNewFleet$' -count=1 -v
+          fi
+          test -s "$HAND_WINDOW_OUT/newfleet/window.png"
       - name: Build Hand.app with hand update from a fake release, open the window from it and quit
         if: runner.os == 'macOS'
         run: |
