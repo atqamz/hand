@@ -2,6 +2,9 @@ package io.github.atqamz.handcompanion
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import android.view.View
+import androidx.compose.ui.platform.LocalView
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -41,18 +44,58 @@ private val rows =
     )
   )
 
-private val connected = FleetsState("4d92…6ed6", rows, loaded = true)
+private const val LAPTOP = "4d92000000000000000000000000000000000000000000000000000000006ed6"
+private const val VPS = "7c1e00000000000000000000000000000000000000000000000000000000a2f9"
+private val DOWN =
+  Band(
+    "Can't reach 4d92…6ed6 since 12:41",
+    "Check that the host is on, that Hand's Board is running, and that this phone has internet."
+  )
+
+private fun laptop(rows: List<FleetRow>, band: Band? = null, name: String = "atqa-laptop") =
+  HostGroup(LAPTOP, "4d92…6ed6", name, rows, band)
+
+private val ops =
+  FleetRow(
+    "f000000000021",
+    "ops",
+    clear = true,
+    since = "09:12",
+    pill = Badge("ready", Tone.Pass),
+    seen = "09:12"
+  )
+
+private fun vps(rows: List<FleetRow>, band: Band? = null) =
+  HostGroup(VPS, "7c1e…a2f9", "vps-berlin", rows, band)
+
+private val connected = FleetsState(listOf(laptop(rows, name = "4d92…6ed6")), loaded = true)
 
 private val unreachable =
+  FleetsState(listOf(laptop(rows, DOWN, "4d92…6ed6")), loaded = true)
+
+private val twoHosts =
+  FleetsState(listOf(laptop(rows.take(2)), vps(listOf(rows[2], rows[3]))), loaded = true)
+
+private val oneDead =
   FleetsState(
-    "4d92…6ed6",
-    rows,
-    Band(
-      "Can't reach 4d92…6ed6 since 12:41",
-      "Check that the host is on, that Hand's Board is running, and that this phone has internet."
+    listOf(
+      laptop(rows.take(2)),
+      vps(listOf(ops), Band("Can't reach vps-berlin since 09:12", "Check."))
     ),
     loaded = true
   )
+
+private val unpaired =
+  FleetsState(
+    listOf(
+      laptop(rows.take(2)),
+      vps(listOf(ops.copy(paired = false, clear = false), rows[3].copy(paired = false)))
+    ),
+    loaded = true
+  )
+
+private val oneUnpaired =
+  FleetsState(listOf(laptop(listOf(rows[0], rows[1].copy(paired = false)))), loaded = true)
 
 private val loading = FleetsState()
 
@@ -74,4 +117,48 @@ class FleetsScreenTest {
   @Test fun loadingLight() = shot(false, loading)
 
   @Test fun loadingDark() = shot(true, loading)
+
+  @Test fun twoHostsLight() = shot(false, twoHosts)
+
+  @Test fun twoHostsDark() = shot(true, twoHosts)
+
+  @Test fun oneDeadHostLight() = shot(false, oneDead)
+
+  @Test fun oneDeadHostDark() = shot(true, oneDead)
+
+  @Test fun everyFleetUnpairedLight() = shot(false, unpaired)
+
+  @Test fun everyFleetUnpairedDark() = shot(true, unpaired)
+
+  @Test fun oneFleetUnpairedLight() = shot(false, oneUnpaired)
+
+  @Test fun oneFleetUnpairedDark() = shot(true, oneUnpaired)
+}
+
+class FleetsScreenTapTest {
+  private val frames = Frames()
+
+  @get:Rule
+  val paparazzi =
+    Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 1500), snapshotHandler = frames)
+
+  @Test
+  fun anUnpairedRowActsOnItsOwnHost() {
+    val asks = mutableListOf<Forgetting?>()
+    var adds = 0
+    lateinit var view: View
+    frames.onFrame = {
+      val taps = Taps(view)
+      taps.tap("Forget this host")
+      taps.tap("Pair again")
+    }
+    paparazzi.snapshot {
+      HandTheme(false) {
+        view = LocalView.current
+        FleetsScreen(unpaired, {}, { adds++ }, {}, { asks += it }, {}, {})
+      }
+    }
+    assertEquals(listOf(Forgetting(VPS, "vps-berlin", 2)), asks)
+    assertEquals(1, adds)
+  }
 }

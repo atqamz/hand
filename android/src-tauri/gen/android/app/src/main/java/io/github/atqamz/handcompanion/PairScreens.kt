@@ -13,7 +13,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -196,25 +195,13 @@ fun ConfirmScreen(
   val hand = LocalHand.current
   val confirm = state.confirm ?: return
   Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState())) {
-    Bar("Pair with this host?", HandIcons.Close, "Cancel", onCancel, enabled = !state.busy)
+    Bar(confirm.title, HandIcons.Close, "Cancel", onCancel, enabled = !state.busy)
     HorizontalDivider(color = hand.line)
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Column {
         Meta("Host")
         Text(confirm.host, style = HandMono.copy(fontSize = 28.sp, lineHeight = 36.sp))
         Meta("Check these characters against the Companion page on that host.")
-      }
-      confirm.notice?.let {
-        Column(
-          Modifier.fillMaxWidth()
-            .background(hand.fill(Tone.Wait), MaterialTheme.shapes.large)
-            .border(1.dp, hand.ink(Tone.Wait).copy(alpha = 0.25f), MaterialTheme.shapes.large)
-            .padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-          Text("This replaces your current host", style = type.titleMedium)
-          Text(it, style = type.bodyMedium)
-        }
       }
       Text("Name for this Companion", style = type.labelLarge)
       Field(state.name, onName, onDone = onPair)
@@ -228,7 +215,7 @@ fun ConfirmScreen(
           shape = MaterialTheme.shapes.medium,
           colors = ButtonDefaults.buttonColors()
         ) {
-          Text(if (state.busy) "Connecting…" else confirm.action, style = type.titleMedium)
+          Text(if (state.busy) "Connecting…" else "Pair", style = type.titleMedium)
         }
       }
     }

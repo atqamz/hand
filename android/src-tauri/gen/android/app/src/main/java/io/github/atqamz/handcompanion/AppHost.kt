@@ -35,7 +35,11 @@ class AppHost(private val context: Context) {
     reference: String,
     text: String,
     link: String?
-  ): Boolean = Notifier.post(context, alertSpec(fleetId, fleetName, kind, reference, text, link))
+  ): Boolean =
+    Notifier.post(
+      context,
+      alertSpec(fleetId, fleetName, kind, reference, text, link, noticeHost(phoneInfo(Core.phone()), fleetId))
+    )
 
   fun live(fleet: String, topic: String, json: String) {
     LiveBus.shared.publish(fleet, topic, json)
@@ -81,7 +85,7 @@ class AppHost(private val context: Context) {
   }
 
   fun unpaired(fleetId: String, fleetName: String?) {
-    Notifier.post(context, unpairedSpec(fleetId, fleetName))
+    Notifier.post(context, unpairedSpec(fleetId, fleetName, noticeHost(phoneInfo(Core.phone()), fleetId)))
   }
 
   private companion object {

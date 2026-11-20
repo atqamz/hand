@@ -45,7 +45,8 @@ data class NoticeSpec(
   val text: String,
   val channel: String,
   val tapUri: String?,
-  val visibility: Int
+  val visibility: Int,
+  val subText: String? = null
 )
 
 fun channelFor(kind: String): String =
@@ -67,7 +68,8 @@ fun alertSpec(
   kind: String,
   reference: String,
   text: String,
-  link: String?
+  link: String?,
+  host: String? = null
 ): NoticeSpec =
   NoticeSpec(
     tag = "$fleetId/$reference",
@@ -75,17 +77,19 @@ fun alertSpec(
     text = text,
     channel = channelFor(kind),
     tapUri = link?.takeIf { it.startsWith(OPEN_PREFIX) },
-    visibility = Notification.VISIBILITY_PRIVATE
+    visibility = Notification.VISIBILITY_PRIVATE,
+    subText = host
   )
 
-fun unpairedSpec(fleetId: String, fleetName: String?): NoticeSpec =
+fun unpairedSpec(fleetId: String, fleetName: String?, host: String? = null): NoticeSpec =
   NoticeSpec(
     tag = "$fleetId/unpaired",
     title = "Hand",
     text = "No longer paired with ${fleetName?.ifBlank { null } ?: fleetId}",
     channel = Channels.NEEDS,
     tapUri = null,
-    visibility = Notification.VISIBILITY_PRIVATE
+    visibility = Notification.VISIBILITY_PRIVATE,
+    subText = host
   )
 
 fun unreadableSpec(): NoticeSpec =

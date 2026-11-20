@@ -2,13 +2,14 @@ package io.github.atqamz.handcompanion
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import java.io.File
-import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +20,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 const val POLL_MILLIS = 5_000L
-private val FLEET_ID = Regex("f[0-9a-f]{12}")
 
 data class Badge(val text: String, val tone: Tone)
 
@@ -43,16 +43,33 @@ data class Band(
   val live: Boolean = false
 )
 
-data class FleetsState(
-  val host: String? = null,
+data class HostGroup(
+  val endpoint: String,
+  val id: String,
+  val name: String,
   val rows: List<FleetRow> = emptyList(),
+  val band: Band? = null
+) {
+  val unpaired get() = rows.isNotEmpty() && rows.none(FleetRow::paired)
+
+  val stale get() = band?.retry == true
+}
+
+data class Forgetting(val endpoint: String?, val name: String?, val fleets: Int)
+
+data class FleetsState(
+  val hosts: List<HostGroup> = emptyList(),
   val band: Band? = null,
   val alertsOff: Boolean = false,
-  val asking: Boolean = false,
+  val asking: Forgetting? = null,
   val notice: String? = null,
   val loaded: Boolean = false,
   val phone: PhoneInfo? = null
-)
+) {
+  val rows get() = hosts.flatMap(HostGroup::rows)
+
+  fun hostOf(fleet: String) = hosts.firstOrNull { host -> host.rows.any { it.id == fleet } }
+}
 
 enum class FleetsBody {
   Loading,
@@ -63,16 +80,6 @@ fun fleetsBody(state: FleetsState) =
   if (state.loaded) FleetsBody.Rows else FleetsBody.Loading
 
 const val FORGET_FAILED = "Can't clear the saved login. Try again."
-
-fun pairedFleets(ids: String?): List<String> =
-  ids.orEmpty().split(' ').filter(FLEET_ID::matches).distinct()
-
-fun hostId(file: File): String? =
-  try {
-    file.readText().trim().takeIf { it.length >= 8 }?.let { "${it.take(4)}…${it.takeLast(4)}" }
-  } catch (_: IOException) {
-    null
-  }
 
 fun hhmm(date: Date) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
 
@@ -156,19 +163,19 @@ val UNSAVED =
 
 class FleetsModel(
   private val transport: Transport,
-  private val fleets: () -> List<String>,
-  private val host: () -> String?,
+  private val phone: () -> PhoneInfo?,
   private val unsaved: () -> Boolean = { false },
   private val forgetter: () -> Boolean = { true },
-  private val clock: () -> String = { hhmm(Date()) },
-  private val phone: () -> String? = { null }
+  private val hostForgetter: (String) -> Boolean = { true },
+  private val clock: () -> String = { hhmm(Date()) }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetsState())
   val state: StateFlow<FleetsState> = mutableState
 
-  private val clients = mutableMapOf<String, BoardClient>()
+  private val clients = ConcurrentHashMap<String, BoardClient>()
   private val lock = Mutex()
-  private var downSince: String? = null
+  private val downSince = ConcurrentHashMap<String, String>()
+  private val retrying = AtomicBoolean(false)
 
   suspend fun poll(): Nothing {
     while (true) {
@@ -178,71 +185,98 @@ class FleetsModel(
   }
 
   fun retry() {
-    if (!lock.isLocked) viewModelScope.launch { refresh() }
+    if (!retrying.compareAndSet(false, true)) return
+    viewModelScope.launch {
+      lock.withLock {
+        retrying.set(false)
+        round()
+      }
+    }
   }
 
   fun alerts(off: Boolean) = mutableState.update { it.copy(alertsOff = off) }
 
-  fun say(text: String?) = mutableState.update { it.copy(notice = text, asking = false) }
+  fun say(text: String?) = mutableState.update { it.copy(notice = text, asking = null) }
 
-  fun ask(on: Boolean) = mutableState.update { it.copy(asking = on, notice = null) }
+  fun ask(forgetting: Forgetting?) = mutableState.update { it.copy(asking = forgetting, notice = null) }
 
   fun forget() {
-    viewModelScope.launch { forgetHost() }
+    val target = mutableState.value.asking ?: return
+    viewModelScope.launch { forget(target) }
   }
 
-  suspend fun forgetHost() {
-    mutableState.update { it.copy(asking = false, notice = null) }
-    val forgotten = withContext(Dispatchers.IO) { forgetter() }
-    if (forgotten) mutableState.update { it.copy(alertsOff = false) }
+  suspend fun forget(target: Forgetting) {
+    mutableState.update { it.copy(asking = null, notice = null) }
+    val forgotten =
+      withContext(Dispatchers.IO) {
+        if (target.endpoint == null) forgetter() else hostForgetter(target.endpoint)
+      }
     refresh()
+    if (forgotten && mutableState.value.hosts.isEmpty()) {
+      mutableState.update { it.copy(alertsOff = false) }
+    }
     if (!forgotten) say(FORGET_FAILED)
   }
 
-  suspend fun refresh() =
-    lock.withLock {
-      val (ids, who) = withContext(Dispatchers.IO) { fleets() to host() }
-      val unsaved = withContext(Dispatchers.IO) { unsaved() }
-      val info = withContext(Dispatchers.IO) { phoneInfo(phone()) }
-      val now = clock()
-      val known = mutableState.value.rows.associateBy { it.id }
-      val rows = mutableListOf<FleetRow>()
-      var failure: BoardError? = null
-      for (id in ids) {
-        val before = known[id] ?: FleetRow(id)
-        if (failure != null) {
-          rows += before
-          continue
-        }
-        rows +=
-          try {
-            fetch(id, before, now)
-          } catch (error: BoardError) {
-            when (error) {
-              BoardError.Unpaired -> {
-                clients.remove(id)
-                before.copy(paired = false)
-              }
-              in HOST_LEVEL -> {
-                failure = error
-                before
-              }
-              else -> before.copy(unreadable = true)
-            }
+  suspend fun refresh() = lock.withLock { round() }
+
+  private suspend fun round() {
+    val info = withContext(Dispatchers.IO) { phone() }
+    val unsaved = withContext(Dispatchers.IO) { unsaved() }
+    val now = clock()
+    val known = mutableState.value.rows.associateBy { it.id }
+    val hosts = info?.hosts.orEmpty()
+    val order = hosts.map(PairedHost::endpoint)
+    clients.keys.retainAll(info?.fleets.orEmpty().map(PairedFleet::id).toSet())
+    downSince.keys.retainAll(order.toSet())
+    mutableState.update {
+      it.copy(
+        hosts = it.hosts.filter { group -> group.endpoint in order },
+        loaded = it.loaded || hosts.isEmpty(),
+        phone = info,
+        band = UNSAVED.takeIf { unsaved }
+      )
+    }
+    coroutineScope {
+      hosts.forEach { host ->
+        launch {
+          val group = group(host, known, now)
+          mutableState.update { state ->
+            val landed = state.hosts.associateBy(HostGroup::endpoint) + (group.endpoint to group)
+            state.copy(hosts = order.mapNotNull(landed::get), loaded = true)
           }
-      }
-      clients.keys.retainAll(ids.toSet())
-      downSince = if (failure in UNREACHABLE) downSince ?: now else null
-      mutableState.update {
-        it.copy(
-          host = who,
-          rows = rows,
-          loaded = true,
-          phone = info,
-          band = failure?.let { band(it, who, downSince) } ?: UNSAVED.takeIf { unsaved }
-        )
+        }
       }
     }
+  }
+
+  private suspend fun group(host: PairedHost, known: Map<String, FleetRow>, now: String): HostGroup {
+    var failure: BoardError? = null
+    val rows =
+      host.fleets.map { fleet ->
+        val before = known[fleet.id] ?: FleetRow(fleet.id, fleet.name.ifBlank { fleet.id })
+        if (failure != null) return@map before
+        try {
+          fetch(fleet.id, before, now)
+        } catch (error: BoardError) {
+          when (error) {
+            BoardError.Unpaired -> {
+              clients.remove(fleet.id)
+              before.copy(paired = false)
+            }
+            in HOST_LEVEL -> {
+              failure = error
+              before
+            }
+            else -> before.copy(unreadable = true)
+          }
+        }
+      }
+    val since =
+      if (failure in UNREACHABLE) downSince.getOrPut(host.endpoint) { now }
+      else downSince.remove(host.endpoint)
+    return HostGroup(host.endpoint, host.id, host.name, rows, failure?.let { band(it, host.name, since) })
+  }
 
   private suspend fun fetch(id: String, before: FleetRow, now: String): FleetRow {
     val client = clients.getOrPut(id) { BoardClient(id, transport) }

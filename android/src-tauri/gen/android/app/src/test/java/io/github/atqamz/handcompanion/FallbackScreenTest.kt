@@ -25,7 +25,8 @@ private val rows =
     FleetRow("f000000000005", "orchard", Badge("2 waiting", Tone.Wait), 3, pill = Badge("working", Tone.Accent), seen = "12:41")
   )
 
-private val connected = FleetsState("4d92…6ed6", rows, loaded = true)
+private val connected =
+  FleetsState(listOf(HostGroup("e", "4d92…6ed6", "4d92…6ed6", rows)), loaded = true)
 
 private val fleet =
   FleetState(
@@ -81,7 +82,7 @@ class FallbackScreenTest {
 
   @Test fun webLoadingDark() = shot(true, webLoading)
 
-  private val notPairedHere: Page =
+  private val openFailed: Page =
     runBlocking { openBoard("/f000000000003/", { "{}" }, Cookies { _, _ -> true }) }
 
   private val cookieRefused: Page =
@@ -99,9 +100,9 @@ class FallbackScreenTest {
     }
   }
 
-  @Test fun notPairedHereLight() = shot(false, failed(notPairedHere))
+  @Test fun openFailedLight() = shot(false, failed(openFailed))
 
-  @Test fun notPairedHereDark() = shot(true, failed(notPairedHere))
+  @Test fun openFailedDark() = shot(true, failed(openFailed))
 
   @Test fun cookieRefusedLight() = shot(false, failed(cookieRefused))
 
@@ -129,13 +130,13 @@ class FallbackScreenTest {
       Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, chat = { Loading() }) {} }
     }
 
-  @Test fun listMenuLight() = shot(false) { Over(listOf("Forget this host" to {})) { fleets(connected) } }
+  @Test fun listMenuLight() = shot(false) { Over(listOf("This Companion" to {})) { fleets(connected) } }
 
-  @Test fun listMenuDark() = shot(true) { Over(listOf("Forget this host" to {})) { fleets(connected) } }
+  @Test fun listMenuDark() = shot(true) { Over(listOf("This Companion" to {})) { fleets(connected) } }
 
-  @Test fun forgetLight() = shot(false) { fleets(connected.copy(asking = true)) }
+  @Test fun forgetLight() = shot(false) { fleets(connected.copy(asking = Forgetting("e", "4d92…6ed6", 2))) }
 
-  @Test fun forgetDark() = shot(true) { fleets(connected.copy(asking = true)) }
+  @Test fun forgetDark() = shot(true) { fleets(connected.copy(asking = Forgetting("e", "4d92…6ed6", 2))) }
 
   @Test fun forgetFailedLight() = shot(false) { fleets(connected.copy(notice = FORGET_FAILED)) }
 

@@ -15,9 +15,13 @@ internal val phoneSeveral =
     FleetLine("f000000000011", "meadow", "paired Nov 9 · signs out Feb 7")
   )
 
-internal fun phoneOf(fleets: List<FleetLine>) =
+internal val laptopLine = HostLine("e1", "atqa-laptop", "4d92…6ed6", "connected", 4)
+
+internal val vpsLine = HostLine("e2", "vps-berlin", "7c1e…a2f9", "not connected", 1)
+
+internal fun phoneOf(fleets: List<FleetLine>, hosts: List<HostLine> = listOf(laptopLine.copy(fleets = fleets.size))) =
   ThisPhone(
-    host = "4d92…6ed6",
+    hosts = hosts,
     fleets = fleets,
     alertsDetail = "Hand is connected · watching ${fleets.size} fleet${if (fleets.size == 1) "" else "s"}",
     phoneId = "9ab2…11fe",
@@ -47,7 +51,19 @@ class ThisPhoneScreenTest {
 
   @Test fun alertsOffDark() = shot(true, off)
 
-  @Test fun forgetConfirmLight() = shot(false, phoneOf(phoneSeveral).copy(asking = true))
+  @Test fun forgetConfirmLight() = shot(false, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
 
-  @Test fun forgetConfirmDark() = shot(true, phoneOf(phoneSeveral).copy(asking = true))
+  @Test fun forgetConfirmDark() = shot(true, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
+
+  private val two =
+    phoneOf(phoneSeveral + FleetLine("f000000000021", "ops", "paired Nov 9 · signs out Feb 7"), listOf(laptopLine, vpsLine))
+      .let { it.copy(alertsDetail = "Hand is partly connected · watching ${it.fleets.size} fleets") }
+
+  private val failed = two.copy(notice = FORGET_FAILED)
+
+  @Test fun forgetFailedLight() = shot(false, failed)
+
+  @Test fun hostsLight() = shot(false, two)
+
+  @Test fun hostsDark() = shot(true, two)
 }

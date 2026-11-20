@@ -90,6 +90,19 @@ class AlertNoticeTest {
   }
 
   @Test
+  fun theHostNameIsTheSubTextAndNothingElseChanges() {
+    val plain = alertSpec("f0123456789ab", "hand", "decision.asked", "d3", "t", link)
+    val named = alertSpec("f0123456789ab", "hand", "decision.asked", "d3", "t", link, "atqa-laptop")
+    assertNull(plain.subText)
+    assertEquals("atqa-laptop", named.subText)
+    assertEquals(plain.copy(subText = "atqa-laptop"), named)
+    assertEquals("f0123456789ab/d3", named.tag)
+    assertEquals("atqa-laptop", unpairedSpec("f0123456789ab", "hand", "atqa-laptop").subText)
+    assertEquals("f0123456789ab/unpaired", unpairedSpec("f0123456789ab", "hand", "atqa-laptop").tag)
+    assertNull(unpairedSpec("f0123456789ab", "hand").subText)
+  }
+
+  @Test
   fun aLostPairingNamesTheFleetOrItsId() {
     val named = unpairedSpec("f0123456789ab", "hand")
     assertEquals("No longer paired with hand", named.text)

@@ -17,7 +17,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val NINETY_DAYS = 90 * 24 * 60 * 60
 private val BROWSER = setOf("http", "https", "mailto", "tel")
 
-const val NOT_PAIRED_HERE = "This Companion is not paired with this fleet."
+const val OPEN_FAILED =
+  "The web Board did not open. Try again. If it keeps failing, pair this fleet again."
 const val COOKIE_REFUSED = "Can't set the saved login for the web Board. Close this and try again."
 const val BOARD_TIMED_OUT = "The web Board took too long to open. Try again."
 const val OPEN_MILLIS = 30_000L
@@ -87,7 +88,7 @@ private suspend fun openPage(
   val answer = withContext(Dispatchers.IO) { parse(fallback(fleet)) }
   val port = answer.field("port")?.toIntOrNull()
   val cookie = answer.field("cookie")
-  if (port == null || cookie == null) return Page.Failed(NOT_PAIRED_HERE)
+  if (port == null || cookie == null) return Page.Failed(OPEN_FAILED, retry = true)
   if (!cookies.set(COOKIE_URL, "$cookie; Path=/; Max-Age=$NINETY_DAYS; HttpOnly; SameSite=Lax")) {
     return Page.Failed(COOKIE_REFUSED)
   }

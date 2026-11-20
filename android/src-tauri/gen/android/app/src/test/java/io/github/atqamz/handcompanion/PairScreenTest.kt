@@ -6,10 +6,8 @@ import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
 
-private val fleets = Current("4d92…6ed6", listOf("hand", "work", "research", "homelab"))
 private val plain = PairState(name = "Pixel 8", confirm = Confirm("7c1e…a2f9", null))
-private val replacing =
-  PairState(name = "Pixel 8", confirm = Confirm("7c1e…a2f9", replaceNotice(fleets)))
+private val known = PairState(name = "Pixel 8", confirm = Confirm("4d92…6ed6", "atqa-laptop"))
 private val failed =
   plain.copy(
     error = "That code has expired. A code works for 5 minutes. Show a new code on the Board."
@@ -57,9 +55,9 @@ class PairScreenTest {
 
   @Test fun confirmDark() = shot(true, confirm(plain))
 
-  @Test fun replaceLight() = shot(false, confirm(replacing))
+  @Test fun knownHostLight() = shot(false, confirm(known))
 
-  @Test fun replaceDark() = shot(true, confirm(replacing))
+  @Test fun knownHostDark() = shot(true, confirm(known))
 
   @Test fun confirmErrorLight() = shot(false, confirm(failed))
 

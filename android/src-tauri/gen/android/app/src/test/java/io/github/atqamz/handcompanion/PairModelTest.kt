@@ -14,8 +14,7 @@ private const val REJECTED = "This is not a Hand pairing code. Show a new one on
 private const val NEWER = "This code needs a newer Hand app. Update the app."
 private const val WRONG =
   "That code is not right. Check it against the one on your host, or show a new code there."
-private const val OFFERED = """{"host":"7c1e…a2f9","replaces":false}"""
-private const val REPLACES = """{"host":"7c1e…a2f9","replaces":true}"""
+private const val OFFERED = """{"host":"7c1e…a2f9"}"""
 private const val PAIRED = """{"fleets":[{"id":"f000000000003","name":"atlas"}]}"""
 
 private fun failure(name: String, message: String) =
@@ -44,10 +43,8 @@ private class FakeCore(var offer: String? = OFFERED, var pair: String? = PAIRED)
   }
 }
 
-private val four = Current("4d92…6ed6", listOf("hand", "work", "research", "homelab"))
-
-private fun model(core: FakeCore, current: () -> Current = { four }) =
-  PairModel(core, "Pixel 8", current)
+private fun model(core: FakeCore, held: (String) -> String? = { null }) =
+  PairModel(core, "Pixel 8", held)
 
 class PairModelTest {
   @Test
@@ -58,13 +55,12 @@ class PairModelTest {
   @Test
   fun anAcceptedLinkOpensTheConfirmationAndIsNotKept() {
     val core = FakeCore()
-    val model = model(core) { throw AssertionError("the same host loses nothing") }
+    val model = model(core)
     model.edit("handboard://c#v=1")
     model.offer("handboard://c#v=1")
     val state = model.state.value
     assertEquals("7c1e…a2f9", state.confirm?.host)
-    assertNull(state.confirm?.notice)
-    assertEquals("Pair", state.confirm?.action)
+    assertNull(state.confirm?.known)
     assertEquals("", state.link)
     assertNull(state.error)
   }
@@ -85,38 +81,32 @@ class PairModelTest {
   }
 
   @Test
-  fun aLinkToAnotherHostWarnsByNameAndAsksToReplace() {
-    val model = model(FakeCore(offer = REPLACES))
+  fun aNewHostIsAskedForByItsShortIdAndNothingIsReplaced() {
+    val model = model(FakeCore())
     model.offer("link")
     val confirm = model.state.value.confirm!!
-    assertEquals("Replace and pair", confirm.action)
-    assertEquals(
-      "Once paired, this Companion leaves 4d92…6ed6 and its 4 fleets: hand, work, research and homelab. " +
-        "Their alerts stop. If pairing fails, nothing changes.",
-      confirm.notice
-    )
+    assertEquals("Add 7c1e…a2f9?", confirm.title)
+    assertNull(confirm.known)
   }
 
   @Test
-  fun theNoticeReadsRightForOneFleetAndForNone() {
-    assertEquals(
-      "Once paired, this Companion leaves 4d92…6ed6 and its 1 fleet: hand. " +
-        "Its alerts stop. If pairing fails, nothing changes.",
-      replaceNotice(Current("4d92…6ed6", listOf("hand")))
-    )
-    assertEquals(
-      "Once paired, this Companion leaves 4d92…6ed6 and its 2 fleets: hand and work. " +
-        "Their alerts stop. If pairing fails, nothing changes.",
-      replaceNotice(Current("4d92…6ed6", listOf("hand", "work")))
-    )
-    assertEquals(
-      "Once paired, this Companion leaves 4d92…6ed6. If pairing fails, nothing changes.",
-      replaceNotice(Current("4d92…6ed6", emptyList()))
-    )
-    assertEquals(
-      "Once paired, this Companion leaves your current host. If pairing fails, nothing changes.",
-      replaceNotice(Current(null, emptyList()))
-    )
+  fun aHostAlreadyHeldIsAskedForByNameAndOnlyGainsFleets() {
+    val asked = mutableListOf<String>()
+    val model = model(FakeCore()) { short -> asked += short; "atqa-laptop" }
+    model.offer("link")
+    val confirm = model.state.value.confirm!!
+    assertEquals(listOf("7c1e…a2f9"), asked)
+    assertEquals("Add fleets to atqa-laptop?", confirm.title)
+    assertEquals("7c1e…a2f9", confirm.host)
+  }
+
+  @Test
+  fun noSentenceOfTheFlowSaysReplace() {
+    for (held in listOf<String?>(null, "atqa-laptop")) {
+      val model = model(FakeCore()) { held }
+      model.offer("link")
+      assertFalse(model.state.value.confirm!!.title.contains("replace", ignoreCase = true))
+    }
   }
 
   @Test

@@ -48,6 +48,7 @@ object Notifier {
       .setSmallIcon(R.drawable.ic_stat)
       .setContentTitle(spec.title)
       .setContentText(spec.text)
+      .setSubText(spec.subText)
       .setStyle(NotificationCompat.BigTextStyle().bigText(spec.text))
       .setVisibility(spec.visibility)
       .setPublicVersion(hidden)
