@@ -9,9 +9,10 @@ use std::time::Duration;
 use serde::Deserialize;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep, sleep_until};
+use tokio::time::Instant;
 
 use crate::backoff::Backoff;
+use crate::clock::{Clock, Real};
 use crate::dialer::Dialer;
 use crate::http::{Method, Request, RequestError, exchange};
 use crate::open::{parse_open, valid_fleet};
@@ -96,6 +97,7 @@ pub struct Feed {
     dialer: Dialer,
     dir: PathBuf,
     wait: Duration,
+    clock: Arc<dyn Clock>,
     generation: Mutex<u64>,
     nudges: watch::Sender<u64>,
 }
@@ -145,6 +147,7 @@ impl Feed {
             dialer,
             dir,
             wait: WAIT,
+            clock: Arc::new(Real),
             generation: Mutex::new(0),
             nudges: watch::channel(0).0,
         }
@@ -154,11 +157,16 @@ impl Feed {
         self.nudges.send_modify(|count| *count += 1);
     }
 
-    async fn pause(backoff: &mut Backoff, nudges: &mut watch::Receiver<u64>) {
+    async fn pause(clock: &dyn Clock, backoff: &mut Backoff, nudges: &mut watch::Receiver<u64>) {
         tokio::select! {
-            _ = sleep(backoff.next_delay()) => {}
+            _ = clock.sleep_until(clock.now() + backoff.next_delay()) => {}
             _ = nudges.changed() => backoff.reset(),
         }
+    }
+
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
     }
 
     pub fn with_wait(mut self, wait: Duration) -> Self {
@@ -202,15 +210,15 @@ impl Feed {
         let mut nudges = self.nudges.subscribe();
         let mut more = false;
         loop {
-            let started = Instant::now();
+            let started = self.clock.now();
             match self.step(&mut cycle, cookies, sink, more, self.wait).await {
                 Step::Stop(stop) => return stop,
-                Step::Retry => Self::pause(&mut backoff, &mut nudges).await,
+                Step::Retry => Self::pause(self.clock.as_ref(), &mut backoff, &mut nudges).await,
                 Step::Next(next) => {
                     backoff.reset();
                     more = next;
                     if !more {
-                        sleep_until(started + MIN_POLL).await;
+                        self.clock.sleep_until(started + MIN_POLL).await;
                     }
                 }
             }
@@ -404,7 +412,8 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         state.scanner = Some(tokio::spawn(async move {
             loop {
                 this.scan().await;
-                sleep(this.rescan).await;
+                let at = this.feed.clock.now() + this.rescan;
+                this.feed.clock.sleep_until(at).await;
             }
         }));
     }
@@ -450,7 +459,7 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
             Ok(header) => paired_cookies(header.as_deref().unwrap_or_default()),
             Err(_) => return,
         };
-        let now = Instant::now();
+        let now = self.feed.clock.now();
         let mut state = self.state.lock().unwrap();
         state
             .stopped
@@ -489,7 +498,7 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                     id,
                     Stopped {
                         cookie,
-                        retry_at: Some(Instant::now() + this.rescan * RETRY_SCANS),
+                        retry_at: Some(this.feed.clock.now() + this.rescan * RETRY_SCANS),
                         board_gone: stop == Stop::BoardGone,
                     },
                 );
@@ -540,7 +549,7 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                         fleet,
                         Stopped {
                             cookie,
-                            retry_at: Some(Instant::now() + self.rescan * RETRY_SCANS),
+                            retry_at: Some(self.feed.clock.now() + self.rescan * RETRY_SCANS),
                             board_gone: stop == Stop::BoardGone,
                         },
                     );
@@ -753,10 +762,10 @@ mod tests {
         }
         let mut nudges = feed.nudges.subscribe();
         let waiting = tokio::spawn(async move {
-            Feed::pause(&mut backoff, &mut nudges).await;
+            Feed::pause(&Real, &mut backoff, &mut nudges).await;
             backoff
         });
-        sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(
             !waiting.is_finished(),
             "the wait of minutes ended by itself"

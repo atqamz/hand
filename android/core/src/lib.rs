@@ -1,5 +1,6 @@
 mod alerts;
 mod backoff;
+mod clock;
 mod codes;
 mod companion;
 mod dialer;
@@ -20,6 +21,7 @@ pub use alerts::{
     Alert, AlertSink, CookieSource, Feed, Fleet, Once, RESCAN, Stop, Supervisor, WAIT,
     paired_fleets,
 };
+pub use clock::{Clock, Real, Sleep};
 pub use codes::{BOARD_ERROR, BOARD_UNREACHABLE, FULL, IDLE, STREAM_IDLE};
 pub use companion::{
     Companion, CompanionConfig, ConfirmError, OpenLinkError, POLL_DEADLINE, Polled, Reporter,
