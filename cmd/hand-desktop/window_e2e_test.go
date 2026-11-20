@@ -479,7 +479,11 @@ func checkMadeFleet(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, fo
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	for _, f := range []string{"board.pid", "board.addr"} {
+	gone := []string{"board.pid", "board.addr"}
+	if runtime.GOOS == "windows" {
+		gone = gone[:1]
+	}
+	for _, f := range gone {
 		if _, err := os.Stat(filepath.Join(sh, f)); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("a stopped board left %s: %v", f, err)
 		}
