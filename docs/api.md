@@ -46,7 +46,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt, a links answer and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
 
 - No `?since=`: always `200` with the full data.
 - `?since=` equal to the cursor the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first: for the pages above it costs no build and no body.
@@ -69,6 +69,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
+| `GET /api/v1/links?path=PATH[&path=PATH...]` | `Links`: `limit` and `links`, one `{rel, href, dir}` or `null` per `path`, in order; see [Links](#links) | none yet; the Board links the paths in its own text from the same check |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
 | `GET /api/v1/doc/{path}?from=N` or `?lines=M` (either, or both) | `DocWindow`: those lines of a text file and where the next ones start | the viewer's text lines |
 | `GET /api/v1/inbox/{name}` | not an envelope: the bytes of a file in the fleet's inbox, with the headers the page's `/inbox/{name}` sets; see [Attachments](#attachments) | `/inbox/{name}`, the images and file cards in the conversation |
@@ -248,6 +249,25 @@ A file answers `DocFile`:
 `lines` are the text as written, one string each, without the line end and with a trailing `\r` removed, so escape sequences, tabs and control characters arrive untouched and a client must draw them inert; bytes that are not UTF-8 arrive as U+FFFD. A line longer than 256 KiB is cut there and listed in `cut` as `{"line", "bytes"}` with the bytes left out, as the page's "more on this line" note says. `next` is the number of the first line after the window and is absent when the window reached the end of the file. `partial` is `true` when the last line has no line end yet, because the file is being written: a client that follows the file asks again from that line, not from `next`. An empty file answers `from: 1` with no lines. A `from` past the last line, a `from` or `lines` that is not a whole number from 1, a file that is not text and a folder are `400` with `bad_request`; the not-text sentence is the page's (`This file is not text, so the Board does not show it; download it to open it.`). `raw` wins when it is sent with a window. The file is read where the line starts, so a window far into a very large file costs a scan up to it.
 
 Refusals use the Board's own sentence in the error's `message`. A hidden, outside or special path is `403` with `forbidden`; a path that does not exist, or goes through a file, is `404` with `not_found`; a file that changed while it was opened is `409` with `conflict`. A link that leaves the fleet is refused as outside, and no message names where it led. The answers take no `?since=` and have no `304`: an answer's `cursor` fingerprints its data.
+
+### Links
+
+`GET /api/v1/links?path=PATH[&path=PATH...]` tells a client which file paths in a text the Board would link to its viewer, so a client can link them without a copy of the Board's rules. Each `path` is as the text shows it: absolute inside the fleet folder, `~/x`, or relative to the fleet folder (`reports/t1/design.md`, `./reports/`). The answer is the Board's own: `DocHref` finds the fleet-relative path and `Resolve` applies the serve policy of `/api/v1/doc/{path}` (see [Documents](#documents)), so nothing links that the viewer would refuse: a file in the fleet folder itself, a dot name, `backups/`, `cache/`, `luvus/`, `locks/`, `projects/`, `..`, a backslash, a symlink that leaves the fleet folder, a file with more than one hard link, a path that does not exist, and an absolute path outside the fleet folder. A path is a file name as written: `:12` or `#L3` after it is part of the name, so it links only if such a file exists. A relative path is read against the fleet folder of the fleet in the URL, never a project or a worktree; a client that links `docs/spec.md` written about a project's repository links the fleet's own `docs/spec.md` when that exists, as the Board's pages do.
+
+```json
+{
+  "limit": 50,
+  "links": [
+    {"rel": "reports/standup/2026-11-20.md", "href": "/f00000000e0aa/doc/reports/standup/2026-11-20.md", "dir": false},
+    null,
+    {"rel": "reports", "href": "/f00000000e0aa/doc/reports", "dir": true}
+  ]
+}
+```
+
+`links` has one element for each `path`, in the order sent, repeats included, and no input is echoed. An element is `null` for every refusal and every miss, with no reason, so the route reveals no more than `/api/v1/doc/{path}` serves. `rel` is the file's or folder's path inside the fleet folder with symlinks inside it resolved (the argument to `GET /api/v1/doc/{rel}`); `href` is the Board's page for the path, the one `DocHref` builds; `dir` is true for a folder. No answer carries a host path. The kind of file is not part of the answer; `GET /api/v1/doc/{rel}` gives it.
+
+A request needs 1 to 50 `path` values, each at most 512 bytes and without a NUL, and a whole query of at most 16 KiB; otherwise it is `400` with `bad_request`, as is a query that is not valid percent-encoding. `limit` says the most paths one request takes. The route answers from the file system when asked, so a file that appears later links on a later request; `?since=` and `304` work on the answer's own `cursor`, which fingerprints its `data`. A session is needed as for `status`, and the usual refusals apply.
 
 ### Detail data
 
@@ -496,7 +516,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "version": "0.14.0",
-    "features": ["events", "fleets", "history", "pair", "phone"],
+    "features": ["events", "fleets", "history", "links", "pair", "phone"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -509,6 +529,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
 | `history` | `GET /api/v1/history/search` and `GET /api/v1/history/{ref}` |
+| `links` | `GET /api/v1/links` |
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 
@@ -637,7 +658,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
