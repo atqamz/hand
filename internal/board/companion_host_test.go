@@ -80,6 +80,14 @@ func (b bare) CompanionSession(r *http.Request) bool {
 	return b.Handler.(board.Prover).CompanionSession(r)
 }
 
+func (b bare) CompanionGone(r *http.Request) bool {
+	return b.Handler.(board.Prover).CompanionGone(r)
+}
+
+func (c counted) CompanionGone(r *http.Request) bool {
+	return c.Handler.(board.Prover).CompanionGone(r)
+}
+
 func (c counted) CompanionSession(r *http.Request) bool {
 	c.p.mu.Lock()
 	c.p.proofs[c.id]++

@@ -211,6 +211,11 @@ func (b *Board) CompanionSession(r *http.Request) bool {
 	return fault == signedIn
 }
 
+func (b *Board) CompanionGone(r *http.Request) bool {
+	_, fault := b.companionIdentify(r)
+	return fault == companionGone
+}
+
 func (b *Board) identify(r *http.Request) (session, sessionFault) {
 	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && peerOf(r) == nil && b.valid(c.Value) {
 		return session{CSRF: b.token}, signedIn

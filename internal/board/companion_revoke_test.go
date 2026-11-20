@@ -924,3 +924,35 @@ func TestTheLabelsOfSeveralPhonesAreNeverShownToAPhone(t *testing.T) {
 		}
 	}
 }
+
+func TestTheOnlyPairingRevokedAnswersTheFeedWithTheNoLongerPairedHeader(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	feed := "/" + f.id + "/alerts/feed?after=0&wait=0"
+	companion := r.mustPair(r.as(peerA), f)
+	if rep := r.as(peerA).do("GET", feed, nil, nil, companion); rep.Code != http.StatusOK {
+		t.Fatalf("paired feed = %d:\n%s", rep.Code, rep.Body)
+	}
+	other := r.as(peerB).do("GET", feed, nil, nil, companion)
+	r.revoke(f, companion)
+	gone := r.as(peerA).do("GET", feed, nil, nil, companion)
+	none := r.as(peerA).do("GET", feed, nil, nil)
+	for what, rep := range map[string]peerReply{"revoked": gone, "no cookie": none, "other endpoint": other} {
+		if rep.Code != http.StatusForbidden {
+			t.Fatalf("%s = %d:\n%s", what, rep.Code, rep.Body)
+		}
+	}
+	if msg, err := url.PathUnescape(gone.Header.Get("X-Hand-Error")); err != nil || !strings.Contains(msg, "no longer paired") {
+		t.Fatalf("revoked X-Hand-Error = %q, %v", gone.Header.Get("X-Hand-Error"), err)
+	}
+	contains(t, "revoked page", gone.Body, "This Companion is no longer paired with this fleet")
+	lacks(t, "revoked page", gone.Body, "Pair this Companion first")
+	for what, rep := range map[string]peerReply{"no cookie": none, "other endpoint": other} {
+		if h := rep.Header.Values("X-Hand-Error"); len(h) != 0 {
+			t.Fatalf("%s carries X-Hand-Error %q", what, h)
+		}
+	}
+	contains(t, "no cookie page", none.Body, "Pair this Companion first")
+	contains(t, "other endpoint page", other.Body, "Pair this Companion first")
+	lacks(t, "other endpoint page", other.Body, "no longer paired")
+}

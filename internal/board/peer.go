@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -198,6 +199,11 @@ func (p *Peer) CloseEndpoint(id string) {
 
 func (p *Peer) Shutdown(ctx context.Context) error { return p.srv.Shutdown(ctx) }
 
+func fleetID(path string) string {
+	id, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+	return id
+}
+
 func fleetRest(path string) string {
 	id, rest, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
 	if !state.FleetID.MatchString(id) {
@@ -258,6 +264,10 @@ func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hostFail(w, http.StatusTooManyRequests, "This connection has asked for too much before pairing. Pair this Companion first, or open a new connection.")
 	case funnel:
 		hostFail(w, http.StatusForbidden, funnelRefusal)
+	case !public && !proved && p.h.companionGone(fleetID(r.URL.Path), r):
+		msg := sessionFaults(companionGone, true)
+		w.Header().Set("X-Hand-Error", url.PathEscape(msg))
+		hostFail(w, http.StatusForbidden, msg)
 	case !public && !proved:
 		hostFail(w, http.StatusForbidden, sessionFaults(noSession, true))
 	case fleetRest(r.URL.Path) == "proof":
