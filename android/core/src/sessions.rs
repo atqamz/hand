@@ -282,6 +282,10 @@ impl<J: Jar> Sessions<J> {
         }
     }
 
+    pub fn clear_jar(&self) -> io::Result<()> {
+        self.jar.clear()
+    }
+
     pub fn forget(&self) -> io::Result<()> {
         let mut data = self.data.lock().unwrap();
         self.jar.clear()?;

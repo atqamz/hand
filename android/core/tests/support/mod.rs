@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -718,11 +718,15 @@ impl KeyCipher for PlainCipher {
 }
 
 #[derive(Clone, Default)]
-pub struct MemoryJar(Arc<Mutex<Option<String>>>);
+pub struct MemoryJar(Arc<Mutex<Option<String>>>, Arc<AtomicBool>);
 
 impl MemoryJar {
     pub fn set(&self, header: Option<&str>) {
         *self.0.lock().unwrap() = header.map(str::to_owned);
+    }
+
+    pub fn refuse_clear(&self) {
+        self.1.store(true, Ordering::SeqCst);
     }
 }
 
@@ -732,6 +736,9 @@ impl Jar for MemoryJar {
     }
 
     fn clear(&self) -> std::io::Result<()> {
+        if self.1.load(Ordering::SeqCst) {
+            return Err(std::io::Error::other("the jar refused"));
+        }
         self.set(None);
         Ok(())
     }

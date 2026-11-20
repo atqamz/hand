@@ -144,6 +144,9 @@ pub fn forget_host_alerts(endpoint: &str) -> io::Result<()> {
     }
     if cleared.is_err() {
         core.alerts.stop();
+        if core.reporter.lock().unwrap().is_some() {
+            core.alerts.start();
+        }
         warn("the web view's cookies or the session store could not be cleared");
     }
     cleared

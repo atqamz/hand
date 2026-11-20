@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hand_android_core::{
-    Alert, AlertSink, Cancel, Companion, CompanionConfig, Feed, Fleet, Live, LiveEnd, LiveSink,
-    Method, Paired, Polled, Request, RequestError, Route, Sessions, Supervisor,
+    Alert, AlertSink, Cancel, Companion, CompanionConfig, Feed, Fleet, Jar, Live, LiveEnd,
+    LiveSink, Method, Paired, Polled, Request, RequestError, Route, Sessions, Supervisor,
 };
 use serde_json::json;
 use support::{
@@ -29,6 +29,8 @@ const PEER_A: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876
 const PEER_B: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const WAIT: Duration = Duration::from_secs(15);
 const POLL: Duration = Duration::from_secs(3);
+const DEAD_POLL: Duration = Duration::from_secs(8);
+const PROMPT: Duration = Duration::from_secs(4);
 const TICK: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Default)]
@@ -179,6 +181,7 @@ impl Side {
 struct Rig {
     companion: Arc<Companion>,
     sessions: Arc<Sessions<MemoryJar>>,
+    jar: MemoryJar,
     a: Side,
     b: Side,
     dir: TempDir,
@@ -196,11 +199,13 @@ async fn rig(bin: &Path, b_reachable: bool) -> Rig {
         .await
         .unwrap(),
     );
+    let jar = MemoryJar::default();
     let sessions =
-        Arc::new(Sessions::open(dir.path(), MemoryJar::default(), Arc::new(PlainCipher)).unwrap());
+        Arc::new(Sessions::open(dir.path(), jar.clone(), Arc::new(PlainCipher)).unwrap());
     Rig {
         companion,
         sessions,
+        jar,
         a,
         b,
         dir,
@@ -284,8 +289,12 @@ async fn through_proxy(port: u16, path: &str, cookie: &str) -> io::Result<Vec<u8
     Ok(body)
 }
 
-async fn until(mut condition: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + WAIT;
+async fn until(condition: impl FnMut() -> bool) -> bool {
+    until_within(WAIT, condition).await
+}
+
+async fn until_within(limit: Duration, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + limit;
     while Instant::now() < deadline {
         if condition() {
             return true;
@@ -293,6 +302,45 @@ async fn until(mut condition: impl FnMut() -> bool) -> bool {
         sleep(Duration::from_millis(20)).await;
     }
     condition()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fallback_clears_the_jar_first_and_moves_nothing_when_it_cannot() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let rig = rig(&bin, true).await;
+    rig.pair(&rig.a, rig.a.sidecar.as_ref().unwrap().target())
+        .await;
+    rig.pair(&rig.b, rig.b.sidecar.as_ref().unwrap().target())
+        .await;
+    let port = rig.companion.port();
+    let both = format!("{}; {}", rig.a.cookie(), rig.b.cookie());
+
+    rig.jar.set(Some(&both));
+    let (_, cookie) = rig
+        .companion
+        .fallback(&rig.sessions, FLEET_A)
+        .await
+        .unwrap();
+    assert_eq!(cookie, rig.a.cookie());
+    assert_eq!(rig.jar.cookies().unwrap(), None);
+    through_proxy(port, &format!("/{FLEET_A}/page"), &cookie)
+        .await
+        .unwrap();
+
+    rig.jar.set(Some(&both));
+    rig.jar.refuse_clear();
+    assert!(
+        rig.companion
+            .fallback(&rig.sessions, FLEET_B)
+            .await
+            .is_none()
+    );
+    through_proxy(port, &format!("/{FLEET_B}/page"), &rig.b.cookie())
+        .await
+        .unwrap();
+    assert_eq!(rig.b.requests("/page").len(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -601,7 +649,12 @@ async fn a_dead_host_costs_the_live_host_neither_its_alert_nor_its_cursor() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let rig = rig(&bin, false).await;
+    let rig = loop {
+        let rig = rig(&bin, false).await;
+        if rig.b.host < rig.a.host {
+            break rig;
+        }
+    };
     let dead = {
         let sidecar = Sidecar::start(&bin, SidecarOptions::new(rig.b.board.addr()).secret(PEER_B));
         let target = sidecar.target();
@@ -640,19 +693,21 @@ async fn a_dead_host_costs_the_live_host_neither_its_alert_nor_its_cursor() {
     assert_eq!(rig.cursor(FLEET_A).as_deref(), Some("5"));
 
     sink.refuse.store(false, Ordering::SeqCst);
-    let started = Instant::now();
-    let polled = rig
-        .companion
-        .poll_asleep_within(Duration::from_secs(10), supervisor.poll_once(POLL))
-        .await
-        .unwrap();
-    assert_eq!(polled, Polled::Reached);
+    let poll = tokio::spawn({
+        let (companion, supervisor) = (rig.companion.clone(), supervisor.clone());
+        async move {
+            companion
+                .poll_asleep_within(Duration::from_secs(10), supervisor.poll_once(DEAD_POLL))
+                .await
+        }
+    });
     assert!(
-        started.elapsed() < Duration::from_secs(9),
-        "{:?}",
-        started.elapsed()
+        until_within(PROMPT, || !sink.alerts().is_empty()).await,
+        "the live host's alert did not arrive before the dead host's poll ended"
     );
+    assert!(!poll.is_finished());
     assert_eq!(sink.alerts(), [(FLEET_A.to_owned(), 6)]);
+    assert_eq!(poll.await.unwrap().unwrap(), Polled::Reached);
     assert_eq!(rig.cursor(FLEET_A).as_deref(), Some("6"));
     assert_eq!(rig.cursor(FLEET_B), None);
     assert!(rig.b.board.seen().is_empty());

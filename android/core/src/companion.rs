@@ -168,6 +168,7 @@ impl Companion {
     ) -> Option<(u16, String)> {
         let cookie = sessions.cookie(fleet)?;
         let dialer = self.route(sessions, fleet, &cookie).await?;
+        sessions.clear_jar().ok()?;
         self.slot.set(Some(dialer));
         Some((self.port, cookie))
     }

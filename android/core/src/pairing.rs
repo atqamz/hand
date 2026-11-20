@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::mem;
 
 use crate::link::{Link, Reject, parse_link_with};
 
@@ -8,7 +7,7 @@ pub const PAIRING_PENDING: &str = "Finish or dismiss the current pairing first";
 #[derive(Default)]
 pub struct Pairing {
     pending: Option<Link>,
-    in_flight: bool,
+    in_flight: Option<String>,
     generation: u64,
     hosts: HashMap<String, u64>,
 }
@@ -59,7 +58,7 @@ impl Pairing {
 
     pub fn clear_pending(&mut self) {
         self.pending = None;
-        self.in_flight = false;
+        self.in_flight = None;
     }
 
     pub fn generation(&self, endpoint: &str) -> u64 {
@@ -68,7 +67,7 @@ impl Pairing {
     }
 
     pub fn forget(&mut self) {
-        self.in_flight = false;
+        self.in_flight = None;
         self.generation = self.generation.wrapping_add(1);
     }
 
@@ -82,16 +81,19 @@ impl Pairing {
         {
             self.pending = None;
         }
+        if self.in_flight.as_deref() == Some(endpoint) {
+            self.in_flight = None;
+        }
     }
 
     pub fn take(&mut self) -> Option<Link> {
         let link = self.pending.take()?;
-        self.in_flight = true;
+        self.in_flight = Some(link.endpoint_id.clone());
         Some(link)
     }
 
     pub fn restore(&mut self, link: Link) {
-        if mem::take(&mut self.in_flight) {
+        if self.in_flight.take().is_some() {
             self.pending.get_or_insert(link);
         }
     }
@@ -149,6 +151,24 @@ mod tests {
         pairing.forget();
 
         assert_eq!(pairing.generation(FIRST), generation + 1);
+        pairing.restore(taken);
+        assert!(pairing.pending().is_none());
+    }
+
+    #[test]
+    fn a_link_taken_before_its_hosts_forget_does_not_come_back_but_another_hosts_does() {
+        let mut pairing = Pairing::default();
+        pairing.offer(&link(FIRST)).unwrap();
+        let taken = pairing.take().unwrap();
+
+        pairing.forget_host(SECOND);
+        pairing.restore(taken.clone());
+        assert_eq!(pairing.pending().unwrap().endpoint_id, FIRST);
+
+        pairing.clear_pending();
+        pairing.offer(&link(FIRST)).unwrap();
+        let taken = pairing.take().unwrap();
+        pairing.forget_host(FIRST);
         pairing.restore(taken);
         assert!(pairing.pending().is_none());
     }
