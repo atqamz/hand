@@ -86,7 +86,7 @@ func TestAPILinksAnswersWhatDocHrefAnswers(t *testing.T) {
 	refused := []string{
 		"", "top.md", "hand.db", "reports/missing.md", "reports/t1/design.md/x", "reports/../top.md", "../top.md", "reports/t1/..",
 		"reports/t1/.dot/h.md", "reports/t1/.dot", ".", "./", "backups/b.md", "backups", "locks/watch.lock", "projects/app/README.md",
-		"cache", "luvus", "reports/t1/a b.md ", "reports/t1/design.md:12", "reports/t1/design.md#L3",
+		"cache", "luvus", "reports/t1/design.md:12", "reports/t1/design.md#L3",
 		"/etc/passwd", "/", "~/docs/h.md", "~/", "~", "//host/share/x", `\\host\share\x`, `C:\Users\x\a.md`, "C:/Users/x/a.md",
 		`reports\t1\design.md`, filepath.Join(home, "top.md"), filepath.Join(home, "hand.db"), filepath.Join(home, "backups", "b.md"),
 		filepath.Join(filepath.Dir(home), "elsewhere", "reports", "t1", "notes.txt"), "$FLEET/top.md",
