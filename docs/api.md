@@ -496,19 +496,21 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "generated_at": "2026-11-01T05:00:00Z",
   "data": {
     "version": "0.14.0",
-    "features": ["events", "fleets", "history", "pair", "phone"],
+    "host": "workstation",
+    "features": ["events", "fleets", "history", "host", "pair", "phone"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
 ```
 
-`version` is what `hand version` prints. `features` is a sorted list of short names, one for each optional capability a client must check before it uses it. A name is added when its endpoint lands, and it is never renamed or removed inside v1; a client shows a feature only when its name is listed, so an app that updates before the host does hides what the host lacks. `sidecar` is the iroh sidecar's `state` (`starting`, `ready`, `failed` or `stopped`), with `id`, `relay` and a scrubbed `reason` when it has them; it is absent when the Board runs without `--iroh`, and for a caller on the peer listener, which has no use for the host's own sidecar. An unpaired caller cannot read `meta`: the pair path stays the only one that needs no session, so an app pairs first and checks `features` after.
+`version` is what `hand version` prints. `host` is the machine's name, as `os.Hostname()` reads it, trimmed of spaces; it is `""` when the machine has none, and a client then names the host by something else. It is never a path and carries no secret, so a Companion on the peer listener gets it too. `features` is a sorted list of short names, one for each optional capability a client must check before it uses it. A name is added when its endpoint lands, and it is never renamed or removed inside v1; a client shows a feature only when its name is listed, so an app that updates before the host does hides what the host lacks. `sidecar` is the iroh sidecar's `state` (`starting`, `ready`, `failed` or `stopped`), with `id`, `relay` and a scrubbed `reason` when it has them; it is absent when the Board runs without `--iroh`, and for a caller on the peer listener, which has no use for the host's own sidecar. An unpaired caller cannot read `meta`: the pair path stays the only one that needs no session, so an app pairs first and checks `features` after.
 
 | Feature | Means |
 |---|---|
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
 | `history` | `GET /api/v1/history/search` and `GET /api/v1/history/{ref}` |
+| `host` | `host` in `GET /api/v1/meta` |
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 

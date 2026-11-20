@@ -250,8 +250,11 @@ func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
 		t.Fatalf("meta = %d, %v:\n%s", rec.Code, err, rec.Body)
 	}
 	m := env.Data
-	if m.Version != "9.9.9-test" || !slices.IsSorted(m.Features) || !slices.Equal(m.Features, []string{"events", "fleets", "history", "pair", "phone"}) {
+	if m.Version != "9.9.9-test" || !slices.IsSorted(m.Features) || !slices.Equal(m.Features, []string{"events", "fleets", "history", "host", "pair", "phone"}) {
 		t.Fatalf("meta = %+v", m)
+	}
+	if m.Host != "workstation" {
+		t.Fatalf("host = %q", m.Host)
 	}
 	if m.Sidecar == nil || m.Sidecar.State != sidecar.Ready || m.Sidecar.ID != strings.Repeat("e", 64) || m.Sidecar.Relay != "https://relay.example" {
 		t.Fatalf("sidecar = %+v", m.Sidecar)
@@ -261,8 +264,18 @@ func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
 	r := servePeerRig(t, p)
 	c := r.as(peerA)
 	rep := c.do("GET", "/api/v1/meta", nil, nil, r.mustPair(c, a))
-	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, `"9.9.9-test"`) || strings.Contains(rep.Body, "sidecar") || strings.Contains(rep.Body, strings.Repeat("e", 64)) {
+	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, `"9.9.9-test"`) || !strings.Contains(rep.Body, `"host":"workstation"`) || strings.Contains(rep.Body, "sidecar") || strings.Contains(rep.Body, strings.Repeat("e", 64)) {
 		t.Fatalf("a phone's meta = %d:\n%s", rep.Code, rep.Body)
+	}
+}
+
+func TestMetaHostIsEmptyWhenTheMachineHasNoName(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	p.name = " \t"
+	p.restart()
+	rec := p.send("GET", "/api/v1/meta", nil, cookies(p.host(p.fleets[0])), nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"host":""`) {
+		t.Fatalf("meta = %d:\n%s", rec.Code, rec.Body)
 	}
 }
 

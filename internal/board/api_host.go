@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var apiFeatures = []string{"events", "fleets", "history", "pair", "phone"}
+var apiFeatures = []string{"events", "fleets", "history", "host", "pair", "phone"}
 
 type APIHostEnvelope struct {
 	Version     int    `json:"version"`
@@ -51,6 +51,7 @@ type APISidecar struct {
 
 type APIMeta struct {
 	Version  string      `json:"version"`
+	Host     string      `json:"host"`
 	Features []string    `json:"features"`
 	Sidecar  *APISidecar `json:"sidecar,omitempty"`
 }
@@ -183,7 +184,7 @@ func (h *Host) apiMeta(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.apiReadable(w, r); !ok {
 		return
 	}
-	out := APIMeta{Version: h.o.Version, Features: apiFeatures}
+	out := APIMeta{Version: h.o.Version, Host: strings.TrimSpace(h.o.Name), Features: apiFeatures}
 	if h.o.Iroh != nil && peerOf(r) == nil {
 		st := h.o.Iroh()
 		out.Sidecar = &APISidecar{State: st.State, ID: st.ID, Relay: st.Relay, Reason: Scrub(st.Reason)}

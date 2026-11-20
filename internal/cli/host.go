@@ -19,8 +19,7 @@ import (
 var (
 	hostBeatEvery = 15 * time.Second
 	hostIdentity  = func() (string, string) {
-		name, _ := os.Hostname()
-		return name, boot.ID()
+		return hostName(), boot.ID()
 	}
 	errHostLost = fmt.Errorf("%w: another host took this fleet over", state.ErrConflict)
 )
@@ -226,4 +225,9 @@ func (r *runner) doctorHost(c *checks) {
 
 func sameMarker(a, b fleet.HostMarker) bool {
 	return a.Host == b.Host && a.Boot == b.Boot && a.PID == b.PID && a.At.Equal(b.At)
+}
+
+func hostName() string {
+	name, _ := os.Hostname()
+	return name
 }

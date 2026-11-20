@@ -39,6 +39,7 @@ type companionHost struct {
 	paths     map[string]string
 	closePeer func(string)
 	iroh      func() sidecar.Status
+	name      string
 	tick      time.Duration
 }
 
@@ -101,7 +102,7 @@ func (p *companionHost) advance(d time.Duration) {
 
 func newCompanionHost(t *testing.T, loopback bool, names ...string) *companionHost {
 	t.Helper()
-	p := &companionHost{t: t, loopback: loopback, now: companionEpoch, down: map[string]bool{}, gone: map[string]bool{}, bare: map[string]bool{}, paths: map[string]string{}}
+	p := &companionHost{t: t, loopback: loopback, now: companionEpoch, name: "workstation", down: map[string]bool{}, gone: map[string]bool{}, bare: map[string]bool{}, paths: map[string]string{}}
 	for i, name := range names {
 		path := filepath.Join(t.TempDir(), "hand.db")
 		st, err := state.Open(path, p.clock)
@@ -136,6 +137,7 @@ func (p *companionHost) restart() {
 	p.h = board.NewHost(board.HostOptions{
 		Loopback: p.loopback,
 		Version:  "9.9.9-test",
+		Name:     p.name,
 		Iroh:     p.iroh,
 		Resolve: func(id string) (string, error) {
 			p.mu.Lock()

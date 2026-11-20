@@ -108,6 +108,7 @@ func cmdBoard(r *runner, args []string) error {
 		List:    func() ([]board.FleetLink, error) { return boardFleets(root) },
 		Valid:   func(id, token string) bool { return boardTokenIs(root, id, token) },
 		Version: Version,
+		Name:    hostName(),
 		Iroh:    irohStatus,
 	})
 	defer host.Close()
