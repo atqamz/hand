@@ -4,7 +4,13 @@ import java.util.Collections
 import java.util.TimeZone
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -514,6 +520,73 @@ class FleetsModelTest {
     assertTrue(waited)
     assertNull(model.group(VPS).band)
     assertNotNull(model.group(LAPTOP).band)
+  }
+
+  private fun waitFor(what: String, seconds: Long = 3, until: () -> Boolean) {
+    val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)
+    while (!until() && System.nanoTime() < end) Thread.sleep(10)
+    assertTrue(what, until())
+  }
+
+  @Test
+  fun aLiveHostsRowsShowWhileADeadHostIsStillPending() {
+    val release = CountDownLatch(1)
+    val model =
+      FleetsModel(
+        Host { fleet, _ ->
+          if (fleet == ONE) {
+            release.await(10, TimeUnit.SECONDS)
+            throw BoardError.TimedOut
+          }
+          answers(fleet)
+        },
+        { phone(host(LAPTOP, "atqa-laptop", ONE), host(VPS, "vps-berlin", THREE)) }
+      )
+    val round = thread { runBlocking { model.refresh() } }
+    try {
+      waitFor("live host rows were held back by the dead host") { model.state.value.loaded }
+      assertEquals(FleetsBody.Rows, fleetsBody(model.state.value))
+      assertEquals(listOf(VPS), model.state.value.hosts.map { it.endpoint })
+      assertNull(model.group(VPS).band)
+    } finally {
+      release.countDown()
+      round.join()
+    }
+    assertEquals(listOf(LAPTOP, VPS), model.state.value.hosts.map { it.endpoint })
+    assertNotNull(model.group(LAPTOP).band)
+  }
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  @Test
+  fun aRetryDuringARoundWithADeadHostRunsAnotherRoundOnceAfterIt() {
+    Dispatchers.setMain(Dispatchers.Unconfined)
+    try {
+      val release = CountDownLatch(1)
+      val asked = AtomicInteger()
+      val model =
+        FleetsModel(
+          Host { fleet, _ ->
+            if (fleet == ONE) {
+              asked.incrementAndGet()
+              release.await(10, TimeUnit.SECONDS)
+              throw BoardError.TimedOut
+            }
+            answers(fleet)
+          },
+          { phone(host(LAPTOP, "atqa-laptop", ONE), host(VPS, "vps-berlin", THREE)) }
+        )
+      val round = thread { runBlocking { model.refresh() } }
+      waitFor("the dead host was never asked") { asked.get() == 1 }
+      model.retry()
+      model.retry()
+      release.countDown()
+      round.join()
+      waitFor("the retry did not ask the dead host again") { asked.get() == 2 }
+      Thread.sleep(200)
+      assertEquals(2, asked.get())
+    } finally {
+      Dispatchers.resetMain()
+    }
   }
 
   @Test

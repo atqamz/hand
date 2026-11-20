@@ -45,7 +45,8 @@ data class ThisPhone(
   val phoneId: String? = null,
   val app: String = "",
   val core: String? = null,
-  val asking: Forgetting? = null
+  val asking: Forgetting? = null,
+  val notice: String? = null
 )
 
 private fun fleetsOf(root: JsonObject) =
@@ -135,6 +136,7 @@ fun thisPhone(state: FleetsState, app: String): ThisPhone {
     phoneId = info?.id,
     app = app,
     core = info?.core?.ifEmpty { null },
-    asking = state.asking
+    asking = state.asking,
+    notice = state.notice
   )
 }

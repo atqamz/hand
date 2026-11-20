@@ -1,5 +1,6 @@
 package io.github.atqamz.handcompanion
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -85,6 +86,14 @@ fun ThisPhoneScreen(
       Text("This Companion", style = type.headlineSmall)
     }
     HorizontalDivider(color = LocalHand.current.line)
+    phone.notice?.let {
+      Text(
+        it,
+        Modifier.fillMaxWidth().background(LocalHand.current.fill(Tone.Neutral)).padding(16.dp, 12.dp),
+        style = type.bodyMedium
+      )
+      HorizontalDivider(color = LocalHand.current.line)
+    }
     if (!phone.loaded) {
       Loading()
     } else {

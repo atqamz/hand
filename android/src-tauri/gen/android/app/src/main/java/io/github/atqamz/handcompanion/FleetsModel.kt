@@ -3,13 +3,12 @@ package io.github.atqamz.handcompanion
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -176,6 +175,7 @@ class FleetsModel(
   private val clients = ConcurrentHashMap<String, BoardClient>()
   private val lock = Mutex()
   private val downSince = ConcurrentHashMap<String, String>()
+  private val retrying = AtomicBoolean(false)
 
   suspend fun poll(): Nothing {
     while (true) {
@@ -185,7 +185,13 @@ class FleetsModel(
   }
 
   fun retry() {
-    if (!lock.isLocked) viewModelScope.launch { refresh() }
+    if (!retrying.compareAndSet(false, true)) return
+    viewModelScope.launch {
+      lock.withLock {
+        retrying.set(false)
+        round()
+      }
+    }
   }
 
   fun alerts(off: Boolean) = mutableState.update { it.copy(alertsOff = off) }
@@ -212,25 +218,37 @@ class FleetsModel(
     if (!forgotten) say(FORGET_FAILED)
   }
 
-  suspend fun refresh() =
-    lock.withLock {
-      val info = withContext(Dispatchers.IO) { phone() }
-      val unsaved = withContext(Dispatchers.IO) { unsaved() }
-      val now = clock()
-      val known = mutableState.value.rows.associateBy { it.id }
-      val hosts = info?.hosts.orEmpty()
-      val groups = coroutineScope { hosts.map { async { group(it, known, now) } }.awaitAll() }
-      clients.keys.retainAll(info?.fleets.orEmpty().map(PairedFleet::id).toSet())
-      downSince.keys.retainAll(hosts.map(PairedHost::endpoint).toSet())
-      mutableState.update {
-        it.copy(
-          hosts = groups,
-          loaded = true,
-          phone = info,
-          band = UNSAVED.takeIf { unsaved }
-        )
+  suspend fun refresh() = lock.withLock { round() }
+
+  private suspend fun round() {
+    val info = withContext(Dispatchers.IO) { phone() }
+    val unsaved = withContext(Dispatchers.IO) { unsaved() }
+    val now = clock()
+    val known = mutableState.value.rows.associateBy { it.id }
+    val hosts = info?.hosts.orEmpty()
+    val order = hosts.map(PairedHost::endpoint)
+    clients.keys.retainAll(info?.fleets.orEmpty().map(PairedFleet::id).toSet())
+    downSince.keys.retainAll(order.toSet())
+    mutableState.update {
+      it.copy(
+        hosts = it.hosts.filter { group -> group.endpoint in order },
+        loaded = it.loaded || hosts.isEmpty(),
+        phone = info,
+        band = UNSAVED.takeIf { unsaved }
+      )
+    }
+    coroutineScope {
+      hosts.forEach { host ->
+        launch {
+          val group = group(host, known, now)
+          mutableState.update { state ->
+            val landed = state.hosts.associateBy(HostGroup::endpoint) + (group.endpoint to group)
+            state.copy(hosts = order.mapNotNull(landed::get), loaded = true)
+          }
+        }
       }
     }
+  }
 
   private suspend fun group(host: PairedHost, known: Map<String, FleetRow>, now: String): HostGroup {
     var failure: BoardError? = null

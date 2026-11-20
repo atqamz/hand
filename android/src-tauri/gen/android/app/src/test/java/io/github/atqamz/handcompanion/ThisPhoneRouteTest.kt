@@ -5,6 +5,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.platform.LocalView
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -79,6 +80,31 @@ class ThisPhoneRouteTest {
       calls.asks
     )
     assertEquals(0, calls.forgets)
+  }
+
+  @Test
+  fun aHostForgetThatFailsWithTwoHostsIsShownOnThisCompanion() {
+    val two =
+      PhoneInfo(
+        "9ab2…11fe",
+        "0.1.0",
+        listOf(
+          PairedHost("e1", "4d92…6ed6", "atqa-laptop", listOf(PairedFleet("f000000000003", "atlas", 1))),
+          PairedHost("e2", "7c1e…a2f9", "vps-berlin", listOf(PairedFleet("f000000000005", "orchard", 1)))
+        )
+      )
+    val down = object : Transport {
+      override fun request(fleet: String, post: Boolean, path: String, csrf: String?, body: String?): Raw =
+        throw BoardError.Unreachable
+    }
+    val model = FleetsModel(down, { two }, hostForgetter = { false })
+    runBlocking {
+      model.refresh()
+      model.forget(Forgetting("e2", "vps-berlin", 1))
+    }
+    val calls = shown(thisPhone(model.state.value, "0.2.0"), null) {}
+    assertTrue(FORGET_FAILED in calls.labels)
+    assertTrue("Forget vps-berlin" in calls.labels)
   }
 
   @Test

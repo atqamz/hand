@@ -55,7 +55,13 @@ class ThisPhoneScreenTest {
 
   @Test fun forgetConfirmDark() = shot(true, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
 
-  private val two = phoneOf(phoneSeveral + FleetLine("f000000000021", "ops", "paired Nov 9 · signs out Feb 7"), listOf(laptopLine, vpsLine))
+  private val two =
+    phoneOf(phoneSeveral + FleetLine("f000000000021", "ops", "paired Nov 9 · signs out Feb 7"), listOf(laptopLine, vpsLine))
+      .let { it.copy(alertsDetail = "Hand is partly connected · watching ${it.fleets.size} fleets") }
+
+  private val failed = two.copy(notice = FORGET_FAILED)
+
+  @Test fun forgetFailedLight() = shot(false, failed)
 
   @Test fun hostsLight() = shot(false, two)
 

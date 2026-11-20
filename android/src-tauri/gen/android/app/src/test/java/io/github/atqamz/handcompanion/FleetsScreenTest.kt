@@ -2,6 +2,9 @@ package io.github.atqamz.handcompanion
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import android.view.View
+import androidx.compose.ui.platform.LocalView
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -130,4 +133,32 @@ class FleetsScreenTest {
   @Test fun oneFleetUnpairedLight() = shot(false, oneUnpaired)
 
   @Test fun oneFleetUnpairedDark() = shot(true, oneUnpaired)
+}
+
+class FleetsScreenTapTest {
+  private val frames = Frames()
+
+  @get:Rule
+  val paparazzi =
+    Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 1500), snapshotHandler = frames)
+
+  @Test
+  fun anUnpairedRowActsOnItsOwnHost() {
+    val asks = mutableListOf<Forgetting?>()
+    var adds = 0
+    lateinit var view: View
+    frames.onFrame = {
+      val taps = Taps(view)
+      taps.tap("Forget this host")
+      taps.tap("Pair again")
+    }
+    paparazzi.snapshot {
+      HandTheme(false) {
+        view = LocalView.current
+        FleetsScreen(unpaired, {}, { adds++ }, {}, { asks += it }, {}, {})
+      }
+    }
+    assertEquals(listOf(Forgetting(VPS, "vps-berlin", 2)), asks)
+    assertEquals(1, adds)
+  }
 }
