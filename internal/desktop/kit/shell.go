@@ -79,6 +79,14 @@ type NavItem struct {
 	CountBG, CountFG ui.Color
 	Dot              bool
 	Fleet            string
+	Tone, Status     string
+}
+
+func (n NavItem) Name() string {
+	if n.Status == "" {
+		return n.Label
+	}
+	return n.Label + ", " + n.Status
 }
 
 func Nav(c *ui.Context, k Colors, n NavItem) bool {
@@ -103,7 +111,7 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 	} else {
 		el = ui.ButtonBase(c.Key(n.Key)).Cursor(ui.CursorPointer)
 	}
-	el.Height(Row).Radius(RadiusMD).Border(1, edge).Background(bg).AlignItems(ui.Center).Label(n.Label)
+	el.Height(Row).Radius(RadiusMD).Border(1, edge).Background(bg).AlignItems(ui.Center).Label(n.Name())
 	if n.Open {
 		el.Gap(Space12).Padding(0, 11)
 	} else {
@@ -132,6 +140,9 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 				ui.Box(c).Absolute().Top(2).Left(2).Size(6, 6).Radius(RadiusPill).Background(k.Accent)
 			})
 		}
+		if n.Fleet != "" && n.Tone != "" {
+			attentionDot(c, k, n.Tone, n.Open)
+		}
 		if n.Fleet != "" && n.Current {
 			ui.Box(c).Absolute().Left(-railPad + 1).Top(10).Bottom(10).Width(3).
 				Background(k.FG).Label("Current fleet")
@@ -141,10 +152,32 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 		ui.TooltipBase(c, el, func(tip ui.Element) {
 			tip.AttachTo(el, ui.AnchorEnd, ui.AnchorStart).MarginStart(Space10)
 			tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
-			tip.Children(func() { ui.Text(c, n.Label).FontSize(Meta.Size) })
+			tip.Children(func() { ui.Text(c, n.Name()).FontSize(Meta.Size) })
 		})
 	}
 	return el.Clicked() && !n.Inert
+}
+
+func attentionDot(c *ui.Context, k Colors, tone string, open bool) {
+	shape := func() {
+		ui.Row(c).Size(10, 10).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+			switch tone {
+			case "fail":
+				ui.Box(c).Size(10, 10).Radius(RadiusPill).Background(k.Fail)
+			case "wait":
+				ui.Box(c).Size(10, 10).Radius(RadiusPill).Border(2, k.Wait)
+			case "neutral":
+				ui.Box(c).Size(6, 6).Radius(RadiusPill).Background(k.Muted)
+			case "unavailable":
+				ui.Box(c).Size(8, 2).Radius(RadiusPill).Background(k.Muted)
+			}
+		})
+	}
+	if open {
+		shape()
+		return
+	}
+	ui.Box(c).Absolute().Top(5).Right(5).Padding(2).Radius(RadiusPill).Background(k.Panel).Children(shape)
 }
 
 func countPill(c *ui.Context, text string, bg, fg ui.Color) {

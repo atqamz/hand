@@ -207,6 +207,14 @@ type App struct {
 	pageTargetGen  int
 	scrollTo       string
 
+	attn       map[string]Signal
+	attnDown   bool
+	attnFails  int
+	attnGen    int
+	attnBusy   bool
+	attnTimer  func()
+	attnCancel context.CancelFunc
+
 	Err      string
 	Starting bool
 	StartErr string
@@ -317,6 +325,7 @@ func (a *App) Boot() {
 func (a *App) StartRefresh() {
 	a.polling, a.closed = true, false
 	a.armPoll()
+	a.armAttention()
 	a.watchDeny()
 	a.maybeStart()
 }
@@ -328,6 +337,7 @@ func (a *App) Close() {
 	a.savePrefs()
 	a.polling, a.closed = false, true
 	a.resetPoll()
+	a.resetAttention()
 	a.resetDeny()
 	if a.writer != nil {
 		a.writer.Flush()
@@ -341,6 +351,9 @@ func (a *App) SetMinimized(minimized bool) {
 	a.Minimized = minimized
 	if minimized {
 		a.flushDraft()
+		a.resetAttention()
+	} else {
+		a.armAttention()
 	}
 	if !a.pollBusy {
 		a.armPoll()
@@ -512,6 +525,8 @@ func (a *App) SelectFleet(id string) {
 
 func (a *App) install(f found, keep bool) {
 	defer a.syncTitle()
+	a.resetAttention()
+	defer a.armAttention()
 	a.setErr("")
 	a.auth = f.Auth
 	if f.Model == nil || len(f.Fleets) == 0 {
@@ -522,6 +537,7 @@ func (a *App) install(f found, keep bool) {
 	}
 	if f.Model == nil {
 		a.resetPoll()
+		a.attn = nil
 		a.Model, a.Fleets = nil, nil
 		a.wantStart = !a.autoStarted && a.Start != nil && (errors.Is(f.Err, ErrNoBoard) || f.Offline)
 		return

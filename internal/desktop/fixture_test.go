@@ -112,6 +112,35 @@ type fixture struct {
 	uploadErr      error
 	uploadBlock    chan struct{}
 	uploadEntered  chan struct{}
+	attnErr        error
+	attnGone       map[string]bool
+	attnNeeds      map[string]desktop.Needs
+	attnBlock      chan struct{}
+	attnEntered    chan struct{}
+}
+
+func (f *fixture) Attention(ctx context.Context) ([]desktop.FleetSignal, error) {
+	f.note("attention")
+	if f.attnBlock != nil {
+		f.attnEntered <- struct{}{}
+		<-f.attnBlock
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.attnErr != nil {
+		return nil, f.attnErr
+	}
+	var out []desktop.FleetSignal
+	for _, fleet := range f.fleets {
+		n := f.status[fleet.ID].Needs
+		if o, ok := f.attnNeeds[fleet.ID]; ok {
+			n = o
+		}
+		out = append(out, desktop.FleetSignal{Fleet: fleet.ID, Signal: desktop.Signal{
+			OK: !f.attnGone[fleet.ID], Waiting: n.Waiting, Worst: n.Worst, WorstWord: n.WorstWord,
+		}})
+	}
+	return out, nil
 }
 
 func (f *fixture) count(name string) int {
