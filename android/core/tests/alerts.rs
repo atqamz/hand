@@ -5,36 +5,26 @@ mod support;
 use std::fs;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hand_android_core::{
-    Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, Once, Stop, Supervisor,
+    Alert, AlertSink, CookieSource, Dialer, Feed, Fleet, IDLE, Once, Stop, Supervisor,
 };
 use serde_json::{Value, json};
 use support::{
-    FeedBoard, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir, dialer, endpoint,
-    sessions, sidecar_bin,
+    FeedBoard, Manual, ManualClock, MemoryJar, Reply, Seen, Sidecar, SidecarOptions, TempDir,
+    dialer, endpoint, sessions, sidecar_bin,
 };
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 
 const FLEET: &str = "f0123456789ab";
 const OTHER: &str = "f999999999999";
 const SECRET: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 const COOKIES: &str = "session=zzz; hand_phone_f0123456789ab=abc123; hand_phone_f999999999999=nope";
 const WAIT: Duration = Duration::from_secs(15);
-
-async fn wait_for(mut condition: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + WAIT;
-    while Instant::now() < deadline {
-        if condition() {
-            return true;
-        }
-        sleep(Duration::from_millis(20)).await;
-    }
-    condition()
-}
 
 #[derive(Clone, Default)]
 struct Sink(Arc<Mutex<Delivered>>);
@@ -144,6 +134,7 @@ fn link(page: &str) -> String {
 }
 
 struct Harness {
+    clock: Arc<ManualClock>,
     board: FeedBoard,
     dialer: Dialer,
     dir: TempDir,
@@ -157,6 +148,15 @@ impl Harness {
         idle: u64,
         responder: impl Fn(usize, &Seen) -> Reply + Send + Sync + 'static,
     ) -> Self {
+        Self::start_on(bin, idle, ManualClock::new(), responder).await
+    }
+
+    async fn start_on(
+        bin: &std::path::Path,
+        idle: u64,
+        clock: Arc<ManualClock>,
+        responder: impl Fn(usize, &Seen) -> Reply + Send + Sync + 'static,
+    ) -> Self {
         let board = FeedBoard::start(SECRET, responder).await;
         let sidecar = Sidecar::start(
             bin,
@@ -164,6 +164,7 @@ impl Harness {
         );
         let dialer = dialer(sidecar.target()).await;
         Self {
+            clock,
             board,
             dialer,
             dir: TempDir::new(),
@@ -174,6 +175,44 @@ impl Harness {
 
     fn feed(&self) -> Feed {
         Feed::new(self.dialer.clone(), self.dir.path().join("alerts"))
+            .with_clock(Arc::new(Manual(self.clock.clone())))
+    }
+
+    async fn still(&self, mut condition: impl FnMut() -> bool) -> bool {
+        timeout(WAIT, async {
+            while !condition() {
+                sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
+    async fn until(&self, mut condition: impl FnMut() -> bool) -> bool {
+        timeout(WAIT, async {
+            while !condition() {
+                if self.clock.advance_to_next() {
+                    tokio::task::yield_now().await;
+                } else {
+                    sleep(Duration::from_millis(1)).await;
+                }
+            }
+        })
+        .await
+        .is_ok()
+    }
+
+    async fn parked(&self) -> Duration {
+        let mut left = Vec::new();
+        assert!(
+            self.still(|| {
+                left = self.clock.waiting();
+                left.len() == 1
+            })
+            .await,
+            "{left:?}"
+        );
+        left[0]
     }
 
     fn run(&self, feed: Feed) -> JoinHandle<Stop> {
@@ -235,13 +274,14 @@ async fn alerts_reach_the_sink_and_the_cursor_follows() {
                 alert(7, "future.kind", "supervisor", "s1 stalled", &link("")),
             ],
         ),
-        _ => answer(7, vec![]).held(Duration::from_secs(2)),
+        _ => answer(7, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
     assert!(
-        wait_for(|| harness.board.seen().len() >= 3 && harness.cursor().as_deref() == Some("7"))
+        harness
+            .until(|| harness.board.seen().len() >= 3 && harness.cursor().as_deref() == Some("7"))
             .await
     );
     task.abort();
@@ -315,16 +355,17 @@ async fn a_more_answer_is_followed_at_once_without_a_wait() {
                 &link("attempt/a2"),
             )],
         ),
-        _ => answer(2, vec![]).held(Duration::from_secs(2)),
+        _ => answer(2, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.sink.alerts().len() == 2).await);
+    let first = harness.parked().await;
+    harness.clock.advance(first);
+    assert!(harness.still(|| harness.sink.alerts().len() == 2).await);
     task.abort();
     let seen = harness.board.seen();
     assert_eq!(seen[2].target, format!("/{FLEET}/alerts/feed?after=1"));
-    assert!(seen[2].at - seen[1].at < Duration::from_millis(900));
 }
 
 #[tokio::test]
@@ -332,24 +373,28 @@ async fn an_empty_heartbeat_is_followed_by_the_next_poll_at_once() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |n, _| match n {
-        0 => answer(3, vec![]),
-        _ => answer(3, vec![]).held(Duration::from_secs(1)),
+    let clock = ManualClock::new();
+    let held = clock.clone();
+    let harness = Harness::start_on(&bin, 60, clock, move |n, _| {
+        if n > 0 {
+            held.advance(Duration::from_secs(1));
+        }
+        answer(3, vec![])
     })
     .await;
     let task = harness.run(harness.feed().with_wait(Duration::from_secs(1)));
 
-    assert!(wait_for(|| harness.board.seen().len() >= 4).await);
+    let first = harness.parked().await;
+    assert_eq!(first, Duration::from_secs(1));
+    harness.clock.advance(first);
+    assert!(harness.still(|| harness.board.seen().len() >= 4).await);
     task.abort();
     let seen = harness.board.seen();
-    assert_eq!(
-        seen[1].target,
-        format!("/{FLEET}/alerts/feed?after=3&wait=1")
-    );
-    for pair in seen[1..].windows(2) {
-        let gap = pair[1].at - pair[0].at;
-        assert!(gap >= Duration::from_millis(950), "{gap:?}");
-        assert!(gap < Duration::from_millis(1500), "{gap:?}");
+    for request in &seen[1..] {
+        assert_eq!(
+            request.target,
+            format!("/{FLEET}/alerts/feed?after=3&wait=1")
+        );
     }
     assert!(harness.sink.alerts().is_empty());
     assert_eq!(harness.cursor().as_deref(), Some("3"));
@@ -365,29 +410,31 @@ async fn a_server_error_or_throttle_backs_off_one_two_then_resets_on_success() {
         1 => Reply::status(429),
         2 => answer(1, vec![]),
         3 => Reply::status(500),
-        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 5).await);
+    let mut pauses = Vec::new();
+    for _ in 0..4 {
+        let pause = harness.parked().await;
+        pauses.push(pause);
+        harness.clock.advance(pause);
+    }
+    assert!(harness.until(|| harness.board.seen().len() >= 5).await);
     task.abort();
-    let seen = harness.board.seen();
-    let gaps: Vec<Duration> = seen
-        .windows(2)
-        .map(|pair| pair[1].at - pair[0].at)
-        .collect();
     assert!(
-        gaps[0] >= Duration::from_secs(1) && gaps[0] < Duration::from_millis(1500),
-        "{gaps:?}"
+        pauses[0] >= Duration::from_secs(1) && pauses[0] <= Duration::from_millis(1250),
+        "{pauses:?}"
     );
     assert!(
-        gaps[1] >= Duration::from_secs(2) && gaps[1] < Duration::from_millis(2800),
-        "{gaps:?}"
+        pauses[1] >= Duration::from_secs(2) && pauses[1] <= Duration::from_millis(2500),
+        "{pauses:?}"
     );
+    assert_eq!(pauses[2], Duration::from_secs(1), "{pauses:?}");
     assert!(
-        gaps[3] >= Duration::from_secs(1) && gaps[3] < Duration::from_millis(1500),
-        "{gaps:?}"
+        pauses[3] >= Duration::from_secs(1) && pauses[3] <= Duration::from_millis(1250),
+        "{pauses:?}"
     );
 }
 
@@ -397,10 +444,8 @@ async fn a_connection_the_host_closed_with_code_two_is_dialed_again() {
         return;
     };
     let harness = Harness::start(&bin, 1, |n, _| match n {
-        0 => Reply::status(503),
-        1 => Reply::status(503),
-        2 => answer(0, vec![]),
-        3 => answer(
+        0 => answer(0, vec![]),
+        1 => answer(
             1,
             vec![alert(
                 1,
@@ -410,16 +455,22 @@ async fn a_connection_the_host_closed_with_code_two_is_dialed_again() {
                 &link("attempt/a1"),
             )],
         ),
-        _ => answer(1, vec![]).held(Duration::from_millis(500)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
-    let first = harness.dialer.connection().await.unwrap().stable_id();
+    let first = harness.dialer.connection().await.unwrap();
+    let closed = timeout(WAIT, first.closed()).await.unwrap();
+    assert!(matches!(
+        closed,
+        iroh::endpoint::ConnectionError::ApplicationClosed(close) if close.error_code.into_inner() == IDLE
+    ));
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.sink.alerts().len() == 1).await);
+    assert!(harness.until(|| harness.sink.alerts().len() == 1).await);
     task.abort();
-    let second = harness.dialer.connection().await.unwrap().stable_id();
-    assert_ne!(first, second);
+    let second = harness.dialer.connection().await.unwrap();
+    assert_ne!(first.stable_id(), second.stable_id());
+    assert!(second.close_reason().is_none());
 }
 
 #[tokio::test]
@@ -435,6 +486,8 @@ async fn a_no_longer_paired_refusal_stops_the_fleet_and_the_second_one_forgets_i
     })
     .await;
     let task = harness.run(harness.feed());
+    let pacing = harness.parked().await;
+    harness.clock.advance(pacing);
 
     let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
     assert_eq!(stop, Stop::BoardGone);
@@ -443,7 +496,6 @@ async fn a_no_longer_paired_refusal_stops_the_fleet_and_the_second_one_forgets_i
         vec![(FLEET.to_owned(), Some("hand".to_owned()))]
     );
     assert_eq!(harness.cursor().as_deref(), Some("4"));
-    sleep(Duration::from_millis(1500)).await;
     assert_eq!(harness.board.seen().len(), 2);
 
     let again = harness.run_after(harness.feed(), Cookies, true);
@@ -479,18 +531,34 @@ async fn any_other_refusal_backs_off_and_keeps_the_cursor() {
         1 => Reply::status(404),
         2 => Reply::status(403),
         3 => Reply::status(403).header("X-Hand-Error", "Pair%20this%20phone%20first"),
-        _ => answer(4, vec![]).held(Duration::from_secs(2)),
+        _ => answer(4, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 5).await);
+    let mut pauses = Vec::new();
+    for _ in 0..4 {
+        let pause = harness.parked().await;
+        pauses.push(pause);
+        harness.clock.advance(pause);
+    }
+    assert!(harness.until(|| harness.board.seen().len() >= 5).await);
     task.abort();
     assert!(harness.sink.unpaired().is_empty());
     assert_eq!(harness.cursor().as_deref(), Some("4"));
-    let seen = harness.board.seen();
-    let gap = seen[3].at - seen[2].at;
-    assert!(gap >= Duration::from_millis(1400), "{gap:?}");
+    assert_eq!(pauses[0], Duration::from_secs(1), "{pauses:?}");
+    assert!(
+        pauses[1] >= Duration::from_secs(1) && pauses[1] <= Duration::from_millis(1250),
+        "{pauses:?}"
+    );
+    assert!(
+        pauses[2] >= Duration::from_secs(2) && pauses[2] <= Duration::from_millis(2500),
+        "{pauses:?}"
+    );
+    assert!(
+        pauses[3] >= Duration::from_secs(4) && pauses[3] <= Duration::from_secs(5),
+        "{pauses:?}"
+    );
 }
 
 #[tokio::test]
@@ -502,12 +570,12 @@ async fn a_chunked_answer_is_not_read() {
         0 => answer(1, vec![]),
         1 => answer(2, vec![alert(2, "attempt.failed", "a1", "a1 failed", "")])
             .header("Transfer-Encoding", "chunked"),
-        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 3).await);
     task.abort();
     assert!(harness.sink.alerts().is_empty());
     assert_eq!(harness.cursor().as_deref(), Some("1"));
@@ -528,12 +596,12 @@ async fn a_well_formed_chunked_answer_is_not_read_either() {
     let harness = Harness::start(&bin, 60, move |n, _| match n {
         0 => answer(1, vec![]),
         1 => Reply::raw(chunked.as_bytes()),
-        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 3).await);
     task.abort();
     assert!(harness.sink.alerts().is_empty());
     assert_eq!(harness.cursor().as_deref(), Some("1"));
@@ -551,12 +619,12 @@ async fn a_200_without_a_length_is_not_read() {
     let harness = Harness::start(&bin, 60, move |n, _| match n {
         0 => answer(1, vec![]),
         1 => Reply::raw(unframed.as_bytes()),
-        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 3).await);
     task.abort();
     assert!(harness.sink.alerts().is_empty());
     assert_eq!(harness.cursor().as_deref(), Some("1"));
@@ -575,6 +643,9 @@ async fn a_no_longer_paired_refusal_is_recognised_when_its_body_is_cut_short() {
     })
     .await;
     let task = harness.run(harness.feed());
+
+    let pacing = harness.parked().await;
+    harness.clock.advance(pacing);
 
     let stop = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
     assert_eq!(stop, Stop::BoardGone);
@@ -608,17 +679,19 @@ async fn a_cookie_store_that_cannot_be_read_is_retried_with_backoff() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |_, _| {
-        answer(1, vec![]).held(Duration::from_secs(2))
-    })
-    .await;
+    let harness = Harness::start(&bin, 60, |_, _| answer(1, vec![]).unanswered()).await;
     harness.keep_cursor(1);
-    let started = Instant::now();
     let task = harness.run_with(harness.feed(), FailsOnce(AtomicUsize::new(0)));
 
-    assert!(wait_for(|| !harness.board.seen().is_empty()).await);
+    let pause = harness.parked().await;
+    assert!(
+        pause >= Duration::from_secs(1) && pause <= Duration::from_millis(1250),
+        "{pause:?}"
+    );
+    assert!(harness.board.seen().is_empty());
+    harness.clock.advance(pause);
+    assert!(harness.still(|| !harness.board.seen().is_empty()).await);
     task.abort();
-    assert!(started.elapsed() >= Duration::from_millis(900));
     assert!(harness.sink.unpaired().is_empty());
     assert_eq!(harness.cursor().as_deref(), Some("1"));
 }
@@ -644,7 +717,7 @@ async fn a_sink_that_fails_leaves_the_cursor_and_the_next_request_repeats_it() {
     harness.sink.fail_on(2);
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 4).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 4).await);
     task.abort();
     let seen = harness.board.seen();
     for request in &seen[1..] {
@@ -674,13 +747,20 @@ async fn an_immediate_answer_is_never_followed_within_a_second() {
     let harness = Harness::start(&bin, 60, |_, _| answer(3, vec![])).await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 4).await);
-    task.abort();
-    let seen = harness.board.seen();
-    for pair in seen[1..].windows(2) {
-        let gap = pair[1].at - pair[0].at;
-        assert!(gap >= Duration::from_millis(950), "{gap:?}");
+    for round in 1..=3 {
+        assert_eq!(harness.parked().await, Duration::from_secs(1));
+        assert_eq!(harness.board.seen().len(), round);
+        harness.clock.advance(Duration::from_millis(999));
+        assert_eq!(harness.clock.waiting(), [Duration::from_millis(1)]);
+        assert_eq!(harness.board.seen().len(), round);
+        harness.clock.advance(Duration::from_millis(1));
+        assert!(
+            harness
+                .still(|| harness.board.seen().len() == round + 1)
+                .await
+        );
     }
+    task.abort();
 }
 
 #[tokio::test]
@@ -697,12 +777,12 @@ async fn a_valid_answer_longer_than_the_cap_is_not_read() {
     let harness = Harness::start(&bin, 60, move |n, _| match n {
         0 => answer(1, vec![]),
         1 => Reply::json(padded.clone()),
-        _ => answer(1, vec![]).held(Duration::from_secs(2)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 3).await);
     task.abort();
     let seen = harness.board.seen();
     assert_eq!(
@@ -730,17 +810,21 @@ async fn the_cursor_survives_a_restart() {
                 &link("attempt/a1"),
             )],
         ),
-        _ => answer(6, vec![]).held(Duration::from_secs(2)),
+        _ => answer(6, vec![]).unanswered(),
     })
     .await;
     let first = harness.run(harness.feed());
-    assert!(wait_for(|| harness.cursor().as_deref() == Some("6")).await);
+    assert!(
+        harness
+            .until(|| harness.cursor().as_deref() == Some("6"))
+            .await
+    );
     first.abort();
     let _ = first.await;
     let before = harness.board.seen().len();
 
     let second = harness.run(harness.feed());
-    assert!(wait_for(|| harness.board.seen().len() > before).await);
+    assert!(harness.until(|| harness.board.seen().len() > before).await);
     second.abort();
     let seen = harness.board.seen();
     assert_eq!(
@@ -769,12 +853,12 @@ async fn a_hostile_feed_moves_nothing_and_shows_no_foreign_link() {
                 alert(4, "decision.asked", "d3", &format!("line one\nline two {}", "y".repeat(400)), &link("decision/d3")),
             ],
         ),
-        _ => answer(4, vec![]).held(Duration::from_secs(2)),
+        _ => answer(4, vec![]).unanswered(),
     })
     .await;
     let task = harness.run(harness.feed());
 
-    assert!(wait_for(|| harness.sink.alerts().len() == 3).await);
+    assert!(harness.until(|| harness.sink.alerts().len() == 3).await);
     task.abort();
     let seen = harness.board.seen();
     for request in &seen[1..=4] {
@@ -798,34 +882,57 @@ async fn a_hostile_feed_moves_nothing_and_shows_no_foreign_link() {
 
 const OWN: &str = "hand_phone_f0123456789ab=abc123";
 const TICK: Duration = Duration::from_millis(100);
+const PACE: Duration = Duration::from_secs(1);
+
+impl Harness {
+    async fn quiet(&self) {
+        assert_eq!(self.parked().await, TICK);
+    }
+
+    async fn polling(&self) {
+        assert!(
+            self.still(|| self.clock.waiting() == [TICK, PACE]).await,
+            "{:?}",
+            self.clock.waiting()
+        );
+    }
+
+    async fn scan(&self) {
+        self.clock.advance(TICK);
+        self.quiet().await;
+    }
+}
 
 #[tokio::test]
 async fn the_supervisor_starts_a_fleet_when_its_cookie_appears_and_runs_one_loop() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |n, _| match n {
-        0 => answer(5, vec![]),
-        _ => answer(5, vec![]).held(Duration::from_millis(500)),
-    })
-    .await;
+    let harness = Harness::start(&bin, 60, |_, _| answer(5, vec![])).await;
     let cookies = Shared::default();
     let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
     supervisor.start();
     supervisor.start();
 
-    sleep(Duration::from_millis(600)).await;
+    harness.quiet().await;
+    for _ in 0..5 {
+        harness.scan().await;
+    }
     assert!(harness.board.seen().is_empty());
     cookies.set(Some(&format!("session=zzz; {OWN}")));
-    assert!(wait_for(|| harness.board.seen().len() >= 2).await);
-    sleep(Duration::from_millis(2000)).await;
-    supervisor.stop();
-    sleep(Duration::from_millis(500)).await;
+    harness.scan().await;
+    harness.polling().await;
+    assert_eq!(harness.board.seen().len(), 1);
+    for round in 2..=4 {
+        harness.clock.advance(PACE);
+        harness.polling().await;
+        assert_eq!(harness.board.seen().len(), round);
+    }
 
-    let requests = harness.board.seen().len();
-    assert!(requests <= 5, "{requests} requests in about 3 seconds");
-    sleep(Duration::from_millis(1500)).await;
-    assert_eq!(harness.board.seen().len(), requests);
+    supervisor.stop();
+    assert!(harness.still(|| harness.clock.waiting().is_empty()).await);
+    harness.clock.advance(Duration::from_secs(600));
+    assert_eq!(harness.board.seen().len(), 4);
 }
 
 #[tokio::test]
@@ -835,27 +942,24 @@ async fn a_nudge_through_the_supervisor_ends_the_backoff_wait_of_a_loop_that_kee
     };
     let harness = Harness::start(&bin, 60, |n, _| match n {
         0..=3 => Reply::status(503),
-        _ => answer(1, vec![]).held(Duration::from_secs(30)),
+        _ => answer(1, vec![]).unanswered(),
     })
     .await;
     let cookies = Shared::default();
     cookies.set(Some(OWN));
     let supervisor = Supervisor::new(harness.feed(), cookies, harness.sink.clone(), TICK);
     supervisor.start();
-    assert!(wait_for(|| !harness.board.seen().is_empty()).await);
 
-    let started = Instant::now();
-    while harness.board.seen().len() < 5 && started.elapsed() < Duration::from_secs(5) {
+    for failed in 1..=4 {
+        assert!(
+            harness
+                .still(|| harness.board.seen().len() == failed && harness.clock.waiting().len() == 2)
+                .await
+        );
         supervisor.nudge();
-        sleep(Duration::from_millis(100)).await;
     }
+    assert!(harness.still(|| harness.board.seen().len() == 5).await);
     supervisor.stop();
-    let requests = harness.board.seen().len();
-    assert!(
-        requests >= 5,
-        "{requests} requests in {:?}; the backoff alone needs 15 s for five",
-        started.elapsed()
-    );
 }
 
 #[tokio::test]
@@ -863,29 +967,29 @@ async fn forgetting_stops_the_loops_and_the_cursors_and_posts_nothing() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |n, _| match n {
-        0 => answer(5, vec![]),
-        _ => answer(5, vec![]).held(Duration::from_millis(300)),
-    })
-    .await;
+    let harness = Harness::start(&bin, 60, |_, _| answer(5, vec![])).await;
     let cookies = Shared::default();
     cookies.set(Some(OWN));
     let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
     supervisor.start();
-    assert!(wait_for(|| harness.cursor().as_deref() == Some("5")).await);
+    harness.polling().await;
+    assert_eq!(harness.cursor().as_deref(), Some("5"));
 
     supervisor.forget_all();
     assert_eq!(harness.cursor(), None);
-    sleep(Duration::from_millis(500)).await;
-    let requests = harness.board.seen().len();
-    sleep(Duration::from_millis(2000)).await;
-    assert_eq!(harness.board.seen().len(), requests);
+    harness.quiet().await;
+    for _ in 0..20 {
+        harness.scan().await;
+    }
+    assert_eq!(harness.board.seen().len(), 1);
     assert!(harness.sink.unpaired().is_empty());
 
     cookies.set(None);
-    sleep(Duration::from_millis(500)).await;
+    harness.scan().await;
     cookies.set(Some(OWN));
-    assert!(wait_for(|| harness.board.seen().len() > requests).await);
+    harness.scan().await;
+    harness.polling().await;
+    assert_eq!(harness.board.seen().len(), 2);
     supervisor.stop();
 }
 
@@ -894,26 +998,25 @@ async fn a_stopped_supervisor_polls_a_fleet_forget_parked_when_its_cookie_stayed
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |n, _| match n {
-        0 => answer(5, vec![]),
-        _ => answer(5, vec![]).held(Duration::from_millis(300)),
-    })
-    .await;
+    let harness = Harness::start(&bin, 60, |_, _| answer(5, vec![])).await;
     let cookies = Shared::default();
     cookies.set(Some(OWN));
     let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
     supervisor.start();
-    assert!(wait_for(|| harness.cursor().as_deref() == Some("5")).await);
+    harness.polling().await;
+    assert_eq!(harness.cursor().as_deref(), Some("5"));
 
     supervisor.forget_all();
-    sleep(Duration::from_millis(500)).await;
-    let parked = harness.board.seen().len();
-    sleep(Duration::from_millis(1500)).await;
-    assert_eq!(harness.board.seen().len(), parked);
+    harness.quiet().await;
+    for _ in 0..20 {
+        harness.scan().await;
+    }
+    assert_eq!(harness.board.seen().len(), 1);
 
     supervisor.stop();
     supervisor.start();
-    assert!(wait_for(|| harness.board.seen().len() > parked).await);
+    harness.polling().await;
+    assert_eq!(harness.board.seen().len(), 2);
     supervisor.stop();
 }
 
@@ -932,28 +1035,38 @@ async fn a_fleet_the_board_refused_is_not_started_again_until_its_cookie_returns
     cookies.set(Some(OWN));
     let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
     supervisor.start();
-    assert!(wait_for(|| harness.sink.unpaired().len() == 1).await);
-    sleep(Duration::from_millis(1500)).await;
+    harness.polling().await;
+    harness.clock.advance(PACE);
+    assert!(harness.still(|| harness.sink.unpaired().len() == 1).await);
+    harness.quiet().await;
+    for _ in 0..10 {
+        harness.scan().await;
+    }
     assert_eq!(harness.sink.unpaired().len(), 1);
     assert_eq!(harness.board.seen().len(), 2);
 
     cookies.set(None);
-    sleep(Duration::from_millis(500)).await;
+    harness.scan().await;
     cookies.set(Some(OWN));
-    assert!(wait_for(|| harness.board.seen().len() > 2).await);
+    harness.scan().await;
+    harness.polling().await;
+    assert_eq!(harness.board.seen().len(), 3);
     supervisor.stop();
 }
+
+type Release = Arc<Mutex<mpsc::Receiver<()>>>;
 
 #[derive(Clone)]
 struct Blocking {
     sink: Sink,
     entered: Arc<AtomicBool>,
+    release: Release,
 }
 
 impl AlertSink for Blocking {
     async fn alert(&self, fleet: &Fleet, alert: &Alert) -> io::Result<()> {
         self.entered.store(true, Ordering::SeqCst);
-        std::thread::sleep(Duration::from_millis(400));
+        let _ = self.release.lock().unwrap().recv();
         self.sink.alert(fleet, alert).await
     }
 
@@ -976,24 +1089,32 @@ async fn forgetting_during_a_poll_in_flight_posts_nothing_more_and_leaves_no_cur
                     .map(|seq| alert(seq, "attempt.failed", "a1", "failed", ""))
                     .collect(),
             ),
-            _ => answer(5 + batch, vec![]).held(Duration::from_millis(300)),
+            _ => answer(5 + batch, vec![]),
         })
         .await;
-        let cookies = Shared::default();
-        cookies.set(Some(OWN));
+        let (release, gate) = mpsc::channel();
         let entered = Arc::new(AtomicBool::new(false));
         let blocking = Blocking {
             sink: harness.sink.clone(),
             entered: entered.clone(),
+            release: Arc::new(Mutex::new(gate)),
         };
-        let supervisor = Supervisor::new(harness.feed(), cookies.clone(), blocking, TICK);
-        supervisor.start();
-        assert!(wait_for(|| entered.load(Ordering::SeqCst)).await);
+        let feed = Arc::new(harness.feed());
+        let task = {
+            let feed = feed.clone();
+            tokio::spawn(async move { feed.run(FLEET, &Cookies, &blocking, false).await })
+        };
+        assert!(harness.until(|| entered.load(Ordering::SeqCst)).await);
 
-        supervisor.forget_all();
-        sleep(Duration::from_millis(1000)).await;
-        supervisor.stop();
+        feed.forget_cursors();
+        release.send(()).unwrap();
+        drop(release);
 
+        assert_eq!(
+            timeout(WAIT, task).await.unwrap().unwrap(),
+            Stop::Forgotten,
+            "batch of {batch}"
+        );
         assert_eq!(harness.cursor(), None, "batch of {batch}");
         assert_eq!(harness.sink.alerts().len(), 1, "batch of {batch}");
     }
@@ -1007,22 +1128,25 @@ async fn a_changed_cookie_value_restarts_a_refused_fleet_at_once() {
     let harness = Harness::start(&bin, 60, |n, _| match n {
         0 => answer(4, vec![]),
         1 => Reply::status(403).header("X-Hand-Error", GONE),
-        _ => answer(4, vec![]).held(Duration::from_millis(300)),
+        _ => answer(4, vec![]),
     })
     .await;
     let cookies = Shared::default();
     cookies.set(Some(OWN));
     let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
     supervisor.start();
-    assert!(wait_for(|| harness.sink.unpaired().len() == 1).await);
-    sleep(Duration::from_millis(500)).await;
+    harness.polling().await;
+    harness.clock.advance(PACE);
+    assert!(harness.still(|| harness.sink.unpaired().len() == 1).await);
+    harness.quiet().await;
     assert_eq!(harness.board.seen().len(), 2);
 
     cookies.set(Some("hand_phone_f0123456789ab=def456"));
-    sleep(Duration::from_millis(1000)).await;
+    harness.scan().await;
+    harness.polling().await;
     supervisor.stop();
-    assert!(harness.board.seen().len() > 2);
     let seen = harness.board.seen();
+    assert_eq!(seen.len(), 3);
     assert_eq!(
         seen[2].cookie.as_deref(),
         Some("hand_phone_f0123456789ab=def456")
@@ -1037,33 +1161,41 @@ async fn a_refused_fleet_is_tried_again_and_only_the_second_refusal_forgets_its_
     let harness = Harness::start(&bin, 60, |n, _| match n {
         0 => answer(4, vec![]),
         1 | 2 => Reply::status(403).header("X-Hand-Error", GONE),
-        _ => answer(4, vec![]).held(Duration::from_millis(300)),
+        _ => answer(4, vec![]),
     })
     .await;
     let cookies = Shared::default();
     cookies.set(Some(OWN));
     let supervisor = Supervisor::new(harness.feed(), cookies.clone(), harness.sink.clone(), TICK);
     supervisor.start();
-    assert!(wait_for(|| harness.sink.unpaired().len() == 1).await);
+    harness.polling().await;
+    harness.clock.advance(PACE);
+    assert!(harness.still(|| harness.sink.unpaired().len() == 1).await);
     assert_eq!(harness.cursor().as_deref(), Some("4"));
-    sleep(Duration::from_millis(1500)).await;
+    harness.quiet().await;
+    for _ in 0..10 {
+        harness.scan().await;
+    }
     assert_eq!(harness.board.seen().len(), 2);
 
-    assert!(wait_for(|| harness.board.seen().len() == 3).await);
-    assert!(wait_for(|| harness.cursor().is_none()).await);
+    for _ in 0..30 {
+        harness.scan().await;
+    }
+    assert!(harness.still(|| harness.cursor().is_none()).await);
+    assert_eq!(harness.board.seen().len(), 3);
     assert_eq!(harness.sink.unpaired().len(), 1);
 
-    assert!(wait_for(|| harness.board.seen().len() >= 4).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 4).await);
     supervisor.stop();
     assert_eq!(harness.sink.unpaired().len(), 1);
 }
 
-struct BlocksThenNone(Arc<AtomicBool>);
+struct BlocksThenNone(Arc<AtomicBool>, Release);
 
 impl CookieSource for BlocksThenNone {
     async fn cookies(&self) -> io::Result<Option<String>> {
         self.0.store(true, Ordering::SeqCst);
-        std::thread::sleep(Duration::from_millis(400));
+        let _ = self.1.lock().unwrap().recv();
         Ok(None)
     }
 }
@@ -1073,12 +1205,14 @@ async fn forgetting_while_a_refusal_is_in_flight_posts_no_unpaired_notice() {
     let Some(bin) = sidecar_bin() else {
         return;
     };
-    let harness = Harness::start(&bin, 60, |n, _| match n {
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let held = gate.clone();
+    let harness = Harness::start(&bin, 60, move |n, _| match n {
         0 => answer(4, vec![]),
         _ => Reply::status(403)
             .header("X-Hand-Error", GONE)
             .header("Transfer-Encoding", "chunked")
-            .held(Duration::from_millis(600)),
+            .gated(&held),
     })
     .await;
     let feed = Arc::new(harness.feed());
@@ -1087,11 +1221,12 @@ async fn forgetting_while_a_refusal_is_in_flight_posts_no_unpaired_notice() {
         let sink = harness.sink.clone();
         tokio::spawn(async move { feed.run(FLEET, &Cookies, &sink, false).await })
     };
-    assert!(wait_for(|| harness.board.seen().len() >= 2).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 2).await);
 
     feed.forget_cursors();
+    gate.notify_one();
 
-    assert_eq!(task.await.unwrap(), Stop::Forgotten);
+    assert_eq!(timeout(WAIT, task).await.unwrap().unwrap(), Stop::Forgotten);
     assert!(harness.sink.unpaired().is_empty());
 }
 
@@ -1103,17 +1238,19 @@ async fn forgetting_while_the_cookie_read_blocks_posts_no_unpaired_notice() {
     let harness = Harness::start(&bin, 60, |_, _| answer(4, vec![])).await;
     let feed = Arc::new(harness.feed());
     let reading = Arc::new(AtomicBool::new(false));
+    let (release, gate) = mpsc::channel();
     let task = {
         let feed = feed.clone();
         let sink = harness.sink.clone();
-        let cookies = BlocksThenNone(reading.clone());
+        let cookies = BlocksThenNone(reading.clone(), Arc::new(Mutex::new(gate)));
         tokio::spawn(async move { feed.run(FLEET, &cookies, &sink, false).await })
     };
-    assert!(wait_for(|| reading.load(Ordering::SeqCst)).await);
+    assert!(harness.until(|| reading.load(Ordering::SeqCst)).await);
 
     feed.forget_cursors();
+    release.send(()).unwrap();
 
-    assert_eq!(task.await.unwrap(), Stop::Forgotten);
+    assert_eq!(timeout(WAIT, task).await.unwrap().unwrap(), Stop::Forgotten);
     assert!(harness.sink.unpaired().is_empty());
 }
 
@@ -1129,16 +1266,16 @@ async fn the_feed_sends_the_imported_cookie_and_keeps_it_when_the_jar_changes() 
     let store = sessions(harness.dir.path(), harness._sidecar.id(), &jar);
     let task = harness.run_with(harness.feed(), store);
 
-    assert!(wait_for(|| !harness.board.seen().is_empty()).await);
+    assert!(harness.until(|| !harness.board.seen().is_empty()).await);
     jar.set(Some(&format!("hand_phone_{FLEET}=x.junk")));
-    assert!(wait_for(|| harness.board.seen().len() >= 3).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 3).await);
     assert!(!task.is_finished());
     for request in harness.board.seen() {
         assert_eq!(request.cookie.as_deref(), Some(stored.as_str()));
     }
 
     jar.set(None);
-    assert!(wait_for(|| harness.board.seen().len() >= 5).await);
+    assert!(harness.until(|| harness.board.seen().len() >= 5).await);
 
     assert!(!task.is_finished());
     assert!(harness.sink.unpaired().is_empty());
@@ -1186,7 +1323,7 @@ async fn a_poll_asleep_continues_the_live_cursor_and_the_live_feed_continues_the
                 alert(7, "attempt.failed", "a7", "a7 failed", &link("attempt/a7")),
             ],
         ),
-        2 => answer(7, vec![]).held(Duration::from_secs(5)),
+        2 => answer(7, vec![]).unanswered(),
         3 => answer(
             9,
             vec![
@@ -1205,12 +1342,13 @@ async fn a_poll_asleep_continues_the_live_cursor_and_the_live_feed_continues_the
                 &link("attempt/a10"),
             )],
         ),
-        _ => answer(10, vec![]).held(Duration::from_secs(5)),
+        _ => answer(10, vec![]).unanswered(),
     })
     .await;
     let live = harness.run(harness.feed());
     assert!(
-        wait_for(|| harness.board.seen().len() >= 3 && harness.cursor().as_deref() == Some("7"))
+        harness
+            .until(|| harness.board.seen().len() >= 3 && harness.cursor().as_deref() == Some("7"))
             .await
     );
     live.abort();
@@ -1233,7 +1371,7 @@ async fn a_poll_asleep_continues_the_live_cursor_and_the_live_feed_continues_the
     harness.dialer.close().await;
     harness.dialer.open(endpoint().await);
     let live = harness.run(harness.feed());
-    assert!(wait_for(|| harness.seqs().len() == 5).await);
+    assert!(harness.until(|| harness.seqs().len() == 5).await);
     live.abort();
 
     assert_eq!(harness.seqs(), [6, 7, 8, 9, 10]);

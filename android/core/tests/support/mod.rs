@@ -463,6 +463,7 @@ pub struct Reply {
     pub length: Option<usize>,
     pub headers: Vec<(String, String)>,
     pub raw: Option<Vec<u8>>,
+    pub gate: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Reply {
@@ -475,6 +476,7 @@ impl Reply {
             length: None,
             headers: Vec::new(),
             raw: None,
+            gate: None,
         }
     }
 
@@ -487,11 +489,21 @@ impl Reply {
             length: None,
             headers: Vec::new(),
             raw: None,
+            gate: None,
         }
     }
 
     pub fn held(mut self, hold: Duration) -> Self {
         self.hold = hold;
+        self
+    }
+
+    pub fn unanswered(self) -> Self {
+        self.gated(&Arc::new(tokio::sync::Notify::new()))
+    }
+
+    pub fn gated(mut self, gate: &Arc<tokio::sync::Notify>) -> Self {
+        self.gate = Some(gate.clone());
         self
     }
 
@@ -626,6 +638,9 @@ async fn serve_feed(
         log.len() - 1
     };
     let reply = responder(number, &seen);
+    if let Some(gate) = &reply.gate {
+        gate.notified().await;
+    }
     tokio::time::sleep(reply.hold).await;
     let extra: String = reply
         .headers
@@ -689,4 +704,120 @@ impl Jar for MemoryJar {
 pub fn sessions(dir: &Path, host: EndpointId, jar: &MemoryJar) -> Arc<Sessions<MemoryJar>> {
     fs::write(dir.join("laptop"), format!("{host}\n")).unwrap();
     Arc::new(Sessions::open(dir, jar.clone(), Arc::new(PlainCipher)).unwrap())
+}
+
+struct Parked {
+    id: u64,
+    at: tokio::time::Instant,
+    waker: Option<std::task::Waker>,
+}
+
+struct ClockState {
+    now: tokio::time::Instant,
+    next: u64,
+    parked: Vec<Parked>,
+}
+
+pub struct ManualClock(Mutex<ClockState>);
+
+impl ManualClock {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self(Mutex::new(ClockState {
+            now: tokio::time::Instant::now(),
+            next: 0,
+            parked: Vec::new(),
+        })))
+    }
+
+    pub fn advance(&self, by: Duration) {
+        let mut state = self.0.lock().unwrap();
+        state.now += by;
+        let now = state.now;
+        for parked in state.parked.iter_mut().filter(|parked| parked.at <= now) {
+            if let Some(waker) = parked.waker.take() {
+                waker.wake();
+            }
+        }
+    }
+
+    pub fn waiting(&self) -> Vec<Duration> {
+        let state = self.0.lock().unwrap();
+        let mut left: Vec<Duration> = state
+            .parked
+            .iter()
+            .filter(|parked| parked.at > state.now)
+            .map(|parked| parked.at - state.now)
+            .collect();
+        left.sort();
+        left
+    }
+
+    pub fn advance_to_next(&self) -> bool {
+        let Some(next) = self.waiting().first().copied() else {
+            return false;
+        };
+        self.advance(next);
+        true
+    }
+}
+
+struct ManualSleep {
+    clock: Arc<ManualClock>,
+    id: u64,
+    at: tokio::time::Instant,
+}
+
+impl std::future::Future for ManualSleep {
+    type Output = ();
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        let mut state = self.clock.0.lock().unwrap();
+        if self.at <= state.now {
+            return std::task::Poll::Ready(());
+        }
+        let id = self.id;
+        if let Some(parked) = state.parked.iter_mut().find(|parked| parked.id == id) {
+            parked.waker = Some(cx.waker().clone());
+        }
+        std::task::Poll::Pending
+    }
+}
+
+impl Drop for ManualSleep {
+    fn drop(&mut self) {
+        let id = self.id;
+        self.clock
+            .0
+            .lock()
+            .unwrap()
+            .parked
+            .retain(|parked| parked.id != id);
+    }
+}
+
+pub struct Manual(pub Arc<ManualClock>);
+
+impl hand_android_core::Clock for Manual {
+    fn now(&self) -> tokio::time::Instant {
+        self.0.0.lock().unwrap().now
+    }
+
+    fn sleep_until(&self, at: tokio::time::Instant) -> hand_android_core::Sleep {
+        let mut state = self.0.0.lock().unwrap();
+        let id = state.next;
+        state.next += 1;
+        state.parked.push(Parked {
+            id,
+            at,
+            waker: None,
+        });
+        Box::pin(ManualSleep {
+            clock: self.0.clone(),
+            id,
+            at,
+        })
+    }
 }

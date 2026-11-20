@@ -67,6 +67,7 @@ async fn every_pair_vector_is_sent_as_the_contract_says_and_answered_as_it_says(
             length: answer.length,
             headers: answer.headers.clone(),
             raw: None,
+            gate: None,
         })
         .await;
         let sidecar = Sidecar::start(&bin, SidecarOptions::new(board.addr()).secret(SECRET));
