@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -61,7 +62,28 @@ func (r *runner) compare(s fleet.Skills, name string, e fleet.Managed) (probed, 
 	return p, nil
 }
 
-var unsafeWord = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+var (
+	unsafeWord   = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+	unsafeSource = regexp.MustCompile(`[^A-Za-z0-9._:/@+=-]`)
+)
+
+func addArgs(name string, e fleet.Managed) string {
+	src := e.Source
+	if !e.Local() {
+		src = e.URL()
+		if ownURL(src) && e.Path() == path.Join("skills", name) {
+			src = name
+		}
+	}
+	src = unsafeSource.ReplaceAllString(src, "?")
+	if strings.HasPrefix(src, "-") {
+		src = "?" + src[1:]
+	}
+	if e.Local() || e.Ref == "" {
+		return src
+	}
+	return "--ref " + unsafeSource.ReplaceAllString(e.Ref, "?") + " " + src
+}
 
 func commitWord(commit string) string {
 	return cmp.Or(unsafeWord.ReplaceAllString(short(commit), "?"), "its content")
@@ -76,7 +98,7 @@ func (r *runner) conflict(goals *[]string, s fleet.Skills, name string, e fleet.
 	if f := strings.Fields(r.scopeArg); len(f) == 2 && f[0] == "--project" {
 		project = unsafeWord.ReplaceAllString(f[1], "?")
 	}
-	goal := fmt.Sprintf("Reconcile the skill %[1]s of the %[2]s scope: its copy was edited here and its source moved from %[3]s to %[4]s. Save the edited folder outside the skills roots, delete %[1]s from every skills root of the scope, run %[5]s skills update %[6]s%[1]s, apply the saved edit to the new copy, then run %[5]s skills propose %[6]s%[1]s and stop at the pull request it prints; if the edit is no longer wanted, stop after the update.", name, s.Scope, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg)
+	goal := fmt.Sprintf("Reconcile the skill %[1]s of the %[2]s scope: its copy was edited here and its source moved from %[3]s to %[4]s. Save the edited folder outside the skills roots, delete %[1]s from every skills root of the scope, run %[5]s skills add %[6]s%[7]s, apply the saved edit to the new copy, then run %[5]s skills propose %[6]s%[1]s and stop at the pull request it prints; if the edit is no longer wanted, stop after the add.", name, s.Scope, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, addArgs(name, e))
 	*goals = append(*goals, fmt.Sprintf("`%s task add --goal \"%s\" %s \"Reconcile skill %s\"`", hand, goal, project, name))
 	return fmt.Errorf("%w: %s is a conflict: changed here and moved at its source (%s to %s); nothing updated; reconcile first, then `%s skills propose %s%s`; the help line has the task to hand a worker", state.ErrConflict, name, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, name)
 }

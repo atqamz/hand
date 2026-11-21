@@ -22,6 +22,8 @@ type proposal struct {
 	repo, clone, branch, stat, commit string
 }
 
+func (p proposal) url() string { return "https://github.com/" + p.repo + ".git" }
+
 func cmdSkillsPropose(r *runner, args []string) error {
 	s, rest, err := r.skillScope("propose", args, 1, nil)
 	if err != nil {
@@ -74,7 +76,7 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 	switch probe.state {
 	case "edited":
 	case "conflict":
-		return proposal{}, fmt.Errorf("%w: %s is a conflict, changed here and moved at its source; nothing proposed; reconcile first: `%s skills sync %s` prints the task for it", state.ErrConflict, name, r.env.command(), r.scopeArg)
+		return proposal{}, fmt.Errorf("%w: %s is a conflict, changed here and moved at its source; nothing proposed; reconcile first: `%s` prints the task for it", state.ErrConflict, name, strings.TrimSpace(r.env.command()+" skills sync "+r.scopeArg))
 	default:
 		return proposal{}, fmt.Errorf("%w: %s is %s, not edited here; there is nothing to propose", state.ErrConflict, name, probe.state)
 	}
@@ -92,6 +94,11 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 		return proposal{}, c.err
 	}
 	p := proposal{repo: m[1], clone: c.repo, commit: c.commit, branch: proposeBranch + name + "-" + sum[:8]}
+	if out, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "ls-remote", "--heads", "--", p.url(), "refs/heads/"+p.branch); err != nil {
+		return proposal{}, err
+	} else if strings.TrimSpace(out) != "" {
+		return proposal{}, fmt.Errorf("%w: this edit of %s was already proposed: the branch %s is on %s; open its pull request, or delete the branch to propose again", state.ErrConflict, name, p.branch, p.repo)
+	}
 	if _, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "checkout", "--quiet", "-b", p.branch); err != nil {
 		return proposal{}, err
 	}
@@ -138,7 +145,7 @@ func (r *runner) pushProposal(name string, p proposal) (string, error) {
 	if _, err := gitcfg.RunBoundedHooks(ctx, p.clone, skillGitTimeout, "commit", "--quiet", "-m", title); err != nil {
 		return "", fmt.Errorf("commit: %w; the commit uses your git identity (user.name, user.email) and your hooks and signing settings, and Hand changes none of them", err)
 	}
-	if _, err := gitcfg.RunBoundedHooks(ctx, p.clone, skillGitTimeout, "push", "--quiet", "--", "https://github.com/"+p.repo+".git", "HEAD:refs/heads/"+p.branch); err != nil {
+	if _, err := gitcfg.RunBoundedHooks(ctx, p.clone, skillGitTimeout, "push", "--quiet", "--", p.url(), "HEAD:refs/heads/"+p.branch); err != nil {
 		return "", err
 	}
 	body := fmt.Sprintf("Edited copy of %s, sent by `hand skills propose`. Based on %s.\n\n```\n%s```\n", name, p.commit, p.stat)

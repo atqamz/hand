@@ -4,16 +4,22 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/fleet"
 )
 
-const prURL = "https://github.com/atqamz/skills/pull/7"
+const prURL = "https://github.com/acme/hub/pull/7"
+
+var ownRepoName = strings.TrimSuffix(strings.TrimPrefix(skillsURL, "https://github.com/"), ".git")
 
 func ghMain(args []string) int {
 	p := fakebin.Params()
@@ -34,6 +40,7 @@ type proposeFixture struct {
 	tmp  string
 	log  string
 	bin  string
+	cfg  string
 	head string
 }
 
@@ -47,7 +54,8 @@ func newProposeFixture(t *testing.T, gitConfig string) *proposeFixture {
 		"skills/other/SKILL.md":         skillFiles("other", "v1")["SKILL.md"],
 	})
 	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	text := "[url \"file://" + filepath.ToSlash(f.hub.bare) + "\"]\n\tinsteadOf = " + skillsURL + "\n[user]\n\tname = Pat Author\n\temail = pat@example.com\n" + gitConfig
+	f.cfg = cfg
+	text := "[url \"file://" + filepath.ToSlash(f.hub.bare) + "\"]\n\tinsteadOf = " + skillsURL + "\n[url \"file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "no-such-host")) + "/\"]\n\tinsteadOf = https://github.com/\n[user]\n\tname = Pat Author\n\temail = pat@example.com\n" + gitConfig
 	if err := os.WriteFile(cfg, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +67,18 @@ func newProposeFixture(t *testing.T, gitConfig string) *proposeFixture {
 	f.h.vars["PATH"] = f.bin
 	f.head = f.refs()["refs/heads/main"]
 	return f
+}
+
+func (f *proposeFixture) route(from string, bare string) {
+	f.t.Helper()
+	text, err := os.ReadFile(f.cfg)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	text = append(text, "[url \"file://"+filepath.ToSlash(bare)+"\"]\n\tinsteadOf = "+from+"\n"...)
+	if err := os.WriteFile(f.cfg, text, 0o644); err != nil {
+		f.t.Fatal(err)
+	}
 }
 
 func (f *proposeFixture) refs() map[string]string {
@@ -135,7 +155,7 @@ func TestSkillsProposeCommitsTheEditedFolderAndOpensAPullRequest(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(readSkill(t, f.log))), &argv); err != nil {
 		t.Fatalf("gh log: %v", err)
 	}
-	if len(argv) != 10 || strings.Join(argv[:7], " ") != "pr create --repo atqamz/skills --head "+branch+" --title" || argv[7] != "skills: update triage" || argv[8] != "--body" {
+	if len(argv) != 10 || strings.Join(argv[:7], " ") != "pr create --repo "+ownRepoName+" --head "+branch+" --title" || argv[7] != "skills: update triage" || argv[8] != "--body" {
 		t.Fatalf("gh argv = %q", argv)
 	}
 	for _, want := range []string{"hand skills propose", "skills/triage/SKILL.md", "3 files changed", "skills/triage/references/a.md", "skills/triage/scripts/new.sh"} {
@@ -187,7 +207,13 @@ func TestSkillsProposeRefusals(t *testing.T) {
 		tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 		return "file://" + filepath.ToSlash(tool.bare)
 	}
-	target := map[string]string{"a skill Hand does not manage": "nothing", "a local source": "notes", "a git source that is not on GitHub": "tool-skill"}
+	routed := func(f *proposeFixture, from string) {
+		tool := newSkillRemote(f.t, filepath.Join(f.t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+		f.route(from, tool.bare)
+		f.h.ok("skills", "add", "--fleet", from)
+		f.edit("tool-skill")
+	}
+	target := map[string]string{"a skill Hand does not manage": "nothing", "a local source": "notes", "a git source that is not on GitHub": "tool-skill", "a GitHub-shaped URL on another host": "tool-skill", "a host that only starts with github.com": "tool-skill", "an ssh URL": "tool-skill"}
 	for _, tc := range []refusal{
 		{"a clean copy", 3, "triage is current, not edited", func(f *proposeFixture) {
 			f.h.ok("skills", "add", "--fleet", "triage")
@@ -218,6 +244,15 @@ func TestSkillsProposeRefusals(t *testing.T) {
 		{"a git source that is not on GitHub", 2, "which is not a GitHub repository", func(f *proposeFixture) {
 			f.h.ok("skills", "add", "--fleet", toolURL(t))
 			f.edit("tool-skill")
+		}},
+		{"a GitHub-shaped URL on another host", 2, "which is not a GitHub repository", func(f *proposeFixture) {
+			routed(f, "https://git.example.test/acme/tool-skill.git")
+		}},
+		{"a host that only starts with github.com", 2, "which is not a GitHub repository", func(f *proposeFixture) {
+			routed(f, "https://github.com.example.test/acme/tool-skill.git")
+		}},
+		{"an ssh URL", 2, "which is not a GitHub repository", func(f *proposeFixture) {
+			routed(f, "git@github.com:acme/tool-skill.git")
 		}},
 		{"no gh on PATH", 2, "propose opens its pull request with `gh pr create`", func(f *proposeFixture) {
 			f.h.ok("skills", "add", "--fleet", "triage")
@@ -330,7 +365,7 @@ func TestSkillsDriftStatesInListUpdateAndSync(t *testing.T) {
 	if code != 3 || row(out, "clash") == "" || !strings.HasPrefix(row(out, "clash"), "clash,conflict,") || !strings.Contains(row(out, "clash"), "reconcile first") || !strings.Contains(errOut, "1 skill(s) not synced") {
 		t.Fatalf("sync of a conflict: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
-	for _, want := range []string{"`hand task add --goal \"Reconcile the skill clash of the fleet scope", old[:12] + " to " + moved[:12], "hand skills update --fleet clash", "hand skills propose --fleet clash", "\" PROJECT \"Reconcile skill clash\"`"} {
+	for _, want := range []string{"`hand task add --goal \"Reconcile the skill clash of the fleet scope", old[:12] + " to " + moved[:12], "hand skills add --fleet --ref main clash", "hand skills propose --fleet clash", "\" PROJECT \"Reconcile skill clash\"`"} {
 		if !strings.Contains(goal, want) {
 			t.Errorf("the task line lacks %q: %q", want, goal)
 		}
@@ -350,5 +385,203 @@ func TestSkillsDriftStatesInListUpdateAndSync(t *testing.T) {
 	}
 	if left := tempLeft(t, f.tmp); len(left) != 0 {
 		t.Fatalf("temp folders left: %q", left)
+	}
+}
+
+func (f *proposeFixture) proposeAfterEdit(name string) (string, string) {
+	f.t.Helper()
+	f.h.ok("skills", "add", "--fleet", name)
+	f.edit(name)
+	out := f.h.ok("skills", "propose", "--fleet", name)
+	if !strings.Contains(out, name+",proposed,") {
+		f.t.Fatalf("propose = %q", out)
+	}
+	for ref := range f.refs() {
+		if rest, ok := strings.CutPrefix(ref, "refs/heads/hand-skills/"); ok {
+			return strings.TrimPrefix(ref, "refs/heads/"), rest
+		}
+	}
+	f.t.Fatalf("no proposal branch: %v", f.refs())
+	return "", ""
+}
+
+func TestSkillsProposeRefusesARepeatBeforeItPushesOrOpensAnotherPullRequest(t *testing.T) {
+	f := newProposeFixture(t, "")
+	branch, _ := f.proposeAfterEdit("triage")
+	refs := f.refs()
+	logBefore := readSkill(t, f.log)
+	_, errOut, code := f.h.run("skills", "propose", "--fleet", "triage")
+	if code != 3 || !strings.Contains(errOut, "already proposed") || !strings.Contains(errOut, branch) || strings.Contains(errOut, "hint:") {
+		t.Fatalf("repeat: code=%d stderr=%q", code, errOut)
+	}
+	if got := f.refs(); !maps.Equal(got, refs) {
+		t.Fatalf("a repeat changed the source: %v, was %v", got, refs)
+	}
+	if readSkill(t, f.log) != logBefore {
+		t.Fatal("a repeat ran gh again")
+	}
+	if left := tempLeft(t, f.tmp); len(left) != 0 {
+		t.Fatalf("temp folders left: %q", left)
+	}
+}
+
+func TestSkillsProposeNeverForcesAPush(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the git wrapper is a shell script")
+	}
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newProposeFixture(t, "")
+	branch, _ := f.proposeAfterEdit("triage")
+	planted := skillGit(t, f.hub.bare, "commit-tree", "-m", "planted", "main^{tree}")
+	skillGit(t, f.hub.bare, "update-ref", "refs/heads/"+branch, planted)
+	wrap, hide := t.TempDir(), filepath.Join(t.TempDir(), "hide-ls-remote")
+	script := "#!/bin/sh\ncase \"$*\" in *ls-remote*) [ -e '" + hide + "' ] && exit 0;; esac\nexec '" + realGit + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(wrap, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hide, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrap+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if out, errOut, code := f.h.run("skills", "propose", "--fleet", "triage"); code == 0 {
+		t.Fatalf("a push over a diverged branch succeeded: %q", out)
+	} else if !strings.Contains(errOut, "push") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := f.refs()["refs/heads/"+branch]; got != planted {
+		t.Fatalf("the branch was overwritten: %s, was %s", got, planted)
+	}
+}
+
+func TestSkillsProposeCutsTheBranchFromThePinnedCommit(t *testing.T) {
+	f := newProposeFixture(t, "")
+	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+	url := "https://github.com/acme/tool-skill.git"
+	f.route(url, tool.bare)
+	f.h.ok("skills", "add", "--fleet", url)
+	pinned := skillState(t, f.h.home)["tool-skill"].Commit
+	moved := tool.commit(skillFiles("tool-skill", "v2"))
+	if pinned == "" || pinned == moved {
+		t.Fatalf("pinned %q, moved %q", pinned, moved)
+	}
+	f.edit("tool-skill")
+	out := f.h.ok("skills", "propose", "--fleet", "tool-skill")
+	if !strings.Contains(out, "tool-skill,proposed,") {
+		t.Fatalf("propose = %q", out)
+	}
+	var branch string
+	for line := range strings.Lines(skillGit(t, tool.bare, "for-each-ref", "--format=%(refname)", "refs/heads/hand-skills/")) {
+		branch = strings.TrimSpace(line)
+	}
+	if branch == "" {
+		t.Fatal("no proposal branch on the source")
+	}
+	if got := skillGit(t, tool.bare, "log", "-1", "--format=%P", branch); got != pinned {
+		t.Fatalf("the branch is cut from %s, want the pinned commit %s", got, pinned)
+	}
+	if got := skillGit(t, tool.bare, "rev-parse", "main"); got != moved {
+		t.Fatalf("main = %s, want %s", got, moved)
+	}
+	var argv []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(readSkill(t, f.log))), &argv); err != nil || strings.Join(argv[:3], " ") != "pr create --repo" || argv[3] != "acme/tool-skill" {
+		t.Fatalf("gh argv = %q, %v", argv, err)
+	}
+}
+
+func followReconcile(t *testing.T, h *harness, goalLine string) (propose []string) {
+	t.Helper()
+	add := regexp.MustCompile(`run (\S+ skills add [^,]+),`).FindStringSubmatch(goalLine)
+	prop := regexp.MustCompile(`then run (\S+ skills propose .+?) and stop`).FindStringSubmatch(goalLine)
+	if add == nil || prop == nil {
+		t.Fatalf("the pasted goal has no add and propose step: %q", goalLine)
+	}
+	if out := h.ok(strings.Fields(add[1])[1:]...); !strings.Contains(out, "triage,added,") {
+		t.Fatalf("the add step = %q", out)
+	}
+	return strings.Fields(prop[1])[1:]
+}
+
+func goalOf(out string) string {
+	for line := range strings.Lines(out) {
+		if strings.Contains(line, "task add --goal") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+func TestSkillsReconcileGoalWorksStepByStep(t *testing.T) {
+	for _, scope := range []string{"fleet", "project"} {
+		t.Run(scope, func(t *testing.T) {
+			f := newProposeFixture(t, "")
+			h, base, root, flags := f.h, f.h.home, ".claude", []string{"--fleet"}
+			if scope == "project" {
+				h, base = projectHarness(t)
+				h.vars["PATH"] = f.bin
+				root, flags = ".agents", []string{"--project", "app"}
+			}
+			h.ok(append([]string{"skills", "add"}, append(flags, "triage")...)...)
+			path := skillPath(base, root, "triage")
+			mine := readSkill(t, path) + "\nmy own line\n"
+			if err := os.WriteFile(path, []byte(mine), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			moved := f.hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"]})
+			out, _, code := h.run(append([]string{"skills", "sync"}, append(flags, "triage")...)...)
+			if code != 3 {
+				t.Fatalf("sync of a conflict: code=%d stdout=%q", code, out)
+			}
+			saved := t.TempDir()
+			if err := os.WriteFile(filepath.Join(saved, "SKILL.md"), []byte(mine), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range fleet.SkillRoots {
+				if err := os.RemoveAll(filepath.Dir(skillPath(base, r, "triage"))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			propose := followReconcile(t, h, goalOf(out))
+			fresh := readSkill(t, path)
+			if !strings.Contains(fresh, "v2") || strings.Contains(fresh, "my own line") {
+				t.Fatalf("the add did not restore the new copy: %q", fresh)
+			}
+			if r := row(h.ok(append([]string{"skills", "outdated"}, flags...)...), "triage"); !strings.HasPrefix(r, "triage,current,") {
+				t.Fatalf("after the add = %q", r)
+			}
+			if err := os.WriteFile(path, []byte(fresh+"\nmy own line\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if out := h.ok(propose...); !strings.Contains(out, "triage,proposed,") {
+				t.Fatalf("the propose step = %q", out)
+			}
+			for ref, id := range f.refs() {
+				if strings.HasPrefix(ref, "refs/heads/hand-skills/triage-") {
+					if got := skillGit(t, f.hub.bare, "log", "-1", "--format=%P", id); got != moved {
+						t.Fatalf("the proposal is cut from %s, want %s", got, moved)
+					}
+					return
+				}
+			}
+			t.Fatalf("no proposal branch: %v", f.refs())
+		})
+	}
+}
+
+func TestSkillsProposeConflictHelpNamesTheSyncCommandWithoutAScopeFlag(t *testing.T) {
+	f := newProposeFixture(t, "")
+	h, repo := projectHarness(t)
+	h.vars["PATH"] = f.bin
+	h.ok("skills", "add", "triage")
+	path := skillPath(repo, ".agents", "triage")
+	if err := os.WriteFile(path, []byte(readSkill(t, path)+"\nproject edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"]})
+	_, errOut, code := h.run("skills", "propose", "triage")
+	if code != 3 || !strings.Contains(errOut, "reconcile first: `hand skills sync` prints") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
