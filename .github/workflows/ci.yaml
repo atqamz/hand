@@ -456,3 +456,17 @@ jobs:
     uses: ./.github/workflows/setup.yaml
     with:
       tag: edge
+
+  gate:
+    name: "[CI] Gate"
+    needs: [test-linux, test-macos, test-windows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            test "$r" = success || { echo "need result: $r"; exit 1; }
+          done
