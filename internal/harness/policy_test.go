@@ -332,3 +332,35 @@ func TestPolicyReadsTheWorkerCompactPercent(t *testing.T) {
 		t.Fatalf("an empty policy marshals as %s, %v; want no worker key", b, err)
 	}
 }
+
+func TestPolicyReadsTheWorkerCompactTokens(t *testing.T) {
+	for body, want := range map[string]int64{
+		`{}`:                                   0,
+		`{"worker":{"compact_tokens":0}}`:      0,
+		`{"worker":{"compact_tokens":120000}}`: 120000,
+		`{"worker":{"compact_tokens":200000}}`: 200000,
+		`{"worker":{"compact_percent":0,"compact_tokens":200000}}`: 200000,
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Worker.CompactTokens != want {
+			t.Fatalf("policy %s: compact_tokens = %d, %v; want %d", body, p.Worker.CompactTokens, err, want)
+		}
+	}
+	for _, body := range []string{
+		`{"worker":{"compact_tokens":119999}}`,
+		`{"worker":{"compact_tokens":1}}`,
+		`{"worker":{"compact_tokens":-1}}`,
+		`{"worker":{"compact_tokens":"200000"}}`,
+		`{"worker":{"compact_tokens":200000.5}}`,
+	} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "compact_tokens") {
+			t.Fatalf("policy %s err = %v", body, err)
+		}
+	}
+}
+
+func TestPolicyRefusesBothCompactKeys(t *testing.T) {
+	_, err := LoadPolicy(writePolicy(t, `{"worker":{"compact_percent":20,"compact_tokens":200000}}`))
+	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "compact_percent and worker.compact_tokens") {
+		t.Fatalf("err = %v; want both keys refused", err)
+	}
+}

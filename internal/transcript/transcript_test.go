@@ -193,14 +193,6 @@ func TestUnknownAndUnreadableRecords(t *testing.T) {
 	}
 }
 
-func TestClaudeWindows(t *testing.T) {
-	for model, want := range map[string]int64{"claude-opus-5-5": 1_000_000, "claude-sonnet-5-5": 1_000_000, "claude-fable-5-1": 1_000_000, "claude-haiku-4-5-20251001": 200_000, "gpt-6": 0, "": 0} {
-		if got := claudeWindow(model); got != want {
-			t.Errorf("claudeWindow(%q) = %d, want %d", model, got, want)
-		}
-	}
-}
-
 // follow reads through a 4 KiB bufio buffer, so a read asks for at most that;
 // 64 KiB leaves room for a chunked reader while failing a whole-file load,
 // and both fixtures are over 24 MiB.

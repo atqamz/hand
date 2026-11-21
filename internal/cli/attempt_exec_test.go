@@ -796,6 +796,44 @@ func TestAttemptLaunchPassesTheCompactPercentOnlyToAClaudeWorker(t *testing.T) {
 	}
 }
 
+func TestAttemptLaunchTurnsCompactTokensIntoAPercentForTheModel(t *testing.T) {
+	const name = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+	for _, tc := range []struct {
+		name, model, routing, want, warn string
+	}{
+		{"sonnet on a 1M window", "sonnet", `{"worker":{"compact_tokens":200000}}`, "20", ""},
+		{"full id", "claude-opus-5-5", `{"worker":{"compact_tokens":150000}}`, "15", ""},
+		{"haiku keeps a percent over its baseline", "haiku", `{"worker":{"compact_tokens":150000}}`, "75", ""},
+		{"threshold over the window limit", "claude-haiku-4-5", `{"worker":{"compact_tokens":190000}}`, "90", "worker.compact_tokens"},
+		{"unknown model", "m", `{"worker":{"compact_tokens":200000}}`, "90", "worker.compact_tokens"},
+		{"percent alone", "m", `{"worker":{"compact_percent":60}}`, "60", ""},
+		{"both keys make the file invalid", "sonnet", `{"worker":{"compact_percent":60,"compact_tokens":200000}}`, "90", "worker.compact_tokens"},
+		{"under the floor makes the file invalid", "sonnet", `{"worker":{"compact_tokens":100000}}`, "90", "worker.compact_tokens"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			t.Setenv("HAND_TEST_AS_HAND", "1")
+			fx.rt.env = append(fx.rt.env, name+"=90")
+			if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(tc.routing), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(t.TempDir(), "env")
+			dir := t.TempDir()
+			fakebin.Install(t, dir, "claude", "env", map[string]string{"out": out})
+			fx.h.vars["PATH"] = dir
+			started := fx.h.ok("attempt", "start", "--harness", "claude", "--model", tc.model, "--effort", "low", "--prompt-file", fx.brief, "t1")
+			if got := strings.Count(started, "worker.compact_tokens"); got != min(len(tc.warn), 1) {
+				t.Errorf("start output %q; want %d warn naming worker.compact_tokens, got %d", started, min(len(tc.warn), 1), got)
+			}
+
+			eventually(t, func() bool { return envWritten(out) })
+			if env, _ := readScratchEnv(t, out); env[name] != tc.want {
+				t.Errorf("%s = %q, want %q", name, env[name], tc.want)
+			}
+		})
+	}
+}
+
 func TestAttemptStartWarnsAndGoesWithoutABadCompactPercent(t *testing.T) {
 	fx := newAttemptFixture(t)
 	t.Setenv("HAND_TEST_AS_HAND", "1")

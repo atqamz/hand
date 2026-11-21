@@ -56,7 +56,8 @@ type Policy struct {
 		Interrupt      bool  `json:"interrupt,omitempty"`
 	} `json:"supervisor,omitzero"`
 	Worker struct {
-		CompactPercent int `json:"compact_percent,omitempty"`
+		CompactPercent int   `json:"compact_percent,omitempty"`
+		CompactTokens  int64 `json:"compact_tokens,omitempty"`
 	} `json:"worker,omitzero"`
 }
 
@@ -238,6 +239,12 @@ func LoadPolicy(home string) (Policy, error) {
 	}
 	if p.Worker.CompactPercent < 0 || p.Worker.CompactPercent > 100 {
 		return Policy{}, fmt.Errorf("%w: %s: worker.compact_percent is %d; give a percentage from 0 to 100 (0 is off), or leave it out", state.ErrInvalid, path, p.Worker.CompactPercent)
+	}
+	if p.Worker.CompactTokens != 0 && p.Worker.CompactTokens < MinCompactTokens {
+		return Policy{}, fmt.Errorf("%w: %s: worker.compact_tokens is %d; give a token count of %d or more (a lower one would compact a worker again and again), or leave it out", state.ErrInvalid, path, p.Worker.CompactTokens, MinCompactTokens)
+	}
+	if p.Worker.CompactPercent != 0 && p.Worker.CompactTokens != 0 {
+		return Policy{}, fmt.Errorf("%w: %s: worker.compact_percent and worker.compact_tokens are both set; keep one", state.ErrInvalid, path)
 	}
 	if p.Removed != nil {
 		return Policy{}, fmt.Errorf("%w: %s: \"profiles\" was removed; delete the key and start workers with --harness, --model and --effort (see docs/update.md)", state.ErrInvalid, path)
