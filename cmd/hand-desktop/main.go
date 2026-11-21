@@ -137,6 +137,8 @@ func main() {
 			return paths[0]
 		}
 		app.OnTitle = win.SetTitle
+		app.OnBadge = mygo.App.SetBadgeCount
+		app.OnFlash = win.FlashFrame
 		win.OnFocus(func() { app.SetFocused(true) })
 		win.OnBlur(func() { app.SetFocused(false) })
 		win.OnMinimize(func() { app.SetMinimized(true) })
