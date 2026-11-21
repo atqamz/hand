@@ -803,8 +803,11 @@ func TestAttemptLaunchTurnsCompactTokensIntoAPercentForTheModel(t *testing.T) {
 	}{
 		{"sonnet on a 1M window", "sonnet", `{"worker":{"compact_tokens":200000}}`, "20", ""},
 		{"full id", "claude-opus-5-5", `{"worker":{"compact_tokens":150000}}`, "15", ""},
-		{"haiku keeps a percent over its baseline", "haiku", `{"worker":{"compact_tokens":150000}}`, "75", ""},
+		{"haiku id keeps a percent over its baseline", "claude-haiku-4-5", `{"worker":{"compact_tokens":150000}}`, "75", ""},
+		{"haiku alias has no window", "haiku", `{"worker":{"compact_tokens":150000}}`, "90", "worker.compact_tokens"},
+		{"haiku 5.5 has no window", "claude-haiku-5-5", `{"worker":{"compact_tokens":150000}}`, "90", "worker.compact_tokens"},
 		{"threshold over the window limit", "claude-haiku-4-5", `{"worker":{"compact_tokens":190000}}`, "90", "worker.compact_tokens"},
+		{"threshold at the window limit", "claude-haiku-4-5", `{"worker":{"compact_tokens":167000}}`, "90", "worker.compact_tokens"},
 		{"unknown model", "m", `{"worker":{"compact_tokens":200000}}`, "90", "worker.compact_tokens"},
 		{"percent alone", "m", `{"worker":{"compact_percent":60}}`, "60", ""},
 		{"both keys make the file invalid", "sonnet", `{"worker":{"compact_percent":60,"compact_tokens":200000}}`, "90", "worker.compact_tokens"},
@@ -829,6 +832,39 @@ func TestAttemptLaunchTurnsCompactTokensIntoAPercentForTheModel(t *testing.T) {
 			eventually(t, func() bool { return envWritten(out) })
 			if env, _ := readScratchEnv(t, out); env[name] != tc.want {
 				t.Errorf("%s = %q, want %q", name, env[name], tc.want)
+			}
+		})
+	}
+}
+
+func TestAttemptLaunchIgnoresCompactTokensForANonClaudeWorker(t *testing.T) {
+	const name = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+	for _, harnessName := range []string{"codex", "omp", "agy", "copilot"} {
+		t.Run(harnessName, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			t.Setenv("HAND_TEST_AS_HAND", "1")
+			fx.rt.env = append(fx.rt.env, name+"=90")
+			if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{"worker":{"compact_tokens":200000}}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(t.TempDir(), "env")
+			dir := t.TempDir()
+			fakebin.Install(t, dir, harnessName, "env", map[string]string{"out": out})
+			fx.h.vars["PATH"] = dir
+			args := []string{"--effort", "low"}
+			if harnessName == "agy" {
+				args = nil
+			}
+			started := fx.h.ok(append([]string{"attempt", "start", "--harness", harnessName, "--model", "claude-sonnet-5-5"}, append(args, "--prompt-file", fx.brief, "t1")...)...)
+			if strings.Contains(started, "worker.compact_tokens") {
+				t.Errorf("start output %q names worker.compact_tokens", started)
+			}
+			eventually(t, func() bool { return envWritten(out) })
+			if env, _ := readScratchEnv(t, out); env[name] != "90" {
+				t.Errorf("%s = %q, want 90", name, env[name])
+			}
+			if slices.Contains(fx.rt.lastSent().Command, "--compact-percent") {
+				t.Errorf("wrapper has --compact-percent; command %q", fx.rt.lastSent().Command)
 			}
 		})
 	}

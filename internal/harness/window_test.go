@@ -20,15 +20,25 @@ func TestCompactPercentFromTokens(t *testing.T) {
 		{"sonnet", 200_000, 20},
 		{"sonnet[1m]", 200_000, 20},
 		{"opus", 150_000, 15},
+		{"opus[1m]", 150_000, 15},
+		{"fable", 200_000, 20},
+		{"fable[1m]", 200_000, 20},
 		{"claude-opus-5-5", 120_000, 12},
+		{"claude-opus-5-5[1m]", 150_000, 15},
+		{"claude-sonnet-5-5[1m]", 200_000, 20},
 		{"claude-fable-5-1", 199_999, 19},
-		{"claude-sonnet-5-5", 986_999, 98},
-		{"claude-sonnet-5-5", 987_000, 0},
+		{"claude-sonnet-5-5", 966_999, 96},
+		{"claude-sonnet-5-5", 967_000, 0},
+		{"claude-sonnet-5-5", 986_999, 0},
 		{"claude-haiku-4-5-20251001", 200_000, 0},
-		{"claude-haiku-4-5-20251001", 187_000, 0},
-		{"claude-haiku-4-5-20251001", 186_999, 93},
-		{"haiku", 120_000, 60},
-		{"haiku", 150_000, 75},
+		{"claude-haiku-4-5-20251001", 167_000, 0},
+		{"claude-haiku-4-5-20251001", 166_999, 83},
+		{"claude-haiku-4-5", 120_000, 60},
+		{"claude-haiku-4-5", 150_000, 75},
+		{"claude-haiku-4-5[1m]", 150_000, 75},
+		{"haiku", 150_000, 0},
+		{"haiku", 120_000, 0},
+		{"haiku[1m]", 150_000, 0},
 		{"claude-haiku-5-5", 150_000, 0},
 		{"gpt-6", 200_000, 0},
 		{"m", 200_000, 0},
@@ -44,21 +54,23 @@ func TestCompactPercentFromTokens(t *testing.T) {
 
 func TestHaikuPercentNeverSitsBelowTheBaseline(t *testing.T) {
 	const baseline = 52_000
-	for tokens := int64(MinCompactTokens); tokens < 200_000; tokens += 1_000 {
-		pct, err := CompactPercent("haiku", tokens)
-		if err == nil && int64(pct)*200_000/100 < baseline {
-			t.Fatalf("haiku at %d tokens gets %d%%, below the %d baseline", tokens, pct, baseline)
+	for tokens := int64(120_000); tokens < 167_000; tokens += 1_000 {
+		pct, err := CompactPercent("claude-haiku-4-5", tokens)
+		if err != nil || int64(pct)*200_000/100 < baseline {
+			t.Fatalf("haiku at %d tokens gets %d%%, %v; the baseline is %d", tokens, pct, err, baseline)
 		}
 	}
 }
 
 func TestCompactPercentNeverCompactsLaterThanAsked(t *testing.T) {
-	for _, model := range []string{"sonnet", "haiku"} {
-		window := ClaudeWindow(claudeAliasIDs[model])
-		for tokens := int64(MinCompactTokens); tokens < window-compactHeadroom; tokens += 997 {
-			pct, err := CompactPercent(model, tokens)
-			if err != nil || pct < 1 || pct > 99 || int64(pct)*window/100 > tokens {
-				t.Fatalf("%s at %d tokens = %d, %v", model, tokens, pct, err)
+	for _, tc := range []struct {
+		model  string
+		window int64
+	}{{"sonnet", 1_000_000}, {"claude-haiku-4-5", 200_000}} {
+		for tokens := int64(120_000); tokens < tc.window-33_000; tokens += 997 {
+			pct, err := CompactPercent(tc.model, tokens)
+			if err != nil || pct < 1 || pct > 99 || (tc.window-20_000)*int64(pct)/100 > tokens {
+				t.Fatalf("%s at %d tokens = %d, %v", tc.model, tokens, pct, err)
 			}
 		}
 	}
