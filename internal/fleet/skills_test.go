@@ -216,6 +216,14 @@ func TestUnmarkTouchesOnlyTheMetadataBlock(t *testing.T) {
 			"name: notes\ndescription: x\nmetadata:\n  managed-by: hand\n\n  owner: me",
 			"name: notes\ndescription: x\nmetadata:\n\n  owner: me",
 		},
+		"a description after a metadata block without the marker": {
+			"name: notes\nmetadata:\n  owner: me\ndescription: >\n  a test skill\n  managed-by: hand",
+			"name: notes\nmetadata:\n  owner: me\ndescription: >\n  a test skill\n  managed-by: hand",
+		},
+		"a blank line before the marker": {
+			"name: notes\ndescription: x\nmetadata:\n\n  managed-by: hand\n  owner: me",
+			"name: notes\ndescription: x\nmetadata:\n\n  owner: me",
+		},
 		"a marker that is the only field": {
 			"name: notes\ndescription: x\nmetadata:\n  managed-by: hand\n\nlicense: MIT",
 			"name: notes\ndescription: x\n\nlicense: MIT",

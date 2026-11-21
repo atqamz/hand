@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -213,7 +214,7 @@ func TestSkillsProposeRefusals(t *testing.T) {
 		f.h.ok("skills", "add", "--fleet", from)
 		f.edit("tool-skill")
 	}
-	target := map[string]string{"a skill Hand does not manage": "nothing", "a local source": "notes", "a git source that is not on GitHub": "tool-skill", "a GitHub-shaped URL on another host": "tool-skill", "a host that only starts with github.com": "tool-skill", "an ssh URL": "tool-skill"}
+	target := map[string]string{"a skill Hand does not manage": "nothing", "a local source": "notes", "a git source that is not on GitHub": "tool-skill", "a GitHub-shaped URL on another host": "tool-skill", "a host that only starts with github.com": "tool-skill", "an ssh URL": "tool-skill", "a URL that holds a GitHub URL after another prefix": "tool-skill", "a host one character off github.com": "tool-skill"}
 	for _, tc := range []refusal{
 		{"a clean copy", 3, "triage is current, not edited", func(f *proposeFixture) {
 			f.h.ok("skills", "add", "--fleet", "triage")
@@ -250,6 +251,12 @@ func TestSkillsProposeRefusals(t *testing.T) {
 		}},
 		{"a host that only starts with github.com", 2, "which is not a GitHub repository", func(f *proposeFixture) {
 			routed(f, "https://github.com.example.test/acme/tool-skill.git")
+		}},
+		{"a URL that holds a GitHub URL after another prefix", 2, "which is not a GitHub repository", func(f *proposeFixture) {
+			routed(f, "https://mirror.example.test/https://github.com/acme/tool-skill.git")
+		}},
+		{"a host one character off github.com", 2, "which is not a GitHub repository", func(f *proposeFixture) {
+			routed(f, "https://githubxcom/acme/tool-skill.git")
 		}},
 		{"an ssh URL", 2, "which is not a GitHub repository", func(f *proposeFixture) {
 			routed(f, "git@github.com:acme/tool-skill.git")
@@ -633,6 +640,34 @@ func TestSkillsProposeOpensThePullRequestAgainstTheBranchItTracks(t *testing.T) 
 	t.Fatal("no proposal branch")
 }
 
+func TestSkillsProposePassesABaseOnlyForATrackedBranch(t *testing.T) {
+	for _, kind := range []string{"branch", "tag", "commit"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newProposeFixture(t, "")
+			args := []string{"skills", "add", "--fleet"}
+			switch kind {
+			case "tag":
+				skillGit(t, f.hub.work, "tag", "v1")
+				skillGit(t, f.hub.work, "push", "-q", "origin", "v1")
+				args = append(args, "--ref", "v1")
+			case "commit":
+				args = append(args, "--ref", f.head)
+			}
+			f.h.ok(append(args, "triage")...)
+			f.edit("triage")
+			f.h.ok("skills", "propose", "--fleet", "triage")
+			var argv []string
+			if err := json.Unmarshal([]byte(strings.TrimSpace(readSkill(t, f.log))), &argv); err != nil {
+				t.Fatalf("gh argv = %q, %v", argv, err)
+			}
+			at := slices.Index(argv, "--base")
+			if kind == "branch" && (at < 0 || argv[at+1] != "main") || kind != "branch" && at >= 0 {
+				t.Fatalf("gh argv for a %s = %q", kind, argv)
+			}
+		})
+	}
+}
+
 func TestSkillsProposeRefusesFilesTheSourceIgnores(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.hub.commit(map[string]string{".gitignore": "*.log\n"})
@@ -708,5 +743,56 @@ func TestSkillsReconcileGoalResolvesAProjectRelativeSource(t *testing.T) {
 	}
 	if code != 3 || !strings.Contains(goal, want) {
 		t.Fatalf("code=%d goal=%q, want %q", code, goal, want)
+	}
+}
+
+func TestSkillsReconcileGoalOfAThirdPartySource(t *testing.T) {
+	const github = "https://github.com/acme/tool-skill.git"
+	for _, tc := range []struct {
+		name, url string
+		plant     func(skills map[string]map[string]any)
+		want      []string
+		not       []string
+	}{
+		{"a GitHub source with a ref", github, nil, []string{"skills add --fleet --ref main " + github + ",", "then run hand skills propose --fleet tool-skill and stop"}, nil},
+		{"a source that is not on GitHub", "file://", nil, []string{"then stop: propose takes only a GitHub source"}, []string{"skills propose"}},
+		{"a subscription with no ref", github, func(skills map[string]map[string]any) { skills["tool-skill"]["ref"] = "" }, []string{"skills add --fleet " + github + ","}, []string{"--ref"}},
+		{"a source that starts with a dash", "--upload-pack=x", nil, []string{"skills add --fleet --ref main SOURCE,"}, []string{"--upload-pack"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProposeFixture(t, "")
+			tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+			url := cmp.Or(strings.TrimPrefix(tc.url, "file://"), "file://"+filepath.ToSlash(tool.bare))
+			if strings.HasPrefix(tc.url, "file://") {
+				f.h.ok("skills", "add", "--fleet", "--ref", "main", url)
+			} else {
+				f.route(github, tool.bare)
+				f.h.ok("skills", "add", "--fleet", "--ref", "main", github)
+			}
+			if tc.url == "--upload-pack=x" {
+				f.route(tc.url, tool.bare)
+				editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) { skills["tool-skill"]["sourceUrl"] = tc.url })
+			}
+			if tc.plant != nil {
+				editJSON(t, filepath.Join(f.h.home, "skills.json"), tc.plant)
+			}
+			f.edit("tool-skill")
+			tool.commit(skillFiles("tool-skill", "v2"))
+			out, _, code := f.h.run("skills", "sync", "--fleet", "tool-skill")
+			goal := goalOf(out)
+			if code != 3 || goal == "" {
+				t.Fatalf("code=%d stdout=%q", code, out)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(goal, want) {
+					t.Errorf("the goal lacks %q: %q", want, goal)
+				}
+			}
+			for _, not := range tc.not {
+				if strings.Contains(goal, not) {
+					t.Errorf("the goal has %q: %q", not, goal)
+				}
+			}
+		})
 	}
 }
