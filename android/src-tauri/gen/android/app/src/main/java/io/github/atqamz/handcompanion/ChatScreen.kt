@@ -182,7 +182,7 @@ private fun SupervisorBubble(
 }
 
 @Composable
-private fun OperatorBubble(entry: ChatEntry, zone: TimeZone) {
+private fun OperatorBubble(entry: ChatEntry, fleet: String, zone: TimeZone) {
   val hand = LocalHand.current
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
     Box(Modifier.fillMaxWidth(0.88f), contentAlignment = Alignment.CenterEnd) {
@@ -195,7 +195,9 @@ private fun OperatorBubble(entry: ChatEntry, zone: TimeZone) {
           .padding(14.dp, 10.dp, 14.dp, 12.dp)
       ) {
         MessageHead(entry.entry, true, zone)
-        if (entry.entry.text.isNotEmpty()) {
+        if (entry.entry.shots.isNotEmpty()) {
+          AttachedBody(fleet, entry.entry.text, entry.entry.shots)
+        } else if (entry.entry.text.isNotEmpty()) {
           Text(shown(entry.entry.text), style = type.bodyMedium)
         }
       }
@@ -324,7 +326,7 @@ private fun ChatRowView(
     is ChatRow.Wakes ->
       WakesLine(row.entry, zone, row.key in open) { onToggle(row.key) }
     is ChatRow.Message ->
-      if (row.mine) OperatorBubble(row.entry, zone)
+      if (row.mine) OperatorBubble(row.entry, fleet, zone)
       else SupervisorBubble(row.entry, fleet, zone, onTarget)
   }
 }

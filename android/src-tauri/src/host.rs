@@ -775,6 +775,35 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_request<'local>(
         .resolve::<LogErrorAndDefault>()
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_file<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    fleet: JString<'local>,
+    path: JString<'local>,
+) -> JByteArray<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let sent = catch_unwind(AssertUnwindSafe(|| {
+                send(
+                    env,
+                    &fleet,
+                    false,
+                    &path,
+                    &JString::null(),
+                    &JByteArray::null(),
+                )
+            }));
+            match sent {
+                Ok(Ok(response)) if response.status == 200 => {
+                    env.byte_array_from_slice(&response.body)
+                }
+                _ => Ok(JByteArray::null()),
+            }
+        })
+        .resolve::<LogErrorAndDefault>()
+}
+
 fn reply<'local>(
     env: &mut Env<'local>,
     answer: serde_json::Value,

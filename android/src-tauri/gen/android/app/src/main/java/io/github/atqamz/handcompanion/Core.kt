@@ -62,4 +62,6 @@ object Core {
     csrf: String?,
     body: ByteArray?
   ): String?
+
+  @JvmStatic external fun file(fleet: String, path: String): ByteArray?
 }

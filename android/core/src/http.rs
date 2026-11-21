@@ -813,6 +813,32 @@ mod tests {
     }
 
     #[test]
+    fn an_inbox_file_is_asked_for_by_its_name_and_its_bytes_come_back_whole() {
+        let request = Request::new(
+            Method::Get,
+            FLEET,
+            "/api/v1/inbox/20261121-101500-1-a.png",
+            Some(COOKIES),
+            None,
+            b"",
+        )
+        .unwrap();
+        assert!(
+            text(&request).starts_with(
+                "GET /f0123456789ab/api/v1/inbox/20261121-101500-1-a.png HTTP/1.1\r\n"
+            )
+        );
+        let bytes: Vec<u8> = (0..=255u8).cycle().take(10 << 20).collect();
+        let mut wire = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n",
+            bytes.len()
+        )
+        .into_bytes();
+        wire.extend_from_slice(&bytes);
+        assert_eq!(parse(&[&wire], MAX_BODY).unwrap().body, bytes);
+    }
+
+    #[test]
     fn a_request_that_could_leave_its_fleet_or_split_a_header_is_refused() {
         let new = |fleet: &str, path: &str, cookies: &str, csrf: Option<&str>| {
             Request::new(Method::Get, fleet, path, Some(cookies), csrf, b"").map(|_| ())

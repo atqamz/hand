@@ -294,6 +294,24 @@ newest operator `input` held at the send; a draft restored with that same text s
 message was sent." and checks the timeline before it posts, so the check survives the process. Any
 edit away from that text, a successful send or an empty draft removes the key.
 
+Attached files read from the operator entry's `shots` (`n`, `name`, `label`, `kind`, `size`, `image`,
+`missing`). `inlineParts` draws shot `n` where the text holds exactly `[attachment N]` (N from 1 to
+9999, no leading zero): a token with no shot stays text, the same N may stand several times and
+draws its shot at each, a shot no token names goes below the text, and the text between drawn
+tokens is trimmed, as the Desktop does. A picture comes from `Core.file`, `GET /api/v1/inbox/{name}`
+with the name percent-encoded as one path segment, under the fleet's cookie and the core's 16 MiB
+answer cap. It returns the bytes untouched, and `null` for any failure or status but 200, because
+`Core.request` carries the body as text and would corrupt a picture. `decodeBounded` reads the
+header first, refuses a source over 100 million pixels (a PNG of that size is small on disk and
+huge decoded) and decodes with the power-of-two `inSampleSize` that keeps the result at or under 2
+million pixels, 8 MB as ARGB_8888. `AttachmentLoader` keeps decoded pictures in a 16 MiB `LruCache`
+keyed by fleet and name, fetches two at a time and keeps nothing for a failure; a picture already
+held is drawn in the first frame, so scrolling back does not flash. A picture is drawn at most 280
+dp wide and 240 dp high. A file that is not an image, a `missing` shot, a picture still loading and
+one that failed ("could not load, tap to retry", which fetches again) are cards at the same place.
+A file is not opened or saved yet, and the app cannot attach one. Nothing here ran against a real
+Board or a phone: the JVM tests fake the file source.
+
 `TaskScreen` reads `GET /api/v1/task/{tN}` once when it opens, with the envelope's cursor on later
 reads, and shows the Board's phone column: the open decisions and unread reports waiting on the
 task first, then Delivered, Sub-tasks, Plan, Reports, Decisions, Attempts and Events. A section the
@@ -344,7 +362,7 @@ A blocked supervisor's item is a card: its last lines in the terminal box, **Scr
 sub-tasks, an inbox task, the card after Mark read, its loading frame and its error with Retry, each
 light and dark, a report with a list, a code block, a table and a quote before and after Mark read,
 its long body, its marking frame, a refused Mark read, its loading frame, its refused ref, its error
-with Retry and its not-paired frame, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the open failed, with Retry (`openFailedLight`, `openFailedDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), This Companion with one fleet, with several, with alerts off, with the Forget question and with two hosts (`oneFleet`, `severalFleets`, `alertsOff`, `forgetConfirm`, `hosts`), the fleet list with two hosts, with one dead, with every fleet of a host unpaired and with one fleet unpaired (`twoHosts`, `oneDeadHost`, `everyFleetUnpaired`, `oneFleetUnpaired`), the pairing confirmation for a new host and for a held one (`confirm`, `knownHost`, and `claimed` and `clash` for a link with a host name), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
+with Retry and its not-paired frame, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the open failed, with Retry (`openFailedLight`, `openFailedDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), This Companion with one fleet, with several, with alerts off, with the Forget question and with two hosts (`oneFleet`, `severalFleets`, `alertsOff`, `forgetConfirm`, `hosts`), the fleet list with two hosts, with one dead, with every fleet of a host unpaired and with one fleet unpaired (`twoHosts`, `oneDeadHost`, `everyFleetUnpaired`, `oneFleetUnpaired`), the pairing confirmation for a new host and for a held one (`confirm`, `knownHost`, and `claimed` and `clash` for a link with a host name), a conversation with pictures at their tokens, a file card and a missing file (`inlineLight`, `inlineDark`), the loading and failed picture cards (`cardsLight`, `cardsDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
 
 ## Native pairing
 
