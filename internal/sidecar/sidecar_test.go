@@ -299,7 +299,7 @@ func TestVerifyRefusesAnotherVersionAndAnythingThatIsNotTheSidecar(t *testing.T)
 		text    string
 	}{
 		"the pinned version": {"hand-iroh " + Version + " iroh 1.4.1", nil, ""},
-		"a newer one":        {"hand-iroh 0.2.0 iroh 1.4.1", ErrVersion, "is 0.2.0, but this hand needs " + Version},
+		"a newer one":        {"hand-iroh 0.3.0 iroh 1.4.1", ErrVersion, "is 0.3.0, but this hand needs " + Version},
 		"an older one":       {"hand-iroh 0.0.9 iroh 1.4.1", ErrVersion, "is 0.0.9"},
 		"another program":    {"luvus 0.14.3", ErrNotSidecar, `printed "luvus 0.14.3"`},
 		"no iroh version":    {"hand-iroh " + Version, ErrNotSidecar, "not `hand-iroh X.Y.Z iroh X.Y.Z`"},

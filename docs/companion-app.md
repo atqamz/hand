@@ -96,8 +96,41 @@ It prints one line, `ready id=ENDPOINTID relay=URL`, once it is online (it waits
 | `--secret-file PATH` | The file that holds the secret, `board.peer` in `~/.secondhand`: 16 to 128 printable characters without spaces. There is no flag or environment variable for the secret itself. |
 | `--key-dir DIR` | Where the endpoint's key lives: `hand-iroh.key`, 32 bytes, created on the first run, with mode 0600 in a folder made with mode 0700 on Linux and macOS. On Linux and macOS the sidecar refuses a key file that group or others can access (`chmod 600`) and a folder that they can write (`chmod go-w`). The first run creates the key exclusively, so two first runs agree on the one that wins, and it needs no hard links. The mode checks above still need a filesystem that reports POSIX modes. A leftover `hand-iroh.key.*.tmp` older than a minute, from a crash in an earlier first run, is deleted at the next start, and an incomplete `hand-iroh.key` is replaced at the next start: the start waits a second for a concurrent writer to finish and then makes a new key. Its ID stays the same across runs after that. Only a file shorter than 32 bytes is replaced; a longer one is kept and refused. Two starts that both find the same incomplete key at the same moment can each make a key, and the one that wrote last stays on disk, so the other run's ID is not kept; this needs a crash and an overlap of about 10 ms, and the next start settles on the key on disk. Delete the file to get a new ID. |
 | `--relay default\|none\|URL` | `default` uses the public relays the iroh project runs and publishes the endpoint's address to its DNS. A URL uses that relay instead of the public ones and publishes nowhere: no DNS record, no lookup, so a dialer needs the relay URL, which the ready line prints. `none` is for tests and trials on one machine: no relay, no DNS, no port mapping, and the sockets are bound to `127.0.0.1` only, so a Companion cannot reach it. |
+| `--bind ADDR` | Only with `--relay none`: the loopback address and UDP port the endpoint binds, `127.0.0.1:0` by default (a free port). It exists so a test knows the port a client dials with `--direct`; it is for tests and trials, and the `ready` line is unchanged. |
 | `--max-connections N` | Connections served at once, 1 to 1024. Default 16. Past that, dialers are refused before the handshake until one leaves. Handshakes in flight are counted apart, below. |
 | `--idle SECONDS` | 1 to 86400. Default 60. A stream that moves no byte for this long is reset, and a connection on which no byte has moved on any stream for this long is closed: opening or ending a stream moves no byte. |
+
+**Client mode.** `hand-iroh client` is the dialing side: it reaches a host's sidecar as the Hand app does, for a program on another machine that speaks HTTP to a loopback port. It opens one iroh endpoint with a key of its own and a TCP listener on `127.0.0.1`; each connection to that listener becomes one bidirectional stream to the host (ALPN `hand-board`), carrying the bytes unchanged. It speaks no HTTP and writes no [peer preface](vocabulary.md#peer-preface): the host's sidecar does, with this client's endpoint ID. Pairing, the cookie and the Board's answers are the caller's, as in [Hand's Companion contract](companion.md). Nothing in `hand` starts it yet.
+
+```sh
+tail -f /dev/null | hand-iroh client --host ENDPOINTID --key-dir DIR --new-key
+```
+
+| Flag | Meaning |
+|---|---|
+| `--host ENDPOINTID` | The host's endpoint ID, 64 lowercase hexadecimal characters: the `e` of a [companion link](vocabulary.md#companion-link). |
+| `--key-dir DIR` | Where this client's key lives, with the rules of the server's `--key-dir`. Use one folder per host: two clients on one key would fight for the relay, so a lock file `hand-iroh.lock` in the folder lets one client run at a time. A second one exits with 1. |
+| `--new-key` | Allows making the key when `hand-iroh.key` does not exist. Without it a missing key is exit 3, so a lost key never becomes a new identity by itself, which the host would answer as another device. An existing key is used either way. |
+| `--listen ADDR` | A loopback IPv4 address and port for the listener, `127.0.0.1:0` by default (a free port, printed on the first line). Anything else is refused. |
+| `--relay default\|none\|URL` | `default` finds the host through the public relays and DNS, publishing nothing about this client. A URL is the link's `r`: a hint to iroh for where the host's relay is. `none` is for tests and trials: no relay, no DNS, sockets on `127.0.0.1` only. |
+| `--direct ADDR` | Only with `--relay none`: the host's loopback UDP address, such as the one `--bind` gave a server. For tests and trials. |
+
+The client never receives a link, a pairing code or a fleet, and takes no flag for one: a code is a credential, and the command line is readable by every process of the user. Whoever starts it passes the endpoint ID and the relay, and redeems the code over the listener. Neither the code, a cookie nor any traffic is written to standard output or standard error.
+
+It prints `listening addr=127.0.0.1:PORT id=CLIENTID` once the listener and the endpoint are open, then `state NAME` on each change, and nothing else:
+
+| State | Meaning |
+|---|---|
+| `connecting` | A dial to the host has started. |
+| `connected` | A stream reached the host. The client dials only when a stream needs one, and does not say when the host closes an idle connection. |
+| `busy` | The host refused or closed the connection with code 1: it is full. The next dial waits. |
+| `unreachable` | No handshake in 20 seconds. |
+| `board_down` | The host's sidecar could not reach the Board twice in a row (code 3 on two streams, with no answer byte between). Any answer byte makes it `connected` again. |
+| `lost` | The host closed the connection, or a dial failed, with any other code. |
+
+A stream opens when the first bytes of a TCP connection are ready, never earlier, and at most 12 are open at once: the 13th waits for a free one. After a failed dial the next one waits 1 second, then 2, doubling to 30, plus up to 25 percent chosen from the clock, and the wait starts again from 1 second after a stream has moved bytes for 10 seconds. A TCP connection whose dial fails is closed, and its caller tries again.
+
+It stops, with exit 0, on `SIGTERM`, Ctrl-C or when its input closes. The other exits: 1 for a failure while running (the listener or the endpoint cannot open, or another client holds the key), 2 for a usage mistake, and 3 for a key problem: it is missing without `--new-key`, is not 32 bytes, or on Linux and macOS can be read by group or others (the same checks as the server's key). The last line on standard error is the reason.
 
 **What it decides, and what it does not.** It does not know who is paired. iroh admits any dialer that completes the handshake, and endpoint IDs are not secret, so every dialer reaches the peer listener, which serves an unpaired peer only `/<fleet id>/pair`, `/<fleet id>/api/v1/pair` (only a `POST` pairs) and the files the form loads, under its own byte, request and idle limits. The sidecar's limits bound what it spends. They do not tell a stranger from a paired Companion. iroh 1.4.1 has no limiter of its own (no per-address or per-handshake cap, no rate limit), so these are the sidecar's:
 
