@@ -61,7 +61,7 @@ To try it next to an older Hand, build it under another name such as `~/.local/b
 
 **Linux.** `~/.local/bin/hand`, `hand-iroh` and `hand-desktop`, and the launcher entry: `$XDG_DATA_HOME/applications/hand-desktop.desktop` and its icon `icons/hicolor/512x512/apps/hand-desktop.png`. An entry without the `X-Hand-Managed=true` line is not Hand's and is kept.
 
-**macOS.** `~/.local/bin/hand` and `hand-iroh`, and the bundle `~/Applications/Hand.app` with the window inside it. `hand-iroh` stays beside `hand`, never inside the bundle: code that runs from the bundle finds it by following `Hand.app/Contents/MacOS/hand`, a symlink to the installed `hand`. A bundle whose `Contents/Info.plist` has no `HandManaged` key is not Hand's and is kept.
+**macOS.** `~/.local/bin/hand` and `hand-iroh`, and the bundle `~/Applications/Hand.app` with the window inside it. `hand-iroh` stays beside `hand`, never inside the bundle: `sidecar.Locate` reaches it from a path inside the bundle through `Hand.app/Contents/MacOS/hand`, a symlink to the installed `hand`. A bundle whose `Contents/Info.plist` has no `HandManaged` key is not Hand's and is kept.
 
 **Windows.** `hand.exe`, `hand-iroh.exe` and `hand-desktop.exe` in the install folder (`%LOCALAPPDATA%\hand\bin` by default), `hand.ico`, the Start Menu shortcut `Hand.lnk`, every `*.old` file that `hand update` left, and the install folder's entry in your user `PATH`. A `Hand.lnk` whose description is not Hand's is kept.
 - A running program cannot delete its own file, so `hand.exe` is renamed to `hand.exe.old` and the command prints the one PowerShell line that deletes it; run it after the command has exited. Open a new terminal for the `PATH` change.
