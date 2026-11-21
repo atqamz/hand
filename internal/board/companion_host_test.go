@@ -42,6 +42,7 @@ type companionHost struct {
 	iroh      func() sidecar.Status
 	name      string
 	tick      time.Duration
+	zone      *time.Location
 }
 
 type counted struct {
@@ -169,7 +170,11 @@ func (p *companionHost) restart() {
 			p.mu.Lock()
 			p.opened[id]++
 			p.mu.Unlock()
-			opts := board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick, HostName: p.name}
+			z := p.zone
+			if z == nil {
+				z = time.UTC
+			}
+			opts := board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick, HostName: p.name, Zone: z}
 			b := board.New(f.st, f.token, opts)
 			if p.bare[id] {
 				return bare{b}, closer(func() error { return nil }), nil

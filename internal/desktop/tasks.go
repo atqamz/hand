@@ -185,7 +185,7 @@ func taskDay(at string) string {
 	if !ok {
 		return at
 	}
-	return t.UTC().Format("Jan 2")
+	return t.Format("Jan 2")
 }
 
 func taskProject(name string) string {

@@ -470,7 +470,7 @@ func (h *Host) retire(id string) {
 func hostPage(w http.ResponseWriter, status int, name string, data map[string]any) {
 	data["Base"] = ""
 	data["Fleet"] = "hand"
-	renderPage(w, status, name, data)
+	renderPage(w, pages, status, name, data)
 }
 
 func (h *Host) apiSignedIn(id string, r *http.Request) bool {

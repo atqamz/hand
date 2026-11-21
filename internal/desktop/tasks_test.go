@@ -13,6 +13,7 @@ import (
 
 func taskFixture(t *testing.T) *fixture {
 	t.Helper()
+	inUTC(t)
 	f := goldenFixture(t)
 	st := f.status[fleetID]
 	st.Projects = 2
@@ -505,4 +506,21 @@ func taskLongFixture(t *testing.T) *fixture {
 	}}}
 	f.tasks[fleetID] = ts
 	return f
+}
+
+func TestTheWaitDateFollowsTheHostZone(t *testing.T) {
+	for _, c := range []struct{ zone, date, not string }{
+		{"UTC", "Nov 20", "Nov 19"},
+		{"Asia/Jakarta", "Nov 20", "Nov 19"},
+		{"America/New_York", "Nov 19", "Nov 20"},
+		{"Asia/Kathmandu", "Nov 20", "Nov 19"},
+	} {
+		t.Run(c.zone, func(t *testing.T) {
+			f := taskFixture(t)
+			inZone(t, c.zone)
+			tt := sized(t, newApp(t, f), windowWidth, windowHeight, false)
+			mustText(t, tt, "Waits until "+c.date+": the API freeze")
+			mustNotText(t, tt, "Waits until "+c.not)
+		})
+	}
 }

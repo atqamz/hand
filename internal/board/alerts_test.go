@@ -387,6 +387,29 @@ func TestTheAlertsPageListsTheWeekWithItsReceipts(t *testing.T) {
 	}
 }
 
+func TestTheAlertsPageShowsItsTimesInTheBoardZone(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	p.tick = 10 * time.Millisecond
+	p.zone = zone(t, "Asia/Jakarta")
+	p.restart()
+	f := p.fleets[0]
+	raise(t, f, 4)
+	decode(t, p.feed(f, "?after=0"))
+	p.advance(4 * time.Second)
+	decode(t, p.feed(f, "?after=2"))
+	p.advance(90 * time.Second)
+	decode(t, p.feed(f, "?after=3"))
+	page := p.send("GET", "/"+f.id+"/alerts", nil, []*http.Cookie{p.host(f)}, nil).Body.String()
+	for _, want := range []string{"Oct 22 19:00 WIB", "Oct 22 19:01 WIB"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, "UTC") {
+		t.Error("the page shows a time in UTC")
+	}
+}
+
 func TestTheLargestPossibleResponseStaysUnder64KiB(t *testing.T) {
 	p := alertHost(t, "alpha")
 	f := p.fleets[0]

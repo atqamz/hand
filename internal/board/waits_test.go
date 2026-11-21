@@ -54,7 +54,7 @@ func TestAWaitingTaskLeavesTheFailedItemsAndComesBackWhenTheWaitFires(t *testing
 	attempt(t, st, waiting.ID, state.AttemptInterrupted, "pane gone")
 	flaky := active(t, st, "Flaky test")
 	attempt(t, st, flaky.ID, state.AttemptFailed, "boom")
-	h := board.New(st, token, board.Options{})
+	h := board.New(st, token, board.Options{Zone: time.UTC})
 	failures := func() []string {
 		t.Helper()
 		var refs []string
@@ -145,7 +145,7 @@ func TestTheTaskCardAndTheTasksRowSayWhenTheTaskWaits(t *testing.T) {
 	one := active(t, st, "Review outside PR")
 	two := active(t, st, "Write docs")
 	w := wait(t, st, one.ID, "outside PR")
-	h := board.New(st, token, board.Options{})
+	h := board.New(st, token, board.Options{Zone: time.UTC})
 	const line = `Waits until Sep 29: outside PR`
 	tasks := region(get(t, h, "/"), "tasks")
 	contains(t, "tasks row", tasks, line)
@@ -166,5 +166,5 @@ func TestAWaitWithNoNoteSaysOnlyWhen(t *testing.T) {
 	st, _ := clocked(t)
 	one := active(t, st, "Review outside PR")
 	wait(t, st, one.ID, "")
-	contains(t, "task card", get(t, board.New(st, token, board.Options{}), "/task/t1"), "Waits until Sep 29</span>")
+	contains(t, "task card", get(t, board.New(st, token, board.Options{Zone: time.UTC}), "/task/t1"), "Waits until Sep 29</span>")
 }

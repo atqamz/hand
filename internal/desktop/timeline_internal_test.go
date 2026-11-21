@@ -38,6 +38,9 @@ func TestDividersSitAboveTheFirstEntryOfEachDay(t *testing.T) {
 }
 
 func TestAConversationOfOneDayHasNoDividerAndKeepsItsDates(t *testing.T) {
+	local := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = local })
 	rows := timelineRows([]Entry{{No: 2, At: "2026-10-31T10:00:00Z"}, {No: 1, At: "2026-10-31T09:00:00Z"}})
 	if len(rows) != 2 || !rows[0].Dated || !rows[1].Dated {
 		t.Fatalf("rows = %+v", rows)
