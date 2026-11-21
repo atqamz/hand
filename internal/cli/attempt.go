@@ -134,6 +134,12 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if spec.Harness == "claude" {
 		if p, err := harness.LoadPolicy(r.home); err == nil {
 			compact = p.Worker.CompactPercent
+			if p.Worker.CompactTokens > 0 {
+				var perr error
+				if compact, perr = harness.CompactPercent(spec.Model, p.Worker.CompactTokens); perr != nil {
+					r.warn(fmt.Sprintf("the worker starts without worker.compact_tokens: %v", perr))
+				}
+			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			r.warn(fmt.Sprintf("the worker starts without worker.compact_percent: %v", err))
 		}
