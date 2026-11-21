@@ -8,7 +8,9 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -34,6 +36,18 @@ func trusted(s fleet.Skills, e fleet.Managed) bool {
 
 type probed struct{ state, commit, staged, sum string }
 
+func driftState(edited, behind bool) string {
+	switch {
+	case edited && behind:
+		return "conflict"
+	case edited:
+		return "edited"
+	case behind:
+		return "behind"
+	}
+	return "current"
+}
+
 func (r *runner) compare(s fleet.Skills, name string, e fleet.Managed) (probed, error) {
 	kind, _, err := s.Check(name, e)
 	if err != nil {
@@ -43,23 +57,69 @@ func (r *runner) compare(s fleet.Skills, name string, e fleet.Managed) (probed, 
 	if err != nil {
 		return probed{}, err
 	}
-	edited, moved := kind == "changed" || kind == "unmanaged", sum != e.ComputedHash
 	p := probed{commit: commit, staged: staged, sum: sum}
-	switch {
-	case edited && moved:
-		p.state = "conflict"
-	case edited:
-		p.state = "edited"
-	case moved || kind == "missing":
-		p.state = "behind"
-	default:
-		p.state = "current"
-	}
+	p.state = driftState(kind == "changed" || kind == "unmanaged", sum != e.ComputedHash || kind == "missing")
 	return p, nil
+}
+
+var (
+	unsafeWord   = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+	unsafeSource = regexp.MustCompile(`[^A-Za-z0-9._:/@+=-]`)
+)
+
+func addArgs(name string, e fleet.Managed) string {
+	src := e.Source
+	if !e.Local() {
+		src = e.URL()
+		if ownURL(src) && e.Path() == path.Join("skills", name) {
+			src = name
+		}
+	}
+	src = unsafeSource.ReplaceAllString(src, "?")
+	if strings.HasPrefix(src, "-") {
+		src = "?" + src[1:]
+	}
+	if e.Local() || e.Ref == "" {
+		return src
+	}
+	return "--ref " + unsafeSource.ReplaceAllString(e.Ref, "?") + " " + src
+}
+
+func commitWord(commit string) string {
+	return cmp.Or(unsafeWord.ReplaceAllString(short(commit), "?"), "its content")
+}
+
+func (r *runner) edited(name string) string {
+	return fmt.Sprintf("changed here since the copy, the source did not move; nothing updated; `%s skills propose %s%s` sends the edit to its source", r.env.command(), r.scopeArg, name)
+}
+
+func (r *runner) conflict(goals *[]string, s fleet.Skills, name string, e fleet.Managed, p probed) error {
+	hand, project := r.env.command(), "PROJECT"
+	if f := strings.Fields(r.scopeArg); len(f) == 2 && f[0] == "--project" {
+		project = unsafeWord.ReplaceAllString(f[1], "?")
+	}
+	goal := fmt.Sprintf("Reconcile the skill %[1]s of the %[2]s scope: its copy was edited here and its source moved from %[3]s to %[4]s. Save the edited folder outside the skills roots, delete %[1]s from every skills root of the scope, run %[5]s skills add %[6]s%[7]s, apply the saved edit to the new copy, then run %[5]s skills propose %[6]s%[1]s and stop at the pull request it prints; if the edit is no longer wanted, stop after the add.", name, s.Scope, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, addArgs(name, e))
+	*goals = append(*goals, fmt.Sprintf("`%s task add --goal \"%s\" %s \"Reconcile skill %s\"`", hand, goal, project, name))
+	return fmt.Errorf("%w: %s is a conflict: changed here and moved at its source (%s to %s); nothing updated; reconcile first, then `%s skills propose %s%s`; the help line has the task to hand a worker", state.ErrConflict, name, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, name)
+}
+
+func conflictHelp(d *toon.Doc, goals []string) {
+	for _, g := range goals {
+		d.Help("reconcile a conflict with a task: " + g)
+	}
 }
 
 func short(commit string) string {
 	return commit[:min(len(commit), 12)]
+}
+
+func (r *runner) driftRow(s fleet.Skills, name string, e fleet.Managed) (st, latest, detail string) {
+	p, err := r.compare(s, name, e)
+	if err != nil {
+		return "error", "", err.Error()
+	}
+	_ = os.RemoveAll(p.staged)
+	return p.state, p.commit, ""
 }
 
 func (r *runner) outdatedRows(s fleet.Skills, label string) ([][]string, error) {
@@ -74,14 +134,7 @@ func (r *runner) outdatedRows(s fleet.Skills, label string) ([][]string, error) 
 		if p := e.Path(); p != "" {
 			source += "#" + p
 		}
-		st, latest, detail := "error", "", ""
-		p, err := r.compare(s, name, e)
-		if err != nil {
-			detail = err.Error()
-		} else {
-			st, latest = p.state, p.commit
-			_ = os.RemoveAll(p.staged)
-		}
+		st, latest, detail := r.driftRow(s, name, e)
 		rows = append(rows, []string{name, st, label, source, e.Ref, e.Commit, latest, detail})
 	}
 	return rows, nil
@@ -159,6 +212,7 @@ func cmdSkillsSync(r *runner, args []string) error {
 	}
 	diffs := map[string]string{}
 	pending := false
+	var goals []string
 	return r.eachSkill("sync", args, set, func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error) {
 		e, ok := managed[name]
 		if !ok {
@@ -172,8 +226,10 @@ func cmdSkillsSync(r *runner, args []string) error {
 		switch p.state {
 		case "current":
 			return "current", e.Commit, nil
-		case "edited", "conflict":
-			return p.state, "changed here since the copy; sync leaves it alone", nil
+		case "edited":
+			return "edited", r.edited(name), nil
+		case "conflict":
+			return "conflict", "", r.conflict(&goals, s, name, e, p)
 		}
 		if !trusted(s, e) {
 			id := cmp.Or(p.commit, p.sum)
@@ -206,6 +262,7 @@ func cmdSkillsSync(r *runner, args []string) error {
 		if pending {
 			d.Help("a third-party update is never applied without a yes: read the diff, then `hand skills sync --yes NAME@COMMIT`")
 		}
+		conflictHelp(d, goals)
 	})
 }
 

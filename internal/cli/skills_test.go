@@ -289,7 +289,7 @@ func TestSkillsUpdateRefusesALocalChange(t *testing.T) {
 	}
 	hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"]})
 	out, errOut, code := h.run("skills", "update", "--fleet", "triage")
-	if code != 3 || !strings.Contains(out, "triage,refused") || !strings.Contains(out, "changed locally in .pi") || !strings.Contains(errOut, "1 skill(s) not updated") {
+	if code != 3 || !strings.Contains(out, "triage,conflict,") || !strings.Contains(out, "reconcile first") || !strings.Contains(out, "task add --goal") || !strings.Contains(errOut, "1 skill(s) not updated") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if readSkill(t, edited) != mine || strings.Contains(readSkill(t, skillPath(h.home, ".agents", "triage")), "v2") {

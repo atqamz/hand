@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/atqamz/hand/internal/flock"
@@ -313,6 +314,28 @@ func mark(dir string) error {
 		at++
 	}
 	lines = append(lines[:at], append([]string{indent + Marker}, lines[at:]...)...)
+	return os.WriteFile(path, []byte("---\n"+strings.Join(lines, "\n")+"\n---\n"+rest), 0o644)
+}
+
+func Unmark(dir string) error {
+	path := filepath.Join(dir, "SKILL.md")
+	have, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	head, rest, ok := frontmatter(string(have))
+	if !ok {
+		return nil
+	}
+	lines := strings.Split(head, "\n")
+	at := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, " ") && strings.TrimSpace(l) == Marker })
+	if at < 0 {
+		return nil
+	}
+	lines = slices.Delete(lines, at, at+1)
+	if at > 0 && strings.TrimRight(lines[at-1], " \t") == "metadata:" && (at == len(lines) || !strings.HasPrefix(lines[at], " ")) {
+		lines = slices.Delete(lines, at-1, at)
+	}
 	return os.WriteFile(path, []byte("---\n"+strings.Join(lines, "\n")+"\n---\n"+rest), 0o644)
 }
 

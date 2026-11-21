@@ -296,11 +296,15 @@ func Toplevel(ctx context.Context, dir string) (string, error) {
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
-	return runEnv(ctx, dir, nil, false, args...)
+	return runEnv(ctx, dir, nil, false, false, args...)
 }
 
-func runEnv(ctx context.Context, dir string, env []string, kill bool, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}, args...)...)
+func runEnv(ctx context.Context, dir string, env []string, kill, hooks bool, args ...string) (string, error) {
+	pre := []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}
+	if hooks {
+		pre = pre[2:]
+	}
+	cmd := exec.CommandContext(ctx, "git", append(pre, args...)...)
 	cmd.WaitDelay = time.Second
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
@@ -319,20 +323,29 @@ func runEnv(ctx context.Context, dir string, env []string, kill bool, args ...st
 }
 
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
-	return runGit(ctx, dir, false, args...)
+	return runGit(ctx, dir, false, false, args...)
 }
 
 func RunBounded(ctx context.Context, dir string, limit time.Duration, args ...string) (string, error) {
+	return bounded(ctx, dir, limit, false, args)
+}
+
+// RunBoundedHooks runs the user's own hooks, which RunBounded switches off; only for a commit or push of the user's work.
+func RunBoundedHooks(ctx context.Context, dir string, limit time.Duration, args ...string) (string, error) {
+	return bounded(ctx, dir, limit, true, args)
+}
+
+func bounded(ctx context.Context, dir string, limit time.Duration, hooks bool, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	out, err := runGit(ctx, dir, true, args...)
+	out, err := runGit(ctx, dir, true, hooks, args...)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		err = fmt.Errorf("%w (stopped at the %s limit)", err, limit)
 	}
 	return out, err
 }
 
-func runGit(ctx context.Context, dir string, kill bool, args ...string) (string, error) {
+func runGit(ctx context.Context, dir string, kill, hooks bool, args ...string) (string, error) {
 	env := []string{"GIT_TERMINAL_PROMPT=0"}
 	if os.Getenv("GIT_SSH_COMMAND") == "" && os.Getenv("GIT_SSH") == "" {
 		ssh := "ssh"
@@ -341,5 +354,5 @@ func runGit(ctx context.Context, dir string, kill bool, args ...string) (string,
 		}
 		env = append(env, "GIT_SSH_COMMAND="+ssh+" -o BatchMode=yes")
 	}
-	return runEnv(ctx, dir, env, kill, args...)
+	return runEnv(ctx, dir, env, kill, hooks, args...)
 }
