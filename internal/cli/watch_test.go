@@ -117,7 +117,7 @@ func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (strin
 		}
 		done <- result{out, code}
 	}()
-	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
+	eventuallyWithin(t, 30*time.Second, func() bool { return fx.rt.srv.Subscribers() == 1 })
 	stop := sync.OnceValues(func() (string, int) {
 		cancel()
 		r := <-done
@@ -606,8 +606,11 @@ func TestWatchCatchesUpOnAScreenThatBlockedWhileItWasDown(t *testing.T) {
 	stop := startWatch(t, fx, "--every", "100ms")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	stop()
+	waitHandled := watchedEvents(t, fx)
 	stop = startWatch(t, fx, "--every", "100ms")
 	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	waitHandled("pane.agent_status_changed", 1)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
