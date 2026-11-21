@@ -34,8 +34,13 @@ object CorePairing : Pairing {
   override fun cancel() = Core.cancel()
 }
 
-class Confirm(val host: String, val known: String?) {
-  val title get() = if (known == null) "Add $host?" else "Add fleets to $known?"
+class Confirm(
+  val host: String,
+  val known: String?,
+  val claim: String? = null,
+  val clash: Boolean = false
+) {
+  val title get() = if (known == null) "Add a host?" else "Add fleets to $known?"
 }
 
 data class PairState(
@@ -81,10 +86,17 @@ class PairModel(
       if (host == null) {
         it.copy(link = text, error = answer.field("message") ?: UNREAD)
       } else {
-        it.copy(link = "", error = null, confirm = Confirm(host, held(host)))
+        it.copy(link = "", error = null, confirm = confirm(host, held(host), answer))
       }
     }
   }
+
+  private fun confirm(host: String, known: String?, answer: JsonObject) =
+    if (known == null) {
+      Confirm(host, null, answer.field("claim"), answer.field("clash") == "true")
+    } else {
+      Confirm(host, known)
+    }
 
   fun cancel() {
     if (mutableState.value.busy) return

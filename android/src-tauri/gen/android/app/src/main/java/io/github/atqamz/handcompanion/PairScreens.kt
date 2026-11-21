@@ -201,7 +201,17 @@ fun ConfirmScreen(
       Column {
         Meta("Host")
         Text(confirm.host, style = HandMono.copy(fontSize = 28.sp, lineHeight = 36.sp))
-        Meta("Check these characters against the Companion page on that host.")
+        confirm.claim?.let { Meta("The link says it is “$it”") }
+        if (confirm.clash) {
+          Meta("You already have a host with this name. Its ID is different.", hand.ink(Tone.Wait))
+        }
+        Meta(
+          if (confirm.claim == null) {
+            "Check these characters against the Companion page on that host."
+          } else {
+            "Only the ID identifies the host. Check it against the Companion page on that host."
+          }
+        )
       }
       Text("Name for this Companion", style = type.labelLarge)
       Field(state.name, onName, onDone = onPair)

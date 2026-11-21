@@ -85,8 +85,41 @@ class PairModelTest {
     val model = model(FakeCore())
     model.offer("link")
     val confirm = model.state.value.confirm!!
-    assertEquals("Add 7c1e…a2f9?", confirm.title)
+    assertEquals("Add a host?", confirm.title)
+    assertEquals("7c1e…a2f9", confirm.host)
     assertNull(confirm.known)
+    assertNull(confirm.claim)
+    assertFalse(confirm.clash)
+  }
+
+  @Test
+  fun theLinksClaimIsKeptBesideTheIdAndNeverInTheTitle() {
+    val model = model(FakeCore(offer = """{"host":"7c1e…a2f9","claim":"work-laptop","clash":false}"""))
+    model.offer("link")
+    val confirm = model.state.value.confirm!!
+    assertEquals("work-laptop", confirm.claim)
+    assertEquals("Add a host?", confirm.title)
+    assertFalse(confirm.clash)
+  }
+
+  @Test
+  fun aClashIsKeptWithTheClaim() {
+    val model = model(FakeCore(offer = """{"host":"7c1e…a2f9","claim":"atqa-laptop","clash":true}"""))
+    model.offer("link")
+    val confirm = model.state.value.confirm!!
+    assertEquals("atqa-laptop", confirm.claim)
+    assertTrue(confirm.clash)
+  }
+
+  @Test
+  fun aHostAlreadyHeldIgnoresTheClaimAndTheClash() {
+    val model =
+      model(FakeCore(offer = """{"host":"7c1e…a2f9","claim":"evil","clash":true}""")) { "atqa-laptop" }
+    model.offer("link")
+    val confirm = model.state.value.confirm!!
+    assertEquals("Add fleets to atqa-laptop?", confirm.title)
+    assertNull(confirm.claim)
+    assertFalse(confirm.clash)
   }
 
   @Test
