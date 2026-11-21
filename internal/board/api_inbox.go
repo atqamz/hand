@@ -69,9 +69,9 @@ func (b *Board) apiInboxUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	name, err := saveImage(filepath.Join(b.o.Home, "inbox"), b.now(), h.Filename, f)
+	name, err := inbox.Save(filepath.Join(b.o.Home, "inbox"), b.now(), h.Filename, f)
 	switch {
-	case errors.Is(err, errTooLarge):
+	case inbox.TooBig(err):
 		b.apiFail(w, http.StatusRequestEntityTooLarge, "too_large", err.Error())
 		return
 	case err != nil:

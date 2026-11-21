@@ -426,10 +426,14 @@ func (r *runner) inboxFile(arg string, mustExist bool) (string, error) {
 	if filepath.IsAbs(arg) {
 		parent, err := filepath.EvalSymlinks(filepath.Dir(arg))
 		want, werr := filepath.EvalSymlinks(dir)
-		if err != nil || werr != nil || parent != want {
+		switch {
+		case err == nil && werr == nil && parent == want:
+			name = filepath.Base(arg)
+		case mustExist:
+			return r.copyIn(arg)
+		default:
 			return "", fmt.Errorf("%w: %s is not a file directly in this fleet's inbox/", state.ErrInvalid, arg)
 		}
-		name = filepath.Base(arg)
 	}
 	if !inbox.Stored.MatchString(name) {
 		return "", fmt.Errorf("%w: %q is not the name of a file Hand stored in inbox/ (YYYYMMDD-HHMMSS-N-label)", state.ErrInvalid, name)
@@ -447,6 +451,39 @@ func (r *runner) inboxFile(arg string, mustExist bool) (string, error) {
 		return "", fmt.Errorf("%w: %s in inbox/ is not a regular file", state.ErrInvalid, name)
 	}
 	return name, nil
+}
+
+func (r *runner) copyIn(arg string) (string, error) {
+	fi, err := os.Lstat(arg)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("%w: %s does not exist", state.ErrNotFound, arg)
+	case err != nil:
+		return "", err
+	case !fi.Mode().IsRegular():
+		return "", fmt.Errorf("%w: %s is not a regular file (a symlink, folder or device is not copied)", state.ErrInvalid, arg)
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(arg))
+	if err != nil {
+		return "", err
+	}
+	home, err := filepath.EvalSymlinks(r.home)
+	if err != nil {
+		return "", err
+	}
+	if rel, err := filepath.Rel(home, filepath.Join(parent, filepath.Base(arg))); err == nil && filepath.IsLocal(rel) && !strings.HasPrefix(rel, "reports"+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %s is inside the fleet folder, which holds Hand's own state; only a file in reports/ or outside the folder is copied into inbox/", state.ErrInvalid, arg)
+	}
+	f, err := os.Open(arg)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	name, err := inbox.Save(filepath.Join(r.home, inbox.Folder), r.env.Now(), filepath.Base(arg), f)
+	if inbox.TooBig(err) {
+		return "", fmt.Errorf("%w: %s: %v", state.ErrInvalid, arg, err)
+	}
+	return name, err
 }
 
 func (r *runner) fileRows(d *toon.Doc, files []state.TaskFile) {
@@ -471,7 +508,7 @@ func (r *runner) taskFileChange(name string, args []string, mustExist bool, appl
 	}
 	pos := fs.Args()
 	if len(pos) < 2 {
-		return usageError{fmt.Sprintf("usage: hand task %s tN FILE...; FILE is a name in inbox/, or the absolute path of a file directly in it", name)}
+		return usageError{fmt.Sprintf("usage: hand task %s tN FILE...; FILE is a name in inbox/, or an absolute path (attach copies a file outside inbox/ into it)", name)}
 	}
 	id, err := parseID("t", pos[0])
 	if err != nil {

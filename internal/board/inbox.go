@@ -2,10 +2,7 @@ package board
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -20,38 +17,15 @@ import (
 )
 
 const (
-	maxImage = 10 << 20
-	maxPost  = 11 << 20
-	maxName  = 80
+	maxPost = 11 << 20
 )
 
 var (
-	shotName    = regexp.MustCompile(`^` + inbox.StoredExpr + `$`)
-	imageExt    = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
-	shotTypes   = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
-	imageLike   = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
-	unsafeRuns  = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
-	errTooLarge = errors.New("a file can be at most 10 MiB")
+	shotName  = regexp.MustCompile(`^` + inbox.StoredExpr + `$`)
+	imageExt  = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+	shotTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+	imageLike = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
 )
-
-func safeName(name string) string {
-	name = strings.TrimRight(strings.TrimLeft(unsafeRuns.ReplaceAllString(filepath.Base(strings.ReplaceAll(name, `\`, "/")), "_"), ".-"), ".")
-	if name == "" {
-		return "file"
-	}
-	return name
-}
-
-func clipName(name string) string {
-	if len(name) <= maxName {
-		return name
-	}
-	ext := filepath.Ext(name)
-	if len(ext) > 16 {
-		ext = ""
-	}
-	return strings.TrimRight(name[:maxName-len(ext)], ".") + ext
-}
 
 func fileKind(name string) string {
 	if ext := strings.TrimPrefix(filepath.Ext(name), "."); ext != "" && len(ext) <= 4 {
@@ -65,58 +39,6 @@ func isImage(name string) bool {
 	return ok
 }
 
-func saveImage(dir string, now time.Time, original string, body io.Reader) (string, error) {
-	data, err := io.ReadAll(io.LimitReader(body, maxImage+1))
-	if err != nil {
-		return "", err
-	}
-	if len(data) > maxImage {
-		return "", errTooLarge
-	}
-	safe := clipName(safeName(original))
-	if ext, ok := imageExt[http.DetectContentType(data)]; ok {
-		safe = clipName(strings.TrimSuffix(safe, filepath.Ext(safe)) + "." + ext)
-	} else if imageLike.MatchString(safe) {
-		safe = clipName(safe + ".bin")
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	tmp, err := os.CreateTemp(dir, ".upload-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	_, werr := tmp.Write(data)
-	if werr == nil {
-		werr = tmp.Sync()
-	}
-	if cerr := tmp.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return "", werr
-	}
-	stamp := now.Format("20060102-150405")
-	inboxMu.Lock()
-	defer inboxMu.Unlock()
-	for n := 1; ; n++ {
-		name := fmt.Sprintf("%s-%d-%s", stamp, n, safe)
-		path := filepath.Join(dir, name)
-		if _, err := os.Lstat(path); err == nil {
-			continue
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-		if err := os.Rename(tmp.Name(), path); err != nil {
-			return "", err
-		}
-		return name, nil
-	}
-}
-
-var inboxMu sync.Mutex
-
 func (b *Board) image(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
@@ -128,9 +50,9 @@ func (b *Board) image(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	dir := filepath.Join(b.o.Home, "inbox")
-	name, err := saveImage(dir, b.now(), h.Filename, f)
+	name, err := inbox.Save(dir, b.now(), h.Filename, f)
 	switch {
-	case errors.Is(err, errTooLarge):
+	case inbox.TooBig(err):
 		b.fail(w, http.StatusRequestEntityTooLarge, err.Error())
 	case err != nil:
 		b.failErr(w, err)

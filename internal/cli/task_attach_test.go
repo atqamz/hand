@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"context"
+	"encoding/binary"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -95,10 +97,6 @@ func TestTaskAttachDetachAndShow(t *testing.T) {
 
 func TestTaskAttachRefusesWhatIsNotAFileOfThisInbox(t *testing.T) {
 	h := attachFixture(t)
-	outside := filepath.Join(t.TempDir(), attachedPNG)
-	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Mkdir(filepath.Join(h.home, "inbox", "20261101-050000-3-dir"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -107,9 +105,8 @@ func TestTaskAttachRefusesWhatIsNotAFileOfThisInbox(t *testing.T) {
 		code      int
 		msg       string
 	}{
-		{"a path outside the inbox", outside, 3, "is not a file directly in this fleet's inbox/"},
-		{"a path in the fleet home", filepath.Join(h.home, "hand.db"), 3, "is not a file directly in this fleet's inbox/"},
-		{"a nested path", filepath.Join(h.home, "inbox", "sub", attachedPNG), 3, "is not a file directly in this fleet's inbox/"},
+		{"a path in the fleet home", filepath.Join(h.home, "hand.db"), 2, "is inside the fleet folder"},
+		{"a nested path that is not there", filepath.Join(h.home, "inbox", "sub", attachedPNG), 3, "does not exist"},
 		{"a dot-dot name", "../hand.db", 3, "is not the name of a file Hand stored"},
 		{"a name Hand never gave", "notes.txt", 3, "is not the name of a file Hand stored"},
 		{"a dot file", "20261101-050000-1-.env", 3, "is not the name of a file Hand stored"},
@@ -127,6 +124,9 @@ func TestTaskAttachRefusesWhatIsNotAFileOfThisInbox(t *testing.T) {
 	}
 	if _, errOut, code := h.run("task", "attach", "t9", attachedPNG); code != 3 || !strings.Contains(errOut, "t9") {
 		t.Fatalf("missing task: code=%d stderr=%q", code, errOut)
+	}
+	if _, errOut, code := h.run("task", "detach", "t1", filepath.Join(t.TempDir(), "x.txt")); code != 2 || !strings.Contains(errOut, "is not a file directly in this fleet's inbox/") {
+		t.Fatalf("detach of an outside path copied or passed: code=%d stderr=%q", code, errOut)
 	}
 	if _, errOut, code := h.run("task", "attach", "t1"); code != 2 || !strings.Contains(errOut, "usage: hand task attach tN FILE...") {
 		t.Fatalf("no file: code=%d stderr=%q", code, errOut)
@@ -239,5 +239,146 @@ func TestTaskAttachWaitsForARunningPrune(t *testing.T) {
 	}
 	if out := <-done; !strings.Contains(out, "attached: 1") {
 		t.Fatalf("attach after the prune = %q", out)
+	}
+}
+
+func externalFile(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func inboxNames(t *testing.T, h *harness) []string {
+	t.Helper()
+	des, err := os.ReadDir(filepath.Join(h.home, "inbox"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, de := range des {
+		out = append(out, de.Name())
+	}
+	return out
+}
+
+func TestTaskAttachCopiesAnExternalFileIntoTheInbox(t *testing.T) {
+	h := attachFixture(t)
+	src := externalFile(t, "メモ notes.txt", []byte("hello"))
+	out := h.ok("task", "attach", "t1", src)
+	if !strings.Contains(out, "attached: 1") || !strings.Contains(out, "-1-メモ_notes.txt") {
+		t.Fatalf("attach = %q", out)
+	}
+	names := inboxNames(t, h)
+	var copied string
+	for _, n := range names {
+		if strings.HasSuffix(n, "メモ_notes.txt") {
+			copied = n
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(h.home, "inbox", copied)); err != nil || string(b) != "hello" || !strings.HasPrefix(copied, h.now.Format("20060102-150405")+"-1-") {
+		t.Fatalf("copy %q = %q, %v", copied, b, err)
+	}
+	if b, err := os.ReadFile(src); err != nil || string(b) != "hello" {
+		t.Fatalf("the source changed: %q, %v", b, err)
+	}
+	if !strings.Contains(h.ok("task", "show", "t1"), "メモ_notes.txt") {
+		t.Fatal("task show lists no copied file")
+	}
+	if got := eventDetails(t, h, "task.attached"); !slices.Equal(got, []string{"t1 メモ_notes.txt"}) {
+		t.Fatalf("events = %q", got)
+	}
+	if out := h.ok("task", "attach", "t1", src); !strings.Contains(out, "attached: 1") || len(inboxNames(t, h)) != len(names)+1 {
+		t.Fatalf("a second copy = %q, inbox %q", out, inboxNames(t, h))
+	}
+}
+
+func TestTaskAttachCopiesFromTheReportsFolderButNotFromTheRestOfTheFleetFolder(t *testing.T) {
+	h := attachFixture(t)
+	report := filepath.Join(h.home, "reports", "out.txt")
+	if err := os.MkdirAll(filepath.Dir(report), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(report, []byte("r"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.ok("task", "attach", "t1", report); !strings.Contains(out, "-out.txt") {
+		t.Fatalf("copy from reports/ = %q", out)
+	}
+	for _, rel := range []string{"hand.db", "board.token", filepath.Join("locks", "x"), filepath.Join("reportsX", "x.txt")} {
+		path := filepath.Join(h.home, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before := inboxNames(t, h)
+		if _, errOut, code := h.run("task", "attach", "t1", path); code != 2 || !strings.Contains(errOut, "inside the fleet folder") || !slices.Equal(before, inboxNames(t, h)) {
+			t.Errorf("%s: code=%d stderr=%q", rel, code, errOut)
+		}
+	}
+}
+
+func TestTaskAttachCopiesNothingThatIsNotARegularFileUnderTheLimits(t *testing.T) {
+	h := attachFixture(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "folder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	big := externalFile(t, "big.bin", make([]byte, 10<<20+1))
+	cases := []struct {
+		what, path string
+		code       int
+		msg        string
+	}{
+		{"a folder", filepath.Join(dir, "folder"), 2, "is not a regular file"},
+		{"a missing file", filepath.Join(dir, "gone.txt"), 3, "does not exist"},
+		{"a file over 10 MiB", big, 2, "a file can be at most 10 MiB"},
+		{"a picture over 36 megapixels", externalFile(t, "map.png", pngOfSize(6000, 6001)), 2, "an image can be at most 36 megapixels"},
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, "link.txt")
+		if err := os.Symlink(externalFile(t, "target.txt", []byte("x")), link); err != nil {
+			t.Fatal(err)
+		}
+		cases = append(cases, struct {
+			what, path string
+			code       int
+			msg        string
+		}{"a symlink", link, 2, "is not a regular file"})
+	}
+	before := inboxNames(t, h)
+	for _, c := range cases {
+		if _, errOut, code := h.run("task", "attach", "t1", c.path); code != c.code || !strings.Contains(errOut, c.msg) {
+			t.Errorf("%s: code=%d stderr=%q, want %q", c.what, code, errOut, c.msg)
+		}
+	}
+	if got := inboxNames(t, h); !slices.Equal(got, before) {
+		t.Fatalf("a refused copy left %q, was %q", got, before)
+	}
+	if show := h.ok("task", "show", "t1"); strings.Contains(show, "files") {
+		t.Fatalf("a refused copy linked a file: %q", show)
+	}
+}
+
+func pngOfSize(w, h uint32) []byte {
+	ihdr := binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32(nil, w), h)
+	ihdr = append(ihdr, 8, 0, 0, 0, 0)
+	b := []byte("\x89PNG\r\n\x1a\n")
+	b = binary.BigEndian.AppendUint32(b, uint32(len(ihdr)))
+	b = append(b, "IHDR"...)
+	b = append(b, ihdr...)
+	return binary.BigEndian.AppendUint32(b, crc32.ChecksumIEEE(append([]byte("IHDR"), ihdr...)))
+}
+
+func TestTaskDetachKeepsTheFileInTheInbox(t *testing.T) {
+	h := attachFixture(t)
+	h.ok("task", "attach", "t1", attachedPNG)
+	h.ok("task", "detach", "t1", attachedPNG)
+	if fi, err := os.Lstat(filepath.Join(h.home, "inbox", attachedPNG)); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("detach removed the file: %v", err)
 	}
 }

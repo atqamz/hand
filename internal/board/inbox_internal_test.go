@@ -1,41 +1,13 @@
 package board
 
 import (
-	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
-
-type countingReader struct{ read int }
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	if c.read >= 64<<20 {
-		return 0, io.EOF
-	}
-	n := min(len(p), 64<<20-c.read)
-	c.read += n
-	return n, nil
-}
-
-func TestSaveImageStopsReadingAtTheFileCap(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "inbox")
-	src := &countingReader{}
-	if _, err := saveImage(dir, time.Now(), "big.bin", src); !errors.Is(err, errTooLarge) {
-		t.Fatalf("a 64 MiB body = %v, want errTooLarge", err)
-	}
-	if src.read > maxImage+1<<20 {
-		t.Fatalf("saveImage read %d bytes of a body over the %d byte cap", src.read, maxImage)
-	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-		t.Fatalf("a refused file left %d entries", len(entries))
-	}
-}
 
 func TestShotsTakeOnlyThisFleetsInbox(t *testing.T) {
 	home := t.TempDir()
@@ -163,42 +135,6 @@ func TestShotPrefixTakesBothSeparatorsOnWindowsOnly(t *testing.T) {
 	unix := regexp.MustCompile("^" + shotPrefix(`/h/a\b/inbox`, false) + "$")
 	if !unix.MatchString(`/h/a\b/inbox/`) || unix.MatchString(`/h/a/b/inbox/`) {
 		t.Error("unix prefix must keep a backslash in the path literal")
-	}
-}
-
-func TestSafeNameKeepsAPlainBaseName(t *testing.T) {
-	for in, want := range map[string]string{
-		"report.pdf":            "report.pdf",
-		"../../etc/passwd":      "passwd",
-		`..\..\win.ini`:         "win.ini",
-		`C:\Users\me\notes.txt`: "notes.txt",
-		".env":                  "env",
-		"--rf":                  "rf",
-		"..":                    "file",
-		"":                      "file",
-		"Q3 export (final).csv": "Q3_export_final_.csv",
-		"résumé.pdf":            "r_sum_.pdf",
-		"日本.txt":                "_.txt",
-		"a\x00b\n.txt":          "a_b_.txt",
-		"trailing.":             "trailing",
-	} {
-		if got := safeName(in); got != want {
-			t.Errorf("safeName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestALongNameKeepsItsExtension(t *testing.T) {
-	long := clipName(strings.Repeat("a", 200) + ".pdf")
-	if len(long) != maxName || !strings.HasSuffix(long, "a.pdf") {
-		t.Fatalf("long = %q (%d)", long, len(long))
-	}
-	odd := clipName("a." + strings.Repeat("b", 200))
-	if len(odd) != maxName {
-		t.Fatalf("odd = %q (%d)", odd, len(odd))
-	}
-	if dot := clipName(strings.Repeat("c", 79) + "." + strings.Repeat("d", 30)); dot != strings.Repeat("c", 79) {
-		t.Fatalf("a clip that ends on a dot = %q", dot)
 	}
 }
 

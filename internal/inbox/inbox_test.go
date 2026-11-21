@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,7 +59,7 @@ func names(files []File) []string {
 }
 
 func TestNameMatchesBothForms(t *testing.T) {
-	for _, name := range []string{"20261019-101010-1.png", "20261019-101010-12.webp", "20261019-101010-3-report.pdf", "20261019-101010-1-my notes.tar.gz", "20261019-101010-2-shot.png.bin", "20261019-101010-1-Makefile", "20261019-101010-4-bashrc", "20261019-101010-5-.bashrc"} {
+	for _, name := range []string{"20261019-101010-1.png", "20261019-101010-12.webp", "20261019-101010-3-report.pdf", "20261019-101010-1-my notes.tar.gz", "20261019-101010-2-shot.png.bin", "20261019-101010-1-Makefile", "20261019-101010-4-bashrc", "20261019-101010-5-.bashrc", "20261019-101010-6-日本語.pdf", "20261019-101010-7-résumé.txt"} {
 		if !Name.MatchString(name) {
 			t.Errorf("%q does not match", name)
 		}
@@ -166,7 +167,7 @@ func TestPruneMovesOnlyOldHandFilesDirectlyInside(t *testing.T) {
 	put(t, filepath.Join(dir, "20261019-110000-2-bashrc"), time.Hour)
 	put(t, filepath.Join(dir, "20260920-000000-1.png"), 30*day)
 	put(t, filepath.Join(dir, "notes.txt"), 90*day)
-	put(t, filepath.Join(dir, ".upload-123"), 90*day)
+	put(t, filepath.Join(dir, ".upload-123"), 30*time.Minute)
 	put(t, filepath.Join(dir, "20250101-000000-1.png", "20250101-000000-2.png"), 300*day)
 	put(t, filepath.Join(home, "hand.db"), 90*day)
 	if err := os.Symlink(filepath.Join("..", "hand.db"), filepath.Join(dir, "20250101-000000-3.png")); err != nil {
@@ -417,7 +418,7 @@ func TestAProtectedFileIsSkippedAndListed(t *testing.T) {
 }
 
 func TestLabelLineAndKind(t *testing.T) {
-	for name, want := range map[string]string{"20261101-050000-1-shot.png": "shot.png", "20261101-050000-1.png": "20261101-050000-1.png", "20261101-050000-2-a-b.log": "a-b.log"} {
+	for name, want := range map[string]string{"short": "short", "": "", "20261101-050000-": "20261101-050000-", "20261101-050000-1-日本語.txt": "日本語.txt", "20261101-050000-1-shot.png": "shot.png", "20261101-050000-1.png": "20261101-050000-1.png", "20261101-050000-2-a-b.log": "a-b.log"} {
 		if got := Label(name); got != want {
 			t.Errorf("Label(%q) = %q, want %q", name, got, want)
 		}
@@ -429,7 +430,7 @@ func TestLabelLineAndKind(t *testing.T) {
 	if got := Line(home, 1, "20261101-050000-1-a.pdf"); got[:8] != "[file 1:" {
 		t.Errorf("Line of a pdf = %q", got)
 	}
-	for name, ok := range map[string]bool{"20261101-050000-1.png": true, "20261101-050000-1-a.PNG": true, "20261101-050000-1-../x": false, "20261101-050000-1-a b": false, "20261101-050000-1-.env": false, "x": false} {
+	for name, ok := range map[string]bool{"20261101-050000-1-日本語.txt": true, "20261101-050000-1-résumé.pdf": true, "20261101-050000-1-re\u0301sume\u0301.pdf": true, "20261101-050000-1-नमस्ते.txt": true, "20261101-050000-1-a\u202eb.txt": false, "20261101-050000-1-🙂.png.txt": false, "20261101-050000-1-a\u200db.txt": false, "20261101-050000-1-a\xffb.txt": false, "20261101-050000-1-" + strings.Repeat("é", 80): true, "20261101-050000-1-" + strings.Repeat("é", 81): false, "20261101-050000-1-a\nb": false, "20261101-050000-1.png": true, "20261101-050000-1-a.PNG": true, "20261101-050000-1-../x": false, "20261101-050000-1-a b": false, "20261101-050000-1-.env": false, "x": false} {
 		if Stored.MatchString(name) != ok {
 			t.Errorf("Stored(%q) = %v, want %v", name, !ok, ok)
 		}

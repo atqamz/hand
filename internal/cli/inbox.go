@@ -82,9 +82,15 @@ func cmdInboxPrune(r *runner, args []string) error {
 	d.Field("moved_size", inbox.MiB(inbox.Bytes(p.Moved)))
 	d.Field("deleted", strconv.Itoa(len(p.Deleted)))
 	d.Field("freed", inbox.MiB(inbox.Bytes(p.Deleted)))
+	if len(p.Swept) > 0 {
+		d.Field("swept", strconv.Itoa(len(p.Swept)))
+	}
 	if *dry {
 		d.Rows("move", []string{"name", "age", "size"}, fileRows(p.Moved, now))
 		d.Rows("delete", []string{"name", "age", "size"}, fileRows(p.Deleted, now))
+		if len(p.Swept) > 0 {
+			d.Rows("sweep", []string{"name", "age", "size"}, fileRows(p.Swept, now))
+		}
 	}
 	if len(p.Protected) > 0 {
 		d.Field("protected", strconv.Itoa(len(p.Protected)))

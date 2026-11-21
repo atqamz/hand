@@ -19,7 +19,7 @@ const (
 	mark      = ".pruned"
 )
 
-const StoredExpr = `[0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})`
+const StoredExpr = `[0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N}._-]{0,79})`
 
 var (
 	Stored = regexp.MustCompile(`^` + StoredExpr + `$`)
@@ -47,11 +47,14 @@ type Failure struct {
 }
 
 type Pruned struct {
-	Moved, Deleted, Protected []File
-	Failed                    []Failure
+	Moved, Deleted, Protected, Swept []File
+	Failed                           []Failure
 }
 
 func Label(name string) string {
+	if len(name) < len("20060102-150405-") {
+		return name
+	}
 	if _, rest, ok := strings.Cut(name[len("20060102-150405-"):], "-"); ok {
 		return rest
 	}
@@ -141,7 +144,7 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 	if err != nil {
 		return Pruned{}, err
 	}
-	var p Pruned
+	p := Pruned{Swept: SweepUploads(dir, now, dry)}
 	for _, f := range held {
 		if now.Sub(f.Mod) <= TrashKeep {
 			continue

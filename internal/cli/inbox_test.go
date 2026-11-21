@@ -181,3 +181,30 @@ func TestInboxPruneStillPrintsWhatMovedWhenTheEventFails(t *testing.T) {
 	}
 	has(t, "prune", out, "moved: 1\n")
 }
+
+func TestInboxPruneSweepsStaleUploadsAndReportsThem(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	inboxFile(t, h, ".upload-old", 7, 2*time.Hour)
+	inboxFile(t, h, ".upload-busy", 7, 10*time.Minute)
+	dry := h.ok("inbox", "prune", "--older-than", "30d", "--dry-run")
+	if !strings.Contains(dry, "swept: 1\n") || !strings.Contains(dry, "sweep[1]{name,age,size}:\n  .upload-old,") {
+		t.Fatalf("dry run = %q", dry)
+	}
+	if _, err := os.Lstat(filepath.Join(h.home, "inbox", ".upload-old")); err != nil {
+		t.Fatalf("a dry run swept: %v", err)
+	}
+	out := h.ok("inbox", "prune", "--older-than", "30d")
+	if !strings.Contains(out, "swept: 1\n") || strings.Contains(out, "sweep[") {
+		t.Fatalf("prune = %q", out)
+	}
+	if _, err := os.Lstat(filepath.Join(h.home, "inbox", ".upload-old")); !os.IsNotExist(err) {
+		t.Fatalf("stale upload kept: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(h.home, "inbox", ".upload-busy")); err != nil {
+		t.Fatalf("a fresh upload was swept: %v", err)
+	}
+	if again := h.ok("inbox", "prune", "--older-than", "30d"); strings.Contains(again, "swept") {
+		t.Fatalf("nothing left to sweep, got %q", again)
+	}
+}

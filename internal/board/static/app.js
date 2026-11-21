@@ -1722,7 +1722,7 @@
 		const note = draft.querySelector(".hint");
 		const textKey = fieldKey(text);
 		const listKey = filesKey(textKey);
-		const line = /^\[(image|file)(?: [1-9][0-9]{0,3})?: (.+[\\/]inbox[\\/]([0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})))\]$/;
+		const line = /^\[(image|file)(?: [1-9][0-9]{0,3})?: (.+[\\/]inbox[\\/]([0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N}._-]{0,79})))\]$/u;
 		const sizes = new Map();
 		const jobs = new Set();
 		let attached = [];
