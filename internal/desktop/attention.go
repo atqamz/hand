@@ -147,7 +147,6 @@ func (a *App) observe(fleet string, s Signal) {
 	prev, seen := a.seen[fleet]
 	if !s.OK {
 		delete(a.seen, fleet)
-		a.dropFlash(fleet)
 		return
 	}
 	if a.seen == nil {
@@ -297,6 +296,9 @@ func (a *App) attended(gen int, sigs []FleetSignal, err error) {
 			a.attn[s.Fleet] = s.Signal
 			if s.Fleet != a.Fleet.ID || a.Minimized {
 				a.observe(s.Fleet, s.Signal)
+				if !s.OK {
+					a.dropFlash(s.Fleet)
+				}
 			}
 		}
 		_, ok := a.attn[a.Fleet.ID]

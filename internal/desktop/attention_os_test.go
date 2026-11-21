@@ -714,3 +714,25 @@ func TestClosingTheWindowClearsTheBadgeAndTheFlash(t *testing.T) {
 		t.Fatalf("a second Close made calls: flash %v badge %v", s.flash, s.badge)
 	}
 }
+
+func TestAScreenReadErrorKeepsAPendingFlash(t *testing.T) {
+	f := quietPair(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 5*time.Second)
+	app.SetFocused(false)
+	setNeeds(f, fleetID, decisions(1))
+	tickFor(clock, 5*time.Second)
+	f.mu.Lock()
+	f.screenErr = errors.New("boom")
+	f.mu.Unlock()
+	tickFor(clock, 3*time.Minute)
+	if app.Stale == "" {
+		t.Fatal("the screen read error never marked the window stale")
+	}
+	if want := []bool{true}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v while a screen read fails with a fresh status, want %v", s.flash, want)
+	}
+	if got := app.Title(); got != "Hand · quiet · offline" && got != "Hand · golden · offline" {
+		t.Fatalf("title = %q, want offline", got)
+	}
+}
