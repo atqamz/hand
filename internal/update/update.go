@@ -984,7 +984,12 @@ func clip(out string) string {
 
 func (r *Report) skills(ctx context.Context, o Options, home string) {
 	if err := child(ctx, o, home, "skills", "sync", "--fleet"); err != nil {
-		r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` failed in %s (%v); run it there to see the rest", home, err))
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 3 {
+			r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` left a skill unsynced in %s (%v): a skill edited here and moved at its source is a conflict that needs a reconcile; `hand skills list --fleet` there shows which", home, err))
+		} else {
+			r.Help = append(r.Help, fmt.Sprintf("`hand skills sync --fleet` failed in %s (%v); run it there to see the rest", home, err))
+		}
 	}
 	out, err := childOutput(ctx, o, home, "skills", "outdated", "--all")
 	if err != nil {
