@@ -123,7 +123,9 @@ func checkAttention(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, repo s
 		t.Fatalf("the baseline read marked the window: title %q urgent %v launcher %q", title(), urgent(), bus.seen())
 	}
 	x11(t, "xdotool", "windowfocus", "0")
-	time.Sleep(time.Second)
+	untilTrue(t, "focus left the window", 30*time.Second, func() bool {
+		return strings.TrimSpace(x11(t, "xdotool", "getwindowfocus")) != xid
+	})
 	for _, args := range [][]string{{"project", "add", "alpha", repo}, {"task", "add", "alpha", "Look at the window"}, {"decision", "ask", "t1", "Which one?"}} {
 		if b, err := run(exec.Command(handBin, args...)).CombinedOutput(); err != nil {
 			t.Fatalf("hand %s: %v\n%s", strings.Join(args, " "), err, b)

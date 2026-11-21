@@ -456,6 +456,9 @@ func realWindow(t *testing.T, fromBundle, zeroFleet, attention bool) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the window did not end 30 s after it was told to quit")
 	}
+	if attention {
+		untilTrue(t, "launcher count 0 after the window quit", 30*time.Second, func() bool { return lastLauncherCount(bus.seen()) == "0" })
+	}
 	if _, err := os.Stat(sock); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the window left its socket behind: %v", err)
 	}

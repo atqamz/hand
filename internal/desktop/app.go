@@ -357,6 +357,7 @@ func (a *App) Close() {
 	a.resetPoll()
 	a.resetAttention()
 	a.resetDeny()
+	a.clearAttention()
 	if a.writer != nil {
 		a.writer.Flush()
 	}
@@ -567,6 +568,7 @@ func (a *App) install(f found, keep bool) {
 		return
 	}
 	a.Model, a.Fleets = f.Model, f.Fleets
+	a.pruneAttention()
 	a.attnFails, a.attnDown, a.attnSoon = 0, false, true
 	a.noFleets = len(a.Fleets) == 0
 	if !a.noFleets && !a.nfOpen && !a.nf.busy {

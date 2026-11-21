@@ -510,3 +510,207 @@ func TestAMinimizedWindowWhoseReadsFailClearsItsBadgeAndSaysOffline(t *testing.T
 		t.Fatalf("title = %q after restore and a poll", got)
 	}
 }
+
+func failStatus(f *fixture, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pollErr = err
+}
+
+func failList(f *fixture, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.attnErr = err
+}
+
+func TestAFailingBoardAfterRestoreClearsTheBadgeAndSaysOfflineWithOneFleet(t *testing.T) {
+	f := emptyFixture()
+	setNeeds(f, fleetID, decisions(3))
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 6*time.Second)
+	app.SetMinimized(true)
+	tickFor(clock, 15*time.Second)
+	app.SetMinimized(false)
+	failStatus(f, errors.New("boom"))
+	tickFor(clock, 10*time.Minute)
+	if got := s.badge[len(s.badge)-1]; got != 0 {
+		t.Fatalf("badge %v, want it to end at 0 while the board fails", s.badge)
+	}
+	if got := app.Title(); got != "Hand · quiet · offline" {
+		t.Fatalf("title = %q", got)
+	}
+	failStatus(f, nil)
+	tickFor(clock, 3*time.Minute)
+	if got := s.badge[len(s.badge)-1]; got != 3 {
+		t.Fatalf("badge %v, want 3 after recovery", s.badge)
+	}
+}
+
+func TestAFailingBoardAfterRestoreClearsTheBadgeAndSaysOfflineWithTwoFleets(t *testing.T) {
+	f := markFixture(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 6*time.Second)
+	app.SetMinimized(true)
+	tickFor(clock, 15*time.Second)
+	app.SetMinimized(false)
+	failStatus(f, errors.New("boom"))
+	tickFor(clock, 10*time.Minute)
+	if got := s.badge[len(s.badge)-1]; got != 0 {
+		t.Fatalf("badge %v, want it to end at 0 while the board fails", s.badge)
+	}
+	if got := app.Title(); got != "Hand · golden · offline" {
+		t.Fatalf("title = %q", got)
+	}
+}
+
+func TestAMinimizedWindowWhoseListFailsAfterAReadClearsItsBadge(t *testing.T) {
+	f := markFixture(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 6*time.Second)
+	app.SetMinimized(true)
+	tickFor(clock, 15*time.Second)
+	if got := s.badge[len(s.badge)-1]; got != 3 {
+		t.Fatalf("badge %v, want 3 from the list", s.badge)
+	}
+	failList(f, errors.New("boom"))
+	tickFor(clock, 5*time.Minute)
+	if got := s.badge[len(s.badge)-1]; got != 0 {
+		t.Fatalf("badge %v, want 0 once the list reads fail", s.badge)
+	}
+	if got := app.Title(); got != "Hand · golden · offline" {
+		t.Fatalf("title = %q", got)
+	}
+}
+
+func TestAFailedListReadWhileMinimizedBacksOff(t *testing.T) {
+	f := markFixture(t)
+	app, clock, _ := osApp(t, f)
+	tickFor(clock, 6*time.Second)
+	app.SetMinimized(true)
+	failList(f, errors.New("boom"))
+	reads := f.count("attention")
+	clock.Advance(15 * time.Second)
+	if got := f.count("attention") - reads; got != 1 {
+		t.Fatalf("%d reads at 15 s, want 1", got)
+	}
+	clock.Advance(10*time.Second - time.Millisecond)
+	if got := f.count("attention") - reads; got != 1 {
+		t.Fatalf("%d reads before the backoff of 10 s, want 1", got)
+	}
+	clock.Advance(time.Millisecond)
+	if got := f.count("attention") - reads; got != 2 {
+		t.Fatalf("%d reads after the backoff of 10 s, want 2", got)
+	}
+	clock.Advance(20*time.Second - time.Millisecond)
+	if got := f.count("attention") - reads; got != 2 {
+		t.Fatalf("%d reads before the second backoff of 20 s, want 2", got)
+	}
+	app.SetMinimized(false)
+}
+
+func setFleets(f *fixture, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fleets = append([]desktop.Fleet(nil), f.fleetsAll[:n]...)
+}
+
+func TestAFleetThatLeavesTheListEndsItsFlashAndForgetsItsBaseline(t *testing.T) {
+	f := quietPair(t)
+	f.fleetsAll = append([]desktop.Fleet(nil), f.fleets...)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 10*time.Second)
+	app.SetFocused(false)
+	setAttn(f, secondID, decisions(1))
+	tickFor(clock, 10*time.Second)
+	if want := []bool{true}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v, want %v", s.flash, want)
+	}
+	setFleets(f, 1)
+	app.Refresh()
+	if want := []bool{true, false}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v after the fleet left the list, want %v", s.flash, want)
+	}
+	setFleets(f, 2)
+	app.Refresh()
+	setAttn(f, secondID, decisions(2))
+	tickFor(clock, 30*time.Second)
+	if want := []bool{true, false}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v for a fleet that came back with a queue, want %v", s.flash, want)
+	}
+}
+
+func TestAFleetThatGoesUnavailableEndsItsFlash(t *testing.T) {
+	f := quietPair(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 10*time.Second)
+	app.SetFocused(false)
+	setAttn(f, secondID, decisions(1))
+	tickFor(clock, 10*time.Second)
+	f.mu.Lock()
+	f.attnGone = map[string]bool{secondID: true}
+	f.mu.Unlock()
+	tickFor(clock, 10*time.Second)
+	if want := []bool{true, false}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v, want %v", s.flash, want)
+	}
+}
+
+func TestAFocusedWindowForgetsWhichFleetsRaisedTheFlash(t *testing.T) {
+	f := quietPair(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 10*time.Second)
+	app.SetFocused(false)
+	setAttn(f, secondID, decisions(1))
+	tickFor(clock, 10*time.Second)
+	app.SetFocused(true)
+	app.SetFocused(false)
+	setNeeds(f, fleetID, decisions(1))
+	tickFor(clock, 10*time.Second)
+	setNeeds(f, fleetID, desktop.Needs{})
+	tickFor(clock, 10*time.Second)
+	if want := []bool{true, false, true, false}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v, want %v: the other fleet raised the first flash, not this one", s.flash, want)
+	}
+}
+
+func TestAnItemAddedOnTopOfAWaitNeedFlashesAgain(t *testing.T) {
+	f := quietPair(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 5*time.Second)
+	app.SetFocused(false)
+	setNeeds(f, fleetID, decisions(1))
+	tickFor(clock, 10*time.Second)
+	app.SetFocused(true)
+	app.SetFocused(false)
+	if want := []bool{true, false}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v, want %v", s.flash, want)
+	}
+	setNeeds(f, fleetID, desktop.Needs{Waiting: 2, Worst: "decision", WorstWord: "waiting", Items: []desktop.Need{{Kind: "decision", Ref: "d1"}, {Kind: "report", Ref: "r1"}}})
+	tickFor(clock, 10*time.Second)
+	if want := []bool{true, false, true}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v after a report joined a decision, want %v", s.flash, want)
+	}
+}
+
+func TestClosingTheWindowClearsTheBadgeAndTheFlash(t *testing.T) {
+	f := quietPair(t)
+	app, clock, s := osApp(t, f)
+	tickFor(clock, 5*time.Second)
+	app.SetFocused(false)
+	setNeeds(f, fleetID, decisions(2))
+	tickFor(clock, 5*time.Second)
+	if !slices.Equal(s.flash, []bool{true}) || s.badge[len(s.badge)-1] != 2 {
+		t.Fatalf("before close: flash %v badge %v", s.flash, s.badge)
+	}
+	app.Close()
+	if want := []bool{true, false}; !slices.Equal(s.flash, want) {
+		t.Fatalf("flash calls %v after Close, want %v", s.flash, want)
+	}
+	if want := []int{2, 0}; !slices.Equal(s.badge, want) {
+		t.Fatalf("badge %v after Close, want %v", s.badge, want)
+	}
+	app.Close()
+	if len(s.flash) != 2 || len(s.badge) != 2 {
+		t.Fatalf("a second Close made calls: flash %v badge %v", s.flash, s.badge)
+	}
+}

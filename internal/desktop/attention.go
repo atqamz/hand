@@ -91,7 +91,7 @@ func (a *App) mark(f Fleet) (tone, status string) {
 func (a *App) signal() Signal {
 	if a.attnSel {
 		if s, ok := a.attn[a.Fleet.ID]; ok {
-			s.Name, s.OK = a.Fleet.Name, s.OK && !a.attnDown
+			s.Name, s.OK = a.Fleet.Name, s.OK && !a.attnDown && (a.Minimized || a.Stale == "")
 			return s
 		}
 	}
@@ -147,6 +147,7 @@ func (a *App) observe(fleet string, s Signal) {
 	prev, seen := a.seen[fleet]
 	if !s.OK {
 		delete(a.seen, fleet)
+		a.dropFlash(fleet)
 		return
 	}
 	if a.seen == nil {
@@ -154,10 +155,7 @@ func (a *App) observe(fleet string, s Signal) {
 	}
 	a.seen[fleet] = s
 	if s.Waiting == 0 {
-		delete(a.flashed, fleet)
-		if len(a.flashed) == 0 {
-			a.setFlash(false)
-		}
+		a.dropFlash(fleet)
 		return
 	}
 	if seen && (s.Waiting > prev.Waiting || s.rank() > prev.rank()) && s.rank() >= 2 && (a.Unfocused || a.Minimized) {
@@ -166,6 +164,34 @@ func (a *App) observe(fleet string, s Signal) {
 		}
 		a.flashed[fleet] = true
 		a.setFlash(true)
+	}
+}
+
+func (a *App) dropFlash(fleet string) {
+	delete(a.flashed, fleet)
+	if len(a.flashed) == 0 {
+		a.setFlash(false)
+	}
+}
+
+func (a *App) pruneAttention() {
+	for id := range a.seen {
+		if !a.hasFleet(id) {
+			delete(a.seen, id)
+		}
+	}
+	for id := range a.flashed {
+		if !a.hasFleet(id) {
+			a.dropFlash(id)
+		}
+	}
+}
+
+func (a *App) clearAttention() {
+	a.setFlash(false)
+	if a.OnBadge != nil && a.badge != 0 {
+		a.badge = 0
+		a.OnBadge(0)
 	}
 }
 

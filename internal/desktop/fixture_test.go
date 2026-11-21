@@ -113,6 +113,7 @@ type fixture struct {
 	uploadBlock    chan struct{}
 	uploadEntered  chan struct{}
 	attnErr        error
+	fleetsAll      []desktop.Fleet
 	attnGone       map[string]bool
 	attnNeeds      map[string]desktop.Needs
 	attnBlock      chan struct{}
