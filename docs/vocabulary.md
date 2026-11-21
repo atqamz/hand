@@ -587,7 +587,7 @@ The page [`companion.md`](companion.md) and the test vectors beside it, which fi
 
 ### Companion link
 
-What the Companion page shows, as a QR code and as text, to pair the Companion app: `handboard://c#v=1&e=ENDPOINTID&f=FLEETID&c=CODE`, and `&r=RELAY` (a percent-encoded relay URL) when the host does not use the public relays. It is at most 213 bytes, and everything in it is in the fragment, so a query, a server or a log never holds the [pairing code](#pairing-code). The app checks it against 15 reject rules in a fixed order and, once the user confirms, opens `http://localhost:PORT/<fleet id>/pair#CODE` in its web view, with the name `localhost` and never an IP address.
+What the Companion page shows, as a QR code and as text, to pair the Companion app: `handboard://c#v=1&e=ENDPOINTID&f=FLEETID&c=CODE`, `&r=RELAY` (a percent-encoded relay URL) when the host does not use the public relays, and `&n=NAME` (the host's machine name, ASCII, a claim the app shows beside the ID and never trusts) when it fits. It is at most 213 bytes, and everything in it is in the fragment, so a query, a server or a log never holds the [pairing code](#pairing-code). The app checks it against 15 reject rules in a fixed order and, once the user confirms, opens `http://localhost:PORT/<fleet id>/pair#CODE` in its web view, with the name `localhost` and never an IP address.
 
 ### Open link
 

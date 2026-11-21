@@ -28,6 +28,7 @@ var (
 	valueRe    = regexp.MustCompile(`^[A-Za-z0-9._~%-]+$`)
 	endpointRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	codeRe     = regexp.MustCompile(`^[` + codeAlphabet + `]{10}$`)
+	nameRe     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
 	relayRe    = regexp.MustCompile(`^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.?)(:([1-9][0-9]{0,4}))?/?$`)
 )
 
@@ -35,6 +36,7 @@ type parsed struct {
 	Version    int     `json:"version"`
 	EndpointID string  `json:"endpoint_id"`
 	Relay      *string `json:"relay"`
+	Name       *string `json:"name"`
 	Fleet      string  `json:"fleet"`
 	Code       string  `json:"code"`
 	OpenPath   string  `json:"open_path"`
@@ -167,6 +169,9 @@ func parse(link string) (parsed, string) {
 		}
 		p.Relay = &url
 	}
+	if n, ok := values["n"]; ok && nameRe.MatchString(n) {
+		p.Name = &n
+	}
 	return p, ""
 }
 
@@ -174,6 +179,9 @@ func emit(p parsed) string {
 	link := fmt.Sprintf("%s#v=1&e=%s&f=%s&c=%s", linkHead, p.EndpointID, p.Fleet, p.Code)
 	if p.Relay != nil {
 		link += "&r=" + encode(*p.Relay)
+	}
+	if p.Name != nil {
+		link += "&n=" + *p.Name
 	}
 	return link
 }
@@ -444,7 +452,10 @@ func sameParsed(a, b parsed) bool {
 	if (a.Relay == nil) != (b.Relay == nil) || a.Relay != nil && *a.Relay != *b.Relay {
 		return false
 	}
-	a.Relay, b.Relay = nil, nil
+	if (a.Name == nil) != (b.Name == nil) || a.Name != nil && *a.Name != *b.Name {
+		return false
+	}
+	a.Relay, b.Relay, a.Name, b.Name = nil, nil, nil, nil
 	return a == b
 }
 
@@ -562,6 +573,9 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	}
 	if want := match(t, pair, regexp.QuoteMeta("appRelayRe = regexp.MustCompile(`")+"([^`]+)"+regexp.QuoteMeta("`)")); want != relayRe.String() {
 		t.Errorf("relay rule: the board says %q, the parser says %q", want, relayRe)
+	}
+	if want := match(t, pair, regexp.QuoteMeta("appNameRe")+`\s+= `+regexp.QuoteMeta("regexp.MustCompile(`")+"([^`]+)"+regexp.QuoteMeta("`)")); want != nameRe.String() {
+		t.Errorf("host name rule: the board says %q, the parser says %q", want, nameRe)
 	}
 	cond := "(" + regexp.QuoteMeta("if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~' {") + ")"
 	if board, ref := match(t, pair, cond), match(t, "internal/companion/companion_test.go", cond); board != ref {

@@ -170,6 +170,7 @@ type Options struct {
 	Harness    harness.Env
 	Models     harness.Options
 	Iroh       func() sidecar.Status
+	HostName   string
 	ClosePeer  func(string)
 }
 

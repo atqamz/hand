@@ -10,7 +10,7 @@ fn every_valid_vector_yields_its_fields_and_open_path() {
     let data = vectors();
     assert_eq!(data["contract"], 1);
     let valid = data["valid"].as_array().unwrap();
-    assert_eq!(valid.len(), 13);
+    assert_eq!(valid.len(), 23);
     for vector in valid {
         let text = vector["link"].as_str().unwrap();
         let name = vector["name"].as_str().unwrap();
@@ -42,6 +42,7 @@ fn every_valid_vector_yields_its_fields_and_open_path() {
             }
             other => panic!("{name}: relay is {other}"),
         }
+        assert_eq!(parsed["name"].as_str(), link.name.as_deref(), "{name}");
     }
 }
 
@@ -49,7 +50,7 @@ fn every_valid_vector_yields_its_fields_and_open_path() {
 fn every_invalid_vector_yields_its_reason() {
     let data = vectors();
     let invalid = data["invalid"].as_array().unwrap();
-    assert_eq!(invalid.len(), 73);
+    assert_eq!(invalid.len(), 77);
     for vector in invalid {
         let text = vector["link"].as_str().unwrap();
         let name = vector["name"].as_str().unwrap();

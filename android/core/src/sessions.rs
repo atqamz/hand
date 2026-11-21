@@ -193,6 +193,13 @@ impl<J: Jar> Sessions<J> {
             .collect()
     }
 
+    pub fn name_clashes(&self, endpoint: &str, claim: &str) -> bool {
+        self.read()
+            .hosts
+            .iter()
+            .any(|host| host.endpoint != endpoint && host.name == claim)
+    }
+
     pub fn listed(&self) -> Vec<Listed> {
         self.read().hosts.iter().flat_map(Host::listed).collect()
     }

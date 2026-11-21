@@ -174,6 +174,9 @@ func TestBoardIrohStartsTheSidecarAsItsChildAndShowsItsState(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(string(appPage), "handboard://c#v=1&amp;e="+irohID+"&amp;f="+id+"&amp;c=") || !strings.Contains(string(appPage), "&amp;r=https%3A%2F%2Frelay.test.%2F") || !strings.Contains(string(appPage), `<svg class="qr"`) {
 		t.Fatalf("the Hand app link = %d:\n%s", res.StatusCode, redactAppPage(string(appPage)))
 	}
+	if host, _ := os.Hostname(); regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`).MatchString(host) && !strings.Contains(string(appPage), "&amp;n="+host+"<") && !strings.Contains(string(appPage), "&amp;n="+host+"\"") {
+		t.Fatalf("the Hand app link lacks the host name %q:\n%s", host, redactAppPage(string(appPage)))
+	}
 	if got := fx.log0(); strings.Contains(got, secret) || strings.Contains(got, "stdin closed") {
 		t.Fatalf("sidecar log while the board runs = %q", got)
 	}

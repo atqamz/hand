@@ -169,7 +169,7 @@ func (p *companionHost) restart() {
 			p.mu.Lock()
 			p.opened[id]++
 			p.mu.Unlock()
-			opts := board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick}
+			opts := board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick, HostName: p.name}
 			b := board.New(f.st, f.token, opts)
 			if p.bare[id] {
 				return bare{b}, closer(func() error { return nil }), nil

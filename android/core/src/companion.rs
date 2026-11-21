@@ -181,12 +181,24 @@ impl Companion {
         self.port
     }
 
-    pub fn offer_link(&self, text: &str) -> Result<Offer, OfferError> {
-        self.pairing.lock().unwrap().offer(text.trim())
+    pub fn offer_link<J: Jar>(
+        &self,
+        sessions: &Sessions<J>,
+        text: &str,
+    ) -> Result<Offer, OfferError> {
+        self.pairing
+            .lock()
+            .unwrap()
+            .offer(text.trim(), |endpoint, claim| {
+                sessions.name_clashes(endpoint, claim)
+            })
     }
 
-    pub fn pending_offer(&self) -> Option<Offer> {
-        self.pairing.lock().unwrap().pending_offer()
+    pub fn pending_offer<J: Jar>(&self, sessions: &Sessions<J>) -> Option<Offer> {
+        self.pairing
+            .lock()
+            .unwrap()
+            .pending_offer(|endpoint, claim| sessions.name_clashes(endpoint, claim))
     }
 
     pub fn cancel_pairing(&self) {
@@ -615,7 +627,7 @@ mod tests {
         link: &str,
         fleet: &str,
     ) {
-        companion.offer_link(link).unwrap();
+        companion.offer_link(sessions, link).unwrap();
         let (link, generation) = take(companion);
         companion
             .settle(sessions, &link, generation, answered(fleet))
@@ -666,7 +678,7 @@ mod tests {
     async fn offering_a_link_dials_nothing_until_it_is_paired() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let offer = companion.offer_link(LINK).unwrap();
+        let offer = companion.offer_link(&sessions(&dir), LINK).unwrap();
         assert_eq!(offer.host, "4d92…6ed6");
         assert!(companion.dialers().all().is_empty());
     }
@@ -676,21 +688,29 @@ mod tests {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let padded = format!("\n\t {LINK} \r\n");
-        let offer = companion.offer_link(&padded).unwrap();
+        let offer = companion.offer_link(&sessions(&dir), &padded).unwrap();
         assert_eq!(offer.host, "4d92…6ed6");
-        assert_eq!(companion.pending_offer().unwrap().host, offer.host);
+        assert_eq!(
+            companion.pending_offer(&sessions(&dir)).unwrap().host,
+            offer.host
+        );
     }
 
     #[tokio::test]
     async fn a_second_link_keeps_the_pending_confirmation() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
-        let first = companion.offer_link(LINK).unwrap();
+        let first = companion.offer_link(&sessions(&dir), LINK).unwrap();
         assert_eq!(
-            companion.offer_link(SECOND_LINK).unwrap_err(),
+            companion
+                .offer_link(&sessions(&dir), SECOND_LINK)
+                .unwrap_err(),
             OfferError::Pending
         );
-        assert_eq!(companion.pending_offer().unwrap().host, first.host);
+        assert_eq!(
+            companion.pending_offer(&sessions(&dir)).unwrap().host,
+            first.host
+        );
     }
 
     #[tokio::test]
@@ -707,12 +727,12 @@ mod tests {
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = sessions(&dir);
         paired_with(&companion, &sessions, LINK, FLEET).await;
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
 
         let result = companion.pair(&sessions, "Pixel").await;
 
         assert!(matches!(result.err(), Some(PairError::Request(_))));
-        assert!(companion.pending_offer().is_some());
+        assert!(companion.pending_offer(&sessions).is_some());
         assert_eq!(sessions.hosts().len(), 1);
         assert_eq!(companion.dialers().all().len(), 1);
     }
@@ -724,12 +744,12 @@ mod tests {
         let sessions = sessions(&dir);
         paired_with(&companion, &sessions, LINK, FLEET).await;
         let copied = format!("handboard://c#v=1&e={OTHER_HOST}&f={FLEET}&c=0123456789");
-        companion.offer_link(&copied).unwrap();
+        companion.offer_link(&sessions, &copied).unwrap();
 
         let result = companion.pair(&sessions, "Pixel").await;
 
         assert_eq!(result.err(), Some(PairError::Held));
-        assert!(companion.pending_offer().is_some());
+        assert!(companion.pending_offer(&sessions).is_some());
         assert_eq!(sessions.hosts().len(), 1);
         assert!(companion.dialers().get(OTHER_HOST).is_none());
         assert!(PairError::Held.message().contains("fleet ID"));
@@ -741,7 +761,7 @@ mod tests {
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = sessions(&dir);
         paired_with(&companion, &sessions, LINK, FLEET).await;
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
         let mut set = answered(OTHER_FLEET);
         set.extend(answered(FLEET));
@@ -762,7 +782,7 @@ mod tests {
         paired_with(&companion, &sessions, LINK, FLEET).await;
         paired_with(&companion, &sessions, SECOND_LINK, OTHER_FLEET).await;
 
-        assert!(companion.pending_offer().is_none());
+        assert!(companion.pending_offer(&sessions).is_none());
         assert_eq!(sessions.hosts().len(), 2);
         assert_eq!(target(&companion, HOST).await.as_deref(), Some(HOST));
         assert_eq!(
@@ -804,11 +824,11 @@ mod tests {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = sessions(&dir);
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
-        assert!(companion.pending_offer().is_none());
+        assert!(companion.pending_offer(&sessions).is_none());
         companion.cancel_pairing();
-        companion.offer_link(LINK).unwrap();
+        companion.offer_link(&sessions, LINK).unwrap();
 
         companion
             .settle(&sessions, &link, generation, answered(OTHER_FLEET))
@@ -820,7 +840,10 @@ mod tests {
             target(&companion, OTHER_HOST).await.as_deref(),
             Some(OTHER_HOST)
         );
-        assert_eq!(companion.pending_offer().unwrap().host, "4d92…6ed6");
+        assert_eq!(
+            companion.pending_offer(&sessions).unwrap().host,
+            "4d92…6ed6"
+        );
     }
 
     #[tokio::test]
@@ -834,7 +857,7 @@ mod tests {
         .await
         .unwrap();
         let sessions = Sessions::open(dir.path(), EmptyJar, cipher.clone()).unwrap();
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
         cipher.0.store(true, Ordering::SeqCst);
 
@@ -853,7 +876,7 @@ mod tests {
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions =
             Sessions::open(dir.path(), UnreadableJar, Arc::new(TestCipher::default())).unwrap();
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
         let result = companion
@@ -869,7 +892,7 @@ mod tests {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = sessions(&dir);
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
         companion.forget_all(|| Ok(())).await.unwrap();
@@ -887,7 +910,7 @@ mod tests {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = Arc::new(sessions(&dir));
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
         let (done, settled) = std::sync::mpsc::channel();
         let gate = Arc::new(Gate {
@@ -931,6 +954,7 @@ mod tests {
     async fn a_forget_that_is_clearing_does_not_stop_an_offer_or_a_cancel() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = Arc::new(sessions(&dir));
         let (entered, entered_rx) = std::sync::mpsc::channel();
         let (release, released) = std::sync::mpsc::channel();
         let forgetting = {
@@ -950,8 +974,9 @@ mod tests {
         let (offered, offer_rx) = std::sync::mpsc::channel();
         let tapping = {
             let companion = companion.clone();
+            let sessions = sessions.clone();
             std::thread::spawn(move || {
-                let tap = companion.offer_link(LINK);
+                let tap = companion.offer_link(&sessions, LINK);
                 companion.cancel_pairing();
                 let _ = offered.send(tap);
             })
@@ -965,9 +990,11 @@ mod tests {
             tapped.expect("the offer and the cancel waited behind the clear"),
             Ok(Offer {
                 host: "4d92…6ed6".to_owned(),
+                claim: None,
+                clash: false,
             })
         );
-        assert!(companion.pending_offer().is_none());
+        assert!(companion.pending_offer(&sessions).is_none());
     }
 
     #[tokio::test]
@@ -1006,7 +1033,7 @@ mod tests {
             .await
             .unwrap();
         let moved = format!("handboard://c#v=1&e={OTHER_HOST}&f={FLEET}&c=0123456789");
-        companion.offer_link(&moved).unwrap();
+        companion.offer_link(&sessions, &moved).unwrap();
         let (link, generation) = take(&companion);
         let fresh = vec![Paired {
             id: FLEET.to_owned(),
@@ -1031,7 +1058,7 @@ mod tests {
         let companion = Companion::start(config(&dir)).await.unwrap();
         let sessions = sessions(&dir);
         paired_with(&companion, &sessions, LINK, FLEET).await;
-        companion.offer_link(SECOND_LINK).unwrap();
+        companion.offer_link(&sessions, SECOND_LINK).unwrap();
         let (link, generation) = take(&companion);
 
         companion
@@ -1201,5 +1228,84 @@ mod tests {
         assert_eq!(polling.await.unwrap().unwrap(), Polled::Reached);
         waking.await.unwrap().unwrap();
         assert!(!companion.asleep());
+    }
+
+    #[tokio::test]
+    async fn a_claim_never_reaches_the_store_or_the_host_label() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        let claim = "work-laptop";
+        let offer = companion
+            .offer_link(&sessions, &format!("{LINK}&n={claim}"))
+            .unwrap();
+        assert_eq!(offer.claim.as_deref(), Some(claim));
+        let (link, generation) = take(&companion);
+        companion
+            .settle(&sessions, &link, generation, answered(FLEET))
+            .await
+            .unwrap();
+
+        let hosts = sessions.hosts();
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].name, "4d92…6ed6");
+        let mut folders = vec![dir.path().to_owned()];
+        let mut scanned = Vec::new();
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                    continue;
+                }
+                let bytes = std::fs::read(&path).unwrap();
+                assert!(
+                    !bytes
+                        .windows(claim.len())
+                        .any(|part| part == claim.as_bytes()),
+                    "{} holds the claim",
+                    path.display()
+                );
+                scanned.push(path);
+            }
+        }
+        assert!(
+            scanned
+                .iter()
+                .any(|path| path.ends_with("sessions/sessions.sealed"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_claim_clashes_only_with_the_verified_name_of_another_host() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+        sessions.name_host(HOST, br#"{"host":"work-laptop"}"#);
+
+        let offer = |link: String| {
+            let offer = companion.offer_link(&sessions, &link).unwrap();
+            companion.cancel_pairing();
+            offer
+        };
+        assert!(offer(format!("{SECOND_LINK}&n=work-laptop")).clash);
+        assert!(!offer(format!("{SECOND_LINK}&n=work-laptop2")).clash);
+        assert!(!offer(format!("{SECOND_LINK}&n=work")).clash);
+        assert!(!offer(SECOND_LINK.to_owned()).clash);
+        assert!(!offer(format!("{LINK}&n=work-laptop")).clash);
+    }
+
+    #[tokio::test]
+    async fn a_claim_never_clashes_with_a_host_that_has_no_verified_name() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let sessions = sessions(&dir);
+        paired_with(&companion, &sessions, LINK, FLEET).await;
+
+        let offer = companion
+            .offer_link(&sessions, &format!("{SECOND_LINK}&n=4d92"))
+            .unwrap();
+        assert_eq!((offer.claim.as_deref(), offer.clash), (Some("4d92"), false));
     }
 }

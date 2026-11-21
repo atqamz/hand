@@ -8,6 +8,10 @@ import org.junit.Test
 
 private val plain = PairState(name = "Pixel 8", confirm = Confirm("7c1e…a2f9", null))
 private val known = PairState(name = "Pixel 8", confirm = Confirm("4d92…6ed6", "atqa-laptop"))
+private val claimed =
+  PairState(name = "Pixel 8", confirm = Confirm("7c1e…a2f9", null, "work-laptop"))
+private val clashing =
+  PairState(name = "Pixel 8", confirm = Confirm("7c1e…a2f9", null, "work-laptop", true))
 private val failed =
   plain.copy(
     error = "That code has expired. A code works for 5 minutes. Show a new code on the Board."
@@ -54,6 +58,14 @@ class PairScreenTest {
   @Test fun confirmLight() = shot(false, confirm(plain))
 
   @Test fun confirmDark() = shot(true, confirm(plain))
+
+  @Test fun claimedLight() = shot(false, confirm(claimed))
+
+  @Test fun claimedDark() = shot(true, confirm(claimed))
+
+  @Test fun clashLight() = shot(false, confirm(clashing))
+
+  @Test fun clashDark() = shot(true, confirm(clashing))
 
   @Test fun knownHostLight() = shot(false, confirm(known))
 
