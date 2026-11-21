@@ -163,3 +163,78 @@ func TestValidateSpecNamesTheBrokenField(t *testing.T) {
 		})
 	}
 }
+
+func TestUnmarkUndoesTheMarkOfStage(t *testing.T) {
+	for name, head := range map[string]string{
+		"no metadata":         "name: notes\ndescription: a test skill",
+		"metadata with a key": "name: notes\ndescription: a test skill\nmetadata:\n  owner: me",
+		"metadata first":      "metadata:\n    owner: me\nname: notes\ndescription: a test skill",
+		"metadata is last":    "name: notes\ndescription: a test skill\nmetadata:\n  owner: me\n  tier: 2",
+		"crlf":                "name: notes\r\ndescription: a test skill",
+	} {
+		src := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "---\n" + head + "\n---\n\n# notes\n", "scripts/run.sh": "echo\n"})
+		want, err := fleet.ComputedHash(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		staged, _, err := fleet.Stage(src, "notes")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if fleet.Owned(staged) == false {
+			t.Fatalf("%s: stage did not mark", name)
+		}
+		if err := fleet.Unmark(staged); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got, err := fleet.ComputedHash(staged); err != nil || got != want || fleet.Owned(staged) {
+			t.Errorf("%s: hash %s (%v) owned=%v, want %s", name, got, err, fleet.Owned(staged), want)
+		}
+		os.RemoveAll(staged)
+	}
+	plain := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "---\nname: notes\ndescription: x\n---\nbody\n"})
+	before, _ := os.ReadFile(filepath.Join(plain, "SKILL.md"))
+	if err := fleet.Unmark(plain); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(plain, "SKILL.md")); string(after) != string(before) {
+		t.Fatalf("an unmarked file changed: %q", after)
+	}
+}
+
+func TestUnmarkTouchesOnlyTheMetadataBlock(t *testing.T) {
+	for name, c := range map[string]struct{ have, want string }{
+		"a folded description line equal to the marker": {
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand\nmetadata:\n  managed-by: hand\n  owner: me",
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand\nmetadata:\n  owner: me",
+		},
+		"a marker with no metadata block": {
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand",
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand",
+		},
+		"a blank line before the fields that stay": {
+			"name: notes\ndescription: x\nmetadata:\n  managed-by: hand\n\n  owner: me",
+			"name: notes\ndescription: x\nmetadata:\n\n  owner: me",
+		},
+		"a description after a metadata block without the marker": {
+			"name: notes\nmetadata:\n  owner: me\ndescription: >\n  a test skill\n  managed-by: hand",
+			"name: notes\nmetadata:\n  owner: me\ndescription: >\n  a test skill\n  managed-by: hand",
+		},
+		"a blank line before the marker": {
+			"name: notes\ndescription: x\nmetadata:\n\n  managed-by: hand\n  owner: me",
+			"name: notes\ndescription: x\nmetadata:\n\n  owner: me",
+		},
+		"a marker that is the only field": {
+			"name: notes\ndescription: x\nmetadata:\n  managed-by: hand\n\nlicense: MIT",
+			"name: notes\ndescription: x\n\nlicense: MIT",
+		},
+	} {
+		dir := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "---\n" + c.have + "\n---\n\n# notes\n"})
+		if err := fleet.Unmark(dir); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got, _ := os.ReadFile(filepath.Join(dir, "SKILL.md")); string(got) != "---\n"+c.want+"\n---\n\n# notes\n" {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}

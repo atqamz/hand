@@ -39,6 +39,7 @@ var skillsCommands = map[string]handler{
 	"remove":   cmdSkillsRemove,
 	"outdated": cmdSkillsOutdated,
 	"sync":     cmdSkillsSync,
+	"propose":  cmdSkillsPropose,
 }
 
 func init() {
@@ -62,8 +63,8 @@ func (r *runner) scopeFlags(cmd string, args []string, most int, extra func(*fla
 	if err := set.Parse(args); err != nil {
 		return f, nil, helpOr(set, err, usageError{fmt.Sprintf("skills %s: %v", cmd, err)})
 	}
-	usage := usageError{fmt.Sprintf("usage: hand skills %s [--project NAME|--fleet|--user]%s", cmd, map[string]string{"list": "", "add": " [--ref REF] NAME|PATH|URL", "update": " [NAME]", "remove": " [NAME]", "outdated": " [--all]", "sync": " [--yes NAME@COMMIT] [NAME]"}[cmd])}
-	if set.NArg() > most || (most == 1 && cmd == "add" && set.NArg() == 0) {
+	usage := usageError{fmt.Sprintf("usage: hand skills %s [--project NAME|--fleet|--user]%s", cmd, map[string]string{"list": "", "add": " [--ref REF] NAME|PATH|URL", "update": " [NAME]", "remove": " [NAME]", "outdated": " [--all]", "sync": " [--yes NAME@COMMIT] [NAME]", "propose": " NAME"}[cmd])}
+	if set.NArg() > most || (most == 1 && (cmd == "add" || cmd == "propose") && set.NArg() == 0) {
 		return f, nil, usage
 	}
 	chosen := 0
@@ -75,7 +76,20 @@ func (r *runner) scopeFlags(cmd string, args []string, most int, extra func(*fla
 	if chosen > 1 {
 		return f, nil, usage
 	}
+	r.scopeArg = f.arg()
 	return f, set.Args(), nil
+}
+
+func (f scopeFlags) arg() string {
+	switch {
+	case f.user:
+		return "--user "
+	case f.fleet:
+		return "--fleet "
+	case f.project != "":
+		return "--project " + f.project + " "
+	}
+	return ""
 }
 
 func (r *runner) resolveScope(f scopeFlags) (fleet.Skills, error) {
@@ -340,6 +354,7 @@ func cmdSkillsList(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer r.closeFetches()
 	managed, err := s.Load()
 	if err != nil {
 		return err
@@ -369,15 +384,16 @@ func cmdSkillsList(r *runner, args []string) error {
 			if p := e.Path(); p != "" {
 				source += "#" + p
 			}
-			rows = append(rows, []string{name, source, e.Commit, s.Scope, "yes"})
+			st, _, detail := r.driftRow(s, name, e)
+			rows = append(rows, []string{name, source, e.Commit, s.Scope, "yes", e.Ref, st, detail})
 		case fleet.Owned(s.Dir(fleet.SkillRoots[1], name)):
-			rows = append(rows, []string{name, "hand init", "", s.Scope, "no"})
+			rows = append(rows, []string{name, "hand init", "", s.Scope, "no", "", "", ""})
 		default:
-			rows = append(rows, []string{name, "", "", s.Scope, "no"})
+			rows = append(rows, []string{name, "", "", s.Scope, "no", "", "", ""})
 		}
 	}
 	var d toon.Doc
-	d.Rows("skills", []string{"name", "source", "commit", "scope", "managed"}, rows)
+	d.Rows("skills", []string{"name", "source", "commit", "scope", "managed", "ref", "state", "detail"}, rows)
 	return r.print(&d)
 }
 
@@ -501,7 +517,7 @@ func (r *runner) eachSkill(cmd string, args []string, extra func(*flag.FlagSet),
 	for _, name := range names {
 		st, detail, err := fn(s, managed, name)
 		if err != nil {
-			st, detail = "refused", err.Error()
+			st, detail = cmp.Or(st, "refused"), err.Error()
 			refused++
 		}
 		rows = append(rows, []string{name, st, detail})
@@ -544,6 +560,7 @@ func refuseUnlessClean(s fleet.Skills, name string, e fleet.Managed, ok bool) (s
 }
 
 func cmdSkillsUpdate(r *runner, args []string) error {
+	var goals []string
 	return r.eachSkill("update", args, nil, func(s fleet.Skills, managed map[string]fleet.Managed, name string) (string, string, error) {
 		e, ok := managed[name]
 		if !ok {
@@ -553,6 +570,17 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 			return "", "", err
 		}
 		kind, err := refuseUnlessClean(s, name, e, ok)
+		if kind == "changed" || kind == "unmanaged" {
+			if p, perr := r.compare(s, name, e); perr == nil {
+				_ = os.RemoveAll(p.staged)
+				if p.state == "conflict" {
+					return "conflict", "", r.conflict(&goals, s, name, e, p)
+				}
+				if kind == "changed" {
+					err = fmt.Errorf("%w: %s %s", state.ErrConflict, name, r.edited(name))
+				}
+			}
+		}
 		if err != nil {
 			return "", "", err
 		}
@@ -569,7 +597,7 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 			return "", "", err
 		}
 		return map[bool]string{true: "updated", false: "restored"}[moved], commit, nil
-	}, nil)
+	}, func(d *toon.Doc) { conflictHelp(d, goals) })
 }
 
 func cmdSkillsRemove(r *runner, args []string) error {

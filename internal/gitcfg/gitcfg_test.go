@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
@@ -543,5 +544,32 @@ func TestToplevelAndReadRunNothingWithEverySettingPlanted(t *testing.T) {
 	}
 	if got := ran(t, log); got != "" {
 		t.Fatalf("ran %q", got)
+	}
+}
+
+func TestOnlyTheHooksVariantRunsTheUsersHooks(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "hook.log")
+	hooks := t.TempDir()
+	path := fakebin.Install(t, hooks, "pre-commit", "mark", map[string]string{"log": log})
+	if filepath.Ext(path) != "" {
+		t.Skip("a hook must be an extensionless executable")
+	}
+	dir := newRepo(t)
+	gitc(t, dir, "config", "core.hooksPath", filepath.ToSlash(hooks))
+	gitc(t, dir, "config", "user.name", "t")
+	gitc(t, dir, "config", "user.email", "t@t")
+	gitc(t, dir, "config", "commit.gpgsign", "false")
+	ctx := context.Background()
+	if _, err := RunBounded(ctx, dir, time.Minute, "commit", "-q", "--allow-empty", "-m", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(log); err == nil {
+		t.Fatal("RunBounded ran a hook")
+	}
+	if _, err := RunBoundedHooks(ctx, dir, time.Minute, "commit", "-q", "--allow-empty", "-m", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(log); err != nil {
+		t.Fatalf("RunBoundedHooks ran no hook: %v", err)
 	}
 }

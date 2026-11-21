@@ -128,3 +128,25 @@ func TestUpdateSurvivesASkillsSyncErrorAndReportsWhatIsBehind(t *testing.T) {
 		t.Fatalf("help = %q", rep.Help)
 	}
 }
+
+func TestUpdateSaysAConflictNeedsAReconcile(t *testing.T) {
+	f := newCycle(t)
+	f.o.Env = append(f.o.Env, "HAND_FAIL=skills sync", "HAND_FAIL_CODE=3")
+	f.o.Getenv = lookup(f.o.Env)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || rep.Status != "updated" {
+		t.Fatalf("a conflict failed the update: %+v, %v", rep, err)
+	}
+	var found int
+	for _, h := range rep.Help {
+		if strings.Contains(h, "`hand skills sync --fleet` failed") {
+			t.Fatalf("a conflict is reported as a failure: %q", h)
+		}
+		if strings.Contains(h, "in "+f.alpha) && strings.Contains(h, "conflict") && strings.Contains(h, "needs a reconcile") && strings.Contains(h, "`hand skills list --fleet`") {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("help = %q", rep.Help)
+	}
+}

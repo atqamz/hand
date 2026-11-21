@@ -53,3 +53,35 @@ func TestTrustFollowsTheFetchedURLAndTheSubscription(t *testing.T) {
 		}
 	}
 }
+
+func TestDriftStateNamesTheFourStatuses(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		edited, behind bool
+		want           string
+	}{
+		{"hash equals the lock, source unmoved", false, false, "current"},
+		{"clean copy, source moved", false, true, "behind"},
+		{"hash differs from the lock, source unmoved", true, false, "edited"},
+		{"hash differs and the source moved", true, true, "conflict"},
+	} {
+		if got := driftState(tc.edited, tc.behind); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestCommitWordNeverCarriesShellText(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                     "its content",
+		"0123456789abcdef0123": "0123456789ab",
+		"$(touch x)":           "??touch?x?",
+		"a\"b`c":               "a?b?c",
+		"x;y":                  "x?y",
+		"short":                "short",
+	} {
+		if got := commitWord(in); got != want {
+			t.Errorf("commitWord(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

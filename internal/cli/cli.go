@@ -64,6 +64,7 @@ type runner struct {
 	migrated   bool
 	noAdopt    bool
 	fetches    fetchCache
+	scopeArg   string
 }
 
 type usageError struct{ msg string }
