@@ -37,6 +37,15 @@ func TestAPIInboxRefusesAPictureOverThePixelCapAsTooLarge(t *testing.T) {
 	if res := upload(h, "map.png", pngOfSize(6001, 6000), token); res.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("the Board page took a picture over the cap: %d", res.StatusCode)
 	}
+	for _, d := range []uint32{1 << 30, 1<<31 - 1} {
+		e := testAPIError(t, apiUpload(h, "file", "map.png", pngOfSize(d, d), token, true), http.StatusRequestEntityTooLarge, "too_large")
+		if e.Message != "an image whose size cannot be read is refused" {
+			t.Errorf("%d: message = %q", d, e.Message)
+		}
+		if res := upload(h, "map.png", pngOfSize(d, d), token); res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("%d: the Board page took a picture whose size overflows: %d", d, res.StatusCode)
+		}
+	}
 	if got := len(inboxFiles(t, fx.options.Home)); got != before {
 		t.Fatalf("a refused picture left %d files in the inbox", got-before)
 	}

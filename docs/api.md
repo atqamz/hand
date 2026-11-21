@@ -364,7 +364,7 @@ A file reaches the supervisor in two steps, as it does from the web composer: up
 - `400 bad_request`: the body is not `multipart/form-data` or has no file in the field `file`; a part with no file name is a value, not a file.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board or a paired Companion.
-- `413 too_large`: a file over 10 MiB (`a file can be at most 10 MiB`), a PNG, JPEG, GIF or WebP whose header says more than 36 megapixels, width times height (`an image can be at most 36 megapixels`; refused, never scaled down, and an image whose header cannot be read is stored as data) or a post over 11 MiB (`the request is too large`). Nothing is stored. Every upload also deletes the `.upload-*` files in `inbox/` that no upload has touched for an hour, the leftovers of a crash.
+- `413 too_large`: a file over 10 MiB (`a file can be at most 10 MiB`), a PNG, JPEG, GIF or WebP whose header says more than 36 megapixels, width times height (`an image can be at most 36 megapixels`; refused, never scaled down, and a PNG, JPEG, GIF or WebP whose size cannot be read, such as a PNG whose width times height overflows, is refused the same way with `an image whose size cannot be read is refused`) or a post over 11 MiB (`the request is too large`). Nothing is stored. Every upload also deletes the `.upload-*` files in `inbox/` that no upload has touched for an hour, the leftovers of a crash.
 - `507 no_space`: the disk was full.
 - `500 internal`: the folder could not be written; the message names no path.
 

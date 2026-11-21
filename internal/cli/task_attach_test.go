@@ -312,13 +312,64 @@ func TestTaskAttachCopiesFromTheReportsFolderButNotFromTheRestOfTheFleetFolder(t
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
-			t.Fatal(err)
+		if _, err := os.Lstat(path); err != nil {
+			if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
 		before := inboxNames(t, h)
 		if _, errOut, code := h.run("task", "attach", "t1", path); code != 2 || !strings.Contains(errOut, "inside the fleet folder") || !slices.Equal(before, inboxNames(t, h)) {
 			t.Errorf("%s: code=%d stderr=%q", rel, code, errOut)
 		}
+	}
+}
+
+func TestTaskAttachRefusesAFleetFileReachedThroughALinkedFolderDotDotOrAHardlink(t *testing.T) {
+	h := attachFixture(t)
+	if err := os.MkdirAll(filepath.Join(h.home, "reports"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	token := filepath.Join(h.home, "board.token")
+	if err := os.WriteFile(token, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ext := t.TempDir()
+	if err := os.Symlink(filepath.Join(h.home, "reports"), filepath.Join(ext, "reports-link")); err != nil {
+		t.Skipf("no symlinks: %v", err)
+	}
+	for _, name := range []string{"hand.db", "board.token"} {
+		if err := os.Link(filepath.Join(h.home, name), filepath.Join(ext, "hard-"+name)); err != nil {
+			t.Skipf("no hard links: %v", err)
+		}
+	}
+	report := filepath.Join(h.home, "reports", "out.txt")
+	if err := os.WriteFile(report, []byte("r"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(report, filepath.Join(ext, "hard-report.txt")); err != nil {
+		t.Skipf("no hard links: %v", err)
+	}
+	before := inboxNames(t, h)
+	for _, path := range []string{
+		filepath.Join(ext, "reports-link") + string(filepath.Separator) + ".." + string(filepath.Separator) + "hand.db",
+		filepath.Join(ext, "reports-link") + string(filepath.Separator) + ".." + string(filepath.Separator) + "board.token",
+		filepath.Join(ext, "hard-hand.db"),
+		filepath.Join(ext, "hard-board.token"),
+	} {
+		if _, errOut, code := h.run("task", "attach", "t1", path); code != 2 || !strings.Contains(errOut, "inside the fleet folder") || !slices.Equal(before, inboxNames(t, h)) {
+			t.Errorf("%s: code=%d stderr=%q, inbox %q", path, code, errOut, inboxNames(t, h))
+		}
+	}
+	if out := h.ok("task", "attach", "t1", filepath.Join(ext, "hard-report.txt")); !strings.Contains(out, "-hard-report.txt") {
+		t.Fatalf("a hard link of a file in reports/ = %q", out)
+	}
+}
+
+func TestTaskAttachToAMissingTaskCopiesNothing(t *testing.T) {
+	h := attachFixture(t)
+	before := inboxNames(t, h)
+	if _, errOut, code := h.run("task", "attach", "t99", externalFile(t, "a.txt", []byte("x"))); code != 3 || !strings.Contains(errOut, "task t99") || !slices.Equal(before, inboxNames(t, h)) {
+		t.Fatalf("code=%d stderr=%q, inbox %q", code, errOut, inboxNames(t, h))
 	}
 }
 

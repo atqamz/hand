@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -118,42 +119,70 @@ func TestThePixelCapAdmitsTheLimitAndRefusesOnePixelRowMore(t *testing.T) {
 	}
 }
 
-func TestAnImageWhoseHeaderCannotBeReadIsStillSavedAsData(t *testing.T) {
-	for name, data := range map[string][]byte{"png": pngOf(1, 1)[:20], "webp": []byte("RIFF\x00\x00\x00\x00WEBPVP8 "), "webp-bad-start": append(webpLossy(9, 9)[:23], make([]byte, 12)...)} {
+func TestAnImageWhoseSizeCannotBeReadIsRefused(t *testing.T) {
+	for name, data := range map[string][]byte{
+		"png":            pngOf(1, 1)[:20],
+		"png 2^30":       pngOf(1<<30, 1<<30),
+		"png 2^31-1":     pngOf(1<<31-1, 1<<31-1),
+		"webp":           []byte("RIFF\x00\x00\x00\x00WEBPVP8 "),
+		"webp-bad-start": append(webpLossy(9, 9)[:23], make([]byte, 12)...),
+	} {
 		if _, known := Pixels(data); known {
-			t.Errorf("%s: a cut header gave a size", name)
+			t.Errorf("%s: a header that cannot be read gave a size", name)
 		}
-		if got, err := Save(t.TempDir(), now, "x", bytes.NewReader(data)); err != nil {
-			t.Errorf("%s: %q, %v", name, got, err)
+		dir := t.TempDir()
+		if got, err := Save(dir, now, "x.png", bytes.NewReader(data)); !errors.Is(err, ErrUnsized) || !TooBig(err) {
+			t.Errorf("%s: %q, %v, want ErrUnsized", name, got, err)
+		}
+		if des, _ := os.ReadDir(dir); len(des) != 0 {
+			t.Errorf("%s: a refused image left %d entries", name, len(des))
 		}
 	}
-	if _, known := Pixels([]byte("plain text")); known {
-		t.Error("text has a pixel size")
+	if got, err := Save(t.TempDir(), now, "notes.png", strings.NewReader("plain text")); err != nil || !strings.HasSuffix(got, ".png.bin") {
+		t.Errorf("text named like an image = %q, %v", got, err)
+	}
+}
+
+func TestSweepUploadsReportsAFileItCannotRemove(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a read-only folder does not stop removal here")
+	}
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, ".upload-old"), 2*time.Hour)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+	got, failed := SweepUploads(dir, now, false)
+	if got != nil || len(failed) != 1 || failed[0].Name != ".upload-old" || failed[0].Err == nil {
+		t.Fatalf("swept %+v, failed %+v", got, failed)
 	}
 }
 
 func TestSafeNameKeepsLettersMarksAndDigitsOfAnyScript(t *testing.T) {
 	for in, want := range map[string]string{
-		"report.pdf":             "report.pdf",
-		"../../etc/passwd":       "passwd",
-		`..\..\win.ini`:          "win.ini",
-		`C:\Users\me\notes.txt`:  "notes.txt",
-		".env":                   "env",
-		"--rf":                   "rf",
-		"..":                     "file",
-		"":                       "file",
-		"Q3 export (final).csv":  "Q3_export_final_.csv",
-		"résumé.pdf":             "résumé.pdf",
-		"re\u0301sume\u0301.pdf": "re\u0301sume\u0301.pdf",
-		"日本.txt":                 "日本.txt",
-		"नमस्ते.txt":             "नमस्ते.txt",
-		"𠀀.txt":                  "𠀀.txt",
-		"🙂.txt":                  "_.txt",
-		"a\u202eb.txt":           "a_b.txt",
-		"a\u200db.txt":           "a_b.txt",
-		"a\x00b\n.txt":           "a_b_.txt",
-		"a\xffb.txt":             "a_b.txt",
-		"trailing.":              "trailing",
+		"report.pdf":               "report.pdf",
+		"../../etc/passwd":         "passwd",
+		`..\..\win.ini`:            "win.ini",
+		`C:\Users\me\notes.txt`:    "notes.txt",
+		".env":                     "env",
+		"--rf":                     "rf",
+		"..":                       "file",
+		"":                         "file",
+		"Q3 export (final).csv":    "Q3_export_final_.csv",
+		"résumé.pdf":               "résumé.pdf",
+		"re\u0301sume\u0301.pdf":   "re\u0301sume\u0301.pdf",
+		"日本.txt":                   "日本.txt",
+		"नमस्ते.txt":               "नमस्ते.txt",
+		"𠀀.txt":                    "𠀀.txt",
+		"🙂.txt":                    "_.txt",
+		"a\u202eb.txt":             "a_b.txt",
+		"a\u200db.txt":             "a_b.txt",
+		"a\u034f\u3164\ufe0fb.txt": "a_b.txt",
+		"\u3164\u034f.txt":         "_.txt",
+		"a\x00b\n.txt":             "a_b_.txt",
+		"a\xffb.txt":               "a_b.txt",
+		"trailing.":                "trailing",
 	} {
 		if got := SafeName(in); got != want {
 			t.Errorf("SafeName(%q) = %q, want %q", in, got, want)
@@ -226,11 +255,11 @@ func TestSweepUploadsRemovesOnlyStaleUploads(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := tree(t, dir)
-	got := SweepUploads(dir, now, true)
-	if !slices.Equal(names(got), []string{".upload-old"}) || got[0].Size != 5 || !mapsEqual(before, tree(t, dir)) {
+	got, failed := SweepUploads(dir, now, true)
+	if failed != nil || !slices.Equal(names(got), []string{".upload-old"}) || got[0].Size != 5 || !mapsEqual(before, tree(t, dir)) {
 		t.Fatalf("dry sweep = %+v, folder changed: %v", got, !mapsEqual(before, tree(t, dir)))
 	}
-	if got := SweepUploads(dir, now, false); !slices.Equal(names(got), []string{".upload-old"}) {
+	if got, failed := SweepUploads(dir, now, false); failed != nil || !slices.Equal(names(got), []string{".upload-old"}) {
 		t.Fatalf("sweep = %+v", got)
 	}
 	after := tree(t, dir)
@@ -240,7 +269,7 @@ func TestSweepUploadsRemovesOnlyStaleUploads(t *testing.T) {
 	if !mapsEqual(before, after) {
 		t.Fatalf("sweep left %v, want %v", after, before)
 	}
-	if got := SweepUploads(filepath.Join(dir, "missing"), now, false); got != nil {
+	if got, failed := SweepUploads(filepath.Join(dir, "missing"), now, false); got != nil || failed != nil {
 		t.Fatalf("sweep of no folder = %+v", got)
 	}
 }

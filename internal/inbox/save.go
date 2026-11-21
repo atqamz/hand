@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -32,16 +33,26 @@ const (
 var (
 	ErrTooLarge = errors.New("a file can be at most 10 MiB")
 	ErrPixels   = errors.New("an image can be at most 36 megapixels")
+	ErrUnsized  = errors.New("an image whose size cannot be read is refused")
 
-	imageExt   = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
-	imageLike  = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
+	ImageExt   = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+	ImageLike  = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
 	unsafeRuns = regexp.MustCompile(`[^\p{L}\p{M}\p{N}._-]+`)
+	invisible  = []*unicode.RangeTable{unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector}
 	saveMu     sync.Mutex
 )
 
-func TooBig(err error) bool { return errors.Is(err, ErrTooLarge) || errors.Is(err, ErrPixels) }
+func TooBig(err error) bool {
+	return errors.Is(err, ErrTooLarge) || errors.Is(err, ErrPixels) || errors.Is(err, ErrUnsized)
+}
 
 func SafeName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsOneOf(invisible, r) {
+			return ' '
+		}
+		return r
+	}, name)
 	name = strings.TrimRight(strings.TrimLeft(unsafeRuns.ReplaceAllString(filepath.Base(strings.ReplaceAll(name, `\`, "/")), "_"), ".-"), ".")
 	if name == "" {
 		return "file"
@@ -110,12 +121,16 @@ func Save(dir string, now time.Time, original string, body io.Reader) (string, e
 		return "", ErrTooLarge
 	}
 	safe := ClipName(SafeName(original))
-	if ext, ok := imageExt[http.DetectContentType(data)]; ok {
-		if px, known := Pixels(data); known && px > MaxPixels {
+	if ext, ok := ImageExt[http.DetectContentType(data)]; ok {
+		px, known := Pixels(data)
+		if !known {
+			return "", ErrUnsized
+		}
+		if px > MaxPixels {
 			return "", ErrPixels
 		}
 		safe = ClipName(strings.TrimSuffix(safe, filepath.Ext(safe)) + "." + ext)
-	} else if imageLike.MatchString(safe) {
+	} else if ImageLike.MatchString(safe) {
 		safe = ClipName(safe + ".bin")
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -155,9 +170,10 @@ func Save(dir string, now time.Time, original string, body io.Reader) (string, e
 	}
 }
 
-func SweepUploads(dir string, now time.Time, dry bool) []File {
+func SweepUploads(dir string, now time.Time, dry bool) ([]File, []Failure) {
 	des, _ := os.ReadDir(dir)
 	var out []File
+	var failed []Failure
 	for _, de := range des {
 		if !strings.HasPrefix(de.Name(), tempPrefix) {
 			continue
@@ -166,10 +182,15 @@ func SweepUploads(dir string, now time.Time, dry bool) []File {
 		if err != nil || !info.Mode().IsRegular() || now.Sub(info.ModTime()) <= StaleTemp {
 			continue
 		}
-		if !dry && os.Remove(filepath.Join(dir, de.Name())) != nil {
-			continue
+		if !dry {
+			if err := os.Remove(filepath.Join(dir, de.Name())); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					failed = append(failed, Failure{de.Name(), err})
+				}
+				continue
+			}
 		}
 		out = append(out, File{de.Name(), info.Size(), info.ModTime()})
 	}
-	return out
+	return out, failed
 }

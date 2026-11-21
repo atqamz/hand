@@ -417,6 +417,20 @@ func TestAProtectedFileIsSkippedAndListed(t *testing.T) {
 	}
 }
 
+func TestAProtectedFileIsRecognisedByIdentityNotBySpelling(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, Folder)
+	composed, decomposed := "20260901-000000-1-caf\u00e9.txt", "20260901-000000-1-cafe\u0301.txt"
+	put(t, filepath.Join(dir, composed), 48*day)
+	if err := os.Link(filepath.Join(dir, composed), filepath.Join(dir, decomposed)); err != nil {
+		t.Skipf("this folder keeps one name for both spellings, or has no hard links: %v", err)
+	}
+	p, err := Prune(home, now, 30*day, false, map[string]bool{composed: true})
+	if err != nil || p.Moved != nil || len(p.Protected) != 2 {
+		t.Fatalf("moved %v protected %v, %v", names(p.Moved), names(p.Protected), err)
+	}
+}
+
 func TestLabelLineAndKind(t *testing.T) {
 	for name, want := range map[string]string{"short": "short", "": "", "20261101-050000-": "20261101-050000-", "20261101-050000-1-日本語.txt": "日本語.txt", "20261101-050000-1-shot.png": "shot.png", "20261101-050000-1.png": "20261101-050000-1.png", "20261101-050000-2-a-b.log": "a-b.log"} {
 		if got := Label(name); got != want {

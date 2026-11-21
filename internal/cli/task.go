@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -463,27 +464,54 @@ func (r *runner) copyIn(arg string) (string, error) {
 	case !fi.Mode().IsRegular():
 		return "", fmt.Errorf("%w: %s is not a regular file (a symlink, folder or device is not copied)", state.ErrInvalid, arg)
 	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(arg))
-	if err != nil {
-		return "", err
-	}
-	home, err := filepath.EvalSymlinks(r.home)
-	if err != nil {
-		return "", err
-	}
-	if rel, err := filepath.Rel(home, filepath.Join(parent, filepath.Base(arg))); err == nil && filepath.IsLocal(rel) && !strings.HasPrefix(rel, "reports"+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: %s is inside the fleet folder, which holds Hand's own state; only a file in reports/ or outside the folder is copied into inbox/", state.ErrInvalid, arg)
-	}
-	f, err := os.Open(arg)
+	f, err := os.OpenFile(arg, os.O_RDONLY|openFlags, 0)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
+	got, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !got.Mode().IsRegular() || !os.SameFile(fi, got) {
+		return "", fmt.Errorf("%w: %s changed while it was being read", state.ErrInvalid, arg)
+	}
+	if inside, err := r.inFleetFolder(got); err != nil {
+		return "", err
+	} else if inside {
+		return "", fmt.Errorf("%w: %s is inside the fleet folder (or is the same file as one in it), which holds Hand's own state; only a file in reports/ or outside the folder is copied into inbox/", state.ErrInvalid, arg)
+	}
 	name, err := inbox.Save(filepath.Join(r.home, inbox.Folder), r.env.Now(), filepath.Base(arg), f)
 	if inbox.TooBig(err) {
 		return "", fmt.Errorf("%w: %s: %v", state.ErrInvalid, arg, err)
 	}
 	return name, err
+}
+
+func (r *runner) inFleetFolder(opened os.FileInfo) (bool, error) {
+	home, err := filepath.EvalSymlinks(r.home)
+	if err != nil {
+		return false, err
+	}
+	found := false
+	err = filepath.WalkDir(home, func(path string, de fs.DirEntry, err error) error {
+		switch {
+		case err != nil && path == home:
+			return err
+		case err != nil:
+			return nil
+		case path == filepath.Join(home, "reports"):
+			return filepath.SkipDir
+		case !de.Type().IsRegular():
+			return nil
+		}
+		if info, err := de.Info(); err == nil && os.SameFile(info, opened) {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found, err
 }
 
 func (r *runner) fileRows(d *toon.Doc, files []state.TaskFile) {
@@ -524,17 +552,22 @@ func (r *runner) taskFileChange(name string, args []string, mustExist bool, appl
 		}
 		defer unlock()
 	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if name == "attach" {
+		if _, err := st.Task(r.ctx(), id); err != nil {
+			return err
+		}
+	}
 	names := make([]string, len(pos)-1)
 	for i, arg := range pos[1:] {
 		if names[i], err = r.inboxFile(arg, mustExist); err != nil {
 			return err
 		}
 	}
-	st, err := r.store()
-	if err != nil {
-		return err
-	}
-	defer st.Close()
 	n, err := apply(r.ctx(), st, id, names)
 	if err != nil {
 		return err

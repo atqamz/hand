@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -144,7 +145,14 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 	if err != nil {
 		return Pruned{}, err
 	}
-	p := Pruned{Swept: SweepUploads(dir, now, dry)}
+	var p Pruned
+	p.Swept, p.Failed = SweepUploads(dir, now, dry)
+	var linked []os.FileInfo
+	for name := range protected {
+		if info, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			linked = append(linked, info)
+		}
+	}
 	for _, f := range held {
 		if now.Sub(f.Mod) <= TrashKeep {
 			continue
@@ -161,7 +169,7 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 		if now.Sub(f.Mod) <= olderThan {
 			continue
 		}
-		if protected[f.Name] {
+		if protected[f.Name] || sameAny(filepath.Join(dir, f.Name), linked) {
 			p.Protected = append(p.Protected, f)
 			continue
 		}
@@ -174,6 +182,11 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 		p.Moved = append(p.Moved, f)
 	}
 	return p, nil
+}
+
+func sameAny(path string, linked []os.FileInfo) bool {
+	info, err := os.Lstat(path)
+	return err == nil && slices.ContainsFunc(linked, func(l os.FileInfo) bool { return os.SameFile(l, info) })
 }
 
 func Marked(home, day string) bool {

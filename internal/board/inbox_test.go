@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 32)...)
+	pngBytes = append(pngOfSize(1, 1), make([]byte, 7)...)
 	inboxRe  = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+-[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N}._-]{0,79}$`)
 )
 

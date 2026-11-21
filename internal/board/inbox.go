@@ -22,9 +22,9 @@ const (
 
 var (
 	shotName  = regexp.MustCompile(`^` + inbox.StoredExpr + `$`)
-	imageExt  = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+	imageExt  = inbox.ImageExt
 	shotTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
-	imageLike = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
+	imageLike = inbox.ImageLike
 )
 
 func fileKind(name string) string {
