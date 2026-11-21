@@ -20,7 +20,7 @@ import (
 
 const (
 	Name    = "hand-iroh"
-	Version = "0.1.0"
+	Version = "0.2.0"
 )
 
 const (

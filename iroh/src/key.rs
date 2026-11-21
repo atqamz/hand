@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
@@ -6,6 +6,7 @@ use std::time::Duration;
 use iroh::SecretKey;
 
 const FILE: &str = "hand-iroh.key";
+const LOCK: &str = "hand-iroh.lock";
 const STALE_TEMP: Duration = Duration::from_secs(60);
 
 pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
@@ -33,6 +34,37 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
         },
         found => found,
     }
+}
+
+pub fn load(dir: &Path) -> io::Result<SecretKey> {
+    let path = dir.join(FILE);
+    let key = read(&path).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound => io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "{} does not exist; pass --new-key to make one",
+                path.display()
+            ),
+        ),
+        _ => e,
+    })?;
+    private(dir, 0o022, "can be changed by other users", "chmod go-w")?;
+    Ok(key)
+}
+
+pub fn lock(dir: &Path) -> io::Result<File> {
+    let file = open_lock(&dir.join(LOCK))?;
+    file.try_lock().map_err(|e| match e {
+        TryLockError::WouldBlock => io::Error::new(
+            io::ErrorKind::WouldBlock,
+            format!(
+                "another hand-iroh client already uses the key in {}",
+                dir.display()
+            ),
+        ),
+        TryLockError::Error(e) => e,
+    })?;
+    Ok(file)
 }
 
 fn create(path: &Path) -> io::Result<SecretKey> {
@@ -139,6 +171,26 @@ fn create_private(path: &Path) -> io::Result<File> {
         .write(true)
         .create_new(true)
         .mode(0o600)
+        .open(path)
+}
+
+#[cfg(unix)]
+fn open_lock(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_lock(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
         .open(path)
 }
 
@@ -312,5 +364,92 @@ mod tests {
             "{error}"
         );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn load_never_makes_a_key() {
+        let dir = TempDir::new();
+        let absent = dir.path().join("keys");
+        let error = load(&absent).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("--new-key"), "{error}");
+        assert!(!absent.exists());
+        let empty = dir.path().join("empty");
+        fs::create_dir(&empty).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&empty, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert!(load(&empty).is_err());
+        assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn load_reads_the_key_that_load_or_create_made() {
+        let dir = TempDir::new();
+        let made = load_or_create(dir.path()).unwrap();
+        assert_eq!(load(dir.path()).unwrap().to_bytes(), made.to_bytes());
+    }
+
+    #[test]
+    fn load_refuses_a_wrong_sized_key_and_leaves_it() {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(FILE), [1u8; 31]).unwrap();
+        let error = load(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(dir.path().join(FILE)).unwrap(), [1u8; 31]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_refuses_what_other_users_can_read_or_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        load_or_create(dir.path()).unwrap();
+        let path = dir.path().join(FILE);
+        for mode in [0o640, 0o604, 0o644, 0o660] {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            let error = load(dir.path()).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{mode:o}");
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        for mode in [0o770, 0o707, 0o777] {
+            fs::set_permissions(dir.path(), fs::Permissions::from_mode(mode)).unwrap();
+            let error = load(dir.path()).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{mode:o}");
+        }
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(load(dir.path()).is_ok());
+    }
+
+    #[test]
+    fn one_client_holds_a_key_folder_until_it_lets_go() {
+        let dir = TempDir::new();
+        let first = lock(dir.path()).unwrap();
+        let error = lock(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert!(
+            error.to_string().contains("already uses the key"),
+            "{error}"
+        );
+        drop(first);
+        assert!(lock(dir.path()).is_ok());
+        let other = TempDir::new();
+        let _held = lock(dir.path()).unwrap();
+        assert!(lock(other.path()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_lock_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let _held = lock(dir.path()).unwrap();
+        let mode = fs::metadata(dir.path().join(LOCK))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }

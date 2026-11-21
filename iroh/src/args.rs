@@ -1,14 +1,15 @@
 use std::fmt;
 use std::fs;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
 
-use iroh::RelayUrl;
+use iroh::{EndpointId, RelayUrl};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const IROH_VERSION: &str = env!("IROH_VERSION");
-pub const USAGE: &str = "usage: hand-iroh --board 127.0.0.1:PORT --secret-file PATH --key-dir DIR [--relay default|none|URL] [--max-connections N] [--idle SECONDS] | --version";
+pub const USAGE: &str = "usage: hand-iroh --board 127.0.0.1:PORT --secret-file PATH --key-dir DIR [--relay default|none|URL] [--bind 127.0.0.1:PORT] [--max-connections N] [--idle SECONDS]\n       hand-iroh client --host ENDPOINTID --key-dir DIR [--new-key] [--listen 127.0.0.1:PORT] [--relay default|none|URL] [--direct 127.0.0.1:PORT]\n       hand-iroh --version";
 const SECRET_MIN: usize = 16;
 const SECRET_MAX: usize = 128;
 const MAX_CONNECTIONS_DEFAULT: usize = 16;
@@ -55,13 +56,25 @@ pub struct Config {
     pub secret: Secret,
     pub key_dir: PathBuf,
     pub relay: Relay,
+    pub bind: SocketAddr,
     pub max_connections: usize,
     pub idle: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientConfig {
+    pub host: EndpointId,
+    pub key_dir: PathBuf,
+    pub new_key: bool,
+    pub listen: SocketAddr,
+    pub relay: Relay,
+    pub direct: Option<SocketAddr>,
 }
 
 #[derive(Debug)]
 pub enum Command {
     Run(Config),
+    Client(ClientConfig),
     Version,
 }
 
@@ -70,8 +83,11 @@ pub fn version_line() -> String {
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
-    let mut args = args.into_iter();
-    let (mut board, mut secret_file, mut key_dir) = (None, None, None);
+    let mut args = args.into_iter().peekable();
+    if args.next_if(|first| first == "client").is_some() {
+        return parse_client(args);
+    }
+    let (mut board, mut secret_file, mut key_dir, mut bind) = (None, None, None, None);
     let mut relay = Relay::Default;
     let mut max_connections = MAX_CONNECTIONS_DEFAULT;
     let mut idle = IDLE_DEFAULT;
@@ -81,7 +97,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
         if !matches!(
             flag.as_str(),
-            "--board" | "--secret-file" | "--key-dir" | "--relay" | "--max-connections" | "--idle"
+            "--board"
+                | "--secret-file"
+                | "--key-dir"
+                | "--relay"
+                | "--bind"
+                | "--max-connections"
+                | "--idle"
         ) {
             return Err(match flag.strip_prefix("--") {
                 Some(rest) => format!("unknown flag --{}", rest.split('=').next().unwrap_or("")),
@@ -90,7 +112,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
         let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
         match flag.as_str() {
-            "--board" => board = Some(loopback(&value)?),
+            "--board" => board = Some(loopback(&flag, &value, false)?),
+            "--bind" => bind = Some(loopback(&flag, &value, true)?),
             "--secret-file" => secret_file = Some(PathBuf::from(value)),
             "--key-dir" => key_dir = Some(PathBuf::from(value)),
             "--relay" => relay = relay_mode(&value)?,
@@ -100,23 +123,82 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             _ => idle = Duration::from_secs(bounded(&flag, &value, IDLE_LIMIT)?),
         }
     }
+    if bind.is_some() && relay != Relay::None {
+        return Err("--bind needs --relay none".to_owned());
+    }
     let secret_file = secret_file.ok_or("--secret-file is required")?;
     Ok(Command::Run(Config {
         board: board.ok_or("--board is required")?,
         secret: read_secret(&secret_file)?,
         key_dir: key_dir.ok_or("--key-dir is required")?,
         relay,
+        bind: bind.unwrap_or(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         max_connections,
         idle,
     }))
 }
 
-fn loopback(value: &str) -> Result<SocketAddr, String> {
+fn parse_client(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
+    let (mut host, mut key_dir, mut direct) = (None, None, None);
+    let mut listen = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    let (mut relay, mut new_key) = (Relay::Default, false);
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            "--new-key" => new_key = true,
+            "--host" | "--key-dir" | "--listen" | "--relay" | "--direct" => {
+                let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
+                match flag.as_str() {
+                    "--host" => host = Some(endpoint_id(&value)?),
+                    "--key-dir" => key_dir = Some(PathBuf::from(value)),
+                    "--listen" => {
+                        listen = loopback(&flag, &value, true)?;
+                        if !listen.is_ipv4() {
+                            return Err("--listen must be a loopback IPv4 address".to_owned());
+                        }
+                    }
+                    "--relay" => relay = relay_mode(&value)?,
+                    _ => direct = Some(loopback(&flag, &value, false)?),
+                }
+            }
+            _ => {
+                return Err(match flag.strip_prefix("--") {
+                    Some(rest) => {
+                        format!("unknown flag --{}", rest.split('=').next().unwrap_or(""))
+                    }
+                    None => "unexpected argument".to_owned(),
+                });
+            }
+        }
+    }
+    if direct.is_some() && relay != Relay::None {
+        return Err("--direct needs --relay none".to_owned());
+    }
+    Ok(Command::Client(ClientConfig {
+        host: host.ok_or("--host is required")?,
+        key_dir: key_dir.ok_or("--key-dir is required")?,
+        new_key,
+        listen,
+        relay,
+        direct,
+    }))
+}
+
+fn endpoint_id(value: &str) -> Result<EndpointId, String> {
+    let lower_hex = value
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    match EndpointId::from_str(value) {
+        Ok(id) if value.len() == 64 && lower_hex => Ok(id),
+        _ => Err("--host must be an endpoint ID: 64 lowercase hexadecimal characters".to_owned()),
+    }
+}
+
+fn loopback(flag: &str, value: &str, port_zero: bool) -> Result<SocketAddr, String> {
     match value.parse::<SocketAddr>() {
-        Ok(addr) if addr.ip().is_loopback() && addr.port() != 0 => Ok(addr),
-        _ => Err(
-            "--board must be a loopback IP address and a port, such as 127.0.0.1:7778".to_owned(),
-        ),
+        Ok(addr) if addr.ip().is_loopback() && (port_zero || addr.port() != 0) => Ok(addr),
+        _ => Err(format!(
+            "{flag} must be a loopback IP address and a port, such as 127.0.0.1:7778"
+        )),
     }
 }
 
@@ -163,7 +245,7 @@ mod tests {
     fn config(args: &[&str]) -> Result<Config, String> {
         match parse_all(args)? {
             Command::Run(config) => Ok(config),
-            Command::Version => panic!("expected a run"),
+            _ => panic!("expected a run"),
         }
     }
 
@@ -389,6 +471,212 @@ mod tests {
         assert_eq!(
             parse_all(&["--board", "127.0.0.1:7778", "--secret-file", secret]).unwrap_err(),
             "--key-dir is required"
+        );
+    }
+
+    fn host() -> String {
+        iroh::SecretKey::from_bytes(&[7; 32]).public().to_string()
+    }
+
+    fn client_config(extra: &[&str]) -> Result<ClientConfig, String> {
+        let host = host();
+        let mut args = vec!["client", "--host", &host, "--key-dir", "keys"];
+        args.extend_from_slice(extra);
+        match parse_all(&args)? {
+            Command::Client(config) => Ok(config),
+            _ => panic!("expected a client"),
+        }
+    }
+
+    #[test]
+    fn the_server_binds_loopback_on_any_port_unless_told_otherwise() {
+        let dir = TempDir::new();
+        let default = run_with(&dir, &[]).unwrap();
+        assert_eq!(default.bind, "127.0.0.1:0".parse().unwrap());
+        let told = run_with(&dir, &["--relay", "none", "--bind", "127.0.0.1:4567"]).unwrap();
+        assert_eq!(told.bind, "127.0.0.1:4567".parse().unwrap());
+        assert!(run_with(&dir, &["--relay", "none", "--bind", "[::1]:0"]).is_ok());
+    }
+
+    #[test]
+    fn bind_needs_no_relay_and_a_loopback_address() {
+        let dir = TempDir::new();
+        for relay in [
+            &[][..],
+            &["--relay", "default"],
+            &["--relay", "https://r.example.test"],
+        ] {
+            let mut args = relay.to_vec();
+            args.extend(["--bind", "127.0.0.1:4567"]);
+            assert_eq!(
+                run_with(&dir, &args).unwrap_err(),
+                "--bind needs --relay none"
+            );
+        }
+        for bad in [
+            "0.0.0.0:4567",
+            "192.168.1.5:4567",
+            "[::]:4567",
+            "localhost:4567",
+            "4567",
+            "",
+        ] {
+            let error = run_with(&dir, &["--relay", "none", "--bind", bad]).unwrap_err();
+            assert!(
+                error.starts_with("--bind must be a loopback"),
+                "{bad}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_client_has_documented_defaults() {
+        let config = client_config(&[]).unwrap();
+        assert_eq!(config.host.to_string(), host());
+        assert_eq!(config.key_dir, PathBuf::from("keys"));
+        assert!(!config.new_key);
+        assert_eq!(config.listen, "127.0.0.1:0".parse().unwrap());
+        assert_eq!(config.relay, Relay::Default);
+        assert_eq!(config.direct, None);
+    }
+
+    #[test]
+    fn client_flags_override_the_defaults() {
+        let config = client_config(&[
+            "--new-key",
+            "--listen",
+            "127.0.0.2:5555",
+            "--relay",
+            "https://relay.example.test",
+        ])
+        .unwrap();
+        assert!(config.new_key);
+        assert_eq!(config.listen, "127.0.0.2:5555".parse().unwrap());
+        assert!(
+            matches!(config.relay, Relay::Custom(url) if url.to_string() == "https://relay.example.test/")
+        );
+        let direct = client_config(&["--relay", "none", "--direct", "127.0.0.1:9000"]).unwrap();
+        assert_eq!(direct.relay, Relay::None);
+        assert_eq!(direct.direct, Some("127.0.0.1:9000".parse().unwrap()));
+    }
+
+    #[test]
+    fn a_client_listens_on_loopback_ipv4_only() {
+        for bad in [
+            "0.0.0.0:0",
+            "0.0.0.0:7000",
+            "192.168.1.5:0",
+            "10.0.0.1:8080",
+            "[::1]:0",
+            "[::]:0",
+            "localhost:0",
+            "127.0.0.1",
+            "",
+        ] {
+            let error = client_config(&["--listen", bad]).unwrap_err();
+            assert!(
+                error.starts_with("--listen must be a loopback"),
+                "{bad}: {error}"
+            );
+        }
+        for good in ["127.0.0.1:0", "127.0.0.1:8123", "127.0.0.5:0"] {
+            assert!(client_config(&["--listen", good]).is_ok(), "{good}");
+        }
+    }
+
+    #[test]
+    fn a_client_host_is_a_lowercase_endpoint_id() {
+        let good = host();
+        let upper = good.to_uppercase();
+        for bad in [
+            "",
+            "abc",
+            &good[..63],
+            &format!("{good}0"),
+            &upper,
+            &"g".repeat(64),
+        ] {
+            let error = parse_all(&["client", "--host", bad, "--key-dir", "k"]).unwrap_err();
+            assert!(
+                error.starts_with("--host must be an endpoint ID"),
+                "{bad}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_client_names_what_it_lacks() {
+        let host = host();
+        assert_eq!(parse_all(&["client"]).unwrap_err(), "--host is required");
+        assert_eq!(
+            parse_all(&["client", "--host", &host]).unwrap_err(),
+            "--key-dir is required"
+        );
+        assert_eq!(
+            parse_all(&["client", "--host", &host, "--key-dir"]).unwrap_err(),
+            "--key-dir needs a value"
+        );
+    }
+
+    #[test]
+    fn direct_needs_no_relay_and_a_loopback_port() {
+        assert_eq!(
+            client_config(&["--direct", "127.0.0.1:9000"]).unwrap_err(),
+            "--direct needs --relay none"
+        );
+        for bad in ["192.168.1.5:9000", "127.0.0.1:0", "[::]:9000", "9000"] {
+            let error = client_config(&["--relay", "none", "--direct", bad]).unwrap_err();
+            assert!(
+                error.starts_with("--direct must be a loopback"),
+                "{bad}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_client_takes_no_link_code_fleet_or_secret() {
+        for args in [
+            vec!["--link", "handboard://pair/ABCDEFGHJK"],
+            vec!["--code", "ABCDEFGHJK"],
+            vec!["--code=ABCDEFGHJK"],
+            vec!["--fleet", "f1"],
+            vec!["--secret-file", "board.peer"],
+            vec!["ABCDEFGHJK"],
+            vec!["--new-key", "ABCDEFGHJK"],
+        ] {
+            let error = client_config(&args).unwrap_err();
+            assert!(!error.contains("ABCDEFGHJK"), "{error}");
+            assert!(
+                error.starts_with("unknown flag") || error == "unexpected argument",
+                "{error}"
+            );
+        }
+        assert_eq!(
+            client_config(&["--code", "x"]).unwrap_err(),
+            "unknown flag --code"
+        );
+    }
+
+    #[test]
+    fn only_a_first_positional_picks_the_client() {
+        let dir = TempDir::new();
+        assert!(matches!(
+            parse_all(&["--version", "client"]),
+            Ok(Command::Version)
+        ));
+        let secret = dir.file("board.peer", SECRET);
+        let args = [
+            "--board",
+            "127.0.0.1:7778",
+            "--secret-file",
+            secret.to_str().unwrap(),
+            "--key-dir",
+            "client",
+        ];
+        assert!(matches!(parse_all(&args), Ok(Command::Run(_))));
+        assert_eq!(
+            parse_all(&["--key-dir", "k", "client"]).unwrap_err(),
+            "unexpected argument"
         );
     }
 }
