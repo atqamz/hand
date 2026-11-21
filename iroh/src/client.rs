@@ -587,7 +587,9 @@ mod tests {
             let listen = rig.listen;
             async move { exchange(listen, b"late").await }
         });
-        drop(open.pop());
+        for _ in 0..STREAMS_PER_CONNECTION / 4 {
+            drop(open.pop());
+        }
         assert_eq!(waiting.await.unwrap(), b"late");
         assert!(rig.board.prefaces.recv().await.is_some());
     }
