@@ -397,12 +397,12 @@ func lastLines(s string, n int) string {
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
 
-func when(stamp string) string {
+func whenIn(z *time.Location, stamp string) string {
 	t, err := time.Parse(time.RFC3339Nano, stamp)
 	if err != nil {
 		return stamp
 	}
-	return t.UTC().Format("Jan 2 15:04 UTC")
+	return t.In(z).Format("Jan 2 15:04 MST")
 }
 
 type check struct {

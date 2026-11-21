@@ -223,7 +223,7 @@ func (b *Board) regions(ctx context.Context, page string, q url.Values) (map[str
 			dot = data["Tasks"]
 		}
 		var buf bytes.Buffer
-		if err := pages.ExecuteTemplate(&buf, "region-"+name, dot); err != nil {
+		if err := b.pages.ExecuteTemplate(&buf, "region-"+name, dot); err != nil {
 			return nil, err
 		}
 		out[name] = buf.String()

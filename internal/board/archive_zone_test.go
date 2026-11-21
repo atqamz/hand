@@ -1,6 +1,7 @@
 package board_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,12 @@ func TestArchiveDayGroupsFollowTheBoardZone(t *testing.T) {
 		{"fixed offset splits at local midnight", "Asia/Jakarta",
 			[]string{"2026-10-05T16:30:00Z", "2026-10-05T17:30:00Z"},
 			[]dayGroup{{"2026-10-06", "Tue 6 Oct WIB", 1}, {"2026-10-05", "Mon 5 Oct WIB", 1}}},
+		{"a row exactly at local midnight opens the new day", "Asia/Jakarta",
+			[]string{"2026-10-05T16:59:59Z", "2026-10-05T17:00:00Z"},
+			[]dayGroup{{"2026-10-06", "Tue 6 Oct WIB", 1}, {"2026-10-05", "Mon 5 Oct WIB", 1}}},
+		{"a 45-minute offset puts local midnight off the hour", "Asia/Kathmandu",
+			[]string{"2026-10-05T18:14:59Z", "2026-10-05T18:15:00Z"},
+			[]dayGroup{{"2026-10-06", "Tue 6 Oct +0545", 1}, {"2026-10-05", "Mon 5 Oct +0545", 1}}},
 		{"UTC host keeps one UTC day", "UTC",
 			[]string{"2026-10-05T16:30:00Z", "2026-10-05T17:30:00Z"},
 			[]dayGroup{{"2026-10-05", "Mon 5 Oct UTC", 2}}},
@@ -67,7 +74,7 @@ func TestArchiveDayGroupsFollowTheBoardZone(t *testing.T) {
 				if have != c.want[i] {
 					t.Fatalf("group %d = %+v, want %+v", i, have, c.want[i])
 				}
-				contains(t, "archive page", body, `<h3 class="group">`+g.Name+` <span class="badge">`)
+				contains(t, "archive page", body, `<h3 class="group">`+strings.ReplaceAll(g.Name, "+", "&#43;")+` <span class="badge">`)
 			}
 			for _, v := range c.times {
 				contains(t, "row clock", body, `datetime="`+v+`" data-clock>`+at(v).In(loc).Format("15:04")+`</time>`)

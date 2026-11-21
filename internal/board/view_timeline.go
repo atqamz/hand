@@ -99,7 +99,7 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 			last = all[i].Ref
 		}
 	}
-	all = groupWakes(all)
+	all = groupWakes(b.zone(), all)
 	took, latest := map[int64]bool{}, int64(0)
 	for _, in := range paired {
 		took[in.ID], latest = true, max(latest, in.ID)
@@ -133,8 +133,8 @@ func (b *Board) buildTimeline(ctx context.Context, q url.Values, sv supervisorVi
 	slices.Reverse(page)
 	under := false
 	for i := len(page) - 2; i >= 0; i-- {
-		if day := parse(page[i].At).UTC(); day.Format(time.DateOnly) != parse(page[i+1].At).UTC().Format(time.DateOnly) {
-			page[i].Day = day.Format("Mon 2 Jan") + " UTC"
+		if day := parse(page[i].At).In(b.zone()); day.Format(time.DateOnly) != parse(page[i+1].At).In(b.zone()).Format(time.DateOnly) {
+			page[i].Day = day.Format("Mon 2 Jan MST")
 			under = true
 		}
 		page[i].Clock = under
