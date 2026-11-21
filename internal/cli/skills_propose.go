@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -19,7 +20,7 @@ import (
 const proposeBranch = "hand-skills/"
 
 type proposal struct {
-	repo, clone, branch, stat, commit string
+	repo, clone, branch, base, stat, commit string
 }
 
 func (p proposal) url() string { return "https://github.com/" + p.repo + ".git" }
@@ -89,7 +90,7 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 	if err != nil {
 		return proposal{}, err
 	}
-	c := r.clone(e.URL(), e.Ref)
+	c := r.clone(e.URL(), cmp.Or(e.Ref, "HEAD"))
 	if c.err != nil {
 		return proposal{}, c.err
 	}
@@ -98,6 +99,15 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 		return proposal{}, err
 	} else if strings.TrimSpace(out) != "" {
 		return proposal{}, fmt.Errorf("%w: this edit of %s was already proposed: the branch %s is on %s; open its pull request, or delete the branch to propose again", state.ErrConflict, name, p.branch, p.repo)
+	}
+	if e.Ref != "" {
+		heads, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "ls-remote", "--heads", "--", e.URL(), "refs/heads/"+e.Ref)
+		if err != nil {
+			return proposal{}, err
+		}
+		if strings.TrimSpace(heads) != "" {
+			p.base = e.Ref
+		}
 	}
 	if _, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "checkout", "--quiet", "-b", p.branch); err != nil {
 		return proposal{}, err
@@ -114,6 +124,13 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 	}
 	if _, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "add", "-A"); err != nil {
 		return proposal{}, err
+	}
+	ignored, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "ls-files", "--others", "--ignored", "--exclude-standard", "--", cmp.Or(e.Path(), "."))
+	if err != nil {
+		return proposal{}, err
+	}
+	if left := strings.Fields(ignored); len(left) > 0 {
+		return proposal{}, fmt.Errorf("%w: %s holds files the source's .gitignore leaves out of a commit (%s); nothing proposed; move them out of the skill or change the ignore rule in the source", state.ErrInvalid, name, strings.Join(left[:min(len(left), 5)], ", "))
 	}
 	if p.stat, err = gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "diff", "--cached", "--stat", "--no-color"); err != nil {
 		return proposal{}, err
@@ -163,7 +180,11 @@ func (r *runner) ghCreate(ctx context.Context, p proposal, title, body string) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, skillGitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, gh, "pr", "create", "--repo", p.repo, "--head", p.branch, "--title", title, "--body", body)
+	args := []string{"pr", "create", "--repo", p.repo, "--head", p.branch}
+	if p.base != "" {
+		args = append(args, "--base", p.base)
+	}
+	cmd := exec.CommandContext(ctx, gh, append(args, "--title", title, "--body", body)...)
 	cmd.Dir = p.clone
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "NO_COLOR=1")
 	proc.NoWindow(cmd)

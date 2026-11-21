@@ -67,7 +67,7 @@ var (
 	unsafeSource = regexp.MustCompile(`[^A-Za-z0-9._:/@+=-]`)
 )
 
-func addArgs(name string, e fleet.Managed) string {
+func addArgs(name string, e fleet.Managed) (args string, exact bool) {
 	src := e.Source
 	if !e.Local() {
 		src = e.URL()
@@ -75,14 +75,14 @@ func addArgs(name string, e fleet.Managed) string {
 			src = name
 		}
 	}
-	src = unsafeSource.ReplaceAllString(src, "?")
-	if strings.HasPrefix(src, "-") {
-		src = "?" + src[1:]
+	exact = src != "" && !strings.HasPrefix(src, "-") && !unsafeSource.MatchString(src)
+	if !exact {
+		src = "SOURCE"
 	}
 	if e.Local() || e.Ref == "" {
-		return src
+		return src, exact
 	}
-	return "--ref " + unsafeSource.ReplaceAllString(e.Ref, "?") + " " + src
+	return "--ref " + unsafeSource.ReplaceAllString(e.Ref, "?") + " " + src, exact
 }
 
 func commitWord(commit string) string {
@@ -98,7 +98,18 @@ func (r *runner) conflict(goals *[]string, s fleet.Skills, name string, e fleet.
 	if f := strings.Fields(r.scopeArg); len(f) == 2 && f[0] == "--project" {
 		project = unsafeWord.ReplaceAllString(f[1], "?")
 	}
-	goal := fmt.Sprintf("Reconcile the skill %[1]s of the %[2]s scope: its copy was edited here and its source moved from %[3]s to %[4]s. Save the edited folder outside the skills roots, delete %[1]s from every skills root of the scope, run %[5]s skills add %[6]s%[7]s, apply the saved edit to the new copy, then run %[5]s skills propose %[6]s%[1]s and stop at the pull request it prints; if the edit is no longer wanted, stop after the add.", name, s.Scope, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, addArgs(name, e))
+	add, exact := addArgs(name, e)
+	commit, last, note := "", fmt.Sprintf("then run %s skills propose %s%s and stop at the pull request it prints; if the edit is no longer wanted, stop after the add.", hand, r.scopeArg, name), ""
+	if s.Scope == "project" {
+		commit = " commit the deletion in git if git shows it, because add refuses a skill folder with uncommitted changes in git,"
+	}
+	if e.Local() || !githubRepo.MatchString(e.URL()) {
+		last = "then stop: propose takes only a GitHub source, so move the edit into its source by hand and report where the edit is; if the edit is no longer wanted, stop after the add."
+	}
+	if !exact {
+		note = fmt.Sprintf(" SOURCE in the add step is the source column of %s in %s.", name, strings.TrimSpace(hand+" skills list "+r.scopeArg))
+	}
+	goal := fmt.Sprintf("Reconcile the skill %[1]s of the %[2]s scope: its copy was edited here and its source moved from %[3]s to %[4]s. Save the edited folder outside the skills roots, delete %[1]s from every skills root of the scope,%[7]s run %[5]s skills add %[6]s%[8]s, apply the saved edit to the new copy, %[9]s%[10]s", name, s.Scope, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, commit, add, last, note)
 	*goals = append(*goals, fmt.Sprintf("`%s task add --goal \"%s\" %s \"Reconcile skill %s\"`", hand, goal, project, name))
 	return fmt.Errorf("%w: %s is a conflict: changed here and moved at its source (%s to %s); nothing updated; reconcile first, then `%s skills propose %s%s`; the help line has the task to hand a worker", state.ErrConflict, name, commitWord(e.Commit), commitWord(p.commit), hand, r.scopeArg, name)
 }

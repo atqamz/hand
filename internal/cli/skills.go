@@ -570,13 +570,15 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 			return "", "", err
 		}
 		kind, err := refuseUnlessClean(s, name, e, ok)
-		if kind == "changed" {
+		if kind == "changed" || kind == "unmanaged" {
 			if p, perr := r.compare(s, name, e); perr == nil {
 				_ = os.RemoveAll(p.staged)
 				if p.state == "conflict" {
 					return "conflict", "", r.conflict(&goals, s, name, e, p)
 				}
-				err = fmt.Errorf("%w: %s %s", state.ErrConflict, name, r.edited(name))
+				if kind == "changed" {
+					err = fmt.Errorf("%w: %s %s", state.ErrConflict, name, r.edited(name))
+				}
 			}
 		}
 		if err != nil {

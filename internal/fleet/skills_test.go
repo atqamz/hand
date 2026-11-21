@@ -201,3 +201,32 @@ func TestUnmarkUndoesTheMarkOfStage(t *testing.T) {
 		t.Fatalf("an unmarked file changed: %q", after)
 	}
 }
+
+func TestUnmarkTouchesOnlyTheMetadataBlock(t *testing.T) {
+	for name, c := range map[string]struct{ have, want string }{
+		"a folded description line equal to the marker": {
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand\nmetadata:\n  managed-by: hand\n  owner: me",
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand\nmetadata:\n  owner: me",
+		},
+		"a marker with no metadata block": {
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand",
+			"name: notes\ndescription: >\n  a test skill\n  managed-by: hand",
+		},
+		"a blank line before the fields that stay": {
+			"name: notes\ndescription: x\nmetadata:\n  managed-by: hand\n\n  owner: me",
+			"name: notes\ndescription: x\nmetadata:\n\n  owner: me",
+		},
+		"a marker that is the only field": {
+			"name: notes\ndescription: x\nmetadata:\n  managed-by: hand\n\nlicense: MIT",
+			"name: notes\ndescription: x\n\nlicense: MIT",
+		},
+	} {
+		dir := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "---\n" + c.have + "\n---\n\n# notes\n"})
+		if err := fleet.Unmark(dir); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got, _ := os.ReadFile(filepath.Join(dir, "SKILL.md")); string(got) != "---\n"+c.want+"\n---\n\n# notes\n" {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}

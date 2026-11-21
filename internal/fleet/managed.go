@@ -328,13 +328,30 @@ func Unmark(dir string) error {
 		return nil
 	}
 	lines := strings.Split(head, "\n")
-	at := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, " ") && strings.TrimSpace(l) == Marker })
+	meta := slices.IndexFunc(lines, func(l string) bool { return strings.TrimRight(l, " \t") == "metadata:" })
+	at := -1
+	for i := meta + 1; meta >= 0 && i < len(lines) && at < 0; i++ {
+		switch l := lines[i]; {
+		case strings.TrimSpace(l) == "":
+		case !strings.HasPrefix(l, " "):
+			i = len(lines)
+		case strings.TrimSpace(l) == Marker:
+			at = i
+		}
+	}
 	if at < 0 {
 		return nil
 	}
 	lines = slices.Delete(lines, at, at+1)
-	if at > 0 && strings.TrimRight(lines[at-1], " \t") == "metadata:" && (at == len(lines) || !strings.HasPrefix(lines[at], " ")) {
-		lines = slices.Delete(lines, at-1, at)
+	child := false
+	for _, l := range lines[meta+1:] {
+		if strings.TrimSpace(l) != "" {
+			child = strings.HasPrefix(l, " ")
+			break
+		}
+	}
+	if !child {
+		lines = slices.Delete(lines, meta, meta+1)
 	}
 	return os.WriteFile(path, []byte("---\n"+strings.Join(lines, "\n")+"\n---\n"+rest), 0o644)
 }
