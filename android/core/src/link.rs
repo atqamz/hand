@@ -18,6 +18,7 @@ pub struct Link {
     pub fleet: String,
     pub code: String,
     pub relay: Option<String>,
+    pub name: Option<String>,
 }
 
 pub(crate) fn short_id(endpoint_id: &str) -> String {
@@ -175,13 +176,27 @@ pub fn parse_link_with(text: &str, endpoint_ok: impl Fn(&str) -> bool) -> Result
         None => None,
     };
 
+    let name = field("n")
+        .filter(|value| valid_name(value))
+        .map(str::to_owned);
+
     Ok(Link {
         version: 1,
         endpoint_id: endpoint_id.to_owned(),
         fleet: fleet.to_owned(),
         code: code.to_owned(),
         relay,
+        name,
     })
+}
+
+fn valid_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (1..=40).contains(&bytes.len())
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes[1..]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn valid_key(key: &str) -> bool {
@@ -369,5 +384,52 @@ mod tests {
         );
         let bad = format!("{}&r=https%3a%2f%2frelay.example.test%2F", link());
         assert_eq!(parse_link(&bad).unwrap_err(), Reject::Relay);
+    }
+
+    #[test]
+    fn a_host_name_is_a_claim_the_link_carries() {
+        let named = |value: &str| parse_link(&format!("{}&n={value}", link())).unwrap().name;
+        assert_eq!(named("work-laptop").as_deref(), Some("work-laptop"));
+        assert_eq!(named("A.b_c-9").as_deref(), Some("A.b_c-9"));
+        assert_eq!(named("a").as_deref(), Some("a"));
+        let longest = format!("a{}", "b".repeat(39));
+        assert_eq!(named(&longest).as_deref(), Some(longest.as_str()));
+        assert_eq!(parse_link(&link()).unwrap().name, None);
+        let text = format!(
+            "{}&n=work-laptop&r=https%3A%2F%2Frelay.example.test%2F",
+            link()
+        );
+        let both = parse_link(&text).unwrap();
+        assert_eq!(both.name.as_deref(), Some("work-laptop"));
+        assert_eq!(both.relay.as_deref(), Some("https://relay.example.test/"));
+    }
+
+    #[test]
+    fn a_host_name_that_breaks_its_grammar_is_dropped_and_the_link_stays_valid() {
+        let too_long = "a".repeat(41);
+        for value in [
+            too_long.as_str(),
+            "-laptop",
+            ".laptop",
+            "_laptop",
+            "work%20laptop",
+            "work~laptop",
+            "caf%C3%A9",
+        ] {
+            let link = parse_link(&format!("{}&n={value}", link())).unwrap();
+            assert_eq!(link.name, None, "{value}");
+        }
+    }
+
+    #[test]
+    fn a_second_host_name_is_a_duplicate_key_and_an_empty_one_a_fragment_error() {
+        assert_eq!(
+            parse_link(&format!("{}&n=a&n=b", link())).unwrap_err(),
+            Reject::DuplicateKey
+        );
+        assert_eq!(
+            parse_link(&format!("{}&n=", link())).unwrap_err(),
+            Reject::Fragment
+        );
     }
 }

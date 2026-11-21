@@ -807,8 +807,14 @@ fn offered(text: &str) -> serde_json::Value {
     let Some(core) = core() else {
         return failed(PairError::NoPending);
     };
-    match core.companion.offer_link(text) {
-        Ok(offer) => serde_json::json!({ "host": offer.host }),
+    match core.companion.offer_link(&core.sessions, text) {
+        Ok(offer) => {
+            let mut answer = serde_json::json!({ "host": offer.host, "clash": offer.clash });
+            if let Some(claim) = offer.claim {
+                answer["claim"] = claim.into();
+            }
+            answer
+        }
         Err(error) => serde_json::json!({ "failure": "link", "message": error.message() }),
     }
 }

@@ -42,6 +42,7 @@ fn every_valid_vector_yields_its_fields_and_open_path() {
             }
             other => panic!("{name}: relay is {other}"),
         }
+        assert_eq!(parsed["name"].as_str(), link.name.as_deref(), "{name}");
     }
 }
 

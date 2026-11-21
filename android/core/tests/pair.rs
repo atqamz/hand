@@ -17,6 +17,7 @@ fn link() -> Link {
         fleet: FLEET.to_owned(),
         code: "K7QM3XRD2P".to_owned(),
         relay: None,
+        name: None,
     }
 }
 
