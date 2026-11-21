@@ -57,9 +57,24 @@ func exeExt() string {
 	return ""
 }
 
+func beside(self string) []string {
+	if self == "" {
+		return nil
+	}
+	dir := filepath.Dir(self)
+	dirs := []string{dir}
+	if filepath.Base(dir) == "MacOS" && filepath.Base(filepath.Dir(dir)) == "Contents" {
+		if hand, err := filepath.EvalSymlinks(filepath.Join(dir, "hand")); err == nil && filepath.Dir(hand) != dir {
+			dirs = append(dirs, filepath.Dir(hand))
+		}
+	}
+	return dirs
+}
+
 func Locate(self, path string) (string, error) {
-	if self != "" {
-		next := filepath.Join(filepath.Dir(self), Name+exeExt())
+	dirs := beside(self)
+	for _, dir := range dirs {
+		next := filepath.Join(dir, Name+exeExt())
 		if fi, err := os.Stat(next); err == nil && fi.Mode().IsRegular() && (runtime.GOOS == "windows" || fi.Mode()&0o111 != 0) {
 			return next, nil
 		}
@@ -67,10 +82,10 @@ func Locate(self, path string) (string, error) {
 	if bin, err := harness.LookPath(Name, path); err == nil {
 		return bin, nil
 	}
-	if self == "" {
+	if len(dirs) == 0 {
 		return "", fmt.Errorf("%w: it is not on PATH", ErrNotFound)
 	}
-	return "", fmt.Errorf("%w: it is not next to hand (%s) or on PATH", ErrNotFound, filepath.Dir(self))
+	return "", fmt.Errorf("%w: it is not next to hand (%s) or on PATH", ErrNotFound, strings.Join(dirs, ", "))
 }
 
 type capped struct{ b []byte }
