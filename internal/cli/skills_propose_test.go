@@ -297,18 +297,18 @@ func TestSkillsDriftStatesInListUpdateAndSync(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.hub.commit(map[string]string{
 		"skills/cur/SKILL.md": skillFiles("cur", "v1")["SKILL.md"], "skills/beh/SKILL.md": skillFiles("beh", "v1")["SKILL.md"],
-		"skills/edi/SKILL.md": skillFiles("edi", "v1")["SKILL.md"], "skills/con/SKILL.md": skillFiles("con", "v1")["SKILL.md"],
+		"skills/edi/SKILL.md": skillFiles("edi", "v1")["SKILL.md"], "skills/clash/SKILL.md": skillFiles("clash", "v1")["SKILL.md"],
 	})
 	h := f.h
-	for _, name := range []string{"cur", "beh", "edi", "con"} {
+	for _, name := range []string{"cur", "beh", "edi", "clash"} {
 		h.ok("skills", "add", "--fleet", name)
 	}
 	f.edit("edi")
-	f.edit("con")
-	moved := f.hub.commit(map[string]string{"skills/beh/SKILL.md": skillFiles("beh", "v2")["SKILL.md"], "skills/con/SKILL.md": skillFiles("con", "v2")["SKILL.md"]})
+	f.edit("clash")
+	moved := f.hub.commit(map[string]string{"skills/beh/SKILL.md": skillFiles("beh", "v2")["SKILL.md"], "skills/clash/SKILL.md": skillFiles("clash", "v2")["SKILL.md"]})
 	old := skillState(t, h.home)["cur"].Commit
 	list := h.ok("skills", "list", "--fleet")
-	for name, state := range map[string]string{"cur": "current", "beh": "behind", "edi": "edited", "con": "conflict"} {
+	for name, state := range map[string]string{"cur": "current", "beh": "behind", "edi": "edited", "clash": "conflict"} {
 		want := fmt.Sprintf("%s,\"%s#skills/%s\",%s,fleet,yes,main,%s,", name, skillsURL, name, old, state)
 		if r := row(list, name); !strings.HasPrefix(r, want) {
 			t.Errorf("list %s = %q, want prefix %q", name, r, want)
@@ -317,20 +317,20 @@ func TestSkillsDriftStatesInListUpdateAndSync(t *testing.T) {
 	if r := row(list, "secondhand"); !strings.HasSuffix(r, ",no,\"\",\"\",\"\"") {
 		t.Errorf("an unmanaged row = %q", r)
 	}
-	if r := row(h.ok("skills", "outdated", "--fleet"), "con"); !strings.Contains(r, ",main,"+old+","+moved) {
+	if r := row(h.ok("skills", "outdated", "--fleet"), "clash"); !strings.Contains(r, ",main,"+old+","+moved) {
 		t.Errorf("outdated shows the commits wrongly: %q", r)
 	}
-	out, errOut, code := h.run("skills", "sync", "--fleet", "con")
+	out, errOut, code := h.run("skills", "sync", "--fleet", "clash")
 	goal := ""
 	for line := range strings.Lines(out) {
 		if strings.Contains(line, "task add --goal") {
 			goal = strings.TrimSpace(line)
 		}
 	}
-	if code != 3 || row(out, "con") == "" || !strings.HasPrefix(row(out, "con"), "con,conflict,") || !strings.Contains(row(out, "con"), "reconcile first") || !strings.Contains(errOut, "1 skill(s) not synced") {
+	if code != 3 || row(out, "clash") == "" || !strings.HasPrefix(row(out, "clash"), "clash,conflict,") || !strings.Contains(row(out, "clash"), "reconcile first") || !strings.Contains(errOut, "1 skill(s) not synced") {
 		t.Fatalf("sync of a conflict: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
-	for _, want := range []string{"`hand task add --goal \"Reconcile the skill con of the fleet scope", old[:12] + " to " + moved[:12], "hand skills update --fleet con", "hand skills propose --fleet con", "\" PROJECT \"Reconcile skill con\"`"} {
+	for _, want := range []string{"`hand task add --goal \"Reconcile the skill clash of the fleet scope", old[:12] + " to " + moved[:12], "hand skills update --fleet clash", "hand skills propose --fleet clash", "\" PROJECT \"Reconcile skill clash\"`"} {
 		if !strings.Contains(goal, want) {
 			t.Errorf("the task line lacks %q: %q", want, goal)
 		}
@@ -338,7 +338,7 @@ func TestSkillsDriftStatesInListUpdateAndSync(t *testing.T) {
 	if strings.ContainsAny(strings.TrimSuffix(strings.TrimPrefix(goal[strings.Index(goal, "--goal ")+7:], "\""), "`"), "$`\\") {
 		t.Errorf("the goal carries shell text: %q", goal)
 	}
-	if out, errOut, code := h.run("skills", "update", "--fleet", "con"); code != 3 || !strings.HasPrefix(row(out, "con"), "con,conflict,") || !strings.Contains(out, "task add --goal") || !strings.Contains(errOut, "1 skill(s) not updated") {
+	if out, errOut, code := h.run("skills", "update", "--fleet", "clash"); code != 3 || !strings.HasPrefix(row(out, "clash"), "clash,conflict,") || !strings.Contains(out, "task add --goal") || !strings.Contains(errOut, "1 skill(s) not updated") {
 		t.Fatalf("update of a conflict: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if out, errOut, code := h.run("skills", "update", "--fleet", "edi"); code != 3 || !strings.HasPrefix(row(out, "edi"), "edi,refused,") || !strings.Contains(row(out, "edi"), "skills propose --fleet edi") || strings.Contains(out, "task add") {
