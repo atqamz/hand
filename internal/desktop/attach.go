@@ -244,7 +244,14 @@ func (a *App) RemoveChip(id int) {
 	if a.Chips[i].cancel != nil {
 		a.Chips[i].cancel()
 	}
+	n := a.chipSlot(id)
 	a.Chips = append(a.Chips[:i], a.Chips[i+1:]...)
+	if n > 0 && strings.Contains(a.Draft, "[attachment ") {
+		if text := dropToken(a.Draft, n); text != a.Draft {
+			a.Draft = text
+			a.saveDraft()
+		}
+	}
 	a.chipsChanged()
 }
 

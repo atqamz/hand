@@ -19,9 +19,12 @@ const (
 	mark      = ".pruned"
 )
 
+const StoredExpr = `[0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})`
+
 var (
-	Name = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+(-.+|\.[A-Za-z0-9]+)$`)
-	days = regexp.MustCompile(`^[1-9][0-9]{0,3}d$`)
+	Stored = regexp.MustCompile(`^` + StoredExpr + `$`)
+	Name   = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+(-.+|\.[A-Za-z0-9]+)$`)
+	days   = regexp.MustCompile(`^[1-9][0-9]{0,3}d$`)
 )
 
 type File struct {
@@ -44,8 +47,31 @@ type Failure struct {
 }
 
 type Pruned struct {
-	Moved, Deleted []File
-	Failed         []Failure
+	Moved, Deleted, Protected []File
+	Failed                    []Failure
+}
+
+func Label(name string) string {
+	if _, rest, ok := strings.Cut(name[len("20060102-150405-"):], "-"); ok {
+		return rest
+	}
+	return name
+}
+
+func IsImage(name string) bool {
+	switch filepath.Ext(name) {
+	case ".png", ".jpg", ".webp", ".gif":
+		return true
+	}
+	return false
+}
+
+func Line(home string, n int, name string) string {
+	kind := "file"
+	if IsImage(name) {
+		kind = "image"
+	}
+	return fmt.Sprintf("[%s %d: %s]", kind, n, filepath.Join(home, Folder, name))
 }
 
 func ParseAge(s string) (time.Duration, bool) {
@@ -101,7 +127,7 @@ func Size(home string) (Usage, error) {
 	return u, nil
 }
 
-func Prune(home string, now time.Time, olderThan time.Duration, dry bool) (Pruned, error) {
+func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protected map[string]bool) (Pruned, error) {
 	dir := filepath.Join(home, Folder)
 	trash, err := trashDir(home)
 	if err != nil {
@@ -130,6 +156,10 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool) (Prune
 	}
 	for _, f := range files {
 		if now.Sub(f.Mod) <= olderThan {
+			continue
+		}
+		if protected[f.Name] {
+			p.Protected = append(p.Protected, f)
 			continue
 		}
 		if !dry {

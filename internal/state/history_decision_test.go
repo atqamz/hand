@@ -119,7 +119,7 @@ func TestMigratingFrom26IndexesDecisionsAndTasksAlreadyThere(t *testing.T) {
 	s, path := openTest(t)
 	h := &historyDB{t: s}
 	h.attempt = runningAttempt(t, s)
-	for _, q := range []string{`DROP TRIGGER decision_fts_insert`, `DROP TRIGGER decision_fts_delete`, `DROP TRIGGER decision_fts_update`, `DROP TRIGGER task_fts_insert`, `DROP TRIGGER task_fts_delete`, `DROP TRIGGER task_fts_update`, `DROP TABLE decision_fts`, `DROP TABLE task_fts`, `DROP VIEW history_decision`, `DROP VIEW history_task`, `PRAGMA user_version = 26`} {
+	for _, q := range []string{`DROP TRIGGER decision_fts_insert`, `DROP TRIGGER decision_fts_delete`, `DROP TRIGGER decision_fts_update`, `DROP TRIGGER task_fts_insert`, `DROP TRIGGER task_fts_delete`, `DROP TRIGGER task_fts_update`, `DROP TABLE decision_fts`, `DROP TABLE task_fts`, `DROP VIEW history_decision`, `DROP VIEW history_task`, `DROP TABLE task_file`, `PRAGMA user_version = 26`} {
 		h.exec(t, q)
 	}
 	d := h.decision(t, h.attempt.TaskID, "Pick a harbour name")

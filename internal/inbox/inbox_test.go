@@ -124,7 +124,7 @@ func TestDryRunTouchesNothing(t *testing.T) {
 	put(t, filepath.Join(dir, Trash, "20260801-000000-1.png"), 8*day)
 	put(t, filepath.Join(dir, Trash, "20260802-000000-1.png"), day)
 	before := tree(t, home)
-	p, err := Prune(home, now, 30*day, true)
+	p, err := Prune(home, now, 30*day, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestDryRunTouchesNothing(t *testing.T) {
 		t.Fatalf("dry run changed %v into %v", before, after)
 	}
 	empty := t.TempDir()
-	if p, err := Prune(empty, now, day, true); err != nil || p.Moved != nil || p.Deleted != nil {
+	if p, err := Prune(empty, now, day, true, nil); err != nil || p.Moved != nil || p.Deleted != nil {
 		t.Fatalf("dry run of no inbox = %+v, %v", p, err)
 	}
 	if des, _ := os.ReadDir(empty); len(des) != 0 {
@@ -172,7 +172,7 @@ func TestPruneMovesOnlyOldHandFilesDirectlyInside(t *testing.T) {
 	if err := os.Symlink(filepath.Join("..", "hand.db"), filepath.Join(dir, "20250101-000000-3.png")); err != nil {
 		t.Fatal(err)
 	}
-	p, err := Prune(home, now, 30*day, false)
+	p, err := Prune(home, now, 30*day, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,13 +204,13 @@ func TestPruneExpiresTrashAfterSevenDays(t *testing.T) {
 	put(t, filepath.Join(dir, "20260901-000000-1.png"), 48*day)
 	put(t, filepath.Join(dir, Trash, "notes.txt"), 90*day)
 	put(t, filepath.Join(dir, Trash, "20250101-000000-1.png", "20250101-000000-2.png"), 300*day)
-	if _, err := Prune(home, now, 30*day, false); err != nil {
+	if _, err := Prune(home, now, 30*day, false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := Prune(home, now.Add(TrashKeep), 30*day, false); err != nil || p.Deleted != nil || p.Moved != nil {
+	if p, err := Prune(home, now.Add(TrashKeep), 30*day, false, nil); err != nil || p.Deleted != nil || p.Moved != nil {
 		t.Fatalf("at 7 days = %+v, %v", p, err)
 	}
-	p, err := Prune(home, now.Add(TrashKeep+time.Hour), 30*day, false)
+	p, err := Prune(home, now.Add(TrashKeep+time.Hour), 30*day, false, nil)
 	if err != nil || !slices.Equal(names(p.Deleted), []string{"20260901-000000-1.png"}) || p.Moved != nil || p.Failed != nil {
 		t.Fatalf("after 7 days = %+v, %v", p, err)
 	}
@@ -230,11 +230,11 @@ func TestPruneExpiresTrashAfterSevenDays(t *testing.T) {
 func TestPruneTwiceChangesNothingMore(t *testing.T) {
 	home := t.TempDir()
 	put(t, filepath.Join(home, Folder, "20260901-000000-1.png"), 48*day)
-	if p, err := Prune(home, now, 30*day, false); err != nil || len(p.Moved) != 1 {
+	if p, err := Prune(home, now, 30*day, false, nil); err != nil || len(p.Moved) != 1 {
 		t.Fatalf("first = %+v, %v", p, err)
 	}
 	before := tree(t, home)
-	if p, err := Prune(home, now, 30*day, false); err != nil || p.Moved != nil || p.Deleted != nil || p.Failed != nil {
+	if p, err := Prune(home, now, 30*day, false, nil); err != nil || p.Moved != nil || p.Deleted != nil || p.Failed != nil {
 		t.Fatalf("second = %+v, %v", p, err)
 	}
 	if after := tree(t, home); !mapsEqual(before, after) {
@@ -242,7 +242,7 @@ func TestPruneTwiceChangesNothingMore(t *testing.T) {
 	}
 	young := t.TempDir()
 	put(t, filepath.Join(young, Folder, "20261019-110000-1.png"), time.Hour)
-	if p, err := Prune(young, now, day, false); err != nil || p.Moved != nil {
+	if p, err := Prune(young, now, day, false, nil); err != nil || p.Moved != nil {
 		t.Fatalf("young = %+v, %v", p, err)
 	}
 	if _, err := os.Lstat(filepath.Join(young, Folder, Trash)); !os.IsNotExist(err) {
@@ -259,7 +259,7 @@ func TestAFailedMoveDoesNotStopTheRest(t *testing.T) {
 	put(t, filepath.Join(dir, "20260904-000000-1.png"), 45*day)
 	put(t, filepath.Join(dir, Trash, "20260902-000000-1.png", "child"), time.Hour)
 	put(t, filepath.Join(dir, Trash, "20260904-000000-1.png"), time.Hour)
-	p, err := Prune(home, now, 30*day, false)
+	p, err := Prune(home, now, 30*day, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestATrashThatIsNotAFolderIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, dry := range []bool{true, false} {
-		if p, err := Prune(home, now, 30*day, dry); err == nil {
+		if p, err := Prune(home, now, 30*day, dry, nil); err == nil {
 			t.Fatalf("dry=%v symlinked trash = %+v", dry, p)
 		}
 	}
@@ -336,7 +336,7 @@ func TestAFailedRenameGivesTheFileItsTimeBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(trash, 0o700) })
-	p, err := Prune(home, now, 30*day, false)
+	p, err := Prune(home, now, 30*day, false, nil)
 	if err != nil || p.Moved != nil || len(p.Failed) != 1 || !errors.Is(p.Failed[0].Err, fs.ErrPermission) {
 		t.Fatalf("prune = %+v, %v", p, err)
 	}
@@ -354,7 +354,7 @@ func TestASymlinkedInboxIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, dry := range []bool{true, false} {
-		if p, err := Prune(home, now, day, dry); err == nil {
+		if p, err := Prune(home, now, day, dry, nil); err == nil {
 			t.Fatalf("dry=%v symlinked inbox = %+v", dry, p)
 		}
 	}
@@ -393,5 +393,45 @@ func TestMarkReplacesASymlinkedMarker(t *testing.T) {
 	}
 	if des, _ := os.ReadDir(trash); len(des) != 1 {
 		t.Fatalf("trash holds %v", des)
+	}
+}
+
+func TestAProtectedFileIsSkippedAndListed(t *testing.T) {
+	for _, dry := range []bool{true, false} {
+		home := t.TempDir()
+		dir := filepath.Join(home, Folder)
+		put(t, filepath.Join(dir, "20260901-000000-1.png"), 48*day)
+		put(t, filepath.Join(dir, "20260901-000000-2-log.txt"), 48*day)
+		put(t, filepath.Join(dir, "20261019-110000-1.png"), time.Hour)
+		p, err := Prune(home, now, 30*day, dry, map[string]bool{"20260901-000000-1.png": true, "20261019-110000-1.png": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(names(p.Moved), []string{"20260901-000000-2-log.txt"}) || !slices.Equal(names(p.Protected), []string{"20260901-000000-1.png"}) {
+			t.Fatalf("dry=%v: moved %v protected %v", dry, names(p.Moved), names(p.Protected))
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "20260901-000000-1.png")); err != nil {
+			t.Fatalf("dry=%v: the protected file is gone: %v", dry, err)
+		}
+	}
+}
+
+func TestLabelLineAndKind(t *testing.T) {
+	for name, want := range map[string]string{"20261101-050000-1-shot.png": "shot.png", "20261101-050000-1.png": "20261101-050000-1.png", "20261101-050000-2-a-b.log": "a-b.log"} {
+		if got := Label(name); got != want {
+			t.Errorf("Label(%q) = %q, want %q", name, got, want)
+		}
+	}
+	home := filepath.Join("h", "a]b")
+	if got, want := Line(home, 2, "20261101-050000-1.png"), "[image 2: "+filepath.Join(home, Folder, "20261101-050000-1.png")+"]"; got != want {
+		t.Errorf("Line = %q, want %q", got, want)
+	}
+	if got := Line(home, 1, "20261101-050000-1-a.pdf"); got[:8] != "[file 1:" {
+		t.Errorf("Line of a pdf = %q", got)
+	}
+	for name, ok := range map[string]bool{"20261101-050000-1.png": true, "20261101-050000-1-a.PNG": true, "20261101-050000-1-../x": false, "20261101-050000-1-a b": false, "20261101-050000-1-.env": false, "x": false} {
+		if Stored.MatchString(name) != ok {
+			t.Errorf("Stored(%q) = %v, want %v", name, !ok, ok)
+		}
 	}
 }

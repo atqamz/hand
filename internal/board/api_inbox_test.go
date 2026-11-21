@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func apiUpload(h http.Handler, field, name string, data []byte, csrf string, cookie bool) *httptest.ResponseRecorder {
@@ -386,7 +388,7 @@ func pageComposerText(prose string, lines ...string) string {
 	return strings.ReplaceAll(prose, "\r\n", "\n")
 }
 
-func TestAPIMessageAttachmentsWriteTheLinesThePageWrites(t *testing.T) {
+func TestAPIMessageAttachmentsWriteTheLinesThePageWritesPlusANumber(t *testing.T) {
 	contains(t, "app.js", asset(t, "app.js"), "(prose && !prose.endsWith(\"\\n\") ? `${prose}\\n` : prose) + sending.map((l) => `${l}\\n`).join(\"\")", "const l = r && `[${r.kind}: ${r.path}]`;")
 	for _, c := range []struct {
 		what, prose string
@@ -422,8 +424,12 @@ func TestAPIMessageAttachmentsWriteTheLinesThePageWrites(t *testing.T) {
 				body["text"] = c.prose
 			}
 			env, tl := apiBody[board.APITimeline](t, apiPost(t, h, "/api/v1/message", body, token, true))
-			if len(sent.texts) != 2 || sent.texts[1] != sent.texts[0] || sent.texts[0] != want {
-				t.Fatalf("the page sent %q, the API sent %q, the rule says %q", sent.texts[0], sent.texts[len(sent.texts)-1], want)
+			if len(sent.texts) != 2 || sent.texts[0] != want {
+				t.Fatalf("the page sent %q, the rule says %q", sent.texts, want)
+			}
+			numbered := regexp.MustCompile(`\[(image|file) [0-9]+: `).ReplaceAllString(sent.texts[1], "[$1: ")
+			if numbered != want {
+				t.Fatalf("the API sent %q, the page's lines with numbers added would be %q", sent.texts[1], want)
 			}
 			var carried []board.APIEntry
 			for _, e := range tl.Entries {
@@ -557,9 +563,65 @@ func TestAPIMessageOfOnlyAttachmentsIsTheLinesAlone(t *testing.T) {
 	h := fx.handler()
 	name := apiStored(t, h, "shot.png", pngBytes).Name
 	apiBody[board.APITimeline](t, apiPost(t, h, "/api/v1/message", map[string]any{"attachments": []string{name}}, token, true))
-	want := "[image: " + filepath.Join(fx.options.Home, "inbox", name) + "]\n"
+	want := "[image 1: " + filepath.Join(fx.options.Home, "inbox", name) + "]\n"
 	if len(sent.texts) != 1 || sent.texts[0] != want {
 		t.Fatalf("sent %q, want %q", sent.texts, want)
+	}
+}
+
+func TestAPIMessageReplacesAttachmentTokensInPlace(t *testing.T) {
+	fx := apiInboxFixture(t)
+	var sent sentTexts
+	sent.control(fx)
+	h := fx.handler()
+	a := apiStored(t, h, "a.png", pngBytes).Name
+	b := apiStored(t, h, "b.log", []byte("log")).Name
+	pa := filepath.Join(fx.options.Home, "inbox", a)
+	pb := filepath.Join(fx.options.Home, "inbox", b)
+	for _, c := range []struct {
+		what  string
+		text  string
+		names []string
+		want  string
+	}{
+		{"both in place", "look at [attachment 1], it should be like [attachment 2]", []string{a, b}, "look at [image 1: " + pa + "], it should be like [file 2: " + pb + "]"},
+		{"out of order", "[attachment 2] then [attachment 1]", []string{a, b}, "[file 2: " + pb + "] then [image 1: " + pa + "]"},
+		{"the same one twice", "[attachment 1] and [attachment 1]", []string{a}, "[image 1: " + pa + "] and [image 1: " + pa + "]"},
+		{"unreferenced is appended", "see [attachment 2]", []string{a, b}, "see [file 2: " + pb + "]\n[image 1: " + pa + "]\n"},
+		{"a name listed twice has two numbers", "[attachment 2]", []string{a, a}, "[image 2: " + pa + "]\n[image 1: " + pa + "]\n"},
+		{"out of range stays text", "[attachment 3] [attachment 0] [attachment 01] [Attachment 1]", []string{a}, "[attachment 3] [attachment 0] [attachment 01] [Attachment 1]\n[image 1: " + pa + "]\n"},
+		{"no attachments leaves a token alone", "see [attachment 1]", nil, "see [attachment 1]"},
+	} {
+		sent.texts = nil
+		apiBody[board.APITimeline](t, apiPost(t, h, "/api/v1/message", map[string]any{"text": c.text, "attachments": c.names}, token, true))
+		if len(sent.texts) != 1 || sent.texts[0] != c.want {
+			t.Errorf("%s: sent %q, want %q", c.what, sent.texts, c.want)
+		}
+	}
+}
+
+func TestAPITimelineKeepsTheTokensAndNumbersTheShots(t *testing.T) {
+	fx := apiInboxFixture(t)
+	var sent sentTexts
+	sent.control(fx)
+	h := fx.handler()
+	a := apiStored(t, h, "a.png", pngBytes).Name
+	b := apiStored(t, h, "b.log", []byte("log")).Name
+	_, tl := apiBody[board.APITimeline](t, apiPost(t, h, "/api/v1/message", map[string]any{"text": "look at [attachment 2], like [attachment 1]\nnote", "attachments": []string{a, b}}, token, true))
+	var got *board.APIEntry
+	for i, e := range tl.Entries {
+		if e.Queued {
+			got = &tl.Entries[i]
+		}
+	}
+	if got == nil || got.Text != "look at [attachment 2], like [attachment 1]\nnote" || len(got.Shots) != 2 {
+		t.Fatalf("entry %+v", got)
+	}
+	if s := got.Shots[0]; s.N != 2 || s.Name != b || s.Image {
+		t.Errorf("first shot %+v", s)
+	}
+	if s := got.Shots[1]; s.N != 1 || s.Name != a || !s.Image {
+		t.Errorf("second shot %+v", s)
 	}
 }
 
@@ -650,5 +712,44 @@ func TestAPIInboxConcurrentUploadsKeepEveryFile(t *testing.T) {
 				t.Fatalf("inbox = %q, want %d files and no .upload-* leftovers", got, n)
 			}
 		})
+	}
+}
+
+func TestAPITaskDetailListsTheAttachedFilesWithoutAHostPath(t *testing.T) {
+	fx := apiInboxFixture(t)
+	h := fx.handler()
+	a := apiStored(t, h, "a.png", pngBytes).Name
+	b := apiStored(t, h, "b.log", []byte("log")).Name
+	ctx := context.Background()
+	if _, err := fx.st.AddProject(ctx, "inboxapp", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	task, err := fx.st.AddTask(ctx, "inboxapp", "with files", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := state.TaskRef(task.ID)
+	if _, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+ref); len(detail.Attachments) != 0 {
+		t.Fatalf("a task with no file lists %+v", detail.Attachments)
+	}
+	if _, err := fx.st.AttachFiles(ctx, task.ID, []string{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(fx.options.Home, "inbox", b)); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(h, "GET", "/api/v1/task/"+ref, nil, true)
+	_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+ref)
+	if len(detail.Attachments) != 2 {
+		t.Fatalf("attachments %+v", detail.Attachments)
+	}
+	if f := detail.Attachments[0]; f.Name != a || f.Label != "a.png" || f.Kind != "image" || f.Size != int64(len(pngBytes)) || f.Missing {
+		t.Errorf("first %+v", f)
+	}
+	if f := detail.Attachments[1]; f.Name != b || f.Label != "b.log" || f.Kind != "file" || !f.Missing {
+		t.Errorf("second %+v", f)
+	}
+	if strings.Contains(rec.Body.String(), fx.options.Home) {
+		t.Error("the task detail names the host folder")
 	}
 }

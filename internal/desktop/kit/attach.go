@@ -23,9 +23,9 @@ const (
 )
 
 type Chip struct {
-	Key, Badge, Name, Meta, Remove string
-	Tone                           ChipTone
-	Retry                          bool
+	Key, Badge, Name, Meta, Remove, Insert string
+	Tone                                   ChipTone
+	Retry                                  bool
 }
 
 func kindPill(c *ui.Context, text string, fg, bg ui.Color) {
@@ -35,7 +35,7 @@ func kindPill(c *ui.Context, text string, fg, bg ui.Color) {
 	})
 }
 
-func AttachChip(c *ui.Context, k Colors, ch Chip) (remove, retry bool) {
+func AttachChip(c *ui.Context, k Colors, ch Chip) (remove, retry, insert bool) {
 	edge, bg, nameFG, metaFG, metaLine, pillBG := k.Line, k.Panel, k.FG, k.Muted, float32(Body.Line), k.NeutralBG
 	switch ch.Tone {
 	case ChipBusy:
@@ -66,6 +66,15 @@ func AttachChip(c *ui.Context, k Colors, ch Chip) (remove, retry bool) {
 				retry = again.Clicked()
 			}
 		})
+		if ch.Insert != "" {
+			put := ui.ButtonBase(c.Key(ch.Key+":insert")).Height(Badge).AlignSelf(ui.Center).Padding(0, Space6).Shrink(0).
+				Radius(RadiusMD).Cursor(ui.CursorPointer).KeepFocus().Justify(ui.Center).AlignItems(ui.Center).Label(ch.Insert)
+			if put.Hovered() {
+				put.Background(k.Hover)
+			}
+			put.Children(func() { ui.Text(c, "Insert").FontSize(Meta.Size).Bold().TextColor(k.Accent).SingleLine() })
+			insert = put.Clicked()
+		}
 		x := ui.ButtonBase(c.Key(ch.Key + ":remove")).Width(Control).Shrink(0).AlignSelf(ui.Stretch).Padding(0).
 			Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(ch.Remove)
 		if x.Hovered() {
@@ -74,7 +83,7 @@ func AttachChip(c *ui.Context, k Colors, ch Chip) (remove, retry bool) {
 		x.Children(func() { ui.Icon(c, Icon("close")).TextColor(k.Muted) })
 		remove = x.Clicked()
 	})
-	return remove, retry
+	return remove, retry, insert
 }
 
 func IconButton(c *ui.Context, k Colors, key, label, icon string) bool {
