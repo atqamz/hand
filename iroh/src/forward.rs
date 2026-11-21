@@ -399,7 +399,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Touch<T> {
 mod tests {
     use std::collections::HashMap;
     use std::collections::hash_map::Entry;
-    use std::net::SocketAddr;
+    use std::net::{Ipv4Addr, SocketAddr};
     use std::path::PathBuf;
 
     use iroh::endpoint::{ConnectionError, PortmapperConfig, ReadError, ReadToEndError, presets};
@@ -578,6 +578,7 @@ mod tests {
             secret: Secret::parse(SECRET).unwrap(),
             key_dir: PathBuf::new(),
             relay: Relay::None,
+            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
             max_connections,
             idle,
         })
@@ -1172,5 +1173,43 @@ mod tests {
         let sidecar = sidecar(board.addr, 4, WAIT).await;
         sidecar.endpoint.close().await;
         timeout(WAIT, sidecar.served).await.unwrap().unwrap();
+    }
+
+    const VECTORS: &str = include_str!("../../docs/companion-vectors.json");
+
+    fn wire(key: &str) -> String {
+        let wire = &VECTORS[VECTORS.find("\"wire\"").unwrap()..];
+        let from = wire.find(&format!("\"{key}\": ")).unwrap() + key.len() + 4;
+        let rest = &wire[from..];
+        rest[..rest.find(['\n', ',']).unwrap()]
+            .trim()
+            .trim_matches('"')
+            .to_owned()
+    }
+
+    #[test]
+    fn the_wire_constants_are_the_companion_vectors() {
+        assert_eq!(wire("alpn").as_bytes(), ALPN);
+        assert_eq!(
+            wire("streams_per_connection"),
+            STREAMS_PER_CONNECTION.to_string()
+        );
+        for (key, code) in [
+            ("full", FULL_CODE),
+            ("idle", IDLE_CODE),
+            ("board_unreachable", BOARD_UNREACHABLE_CODE),
+            ("stream_idle", STREAM_IDLE_CODE),
+            ("board_error", BOARD_ERROR_CODE),
+        ] {
+            assert_eq!(wire(key), code.into_inner().to_string(), "{key}");
+        }
+        assert_eq!(wire("uni_streams"), "0");
+        let peer = SecretKey::from_bytes(&[7; 32]).public();
+        let secret = Secret::parse(SECRET).unwrap();
+        let expected = wire("preface")
+            .replace("\\n", "\n")
+            .replace("<endpoint id>", &peer.to_string())
+            .replace("<secret>", SECRET);
+        assert_eq!(preface::line(&peer, &secret), expected.as_bytes());
     }
 }

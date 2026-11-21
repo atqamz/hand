@@ -1,11 +1,14 @@
 mod args;
+mod backoff;
+mod client;
 mod forward;
 mod key;
 mod preface;
 #[cfg(test)]
 mod testutil;
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::io::Write as _;
+use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +17,7 @@ use iroh::RelayMode;
 use iroh::endpoint::{Endpoint, PortmapperConfig, QuicTransportConfig, VarInt, presets};
 use tokio::io::AsyncReadExt;
 
-use args::{Command, Config, Relay};
+use args::{ClientConfig, Command, Config, Relay};
 
 const ONLINE_WAIT: Duration = Duration::from_secs(10);
 const CLOSE_WAIT: Duration = Duration::from_secs(3);
@@ -25,15 +28,44 @@ fn main() -> ExitCode {
             println!("{}", args::version_line());
             ExitCode::SUCCESS
         }
-        Ok(Command::Run(config)) => run(config),
+        Ok(Command::Run(config)) => run(start(config)),
+        Ok(Command::Client(config)) => client(config),
         Err(message) => {
-            eprintln!("hand-iroh: {message}\n{}", args::USAGE);
+            let _ = writeln!(std::io::stderr(), "hand-iroh: {message}\n{}", args::USAGE);
             ExitCode::from(2)
         }
     }
 }
 
-fn run(config: Config) -> ExitCode {
+fn client(config: ClientConfig) -> ExitCode {
+    let dir = &config.key_dir;
+    let key = if config.new_key {
+        key::load_or_create(dir)
+    } else {
+        key::load(dir)
+    };
+    let key = match key {
+        Ok(key) => key,
+        Err(e) => {
+            let _ = writeln!(
+                std::io::stderr(),
+                "hand-iroh: cannot use the key in {}: {e}",
+                dir.display()
+            );
+            return ExitCode::from(3);
+        }
+    };
+    let _lock = match key::lock(dir) {
+        Ok(lock) => lock,
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "hand-iroh: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    run(client::run(config, key))
+}
+
+fn run(work: impl Future<Output = Result<(), String>>) -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -41,16 +73,19 @@ fn run(config: Config) -> ExitCode {
     {
         Ok(runtime) => runtime,
         Err(e) => {
-            eprintln!("hand-iroh: cannot start the runtime: {e}");
+            let _ = writeln!(
+                std::io::stderr(),
+                "hand-iroh: cannot start the runtime: {e}"
+            );
             return ExitCode::FAILURE;
         }
     };
-    let outcome = runtime.block_on(start(config));
+    let outcome = runtime.block_on(work);
     runtime.shutdown_background();
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            eprintln!("hand-iroh: {message}");
+            let _ = writeln!(std::io::stderr(), "hand-iroh: {message}");
             ExitCode::FAILURE
         }
     }
@@ -89,16 +124,20 @@ pub fn builder(config: &Config) -> iroh::endpoint::Builder {
         Relay::Custom(url) => {
             Endpoint::builder(presets::Minimal).relay_mode(RelayMode::custom([url.clone()]))
         }
-        Relay::None => Endpoint::builder(presets::Minimal)
-            .relay_mode(RelayMode::Disabled)
-            .portmapper_config(PortmapperConfig::Disabled)
-            .clear_ip_transports()
-            .bind_addr(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
-            .expect("a loopback address is a valid bind address"),
+        Relay::None => offline(config.bind),
     };
     builder
         .alpns(vec![forward::ALPN.to_vec()])
         .transport_config(transport)
+}
+
+pub fn offline(bind: SocketAddr) -> iroh::endpoint::Builder {
+    Endpoint::builder(presets::Minimal)
+        .relay_mode(RelayMode::Disabled)
+        .portmapper_config(PortmapperConfig::Disabled)
+        .clear_ip_transports()
+        .bind_addr(bind)
+        .expect("a loopback address is a valid bind address")
 }
 
 fn announce(endpoint: &Endpoint, online: bool) {
@@ -143,6 +182,7 @@ fn stop_signals() -> std::io::Result<impl Future<Output = ()>> {
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
     use std::path::PathBuf;
 
     use iroh::{RelayUrl, Watcher};
@@ -156,6 +196,7 @@ mod tests {
             secret: Secret::parse("0123456789abcdef0123456789abcdef").unwrap(),
             key_dir: PathBuf::new(),
             relay,
+            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
             max_connections: 4,
             idle: Duration::from_secs(60),
         }
