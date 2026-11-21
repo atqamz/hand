@@ -136,29 +136,33 @@ func TestOneFleetMakesNoAttentionRead(t *testing.T) {
 	}
 }
 
-func TestAHiddenWindowMakesNoAttentionRead(t *testing.T) {
+func TestAMinimizedWindowReadsAttentionOnTheMinimizedInterval(t *testing.T) {
+	if desktop.MinimizedAttentionRefresh != 15*time.Second {
+		t.Fatalf("minimized interval is %v, want 15s", desktop.MinimizedAttentionRefresh)
+	}
 	f := markFixture(t)
 	app := newApp(t, f)
 	clock := newFakeClock()
 	app.Clock = clock
 	app.SetMinimized(true)
 	app.StartRefresh()
-	clock.Advance(10 * time.Minute)
+	clock.Advance(desktop.MinimizedAttentionRefresh - time.Millisecond)
 	if got := f.count("attention"); got != 0 {
-		t.Fatalf("%d attention reads while minimized", got)
+		t.Fatalf("%d attention reads before the interval", got)
+	}
+	clock.Advance(time.Millisecond)
+	if got := f.count("attention"); got != 1 {
+		t.Fatalf("%d attention reads at the interval, want 1", got)
 	}
 	app.SetMinimized(false)
+	polls := f.count("poll:" + fleetID)
 	clock.Advance(desktop.FocusedRefresh)
-	if got := f.count("attention"); got != 1 {
-		t.Fatalf("%d attention reads after restore, want 1", got)
+	if got := f.count("poll:" + fleetID); got != polls+1 {
+		t.Fatalf("%d status polls a second after restore, want 1", got-polls)
 	}
 	app.SetMinimized(true)
-	if d := clock.delay(); d != 0 {
-		t.Fatalf("a timer is still armed %v after minimizing", d)
-	}
-	clock.Advance(10 * time.Minute)
-	if got := f.count("attention"); got != 1 {
-		t.Fatalf("%d attention reads after minimizing again, want still 1", got)
+	if d := clock.delay(); d != desktop.MinimizedAttentionRefresh {
+		t.Fatalf("next timer %v after minimizing again, want %v", d, desktop.MinimizedAttentionRefresh)
 	}
 }
 

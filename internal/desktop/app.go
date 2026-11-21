@@ -72,6 +72,8 @@ type App struct {
 	// reads inline, as the tests and Boot do.
 	Post    func(func())
 	OnTitle func(string)
+	OnBadge func(int)
+	OnFlash func(bool)
 	// Now is the time the working line counts from; nil uses the wall clock.
 	Now func() time.Time
 
@@ -209,6 +211,11 @@ type App struct {
 	scrollTo       string
 
 	attn       map[string]Signal
+	attnSel    bool
+	seen       map[string]Signal
+	flashed    map[string]bool
+	flashing   bool
+	badge      int
 	attnDown   bool
 	attnSoon   bool
 	attnFails  int
@@ -360,12 +367,13 @@ func (a *App) SetMinimized(minimized bool) {
 		return
 	}
 	a.Minimized = minimized
+	a.resetAttention()
 	if minimized {
 		a.flushDraft()
-		a.resetAttention()
 	} else {
-		a.armAttention()
+		a.setFlash(false)
 	}
+	a.armAttention()
 	if !a.pollBusy {
 		a.armPoll()
 	}
@@ -373,6 +381,9 @@ func (a *App) SetMinimized(minimized bool) {
 
 // SetFocused switches the loop between the focused and unfocused intervals.
 func (a *App) SetFocused(focused bool) {
+	if focused {
+		a.setFlash(false)
+	}
 	if a.Unfocused == !focused {
 		return
 	}
@@ -533,11 +544,11 @@ func (a *App) SelectFleet(id string) {
 	}
 	a.Reload()
 	a.armPoll()
-	a.syncTitle()
+	a.syncAttention()
 }
 
 func (a *App) install(f found, keep bool) {
-	defer a.syncTitle()
+	defer a.syncAttention()
 	a.resetAttention()
 	defer a.armAttention()
 	a.setErr("")
@@ -1067,7 +1078,7 @@ func (a *App) Ack(ref string) {
 			a.ackDone = map[string]bool{}
 		}
 		a.ackDone[ref] = true
-		a.syncTitle()
+		a.syncAttention()
 		a.nextNeed(ref)
 	}
 	status := func(st Status) {
@@ -1331,8 +1342,9 @@ func (a *App) PressStop() {
 // setStatus writes the status a read or a control answered and disarms Stop
 // when the supervisor on screen is no longer the one it armed on.
 func (a *App) setStatus(st Status) {
-	a.Status = st
-	a.syncTitle()
+	a.Status, a.attnSel = st, false
+	a.syncAttention()
+	a.observe(a.Fleet.ID, a.signal())
 	if a.StopArmed && (st.Supervisor == nil || st.Supervisor.Ref != a.stopRef) {
 		a.disarmStop()
 	}
@@ -1882,7 +1894,7 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 	if (a.errStatus || a.errScreen) && (!a.errStatus || statusFresh) && (!a.errScreen || screenFresh) {
 		a.setErr("")
 	}
-	a.syncTitle()
+	a.syncAttention()
 	a.armPoll()
 }
 
@@ -2071,7 +2083,7 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 }
 
 func (a *App) apply(l loaded) {
-	defer a.syncTitle()
+	defer a.syncAttention()
 	a.Err, a.errStatus, a.errScreen = l.Err, l.Err != "" && !l.StatusOK, l.Err != "" && l.StatusOK
 	a.auth = l.Auth
 	a.TimelineErr = l.TimelineErr

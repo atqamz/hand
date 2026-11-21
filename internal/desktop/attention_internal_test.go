@@ -83,7 +83,7 @@ func TestInstallWithoutABoardPushesOffline(t *testing.T) {
 	a := &App{Model: struct{ ReadModel }{}, Fleet: Fleet{ID: "f1", Name: "alpha"}}
 	var pushed []string
 	a.OnTitle = func(s string) { pushed = append(pushed, s) }
-	a.syncTitle()
+	a.syncAttention()
 	a.install(found{Err: ErrNoBoard}, false)
 	if a.Model != nil {
 		t.Fatal("the install kept a model")
@@ -122,5 +122,32 @@ func TestSignalMark(t *testing.T) {
 				t.Fatalf("mark = %q, %q; want %q, %q", tone, status, tc.tone, tc.status)
 			}
 		})
+	}
+}
+
+func TestBadgeDropsAnAcknowledgedItemBeforeTheNextRead(t *testing.T) {
+	a := &App{Model: struct{ ReadModel }{}, Fleet: Fleet{ID: "f1", Name: "alpha"}, ackDone: map[string]bool{}}
+	var pushed []int
+	a.OnBadge = func(n int) { pushed = append(pushed, n) }
+	a.setStatus(Status{Needs: Needs{
+		Waiting: 2, Worst: "report", WorstWord: "waiting",
+		Items: []Need{{Kind: "report", Report: "r1"}, {Kind: "report", Report: "r2"}},
+	}})
+	a.ackDone["r1"] = true
+	a.syncAttention()
+	if want := []int{2, 1}; !slices.Equal(pushed, want) {
+		t.Fatalf("badge pushes %v, want %v", pushed, want)
+	}
+}
+
+func TestBadgeSetAfterTheStateIsKnownStillReachesTheSink(t *testing.T) {
+	a := &App{Model: struct{ ReadModel }{}, Fleet: Fleet{ID: "f1", Name: "alpha"}}
+	a.setStatus(Status{Needs: Needs{Waiting: 3, Worst: "decision", WorstWord: "waiting"}})
+	var pushed []int
+	a.OnBadge = func(n int) { pushed = append(pushed, n) }
+	a.syncAttention()
+	a.syncAttention()
+	if want := []int{3}; !slices.Equal(pushed, want) {
+		t.Fatalf("badge pushes %v, want %v", pushed, want)
 	}
 }

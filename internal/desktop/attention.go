@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-const AttentionRefresh = 5 * time.Second
+const (
+	AttentionRefresh          = 5 * time.Second
+	MinimizedAttentionRefresh = 15 * time.Second
+)
 
 type FleetSignal struct {
 	Fleet string
@@ -86,6 +89,12 @@ func (a *App) mark(f Fleet) (tone, status string) {
 }
 
 func (a *App) signal() Signal {
+	if a.attnSel {
+		if s, ok := a.attn[a.Fleet.ID]; ok {
+			s.Name, s.OK = a.Fleet.Name, s.OK && !a.attnDown
+			return s
+		}
+	}
 	s := Signal{OK: a.Model != nil && a.Stale == ""}
 	if a.Fleet.ID != "" {
 		s.Name = a.Fleet.Name
@@ -106,22 +115,81 @@ func (a *App) Title() string {
 	return a.signal().Title()
 }
 
-func (a *App) syncTitle() {
-	t := a.Title()
-	if t == a.title {
+func (a *App) syncAttention() {
+	s := a.signal()
+	if !s.OK {
+		delete(a.seen, a.Fleet.ID)
+	}
+	if t := s.Title(); t != a.title {
+		a.title = t
+		if a.OnTitle != nil {
+			a.OnTitle(t)
+		}
+	}
+	n := 0
+	if s.OK {
+		n = s.Waiting
+	}
+	if a.OnBadge != nil && n != a.badge {
+		a.badge = n
+		a.OnBadge(n)
+	}
+}
+
+func (s Signal) rank() int {
+	if s.Waiting == 0 {
+		return 0
+	}
+	return map[string]int{"neutral": 1, "wait": 2, "fail": 3}[toneOf(s.Worst)]
+}
+
+func (a *App) observe(fleet string, s Signal) {
+	prev, seen := a.seen[fleet]
+	if !s.OK {
+		delete(a.seen, fleet)
 		return
 	}
-	a.title = t
-	if a.OnTitle != nil {
-		a.OnTitle(t)
+	if a.seen == nil {
+		a.seen = map[string]Signal{}
+	}
+	a.seen[fleet] = s
+	if s.Waiting == 0 {
+		delete(a.flashed, fleet)
+		if len(a.flashed) == 0 {
+			a.setFlash(false)
+		}
+		return
+	}
+	if seen && (s.Waiting > prev.Waiting || s.rank() > prev.rank()) && s.rank() >= 2 && (a.Unfocused || a.Minimized) {
+		if a.flashed == nil {
+			a.flashed = map[string]bool{}
+		}
+		a.flashed[fleet] = true
+		a.setFlash(true)
+	}
+}
+
+func (a *App) setFlash(on bool) {
+	if !on {
+		clear(a.flashed)
+	}
+	if on == a.flashing {
+		return
+	}
+	a.flashing = on
+	if a.OnFlash != nil {
+		a.OnFlash(on)
 	}
 }
 
 func (a *App) attending() bool {
-	return a.polling && !a.closed && !a.Minimized && a.Model != nil && len(a.Fleets) > 1 && (a.Clock != nil || a.Post != nil)
+	return a.polling && !a.closed && a.Model != nil && (len(a.Fleets) > 1 || a.Minimized) && (a.Clock != nil || a.Post != nil)
 }
 
 func (a *App) attentionDelay() time.Duration {
+	if a.Minimized && a.attnFails == 0 {
+		return MinimizedAttentionRefresh
+	}
 	if a.attnFails == 0 {
 		if len(a.attn) == 0 || a.attnSoon {
 			return FocusedRefresh
@@ -201,7 +269,20 @@ func (a *App) attended(gen int, sigs []FleetSignal, err error) {
 		a.attn = make(map[string]Signal, len(sigs))
 		for _, s := range sigs {
 			a.attn[s.Fleet] = s.Signal
+			if s.Fleet != a.Fleet.ID || a.Minimized {
+				a.observe(s.Fleet, s.Signal)
+			}
+		}
+		_, ok := a.attn[a.Fleet.ID]
+		a.attnSel = a.Minimized && ok
+	}
+	if a.attnDown {
+		for id := range a.seen {
+			if id != a.Fleet.ID || a.Minimized {
+				delete(a.seen, id)
+			}
 		}
 	}
+	a.syncAttention()
 	a.armAttention()
 }
