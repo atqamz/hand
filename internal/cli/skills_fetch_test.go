@@ -64,6 +64,7 @@ func TestSkillsCommandsLeaveNoTempFolder(t *testing.T) {
 	tool.commit(skillFiles("tool-skill", "v2"))
 	scenario := func(name string) {
 		for _, args := range [][]string{
+			{"skills", "list", "--fleet"},
 			{"skills", "outdated", "--fleet"},
 			{"skills", "outdated", "--all"},
 			{"skills", "sync", "--fleet"},

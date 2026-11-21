@@ -196,7 +196,10 @@ func TestSkillsSyncLeavesAnEditedCopyAlone(t *testing.T) {
 			t.Fatalf("outdated %s = %q", name, r)
 		}
 	}
-	out = h.ok("skills", "sync", "--fleet")
+	out, errOut, code := h.run("skills", "sync", "--fleet")
+	if code != 3 || !strings.Contains(errOut, "1 skill(s) not synced") {
+		t.Fatalf("sync with a conflict: code=%d stderr=%q", code, errOut)
+	}
 	for name, want := range map[string]string{"edit": "edit,edited,", "both": "both,conflict,", "other": "other,updated,"} {
 		if r := row(out, name); !strings.HasPrefix(r, want) {
 			t.Fatalf("sync %s = %q", name, r)
@@ -417,7 +420,10 @@ func TestSkillsSyncYesNeverOverwritesAnEditedOrConflictingCopy(t *testing.T) {
 	}
 	moved := remotes["tool-both"].commit(skillFiles("tool-both", "v2"))
 	for name, want := range map[string]string{"tool-edit": "edited", "tool-both": "conflict"} {
-		out := h.ok("skills", "sync", "--fleet", "--yes", name+"@"+moved)
+		out, _, code := h.run("skills", "sync", "--fleet", "--yes", name+"@"+moved)
+		if code != 3 {
+			t.Fatalf("%s: the run holds a conflict, code=%d", name, code)
+		}
 		if r := row(out, name); !strings.HasPrefix(r, name+","+want+",") {
 			t.Fatalf("%s = %q", name, r)
 		}
