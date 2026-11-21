@@ -20,10 +20,12 @@ import (
 const proposeBranch = "hand-skills/"
 
 type proposal struct {
-	repo, clone, branch, base, stat, commit string
+	repo, remote, clone, branch, base, stat, commit string
 }
 
-func (p proposal) url() string { return "https://github.com/" + p.repo + ".git" }
+func (p proposal) url() string {
+	return cmp.Or(p.remote, "https://github.com/"+p.repo+".git")
+}
 
 func cmdSkillsPropose(r *runner, args []string) error {
 	s, rest, err := r.skillScope("propose", args, 1, nil)
@@ -125,12 +127,8 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 	if _, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "add", "-A"); err != nil {
 		return proposal{}, err
 	}
-	ignored, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "ls-files", "--others", "--ignored", "--exclude-standard", "--", cmp.Or(e.Path(), "."))
-	if err != nil {
+	if err := r.refuseIgnored(c.repo, name, cmp.Or(e.Path(), ".")); err != nil {
 		return proposal{}, err
-	}
-	if left := strings.Fields(ignored); len(left) > 0 {
-		return proposal{}, fmt.Errorf("%w: %s holds files the source's .gitignore leaves out of a commit (%s); nothing proposed; move them out of the skill or change the ignore rule in the source", state.ErrInvalid, name, strings.Join(left[:min(len(left), 5)], ", "))
 	}
 	if p.stat, err = gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "diff", "--cached", "--stat", "--no-color"); err != nil {
 		return proposal{}, err
@@ -139,6 +137,17 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 		return proposal{}, fmt.Errorf("%w: %s differs from its source only by Hand's marker; there is nothing to propose", state.ErrConflict, name)
 	}
 	return p, nil
+}
+
+func (r *runner) refuseIgnored(repo, name, rel string) error {
+	ignored, err := gitcfg.RunBounded(r.fetches.ctx, repo, skillGitTimeout, "ls-files", "--others", "--ignored", "--exclude-standard", "--", rel)
+	if err != nil {
+		return err
+	}
+	if left := strings.Fields(ignored); len(left) > 0 {
+		return fmt.Errorf("%w: %s holds files the source's .gitignore leaves out of a commit (%s); nothing proposed; move them out of the skill or change the ignore rule in the source", state.ErrInvalid, name, strings.Join(left[:min(len(left), 5)], ", "))
+	}
+	return nil
 }
 
 func replaceContents(dst, src string) error {
@@ -157,15 +166,19 @@ func replaceContents(dst, src string) error {
 }
 
 func (r *runner) pushProposal(name string, p proposal) (string, error) {
-	ctx := r.fetches.ctx
 	title := "skills: update " + name
+	body := fmt.Sprintf("Edited copy of %s, sent by `hand skills propose`. Based on %s.\n\n```\n%s```\n", name, p.commit, p.stat)
+	return r.pushBranch(p, title, body)
+}
+
+func (r *runner) pushBranch(p proposal, title, body string) (string, error) {
+	ctx := r.fetches.ctx
 	if _, err := gitcfg.RunBoundedHooks(ctx, p.clone, skillGitTimeout, "commit", "--quiet", "-m", title); err != nil {
 		return "", fmt.Errorf("commit: %w; the commit uses your git identity (user.name, user.email) and your hooks and signing settings, and Hand changes none of them", err)
 	}
 	if _, err := gitcfg.RunBoundedHooks(ctx, p.clone, skillGitTimeout, "push", "--quiet", "--", p.url(), "HEAD:refs/heads/"+p.branch); err != nil {
 		return "", err
 	}
-	body := fmt.Sprintf("Edited copy of %s, sent by `hand skills propose`. Based on %s.\n\n```\n%s```\n", name, p.commit, p.stat)
 	url, err := r.ghCreate(ctx, p, title, body)
 	if err != nil {
 		return "", fmt.Errorf("pushed the branch %s to %s but `gh pr create` failed: %w; open the pull request from that branch by hand", p.branch, p.repo, err)
