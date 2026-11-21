@@ -105,7 +105,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-3-0 xvfb xauth libgl1-mesa-dri libglx-mesa0 libegl-mesa0
+          sudo apt-get install -y --no-install-recommends libgtk-3-0 xvfb xauth libgl1-mesa-dri libglx-mesa0 libegl-mesa0 x11-utils xdotool dbus
       - name: Set the output folder
         run: echo "HAND_WINDOW_OUT=$RUNNER_TEMP/hand-window" >> "$GITHUB_ENV"
       - name: Open the window, read its elements, capture it and quit
@@ -117,6 +117,12 @@ jobs:
             go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindow$' -count=1 -v
           fi
           test -s "$HAND_WINDOW_OUT/window.png"
+      - name: Blur the window, raise a need, read its title, urgency hint and launcher count, focus it
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowAttention$' -count=1 -v
+          test -s "$HAND_WINDOW_OUT/attention/window.png"
       - name: Make a fleet from the New fleet form with real hand init and board start, then stop the Board
         run: |
           set -eu

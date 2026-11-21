@@ -81,6 +81,7 @@ type fixture struct {
 	pollExited     chan struct{}
 	pollDone       chan struct{}
 	pollErr        error
+	screenErr      error
 	pollScreen     desktop.Screen
 	pollRef        string
 	mu             sync.Mutex
@@ -113,6 +114,7 @@ type fixture struct {
 	uploadBlock    chan struct{}
 	uploadEntered  chan struct{}
 	attnErr        error
+	fleetsAll      []desktop.Fleet
 	attnGone       map[string]bool
 	attnNeeds      map[string]desktop.Needs
 	attnBlock      chan struct{}
@@ -371,7 +373,7 @@ func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, re
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	p := desktop.Poll{StatusFresh: true, StatusRead: true, ScreenRead: true, Status: f.status[id], TimelineFresh: true, TimelineRead: true, Timeline: f.timeline[id]}
+	p := desktop.Poll{StatusFresh: true, StatusRead: true, ScreenRead: f.screenErr == nil, ScreenErr: f.screenErr, Status: f.status[id], TimelineFresh: true, TimelineRead: true, Timeline: f.timeline[id]}
 	if screen != desktop.BoardScreen {
 		p.TasksFresh, p.TasksRead, p.Tasks = true, true, f.tasks[id]
 	}

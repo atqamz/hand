@@ -83,15 +83,22 @@ func goBuild(t *testing.T, dir, out, tags string, args ...string) {
 	}
 }
 
-func TestRealWindow(t *testing.T) { realWindow(t, false, false) }
+func TestRealWindow(t *testing.T) { realWindow(t, false, false, false) }
 
-func TestRealWindowNewFleet(t *testing.T) { realWindow(t, false, true) }
+func TestRealWindowAttention(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the attention check reads an X11 window and a D-Bus session")
+	}
+	realWindow(t, false, false, true)
+}
+
+func TestRealWindowNewFleet(t *testing.T) { realWindow(t, false, true, false) }
 
 func TestRealWindowFromBundle(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Hand.app is built on macOS only")
 	}
-	realWindow(t, true, false)
+	realWindow(t, true, false, false)
 }
 
 func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, outDir string) {
@@ -136,13 +143,16 @@ func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, o
 	}
 }
 
-func realWindow(t *testing.T, fromBundle, zeroFleet bool) {
+func realWindow(t *testing.T, fromBundle, zeroFleet, attention bool) {
 	outDir := os.Getenv("HAND_WINDOW_OUT")
 	if outDir == "" {
 		t.Skip("set HAND_WINDOW_OUT to a folder to run a real window and keep its picture there")
 	}
 	if fromBundle {
 		outDir = filepath.Join(outDir, "bundle")
+	}
+	if attention {
+		outDir = filepath.Join(outDir, "attention")
 	}
 	if zeroFleet {
 		outDir = filepath.Join(outDir, "newfleet")
@@ -247,6 +257,11 @@ func realWindow(t *testing.T, fromBundle, zeroFleet bool) {
 		win.Env = append(win.Env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
 	}
 	win.Stdout, win.Stderr = winLog, winLog
+	var bus *launcherBus
+	if attention {
+		bus = startLauncherBus(t, outDir, env)
+		win.Env = append(win.Env, "DBUS_SESSION_BUS_ADDRESS="+bus.addr)
+	}
 	stdin, err := win.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -383,6 +398,9 @@ func realWindow(t *testing.T, fromBundle, zeroFleet bool) {
 	if err := os.WriteFile(filepath.Join(outDir, "tree.json"), tree, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if attention {
+		checkAttention(t, run, handBin, fleet, win.Process.Pid, bus)
+	}
 	if zeroFleet {
 		marks, err := os.ReadDir(filepath.Join(sh, "index"))
 		if err != nil || len(marks) != 1 {
@@ -437,6 +455,9 @@ func realWindow(t *testing.T, fromBundle, zeroFleet bool) {
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the window did not end 30 s after it was told to quit")
+	}
+	if attention {
+		untilTrue(t, "launcher count 0 after the window quit", 30*time.Second, func() bool { return lastLauncherCount(bus.seen()) == "0" })
 	}
 	if _, err := os.Stat(sock); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the window left its socket behind: %v", err)

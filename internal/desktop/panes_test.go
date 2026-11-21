@@ -160,8 +160,8 @@ func TestNoPollingWhileMinimised(t *testing.T) {
 	app, clock := newBoardApp(t, newFakeBoard())
 	app.StartRefresh()
 	app.SetMinimized(true)
-	if got := clock.delay(); got != 0 {
-		t.Fatalf("a tick is armed %v while minimised", got)
+	if got := clock.delay(); got != desktop.MinimizedAttentionRefresh {
+		t.Fatalf("the tick armed while minimised is %v, want only the %v attention read", got, desktop.MinimizedAttentionRefresh)
 	}
 	app.SetMinimized(false)
 	if got := clock.delay(); got != time.Second {
