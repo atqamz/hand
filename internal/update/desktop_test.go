@@ -333,7 +333,7 @@ func unsupportedTarget(t *testing.T) *fixture {
 		t.Skip("the downloaded hand for another OS cannot run on a Windows host")
 	}
 	f := newDesktopFetch(t, "0.9.0", "0123456789ab")
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "27", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "28", "0.14.4")
 	archive := files["hand-linux-amd64.tar.gz"]
 	f.srv.set("hand-linux-386.tar.gz", archive)
 	f.srv.set("checksums.txt", append(files["checksums.txt"], []byte(sum(archive)+"  hand-linux-386.tar.gz\n")...))
@@ -363,7 +363,7 @@ func TestRunNeverRemovesAnInstalledWindowOffWindows(t *testing.T) {
 		for _, check := range []bool{false, true} {
 			f := unsupportedTarget(t)
 			if current {
-				f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 27, Luvus: "0.14.4"}
+				f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 28, Luvus: "0.14.4"}
 			}
 			f.o.Check = check
 			path := filepath.Join(filepath.Dir(f.target), desktopasset.Name)

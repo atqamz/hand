@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/atqamz/hand/internal/inbox"
 )
 
 type APIInboxFile struct {
@@ -17,6 +20,32 @@ type APIInboxFile struct {
 	Label string `json:"label"`
 	Kind  string `json:"kind"`
 	Size  int64  `json:"size"`
+}
+
+type APITaskFile struct {
+	Name    string `json:"name"`
+	Label   string `json:"label"`
+	Kind    string `json:"kind"`
+	Size    int64  `json:"size"`
+	Missing bool   `json:"missing,omitempty"`
+}
+
+func (b *Board) apiTaskFiles(ctx context.Context, id int64) ([]APITaskFile, error) {
+	files, err := b.st.TaskFiles(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var out []APITaskFile
+	for _, f := range files {
+		a := APITaskFile{Name: f.Name, Label: label(f.Name), Kind: attachKind(f.Name)}
+		if fi, err := os.Lstat(filepath.Join(b.o.Home, "inbox", f.Name)); err == nil && fi.Mode().IsRegular() {
+			a.Size = fi.Size()
+		} else {
+			a.Missing = true
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 func (b *Board) apiInboxUpload(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +109,7 @@ func (b *Board) apiAttach(w http.ResponseWriter, text string, names []string) (s
 			b.apiFailErr(w, err)
 			return "", false
 		}
-		refs[i] = fmt.Sprintf("[%s %d: %s]", attachKind(name), i+1, filepath.Join(dir, name))
+		refs[i] = inbox.Line(b.o.Home, i+1, name)
 	}
 	used := make([]bool, len(names))
 	text = attachmentToken.ReplaceAllStringFunc(text, func(tok string) string {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func apiUpload(h http.Handler, field, name string, data []byte, csrf string, cookie bool) *httptest.ResponseRecorder {
@@ -711,5 +712,44 @@ func TestAPIInboxConcurrentUploadsKeepEveryFile(t *testing.T) {
 				t.Fatalf("inbox = %q, want %d files and no .upload-* leftovers", got, n)
 			}
 		})
+	}
+}
+
+func TestAPITaskDetailListsTheAttachedFilesWithoutAHostPath(t *testing.T) {
+	fx := apiInboxFixture(t)
+	h := fx.handler()
+	a := apiStored(t, h, "a.png", pngBytes).Name
+	b := apiStored(t, h, "b.log", []byte("log")).Name
+	ctx := context.Background()
+	if _, err := fx.st.AddProject(ctx, "inboxapp", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	task, err := fx.st.AddTask(ctx, "inboxapp", "with files", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := state.TaskRef(task.ID)
+	if _, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+ref); len(detail.Attachments) != 0 {
+		t.Fatalf("a task with no file lists %+v", detail.Attachments)
+	}
+	if _, err := fx.st.AttachFiles(ctx, task.ID, []string{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(fx.options.Home, "inbox", b)); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(h, "GET", "/api/v1/task/"+ref, nil, true)
+	_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+ref)
+	if len(detail.Attachments) != 2 {
+		t.Fatalf("attachments %+v", detail.Attachments)
+	}
+	if f := detail.Attachments[0]; f.Name != a || f.Label != "a.png" || f.Kind != "image" || f.Size != int64(len(pngBytes)) || f.Missing {
+		t.Errorf("first %+v", f)
+	}
+	if f := detail.Attachments[1]; f.Name != b || f.Label != "b.log" || f.Kind != "file" || !f.Missing {
+		t.Errorf("second %+v", f)
+	}
+	if strings.Contains(rec.Body.String(), fx.options.Home) {
+		t.Error("the task detail names the host folder")
 	}
 }

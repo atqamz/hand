@@ -15,9 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-const shotNameExpr = `[0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})`
+	"github.com/atqamz/hand/internal/inbox"
+)
 
 const (
 	maxImage = 10 << 20
@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	shotName    = regexp.MustCompile(`^` + shotNameExpr + `$`)
+	shotName    = regexp.MustCompile(`^` + inbox.StoredExpr + `$`)
 	imageExt    = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 	shotTypes   = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
 	imageLike   = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
@@ -185,12 +185,7 @@ type attachment struct {
 	Image, Missing                      bool
 }
 
-func label(name string) string {
-	if _, rest, ok := strings.Cut(name[len("20060102-150405-"):], "-"); ok {
-		return rest
-	}
-	return name
-}
+func label(name string) string { return inbox.Label(name) }
 
 func size(n int64) string {
 	switch kib := (n + 1<<9) >> 10; {
@@ -212,18 +207,18 @@ func shotPrefix(dir string, windows bool) string {
 	return strings.ReplaceAll(regexp.QuoteMeta(strings.ReplaceAll(dir, `\`, "/")+"/"), "/", `[\\/]`)
 }
 
-func shotMatcher(inbox string) *regexp.Regexp {
-	if re, ok := shotMatchers.Load(inbox); ok {
+func shotMatcher(dir string) *regexp.Regexp {
+	if re, ok := shotMatchers.Load(dir); ok {
 		return re.(*regexp.Regexp)
 	}
-	re := regexp.MustCompile(`\[(image|file)(?: ([1-9][0-9]{0,3}))?: ` + shotPrefix(inbox, filepath.Separator == '\\') + `(` + shotNameExpr + `)\]`)
-	shotMatchers.Store(inbox, re)
+	re := regexp.MustCompile(`\[(image|file)(?: ([1-9][0-9]{0,3}))?: ` + shotPrefix(dir, filepath.Separator == '\\') + `(` + inbox.StoredExpr + `)\]`)
+	shotMatchers.Store(dir, re)
 	return re
 }
 
 func shots(text, home, base string) (string, []attachment) {
-	inbox := filepath.Join(home, "inbox")
-	re := shotMatcher(inbox)
+	dir := filepath.Join(home, "inbox")
+	re := shotMatcher(dir)
 	lines := strings.Split(text, "\n")
 	locs := make([][][]int, len(lines))
 	whole := make([]bool, len(lines))
@@ -252,7 +247,7 @@ func shots(text, home, base string) (string, []attachment) {
 		}
 		if byN[n] == "" {
 			byN[n] = name
-			files = append(files, shotFile(home, base, inbox, name, n))
+			files = append(files, shotFile(home, base, dir, name, n))
 		}
 		return n
 	}
@@ -286,8 +281,8 @@ func shots(text, home, base string) (string, []attachment) {
 	return strings.Trim(strings.Join(keep, "\n"), "\n"), files
 }
 
-func shotFile(home, base, inbox, name string, n int) attachment {
-	path := filepath.Join(inbox, name)
+func shotFile(home, base, dir, name string, n int) attachment {
+	path := filepath.Join(dir, name)
 	a := attachment{Name: name, Label: label(name), N: n, Path: path, Image: isImage(name), Kind: fileKind(label(name)), Href: DocHref(home, base, path)}
 	if fi, err := os.Lstat(path); err == nil && fi.Mode().IsRegular() && a.Href != "" {
 		a.Size = size(fi.Size())

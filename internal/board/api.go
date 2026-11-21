@@ -500,6 +500,7 @@ type APITaskDetail struct {
 	Events        []APIEvent       `json:"events"`
 	MoreEvents    bool             `json:"more_events"`
 	Children      []APITaskRow     `json:"children,omitempty"`
+	Attachments   []APITaskFile    `json:"attachments,omitempty"`
 }
 
 type APITurn struct {
@@ -2149,7 +2150,8 @@ func (b *Board) apiTaskData(ctx context.Context, id int64) (APITaskDetail, error
 	for _, e := range v.Events {
 		out.Events = append(out.Events, apiEvent(e))
 	}
-	return out, nil
+	out.Attachments, err = b.apiTaskFiles(ctx, id)
+	return out, err
 }
 
 func (b *Board) apiAttemptData(ctx context.Context, id int64) (APIAttemptDetail, error) {

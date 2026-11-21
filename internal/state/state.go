@@ -53,11 +53,14 @@ var historyFTSSchema string
 //go:embed history_decision_task_fts.sql
 var historyDecisionTaskFTSSchema string
 
-var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema, alertSchema, socketSchema, inputAnswerSchema, supervisorReplySchema, historyFTSSchema, historyDecisionTaskFTSSchema}
+//go:embed task_file.sql
+var taskFileSchema string
+
+var migrations = []string{keptSchema, trackSchema, homeSchema, taskParentSchema, attemptStatusSchema, alertSchema, socketSchema, inputAnswerSchema, supervisorReplySchema, historyFTSSchema, historyDecisionTaskFTSSchema, taskFileSchema}
 
 const MinSchemaVersion = 16
 
-const SchemaVersion = 27
+const SchemaVersion = 28
 
 const lastMigrating = "0.13.0"
 
