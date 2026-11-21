@@ -25,8 +25,11 @@ struct Proc {
 }
 
 fn spawn(args: &[&str]) -> Proc {
-    let mut child = Command::new(BIN)
-        .args(args)
+    launch(Command::new(BIN).args(args), usize::MAX)
+}
+
+fn launch(command: &mut Command, read_lines: usize) -> Proc {
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -43,7 +46,7 @@ fn spawn(args: &[&str]) -> Proc {
     let (sent, lines) = mpsc::channel();
     let stdout = thread::spawn(move || {
         let mut all = Vec::new();
-        for line in BufReader::new(stdout).lines() {
+        for line in BufReader::new(stdout).lines().take(read_lines) {
             let line = line.unwrap();
             let _ = sent.send(line.clone());
             all.push(line);
@@ -173,8 +176,8 @@ fn server(dir: &TempDir, board: &Board) -> Server {
     Server { proc, id, udp }
 }
 
-fn client(server: &Server, keys: &Path, extra: &[&str]) -> Proc {
-    let mut args = vec![
+fn client_args(server: &Server, keys: &Path, extra: &[&str]) -> Vec<String> {
+    let mut args: Vec<String> = [
         "client",
         "--host",
         &server.id,
@@ -184,9 +187,18 @@ fn client(server: &Server, keys: &Path, extra: &[&str]) -> Proc {
         "none",
         "--direct",
         &server.udp,
-    ];
-    args.extend_from_slice(extra);
-    spawn(&args)
+    ]
+    .map(str::to_owned)
+    .into();
+    args.extend(extra.iter().map(|arg| (*arg).to_owned()));
+    args
+}
+
+fn client(server: &Server, keys: &Path, extra: &[&str]) -> Proc {
+    launch(
+        Command::new(BIN).args(client_args(server, keys, extra)),
+        usize::MAX,
+    )
 }
 
 fn listening(client: &Proc) -> (String, String) {
@@ -458,5 +470,54 @@ fn a_dead_board_shows_as_board_down_on_the_second_try() {
     ask(&addr, b"GET / HTTP/1.1\r\n\r\n");
     assert_eq!(client.line_starting("state board_down"), "state board_down");
     client.stop();
+    server.proc.stop();
+}
+
+#[test]
+fn a_closed_stdout_reader_does_not_stop_or_break_the_client() {
+    let (dir, keys) = fresh();
+    let board = board();
+    let server = server(&dir, &board);
+    let args = client_args(&server, &keys, &["--new-key"]);
+    let mut client = launch(Command::new(BIN).args(&args), 1);
+    let (addr, _) = listening(&client);
+    let deadline = Instant::now() + WAIT;
+    while !client.stdout.is_finished() {
+        assert!(Instant::now() < deadline, "the reader never closed");
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(ask(&addr, b"ping"), b"ping");
+    assert_eq!(ask(&addr, b"pong"), b"pong");
+    assert!(client.child.try_wait().unwrap().is_none());
+    let (status, _, stderr) = client.stop();
+    assert!(status.success(), "{status:?} {stderr}");
+    assert_eq!(stderr, "");
+    server.proc.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_client_out_of_descriptors_keeps_listening_and_serves_once_some_are_free() {
+    let (dir, keys) = fresh();
+    let board = board();
+    let server = server(&dir, &board);
+    let args = client_args(&server, &keys, &["--new-key"]);
+    let mut client = launch(
+        Command::new("sh")
+            .args(["-c", "ulimit -n 48 && exec \"$0\" \"$@\""])
+            .arg(BIN)
+            .args(&args),
+        usize::MAX,
+    );
+    let (addr, _) = listening(&client);
+    let silent: Vec<TcpStream> = (0..60)
+        .map(|_| TcpStream::connect(&addr).unwrap())
+        .collect();
+    thread::sleep(Duration::from_millis(500));
+    assert!(client.child.try_wait().unwrap().is_none());
+    drop(silent);
+    assert_eq!(ask(&addr, b"ping"), b"ping");
+    let (status, _, stderr) = client.stop();
+    assert!(status.success(), "{status:?} {stderr}");
     server.proc.stop();
 }

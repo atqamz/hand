@@ -7,6 +7,7 @@ mod preface;
 #[cfg(test)]
 mod testutil;
 
+use std::io::Write as _;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -30,7 +31,7 @@ fn main() -> ExitCode {
         Ok(Command::Run(config)) => run(start(config)),
         Ok(Command::Client(config)) => client(config),
         Err(message) => {
-            eprintln!("hand-iroh: {message}\n{}", args::USAGE);
+            let _ = writeln!(std::io::stderr(), "hand-iroh: {message}\n{}", args::USAGE);
             ExitCode::from(2)
         }
     }
@@ -46,14 +47,18 @@ fn client(config: ClientConfig) -> ExitCode {
     let key = match key {
         Ok(key) => key,
         Err(e) => {
-            eprintln!("hand-iroh: cannot use the key in {}: {e}", dir.display());
+            let _ = writeln!(
+                std::io::stderr(),
+                "hand-iroh: cannot use the key in {}: {e}",
+                dir.display()
+            );
             return ExitCode::from(3);
         }
     };
     let _lock = match key::lock(dir) {
         Ok(lock) => lock,
         Err(e) => {
-            eprintln!("hand-iroh: {e}");
+            let _ = writeln!(std::io::stderr(), "hand-iroh: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -68,7 +73,10 @@ fn run(work: impl Future<Output = Result<(), String>>) -> ExitCode {
     {
         Ok(runtime) => runtime,
         Err(e) => {
-            eprintln!("hand-iroh: cannot start the runtime: {e}");
+            let _ = writeln!(
+                std::io::stderr(),
+                "hand-iroh: cannot start the runtime: {e}"
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -77,7 +85,7 @@ fn run(work: impl Future<Output = Result<(), String>>) -> ExitCode {
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            eprintln!("hand-iroh: {message}");
+            let _ = writeln!(std::io::stderr(), "hand-iroh: {message}");
             ExitCode::FAILURE
         }
     }

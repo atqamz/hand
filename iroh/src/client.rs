@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write as _};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::pin;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -27,6 +27,7 @@ use crate::forward::{
 pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(20);
 pub const BACKOFF_RESET: Duration = Duration::from_secs(10);
 const CLOSE_WAIT: Duration = Duration::from_secs(3);
+const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
 const CHUNK: usize = 16 << 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,7 +91,7 @@ pub async fn run(config: ClientConfig, key: SecretKey) -> Result<(), String> {
         .map_err(|e| format!("cannot listen on {}: {e}", config.listen))?;
     let stop = crate::stop_signals().map_err(|e| format!("cannot listen for signals: {e}"))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
-    println!("listening addr={addr} id={}", endpoint.id());
+    let _ = writeln!(io::stdout(), "listening addr={addr} id={}", endpoint.id());
     let dialer = Arc::new(Dialer::new(endpoint.clone(), target(&config)));
     let failed = tokio::select! {
         error = serve(listener, dialer) => Some(error),
@@ -107,9 +108,21 @@ pub async fn serve(listener: TcpListener, dialer: Arc<Dialer>) -> io::Error {
             Ok((tcp, _)) => {
                 tokio::spawn(handle(tcp, dialer.clone()));
             }
+            Err(error) if transient(&error) => sleep(ACCEPT_PAUSE).await,
             Err(error) => return error,
         }
     }
+}
+
+// ENFILE, EMFILE, and Windows' WSAEMFILE
+fn transient(error: &io::Error) -> bool {
+    use io::ErrorKind::{
+        ConnectionAborted, ConnectionReset, Interrupted, OutOfMemory, TimedOut, WouldBlock,
+    };
+    matches!(
+        error.kind(),
+        ConnectionAborted | ConnectionReset | Interrupted | OutOfMemory | TimedOut | WouldBlock
+    ) || matches!(error.raw_os_error(), Some(23 | 24 | 10024))
 }
 
 async fn handle(mut tcp: TcpStream, dialer: Arc<Dialer>) {
@@ -221,7 +234,7 @@ impl Dialer {
         let mut held = self.state.lock().unwrap();
         if *held != Some(state) {
             *held = Some(state);
-            println!("state {}", state.name());
+            let _ = writeln!(io::stdout(), "state {}", state.name());
         }
     }
 
@@ -601,6 +614,107 @@ mod tests {
         assert_eq!(state(&rig.dialer), Some(State::Busy));
         assert!(rig.dialer.retry_at.lock().unwrap().is_some());
         assert_eq!(rig.dialer.backoff.lock().unwrap().failures(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_redial_waits_for_the_backoff() {
+        let rig = rig().await;
+        let wait = Duration::from_millis(400);
+        *rig.dialer.retry_at.lock().unwrap() = Some(Instant::now() + wait);
+        let started = Instant::now();
+        assert!(rig.dialer.open_with(b"ping").await.is_some());
+        assert!(started.elapsed() >= wait);
+        assert!(rig.dialer.retry_at.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_host_that_closes_full_after_the_handshake_is_busy_and_backs_off() {
+        let transport = QuicTransportConfig::builder()
+            .max_concurrent_bidi_streams(VarInt::from_u32(0))
+            .build();
+        let server = crate::offline(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .alpns(vec![ALPN.to_vec()])
+            .transport_config(transport)
+            .secret_key(SecretKey::from_bytes(&[4; 32]))
+            .bind()
+            .await
+            .unwrap();
+        let config = ClientConfig {
+            host: server.id(),
+            key_dir: PathBuf::new(),
+            new_key: false,
+            listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            relay: Relay::None,
+            direct: Some(server.bound_sockets()[0]),
+        };
+        tokio::spawn(async move {
+            let connection = loop {
+                let incoming = server.accept().await.unwrap();
+                if incoming.remote_addr_validated() {
+                    break incoming.accept().unwrap().await.unwrap();
+                }
+                let _ = incoming.retry();
+            };
+            sleep(Duration::from_millis(100)).await;
+            connection.close(FULL_CODE, b"full");
+            server.close().await;
+        });
+        let endpoint = builder(&config)
+            .secret_key(SecretKey::from_bytes(&[5; 32]))
+            .bind()
+            .await
+            .unwrap();
+        let dialer = Dialer::new(endpoint, target(&config));
+        assert!(dialer.open_with(b"ping").await.is_none());
+        assert_eq!(state(&dialer), Some(State::Busy));
+        assert!(dialer.retry_at.lock().unwrap().is_some());
+        assert_eq!(dialer.backoff.lock().unwrap().failures(), 1);
+    }
+
+    #[tokio::test]
+    async fn bytes_from_the_host_clear_the_board_down_count() {
+        let rig = rig().await;
+        rig.dialer.board_down.store(1, Ordering::Relaxed);
+        assert_eq!(exchange(rig.listen, b"ping").await, b"ping");
+        assert_eq!(rig.dialer.board_down.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_custom_relay_reaches_the_target_address() {
+        let relay: iroh::RelayUrl = "https://relay.example./".parse().unwrap();
+        let config = ClientConfig {
+            host: SecretKey::from_bytes(&[6; 32]).public(),
+            key_dir: PathBuf::new(),
+            new_key: false,
+            listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            relay: Relay::Custom(relay.clone()),
+            direct: None,
+        };
+        assert_eq!(target(&config).relay_urls().next(), Some(&relay));
+    }
+
+    #[test]
+    fn the_full_code_is_a_refusal_at_connect() {
+        let full = ConnectionError::ApplicationClosed(ApplicationClose {
+            error_code: FULL_CODE,
+            reason: Default::default(),
+        });
+        assert!(is_refusal(&full));
+        assert!(!is_refusal(&ConnectionError::LocallyClosed));
+    }
+
+    #[test]
+    fn only_a_resource_shortage_or_a_dropped_connection_is_worth_another_accept() {
+        for code in [23, 24] {
+            assert!(transient(&io::Error::from_raw_os_error(code)));
+        }
+        for kind in [io::ErrorKind::ConnectionAborted, io::ErrorKind::OutOfMemory] {
+            assert!(transient(&io::Error::from(kind)));
+        }
+        assert!(!transient(&io::Error::from(io::ErrorKind::InvalidInput)));
+        assert!(!transient(&io::Error::from(
+            io::ErrorKind::PermissionDenied
+        )));
     }
 
     #[tokio::test]
