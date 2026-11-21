@@ -42,6 +42,7 @@ var (
 	errAppLink = errors.New("this fleet cannot show a pairing link")
 	appIDre    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	appCodeRe  = regexp.MustCompile(`^[` + codeChars + `]{10}$`)
+	appNameRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
 	appRelayRe = regexp.MustCompile(`^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.?)(:([1-9][0-9]{0,4}))?/?$`)
 )
 
@@ -595,12 +596,12 @@ func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AppError": "Companion access over iroh is not ready with a relay, so a Companion cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state above."})
 		return
 	}
-	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P"); err != nil {
+	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P", ""); err != nil {
 		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
 		return
 	}
 	code, until := b.mint(b.now(), []string{b.fleetID()}, "", true)
-	link, err := appLink(st.ID, st.Relay, b.fleetID(), code)
+	link, err := appLink(st.ID, st.Relay, b.fleetID(), code, b.o.HostName)
 	if err != nil {
 		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
 		return
@@ -746,7 +747,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 	b.render(w, http.StatusOK, "pair.html", map[string]any{"Title": "paired", "Page": "", "Neutral": true, "Paired": paired, "PairedWith": joined(names), "Missed": len(set) - len(paired)})
 }
 
-func appLink(endpoint, relay, fleet, code string) (string, error) {
+func appLink(endpoint, relay, fleet, code, name string) (string, error) {
 	code = strings.ReplaceAll(code, "-", "")
 	if !appIDre.MatchString(endpoint) || !state.FleetID.MatchString(fleet) || len(code) != appCodeLen || !appCodeRe.MatchString(code) {
 		return "", errAppLink
@@ -760,6 +761,9 @@ func appLink(endpoint, relay, fleet, code string) (string, error) {
 	}
 	if len(link) > appLinkMax {
 		return "", errAppLink
+	}
+	if appNameRe.MatchString(name) && len(link)+len("&n=")+len(name) <= appLinkMax {
+		link += "&n=" + name
 	}
 	return link, nil
 }

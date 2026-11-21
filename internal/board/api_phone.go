@@ -137,7 +137,7 @@ func (b *Board) apiPhoneDataFrom(ctx context.Context, own []PhoneRecord) APIPhon
 		set = live.fleets
 		switch {
 		case live.app:
-			if link, err := appLink(st.ID, st.Relay, b.fleetID(), code); err == nil {
+			if link, err := appLink(st.ID, st.Relay, b.fleetID(), code, b.o.HostName); err == nil {
 				out.App = &APIPhoneApp{Link: link, ExpiresAt: apiClock(live.until)}
 			}
 		default:
@@ -273,7 +273,7 @@ func (b *Board) apiPhoneApp(w http.ResponseWriter, r *http.Request) {
 		b.apiFail(w, http.StatusConflict, "conflict", "Companion access over iroh is not ready with a relay, so a Companion cannot reach this host yet. Start the Board with `--iroh`, or check the sidecar's state in the Companion data.")
 		return
 	}
-	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P"); err != nil {
+	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P", ""); err != nil {
 		b.apiFail(w, http.StatusInternalServerError, "internal", "This host cannot show a pairing link: its iroh relay address does not fit one.")
 		return
 	}

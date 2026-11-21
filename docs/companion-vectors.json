@@ -538,6 +538,146 @@
         "code": "K7QM3XRD2P",
         "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
       }
+    },
+    {
+      "name": "a host name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=work-laptop",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": "work-laptop",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a relay and a host name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A7842%2F&n=work-laptop",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://relay.example.test:7842/",
+        "name": "work-laptop",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name of 40 characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name with dots, digits and capitals",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=Build.Host-2_b",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": "Build.Host-2_b",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name before the relay",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=work-laptop&r=https%3A%2F%2Frelay.example.test%3A7842%2F",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://relay.example.test:7842/",
+        "name": "work-laptop",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name of 41 characters is accepted without a name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaza",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name that starts with a hyphen is accepted without a name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=-laptop",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name with an escaped space is accepted without a name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=work%20laptop",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "a host name with a tilde is accepted without a name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=work~laptop",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "name": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "longest link with a host name: 213 bytes",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb%2F&n=laptop",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/",
+        "name": "laptop",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
     }
   ],
   "invalid": [
@@ -905,6 +1045,26 @@
       "name": "relay given twice",
       "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F&r=https%3A%2F%2Frelay.example.test%2F",
       "reject": "duplicate_key"
+    },
+    {
+      "name": "host name given twice",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=a&n=b",
+      "reject": "duplicate_key"
+    },
+    {
+      "name": "an empty host name",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=",
+      "reject": "fragment"
+    },
+    {
+      "name": "a host name with a raw space",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=work laptop",
+      "reject": "characters"
+    },
+    {
+      "name": "a host name with a non-ASCII character",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&n=caf\u00e9",
+      "reject": "characters"
     }
   ],
   "open": {

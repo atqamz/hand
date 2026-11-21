@@ -440,6 +440,18 @@ func TestAPIPhoneUsedCodeLeavesThePhoneData(t *testing.T) {
 	}
 }
 
+func TestAPIPhoneAppLinkLeavesOutAHostNameThatBreaksTheGrammar(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	a := p.fleets[0]
+	p.name = "work laptop"
+	p.iroh = func() sidecar.Status { return readyIroh }
+	p.restart()
+	_, got := apiBody[board.APIPhone](t, p.papi(a, "POST", "/phone/app", nil, p.hosts(a)))
+	if got.App == nil || strings.Contains(got.App.Link, "&n=") || !strings.HasSuffix(got.App.Link, "&r=https%3A%2F%2Frelay.example") {
+		t.Fatalf("link = %+v", got.App)
+	}
+}
+
 func TestAPIPhoneAppLink(t *testing.T) {
 	p := newCompanionHost(t, true, "alpha")
 	a := p.fleets[0]
@@ -450,7 +462,7 @@ func TestAPIPhoneAppLink(t *testing.T) {
 	if got.App == nil || got.Code != nil {
 		t.Fatalf("app answer = %+v", got)
 	}
-	m := regexp.MustCompile(`^handboard://c#v=1&e=` + irohEndpoint + `&f=` + a.id + `&c=([0-9A-Z]{10})&r=https%3A%2F%2Frelay\.example$`).FindStringSubmatch(got.App.Link)
+	m := regexp.MustCompile(`^handboard://c#v=1&e=` + irohEndpoint + `&f=` + a.id + `&c=([0-9A-Z]{10})&r=https%3A%2F%2Frelay\.example&n=workstation$`).FindStringSubmatch(got.App.Link)
 	if m == nil {
 		t.Fatalf("link = %q", got.App.Link)
 	}

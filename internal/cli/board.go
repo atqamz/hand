@@ -276,6 +276,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Home:       home,
 		Base:       "/" + id,
 		Iroh:       iroh,
+		HostName:   hostName(),
 		ClosePeer:  closePeer,
 	}}
 	if err == nil {

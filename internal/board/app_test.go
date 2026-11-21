@@ -88,6 +88,21 @@ func TestTheHandAppLinkIsShownAsTextAndAQRCode(t *testing.T) {
 	}
 }
 
+func TestTheHandAppLinkOnTheCompanionPageCarriesTheHostName(t *testing.T) {
+	p, id, _ := appRig(t, &sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay})
+	p.fx.options.HostName = "work-laptop"
+	p.h = p.fx.handler()
+	body, code := p.appCode(id)
+	want := "handboard://c#v=1&e=" + appEndpoint + "&f=" + id + "&c=" + code + "&r=https%3A%2F%2Frelay.example.test%3A7842%2F&n=work-laptop"
+	qr, err := board.QRSVG(want, "QR code for the Hand app pairing link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, string(qr)) || !strings.Contains(body, `<code class="ref">`+html.EscapeString(want)+`</code>`) {
+		t.Fatalf("app page does not show the link with the host name:\n%s", redactAppPage(body))
+	}
+}
+
 func TestANewHandAppCodeCancelsTheOneBefore(t *testing.T) {
 	p, id, _ := appRig(t, &sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay})
 	_, first := p.appCode(id)
