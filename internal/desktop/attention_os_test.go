@@ -488,3 +488,25 @@ func TestAFleetThatWasUnavailableIsABaselineWhenItReturns(t *testing.T) {
 		t.Fatalf("flash calls %v after a real rise, want %v", s.flash, want)
 	}
 }
+
+func TestAMinimizedWindowWhoseReadsFailClearsItsBadgeAndSaysOffline(t *testing.T) {
+	f := markFixture(t)
+	app, clock, s := osApp(t, f)
+	clock.Advance(desktop.FocusedRefresh)
+	app.SetMinimized(true)
+	f.mu.Lock()
+	f.attnErr = errors.New("boom")
+	f.mu.Unlock()
+	tickFor(clock, 5*time.Minute)
+	if want := []int{1, 0}; !slices.Equal(s.badge, want) {
+		t.Fatalf("badge %v, want %v: the status it shows stopped being read when the window was minimized", s.badge, want)
+	}
+	if got := app.Title(); got != "Hand · golden · offline" {
+		t.Fatalf("title = %q", got)
+	}
+	app.SetMinimized(false)
+	clock.Advance(desktop.FocusedRefresh)
+	if got := app.Title(); got != "(!) Hand · golden · s1 blocked" {
+		t.Fatalf("title = %q after restore and a poll", got)
+	}
+}

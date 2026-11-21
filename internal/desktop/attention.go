@@ -95,7 +95,7 @@ func (a *App) signal() Signal {
 			return s
 		}
 	}
-	s := Signal{OK: a.Model != nil && a.Stale == ""}
+	s := Signal{OK: a.Model != nil && a.Stale == "" && !(a.Minimized && a.attnDown)}
 	if a.Fleet.ID != "" {
 		s.Name = a.Fleet.Name
 	}
