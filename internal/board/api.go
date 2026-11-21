@@ -255,6 +255,7 @@ type APIStatus struct {
 }
 
 type APIShot struct {
+	N       int    `json:"n"`
 	Name    string `json:"name"`
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`
@@ -982,14 +983,11 @@ func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	lines, ok := b.apiAttachLines(w, in.Attachments)
+	text, ok := b.apiAttach(w, text, in.Attachments)
 	if !ok {
 		return
 	}
-	if lines != "" && text != "" && !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	text = strings.ReplaceAll(text+lines, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if err := state.CheckMessage(text); err != nil {
 		b.apiFailErr(w, err)
 		return
@@ -2455,7 +2453,7 @@ func apiEntry(c chatItem) APIEntry {
 		out.Wakes = append(out.Wakes, apiEntry(w))
 	}
 	for _, s := range c.Shots {
-		out.Shots = append(out.Shots, APIShot{Name: s.Name, Label: s.Label, Kind: s.Kind, Size: s.Size, Href: s.Href, Image: s.Image, Missing: s.Missing})
+		out.Shots = append(out.Shots, APIShot{N: s.N, Name: s.Name, Label: s.Label, Kind: s.Kind, Size: s.Size, Href: s.Href, Image: s.Image, Missing: s.Missing})
 	}
 	return out
 }

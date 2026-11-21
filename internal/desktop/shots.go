@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,35 +25,41 @@ type shotState struct {
 	done   bool
 }
 
-func (a *App) shotRow(c *ui.Context, k kit.Colors, e Entry) {
-	if len(e.Shots) == 0 {
+func (a *App) shotRow(c *ui.Context, k kit.Colors, e Entry, placed []bool) {
+	if len(e.Shots) == 0 || len(placed) == len(e.Shots) && !slices.Contains(placed, false) {
 		return
 	}
 	ui.Row(c).Wrap().Gap(kit.Space8).AlignItems(ui.Start).Margin(kit.Space8, 0, 0).Children(func() {
 		for i, s := range e.Shots {
-			key := fmt.Sprintf("shot:%s:%d", entryKey(e), i)
-			label := shownText(s.Label)
-			meta := s.Kind
-			if s.Size != "" {
-				meta += " · " + s.Size
+			if i < len(placed) && placed[i] {
+				continue
 			}
-			switch {
-			case s.Missing || !inboxName.MatchString(s.Name):
-				kit.SentFile(c, k, key, s.Kind, label, "no longer in inbox/", true)
-			case s.Image && a.shotFor(s.Name).bmp != nil:
-				if kit.SentPicture(c, k, key, a.shots[s.Name].bmp, label) {
-					a.OpenDoc("inbox/" + s.Name)
-				}
-			default:
-				if st := a.shots[s.Name]; s.Image && st != nil && !st.done {
-					meta = "Loading…"
-				}
-				if kit.SentFile(c, k, key, s.Kind, label, meta, false) {
-					a.OpenDoc("inbox/" + s.Name)
-				}
-			}
+			a.shot(c, k, fmt.Sprintf("shot:%s:%d", entryKey(e), i), s)
 		}
 	})
+}
+
+func (a *App) shot(c *ui.Context, k kit.Colors, key string, s Shot) {
+	label := shownText(s.Label)
+	meta := s.Kind
+	if s.Size != "" {
+		meta += " · " + s.Size
+	}
+	switch {
+	case s.Missing || !inboxName.MatchString(s.Name):
+		kit.SentFile(c, k, key, s.Kind, label, "no longer in inbox/", true)
+	case s.Image && a.shotFor(s.Name).bmp != nil:
+		if kit.SentPicture(c, k, key, a.shots[s.Name].bmp, label) {
+			a.OpenDoc("inbox/" + s.Name)
+		}
+	default:
+		if st := a.shots[s.Name]; s.Image && st != nil && !st.done {
+			meta = "Loading…"
+		}
+		if kit.SentFile(c, k, key, s.Kind, label, meta, false) {
+			a.OpenDoc("inbox/" + s.Name)
+		}
+	}
 }
 
 func (a *App) shotFor(name string) *shotState {

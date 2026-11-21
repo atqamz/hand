@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -59,10 +61,12 @@ func (b *Board) apiInbox(w http.ResponseWriter, r *http.Request) {
 	b.serveInbox(w, r, func() { b.apiFail(w, http.StatusNotFound, "not_found", "not found: file in inbox/") })
 }
 
-func (b *Board) apiAttachLines(w http.ResponseWriter, names []string) (string, bool) {
+var attachmentToken = regexp.MustCompile(`\[attachment ([1-9][0-9]{0,3})\]`)
+
+func (b *Board) apiAttach(w http.ResponseWriter, text string, names []string) (string, bool) {
 	dir := filepath.Join(b.o.Home, "inbox")
-	var lines strings.Builder
-	for _, name := range names {
+	refs := make([]string, len(names))
+	for i, name := range names {
 		if !shotName.MatchString(name) {
 			b.apiFail(w, http.StatusBadRequest, "bad_request", "an attachment must be the name of a file in inbox/, as POST /inbox answered it")
 			return "", false
@@ -76,7 +80,24 @@ func (b *Board) apiAttachLines(w http.ResponseWriter, names []string) (string, b
 			b.apiFailErr(w, err)
 			return "", false
 		}
-		fmt.Fprintf(&lines, "[%s: %s]\n", attachKind(name), filepath.Join(dir, name))
+		refs[i] = fmt.Sprintf("[%s %d: %s]", attachKind(name), i+1, filepath.Join(dir, name))
 	}
-	return lines.String(), true
+	used := make([]bool, len(names))
+	text = attachmentToken.ReplaceAllStringFunc(text, func(tok string) string {
+		if n, _ := strconv.Atoi(tok[len("[attachment ") : len(tok)-1]); n <= len(names) {
+			used[n-1] = true
+			return refs[n-1]
+		}
+		return tok
+	})
+	var lines strings.Builder
+	for i, ref := range refs {
+		if !used[i] {
+			lines.WriteString(ref + "\n")
+		}
+	}
+	if lines.Len() > 0 && text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text + lines.String(), true
 }

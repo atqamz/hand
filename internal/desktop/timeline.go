@@ -370,6 +370,10 @@ func (a *App) bubble(c *ui.Context, k kit.Colors, p palette, measure, column flo
 	} else {
 		box.Padding(9, 13, 11).Radius(kit.RadiusLG).Background(bg).Border(1, p.lineStrong).MaxWidth(maxW)
 	}
+	var (
+		parts  []inlinePart
+		placed []bool
+	)
 	box.Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Baseline).Children(func() {
 			ui.Text(c, who).FontSize(kit.Meta.Size).Bold().TextColor(tone).SingleLine()
@@ -390,18 +394,31 @@ func (a *App) bubble(c *ui.Context, k kit.Colors, p palette, measure, column flo
 		switch {
 		case e.Text == "":
 		case you:
-			if md := a.literal(e.Text); md != "" {
-				a.markdownOf(c, md, &markdown.Theme{FontSize: kit.Message.Size, LineHeight: kit.Message.Line / kit.Message.Size})
-			} else {
-				ui.Text(c, e.Text).FontSize(kit.Message.Size).LineHeight(kit.Message.Line / kit.Message.Size)
+			parts, placed = inlineParts(e.Text, e.Shots)
+			for i, part := range parts {
+				if part.shot >= 0 {
+					ui.Row(c).Children(func() {
+						a.shot(c, k, fmt.Sprintf("shot:%s:%d:%d", entryKey(e), part.shot, i), e.Shots[part.shot])
+					})
+				} else {
+					a.operatorText(c, part.text)
+				}
 			}
 		default:
 			a.md.Theme = &markdown.Theme{FontSize: kit.Message.Size, LineHeight: kit.Message.Line / kit.Message.Size}
 			a.markdown(c, e.Text)
 			a.md.Theme = nil
 		}
-		a.shotRow(c, k, e)
+		a.shotRow(c, k, e, placed)
 	})
+}
+
+func (a *App) operatorText(c *ui.Context, text string) {
+	if md := a.literal(text); md != "" {
+		a.markdownOf(c, md, &markdown.Theme{FontSize: kit.Message.Size, LineHeight: kit.Message.Line / kit.Message.Size})
+	} else {
+		ui.Text(c, text).FontSize(kit.Message.Size).LineHeight(kit.Message.Line / kit.Message.Size)
+	}
 }
 
 func (a *App) working(c *ui.Context, p palette) {
