@@ -195,6 +195,7 @@ type Status struct {
 }
 
 type Shot struct {
+	N       int    `json:"n,omitempty"`
 	Name    string `json:"name"`
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`

@@ -88,15 +88,22 @@ type ImportResult struct {
 	Refs                   []ImportRef
 	Left                   []ImportRef
 	Ambiguous              []ImportAmbiguous
+	TaskFiles              int
 	Reports                []ImportReportRow
 	TextSHA256             string
 	EventSeq               int64
+}
+
+type importFile struct {
+	TaskID        int64
+	Name, AddedAt string
 }
 
 type importPlan struct {
 	result   ImportResult
 	projects []Project
 	tasks    []Task
+	files    []importFile
 }
 
 var importRefPattern = regexp.MustCompile(`[tardiw][0-9]+`)
@@ -359,6 +366,10 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 		p.result.Ambiguous = append(p.result.Ambiguous, gamb...)
 		p.result.Tasks[t.Status]++
 	}
+	if p.files, err = importFiles(ctx, src, p.result.Offset, ids); err != nil {
+		return p, err
+	}
+	p.result.TaskFiles = len(p.files)
 	reports, err := importReports(ctx, src)
 	if err != nil {
 		return p, err
@@ -401,6 +412,26 @@ func importTasks(ctx context.Context, q importQueryer) ([]Task, error) {
 			return nil, err
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func importFiles(ctx context.Context, q importQueryer, offset int64, ids map[int64]bool) ([]importFile, error) {
+	rows, err := q.QueryContext(ctx, `SELECT task_id, name, added_at FROM task_file ORDER BY rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []importFile
+	for rows.Next() {
+		var f importFile
+		if err := rows.Scan(&f.TaskID, &f.Name, &f.AddedAt); err != nil {
+			return nil, err
+		}
+		if ids[f.TaskID] {
+			f.TaskID += offset
+			out = append(out, f)
+		}
 	}
 	return out, rows.Err()
 }
@@ -574,6 +605,11 @@ func insertImport(ctx context.Context, tx *sql.Tx, at string, o ImportOptions, p
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE task SET parent_id = ? WHERE id = ?`, t.ParentID, t.ID); err != nil {
+			return err
+		}
+	}
+	for _, f := range p.files {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO task_file(task_id, name, added_at) VALUES (?, ?, ?)`, f.TaskID, f.Name, f.AddedAt); err != nil {
 			return err
 		}
 	}

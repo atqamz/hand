@@ -454,6 +454,7 @@ func printImportDatabase(r *runner, src, dst fleet.Entry, dry bool, res state.Im
 	d.Rows("tables", []string{"table", "rows", "offset"}, [][]string{
 		{"project", strconv.Itoa(addedProjects(res)), "0"},
 		{"task", strconv.Itoa(taskCount(res)), strconv.FormatInt(res.Offset, 10)},
+		{"task_file", strconv.Itoa(res.TaskFiles), strconv.FormatInt(res.Offset, 10)},
 	})
 	projects := make([][]string, 0, len(res.Projects))
 	for _, p := range res.Projects {

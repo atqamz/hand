@@ -86,6 +86,10 @@ func cmdInboxPrune(r *runner, args []string) error {
 		d.Rows("move", []string{"name", "age", "size"}, fileRows(p.Moved, now))
 		d.Rows("delete", []string{"name", "age", "size"}, fileRows(p.Deleted, now))
 	}
+	if len(p.Protected) > 0 {
+		d.Field("protected", strconv.Itoa(len(p.Protected)))
+		d.Rows("protected", []string{"name", "age", "size"}, fileRows(p.Protected, now))
+	}
 	if len(p.Failed) > 0 {
 		rows := make([][]string, len(p.Failed))
 		for i, f := range p.Failed {
@@ -121,7 +125,11 @@ func (r *runner) pruneInbox(ctx context.Context, st *state.Store, olderThan time
 		}
 		defer unlock()
 	}
-	p, err := inbox.Prune(r.home, r.env.Now(), olderThan, dry)
+	protected, err := st.ProtectedFiles(ctx)
+	if err != nil {
+		return inbox.Pruned{}, err
+	}
+	p, err := inbox.Prune(r.home, r.env.Now(), olderThan, dry, protected)
 	if err == nil && !dry && len(p.Moved) > 0 {
 		err = st.InboxPruned(ctx, inbox.Count(len(p.Moved), inbox.Bytes(p.Moved)))
 	}

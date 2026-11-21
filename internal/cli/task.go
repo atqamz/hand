@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -23,6 +26,8 @@ var taskCommands = map[string]handler{
 	"abandon": transitionCommand("abandon", state.StatusAbandoned),
 	"deliver": cmdTaskDeliver,
 	"parent":  cmdTaskParent,
+	"attach":  cmdTaskAttach,
+	"detach":  cmdTaskDetach,
 }
 
 func init() {
@@ -208,6 +213,11 @@ func cmdTaskShow(r *runner, args []string) error {
 		answered = answered || dec.Status == state.DecisionAnswered
 	}
 	d.Rows("decisions", []string{"id", "status", "question"}, rows)
+	files, err := st.TaskFiles(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	r.fileRows(&d, files)
 	kids, err := st.Children(context.Background(), id)
 	if err != nil {
 		return err
@@ -408,4 +418,110 @@ func cmdTaskDeliver(r *runner, args []string) error {
 	}
 	d.Help("See them: `hand task show " + state.TaskRef(t.ID) + "`")
 	return r.print(&d)
+}
+
+func (r *runner) inboxFile(arg string, mustExist bool) (string, error) {
+	dir := filepath.Join(r.home, inbox.Folder)
+	name := arg
+	if filepath.IsAbs(arg) {
+		parent, err := filepath.EvalSymlinks(filepath.Dir(arg))
+		want, werr := filepath.EvalSymlinks(dir)
+		if err != nil || werr != nil || parent != want {
+			return "", fmt.Errorf("%w: %s is not a file directly in this fleet's inbox/", state.ErrInvalid, arg)
+		}
+		name = filepath.Base(arg)
+	}
+	if !inbox.Stored.MatchString(name) {
+		return "", fmt.Errorf("%w: %q is not the name of a file Hand stored in inbox/ (YYYYMMDD-HHMMSS-N-label)", state.ErrInvalid, name)
+	}
+	if !mustExist {
+		return name, nil
+	}
+	fi, err := os.Lstat(filepath.Join(dir, name))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("%w: %s is not in inbox/", state.ErrNotFound, name)
+	case err != nil:
+		return "", err
+	case !fi.Mode().IsRegular():
+		return "", fmt.Errorf("%w: %s in inbox/ is not a regular file", state.ErrInvalid, name)
+	}
+	return name, nil
+}
+
+func (r *runner) fileRows(d *toon.Doc, files []state.TaskFile) {
+	if len(files) == 0 {
+		return
+	}
+	rows := make([][]string, len(files))
+	for i, f := range files {
+		held := "ok"
+		if fi, err := os.Lstat(filepath.Join(r.home, inbox.Folder, f.Name)); err != nil || !fi.Mode().IsRegular() {
+			held = "missing"
+		}
+		rows[i] = []string{inbox.Line(r.home, i+1, f.Name), held}
+	}
+	d.Rows("files", []string{"file", "state"}, rows)
+}
+
+func (r *runner) taskFileChange(name string, args []string, mustExist bool, apply func(context.Context, *state.Store, int64, []string) (int, error)) error {
+	fs := flags("task " + name)
+	if err := fs.Parse(args); err != nil {
+		return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
+	}
+	pos := fs.Args()
+	if len(pos) < 2 {
+		return usageError{fmt.Sprintf("usage: hand task %s tN FILE...; FILE is a name in inbox/, or the absolute path of a file directly in it", name)}
+	}
+	id, err := parseID("t", pos[0])
+	if err != nil {
+		return err
+	}
+	if err := r.needHome(); err != nil {
+		return err
+	}
+	if name == "attach" {
+		unlock, _, err := r.lock("inbox", true)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
+	names := make([]string, len(pos)-1)
+	for i, arg := range pos[1:] {
+		if names[i], err = r.inboxFile(arg, mustExist); err != nil {
+			return err
+		}
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	n, err := apply(r.ctx(), st, id, names)
+	if err != nil {
+		return err
+	}
+	files, err := st.TaskFiles(r.ctx(), id)
+	if err != nil {
+		return err
+	}
+	var d toon.Doc
+	d.Field("task", state.TaskRef(id))
+	d.Field(name+"ed", strconv.Itoa(n))
+	r.fileRows(&d, files)
+	return r.print(&d)
+}
+
+func cmdTaskAttach(r *runner, args []string) error {
+	return r.taskFileChange("attach", args, true, func(ctx context.Context, st *state.Store, id int64, names []string) (int, error) {
+		added, err := st.AttachFiles(ctx, id, names)
+		return len(added), err
+	})
+}
+
+func cmdTaskDetach(r *runner, args []string) error {
+	return r.taskFileChange("detach", args, false, func(ctx context.Context, st *state.Store, id int64, names []string) (int, error) {
+		return len(names), st.DetachFiles(ctx, id, names)
+	})
 }

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -50,7 +51,7 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 			message.Focus()
 			a.focusComposer = false
 		}
-		a.chipRow(c, k)
+		a.chipRow(c, k, message)
 		if a.DraftErr != "" {
 			ui.Text(c, a.DraftErr).FontSize(kit.Meta.Size).TextColor(p.fail).Padding(0, kit.Space10)
 		}
@@ -146,6 +147,9 @@ func (a *App) sendKeyHint(pane float32) string {
 func (a *App) draftNote() string {
 	if note := a.attachingNote(); note != "" {
 		return note
+	}
+	if n := a.orphanToken(); n > 0 {
+		return fmt.Sprintf("[attachment %d] has no file", n)
 	}
 	if a.attachNote != "" {
 		return a.attachNote
