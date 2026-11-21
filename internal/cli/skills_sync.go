@@ -67,8 +67,11 @@ var (
 	unsafeSource = regexp.MustCompile(`[^A-Za-z0-9._:/@+=-]`)
 )
 
-func addArgs(name string, e fleet.Managed) (args string, exact bool) {
+func addArgs(base, name string, e fleet.Managed) (args string, exact bool) {
 	src := e.Source
+	if e.Local() {
+		src = localSource(base, e.Source)
+	}
 	if !e.Local() {
 		src = e.URL()
 		if ownURL(src) && e.Path() == path.Join("skills", name) {
@@ -98,7 +101,7 @@ func (r *runner) conflict(goals *[]string, s fleet.Skills, name string, e fleet.
 	if f := strings.Fields(r.scopeArg); len(f) == 2 && f[0] == "--project" {
 		project = unsafeWord.ReplaceAllString(f[1], "?")
 	}
-	add, exact := addArgs(name, e)
+	add, exact := addArgs(s.Base, name, e)
 	commit, last, note := "", fmt.Sprintf("then run %s skills propose %s%s and stop at the pull request it prints; if the edit is no longer wanted, stop after the add.", hand, r.scopeArg, name), ""
 	if s.Scope == "project" {
 		commit = " commit the deletion in git if git shows it, because add refuses a skill folder with uncommitted changes in git,"

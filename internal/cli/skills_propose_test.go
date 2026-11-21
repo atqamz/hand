@@ -685,3 +685,28 @@ func TestSkillsReconcileGoalOfASourceItCannotWriteInFull(t *testing.T) {
 		t.Errorf("the goal names propose or the path: %q", goal)
 	}
 }
+
+func TestSkillsReconcileGoalResolvesAProjectRelativeSource(t *testing.T) {
+	h, repo := projectHarness(t)
+	src := skillSource(t, "notes", "v1")
+	h.ok("skills", "add", "--project", "app", src)
+	if lock := readSkill(t, filepath.Join(repo, "skills-lock.json")); strings.Contains(lock, filepath.ToSlash(src)) {
+		t.Skipf("the lock holds %s as it is", src)
+	}
+	path := skillPath(repo, ".agents", "notes")
+	if err := os.WriteFile(path, []byte(readSkill(t, path)+"\nmine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, src, skillFiles("notes", "v2"))
+	other := t.TempDir()
+	h.cwd = other
+	out, _, code := h.run("skills", "sync", "--project", "app", "notes")
+	goal := goalOf(out)
+	want := "skills add --project app " + src + ","
+	if runtime.GOOS == "windows" {
+		want = "skills add --project app SOURCE,"
+	}
+	if code != 3 || !strings.Contains(goal, want) {
+		t.Fatalf("code=%d goal=%q, want %q", code, goal, want)
+	}
+}
