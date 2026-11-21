@@ -526,7 +526,7 @@ func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi 
 	data["Text"] = v
 	data["Stream"] = streamMarker
 	var page bytes.Buffer
-	if err := pages.ExecuteTemplate(&page, "doc.html", b.pageData(data)); err != nil {
+	if err := b.pages.ExecuteTemplate(&page, "doc.html", b.pageData(data)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

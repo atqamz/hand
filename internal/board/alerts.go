@@ -149,17 +149,17 @@ func rank(sorted []time.Duration, p float64) time.Duration {
 	return sorted[max(int(math.Ceil(p*float64(len(sorted))))-1, 0)]
 }
 
-func alertSummary(rows []state.Alert) (alertStats, []alertRow) {
+func alertSummary(z *time.Location, rows []state.Alert) (alertStats, []alertRow) {
 	st := alertStats{Total: len(rows)}
 	var delays []time.Duration
 	out := make([]alertRow, len(rows))
 	for i, a := range rows {
-		r := alertRow{Seq: a.Seq, At: when(a.At.Format(time.RFC3339Nano)), Kind: a.Kind, Ref: a.Ref, Text: a.Text, Fetched: "no", Acked: "no", Delay: "no"}
+		r := alertRow{Seq: a.Seq, At: whenIn(z, a.At.Format(time.RFC3339Nano)), Kind: a.Kind, Ref: a.Ref, Text: a.Text, Fetched: "no", Acked: "no", Delay: "no"}
 		if !a.FetchedAt.IsZero() {
-			r.Fetched = when(a.FetchedAt.Format(time.RFC3339Nano))
+			r.Fetched = whenIn(z, a.FetchedAt.Format(time.RFC3339Nano))
 		}
 		if d, ok := a.Delay(); ok {
-			r.Acked, r.Delay = when(a.AckedAt.Format(time.RFC3339Nano)), d.Round(time.Second).String()
+			r.Acked, r.Delay = whenIn(z, a.AckedAt.Format(time.RFC3339Nano)), d.Round(time.Second).String()
 			delays = append(delays, d)
 			if d > alertSlow {
 				st.Slow++
@@ -184,7 +184,7 @@ func (b *Board) alertsPage(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	stats, list := alertSummary(rows)
+	stats, list := alertSummary(b.zone(), rows)
 	b.render(w, http.StatusOK, "alerts.html", map[string]any{
 		"Title": "alerts", "Page": "alerts", "Fleets": b.fleets(ctx), "Stats": stats, "Rows": list,
 		"StripData": b.stripData(ctx), "Token": b.csrf(ctx),

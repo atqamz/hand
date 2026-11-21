@@ -563,7 +563,7 @@ func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, err
 			if err != nil {
 				return w, err
 			}
-			w.On, w.From, w.FromLabel, w.Input = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04"), in.ID
+			w.On, w.From, w.FromLabel, w.Input = "on your message from", in.CreatedAt, hmIn(b.zone(), in.CreatedAt), in.ID
 		}
 	}
 	w.Label = elapsed(b.now().Sub(parse(w.Since)))
@@ -768,13 +768,6 @@ func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 	return out, nil
 }
 
-func (c chatItem) When() string {
-	if c.Clock {
-		return hm(c.At)
-	}
-	return when(c.At)
-}
-
 type chatItem struct {
 	transcript.Entry
 	No                  int
@@ -800,12 +793,12 @@ func once(ref, kind, detail string) string {
 	return ref + " " + kind + ": " + detail
 }
 
-func groupWakes(all []chatItem) []chatItem {
+func groupWakes(z *time.Location, all []chatItem) []chatItem {
 	wake := func(d chatItem) bool { return d.Role == "hand" && strings.HasPrefix(d.Text, "wake:") }
 	out := make([]chatItem, 0, len(all))
 	for i := 0; i < len(all); {
 		j := i
-		for j < len(all) && wake(all[j]) && (j == i || parse(all[j].At).UTC().Format(time.DateOnly) == parse(all[i].At).UTC().Format(time.DateOnly)) {
+		for j < len(all) && wake(all[j]) && (j == i || parse(all[j].At).In(z).Format(time.DateOnly) == parse(all[i].At).In(z).Format(time.DateOnly)) {
 			j++
 		}
 		if j-i < 2 {

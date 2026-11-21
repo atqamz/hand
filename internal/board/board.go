@@ -36,57 +36,61 @@ import (
 //go:embed templates/*.html
 var files embed.FS
 
-var pages = template.Must(template.New("").Funcs(template.FuncMap{
-	"task":     state.TaskRef,
-	"attempt":  state.AttemptRef,
-	"report":   state.ReportRef,
-	"decision": state.DecisionRef,
-	"plan":     func(rev int) string { return state.PlanRef(rev) },
-	"asset":    assetURL,
-	"md":       markdown.Render,
-	"mdrefs":   markdown.RenderRefs,
-	"refs":     markdown.Refs,
-	"inline":   markdown.Inline,
-	"when":     when,
-	"reason":   state.ReasonText,
-	"until":    func(t time.Time) string { return t.UTC().Format("Jan 2") },
-	"options":  options,
-	"prose":    prose,
-	"chosen":   chosen,
-	"note":     note,
-	"tabonce":  tabOnce,
-	"away":     away,
-	"plain":    plain,
-	"shown":    shown,
-	"tone":     tone,
-	"rest": func(s string) string {
-		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
-		return strings.TrimSpace(rest)
-	},
-	"words": func(kind string) string { return strings.NewReplacer(".", " ", "_", " ").Replace(kind) },
-	"hm":    hm,
-	"base":  base,
-	"tint":  tint,
-	"view":  view,
-	"rep":   rep,
-	"pick":  pick,
-	"dict": func(kv ...any) map[string]any {
-		m := make(map[string]any, len(kv)/2)
-		for i := 0; i+1 < len(kv); i += 2 {
-			m[kv[i].(string)] = kv[i+1]
-		}
-		return m
-	},
-	"start": func(d map[string]any) startForm {
-		return startForm{Base: d["base"].(string), Token: d["token"].(string), Label: d["label"].(string), Inline: d["inline"].(bool), Starting: d["starting"].(string), Primary: d["primary"].(bool)}
-	},
-	"resume": func(base, token, starting string) resumeForm {
-		return resumeForm{Base: base, Token: token, Starting: starting}
-	},
-	"ack": func(base, token, ref string, fetch bool) ackForm {
-		return ackForm{Base: base, Token: token, Ref: ref, Fetch: fetch}
-	},
-}).ParseFS(files, "templates/*.html"))
+var pages = newPages(func() *time.Location { return time.Local })
+
+func newPages(zone func() *time.Location) *template.Template {
+	return template.Must(template.New("").Funcs(template.FuncMap{
+		"task":     state.TaskRef,
+		"attempt":  state.AttemptRef,
+		"report":   state.ReportRef,
+		"decision": state.DecisionRef,
+		"plan":     func(rev int) string { return state.PlanRef(rev) },
+		"asset":    assetURL,
+		"md":       markdown.Render,
+		"mdrefs":   markdown.RenderRefs,
+		"refs":     markdown.Refs,
+		"inline":   markdown.Inline,
+		"when":     func(stamp string) string { return whenIn(zone(), stamp) },
+		"reason":   state.ReasonText,
+		"until":    func(t time.Time) string { return t.In(zone()).Format("Jan 2") },
+		"options":  options,
+		"prose":    prose,
+		"chosen":   chosen,
+		"note":     note,
+		"tabonce":  tabOnce,
+		"away":     away,
+		"plain":    plain,
+		"shown":    shown,
+		"tone":     tone,
+		"rest": func(s string) string {
+			_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
+			return strings.TrimSpace(rest)
+		},
+		"words": func(kind string) string { return strings.NewReplacer(".", " ", "_", " ").Replace(kind) },
+		"hm":    func(at string) string { return hmIn(zone(), at) },
+		"base":  base,
+		"tint":  tint,
+		"view":  view,
+		"rep":   rep,
+		"pick":  pick,
+		"dict": func(kv ...any) map[string]any {
+			m := make(map[string]any, len(kv)/2)
+			for i := 0; i+1 < len(kv); i += 2 {
+				m[kv[i].(string)] = kv[i+1]
+			}
+			return m
+		},
+		"start": func(d map[string]any) startForm {
+			return startForm{Base: d["base"].(string), Token: d["token"].(string), Label: d["label"].(string), Inline: d["inline"].(bool), Starting: d["starting"].(string), Primary: d["primary"].(bool)}
+		},
+		"resume": func(base, token, starting string) resumeForm {
+			return resumeForm{Base: base, Token: token, Starting: starting}
+		},
+		"ack": func(base, token, ref string, fetch bool) ackForm {
+			return ackForm{Base: base, Token: token, Ref: ref, Fetch: fetch}
+		},
+	}).ParseFS(files, "templates/*.html"))
+}
 
 const (
 	cookieName = "hand_board"
@@ -193,6 +197,7 @@ type Board struct {
 	mux        *trackedMux
 	companions companions
 	refresh    refresher
+	pages      *template.Template
 	artifacts  artifactCache
 	links      linkSet
 	versions   [2]sharedVersion
@@ -218,6 +223,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 		o.Beat = 15 * time.Second
 	}
 	b := &Board{st: st, token: token, o: o, mux: &trackedMux{ServeMux: http.NewServeMux()}, companions: companions{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
+	b.pages = newPages(b.zone)
 	b.boot = b.now().UnixNano()
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor", b.supervisorPage)
@@ -569,7 +575,7 @@ func (b *Board) valid(t string) bool {
 }
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
-	renderPage(w, status, name, b.pageData(data))
+	renderPage(w, b.pages, status, name, b.pageData(data))
 }
 
 func (b *Board) pageData(data map[string]any) map[string]any {
@@ -589,7 +595,7 @@ func (b *Board) pageData(data map[string]any) map[string]any {
 	return data
 }
 
-func renderPage(w http.ResponseWriter, status int, name string, data map[string]any) {
+func renderPage(w http.ResponseWriter, pages *template.Template, status int, name string, data map[string]any) {
 	var buf bytes.Buffer
 	if err := pages.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -866,4 +872,4 @@ func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
 	b.done(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), state.ReportRef(id)+" marked read")
 }
 
-func hm(at string) string { return parse(at).UTC().Format("15:04") }
+func hmIn(z *time.Location, at string) string { return parse(at).In(z).Format("15:04") }
