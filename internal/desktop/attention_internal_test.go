@@ -68,6 +68,17 @@ func TestAppTitleUsesTheNeedsTheWindowShows(t *testing.T) {
 	}
 }
 
+func TestAppTitleNamesTheWorstNeedsRefNotTheFirstItems(t *testing.T) {
+	a := &App{Model: struct{ ReadModel }{}, Fleet: Fleet{ID: "f1", Name: "alpha"}}
+	a.Status.Needs = Needs{
+		Waiting: 2, Worst: "blocked", WorstWord: "blocked",
+		Items: []Need{{Kind: "decision", Ref: "d1"}, {Kind: "blocked", Ref: "s1"}},
+	}
+	if got, want := a.Title(), "(!) Hand · alpha · s1 blocked"; got != want {
+		t.Fatalf("title = %q, want %q", got, want)
+	}
+}
+
 func TestInstallWithoutABoardPushesOffline(t *testing.T) {
 	a := &App{Model: struct{ ReadModel }{}, Fleet: Fleet{ID: "f1", Name: "alpha"}}
 	var pushed []string
