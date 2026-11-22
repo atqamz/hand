@@ -68,6 +68,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | none yet; `hand history search --full REF` |
 | `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
+| `GET /api/v1/skills[?scope=SCOPE[&project=NAME]]` | `Skills`: each scope's skills with source, ref, commit, latest commit, trust, drift state and the pending diff; see [Skills](#skills) | none yet; `hand skills list` for every scope |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
 | `GET /api/v1/doc/{path}?from=N` or `?lines=M` (either, or both) | `DocWindow`: those lines of a text file and where the next ones start | the viewer's text lines |
@@ -96,6 +97,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/supervisor/force` | the same `Status` after the force | the blocked screen's "Type queued messages anyway" |
 | `POST /api/v1/supervisor/switch` | the same `Status` after the switch | the model menu's Switch, Cancel switch and Drop switch |
 | `POST /api/v1/supervisor/keys` | the same `Status` after the key press | the supervisor's fixed key buttons |
+| `POST /api/v1/skills/sync` | `SkillsRun`: a row per skill, third-party diffs, reconcile commands; see [Skills](#skills) | none yet; `hand skills sync` |
+| `POST /api/v1/skills/update` | the same `SkillsRun` | none yet; `hand skills update` |
+| `POST /api/v1/skills/propose` | the same `SkillsRun`, with the pull request's address | none yet; `hand skills propose` |
 | `POST /api/v1/models/refresh` | the same `Models` the GET returns, after the refresh started | the overflow menu's Refresh models |
 | `POST /api/v1/attempt/{aN}/keys` | the same `AttemptDetail` the GET returns, after the key press | `/attempt/aN`'s key buttons |
 
@@ -322,6 +326,7 @@ An action's answer says what the Board's toast would say, in two places: the env
 | `POST /supervisor/force` | `Typed into s1` |
 | `POST /supervisor/switch` | `Switch applied`, `Switch set for after this turn`, `Switch applied, not answered`, `Switching to codex…`, or `Switch canceled` |
 | `POST /models/refresh` | `Refreshing models…` |
+| `POST /skills/sync`, `update`, `propose` | `Skills sync: 1 current, 2 updated`: the verb, then a count for each state the rows carry, in alphabetical order; `Skills sync: nothing subscribed` for no rows |
 | `POST /supervisor/keys` | `Sent down enter to s1` |
 | `POST /attempt/{aN}/keys` | `Sent enter to a1` |
 | `POST /phone/revoke` | `Revoked in alpha and beta`, absent when nothing was revoked |
@@ -517,7 +522,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "data": {
     "version": "0.14.0",
     "host": "workstation",
-    "features": ["events", "fleets", "history", "host", "links", "pair", "phone"],
+    "features": ["events", "fleets", "history", "host", "links", "pair", "phone", "skills"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -534,6 +539,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 | `links` | `GET /api/v1/links` |
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
+| `skills` | `GET /api/v1/skills` and its `sync`, `update` and `propose` actions |
 
 Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a Companion on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 
@@ -648,6 +654,46 @@ It runs the same refresh as the menu's Refresh models, in the background, one pe
 
 **The keys decision.** The API never returns a screen. While the supervisor is blocked, `Status.supervisor.keys` carries the revision, digest and pressed sequence the guard needs, and `Status.supervisor.ask` carries the question and option labels the Board's Ask card already shows the operator on the same loopback session, so it adds no new disclosure. A client shows one button per option when `ask` is present, and the fixed seven-key toolbar only when it is absent (a screen the parser does not understand). A worker has no `ask`: the Board's Ask card covers the supervisor's screen only. Its item carries the `excerpt`, `title`, `options` and `keys` above, and a press goes to `/api/v1/attempt/{aN}/keys`.
 
+### Skills
+
+The skills endpoints run the code `hand skills` runs, in the Board's process: the same scopes, the same drift states, the same trust levels and the same refusals. A client gets what `hand skills list`, `sync`, `update` and `propose` print as JSON. No endpoint adds, removes or subscribes a skill; `hand skills add` and `remove` stay on the command line.
+
+A scope is `fleet` (the supervisor's own skills in the fleet home), `project` (a project's checkout, named by `project`) or `user` (the machine-wide skills in `$HOME`). There is no working folder to infer one from, so an action names it.
+
+`GET /api/v1/skills` answers `scopes`, in the order `fleet`, then each project in the project list's order, then `user`. A scope is `{scope, project?, error?, skills}`. `error` is a scrubbed sentence when the scope could not be read (a project whose folder is not a git checkout, an unreadable lock); its `skills` is then empty and the other scopes are still answered. A skill is:
+
+| Field | Meaning |
+|---|---|
+| `name` | the skill's folder name |
+| `source` | the source address, with `#PATH` when the skill sits in a folder of it; `hand init` for a skill Hand wrote itself; empty for a folder nothing manages |
+| `ref`, `commit` | the subscribed ref and the commit the installed copy came from; empty when not managed |
+| `latest` | the source's commit now, read by fetching it; empty when the fetch failed |
+| `managed` | `true` when the lock records the skill; the rest of the row is empty when it is `false` |
+| `trusted` | `true` for Hand's own repository (`atqamz/skills`) when the scope is subscribed to it, and for a local source subscribed as itself in the fleet or user scope: `sync` applies those without a yes; `false` for every other source, a third-party one among them, which moves only on `yes` |
+| `state` | `current`, `behind`, `edited`, `conflict`, or `error` (then `detail` says why); the drift statuses `hand skills outdated` prints |
+| `detail` | the reason for `error`, or a diff that could not be built |
+| `diff`, `diff_cut` | for `behind`, the change between the installed copy and `latest` as a unified diff, at most 64 KiB, cut at a line with `diff_cut: true`; a diff is third-party file content and is returned as written, not scrubbed |
+
+`edited` is a copy changed here while its source did not move (`propose` sends the edit to the source); `conflict` is changed here and moved at the source (nothing updates, and `sync` and `update` answer a `reconcile` command).
+
+Every read fetches each distinct source once, with the CLI's limits: one git step takes at most 90 seconds, the fetches of one request share 3 minutes, and the whole request is cut at 5 minutes, so it takes seconds on a fast link and is not for polling. `scope` and `project` narrow the read to one scope or one project; `project` goes only with `scope=project`, where it names one project (an unknown one is `404`) and, left out, reads every project. An action needs `project` with `scope: "project"`. A scope that cannot be fetched shows `state: error` per skill instead of failing the read. The envelope's `cursor` is a fingerprint of the answer, and `?since=` with it answers `304` when nothing changed.
+
+`POST /api/v1/skills/sync`, `update` and `propose` take one JSON object: `scope` (required), `project` (with `scope: "project"` only), `name` (the skill; optional for `sync` and `update`, which then take every subscribed skill of the scope, and required for `propose`) and `yes` (`sync` only: `NAME@COMMIT`, the whole commit id of the diff the client showed). They run `hand skills sync`, `update` and `propose` with the matching scope flag and the answer is a `SkillsRun`:
+
+| Field | Meaning |
+|---|---|
+| `scope`, `project` | as asked |
+| `results` | one `{name, state, detail}` per skill, in the order the command prints its rows: `updated`, `bumped` (`detail` is the pull request's address), `pending`, `behind`, `current`, `edited`, `conflict`, `restored`, `proposed` (`detail` is the pull request's address), `removed` or `refused` (`detail` is the reason) |
+| `refused` | how many skills the command refused; `hand skills` exits `3` for a non-zero count, and the API answers `200` with the rows instead |
+| `diffs` | for `sync`, a `{name, diff, cut}` for each third-party update that waits for a yes; the same 64 KiB cap, and as written like `diff` |
+| `reconcile` | for a `conflict`, the `hand task add --goal …` command the CLI prints for a worker, with a login removed from a source address; the API creates no task |
+
+Trust and drift behave as the command does. `sync` applies Hand's own repository and local sources with a backup, never a third-party update without `yes`, never a copy that was edited here, and in a project scope opens a bump pull request for each skill instead of editing the checkout. `update` is the explicit command: it does not need a yes, and it is the one that edits a project checkout in place for a person to commit. `propose` pushes only its own branch and opens a pull request through `gh`, which the Board needs on its `PATH`.
+
+A paired Companion reads `GET /api/v1/skills` like any other read, but every skills action answers `403 forbidden` ("a paired Companion cannot change skills; use the host's Board"): the actions run `git` and `gh` with the host's credentials and change files and pull requests on the host, as `models/refresh` and the Companion actions do. A mutation needs the session's cookie and `X-Hand-CSRF`.
+
+The Board runs one skills request at a time, a read or an action: a second one answers `409 conflict` ("another skills request is running on this board; try again when it ends") instead of queueing another fetch. An action is not cancelled when the client leaves; it runs to its own limits, and it stops when the Board shuts down: the `git` or `gh` step is cancelled, its clone folder is removed and the request ends: a `sync` or `update` answers `200` with a `refused` row for the skill it was on, and a `propose` an error. Error kinds follow the CLI's exit codes: an invalid scope, name or `yes` is `400 bad_request`, a project that is not registered `404 not_found`, a skill the command refuses before it reads any (no lock, a name that is not a skill name) `400` or `409 conflict`, and any other failure `500 internal`. A request-level error carries the command's sentence with no path and no login (a `user:password@` in a URL is removed from it, whatever command or tool printed it).
+
 ## Errors
 
 Every error is this shape, not an envelope, including a registered fleet whose store cannot be opened on an API route:
@@ -660,11 +706,11 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, a query that is not valid percent-encoding, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, a query that is not valid percent-encoding, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read, or a skills request with a scope other than `fleet`, `project` or `user`, a project with another scope, an action with `scope: "project"` and no project, a name or `yes` that is over 512 bytes or has a control character, a `propose` with no name, a `yes` on `update` or `propose`, a `name`, `project` or `yes` that starts with a dash, or a `name` that is not a skill name |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | a paired Companion on a Companion endpoint, a fleet a Companion action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, or a control with the board's controls off |
+| `403` | `forbidden` | a paired Companion on a Companion endpoint, a fleet a Companion action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, a skills action from a paired Companion, or a control or skills request with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `403` | `wrong_code` | `pair` with a code the board does not hold |
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |
@@ -672,7 +718,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `403` | `codes_cancelled` | `pair` was the tenth wrong code, so every code is cancelled |
 | `404` | `not_found` | an unknown route or ref, a document path that does not exist, or an inbox name that is not a regular file in `inbox/` (to read it, or to attach it) |
 | `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
-| `409` | `conflict` | `phone/app` while the sidecar is not ready with a relay, a state conflict while reading or acting, or a document that changed while it was opened |
+| `409` | `conflict` | a skills request while another one runs, a skills command that refuses before it answers rows, `phone/app` while the sidecar is not ready with a relay, a state conflict while reading or acting, or a document that changed while it was opened |
 | `413` | `too_large` | a page form only, answered with the page's HTML error page and not this shape: a `POST` over the board's 11 MiB post limit, refused by the page's guard before the route runs, or a file over 10 MiB or an image over 36 megapixels on `POST /supervisor/image`; a v1 action reads at most 64 KiB of JSON and answers `400 bad_request` above that, except `POST /api/v1/inbox`, which answers this shape with `413` for a file over 10 MiB, an image over 36 megapixels or a post over 11 MiB |
 | `429` | `rate_limited` | `pair` after 5 wrong codes from this endpoint in a minute, or `models/refresh` for a list inside its 30-second cooldown |
 | `500` | `internal` | any other failure |

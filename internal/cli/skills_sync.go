@@ -127,13 +127,23 @@ func short(commit string) string {
 	return commit[:min(len(commit), 12)]
 }
 
-func (r *runner) driftRow(s fleet.Skills, name string, e fleet.Managed) (st, latest, detail string) {
+func (r *runner) probeDrift(s fleet.Skills, name string, e fleet.Managed, withDiff bool) (st, latest, detail, diff string) {
 	p, err := r.compare(s, name, e)
 	if err != nil {
-		return "error", "", err.Error()
+		return "error", "", err.Error(), ""
 	}
-	_ = os.RemoveAll(p.staged)
-	return p.state, p.commit, ""
+	defer os.RemoveAll(p.staged)
+	if withDiff && p.state == "behind" {
+		if diff, err = skillDiff(r, s, name, p.staged); err != nil {
+			return p.state, p.commit, err.Error(), ""
+		}
+	}
+	return p.state, p.commit, "", diff
+}
+
+func (r *runner) driftRow(s fleet.Skills, name string, e fleet.Managed) (st, latest, detail string) {
+	st, latest, detail, _ = r.probeDrift(s, name, e, false)
+	return st, latest, detail
 }
 
 func (r *runner) outdatedRows(s fleet.Skills, label string) ([][]string, error) {
@@ -273,6 +283,7 @@ func cmdSkillsSync(r *runner, args []string) error {
 		}
 		return "updated", short(e.Commit) + " -> " + short(p.commit), nil
 	}, func(d *toon.Doc) {
+		r.rec.diffs, r.rec.goals = diffs, goals
 		for _, name := range slices.Sorted(maps.Keys(diffs)) {
 			d.Text("diff-"+name, diffs[name])
 		}

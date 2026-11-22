@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ var companionEpoch = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 
 type companionHost struct {
 	t         *testing.T
+	skillRuns atomic.Int32
 	loopback  bool
 	fleets    []railFleet
 	h         *board.Host
@@ -177,6 +179,13 @@ func (p *companionHost) restart() {
 				z = time.UTC
 			}
 			opts := board.Options{Base: "/" + id, Controls: p.loopback, Control: control, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick, HostName: p.name, Zone: z}
+			opts.Skills = func(context.Context, board.SkillsQuery) (board.APISkills, error) {
+				return board.APISkills{Scopes: []board.APISkillScope{{Scope: "fleet", Skills: []board.APISkill{}}}}, nil
+			}
+			opts.SkillsRun = func(context.Context, board.SkillsAction) (board.APISkillsRun, error) {
+				p.skillRuns.Add(1)
+				return board.APISkillsRun{}, nil
+			}
 			b := board.New(f.st, f.token, opts)
 			if p.bare[id] {
 				return bare{b}, closer(func() error { return nil }), nil

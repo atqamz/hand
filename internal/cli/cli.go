@@ -65,6 +65,7 @@ type runner struct {
 	noAdopt    bool
 	fetches    fetchCache
 	scopeArg   string
+	rec        skillsRec
 }
 
 type usageError struct{ msg string }

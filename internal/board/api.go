@@ -65,6 +65,7 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
 	{http.MethodGet, "/phone", func(b *Board) http.HandlerFunc { return b.apiPhone }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
+	{http.MethodGet, "/skills", func(b *Board) http.HandlerFunc { return b.apiSkills }},
 	{http.MethodGet, "/task/{id}", func(b *Board) http.HandlerFunc { return b.apiTask }},
 	{http.MethodGet, "/attempt/{id}", func(b *Board) http.HandlerFunc { return b.apiAttempt }},
 	{http.MethodGet, "/decision/{id}", func(b *Board) http.HandlerFunc { return b.apiDecision }},
@@ -91,6 +92,15 @@ var apiRoutes = []apiRoute{
 	{http.MethodPost, "/supervisor/switch", func(b *Board) http.HandlerFunc { return b.apiSwitch }},
 	{http.MethodPost, "/models/refresh", func(b *Board) http.HandlerFunc { return b.apiRefreshModels }},
 	{http.MethodPost, "/supervisor/keys", func(b *Board) http.HandlerFunc { return b.apiKeys }},
+	{http.MethodPost, "/skills/sync", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "sync") }
+	}},
+	{http.MethodPost, "/skills/update", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "update") }
+	}},
+	{http.MethodPost, "/skills/propose", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "propose") }
+	}},
 	{http.MethodPost, "/attempt/{id}/keys", func(b *Board) http.HandlerFunc { return b.apiAttemptKeys }},
 	{http.MethodPost, "/decision/{id}/answer", func(b *Board) http.HandlerFunc { return b.apiAnswer }},
 	{http.MethodPost, "/report/{id}/ack", func(b *Board) http.HandlerFunc { return b.apiAck }},

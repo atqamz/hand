@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var apiFeatures = []string{"events", "fleets", "history", "host", "links", "pair", "phone"}
+var apiFeatures = []string{"events", "fleets", "history", "host", "links", "pair", "phone", "skills"}
 
 type APIHostEnvelope struct {
 	Version     int    `json:"version"`

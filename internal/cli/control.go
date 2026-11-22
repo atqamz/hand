@@ -19,6 +19,19 @@ func (e controlError) Error() string { return e.msg }
 
 func (e controlError) Unwrap() error { return e.kind }
 
+func withGeneration(env Env, generation string) Env {
+	if generation != "" {
+		getenv := env.Getenv
+		env.Getenv = func(k string) string {
+			if k == "HAND_GENERATION" {
+				return generation
+			}
+			return getenv(k)
+		}
+	}
+	return env
+}
+
 func control(env Env, home, generation string) func(context.Context, ...string) (string, error) {
 	return func(ctx context.Context, args ...string) (string, error) {
 		var stderr bytes.Buffer
@@ -26,15 +39,7 @@ func control(env Env, home, generation string) func(context.Context, ...string) 
 		run := env
 		run.Stdout, run.Stderr, run.Context, run.Board = io.Discard, &stderr, context.WithoutCancel(ctx), true
 		run.Warned = func(w string) { warns = append(warns, w) }
-		if generation != "" {
-			getenv := env.Getenv
-			run.Getenv = func(k string) string {
-				if k == "HAND_GENERATION" {
-					return generation
-				}
-				return getenv(k)
-			}
-		}
+		run = withGeneration(run, generation)
 		code := Run(append([]string{"--home", home}, args...), run)
 		if code == 0 {
 			return board.Scrub(strings.Join(warns, "; ")), nil

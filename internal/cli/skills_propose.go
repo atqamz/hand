@@ -45,8 +45,9 @@ func cmdSkillsPropose(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	r.rec.rows, r.rec.done = [][]string{{name, "proposed", url}}, true
 	var d toon.Doc
-	d.Rows("skills", []string{"name", "state", "detail"}, [][]string{{name, "proposed", url}})
+	d.Rows("skills", []string{"name", "state", "detail"}, r.rec.rows)
 	return r.print(&d)
 }
 

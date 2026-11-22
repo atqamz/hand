@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -176,6 +177,9 @@ type Options struct {
 	Iroh       func() sidecar.Status
 	HostName   string
 	ClosePeer  func(string)
+	Lifetime   context.Context
+	Skills     func(context.Context, SkillsQuery) (APISkills, error)
+	SkillsRun  func(context.Context, SkillsAction) (APISkillsRun, error)
 }
 
 type trackedMux struct {
@@ -197,6 +201,7 @@ type Board struct {
 	mux        *trackedMux
 	companions companions
 	refresh    refresher
+	skillsBusy sync.Mutex
 	pages      *template.Template
 	artifacts  artifactCache
 	links      linkSet
