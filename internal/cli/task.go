@@ -509,7 +509,7 @@ func (r *runner) inFleetFolder(opened os.FileInfo) (bool, error) {
 			return nil
 		case err != nil:
 			return err
-		case info.Size() == opened.Size() && os.SameFile(info, opened):
+		case os.SameFile(info, opened):
 			found = true
 			return filepath.SkipAll
 		}
