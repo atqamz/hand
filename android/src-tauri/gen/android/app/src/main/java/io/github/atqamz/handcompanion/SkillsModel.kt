@@ -2,11 +2,13 @@ package io.github.atqamz.handcompanion
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -135,22 +137,26 @@ class SkillsModel(private val fleet: String, transport: Transport) : ViewModel()
   suspend fun load() {
     if (!lock.tryLock()) return
     try {
-      mutableState.update { it.copy(loading = true, problem = null) }
-      try {
-        if ("skills" !in client.features()) {
-          mutableState.update { it.copy(loading = false, problem = SKILLS_NO_FEATURE) }
-          return
-        }
-        val data = client.read("skills", SkillsData.serializer()).data
-        mutableState.update { it.copy(data = data, loading = false, problem = null, unpaired = false) }
-      } catch (error: BoardError) {
-        mutableState.update {
-          if (error == BoardError.Unpaired) it.copy(loading = false, unpaired = true)
-          else it.copy(loading = false, problem = skillsProblem(error))
-        }
-      }
+      withContext(NonCancellable) { read() }
     } finally {
       lock.unlock()
+    }
+  }
+
+  private suspend fun read() {
+    mutableState.update { it.copy(loading = true, problem = null) }
+    try {
+      if ("skills" !in client.features()) {
+        mutableState.update { it.copy(loading = false, problem = SKILLS_NO_FEATURE) }
+        return
+      }
+      val data = client.read("skills", SkillsData.serializer()).data
+      mutableState.update { it.copy(data = data, loading = false, problem = null, unpaired = false) }
+    } catch (error: BoardError) {
+      mutableState.update {
+        if (error == BoardError.Unpaired) it.copy(loading = false, unpaired = true)
+        else it.copy(loading = false, problem = skillsProblem(error))
+      }
     }
   }
 }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -174,6 +175,43 @@ class SkillsModelTest {
       "https://github.com/atqamz/skills.git#skills/deploy · main · 111111111111",
       skillSource(skills[2])
     )
+  }
+
+  @Test
+  fun aSkillAtItsLatestShowsNoArrow() {
+    val skill =
+      SkillInfo(
+        name = "current",
+        source = "https://github.com/atqamz/skills.git#skills/current",
+        ref = "main",
+        commit = "1111111111111111111111111111111111111111",
+        latest = "1111111111111111111111111111111111111111",
+        managed = true,
+        trusted = true,
+        state = "current"
+      )
+    assertEquals("https://github.com/atqamz/skills.git#skills/current · main · 111111111111", skillSource(skill))
+  }
+
+  @Test
+  fun aReadCancelledWithItsCallerStillEndsAndALaterCallIsNotLeftLoading() = runBlocking {
+    val gate = CompletableDeferred<Unit>()
+    val board =
+      SkillsBoard(
+        skills = {
+          runBlocking { gate.await() }
+          Raw(200, """{"version":1,"fleet":{"id":"$FLEET","name":"atlas"},"cursor":"c1","data":$skillsJson}""")
+        }
+      )
+    val model = SkillsModel(FLEET, board)
+    val first = launch(Dispatchers.Default) { model.load() }
+    while (board.calls.none { it == "GET /api/v1/skills" }) delay(5)
+    first.cancel()
+    model.load()
+    gate.complete(Unit)
+    first.join()
+    withTimeout(5000) { while (model.state.value.loading) delay(5) }
+    assertNotNull(model.state.value.data)
   }
 
   @Test

@@ -170,7 +170,7 @@ class HandActivity : ComponentActivity() {
   private fun Choice(fleet: String, ref: String, onOpen: (() -> Unit)?) {
     val model = remember(fleet, ref) { choiceModel(fleet, ref) }
     val state by model.state.collectAsStateWithLifecycle()
-    LaunchedEffect(model) { model.load() }
+    LaunchedEffect(model) { model.reload() }
     ChoiceForm(ref, state, model::pick, model::edit, model::send, model::reload, onOpen)
   }
 
@@ -178,7 +178,7 @@ class HandActivity : ComponentActivity() {
   private fun Decision(fleet: String, ref: String, onBack: () -> Unit) {
     val model = remember(fleet, ref) { choiceModel(fleet, ref) }
     val state by model.state.collectAsStateWithLifecycle()
-    LaunchedEffect(model) { model.load() }
+    LaunchedEffect(model) { model.reload() }
     DecisionScreen(ref, state, onBack, model::pick, model::edit, model::send, model::reload)
   }
 
@@ -202,7 +202,7 @@ class HandActivity : ComponentActivity() {
   private fun Skills(fleet: String, onBack: () -> Unit) {
     val model = remember(fleet) { skillsModel(fleet) }
     val state by model.state.collectAsStateWithLifecycle()
-    LaunchedEffect(model) { model.load() }
+    LaunchedEffect(model) { model.reload() }
     SkillsScreen(state, onBack, model::reload)
   }
 
