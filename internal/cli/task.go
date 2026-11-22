@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -426,10 +427,14 @@ func (r *runner) inboxFile(arg string, mustExist bool) (string, error) {
 	if filepath.IsAbs(arg) {
 		parent, err := filepath.EvalSymlinks(filepath.Dir(arg))
 		want, werr := filepath.EvalSymlinks(dir)
-		if err != nil || werr != nil || parent != want {
+		switch {
+		case err == nil && werr == nil && parent == want:
+			name = filepath.Base(arg)
+		case mustExist:
+			return r.copyIn(arg)
+		default:
 			return "", fmt.Errorf("%w: %s is not a file directly in this fleet's inbox/", state.ErrInvalid, arg)
 		}
-		name = filepath.Base(arg)
 	}
 	if !inbox.Stored.MatchString(name) {
 		return "", fmt.Errorf("%w: %q is not the name of a file Hand stored in inbox/ (YYYYMMDD-HHMMSS-N-label)", state.ErrInvalid, name)
@@ -447,6 +452,70 @@ func (r *runner) inboxFile(arg string, mustExist bool) (string, error) {
 		return "", fmt.Errorf("%w: %s in inbox/ is not a regular file", state.ErrInvalid, name)
 	}
 	return name, nil
+}
+
+func (r *runner) copyIn(arg string) (string, error) {
+	fi, err := os.Lstat(arg)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("%w: %s does not exist", state.ErrNotFound, arg)
+	case err != nil:
+		return "", err
+	case !fi.Mode().IsRegular():
+		return "", fmt.Errorf("%w: %s is not a regular file (a symlink, folder or device is not copied)", state.ErrInvalid, arg)
+	}
+	f, err := os.OpenFile(arg, os.O_RDONLY|openFlags, 0)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	got, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !got.Mode().IsRegular() || !os.SameFile(fi, got) {
+		return "", fmt.Errorf("%w: %s changed while it was being read", state.ErrInvalid, arg)
+	}
+	if inside, err := r.inFleetFolder(got); err != nil {
+		return "", err
+	} else if inside {
+		return "", fmt.Errorf("%w: %s is inside the fleet folder (or is the same file as one in it), which holds Hand's own state; only a file in reports/ or outside the folder is copied into inbox/", state.ErrInvalid, arg)
+	}
+	name, err := inbox.Save(filepath.Join(r.home, inbox.Folder), r.env.Now(), filepath.Base(arg), f)
+	if inbox.TooBig(err) {
+		return "", fmt.Errorf("%w: %s: %v", state.ErrInvalid, arg, err)
+	}
+	return name, err
+}
+
+func (r *runner) inFleetFolder(opened os.FileInfo) (bool, error) {
+	home, err := filepath.EvalSymlinks(r.home)
+	if err != nil {
+		return false, err
+	}
+	found := false
+	err = filepath.WalkDir(home, func(path string, de fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case path == filepath.Join(home, "reports") && de.IsDir():
+			return filepath.SkipDir
+		case !de.Type().IsRegular():
+			return nil
+		}
+		info, err := de.Info()
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return err
+		case os.SameFile(info, opened):
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found, err
 }
 
 func (r *runner) fileRows(d *toon.Doc, files []state.TaskFile) {
@@ -471,7 +540,7 @@ func (r *runner) taskFileChange(name string, args []string, mustExist bool, appl
 	}
 	pos := fs.Args()
 	if len(pos) < 2 {
-		return usageError{fmt.Sprintf("usage: hand task %s tN FILE...; FILE is a name in inbox/, or the absolute path of a file directly in it", name)}
+		return usageError{fmt.Sprintf("usage: hand task %s tN FILE...; FILE is a name in inbox/, or an absolute path (attach copies a file outside inbox/ into it)", name)}
 	}
 	id, err := parseID("t", pos[0])
 	if err != nil {
@@ -487,17 +556,22 @@ func (r *runner) taskFileChange(name string, args []string, mustExist bool, appl
 		}
 		defer unlock()
 	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if name == "attach" {
+		if _, err := st.Task(r.ctx(), id); err != nil {
+			return err
+		}
+	}
 	names := make([]string, len(pos)-1)
 	for i, arg := range pos[1:] {
 		if names[i], err = r.inboxFile(arg, mustExist); err != nil {
 			return err
 		}
 	}
-	st, err := r.store()
-	if err != nil {
-		return err
-	}
-	defer st.Close()
 	n, err := apply(r.ctx(), st, id, names)
 	if err != nil {
 		return err

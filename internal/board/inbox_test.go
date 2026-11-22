@@ -25,8 +25,8 @@ import (
 )
 
 var (
-	pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 32)...)
-	inboxRe  = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+-[A-Za-z0-9_][A-Za-z0-9._-]{0,79}$`)
+	pngBytes = append(pngOfSize(1, 1), make([]byte, 7)...)
+	inboxRe  = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+-[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N}._-]{0,79}$`)
 )
 
 func upload(h http.Handler, name string, data []byte, csrf string) *http.Response {
@@ -117,7 +117,8 @@ func TestStoredNamesAreSanitised(t *testing.T) {
 		".bashrc":                               "bashrc",
 		"Screenshot 2026-10-19 at 14.37.12.txt": "Screenshot_2026-10-19_at_14.37.12.txt",
 		"...":                                   "file",
-		"résumé final.pdf":                      "r_sum_final.pdf",
+		"résumé final.pdf":                      "résumé_final.pdf",
+		"日本語 メモ (1).txt":                        "日本語_メモ_1_.txt",
 		strings.Repeat("long", 40) + ".pdf":     strings.Repeat("long", 19) + ".pdf",
 	} {
 		_, stored, _ := saved(t, upload(fx.handler(), name, []byte("text"), token))

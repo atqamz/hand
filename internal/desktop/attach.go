@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	inboxName = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+(\.(png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})$`)
+	inboxName = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+(\.(png|jpg|webp|gif)|-[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N}._-]{0,79})$`)
 	kindExt   = regexp.MustCompile(`\.([^.]{1,4})$`)
 
 	errUnreadable = &refusal{"The file could not be read.", true}

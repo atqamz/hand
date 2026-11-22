@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ const (
 	mark      = ".pruned"
 )
 
-const StoredExpr = `[0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})`
+const StoredExpr = `[0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N}._-]{0,79})`
 
 var (
 	Stored = regexp.MustCompile(`^` + StoredExpr + `$`)
@@ -47,11 +48,14 @@ type Failure struct {
 }
 
 type Pruned struct {
-	Moved, Deleted, Protected []File
-	Failed                    []Failure
+	Moved, Deleted, Protected, Swept []File
+	Failed                           []Failure
 }
 
 func Label(name string) string {
+	if len(name) < len("20060102-150405-") {
+		return name
+	}
 	if _, rest, ok := strings.Cut(name[len("20060102-150405-"):], "-"); ok {
 		return rest
 	}
@@ -142,6 +146,13 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 		return Pruned{}, err
 	}
 	var p Pruned
+	p.Swept, p.Failed = SweepUploads(dir, now, dry)
+	var linked []os.FileInfo
+	for name := range protected {
+		if info, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			linked = append(linked, info)
+		}
+	}
 	for _, f := range held {
 		if now.Sub(f.Mod) <= TrashKeep {
 			continue
@@ -158,7 +169,7 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 		if now.Sub(f.Mod) <= olderThan {
 			continue
 		}
-		if protected[f.Name] {
+		if protected[f.Name] || sameAny(filepath.Join(dir, f.Name), linked) {
 			p.Protected = append(p.Protected, f)
 			continue
 		}
@@ -171,6 +182,11 @@ func Prune(home string, now time.Time, olderThan time.Duration, dry bool, protec
 		p.Moved = append(p.Moved, f)
 	}
 	return p, nil
+}
+
+func sameAny(path string, linked []os.FileInfo) bool {
+	info, err := os.Lstat(path)
+	return err == nil && slices.ContainsFunc(linked, func(l os.FileInfo) bool { return os.SameFile(l, info) })
 }
 
 func Marked(home, day string) bool {
