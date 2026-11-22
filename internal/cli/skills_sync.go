@@ -262,6 +262,9 @@ func cmdSkillsSync(r *runner, args []string) error {
 				return "behind", fmt.Sprintf("third-party, latest %s; read the diff, then `hand skills sync --yes %s@%s`", id, name, id), nil
 			}
 		}
+		if s.Scope == "project" && !e.Local() {
+			return r.bump(s, name, e, p)
+		}
 		if err := r.refuseDirty(s, name); err != nil {
 			return "", "", err
 		}

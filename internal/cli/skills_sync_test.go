@@ -264,7 +264,7 @@ func TestSkillsSyncInAProjectKeepsTheSubscriptionInTheCheckout(t *testing.T) {
 		t.Fatalf("outdated --all = %q", out)
 	}
 	h.cwd = repo
-	if out := h.ok("skills", "sync"); !strings.Contains(out, "triage,updated,") {
+	if out := h.ok("skills", "update"); !strings.Contains(out, "triage,updated,") {
 		t.Fatalf("sync = %q", out)
 	}
 	if got := readSkill(t, filepath.Join(repo, ".agents", "skills", "triage", "SKILL.md")); !strings.Contains(got, "\nv2\n") {
@@ -280,7 +280,7 @@ func TestSkillsSyncInAProjectKeepsTheSubscriptionInTheCheckout(t *testing.T) {
 		t.Fatalf("status = %q", got)
 	}
 	hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v3")["SKILL.md"]})
-	if out, _, code := h.run("skills", "sync"); code != 3 || !strings.Contains(out, "uncommitted") || strings.Contains(readSkill(t, filepath.Join(repo, ".agents", "skills", "triage", "SKILL.md")), "\nv3\n") {
+	if out, _, code := h.run("skills", "update"); code != 3 || !strings.Contains(out, "uncommitted") || strings.Contains(readSkill(t, filepath.Join(repo, ".agents", "skills", "triage", "SKILL.md")), "\nv3\n") {
 		t.Fatalf("a dirty project copy: code=%d stdout=%q", code, out)
 	}
 }

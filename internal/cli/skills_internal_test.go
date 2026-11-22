@@ -85,3 +85,100 @@ func TestCommitWordNeverCarriesShellText(t *testing.T) {
 		}
 	}
 }
+
+func TestBumpTitleNamesOldAndNewAndNeverCarriesShellText(t *testing.T) {
+	e := fleet.Managed{LockEntry: fleet.LockEntry{Commit: "0123456789abcdef", ComputedHash: "feedface00000000"}}
+	if got := bumpTitle("triage", e, "fedcba9876543210", "aaaa"); got != "skills: triage 0123456789ab -> fedcba987654" {
+		t.Errorf("title = %q", got)
+	}
+	local := fleet.Managed{LockEntry: fleet.LockEntry{ComputedHash: "feedface0000000000"}}
+	if got := bumpTitle("mine", local, "", "cafe0000cafe0000"); got != "skills: mine feedface0000 -> cafe0000cafe" {
+		t.Errorf("title = %q", got)
+	}
+	evil := fleet.Managed{LockEntry: fleet.LockEntry{Commit: "$(touch x)`id`"}}
+	if got := bumpTitle("triage", evil, "abc", ""); got != "skills: triage ??touch?x??i -> abc" {
+		t.Errorf("title = %q", got)
+	}
+}
+
+func TestBumpBodyFencesTheDiffAndCutsItAtALine(t *testing.T) {
+	e := fleet.Managed{LockEntry: fleet.LockEntry{Source: "atqamz/skills", SourceURL: skillsRepo, SourceType: "github", SkillPath: "skills/triage/SKILL.md"}}
+	e.Ref = "main"
+	got := bumpBody("skills: triage a -> b", e, "+```\n+````\n+x\n")
+	if !strings.HasPrefix(got, "skills: triage a -> b\n\nSource: "+skillsRepo+"#skills/triage, ref main.") || !strings.Contains(got, "\n`````diff\n+```\n+````\n+x\n`````\n") {
+		t.Errorf("body = %q", got)
+	}
+	long := strings.Repeat("+012345678\n", bumpBodyLimit/11+1000)
+	got = bumpBody("t", e, long)
+	cut := strings.Index(got, "```diff\n") + len("```diff\n")
+	diff := got[cut : strings.Index(got[cut:], "```")+cut]
+	if len(diff) > bumpBodyLimit || len(diff) < bumpBodyLimit-11 || len(diff)%11 != 0 || !strings.HasSuffix(diff, "\n") || !strings.Contains(got, "The diff is cut at 60000 bytes; Files changed has all of it.") || len(got) > 65536 {
+		t.Errorf("cut diff = %d bytes, body %d bytes", len(diff), len(got))
+	}
+	if strings.Contains(bumpBody("t", e, "+a\n"), "The diff is cut") {
+		t.Error("a short diff carries the cut note")
+	}
+	if got := bumpBody("t", fleet.Managed{LockEntry: fleet.LockEntry{Source: "o/r", SourceURL: "https://github.com/o/r.git", SourceType: "github"}}, "+a\n"); !strings.Contains(got, ", ref HEAD.") {
+		t.Errorf("no ref = %q", got)
+	}
+}
+
+func TestShownURLDropsWhatCouldHoldASecret(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://tok:sekrit@example.com/o/r.git":       "https://example.com/o/r.git",
+		"https://tok@example.com/o/r.git?token=x#frag": "https://example.com/o/r.git",
+		"https://github.com/o/r.git":                   "https://github.com/o/r.git",
+		"git@github.com:o/r.git":                       "github.com:o/r.git",
+		"user:sekrit@example.com:o/r.git":              "example.com:o/r.git",
+		"ssh://git:sekrit@example.com:2222/o/r.git":    "ssh://example.com:2222/o/r.git",
+	} {
+		if got := shownURL(in); got != want {
+			t.Errorf("shownURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBumpBodyDropsTheSourceCredentialFromTheDiff(t *testing.T) {
+	raw := "https://tok:s3k&t@example.com/o/r.git"
+	e := fleet.Managed{LockEntry: fleet.LockEntry{Source: raw, SourceURL: raw, SourceType: "git"}}
+	got := bumpBody("t", e, " \"source\": \"https://tok:s3k\\u0026t@example.com/o/r.git\",\n+\"also\": \""+raw+"\"\n+\"other\": \"https://tok:s3k&t@example.com/o/r\"\n")
+	if strings.Contains(got, "tok") || strings.Contains(got, "s3k") || !strings.Contains(got, "\"source\": \"https://example.com/o/r.git\"") || !strings.Contains(got, "\"other\": \"https://example.com/o/r\"") {
+		t.Errorf("body = %q", got)
+	}
+}
+
+func TestBumpBodyKeepsWhatASmallPasswordSpellsElsewhere(t *testing.T) {
+	diff := " \"ref\": \"main\",\n \"computedHash\": \"aabbcc0123456789\",\n a/.agents/skills/triage/SKILL.md\n+about a main thing on example.com\n"
+	for _, pw := range []string{"main", "a"} {
+		raw := "https://tok:" + pw + "@example.com/o/r.git"
+		e := fleet.Managed{LockEntry: fleet.LockEntry{Source: raw, SourceURL: raw, SourceType: "git", Ref: "main"}}
+		got := bumpBody("t", e, " \"source\": \""+raw+"\",\n"+diff)
+		if !strings.Contains(got, " \"source\": \"https://example.com/o/r.git\",\n"+diff) || strings.Contains(got, "tok:") {
+			t.Errorf("password %q: body = %q", pw, got)
+		}
+	}
+}
+
+func TestProjectRemoteTakesOnlyGitHubAddresses(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://github.com/acme/app.git":     "acme/app",
+		"https://github.com/acme/app":         "acme/app",
+		"https://github.com/acme/app/":        "acme/app",
+		"git@github.com:acme/app.git":         "acme/app",
+		"ssh://git@github.com/acme/app.git":   "acme/app",
+		"https://gitlab.com/acme/app.git":     "",
+		"http://github.com/acme/app.git":      "",
+		"https://github.com/acme/app/tree/x":  "",
+		"https://github.com.evil.io/acme/app": "",
+		"git@gitlab.com:acme/app.git":         "",
+		"/srv/git/app.git":                    "",
+	} {
+		got := ""
+		if m := projectRemote.FindStringSubmatch(in); m != nil {
+			got = m[1]
+		}
+		if got != want {
+			t.Errorf("projectRemote(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
