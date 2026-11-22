@@ -1,0 +1,187 @@
+package remote
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/atqamz/hand/internal/sidecar"
+)
+
+const (
+	backoffMin = time.Second
+	backoffMax = 30 * time.Second
+	stableRun  = 10 * time.Second
+)
+
+var ErrNoStore = errors.New("a supervisor needs a store and a hand-iroh resolver")
+
+// Exit codes of hand-iroh that a restart cannot cure: usage and key problems.
+func fatal(code int) bool { return code == 2 || code == 3 }
+
+type SupervisorOptions struct {
+	Store    *Store
+	Resolve  func(context.Context) (string, error)
+	OnChange func(host string, st sidecar.ClientStatus)
+	Min, Max time.Duration
+}
+
+type Supervisor struct {
+	o    SupervisorOptions
+	ctx  context.Context
+	stop context.CancelFunc
+	mu   sync.Mutex
+	runs map[string]*run
+
+	stable time.Duration
+	wait   func(context.Context, time.Duration) bool
+}
+
+type run struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+	st     sidecar.ClientStatus
+}
+
+func NewSupervisor(o SupervisorOptions) (*Supervisor, error) {
+	if o.Store == nil || o.Resolve == nil {
+		return nil, ErrNoStore
+	}
+	if o.Min <= 0 {
+		o.Min = backoffMin
+	}
+	if o.Max < o.Min {
+		o.Max = max(backoffMax, o.Min)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	return &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, stable: stableRun, wait: sleep}, nil
+}
+
+// Start runs one hand-iroh client for the host, once: a second call for a host
+// that runs changes nothing, and one whose client gave up starts again. newKey lets the client make the host's key, and
+// only until the key exists, so a lost key never becomes a new identity.
+func (s *Supervisor) Start(h Host, newKey bool) error {
+	dir, err := s.o.Store.KeyDir(h.ID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.runs[h.ID]; r != nil {
+		select {
+		case <-r.done:
+		default:
+			return nil
+		}
+	}
+	if _, err := sidecar.NewClient(s.options(h, dir, newKey)); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(s.ctx)
+	r := &run{cancel: cancel, done: make(chan struct{}), st: sidecar.ClientStatus{State: sidecar.Starting}}
+	s.runs[h.ID] = r
+	go s.loop(ctx, r, h, dir, newKey)
+	return nil
+}
+
+func (s *Supervisor) options(h Host, dir string, newKey bool) sidecar.ClientOptions {
+	return sidecar.ClientOptions{
+		Resolve: s.o.Resolve,
+		Host:    h.ID,
+		KeyDir:  dir,
+		Dir:     dir,
+		NewKey:  newKey,
+		Relay:   h.Relay,
+		OnChange: func(st sidecar.ClientStatus) {
+			s.record(h.ID, st)
+		},
+	}
+}
+
+func (s *Supervisor) record(id string, st sidecar.ClientStatus) {
+	s.mu.Lock()
+	if r := s.runs[id]; r != nil {
+		r.st = st
+	}
+	s.mu.Unlock()
+	if s.o.OnChange != nil {
+		s.o.OnChange(id, st)
+	}
+}
+
+func (s *Supervisor) loop(ctx context.Context, r *run, h Host, dir string, newKey bool) {
+	defer close(r.done)
+	delay := s.o.Min
+	for {
+		_, err := os.Stat(filepath.Join(dir, keyFile))
+		c, cerr := sidecar.NewClient(s.options(h, dir, newKey && err != nil))
+		if cerr != nil {
+			return
+		}
+		began := time.Now()
+		c.Run(ctx)
+		if ctx.Err() != nil || fatal(c.Status().Code) {
+			return
+		}
+		if time.Since(began) >= s.stable {
+			delay = s.o.Min
+		}
+		if !s.wait(ctx, delay) {
+			return
+		}
+		delay = min(delay*2, s.o.Max)
+	}
+}
+
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+func (s *Supervisor) Status(host string) sidecar.ClientStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.runs[host]; r != nil {
+		return r.st
+	}
+	return sidecar.ClientStatus{State: sidecar.Stopped}
+}
+
+// Base is the loopback address the host's client listens on, empty until it does.
+func (s *Supervisor) Base(host string) string {
+	if st := s.Status(host); st.Addr != "" {
+		return "http://" + st.Addr
+	}
+	return ""
+}
+
+func (s *Supervisor) Stop(host string) {
+	s.mu.Lock()
+	r := s.runs[host]
+	delete(s.runs, host)
+	s.mu.Unlock()
+	if r != nil {
+		r.cancel()
+		<-r.done
+	}
+}
+
+func (s *Supervisor) Close() {
+	s.stop()
+	s.mu.Lock()
+	runs := s.runs
+	s.runs = map[string]*run{}
+	s.mu.Unlock()
+	for _, r := range runs {
+		<-r.done
+	}
+}
