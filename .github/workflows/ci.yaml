@@ -384,6 +384,8 @@ jobs:
     concurrency:
       group: edge
       cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -399,6 +401,7 @@ jobs:
           sh .github/scripts/build-dist.sh "$base" edge "$GITHUB_SHA"
           sh .github/scripts/build-desktop.sh "$base" edge "$GITHUB_SHA"
       - name: Publish
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -426,12 +429,13 @@ jobs:
           gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 hand-desktop-linux-amd64.tar.gz hand-desktop-linux-amd64.sha256 hand-desktop-linux-arm64.tar.gz hand-desktop-linux-arm64.sha256 hand-desktop-darwin-arm64.tar.gz hand-desktop-darwin-arm64.sha256 hand-desktop-darwin-amd64.tar.gz hand-desktop-darwin-amd64.sha256 hand-desktop-windows-amd64.zip hand-desktop-windows-amd64.sha256 --clobber
           for name in $(gh release view edge --json assets --jq '.assets[].name'); do
             case "$name" in
-              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256 | hand-desktop-darwin-arm64.tar.gz | hand-desktop-darwin-arm64.sha256 | hand-desktop-darwin-amd64.tar.gz | hand-desktop-darwin-amd64.sha256 | hand-desktop-windows-amd64.zip | hand-desktop-windows-amd64.sha256 | Hand-Setup-*-x64.exe | Hand-Setup-*-x64.sha256) ;;
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256 | hand-desktop-darwin-arm64.tar.gz | hand-desktop-darwin-arm64.sha256 | hand-desktop-darwin-amd64.tar.gz | hand-desktop-darwin-amd64.sha256 | hand-desktop-windows-amd64.zip | hand-desktop-windows-amd64.sha256 | hand-iroh-* | Hand-Setup-*-x64.exe | Hand-Setup-*-x64.sha256) ;;
               *) gh release delete-asset edge "$name" -y ;;
             esac
           done
           git push --force origin "$GITHUB_SHA:refs/tags/edge"
           gh release edit edge --prerelease --title Edge --notes "$notes"
+          echo "published=true" >> "$GITHUB_OUTPUT"
       - name: Attest
         continue-on-error: true
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -444,6 +448,18 @@ jobs:
             hand-desktop-*.tar.gz
             hand-desktop-windows-amd64.zip
             hand-desktop-*.sha256
+
+  iroh:
+    needs: edge
+    if: ${{ !cancelled() && needs.edge.outputs.published == 'true' }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/iroh.yaml
+    with:
+      ref: ${{ github.sha }}
+      tag: edge
 
   setup:
     needs: edge

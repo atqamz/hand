@@ -185,8 +185,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pins[e.ID].pin, pins[e.ID].pinned) }
 	irohNext := sidecarPath(o.Target, o.OS)
 	irohStale := false
-	if current && rep.To.Iroh != "" {
+	irohHave := ""
+	if rep.To.Iroh != "" {
 		got, err := sidecar.BinaryVersion(ctx, irohNext)
+		irohHave = got
 		irohStale = err != nil || got != rep.To.Iroh
 	}
 	var irohBin string
@@ -199,10 +201,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			if exists {
 				rep.Iroh = "would install"
 			} else {
-				rep.Iroh = "none in this release"
+				rep.Iroh = irohAbsent(rep.To.Iroh, irohHave)
 			}
 		} else {
-			if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
+			if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To, irohHave); err != nil {
 				return rep, err
 			}
 			if irohBin != "" {
@@ -307,7 +309,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	if !current && rep.To.Iroh != "" {
-		if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
+		if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To, irohHave); err != nil {
 			return rep, err
 		}
 	}
@@ -476,10 +478,21 @@ func (o Options) fetchDesktop(ctx context.Context, dir string, to Build) (string
 	return bin, got + " installed", nil
 }
 
-func (o Options) fetchIroh(ctx context.Context, dir string, to Build) (string, string, error) {
+func irohAbsent(want, have string) string {
+	if have == want {
+		return "none in this release"
+	}
+	got := "no working hand-iroh is installed"
+	if have != "" {
+		got = "installed hand-iroh is " + have
+	}
+	return "mismatch: this release has none, " + got + ", this hand needs " + want + "; install hand-iroh " + want + " next to hand from a release that carries it, or build it from iroh/ at this commit (cargo build --release --locked)"
+}
+
+func (o Options) fetchIroh(ctx context.Context, dir string, to Build, have string) (string, string, error) {
 	bin, err := FetchIroh(ctx, o.HandBase, o.Channel, o.OS, o.Arch, dir)
 	if errors.Is(err, ErrMissing) {
-		return "", "none in this release", nil
+		return "", irohAbsent(to.Iroh, have), nil
 	}
 	if err != nil {
 		return "", "", err
