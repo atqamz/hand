@@ -62,6 +62,10 @@ func (a *App) checkRemoteLink() {
 		a.rf.err = pairTexts["other_host"]
 		return
 	}
+	if a.rf.again != "" && link.Fleet != a.rf.again {
+		a.rf.err = pairTexts["other_fleet"]
+		return
+	}
 	if a.hasFleet(link.Fleet) && a.rf.again == "" {
 		a.rf.err = pairTexts["fleet_held"]
 		return
@@ -196,7 +200,7 @@ func (a *App) remoteButtons(c *ui.Context, k kit.Colors) {
 }
 
 func (a *App) remoteTitle() (title, body string) {
-	title, body = "Connect to a remote fleet.", "Paste the pairing link from the Companion page of the host's Board. This window keeps neither the link nor its code."
+	title, body = "Connect to a remote fleet.", "Paste the pairing link from the Companion page of the host's Board. This window never saves the link or its code."
 	if l := a.rf.pending; l != nil {
 		title, body = "Add "+remote.Short(l.Host)+"?", "This window will pair with that host and list its fleet."
 	}

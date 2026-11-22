@@ -337,6 +337,23 @@ func TestPairingAgainWithAnotherHostIsRefusedBeforeAnyStart(t *testing.T) {
 	}
 }
 
+func TestPairingAgainWithAnotherFleetOfTheSameHostIsRefusedBeforeAnyStart(t *testing.T) {
+	g := newPairRig(t, rtA)
+	old := remote.Host{ID: rtHostA, ClientID: rtOther, PairedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
+	if err := g.store.Add(old, remote.Fleet{ID: rtB, Name: "b"}, rtCookieB, nil); err != nil {
+		t.Fatal(err)
+	}
+	err := g.pair(t, desktop.PairRequest{Again: true})
+	var pe *desktop.PairError
+	if !errors.As(err, &pe) || pe.Code != "other_fleet" || len(g.clients.starts) != 0 {
+		t.Fatalf("err = %v, starts %v", err, g.clients.starts)
+	}
+	hosts, _ := g.store.Hosts()
+	if len(hosts) != 1 || len(hosts[0].Fleets) != 1 || hosts[0].Fleets[0].ID != rtB {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+}
+
 func TestForgettingStopsTheClientAndDeletesTheHostsFolder(t *testing.T) {
 	g := newPairRig(t, rtA)
 	if err := g.pair(t, desktop.PairRequest{}); err != nil {

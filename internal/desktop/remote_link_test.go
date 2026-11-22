@@ -86,7 +86,7 @@ func TestALostLinkReadsAsTheDocumentedSentenceNotATransportError(t *testing.T) {
 	}
 }
 
-func TestAHostThatClosesWithNoLinkStateKeepsTheTransportError(t *testing.T) {
+func TestAHostThatClosesWithNoLinkStateReadsAsUnreachableWithoutAnAddress(t *testing.T) {
 	g := newRTRig(t)
 	host := newRTHost(t, "hand_phone_", map[string]string{rtA: rtCookieA}, rtFleetsA)
 	host.fail = func(http.ResponseWriter) bool { panic(http.ErrAbortHandler) }
@@ -96,8 +96,11 @@ func TestAHostThatClosesWithNoLinkStateKeepsTheTransportError(t *testing.T) {
 	g.clients.set(rtHostA, st)
 	_, err := g.connect(t).Status(context.Background(), rtA)
 	var api *desktop.APIError
-	if err == nil || errors.As(err, &api) {
+	if !errors.As(err, &api) || api.Code != "unreachable" || !api.Remote || !strings.HasPrefix(api.Message, "Can't reach host.") {
 		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), "127.0.0.1") || strings.Contains(err.Error(), "localhost") {
+		t.Fatalf("the loopback address is in %q", err)
 	}
 }
 

@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/atqamz/hand/internal/sidecar"
 )
 
 type ReadModel interface {
@@ -1116,6 +1118,9 @@ func (c *HTTPClient) unanswered(err error) error {
 		if lost := c.Lost(); lost != nil {
 			return lost
 		}
+	}
+	if c.Paired {
+		return lostLink(sidecar.ClientStatus{Link: sidecar.Unreachable})
 	}
 	return fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
 }

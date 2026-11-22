@@ -326,7 +326,7 @@ func TestADeadClientIsStateNotAnErrorCard(t *testing.T) {
 
 func TestOpenCallsOnARemoteFleetRunNothingAndSayNothing(t *testing.T) {
 	r := newRemoteUI(t, true)
-	for _, call := range []func(){r.app.OpenPhone, r.app.OpenScreen, r.app.OpenInBrowser, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1") }} {
+	for _, call := range []func(){r.app.OpenPhone, r.app.OpenScreen, r.app.OpenInBrowser, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1") }, func() { r.app.OpenBoardPath("/" + rtA + "/doc/") }, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1/x") }} {
 		call()
 		if r.app.OpenErr != "" || r.app.OpenBusy {
 			t.Fatalf("a remote fleet ran or reported hand open: err %q busy %v", r.app.OpenErr, r.app.OpenBusy)
@@ -466,6 +466,13 @@ func TestPairAgainOpensTheFormForThatHostAndSendsAgain(t *testing.T) {
 	click(t, r.tt, "Continue")
 	r.tt.Frame()
 	mustText(t, r.tt, "This link is for another host than the one being paired again.")
+	typeInto(t, r.tt, "Pairing link", "handboard://c#v=1&e="+rtHostA+"&f="+rtB+"&c="+pairCode)
+	click(t, r.tt, "Continue")
+	r.tt.Frame()
+	mustText(t, r.tt, "This link is for another fleet than the one being paired again.")
+	if r.desk.calls() != 0 {
+		t.Fatalf("a link for another fleet was sent: %+v", r.desk.reqs)
+	}
 	typeInto(t, r.tt, "Pairing link", "handboard://c#v=1&e="+rtHostA+"&f="+rtA+"&c="+pairCode)
 	click(t, r.tt, "Continue")
 	r.tt.Frame()
@@ -546,4 +553,51 @@ func TestALocalBoardThatIsDownIsStartedWithoutDroppingTheRemoteFleet(t *testing.
 			done = true
 		}
 	}
+}
+
+func TestTheParsedLinkIsHeldOnlyWhileTheConfirmationOrARetryNeedsIt(t *testing.T) {
+	r := newRemoteUI(t, false)
+	confirm := func() {
+		t.Helper()
+		openForm(t, r)
+		typeInto(t, r.tt, "Pairing link", "handboard://c#v=1&e="+rtHostB+"&f="+rtB+"&c="+pairCode)
+		click(t, r.tt, "Continue")
+		r.tt.Frame()
+		if !desktop.RemoteLinkPending(r.app) {
+			t.Fatal("the confirmation holds nothing to send")
+		}
+	}
+	gone := func(when string) {
+		t.Helper()
+		if desktop.RemoteLinkPending(r.app) {
+			t.Fatalf("the parsed link is still held after %s", when)
+		}
+	}
+	confirm()
+	click(t, r.tt, "Back")
+	r.tt.Frame()
+	gone("Back")
+	typeInto(t, r.tt, "Pairing link", "not a link")
+	click(t, r.tt, "Continue")
+	r.tt.Frame()
+	gone("a link that does not parse")
+	click(t, r.tt, "Cancel")
+	r.tt.Frame()
+	gone("Cancel")
+	confirm()
+	r.desk.err = &desktop.PairError{Code: "unreachable", Message: "Can't reach host.", Transient: true}
+	click(t, r.tt, "Add")
+	r.tt.Frame()
+	if !desktop.RemoteLinkPending(r.app) {
+		t.Fatal("a retry has nothing to send")
+	}
+	r.desk.err = &desktop.PairError{Code: "code_used", Message: "That code was already used. A code works once. Show a new code on the Board."}
+	click(t, r.tt, "Try again")
+	r.tt.Frame()
+	gone("a refusal")
+	confirm()
+	r.desk.err = nil
+	click(t, r.tt, "Add")
+	r.tt.Frame()
+	gone("a pairing that worked")
 }

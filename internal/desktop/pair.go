@@ -56,6 +56,7 @@ var pairTexts = map[string]string{
 	"rate_limited":    "Too many wrong codes from this device. Wait a minute, then try again.",
 	"fleet_held":      "This window already holds that fleet. Forget its host first if you mean to pair it again.",
 	"other_host":      "This link is for another host than the one being paired again.",
+	"other_fleet":     "This link is for another fleet than the one being paired again.",
 }
 
 func LinkText(err error) string {
@@ -88,6 +89,8 @@ func (r *Remotes) Pair(ctx context.Context, req PairRequest) error {
 	switch {
 	case req.Again && at < 0:
 		return pairFail("other_host")
+	case req.Again && !heldHere:
+		return pairFail("other_fleet")
 	case (req.Held != nil && req.Held(l.Fleet) || heldHere) && !(req.Again && heldHere):
 		return pairFail("fleet_held")
 	}

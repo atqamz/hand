@@ -111,3 +111,5 @@ func PathsBusy(a *App) bool    { return a.pathBusy }
 func PathGen(a *App) int       { return a.pathGen }
 
 func SetRouterClock(r *Router, now func() time.Time) { r.now = now }
+
+func RemoteLinkPending(a *App) bool { return a.rf.pending != nil }
