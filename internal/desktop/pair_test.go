@@ -427,3 +427,21 @@ func (g *pairRig) storeDir() string {
 	dir, _ := g.store.KeyDir(rtHostA)
 	return filepath.Dir(dir)
 }
+
+func TestPairingAnotherFleetOnAKnownHostAfterAKeyChangeKeepsTheCurrentClientID(t *testing.T) {
+	g := newPairRig(t, rtA)
+	old := remote.Host{ID: rtHostA, ClientID: rtOther, PairedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
+	if err := g.store.Add(old, remote.Fleet{ID: rtB, Name: "b"}, rtCookieB, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.pair(t, desktop.PairRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, _ := g.store.Hosts()
+	if len(hosts) != 1 || len(hosts[0].Fleets) != 2 || hosts[0].ClientID != rtClient || hosts[0].PairedAt.Year() != 2026 || hosts[0].PairedAt.Month() != 1 {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+	if c, _ := g.store.Cookie(rtHostA, rtB); c != rtCookieB {
+		t.Fatalf("the first fleet's cookie = %q", c)
+	}
+}

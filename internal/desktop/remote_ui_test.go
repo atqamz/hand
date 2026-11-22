@@ -437,6 +437,7 @@ func TestForgetIsLocalAndLeavesTheLocalFleet(t *testing.T) {
 	}
 	r.app.Refresh()
 	r.tt.Frame()
+	before := len(r.host.seen())
 	click(t, r.tt, "Forget host")
 	r.tt.Frame()
 	if len(r.desk.forgot) != 1 || r.desk.forgot[0] != rtHostA {
@@ -445,8 +446,8 @@ func TestForgetIsLocalAndLeavesTheLocalFleet(t *testing.T) {
 	if len(r.app.Fleets) != 1 || r.app.Fleets[0].ID != rtLocal || r.app.Fleet.ID != rtLocal {
 		t.Fatalf("fleets = %+v, selected %+v", r.app.Fleets, r.app.Fleet)
 	}
-	if len(r.host.seen()) > 0 && strings.Contains(r.host.cookiesSeen(), "revoke") {
-		t.Fatal("forgetting called the host")
+	if n := len(r.host.seen()); n != before {
+		t.Fatalf("forgetting called the host: %d calls before, %d after", before, n)
 	}
 }
 
@@ -600,4 +601,66 @@ func TestTheParsedLinkIsHeldOnlyWhileTheConfirmationOrARetryNeedsIt(t *testing.T
 	click(t, r.tt, "Add")
 	r.tt.Frame()
 	gone("a pairing that worked")
+}
+
+func TestConnectRemoteOpensItsFormOverTheLocalStartErrorCard(t *testing.T) {
+	r := newRemoteUI(t, false)
+	r.app.StartErr = "hand board: address already in use"
+	r.tt.Frame()
+	mustText(t, r.tt, "The Board did not start.")
+	click(t, r.tt, "Connect remote fleet")
+	r.tt.Frame()
+	mustText(t, r.tt, "Pairing link", "Continue")
+	mustNotText(t, r.tt, "The Board did not start.")
+	click(t, r.tt, "Cancel")
+	r.tt.Frame()
+	mustText(t, r.tt, "The Board did not start.", "Try again")
+	mustNotText(t, r.tt, "Pairing link")
+}
+
+func TestPairAgainOpensItsFormWhileTheLocalBoardDidNotStart(t *testing.T) {
+	r := newRemoteUI(t, true)
+	r.host.fail = func(w http.ResponseWriter) bool {
+		w.WriteHeader(http.StatusForbidden)
+		return true
+	}
+	r.app.StartErr = "hand board: address already in use"
+	r.app.Refresh()
+	r.tt.Frame()
+	mustText(t, r.tt, "The host does not recognise this device.")
+	click(t, r.tt, "Pair again")
+	r.tt.Frame()
+	mustText(t, r.tt, "Pair again.", "Pairing link")
+	mustNotText(t, r.tt, "The Board did not start.")
+}
+
+func TestConnectRemoteDoesNothingWhileNewFleetRuns(t *testing.T) {
+	f := blockedCreate(t)
+	f.app.Remote = &fakeDesk{store: remote.OpenStore(t.TempDir())}
+	f.tt.Frame()
+	click(t, f.tt, "Connect remote fleet")
+	f.tt.Frame()
+	if !desktop.NewFleetOpen(f.app) || !desktop.NewFleetBusy(f.app) {
+		t.Fatalf("open %v busy %v after Connect remote fleet", desktop.NewFleetOpen(f.app), desktop.NewFleetBusy(f.app))
+	}
+	if name, _ := desktop.NewFleetForm(f.app); name != "atlas" {
+		t.Fatalf("name = %q, the running form was reset", name)
+	}
+	mustText(t, f.tt, "Creating…")
+	mustNotText(t, f.tt, "Pairing link")
+	close(f.release)
+	f.land(t)
+	mustText(t, f.tt, "hand init failed: boom", "Create fleet")
+}
+
+func TestABoardLinkOnARemoteFleetOpensInTheWindowAndRunsNoHand(t *testing.T) {
+	r := newRemoteUI(t, true)
+	r.app.OpenBoardPath("/" + rtA + "/task/t1")
+	if r.app.Screen != desktop.TaskScreen || r.app.Ref != "t1" || r.app.OpenErr != "" || r.app.OpenBusy {
+		t.Fatalf("screen %v ref %q err %q busy %v", r.app.Screen, r.app.Ref, r.app.OpenErr, r.app.OpenBusy)
+	}
+	r.app.OpenBoardPath("/" + rtA + "/task/t1/x")
+	if r.app.OpenErr != "" {
+		t.Fatalf("err %q", r.app.OpenErr)
+	}
 }

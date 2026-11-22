@@ -181,6 +181,8 @@ func (s *Store) Add(h Host, f Fleet, cookie string, local func(id string) bool) 
 	if at < 0 {
 		h.Fleets = nil
 		hosts, at = append(hosts, h), len(hosts)
+	} else if h.ClientID != "" {
+		hosts[at].ClientID = h.ClientID
 	}
 	hosts[at].Fleets = append(hosts[at].Fleets, f)
 	jar, err := s.cookies(true)

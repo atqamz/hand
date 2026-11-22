@@ -34,6 +34,7 @@ func (a *App) OpenInBrowser() {
 
 func (a *App) OpenBoardPath(dest string) {
 	if a.remoteFleet() {
+		a.openBoardPage(dest)
 		return
 	}
 	args, ok := boardOpenArgs(a.Fleet.ID, dest)

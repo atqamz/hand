@@ -195,6 +195,11 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 		}
 	}
 	switch {
+	case a.rfOpen:
+		minW, maxW = 640, 640
+		title, body := a.remoteTitle()
+		card("Fleets", k.Muted, "remote", title, body, "", "",
+			func() { a.remoteFields(c, k, p) }, func() { a.remoteButtons(c, k) })
 	case a.Starting:
 		card("Board", p.accent, "starting", "Starting the Board…",
 			"No Board was running on this computer, so this window started one with hand board start. It keeps running after you close the window; closing the window never stops it.",
@@ -218,11 +223,6 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 					a.Refresh()
 				}
 			})
-	case a.rfOpen:
-		minW, maxW = 640, 640
-		title, body := a.remoteTitle()
-		card("Fleets", k.Muted, "remote", title, body, "", "",
-			func() { a.remoteFields(c, k, p) }, func() { a.remoteButtons(c, k) })
 	case a.noFleets || a.nfOpen:
 		minW, maxW = 640, 640
 		label, meta, title, foot := "Fleets", "none yet", "No fleet on this computer yet.", "Made one in a terminal instead? Look again finds it."

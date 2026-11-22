@@ -207,9 +207,15 @@ func (r *Router) Attention(ctx context.Context) ([]FleetSignal, error) {
 			defer wg.Done()
 			sigs, err := m.model.Attention(ctx)
 			if m.remote {
+				ok := map[string]bool{}
+				for _, s := range sigs {
+					ok[s.Fleet] = s.OK
+				}
 				var ids []string
 				for _, f := range m.model.Fleets() {
-					ids = append(ids, f.ID)
+					if r.byFleet[f.ID] == m && (err != nil || ok[f.ID]) {
+						ids = append(ids, f.ID)
+					}
 				}
 				r.note(ids, err)
 			}

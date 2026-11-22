@@ -29,7 +29,7 @@ func (a *App) remoteAvailable() bool { return a.Remote != nil || a.RemoteOff != 
 func (a *App) remoteFleet() bool { return a.Fleet.Host != "" }
 
 func (a *App) openRemoteForm(again Fleet) {
-	if a.rf.busy {
+	if a.rf.busy || a.nf.busy {
 		return
 	}
 	a.nfOpen = false
