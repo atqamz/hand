@@ -304,7 +304,7 @@ func TestTheRealBoardListsItsFleetsAndFeaturesInTheAPI(t *testing.T) {
 		t.Fatalf("fleets = %d:\n%s", code, body)
 	}
 	code, body = get("/api/v1/meta", host)
-	if code != http.StatusOK || !strings.Contains(body, `"version":"`+cli.Version+`"`) || !strings.Contains(body, `"features":["events","fleets","history","host","links","pair","phone"]`) {
+	if code != http.StatusOK || !strings.Contains(body, `"version":"`+cli.Version+`"`) || !strings.Contains(body, `"features":["events","fleets","history","host","links","pair","phone","skills"]`) {
 		t.Fatalf("meta = %d:\n%s", code, body)
 	}
 	machine := strings.TrimSpace(cli.HostName())

@@ -349,15 +349,15 @@ func skillState(s fleet.Skills, name string, e fleet.Managed) (string, error) {
 	return "ok", nil
 }
 
-func cmdSkillsList(r *runner, args []string) error {
-	s, _, err := r.skillScope("list", args, 0, nil)
-	if err != nil {
-		return err
-	}
-	defer r.closeFetches()
+type skillEntry struct {
+	name, source, commit, ref, state, detail, latest, diff string
+	managed, trusted                                       bool
+}
+
+func (r *runner) skillEntries(s fleet.Skills, withDiff bool) ([]skillEntry, error) {
 	managed, err := s.Load()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	names := map[string]bool{}
 	for name := range managed {
@@ -365,7 +365,7 @@ func cmdSkillsList(r *runner, args []string) error {
 	}
 	entries, err := os.ReadDir(filepath.Join(s.Base, fleet.SkillRoots[1], "skills"))
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return nil, err
 	}
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
@@ -375,7 +375,7 @@ func cmdSkillsList(r *runner, args []string) error {
 			names[e.Name()] = true
 		}
 	}
-	rows := [][]string{}
+	out := []skillEntry{}
 	for _, name := range slices.Sorted(maps.Keys(names)) {
 		e, recorded := managed[name]
 		switch {
@@ -384,13 +384,31 @@ func cmdSkillsList(r *runner, args []string) error {
 			if p := e.Path(); p != "" {
 				source += "#" + p
 			}
-			st, _, detail := r.driftRow(s, name, e)
-			rows = append(rows, []string{name, source, e.Commit, s.Scope, "yes", e.Ref, st, detail})
+			se := skillEntry{name: name, source: source, commit: e.Commit, ref: e.Ref, managed: true, trusted: trusted(s, e)}
+			se.state, se.latest, se.detail, se.diff = r.probeDrift(s, name, e, withDiff)
+			out = append(out, se)
 		case fleet.Owned(s.Dir(fleet.SkillRoots[1], name)):
-			rows = append(rows, []string{name, "hand init", "", s.Scope, "no", "", "", ""})
+			out = append(out, skillEntry{name: name, source: "hand init"})
 		default:
-			rows = append(rows, []string{name, "", "", s.Scope, "no", "", "", ""})
+			out = append(out, skillEntry{name: name})
 		}
+	}
+	return out, nil
+}
+
+func cmdSkillsList(r *runner, args []string) error {
+	s, _, err := r.skillScope("list", args, 0, nil)
+	if err != nil {
+		return err
+	}
+	defer r.closeFetches()
+	entries, err := r.skillEntries(s, false)
+	if err != nil {
+		return err
+	}
+	rows := [][]string{}
+	for _, e := range entries {
+		rows = append(rows, []string{e.name, e.source, e.commit, s.Scope, map[bool]string{true: "yes", false: "no"}[e.managed], e.ref, e.state, e.detail})
 	}
 	var d toon.Doc
 	d.Rows("skills", []string{"name", "source", "commit", "scope", "managed", "ref", "state", "detail"}, rows)
@@ -527,6 +545,7 @@ func (r *runner) eachSkill(cmd string, args []string, extra func(*flag.FlagSet),
 			return err
 		}
 	}
+	r.rec.rows, r.rec.refused, r.rec.done = rows, refused, true
 	var d toon.Doc
 	d.Rows("skills", []string{"name", "state", "detail"}, rows)
 	if more != nil {
@@ -597,7 +616,10 @@ func cmdSkillsUpdate(r *runner, args []string) error {
 			return "", "", err
 		}
 		return map[bool]string{true: "updated", false: "restored"}[moved], commit, nil
-	}, func(d *toon.Doc) { conflictHelp(d, goals) })
+	}, func(d *toon.Doc) {
+		r.rec.goals = goals
+		conflictHelp(d, goals)
+	})
 }
 
 func cmdSkillsRemove(r *runner, args []string) error {

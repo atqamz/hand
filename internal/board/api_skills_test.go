@@ -1,0 +1,230 @@
+package board_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
+)
+
+type skillsSpy struct {
+	mu      sync.Mutex
+	queries []board.SkillsQuery
+	actions []board.SkillsAction
+	ctxs    []context.Context
+	read    func(context.Context, board.SkillsQuery) (board.APISkills, error)
+	run     func(context.Context, board.SkillsAction) (board.APISkillsRun, error)
+}
+
+func (s *skillsSpy) install(fx *fixture) {
+	fx.options.Skills = func(ctx context.Context, q board.SkillsQuery) (board.APISkills, error) {
+		s.mu.Lock()
+		s.queries = append(s.queries, q)
+		s.mu.Unlock()
+		if s.read != nil {
+			return s.read(ctx, q)
+		}
+		return board.APISkills{Scopes: []board.APISkillScope{{Scope: "fleet", Skills: []board.APISkill{{Name: "triage", Managed: true, State: "current"}}}}}, nil
+	}
+	fx.options.SkillsRun = func(ctx context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		s.mu.Lock()
+		s.actions = append(s.actions, a)
+		s.ctxs = append(s.ctxs, ctx)
+		s.mu.Unlock()
+		if s.run != nil {
+			return s.run(ctx, a)
+		}
+		return board.APISkillsRun{Scope: a.Scope, Project: a.Project, Results: []board.APISkillResult{{Name: "triage", State: "updated"}, {Name: "other", State: "current"}, {Name: "third", State: "updated"}}}, nil
+	}
+}
+
+func skillsFixture(t *testing.T) (*fixture, *skillsSpy, http.Handler) {
+	t.Helper()
+	fx := apiFixture(t, func() time.Time { return frozen })
+	spy := &skillsSpy{}
+	spy.install(fx)
+	return fx, spy, fx.handler()
+}
+
+func TestAPISkillsReadPassesTheScopeAndAnswersTheEnvelope(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	env, data := apiInto[board.APISkills](t, h, "/api/v1/skills")
+	if len(data.Scopes) != 1 || data.Scopes[0].Skills[0].Name != "triage" || env.Fleet.Name != "golden" || env.Cursor == "" {
+		t.Fatalf("skills = %+v, %+v", env, data)
+	}
+	apiInto[board.APISkills](t, h, "/api/v1/skills?scope=project&project=app")
+	apiInto[board.APISkills](t, h, "/api/v1/skills?scope=user")
+	want := []board.SkillsQuery{{}, {Scope: "project", Project: "app"}, {Scope: "user"}}
+	if fmt.Sprint(spy.queries) != fmt.Sprint(want) {
+		t.Fatalf("queries = %+v, want %+v", spy.queries, want)
+	}
+	rec := request(h, "GET", "/api/v1/skills?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusNotModified {
+		t.Fatalf("an unchanged read with its own cursor = %d", rec.Code)
+	}
+}
+
+func TestAPISkillsReadRefusals(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	for _, q := range []string{"scope=team", "scope=fleet&project=app", "project=app", "scope=project&project=" + url.QueryEscape("a\nb"), "scope=project&project=" + strings.Repeat("x", 513)} {
+		testAPIError(t, request(h, "GET", "/api/v1/skills?"+q, nil, true), http.StatusBadRequest, "bad_request")
+	}
+	testAPIError(t, request(h, "GET", "/api/v1/skills", nil, false), http.StatusUnauthorized, "unauthorized")
+	testAPIError(t, request(h, "GET", "/api/v1/skills?since=nope", nil, true), http.StatusBadRequest, "bad_cursor")
+	if len(spy.queries) != 0 {
+		t.Fatalf("a refused read reached the hook: %+v", spy.queries)
+	}
+}
+
+func TestAPISkillsWithoutTheHooksAreOff(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	testAPIError(t, request(h, "GET", "/api/v1/skills", nil, true), http.StatusForbidden, "forbidden")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true), http.StatusForbidden, "forbidden")
+}
+
+func TestAPISkillsActionsPassWhatTheBodyNamesAndAnswerWithAReceipt(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	env, out := apiBody[board.APISkillsRun](t, apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "project", "project": "app", "name": "triage", "yes": "triage@abc"}, token, true))
+	if env.Receipt != "Skills sync: 1 current, 2 updated" || out.Scope != "project" || out.Project != "app" || len(out.Results) != 3 {
+		t.Fatalf("sync = %+v, %+v", env, out)
+	}
+	apiBody[board.APISkillsRun](t, apiPost(t, h, "/api/v1/skills/update", map[string]string{"scope": "fleet"}, token, true))
+	apiBody[board.APISkillsRun](t, apiPost(t, h, "/api/v1/skills/propose", map[string]string{"scope": "user", "name": "triage"}, token, true))
+	want := []board.SkillsAction{
+		{Verb: "sync", Scope: "project", Project: "app", Name: "triage", Yes: "triage@abc"},
+		{Verb: "update", Scope: "fleet"},
+		{Verb: "propose", Scope: "user", Name: "triage"},
+	}
+	if fmt.Sprint(spy.actions) != fmt.Sprint(want) {
+		t.Fatalf("actions = %+v, want %+v", spy.actions, want)
+	}
+}
+
+func TestAPISkillsActionRefusals(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	for _, path := range []string{"sync", "update", "propose"} {
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "x"}, "", true), http.StatusForbidden, "csrf_required")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "x"}, "wrong", true), http.StatusForbidden, "csrf_required")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "x"}, token, false), http.StatusUnauthorized, "unauthorized")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, nil, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "all", "name": "x"}, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "project", "name": "x"}, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "project": "app", "name": "x"}, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "a\x00b"}, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, apiPostRaw(t, h, "/api/v1/skills/"+path, `{"scope":"fleet","name":"x"} {}`, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, apiPostRaw(t, h, "/api/v1/skills/"+path, `{"scope":`+strings.Repeat(" ", 70<<10)+`"fleet"}`, token, true), http.StatusBadRequest, "bad_request")
+		testAPIError(t, request(h, "GET", "/api/v1/skills/"+path, nil, true), http.StatusNotFound, "not_found")
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/propose", map[string]string{"scope": "fleet"}, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/update", map[string]string{"scope": "fleet", "yes": "x@y"}, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/propose", map[string]string{"scope": "fleet", "name": "x", "yes": "x@y"}, token, true), http.StatusBadRequest, "bad_request")
+	if len(spy.actions) != 0 {
+		t.Fatalf("a refused action reached the hook: %+v", spy.actions)
+	}
+}
+
+func TestAPISkillsErrorsKeepTheirKind(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	for kind, status := range map[error]int{state.ErrInvalid: 400, state.ErrNotFound: 404, state.ErrConflict: 409} {
+		spy.run = func(context.Context, board.SkillsAction) (board.APISkillsRun, error) {
+			return board.APISkillsRun{}, fmt.Errorf("%w: no project in /home/pat/secret/app", kind)
+		}
+		spy.read = func(context.Context, board.SkillsQuery) (board.APISkills, error) {
+			return board.APISkills{}, fmt.Errorf("%w: no project in /home/pat/secret/app", kind)
+		}
+		for _, rec := range []*struct{ code int }{{apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true).Code}, {request(h, "GET", "/api/v1/skills", nil, true).Code}} {
+			if rec.code != status {
+				t.Fatalf("%v answered %d, want %d", kind, rec.code, status)
+			}
+		}
+		rec := apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true)
+		if strings.Contains(rec.Body.String(), "/home/pat") {
+			t.Fatalf("the message carries a path: %s", rec.Body.String())
+		}
+	}
+	spy.run = func(context.Context, board.SkillsAction) (board.APISkillsRun, error) {
+		return board.APISkillsRun{}, errors.New("boom")
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true), http.StatusInternalServerError, "internal")
+}
+
+func TestAPISkillsRunOneRequestAtATime(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	spy.read = func(ctx context.Context, q board.SkillsQuery) (board.APISkills, error) {
+		close(entered)
+		<-release
+		return board.APISkills{Scopes: []board.APISkillScope{}}, nil
+	}
+	done := make(chan int)
+	go func() { done <- request(h, "GET", "/api/v1/skills", nil, true).Code }()
+	<-entered
+	e := testAPIError(t, request(h, "GET", "/api/v1/skills", nil, true), http.StatusConflict, "conflict")
+	if !strings.Contains(e.Message, "another skills request") {
+		t.Fatalf("message = %q", e.Message)
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true), http.StatusConflict, "conflict")
+	if len(spy.actions) != 0 {
+		t.Fatalf("a refused action ran: %+v", spy.actions)
+	}
+	close(release)
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("the first read = %d", code)
+	}
+	spy.read = nil
+	apiInto[board.APISkills](t, h, "/api/v1/skills")
+}
+
+func TestAPISkillsActionOutlivesTheClientAndIsBounded(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	spy.run = func(c context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		cancel()
+		if c.Err() != nil {
+			return board.APISkillsRun{}, errors.New("the client's leaving stopped the action")
+		}
+		return board.APISkillsRun{Results: []board.APISkillResult{}}, nil
+	}
+	req, _ := http.NewRequestWithContext(ctx, "POST", "/api/v1/skills/update", strings.NewReader(`{"scope":"fleet"}`))
+	req.Header.Set("X-Hand-CSRF", token)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update = %d: %s", rec.Code, rec.Body.String())
+	}
+	dl, ok := spy.ctxs[0].Deadline()
+	if !ok || time.Until(dl) < 4*time.Minute || time.Until(dl) > 5*time.Minute+time.Second {
+		t.Fatalf("deadline = %v, %v", dl, ok)
+	}
+}
+
+func TestAPairedPhoneReadsSkillsButCannotChangeThem(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	c := r.as(peerA)
+	companion := r.mustPair(c, f)
+	if rep := r.apiGet(c, f, "skills", nil, companion); rep.Code != http.StatusOK {
+		t.Fatalf("a phone's read = %d:\n%s", rep.Code, rep.Body)
+	}
+	csrf := r.csrfOf(c, f, companion)
+	for _, verb := range []string{"sync", "update", "propose"} {
+		rep := r.post(c, f, "skills/"+verb, `{"scope":"fleet","name":"triage"}`, csrf, companion)
+		if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"code":"forbidden"`) || !strings.Contains(rep.Body, "a paired Companion cannot change skills; use the host's Board") {
+			t.Fatalf("a phone's %s = %d:\n%s", verb, rep.Code, rep.Body)
+		}
+	}
+	if n := r.skillRuns.Load(); n != 0 {
+		t.Fatalf("a phone ran the hook %d times", n)
+	}
+}

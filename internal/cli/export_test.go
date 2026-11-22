@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 
+	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -104,4 +105,8 @@ func TakeOver(env Env, home string, stale fleet.HostMarker) error {
 	}
 	defer st.Close()
 	return r.takeOver(st, stale, r.selfHost())
+}
+
+func SkillsHooks(env Env, home, generation string, st *state.Store) (func(context.Context, board.SkillsQuery) (board.APISkills, error), func(context.Context, board.SkillsAction) (board.APISkillsRun, error)) {
+	return skillsRead(env, home, generation, st), skillsAct(env, home, generation)
 }

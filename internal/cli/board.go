@@ -278,6 +278,8 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Iroh:       iroh,
 		HostName:   hostName(),
 		ClosePeer:  closePeer,
+		Skills:     skillsRead(r.env, home, r.generation, st),
+		SkillsRun:  skillsAct(r.env, home, r.generation),
 	}}
 	if err == nil {
 		_, err = fb.current()
