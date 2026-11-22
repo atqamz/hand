@@ -1,0 +1,975 @@
+name: "[CI] Check"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      area:
+        description: The area to run by hand.
+        required: true
+        type: choice
+        options: [all, go, android, desktop, render, iroh, setup, e2e-install, e2e-harness]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  detect-changes:
+    name: "[CI] Detect Changes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.diff.outputs.go }}
+      android: ${{ steps.diff.outputs.android }}
+      workflows: ${{ steps.diff.outputs.workflows }}
+      desktop: ${{ steps.diff.outputs.desktop }}
+      render: ${{ steps.diff.outputs.render }}
+      iroh: ${{ steps.diff.outputs.iroh }}
+      setup: ${{ steps.diff.outputs.setup }}
+      e2e_install: ${{ steps.diff.outputs.e2e_install }}
+      e2e_harness: ${{ steps.diff.outputs.e2e_harness }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          AREA: ${{ inputs.area }}
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/detect-changes.sh
+
+  lint-workflows:
+    name: "[CI] Lint Workflows"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: stable
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: actionlint
+
+  linux-test:
+    name: "[Linux] Test"
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: needs.detect-changes.outputs.go == 'true'
+        with:
+          go-version-file: go.mod
+      - run: node --check internal/board/static/app.js
+        if: needs.detect-changes.outputs.go == 'true'
+      - run: test -z "$(gofmt -l .)"
+        if: needs.detect-changes.outputs.go == 'true'
+      - run: go vet ./...
+        if: needs.detect-changes.outputs.go == 'true'
+      - run: GOOS=windows GOARCH=amd64 go vet ./...
+        if: needs.detect-changes.outputs.go == 'true'
+      - run: go test -race -timeout 40m ./...
+        if: needs.detect-changes.outputs.go == 'true'
+      - name: Install Luvus
+        if: needs.detect-changes.outputs.go == 'true'
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) triple=x86_64-unknown-linux-musl ;;
+            Darwin-arm64) triple=aarch64-apple-darwin ;;
+            *) echo "no Luvus build for $(uname -s)-$(uname -m)"; exit 1 ;;
+          esac
+          name=luvus-v$version-$triple
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$RUNNER_TEMP/luvus
+          mkdir "$dir"
+          cd "$dir"
+          for file in "$name.tar.gz" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
+          shasum -a 256 -c "$name.sha256"
+          tar -xzf "$name.tar.gz"
+          chmod +x luvus
+          echo "$dir" >> "$GITHUB_PATH"
+      - name: Start a systemd user manager
+        if: needs.detect-changes.outputs.go == 'true'
+        continue-on-error: true
+        run: |
+          sudo loginctl enable-linger "$USER"
+          runtime=/run/user/$(id -u)
+          for _ in $(seq 20); do
+            test -S "$runtime/systemd/private" && break
+            sleep 1
+          done
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          systemd-run --user --scope --collect --quiet true
+      - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        if: needs.detect-changes.outputs.go == 'true'
+        env:
+          HAND_LUVUS_IT: "1"
+
+  macos-test:
+    name: "[MacOS] Test"
+    needs: detect-changes
+    runs-on: macos-latest
+    env:
+      TMPDIR: /private/tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: needs.detect-changes.outputs.go == 'true'
+        with:
+          go-version-file: go.mod
+      - run: test -z "$(gofmt -l .)"
+        if: needs.detect-changes.outputs.go == 'true'
+      - run: go vet ./...
+        if: needs.detect-changes.outputs.go == 'true'
+      - run: go test -timeout 20m ./...
+        if: needs.detect-changes.outputs.go == 'true'
+      - name: Install Luvus
+        if: needs.detect-changes.outputs.go == 'true'
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) triple=x86_64-unknown-linux-musl ;;
+            Darwin-arm64) triple=aarch64-apple-darwin ;;
+            *) echo "no Luvus build for $(uname -s)-$(uname -m)"; exit 1 ;;
+          esac
+          name=luvus-v$version-$triple
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$RUNNER_TEMP/luvus
+          mkdir "$dir"
+          cd "$dir"
+          for file in "$name.tar.gz" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
+          shasum -a 256 -c "$name.sha256"
+          tar -xzf "$name.tar.gz"
+          chmod +x luvus
+          echo "$dir" >> "$GITHUB_PATH"
+      - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        if: needs.detect-changes.outputs.go == 'true'
+        env:
+          HAND_LUVUS_IT: "1"
+
+  windows-test:
+    name: "[Windows] Test"
+    needs: detect-changes
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: needs.detect-changes.outputs.go == 'true'
+        with:
+          go-version-file: go.mod
+      - name: Reserve the Windows exception stack (golang/go#81238)
+        if: needs.detect-changes.outputs.go == 'true'
+        shell: bash
+        run: sh .github/scripts/windows-stack-reserve.sh
+      - run: go vet ./...
+        if: needs.detect-changes.outputs.go == 'true'
+      - name: Lint install.ps1
+        if: needs.detect-changes.outputs.go == 'true'
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          $found = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error, Warning
+          $found | Format-Table -AutoSize | Out-String | Write-Output
+          if ($found) { exit 1 }
+      - name: Install Luvus
+        if: needs.detect-changes.outputs.go == 'true'
+        shell: bash
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          name=luvus-v$version-x86_64-pc-windows-msvc
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$(cygpath -u "$RUNNER_TEMP")/luvus
+          mkdir "$dir"
+          cd "$dir"
+          for file in "$name.zip" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
+          sha256sum -c "$name.sha256"
+          unzip -q "$name.zip"
+          cygpath -w "$dir" >> "$GITHUB_PATH"
+      - run: go test -timeout 30m ./...
+        if: needs.detect-changes.outputs.go == 'true'
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        if: needs.detect-changes.outputs.go == 'true'
+        env:
+          HAND_LUVUS_IT: "1"
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: Smoke the installer
+        if: needs.detect-changes.outputs.go == 'true'
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'release'
+          $rel = Join-Path $root 'latest\download'
+          New-Item -ItemType Directory -Path $rel | Out-Null
+          go build -trimpath -o hand.exe .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $zip = Join-Path $rel 'hand-windows-amd64.zip'
+          Compress-Archive -LiteralPath hand.exe -DestinationPath $zip
+          Remove-Item hand.exe
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$hash  hand-windows-amd64.zip" -Encoding ascii
+          $edge = Join-Path $root 'download\edge'
+          New-Item -ItemType Directory -Path $edge | Out-Null
+          Copy-Item -Path (Join-Path $rel '*') -Destination $edge
+          Copy-Item -LiteralPath install.ps1 -Destination $root
+            $redirector = Join-Path $env:RUNNER_TEMP 'redirect.py'
+            Set-Content -Path $redirector -Encoding ascii -Value @'
+          import functools, http.server, sys
+          class Handler(http.server.SimpleHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path.endswith(sys.argv[2]):
+                      self.send_response(302)
+                      self.send_header('Location', 'http://downloads.invalid' + self.path)
+                      self.end_headers()
+                  else:
+                      super().do_GET()
+          http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), functools.partial(Handler, directory=sys.argv[3])).serve_forever()
+          '@
+          $staller = Join-Path $env:RUNNER_TEMP 'stall.py'
+          Set-Content -Path $staller -Encoding ascii -Value @'
+          import http.server, sys, time
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  if sys.argv[2] == 'headers':
+                      time.sleep(600)
+                  self.send_response(200)
+                  self.send_header('Content-Length', '1000000')
+                  self.end_headers()
+                  self.wfile.write(b'x' * 1000)
+                  self.wfile.flush()
+                  time.sleep(600)
+          http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+          '@
+          $session = @'
+          $probe = { "$ErrorActionPreference $ProgressPreference $(try { $null = $notSet; 'loose' } catch { 'strict' }) [$Version$Edge$Dir$Base$TimeoutSec]" }
+          $Version = $Edge = $Dir = $Base = $TimeoutSec = 'x'
+          $before = & $probe
+          irm "$env:HAND_INSTALL_BASE/install.ps1" | iex
+          "session $(Get-ExecutionPolicy) before [$before] after [$(& $probe)]"
+          '@
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8787', '--bind', '127.0.0.1', '--directory', $root -PassThru -WindowStyle Hidden
+          try {
+            $base = 'http://127.0.0.1:8787'
+            foreach ($i in 1..30) {
+              try { Invoke-WebRequest -UseBasicParsing -Uri "$base/latest/download/hand-windows-amd64.sha256" | Out-Null; break } catch { Start-Sleep -Seconds 1 }
+            }
+            if ($server.HasExited) { throw 'the local release server did not start' }
+            foreach ($shell in 'powershell', 'pwsh') {
+              $dir = Join-Path $env:RUNNER_TEMP "Hand Smoke $shell\bin"
+              foreach ($i in 1..2) {
+                & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Base $base
+                if ($LASTEXITCODE) { throw "${shell}: install.ps1 exited with $LASTEXITCODE" }
+              }
+              if (Get-ChildItem -LiteralPath $dir -Filter '.hand.exe.*.part' -Force) { throw "${shell}: install.ps1 left a temporary file behind" }
+              $user = [Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -eq $dir }
+              if (@($user).Count -ne 1) { throw "${shell}: user PATH holds $(@($user).Count) entries for $dir" }
+              $bad = Join-Path $env:RUNNER_TEMP 'Hand Bad\bin'
+              $policy = if ($shell -eq 'powershell') { 'Restricted' } else { 'RemoteSigned' }
+              $kept = "session $policy before \[Continue Continue loose \[xxxxx\]\] after \[Continue Continue loose \[xxxxx\]\]"
+              $piped = Join-Path $env:RUNNER_TEMP "Hand Piped $shell\bin"
+              $env:HAND_INSTALL_DIR = $piped
+              $env:HAND_INSTALL_BASE = $base
+              $piping = & $shell -NoProfile -ExecutionPolicy $policy -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($session))) 2>&1 | Out-String
+              if ($LASTEXITCODE) { throw "${shell}: irm | iex exited with ${LASTEXITCODE}: $piping" }
+              if (-not (Test-Path -LiteralPath (Join-Path $piped 'hand.exe'))) { throw "${shell}: irm | iex did not install into HAND_INSTALL_DIR: $piping" }
+              if ($piping -notmatch $kept) { throw "${shell}: irm | iex changed the session: $piping" }
+              $block = Join-Path $env:RUNNER_TEMP "Hand Block $shell\bin"
+              $env:HAND_INSTALL_DIR = $bad
+              $env:HAND_INSTALL_BASE = 'http://127.0.0.1:1'
+              $env:HAND_INSTALL_VERSION = 'v0.0.0'
+              $command = "& ([scriptblock]::Create((irm $base/install.ps1))) -Edge -Dir '$block' -Base $base"
+              & $shell -NoProfile -ExecutionPolicy $policy -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))
+              if ($LASTEXITCODE) { throw "${shell}: the scriptblock with switches exited with $LASTEXITCODE" }
+              if (-not (Test-Path -LiteralPath (Join-Path $block 'hand.exe')) -or (Test-Path -LiteralPath (Join-Path $bad 'hand.exe'))) { throw "${shell}: the switches did not override the environment" }
+              Remove-Item env:HAND_INSTALL_VERSION
+              Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$('0' * 64)  hand-windows-amd64.zip" -Encoding ascii
+              $env:HAND_INSTALL_BASE = $base
+              $console = $session | & $shell -NoProfile -ExecutionPolicy $policy -Command - 2>&1 | Out-String
+              Remove-Item env:HAND_INSTALL_DIR, env:HAND_INSTALL_BASE
+              if ($console -notmatch 'install\.ps1: checksum mismatch' -or $console -notmatch $kept) { throw "${shell}: irm | iex on a wrong checksum did not throw and keep the session: $console" }
+              if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: irm | iex installed after a checksum mismatch" }
+              & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base $base
+              if ($LASTEXITCODE -ne 1) { throw "${shell}: install.ps1 exited with $LASTEXITCODE on a wrong checksum" }
+              if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: install.ps1 installed after a checksum mismatch" }
+              & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://example.com/releases'
+              if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 accepted a remote http base" }
+              Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$hash  hand-windows-amd64.zip" -Encoding ascii
+              foreach ($case in @(@('8788', '.zip'), @('8789', '.sha256'))) {
+                $redirecting = Start-Process python -ArgumentList $redirector, $case[0], $case[1], $root -PassThru -WindowStyle Hidden
+                try {
+                  foreach ($i in 1..30) {
+                    try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$($case[0])/latest/download/hand-windows-amd64.sha256" -MaximumRedirection 0 | Out-Null; break } catch { if ($_.Exception.Response) { break }; Start-Sleep -Seconds 1 }
+                  }
+                  $refused = & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base "http://127.0.0.1:$($case[0])" 2>&1 | Out-String
+                  if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 followed a redirect to http for $($case[1])" }
+                  if ($refused -notmatch 'refusing a redirect to a non-https URL') { throw "${shell}: install.ps1 failed for another reason on $($case[1]): $refused" }
+                  if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: install.ps1 installed after a refused redirect" }
+                }
+                finally {
+                  Stop-Process -Id $redirecting.Id -Force
+                }
+              }
+              foreach ($case in @(@('8790', 'body'), @('8791', 'headers'))) {
+                $stalling = Start-Process python -ArgumentList $staller, $case[0], $case[1] -PassThru -WindowStyle Hidden
+                try {
+                  foreach ($i in 1..30) {
+                    try { [Net.Sockets.TcpClient]::new('127.0.0.1', [int]$case[0]).Close(); break } catch { Start-Sleep -Seconds 1 }
+                  }
+                  $clock = [Diagnostics.Stopwatch]::StartNew()
+                  $stalled = & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base "http://127.0.0.1:$($case[0])" -TimeoutSec 5 2>&1 | Out-String
+                  if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 finished a download that stalled in the $($case[1])" }
+                  if ($stalled -notmatch 'timed out after 5 seconds') { throw "${shell}: install.ps1 failed for another reason on a download that stalled in the $($case[1]): $stalled" }
+                  if ($clock.Elapsed.TotalSeconds -gt 60) { throw "${shell}: install.ps1 took $([int]$clock.Elapsed.TotalSeconds) seconds to give up on a download that stalled in the $($case[1])" }
+                  if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: install.ps1 installed after a download that stalled in the $($case[1])" }
+                }
+                finally {
+                  Stop-Process -Id $stalling.Id -Force
+                }
+              }
+            }
+          }
+          finally {
+            Stop-Process -Id $server.Id -Force
+          }
+          Set-Location $dir
+          .\hand.exe version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:SECONDHAND_HOME = Join-Path $env:RUNNER_TEMP 'smoke home'
+          $fleet = Join-Path $env:RUNNER_TEMP 'smoke fleet'
+          New-Item -ItemType Directory -Path $fleet | Out-Null
+          Set-Location $fleet
+          & "$dir\hand.exe" init
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$dir\hand.exe" orient
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  ci-gate:
+    name: "[CI] Gate"
+    needs: [linux-test, macos-test, windows-test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            test "$r" = success || { echo "need result: $r"; exit 1; }
+          done
+
+  android-check:
+    name: "[Android] Check"
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+      DEBUG_KEY_SHA256: 083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da
+      NDK_VERSION: 27.3.13750724
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        if: needs.detect-changes.outputs.android == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        if: needs.detect-changes.outputs.android == 'true'
+      - name: Install the NDK
+        if: needs.detect-changes.outputs.android == 'true'
+        run: sdkmanager --install "ndk;$NDK_VERSION"
+      - name: Install the pinned toolchain
+        if: needs.detect-changes.outputs.android == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - if: needs.detect-changes.outputs.android == 'true'
+        run: rustup target add aarch64-linux-android
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: needs.detect-changes.outputs.android == 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            android/target
+            iroh/target
+          key: check-${{ hashFiles('android/Cargo.lock', 'android/rust-toolchain.toml', 'iroh/Cargo.lock', 'iroh/rust-toolchain.toml') }}
+          restore-keys: check-
+      - name: Build the hand-iroh sidecar from iroh/
+        if: needs.detect-changes.outputs.android == 'true'
+        working-directory: iroh
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --locked --bin hand-iroh
+          target/debug/hand-iroh --version
+          echo "HAND_IROH_BIN=$GITHUB_WORKSPACE/iroh/target/debug/hand-iroh" >> "$GITHUB_ENV"
+      - if: needs.detect-changes.outputs.android == 'true'
+        run: scripts/check-store-metadata.sh
+      - if: needs.detect-changes.outputs.android == 'true'
+        run: cargo fmt --all --check
+      - if: needs.detect-changes.outputs.android == 'true'
+        run: cargo test --locked --workspace
+      - name: Clippy for Android
+        if: needs.detect-changes.outputs.android == 'true'
+        run: |
+          toolchain="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android24-clang"
+          cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings
+
+  android-build:
+    name: "[Android] Build"
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+      DEBUG_KEY_SHA256: 083a53cf027c8b4ccc94a0ea3894174ffcf8726b0c49d6b3728dc298fbabd6da
+      NDK_VERSION: 27.3.13750724
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        if: needs.detect-changes.outputs.android == 'true'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        if: needs.detect-changes.outputs.android == 'true'
+      - name: Install the Android SDK packages
+        if: needs.detect-changes.outputs.android == 'true'
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+      - name: Point Gradle at the NDK
+        if: needs.detect-changes.outputs.android == 'true'
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Install the pinned toolchain
+        if: needs.detect-changes.outputs.android == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - if: needs.detect-changes.outputs.android == 'true'
+        run: rustup target add aarch64-linux-android
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: needs.detect-changes.outputs.android == 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/target
+            android/src-tauri/gen/android/.gradle
+            android/src-tauri/gen/android/app/build
+          key: apk-${{ hashFiles('android/Cargo.lock', 'android/rust-toolchain.toml', 'android/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: apk-
+      - name: Build the debug APK
+        if: needs.detect-changes.outputs.android == 'true'
+        run: ./gradlew :app:assembleDebug
+        working-directory: android/src-tauri/gen/android
+      - name: Run the JVM tests and check the screen images
+        if: needs.detect-changes.outputs.android == 'true'
+        run: ./gradlew :app:verifyPaparazziUniversalDebug
+        working-directory: android/src-tauri/gen/android
+      - name: Check the APK's signer
+        if: needs.detect-changes.outputs.android == 'true'
+        run: |
+          apk=src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs"
+          grep -qx "Signer #1 certificate SHA-256 digest: $DEBUG_KEY_SHA256" "$RUNNER_TEMP/certs"
+          test "$(grep -c "^Signer #.* certificate SHA-256 digest:" "$RUNNER_TEMP/certs")" -eq 1
+      - name: Build the unsigned release APK
+        if: needs.detect-changes.outputs.android == 'true'
+        run: ./gradlew :app:assembleUniversalRelease
+        working-directory: android/src-tauri/gen/android
+      - name: Check that R8 kept what Rust calls
+        if: needs.detect-changes.outputs.android == 'true'
+        run: scripts/check-jni-keep.sh src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: needs.detect-changes.outputs.android == 'true'
+        with:
+          name: hand-android-debug-apk
+          path: android/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  android-gate:
+    name: "[Android] Gate"
+    needs: [android-check, android-build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            test "$r" = success || { echo "need result: $r"; exit 1; }
+          done
+
+  desktop-smoke:
+    name: "[Companion (${{ matrix.label }})] Build"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.desktop == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            label: Linux
+          - name: macos
+            os: macos-latest
+            label: MacOS
+          - name: windows
+            os: windows-latest
+            label: Windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Reserve the Windows exception stack (golang/go#81238)
+        if: runner.os == 'Windows'
+        run: sh .github/scripts/windows-stack-reserve.sh
+      - name: Test the window headless
+        run: go test ./internal/desktop ./cmd/hand-desktop
+      - name: Vet the window with mygo
+        run: |
+          go mod download
+          export GOFLAGS=-mod=readonly GOPROXY=off
+          status=0
+          for pkg in ./internal/desktop ./cmd/hand-desktop; do
+            out=$(go run github.com/egoist/mygo/cmd/mygo vet "$pkg" 2>&1) || status=1
+            if [ -n "$out" ]; then
+              printf '%s\n' "$out"
+              status=1
+            fi
+          done
+          exit $status
+      - name: Build cgo-free and check the stamp it reports
+        run: sh .github/desktop/smoke.sh
+
+  desktop-window:
+    name: "[Companion (${{ matrix.label }})] Window"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.desktop == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            label: Linux
+          - name: macos
+            os: macos-latest
+            label: MacOS
+          - name: windows
+            os: windows-latest
+            label: Windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Reserve the Windows exception stack (golang/go#81238)
+        if: runner.os == 'Windows'
+        run: sh .github/scripts/windows-stack-reserve.sh
+      - name: Install GTK, a virtual display and Mesa
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-0 xvfb xauth libgl1-mesa-dri libglx-mesa0 libegl-mesa0 x11-utils xdotool dbus
+      - name: Set the output folder
+        run: echo "HAND_WINDOW_OUT=$RUNNER_TEMP/hand-window" >> "$GITHUB_ENV"
+      - name: Open the window, read its elements, capture it and quit
+        run: |
+          set -eu
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindow$' -count=1 -v
+          else
+            go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindow$' -count=1 -v
+          fi
+          test -s "$HAND_WINDOW_OUT/window.png"
+      - name: Blur the window, raise a need, read its title, urgency hint and launcher count, focus it
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowAttention$' -count=1 -v
+          test -s "$HAND_WINDOW_OUT/attention/window.png"
+      - name: Make a fleet from the New fleet form with real hand init and board start, then stop the Board
+        run: |
+          set -eu
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowNewFleet$' -count=1 -v
+          else
+            go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowNewFleet$' -count=1 -v
+          fi
+          test -s "$HAND_WINDOW_OUT/newfleet/window.png"
+      - name: Build Hand.app with hand update from a fake release, open the window from it and quit
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowFromBundle$' -count=1 -v
+          test -s "$HAND_WINDOW_OUT/bundle/window.png"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: window-${{ matrix.name }}
+          path: ${{ runner.temp }}/hand-window
+          retention-days: 14
+          if-no-files-found: ignore
+
+  desktop-assets:
+    name: "[Companion (Desktop)] Assets"
+    needs: desktop-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Build the release assets
+        run: |
+          set -eu
+          version=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
+          test -n "$version"
+          out=$RUNNER_TEMP/desktop
+          sh .github/scripts/build-desktop.sh "$version" stable "$GITHUB_SHA" "$out"
+          sh .github/desktop/check-assets.sh "$out"
+          ls -l "$out"
+      - name: Check the Windows asset carries its channel
+        run: sh .github/desktop/check-stamp.sh
+
+  board-render:
+    name: "[Board (${{ matrix.label }})] Render"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.render == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            label: Linux
+          - name: macos
+            os: macos-latest
+            label: MacOS
+          - name: windows
+            os: windows-latest
+            label: Windows
+    env:
+      PLAYWRIGHT_VERSION: "1.63.0"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Reserve the Windows exception stack (golang/go#81238)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: sh .github/scripts/windows-stack-reserve.sh
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Set the paths
+        run: |
+          {
+            echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/render/browsers"
+            echo "RENDER_PLAYWRIGHT=$RUNNER_TEMP/render/pw/node_modules/playwright"
+            echo "RENDER_OUT=$RUNNER_TEMP/render/after"
+          } >> "$GITHUB_ENV"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/render/browsers
+          key: render-playwright-${{ env.PLAYWRIGHT_VERSION }}-${{ runner.os }}
+      - name: Install Playwright
+        timeout-minutes: 10
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/render/pw"
+          cd "$RUNNER_TEMP/render/pw"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          if [ "$RUNNER_OS" = Linux ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+      - name: Render the Board scenes and assert the layout
+        timeout-minutes: 15
+        run: node .github/render/check.mjs
+      - name: A layout break fails the check
+        timeout-minutes: 10
+        run: |
+          status=0
+          RENDER_BREAK=1 RENDER_ONLY=ready RENDER_OUT="$RUNNER_TEMP/render/broken" node .github/render/check.mjs || status=$?
+          if [ "$status" -ne 3 ]; then
+            echo "a page forced wider than its viewport did not fail the assertions (exit status $status)"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: render-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/render/after/shots
+            ${{ runner.temp }}/render/after/run.json
+            ${{ runner.temp }}/render/after/server.log
+          retention-days: 14
+          if-no-files-found: ignore
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.event_name == 'pull_request' && matrix.name == 'linux' }}
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - name: Render the base for before and after
+        id: before
+        if: ${{ github.event_name == 'pull_request' && matrix.name == 'linux' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          RENDER_ASSERT: "0"
+          RENDER_REPO: ${{ github.workspace }}/base
+          RENDER_OUT: ${{ runner.temp }}/render/before
+        run: |
+          cp internal/board/scenes_test.go base/internal/board/scenes_test.go
+          node .github/render/check.mjs
+      - name: Say why there is no diff
+        if: ${{ steps.before.outcome == 'failure' }}
+        run: echo "The base commit did not build or render with the scenes of this head, so there are no before pictures and no diff." >> "$GITHUB_STEP_SUMMARY"
+      - name: Diff the pictures
+        if: ${{ steps.before.outcome == 'success' }}
+        continue-on-error: true
+        run: node .github/render/diff.mjs "$RUNNER_TEMP/render/before/shots" "$RUNNER_TEMP/render/after/shots" "$RUNNER_TEMP/render/diff"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ steps.before.outcome == 'success' }}
+        with:
+          name: render-before-and-diff
+          path: |
+            ${{ runner.temp }}/render/before/shots
+            ${{ runner.temp }}/render/diff
+          retention-days: 14
+          if-no-files-found: ignore
+
+  iroh:
+    name: "[CI] Iroh"
+    needs: detect-changes
+    if: github.event_name != 'push' && needs.detect-changes.outputs.iroh == 'true'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/iroh.yaml
+
+  setup:
+    name: "[CI] Setup"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.setup == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/setup.yaml
+
+  e2e-install:
+    name: "[CI] E2E Install"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.e2e_install == 'true'
+    uses: ./.github/workflows/e2e-install.yaml
+
+  e2e-harness:
+    name: "[CI] E2E Harness"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.e2e_harness == 'true'
+    uses: ./.github/workflows/e2e-harness.yaml
+
+  edge-publish:
+    name: "[Edge] Publish"
+    needs: [detect-changes, linux-test, macos-test, windows-test]
+    if: github.event_name == 'push' && needs.detect-changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    concurrency:
+      group: edge
+      cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          set -eu
+          base=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
+          test -n "$base"
+          sh .github/scripts/build-dist.sh "$base" edge "$GITHUB_SHA"
+          sh .github/scripts/build-desktop.sh "$base" edge "$GITHUB_SHA"
+      - name: Publish
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          old=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/edge" --jq '.[] | select(.ref == "refs/tags/edge") | .object.sha')
+          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ]; then
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$old" --jq .status)
+            case "$status" in
+              ahead)
+                echo "edge is already past $GITHUB_SHA"
+                exit 0
+                ;;
+              behind | identical | diverged) ;;
+              *)
+                echo "compare answered '$status', not publishing" >&2
+                exit 1
+                ;;
+            esac
+          fi
+          notes="Rolling build of main at ${GITHUB_SHA:0:12}, $(date -u +%Y-%m-%d). Not a release; install with HAND_INSTALL_VERSION=edge."
+          if ! gh release view edge >/dev/null 2>&1; then
+            git push --force origin "$GITHUB_SHA:refs/tags/edge"
+            gh release create edge --prerelease --title Edge --notes "$notes" --verify-tag
+          fi
+          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 hand-desktop-linux-amd64.tar.gz hand-desktop-linux-amd64.sha256 hand-desktop-linux-arm64.tar.gz hand-desktop-linux-arm64.sha256 hand-desktop-darwin-arm64.tar.gz hand-desktop-darwin-arm64.sha256 hand-desktop-darwin-amd64.tar.gz hand-desktop-darwin-amd64.sha256 hand-desktop-windows-amd64.zip hand-desktop-windows-amd64.sha256 --clobber
+          for name in $(gh release view edge --json assets --jq '.assets[].name'); do
+            case "$name" in
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256 | hand-desktop-darwin-arm64.tar.gz | hand-desktop-darwin-arm64.sha256 | hand-desktop-darwin-amd64.tar.gz | hand-desktop-darwin-amd64.sha256 | hand-desktop-windows-amd64.zip | hand-desktop-windows-amd64.sha256 | Hand-Setup-*-x64.exe | Hand-Setup-*-x64.sha256) ;;
+              *) gh release delete-asset edge "$name" -y ;;
+            esac
+          done
+          git push --force origin "$GITHUB_SHA:refs/tags/edge"
+          gh release edit edge --prerelease --title Edge --notes "$notes"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: Attest
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            hand-*.tar.gz
+            checksums.txt
+            hand-windows-amd64.zip
+            hand-windows-amd64.sha256
+            hand-desktop-*.tar.gz
+            hand-desktop-windows-amd64.zip
+            hand-desktop-*.sha256
+
+  edge-iroh:
+    name: "[Edge] Iroh"
+    needs: edge-publish
+    if: ${{ !cancelled() && needs.edge-publish.outputs.published == 'true' }}
+    concurrency:
+      group: edge-iroh
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/iroh.yaml
+    with:
+      ref: ${{ github.sha }}
+      tag: edge
+
+  edge-setup:
+    name: "[Edge] Setup"
+    needs: [edge-publish, edge-iroh]
+    if: ${{ !cancelled() && needs.edge-publish.result == 'success' }}
+    permissions:
+      contents: write
+    concurrency:
+      group: edge-setup
+      cancel-in-progress: false
+    uses: ./.github/workflows/setup.yaml
+    with:
+      tag: edge
