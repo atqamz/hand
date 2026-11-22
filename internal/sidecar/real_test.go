@@ -99,3 +99,70 @@ func TestRealSidecarStartsKeepsItsIDAndStopsWhenItsInputCloses(t *testing.T) {
 		t.Fatalf("key file holds %d bytes", len(b))
 	}
 }
+
+func TestRealClientRefusesAMissingKeyAndASecondClientOnOneKey(t *testing.T) {
+	bin := realBinary(t)
+	dir := t.TempDir()
+	keys := filepath.Join(dir, "keys")
+	start := func(newKey bool) (*Client, context.CancelFunc, chan struct{}) {
+		c, err := NewClient(ClientOptions{
+			Resolve:  func(context.Context) (string, error) { return bin, nil },
+			Host:     "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+			KeyDir:   keys,
+			Dir:      dir,
+			NewKey:   newKey,
+			Relay:    "none",
+			StopWait: 30 * time.Second,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			c.Run(ctx)
+		}()
+		t.Cleanup(func() {
+			cancel()
+			<-done
+		})
+		return c, cancel, done
+	}
+	c, _, done := start(false)
+	select {
+	case <-done:
+	case <-time.After(25 * time.Second):
+		t.Fatal("a client without a key did not exit")
+	}
+	if st := c.Status(); st.State != Failed || st.Code != 3 || st.Addr != "" {
+		t.Fatalf("a missing key = %+v, want Failed with exit 3 and no listener", st)
+	}
+	if _, err := os.Stat(keys); err == nil {
+		t.Fatal("a client without --new-key made a key folder")
+	}
+	first, stop, firstDone := start(true)
+	eventually(t, "the first client to listen", func() bool {
+		if st := first.Status(); st.State == Failed {
+			t.Fatalf("the first client failed: %+v", st)
+		}
+		return first.Status().State == Ready
+	})
+	second, _, secondDone := start(false)
+	select {
+	case <-secondDone:
+	case <-time.After(25 * time.Second):
+		t.Fatal("a second client on one key did not exit")
+	}
+	if st := second.Status(); st.State != Failed || st.Code != 1 {
+		t.Fatalf("a second client on one key = %+v, want Failed with exit 1", st)
+	}
+	stop()
+	<-firstDone
+	if st := first.Status(); st.State != Stopped || st.Code != 0 {
+		t.Fatalf("the first client after a stop = %+v", st)
+	}
+	if fi, err := os.Stat(filepath.Join(keys, "hand-iroh.key")); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		t.Fatalf("key file = %v, %v", fi, err)
+	}
+}

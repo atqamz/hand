@@ -565,7 +565,7 @@ The second loopback listener that `hand board --peer-addr 127.0.0.1:7778` opens 
 
 ### Hand-iroh
 
-The `hand-iroh` sidecar, built from `iroh/`, that `hand board --iroh` starts. It opens an iroh endpoint, and turns each stream a Companion dials into one connection to the [peer listener](#peer-listener) with the [peer preface](#peer-preface) in front. Hand looks for it next to `hand`, then on `PATH`, and runs it only at the version this `hand` pins. Its `client` mode is the dialing side, for a program that reaches another host's Board over iroh ([Client mode](companion-app.md#the-hand-iroh-sidecar)); `hand` does not start it yet.
+The `hand-iroh` sidecar, built from `iroh/`, that `hand board --iroh` starts. It opens an iroh endpoint, and turns each stream a Companion dials into one connection to the [peer listener](#peer-listener) with the [peer preface](#peer-preface) in front. Hand looks for it next to `hand`, then on `PATH`, and runs it only at the version this `hand` pins. Its `client` mode is the dialing side, for a program that reaches another host's Board over iroh ([Client mode](companion-app.md#the-hand-iroh-sidecar)); `internal/sidecar` can run it (`sidecar.Client`), and nothing in `hand` or the Desktop window does yet.
 
 ### Peer preface
 
