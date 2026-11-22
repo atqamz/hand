@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -492,17 +494,17 @@ func TestSkillsAPIPlantedLockEntryStaysUntrusted(t *testing.T) {
 func TestSkillsAPIDropsALoginFromASourceAndFromAnErrorDetail(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.h.ok("skills", "add", "--fleet", "triage")
-	const dirty = "https://pat:s3cret@127.0.0.1:1/acme/skills.git"
+	const dirty = "https://pat:s3@cret@127.0.0.1:1/acme/skills.git"
 	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
 		skills["triage"]["sourceUrl"] = dirty
 	})
 	a := newSkillsAPI(t, f.h)
 	s := a.skill("fleet", "", "triage")
-	if s.State != "error" || !strings.Contains(s.Source, "127.0.0.1:1/acme/skills.git") || s.Detail == "" || strings.Contains(s.Source+s.Detail, "s3cret") || strings.Contains(s.Source+s.Detail, "pat:") {
+	if s.State != "error" || !strings.Contains(s.Source, "127.0.0.1:1/acme/skills.git") || s.Detail == "" || strings.Contains(s.Source+s.Detail, "cret") || strings.Contains(s.Source+s.Detail, "pat:") {
 		t.Fatalf("row = %+v", s)
 	}
 	run := a.ok("sync", map[string]string{"scope": "fleet"})
-	if r := resultOf(run, "triage"); r.State != "refused" || r.Detail == "" || strings.Contains(r.Detail, "s3cret") || run.Refused != 1 {
+	if r := resultOf(run, "triage"); r.State != "refused" || r.Detail == "" || strings.Contains(r.Detail, "cret") || run.Refused != 1 {
 		t.Fatalf("sync = %+v", run)
 	}
 }
@@ -510,13 +512,13 @@ func TestSkillsAPIDropsALoginFromASourceAndFromAnErrorDetail(t *testing.T) {
 func TestSkillsAPIDropsALoginFromARequestError(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.h.ok("skills", "add", "--fleet", "triage")
-	const dirty = "https://pat:s3cret@127.0.0.1:1/acme/skills.git"
+	const dirty = "https://pat:s3@cret@127.0.0.1:1/acme/skills.git"
 	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
 		skills["triage"]["sourceUrl"] = dirty
 	})
 	a := newSkillsAPI(t, f.h)
 	code, _, _, raw := a.post("propose", map[string]string{"scope": "fleet", "name": "triage"})
-	if code != http.StatusBadRequest || !strings.Contains(raw, "127.0.0.1:1/acme/skills.git") || strings.Contains(raw, "s3cret") || strings.Contains(raw, "pat:") {
+	if code != http.StatusBadRequest || !strings.Contains(raw, "127.0.0.1:1/acme/skills.git") || strings.Contains(raw, "cret") || strings.Contains(raw, "pat:") {
 		t.Fatalf("propose = %d %s", code, raw)
 	}
 }
@@ -524,11 +526,11 @@ func TestSkillsAPIDropsALoginFromARequestError(t *testing.T) {
 func TestSkillsAPIDropsALoginAndAPathFromAFailingGh(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.h.ok("skills", "add", "--fleet", "triage")
-	fakebin.Install(t, f.bin, "gh", "gh", map[string]string{"log": f.log, "stderr": "could not read https://pat:s3cret@github.com/acme/hub.git and /home/someone/secret/dir/x"})
+	fakebin.Install(t, f.bin, "gh", "gh", map[string]string{"log": f.log, "stderr": "could not read https://pat:s3@cret@github.com/acme/hub.git and /home/someone/secret/dir/x"})
 	f.edit("triage")
 	a := newSkillsAPI(t, f.h)
 	code, _, _, raw := a.post("propose", map[string]string{"scope": "fleet", "name": "triage"})
-	if code != http.StatusInternalServerError || !strings.Contains(raw, "github.com/acme/hub.git") || strings.Contains(raw, "s3cret") || strings.Contains(raw, "pat:") || strings.Contains(raw, "someone") {
+	if code != http.StatusInternalServerError || !strings.Contains(raw, "github.com/acme/hub.git") || strings.Contains(raw, "cret") || strings.Contains(raw, "pat:") || strings.Contains(raw, "someone") {
 		t.Fatalf("propose = %d %s", code, raw)
 	}
 }
@@ -537,7 +539,7 @@ func TestSkillsAPIDropsALoginFromAReconcileGoal(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.hub.commit(map[string]string{"skills/clash/SKILL.md": skillFiles("clash", "v1")["SKILL.md"]})
 	f.h.ok("skills", "add", "--fleet", "clash")
-	const dirty = "https://pat:s3cret@example.test/acme/skills.git"
+	const dirty = "https://pat:s3@cret@example.test/acme/skills.git"
 	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
 		skills["clash"]["sourceUrl"] = dirty
 	})
@@ -546,7 +548,7 @@ func TestSkillsAPIDropsALoginFromAReconcileGoal(t *testing.T) {
 	f.hub.commit(map[string]string{"skills/clash/SKILL.md": skillFiles("clash", "v2")["SKILL.md"]})
 	a := newSkillsAPI(t, f.h)
 	run := a.ok("sync", map[string]string{"scope": "fleet"})
-	if len(run.Reconcile) != 1 || !strings.Contains(run.Reconcile[0], "example.test/acme/skills.git") || strings.Contains(run.Reconcile[0], "s3cret") || strings.Contains(run.Reconcile[0], "pat:") {
+	if len(run.Reconcile) != 1 || !strings.Contains(run.Reconcile[0], "example.test/acme/skills.git") || strings.Contains(run.Reconcile[0], "cret") || strings.Contains(run.Reconcile[0], "pat:") {
 		t.Fatalf("reconcile = %q", run.Reconcile)
 	}
 }
@@ -562,5 +564,66 @@ func TestSkillsAPIReadDropsADirectoryFromASourceAndADetail(t *testing.T) {
 	s := a.skill("fleet", "", "triage")
 	if !strings.Contains(s.Detail, " gone ") || strings.Contains(s.Source+s.Detail, "private-parent") {
 		t.Fatalf("row = %+v", s)
+	}
+}
+
+func TestBoardStopsASkillsActionWhenItShutsDown(t *testing.T) {
+	f := newProposeFixture(t, "")
+	f.h.ok("skills", "add", "--fleet", "triage")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
+		skills["triage"]["sourceUrl"] = "git://" + ln.Addr().String() + "/acme/skills.git"
+	})
+	base, stop := startBoard(t, f.h, "127.0.0.1")
+	fleetURL, token := fleetPage(t, base, f.h)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	res, err := client.Get(fleetURL + "/?token=" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	res, err = client.Get(fleetURL + "/api/v1/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sess struct{ Data board.APISession }
+	err = json.NewDecoder(res.Body).Decode(&sess)
+	_ = res.Body.Close()
+	if err != nil || sess.Data.CSRF == "" {
+		t.Fatalf("session = %d, %v", res.StatusCode, err)
+	}
+	answered := make(chan struct{})
+	go func() {
+		defer close(answered)
+		req, _ := http.NewRequest("POST", fleetURL+"/api/v1/skills/sync", strings.NewReader(`{"scope":"fleet"}`))
+		req.Header.Set("X-Hand-CSRF", sess.Data.CSRF)
+		if res, err := client.Do(req); err == nil {
+			_ = res.Body.Close()
+		}
+	}()
+	time.Sleep(500 * time.Millisecond)
+	start := time.Now()
+	stop()
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("board took %v to stop with a skills action running", d)
+	}
+	select {
+	case <-answered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the skills request was still running after the board stopped")
 	}
 }

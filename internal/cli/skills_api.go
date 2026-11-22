@@ -17,7 +17,7 @@ import (
 
 const skillsDiffLimit = 64 << 10
 
-var urlLogin = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@`)
+var urlLogin = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s]*@`)
 
 func login(s string) string {
 	return urlLogin.ReplaceAllString(s, "${1}")
