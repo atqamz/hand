@@ -256,7 +256,7 @@ Tapping a paired fleet opens `FleetScreen`: the top bar (back, the fleet's name 
 The Chat composer is one box under the timeline and outside everything a live update redraws, so a
 delta, a status change, the working line's tick and the keyboard's resize never take the text or the
 caret. **Send** posts `{"text": …}` to `POST /api/v1/message` under the same cookie and
-`X-Hand-CSRF` as the other writes. It is off while a message is in flight and while the box is empty;
+`X-Hand-CSRF` as the other writes. It is off while a message is in flight, while a file is uploading and while the box and the chips are both empty;
 the answer's `Timeline` replaces the conversation, so the operator's bubble reads `queued` and later
 `delivered HH:mm` from the Board's own `queued`, `delivery` and `delivered` fields, never from a
 receipt the app makes up. A refusal keeps the text and shows the Board's `message` in the box's foot
@@ -309,8 +309,32 @@ keyed by fleet and name, fetches two at a time and keeps nothing for a failure; 
 held is drawn in the first frame, so scrolling back does not flash. A picture is drawn at most 280
 dp wide and 240 dp high. A file that is not an image, a `missing` shot, a picture still loading and
 one that failed ("could not load, tap to retry", which fetches again) are cards at the same place.
-A file is not opened or saved yet, and the app cannot attach one. Nothing here ran against a real
-Board or a phone: the JVM tests fake the file source.
+A file is not opened or saved yet. Nothing here ran against a real Board or a phone: the JVM tests
+fake the file source.
+
+The composer attaches. **Attach** opens the system picker (`OpenMultipleDocuments`, no storage
+permission). Each file is read on a background thread, refused when `OpenableColumns.SIZE` or the
+bytes read are over 10 MiB (the Board's limit, so a refusal costs no upload), and sent through
+`Core.upload(fleet, csrf, name, bytes)`, one at a time, in the order picked. The core builds the
+`multipart/form-data` post of `POST /api/v1/inbox` (field `file`, the `X-Hand-CSRF` token from
+`GET /api/v1/session`, retried once on `csrf_required`), checks the 10 MiB cap again, and allows the
+post 120 seconds where other requests have 30, because a 10 MiB body over a relay can take longer.
+The file name is cut to letters, digits, `.`, `_` and `-` before it goes into the header, as the Board
+cuts it, so a name cannot close the quote or split the header; the boundary is chosen so the file
+does not contain it. When the Board answers, a chip with the file's number and label appears above the
+box and `[attachment N]` is put into the text at the cursor, replacing a selection, where N is the
+chip's place in the list. The text and the caret live in `ChatState` (`draft`, `selection`), so a
+token lands where the caret is when the upload ends, not where it was when the file was picked. A file
+in flight is a chip without a number, and **Send** waits for it. At most 10 files go in one message
+(a limit of this app: the Board sets none; the 16 KiB message limit is the Board's), and a failed
+upload leaves no chip and no token and says why in the foot of the box. The chip's cross removes the
+file, deletes its `[attachment N]` tokens and renumbers the later ones, so no token ever names another
+file than it did; a token above the count of chips is plain text and is left as typed. **Send** posts
+`{"text": …, "attachments": [names]}`, and may send files with no text. A failed send keeps the chips.
+The chips are kept with the draft for the same 30 days (`PrefsComposerDrafts`), so a draft restored
+after the process died still has the files its tokens name; a file the Board has since pruned makes the
+send answer `404` with its label, and the chip's cross clears it. Nothing here ran against a real Board
+or a phone either.
 
 `TaskScreen` reads `GET /api/v1/task/{tN}` once when it opens, with the envelope's cursor on later
 reads, and shows the Board's phone column: the open decisions and unread reports waiting on the
@@ -362,7 +386,7 @@ A blocked supervisor's item is a card: its last lines in the terminal box, **Scr
 sub-tasks, an inbox task, the card after Mark read, its loading frame and its error with Retry, each
 light and dark, a report with a list, a code block, a table and a quote before and after Mark read,
 its long body, its marking frame, a refused Mark read, its loading frame, its refused ref, its error
-with Retry and its not-paired frame, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the open failed, with Retry (`openFailedLight`, `openFailedDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), This Companion with one fleet, with several, with alerts off, with the Forget question and with two hosts (`oneFleet`, `severalFleets`, `alertsOff`, `forgetConfirm`, `hosts`), the fleet list with two hosts, with one dead, with every fleet of a host unpaired and with one fleet unpaired (`twoHosts`, `oneDeadHost`, `everyFleetUnpaired`, `oneFleetUnpaired`), the pairing confirmation for a new host and for a held one (`confirm`, `knownHost`, and `claimed` and `clash` for a link with a host name), a conversation with pictures at their tokens, a file card and a missing file (`inlineLight`, `inlineDark`), the loading and failed picture cards (`cardsLight`, `cardsDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
+with Retry and its not-paired frame, each light and dark, the web Board before its page loads (`webLoadingLight`, `webLoadingDark`), the web Board after its open times out with Retry (`webTimedOutLight`, `webTimedOutDark`), the web Board when the open failed, with Retry (`openFailedLight`, `openFailedDark`) and when the saved login is refused (`cookieRefusedLight`, `cookieRefusedDark`), This Companion with one fleet, with several, with alerts off, with the Forget question and with two hosts (`oneFleet`, `severalFleets`, `alertsOff`, `forgetConfirm`, `hosts`), the fleet list with two hosts, with one dead, with every fleet of a host unpaired and with one fleet unpaired (`twoHosts`, `oneDeadHost`, `everyFleetUnpaired`, `oneFleetUnpaired`), the pairing confirmation for a new host and for a held one (`confirm`, `knownHost`, and `claimed` and `clash` for a link with a host name), a conversation with pictures at their tokens, a file card and a missing file (`inlineLight`, `inlineDark`), the loading and failed picture cards (`cardsLight`, `cardsDark`), the composer with two chips, and with one chip, an upload in flight and an error (`chipsLight`, `chipsDark`), Needs all clear and the tabs, light and dark, rendered by Paparazzi on the JVM with no device. `./gradlew :app:recordPaparazziUniversalDebug` replaces them; commit them with the change that made them differ, and look at each before you do.
 
 ## Native pairing
 

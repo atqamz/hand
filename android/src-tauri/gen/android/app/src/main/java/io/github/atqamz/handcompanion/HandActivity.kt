@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -234,6 +235,11 @@ class HandActivity : ComponentActivity() {
     LaunchedEffect(model) {
       lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.run() }
     }
+    val resolver = contentResolver
+    val picker =
+      rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        model.attach(uris.map { uri -> { picked(resolver, uri) } })
+      }
     ChatScreen(
       fleet,
       state,
@@ -247,6 +253,8 @@ class HandActivity : ComponentActivity() {
       onHint = onHint,
       onEdit = model::edit,
       onSend = model::send,
+      onAttach = { picker.launch(arrayOf("*/*")) },
+      onDetach = model::detach,
       head = head,
       onControl = onControl
     )

@@ -77,6 +77,18 @@ sealed class BoardError(message: String? = null, open val warn: String? = null) 
 
 class Raw(val status: Int, val body: String)
 
+fun interface Uploads {
+  fun upload(fleet: String, csrf: String, name: String, bytes: ByteArray): Raw
+}
+
+@Serializable
+data class Attached(
+  val name: String,
+  val label: String = "",
+  val kind: String = "",
+  val size: Long = 0
+)
+
 fun interface Transport {
   fun request(fleet: String, post: Boolean, path: String, csrf: String?, body: String?): Raw
 }
@@ -173,7 +185,8 @@ private fun refusal(raw: Raw): BoardError {
 class BoardClient(
   private val fleet: String,
   private val transport: Transport,
-  private val io: CoroutineDispatcher = Dispatchers.IO
+  private val io: CoroutineDispatcher = Dispatchers.IO,
+  private val uploads: Uploads = CoreUploads
 ) {
   @Volatile private var statusCursor: String? = null
   @Volatile private var csrf: String? = null
@@ -253,6 +266,24 @@ class BoardClient(
     }
   }
 
+  suspend fun upload(name: String, bytes: ByteArray): Attached {
+    val raw =
+      try {
+        sendUpload(name, bytes)
+      } catch (_: BoardError.CsrfRequired) {
+        csrf = null
+        sendUpload(name, bytes)
+      }
+    return decode(raw, Attached.serializer()).data
+  }
+
+  private suspend fun sendUpload(name: String, bytes: ByteArray): Raw {
+    val token = token()
+    val raw = withContext(io) { uploads.upload(fleet, token, name, bytes) }
+    if (raw.status != 200) throw refusal(raw)
+    return raw
+  }
+
   private suspend fun sendWrite(path: String, body: String?): Raw =
     send(true, "/api/v1/${path.trimStart('/')}", body.orEmpty(), token())
 
@@ -322,4 +353,9 @@ object CoreTransport : Transport {
     csrf: String?,
     body: String?
   ): Raw = parseWire(Core.request(fleet, post, path, csrf, body?.toByteArray()))
+}
+
+object CoreUploads : Uploads {
+  override fun upload(fleet: String, csrf: String, name: String, bytes: ByteArray): Raw =
+    parseWire(Core.upload(fleet, csrf, name, bytes))
 }

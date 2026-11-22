@@ -51,6 +51,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -709,10 +710,16 @@ internal fun ChatComposer(
   sendNote: String,
   note: String,
   draft: String,
+  selection: TextRange,
+  attached: List<Attached>,
+  uploading: List<String>,
+  attachError: String,
   input: MutableState<TextFieldValue>,
   onEdit: (TextFieldValue) -> Unit,
   onSend: () -> Unit,
   onHint: () -> Unit,
+  onAttach: () -> Unit,
+  onDetach: (Int) -> Unit,
   primary: Boolean = true
 ) {
   val hand = LocalHand.current
@@ -725,8 +732,10 @@ internal fun ChatComposer(
   val density = LocalDensity.current
   val imeDp = with(density) { WindowInsets.ime.getBottom(density).toDp().value.toInt() }
   val maxText = composerMaxDp(configuration.screenHeightDp, imeDp).dp
+  val canSend =
+    (input.value.text.isNotBlank() || attached.isNotEmpty()) && !sending && uploading.isEmpty()
   LaunchedEffect(draft) {
-    if (input.value.text != draft) input.value = TextFieldValue(draft, TextRange(draft.length))
+    input.value = composerValue(input.value, draft, selection)
   }
   Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
     Box {
@@ -736,6 +745,9 @@ internal fun ChatComposer(
           .border(1.dp, if (focused) accent else hand.lineStrong, shape)
           .padding(4.dp, 4.dp, 4.dp, 8.dp)
       ) {
+        if (attached.isNotEmpty() || uploading.isNotEmpty()) {
+          AttachChips(attached, uploading, !sending, onDetach)
+        }
         BasicTextField(
           value = input.value,
           onValueChange = onEdit,
@@ -762,9 +774,24 @@ internal fun ChatComposer(
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+          TextButton(
+            onAttach,
+            enabled = !sending && attached.size + uploading.size < MAX_ATTACHED,
+            modifier = Modifier.heightIn(min = if (coarse) 44.dp else 32.dp),
+            colors = ButtonDefaults.textButtonColors(contentColor = accent)
+          ) {
+            Text("Attach", style = type.labelLarge)
+          }
           when {
             error.isNotEmpty() ->
               Text(error, Modifier.weight(1f), color = hand.ink(Tone.Fail), style = type.bodySmall)
+            attachError.isNotEmpty() ->
+              Text(
+                attachError,
+                Modifier.weight(1f),
+                color = hand.ink(Tone.Fail),
+                style = type.bodySmall
+              )
             sendNote.isNotEmpty() ->
               Text(sendNote, Modifier.weight(1f), color = hand.muted, style = type.bodySmall)
             hint.isNotEmpty() ->
@@ -785,7 +812,7 @@ internal fun ChatComposer(
           if (primary) {
             Button(
               onSend,
-              enabled = input.value.text.isNotBlank() && !sending,
+              enabled = canSend,
               modifier = sendModifier,
               shape = sendShape,
               colors =
@@ -800,7 +827,7 @@ internal fun ChatComposer(
           } else {
             OutlinedButton(
               onSend,
-              enabled = input.value.text.isNotBlank() && !sending,
+              enabled = canSend,
               modifier = sendModifier,
               shape = sendShape,
               border = BorderStroke(1.dp, hand.lineStrong),
@@ -843,8 +870,10 @@ fun ChatScreen(
   hint: String = "",
   hintBlocked: Boolean = false,
   onHint: () -> Unit = {},
-  onEdit: (String) -> Unit = {},
+  onEdit: (String, TextRange) -> Unit = { _, _ -> },
   onSend: () -> Unit = {},
+  onAttach: () -> Unit = {},
+  onDetach: (Int) -> Unit = {},
   head: ChatHead,
   onControl: (HeadControl) -> Unit = {},
   input: MutableState<TextFieldValue> = rememberDraftField(state.draft)
@@ -888,13 +917,19 @@ fun ChatScreen(
             sendNote = state.sendNote,
             note = state.draftNote,
             draft = state.draft,
+            selection = state.selection,
+            attached = state.attached,
+            uploading = state.uploading,
+            attachError = state.attachError,
             input = input,
             onEdit = { value ->
               input.value = value
-              onEdit(value.text)
+              onEdit(value.text, value.selection)
             },
             onSend = onSend,
             onHint = onHint,
+            onAttach = onAttach,
+            onDetach = onDetach,
             primary = head.sendPrimary
           )
         }

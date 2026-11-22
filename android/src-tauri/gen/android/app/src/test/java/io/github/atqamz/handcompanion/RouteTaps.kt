@@ -39,6 +39,10 @@ internal class Taps(private val view: View) {
 
   fun labels() = nodes().flatMap(::names)
 
+  fun disabled(label: String) =
+    nodes().first { label in names(it) && SemanticsActions.OnClick in it.config }
+      .config.contains(SemanticsProperties.Disabled)
+
   fun tap(label: String) {
     val node = nodes().first { label in names(it) && SemanticsActions.OnClick in it.config }
     checkNotNull(node.config[SemanticsActions.OnClick].action).invoke()

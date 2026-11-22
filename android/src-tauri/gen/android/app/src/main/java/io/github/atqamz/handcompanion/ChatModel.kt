@@ -1,12 +1,14 @@
 package io.github.atqamz.handcompanion
 
 import android.content.SharedPreferences
+import androidx.compose.ui.text.TextRange
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -19,9 +21,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -104,6 +110,10 @@ data class ChatState(
   val aboveBottom: Boolean = false,
   val newReplies: Int = 0,
   val draft: String = "",
+  val selection: TextRange = TextRange.Zero,
+  val attached: List<Attached> = emptyList(),
+  val uploading: List<String> = emptyList(),
+  val attachError: String = "",
   val draftNote: String = "",
   val sending: Boolean = false,
   val sendError: String = "",
@@ -310,6 +320,26 @@ interface ComposerDrafts {
   fun readUnsure(fleet: String): UnsureSend?
 
   fun writeUnsure(fleet: String, sent: UnsureSend?)
+
+  fun readFiles(fleet: String, now: Long): List<Attached>
+
+  fun writeFiles(fleet: String, files: List<Attached>, now: Long)
+}
+
+fun filesKey(fleet: String) = "$fleet!files"
+
+fun encodeFiles(files: List<Attached>, now: Long) =
+  "$now\n" + boardJson.encodeToString(ListSerializer(Attached.serializer()), files)
+
+fun decodeFiles(raw: String, now: Long, ttl: Long): List<Attached> {
+  if ('\n' !in raw) return emptyList()
+  val at = raw.substringBefore('\n').toLongOrNull() ?: return emptyList()
+  if (now - at >= ttl) return emptyList()
+  return try {
+    boardJson.decodeFromString(ListSerializer(Attached.serializer()), raw.substringAfter('\n'))
+  } catch (_: Exception) {
+    emptyList()
+  }
 }
 
 fun unsureKey(fleet: String) = "$fleet!unsure"
@@ -371,6 +401,15 @@ class PrefsComposerDrafts(
     }.apply()
   }
 
+  override fun readFiles(fleet: String, now: Long): List<Attached> =
+    decodeFiles(prefs.getString(filesKey(fleet), null) ?: return emptyList(), now, ttl)
+
+  override fun writeFiles(fleet: String, files: List<Attached>, now: Long) {
+    prefs.edit().apply {
+      if (files.isEmpty()) remove(filesKey(fleet)) else putString(filesKey(fleet), encodeFiles(files, now))
+    }.apply()
+  }
+
   override fun write(fleet: String, text: String, now: Long) {
     val keys = fleetDraftKeys(prefs.all, fleet)
     prefs.edit().apply {
@@ -388,12 +427,14 @@ class ChatModel(
   private val pollMillis: Long = POLL_MILLIS,
   private val nowMillis: () -> Long = { System.currentTimeMillis() },
   private val draftMillis: Long = DRAFT_MILLIS,
-  io: CoroutineDispatcher = Dispatchers.IO
+  private val io: CoroutineDispatcher = Dispatchers.IO,
+  uploads: Uploads = CoreUploads
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(ChatState(now = nowMillis()))
   val state: StateFlow<ChatState> = mutableState
 
-  private val client = BoardClient(fleet, transport, io)
+  private val client = BoardClient(fleet, transport, io, uploads)
+  private val uploadLock = Mutex()
   private val lock = Mutex()
   private val olderLock = Mutex()
   private val edits = Channel<Unit>(Channel.CONFLATED)
@@ -422,14 +463,17 @@ class ChatModel(
 
   fun restoreDraft() {
     val held = drafts.read(fleet, nowMillis())
-    if (held.isEmpty()) return
+    val files = drafts.readFiles(fleet, nowMillis())
+    if (held.isEmpty() && files.isEmpty()) return
     val restored = drafts.readUnsure(fleet)?.takeIf { it.text == held }
     mutableState.update {
-      if (it.draft.isNotEmpty()) it
+      if (it.draft.isNotEmpty() || it.attached.isNotEmpty()) it
       else {
         unsure = restored
         it.copy(
           draft = held,
+          selection = TextRange(held.length),
+          attached = files,
           draftNote = "Draft restored",
           sendError = if (restored == null) it.sendError else UNSURE_SENT
         )
@@ -437,11 +481,102 @@ class ChatModel(
     }
   }
 
-  fun edit(text: String) {
+  fun edit(text: String, selection: TextRange = TextRange(text.length)) {
     if (unsure?.let { it.text != text } == true) holdUnsure(null)
-    mutableState.update { it.copy(draft = text, sendError = "", sendNote = "") }
+    mutableState.update {
+      it.copy(draft = text, selection = selection, sendError = "", sendNote = "", attachError = "")
+    }
     edits.trySend(Unit)
   }
+
+  fun attach(picks: List<Pick>) {
+    viewModelScope.launch { attachNow(picks) }
+  }
+
+  suspend fun attachNow(picks: List<Pick>) {
+    uploadLock.withLock { picks.forEach { attachOne(it) } }
+  }
+
+  private suspend fun attachOne(pick: Pick) {
+    if (mutableState.value.sending) return
+    val picked =
+      try {
+        withContext(io) { pick() }
+      } catch (error: CancellationException) {
+        throw error
+      } catch (_: Exception) {
+        mutableState.update { it.copy(attachError = "Could not read that file.") }
+        return
+      }
+    val label = picked.name
+    if (mutableState.value.attached.size >= MAX_ATTACHED) {
+      mutableState.update { it.copy(attachError = "At most $MAX_ATTACHED files in one message.") }
+      return
+    }
+    if (picked.size > MAX_UPLOAD_BYTES) {
+      mutableState.update { it.copy(attachError = tooBig(label)) }
+      return
+    }
+    mutableState.update { it.copy(uploading = it.uploading + label, attachError = "") }
+    try {
+      val bytes = withContext(io) { picked.read() }
+      if (bytes.size > MAX_UPLOAD_BYTES) {
+        mutableState.update { it.copy(attachError = tooBig(label)) }
+        return
+      }
+      val file = client.upload(label, bytes)
+      mutableState.update {
+        val field = insertToken(Field(it.draft, it.selection), it.attached.size + 1)
+        it.copy(
+          attached = it.attached + file,
+          draft = field.text,
+          selection = field.selection,
+          sendError = "",
+          sendNote = ""
+        )
+      }
+      drafts.writeFiles(fleet, mutableState.value.attached, nowMillis())
+      edits.trySend(Unit)
+    } catch (error: BoardError) {
+      if (error == BoardError.Unpaired) mutableState.update { it.copy(unpaired = true) }
+      else mutableState.update { it.copy(attachError = attachWords(label, error)) }
+    } catch (error: CancellationException) {
+      throw error
+    } catch (_: Exception) {
+      mutableState.update { it.copy(attachError = "Could not read that file.") }
+    } finally {
+      mutableState.update { it.copy(uploading = it.uploading - label) }
+    }
+  }
+
+  fun detach(n: Int) {
+    val state = mutableState.value
+    if (state.sending || n !in 1..state.attached.size) return
+    mutableState.update {
+      if (n !in 1..it.attached.size) it
+      else {
+        val field = dropToken(Field(it.draft, it.selection), n, it.attached.size)
+        it.copy(
+          attached = it.attached.filterIndexed { index, _ -> index != n - 1 },
+          draft = field.text,
+          selection = field.selection,
+          attachError = ""
+        )
+      }
+    }
+    drafts.writeFiles(fleet, mutableState.value.attached, nowMillis())
+    edits.trySend(Unit)
+  }
+
+  private fun tooBig(name: String) = "$name is over 10 MiB."
+
+  private fun attachWords(name: String, error: BoardError): String =
+    when {
+      error == BoardError.TooLarge || (error is BoardError.Other && error.status == 413) ->
+        tooBig(name)
+      error == BoardError.Lost || error == BoardError.TimedOut -> "Could not upload $name."
+      else -> sendWords(error).takeIf { it != UNSURE_SENT } ?: "Could not upload $name."
+    }
 
   private fun holdUnsure(sent: UnsureSend?) {
     unsure = sent
@@ -483,8 +618,10 @@ class ChatModel(
 
   suspend fun sendNow() {
     val state = mutableState.value
-    if (state.sending || state.draft.isBlank()) return
+    if (state.sending || state.uploading.isNotEmpty()) return
+    if (state.draft.isBlank() && state.attached.isEmpty()) return
     val text = state.draft
+    val files = state.attached.map { it.name }
     mutableState.update { it.copy(sending = true, sendError = "", sendNote = "") }
     flushDraft()
     try {
@@ -509,7 +646,12 @@ class ChatModel(
         }
       }
       val after = lastInput()
-      val body = buildJsonObject { put("text", text) }.toString()
+      val body =
+        buildJsonObject {
+            put("text", text)
+            if (files.isNotEmpty()) put("attachments", buildJsonArray { files.forEach { add(it) } })
+          }
+          .toString()
       try {
         when (val sent = client.write("message", body, TimelineData.serializer())) {
           is Write.Updated -> {
@@ -563,15 +705,25 @@ class ChatModel(
 
   private fun accepted(sent: String): Boolean {
     val held = mutableState.value.draft
+    drafts.writeFiles(fleet, emptyList(), nowMillis())
     if (held == sent) {
       drafts.write(fleet, "", nowMillis())
       mutableState.update {
-        if (it.draft == sent) it.copy(draft = "", draftNote = "", sending = false)
-        else it.copy(sending = false)
+        if (it.draft == sent) {
+          it.copy(
+            draft = "",
+            selection = TextRange.Zero,
+            attached = emptyList(),
+            draftNote = "",
+            sending = false
+          )
+        } else {
+          it.copy(attached = emptyList(), sending = false)
+        }
       }
     } else {
       drafts.write(fleet, held, nowMillis())
-      mutableState.update { it.copy(sending = false) }
+      mutableState.update { it.copy(attached = emptyList(), sending = false) }
     }
     return held == sent
   }
