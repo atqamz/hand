@@ -298,6 +298,7 @@ func (rep *Report) keep(o Options) {
 	rep.keepIf(o.Root, "Hand's state: fleet index, worktrees, backups")
 	if d := draftDir(o.Getenv, o.OS); d != "" {
 		rep.keepIf(filepath.Dir(d), "the window's composer drafts and preferences")
+		rep.keepIf(filepath.Join(filepath.Dir(d), "remote"), "paired remote hosts: each host's key and cookies, a copy is a copy of this device; revoke it on the host's Companion page before you delete the folder")
 	}
 }
 

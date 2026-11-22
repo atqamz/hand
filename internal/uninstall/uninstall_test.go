@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/remote"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -65,6 +66,8 @@ func newInstall(t *testing.T, goos string) *install {
 	x.state = filepath.Join(x.home, "state")
 	put(t, filepath.Join(x.state, "hand-desktop", "drafts", "f0123456789ab.txt"), "draft")
 	put(t, filepath.Join(x.state, "hand-desktop", "prefs.json"), "{}")
+	put(t, filepath.Join(x.state, "hand-desktop", "remote", "hosts.json"), "{}")
+	put(t, filepath.Join(x.state, "hand-desktop", "remote", "cookies.json"), "{}")
 	x.other = put(t, filepath.Join(x.bin, "git"), "not Hand's")
 	switch goos {
 	case "windows":
@@ -193,7 +196,7 @@ func TestRemovesWhatHandPlacedAndKeepsTheRest(t *testing.T) {
 					t.Errorf("kept %v lacks %s", kept, p)
 				}
 			}
-			there(t, x.other, x.fleet, filepath.Join(x.root, "index", "f0123456789ab"), filepath.Join(x.state, "hand-desktop", "drafts", "f0123456789ab.txt"), filepath.Join(x.state, "hand-desktop", "prefs.json"))
+			there(t, x.other, x.fleet, filepath.Join(x.root, "index", "f0123456789ab"), filepath.Join(x.state, "hand-desktop", "drafts", "f0123456789ab.txt"), filepath.Join(x.state, "hand-desktop", "prefs.json"), filepath.Join(x.state, "hand-desktop", "remote", "hosts.json"), filepath.Join(x.state, "hand-desktop", "remote", "cookies.json"))
 			for _, p := range paths(rep.Removed) {
 				if p != x.bin && p != x.target+".old" {
 					gone(t, p)
@@ -525,5 +528,42 @@ func TestDraftFolderIsTheWindows(t *testing.T) {
 		if got, want := draftDir(getenv, runtimeOS()), desktop.DraftDir(getenv); got != want {
 			t.Errorf("draftDir(%v) = %q, the window uses %q", env, got, want)
 		}
+	}
+}
+
+func TestRemoteHostsFolderIsKeptAndNamedWithItsWarning(t *testing.T) {
+	for _, goos := range systems {
+		t.Run(goos, func(t *testing.T) {
+			x := newInstall(t, goos)
+			rep, err := x.run(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := remote.Dir(desktop.DraftDir(func(k string) string {
+				if k == "XDG_STATE_HOME" {
+					return x.state
+				}
+				return ""
+			}))
+			if dir != filepath.Join(x.state, "hand-desktop", "remote") {
+				t.Fatalf("remote.Dir = %s", dir)
+			}
+			var why string
+			for _, it := range rep.Kept {
+				if it.Path == dir {
+					why = it.Note
+				}
+			}
+			if !strings.Contains(why, "copy is a copy of this device") || !strings.Contains(why, "revoke") {
+				t.Fatalf("kept %v: no remote folder with its warning (%q)", paths(rep.Kept), why)
+			}
+			if out := Render(rep).String(); !strings.Contains(out, dir) {
+				t.Fatalf("the report does not print %s:\n%s", dir, out)
+			}
+			gone := paths(rep.Removed)
+			if slices.Contains(gone, dir) || slices.Contains(gone, filepath.Join(dir, "cookies.json")) {
+				t.Fatalf("removed %v", gone)
+			}
+		})
 	}
 }
