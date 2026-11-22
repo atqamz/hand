@@ -137,7 +137,7 @@ func TestTheBackdropBlocksThePage(t *testing.T) {
 	}
 	for range 12 {
 		tt.Key(0, ui.KeyTab)
-		for _, behind := range []string{"Board", "Tasks", "Conversation", "Screen", "Companion"} {
+		for _, behind := range []string{"Board", "Tasks", "Skills", "Conversation", "Screen", "Companion"} {
 			if tt.Focused(behind) {
 				t.Fatalf("Tab left the viewer for %q", behind)
 			}

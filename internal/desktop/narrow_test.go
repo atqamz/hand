@@ -140,6 +140,10 @@ func TestTheSheetOpensFromTheMastheadAndClosesOnEscapeOrAPick(t *testing.T) {
 		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyTab)
+	if !tt.Focused("Skills") {
+		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyTab)
 	if !tt.Focused("Screen") {
 		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
 	}

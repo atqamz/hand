@@ -19,6 +19,15 @@ const (
 )
 
 type fixture struct {
+	skills         desktop.Skills
+	skillsErr      error
+	skillsRun      desktop.SkillsRun
+	skillsRunErr   error
+	skillsOnRun    func(verb string, req desktop.SkillsRequest)
+	skillsReads    int
+	skillsGate     chan struct{}
+	skillsEntered  chan struct{}
+	skillsLog      []skillsCall
 	fleets         []desktop.Fleet
 	status         map[string]desktop.Status
 	timeline       map[string]desktop.Timeline

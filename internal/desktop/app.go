@@ -26,7 +26,12 @@ const (
 	AttemptScreen
 	DecisionScreen
 	DocScreen
+	SkillsScreen
 )
+
+func isBase(s Screen) bool {
+	return s == BoardScreen || s == TasksScreen || s == SkillsScreen
+}
 
 // The auto-refresh intervals: short while the window has keyboard focus,
 // long while it does not. A failed tick backs off to at most maxRefreshBackoff.
@@ -127,6 +132,7 @@ type App struct {
 	receipt       string
 	receiptKey    string
 	receiptWarn   string
+	sk            skillsState
 	notice        string
 	noticeTitle   string
 	noticeKey     string
@@ -516,6 +522,7 @@ func (a *App) SelectFleet(id string) {
 	a.searchFor, a.projectsFor = TaskSearchQuery{}, ""
 	a.Projects = Projects{}
 	a.searchScroll = ui.ScrollState{}
+	a.resetSkills()
 	a.base = BoardScreen
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
@@ -620,14 +627,14 @@ func (a *App) Show(s Screen) {
 	a.nfOpen = false
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.resetDoc()
-	if s == BoardScreen || s == TasksScreen {
+	if isBase(s) {
 		a.base = s
 	}
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.tabFor = ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerFocus = false
-	if s == BoardScreen || s == TasksScreen {
+	if isBase(s) {
 		a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	}
 	if s == TasksScreen {
@@ -636,6 +643,9 @@ func (a *App) Show(s Screen) {
 	a.Reload()
 	if s == TasksScreen {
 		a.openTasks()
+	}
+	if s == SkillsScreen {
+		a.openSkills()
 	}
 }
 
@@ -676,7 +686,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == s && a.Ref == ref && a.pageReport == report {
 		return
 	}
-	if a.Screen == BoardScreen || a.Screen == TasksScreen {
+	if isBase(a.Screen) {
 		a.base = a.Screen
 		a.viewerFocus = true
 	}
@@ -688,7 +698,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == BoardScreen {
 		a.openerRef = opener
 	}
-	if a.Screen != BoardScreen && a.Screen != TasksScreen && len(a.back) < viewerStackMax-1 {
+	if !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
 			Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page})
 	}
@@ -1778,7 +1788,7 @@ func (a *App) pollOnce(gen, tick int) {
 	}
 	for i, rc := range cursors {
 		rs := &a.reads[i]
-		if i == readTasks && (screen == BoardScreen || screen == TasksScreen) {
+		if i == readTasks && isBase(screen) {
 			a.pollSkipped[i] = true
 			continue
 		}

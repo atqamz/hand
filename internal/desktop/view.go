@@ -143,7 +143,7 @@ func (a *App) toasts(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) viewerOpen() bool {
-	return a.Model != nil && a.Fleet.ID != "" && a.Screen != BoardScreen && a.Screen != TasksScreen
+	return a.Model != nil && a.Fleet.ID != "" && !isBase(a.Screen)
 }
 
 func (a *App) underScreen() Screen {
@@ -176,6 +176,9 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: !a.formShown() && a.underScreen() == TasksScreen}) {
 		a.resetTaskForm()
 		a.Show(TasksScreen)
+	}
+	if draw(kit.NavItem{Key: "screen:skills", Label: "Skills", Icon: "fleets", Current: !a.formShown() && a.underScreen() == SkillsScreen}) {
+		a.Show(SkillsScreen)
 	}
 	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
@@ -317,7 +320,7 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 	}
 	if a.narrow {
 		var tabs []kit.Tab
-		if a.boardShown() && a.underScreen() != TasksScreen {
+		if a.boardShown() && a.underScreen() == BoardScreen {
 			bg, fg := toneColors(a.Status.Needs.Worst, p)
 			if a.Status.Needs.Worst == "" {
 				bg, fg = p.neutralBG, p.neutral
@@ -399,8 +402,12 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	}
 	a.actionCard(c, p)
-	if a.underScreen() == TasksScreen {
+	switch a.underScreen() {
+	case TasksScreen:
 		a.tasksPage(c, k, p)
+		return
+	case SkillsScreen:
+		a.skillsPage(c, k, p)
 		return
 	}
 	if a.narrow {

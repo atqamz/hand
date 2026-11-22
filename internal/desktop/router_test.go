@@ -276,6 +276,34 @@ func TestEachFleetGoesToItsOwnHostWithItsOwnCookieAndNoOtherCredential(t *testin
 	}
 }
 
+func TestASkillsReadGoesToTheHostHoldingTheFleetWithThatFleetsCookie(t *testing.T) {
+	g := newRTRig(t)
+	local := newRTHost(t, "hand_board_", map[string]string{rtLocal: rtToken}, rtFleetsLocal)
+	a := newRTHost(t, "hand_phone_", map[string]string{rtA: rtCookieA}, rtFleetsA)
+	g.localFleet(t, rtLocal, local)
+	g.pair(t, rtHostA, rtClient, rtA, rtCookieA)
+	g.clients.set(rtHostA, upAt(a, rtClient))
+	m := g.connect(t)
+	if _, err := m.Skills(context.Background(), rtA); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	for _, c := range a.seen() {
+		asked = append(asked, c.path)
+	}
+	if !strings.Contains(strings.Join(asked, " "), "/"+rtA+"/api/v1/skills") {
+		t.Fatalf("host A was asked %v", asked)
+	}
+	if got := a.cookiesSeen(); !strings.Contains(got, "hand_phone_"+rtA+"="+rtCookieA) || strings.Contains(got, rtToken) {
+		t.Fatalf("host A saw %s", got)
+	}
+	for _, c := range local.seen() {
+		if strings.Contains(c.path, "/skills") {
+			t.Fatalf("the local board was asked %s", c.path)
+		}
+	}
+}
+
 func TestAFleetNobodyHoldsIsAskedOfNoRemoteHost(t *testing.T) {
 	g := newRTRig(t)
 	local := newRTHost(t, "hand_board_", map[string]string{rtLocal: rtToken}, rtFleetsLocal)

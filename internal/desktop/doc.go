@@ -128,12 +128,12 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	if a.Screen == DocScreen && a.Ref == rel && a.doc.page == page {
 		return
 	}
-	if a.Screen == BoardScreen || a.Screen == TasksScreen {
+	if isBase(a.Screen) {
 		a.base = a.Screen
 		a.viewerFocus = true
 		a.tabFor = ""
 	}
-	if push && a.Screen != BoardScreen && a.Screen != TasksScreen && len(a.back) < viewerStackMax-1 {
+	if push && !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
 			Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page})
 	}
