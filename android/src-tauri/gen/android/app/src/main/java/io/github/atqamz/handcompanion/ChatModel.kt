@@ -40,6 +40,7 @@ data class TimelineEntry(
   val delivered: String = "",
   val input: Long = 0,
   val queued: Boolean = false,
+  val shots: List<Shot> = emptyList(),
   val wakes: List<TimelineEntry> = emptyList()
 )
 

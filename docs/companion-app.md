@@ -157,6 +157,8 @@ These need setup that Hand does not do. A Companion that uses them opens the Boa
 
 "Chat, files and supervisor control" are the composer, attachments and the supervisor's Start, Resume, Stop, model and key controls. The board offers them only while it listens on a loopback address. On any other address they are off, and answering decisions and marking reports read still work.
 
+The Android Companion reads attachments, and does not send them yet. It draws a picture a message names at its `[attachment N]` token and a file as a card, fetching `GET /api/v1/inbox/{name}` through the sidecar under the fleet's cookie (`android/README.md`).
+
 The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet id>`; behind a proxy that sends `X-Forwarded-Proto: https` it is `__Host-hand_phone_<fleet id>` and has `Secure`. A proxy that sends `X-Forwarded-For` hides the fleet list at `/` from a request that holds no valid phone session. To open an alert link through a path with its own HTTPS name, rewrite the link in the `notify` command. With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
 
 ```json
