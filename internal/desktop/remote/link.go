@@ -1,7 +1,9 @@
 package remote
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strconv"
@@ -28,17 +30,27 @@ type LinkError struct{ Reason string }
 
 func (e *LinkError) Error() string { return "the pairing link is rejected: " + e.Reason }
 
-// Link holds the code, a credential: it prints as the host's short ID only.
 type Link struct {
 	Host, Fleet, Relay, Name string
-	code                     string
+	code                     func() string
 }
 
-func (l Link) Code() string { return l.code }
+func (l Link) Code() string {
+	if l.code == nil {
+		return ""
+	}
+	return l.code()
+}
 
 func (l Link) String() string { return "pairing link for " + Short(l.Host) }
 
 func (l Link) Format(f fmt.State, _ rune) { _, _ = fmt.Fprint(f, l.String()) }
+
+func (l Link) LogValue() slog.Value { return slog.StringValue(l.String()) }
+
+func (l Link) MarshalJSON() ([]byte, error) { return json.Marshal(l.String()) }
+
+func (l Link) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
 
 func Short(id string) string {
 	if len(id) < 8 {
@@ -168,7 +180,8 @@ func Parse(link string) (Link, error) {
 	case !codeRe.MatchString(values["c"]):
 		return reject("code")
 	}
-	l := Link{Host: values["e"], Fleet: values["f"], code: values["c"]}
+	pairing := values["c"]
+	l := Link{Host: values["e"], Fleet: values["f"], code: func() string { return pairing }}
 	if r, ok := values["r"]; ok {
 		url, good := relayURL(r)
 		if !good {

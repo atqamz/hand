@@ -41,8 +41,6 @@ type Host struct {
 	Fleets   []Fleet   `json:"fleets"`
 }
 
-// Store keeps the paired hosts (hosts.json, no secret), their cookies
-// (cookies.json, 0600) and one key folder per host, all under one folder.
 type Store struct {
 	dir string
 	mu  sync.Mutex
@@ -62,9 +60,9 @@ func (s *Store) hosts() ([]Host, error) {
 	return hs, s.read(filepath.Join(s.dir, "hosts.json"), &hs)
 }
 
-func (s *Store) cookies() (map[string]map[string]string, error) {
+func (s *Store) cookies(strict bool) (map[string]map[string]string, error) {
 	path := filepath.Join(s.dir, "cookies.json")
-	if runtime.GOOS != "windows" {
+	if strict && runtime.GOOS != "windows" {
 		if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 {
 			return nil, fmt.Errorf("%w: %s is %#o, it must be 0600", ErrPermissions, path, fi.Mode().Perm())
 		}
@@ -134,12 +132,17 @@ func (s *Store) Hosts() ([]Host, error) {
 func (s *Store) Cookie(host, fleet string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, err := s.cookies()
-	return c[host][fleet], err
+	c, err := s.cookies(true)
+	if err != nil {
+		return "", err
+	}
+	v := c[host][fleet]
+	if v != "" && !cookieRe.MatchString(v) {
+		return "", ErrBad
+	}
+	return v, nil
 }
 
-// Add holds one paired fleet. A fleet ID that another host or the local
-// folders already hold is refused whole, as the Companion refuses it.
 func (s *Store) Add(h Host, f Fleet, cookie string, local func(id string) bool) error {
 	if !endpointRe.MatchString(h.ID) || !fleetRe.MatchString(f.ID) || !cookieRe.MatchString(cookie) {
 		return ErrBad
@@ -167,7 +170,7 @@ func (s *Store) Add(h Host, f Fleet, cookie string, local func(id string) bool) 
 		hosts, at = append(hosts, h), len(hosts)
 	}
 	hosts[at].Fleets = append(hosts[at].Fleets, f)
-	jar, err := s.cookies()
+	jar, err := s.cookies(true)
 	if err != nil {
 		return err
 	}
@@ -184,8 +187,6 @@ func (s *Store) Add(h Host, f Fleet, cookie string, local func(id string) bool) 
 	return s.write("hosts.json", hosts, 0o600)
 }
 
-// Remove drops one fleet and its cookie; the host's last fleet takes the host
-// and its key with it.
 func (s *Store) Remove(host, fleet string) error {
 	if !endpointRe.MatchString(host) {
 		return ErrBad
@@ -204,7 +205,7 @@ func (s *Store) Remove(host, fleet string) error {
 	if len(hosts[at].Fleets) == 0 {
 		return s.forget(hosts, host)
 	}
-	jar, err := s.cookies()
+	jar, err := s.cookies(false)
 	if err != nil {
 		return err
 	}
@@ -229,7 +230,7 @@ func (s *Store) Forget(host string) error {
 }
 
 func (s *Store) forget(hosts []Host, id string) error {
-	jar, err := s.cookies()
+	jar, err := s.cookies(false)
 	if err != nil {
 		return err
 	}
@@ -244,7 +245,6 @@ func (s *Store) forget(hosts []Host, id string) error {
 	return os.RemoveAll(filepath.Join(s.dir, id))
 }
 
-// KeyDir makes the host's key folder, 0700 as hand-iroh demands.
 func (s *Store) KeyDir(host string) (string, error) {
 	if !endpointRe.MatchString(host) {
 		return "", ErrBad
