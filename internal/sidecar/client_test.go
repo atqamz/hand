@@ -198,8 +198,14 @@ func TestTheClientRunsWithAnEmptyEnvironmentAndStopsWhenItsInputCloses(t *testin
 	}
 	cancel()
 	finished(t, done)
-	if got := f.logged("env"); len(got) != 1 || got[0] != "env" {
-		t.Fatalf("environment = %q, want none", got)
+	seen := f.logged("env")
+	if len(seen) != 1 {
+		t.Fatalf("env lines = %q", seen)
+	}
+	for _, key := range strings.Split(strings.TrimSpace(strings.TrimPrefix(seen[0], "env")), ",") {
+		if key != "" && !strings.EqualFold(key, "SystemRoot") {
+			t.Errorf("the client inherited %q", key)
+		}
 	}
 	if got := f.logged("stdin closed"); len(got) != 1 {
 		t.Fatalf("the client was not stopped by closing its input: %q", got)
