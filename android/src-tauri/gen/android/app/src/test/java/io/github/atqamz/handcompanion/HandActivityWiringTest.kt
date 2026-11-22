@@ -1,6 +1,7 @@
 package io.github.atqamz.handcompanion
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,5 +55,17 @@ class HandActivityWiringTest {
     val open = body(notifier, "private fun open")
     assertTrue(open.contains("tapOf(spec)"))
     assertTrue(open.contains(".setAction(tap.action)"))
+  }
+
+  @Test
+  fun theSkillsReadStartsInTheModelsScopeSoARotationCannotCancelIt() {
+    val skills = body(activity, "private fun Skills(")
+    assertTrue(skills.contains("model.reload()"))
+    assertFalse(skills.contains("model.load()"))
+  }
+
+  @Test
+  fun theFleetMenuOpensTheSkillsScreen() {
+    assertTrue(activity.contains("onSkills = { skills = open }"))
   }
 }
