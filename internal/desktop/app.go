@@ -81,6 +81,12 @@ type App struct {
 	OnTitle func(string)
 	OnBadge func(int)
 	OnFlash func(bool)
+	// OnNotify shows an operating-system notification; nil shows none.
+	OnNotify func(Alert)
+	// NotifyOK says whether notifications can be shown here; nil means no.
+	NotifyOK func() bool
+	// Notify is the opt-in, kept in prefs.json.
+	Notify bool
 	// Now is the time the working line counts from; nil uses the wall clock.
 	Now func() time.Time
 
@@ -225,6 +231,10 @@ type App struct {
 	seen       map[string]Signal
 	flashed    map[string]bool
 	flashing   bool
+	notifyOK   bool
+	notifyNote string
+	notifyAt   map[string]time.Time
+	notifyLast time.Time
 	badge      int
 	attnDown   bool
 	attnSoon   bool
@@ -357,6 +367,7 @@ func (a *App) Boot() {
 // once Post is set. It does nothing until a fleet is selected.
 func (a *App) StartRefresh() {
 	a.polling, a.closed = true, false
+	a.notifyOK = a.NotifyOK != nil && a.NotifyOK()
 	a.armPoll()
 	a.armAttention()
 	a.watchDeny()

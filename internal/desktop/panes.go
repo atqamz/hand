@@ -374,6 +374,16 @@ func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 		if !a.remoteFleet() && m.Item("Refresh models").Disabled(a.modelsBusy).Chosen() {
 			a.refreshModels()
 		}
+		label := "Notify when a screen is blocked"
+		if !a.notifyOK {
+			label = "Notifications are not available here"
+		}
+		if m.Item(label).Checked(a.Notify && a.notifyOK).Disabled(!a.notifyOK).Chosen() {
+			a.SetNotify(!a.Notify)
+		}
+		if a.notifyNote != "" {
+			m.Item(a.notifyNote).Disabled(true)
+		}
 	})
 }
 
