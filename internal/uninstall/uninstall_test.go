@@ -557,7 +557,7 @@ func TestRemoteHostsFolderIsKeptAndNamedWithItsWarning(t *testing.T) {
 			if !strings.Contains(why, "copy is a copy of this device") || !strings.Contains(why, "revoke") {
 				t.Fatalf("kept %v: no remote folder with its warning (%q)", paths(rep.Kept), why)
 			}
-			if out := Render(rep).String(); !strings.Contains(out, dir) {
+			if out := Render(rep).String(); !strings.Contains(out, strings.ReplaceAll(dir, `\`, `\\`)) {
 				t.Fatalf("the report does not print %s:\n%s", dir, out)
 			}
 			gone := paths(rep.Removed)
