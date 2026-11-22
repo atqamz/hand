@@ -6,6 +6,7 @@ type Fleet struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Home string `json:"-"`
+	Host string `json:"-"`
 }
 
 type Envelope struct {
@@ -22,6 +23,7 @@ type APIError struct {
 	Status  int    `json:"status"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Remote  bool   `json:"-"`
 }
 
 func (e *APIError) Error() string { return e.Message }

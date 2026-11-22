@@ -2002,6 +2002,7 @@ func discover(connect func() (ReadModel, error), ctx context.Context, wait time.
 		switch {
 		case err == nil && name != "":
 			fleets[i].Name = name
+		case fleets[i].Host != "":
 		case isAuth(err):
 			f.Auth = true
 		case isOffline(err):
@@ -2137,7 +2138,7 @@ func friendly(err error) string {
 		case 401:
 			return "the board did not accept this fleet's token; open the fleet once with `hand open`"
 		case 403:
-			if api.Code == "csrf_required" {
+			if api.Code == "csrf_required" || api.Remote {
 				return api.Message
 			}
 			return "the board's API answers only on its loopback address"

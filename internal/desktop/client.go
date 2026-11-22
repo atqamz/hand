@@ -146,14 +146,38 @@ var (
 	ErrNoBoard = errors.New("no board is running; start it with `hand open` in a fleet")
 )
 
+const (
+	CodeRevoked       = "revoked"
+	CodeNotRecognised = "not_recognised"
+	CodeKeyChanged    = "key_changed"
+)
+
 type HTTPClient struct {
-	Base  string
-	Known []Fleet
-	Token func(fleet string) (string, error)
-	HTTP  *http.Client
+	Base   string
+	BaseOf func() string
+	Known  []Fleet
+	Token  func(fleet string) (string, error)
+	HTTP   *http.Client
+	Paired bool
+	Check  func() error
+	Down   error
 
 	mu      sync.Mutex
 	cursors map[string]string
+}
+
+func (c *HTTPClient) base() string {
+	if c.BaseOf != nil {
+		return c.BaseOf()
+	}
+	return c.Base
+}
+
+func (c *HTTPClient) cookie(fleet string) string {
+	if c.Paired {
+		return "hand_phone_" + fleet
+	}
+	return "hand_board_" + fleet
 }
 
 func (c *HTTPClient) Fleets() []Fleet {
@@ -161,20 +185,32 @@ func (c *HTTPClient) Fleets() []Fleet {
 }
 
 func NewLocal(getenv func(string) string) (*HTTPClient, error) {
+	c, err := openLocal(getenv)
+	if err != nil {
+		return nil, err
+	}
+	if c.Down != nil {
+		return nil, c.Down
+	}
+	return c, nil
+}
+
+func openLocal(getenv func(string) string) (*HTTPClient, error) {
 	root, err := localRoot(getenv, runtime.GOOS)
 	if err != nil {
 		return nil, err
 	}
-	base, err := localBoard(root)
-	if err != nil {
-		return nil, err
-	}
+	base, down := localBoard(root)
 	fleets, tokens, err := localFleets(root)
 	if err != nil {
+		if down != nil {
+			return nil, down
+		}
 		return nil, err
 	}
 	return &HTTPClient{
 		Base:  base,
+		Down:  down,
 		Known: fleets,
 		Token: func(fleet string) (string, error) { return readBoardToken(tokens[fleet]) },
 		HTTP:  &http.Client{Timeout: 10 * time.Second},
@@ -370,18 +406,18 @@ func (c *HTTPClient) Features(ctx context.Context, fleet string) ([]string, erro
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/v1/meta", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+"/api/v1/meta", nil)
 	if err != nil {
 		return nil, err
 	}
-	req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet, Value: token})
+	req.AddCookie(&http.Cookie{Name: c.cookie(fleet), Value: token})
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %w", c.Base, err)
+		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, remoteError(res)
+		return nil, c.failure(res)
 	}
 	var env struct {
 		Version int `json:"version"`
@@ -472,7 +508,7 @@ func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, 
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, remoteError(res)
+		return nil, c.failure(res)
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, docRawMax+1))
 	if err == nil && len(b) > docRawMax {
@@ -563,7 +599,7 @@ func (c *HTTPClient) pollSince(ctx context.Context, fleet, token, path, since st
 		}
 		return true, env.Cursor, nil
 	}
-	return false, "", remoteError(res)
+	return false, "", c.failure(res)
 }
 
 func withSince(path, since string) string {
@@ -688,7 +724,7 @@ func (c *HTTPClient) InboxBytes(ctx context.Context, fleet, name string) ([]byte
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, remoteError(res)
+		return nil, c.failure(res)
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, docRawMax+1))
 	if err == nil && len(b) > docRawMax {
@@ -878,6 +914,14 @@ func (c *HTTPClient) postRaw(ctx context.Context, fleet, path, ctype string, raw
 }
 
 func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
+	if c.Down != nil {
+		return nil, c.Down
+	}
+	if c.Check != nil {
+		if err := c.Check(); err != nil {
+			return nil, err
+		}
+	}
 	tokens := map[string]string{}
 	var order []string
 	var out []FleetSignal
@@ -889,13 +933,15 @@ func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
 		if err != nil {
 			continue
 		}
-		if err := c.prove(ctx, f.ID, token); err != nil {
-			var refused refusedProof
-			if !errors.As(err, &refused) {
-				return nil, err
+		if !c.Paired {
+			if err := c.prove(ctx, f.ID, token); err != nil {
+				var refused refusedProof
+				if !errors.As(err, &refused) {
+					return nil, err
+				}
+				out = append(out, FleetSignal{Fleet: f.ID})
+				continue
 			}
-			out = append(out, FleetSignal{Fleet: f.ID})
-			continue
 		}
 		tokens[f.ID] = token
 		order = append(order, f.ID)
@@ -906,20 +952,20 @@ func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
 		}
 		return out, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/v1/fleets", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+"/api/v1/fleets", nil)
 	if err != nil {
 		return nil, err
 	}
 	for _, id := range order {
-		req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: tokens[id]})
+		req.AddCookie(&http.Cookie{Name: c.cookie(id), Value: tokens[id]})
 	}
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %w", c.Base, err)
+		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, remoteError(res)
+		return nil, c.failure(res)
 	}
 	var env struct {
 		Version int `json:"version"`
@@ -952,23 +998,33 @@ func (c *HTTPClient) prepare(ctx context.Context, fleet string) (string, error) 
 	if !fleetIDShape.MatchString(fleet) {
 		return "", fmt.Errorf("%q is not a fleet id", fleet)
 	}
+	if c.Down != nil {
+		return "", c.Down
+	}
+	if c.Check != nil {
+		if err := c.Check(); err != nil {
+			return "", err
+		}
+	}
 	token, err := c.Token(fleet)
 	if err != nil {
 		return "", fmt.Errorf("fleet %s: %w", fleet, err)
 	}
-	if err := c.prove(ctx, fleet, token); err != nil {
-		return "", err
+	if !c.Paired {
+		if err := c.prove(ctx, fleet, token); err != nil {
+			return "", err
+		}
 	}
 	return token, nil
 }
 
 func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, ctype, method, path string, body io.Reader) (*http.Response, error) {
-	u := c.Base + "/" + fleet + "/api/v1" + path
+	u := c.base() + "/" + fleet + "/api/v1" + path
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
 	}
-	req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet, Value: token})
+	req.AddCookie(&http.Cookie{Name: c.cookie(fleet), Value: token})
 	if csrf != "" {
 		req.Header.Set("X-Hand-CSRF", csrf)
 	}
@@ -977,14 +1033,14 @@ func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, ctype, method, 
 	}
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %w", c.Base, err)
+		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
 	}
 	return res, nil
 }
 
 func (c *HTTPClient) decode(res *http.Response, fleet, path string, out any) (Envelope, error) {
 	if res.StatusCode != http.StatusOK {
-		return Envelope{}, remoteError(res)
+		return Envelope{}, c.failure(res)
 	}
 	var env Envelope
 	dec := json.NewDecoder(io.LimitReader(res.Body, maxBody))
@@ -1007,7 +1063,7 @@ func (c *HTTPClient) decode(res *http.Response, fleet, path string, out any) (En
 // token goes out, so a service that took the board's port never sees it.
 func (c *HTTPClient) prove(ctx context.Context, fleet, token string) error {
 	nonce := rand.Text()
-	u := c.Base + "/" + fleet + "/proof?nonce=" + url.QueryEscape(nonce)
+	u := c.base() + "/" + fleet + "/proof?nonce=" + url.QueryEscape(nonce)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return err
@@ -1035,7 +1091,7 @@ func (c *HTTPClient) prove(ctx context.Context, fleet, token string) error {
 type refusedProof struct{ error }
 
 func (c *HTTPClient) noBoard(fleet string) error {
-	return fmt.Errorf("no board for fleet %s answers at %s; start it with `hand open` in that fleet", fleet, c.Base)
+	return fmt.Errorf("no board for fleet %s answers at %s; start it with `hand open` in that fleet", fleet, c.base())
 }
 
 func (c *HTTPClient) http() *http.Client {
@@ -1052,6 +1108,22 @@ func (c *HTTPClient) client() *http.Client {
 	client.Jar = nil
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &client
+}
+
+func (c *HTTPClient) failure(res *http.Response) error {
+	if !c.Paired || res.StatusCode != http.StatusForbidden {
+		return remoteError(res)
+	}
+	if res.Header.Get("X-Hand-Error") != "" {
+		return &APIError{Status: res.StatusCode, Code: CodeRevoked, Remote: true, Message: "revoked on the host; pair this device again or forget the host"}
+	}
+	err := remoteError(res)
+	var api *APIError
+	if errors.As(err, &api) {
+		api.Remote = true
+		return err
+	}
+	return &APIError{Status: res.StatusCode, Code: CodeNotRecognised, Remote: true, Message: "the host does not recognise this device; pair it again"}
 }
 
 func remoteError(res *http.Response) error {

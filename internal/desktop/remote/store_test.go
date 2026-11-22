@@ -380,3 +380,40 @@ func TestACorruptedStoredCookieIsRefusedOnTheReadPathToo(t *testing.T) {
 		}
 	}
 }
+
+func TestTheClientIDPairedWithComesBackAndMustBeAnID(t *testing.T) {
+	s, _ := newStore(t)
+	h := hostRec(hostA)
+	h.ClientID = strings.Repeat("c", 64)
+	mustAdd(t, s, h, fleet2, cookieA)
+	got, err := s.Hosts()
+	if err != nil || len(got) != 1 || got[0].ClientID != h.ClientID {
+		t.Fatalf("hosts = %+v, %v", got, err)
+	}
+	for _, bad := range []string{"C" + strings.Repeat("c", 63), strings.Repeat("c", 63), "../" + strings.Repeat("c", 61), strings.Repeat("c", 65)} {
+		h := hostRec(hostB)
+		h.ClientID = bad
+		if err := s.Add(h, Fleet{ID: fleet3, Name: "x"}, cookieB, nil); !errors.Is(err, ErrBad) {
+			t.Fatalf("client ID %q: %v", bad, err)
+		}
+	}
+}
+
+func TestAHostsFileWithAMalformedIDIsRefusedWhenRead(t *testing.T) {
+	for _, body := range []string{
+		`[{"id":"../../x","paired_at":"2026-11-01T10:00:00Z","fleets":[]}]`,
+		`[{"id":"` + hostA + `","paired_at":"2026-11-01T10:00:00Z","fleets":[{"id":"../f","name":"x"}]}]`,
+		`[{"id":"` + hostA + `","client_id":"nope","paired_at":"2026-11-01T10:00:00Z","fleets":[]}]`,
+	} {
+		s, dir := newStore(t)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "hosts.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Hosts(); !errors.Is(err, ErrBad) {
+			t.Fatalf("%s: %v", body, err)
+		}
+	}
+}
