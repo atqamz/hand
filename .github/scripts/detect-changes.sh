@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -eu
+git() { command git -c core.quotePath=false "$@"; }
 go=false android=false workflows=false desktop=false render=false iroh=false setup=false e2e_install=false e2e_harness=false docs=false
 emit() {
   for line in "go=$go" "android=$android" "workflows=$workflows" "desktop=$desktop" "render=$render" "iroh=$iroh" "setup=$setup" "e2e_install=$e2e_install" "e2e_harness=$e2e_harness" "docs=$docs"; do
@@ -71,6 +72,6 @@ while IFS= read -r file; do
   esac
 done <<<"$changed"
 if [ "${EVENT:-}" = "push" ]; then
-  render=false setup=false e2e_install=false e2e_harness=false
+  desktop=true render=false setup=false e2e_install=false e2e_harness=false
 fi
 emit

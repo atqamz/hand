@@ -73,7 +73,7 @@ To bump a harness:
 
 | Trigger | Versions |
 |---|---|
-| a pull request that touches `internal/harness`, `internal/luvus`, `internal/cli/attempt*.go`, `internal/cli/supervisor*.go`, `internal/e2e`, `e2e-harness.yaml`, `check.yaml`, `.github/e2e/versions.env` or an install script (the `[CI] E2E Harness` job of `check.yaml`) | pinned |
+| a pull request to `main` that touches `internal/harness`, `internal/luvus`, `internal/cli/attempt*.go`, `internal/cli/supervisor*.go`, `internal/e2e`, `e2e-harness.yaml`, `check.yaml`, `.github/e2e/versions.env` or `.github/e2e/install-*.sh` (the `[CI] E2E Harness` job of `check.yaml`) | pinned |
 | `workflow_dispatch` of `check.yaml` with `area` `e2e-harness` or `all` | pinned |
 | `workflow_dispatch` of `nightly.yaml` with `job` `e2e-harness` | the `versions` input: `pinned` or `latest` |
 | the nightly schedule of `nightly.yaml` (02:23 UTC) | latest: the newest Claude Code and the newest Codex release, to see drift early |
