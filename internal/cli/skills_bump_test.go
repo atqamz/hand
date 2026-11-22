@@ -360,6 +360,35 @@ func TestSkillsSyncInAProjectRefusals(t *testing.T) {
 		}
 		f.quiet("another copy")
 	})
+	t.Run("the checkout's source is a fork that shares the commit", func(t *testing.T) {
+		f := newBumpFixture(t)
+		tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+		toolURL := "file://" + filepath.ToSlash(tool.bare)
+		f.ph.ok("skills", "add", "--ref", "main", toolURL)
+		f.publish("skills")
+		forkBare := filepath.Join(t.TempDir(), "fork.git")
+		skillGit(t, t.TempDir(), "clone", "-q", "--bare", tool.bare, forkBare)
+		forkWork := filepath.Join(t.TempDir(), "work")
+		skillGit(t, t.TempDir(), "clone", "-q", forkBare, forkWork)
+		fork := &skillRemote{t: t, work: forkWork, bare: forkBare}
+		forkURL := "file://" + filepath.ToSlash(forkBare)
+		lock := filepath.Join(f.repo, "skills-lock.json")
+		text, err := os.ReadFile(lock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(lock, []byte(strings.ReplaceAll(string(text), toolURL, forkURL)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitIn(t, f.repo, "add", "-A")
+		gitIn(t, f.repo, "commit", "-q", "-m", "follow the fork")
+		moved := fork.commit(skillFiles("tool-skill", "v2"))
+		out, errOut, code := f.ph.run("skills", "sync", "--yes", "tool-skill@"+moved)
+		if code != 3 || !strings.Contains(out, "tool-skill,refused,") || !strings.Contains(out+errOut, "does not hold the copy of tool-skill this checkout has") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
+		}
+		f.quiet("a fork that shares the commit")
+	})
 	t.Run("the default branch's copy was edited", func(t *testing.T) {
 		f := newBumpFixture(t)
 		f.install("triage")
@@ -469,6 +498,10 @@ func TestSkillsSyncInAProjectSaysWhenThePullRequestFailsAfterThePush(t *testing.
 	}
 	if left := tempLeft(t, f.tmp); len(left) != 0 {
 		t.Fatalf("temp folders left: %q", left)
+	}
+	out, _, code = f.ph.run("skills", "sync")
+	if code != 0 || !strings.Contains(out, "triage,pending,") || !strings.Contains(out, "open the pull request from the branch by hand") || strings.Contains(out, "already sent") {
+		t.Fatalf("repeat: code=%d stdout=%q", code, out)
 	}
 }
 

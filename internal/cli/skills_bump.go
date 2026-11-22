@@ -40,6 +40,23 @@ func shownURL(raw string) string {
 	return scpUserinfo.ReplaceAllString(raw, "")
 }
 
+func userinfos(raw string) []string {
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		if u.User == nil {
+			return nil
+		}
+		forms := []string{u.User.String(), u.User.Username()}
+		if pw, ok := u.User.Password(); ok {
+			forms = append(forms, u.User.Username()+":"+pw)
+		}
+		return forms
+	}
+	if m := scpUserinfo.FindString(raw); m != "" {
+		return []string{strings.TrimSuffix(m, "@")}
+	}
+	return nil
+}
+
 func unsecret(text, raw string) string {
 	shown := shownURL(raw)
 	if shown == raw {
@@ -48,10 +65,16 @@ func unsecret(text, raw string) string {
 	quoted, _ := json.Marshal(raw)
 	shownQuoted, _ := json.Marshal(shown)
 	text = strings.NewReplacer(raw, shown, string(quoted[1:len(quoted)-1]), string(shownQuoted[1:len(shownQuoted)-1])).Replace(text)
-	if u, err := url.Parse(raw); err == nil && u.User != nil {
-		if pw, _ := u.User.Password(); pw != "" {
-			text = strings.ReplaceAll(text, pw, "")
+	var pairs []string
+	for _, f := range userinfos(raw) {
+		if f == "" {
+			continue
 		}
+		escaped, _ := json.Marshal(f)
+		pairs = append(pairs, f+"@", "", string(escaped[1:len(escaped)-1])+"@", "")
+	}
+	if len(pairs) > 0 {
+		text = strings.NewReplacer(pairs...).Replace(text)
 	}
 	return text
 }
@@ -118,7 +141,7 @@ func (r *runner) bump(s fleet.Skills, name string, e fleet.Managed, p probed) (s
 	switch {
 	case ce.ComputedHash == p.sum:
 		return "pending", fmt.Sprintf("the default branch of %s already holds this update; pull the checkout", pr.repo), nil
-	case ce.Commit != e.Commit:
+	case ce.Source != e.Source || ce.SourceURL != e.SourceURL || ce.SkillPath != e.SkillPath || ce.Commit != e.Commit || ce.ComputedHash != e.ComputedHash:
 		return "", "", fmt.Errorf("%w: the default branch of %s does not hold the copy of %s this checkout has (%s); merge or push the checkout's copy first, or pull", state.ErrConflict, pr.repo, name, commitWord(e.Commit))
 	}
 	if kind, _, err := cs.Check(name, ce); err != nil || kind != "" {

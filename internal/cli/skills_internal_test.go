@@ -141,9 +141,21 @@ func TestShownURLDropsWhatCouldHoldASecret(t *testing.T) {
 func TestBumpBodyDropsTheSourceCredentialFromTheDiff(t *testing.T) {
 	raw := "https://tok:s3k&t@example.com/o/r.git"
 	e := fleet.Managed{LockEntry: fleet.LockEntry{Source: raw, SourceURL: raw, SourceType: "git"}}
-	got := bumpBody("t", e, " \"source\": \"https://tok:s3k\\u0026t@example.com/o/r.git\",\n+\"also\": \""+raw+"\"\n+s3k&t\n")
-	if strings.Contains(got, "tok") || strings.Contains(got, "s3k") || !strings.Contains(got, "\"source\": \"https://example.com/o/r.git\"") {
+	got := bumpBody("t", e, " \"source\": \"https://tok:s3k\\u0026t@example.com/o/r.git\",\n+\"also\": \""+raw+"\"\n+\"other\": \"https://tok:s3k&t@example.com/o/r\"\n")
+	if strings.Contains(got, "tok") || strings.Contains(got, "s3k") || !strings.Contains(got, "\"source\": \"https://example.com/o/r.git\"") || !strings.Contains(got, "\"other\": \"https://example.com/o/r\"") {
 		t.Errorf("body = %q", got)
+	}
+}
+
+func TestBumpBodyKeepsWhatASmallPasswordSpellsElsewhere(t *testing.T) {
+	diff := " \"ref\": \"main\",\n \"computedHash\": \"aabbcc0123456789\",\n a/.agents/skills/triage/SKILL.md\n+about a main thing on example.com\n"
+	for _, pw := range []string{"main", "a"} {
+		raw := "https://tok:" + pw + "@example.com/o/r.git"
+		e := fleet.Managed{LockEntry: fleet.LockEntry{Source: raw, SourceURL: raw, SourceType: "git", Ref: "main"}}
+		got := bumpBody("t", e, " \"source\": \""+raw+"\",\n"+diff)
+		if !strings.Contains(got, " \"source\": \"https://example.com/o/r.git\",\n"+diff) || strings.Contains(got, "tok:") {
+			t.Errorf("password %q: body = %q", pw, got)
+		}
 	}
 }
 
