@@ -2,7 +2,9 @@ package cli
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -28,8 +30,35 @@ func bumpTitle(name string, e fleet.Managed, commit, sum string) string {
 	return fmt.Sprintf("skills: %s %s -> %s", name, bumpVersion(e.Commit, e.ComputedHash), bumpVersion(commit, sum))
 }
 
+var scpUserinfo = regexp.MustCompile(`^[^/@]*@`)
+
+func shownURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		u.User, u.RawQuery, u.Fragment, u.ForceQuery = nil, "", "", false
+		return u.String()
+	}
+	return scpUserinfo.ReplaceAllString(raw, "")
+}
+
+func unsecret(text, raw string) string {
+	shown := shownURL(raw)
+	if shown == raw {
+		return text
+	}
+	quoted, _ := json.Marshal(raw)
+	shownQuoted, _ := json.Marshal(shown)
+	text = strings.NewReplacer(raw, shown, string(quoted[1:len(quoted)-1]), string(shownQuoted[1:len(shownQuoted)-1])).Replace(text)
+	if u, err := url.Parse(raw); err == nil && u.User != nil {
+		if pw, _ := u.User.Password(); pw != "" {
+			text = strings.ReplaceAll(text, pw, "")
+		}
+	}
+	return text
+}
+
 func bumpBody(title string, e fleet.Managed, diff string) string {
-	source := e.URL()
+	source := shownURL(e.URL())
+	diff = unsecret(diff, e.URL())
 	if p := e.Path(); p != "" {
 		source += "#" + p
 	}
@@ -73,7 +102,7 @@ func (r *runner) bump(s fleet.Skills, name string, e fleet.Managed, p probed) (s
 	if out, err := gitcfg.RunBounded(ctx, c.repo, skillGitTimeout, "ls-remote", "--heads", "--", remote, "refs/heads/"+pr.branch); err != nil {
 		return "", "", err
 	} else if strings.TrimSpace(out) != "" {
-		return "pending", fmt.Sprintf("this update was already sent: the branch %s is on %s; merge its pull request and pull, or delete the branch to send it again", pr.branch, pr.repo), nil
+		return "pending", fmt.Sprintf("the branch %s is on %s from an earlier run; merge its pull request and pull, or delete the branch to send it again; if that run stopped at `gh pr create`, open the pull request from the branch by hand", pr.branch, pr.repo), nil
 	}
 	cs := fleet.Skills{Base: c.repo, Scope: "project", Meta: filepath.Join(c.repo, ".git", "hand-skills")}
 	unlock, err := cs.Lock()
@@ -109,7 +138,7 @@ func (r *runner) bump(s fleet.Skills, name string, e fleet.Managed, p probed) (s
 	if _, err := gitcfg.RunBounded(ctx, c.repo, skillGitTimeout, "add", "-A"); err != nil {
 		return "", "", err
 	}
-	if err := r.refuseIgnored(c.repo, name, "."); err != nil {
+	if err := r.refuseIgnored(c.repo, name, ".", "project", "sent"); err != nil {
 		return "", "", err
 	}
 	diff, err := gitcfg.RunBounded(ctx, c.repo, skillGitTimeout, "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv")

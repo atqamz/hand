@@ -127,7 +127,7 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 	if _, err := gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "add", "-A"); err != nil {
 		return proposal{}, err
 	}
-	if err := r.refuseIgnored(c.repo, name, cmp.Or(e.Path(), ".")); err != nil {
+	if err := r.refuseIgnored(c.repo, name, cmp.Or(e.Path(), "."), "source", "proposed"); err != nil {
 		return proposal{}, err
 	}
 	if p.stat, err = gitcfg.RunBounded(r.fetches.ctx, c.repo, skillGitTimeout, "diff", "--cached", "--stat", "--no-color"); err != nil {
@@ -139,13 +139,13 @@ func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) 
 	return p, nil
 }
 
-func (r *runner) refuseIgnored(repo, name, rel string) error {
+func (r *runner) refuseIgnored(repo, name, rel, owner, verb string) error {
 	ignored, err := gitcfg.RunBounded(r.fetches.ctx, repo, skillGitTimeout, "ls-files", "--others", "--ignored", "--exclude-standard", "--", rel)
 	if err != nil {
 		return err
 	}
 	if left := strings.Fields(ignored); len(left) > 0 {
-		return fmt.Errorf("%w: %s holds files the source's .gitignore leaves out of a commit (%s); nothing proposed; move them out of the skill or change the ignore rule in the source", state.ErrInvalid, name, strings.Join(left[:min(len(left), 5)], ", "))
+		return fmt.Errorf("%w: %s holds files the %s's .gitignore leaves out of a commit (%s); nothing %s; move them out of the skill or change the ignore rule in the %s", state.ErrInvalid, name, owner, strings.Join(left[:min(len(left), 5)], ", "), verb, owner)
 	}
 	return nil
 }
@@ -197,7 +197,8 @@ func (r *runner) ghCreate(ctx context.Context, p proposal, title, body string) (
 	if p.base != "" {
 		args = append(args, "--base", p.base)
 	}
-	cmd := exec.CommandContext(ctx, gh, append(args, "--title", title, "--body", body)...)
+	cmd := exec.CommandContext(ctx, gh, append(args, "--title", title, "--body-file", "-")...)
+	cmd.Stdin = strings.NewReader(body)
 	cmd.Dir = p.clone
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "NO_COLOR=1")
 	proc.NoWindow(cmd)

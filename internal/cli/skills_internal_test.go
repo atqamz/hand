@@ -108,11 +108,11 @@ func TestBumpBodyFencesTheDiffAndCutsItAtALine(t *testing.T) {
 	if !strings.HasPrefix(got, "skills: triage a -> b\n\nSource: "+skillsRepo+"#skills/triage, ref main.") || !strings.Contains(got, "\n`````diff\n+```\n+````\n+x\n`````\n") {
 		t.Errorf("body = %q", got)
 	}
-	long := strings.Repeat("+0123456789\n", bumpBodyLimit/11+1000)
+	long := strings.Repeat("+012345678\n", bumpBodyLimit/11+1000)
 	got = bumpBody("t", e, long)
 	cut := strings.Index(got, "```diff\n") + len("```diff\n")
 	diff := got[cut : strings.Index(got[cut:], "```")+cut]
-	if len(diff) > bumpBodyLimit || len(diff) < bumpBodyLimit-12 || !strings.HasSuffix(diff, "\n") || !strings.Contains(got, "The diff is cut at 60000 bytes; Files changed has all of it.") || len(got) > 65536 {
+	if len(diff) > bumpBodyLimit || len(diff) < bumpBodyLimit-11 || len(diff)%11 != 0 || !strings.HasSuffix(diff, "\n") || !strings.Contains(got, "The diff is cut at 60000 bytes; Files changed has all of it.") || len(got) > 65536 {
 		t.Errorf("cut diff = %d bytes, body %d bytes", len(diff), len(got))
 	}
 	if strings.Contains(bumpBody("t", e, "+a\n"), "The diff is cut") {
@@ -120,6 +120,30 @@ func TestBumpBodyFencesTheDiffAndCutsItAtALine(t *testing.T) {
 	}
 	if got := bumpBody("t", fleet.Managed{LockEntry: fleet.LockEntry{Source: "o/r", SourceURL: "https://github.com/o/r.git", SourceType: "github"}}, "+a\n"); !strings.Contains(got, ", ref HEAD.") {
 		t.Errorf("no ref = %q", got)
+	}
+}
+
+func TestShownURLDropsWhatCouldHoldASecret(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://tok:sekrit@example.com/o/r.git":       "https://example.com/o/r.git",
+		"https://tok@example.com/o/r.git?token=x#frag": "https://example.com/o/r.git",
+		"https://github.com/o/r.git":                   "https://github.com/o/r.git",
+		"git@github.com:o/r.git":                       "github.com:o/r.git",
+		"user:sekrit@example.com:o/r.git":              "example.com:o/r.git",
+		"ssh://git:sekrit@example.com:2222/o/r.git":    "ssh://example.com:2222/o/r.git",
+	} {
+		if got := shownURL(in); got != want {
+			t.Errorf("shownURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBumpBodyDropsTheSourceCredentialFromTheDiff(t *testing.T) {
+	raw := "https://tok:s3k&t@example.com/o/r.git"
+	e := fleet.Managed{LockEntry: fleet.LockEntry{Source: raw, SourceURL: raw, SourceType: "git"}}
+	got := bumpBody("t", e, " \"source\": \"https://tok:s3k\\u0026t@example.com/o/r.git\",\n+\"also\": \""+raw+"\"\n+s3k&t\n")
+	if strings.Contains(got, "tok") || strings.Contains(got, "s3k") || !strings.Contains(got, "\"source\": \"https://example.com/o/r.git\"") {
+		t.Errorf("body = %q", got)
 	}
 }
 

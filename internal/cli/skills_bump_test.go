@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -151,10 +152,14 @@ func TestSkillsSyncInAProjectOpensABumpPullRequestAndLeavesTheCheckoutAlone(t *t
 		t.Fatalf("the branch's lock = %+v, copy sum %s, %v", lock.Skills["triage"], sum, err)
 	}
 	argv := f.ghArgs()
-	if len(argv) != 1 || len(argv[0]) != 12 || strings.Join(argv[0][:9], " ") != "pr create --repo acme/app --head "+branch+" --base main --title" || argv[0][9] != title || argv[0][10] != "--body" {
+	if len(argv) != 1 || len(argv[0]) != 12 || strings.Join(argv[0][:9], " ") != "pr create --repo acme/app --head "+branch+" --base main --title" || argv[0][9] != title || argv[0][10] != "--body-file" || argv[0][11] != "-" {
 		t.Fatalf("gh argv = %q", argv)
 	}
-	body := argv[0][11]
+	bodies := ghBodies(t, f.log)
+	if len(bodies) != 1 {
+		t.Fatalf("bodies = %q", bodies)
+	}
+	body := bodies[0]
 	for _, want := range []string{title + "\n", "Source: " + skillsURL + "#skills/triage, ref main", "```diff\n", "-v1\n", "+v2\n", "skills-lock.json", "normal gate"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the body lacks %q: %q", want, body)
@@ -383,7 +388,71 @@ func TestSkillsSyncInAProjectRefusals(t *testing.T) {
 		f.install("triage")
 		f.hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"], "skills/triage/extra.txt": "x\n"})
 		step(t, f, ".gitignore")
+		out, errOut, _ := f.ph.run("skills", "sync")
+		if text := out + errOut; !strings.Contains(text, "the project's .gitignore") || !strings.Contains(text, "nothing sent") || strings.Contains(text, "proposed") || strings.Contains(text, "in the source") {
+			t.Errorf("the refusal = %q", text)
+		}
 	})
+}
+
+func TestSkillsSyncInAProjectKeepsASourceCredentialOutOfThePullRequest(t *testing.T) {
+	f := newBumpFixture(t)
+	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
+	const source = "https://tok:sekrit@example.com/o/tool-skill.git"
+	f.route(source, tool.bare)
+	f.ph.ok("skills", "add", "--ref", "main", source)
+	f.publish("skills")
+	moved := tool.commit(skillFiles("tool-skill", "v2"))
+	out, errOut, code := f.ph.run("skills", "sync", "--yes", "tool-skill@"+moved)
+	if code != 0 || !strings.Contains(out, "tool-skill,bumped,") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	argv, bodies := f.ghArgs(), ghBodies(t, f.log)
+	if len(argv) != 1 || len(bodies) != 1 {
+		t.Fatalf("gh argv %q, bodies %q", argv, bodies)
+	}
+	if !strings.Contains(bodies[0], "Source: https://example.com/o/tool-skill.git, ref main.") {
+		t.Errorf("body = %q", bodies[0])
+	}
+	branch := f.branches("tool-skill")[0]
+	for what, text := range map[string]string{
+		"body":           bodies[0],
+		"argv":           strings.Join(argv[0], "\x00"),
+		"commit message": skillGit(t, f.origin, "log", "-1", "--format=%B", branch),
+		"stdout":         out,
+		"stderr":         errOut,
+	} {
+		if strings.Contains(text, "sekrit") || strings.Contains(text, "tok:") {
+			t.Errorf("the %s carries the credential: %q", what, text)
+		}
+	}
+}
+
+func TestSkillsSyncInAProjectSendsALargeBodyOnStdin(t *testing.T) {
+	f := newBumpFixture(t)
+	f.install("triage")
+	var big strings.Builder
+	for i := range 3000 {
+		fmt.Fprintf(&big, "line %05d of a long reference file\n", i)
+	}
+	f.hub.commit(map[string]string{"skills/triage/SKILL.md": skillFiles("triage", "v2")["SKILL.md"], "skills/triage/references/big.md": big.String()})
+	out := f.ph.ok("skills", "sync")
+	if !strings.Contains(out, "triage,bumped,") {
+		t.Fatalf("sync = %q", out)
+	}
+	argv, bodies := f.ghArgs(), ghBodies(t, f.log)
+	if len(argv) != 1 || len(bodies) != 1 {
+		t.Fatalf("gh argv %q, bodies %q", argv, bodies)
+	}
+	for _, a := range argv[0] {
+		if len(a) > 4000 {
+			t.Errorf("an argv entry is %d bytes", len(a))
+		}
+	}
+	body := bodies[0]
+	if len(body) < 40000 || len(body) > 65536 || !strings.Contains(body, "+line 00000 of a long reference file\n") || !strings.HasSuffix(body, "The diff is cut at 60000 bytes; Files changed has all of it.\n\n") {
+		t.Errorf("the body is %d bytes, ends %q", len(body), body[max(0, len(body)-80):])
+	}
 }
 
 func TestSkillsSyncInAProjectSaysWhenThePullRequestFailsAfterThePush(t *testing.T) {

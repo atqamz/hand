@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -26,12 +27,32 @@ func ghMain(args []string) int {
 	p := fakebin.Params()
 	b, _ := json.Marshal(args)
 	fakebin.Append(p["log"], string(b))
+	if slices.Contains(args, "--body-file") {
+		body, _ := io.ReadAll(os.Stdin)
+		b, _ := json.Marshal(string(body))
+		fakebin.Append(p["log"]+".body", string(b))
+	}
 	if p["stderr"] != "" {
 		fmt.Fprint(os.Stderr, p["stderr"])
 		return 1
 	}
 	fmt.Println(prURL)
 	return 0
+}
+
+func ghBodies(t *testing.T, log string) []string {
+	t.Helper()
+	var all []string
+	if b, err := os.ReadFile(log + ".body"); err == nil {
+		for line := range strings.Lines(string(b)) {
+			var body string
+			if err := json.Unmarshal([]byte(line), &body); err != nil {
+				t.Fatalf("gh body log: %v", err)
+			}
+			all = append(all, body)
+		}
+	}
+	return all
 }
 
 type proposeFixture struct {
@@ -156,16 +177,20 @@ func TestSkillsProposeCommitsTheEditedFolderAndOpensAPullRequest(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(readSkill(t, f.log))), &argv); err != nil {
 		t.Fatalf("gh log: %v", err)
 	}
-	if len(argv) != 12 || strings.Join(argv[:9], " ") != "pr create --repo "+ownRepoName+" --head "+branch+" --base main --title" || argv[9] != "skills: update triage" || argv[10] != "--body" {
+	if len(argv) != 12 || strings.Join(argv[:9], " ") != "pr create --repo "+ownRepoName+" --head "+branch+" --base main --title" || argv[9] != "skills: update triage" || argv[10] != "--body-file" || argv[11] != "-" {
 		t.Fatalf("gh argv = %q", argv)
 	}
+	bodies := ghBodies(t, f.log)
+	if len(bodies) != 1 {
+		t.Fatalf("bodies = %q", bodies)
+	}
 	for _, want := range []string{"hand skills propose", "skills/triage/SKILL.md", "3 files changed", "skills/triage/references/a.md", "skills/triage/scripts/new.sh"} {
-		if !strings.Contains(argv[11], want) {
-			t.Errorf("the body lacks %q: %q", want, argv[11])
+		if !strings.Contains(bodies[0], want) {
+			t.Errorf("the body lacks %q: %q", want, bodies[0])
 		}
 	}
 	for _, private := range []string{f.h.home, f.h.vars["HOME"], f.h.vars["SECONDHAND_HOME"], f.tmp} {
-		if strings.Contains(argv[11], private) || strings.Contains(out, private) {
+		if strings.Contains(bodies[0], private) || strings.Contains(out, private) {
 			t.Errorf("the output carries the private path %q", private)
 		}
 	}
