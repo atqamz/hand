@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -101,6 +102,9 @@ func TestACookieFileOthersCanReadIsRefused(t *testing.T) {
 		}
 		if err := s.Add(hostRec(hostB), Fleet{ID: fleet2}, cookieB, nil); !errors.Is(err, ErrPermissions) {
 			t.Errorf("mode %v: Add error %v", mode, err)
+		}
+		if hosts, _ := s.Hosts(); len(hosts) != 1 || len(hosts[0].Fleets) != 1 {
+			t.Errorf("mode %v: Add changed hosts.json: %+v", mode, hosts)
 		}
 		if err := os.Chmod(path, 0o600); err != nil {
 			t.Fatal(err)
@@ -319,5 +323,60 @@ func TestDirSitsBesideTheDraftsFolder(t *testing.T) {
 	}
 	if Dir("") != "" {
 		t.Fatal("no drafts folder, no remote folder")
+	}
+}
+
+func TestACookieFileOthersCanReadDoesNotBlockRemovingAHostOrAFleet(t *testing.T) {
+	unixOnly(t)
+	s, dir := newStore(t)
+	mustAdd(t, s, hostRec(hostA), flt, cookieA)
+	mustAdd(t, s, hostRec(hostA), fleet2, cookieA)
+	mustAdd(t, s, hostRec(hostB), fleet3, cookieB)
+	keyA, _ := s.KeyDir(hostA)
+	keyB, _ := s.KeyDir(hostB)
+	path := filepath.Join(dir, "cookies.json")
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(hostA, flt); err != nil {
+		t.Fatalf("Remove with a 0644 cookie file: %v", err)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the rewritten cookie file: %v, %v", fi, err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Forget(hostA); err != nil {
+		t.Fatalf("Forget with a 0644 cookie file: %v", err)
+	}
+	if _, err := os.Stat(keyA); !os.IsNotExist(err) {
+		t.Errorf("the key folder stays: %v", err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(hostB, fleet3); err != nil {
+		t.Fatalf("Remove of the last fleet with a 0644 cookie file: %v", err)
+	}
+	if _, err := os.Stat(keyB); !os.IsNotExist(err) {
+		t.Errorf("the last fleet's key folder stays: %v", err)
+	}
+	if hosts, err := s.Hosts(); err != nil || len(hosts) != 0 {
+		t.Errorf("hosts = %+v, %v", hosts, err)
+	}
+}
+
+func TestACorruptedStoredCookieIsRefusedOnTheReadPathToo(t *testing.T) {
+	s, dir := newStore(t)
+	mustAdd(t, s, hostRec(hostA), flt, cookieA)
+	for _, bad := range []string{"1.x\r\nX-Evil: 1", "0." + cookieA[2:], "1." + strings.ToUpper(cookieA[2:]), cookieA + " ", "x"} {
+		raw, _ := json.Marshal(map[string]map[string]string{hostA: {flt: bad}})
+		if err := os.WriteFile(filepath.Join(dir, "cookies.json"), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.Cookie(hostA, flt); !errors.Is(err, ErrBad) || got != "" {
+			t.Errorf("%q: got %q, %v", bad, got, err)
+		}
 	}
 }

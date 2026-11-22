@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -117,6 +118,8 @@ func TestTheChecksRunInTheOrderOfTheContract(t *testing.T) {
 		{"http://a b" + strings.Repeat("x", 220), "too_long"},
 		{"http://a b", "characters"},
 		{"https://c#v=1", "scheme"},
+		{"http://a", "scheme"},
+		{"handboard://d", "no_fragment"},
 		{"handboard://d?x", "no_fragment"},
 		{"handboard://d?x#v=1", "query"},
 		{"handboard://d#e=1", "target"},
@@ -147,6 +150,11 @@ func TestAPastedLinkIsTrimmedAndNothingElse(t *testing.T) {
 	}
 	if got := reasonOf(t, strings.Replace(link, "&f=", " &f=", 1)); got != "characters" {
 		t.Fatalf("a space inside the link: %q", got)
+	}
+	_, err := ParsePasted(strings.Replace(link, "&f=", " &f=", 1))
+	var le *LinkError
+	if !errors.As(err, &le) || le.Reason != "characters" {
+		t.Fatalf("a pasted link with a space inside: %v", err)
 	}
 }
 
@@ -186,6 +194,75 @@ func TestALinkAndItsErrorsNeverPrintTheCodeTheFleetOrTheLink(t *testing.T) {
 	}
 	if got := l.String(); !strings.Contains(got, "4d92…6ed6") {
 		t.Errorf("the link prints as %q, not the short ID", got)
+	}
+}
+
+type holder struct{ l Link }
+
+type exported struct{ L Link }
+
+func TestTheCodeNeverPrintsOnAnyPath(t *testing.T) {
+	l, err := Parse(fragment("v=1", "e="+hostA, "f="+flt, "c="+code, "r=https%3A%2F%2Frelay.example.test%2F", "n=laptop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%d"} {
+		out = append(out,
+			fmt.Sprintf(verb, holder{l}), fmt.Sprintf(verb, &holder{l}), fmt.Sprintf(verb, []holder{{l}}),
+			fmt.Sprintf(verb, map[string]holder{"k": {l}}), fmt.Sprintf(verb, exported{l}),
+			fmt.Sprintf(verb, l.code),
+		)
+	}
+	out = append(out, fmt.Sprintln(holder{l}), fmt.Sprint([]holder{{l}}))
+	for _, v := range []any{l, &l, holder{l}, &holder{l}, exported{l}, []holder{{l}}} {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, string(raw))
+	}
+	for name, h := range map[string]func(*bytes.Buffer) slog.Handler{
+		"text": func(b *bytes.Buffer) slog.Handler { return slog.NewTextHandler(b, nil) },
+		"json": func(b *bytes.Buffer) slog.Handler { return slog.NewJSONHandler(b, nil) },
+	} {
+		var b bytes.Buffer
+		log := slog.New(h(&b))
+		log.Info("x", "link", l, "ptr", &l, "held", holder{l}, "heldptr", &holder{l}, "out", exported{l})
+		out = append(out, name+": "+b.String())
+	}
+	for _, s := range out {
+		if strings.Contains(s, code) {
+			t.Errorf("%q holds the code", s)
+		}
+	}
+	if l.Code() != code || (Link{}).Code() != "" {
+		t.Errorf("Code() = %q, zero %q", l.Code(), (Link{}).Code())
+	}
+}
+
+func TestADirectLinkPrintsAsTheShortIDUnderEveryPath(t *testing.T) {
+	l, err := Parse(fragment("v=1", "e="+hostA, "f="+flt, "c="+code, "n=laptop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "pairing link for 4d92…6ed6"
+	raw, _ := json.Marshal(l)
+	var b bytes.Buffer
+	slog.New(slog.NewJSONHandler(&b, nil)).Info("x", "link", l)
+	var rec struct{ Link string }
+	if err := json.Unmarshal(b.Bytes(), &rec); err != nil {
+		t.Fatal(err)
+	}
+	b.Reset()
+	slog.New(slog.NewTextHandler(&b, nil)).Info("x", "link", l)
+	for name, got := range map[string]string{
+		"%v": fmt.Sprintf("%v", l), "%+v": fmt.Sprintf("%+v", l), "%#v": fmt.Sprintf("%#v", l),
+		"json": string(raw), "slog json": rec.Link, "slog text": b.String(),
+	} {
+		if !strings.Contains(got, want) || strings.Contains(got, flt) || strings.Contains(got, "laptop") {
+			t.Errorf("%s prints %q", name, got)
+		}
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -334,5 +335,44 @@ func TestStartRefusesWhatTheClientRefusesAndStartsNothing(t *testing.T) {
 	}
 	if _, err := NewSupervisor(SupervisorOptions{}); !errors.Is(err, ErrNoStore) {
 		t.Fatalf("an empty supervisor: %v", err)
+	}
+}
+
+func TestStartAfterCloseIsRefusedAndStartsNothing(t *testing.T) {
+	r := newRig(t, nil, nil)
+	r.sup.Close()
+	if err := r.sup.Start(Host{ID: hostA}, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Start after Close: %v", err)
+	}
+	if r.logText() != "" || len(r.sup.runs) != 0 {
+		t.Fatalf("something started: %q", r.logText())
+	}
+}
+
+func TestACallbackThatStopsTheHostDoesNotDeadlock(t *testing.T) {
+	var sup atomic.Pointer[Supervisor]
+	stopped := make(chan struct{})
+	var once sync.Once
+	r := newRig(t, nil, func(o *SupervisorOptions) {
+		o.OnChange = func(host string, st sidecar.ClientStatus) {
+			if st.State == sidecar.Ready {
+				once.Do(func() {
+					sup.Load().Stop(host)
+					close(stopped)
+				})
+			}
+		}
+	})
+	sup.Store(r.sup)
+	if err := r.sup.Start(Host{ID: hostA}, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Stop called from OnChange never returned")
+	}
+	if st := r.sup.Status(hostA); st.State != sidecar.Stopped {
+		t.Fatalf("status = %+v", st)
 	}
 }

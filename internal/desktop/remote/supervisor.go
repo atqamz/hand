@@ -17,9 +17,11 @@ const (
 	stableRun  = 10 * time.Second
 )
 
-var ErrNoStore = errors.New("a supervisor needs a store and a hand-iroh resolver")
+var (
+	ErrNoStore = errors.New("a supervisor needs a store and a hand-iroh resolver")
+	ErrClosed  = errors.New("the supervisor is closed")
+)
 
-// Exit codes of hand-iroh that a restart cannot cure: usage and key problems.
 func fatal(code int) bool { return code == 2 || code == 3 }
 
 type SupervisorOptions struct {
@@ -36,8 +38,17 @@ type Supervisor struct {
 	mu   sync.Mutex
 	runs map[string]*run
 
+	qmu   sync.Mutex
+	queue []event
+	kick  chan struct{}
+
 	stable time.Duration
 	wait   func(context.Context, time.Duration) bool
+}
+
+type event struct {
+	host string
+	st   sidecar.ClientStatus
 }
 
 type run struct {
@@ -57,12 +68,13 @@ func NewSupervisor(o SupervisorOptions) (*Supervisor, error) {
 		o.Max = max(backoffMax, o.Min)
 	}
 	ctx, stop := context.WithCancel(context.Background())
-	return &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, stable: stableRun, wait: sleep}, nil
+	s := &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, kick: make(chan struct{}, 1), stable: stableRun, wait: sleep}
+	if o.OnChange != nil {
+		go s.dispatch()
+	}
+	return s, nil
 }
 
-// Start runs one hand-iroh client for the host, once: a second call for a host
-// that runs changes nothing, and one whose client gave up starts again. newKey lets the client make the host's key, and
-// only until the key exists, so a lost key never becomes a new identity.
 func (s *Supervisor) Start(h Host, newKey bool) error {
 	dir, err := s.o.Store.KeyDir(h.ID)
 	if err != nil {
@@ -70,6 +82,9 @@ func (s *Supervisor) Start(h Host, newKey bool) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.ctx.Err() != nil {
+		return ErrClosed
+	}
 	if r := s.runs[h.ID]; r != nil {
 		select {
 		case <-r.done:
@@ -107,8 +122,35 @@ func (s *Supervisor) record(id string, st sidecar.ClientStatus) {
 		r.st = st
 	}
 	s.mu.Unlock()
-	if s.o.OnChange != nil {
-		s.o.OnChange(id, st)
+	if s.o.OnChange == nil {
+		return
+	}
+	s.qmu.Lock()
+	s.queue = append(s.queue, event{id, st})
+	s.qmu.Unlock()
+	select {
+	case s.kick <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Supervisor) dispatch() {
+	for {
+		s.qmu.Lock()
+		q := s.queue
+		s.queue = nil
+		s.qmu.Unlock()
+		for _, e := range q {
+			s.o.OnChange(e.host, e.st)
+		}
+		if len(q) > 0 {
+			continue
+		}
+		select {
+		case <-s.kick:
+		case <-s.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -156,7 +198,6 @@ func (s *Supervisor) Status(host string) sidecar.ClientStatus {
 	return sidecar.ClientStatus{State: sidecar.Stopped}
 }
 
-// Base is the loopback address the host's client listens on, empty until it does.
 func (s *Supervisor) Base(host string) string {
 	if st := s.Status(host); st.Addr != "" {
 		return "http://" + st.Addr
