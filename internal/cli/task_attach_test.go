@@ -365,6 +365,25 @@ func TestTaskAttachRefusesAFleetFileReachedThroughALinkedFolderDotDotOrAHardlink
 	}
 }
 
+func TestTaskAttachCopiesNothingWhenTheFleetFolderCannotBeSearched(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a folder with no permissions is still readable here")
+	}
+	h := attachFixture(t)
+	locked := filepath.Join(h.home, "locked")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o700)
+	before := inboxNames(t, h)
+	if _, errOut, code := h.run("task", "attach", "t1", externalFile(t, "a.txt", []byte("x"))); code == 0 || !strings.Contains(errOut, "locked") || !slices.Equal(before, inboxNames(t, h)) {
+		t.Fatalf("code=%d stderr=%q, inbox %q", code, errOut, inboxNames(t, h))
+	}
+}
+
 func TestTaskAttachToAMissingTaskCopiesNothing(t *testing.T) {
 	h := attachFixture(t)
 	before := inboxNames(t, h)

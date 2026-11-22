@@ -499,13 +499,19 @@ func (r *runner) inFleetFolder(opened os.FileInfo) (bool, error) {
 		case err != nil && path == home:
 			return err
 		case err != nil:
-			return nil
+			return err
 		case path == filepath.Join(home, "reports"):
 			return filepath.SkipDir
 		case !de.Type().IsRegular():
 			return nil
 		}
-		if info, err := de.Info(); err == nil && os.SameFile(info, opened) {
+		info, err := de.Info()
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return err
+		case os.SameFile(info, opened):
 			found = true
 			return filepath.SkipAll
 		}

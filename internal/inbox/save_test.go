@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -313,5 +314,31 @@ func TestPruneSweepsStaleUploadsAndASweepDryRunKeepsThem(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".upload-busy")); err != nil {
 		t.Fatalf("an upload in progress was swept: %v", err)
+	}
+}
+
+func TestSaveNeverReplacesAFileOfTheSameName(t *testing.T) {
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	got := make([]string, 40)
+	for i := range got {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[i], _ = Save(dir, now, "same.txt", strings.NewReader(strings.Repeat("x", i+1)))
+		}()
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	for i, name := range got {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if name == "" || seen[name] || err != nil || len(b) != i+1 {
+			t.Fatalf("save %d = %q (%d bytes), %v", i, name, len(b), err)
+		}
+		seen[name] = true
+	}
+	des, _ := os.ReadDir(dir)
+	if len(des) != len(got) {
+		t.Fatalf("%d entries for %d saves", len(des), len(got))
 	}
 }

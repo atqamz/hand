@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -39,7 +38,6 @@ var (
 	ImageLike  = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)$`)
 	unsafeRuns = regexp.MustCompile(`[^\p{L}\p{M}\p{N}._-]+`)
 	invisible  = []*unicode.RangeTable{unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector}
-	saveMu     sync.Mutex
 )
 
 func TooBig(err error) bool {
@@ -153,17 +151,12 @@ func Save(dir string, now time.Time, original string, body io.Reader) (string, e
 		return "", werr
 	}
 	stamp := now.Format("20060102-150405")
-	saveMu.Lock()
-	defer saveMu.Unlock()
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("%s-%d-%s", stamp, n, safe)
-		path := filepath.Join(dir, name)
-		if _, err := os.Lstat(path); err == nil {
+		switch err := os.Link(tmp.Name(), filepath.Join(dir, name)); {
+		case errors.Is(err, fs.ErrExist):
 			continue
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-		if err := os.Rename(tmp.Name(), path); err != nil {
+		case err != nil:
 			return "", err
 		}
 		return name, nil
