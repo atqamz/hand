@@ -112,7 +112,7 @@ fun skillNote(skill: SkillInfo) =
 internal fun skillsProblem(error: BoardError): String =
   when (error) {
     BoardError.TimedOut ->
-      "The Board did not answer in five minutes. A skills read fetches each source; try again."
+      "The Board did not answer in time. A skills read fetches each source and can take minutes; try again."
     BoardError.Lost,
     BoardError.Unreachable,
     BoardError.BoardNotRunning,

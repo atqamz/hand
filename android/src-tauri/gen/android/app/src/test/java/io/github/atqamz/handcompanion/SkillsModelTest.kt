@@ -105,7 +105,7 @@ class SkillsModelTest {
     val board = SkillsBoard(skills = { throw BoardError.TimedOut })
     val model = SkillsModel(FLEET, board)
     model.load()
-    assertTrue(model.state.value.problem!!.startsWith("The Board did not answer in five minutes."))
+    assertTrue(model.state.value.problem!!.startsWith("The Board did not answer in time."))
   }
 
   @Test
