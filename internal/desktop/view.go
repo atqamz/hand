@@ -181,10 +181,10 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 		a.Show(SkillsScreen)
 	}
 	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
-	if draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
+	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 		a.OpenScreen()
 	}
-	if draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone"}) {
+	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone"}) {
 		a.OpenPhone()
 	}
 	if a.Model != nil {
@@ -193,12 +193,20 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	for _, f := range a.Fleets {
 		fleet := f
 		tone, status := a.mark(fleet)
-		if draw(kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}) {
+		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
+		if m, ok := a.linkOf(fleet); ok {
+			_, n.LinkFG = toneColors(m.tone, p)
+			n.Link, n.LinkIcon = m.word, m.icon
+		}
+		if draw(n) {
 			a.SelectFleet(fleet.ID)
 		}
 	}
 	if a.Model != nil && draw(kit.NavItem{Key: "fleet:new", Label: "New fleet", Icon: "plus", Current: a.formShown()}) {
 		a.openNewFleet()
+	}
+	if a.Model != nil && a.remoteAvailable() && draw(kit.NavItem{Key: "fleet:remote", Label: "Connect remote fleet", Icon: "fleets", Current: a.rfOpen}) {
+		a.openRemoteForm(Fleet{})
 	}
 }
 
@@ -223,7 +231,10 @@ func (a *App) toggleSheet() {
 }
 
 func (a *App) boardShown() bool {
-	return a.Model != nil && a.Fleet.ID != "" && !a.auth && !a.Starting && a.StartErr == "" && !a.nfOpen
+	if a.Model == nil || a.Fleet.ID == "" || a.nfOpen || a.rfOpen || a.refusal() != "" {
+		return false
+	}
+	return a.remoteFleet() || !a.auth && !a.Starting && a.StartErr == ""
 }
 
 const (
@@ -329,6 +340,7 @@ func (a *App) masthead(c *ui.Context, k kit.Colors, p palette) {
 func (a *App) mastheadStrip(c *ui.Context, k kit.Colors, p palette) {
 	ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {
 		if a.Model != nil && a.Fleet.ID != "" {
+			a.linkPill(c, p)
 			statusPill(c, p, a.Status.Pill)
 			if sup := a.Status.Supervisor; sup != nil && sup.Pending > 0 {
 				ui.Textf(c, "%d queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
@@ -354,7 +366,19 @@ func (a *App) mastheadStrip(c *ui.Context, k kit.Colors, p palette) {
 	})
 }
 
+func (a *App) hostsCard(c *ui.Context, p palette) {
+	if a.hostsErr == nil {
+		return
+	}
+	ui.Column(c).Label("Remote hosts hidden").Gap(8).Padding(14).Margin(8, 16, 0).Radius(10).Background(p.failBG).
+		Border(1, p.fail).Children(func() {
+		ui.Text(c, "Remote hosts are hidden").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
+		ui.Text(c, "The remote hosts file is not valid, so no remote fleet is listed: "+a.hostsErr.Error()).FontSize(kit.Meta.Size)
+	})
+}
+
 func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
+	a.hostsCard(c, p)
 	if !a.boardShown() {
 		ui.Scroll(c).Grow(1).Padding(20, 20, 32).Children(func() {
 			ui.Column(c).Gap(16).Children(func() {
@@ -362,7 +386,9 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 					a.openCard(c, p)
 				}
 				switch {
-				case a.Starting || a.StartErr != "" || a.auth || a.noFleets || a.nfOpen:
+				case a.refusal() != "" && !a.rfOpen && !a.nfOpen:
+					a.refusalCard(c, k, p, a.refusal())
+				case a.Starting || a.StartErr != "" || a.auth || a.noFleets || a.nfOpen || a.rfOpen:
 					a.stateCard(c, k, p)
 				case a.Err != "":
 					a.errorCard(c, p)

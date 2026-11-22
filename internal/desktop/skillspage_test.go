@@ -303,6 +303,26 @@ func TestReopeningThePageKeepsAPendingActionsOutcome(t *testing.T) {
 	}
 }
 
+func TestAPairedHostsSkillsAreReadWithNoActionOffered(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	f.fleets[0].Host = "hostid"
+	_, tt := skillsApp(t, f)
+	mustText(t, tt, "review", "notes", "deploy", "This fleet is on a paired host. A paired Companion cannot change skills; use the host's Board.",
+		"Review diff")
+	for _, gone := range []string{"Sync", "Update", "Propose"} {
+		if _, ok := tt.Find(gone); ok {
+			t.Errorf("a paired host's skills offer %q", gone)
+		}
+	}
+	click(t, tt, "Review diff")
+	tt.SetSize(windowWidth, 1400)
+	mustText(t, tt, "+description: Write notes after every task")
+	mustNotText(t, tt, "Apply this update")
+	if len(f.skillCalls()) != 0 {
+		t.Fatalf("calls = %+v", f.skillCalls())
+	}
+}
+
 func TestUpdateRunsAtOnceWhenNoThirdPartySkillIsBehind(t *testing.T) {
 	f := scopes(goldenFixture(t), "fleet/")
 	f.skillsRun = desktop.SkillsRun{Receipt: "Skills update: 2 current"}

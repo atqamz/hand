@@ -650,3 +650,64 @@ func TestAnUnreadableFleetIndexNeverMasksTheMissingBoard(t *testing.T) {
 		t.Fatalf("Connect = %v", err)
 	}
 }
+
+type stubModel struct {
+	desktop.ReadModel
+	fleets []desktop.Fleet
+	sigs   []desktop.FleetSignal
+	err    error
+	status error
+}
+
+func (s *stubModel) Fleets() []desktop.Fleet { return s.fleets }
+
+func (s *stubModel) Attention(context.Context) ([]desktop.FleetSignal, error) { return s.sigs, s.err }
+
+func (s *stubModel) Status(context.Context, string) (desktop.Status, error) {
+	return desktop.Status{}, s.status
+}
+
+func revokedErr() error {
+	return &desktop.APIError{Status: 403, Code: desktop.CodeRevoked, Remote: true, Message: "revoked"}
+}
+
+func TestARefusalIsClearedOnlyForFleetsTheHostConfirms(t *testing.T) {
+	host := &stubModel{fleets: []desktop.Fleet{{ID: rtA, Host: rtHostA}, {ID: rtB, Host: rtHostA}}, status: revokedErr()}
+	r := desktop.NewRouter(&stubModel{}, host)
+	now := time.Now()
+	desktop.SetRouterClock(r, func() time.Time { return now })
+	for _, id := range []string{rtA, rtB} {
+		if _, err := r.Status(context.Background(), id); err == nil {
+			t.Fatal("no refusal from the host")
+		}
+	}
+	poll := func(sigs ...desktop.FleetSignal) {
+		t.Helper()
+		now = now.Add(desktop.RemoteAttentionRefresh + time.Second)
+		host.sigs = sigs
+		if _, err := r.Attention(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	poll(desktop.FleetSignal{Fleet: rtA, Signal: desktop.Signal{OK: false}})
+	poll()
+	if r.Refusal(rtA) != desktop.CodeRevoked || r.Refusal(rtB) != desktop.CodeRevoked {
+		t.Fatalf("refusals after an unavailable and an omitted fleet: %q %q", r.Refusal(rtA), r.Refusal(rtB))
+	}
+	poll(desktop.FleetSignal{Fleet: rtA, Signal: desktop.Signal{OK: true}})
+	if r.Refusal(rtA) != "" || r.Refusal(rtB) != desktop.CodeRevoked {
+		t.Fatalf("refusals after a confirmed fleet: %q %q", r.Refusal(rtA), r.Refusal(rtB))
+	}
+}
+
+func TestAHostsRefusalNeverMarksAFleetAnotherHostOwns(t *testing.T) {
+	first := &stubModel{fleets: []desktop.Fleet{{ID: rtA, Host: rtHostA}}, err: errors.New("down")}
+	second := &stubModel{fleets: []desktop.Fleet{{ID: rtA, Host: rtHostB}, {ID: rtB, Host: rtHostB}}, err: revokedErr()}
+	r := desktop.NewRouter(&stubModel{}, first, second)
+	if _, err := r.Attention(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if r.Refusal(rtA) != "" || r.Refusal(rtB) != desktop.CodeRevoked {
+		t.Fatalf("refusals: %q %q", r.Refusal(rtA), r.Refusal(rtB))
+	}
+}

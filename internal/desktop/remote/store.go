@@ -181,8 +181,47 @@ func (s *Store) Add(h Host, f Fleet, cookie string, local func(id string) bool) 
 	if at < 0 {
 		h.Fleets = nil
 		hosts, at = append(hosts, h), len(hosts)
+	} else if h.ClientID != "" {
+		hosts[at].ClientID = h.ClientID
 	}
 	hosts[at].Fleets = append(hosts[at].Fleets, f)
+	jar, err := s.cookies(true)
+	if err != nil {
+		return err
+	}
+	if jar == nil {
+		jar = map[string]map[string]string{}
+	}
+	if jar[h.ID] == nil {
+		jar[h.ID] = map[string]string{}
+	}
+	jar[h.ID][f.ID] = cookie
+	if err := s.write("cookies.json", jar, 0o600); err != nil {
+		return err
+	}
+	return s.write("hosts.json", hosts, 0o600)
+}
+
+func (s *Store) Replace(h Host, f Fleet, cookie string) error {
+	if !endpointRe.MatchString(h.ID) || !fleetRe.MatchString(f.ID) || !cookieRe.MatchString(cookie) || (h.ClientID != "" && !endpointRe.MatchString(h.ClientID)) {
+		return ErrBad
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hosts, err := s.hosts()
+	if err != nil {
+		return err
+	}
+	at := slices.IndexFunc(hosts, func(o Host) bool { return o.ID == h.ID })
+	if at < 0 {
+		return ErrUnknown
+	}
+	i := slices.IndexFunc(hosts[at].Fleets, func(o Fleet) bool { return o.ID == f.ID })
+	if i < 0 {
+		return ErrUnknown
+	}
+	hosts[at].Fleets[i] = f
+	hosts[at].ClientID, hosts[at].Relay, hosts[at].PairedAt = h.ClientID, h.Relay, h.PairedAt
 	jar, err := s.cookies(true)
 	if err != nil {
 		return err

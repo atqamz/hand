@@ -161,6 +161,10 @@ func (a *App) skillsPage(c *ui.Context, k kit.Colors, p palette) {
 			})
 			ui.Text(c, "Add and remove are not in the board's API. Run `hand skills add` or `hand skills remove` in a terminal; the next check lists the change.").
 				FontSize(kit.Meta.Size).TextColor(p.neutral)
+			if a.remoteFleet() {
+				ui.Text(c, "This fleet is on a paired host. A paired Companion cannot change skills; use the host's Board.").
+					FontSize(kit.Meta.Size).TextColor(p.wait)
+			}
 			a.skillsBody(c, k, p)
 		})
 	})
@@ -228,6 +232,9 @@ func (a *App) skillScope(c *ui.Context, k kit.Colors, p palette, sc SkillScope) 
 			ui.Spacer(c)
 			if a.sk.acting == key {
 				ui.Text(c, "Working…").FontSize(kit.Meta.Size).TextColor(p.neutral)
+			}
+			if a.remoteFleet() {
+				return
 			}
 			if kit.Button(c, k, "skills:sync:"+key, "Sync", 80, busy || managed == 0) {
 				a.runSkills("sync", sc, "", "")
@@ -454,8 +461,11 @@ func (a *App) skillRow(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s 
 
 func (a *App) skillActions(c *ui.Context, k kit.Colors, sc SkillScope, s Skill, key string) {
 	busy := a.skillsBusy()
+	remote := a.remoteFleet()
 	switch {
 	case !s.Managed:
+	case remote && s.State != "behind":
+	case remote && s.Trusted:
 	case s.State == "behind" && s.Trusted:
 		if kit.Button(c, k, "skills:sync-one:"+key, "Sync", 80, busy) {
 			a.runSkills("sync", sc, s.Name, "")
@@ -491,7 +501,7 @@ func (a *App) skillDiff(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s
 			Background(k.BG).Border(1, p.line).Focusable().Label("diff of " + s.Name).Children(func() {
 			ui.Text(c, s.Diff).Font("monospace").FontSize(kit.Meta.Size)
 		})
-		if s.DiffCut || s.Latest == "" {
+		if s.DiffCut || s.Latest == "" || a.remoteFleet() {
 			return
 		}
 		applies := "Apply moves " + s.Name + " to " + shortCommit(s.Latest) + ", the commit of the diff above, with a backup."

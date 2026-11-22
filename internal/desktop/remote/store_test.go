@@ -417,3 +417,49 @@ func TestAHostsFileWithAMalformedIDIsRefusedWhenRead(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceKeepsOneFleetEntryAndTakesTheNewClientCookieAndDate(t *testing.T) {
+	s := OpenStore(filepath.Join(t.TempDir(), "remote"))
+	h := Host{ID: strings.Repeat("a", 64), ClientID: strings.Repeat("b", 64), PairedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	f := Fleet{ID: "f0000000000aa", Name: "old"}
+	if err := s.Add(h, f, "1."+strings.Repeat("0", 64), nil); err != nil {
+		t.Fatal(err)
+	}
+	n := Host{ID: h.ID, ClientID: strings.Repeat("c", 64), Relay: "https://relay.example", PairedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)}
+	if err := s.Replace(n, Fleet{ID: f.ID, Name: "new"}, "2."+strings.Repeat("1", 64)); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := s.Hosts()
+	if err != nil || len(hosts) != 1 || len(hosts[0].Fleets) != 1 {
+		t.Fatalf("hosts = %+v, %v", hosts, err)
+	}
+	got := hosts[0]
+	if got.ClientID != n.ClientID || got.Relay != n.Relay || !got.PairedAt.Equal(n.PairedAt) || got.Fleets[0].Name != "new" {
+		t.Fatalf("host = %+v", got)
+	}
+	if c, _ := s.Cookie(h.ID, f.ID); c != "2."+strings.Repeat("1", 64) {
+		t.Fatalf("cookie = %q", c)
+	}
+}
+
+func TestReplaceRefusesAnUnknownHostFleetOrAMalformedCookie(t *testing.T) {
+	s := OpenStore(filepath.Join(t.TempDir(), "remote"))
+	h := Host{ID: strings.Repeat("a", 64)}
+	f := Fleet{ID: "f0000000000aa", Name: "x"}
+	cookie := "1." + strings.Repeat("0", 64)
+	if err := s.Replace(h, f, cookie); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("unknown host: %v", err)
+	}
+	if err := s.Add(h, f, cookie, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Replace(h, Fleet{ID: "f0000000000bb"}, cookie); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("unknown fleet: %v", err)
+	}
+	if err := s.Replace(h, f, "short"); !errors.Is(err, ErrBad) {
+		t.Fatalf("bad cookie: %v", err)
+	}
+	if err := s.Replace(Host{ID: h.ID, ClientID: "x"}, f, cookie); !errors.Is(err, ErrBad) {
+		t.Fatalf("bad client id: %v", err)
+	}
+}
