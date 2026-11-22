@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +35,9 @@ func fakeClient(args []string) int {
 	switch p["mode"] {
 	case "die":
 		fmt.Fprintln(os.Stderr, "hand-iroh: the key is not 32 bytes")
+		return 3
+	case "dirty":
+		fmt.Fprint(os.Stderr, "oops \x1b[31m\x07red\x00 end\n")
 		return 3
 	case "silent":
 		return drain()
@@ -155,6 +159,8 @@ func TestNewClientRefusesWhatCouldReachArgvAsAnotherFlagOrAnotherHost(t *testing
 		"listen on ipv6":      func(o *ClientOptions) { o.Listen = "[::1]:8080" },
 		"listen on a network": func(o *ClientOptions) { o.Listen = "192.168.1.5:8080" },
 		"listen without port": func(o *ClientOptions) { o.Listen = "127.0.0.1" },
+		"listen empty port":   func(o *ClientOptions) { o.Listen = "127.0.0.1:" },
+		"direct empty port":   func(o *ClientOptions) { o.Direct = "127.0.0.1:" },
 		"direct elsewhere":    func(o *ClientOptions) { o.Direct = "10.0.0.2:7000" },
 	} {
 		o := f.opts
@@ -253,7 +259,7 @@ func TestAClientThatNeverListensIsKilledAfterTheReadyWait(t *testing.T) {
 	f.opts.ReadyWait = 100 * time.Millisecond
 	c, _, done := f.start(t)
 	finished(t, done)
-	if st := c.Status(); st.State != Failed || st.Reason != "no listening line within 100ms" {
+	if st := c.Status(); st.State != Failed || st.Code != -1 || st.Reason != "no listening line within 100ms" {
 		t.Fatalf("Status = %+v", st)
 	}
 }
@@ -269,8 +275,8 @@ func TestAClientThatIgnoresItsClosedInputIsKilledAfterTheStopWait(t *testing.T) 
 	if took := time.Since(began); took > 10*time.Second {
 		t.Fatalf("stopping took %v", took)
 	}
-	if st := c.Status(); st.State != Stopped || st.Code == 0 {
-		t.Fatalf("Status = %+v: a killed client has no clean exit", st)
+	if st := c.Status(); st.State != Stopped || st.Code != -1 {
+		t.Fatalf("Status = %+v: a killed client is -1 on every system", st)
 	}
 }
 
@@ -279,7 +285,55 @@ func TestAClientWhoseBinaryCannotBeResolvedFailsWithTheReason(t *testing.T) {
 	f.opts.Resolve = func(context.Context) (string, error) { return "", fmt.Errorf("%w: it is not on PATH", ErrNotFound) }
 	c, _, done := f.start(t)
 	finished(t, done)
-	if st := c.Status(); st.State != Failed || !strings.Contains(st.Reason, "hand-iroh not found") {
+	if st := c.Status(); st.State != Failed || st.Code != -1 || !strings.Contains(st.Reason, "hand-iroh not found") {
 		t.Fatalf("Status = %+v", st)
+	}
+}
+
+func TestAClientThatCannotBeStartedFailsWithCodeMinusOne(t *testing.T) {
+	f := newClientFixture(t, nil)
+	f.opts.Resolve = func(context.Context) (string, error) { return filepath.Join(f.dir, "missing", "hand-iroh"), nil }
+	c, _, done := f.start(t)
+	finished(t, done)
+	if st := c.Status(); st.State != Failed || st.Code != -1 || !strings.HasPrefix(st.Reason, "cannot start: ") {
+		t.Fatalf("Status = %+v", st)
+	}
+}
+
+func TestTheReasonOfAnExitHasNoControlCharacters(t *testing.T) {
+	f := newClientFixture(t, map[string]string{"mode": "dirty"})
+	c, _, done := f.start(t)
+	finished(t, done)
+	st := c.Status()
+	if st.State != Failed || st.Code != 3 || !strings.Contains(st.Reason, "oops") {
+		t.Fatalf("Status = %+v", st)
+	}
+	for _, r := range st.Reason {
+		if r < ' ' || r == 0x7f {
+			t.Fatalf("Reason %q holds a control character", st.Reason)
+		}
+	}
+}
+
+func TestOnChangeMayReadStatus(t *testing.T) {
+	f := newClientFixture(t, nil)
+	var c *Client
+	var last atomic.Value
+	f.opts.OnChange = func(st ClientStatus) { last.Store(c.Status()) }
+	c, err := NewClient(f.opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.Run(ctx)
+	}()
+	eventually(t, "the client to connect", func() bool { return c.Status().Link == Connected })
+	cancel()
+	finished(t, done)
+	if got, _ := last.Load().(ClientStatus); got.State != Stopped {
+		t.Fatalf("the last status read in OnChange = %+v", got)
 	}
 }

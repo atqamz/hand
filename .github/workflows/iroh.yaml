@@ -18,6 +18,7 @@ on:
       - iroh/**
       - internal/board/peer.go
       - internal/board/iroh_client_test.go
+      - internal/board/companion_host_test.go
       - internal/sidecar/**
       - internal/desktop/remote/**
       - .github/workflows/iroh.yaml
@@ -27,6 +28,7 @@ on:
       - iroh/**
       - internal/board/peer.go
       - internal/board/iroh_client_test.go
+      - internal/board/companion_host_test.go
       - internal/sidecar/**
       - internal/desktop/remote/**
       - .github/workflows/iroh.yaml

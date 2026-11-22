@@ -53,6 +53,7 @@ type ClientOptions struct {
 type Client struct {
 	o  ClientOptions
 	mu sync.Mutex
+	cb sync.Mutex
 	st ClientStatus
 }
 
@@ -83,9 +84,11 @@ func (c *Client) Status() ClientStatus {
 }
 
 func (c *Client) set(st ClientStatus) {
+	c.cb.Lock()
+	defer c.cb.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.st = st
+	c.mu.Unlock()
 	if c.o.OnChange != nil {
 		c.o.OnChange(st)
 	}
@@ -120,7 +123,7 @@ func (c *Client) Run(ctx context.Context) {
 	c.set(ClientStatus{State: Starting})
 	bin, err := c.o.Resolve(ctx)
 	if err != nil {
-		c.finish(ctx, ClientStatus{State: Failed, Reason: clean(err.Error())})
+		c.finish(ctx, ClientStatus{State: Failed, Code: -1, Reason: clean(err.Error())})
 		return
 	}
 	cmd := exec.Command(bin, c.args()...)
@@ -128,13 +131,13 @@ func (c *Client) Run(ctx context.Context) {
 	proc.NoWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		c.finish(ctx, ClientStatus{State: Failed, Reason: clean("cannot start: " + err.Error())})
+		c.finish(ctx, ClientStatus{State: Failed, Code: -1, Reason: clean("cannot start: " + err.Error())})
 		return
 	}
 	errs := &tail{}
 	cmd.Stdout, cmd.Stderr = &lines{on: c.onLine}, errs
 	if err := cmd.Start(); err != nil {
-		c.finish(ctx, ClientStatus{State: Failed, Reason: clean("cannot start: " + err.Error())})
+		c.finish(ctx, ClientStatus{State: Failed, Code: -1, Reason: clean("cannot start: " + err.Error())})
 		return
 	}
 	exited := make(chan error, 1)
@@ -142,6 +145,7 @@ func (c *Client) Run(ctx context.Context) {
 	ready := time.NewTimer(c.o.ReadyWait)
 	defer ready.Stop()
 	var werr error
+	killed := false
 	for done := false; !done; {
 		select {
 		case werr = <-exited:
@@ -152,6 +156,7 @@ func (c *Client) Run(ctx context.Context) {
 			case werr = <-exited:
 			case <-time.After(c.o.StopWait):
 				_ = cmd.Process.Kill()
+				killed = true
 				werr = <-exited
 			}
 			done = true
@@ -170,6 +175,9 @@ func (c *Client) Run(ctx context.Context) {
 		st.Code, st.Reason = ee.ExitCode(), werr.Error()
 	} else if werr != nil {
 		st.Code, st.Reason = -1, werr.Error()
+	}
+	if killed {
+		st.Code = -1
 	}
 	if line := errs.last(); line != "" {
 		st.Reason += ": " + line
