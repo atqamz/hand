@@ -58,6 +58,8 @@ type ReadModel interface {
 	Attention(ctx context.Context) ([]FleetSignal, error)
 	Features(ctx context.Context, fleet string) ([]string, error)
 	Links(ctx context.Context, fleet string, paths []string) ([]*Link, error)
+	Skills(ctx context.Context, fleet string) (Skills, error)
+	SkillsRun(ctx context.Context, fleet, verb string, req SkillsRequest) (SkillsRun, error)
 }
 
 type ReadCursor struct {
@@ -525,7 +527,7 @@ func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref 
 	var p Poll
 	p.StatusFresh, p.StatusCursor, p.StatusRead, p.StatusErr = c.pollRead(ctx, fleet, token, "/status", since.Status, since.Worker, &p.Status)
 	p.ScreenFresh, p.ScreenCursor, p.ScreenRead, p.ScreenErr = c.pollRead(ctx, fleet, token, pollPath(screen, ref), since.Screen, false, pollData(screen, &p))
-	if screen != BoardScreen && screen != TasksScreen {
+	if !isBase(screen) {
 		p.TasksFresh, p.TasksCursor, p.TasksRead, p.TasksErr = c.pollRead(ctx, fleet, token, "/tasks?all=1", since.Tasks, false, &p.Tasks)
 	}
 	p.TimelineFresh, p.TimelineCursor, p.TimelineRead, p.TimelineErr = c.pollRead(ctx, fleet, token, "/timeline", since.Timeline, false, &p.Timeline)
@@ -549,7 +551,7 @@ func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc
 
 func pollPath(screen Screen, ref string) string {
 	switch screen {
-	case TasksScreen, DocScreen:
+	case TasksScreen, SkillsScreen, DocScreen:
 		return ""
 	case TaskScreen:
 		return "/task/" + url.PathEscape(ref)
@@ -1031,7 +1033,7 @@ func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, ctype, method, 
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
 	}
-	res, err := c.client().Do(req)
+	res, err := c.longClient(ctx).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
 	}
