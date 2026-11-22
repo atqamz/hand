@@ -350,12 +350,12 @@ func TestTaskAttachRefusesAFleetFileReachedThroughALinkedFolderDotDotOrAHardlink
 		t.Skipf("no hard links: %v", err)
 	}
 	before := inboxNames(t, h)
-	for _, path := range []string{
-		filepath.Join(ext, "reports-link") + string(filepath.Separator) + ".." + string(filepath.Separator) + "hand.db",
-		filepath.Join(ext, "reports-link") + string(filepath.Separator) + ".." + string(filepath.Separator) + "board.token",
-		filepath.Join(ext, "hard-hand.db"),
-		filepath.Join(ext, "hard-board.token"),
-	} {
+	refused := []string{filepath.Join(ext, "hard-hand.db"), filepath.Join(ext, "hard-board.token")}
+	if runtime.GOOS != "windows" {
+		through := filepath.Join(ext, "reports-link") + string(filepath.Separator) + ".." + string(filepath.Separator)
+		refused = append(refused, through+"hand.db", through+"board.token")
+	}
+	for _, path := range refused {
 		if _, errOut, code := h.run("task", "attach", "t1", path); code != 2 || !strings.Contains(errOut, "inside the fleet folder") || !slices.Equal(before, inboxNames(t, h)) {
 			t.Errorf("%s: code=%d stderr=%q, inbox %q", path, code, errOut, inboxNames(t, h))
 		}
