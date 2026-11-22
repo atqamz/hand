@@ -75,10 +75,10 @@ To bump a harness:
 |---|---|
 | a pull request that touches `internal/harness`, `internal/luvus`, `internal/cli/attempt*.go`, `internal/cli/supervisor*.go`, `internal/e2e`, the workflow itself, `.github/e2e/versions.env` or an install script | pinned |
 | `workflow_dispatch` | the `versions` input: `pinned` or `latest` |
-| the nightly schedule (02:23 UTC) | latest: the newest Claude Code and the newest Codex release, to see drift early |
+| the nightly schedule of `nightly.yaml` (02:23 UTC) | latest: the newest Claude Code and the newest Codex release, to see drift early |
 | `workflow_call` | the `versions` input, `pinned` by default |
 
-The `e2e harness` job at the end succeeds only when every leg did, so a caller can require it. `release.yaml` can run the suite before it publishes with `uses: ./.github/workflows/e2e-harness.yaml` and `with: {versions: pinned}`. A failing nightly run reports drift and blocks nothing, because a release calls the pinned suite.
+The `[E2E] Harness Result` job at the end succeeds only when every leg did, so a caller can require it. `publish.yaml` can run the suite before it publishes with `uses: ./.github/workflows/e2e-harness.yaml` and `with: {versions: pinned}`. A failing nightly run reports drift and blocks nothing, because a release calls the pinned suite.
 
 Each leg uploads `e2e-<harness>-<system>`, with the `go test` log, and for each scenario its `mock.log` and, when it failed, `hand.txt`.
 

@@ -1,4 +1,4 @@
-name: E2E harness
+name: "[Reuse] E2E Harness"
 
 on:
   workflow_dispatch:
@@ -8,8 +8,6 @@ on:
         type: choice
         options: [pinned, latest]
         default: pinned
-  schedule:
-    - cron: "23 2 * * *"
   workflow_call:
     inputs:
       versions:
@@ -35,8 +33,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  e2e:
-    name: ${{ matrix.harness }} on ${{ matrix.os }}
+  e2e-harness:
+    name: "[E2E (${{ matrix.harness_label }} ${{ matrix.os_label }})] Harness"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     continue-on-error: ${{ matrix.experimental }}
@@ -48,9 +46,17 @@ jobs:
         experimental: [false]
         include:
           - harness: claude
+            harness_label: Claude
             tests: ^TestClaude
           - harness: codex
+            harness_label: Codex
             tests: ^TestCodex
+          - os: ubuntu-latest
+            os_label: Linux
+          - os: macos-latest
+            os_label: MacOS
+          - os: windows-latest
+            os_label: Windows
     env:
       VERSIONS: ${{ inputs.versions || (github.event_name == 'schedule' && 'latest' || 'pinned') }}
       HAND_E2E: "1"
@@ -162,11 +168,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  result:
-    name: e2e harness
-    needs: e2e
+  e2e-result:
+    name: "[E2E] Harness Result"
+    needs: e2e-harness
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: test "${{ needs.e2e.result }}" = success
+      - run: test "${{ needs.e2e-harness.result }}" = success

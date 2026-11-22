@@ -73,7 +73,7 @@ cp release.jks /path/to/backup-one/ && cp release.jks /path/to/backup-two/
 keytool -list -keystore /path/to/backup-two/release.jks -storepass:env RELEASE_KEYSTORE_PASSWORD
 ```
 
-Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `android-v*` and to the `main` branch (the on-demand `main-apk` job in `android.yaml` runs there), and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag or on `main` before approving a run: that ref carries its own copy of it.
+Create the environment. Protection rules: the maintainer is a required reviewer, deployment is limited to tags matching `android-v*` and to the `main` branch (the on-demand `main-apk` job in `publish.yaml` runs there), and "prevent self-review" stays off (the maintainer is the only reviewer). Read the workflow at the tag or on `main` before approving a run: that ref carries its own copy of it.
 
 ```sh
 reviewer=$(gh api users/atqamz --jq .id)
@@ -127,10 +127,10 @@ unset RELEASE_KEYSTORE_PASSWORD
 
 ### An APK from `main`
 
-The phone runs a release-signed build, and a debug APK cannot replace it, so testing `main` on the device needs the same key. `main-apk` is a `workflow_dispatch` job in `android.yaml` that builds `main` only, on purpose: it refuses a tag ref, the `release` environment's branch policy matches the dispatch ref, and `./.github/actions/build-signed-apk` resolves from the checked-out tree, so an input ref would hand the release key to that ref's scripts, and a ref older than the action cannot build at all. It signs the same arm64 release APK with the same key, checks the signer, the `versionName`, the `versionCode` and the JNI keep rules, and uploads the artifact `hand-android-main-apk` for 7 days; the run summary carries its `versionName`, `versionCode` and sha256. It refuses a `versionCode` that does not follow from `version` or a `release-key.sha256` that is not 64 lowercase hex digits, both before the build, and attaches no release. `workflow_dispatch` reads the workflow from the default branch, so a change to it runs only after the merge.
+The phone runs a release-signed build, and a debug APK cannot replace it, so testing `main` on the device needs the same key. `main-apk` is a `workflow_dispatch` job in `publish.yaml` that builds `main` only, on purpose: it refuses a tag ref, the `release` environment's branch policy matches the dispatch ref, and `./.github/actions/build-signed-apk` resolves from the checked-out tree, so an input ref would hand the release key to that ref's scripts, and a ref older than the action cannot build at all. It signs the same arm64 release APK with the same key, checks the signer, the `versionName`, the `versionCode` and the JNI keep rules, and uploads the artifact `hand-android-main-apk` for 7 days; the run summary carries its `versionName`, `versionCode` and sha256. It refuses a `versionCode` that does not follow from `version` or a `release-key.sha256` that is not 64 lowercase hex digits, both before the build, and attaches no release. `workflow_dispatch` reads the workflow from the default branch, so a change to it runs only after the merge.
 
 ```sh
-gh workflow run android.yaml --repo atqamz/hand
+gh workflow run publish.yaml -f job=main-apk --repo atqamz/hand
 gh run download --repo atqamz/hand --name hand-android-main-apk --dir /tmp/hand-android-main
 adb install -r /tmp/hand-android-main/hand-android-main.apk
 ```

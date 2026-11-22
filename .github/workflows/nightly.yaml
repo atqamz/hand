@@ -1,0 +1,65 @@
+name: "[CI] Nightly"
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+    - cron: "17 3 * * *"
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: The job to run by hand.
+        required: true
+        type: choice
+        options: [e2e-harness, e2e-install, release-guard]
+      versions:
+        description: Harness versions to install, pinned in .github/e2e/versions.env or the latest releases; only for the e2e-harness job.
+        type: choice
+        options: [pinned, latest]
+        default: pinned
+
+permissions:
+  contents: read
+
+jobs:
+
+  nightly-e2e-harness:
+    name: "[Nightly] E2E Harness"
+    if: github.event.schedule == '23 2 * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'e2e-harness')
+    uses: ./.github/workflows/e2e-harness.yaml
+    with:
+      versions: ${{ inputs.versions }}
+
+  nightly-e2e-install:
+    name: "[Nightly] E2E Install"
+    if: github.event.schedule == '17 3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'e2e-install')
+    uses: ./.github/workflows/e2e-install.yaml
+
+  nightly-release-guard:
+    name: "[Nightly] Release Guard"
+    if: github.event.schedule == '17 4 * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'release-guard')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check that the latest release is a Hand release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>"$RUNNER_TEMP/latest.err"); then
+            :
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/latest.err"; then
+            echo "the repository has no latest release; nothing to guard"
+            exit 0
+          else
+            cat "$RUNNER_TEMP/latest.err" >&2
+            exit 1
+          fi
+          test -n "$latest" || { echo "the latest release has no tag" >&2; exit 1; }
+          case "$latest" in
+            v[0-9]*) echo "the latest release is $latest" ;;
+            *)
+              echo "the latest release is $latest, not a Hand release: hand update would fetch it" >&2
+              exit 1
+              ;;
+          esac
