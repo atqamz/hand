@@ -10,7 +10,7 @@ import (
 
 func TestVersionPrintsTOON(t *testing.T) {
 	h := newHarness(t)
-	if got, want := h.ok("version"), "version: 0.14.0\nchannel: source\ncommit: unknown\nschema: 28\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
+	if got, want := h.ok("version"), "version: 0.15.0\nchannel: source\ncommit: unknown\nschema: 28\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
 		t.Fatalf("version = %q, want %q", got, want)
 	}
 }
