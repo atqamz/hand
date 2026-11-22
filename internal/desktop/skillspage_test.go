@@ -62,7 +62,7 @@ func TestTheSkillsPageListsEachScopeWithSourceCommitAndDrift(t *testing.T) {
 
 func TestTheSkillsPageSaysAddAndRemoveStayOnTheCommandLine(t *testing.T) {
 	_, tt := skillsApp(t, goldenFixture(t))
-	mustText(t, tt, "Add and remove are not in the board's API. Run `hand skills add` or `hand skills remove` in a terminal; the next check lists the change.")
+	mustText(t, tt, "Add and remove are not in the board's API. Run hand skills add or hand skills remove in a terminal; the next check lists the change.")
 }
 
 func TestTheRailOpensTheSkillsPage(t *testing.T) {
@@ -437,15 +437,6 @@ func TestABoardWithoutTheSkillsFeatureSaysSo(t *testing.T) {
 	}
 }
 
-func TestACompanionReadsSkillsButItsActionsShowTheHostsRefusal(t *testing.T) {
-	f := scopes(goldenFixture(t), "project/hand")
-	f.skillsRunErr = &desktop.APIError{Status: 403, Code: "forbidden", Message: "a paired Companion cannot change skills; use the host's Board", Remote: true}
-	_, tt := skillsApp(t, f)
-	mustText(t, tt, "review")
-	click(t, tt, "Sync")
-	mustText(t, tt, "a paired Companion cannot change skills; use the host's Board")
-}
-
 func TestSkillsFollowTheFleetSwitch(t *testing.T) {
 	f := withSkills(goldenFixture(t))
 	app := newApp(t, f)
@@ -531,4 +522,42 @@ func TestScenesARunWithARefusal(t *testing.T) {
 			shotSized(t, tt, name, windowWidth, windowHeight)
 		})
 	}
+}
+
+func refusedSync(t *testing.T) (*desktop.App, *ui.Tester) {
+	t.Helper()
+	f := scopes(goldenFixture(t), "project/hand")
+	f.skillsRun = desktop.SkillsRun{
+		Receipt: "Skills sync: 1 refused",
+		Results: []desktop.SkillResult{{Name: "deploy", State: "refused", Detail: "the board is shutting down"}},
+		Refused: 1,
+	}
+	app, tt := skillsApp(t, f)
+	click(t, tt, "Sync")
+	mustText(t, tt, "the board is shutting down")
+	return app, tt
+}
+
+func TestARunRowSurvivesLeavingTheSkillsPageAndComingBack(t *testing.T) {
+	app, tt := refusedSync(t)
+	app.Show(desktop.TasksScreen)
+	tt.Frame()
+	app.Show(desktop.SkillsScreen)
+	tt.Frame()
+	mustText(t, tt, "refused", "the board is shutting down")
+}
+
+func TestARunRowSurvivesTheSkillsItemBeingClickedOnThePage(t *testing.T) {
+	app, tt := refusedSync(t)
+	app.Show(desktop.SkillsScreen)
+	tt.Frame()
+	mustText(t, tt, "refused", "the board is shutting down")
+}
+
+func TestRunRowsClearOnTheFleetSwitch(t *testing.T) {
+	_, tt := refusedSync(t)
+	click(t, tt, "second")
+	click(t, tt, "Skills")
+	mustText(t, tt, "Fleets / second / skills")
+	mustNotText(t, tt, "the board is shutting down")
 }

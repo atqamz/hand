@@ -39,8 +39,6 @@ type SkillResult struct {
 	Detail string `json:"detail"`
 }
 
-// SkillsRun is the answer to a sync, update or propose. Receipt and Warn come
-// from the envelope.
 type SkillsRun struct {
 	Scope     string        `json:"scope"`
 	Project   string        `json:"project"`

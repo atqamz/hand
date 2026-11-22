@@ -34,7 +34,7 @@ func (a *App) openSkills() {
 	if a.sk.acting != "" {
 		return
 	}
-	a.resetSkills()
+	a.sk = skillsState{gen: a.sk.gen + 1, runs: a.sk.runs, failed: a.sk.failed}
 	a.loadSkills()
 }
 
@@ -159,7 +159,7 @@ func (a *App) skillsPage(c *ui.Context, k kit.Colors, p palette) {
 					a.loadSkills()
 				}
 			})
-			ui.Text(c, "Add and remove are not in the board's API. Run `hand skills add` or `hand skills remove` in a terminal; the next check lists the change.").
+			ui.Text(c, "Add and remove are not in the board's API. Run hand skills add or hand skills remove in a terminal; the next check lists the change.").
 				FontSize(kit.Meta.Size).TextColor(p.neutral)
 			if a.remoteFleet() {
 				ui.Text(c, "This fleet is on a paired host. A paired Companion cannot change skills; use the host's Board.").
