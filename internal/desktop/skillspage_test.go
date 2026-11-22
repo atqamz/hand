@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -154,7 +155,7 @@ func TestAThirdPartyUpdateShowsItsDiffThenNeedsAnExplicitApply(t *testing.T) {
 	click(t, tt, "Review diff")
 	tt.SetSize(windowWidth, 1400)
 	mustText(t, tt, "Hide diff", "Apply this update", "+description: Write notes after every task",
-		"Apply moves notes to 444444444444, the commit of the diff above, with a backup.")
+		"Apply opens a pull request that moves notes to 444444444444, the commit of the diff above. The checkout is not changed.")
 	if len(f.skillCalls()) != 0 {
 		t.Fatalf("reviewing the diff sent %v", f.skillCalls())
 	}
@@ -222,6 +223,84 @@ func TestUpdateAsksBeforeMovingAThirdPartySkillWithoutItsDiff(t *testing.T) {
 		t.Fatalf("calls = %+v", got)
 	}
 	mustText(t, tt, "Skills update: 2 updated")
+}
+
+func TestUpdateAsksForACurrentThirdPartySkillToo(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	for i := range f.skills.Scopes[0].Skills {
+		if s := &f.skills.Scopes[0].Skills[i]; s.Name == "notes" {
+			s.State, s.Latest = "current", s.Commit
+		}
+	}
+	_, tt := skillsApp(t, f)
+	click(t, tt, "Update")
+	mustText(t, tt, "Update does not wait for a yes", "notes", "Update anyway")
+	if len(f.skillCalls()) != 0 {
+		t.Fatalf("Update sent %v before the yes", f.skillCalls())
+	}
+}
+
+func TestAFleetApplyIsDescribedWithItsBackup(t *testing.T) {
+	f := scopes(goldenFixture(t), "fleet/")
+	f.skills.Scopes[0].Skills = append(f.skills.Scopes[0].Skills, desktop.Skill{
+		Name: "notes", Source: "https://github.com/example/notes.git", Ref: "v1", Commit: thirdCommit, Latest: thirdLatest,
+		Managed: true, State: "behind", Diff: thirdDiff})
+	_, tt := skillsApp(t, f)
+	click(t, tt, "Review diff")
+	tt.SetSize(windowWidth, 1400)
+	mustText(t, tt, "Apply moves notes to 444444444444, the commit of the diff above, with a backup.")
+	mustNotText(t, tt, "pull request")
+}
+
+func drainSkills(t *testing.T, tt *ui.Tester, posted chan func(), text string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		tt.Frame()
+		if tt.HasText(text) {
+			return
+		}
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			t.Fatalf("no %q in %q", text, tt.Texts())
+		}
+	}
+}
+
+func TestReopeningThePageKeepsAPendingActionsOutcome(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	f.skillsRun = desktop.SkillsRun{
+		Receipt: "Skills sync: 1 current",
+		Results: []desktop.SkillResult{{Name: "review", State: "current", Detail: "already at the source"}},
+	}
+	app, posted := asyncApp(t, withSkills(f))
+	tt := newTester(app)
+	app.Show(desktop.SkillsScreen)
+	drainSkills(t, tt, posted, "review")
+	f.skillsGate, f.skillsEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Sync")
+	select {
+	case <-f.skillsEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sync never started")
+	}
+	app.Show(desktop.SkillsScreen)
+	close(f.skillsGate)
+	drainSkills(t, tt, posted, "already at the source")
+	mustText(t, tt, "Skills sync: 1 current")
+	reads := f.skillsReads
+	for i := 0; i < 3; i++ {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	if reads < 2 {
+		t.Fatalf("the list was read %d times, want a read after the action", reads)
+	}
 }
 
 func TestUpdateRunsAtOnceWhenNoThirdPartySkillIsBehind(t *testing.T) {

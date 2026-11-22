@@ -31,6 +31,9 @@ func (a *App) resetSkills() {
 }
 
 func (a *App) openSkills() {
+	if a.sk.acting != "" {
+		return
+	}
 	a.resetSkills()
 	a.loadSkills()
 }
@@ -211,7 +214,7 @@ func (a *App) skillScope(c *ui.Context, k kit.Colors, p palette, sc SkillScope) 
 	for _, s := range sc.Skills {
 		if s.Managed {
 			managed++
-			if s.State == "behind" && !s.Trusted {
+			if !s.Trusted {
 				thirdParty = append(thirdParty, s.Name)
 			}
 		}
@@ -269,8 +272,8 @@ func (a *App) skillsConfirm(c *ui.Context, k kit.Colors, p palette, sc SkillScop
 	ui.Column(c).Gap(kit.Space8).Padding(kit.Space12).Radius(kit.RadiusLG).
 		Background(p.waitBG).Border(1, p.wait).Label("confirm update " + key).Children(func() {
 		ui.Text(c, "Update does not wait for a yes").FontSize(kit.Body.Size).Bold()
-		ui.Text(c, "It would also move these third-party skills without a diff you confirmed: "+
-			strings.Join(names, ", ")+". Review each one's diff and apply it from its row instead, or update anyway.").
+		ui.Text(c, "It can move these third-party skills without a diff you confirmed: "+
+			strings.Join(names, ", ")+". Review a behind skill's diff and apply it from its row instead, or update anyway.").
 			FontSize(kit.Meta.Size)
 		ui.Row(c).Gap(kit.Space8).Children(func() {
 			if kit.Button(c, k, "skills:update-anyway:"+key, "Update anyway", 140, false) {
@@ -491,8 +494,11 @@ func (a *App) skillDiff(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s
 		if s.DiffCut || s.Latest == "" {
 			return
 		}
-		ui.Text(c, "Apply moves "+s.Name+" to "+shortCommit(s.Latest)+", the commit of the diff above, with a backup.").
-			FontSize(kit.Meta.Size).TextColor(p.neutral)
+		applies := "Apply moves " + s.Name + " to " + shortCommit(s.Latest) + ", the commit of the diff above, with a backup."
+		if sc.Scope == "project" {
+			applies = "Apply opens a pull request that moves " + s.Name + " to " + shortCommit(s.Latest) + ", the commit of the diff above. The checkout is not changed."
+		}
+		ui.Text(c, applies).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		if kit.PrimaryButton(c, k, "skills:apply:"+key, "Apply this update", 180, a.skillsBusy()) {
 			a.runSkills("sync", sc, s.Name, s.Name+"@"+s.Latest)
 		}

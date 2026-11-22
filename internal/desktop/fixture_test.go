@@ -25,6 +25,8 @@ type fixture struct {
 	skillsRunErr   error
 	skillsOnRun    func(verb string, req desktop.SkillsRequest)
 	skillsReads    int
+	skillsGate     chan struct{}
+	skillsEntered  chan struct{}
 	skillsLog      []skillsCall
 	fleets         []desktop.Fleet
 	status         map[string]desktop.Status

@@ -24,6 +24,10 @@ func (f *fixture) Skills(ctx context.Context, id string) (desktop.Skills, error)
 
 func (f *fixture) SkillsRun(ctx context.Context, id, verb string, req desktop.SkillsRequest) (desktop.SkillsRun, error) {
 	f.note("skills:" + verb)
+	if f.skillsGate != nil {
+		f.skillsEntered <- struct{}{}
+		<-f.skillsGate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.skillsLog = append(f.skillsLog, skillsCall{verb, req})
