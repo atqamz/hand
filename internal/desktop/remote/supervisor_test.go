@@ -443,3 +443,27 @@ func TestACallbackThatStopsTheHostDoesNotDeadlock(t *testing.T) {
 		t.Fatalf("status = %+v", st)
 	}
 }
+
+func TestCloseWaitsForAHostThatStopAlreadyRemoved(t *testing.T) {
+	r := newRig(t, nil, nil)
+	gone := &run{done: make(chan struct{})}
+	r.sup.mu.Lock()
+	r.sup.going[gone] = struct{}{}
+	r.sup.mu.Unlock()
+	closed := make(chan struct{})
+	go func() {
+		r.sup.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a stopping host was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(gone.done)
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not return after the stopping host finished")
+	}
+}

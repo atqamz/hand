@@ -38,6 +38,7 @@ type Supervisor struct {
 	mu   sync.Mutex
 	runs map[string]*run
 
+	going   map[*run]struct{}
 	qmu     sync.Mutex
 	queue   []event
 	kick    chan struct{}
@@ -71,7 +72,7 @@ func NewSupervisor(o SupervisorOptions) (*Supervisor, error) {
 		o.Max = max(backoffMax, o.Min)
 	}
 	ctx, stop := context.WithCancel(context.Background())
-	s := &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, kick: make(chan struct{}, 1), fin: make(chan struct{}), drained: make(chan struct{}), stable: stableRun, wait: sleep}
+	s := &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, going: map[*run]struct{}{}, kick: make(chan struct{}, 1), fin: make(chan struct{}), drained: make(chan struct{}), stable: stableRun, wait: sleep}
 	if o.OnChange != nil {
 		go s.dispatch()
 	} else {
@@ -220,17 +221,29 @@ func (s *Supervisor) Stop(host string) {
 	s.mu.Lock()
 	r := s.runs[host]
 	delete(s.runs, host)
+	if r != nil {
+		s.going[r] = struct{}{}
+	}
 	s.mu.Unlock()
 	if r != nil {
 		r.cancel()
 		<-r.done
+		s.mu.Lock()
+		delete(s.going, r)
+		s.mu.Unlock()
 	}
 }
 
 func (s *Supervisor) Close() {
 	s.stop()
 	s.mu.Lock()
-	runs := s.runs
+	runs := make([]*run, 0, len(s.runs)+len(s.going))
+	for _, r := range s.runs {
+		runs = append(runs, r)
+	}
+	for r := range s.going {
+		runs = append(runs, r)
+	}
 	s.runs = map[string]*run{}
 	s.mu.Unlock()
 	for _, r := range runs {
