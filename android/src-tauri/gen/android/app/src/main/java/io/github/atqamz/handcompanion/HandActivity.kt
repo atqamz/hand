@@ -190,6 +190,22 @@ class HandActivity : ComponentActivity() {
       }
     )["$fleet/$ref", TaskModel::class.java]
 
+  private fun skillsModel(fleet: String): SkillsModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { SkillsModel(fleet, CoreTransport) }
+      }
+    )["skills:$fleet", SkillsModel::class.java]
+
+  @Composable
+  private fun Skills(fleet: String, onBack: () -> Unit) {
+    val model = remember(fleet) { skillsModel(fleet) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) { model.load() }
+    SkillsScreen(state, onBack, model::reload)
+  }
+
   private fun attemptModel(fleet: String, ref: String): AttemptModel =
     ViewModelProvider(
       this,
@@ -346,6 +362,7 @@ class HandActivity : ComponentActivity() {
         var phone by rememberSaveable { mutableStateOf(false) }
         var signing by rememberSaveable { mutableStateOf<String?>(null) }
         var threads by rememberSaveable { mutableStateOf("") }
+        var skills by rememberSaveable { mutableStateOf<String?>(null) }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
@@ -382,6 +399,7 @@ class HandActivity : ComponentActivity() {
             decision = null
             web = null
             threads = ""
+            skills = null
             phone = false
             signing = null
             open = id
@@ -494,6 +512,7 @@ class HandActivity : ComponentActivity() {
                 model.say(null)
                 fleetModel(it).enter()
                 threads = ""
+                skills = null
                 open = it
               },
               model::ask,
@@ -560,6 +579,11 @@ class HandActivity : ComponentActivity() {
               holder.SaveableStateProvider("task:$open:$thread") {
                 Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
               }
+            } else if (skills == open) {
+              BackHandler { skills = null }
+              holder.SaveableStateProvider("skills:$open") {
+                Skills(open.orEmpty()) { skills = null }
+              }
             } else {
               BackHandler { open = null }
               holder.SaveableStateProvider("fleet:$open") {
@@ -597,13 +621,14 @@ class HandActivity : ComponentActivity() {
                       }
                     }
                   },
-                  choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } }
+                  choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } },
+                  onSkills = { skills = open }
                 )
               }
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && currentTask(threads) == null
+            fleet != null && web == null && decision == null && currentTask(threads) == null && skills != open
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
           }

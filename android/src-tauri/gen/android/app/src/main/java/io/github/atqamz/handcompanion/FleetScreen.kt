@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
 internal val TABS_HEIGHT = 80.dp
 
 @Composable
-private fun TopBar(id: String, state: FleetState, onBack: () -> Unit, onWeb: () -> Unit) {
+private fun TopBar(id: String, state: FleetState, onBack: () -> Unit, onWeb: () -> Unit, onSkills: () -> Unit) {
   val hand = LocalHand.current
   val mark = hand.tints[tint(id)]
   Box(Modifier.fillMaxWidth().height(3.dp).background(mark))
@@ -56,7 +56,7 @@ private fun TopBar(id: String, state: FleetState, onBack: () -> Unit, onWeb: () 
       style = type.headlineSmall
     )
     state.pill?.let { Chip(it.text, it.tone, 24, glyph(it.tone)) }
-    Menu(listOf("Open web Board" to onWeb))
+    Menu(listOf("Skills" to onSkills, "Open web Board" to onWeb))
   }
   HorizontalDivider(color = hand.line)
 }
@@ -160,11 +160,12 @@ fun FleetScreen(
   onPress: (String, List<String>) -> Unit,
   onForce: () -> Unit,
   onAttempt: (String) -> Unit,
+  onSkills: () -> Unit = {},
   chat: @Composable () -> Unit,
   choice: @Composable (String) -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-    TopBar(id, state, onBack, onWeb)
+    TopBar(id, state, onBack, onWeb, onSkills)
     state.band?.let { BandView(it, onRetry) }
     Box(Modifier.weight(1f)) {
       when (body(state)) {
