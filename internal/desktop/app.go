@@ -13,6 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+
+	"github.com/atqamz/hand/internal/desktop/remote"
 )
 
 type Screen int
@@ -147,6 +149,8 @@ type App struct {
 	Pick       func() []string
 	PickFolder func() string
 	NewFleet   func(context.Context, NewFleetRequest) (NewFleetResult, error)
+	Remote     RemoteDesk
+	RemoteOff  string
 
 	shots     map[string]*shotState
 	shotQueue []string
@@ -278,6 +282,11 @@ type App struct {
 	nf            newFleetForm
 	nfOpen        bool
 	nfGen         int
+	rf            remoteForm
+	rfOpen        bool
+	rfGen         int
+	hosts         []remote.Host
+	hostsErr      error
 	pendingLink   string
 	copiedKey     string
 	copiedAt      time.Time
@@ -482,6 +491,7 @@ func (a *App) fleetByID(id string) (Fleet, bool) {
 func (a *App) SelectFleet(id string) {
 	a.flushDraft()
 	a.nfOpen = false
+	a.rfOpen = false
 	was := a.Fleet.ID
 	a.resetPoll()
 	if f, ok := a.fleetByID(id); ok {
@@ -568,6 +578,11 @@ func (a *App) install(f found, keep bool) {
 		return
 	}
 	a.Model, a.Fleets = f.Model, f.Fleets
+	a.loadHosts()
+	a.hostsErr = nil
+	if h, ok := f.Model.(interface{ HostsErr() error }); ok {
+		a.hostsErr = h.HostsErr()
+	}
 	a.pruneAttention()
 	a.attnFails, a.attnDown, a.attnSoon = 0, false, true
 	a.noFleets = len(a.Fleets) == 0
@@ -575,11 +590,13 @@ func (a *App) install(f found, keep bool) {
 		a.resetNewFleet()
 	}
 	if f.Offline && a.Start != nil && !a.autoStarted {
-		a.resetPoll()
-		a.Fleet = Fleet{}
 		a.wantStart = true
-		a.setErr("no board is answering; start it with `hand board start` in a fleet")
-		return
+		if !slices.ContainsFunc(a.Fleets, func(f Fleet) bool { return f.Host != "" }) {
+			a.resetPoll()
+			a.Fleet = Fleet{}
+			a.setErr("no board is answering; start it with `hand board start` in a fleet")
+			return
+		}
 	}
 	switch {
 	case len(a.Fleets) == 0:

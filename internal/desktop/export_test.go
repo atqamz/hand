@@ -26,6 +26,8 @@ func SetInitTimeout(d time.Duration) func() {
 
 var LocalRoot = localRoot
 
+func RemoteLinkField(a *App) string { return a.rf.link }
+
 func DraftNote(a *App) string { return a.draftNote() }
 
 func NeedChosen(a *App, key string) bool { return a.needChosen[key] }
@@ -109,3 +111,5 @@ func PathsBusy(a *App) bool    { return a.pathBusy }
 func PathGen(a *App) int       { return a.pathGen }
 
 func SetRouterClock(r *Router, now func() time.Time) { r.now = now }
+
+func RemoteLinkPending(a *App) bool { return a.rf.pending != nil }

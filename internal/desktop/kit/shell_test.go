@@ -200,3 +200,61 @@ func TestTabSkipsAnInertItem(t *testing.T) {
 		t.Errorf("Tab reached only %v", seen)
 	}
 }
+
+func TestANavItemNameCarriesTheConnectionWordBeforeTheStatus(t *testing.T) {
+	for n, want := range map[NavItem]string{
+		{Label: "lab"}:                                       "lab",
+		{Label: "lab", Status: "quiet"}:                      "lab, quiet",
+		{Label: "lab", Link: "Host busy"}:                    "lab, Host busy",
+		{Label: "lab", Link: "Connected", Status: "waiting"}: "lab, Connected, waiting",
+	} {
+		if got := n.Name(); got != want {
+			t.Errorf("Name() = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestAClosedRailDrawsTheLinkShapeAtTheLowerRightOfTheFleetMark(t *testing.T) {
+	probe := ui.RGB(255, 0, 0)
+	red := func(tt *ui.Tester, name string) (inLowerRight, elsewhere int) {
+		t.Helper()
+		r, ok := tt.Find(name)
+		if !ok {
+			t.Fatalf("no %q in %q", name, tt.Texts())
+		}
+		img := tt.Image()
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				if p := img.RGBAAt(x, y); p.R > 240 && p.G < 20 && p.B < 20 {
+					if x >= int(r.X+r.W/2) && y >= int(r.Y+r.H/2) {
+						inLowerRight++
+					} else {
+						elsewhere++
+					}
+				}
+			}
+		}
+		return
+	}
+	for _, dark := range []bool{false, true} {
+		k := ColorsFor(dark)
+		mk := func(link string) *ui.Tester {
+			tt := ui.NewTester(func(c *ui.Context) {
+				Rail(c, k, false, func() {}, func() {
+					Nav(c, k, NavItem{Key: "f", Label: "lab", Fleet: "f00000000e0aa", Link: link, LinkIcon: "failure", LinkFG: probe})
+				})
+			}, 400, 300)
+			tt.SetDark(dark)
+			tt.Frame()
+			return tt
+		}
+		with := mk("Can't reach host")
+		if lr, other := red(with, "lab, Can't reach host"); lr == 0 || other != 0 {
+			t.Errorf("dark=%v: closed rail draws %d link pixels at the lower right and %d elsewhere", dark, lr, other)
+		}
+		without := mk("")
+		if lr, other := red(without, "lab"); lr+other != 0 {
+			t.Errorf("dark=%v: a fleet with no link draws %d link pixels", dark, lr+other)
+		}
+	}
+}

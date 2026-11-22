@@ -12,12 +12,16 @@ import (
 )
 
 func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
+	open := a.OpenInBrowser
+	if a.remoteFleet() {
+		open = nil
+	}
 	dismissed := kit.Viewer(c, k, kit.ViewerOptions{
 		Name:    a.viewerName(),
 		Back:    len(a.back) > 0,
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,
-		OnOpen:  a.OpenInBrowser,
+		OnOpen:  open,
 		Notice: func(nc *ui.Context) {
 			if a.OpenBusy || a.OpenErr != "" {
 				ui.Box(nc).Padding(kit.Space10, kit.Space20, 0).Children(func() {

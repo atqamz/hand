@@ -33,6 +33,10 @@ func (a *App) OpenInBrowser() {
 }
 
 func (a *App) OpenBoardPath(dest string) {
+	if a.remoteFleet() {
+		a.openBoardPage(dest)
+		return
+	}
 	args, ok := boardOpenArgs(a.Fleet.ID, dest)
 	if !ok {
 		a.OpenErr = "this Board page is not one `hand open` takes; open it from the Board's fleet page"
@@ -55,7 +59,7 @@ func (a *App) OpenScreen() { a.runOpen("screen") }
 func (a *App) OpenPhone() { a.runOpen("phone") }
 
 func (a *App) runOpen(args ...string) {
-	if a.OpenBusy {
+	if a.OpenBusy || a.remoteFleet() {
 		return
 	}
 	a.OpenErr = ""

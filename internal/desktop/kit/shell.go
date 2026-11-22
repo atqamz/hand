@@ -80,13 +80,19 @@ type NavItem struct {
 	Dot              bool
 	Fleet            string
 	Tone, Status     string
+	Link, LinkIcon   string
+	LinkFG           ui.Color
 }
 
 func (n NavItem) Name() string {
-	if n.Status == "" {
-		return n.Label
+	name := n.Label
+	if n.Link != "" {
+		name += ", " + n.Link
 	}
-	return n.Label + ", " + n.Status
+	if n.Status != "" {
+		name += ", " + n.Status
+	}
+	return name
 }
 
 func Nav(c *ui.Context, k Colors, n NavItem) bool {
@@ -111,7 +117,11 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 	} else {
 		el = ui.ButtonBase(c.Key(n.Key)).Cursor(ui.CursorPointer)
 	}
-	el.Height(Row).Radius(RadiusMD).Border(1, edge).Background(bg).AlignItems(ui.Center).Label(n.Name())
+	height := float32(Row)
+	if n.Link != "" && n.Open {
+		height = RowLG
+	}
+	el.Height(height).Radius(RadiusMD).Border(1, edge).Background(bg).AlignItems(ui.Center).Label(n.Name())
 	if n.Open {
 		el.Gap(Space12).Padding(0, 11)
 	} else {
@@ -123,8 +133,21 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 		} else {
 			ui.Icon(c, Icon(n.Icon)).TextColor(fg)
 		}
-		if n.Open {
+		switch {
+		case n.Open && n.Link != "":
+			ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+				ui.Text(c, n.Label).FontSize(Body.Size).Bold().TextColor(fg).SingleLine().Ellipsis("…")
+				ui.Row(c).Gap(Space4).AlignItems(ui.Center).Children(func() {
+					ui.Icon(c, Icon(n.LinkIcon)).Size(12, 12).TextColor(n.LinkFG)
+					ui.Text(c, n.Link).FontSize(Meta.Size).TextColor(k.Muted).SingleLine().Ellipsis("…")
+				})
+			})
+		case n.Open:
 			ui.Text(c, n.Label).FontSize(Body.Size).Bold().TextColor(fg).SingleLine().Ellipsis("…").Grow(1)
+		case n.Link != "":
+			ui.Box(c).Absolute().Bottom(4).Right(4).Padding(1).Radius(RadiusPill).Background(k.Panel).Children(func() {
+				ui.Icon(c, Icon(n.LinkIcon)).Size(12, 12).TextColor(n.LinkFG)
+			})
 		}
 		switch {
 		case n.Count > 0 && n.Open:

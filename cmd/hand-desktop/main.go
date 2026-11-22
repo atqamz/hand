@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
@@ -73,18 +74,28 @@ func refusal(goos, goarch string) string {
 	return ""
 }
 
-func remotes(getenv func(string) string) (desktop.RemoteStore, desktop.RemoteClients, func()) {
+type remoteDesk struct {
+	desktop.RemoteStore
+	desktop.RemoteClients
+	desk desktop.RemoteDesk
+	off  string
+}
+
+func remotes(getenv func(string) string, goos string, repaint func()) (remoteDesk, func()) {
 	dir := remote.Dir(desktop.DraftDir(getenv))
+	if goos == "windows" {
+		return remoteDesk{off: "Remote fleets are not supported on Windows yet: the hand-iroh client they need does not ship with this window."}, func() {}
+	}
 	if dir == "" {
-		return nil, nil, func() {}
+		return remoteDesk{off: "Remote fleets need a state folder; set HOME or XDG_STATE_HOME."}, func() {}
 	}
 	self, _ := os.Executable()
 	store := remote.OpenStore(dir)
-	sup, err := remote.NewSupervisor(remote.SupervisorOptions{Store: store, Resolve: sidecar.Resolve(self, getenv("PATH"))})
+	sup, err := remote.NewSupervisor(remote.SupervisorOptions{Store: store, Resolve: sidecar.Resolve(self, getenv("PATH")), OnChange: func(string, sidecar.ClientStatus) { repaint() }})
 	if err != nil {
-		return nil, nil, func() {}
+		return remoteDesk{off: "Remote fleets could not start: " + err.Error()}, func() {}
 	}
-	return store, sup, sup.Close
+	return remoteDesk{RemoteStore: store, RemoteClients: sup, desk: &desktop.Remotes{Store: store, Clients: sup}}, sup.Close
 }
 
 func main() {
@@ -104,8 +115,14 @@ func main() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
-	store, clients, closeRemote := remotes(os.Getenv)
-	app := desktop.New(desktop.Connect(os.Getenv, store, clients, nil))
+	var repaint atomic.Pointer[func()]
+	rd, closeRemote := remotes(os.Getenv, runtime.GOOS, func() {
+		if f := repaint.Load(); f != nil {
+			(*f)()
+		}
+	})
+	app := desktop.New(desktop.Connect(os.Getenv, rd.RemoteStore, rd.RemoteClients, nil))
+	app.Remote, app.RemoteOff = rd.desk, rd.off
 	app.Start = desktop.StartBoard(os.Getenv)
 	app.NewFleet = desktop.NewFleet(os.Getenv)
 	app.DraftDir = desktop.DraftDir(os.Getenv)
@@ -142,6 +159,8 @@ func main() {
 			_ = win.SetIcon(brand.Icon512)
 		}
 		app.Post = win.Update
+		poke := func() { win.Update(func() {}) }
+		repaint.Store(&poke)
 		app.Pick = func() []string {
 			paths, _ := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Attach files", Multiple: true})
 			return paths
