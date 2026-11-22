@@ -19,9 +19,18 @@ const skillsDiffLimit = 64 << 10
 
 var urlLogin = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@`)
 
-func clean(s string) string {
-	return board.Scrub(urlLogin.ReplaceAllString(s, "${1}"))
+func login(s string) string {
+	return urlLogin.ReplaceAllString(s, "${1}")
 }
+
+func clean(s string) string {
+	return board.Scrub(login(s))
+}
+
+type cleanErr struct{ err error }
+
+func (e cleanErr) Error() string { return clean(e.err.Error()) }
+func (e cleanErr) Unwrap() error { return e.err }
 
 type skillsRec struct {
 	rows    [][]string
@@ -124,9 +133,15 @@ func skillsAct(env Env, home, generation string) func(context.Context, board.Ski
 			err = fmt.Errorf("%w: %s", state.ErrInvalid, usage.msg)
 		}
 		if !r.rec.done {
+			if err != nil {
+				err = cleanErr{err}
+			}
 			return board.APISkillsRun{}, err
 		}
-		out := board.APISkillsRun{Scope: a.Scope, Project: a.Project, Results: []board.APISkillResult{}, Refused: r.rec.refused, Reconcile: r.rec.goals}
+		out := board.APISkillsRun{Scope: a.Scope, Project: a.Project, Results: []board.APISkillResult{}, Refused: r.rec.refused}
+		for _, g := range r.rec.goals {
+			out.Reconcile = append(out.Reconcile, login(g))
+		}
 		for _, row := range r.rec.rows {
 			out.Results = append(out.Results, board.APISkillResult{Name: row[0], State: row[1], Detail: clean(row[2])})
 		}

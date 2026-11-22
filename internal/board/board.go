@@ -177,6 +177,7 @@ type Options struct {
 	Iroh       func() sidecar.Status
 	HostName   string
 	ClosePeer  func(string)
+	Lifetime   context.Context
 	Skills     func(context.Context, SkillsQuery) (APISkills, error)
 	SkillsRun  func(context.Context, SkillsAction) (APISkillsRun, error)
 }

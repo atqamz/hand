@@ -116,6 +116,15 @@ func (b *Board) skillsGate(w http.ResponseWriter) bool {
 	return true
 }
 
+func (b *Board) skillsContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(parent, skillsWait)
+	if b.o.Lifetime == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(b.o.Lifetime, cancel)
+	return ctx, func() { stop(); cancel() }
+}
+
 func (b *Board) apiSkills(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	scope, project := q.Get("scope"), q.Get("project")
@@ -128,7 +137,7 @@ func (b *Board) apiSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer b.skillsBusy.Unlock()
-	ctx, cancel := context.WithTimeout(r.Context(), skillsWait)
+	ctx, cancel := b.skillsContext(r.Context())
 	defer cancel()
 	data, err := b.o.Skills(ctx, SkillsQuery{Scope: scope, Project: project})
 	if err != nil {
@@ -175,7 +184,7 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 		return
 	}
 	defer b.skillsBusy.Unlock()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), skillsWait)
+	ctx, cancel := b.skillsContext(context.WithoutCancel(r.Context()))
 	defer cancel()
 	out, err := b.o.SkillsRun(ctx, SkillsAction{Verb: verb, Scope: in.Scope, Project: in.Project, Name: in.Name, Yes: in.Yes})
 	if err != nil {

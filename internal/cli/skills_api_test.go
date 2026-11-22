@@ -13,6 +13,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -503,5 +504,63 @@ func TestSkillsAPIDropsALoginFromASourceAndFromAnErrorDetail(t *testing.T) {
 	run := a.ok("sync", map[string]string{"scope": "fleet"})
 	if r := resultOf(run, "triage"); r.State != "refused" || r.Detail == "" || strings.Contains(r.Detail, "s3cret") || run.Refused != 1 {
 		t.Fatalf("sync = %+v", run)
+	}
+}
+
+func TestSkillsAPIDropsALoginFromARequestError(t *testing.T) {
+	f := newProposeFixture(t, "")
+	f.h.ok("skills", "add", "--fleet", "triage")
+	const dirty = "https://pat:s3cret@127.0.0.1:1/acme/skills.git"
+	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
+		skills["triage"]["sourceUrl"] = dirty
+	})
+	a := newSkillsAPI(t, f.h)
+	code, _, _, raw := a.post("propose", map[string]string{"scope": "fleet", "name": "triage"})
+	if code != http.StatusBadRequest || !strings.Contains(raw, "127.0.0.1:1/acme/skills.git") || strings.Contains(raw, "s3cret") || strings.Contains(raw, "pat:") {
+		t.Fatalf("propose = %d %s", code, raw)
+	}
+}
+
+func TestSkillsAPIDropsALoginAndAPathFromAFailingGh(t *testing.T) {
+	f := newProposeFixture(t, "")
+	f.h.ok("skills", "add", "--fleet", "triage")
+	fakebin.Install(t, f.bin, "gh", "gh", map[string]string{"log": f.log, "stderr": "could not read https://pat:s3cret@github.com/acme/hub.git and /home/someone/secret/dir/x"})
+	f.edit("triage")
+	a := newSkillsAPI(t, f.h)
+	code, _, _, raw := a.post("propose", map[string]string{"scope": "fleet", "name": "triage"})
+	if code != http.StatusInternalServerError || !strings.Contains(raw, "github.com/acme/hub.git") || strings.Contains(raw, "s3cret") || strings.Contains(raw, "pat:") || strings.Contains(raw, "someone") {
+		t.Fatalf("propose = %d %s", code, raw)
+	}
+}
+
+func TestSkillsAPIDropsALoginFromAReconcileGoal(t *testing.T) {
+	f := newProposeFixture(t, "")
+	f.hub.commit(map[string]string{"skills/clash/SKILL.md": skillFiles("clash", "v1")["SKILL.md"]})
+	f.h.ok("skills", "add", "--fleet", "clash")
+	const dirty = "https://pat:s3cret@example.test/acme/skills.git"
+	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
+		skills["clash"]["sourceUrl"] = dirty
+	})
+	f.route(dirty, f.hub.bare)
+	f.edit("clash")
+	f.hub.commit(map[string]string{"skills/clash/SKILL.md": skillFiles("clash", "v2")["SKILL.md"]})
+	a := newSkillsAPI(t, f.h)
+	run := a.ok("sync", map[string]string{"scope": "fleet"})
+	if len(run.Reconcile) != 1 || !strings.Contains(run.Reconcile[0], "example.test/acme/skills.git") || strings.Contains(run.Reconcile[0], "s3cret") || strings.Contains(run.Reconcile[0], "pat:") {
+		t.Fatalf("reconcile = %q", run.Reconcile)
+	}
+}
+
+func TestSkillsAPIReadDropsADirectoryFromASourceAndADetail(t *testing.T) {
+	f := newProposeFixture(t, "")
+	f.h.ok("skills", "add", "--fleet", "triage")
+	dir := filepath.Join(t.TempDir(), "private-parent", "gone")
+	editJSON(t, fleetLock(f.h.home), func(skills map[string]map[string]any) {
+		skills["triage"]["sourceUrl"] = dir
+	})
+	a := newSkillsAPI(t, f.h)
+	s := a.skill("fleet", "", "triage")
+	if !strings.Contains(s.Detail, " gone ") || strings.Contains(s.Source+s.Detail, "private-parent") {
+		t.Fatalf("row = %+v", s)
 	}
 }

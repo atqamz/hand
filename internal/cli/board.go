@@ -99,7 +99,7 @@ func cmdBoard(r *runner, args []string) error {
 		Loopback: loopback,
 		Resolve:  func(id string) (string, error) { return boardHome(root, id) },
 		Open: func(id, home string) (http.Handler, io.Closer, error) {
-			return r.openBoard(id, home, local, loopback, transcripts, irohStatus, func(endpoint string) {
+			return r.openBoard(ctx, id, home, local, loopback, transcripts, irohStatus, func(endpoint string) {
 				if peer != nil {
 					peer.CloseEndpoint(endpoint)
 				}
@@ -247,7 +247,7 @@ func boardHome(root, id string) (string, error) {
 	return home, nil
 }
 
-func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status, closePeer func(string)) (http.Handler, io.Closer, error) {
+func (r *runner) openBoard(ctx context.Context, id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status, closePeer func(string)) (http.Handler, io.Closer, error) {
 	if err := r.pinRefusal(home); err != nil {
 		return nil, nil, err
 	}
@@ -278,6 +278,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Iroh:       iroh,
 		HostName:   hostName(),
 		ClosePeer:  closePeer,
+		Lifetime:   ctx,
 		Skills:     skillsRead(r.env, home, r.generation, st),
 		SkillsRun:  skillsAct(r.env, home, r.generation),
 	}}

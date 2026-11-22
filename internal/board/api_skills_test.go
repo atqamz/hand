@@ -228,3 +228,48 @@ func TestAPairedPhoneReadsSkillsButCannotChangeThem(t *testing.T) {
 		t.Fatalf("a phone ran the hook %d times", n)
 	}
 }
+
+func TestAPISkillsStopWhenTheBoardShutsDown(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	spy := &skillsSpy{}
+	spy.install(fx)
+	life, stop := context.WithCancel(context.Background())
+	fx.options.Lifetime = life
+	h := fx.handler()
+	entered := make(chan struct{}, 2)
+	wait := func(ctx context.Context) error {
+		entered <- struct{}{}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(30 * time.Second):
+			return errors.New("the action was not stopped")
+		}
+	}
+	spy.run = func(ctx context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		return board.APISkillsRun{}, wait(ctx)
+	}
+	spy.read = func(ctx context.Context, q board.SkillsQuery) (board.APISkills, error) {
+		return board.APISkills{}, wait(ctx)
+	}
+	codes := make(chan int, 2)
+	go func() {
+		codes <- apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true).Code
+	}()
+	<-entered
+	stop()
+	select {
+	case code := <-codes:
+		if code == http.StatusOK {
+			t.Fatalf("a stopped action answered %d", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the action outlived the board")
+	}
+	go func() { codes <- request(h, "GET", "/api/v1/skills", nil, true).Code }()
+	select {
+	case <-codes:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the read outlived the board")
+	}
+}

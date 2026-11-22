@@ -672,7 +672,7 @@ A scope is `fleet` (the supervisor's own skills in the fleet home), `project` (a
 | `trusted` | `true` for Hand's own repository (`atqamz/skills`) when the scope is subscribed to it, and for a local source subscribed as itself in the fleet or user scope: `sync` applies those without a yes; `false` for every other source, a third-party one among them, which moves only on `yes` |
 | `state` | `current`, `behind`, `edited`, `conflict`, or `error` (then `detail` says why); the drift statuses `hand skills outdated` prints |
 | `detail` | the reason for `error`, or a diff that could not be built |
-| `diff`, `diff_cut` | for `behind`, the change between the installed copy and `latest` as a unified diff, at most 64 KiB, cut at a line with `diff_cut: true` |
+| `diff`, `diff_cut` | for `behind`, the change between the installed copy and `latest` as a unified diff, at most 64 KiB, cut at a line with `diff_cut: true`; a diff is third-party file content and is returned as written, not scrubbed |
 
 `edited` is a copy changed here while its source did not move (`propose` sends the edit to the source); `conflict` is changed here and moved at the source (nothing updates, and `sync` and `update` answer a `reconcile` command).
 
@@ -685,14 +685,14 @@ Every read fetches each distinct source once, with the CLI's limits: one git ste
 | `scope`, `project` | as asked |
 | `results` | one `{name, state, detail}` per skill, in the order the command prints its rows: `updated`, `bumped` (`detail` is the pull request's address), `pending`, `behind`, `current`, `edited`, `conflict`, `restored`, `proposed` (`detail` is the pull request's address), `removed` or `refused` (`detail` is the reason) |
 | `refused` | how many skills the command refused; `hand skills` exits `3` for a non-zero count, and the API answers `200` with the rows instead |
-| `diffs` | for `sync`, a `{name, diff, cut}` for each third-party update that waits for a yes; the same 64 KiB cap |
-| `reconcile` | for a `conflict`, the `hand task add --goal …` command the CLI prints for a worker; the API creates no task |
+| `diffs` | for `sync`, a `{name, diff, cut}` for each third-party update that waits for a yes; the same 64 KiB cap, and as written like `diff` |
+| `reconcile` | for a `conflict`, the `hand task add --goal …` command the CLI prints for a worker, with a login removed from a source address; the API creates no task |
 
 Trust and drift behave as the command does. `sync` applies Hand's own repository and local sources with a backup, never a third-party update without `yes`, never a copy that was edited here, and in a project scope opens a bump pull request for each skill instead of editing the checkout. `update` is the explicit command: it does not need a yes, and it is the one that edits a project checkout in place for a person to commit. `propose` pushes only its own branch and opens a pull request through `gh`, which the Board needs on its `PATH`.
 
 A paired Companion reads `GET /api/v1/skills` like any other read, but every skills action answers `403 forbidden` ("a paired Companion cannot change skills; use the host's Board"): the actions run `git` and `gh` with the host's credentials and change files and pull requests on the host, as `models/refresh` and the Companion actions do. A mutation needs the session's cookie and `X-Hand-CSRF`.
 
-The Board runs one skills request at a time, a read or an action: a second one answers `409 conflict` ("another skills request is running on this board; try again when it ends") instead of queueing another fetch. An action is not cancelled when the client leaves; it runs to its own limits. Error kinds follow the CLI's exit codes: an invalid scope, name or `yes` is `400 bad_request`, a project that is not registered `404 not_found`, a skill the command refuses before it reads any (no lock, a name that is not a skill name) `400` or `409 conflict`, and any other failure `500 internal`. A request-level error carries the command's sentence with no path.
+The Board runs one skills request at a time, a read or an action: a second one answers `409 conflict` ("another skills request is running on this board; try again when it ends") instead of queueing another fetch. An action is not cancelled when the client leaves; it runs to its own limits, and it stops when the Board shuts down: the `git` or `gh` step is cancelled, its clone folder is removed and the request answers an error. Error kinds follow the CLI's exit codes: an invalid scope, name or `yes` is `400 bad_request`, a project that is not registered `404 not_found`, a skill the command refuses before it reads any (no lock, a name that is not a skill name) `400` or `409 conflict`, and any other failure `500 internal`. A request-level error carries the command's sentence with no path and no login (a `user:password@` in a URL is removed from it, whatever command or tool printed it).
 
 ## Errors
 
@@ -706,7 +706,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, a query that is not valid percent-encoding, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read, or a skills request with a scope other than `fleet`, `project` or `user`, a project with another scope, an action with `scope: "project"` and no project, a name or `yes` that is over 512 bytes or has a control character, a `propose` with no name, or a `yes` on `update` or `propose` |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`, `page`, `status`, `since`, `until`, `from`, `lines`, or a history search's `q`, `who`, `task`, `limit` or `context`, or a links request with no `path`, more than 50, one over 512 bytes or with a NUL, a query that is not valid percent-encoding, or a query over 16 KiB), a window on a file that is not text or past its end, `?raw` or a window on a folder, a mutation body it cannot read, an upload that is not one file in the form field `file`, an attachment that is not an inbox name, or a Phone body the endpoint cannot read, or a skills request with a scope other than `fleet`, `project` or `user`, a project with another scope, an action with `scope: "project"` and no project, a name or `yes` that is over 512 bytes or has a control character, a `propose` with no name, a `yes` on `update` or `propose`, a `name`, `project` or `yes` that starts with a dash, or a `name` that is not a skill name |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
