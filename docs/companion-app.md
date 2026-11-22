@@ -57,7 +57,7 @@ The board opens the peer listener on a free loopback port (`--peer-addr` picks t
 
 The setting is the board's own, like `--update-every`: `board.iroh` in `~/.secondhand` records it, so a board that `hand open` or `hand update` restarts keeps it, and the last board started wins: a board started without `--iroh` clears it. A board that a systemd unit, a LaunchAgent or a shortcut starts needs `--iroh` in its own command, as [Update on a timer](update.md#update-on-a-timer) shows for `--update-every`.
 
-**Where Hand looks for it.** Next to `hand` (the folder of the running binary, symlinks followed), then on `PATH`. Its version must be the one this `hand` pins, which `hand version` prints as `iroh:`; there is one pin, in `internal/sidecar`, and a test keeps it equal to the crate's version. A missing or different sidecar is not a reason to keep the board down, so the board starts anyway and shows the sidecar as failed, with the reason.
+**Where Hand looks for it.** Next to `hand` (the folder of the running binary, symlinks followed), then on `PATH`. On macOS the sidecar is never inside `~/Applications/Hand.app`; given a path inside a `Contents/MacOS/` folder of any app, the lookup also searches the folder that the `MacOS/hand` symlink there points at, which is the installed `hand`'s folder, after the path's own folder and before `PATH`. A path outside that exact `Contents/MacOS/` layout gets no symlink followed. Its version must be the one this `hand` pins, which `hand version` prints as `iroh:`; there is one pin, in `internal/sidecar`, and a test keeps it equal to the crate's version. A missing or different sidecar is not a reason to keep the board down, so the board starts anyway and shows the sidecar as failed, with the reason.
 
 **What it shows.**
 

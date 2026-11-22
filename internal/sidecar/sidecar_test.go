@@ -582,3 +582,96 @@ func TestStartFailureIsAReason(t *testing.T) {
 		t.Fatalf("Status = %+v", st)
 	}
 }
+
+func macBundle(t *testing.T) (self, install string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the bundle symlink is not made on Windows")
+	}
+	root := t.TempDir()
+	install = filepath.Join(root, "bin")
+	macos := filepath.Join(root, "Hand.app", "Contents", "MacOS")
+	for _, d := range []string{install, macos} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fakebin.Install(t, install, "hand", "hand", nil)
+	if err := os.Symlink(filepath.Join(install, "hand"), filepath.Join(macos, "hand")); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(macos, "hand-desktop"), install
+}
+
+func TestLocateFollowsTheBundlesHandSymlinkToTheInstall(t *testing.T) {
+	self, install := macBundle(t)
+	want := fakebin.Install(t, install, Name, "sidecar", nil)
+	got, err := Locate(self, "")
+	if err != nil || got != want {
+		t.Fatalf("Locate from the bundle = %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestLocateFollowsTheHandSymlinkOfAnyAppFolder(t *testing.T) {
+	self, install := macBundle(t)
+	want := fakebin.Install(t, install, Name, "sidecar", nil)
+	app := filepath.Dir(filepath.Dir(filepath.Dir(self)))
+	renamed := filepath.Join(filepath.Dir(app), "Plain.app")
+	if err := os.Rename(app, renamed); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Locate(filepath.Join(renamed, "Contents", "MacOS", "plain"), ""); err != nil || got != want {
+		t.Fatalf("Locate from Plain.app = %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestLocateWithNoSelfNamesOnlyPATH(t *testing.T) {
+	if _, err := Locate("", ""); !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "it is not on PATH") {
+		t.Fatalf("Locate with no self = %v; want ErrNotFound saying it is not on PATH", err)
+	}
+}
+
+func TestLocateTakesTheBinaryInsideTheBundleBeforeTheInstall(t *testing.T) {
+	self, install := macBundle(t)
+	fakebin.Install(t, install, Name, "sidecar", nil)
+	want := fakebin.Install(t, filepath.Dir(self), Name, "sidecar", nil)
+	if got, err := Locate(self, ""); err != nil || got != want {
+		t.Fatalf("Locate = %q, %v; want the one inside the bundle, %q", got, err, want)
+	}
+}
+
+func TestLocateFollowsNoBundleSymlinkOutsideContentsMacOS(t *testing.T) {
+	self, install := macBundle(t)
+	fakebin.Install(t, install, Name, "sidecar", nil)
+	link := filepath.Join(filepath.Dir(self), "hand")
+	root := filepath.Dir(filepath.Dir(filepath.Dir(self)))
+	for _, dir := range []string{filepath.Join(root, "elsewhere"), filepath.Join(root, "Other", "MacOS"), filepath.Join(root, "Contents", "Other")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(install, "hand"), filepath.Join(dir, "hand")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Locate(filepath.Join(dir, "hand-desktop"), ""); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("a symlink in %s was followed: %v", dir, err)
+		}
+	}
+	if _, err := Locate(self, ""); err != nil {
+		t.Fatalf("the layout %s did not follow %s: %v", filepath.Dir(self), link, err)
+	}
+}
+
+func TestLocateFromABundleWithoutAnInstallNamesBothFoldersAndFallsBackToPath(t *testing.T) {
+	self, install := macBundle(t)
+	if _, err := Locate(self, ""); !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), filepath.Dir(self)) || !strings.Contains(err.Error(), install) {
+		t.Fatalf("Locate with none = %v; want ErrNotFound naming the bundle and %s", err, install)
+	}
+	if err := os.Remove(filepath.Join(install, "hand")); err != nil {
+		t.Fatal(err)
+	}
+	onPath := t.TempDir()
+	want := fakebin.Install(t, onPath, Name, "sidecar", nil)
+	if got, err := Locate(self, onPath); err != nil || got != want {
+		t.Fatalf("Locate with a dangling symlink = %q, %v; want the PATH copy, %q", got, err, want)
+	}
+}
