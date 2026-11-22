@@ -38,6 +38,7 @@ type skillsRec struct {
 	goals   []string
 	refused int
 	done    bool
+	phone   bool
 }
 
 func capDiff(d string) (string, bool) {
@@ -109,6 +110,7 @@ func skillsRead(env Env, home, generation string, st *state.Store) func(context.
 func skillsAct(env Env, home, generation string) func(context.Context, board.SkillsAction) (board.APISkillsRun, error) {
 	return func(ctx context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
 		r := apiRunner(env, ctx, home, generation, "skills", a.Verb)
+		r.rec.phone = a.Phone
 		for _, v := range []string{a.Project, a.Name, a.Yes} {
 			if strings.HasPrefix(v, "-") {
 				return board.APISkillsRun{}, fmt.Errorf("%w: %q starts with a dash", state.ErrInvalid, v)

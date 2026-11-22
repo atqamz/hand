@@ -522,7 +522,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "data": {
     "version": "0.14.0",
     "host": "workstation",
-    "features": ["events", "fleets", "history", "host", "links", "pair", "phone", "skills"],
+    "features": ["events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_sync"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -540,6 +540,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 | `skills` | `GET /api/v1/skills` and its `sync`, `update` and `propose` actions |
+| `skills_sync` | a paired Companion may run `POST /api/v1/skills/sync` under the rules in [Skills](#skills) |
 
 Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a Companion on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
 
@@ -690,7 +691,7 @@ Every read fetches each distinct source once, with the CLI's limits: one git ste
 
 Trust and drift behave as the command does. `sync` applies Hand's own repository and local sources with a backup, never a third-party update without `yes`, never a copy that was edited here, and in a project scope opens a bump pull request for each skill instead of editing the checkout. `update` is the explicit command: it does not need a yes, and it is the one that edits a project checkout in place for a person to commit. `propose` pushes only its own branch and opens a pull request through `gh`, which the Board needs on its `PATH`.
 
-A paired Companion reads `GET /api/v1/skills` like any other read, but every skills action answers `403 forbidden` ("a paired Companion cannot change skills; use the host's Board"): the actions run `git` and `gh` with the host's credentials and change files and pull requests on the host, as `models/refresh` and the Companion actions do. A mutation needs the session's cookie and `X-Hand-CSRF`.
+A paired Companion reads `GET /api/v1/skills` like any other read, and may run `POST /api/v1/skills/sync` in the `fleet` and `project` scopes without `yes` (`skills_sync` in `features`). It gets `403 forbidden` for `update` and `propose` ("a paired Companion cannot update or propose skills; use the host's Board"), for `sync` with a `yes` ("a paired Companion cannot apply a third-party update; read the diff, then tell the supervisor or use the host's Board") and for `sync` of the `user` scope ("a paired Companion cannot sync the user scope; use the host's Board"). `update` and `propose` are refused before the body is read; the other two after it is validated, so a malformed `sync` from a Companion answers `400` before `403`. A refusal comes before the one-at-a-time lock and before any fetch. For a Companion, a local source is never applied: its row is `behind` with the detail "local source; apply it from the host's Board or CLI". A third-party source stays `behind` with its diff in `diffs`, as for the host, and the Companion cannot apply it. The reason for the limits: `update` and `propose` and a `yes` run `git` and `gh` with the host's credentials on content nobody on the host read, or publish it, as `models/refresh` and the Companion actions do; `sync` without `yes` moves only what the host already trusts. Every `sync`, from the host or a Companion, records one `skills.synced` event: the scope (and the project, when it ran), `by` the host's session or `phone (NAME)`, and the receipt's counts, or `failed` and the error's kind (`conflict`, `bad_request`, `internal`); never a source address, a diff, a path or an error message. A refusal (`400`, `403`, `409`) writes none. If the event cannot be written, the request answers `500` with that error, after the sync ran. A mutation needs the session's cookie and `X-Hand-CSRF`.
 
 The Board runs one skills request at a time, a read or an action: a second one answers `409 conflict` ("another skills request is running on this board; try again when it ends") instead of queueing another fetch. An action is not cancelled when the client leaves; it runs to its own limits, and it stops when the Board shuts down: the `git` or `gh` step is cancelled, its clone folder is removed and the request ends: a `sync` or `update` answers `200` with a `refused` row for the skill it was on, and a `propose` an error. Error kinds follow the CLI's exit codes: an invalid scope, name or `yes` is `400 bad_request`, a project that is not registered `404 not_found`, a skill the command refuses before it reads any (no lock, a name that is not a skill name) `400` or `409 conflict`, and any other failure `500 internal`. A request-level error carries the command's sentence with no path and no login (a `user:password@` in a URL is removed from it, whatever command or tool printed it).
 
@@ -710,7 +711,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `400` | `bad_name` | `pair` with a name with a control character, or over 40 characters once trimmed |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | a paired Companion on a Companion endpoint, a fleet a Companion action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, a skills action from a paired Companion, or a control or skills request with the board's controls off |
+| `403` | `forbidden` | a paired Companion on a Companion endpoint, a fleet a Companion action names that the session does not prove, a path the document viewer refuses (hidden, outside the fleet folder, not a file or folder, unreadable), a proxy, Funnel, a peer with no `iroh:` device, v1 on a network-address board, `pair` outside the peer listener, `update`, `propose`, a `yes` or the `user` scope of a skills action from a paired Companion (see [Skills](#skills)), or a control or skills request with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `403` | `wrong_code` | `pair` with a code the board does not hold |
 | `403` | `code_expired` | `pair` with a code older than 5 minutes |

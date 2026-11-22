@@ -255,6 +255,9 @@ func cmdSkillsSync(r *runner, args []string) error {
 		case "conflict":
 			return "conflict", "", r.conflict(&goals, s, name, e, p)
 		}
+		if e.Local() && r.rec.phone && trusted(s, e) {
+			return "behind", "local source; apply it from the host's Board or CLI", nil
+		}
 		if !trusted(s, e) {
 			id := cmp.Or(p.commit, p.sum)
 			yesName, yesID, _ := strings.Cut(yes, "@")
