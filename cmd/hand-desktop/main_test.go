@@ -172,3 +172,26 @@ func TestRefusalFollowsTheStampedChannel(t *testing.T) {
 		t.Fatalf("the automation build refused: %q", msg)
 	}
 }
+
+func TestRemoteHostsNeedAStateFolder(t *testing.T) {
+	none := func(string) string { return "" }
+	if store, clients, closer := remotes(none); store != nil || clients != nil {
+		t.Fatalf("no HOME and no state folder gave %v, %v", store, clients)
+	} else {
+		closer()
+	}
+	state := t.TempDir()
+	store, clients, closer := remotes(func(k string) string {
+		if k == "XDG_STATE_HOME" {
+			return state
+		}
+		return ""
+	})
+	defer closer()
+	if store == nil || clients == nil {
+		t.Fatal("a state folder gave no remote store")
+	}
+	if hosts, err := store.Hosts(); err != nil || len(hosts) != 0 {
+		t.Fatalf("hosts = %v, %v", hosts, err)
+	}
+}

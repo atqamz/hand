@@ -35,6 +35,7 @@ type Fleet struct {
 
 type Host struct {
 	ID       string    `json:"id"`
+	ClientID string    `json:"client_id,omitempty"`
 	Relay    string    `json:"relay,omitempty"`
 	Label    string    `json:"label,omitempty"`
 	PairedAt time.Time `json:"paired_at"`
@@ -57,7 +58,19 @@ func OpenStore(dir string) *Store { return &Store{dir: dir} }
 
 func (s *Store) hosts() ([]Host, error) {
 	var hs []Host
-	return hs, s.read(filepath.Join(s.dir, "hosts.json"), &hs)
+	if err := s.read(filepath.Join(s.dir, "hosts.json"), &hs); err != nil {
+		return nil, err
+	}
+	for _, h := range hs {
+		ok := endpointRe.MatchString(h.ID) && (h.ClientID == "" || endpointRe.MatchString(h.ClientID))
+		for _, f := range h.Fleets {
+			ok = ok && fleetRe.MatchString(f.ID)
+		}
+		if !ok {
+			return nil, ErrBad
+		}
+	}
+	return hs, nil
 }
 
 func (s *Store) cookies(strict bool) (map[string]map[string]string, error) {
@@ -144,7 +157,7 @@ func (s *Store) Cookie(host, fleet string) (string, error) {
 }
 
 func (s *Store) Add(h Host, f Fleet, cookie string, local func(id string) bool) error {
-	if !endpointRe.MatchString(h.ID) || !fleetRe.MatchString(f.ID) || !cookieRe.MatchString(cookie) {
+	if !endpointRe.MatchString(h.ID) || !fleetRe.MatchString(f.ID) || !cookieRe.MatchString(cookie) || (h.ClientID != "" && !endpointRe.MatchString(h.ClientID)) {
 		return ErrBad
 	}
 	s.mu.Lock()

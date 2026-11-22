@@ -12,7 +12,9 @@ import (
 
 	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/remote"
 	"github.com/atqamz/hand/internal/desktopasset"
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
@@ -71,6 +73,20 @@ func refusal(goos, goarch string) string {
 	return ""
 }
 
+func remotes(getenv func(string) string) (desktop.RemoteStore, desktop.RemoteClients, func()) {
+	dir := remote.Dir(desktop.DraftDir(getenv))
+	if dir == "" {
+		return nil, nil, func() {}
+	}
+	self, _ := os.Executable()
+	store := remote.OpenStore(dir)
+	sup, err := remote.NewSupervisor(remote.SupervisorOptions{Store: store, Resolve: sidecar.Resolve(self, getenv("PATH"))})
+	if err != nil {
+		return nil, nil, func() {}
+	}
+	return store, sup, sup.Close
+}
+
 func main() {
 	opts, err := parseArgs(os.Args[1:])
 	if err != nil {
@@ -88,7 +104,8 @@ func main() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
-	app := desktop.New(func() (desktop.ReadModel, error) { return desktop.NewLocal(os.Getenv) })
+	store, clients, closeRemote := remotes(os.Getenv)
+	app := desktop.New(desktop.Connect(os.Getenv, store, clients, nil))
 	app.Start = desktop.StartBoard(os.Getenv)
 	app.NewFleet = desktop.NewFleet(os.Getenv)
 	app.DraftDir = desktop.DraftDir(os.Getenv)
@@ -157,6 +174,7 @@ func main() {
 		app.StartRefresh()
 	})
 	err = mygo.App.Run()
+	closeRemote()
 	app.FlushDrafts()
 	if err != nil {
 		log.Fatal(err)

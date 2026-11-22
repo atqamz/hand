@@ -2133,6 +2133,10 @@ func friendly(err error) string {
 	}
 	var api *APIError
 	if errors.As(err, &api) {
+		switch api.Code {
+		case CodeRevoked, CodeNotRecognised, CodeKeyChanged:
+			return api.Message
+		}
 		switch api.Status {
 		case 401:
 			return "the board did not accept this fleet's token; open the fleet once with `hand open`"

@@ -6,6 +6,7 @@ type Fleet struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Home string `json:"-"`
+	Host string `json:"-"`
 }
 
 type Envelope struct {
