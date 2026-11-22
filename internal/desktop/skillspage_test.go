@@ -30,6 +30,12 @@ func skillsApp(t *testing.T, f *fixture) (*desktop.App, *ui.Tester) {
 	return app, newTester(app)
 }
 
+func (f *fixture) readCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.skillsReads
+}
+
 func (f *fixture) skillCalls() []skillsCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -290,16 +296,15 @@ func TestReopeningThePageKeepsAPendingActionsOutcome(t *testing.T) {
 	close(f.skillsGate)
 	drainSkills(t, tt, posted, "already at the source")
 	mustText(t, tt, "Skills sync: 1 current")
-	reads := f.skillsReads
-	for i := 0; i < 3; i++ {
+	deadline := time.After(5 * time.Second)
+	for f.readCount() < 2 {
 		select {
 		case fn := <-posted:
 			fn()
-		case <-time.After(300 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("the list was read %d times, want a read after the action", f.readCount())
+		case <-time.After(10 * time.Millisecond):
 		}
-	}
-	if reads < 2 {
-		t.Fatalf("the list was read %d times, want a read after the action", reads)
 	}
 }
 
