@@ -384,6 +384,8 @@ jobs:
     concurrency:
       group: edge
       cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -399,6 +401,7 @@ jobs:
           sh .github/scripts/build-dist.sh "$base" edge "$GITHUB_SHA"
           sh .github/scripts/build-desktop.sh "$base" edge "$GITHUB_SHA"
       - name: Publish
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -432,6 +435,7 @@ jobs:
           done
           git push --force origin "$GITHUB_SHA:refs/tags/edge"
           gh release edit edge --prerelease --title Edge --notes "$notes"
+          echo "published=true" >> "$GITHUB_OUTPUT"
       - name: Attest
         continue-on-error: true
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -445,8 +449,23 @@ jobs:
             hand-desktop-windows-amd64.zip
             hand-desktop-*.sha256
 
-  setup:
+  iroh:
     needs: edge
+    if: ${{ !cancelled() && needs.edge.outputs.published == 'true' }}
+    concurrency:
+      group: edge-iroh
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/iroh.yaml
+    with:
+      ref: ${{ github.sha }}
+      tag: edge
+
+  setup:
+    needs: [edge, iroh]
     if: ${{ !cancelled() && needs.edge.result == 'success' }}
     permissions:
       contents: write

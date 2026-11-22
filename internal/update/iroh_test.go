@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/sidecar"
 )
 
 func irohName(goos, arch string) string { return "hand-iroh-" + goos + "-" + arch }
@@ -212,7 +213,7 @@ func TestRunCheckSaysTheReleaseHasNoSidecarForACurrentHand(t *testing.T) {
 	f.o.From = currentBuild()
 	f.o.Check = true
 	rep, err := Run(context.Background(), f.o)
-	if err != nil || rep.Status != "up to date" || rep.Iroh != "none in this release" {
+	if err != nil || rep.Status != "up to date" || rep.Iroh != irohAbsent("0.1.0", "") {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 	if !slices.Contains(f.srv.asked(), releaseURL("/", f.o.Channel)+"/"+asset) || !slices.Contains(f.srv.askedMethods(), http.MethodHead) {
@@ -220,8 +221,58 @@ func TestRunCheckSaysTheReleaseHasNoSidecarForACurrentHand(t *testing.T) {
 	}
 	absent(t, f.sidecar())
 	f.unchanged(t)
-	if out := Render(rep).String(); !strings.Contains(out, "iroh: none in this release\n") {
+	if out := Render(rep).String(); !strings.Contains(out, "iroh: \"mismatch: this release has none, no working hand-iroh is installed, this hand needs 0.1.0; install hand-iroh 0.1.0 ") {
 		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func TestRunCheckNamesBothVersionsWhenTheReleaseHasNoMatchingSidecar(t *testing.T) {
+	f := newIrohFetch(t, "0.2.0", "")
+	installIroh(t, f, "0.1.0")
+	f.o.From = currentBuild()
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	want := "mismatch: this release has none, installed hand-iroh is 0.1.0, this hand needs 0.2.0; install hand-iroh 0.2.0 next to hand from a release that carries it, or build it from iroh/ at this commit (cargo build --release --locked)"
+	if err != nil || rep.Failed || rep.Iroh != want {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if out := Render(rep).String(); !strings.Contains(out, "iroh: \""+want+"\"\n") {
+		t.Fatalf("render:\n%s", out)
+	}
+	f.unchanged(t)
+}
+
+func TestRunNamesBothVersionsWhenAnUpdatedHandFindsNoMatchingSidecar(t *testing.T) {
+	f := newIrohFetch(t, "0.2.0", "")
+	installIroh(t, f, "0.1.0")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "updated" || rep.Failed || rep.Iroh != irohAbsent("0.2.0", "0.1.0") || !strings.Contains(rep.Iroh, "installed hand-iroh is 0.1.0, this hand needs 0.2.0") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if got, err := sidecar.BinaryVersion(context.Background(), f.sidecar()); err != nil || got != "0.1.0" {
+		t.Fatalf("the installed sidecar changed: %q, %v", got, err)
+	}
+}
+
+func TestRunNamesBothVersionsWhenACurrentHandFindsNoMatchingSidecar(t *testing.T) {
+	f := newIrohFetch(t, "0.2.0", "")
+	installIroh(t, f, "0.1.0")
+	f.o.From = currentBuild()
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" || rep.Failed || rep.Iroh != irohAbsent("0.2.0", "0.1.0") {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if got, err := sidecar.BinaryVersion(context.Background(), f.sidecar()); err != nil || got != "0.1.0" {
+		t.Fatalf("the installed sidecar changed: %q, %v", got, err)
+	}
+}
+
+func TestRunStaysQuietWhenTheInstalledSidecarIsTheOneHandNeeds(t *testing.T) {
+	f := newIrohFetch(t, "0.1.0", "")
+	installIroh(t, f, "0.1.0")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Iroh != "none in this release" {
+		t.Fatalf("report = %+v, %v", rep, err)
 	}
 }
 
@@ -277,7 +328,7 @@ func TestRunKeepsTheOldBinariesWhenTheSidecarDoesNotRun(t *testing.T) {
 func TestRunStillUpdatesWhenTheReleaseCarriesNoSidecar(t *testing.T) {
 	f := newIrohFetch(t, "0.1.0", "")
 	rep, err := Run(context.Background(), f.o)
-	if err != nil || rep.Status != "updated" || rep.Iroh != "none in this release" {
+	if err != nil || rep.Status != "updated" || rep.Iroh != irohAbsent("0.1.0", "") {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 	if _, err := os.Stat(f.sidecar()); !errors.Is(err, os.ErrNotExist) {
