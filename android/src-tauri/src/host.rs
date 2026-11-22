@@ -762,15 +762,62 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_request<'local>(
             let sent = catch_unwind(AssertUnwindSafe(|| {
                 send(env, &fleet, post, &path, &csrf, &body)
             }));
-            let answer = match sent {
-                Ok(Ok(response)) => serde_json::json!({
-                    "status": response.status,
-                    "body": String::from_utf8_lossy(&response.body),
-                }),
-                Ok(Err(error)) => serde_json::json!({ "failure": error.name() }),
-                Err(_) => serde_json::json!({ "failure": RequestError::Malformed.name() }),
-            };
-            reply(env, answer)
+            reply(env, wire(sent))
+        })
+        .resolve::<LogErrorAndDefault>()
+}
+
+fn wire(sent: std::thread::Result<Result<Response, RequestError>>) -> serde_json::Value {
+    match sent {
+        Ok(Ok(response)) => serde_json::json!({
+            "status": response.status,
+            "body": String::from_utf8_lossy(&response.body),
+        }),
+        Ok(Err(error)) => serde_json::json!({ "failure": error.name() }),
+        Err(_) => serde_json::json!({ "failure": RequestError::Malformed.name() }),
+    }
+}
+
+fn upload(
+    env: &Env,
+    fleet: &JString,
+    csrf: &JString,
+    name: &JString,
+    bytes: &JByteArray,
+) -> Result<Response, RequestError> {
+    let core = core().ok_or(RequestError::NoHost)?;
+    let fleet = text(env, fleet)?.ok_or(RequestError::Malformed)?;
+    let csrf = text(env, csrf)?.ok_or(RequestError::Malformed)?;
+    let name = text(env, name)?.ok_or(RequestError::Malformed)?;
+    if bytes.as_raw().is_null() {
+        return Err(RequestError::Malformed);
+    }
+    let bytes = env
+        .convert_byte_array(bytes)
+        .map_err(|_| RequestError::Malformed)?;
+    let cookie = core.sessions.cookie(&fleet).unwrap_or_default();
+    let request = Request::upload(&fleet, &cookie, &csrf, &name, &bytes)?;
+    runtime().block_on(
+        core.companion
+            .request(&core.sessions, &fleet, &cookie, &request),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_upload<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    fleet: JString<'local>,
+    csrf: JString<'local>,
+    name: JString<'local>,
+    bytes: JByteArray<'local>,
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let sent = catch_unwind(AssertUnwindSafe(|| {
+                upload(env, &fleet, &csrf, &name, &bytes)
+            }));
+            reply(env, wire(sent))
         })
         .resolve::<LogErrorAndDefault>()
 }

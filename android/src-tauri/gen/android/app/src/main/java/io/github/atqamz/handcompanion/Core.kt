@@ -64,4 +64,7 @@ object Core {
   ): String?
 
   @JvmStatic external fun file(fleet: String, path: String): ByteArray?
+
+  @JvmStatic
+  external fun upload(fleet: String, csrf: String, name: String, bytes: ByteArray): String?
 }

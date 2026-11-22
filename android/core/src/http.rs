@@ -11,6 +11,8 @@ use crate::proxy::unpaired_403;
 
 pub const MAX_BODY: usize = 16 << 20;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+pub const MAX_UPLOAD: usize = 10 << 20;
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_LINE: usize = 64;
 
@@ -76,6 +78,53 @@ impl Request {
         csrf: Option<&str>,
         body: &[u8],
     ) -> Result<Self, RequestError> {
+        Self::build(method, fleet, path, cookies, csrf, "application/json", body)
+    }
+
+    pub fn upload(
+        fleet: &str,
+        cookies: &str,
+        csrf: &str,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<Self, RequestError> {
+        if bytes.len() > MAX_UPLOAD {
+            return Err(RequestError::TooLarge);
+        }
+        let name = upload_name(name);
+        let mut boundary = String::from("handboundary");
+        let mut tries = 0u32;
+        while contains(bytes, boundary.as_bytes()) {
+            tries += 1;
+            boundary = format!("handboundary{tries}");
+        }
+        let mut body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        Ok(Self::build(
+            Method::Post,
+            fleet,
+            "/api/v1/inbox",
+            Some(cookies),
+            Some(csrf),
+            &format!("multipart/form-data; boundary={boundary}"),
+            &body,
+        )?
+        .within(UPLOAD_TIMEOUT))
+    }
+
+    fn build(
+        method: Method,
+        fleet: &str,
+        path: &str,
+        cookies: Option<&str>,
+        csrf: Option<&str>,
+        content_type: &str,
+        body: &[u8],
+    ) -> Result<Self, RequestError> {
         if !valid_fleet(fleet)
             || !allowed_path(path)
             || csrf.is_some_and(|token| !valid_cookie_value(token))
@@ -97,7 +146,7 @@ impl Request {
         }
         if method == Method::Post {
             head.push_str(&format!(
-                "Content-Type: application/json\r\nContent-Length: {}\r\n",
+                "Content-Type: {content_type}\r\nContent-Length: {}\r\n",
                 body.len()
             ));
         }
@@ -152,6 +201,27 @@ impl Request {
         self.by_length = true;
         self
     }
+}
+
+fn upload_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut run = false;
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+            out.push(c);
+            run = false;
+        } else if !run {
+            out.push('_');
+            run = true;
+        }
+    }
+    if out.is_empty() { "file".into() } else { out }
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn allowed_path(path: &str) -> bool {
@@ -836,6 +906,92 @@ mod tests {
         .into_bytes();
         wire.extend_from_slice(&bytes);
         assert_eq!(parse(&[&wire], MAX_BODY).unwrap().body, bytes);
+    }
+
+    fn split(request: &Request) -> (String, Vec<u8>) {
+        let at = request
+            .bytes
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        (
+            String::from_utf8(request.bytes[..at].to_vec()).unwrap(),
+            request.bytes[at..].to_vec(),
+        )
+    }
+
+    #[test]
+    fn an_upload_is_one_multipart_file_with_its_length_and_its_bytes_whole() {
+        let bytes: Vec<u8> = (0..=255u8).cycle().take(MAX_UPLOAD).collect();
+        let request = Request::upload(FLEET, COOKIES, "tok123", "shot one.png", &bytes).unwrap();
+        let (head, body) = split(&request);
+        assert!(head.starts_with("POST /f0123456789ab/api/v1/inbox HTTP/1.1\r\n"));
+        assert!(head.contains("\r\nCookie: hand_phone_f0123456789ab=abc.def\r\n"));
+        assert!(head.contains("\r\nX-Hand-CSRF: tok123\r\n"));
+        assert!(head.contains("\r\nContent-Type: multipart/form-data; boundary=handboundary\r\n"));
+        assert!(head.contains(&format!("\r\nContent-Length: {}\r\n", body.len())));
+        let open = b"--handboundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"shot_one.png\"\r\nContent-Type: application/octet-stream\r\n\r\n";
+        let close = b"\r\n--handboundary--\r\n";
+        assert!(body.starts_with(open));
+        assert!(body.ends_with(close));
+        assert_eq!(&body[open.len()..body.len() - close.len()], &bytes[..]);
+        assert_eq!(request.timeout, UPLOAD_TIMEOUT);
+        assert!(UPLOAD_TIMEOUT > REQUEST_TIMEOUT);
+        assert_eq!(MAX_UPLOAD, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn an_upload_over_ten_mib_is_refused_before_it_is_built() {
+        let bytes = vec![0u8; MAX_UPLOAD + 1];
+        assert_eq!(
+            Request::upload(FLEET, COOKIES, "tok", "a.bin", &bytes).map(|_| ()),
+            Err(RequestError::TooLarge)
+        );
+        assert!(Request::upload(FLEET, COOKIES, "tok", "a.bin", &bytes[1..]).is_ok());
+    }
+
+    #[test]
+    fn a_boundary_that_the_file_contains_is_never_used() {
+        let mut bytes = b"x--handboundary".to_vec();
+        bytes.extend_from_slice(b"--handboundary1");
+        let request = Request::upload(FLEET, COOKIES, "tok", "a.bin", &bytes).unwrap();
+        let (head, body) = split(&request);
+        assert!(head.contains("boundary=handboundary2\r\n"));
+        assert!(body.starts_with(b"--handboundary2\r\n"));
+        assert!(body.ends_with(b"\r\n--handboundary2--\r\n"));
+    }
+
+    #[test]
+    fn an_upload_name_cannot_split_a_header_or_close_its_quote() {
+        for (name, kept) in [
+            ("a\"b\r\nX: y.png", "a_b_X_y.png"),
+            ("..\\x/y z.txt", ".._x_y_z.txt"),
+            ("\u{e9}\u{e9}", "_"),
+            ("", "file"),
+        ] {
+            let request = Request::upload(FLEET, COOKIES, "tok", name, b"x").unwrap();
+            let (_, body) = split(&request);
+            let want = format!("filename=\"{kept}\"\r\n");
+            assert!(
+                std::str::from_utf8(&body).unwrap().contains(&want),
+                "{name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_upload_without_a_valid_csrf_token_is_refused() {
+        for token in ["", "a\r\nb"] {
+            assert_eq!(
+                Request::upload(FLEET, COOKIES, token, "a.bin", b"x").map(|_| ()),
+                Err(RequestError::Malformed)
+            );
+        }
+        assert_eq!(
+            Request::upload(FLEET, "a=b", "tok", "a.bin", b"x").map(|_| ()),
+            Err(RequestError::Unpaired)
+        );
     }
 
     #[test]

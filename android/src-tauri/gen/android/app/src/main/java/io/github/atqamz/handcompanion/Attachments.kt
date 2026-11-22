@@ -28,13 +28,13 @@ sealed interface Part {
   data class Piece(val shot: Shot) : Part
 }
 
-private val token = Regex("""\[attachment ([1-9][0-9]{0,3})]""")
+internal val attachmentToken = Regex("""\[attachment ([1-9][0-9]{0,3})]""")
 
 fun inlineParts(text: String, shots: List<Shot>): List<Part> {
   val parts = mutableListOf<Part>()
   val placed = HashSet<Int>()
   var last = 0
-  for (match in token.findAll(text)) {
+  for (match in attachmentToken.findAll(text)) {
     val shot = shots.firstOrNull { it.n == match.groupValues[1].toInt() } ?: continue
     text.substring(last, match.range.first).trim().takeIf(String::isNotEmpty)?.let {
       parts += Part.Words(it)

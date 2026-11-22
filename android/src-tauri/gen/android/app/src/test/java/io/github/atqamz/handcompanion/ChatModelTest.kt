@@ -93,6 +93,14 @@ private class ComposingDrafts(initial: Map<String, Pair<String, Long>> = emptyMa
     if (sent == null) unsure.remove(fleet) else unsure[fleet] = sent
   }
 
+  val files = mutableMapOf<String, List<Attached>>()
+
+  override fun readFiles(fleet: String, now: Long) = files[fleet].orEmpty()
+
+  override fun writeFiles(fleet: String, files: List<Attached>, now: Long) {
+    if (files.isEmpty()) this.files.remove(fleet) else this.files[fleet] = files
+  }
+
   fun text(fleet: String = FLEET) = saved[fleet]?.first.orEmpty()
 }
 
