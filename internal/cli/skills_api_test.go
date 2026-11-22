@@ -553,6 +553,17 @@ func TestSkillsAPIDropsALoginFromAReconcileGoal(t *testing.T) {
 	}
 }
 
+func TestSkillsLoginKeepsAnAtInAPathOrQuery(t *testing.T) {
+	for _, keep := range []string{"https://host/a@b", "https://host/a?u=x@y", "see https://host/p and mail a@b.test"} {
+		if got := cli.SkillsLogin(keep); got != keep {
+			t.Fatalf("login(%q) = %q", keep, got)
+		}
+	}
+	if got := cli.SkillsLogin("https://pat:s3@cret@host/a@b"); got != "https://host/a@b" {
+		t.Fatalf("login = %q", got)
+	}
+}
+
 func TestSkillsAPIReadDropsADirectoryFromASourceAndADetail(t *testing.T) {
 	f := newProposeFixture(t, "")
 	f.h.ok("skills", "add", "--fleet", "triage")

@@ -10,6 +10,7 @@ import (
 
 var (
 	WakeDigest       = wakeDigest
+	SkillsLogin      = login
 	TrustWait        = &trustWait
 	WatcherStartWait = &watcherStartWait
 	TrustConfirm     = &trustConfirm
