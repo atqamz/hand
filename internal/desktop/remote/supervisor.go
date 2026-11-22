@@ -38,9 +38,12 @@ type Supervisor struct {
 	mu   sync.Mutex
 	runs map[string]*run
 
-	qmu   sync.Mutex
-	queue []event
-	kick  chan struct{}
+	qmu     sync.Mutex
+	queue   []event
+	kick    chan struct{}
+	fin     chan struct{}
+	finish  sync.Once
+	drained chan struct{}
 
 	stable time.Duration
 	wait   func(context.Context, time.Duration) bool
@@ -68,22 +71,24 @@ func NewSupervisor(o SupervisorOptions) (*Supervisor, error) {
 		o.Max = max(backoffMax, o.Min)
 	}
 	ctx, stop := context.WithCancel(context.Background())
-	s := &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, kick: make(chan struct{}, 1), stable: stableRun, wait: sleep}
+	s := &Supervisor{o: o, ctx: ctx, stop: stop, runs: map[string]*run{}, kick: make(chan struct{}, 1), fin: make(chan struct{}), drained: make(chan struct{}), stable: stableRun, wait: sleep}
 	if o.OnChange != nil {
 		go s.dispatch()
+	} else {
+		close(s.drained)
 	}
 	return s, nil
 }
 
 func (s *Supervisor) Start(h Host, newKey bool) error {
-	dir, err := s.o.Store.KeyDir(h.ID)
-	if err != nil {
-		return err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ctx.Err() != nil {
 		return ErrClosed
+	}
+	dir, err := s.o.Store.KeyDir(h.ID)
+	if err != nil {
+		return err
 	}
 	if r := s.runs[h.ID]; r != nil {
 		select {
@@ -135,6 +140,7 @@ func (s *Supervisor) record(id string, st sidecar.ClientStatus) {
 }
 
 func (s *Supervisor) dispatch() {
+	defer close(s.drained)
 	for {
 		s.qmu.Lock()
 		q := s.queue
@@ -148,8 +154,13 @@ func (s *Supervisor) dispatch() {
 		}
 		select {
 		case <-s.kick:
-		case <-s.ctx.Done():
-			return
+		case <-s.fin:
+			s.qmu.Lock()
+			empty := len(s.queue) == 0
+			s.qmu.Unlock()
+			if empty {
+				return
+			}
 		}
 	}
 }
@@ -225,4 +236,6 @@ func (s *Supervisor) Close() {
 	for _, r := range runs {
 		<-r.done
 	}
+	s.finish.Do(func() { close(s.fin) })
+	<-s.drained
 }

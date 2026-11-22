@@ -116,6 +116,12 @@ func (r *rig) until(what string, ok func() bool) {
 	}
 }
 
+func (r *rig) stateText() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Join(r.states, ",")
+}
+
 func (r *rig) logText() string {
 	b, _ := os.ReadFile(r.log)
 	return string(b)
@@ -175,9 +181,8 @@ func TestTheClientRunsWithOnlyTheHostTheKeyFolderAndTheRelay(t *testing.T) {
 	if got := r.sup.Base(hostB); got != "" {
 		t.Errorf("another host's Base = %q", got)
 	}
-	r.mu.Lock()
-	states := strings.Join(r.states, ",")
-	r.mu.Unlock()
+	r.until("the ready state to be delivered", func() bool { return strings.Contains(r.stateText(), "4d92 ready") })
+	states := r.stateText()
 	if !strings.HasPrefix(states, "4d92 starting,4d92 ready") {
 		t.Errorf("states = %s", states)
 	}
@@ -346,6 +351,68 @@ func TestStartAfterCloseIsRefusedAndStartsNothing(t *testing.T) {
 	}
 	if r.logText() != "" || len(r.sup.runs) != 0 {
 		t.Fatalf("something started: %q", r.logText())
+	}
+	if _, err := os.Stat(filepath.Join(r.store.dir, hostA)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused Start made the key folder: %v", err)
+	}
+}
+
+func gatedRig(t *testing.T) (*rig, func()) {
+	gate := make(chan struct{})
+	var first atomic.Bool
+	var once sync.Once
+	r := newRig(t, nil, func(o *SupervisorOptions) {
+		inner := o.OnChange
+		o.OnChange = func(host string, st sidecar.ClientStatus) {
+			if first.CompareAndSwap(false, true) {
+				<-gate
+			}
+			inner(host, st)
+		}
+	})
+	return r, func() { once.Do(func() { close(gate) }) }
+}
+
+func TestEventsAreDeliveredInTheOrderTheyHappened(t *testing.T) {
+	r, release := gatedRig(t)
+	t.Cleanup(release)
+	if err := r.sup.Start(Host{ID: hostA}, false); err != nil {
+		t.Fatal(err)
+	}
+	r.ready(hostA)
+	r.sup.Stop(hostA)
+	release()
+	r.until("the stopped state", func() bool { return strings.HasSuffix(r.stateText(), "4d92 stopped") })
+	if got, want := r.stateText(), "4d92 starting,4d92 ready,4d92 ready,4d92 ready,4d92 stopped"; got != want {
+		t.Fatalf("states = %s, want %s", got, want)
+	}
+}
+
+func TestCloseDeliversEveryQueuedEventBeforeItReturns(t *testing.T) {
+	r, release := gatedRig(t)
+	t.Cleanup(release)
+	if err := r.sup.Start(Host{ID: hostA}, false); err != nil {
+		t.Fatal(err)
+	}
+	r.ready(hostA)
+	time.AfterFunc(100*time.Millisecond, release)
+	r.sup.Close()
+	if got, want := r.stateText(), "4d92 starting,4d92 ready,4d92 ready,4d92 ready,4d92 stopped"; got != want {
+		t.Fatalf("states after Close = %s, want %s", got, want)
+	}
+}
+
+func TestCloseDeliversAnEventQueuedWithoutAWakeUp(t *testing.T) {
+	r := newRig(t, nil, nil)
+	r.sup.record(hostA, sidecar.ClientStatus{State: sidecar.Starting})
+	r.until("the first event", func() bool { return r.stateText() != "" })
+	time.Sleep(50 * time.Millisecond)
+	r.sup.qmu.Lock()
+	r.sup.queue = append(r.sup.queue, event{hostA, sidecar.ClientStatus{State: sidecar.Failed}})
+	r.sup.qmu.Unlock()
+	r.sup.Close()
+	if got, want := r.stateText(), "4d92 starting,4d92 failed"; got != want {
+		t.Fatalf("states after Close = %s, want %s", got, want)
 	}
 }
 
