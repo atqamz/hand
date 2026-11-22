@@ -612,6 +612,18 @@ func TestLocateFollowsTheBundlesHandSymlinkToTheInstall(t *testing.T) {
 	}
 }
 
+func TestResolveFromTheBundleVerifiesTheInstalledSidecar(t *testing.T) {
+	self, install := macBundle(t)
+	want := fakebin.Install(t, install, Name, "sidecar", map[string]string{"version": "hand-iroh " + Version + " iroh 1.4.1"})
+	if bin, err := Resolve(self, "")(context.Background()); err != nil || bin != want {
+		t.Fatalf("Resolve from the bundle = %q, %v; want %q", bin, err, want)
+	}
+	fakebin.Install(t, install, Name, "sidecar", map[string]string{"version": "hand-iroh 9.9.9 iroh 1.4.1"})
+	if bin, err := Resolve(self, "")(context.Background()); !errors.Is(err, ErrVersion) || bin != want || !strings.Contains(err.Error(), "needs "+Version) {
+		t.Fatalf("Resolve with a stale sidecar = %q, %v; want ErrVersion naming %s", bin, err, Version)
+	}
+}
+
 func TestLocateFollowsTheHandSymlinkOfAnyAppFolder(t *testing.T) {
 	self, install := macBundle(t)
 	want := fakebin.Install(t, install, Name, "sidecar", nil)
