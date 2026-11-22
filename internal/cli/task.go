@@ -496,11 +496,9 @@ func (r *runner) inFleetFolder(opened os.FileInfo) (bool, error) {
 	found := false
 	err = filepath.WalkDir(home, func(path string, de fs.DirEntry, err error) error {
 		switch {
-		case err != nil && path == home:
-			return err
 		case err != nil:
 			return err
-		case path == filepath.Join(home, "reports"):
+		case path == filepath.Join(home, "reports") && de.IsDir():
 			return filepath.SkipDir
 		case !de.Type().IsRegular():
 			return nil
@@ -511,7 +509,7 @@ func (r *runner) inFleetFolder(opened os.FileInfo) (bool, error) {
 			return nil
 		case err != nil:
 			return err
-		case os.SameFile(info, opened):
+		case info.Size() == opened.Size() && os.SameFile(info, opened):
 			found = true
 			return filepath.SkipAll
 		}

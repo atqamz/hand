@@ -450,3 +450,22 @@ func TestLabelLineAndKind(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneProtectsAFileByTheNameItIsNotByWhereAProtectedSymlinkLeads(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a symlink needs privileges on Windows")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, Folder)
+	put(t, filepath.Join(dir, "20260901-000000-1.png"), 48*day)
+	if err := os.Symlink("20260901-000000-1.png", filepath.Join(dir, "20260902-000000-1.png")); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Prune(home, now, 30*day, false, map[string]bool{"20260902-000000-1.png": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"20260901-000000-1.png"}; !slices.Equal(names(p.Moved), want) {
+		t.Fatalf("moved %v, want %v: a protected symlink must not protect its target", names(p.Moved), want)
+	}
+}

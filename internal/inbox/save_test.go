@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -340,5 +341,56 @@ func TestSaveNeverReplacesAFileOfTheSameName(t *testing.T) {
 	des, _ := os.ReadDir(dir)
 	if len(des) != len(got) {
 		t.Fatalf("%d entries for %d saves", len(des), len(got))
+	}
+}
+
+func TestSaveFallsBackToCreatingTheFileWhereHardLinksAreRefused(t *testing.T) {
+	old := link
+	link = func(string, string) error { return &os.LinkError{Op: "link", Err: syscall.EPERM} }
+	defer func() { link = old }()
+	dir := t.TempDir()
+	taken := filepath.Join(dir, "20260101-000000-1-same.txt")
+	if err := os.WriteFile(taken, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	got := make([]string, 40)
+	for i := range got {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[i], _ = Save(dir, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "same.txt", strings.NewReader(strings.Repeat("x", i+1)))
+		}()
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	for i, name := range got {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if name == "" || seen[name] || err != nil || len(b) != i+1 {
+			t.Fatalf("save %d = %q (%d bytes), %v", i, name, len(b), err)
+		}
+		seen[name] = true
+	}
+	if b, _ := os.ReadFile(taken); string(b) != "keep" || seen[filepath.Base(taken)] {
+		t.Fatalf("the taken name was replaced: %q", b)
+	}
+	if des, _ := os.ReadDir(dir); len(des) != len(got)+1 {
+		t.Fatalf("%d entries for %d saves and one file already there", len(des), len(got))
+	}
+}
+
+func TestSaveKeepsLinkingWhereItWorksAndTakesTheNextNumberOnAName(t *testing.T) {
+	old := link
+	calls := 0
+	link = func(a, b string) error { calls++; return old(a, b) }
+	defer func() { link = old }()
+	dir := t.TempDir()
+	for i := 0; i < 2; i++ {
+		if _, err := Save(dir, now, "a.txt", strings.NewReader("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 3 {
+		t.Fatalf("link calls = %d, want 3 (one name taken, then linked)", calls)
 	}
 }

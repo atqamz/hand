@@ -452,3 +452,44 @@ func TestTaskDetachKeepsTheFileInTheInbox(t *testing.T) {
 		t.Fatalf("detach removed the file: %v", err)
 	}
 }
+
+func TestTaskAttachRefusesAHardLinkOfAFleetFileWhenReportsIsASymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a symlink needs privileges on Windows")
+	}
+	h := attachFixture(t)
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(h.home, "reports")); err != nil {
+		t.Fatal(err)
+	}
+	routing := filepath.Join(h.home, "routing.json")
+	if err := os.WriteFile(routing, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "hl-routing.json")
+	if err := os.Link(routing, link); err != nil {
+		t.Skip("no hard links here")
+	}
+	before := inboxNames(t, h)
+	if _, errOut, code := h.run("task", "attach", "t1", link); code != 2 || !strings.Contains(errOut, "inside the fleet folder") || !slices.Equal(before, inboxNames(t, h)) {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestTaskAttachSkipsOnlyTheTopReportsFolderOfTheFleetFolder(t *testing.T) {
+	h := attachFixture(t)
+	nested := filepath.Join(h.home, "memory", "reports", "x.md")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nested, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "hl.md")
+	if err := os.Link(nested, link); err != nil {
+		t.Skip("no hard links here")
+	}
+	if _, errOut, code := h.run("task", "attach", "t1", link); code != 2 || !strings.Contains(errOut, "inside the fleet folder") {
+		t.Fatalf("a file under a nested reports/ : code=%d stderr=%q", code, errOut)
+	}
+}

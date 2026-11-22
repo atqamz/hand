@@ -40,6 +40,8 @@ var (
 	invisible  = []*unicode.RangeTable{unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector}
 )
 
+var link = os.Link
+
 func TooBig(err error) bool {
 	return errors.Is(err, ErrTooLarge) || errors.Is(err, ErrPixels) || errors.Is(err, ErrUnsized)
 }
@@ -151,9 +153,20 @@ func Save(dir string, now time.Time, original string, body io.Reader) (string, e
 		return "", werr
 	}
 	stamp := now.Format("20060102-150405")
+	linked := true
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("%s-%d-%s", stamp, n, safe)
-		switch err := os.Link(tmp.Name(), filepath.Join(dir, name)); {
+		path := filepath.Join(dir, name)
+		var err error
+		if linked {
+			if err = link(tmp.Name(), path); err != nil && !errors.Is(err, fs.ErrExist) {
+				linked = false
+			}
+		}
+		if !linked {
+			err = create(path, data)
+		}
+		switch {
 		case errors.Is(err, fs.ErrExist):
 			continue
 		case err != nil:
@@ -161,6 +174,24 @@ func Save(dir string, now time.Time, original string, body io.Reader) (string, e
 		}
 		return name, nil
 	}
+}
+
+func create(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+	}
+	return err
 }
 
 func SweepUploads(dir string, now time.Time, dry bool) ([]File, []Failure) {
