@@ -429,7 +429,7 @@ jobs:
           gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 hand-desktop-linux-amd64.tar.gz hand-desktop-linux-amd64.sha256 hand-desktop-linux-arm64.tar.gz hand-desktop-linux-arm64.sha256 hand-desktop-darwin-arm64.tar.gz hand-desktop-darwin-arm64.sha256 hand-desktop-darwin-amd64.tar.gz hand-desktop-darwin-amd64.sha256 hand-desktop-windows-amd64.zip hand-desktop-windows-amd64.sha256 --clobber
           for name in $(gh release view edge --json assets --jq '.assets[].name'); do
             case "$name" in
-              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256 | hand-desktop-darwin-arm64.tar.gz | hand-desktop-darwin-arm64.sha256 | hand-desktop-darwin-amd64.tar.gz | hand-desktop-darwin-amd64.sha256 | hand-desktop-windows-amd64.zip | hand-desktop-windows-amd64.sha256 | hand-iroh-* | Hand-Setup-*-x64.exe | Hand-Setup-*-x64.sha256) ;;
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256 | hand-desktop-linux-amd64.tar.gz | hand-desktop-linux-amd64.sha256 | hand-desktop-linux-arm64.tar.gz | hand-desktop-linux-arm64.sha256 | hand-desktop-darwin-arm64.tar.gz | hand-desktop-darwin-arm64.sha256 | hand-desktop-darwin-amd64.tar.gz | hand-desktop-darwin-amd64.sha256 | hand-desktop-windows-amd64.zip | hand-desktop-windows-amd64.sha256 | Hand-Setup-*-x64.exe | Hand-Setup-*-x64.sha256) ;;
               *) gh release delete-asset edge "$name" -y ;;
             esac
           done
@@ -452,6 +452,9 @@ jobs:
   iroh:
     needs: edge
     if: ${{ !cancelled() && needs.edge.outputs.published == 'true' }}
+    concurrency:
+      group: edge-iroh
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
@@ -462,7 +465,7 @@ jobs:
       tag: edge
 
   setup:
-    needs: edge
+    needs: [edge, iroh]
     if: ${{ !cancelled() && needs.edge.result == 'success' }}
     permissions:
       contents: write
