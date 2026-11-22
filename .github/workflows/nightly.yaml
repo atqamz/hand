@@ -28,7 +28,7 @@ jobs:
     if: github.event.schedule == '23 2 * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'e2e-harness')
     uses: ./.github/workflows/e2e-harness.yaml
     with:
-      versions: ${{ inputs.versions }}
+      versions: ${{ inputs.versions || 'latest' }}
 
   nightly-e2e-install:
     name: "[Nightly] E2E Install"

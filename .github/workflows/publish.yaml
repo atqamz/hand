@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.job == 'release')) && format('release-{0}', inputs.tag || github.ref_name) || format('publish-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
 
   detect-changes:
@@ -84,14 +88,31 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
+  release-tag:
+    name: "[Release] Tag"
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.job == 'release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      TAG_INPUT: ${{ inputs.tag }}
+    steps:
+      - name: Check the tag
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ -z "$TAG_INPUT" ]; then
+            echo "the release job needs the tag input, such as v0.8.0" >&2
+            exit 1
+          fi
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "not a release tag: $TAG" >&2; exit 1 ;;
+          esac
+
   release-e2e:
     name: "[Release] E2E Install"
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.job == 'release')
+    needs: release-tag
     permissions:
       contents: read
-    concurrency:
-      group: release-${{ inputs.tag || github.ref_name }}
-      cancel-in-progress: false
     uses: ./.github/workflows/e2e-install.yaml
     with:
       ref: refs/tags/${{ inputs.tag || github.ref_name }}
@@ -106,9 +127,6 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    concurrency:
-      group: release-${{ inputs.tag || github.ref_name }}
-      cancel-in-progress: false
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -172,9 +190,6 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    concurrency:
-      group: release-${{ inputs.tag || github.ref_name }}
-      cancel-in-progress: false
     uses: ./.github/workflows/iroh.yaml
     with:
       ref: ${{ needs.release-e2e.outputs.sha }}
