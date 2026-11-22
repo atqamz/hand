@@ -90,6 +90,8 @@ func TestAPISkillsWithoutTheHooksAreOff(t *testing.T) {
 	h := fx.handler()
 	testAPIError(t, request(h, "GET", "/api/v1/skills", nil, true), http.StatusForbidden, "forbidden")
 	testAPIError(t, apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true), http.StatusForbidden, "forbidden")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/add", map[string]string{"scope": "fleet", "source": "x"}, token, true), http.StatusForbidden, "forbidden")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/remove", map[string]string{"scope": "fleet", "name": "x"}, token, true), http.StatusForbidden, "forbidden")
 }
 
 func TestAPISkillsActionsPassWhatTheBodyNamesAndAnswerWithAReceipt(t *testing.T) {
@@ -112,7 +114,7 @@ func TestAPISkillsActionsPassWhatTheBodyNamesAndAnswerWithAReceipt(t *testing.T)
 
 func TestAPISkillsActionRefusals(t *testing.T) {
 	_, spy, h := skillsFixture(t)
-	for _, path := range []string{"sync", "update", "propose"} {
+	for _, path := range []string{"sync", "update", "propose", "add", "remove"} {
 		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "x"}, "", true), http.StatusForbidden, "csrf_required")
 		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "x"}, "wrong", true), http.StatusForbidden, "csrf_required")
 		testAPIError(t, apiPost(t, h, "/api/v1/skills/"+path, map[string]string{"scope": "fleet", "name": "x"}, token, false), http.StatusUnauthorized, "unauthorized")
@@ -128,8 +130,60 @@ func TestAPISkillsActionRefusals(t *testing.T) {
 	testAPIError(t, apiPost(t, h, "/api/v1/skills/propose", map[string]string{"scope": "fleet"}, token, true), http.StatusBadRequest, "bad_request")
 	testAPIError(t, apiPost(t, h, "/api/v1/skills/update", map[string]string{"scope": "fleet", "yes": "x@y"}, token, true), http.StatusBadRequest, "bad_request")
 	testAPIError(t, apiPost(t, h, "/api/v1/skills/propose", map[string]string{"scope": "fleet", "name": "x", "yes": "x@y"}, token, true), http.StatusBadRequest, "bad_request")
+	for verb, bodies := range map[string][]map[string]string{
+		"remove": {
+			{"scope": "fleet"},
+			{"scope": "fleet", "name": "  "},
+			{"scope": "fleet", "name": "x", "yes": "x@y"},
+			{"scope": "fleet", "name": "x", "source": "x"},
+			{"scope": "fleet", "name": "x", "ref": "main"},
+			{"scope": "fleet", "name": strings.Repeat("x", 513)},
+		},
+		"add": {
+			{"scope": "fleet"},
+			{"scope": "fleet", "source": " "},
+			{"scope": "fleet", "source": "x", "name": "x"},
+			{"scope": "fleet", "source": "x", "yes": "x@y"},
+			{"scope": "fleet", "source": strings.Repeat("x", 513)},
+			{"scope": "fleet", "source": "x", "ref": strings.Repeat("x", 513)},
+			{"scope": "fleet", "source": "x", "ref": "a\nb"},
+			{"scope": "fleet", "source": "a\x00b"},
+			{"scope": "project", "source": "x"},
+			{"scope": "user", "project": "app", "source": "x"},
+		},
+		"sync":    {{"scope": "fleet", "source": "x"}, {"scope": "fleet", "ref": "main"}},
+		"update":  {{"scope": "fleet", "source": "x"}},
+		"propose": {{"scope": "fleet", "name": "x", "ref": "main"}},
+	} {
+		for _, body := range bodies {
+			testAPIError(t, apiPost(t, h, "/api/v1/skills/"+verb, body, token, true), http.StatusBadRequest, "bad_request")
+		}
+	}
 	if len(spy.actions) != 0 {
 		t.Fatalf("a refused action reached the hook: %+v", spy.actions)
+	}
+}
+
+func TestAPISkillsAddAndRemovePassWhatTheBodyNamesAndAnswerWithAReceipt(t *testing.T) {
+	_, spy, h := skillsFixture(t)
+	spy.run = func(_ context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		st := map[string]string{"add": "added", "remove": "removed"}[a.Verb]
+		return board.APISkillsRun{Scope: a.Scope, Project: a.Project, Results: []board.APISkillResult{{Name: "triage", State: st}}}, nil
+	}
+	env, out := apiBody[board.APISkillsRun](t, apiPost(t, h, "/api/v1/skills/add", map[string]string{"scope": "project", "project": "app", "source": " triage ", "ref": "v1"}, token, true))
+	if env.Receipt != "Skills add: 1 added" || out.Results[0].State != "added" {
+		t.Fatalf("add = %+v, %+v", env, out)
+	}
+	env, _ = apiBody[board.APISkillsRun](t, apiPost(t, h, "/api/v1/skills/remove", map[string]string{"scope": "user", "name": "triage"}, token, true))
+	if env.Receipt != "Skills remove: 1 removed" {
+		t.Fatalf("remove = %+v", env)
+	}
+	want := []board.SkillsAction{
+		{Verb: "add", Scope: "project", Project: "app", Source: "triage", Ref: "v1"},
+		{Verb: "remove", Scope: "user", Name: "triage"},
+	}
+	if fmt.Sprint(spy.actions) != fmt.Sprint(want) {
+		t.Fatalf("actions = %+v, want %+v", spy.actions, want)
 	}
 }
 
@@ -174,6 +228,8 @@ func TestAPISkillsRunOneRequestAtATime(t *testing.T) {
 		t.Fatalf("message = %q", e.Message)
 	}
 	testAPIError(t, apiPost(t, h, "/api/v1/skills/sync", map[string]string{"scope": "fleet"}, token, true), http.StatusConflict, "conflict")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/add", map[string]string{"scope": "fleet", "source": "triage"}, token, true), http.StatusConflict, "conflict")
+	testAPIError(t, apiPost(t, h, "/api/v1/skills/remove", map[string]string{"scope": "fleet", "name": "triage"}, token, true), http.StatusConflict, "conflict")
 	if len(spy.actions) != 0 {
 		t.Fatalf("a refused action ran: %+v", spy.actions)
 	}
@@ -219,8 +275,10 @@ func TestAPairedPhoneReadsSkillsAndSyncsOnlyWithoutAYes(t *testing.T) {
 	}
 	csrf := r.csrfOf(c, f, companion)
 	for _, refused := range []struct{ verb, body, sentence string }{
-		{"update", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update or propose skills; use the host's Board"},
-		{"propose", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update or propose skills; use the host's Board"},
+		{"update", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update, propose, add or remove skills; use the host's Board"},
+		{"propose", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update, propose, add or remove skills; use the host's Board"},
+		{"add", `{"scope":"fleet","source":"triage"}`, "a paired Companion cannot update, propose, add or remove skills; use the host's Board"},
+		{"remove", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update, propose, add or remove skills; use the host's Board"},
 		{"sync", `{"scope":"fleet","yes":"triage@abc"}`, "a paired Companion cannot apply a third-party update"},
 		{"sync", `{"scope":"user"}`, "a paired Companion cannot sync the user scope; use the host's Board"},
 	} {

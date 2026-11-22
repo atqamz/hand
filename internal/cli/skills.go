@@ -462,7 +462,8 @@ func cmdSkillsAdd(r *runner, args []string) error {
 		return err
 	}
 	var d toon.Doc
-	d.Rows("skills", []string{"name", "state", "detail"}, [][]string{{name, "added", e.Commit}})
+	r.rec.rows, r.rec.done = [][]string{{name, "added", e.Commit}}, true
+	d.Rows("skills", []string{"name", "state", "detail"}, r.rec.rows)
 	return r.print(&d)
 }
 

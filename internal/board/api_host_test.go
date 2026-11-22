@@ -250,7 +250,7 @@ func TestMetaNamesTheVersionTheFeaturesAndTheSidecar(t *testing.T) {
 		t.Fatalf("meta = %d, %v:\n%s", rec.Code, err, rec.Body)
 	}
 	m := env.Data
-	if m.Version != "9.9.9-test" || !slices.IsSorted(m.Features) || !slices.Equal(m.Features, []string{"events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_sync"}) {
+	if m.Version != "9.9.9-test" || !slices.IsSorted(m.Features) || !slices.Equal(m.Features, []string{"events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_manage", "skills_sync"}) {
 		t.Fatalf("meta = %+v", m)
 	}
 	if m.Host != "workstation" {

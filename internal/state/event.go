@@ -104,8 +104,8 @@ func (s *Store) NoteLuvus(ctx context.Context, kind, detail string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), "luvus."+kind, 0, detail) })
 }
 
-func (s *Store) SkillsSynced(ctx context.Context, detail string) error {
-	return s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), "skills.synced", 0, detail) })
+func (s *Store) NoteSkills(ctx context.Context, kind, detail string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), "skills."+kind, 0, detail) })
 }
 
 func (s *Store) InboxPruned(ctx context.Context, detail string) error {

@@ -116,6 +116,9 @@ func skillsAct(env Env, home, generation string) func(context.Context, board.Ski
 				return board.APISkillsRun{}, fmt.Errorf("%w: %q starts with a dash", state.ErrInvalid, v)
 			}
 		}
+		if a.Verb == "add" && (!fleet.SkillName.MatchString(a.Source) || strings.HasSuffix(a.Source, ".git")) {
+			return board.APISkillsRun{}, fmt.Errorf("%w: only a skill of Hand's own repository, by its bare name, can be added here; use `hand skills add` in a terminal for another source", state.ErrInvalid)
+		}
 		args := []string{a.Verb}
 		switch a.Scope {
 		case "fleet", "user":
@@ -126,8 +129,14 @@ func skillsAct(env Env, home, generation string) func(context.Context, board.Ski
 		if a.Yes != "" {
 			args = append(args, "--yes="+a.Yes)
 		}
+		if a.Ref != "" {
+			args = append(args, "--ref="+a.Ref)
+		}
 		if a.Name != "" {
 			args = append(args, "--", a.Name)
+		}
+		if a.Source != "" {
+			args = append(args, "--", a.Source)
 		}
 		err := commands["skills"](r, args)
 		var usage usageError
