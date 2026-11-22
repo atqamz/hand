@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -38,10 +39,13 @@ type Router struct {
 	fleets  []Fleet
 	now     func() time.Time
 	mu      sync.Mutex
+	rmu     sync.Mutex
+	refused map[string]string
+	hostErr error
 }
 
 func NewRouter(local ReadModel, hosts ...ReadModel) *Router {
-	r := &Router{local: local, byFleet: map[string]*member{}, now: time.Now}
+	r := &Router{local: local, byFleet: map[string]*member{}, now: time.Now, refused: map[string]string{}}
 	r.members = append(r.members, &member{model: local})
 	for _, h := range hosts {
 		r.members = append(r.members, &member{model: h, remote: true})
@@ -66,12 +70,21 @@ func Connect(getenv func(string) string, store RemoteStore, clients RemoteClient
 			return nil, err
 		}
 		var hosts []remote.Host
+		var herr error
 		if store != nil && clients != nil {
-			hosts, _ = store.Hosts()
+			hosts, herr = store.Hosts()
 		}
 		if len(hosts) == 0 {
 			if local.Down != nil {
+				if herr != nil {
+					return nil, fmt.Errorf("%w; the remote hosts are hidden: %v", local.Down, herr)
+				}
 				return nil, local.Down
+			}
+			if herr != nil {
+				r := NewRouter(local)
+				r.hostErr = herr
+				return r, nil
 			}
 			return local, nil
 		}
@@ -109,6 +122,7 @@ func remoteClient(h remote.Host, store RemoteStore, clients RemoteClients, hc *h
 			}
 			return v, err
 		},
+		Lost: func() error { return lostLink(clients.Status(h.ID)) },
 		Check: func() error {
 			st := clients.Status(h.ID)
 			switch {
@@ -121,6 +135,51 @@ func remoteClient(h remote.Host, store RemoteStore, clients RemoteClients, hc *h
 		},
 	}
 }
+
+func lostLink(st sidecar.ClientStatus) error {
+	switch st.Link {
+	case sidecar.BoardDown:
+		return &APIError{Code: "board_down", Remote: true, Message: "Board not running on the host. Start it there."}
+	case sidecar.Busy:
+		return &APIError{Code: "host_busy", Remote: true, Message: "Host busy. Trying again."}
+	case sidecar.Unreachable:
+		return &APIError{Code: "unreachable", Remote: true, Message: "Can't reach host. Check that it is on, that Hand's Board is running on it, and that this computer has internet."}
+	}
+	return nil
+}
+
+func refusalCode(err error) string {
+	var api *APIError
+	if errors.As(err, &api) && api.Remote {
+		switch api.Code {
+		case CodeRevoked, CodeNotRecognised, CodeKeyChanged:
+			return api.Code
+		}
+	}
+	return ""
+}
+
+func (r *Router) note(fleets []string, err error) {
+	code := refusalCode(err)
+	r.rmu.Lock()
+	defer r.rmu.Unlock()
+	for _, f := range fleets {
+		switch {
+		case code != "":
+			r.refused[f] = code
+		case err == nil:
+			delete(r.refused, f)
+		}
+	}
+}
+
+func (r *Router) Refusal(fleet string) string {
+	r.rmu.Lock()
+	defer r.rmu.Unlock()
+	return r.refused[fleet]
+}
+
+func (r *Router) HostsErr() error { return r.hostErr }
 
 func (r *Router) Fleets() []Fleet { return append([]Fleet(nil), r.fleets...) }
 
@@ -147,6 +206,13 @@ func (r *Router) Attention(ctx context.Context) ([]FleetSignal, error) {
 		go func() {
 			defer wg.Done()
 			sigs, err := m.model.Attention(ctx)
+			if m.remote {
+				var ids []string
+				for _, f := range m.model.Fleets() {
+					ids = append(ids, f.ID)
+				}
+				r.note(ids, err)
+			}
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -175,7 +241,11 @@ func (r *Router) Attention(ctx context.Context) ([]FleetSignal, error) {
 }
 
 func route[T any](r *Router, fleet string, f func(ReadModel) (T, error)) (T, error) {
-	return f(r.of(fleet))
+	v, err := f(r.of(fleet))
+	if m := r.byFleet[fleet]; m != nil && m.remote {
+		r.note([]string{fleet}, err)
+	}
+	return v, err
 }
 
 func (r *Router) Name(ctx context.Context, fleet string) (string, error) {

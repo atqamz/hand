@@ -218,6 +218,11 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 					a.Refresh()
 				}
 			})
+	case a.rfOpen:
+		minW, maxW = 640, 640
+		title, body := a.remoteTitle()
+		card("Fleets", k.Muted, "remote", title, body, "", "",
+			func() { a.remoteFields(c, k, p) }, func() { a.remoteButtons(c, k) })
 	case a.noFleets || a.nfOpen:
 		minW, maxW = 640, 640
 		label, meta, title, foot := "Fleets", "none yet", "No fleet on this computer yet.", "Made one in a terminal instead? Look again finds it."
@@ -231,6 +236,9 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 			func() {
 				if button(c, k, "nf:create", a.newFleetLabel(), true) {
 					a.submitNewFleet()
+				}
+				if a.noFleets && a.remoteAvailable() && button(c, k, "rf:open", "Connect to a remote fleet", false) {
+					a.openRemoteForm(Fleet{})
 				}
 				if a.noFleets && button(c, k, "start:look", "Look again", false) {
 					a.TryStart()

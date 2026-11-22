@@ -160,6 +160,7 @@ type HTTPClient struct {
 	HTTP   *http.Client
 	Paired bool
 	Check  func() error
+	Lost   func() error
 	Down   error
 
 	mu      sync.Mutex
@@ -413,7 +414,7 @@ func (c *HTTPClient) Features(ctx context.Context, fleet string) ([]string, erro
 	req.AddCookie(&http.Cookie{Name: c.cookie(fleet), Value: token})
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
+		return nil, c.unanswered(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
@@ -961,7 +962,7 @@ func (c *HTTPClient) Attention(ctx context.Context) ([]FleetSignal, error) {
 	}
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
+		return nil, c.unanswered(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
@@ -1033,7 +1034,7 @@ func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, ctype, method, 
 	}
 	res, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
+		return nil, c.unanswered(err)
 	}
 	return res, nil
 }
@@ -1110,7 +1111,19 @@ func (c *HTTPClient) client() *http.Client {
 	return &client
 }
 
+func (c *HTTPClient) unanswered(err error) error {
+	if c.Lost != nil {
+		if lost := c.Lost(); lost != nil {
+			return lost
+		}
+	}
+	return fmt.Errorf("the board at %s did not answer: %w", c.base(), err)
+}
+
 func (c *HTTPClient) failure(res *http.Response) error {
+	if c.Paired && res.StatusCode == http.StatusUnauthorized {
+		return &APIError{Status: http.StatusForbidden, Code: CodeNotRecognised, Remote: true, Message: "the host does not recognise this device; pair it again"}
+	}
 	if !c.Paired || res.StatusCode != http.StatusForbidden {
 		return remoteError(res)
 	}

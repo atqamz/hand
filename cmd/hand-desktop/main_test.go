@@ -175,23 +175,37 @@ func TestRefusalFollowsTheStampedChannel(t *testing.T) {
 
 func TestRemoteHostsNeedAStateFolder(t *testing.T) {
 	none := func(string) string { return "" }
-	if store, clients, closer := remotes(none); store != nil || clients != nil {
-		t.Fatalf("no HOME and no state folder gave %v, %v", store, clients)
-	} else {
-		closer()
+	rd, closer := remotes(none, "linux", func() {})
+	if rd.RemoteStore != nil || rd.RemoteClients != nil || rd.desk != nil || rd.off == "" {
+		t.Fatalf("no HOME and no state folder gave %+v", rd)
 	}
+	closer()
 	state := t.TempDir()
-	store, clients, closer := remotes(func(k string) string {
+	rd, closer = remotes(func(k string) string {
 		if k == "XDG_STATE_HOME" {
 			return state
 		}
 		return ""
-	})
+	}, "linux", func() {})
 	defer closer()
-	if store == nil || clients == nil {
+	if rd.RemoteStore == nil || rd.RemoteClients == nil || rd.desk == nil || rd.off != "" {
 		t.Fatal("a state folder gave no remote store")
 	}
-	if hosts, err := store.Hosts(); err != nil || len(hosts) != 0 {
+	if hosts, err := rd.Hosts(); err != nil || len(hosts) != 0 {
 		t.Fatalf("hosts = %v, %v", hosts, err)
+	}
+}
+
+func TestRemoteHostsAreOffOnWindowsWithTheReason(t *testing.T) {
+	state := t.TempDir()
+	rd, closer := remotes(func(k string) string {
+		if k == "XDG_STATE_HOME" || k == "LOCALAPPDATA" {
+			return state
+		}
+		return ""
+	}, "windows", func() {})
+	defer closer()
+	if rd.desk != nil || rd.RemoteStore != nil || !strings.Contains(rd.off, "Windows") {
+		t.Fatalf("windows gave %+v", rd)
 	}
 }

@@ -43,7 +43,7 @@ func (a *App) docBody(c *ui.Context, k kit.Colors, p palette) {
 
 func (a *App) docRow(c *ui.Context, k kit.Colors, text string, retry bool) {
 	kit.DocNotice(c, k, text, func() {
-		if kit.Button(c, k, "doc:open-row", "Open in browser", 0, false) {
+		if !a.remoteFleet() && kit.Button(c, k, "doc:open-row", "Open in browser", 0, false) {
 			a.OpenInBrowser()
 		}
 		if retry && kit.Button(c, k, "doc:retry", "Retry", 0, false) {

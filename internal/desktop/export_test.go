@@ -26,6 +26,8 @@ func SetInitTimeout(d time.Duration) func() {
 
 var LocalRoot = localRoot
 
+func RemoteLinkField(a *App) string { return a.rf.link }
+
 func DraftNote(a *App) string { return a.draftNote() }
 
 func NeedChosen(a *App, key string) bool { return a.needChosen[key] }

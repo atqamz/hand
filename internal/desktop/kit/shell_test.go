@@ -200,3 +200,16 @@ func TestTabSkipsAnInertItem(t *testing.T) {
 		t.Errorf("Tab reached only %v", seen)
 	}
 }
+
+func TestANavItemNameCarriesTheConnectionWordBeforeTheStatus(t *testing.T) {
+	for n, want := range map[NavItem]string{
+		{Label: "lab"}:                                       "lab",
+		{Label: "lab", Status: "quiet"}:                      "lab, quiet",
+		{Label: "lab", Link: "Host busy"}:                    "lab, Host busy",
+		{Label: "lab", Link: "Connected", Status: "waiting"}: "lab, Connected, waiting",
+	} {
+		if got := n.Name(); got != want {
+			t.Errorf("Name() = %q, want %q", got, want)
+		}
+	}
+}

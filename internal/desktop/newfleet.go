@@ -301,7 +301,7 @@ func (a *App) newFleetUnlisted() {
 	a.nf.cmd = boardStartCommand(a.nf.made.Folder)
 }
 
-func (a *App) formShown() bool { return a.nfOpen || a.noFleets }
+func (a *App) formShown() bool { return a.nfOpen || a.noFleets || a.rfOpen }
 
 func (a *App) resetNewFleet() {
 	a.nfGen++
@@ -315,6 +315,7 @@ func (a *App) openNewFleet() {
 	if !a.nf.busy {
 		a.resetNewFleet()
 	}
+	a.rfOpen = false
 	a.nfOpen = true
 }
 
