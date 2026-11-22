@@ -152,9 +152,6 @@ const (
 	CodeKeyChanged    = "key_changed"
 )
 
-// HTTPClient reads one host: the local Board, or a paired host reached
-// through a hand-iroh client (Paired), whose cookie is hand_phone_<fleet>,
-// whose address BaseOf reads as the client restarts, and which has no proof.
 type HTTPClient struct {
 	Base   string
 	BaseOf func() string
@@ -206,6 +203,9 @@ func openLocal(getenv func(string) string) (*HTTPClient, error) {
 	base, down := localBoard(root)
 	fleets, tokens, err := localFleets(root)
 	if err != nil {
+		if down != nil {
+			return nil, down
+		}
 		return nil, err
 	}
 	return &HTTPClient{
@@ -1110,22 +1110,20 @@ func (c *HTTPClient) client() *http.Client {
 	return &client
 }
 
-// failure reads a peer listener's refusal: only X-Hand-Error on a 403 says
-// the host revoked this device; a 403 with neither it nor an error envelope
-// says the host does not know the device, as a replaced key does.
 func (c *HTTPClient) failure(res *http.Response) error {
 	if !c.Paired || res.StatusCode != http.StatusForbidden {
 		return remoteError(res)
 	}
 	if res.Header.Get("X-Hand-Error") != "" {
-		return &APIError{Status: res.StatusCode, Code: CodeRevoked, Message: "revoked on the host; pair this device again or forget the host"}
+		return &APIError{Status: res.StatusCode, Code: CodeRevoked, Remote: true, Message: "revoked on the host; pair this device again or forget the host"}
 	}
 	err := remoteError(res)
 	var api *APIError
 	if errors.As(err, &api) {
+		api.Remote = true
 		return err
 	}
-	return &APIError{Status: res.StatusCode, Code: CodeNotRecognised, Message: "the host does not recognise this device; pair it again"}
+	return &APIError{Status: res.StatusCode, Code: CodeNotRecognised, Remote: true, Message: "the host does not recognise this device; pair it again"}
 }
 
 func remoteError(res *http.Response) error {

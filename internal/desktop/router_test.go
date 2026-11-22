@@ -292,6 +292,8 @@ func TestAFleetNobodyHoldsIsAskedOfNoRemoteHost(t *testing.T) {
 	}
 }
 
+const rtFleetsDup = `{"version":1,"data":{"fleets":[{"id":"f0000000000aa","name":"l","needs":{"waiting":9,"worst":"blocked","worst_word":"blocked"}},{"id":"f0000000000bb","name":"a","needs":{"waiting":3,"worst":"blocked","worst_word":"blocked"}}]}}`
+
 func TestAFleetHeldTwiceStaysWithItsFirstHolderAndTheOtherHostIsNeverAsked(t *testing.T) {
 	g := newRTRig(t)
 	local := newRTHost(t, "hand_board_", map[string]string{rtLocal: rtToken}, rtFleetsLocal)
@@ -309,11 +311,28 @@ func TestAFleetHeldTwiceStaysWithItsFirstHolderAndTheOtherHostIsNeverAsked(t *te
 	if _, err := m.Status(context.Background(), rtLocal); err != nil {
 		t.Fatal(err)
 	}
+	if got := signals(t, m); len(got) != 1 || got[rtLocal].Waiting != 2 {
+		t.Fatalf("signals = %+v", got)
+	}
 	if len(a.seen()) != 0 {
 		t.Fatalf("the second holder was asked: %v", a.seen())
 	}
 	if got := local.cookiesSeen(); strings.Contains(got, rtCookieA) {
 		t.Fatalf("the remote cookie went to the local board: %s", got)
+	}
+}
+
+func TestAHostHoldingAFleetTwiceIsReadForItsOwnFleetsOnly(t *testing.T) {
+	g := newRTRig(t)
+	local := newRTHost(t, "hand_board_", map[string]string{rtLocal: rtToken}, rtFleetsLocal)
+	a := newRTHost(t, "hand_phone_", map[string]string{rtLocal: rtCookieA, rtA: rtCookieA}, rtFleetsDup)
+	g.localFleet(t, rtLocal, local)
+	g.pair(t, rtHostA, rtClient, rtLocal, rtCookieA)
+	g.pair(t, rtHostA, rtClient, rtA, rtCookieA)
+	g.clients.set(rtHostA, upAt(a, rtClient))
+	got := signals(t, g.connect(t))
+	if len(got) != 2 || got[rtLocal].Waiting != 2 || got[rtA].Waiting != 3 {
+		t.Fatalf("signals = %+v", got)
 	}
 }
 
@@ -558,7 +577,7 @@ func TestAPeerRefusalWithTheHeaderIsRevokedAndWithoutItIsNotRecognised(t *testin
 				}
 				return
 			}
-			if !errors.As(err, &api) || api.Code != tc.code || api.Status != 403 {
+			if !errors.As(err, &api) || api.Code != tc.code || api.Status != 403 || !api.Remote {
 				t.Fatalf("error = %#v", err)
 			}
 			echoes := tc.body != "" && tc.code != "forbidden" && strings.Contains(err.Error(), tc.body)
@@ -587,5 +606,19 @@ func TestALocalBoardsHeaderedRefusalIsNeverReadAsRevoked(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("no error")
+	}
+}
+
+func TestAnUnreadableFleetIndexNeverMasksTheMissingBoard(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index"), []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string { return map[string]string{"SECONDHAND_HOME": root}[k] }
+	if _, err := desktop.NewLocal(getenv); !errors.Is(err, desktop.ErrNoBoard) {
+		t.Fatalf("NewLocal = %v", err)
+	}
+	if _, err := desktop.Connect(getenv, nil, nil, nil)(); !errors.Is(err, desktop.ErrNoBoard) {
+		t.Fatalf("Connect = %v", err)
 	}
 }

@@ -26,6 +26,7 @@ type RemoteClients interface {
 type member struct {
 	model  ReadModel
 	remote bool
+	held   int
 	at     time.Time
 	sigs   []FleetSignal
 }
@@ -33,14 +34,14 @@ type member struct {
 type Router struct {
 	local   ReadModel
 	members []*member
-	byFleet map[string]ReadModel
+	byFleet map[string]*member
 	fleets  []Fleet
 	now     func() time.Time
 	mu      sync.Mutex
 }
 
 func NewRouter(local ReadModel, hosts ...ReadModel) *Router {
-	r := &Router{local: local, byFleet: map[string]ReadModel{}, now: time.Now}
+	r := &Router{local: local, byFleet: map[string]*member{}, now: time.Now}
 	r.members = append(r.members, &member{model: local})
 	for _, h := range hosts {
 		r.members = append(r.members, &member{model: h, remote: true})
@@ -50,7 +51,8 @@ func NewRouter(local ReadModel, hosts ...ReadModel) *Router {
 			if _, held := r.byFleet[f.ID]; held {
 				continue
 			}
-			r.byFleet[f.ID] = m.model
+			r.byFleet[f.ID] = m
+			m.held++
 			r.fleets = append(r.fleets, f)
 		}
 	}
@@ -111,7 +113,7 @@ func remoteClient(h remote.Host, store RemoteStore, clients RemoteClients, hc *h
 			st := clients.Status(h.ID)
 			switch {
 			case h.ClientID != "" && st.ID != "" && st.ID != h.ClientID:
-				return &APIError{Code: CodeKeyChanged, Message: "this device's key is not the one the host paired; pair it again"}
+				return &APIError{Code: CodeKeyChanged, Remote: true, Message: "this device's key is not the one the host paired; pair it again"}
 			case st.Addr == "":
 				return fmt.Errorf("the host %s is not connected (%s)", remote.Short(h.ID), st.State)
 			}
@@ -124,7 +126,7 @@ func (r *Router) Fleets() []Fleet { return append([]Fleet(nil), r.fleets...) }
 
 func (r *Router) of(fleet string) ReadModel {
 	if m, ok := r.byFleet[fleet]; ok {
-		return m
+		return m.model
 	}
 	return r.local
 }
@@ -138,7 +140,7 @@ func (r *Router) Attention(ctx context.Context) ([]FleetSignal, error) {
 	now := r.now()
 	var wg sync.WaitGroup
 	for _, m := range r.members {
-		if m.remote && !m.at.IsZero() && now.Sub(m.at) < RemoteAttentionRefresh {
+		if m.held == 0 || m.remote && !m.at.IsZero() && now.Sub(m.at) < RemoteAttentionRefresh {
 			continue
 		}
 		wg.Add(1)
@@ -164,7 +166,7 @@ func (r *Router) Attention(ctx context.Context) ([]FleetSignal, error) {
 	var out []FleetSignal
 	for _, m := range r.members {
 		for _, s := range m.sigs {
-			if r.byFleet[s.Fleet] == m.model {
+			if r.byFleet[s.Fleet] == m {
 				out = append(out, s)
 			}
 		}
