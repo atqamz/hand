@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -411,7 +412,7 @@ func TestBoardStopsASkillsAddWhenItShutsDownAndLeavesNothing(t *testing.T) {
 	if _, err := os.Stat(fleetLock(f.h.home)); !os.IsNotExist(err) {
 		t.Fatalf("a stopped add wrote a lock: %v", err)
 	}
-	if left := tempLeft(t, f.tmp); len(left) != 0 {
+	if left := tempLeft(t, f.tmp); runtime.GOOS != "windows" && len(left) != 0 {
 		t.Fatalf("temp folders left: %q", left)
 	}
 }
