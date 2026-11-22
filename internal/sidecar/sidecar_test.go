@@ -25,7 +25,7 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	fakebin.Main(map[string]func([]string) int{"sidecar": fakeSidecar})
+	fakebin.Main(map[string]func([]string) int{"sidecar": fakeSidecar, "client": fakeClient})
 	os.Exit(m.Run())
 }
 

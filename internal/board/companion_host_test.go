@@ -39,6 +39,7 @@ type companionHost struct {
 	failWith  map[string]error
 	paths     map[string]string
 	closePeer func(string)
+	control   func(ctx context.Context, args ...string) (string, error)
 	iroh      func() sidecar.Status
 	name      string
 	tick      time.Duration
@@ -169,12 +170,13 @@ func (p *companionHost) restart() {
 			f := byID[id]
 			p.mu.Lock()
 			p.opened[id]++
+			control := p.control
 			p.mu.Unlock()
 			z := p.zone
 			if z == nil {
 				z = time.UTC
 			}
-			opts := board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick, HostName: p.name, Zone: z}
+			opts := board.Options{Base: "/" + id, Controls: p.loopback, Control: control, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh, Tick: p.tick, HostName: p.name, Zone: z}
 			b := board.New(f.st, f.token, opts)
 			if p.bare[id] {
 				return bare{b}, closer(func() error { return nil }), nil

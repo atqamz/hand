@@ -164,17 +164,22 @@ type lines struct {
 	buf   []byte
 	skip  bool
 	ready chan Status
+	on    func(string)
 }
 
 func (l *lines) Write(p []byte) (int, error) {
 	for _, b := range p {
 		switch {
 		case b == '\n':
-			if st, ok := parseReady(strings.TrimSuffix(string(l.buf), "\r")); ok {
+			line := strings.TrimSuffix(string(l.buf), "\r")
+			if st, ok := parseReady(line); ok && l.ready != nil {
 				select {
 				case l.ready <- st:
 				default:
 				}
+			}
+			if l.on != nil {
+				l.on(line)
 			}
 			l.buf, l.skip = l.buf[:0], false
 		case l.skip:
