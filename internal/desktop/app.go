@@ -77,16 +77,13 @@ type App struct {
 	PollTimeout time.Duration
 	// Post runs fetched state on the window's thread and repaints it. Nil
 	// reads inline, as the tests and Boot do.
-	Post    func(func())
-	OnTitle func(string)
-	OnBadge func(int)
-	OnFlash func(bool)
-	// OnNotify shows an operating-system notification; nil shows none.
+	Post     func(func())
+	OnTitle  func(string)
+	OnBadge  func(int)
+	OnFlash  func(bool)
 	OnNotify func(Alert)
-	// NotifyOK says whether notifications can be shown here; nil means no.
 	NotifyOK func() bool
-	// Notify is the opt-in, kept in prefs.json.
-	Notify bool
+	Notify   bool
 	// Now is the time the working line counts from; nil uses the wall clock.
 	Now func() time.Time
 

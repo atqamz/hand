@@ -159,7 +159,7 @@ func TestAQueueThereAtStartIsABaselineNotAnAlert(t *testing.T) {
 func TestADecisionAddedUnderAnOldBlockDoesNotNotifyAgain(t *testing.T) {
 	f := quietPair(t)
 	setNeeds(f, fleetID, blockedNeed)
-	app, clock, n := notifyApp(t, f, func(a *desktop.App) { a.SetFocused(false) })
+	_, clock, n := notifyApp(t, f, func(a *desktop.App) { a.SetFocused(false) })
 	n.advance(clock, 10*time.Second)
 	setNeeds(f, fleetID, desktop.Needs{Waiting: 2, Worst: "blocked", WorstWord: "blocked", Items: []desktop.Need{{Kind: "blocked", Ref: "s1"}, {Kind: "decision", Ref: "d1"}}})
 	n.advance(clock, 90*time.Second)
@@ -171,7 +171,6 @@ func TestADecisionAddedUnderAnOldBlockDoesNotNotifyAgain(t *testing.T) {
 	if len(n.got) != 1 || n.got[0].Body != "s2 is blocked" {
 		t.Fatalf("alerts %v, want one for s2", n.got)
 	}
-	_ = app
 }
 
 func TestAFleetIsNotifiedOncePerMinuteUnderOneID(t *testing.T) {
@@ -448,5 +447,72 @@ func TestScenesTheNotifySettingInTheOverflowMenu(t *testing.T) {
 			mustText(t, tt, tc.want, "Refresh now")
 			shot(t, tt, name)
 		})
+	}
+}
+
+func (a *alerts) tickAt(clock *fakeClock, at time.Time, d time.Duration) {
+	a.now = at
+	clock.Advance(d)
+}
+
+func TestTheFleetGapHoldsUntilTheMinuteIsUp(t *testing.T) {
+	for _, tc := range []struct {
+		gap  time.Duration
+		want int
+	}{{30 * time.Second, 1}, {59 * time.Second, 1}, {60 * time.Second, 2}} {
+		f := quietPair(t)
+		app, clock, n := notifyApp(t, f)
+		app.SetFocused(false)
+		base := n.now
+		n.tickAt(clock, base, desktop.AttentionRefresh)
+		setNeeds(f, fleetID, blockedNeed)
+		n.tickAt(clock, base.Add(time.Second), desktop.AttentionRefresh)
+		if len(n.got) != 1 {
+			t.Fatalf("gap %v: alerts %v after the first block", tc.gap, n.got)
+		}
+		setNeeds(f, fleetID, desktop.Needs{})
+		n.tickAt(clock, base.Add(2*time.Second), desktop.AttentionRefresh)
+		setNeeds(f, fleetID, blockedNeed)
+		n.tickAt(clock, base.Add(time.Second+tc.gap), desktop.AttentionRefresh)
+		if len(n.got) != tc.want {
+			t.Fatalf("gap %v: %d alerts, want %d: %v", tc.gap, len(n.got), tc.want, n.got)
+		}
+	}
+}
+
+func TestTheOverallGapHoldsUntilTenSecondsAreUp(t *testing.T) {
+	for _, tc := range []struct {
+		gap  time.Duration
+		want int
+	}{{5 * time.Second, 1}, {10 * time.Second, 2}} {
+		f := quietPair(t)
+		app, clock, n := notifyApp(t, f)
+		app.SetFocused(false)
+		base := n.now
+		n.tickAt(clock, base, desktop.AttentionRefresh)
+		setNeeds(f, fleetID, blockedNeed)
+		n.tickAt(clock, base.Add(time.Second), desktop.AttentionRefresh)
+		if len(n.got) != 1 {
+			t.Fatalf("gap %v: alerts %v after the first block", tc.gap, n.got)
+		}
+		setAttn(f, secondID, blockedNeed)
+		n.tickAt(clock, base.Add(time.Second+tc.gap), desktop.AttentionRefresh)
+		if len(n.got) != tc.want {
+			t.Fatalf("gap %v: %d alerts, want %d: %v", tc.gap, len(n.got), tc.want, n.got)
+		}
+	}
+}
+
+func TestAMissingRefOnEitherSideIsNotAChangeOfBlock(t *testing.T) {
+	f := quietPair(t)
+	setNeeds(f, fleetID, blockedNeed)
+	app, clock, n := notifyApp(t, f, func(a *desktop.App) { a.SetFocused(false) })
+	n.advance(clock, 10*time.Second)
+	app.SetMinimized(true)
+	n.advance(clock, 3*desktop.MinimizedAttentionRefresh)
+	app.SetMinimized(false)
+	n.advance(clock, 10*time.Second)
+	if len(n.got) != 0 {
+		t.Fatalf("notified %v for one block read with and without its ref", n.got)
 	}
 }
