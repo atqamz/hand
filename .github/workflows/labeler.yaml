@@ -1,4 +1,4 @@
-name: Labeler
+name: "[Labeler] Label"
 
 on:
   pull_request_target:
@@ -6,7 +6,8 @@ on:
 permissions: {}
 
 jobs:
-  label:
+  label-pr:
+    name: "[Labeler] Label PR"
     runs-on: ubuntu-latest
     permissions:
       contents: read

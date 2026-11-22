@@ -1,4 +1,4 @@
-name: E2E install
+name: "[Reuse] E2E Install"
 
 on:
   workflow_dispatch:
@@ -11,11 +11,7 @@ on:
     outputs:
       sha:
         description: The commit that was built and tested.
-        value: ${{ jobs.build.outputs.sha }}
-  schedule:
-    - cron: "17 3 * * *"
-  push:
-    tags: ["v*"]
+        value: ${{ jobs.e2e-build.outputs.sha }}
   pull_request:
     branches: [main]
     paths:
@@ -29,7 +25,7 @@ on:
       - .github/e2e/**
       - .github/scripts/**
       - .github/workflows/e2e-install.yaml
-      - .github/workflows/release.yaml
+      - .github/workflows/publish.yaml
 
 permissions:
   contents: read
@@ -42,7 +38,8 @@ env:
   PLAYWRIGHT_VERSION: "1.63.0"
 
 jobs:
-  build:
+  e2e-build:
+    name: "[E2E] Build Dist"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -66,18 +63,21 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  e2e:
-    needs: build
-    name: ${{ matrix.name }}
+  e2e-install:
+    needs: e2e-build
+    name: "[E2E (${{ matrix.label }})] Install"
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux
+            label: Linux
             os: ubuntu-latest
           - name: macos
+            label: MacOS
             os: macos-latest
           - name: windows
+            label: Windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 70
@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.build.outputs.sha }}
+          ref: ${{ needs.e2e-build.outputs.sha }}
           persist-credentials: false
       - name: Set the paths
         shell: bash

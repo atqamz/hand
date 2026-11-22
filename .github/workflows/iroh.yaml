@@ -1,4 +1,4 @@
-name: Iroh
+name: "[Reuse] Iroh"
 
 on:
   workflow_dispatch:
@@ -50,17 +50,20 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  check:
-    name: check ${{ matrix.name }}
+  iroh-test:
+    name: "[Iroh (${{ matrix.label }})] Test"
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux
+            label: Linux
             os: ubuntu-latest
           - name: macos
+            label: MacOS
             os: macos-latest
           - name: windows
+            label: Windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -89,19 +92,22 @@ jobs:
           HAND_IROH_BIN: ${{ github.workspace }}/iroh/target/debug/hand-iroh${{ runner.os == 'Windows' && '.exe' || '' }}
         run: go test -count=1 -timeout 15m -v -run 'TestRealSidecar|TestRealClient' ./internal/sidecar ./internal/board
 
-  check-targets:
-    name: check ${{ matrix.name }}
+  iroh-test-targets:
+    name: "[Iroh (${{ matrix.label }})] Test"
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux-amd64-musl
+            label: Linux Amd64 Musl
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
           - name: linux-arm64-musl
+            label: Linux Arm64 Musl
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
           - name: darwin-amd64
+            label: Darwin Amd64
             os: macos-latest
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
@@ -126,29 +132,34 @@ jobs:
           sudo apt-get install --yes --no-install-recommends musl-tools
       - run: cargo test --locked --target "$TARGET"
 
-  build:
-    name: build ${{ matrix.name }}
+  iroh-build:
+    name: "[Iroh (${{ matrix.label }})] Build"
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux-amd64
+            label: Linux Amd64
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             ext: tar.gz
           - name: linux-arm64
+            label: Linux Arm64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
             ext: tar.gz
           - name: darwin-arm64
+            label: Darwin Arm64
             os: macos-latest
             target: aarch64-apple-darwin
             ext: tar.gz
           - name: darwin-amd64
+            label: Darwin Amd64
             os: macos-latest
             target: x86_64-apple-darwin
             ext: tar.gz
           - name: windows-amd64
+            label: Windows Amd64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             ext: zip
@@ -242,9 +253,10 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  publish:
+  iroh-publish:
+    name: "[Iroh] Publish"
     if: inputs.tag != ''
-    needs: [check, check-targets, build]
+    needs: [iroh-test, iroh-test-targets, iroh-build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

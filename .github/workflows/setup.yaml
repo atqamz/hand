@@ -1,4 +1,4 @@
-name: Windows setup
+name: "[Reuse] Windows Setup"
 
 on:
   workflow_call:
@@ -27,7 +27,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  archives:
+  setup-archives:
+    name: "[Setup] Archives"
     if: ${{ inputs.tag == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -63,7 +64,8 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
-  fetch:
+  setup-fetch:
+    name: "[Setup] Fetch"
     if: ${{ inputs.tag != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -86,14 +88,14 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
-  wizard:
-    name: wizard ${{ matrix.variant }}
-    needs: [archives, fetch]
-    if: ${{ !cancelled() && (needs.archives.result == 'success' || needs.fetch.result == 'success') }}
+  setup-wizard:
+    name: "[Setup (${{ matrix.label }})] Wizard"
+    needs: [setup-archives, setup-fetch]
+    if: ${{ !cancelled() && (needs.setup-archives.result == 'success' || needs.setup-fetch.result == 'success') }}
     strategy:
       fail-fast: false
       matrix:
-        variant: ${{ fromJSON(inputs.tag == '' && '["stable","edge"]' || '["release"]') }}
+        include: ${{ fromJSON(inputs.tag == '' && '[{"variant":"stable","label":"Stable"},{"variant":"edge","label":"Edge"}]' || '[{"variant":"release","label":"Release"}]') }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -128,9 +130,10 @@ jobs:
           overwrite: true
           if-no-files-found: ignore
 
-  publish:
-    needs: wizard
-    if: ${{ !cancelled() && inputs.tag != '' && needs.wizard.result == 'success' }}
+  setup-publish:
+    name: "[Setup] Publish"
+    needs: setup-wizard
+    if: ${{ !cancelled() && inputs.tag != '' && needs.setup-wizard.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
