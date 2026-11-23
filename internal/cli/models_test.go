@@ -155,7 +155,6 @@ func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
 }
 
 func TestAttemptStartMarksAModelThatLeftTheList(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	dir := listers(t, fx.h, "")
 	fx.h.ok("models", "--refresh")
