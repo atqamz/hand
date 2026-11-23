@@ -121,7 +121,7 @@ func TestSkillsAPIAddRefusesEverySourceButABareSkillNameBeforeAnyFetch(t *testin
 		"a b",
 	} {
 		code, _, _, raw := a.post("add", map[string]string{"scope": "fleet", "source": src})
-		if code != http.StatusBadRequest {
+		if code != http.StatusBadRequest || !strings.Contains(raw, "by its bare name") {
 			t.Errorf("source %q = %d %s", src, code, raw)
 		}
 		if strings.Contains(raw, "s3cret") || strings.Contains(raw, "ext::") || strings.Contains(raw, "acme") {
