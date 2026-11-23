@@ -340,6 +340,34 @@ func TestAddAndRemoveRecordOneEventEachWithTheSkillName(t *testing.T) {
 	}
 }
 
+func TestAThirdPartyAddRecordsItsEventOnlyWhenTheSkillWasAdded(t *testing.T) {
+	p := newPhoneSkills(t)
+	row := func(st string) func(context.Context, board.SkillsAction) (board.APISkillsRun, error) {
+		return func(_ context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+			run := board.APISkillsRun{Scope: a.Scope, Results: []board.APISkillResult{{Name: "tool", State: st, Detail: "c0ffee"}}}
+			if st == "refused" {
+				run.Refused = 1
+			}
+			return run, nil
+		}
+	}
+	const body = `{"scope":"fleet","source":"https://example.com/acme/tool"}`
+	const yes = `{"scope":"fleet","source":"https://example.com/acme/tool","yes":"tool@c0ffee"}`
+	p.spy.run = row("review")
+	p.hostPost("add", body)
+	p.spy.run = row("refused")
+	p.hostPost("add", yes)
+	if got := p.events("skills.added"); len(got) != 0 {
+		t.Fatalf("a review or a refusal wrote %q", got)
+	}
+	p.spy.run = row("added")
+	p.hostPost("add", yes)
+	want := "skills.added fleet by operator (desktop): https://example.com/acme/tool as tool@c0ffee"
+	if got := p.events("skills.added"); len(got) != 1 || got[0] != want {
+		t.Fatalf("events = %q, want %q", got, want)
+	}
+}
+
 func TestAddAndRemoveWriteNoEventWhenRefusedOrNothingChanged(t *testing.T) {
 	p := newPhoneSkills(t)
 	p.phone("add", `{"scope":"fleet","source":"triage"}`)

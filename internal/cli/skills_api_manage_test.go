@@ -94,16 +94,13 @@ func TestSkillsAPIAddTakesARefOfTheOwnRepositoryAndRefusesAnOddOne(t *testing.T)
 	}
 }
 
-func TestSkillsAPIAddRefusesEverySourceButABareSkillNameBeforeAnyFetch(t *testing.T) {
+func TestSkillsAPIAddRefusesEverySourceNeitherABareSkillNameNorAnHTTPSRepositoryBeforeAnyFetch(t *testing.T) {
 	f := newProposeFixture(t, "")
 	a := newSkillsAPI(t, f.h)
 	for _, src := range []string{
 		"https://pat:s3cret@github.com/acme/tool.git",
 		"https://github.com/acme/tool?x=1",
 		"https://github.com/acme/tool#frag",
-		"https://github.com/acme/tool",
-		"https://github.com/atqamz/skills",
-		skillsURL,
 		"http://github.com/acme/tool",
 		"file://" + filepath.ToSlash(f.hub.bare),
 		"git@github.com:acme/tool.git",
@@ -121,7 +118,7 @@ func TestSkillsAPIAddRefusesEverySourceButABareSkillNameBeforeAnyFetch(t *testin
 		"a b",
 	} {
 		code, _, _, raw := a.post("add", map[string]string{"scope": "fleet", "source": src})
-		if code != http.StatusBadRequest || !strings.Contains(raw, "by its bare name") {
+		if code != http.StatusBadRequest || !strings.Contains(raw, "bare name") {
 			t.Errorf("source %q = %d %s", src, code, raw)
 		}
 		if strings.Contains(raw, "s3cret") || strings.Contains(raw, "ext::") || strings.Contains(raw, "acme") {
@@ -341,6 +338,16 @@ func TestSkillsAPIAddDropsAPathAndALoginFromAFailingClone(t *testing.T) {
 }
 
 func TestBoardStopsASkillsAddWhenItShutsDownAndLeavesNothing(t *testing.T) {
+	for _, tc := range []struct{ label, name, from, body string }{
+		{"own", "triage", skillsURL, `{"scope":"fleet","source":"triage"}`},
+		{"review", "hung-tool", "https://example.com/acme/hung-tool", `{"scope":"fleet","source":"https://example.com/acme/hung-tool"}`},
+		{"yes", "hung-tool", "https://example.com/acme/hung-tool", `{"scope":"fleet","source":"https://example.com/acme/hung-tool","yes":"hung-tool@` + strings.Repeat("a", 40) + `"}`},
+	} {
+		t.Run(tc.label, func(t *testing.T) { boardStopsAnAddWhenItShutsDown(t, tc.name, tc.from, tc.body) })
+	}
+}
+
+func boardStopsAnAddWhenItShutsDown(t *testing.T, name, from, body string) {
 	f := newProposeFixture(t, "")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -361,7 +368,7 @@ func TestBoardStopsASkillsAddWhenItShutsDownAndLeavesNothing(t *testing.T) {
 			}
 		}
 	}()
-	text := "[url \"git://" + ln.Addr().String() + "/atqamz/skills.git\"]\n\tinsteadOf = " + skillsURL + "\n[user]\n\tname = Pat\n\temail = pat@example.com\n"
+	text := "[url \"git://" + ln.Addr().String() + "/atqamz/skills.git\"]\n\tinsteadOf = " + from + "\n[user]\n\tname = Pat\n\temail = pat@example.com\n"
 	if err := os.WriteFile(f.cfg, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +394,7 @@ func TestBoardStopsASkillsAddWhenItShutsDownAndLeavesNothing(t *testing.T) {
 	answered := make(chan struct{})
 	go func() {
 		defer close(answered)
-		req, _ := http.NewRequest("POST", fleetURL+"/api/v1/skills/add", strings.NewReader(`{"scope":"fleet","source":"triage"}`))
+		req, _ := http.NewRequest("POST", fleetURL+"/api/v1/skills/add", strings.NewReader(body))
 		req.Header.Set("X-Hand-CSRF", sess.Data.CSRF)
 		if res, err := client.Do(req); err == nil {
 			_ = res.Body.Close()
@@ -408,7 +415,7 @@ func TestBoardStopsASkillsAddWhenItShutsDownAndLeavesNothing(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("the add request was still running after the board stopped")
 	}
-	skillGone(t, f.h.home, "triage")
+	skillGone(t, f.h.home, name)
 	if _, err := os.Stat(fleetLock(f.h.home)); !os.IsNotExist(err) {
 		t.Fatalf("a stopped add wrote a lock: %v", err)
 	}

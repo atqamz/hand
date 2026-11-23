@@ -182,3 +182,31 @@ func TestProjectRemoteTakesOnlyGitHubAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPSRepoTakesOnlyAPlainRepositoryAddress(t *testing.T) {
+	for _, ok := range []string{
+		"https://github.com/acme/tool",
+		"https://github.com/acme/tool.git",
+		"https://github.com/acme/tool/",
+		"https://gitlab.example.com/group/sub.group/tool-skill",
+		"https://example.com:8443/acme/tool",
+		"https://127.0.0.1/acme/tool",
+		"https://example.com/~acme/tool+x",
+	} {
+		if !httpsRepo(ok) {
+			t.Errorf("%q is refused", ok)
+		}
+	}
+	for _, bad := range []string{
+		"", "https://", "https://github.com", "https://github.com/", "http://github.com/acme/tool", "HTTPS://github.com/acme/tool",
+		"https://u@github.com/acme/tool", "https://u:p@github.com/acme/tool", "https://github.com/acme/tool?a=b", "https://github.com/acme/tool?", "https://github.com/acme/tool#x",
+		"https://github.com/acme/tool@x", "https://github.com/acme//tool", "https://github.com/acme/../tool", "https://github.com/acme/./tool",
+		"https://github.com/acme/%2e%2e/tool", "https://github.com:/acme/tool", "https://[::1]/acme/tool", "https://github.com/acme/tool\n",
+		"https://github.com/acme/tool x", " https://github.com/acme/tool", "file:///srv/tool", "git@github.com:acme/tool.git", "ssh://github.com/acme/tool",
+		"ext::sh -c id", "tool", "./tool",
+	} {
+		if httpsRepo(bad) {
+			t.Errorf("%q is accepted", bad)
+		}
+	}
+}

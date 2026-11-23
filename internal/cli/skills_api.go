@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toon"
 )
 
 const skillsDiffLimit = 64 << 10
@@ -39,6 +41,52 @@ type skillsRec struct {
 	refused int
 	done    bool
 	phone   bool
+	review  *addReview
+}
+
+type addReview struct{ yes string }
+
+var httpsSource = regexp.MustCompile(`^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~+-]+)+/?$`)
+
+func httpsRepo(src string) bool {
+	if !httpsSource.MatchString(src) {
+		return false
+	}
+	_, path, _ := strings.Cut(strings.TrimPrefix(src, "https://"), "/")
+	return !slices.ContainsFunc(strings.Split(path, "/"), func(seg string) bool { return seg == "." || seg == ".." })
+}
+
+func (r *runner) reviewAdd(s fleet.Skills, name string, e *fleet.Managed) (commit string, stop bool, err error) {
+	staged, _, commit, err := r.fetchStaged(s, name, *e)
+	if err != nil {
+		return "", false, err
+	}
+	defer os.RemoveAll(staged)
+	yes := r.rec.review.yes
+	yesName, yesID, _ := strings.Cut(yes, "@")
+	st, detail := "review", commit
+	switch {
+	case yes == "":
+	case yesName == "" || yesID == "":
+		st, detail = "refused", "yes is NAME@COMMIT, the whole commit id of the diff you read"
+	case yesName != name || yesID != commit:
+		st, detail = "refused", fmt.Sprintf("yes %s@%s is not what this source is at now (%s@%s); read the diff, then add again with that yes", yesName, yesID, name, commit)
+	default:
+		e.Ref = commit
+		return commit, false, nil
+	}
+	diff, err := skillDiff(r, s, name, staged)
+	if err != nil {
+		return "", false, err
+	}
+	r.rec.rows, r.rec.diffs, r.rec.done = [][]string{{name, st, detail}}, map[string]string{name: diff}, true
+	if st == "refused" {
+		r.rec.refused = 1
+	}
+	var d toon.Doc
+	d.Rows("skills", []string{"name", "state", "detail"}, r.rec.rows)
+	d.Text("diff-"+name, diff)
+	return "", true, r.print(&d)
 }
 
 func capDiff(d string) (string, bool) {
@@ -116,8 +164,18 @@ func skillsAct(env Env, home, generation string) func(context.Context, board.Ski
 				return board.APISkillsRun{}, fmt.Errorf("%w: %q starts with a dash", state.ErrInvalid, v)
 			}
 		}
-		if a.Verb == "add" && (!fleet.SkillName.MatchString(a.Source) || strings.HasSuffix(a.Source, ".git")) {
-			return board.APISkillsRun{}, fmt.Errorf("%w: only a skill of Hand's own repository, by its bare name, can be added here; use `hand skills add` in a terminal for another source", state.ErrInvalid)
+		yes := a.Yes
+		if a.Verb == "add" {
+			switch {
+			case fleet.SkillName.MatchString(a.Source) && !strings.HasSuffix(a.Source, ".git"):
+				if yes != "" {
+					return board.APISkillsRun{}, fmt.Errorf("%w: yes goes only with a third-party source", state.ErrInvalid)
+				}
+			case httpsRepo(a.Source):
+				r.rec.review, yes = &addReview{yes: a.Yes}, ""
+			default:
+				return board.APISkillsRun{}, fmt.Errorf("%w: add takes the bare name of a skill of Hand's own repository or a plain https repository URL (no login, query or fragment); use `hand skills add` in a terminal for another source", state.ErrInvalid)
+			}
 		}
 		args := []string{a.Verb}
 		switch a.Scope {
@@ -126,8 +184,8 @@ func skillsAct(env Env, home, generation string) func(context.Context, board.Ski
 		case "project":
 			args = append(args, "--project="+a.Project)
 		}
-		if a.Yes != "" {
-			args = append(args, "--yes="+a.Yes)
+		if yes != "" {
+			args = append(args, "--yes="+yes)
 		}
 		if a.Ref != "" {
 			args = append(args, "--ref="+a.Ref)
