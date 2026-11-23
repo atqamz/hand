@@ -520,3 +520,83 @@ func (f *proposeFixture) routeTo(from, to string) {
 		f.t.Fatal(err)
 	}
 }
+
+func (f *toolFixture) commitModes(files map[string]string, exec ...string) {
+	f.t.Helper()
+	writeFiles(f.t, f.tool.work, files)
+	for _, rel := range exec {
+		if err := os.Chmod(filepath.Join(f.tool.work, rel), 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	f.tool.commit(nil)
+}
+
+func TestSkillsAPIThirdPartyAddListsEveryFileAheadOfTheDiff(t *testing.T) {
+	f := newToolFixture(t)
+	f.commitModes(map[string]string{"run.sh": "#!/bin/sh\necho hi\n", "data/blob.bin": "a\x00b\n"}, "run.sh")
+	d := f.review().Diffs[0]
+	if d.Cut || !strings.HasPrefix(d.Diff, "files of this skill") {
+		t.Fatalf("diff = %q", d.Diff)
+	}
+	head, _, _ := strings.Cut(d.Diff, "diff --git")
+	for _, want := range []string{"100755 18 run.sh\n", "100644 4 data/blob.bin Binary file\n", " SKILL.md\n"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("file list lacks %q: %q", want, head)
+		}
+	}
+	if strings.Contains(head, "run.sh Binary") || strings.Contains(head, "SKILL.md Binary") {
+		t.Errorf("a text file is marked binary: %q", head)
+	}
+}
+
+func TestSkillsAPIThirdPartyAddRefusesYesWhenTheReviewDiffIsCut(t *testing.T) {
+	f := newToolFixture(t)
+	f.commitModes(map[string]string{
+		"a/huge.txt": strings.Repeat("x", 70<<10) + "\n",
+		"blob.bin":   "\x00\x01\x02 binary\n",
+		"run.sh":     "#!/bin/sh\n",
+		"z/late.md":  "late\n",
+	}, "run.sh")
+	review := f.review()
+	d := review.Diffs[0]
+	if !d.Cut || len(d.Diff) > 64<<10 {
+		t.Fatalf("the review diff is cut = %v at %d bytes, want cut at no more than 64 KiB", d.Cut, len(d.Diff))
+	}
+	if strings.Contains(d.Diff, "late.md\n+late") {
+		t.Fatalf("the text past the cut is shown")
+	}
+	for _, want := range []string{"100644 ", " blob.bin Binary file\n", "100755 10 run.sh\n", " z/late.md\n", " a/huge.txt\n"} {
+		if !strings.Contains(d.Diff, want) {
+			t.Errorf("file list lacks %q", want)
+		}
+	}
+	yes := "tool-skill@" + resultOf(review, "tool-skill").Detail
+	code, run, receipt, raw := f.api.post("add", f.body("yes", yes))
+	if code != 200 || receipt != "Skills add: 1 refused" || run.Refused != 1 || len(run.Diffs) != 1 || !run.Diffs[0].Cut {
+		t.Fatalf("add = %d %q %s", code, receipt, raw)
+	}
+	r := resultOf(run, "tool-skill")
+	if r.State != "refused" || !strings.Contains(r.Detail, "the diff is cut, so the whole skill cannot be reviewed here; install it by hand after reading the repository") {
+		t.Fatalf("row = %+v", r)
+	}
+	f.nothingInstalled("a cut review with the matching yes")
+}
+
+func TestSkillsAPIThirdPartyAddWithASymlinkAnswersAClientErrorAndLeavesNothing(t *testing.T) {
+	f := newToolFixture(t)
+	if err := os.MkdirAll(filepath.Join(f.tool.work, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(f.tool.work, "docs", "link")); err != nil {
+		t.Skip(err)
+	}
+	f.tool.commit(nil)
+	for _, yes := range []string{"", "tool-skill@" + f.tip()} {
+		code, _, _, raw := f.api.post("add", f.body("yes", yes))
+		if code < 400 || code >= 500 || !strings.Contains(raw, "docs/link is not a regular file") || strings.Contains(raw, f.tmp) {
+			t.Fatalf("a skill with a symlink (yes %q) = %d %s", yes, code, raw)
+		}
+		f.nothingInstalled("a symlink")
+	}
+}

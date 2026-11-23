@@ -262,14 +262,14 @@ func Copy(src, dst string) error {
 		case d.IsDir():
 			return os.MkdirAll(target, 0o755)
 		case !d.Type().IsRegular():
-			return fmt.Errorf("%s is not a regular file; a skill is copied, never linked", path)
+			return fmt.Errorf("%w: %s is not a regular file; a skill is copied, never linked", state.ErrInvalid, rel)
 		}
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
 		if total += info.Size(); total > MaxSkillBytes {
-			return fmt.Errorf("%s is over %d MiB; a skill is a small folder", src, MaxSkillBytes>>20)
+			return fmt.Errorf("%w: a skill is over %d MiB; a skill is a small folder", state.ErrInvalid, MaxSkillBytes>>20)
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
