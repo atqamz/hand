@@ -115,7 +115,6 @@ func firedEvents(fx *attemptFixture) int {
 }
 
 func TestATimerWakesTheSupervisorAndHoldsTheStallWake(t *testing.T) {
-	t.Parallel()
 	fx, log := stallFleet(t, "")
 	fx.h.ok("wake", "--after", "30m", "--note", "check PR 909")
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -146,7 +145,6 @@ func TestATimerWakesTheSupervisorAndHoldsTheStallWake(t *testing.T) {
 }
 
 func TestARepeatingTimerWakesUntilItsTaskFinishes(t *testing.T) {
-	t.Parallel()
 	fx, _ := stallFleet(t, `,"stall":"off"`)
 	fx.h.ok("wake", "--every", "10m", "--while", "t1", "--note", "poll CI")
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -169,7 +167,6 @@ func TestARepeatingTimerWakesUntilItsTaskFinishes(t *testing.T) {
 }
 
 func TestATimerDueWhileTheWatcherIsDownIsDeliveredLateOnce(t *testing.T) {
-	t.Parallel()
 	fx, _ := stallFleet(t, `,"stall":"off"`)
 	fx.h.ok("wake", "--after", "30m", "--note", "check PR 909")
 	fx.h.advance(2 * time.Hour)
@@ -185,7 +182,6 @@ func TestATimerDueWhileTheWatcherIsDownIsDeliveredLateOnce(t *testing.T) {
 }
 
 func TestATimerWaitsForASupervisorAndReachesTheNextOne(t *testing.T) {
-	t.Parallel()
 	fx, _ := stallFleet(t, `,"stall":"off"`)
 	fx.h.ok("wake", "--after", "30m", "--note", "after the switch")
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -215,7 +211,6 @@ func TestATimerWaitsForASupervisorAndReachesTheNextOne(t *testing.T) {
 }
 
 func TestAFarTimerDoesNotHoldTheStallWake(t *testing.T) {
-	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.h.ok("wake", "--after", "7h", "--note", "check PR 909")
 	if out := fx.h.ok("orient"); !strings.Contains(out, "unwatched[1]:\n  - t1\n") || !strings.Contains(out, "(beyond the horizon) check PR 909") {
@@ -322,7 +317,6 @@ func TestWakeTakesDaysForAfterAndEvery(t *testing.T) {
 }
 
 func TestAWaitQuietsTheStallWakeUntilItFires(t *testing.T) {
-	t.Parallel()
 	fx, log := stallFleet(t, "")
 	fx.h.ok("wake", "--while", "t1", "--waits", "--after", "3d", "--note", "outside PR")
 	stop := startWatch(t, fx, "--every", "30ms")

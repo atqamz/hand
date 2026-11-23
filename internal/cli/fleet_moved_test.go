@@ -13,7 +13,6 @@ import (
 )
 
 func TestWatchExitsWhenItsHomeMoves(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("moving a home whose files are open is Unix-only")
 	}
@@ -52,7 +51,6 @@ func TestWatchExitsWhenItsHomeMoves(t *testing.T) {
 }
 
 func TestWatchStopsOnTheFirstEventAfterAMove(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("moving a home whose files are open is Unix-only")
 	}

@@ -607,7 +607,6 @@ func TestAttemptExecRefusesARelativeDirectory(t *testing.T) {
 }
 
 func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
@@ -662,7 +661,6 @@ func TestAttemptExecWarnsWhenTheScratchPathIsTooLongForAUnixSocket(t *testing.T)
 }
 
 func TestHiddenExecIsNotInHelpOrAnAttempt(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	if _, errOut, code := fx.h.run("attempt"); code != 2 || strings.Contains(errOut, "_exec") {
 		t.Fatalf("attempt help: code=%d stderr=%q", code, errOut)
@@ -691,7 +689,6 @@ func TestHiddenExecIsNotInHelpOrAnAttempt(t *testing.T) {
 }
 
 func TestCleanRemovesTheAttemptScratch(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
@@ -712,7 +709,6 @@ func TestCleanRemovesTheAttemptScratch(t *testing.T) {
 }
 
 func TestGCListTheAttemptScratchAndRemovesIt(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	live := scratchOf(fx.h, fx.h.worktree("t1-a1"))
@@ -738,7 +734,6 @@ func TestGCListTheAttemptScratchAndRemovesIt(t *testing.T) {
 }
 
 func TestGCSkipsALiveAttemptsScratch(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("removing a live worktree is Unix-only")
 	}

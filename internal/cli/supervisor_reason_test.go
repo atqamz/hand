@@ -40,7 +40,6 @@ func TestAQueuedMessageNamesBlockedWithTheHintAndTheKeysThatClearIt(t *testing.T
 }
 
 func TestABlockedMessageIsTypedByTheWatcherOnceTheScreenClearsAndLosesItsReason(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))

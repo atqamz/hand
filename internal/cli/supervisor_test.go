@@ -606,7 +606,6 @@ func TestAttemptCommandsSurviveSupervisorHousekeepingFailures(t *testing.T) {
 }
 
 func TestARefusedPromptDoesNotStopTheWatcher(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
@@ -724,7 +723,6 @@ func TestSendReadsStdin(t *testing.T) {
 }
 
 func TestSendWaitsWhileBlocked(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -743,7 +741,6 @@ func TestSendWaitsWhileBlocked(t *testing.T) {
 }
 
 func TestWakesWaitForIdleAndCarryTheEnvelope(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -771,7 +768,6 @@ func TestWakesWaitForIdleAndCarryTheEnvelope(t *testing.T) {
 }
 
 func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -881,7 +877,6 @@ func TestPendingMessagesAreDeliveredByTheNextWatchTickAfterALockMiss(t *testing.
 }
 
 func TestConcurrentSendsDeliverEachMessageOnce(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "5ms")
@@ -1206,7 +1201,6 @@ func TestSwitchAndResumeReadAServedModelId(t *testing.T) {
 }
 
 func TestSwitchWhileWorkingWaitsForTheTurn(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -1807,7 +1801,6 @@ func TestShowNamesTheAgentDirWhenLuvusReportsNoOmpSession(t *testing.T) {
 }
 
 func TestTheWatcherNamesTheOmpAgentDirOnceAndResetsWhenTheSessionArrives(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	agent := filepath.Join(t.TempDir(), "agent")
 	h.vars["PI_CODING_AGENT_DIR"] = agent
@@ -1997,7 +1990,6 @@ func TestSwitchingHarnessKeepsAnUndiscoveredSession(t *testing.T) {
 }
 
 func TestADeliveryCancelledMidPromptIsStillRecorded(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -2047,7 +2039,6 @@ func TestSwitchingHarnessSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
 }
 
 func TestAWatcherStoppedMidQueueLeavesTheRestPending(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -2073,7 +2064,6 @@ func TestAWatcherStoppedMidQueueLeavesTheRestPending(t *testing.T) {
 }
 
 func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	session := fx.rt.lastCreate().Command[3]
@@ -2103,7 +2093,6 @@ func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
 }
 
 func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
@@ -2132,7 +2121,6 @@ func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
 }
 
 func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
@@ -2315,7 +2303,6 @@ func TestDeliverHoldsWakesOnTheTickThatRetriesALockMiss(t *testing.T) {
 }
 
 func TestDeliverResumesAfterLimitClears(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -2362,7 +2349,6 @@ func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
 }
 
 func TestSupervisorLimitAlertsAgainAfterItClears(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
@@ -2389,7 +2375,6 @@ func supervisorLimitAlerts(notes string) int {
 }
 
 func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
@@ -2427,7 +2412,6 @@ func supervisorLimitedRows(t *testing.T, fx *attemptFixture) int {
 }
 
 func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}

@@ -129,7 +129,6 @@ func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (strin
 }
 
 func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	fx.start()
@@ -166,7 +165,6 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 }
 
 func TestWatchIgnoresABlockThatLastsOnePoll(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	fx.start()
@@ -197,7 +195,6 @@ func TestWatchIgnoresABlockThatLastsOnePoll(t *testing.T) {
 }
 
 func TestWatchIgnoresThreeOnePollFlickers(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	n := fx.rt.explained()
@@ -224,7 +221,6 @@ func TestWatchIgnoresThreeOnePollFlickers(t *testing.T) {
 }
 
 func TestWatchNotesAPersistentBlockOnce(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	fx.start()
@@ -251,7 +247,6 @@ func TestWatchNotesAPersistentBlockOnce(t *testing.T) {
 }
 
 func TestWatchNotesABlockAgainAfterTheWorkerWorks(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -280,7 +275,6 @@ func TestWatchNotesABlockAgainAfterTheWorkerWorks(t *testing.T) {
 }
 
 func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	desktop := fakeNotify(t, fx)
 	log := filepath.Join(t.TempDir(), "notify.log")
@@ -326,7 +320,6 @@ func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
 }
 
 func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	log := filepath.Join(t.TempDir(), "notify.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
@@ -366,7 +359,6 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 }
 
 func TestWatchRecordsNoAlertWithNotifyOff(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--notify=false")
@@ -380,7 +372,6 @@ func TestWatchRecordsNoAlertWithNotifyOff(t *testing.T) {
 }
 
 func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	log := filepath.Join(t.TempDir(), "notify.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
@@ -415,7 +406,6 @@ func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
 }
 
 func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{"notify":`), 0o644); err != nil {
 		t.Fatal(err)
@@ -434,7 +424,6 @@ func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *tes
 }
 
 func TestWatchReconnectsAfterARestartAndRecordsExits(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -452,7 +441,6 @@ func TestWatchReconnectsAfterARestartAndRecordsExits(t *testing.T) {
 }
 
 func TestExitedEventCarriesExitCode(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -468,7 +456,6 @@ func TestExitedEventCarriesExitCode(t *testing.T) {
 }
 
 func TestSecondWatcherIsRefused(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	stop := startWatch(t, fx)
 	defer stop()
@@ -478,7 +465,6 @@ func TestSecondWatcherIsRefused(t *testing.T) {
 }
 
 func TestStopWhileWatchingRecordsStopped(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -491,7 +477,6 @@ func TestStopWhileWatchingRecordsStopped(t *testing.T) {
 }
 
 func TestWatchRecordsAQuietTurnAgainAfterAReconnect(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -506,7 +491,6 @@ func TestWatchRecordsAQuietTurnAgainAfterAReconnect(t *testing.T) {
 }
 
 func TestWatchRecordsAQuietTurnWhenADeclinedPromptLeavesTheWorkerIdle(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -519,7 +503,6 @@ func TestWatchRecordsAQuietTurnWhenADeclinedPromptLeavesTheWorkerIdle(t *testing
 }
 
 func TestWatchIgnoresAnIdlePaneBeforeTheWorkerWorks(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	stop := startWatch(t, fx)
 	defer stop()
@@ -534,7 +517,6 @@ func TestWatchIgnoresAnIdlePaneBeforeTheWorkerWorks(t *testing.T) {
 }
 
 func TestOrientStopsShowingBlockedOnceTheWorkerWorksAgain(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -551,7 +533,6 @@ func TestOrientStopsShowingBlockedOnceTheWorkerWorksAgain(t *testing.T) {
 }
 
 func TestOrientStopsShowingABlockNotedAtLaunchOnceTheWatcherSeesWork(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
@@ -568,7 +549,6 @@ func TestOrientStopsShowingABlockNotedAtLaunchOnceTheWatcherSeesWork(t *testing.
 }
 
 func TestACopilotLaunchNoteStaysUntilTheTurnEnds(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
@@ -589,7 +569,6 @@ func TestACopilotLaunchNoteStaysUntilTheTurnEnds(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnATurnThatEndedAfterABlockWasCleared(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -607,7 +586,6 @@ func TestWatchCatchesUpOnATurnThatEndedAfterABlockWasCleared(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnATurnThatEndedWhileItWasDown(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -642,7 +620,6 @@ func TestWatchCatchesUpOnAScreenThatBlockedWhileItWasDown(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnATurnASentMessageStarted(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	if err := openStore(t, fx.h).NoteAttempt(context.Background(), 1, "sent", "12 bytes"); err != nil {
@@ -655,7 +632,6 @@ func TestWatchCatchesUpOnATurnASentMessageStarted(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnAScreenThatBlockedAfterAQuietTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -669,7 +645,6 @@ func TestWatchCatchesUpOnAScreenThatBlockedAfterAQuietTurn(t *testing.T) {
 }
 
 func TestWatchLeavesAFreshIdleWorkerAloneAfterARestart(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -731,7 +706,6 @@ func TestWatchRecordsAQuietTurnWhenTheClockMovedBack(t *testing.T) {
 }
 
 func TestWatchReconcilesWithoutAnyEvent(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "100ms")
@@ -768,7 +742,6 @@ func TestOnlyWatchNeedsTheEventStream(t *testing.T) {
 }
 
 func TestWatchDeliversPendingNotificationsBeforeExiting(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
@@ -787,7 +760,6 @@ func TestWatchDeliversPendingNotificationsBeforeExiting(t *testing.T) {
 }
 
 func TestQuietTurnSaysWhetherTheWorkerReported(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -807,7 +779,6 @@ func TestQuietTurnSaysWhetherTheWorkerReported(t *testing.T) {
 }
 
 func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
-	t.Parallel()
 	for _, on := range []bool{true, false} {
 		h, rt := newSupervisorFixture(t)
 		policy := `{"supervisor":{"autoresume":` + strconv.FormatBool(on) + `}}`
@@ -875,7 +846,6 @@ func wantPID(t *testing.T, path string) {
 }
 
 func TestPidFileWrittenAndRemoved(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	stop := startWatch(t, fx)
 	wantPID(t, filepath.Join(fx.h.home, "watch.pid"))
@@ -892,7 +862,6 @@ func TestPidFileWrittenAndRemoved(t *testing.T) {
 }
 
 func TestWatchRunsWhenItsPidFileIsUnwritable(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	pid := filepath.Join(fx.h.home, "watch.pid")
 	if err := os.Mkdir(pid, 0o700); err != nil {
@@ -942,7 +911,6 @@ func turnEvents(t *testing.T, fx *attemptFixture) []state.Event {
 }
 
 func TestRepeatedQuietWakesOnce(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -958,7 +926,6 @@ func TestRepeatedQuietWakesOnce(t *testing.T) {
 }
 
 func TestQuietRightAfterReportDoesNotWake(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -972,7 +939,6 @@ func TestQuietRightAfterReportDoesNotWake(t *testing.T) {
 }
 
 func TestQuietAfterDoneDoesNotWake(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
@@ -988,7 +954,6 @@ func TestQuietAfterDoneDoesNotWake(t *testing.T) {
 }
 
 func TestAStopThatRacesATurnEndLeavesTheWatcherRunning(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	st := openStore(t, fx.h)
@@ -1017,7 +982,6 @@ func TestAStopThatRacesATurnEndLeavesTheWatcherRunning(t *testing.T) {
 }
 
 func TestQuietAfterProgressWakes(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1031,7 +995,6 @@ func TestQuietAfterProgressWakes(t *testing.T) {
 }
 
 func TestWatchStartSurvivesAProbe(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	probe, err := os.OpenFile(filepath.Join(fx.h.home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -1048,7 +1011,6 @@ func TestWatchStartSurvivesAProbe(t *testing.T) {
 }
 
 func TestWatchReconcilesOnATerminalExitOrPaneClose(t *testing.T) {
-	t.Parallel()
 	for event, data := range map[string]map[string]any{
 		"terminal.exited": {"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"},
 		"pane.closed":     {"pane_id": "2"},
@@ -1070,7 +1032,6 @@ func TestWatchReconcilesOnATerminalExitOrPaneClose(t *testing.T) {
 }
 
 func TestWatchReconnectsOnResyncRequired(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	stop := startWatch(t, fx)
 	defer stop()
@@ -1081,7 +1042,6 @@ func TestWatchReconnectsOnResyncRequired(t *testing.T) {
 const claudeLimit = "● Fixing login\n  ⎿  You've hit your session limit · resets 6:10am (Asia/Jakarta)\n\n> "
 
 func TestWatchRecordsALimitedTurnInsteadOfQuiet(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	fx.start()
@@ -1104,7 +1064,6 @@ func TestWatchRecordsALimitedTurnInsteadOfQuiet(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
@@ -1126,7 +1085,6 @@ func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
 }
 
 func TestWatchRecordsAQuietTurnWhileAnEarlierLimitLineStaysOnScreen(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1151,7 +1109,6 @@ func TestWatchRecordsAQuietTurnWhileAnEarlierLimitLineStaysOnScreen(t *testing.T
 }
 
 func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startAgy()
 	stop := startWatch(t, fx)
@@ -1171,7 +1128,6 @@ func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
 }
 
 func TestWatchRecordsACopilotSessionLimitOnceAndAQuietTurnWhenItIsSentAgain(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	stop := startWatch(t, fx)
@@ -1214,7 +1170,6 @@ func TestWatchRecordsNoTurnWhileItCannotReadTheScreen(t *testing.T) {
 }
 
 func TestWatchRecordsAQuietTurnAfterTheLimitClears(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1232,7 +1187,6 @@ func TestWatchRecordsAQuietTurnAfterTheLimitClears(t *testing.T) {
 }
 
 func TestALimitedTurnAfterADoneReportStillWakes(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1252,7 +1206,6 @@ func TestALimitedTurnAfterADoneReportStillWakes(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnAnIdleTurnOnce(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1276,7 +1229,6 @@ func longEvents(fx *attemptFixture) int {
 }
 
 func TestLongTurnWakesOnce(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -1291,7 +1243,6 @@ func TestLongTurnWakesOnce(t *testing.T) {
 }
 
 func TestLongTurnResetsPerTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -1308,7 +1259,6 @@ func TestLongTurnResetsPerTurn(t *testing.T) {
 }
 
 func TestAConfirmedBlockEndsTheLongTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -1326,7 +1276,6 @@ func TestAConfirmedBlockEndsTheLongTurn(t *testing.T) {
 }
 
 func TestAOnePollBlockKeepsTheLongTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -1342,7 +1291,6 @@ func TestAOnePollBlockKeepsTheLongTurn(t *testing.T) {
 }
 
 func TestShortTurnDoesNotWake(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -1355,7 +1303,6 @@ func TestShortTurnDoesNotWake(t *testing.T) {
 }
 
 func TestWatchCatchesUpOnATurnThatEndedAfterALongTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -1379,7 +1326,6 @@ func waitTicks(t *testing.T, fx *attemptFixture) {
 }
 
 func TestRestartedWatchKeepsTheTurnClock(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.advance(2 * time.Hour)
@@ -1393,7 +1339,6 @@ func TestRestartedWatchKeepsTheTurnClock(t *testing.T) {
 }
 
 func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.advance(2 * time.Hour)
@@ -1409,7 +1354,6 @@ func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
 }
 
 func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	dir := filepath.Join(fx.h.home, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -1451,7 +1395,6 @@ func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 }
 
 func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	dir := filepath.Join(fx.h.home, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -1480,7 +1423,6 @@ func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
 }
 
 func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.validateFail = true })
@@ -1501,7 +1443,6 @@ func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
 }
 
 func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	dir := filepath.Join(fx.h.home, "backups")
 	stuck := filepath.Join(dir, "hand-20240101.db.tmp")
@@ -1527,7 +1468,6 @@ func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
 }
 
 func TestAttemptShowKeepsTheLastScreenOfAnAttemptThatExited(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -1556,7 +1496,6 @@ func TestAttemptShowKeepsTheLastScreenOfAnAttemptThatExited(t *testing.T) {
 }
 
 func TestAttemptShowHasNoScreenWhenNoReadSucceeded(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.readFail = "fixture screen", "internal" })
@@ -1575,7 +1514,6 @@ func TestAttemptShowHasNoScreenWhenNoReadSucceeded(t *testing.T) {
 }
 
 func TestWatchRecordsAnAPIErrorTurnAsQuiet(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1592,7 +1530,6 @@ func TestWatchRecordsAnAPIErrorTurnAsQuiet(t *testing.T) {
 }
 
 func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx)
@@ -1640,7 +1577,6 @@ func opencodeSubagentIdle(t *testing.T, fx *attemptFixture, idle time.Duration, 
 }
 
 func TestOpencodeTurnEndWhileASubagentRunsIsHeldUntilItFinishes(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1658,7 +1594,6 @@ func TestOpencodeTurnEndWhileASubagentRunsIsHeldUntilItFinishes(t *testing.T) {
 }
 
 func TestALongOpencodeTurnHeldForASubagentStillWakes(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1676,7 +1611,6 @@ func TestALongOpencodeTurnHeldForASubagentStillWakes(t *testing.T) {
 }
 
 func TestOpencodeTurnEndIsQuietWhenTheBusyCheckFails(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	opencodeSubagent(t, fx)
 	stop := startWatch(t, fx, "--every", "100ms")
@@ -1702,7 +1636,6 @@ func TestOpencodeTurnEndIsQuietWhenTheBusyCheckHangs(t *testing.T) {
 }
 
 func TestOpencodeBlockedAndExitedStillWakeWhileASubagentRuns(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	opencodeSubagent(t, fx)(true)
 	stop := startWatch(t, fx, "--every", "1h")
@@ -1731,7 +1664,6 @@ func holdAnIdleTurn(t *testing.T, fx *attemptFixture) {
 }
 
 func TestHeldIdleTurnSurvivesAReconnect(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1749,7 +1681,6 @@ func TestHeldIdleTurnSurvivesAReconnect(t *testing.T) {
 }
 
 func TestHeldIdleTurnThatEndsDuringAReconnectIsStillRecorded(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1762,7 +1693,6 @@ func TestHeldIdleTurnThatEndsDuringAReconnectIsStillRecorded(t *testing.T) {
 }
 
 func TestHeldIdleTurnThatEndsWhileTheWatcherIsDownIsStillRecorded(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1777,7 +1707,6 @@ func TestHeldIdleTurnThatEndsWhileTheWatcherIsDownIsStillRecorded(t *testing.T) 
 }
 
 func TestHeldIdleTurnSurvivesAWatcherRestart(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1796,7 +1725,6 @@ func TestHeldIdleTurnSurvivesAWatcherRestart(t *testing.T) {
 }
 
 func TestHeldIdleTurnKeepsItsClockAcrossAWatcherRestart(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	opencodeSubagent(t, fx)(true)
 	stop := startWatch(t, fx, "--every", "100ms")
@@ -1814,7 +1742,6 @@ func TestHeldIdleTurnKeepsItsClockAcrossAWatcherRestart(t *testing.T) {
 }
 
 func TestAnIdleOpencodeWorkerWithoutASubagentIsLeftAloneAfterARestart(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	opencodeSubagentIdle(t, fx, -time.Hour)(false)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -1830,7 +1757,6 @@ func TestAnIdleOpencodeWorkerWithoutASubagentIsLeftAloneAfterARestart(t *testing
 }
 
 func TestAnIdleOpencodeWorkerWithASubagentIsHeldAfterARestart(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	subagent(true)
@@ -1846,7 +1772,6 @@ func TestAnIdleOpencodeWorkerWithASubagentIsHeldAfterARestart(t *testing.T) {
 }
 
 func TestAnOlderBusyListDoesNotReleaseANewerHold(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx, "1s")
 	started := subagent(true) + ".started"
@@ -1873,7 +1798,6 @@ func TestAnOlderBusyListDoesNotReleaseANewerHold(t *testing.T) {
 }
 
 func TestOpencodeHoldSurvivesOneFailedBusyCheck(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
 	failOnce := subagent(true) + ".failonce"
@@ -1895,7 +1819,6 @@ func TestOpencodeHoldSurvivesOneFailedBusyCheck(t *testing.T) {
 }
 
 func TestACopilotLaunchNoteSurvivesAWatcherStart(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
@@ -1912,7 +1835,6 @@ func TestACopilotLaunchNoteSurvivesAWatcherStart(t *testing.T) {
 }
 
 func TestWatchRecordsACodexQuestionInTheBlockedEvent(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	codexCache(t, fx.h)
 	fx.h.ok("attempt", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low", "--prompt-file", fx.brief, "t1")

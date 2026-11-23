@@ -129,7 +129,6 @@ func quietAlert(fx *attemptFixture) {
 }
 
 func TestWatchClickOpensTheBoardPage(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, helpLog, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
@@ -151,7 +150,6 @@ func TestWatchClickOpensTheBoardPage(t *testing.T) {
 }
 
 func TestWatchClickRunsTheDesktopWithTheAlertsOpenLink(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
@@ -169,7 +167,6 @@ func TestWatchClickRunsTheDesktopWithTheAlertsOpenLink(t *testing.T) {
 }
 
 func TestWatchClickFallsBackToTheBrowserWithoutTheDesktop(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
@@ -238,7 +235,6 @@ func TestWatchStopsWaitingForTheDesktopAtShutdown(t *testing.T) {
 }
 
 func TestWatchClickFallsBackToTheBrowserWhenTheDesktopRefuses(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
@@ -254,7 +250,6 @@ func TestWatchClickFallsBackToTheBrowserWhenTheDesktopRefuses(t *testing.T) {
 }
 
 func TestWatchFallsBackWhenNotifySendHasNoAction(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, helpLog, openLog, _ := installClick(t, fx, map[string]string{"help": "Usage: notify-send [OPTION…] <SUMMARY> [BODY]\n  -w, --wait\n", "print": "default\n"})
@@ -283,7 +278,6 @@ func TestWatchFallsBackWhenNotifySendHasNoAction(t *testing.T) {
 }
 
 func TestWatchCapsWaitingClickNotificationsAtEight(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "clickhold": "30s"})
@@ -311,7 +305,6 @@ func TestWatchCapsWaitingClickNotificationsAtEight(t *testing.T) {
 }
 
 func TestWatchFreesAClickSlotWhenAClickEnds(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	releasedir := t.TempDir()
@@ -350,7 +343,6 @@ func TestWatchFreesAClickSlotWhenAClickEnds(t *testing.T) {
 }
 
 func TestWatchFallsBackWhenTheClickFails(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "exit": "1"})
@@ -411,7 +403,6 @@ func TestWatchKillsTheClickProcessGroupAtTheTimeout(t *testing.T) {
 }
 
 func TestWatchKeepsAClickAcrossAStreamReconnect(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, _, _, pidLog := installClick(t, fx, map[string]string{"help": clickHelp, "sleep": "30s"})
@@ -447,7 +438,6 @@ func TestWatchKeepsAClickAcrossAStreamReconnect(t *testing.T) {
 }
 
 func TestWatchFallsBackWhenTheBoardAddrIsNotAnOpenableURL(t *testing.T) {
-	t.Parallel()
 	for name, addr := range map[string]string{"empty": "\n", "garbage": "not a host\n", "port only": ":7777\n", "userinfo": "127.0.0.1:7777@evil.example\n", "portless": "127.0.0.1\n", "query": "127.0.0.1:7777?x=1\n", "fragment": "127.0.0.1:7777#x\n", "path": "127.0.0.1:7777/elsewhere\n", "non-loopback": "192.168.1.5:7777\n", "shorthand": "192.168.1:7777\n", "dns": "evil.example:7777\n", "dns port 80": "evil.example\n"} {
 		t.Run(name, func(t *testing.T) {
 			fx := newAttemptFixture(t)
@@ -470,7 +460,6 @@ func TestWatchFallsBackWhenTheBoardAddrIsNotAnOpenableURL(t *testing.T) {
 }
 
 func TestWatchClickOpensALoopbackBoardAddr(t *testing.T) {
-	t.Parallel()
 	for name, addr := range map[string]string{"localhost": "localhost:7777\n", "ipv6": "[::1]:7777\n"} {
 		t.Run(name, func(t *testing.T) {
 			fx := newAttemptFixture(t)
@@ -490,7 +479,6 @@ func TestWatchClickOpensALoopbackBoardAddr(t *testing.T) {
 }
 
 func TestWatchFallsBackWhenTheBoardIsOnANetworkAddress(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	writeBoardAddr(t, fx, "192.168.1.5:7777\n")
 	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
@@ -509,7 +497,6 @@ func TestWatchFallsBackWhenTheBoardIsOnANetworkAddress(t *testing.T) {
 }
 
 func TestWatchClickWithoutABoardURLUsesThePlainNotification(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
 	fx.start()
@@ -526,7 +513,6 @@ func TestWatchClickWithoutABoardURLUsesThePlainNotification(t *testing.T) {
 }
 
 func TestWatchDismissedClickOpensNothing(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
 	notifyLog, _, openLog, pidLog := installClick(t, fx, map[string]string{"help": clickHelp, "sleep": "50ms"})

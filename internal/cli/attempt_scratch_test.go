@@ -52,7 +52,6 @@ func exists(path string) bool {
 }
 
 func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) {
-	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
@@ -80,7 +79,6 @@ func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) 
 }
 
 func TestCleanKeepScratchLeavesItAndNamesIt(t *testing.T) {
-	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
@@ -96,7 +94,6 @@ func TestCleanKeepScratchLeavesItAndNamesIt(t *testing.T) {
 }
 
 func TestCleanWithoutScratchPrintsNothingAboutIt(t *testing.T) {
-	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
@@ -201,7 +198,6 @@ func TestGCOlderThanUsesTheAttemptScratchRoot(t *testing.T) {
 }
 
 func TestGCSkipsAnAttemptThatIsLiveInTheDatabase(t *testing.T) {
-	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
@@ -256,7 +252,6 @@ func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
 }
 
 func TestCleanWarnsWhenTheScratchDirectoryStaysAndStillCleans(t *testing.T) {
-	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })

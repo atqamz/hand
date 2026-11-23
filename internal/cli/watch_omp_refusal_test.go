@@ -84,7 +84,6 @@ func TestWatchAnOmpRefusalLineThatReturnsIsNeverAnAPIError(t *testing.T) {
 }
 
 func TestWatchAnOmpRefusalWithANewLineIsLimitedAgain(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startOmp()
 	stop := startWatch(t, fx)
@@ -134,7 +133,6 @@ func TestWatchRecordsAnOmpRetriableErrorAsQuietInsideTheLaunchWindow(t *testing.
 }
 
 func TestWatchDoesNotCallAFinishedOmpPaneLimited(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startOmp()
 	stop := startWatch(t, fx)

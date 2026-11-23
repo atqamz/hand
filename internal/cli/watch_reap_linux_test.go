@@ -10,7 +10,6 @@ import (
 )
 
 func TestWatchNeverKillsAProcessRunningInAWorktree(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := endAttempts(fx, 1)
 	cmd := exec.Command("sleep", "300")

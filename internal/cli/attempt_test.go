@@ -459,7 +459,6 @@ func TestExitedWorkerIsRecorded(t *testing.T) {
 }
 
 func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), func() time.Time { return fx.h.now })
 	if err != nil {

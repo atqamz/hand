@@ -280,7 +280,6 @@ func notifications(t *testing.T, path string) int {
 }
 
 func TestAWatcherThatAppliesASwitchTheNewModelDoesNotAnswerKeepsTheInputsPending(t *testing.T) {
-	t.Parallel()
 	msgs := filepath.Join(t.TempDir(), "msgs")
 	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1", "msgs": msgs}, "--model", "local/m1")
 	fx := &attemptFixture{h: h, rt: rt}
@@ -347,7 +346,6 @@ func TestResumingAHeldSupervisorOnTheSameModelHoldsTheMessagesAgain(t *testing.T
 }
 
 func TestAnAutoresumeOnTheModelThatDidNotAnswerHoldsTheMessagesAgain(t *testing.T) {
-	t.Parallel()
 	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
 	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
@@ -514,7 +512,6 @@ func TestASlowFirstReadOfTheNoteDoesNotCancelTheCheck(t *testing.T) {
 }
 
 func TestAWatcherThatCannotReadTheSessionSaysSo(t *testing.T) {
-	t.Parallel()
 	listdie := filepath.Join(t.TempDir(), "listdie")
 	h, rt, _, _ := runningOpencode(t, map[string]string{"listdie": listdie}, "--model", "local/m1")
 	if err := os.WriteFile(listdie, []byte("database is locked\n"), 0o644); err != nil {

@@ -203,7 +203,6 @@ func loggedRuns(t *testing.T, log string) int {
 }
 
 func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	for _, name := range []string{"claude", "codex", "opencode"} {
 		if err := os.Remove(exe(fx.h.vars["PATH"], name)); err != nil {
