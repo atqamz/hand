@@ -60,7 +60,6 @@ func prunedEvents(t *testing.T, w *watcher) int {
 }
 
 func TestWatcherPrunesTheInboxOnceADay(t *testing.T) {
-	t.Parallel()
 	w, out, clock := inboxWatcher(t, `,"inbox":{"keep":"30d"}`)
 	ctx := context.Background()
 	old := oldFile(t, w, "20260901-000000-1.png", 40*24*time.Hour)
@@ -101,7 +100,6 @@ func TestWatcherPrunesTheInboxOnceADay(t *testing.T) {
 }
 
 func TestWatcherLeavesTheInboxAloneByDefault(t *testing.T) {
-	t.Parallel()
 	for _, inbox := range []string{``, `,"inbox":"off"`, `,"inbox":{"keep":"off"}`} {
 		w, out, _ := inboxWatcher(t, inbox)
 		old := oldFile(t, w, "20250101-000000-1.png", 300*24*time.Hour)
@@ -116,7 +114,6 @@ func TestWatcherLeavesTheInboxAloneByDefault(t *testing.T) {
 }
 
 func TestWatcherSaysOnceThatABadInboxSettingKeepsPruningOff(t *testing.T) {
-	t.Parallel()
 	w, out, _ := inboxWatcher(t, `,"inbox":{"keep":"soon"}`)
 	old := oldFile(t, w, "20250101-000000-1.png", 300*24*time.Hour)
 	w.pruneInbox(context.Background())
@@ -130,7 +127,6 @@ func TestWatcherSaysOnceThatABadInboxSettingKeepsPruningOff(t *testing.T) {
 }
 
 func TestWatcherRetriesWhileAPruneHoldsTheLock(t *testing.T) {
-	t.Parallel()
 	w, out, _ := inboxWatcher(t, `,"inbox":{"keep":"30d"}`)
 	old := oldFile(t, w, "20260901-000000-1.png", 40*24*time.Hour)
 	unlock, ok, err := w.r.lock("inbox", false)
