@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -25,6 +26,7 @@ type skillsAPI struct {
 	t    *testing.T
 	h    http.Handler
 	csrf string
+	act  func(context.Context, board.SkillsAction) (board.APISkillsRun, error)
 }
 
 func newSkillsAPI(t *testing.T, h *harness) *skillsAPI {
@@ -35,7 +37,7 @@ func newSkillsAPI(t *testing.T, h *harness) *skillsAPI {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	read, act := cli.SkillsHooks(h.env(io.Discard, io.Discard), h.home, "", st)
-	a := &skillsAPI{t: t, h: board.New(st, skillsAPIToken, board.Options{Controls: true, Home: h.home, Now: h.clock, Skills: read, SkillsRun: act})}
+	a := &skillsAPI{t: t, act: act, h: board.New(st, skillsAPIToken, board.Options{Controls: true, Home: h.home, Now: h.clock, Skills: read, SkillsRun: act})}
 	rec := a.do(httptest.NewRequest("GET", "/api/v1/session", nil))
 	var env struct{ Data board.APISession }
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Data.CSRF == "" {

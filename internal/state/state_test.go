@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -443,5 +444,20 @@ func TestTypedDeliveriesAreReadInOneScan(t *testing.T) {
 	}
 	if p := strings.Join(plan, "\n"); strings.Contains(p, "CORRELATED") {
 		t.Fatalf("the typed mark scans events once per input:\n%s", p)
+	}
+}
+
+func TestSkillsSyncedIsAnEventAndNotAWakeKind(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if err := s.SkillsSynced(ctx, "fleet by phone (Pixel): 1 updated"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.RecentEventsOf(ctx, []string{"skills.synced"}, 5)
+	if err != nil || len(events) != 1 || events[0].Detail != "fleet by phone (Pixel): 1 updated" || events[0].TaskID != 0 {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+	if slices.Contains(WakeKinds, "skills.synced") {
+		t.Fatal("skills.synced wakes the supervisor")
 	}
 }

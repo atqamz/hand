@@ -27,6 +27,7 @@ type SkillsAction struct {
 	Project string
 	Name    string
 	Yes     string
+	Phone   bool
 }
 
 type APISkill struct {
@@ -151,8 +152,10 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	if !b.apiCSRF(w, r) {
 		return
 	}
-	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot change skills; use the host's Board")
+	s, _ := r.Context().Value(sessionKey{}).(session)
+	phone := s.Device != nil
+	if phone && verb != "sync" {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot update or propose skills; use the host's Board")
 		return
 	}
 	var in apiSkillsBody
@@ -175,6 +178,14 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "a name or yes with a control character or over 512 bytes")
 		return
 	}
+	switch {
+	case phone && in.Yes != "":
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot apply a third-party update; read the diff, then tell the supervisor or use the host's Board")
+		return
+	case phone && in.Scope == "user":
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot sync the user scope; use the host's Board")
+		return
+	}
 	f, err := b.st.Fleet(r.Context())
 	if err != nil {
 		b.apiFailErr(w, err)
@@ -184,9 +195,16 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 		return
 	}
 	defer b.skillsBusy.Unlock()
-	ctx, cancel := b.skillsContext(context.WithoutCancel(r.Context()))
+	kept := context.WithoutCancel(r.Context())
+	ctx, cancel := b.skillsContext(kept)
 	defer cancel()
-	out, err := b.o.SkillsRun(ctx, SkillsAction{Verb: verb, Scope: in.Scope, Project: in.Project, Name: in.Name, Yes: in.Yes})
+	out, err := b.o.SkillsRun(ctx, SkillsAction{Verb: verb, Scope: in.Scope, Project: in.Project, Name: in.Name, Yes: in.Yes, Phone: phone})
+	if verb == "sync" {
+		if werr := b.st.SkillsSynced(kept, skillsSynced(actor(kept, "operator (desktop)"), in, out, err)); werr != nil {
+			b.apiFailErr(w, werr)
+			return
+		}
+	}
 	if err != nil {
 		b.apiFailErr(w, err)
 		return
@@ -195,7 +213,18 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	b.apiOK(w, f, "", out)
 }
 
-func skillsReceipt(verb string, out APISkillsRun) string {
+func skillsSynced(who string, in apiSkillsBody, out APISkillsRun, err error) string {
+	what, res := in.Scope, skillsCounts(out)
+	if err != nil {
+		status, _ := failure(err)
+		res = "failed " + apiCode(status)
+	} else if in.Project != "" {
+		what += " " + in.Project
+	}
+	return what + " by " + who + ": " + res
+}
+
+func skillsCounts(out APISkillsRun) string {
 	counts := map[string]int{}
 	for _, r := range out.Results {
 		counts[r.State]++
@@ -205,7 +234,11 @@ func skillsReceipt(verb string, out APISkillsRun) string {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[st], st))
 	}
 	if len(parts) == 0 {
-		return "Skills " + verb + ": nothing subscribed"
+		return "nothing subscribed"
 	}
-	return "Skills " + verb + ": " + strings.Join(parts, ", ")
+	return strings.Join(parts, ", ")
+}
+
+func skillsReceipt(verb string, out APISkillsRun) string {
+	return "Skills " + verb + ": " + skillsCounts(out)
 }

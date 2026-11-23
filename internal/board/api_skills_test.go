@@ -209,7 +209,7 @@ func TestAPISkillsActionOutlivesTheClientAndIsBounded(t *testing.T) {
 	}
 }
 
-func TestAPairedPhoneReadsSkillsButCannotChangeThem(t *testing.T) {
+func TestAPairedPhoneReadsSkillsAndSyncsOnlyWithoutAYes(t *testing.T) {
 	r := newPeerRig(t, "alpha")
 	f := r.fleets[0]
 	c := r.as(peerA)
@@ -218,14 +218,32 @@ func TestAPairedPhoneReadsSkillsButCannotChangeThem(t *testing.T) {
 		t.Fatalf("a phone's read = %d:\n%s", rep.Code, rep.Body)
 	}
 	csrf := r.csrfOf(c, f, companion)
-	for _, verb := range []string{"sync", "update", "propose"} {
-		rep := r.post(c, f, "skills/"+verb, `{"scope":"fleet","name":"triage"}`, csrf, companion)
-		if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"code":"forbidden"`) || !strings.Contains(rep.Body, "a paired Companion cannot change skills; use the host's Board") {
-			t.Fatalf("a phone's %s = %d:\n%s", verb, rep.Code, rep.Body)
+	for _, refused := range []struct{ verb, body, sentence string }{
+		{"update", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update or propose skills; use the host's Board"},
+		{"propose", `{"scope":"fleet","name":"triage"}`, "a paired Companion cannot update or propose skills; use the host's Board"},
+		{"sync", `{"scope":"fleet","yes":"triage@abc"}`, "a paired Companion cannot apply a third-party update"},
+		{"sync", `{"scope":"user"}`, "a paired Companion cannot sync the user scope; use the host's Board"},
+	} {
+		rep := r.post(c, f, "skills/"+refused.verb, refused.body, csrf, companion)
+		if rep.Code != http.StatusForbidden || !strings.Contains(rep.Body, `"code":"forbidden"`) || !strings.Contains(rep.Body, refused.sentence) {
+			t.Fatalf("a phone's %s %s = %d:\n%s", refused.verb, refused.body, rep.Code, rep.Body)
 		}
 	}
 	if n := r.skillRuns.Load(); n != 0 {
-		t.Fatalf("a phone ran the hook %d times", n)
+		t.Fatalf("a refused phone ran the hook %d times", n)
+	}
+	if rep := r.post(c, f, "skills/sync", `{"scope":"fleet"}`, csrf, companion); rep.Code != http.StatusOK {
+		t.Fatalf("a phone's sync = %d:\n%s", rep.Code, rep.Body)
+	}
+	if n := r.skillRuns.Load(); n != 1 {
+		t.Fatalf("the hook ran %d times, want 1", n)
+	}
+	if rep := r.post(c, f, "skills/sync", `{"scope":"fleet"}`, csrf); rep.Code != http.StatusUnauthorized && rep.Code != http.StatusForbidden || r.skillRuns.Load() != 1 {
+		t.Fatalf("a phone without its cookie = %d", rep.Code)
+	}
+	other := r.as(peerB)
+	if rep := r.post(other, f, "skills/sync", `{"scope":"fleet"}`, csrf, companion); rep.Code == http.StatusOK || r.skillRuns.Load() != 1 {
+		t.Fatalf("another endpoint holding the cookie = %d, hook runs %d", rep.Code, r.skillRuns.Load())
 	}
 }
 
