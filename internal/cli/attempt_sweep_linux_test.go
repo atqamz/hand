@@ -52,6 +52,7 @@ func attemptDirs(t *testing.T, names ...string) []string {
 }
 
 func TestStopSweepsWhatLeftTheProcessGroup(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
@@ -69,6 +70,7 @@ func TestStopSweepsWhatLeftTheProcessGroup(t *testing.T) {
 }
 
 func TestStopSweepsWhenTheRootIsAlreadyGone(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.marker, rt.runsIn = "1", t.TempDir() })
 	fx.start()
@@ -87,6 +89,7 @@ func TestStopSweepsWhenTheRootIsAlreadyGone(t *testing.T) {
 }
 
 func TestSettleSweepsAnAttemptWhoseTerminalIsGone(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	root := fx.rt.lastPID()
@@ -106,6 +109,7 @@ func TestSettleSweepsAnAttemptWhoseTerminalIsGone(t *testing.T) {
 }
 
 func TestCleanSweepsBeforeRemovingTheWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -125,6 +129,7 @@ func TestCleanSweepsBeforeRemovingTheWorktree(t *testing.T) {
 }
 
 func TestSweepEndsAChildThatIgnoresTerm(t *testing.T) {
+	t.Parallel()
 	wt := attemptDirs(t, "t1-a1")[0]
 	pid := detached(t, wt, "sh", "-c", "trap '' TERM; while :; do sleep 1; done")
 	cli.Sweep(wt)
@@ -134,6 +139,7 @@ func TestSweepEndsAChildThatIgnoresTerm(t *testing.T) {
 }
 
 func TestSweepEndsAChildForkedDuringTheGrace(t *testing.T) {
+	t.Parallel()
 	wt := attemptDirs(t, "t1-a1")[0]
 	pidFile := filepath.Join(t.TempDir(), "forked")
 	detached(t, wt, "sh", "-c", "trap 'sleep 301 & echo $! > "+pidFile+"' TERM; while :; do sleep 1; done")
@@ -154,6 +160,7 @@ func TestSweepEndsAChildForkedDuringTheGrace(t *testing.T) {
 }
 
 func TestSweepNeverSignalsAStaleStartMarker(t *testing.T) {
+	t.Parallel()
 	pid := sleeper(t, t.TempDir())
 	marker, err := luvus.ProcStartMarker(pid)
 	if err != nil {
@@ -170,6 +177,7 @@ func TestSweepNeverSignalsAStaleStartMarker(t *testing.T) {
 }
 
 func TestSweepStaysInsideOneAttemptFolder(t *testing.T) {
+	t.Parallel()
 	dirs := attemptDirs(t, "t1-a1", "t1-a1/src", "t1-a10")
 	own, ownSub, sibling := dirs[0], dirs[1], dirs[2]
 	parent := filepath.Dir(own)
@@ -201,6 +209,7 @@ func TestSweepNeverSignalsHandOrItsParents(t *testing.T) {
 }
 
 func TestSweepRefusesAnythingButOneAttemptFolder(t *testing.T) {
+	t.Parallel()
 	home, _ := os.UserHomeDir()
 	good := filepath.Join("/srv/hand", "worktrees", sweepFleet, "t12-a34")
 	for dir, want := range map[string]bool{

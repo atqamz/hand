@@ -83,6 +83,7 @@ func TestDoctorNamesAProjectWhoseSettingsChanged(t *testing.T) {
 }
 
 func TestTrustShowsValuesWithControlCharactersEscaped(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	gitIn(t, fx.repo, "config", "core.editor", "vi\x1b[2Jx\ty")
 	out := fx.h.ok("project", "trust", "app")
@@ -92,6 +93,7 @@ func TestTrustShowsValuesWithControlCharactersEscaped(t *testing.T) {
 }
 
 func TestTrustRefusesWhatItCannotReadOrFind(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if _, errOut, code := fx.h.run("project", "trust", "nope"); code != 3 || !strings.Contains(errOut, "project nope") {
 		t.Fatalf("unknown: code=%d stderr=%q", code, errOut)

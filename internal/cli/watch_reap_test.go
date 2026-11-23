@@ -13,6 +13,7 @@ import (
 )
 
 func TestWatchRemovesOnlyProvablySafeFinishedWorktrees(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	for _, n := range []string{"2", "3", "4"} {
 		fx.h.ok("task", "add", "app", "Task "+n)
@@ -111,6 +112,7 @@ func mustExist(t *testing.T, path string, want bool) {
 func quiet(d time.Duration) { time.Sleep(d) }
 
 func TestWatchKeepsAWorktreeWithATerminalOpenInIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := endAttempts(fx, 1)
 	shell := fx.rt.addShell(t, wt(1), "operator shell")
@@ -124,6 +126,7 @@ func TestWatchKeepsAWorktreeWithATerminalOpenInIt(t *testing.T) {
 }
 
 func TestWatchKeepsIgnoredConfigAndRemovesBuildCaches(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.repo, ".git", "info", "exclude"), []byte("dist/\n.env*\n*.pem\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -156,6 +159,7 @@ func TestWatchKeepsIgnoredConfigAndRemovesBuildCaches(t *testing.T) {
 }
 
 func TestWatchSkipsWhenRetentionIsOffAndNeverTouchesALiveAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.h.ok("task", "add", "app", "Task 2")
 	fx.h.ok("task", "start", "t2")
@@ -185,6 +189,7 @@ func TestWatchSkipsWhenRetentionIsOffAndNeverTouchesALiveAttempt(t *testing.T) {
 }
 
 func TestWatchChecksOnceADay(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := endAttempts(fx, 1)
 	wip := filepath.Join(wt(1), "wip.txt")

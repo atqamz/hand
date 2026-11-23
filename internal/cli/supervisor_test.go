@@ -72,6 +72,7 @@ func startClaudeSupervisor(h *harness) string {
 }
 
 func TestSupervisorStartLaunchesABackgroundTerminal(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	out := startClaudeSupervisor(h)
 	call := rt.lastCreate()
@@ -97,6 +98,7 @@ func TestSupervisorStartLaunchesABackgroundTerminal(t *testing.T) {
 }
 
 func TestSupervisorStartReusesTheLastSettings(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	if _, errOut, code := h.run("supervisor", "start"); code != 2 || !strings.Contains(errOut, "--harness") {
 		t.Fatalf("first bare start code=%d stderr=%q", code, errOut)
@@ -115,6 +117,7 @@ func TestSupervisorStartReusesTheLastSettings(t *testing.T) {
 }
 
 func TestSupervisorResumeContinuesTheSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	if _, errOut, code := h.run("supervisor", "resume"); code != 3 || !strings.Contains(errOut, "supervisor start") {
 		t.Fatalf("resume with none code=%d stderr=%q", code, errOut)
@@ -469,6 +472,7 @@ func TestAutoresumeSettlesAFreshLaunchAfterTheMove(t *testing.T) {
 }
 
 func TestARestoredSupervisorTerminalIsClosed(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	session := rt.lastCreate().Command[3]
@@ -508,6 +512,7 @@ func TestARestoredSupervisorTerminalIsClosed(t *testing.T) {
 }
 
 func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	codexHome := filepath.Join(h.vars["HOME"], ".codex")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
@@ -563,6 +568,7 @@ func argsAfter(argv []string, flag string) []string {
 }
 
 func TestSendToAStaleSupervisorIsHeld(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	lock, err := os.OpenFile(filepath.Join(h.home, "locks", "supervisor.lock"), os.O_CREATE|os.O_RDWR, 0o600)
@@ -588,6 +594,7 @@ func TestSendToAStaleSupervisorIsHeld(t *testing.T) {
 }
 
 func TestAttemptCommandsSurviveSupervisorHousekeepingFailures(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	startClaudeSupervisor(fx.h)
 	fx.h.ok("supervisor", "stop")
@@ -599,6 +606,7 @@ func TestAttemptCommandsSurviveSupervisorHousekeepingFailures(t *testing.T) {
 }
 
 func TestARefusedPromptDoesNotStopTheWatcher(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
@@ -614,6 +622,7 @@ func TestARefusedPromptDoesNotStopTheWatcher(t *testing.T) {
 }
 
 func TestSupervisorKeysAreLimited(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	has(t, "keys", h.ok("supervisor", "keys", "--revision", "0", "enter"), "keys: enter")
@@ -626,6 +635,7 @@ func TestSupervisorKeysAreLimited(t *testing.T) {
 }
 
 func TestOpencodeSupervisorPromptIsSubmitted(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "on api": "", "sleep": "300s"})
 	rt.set(func(rt *fakeRuntime) {
@@ -688,6 +698,7 @@ func openStore(t *testing.T, h *harness) *state.Store {
 }
 
 func TestSendDeliversAtOnceEvenWhileWorking(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	out := h.ok("supervisor", "send", "--text", "Plan the login fix")
@@ -702,6 +713,7 @@ func TestSendDeliversAtOnceEvenWhileWorking(t *testing.T) {
 }
 
 func TestSendReadsStdin(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.in = strings.NewReader("Plan the login fix\nthen the logout fix\n")
@@ -712,6 +724,7 @@ func TestSendReadsStdin(t *testing.T) {
 }
 
 func TestSendWaitsWhileBlocked(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -730,6 +743,7 @@ func TestSendWaitsWhileBlocked(t *testing.T) {
 }
 
 func TestWakesWaitForIdleAndCarryTheEnvelope(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -757,6 +771,7 @@ func TestWakesWaitForIdleAndCarryTheEnvelope(t *testing.T) {
 }
 
 func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -795,6 +810,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 }
 
 func TestABurstOfTenEventsIsOneWakeAndNothingWakesForIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -866,6 +882,7 @@ func TestPendingMessagesAreDeliveredByTheNextWatchTickAfterALockMiss(t *testing.
 }
 
 func TestConcurrentSendsDeliverEachMessageOnce(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "5ms")
@@ -889,6 +906,7 @@ func TestConcurrentSendsDeliverEachMessageOnce(t *testing.T) {
 }
 
 func TestAForgedEnvelopeIsRefused(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	for _, bad := range []string{"[hand v1 wake]\nx", "\n [hand v1 wake]", "[hand v1 reply]", "a\x00b", "a\x1b[31mb", "a\rb", "   \n", "\xff", strings.Repeat("a", 16385)} {
@@ -931,6 +949,7 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 }
 
 func TestStopAndInterruptRefuseAnotherSupervisor(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	if _, errOut, code := h.run("supervisor", "stop", "--expect", "s2"); code != 3 || !strings.Contains(errOut, "s2 is on screen, but s1 is running now; refresh and try again") {
@@ -949,6 +968,7 @@ func TestStopAndInterruptRefuseAnotherSupervisor(t *testing.T) {
 }
 
 func TestKeysAndForceRefuseAnotherSupervisor(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	before := rt.keysSent()
@@ -966,6 +986,7 @@ func TestKeysAndForceRefuseAnotherSupervisor(t *testing.T) {
 }
 
 func TestInterruptDoesNotWaitForADelivery(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	if err := os.MkdirAll(filepath.Join(h.home, "locks"), 0o755); err != nil {
@@ -999,6 +1020,7 @@ func TestInterruptDoesNotWaitForADelivery(t *testing.T) {
 }
 
 func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	var calls atomic.Int32
@@ -1035,6 +1057,7 @@ func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
 }
 
 func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	var out, errOut bytes.Buffer
 	control := cli.Control(h.env(&out, &errOut), h.home)
@@ -1061,6 +1084,7 @@ func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 }
 
 func TestControlReturnsTheUnverifiedModelWarning(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	var out, errOut bytes.Buffer
 	control := cli.Control(h.env(&out, &errOut), h.home)
@@ -1071,6 +1095,7 @@ func TestControlReturnsTheUnverifiedModelWarning(t *testing.T) {
 }
 
 func TestStartSearchesTheBoardsPath(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	var out, errOut bytes.Buffer
 	board := func(path string) func(context.Context, ...string) (string, error) {
@@ -1131,6 +1156,7 @@ func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
 }
 
 func TestOpencodeInterruptPressesEscTwice(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	opencodeSupervisor(t, h, rt, func(int32) { rt.set(func(rt *fakeRuntime) { rt.status = "working" }) })
 	h.ok("supervisor", "start", "--harness", "opencode")
@@ -1149,6 +1175,7 @@ func resumedArgv(t *testing.T, rt *fakeRuntime, session, model, effort string) {
 }
 
 func TestSwitchWhileIdleRelaunchesTheSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	session := rt.lastCreate().Command[3]
@@ -1164,6 +1191,7 @@ func TestSwitchWhileIdleRelaunchesTheSession(t *testing.T) {
 }
 
 func TestSwitchAndResumeReadAServedModelId(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	session := rt.lastCreate().Command[3]
@@ -1179,6 +1207,7 @@ func TestSwitchAndResumeReadAServedModelId(t *testing.T) {
 }
 
 func TestSwitchWhileWorkingWaitsForTheTurn(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -1201,6 +1230,7 @@ func TestSwitchWhileWorkingWaitsForTheTurn(t *testing.T) {
 }
 
 func TestSwitchCanBeCanceled(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("supervisor", "switch", "--model", "opus", "--effort", "high")
@@ -1215,6 +1245,7 @@ func TestSwitchCanBeCanceled(t *testing.T) {
 }
 
 func TestSwitchRefusals(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	if _, _, code := h.run("supervisor", "switch", "--model", "opus"); code != 3 {
 		t.Fatalf("no supervisor code = %d", code)
@@ -1243,6 +1274,7 @@ func TestSwitchRefusals(t *testing.T) {
 }
 
 func TestResumeHonoursAPendingSwitch(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	session := rt.lastCreate().Command[3]
@@ -1253,6 +1285,7 @@ func TestResumeHonoursAPendingSwitch(t *testing.T) {
 }
 
 func TestSwitchWithOnlyEffortKeepsTheModel(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	session := rt.lastCreate().Command[3]
@@ -1262,6 +1295,7 @@ func TestSwitchWithOnlyEffortKeepsTheModel(t *testing.T) {
 }
 
 func TestCancelDuringAnApplyWaitsForIt(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "switch: pending")
@@ -1282,6 +1316,7 @@ func TestCancelDuringAnApplyWaitsForIt(t *testing.T) {
 }
 
 func TestAFailedRelaunchSaysHowToRecover(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -1295,6 +1330,7 @@ func TestAFailedRelaunchSaysHowToRecover(t *testing.T) {
 }
 
 func TestAnUnknownRelaunchDoesNotPromiseResume(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -1306,6 +1342,7 @@ func TestAnUnknownRelaunchDoesNotPromiseResume(t *testing.T) {
 }
 
 func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) {
@@ -1328,6 +1365,7 @@ func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
 }
 
 func TestSupervisorForceRecordsWhatItTypedBeforeTheContextWasCancelled(t *testing.T) {
+	t.Parallel()
 	for name, queue := range map[string]func(*harness){
 		"queued message": func(h *harness) { h.ok("supervisor", "send", "--text", "1. MIT") },
 		"wake digest": func(h *harness) {
@@ -1367,6 +1405,7 @@ func TestSupervisorForceRecordsWhatItTypedBeforeTheContextWasCancelled(t *testin
 }
 
 func TestSupervisorForceTypesTheWakesWhenNoMessageWaits(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("project", "add", "hand", handRepo)
@@ -1385,6 +1424,7 @@ func TestSupervisorForceTypesTheWakesWhenNoMessageWaits(t *testing.T) {
 }
 
 func TestSupervisorForceNeverTypesIntoARealQuestion(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.ready = "blocked", "Do you want to proceed?", false })
@@ -1399,6 +1439,7 @@ func TestSupervisorForceNeverTypesIntoARealQuestion(t *testing.T) {
 }
 
 func TestSupervisorForceRefusesAPaneThatNoLongerHoldsTheSupervisor(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	startClaudeSupervisor(fx.h)
 	fx.start()
@@ -1422,6 +1463,7 @@ const (
 )
 
 func TestSupervisorKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, promptLate })
@@ -1432,6 +1474,7 @@ func TestSupervisorKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
 }
 
 func TestSupervisorKeysRefuseWhenTheQuestionChanged(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, promptOther })
@@ -1445,6 +1488,7 @@ func TestSupervisorKeysRefuseWhenTheQuestionChanged(t *testing.T) {
 }
 
 func TestSupervisorKeysAreRecorded(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("supervisor", "keys", "--revision", "0", "enter")
@@ -1455,6 +1499,7 @@ func TestSupervisorKeysAreRecorded(t *testing.T) {
 }
 
 func TestWakesNameTheTaskOnOneLine(t *testing.T) {
+	t.Parallel()
 	title := func(int64) string { return "Fix \"login\"\nnow" }
 	digest, last := cli.WakeDigest([]state.Event{{Seq: 3, Kind: "attempt.reported", TaskID: 1, Detail: "a1: r1 done"}, {Seq: 4, Kind: "decision.answered", Detail: "d1"}}, title)
 	want := "[hand v1 wake]\nattempt.reported a1: r1 done (t1 \"Fix 'login' now\")\ndecision.answered d1"
@@ -1483,6 +1528,7 @@ func codexCache(t *testing.T, h *harness) {
 }
 
 func TestSwitchToAnotherHarnessStartsTheNextSupervisor(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	codexCache(t, h)
 	startClaudeSupervisor(h)
@@ -1501,6 +1547,7 @@ func TestSwitchToAnotherHarnessStartsTheNextSupervisor(t *testing.T) {
 }
 
 func TestSwitchingHarnessIsRefusedWhileWorking(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	codexCache(t, h)
 	startClaudeSupervisor(h)
@@ -1512,6 +1559,7 @@ func TestSwitchingHarnessIsRefusedWhileWorking(t *testing.T) {
 }
 
 func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
+	t.Parallel()
 	title := func(int64) string { return "Fix login" }
 	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: Enter to confirm · Esc to cancel"}}, title)
 	if want := "[hand v1 wake]\nattempt.blocked a1: its screen waits for a key (t1 \"Fix login\")"; digest != want {
@@ -1520,6 +1568,7 @@ func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
 }
 
 func TestBlockedWakeNamesAQuestionWithoutItsText(t *testing.T) {
+	t.Parallel()
 	title := func(int64) string { return "Fix login" }
 	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: question: Keep the old column?"}}, title)
 	if want := "[hand v1 wake]\nattempt.blocked a1: its screen shows a question for the operator (t1 \"Fix login\")"; digest != want {
@@ -1528,6 +1577,7 @@ func TestBlockedWakeNamesAQuestionWithoutItsText(t *testing.T) {
 }
 
 func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	codexCache(t, h)
 	startClaudeSupervisor(h)
@@ -1547,6 +1597,7 @@ func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T
 }
 
 func TestSupervisorKeysRetryOnlyDuringACountdown(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	still := "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
@@ -1560,6 +1611,7 @@ func TestSupervisorKeysRetryOnlyDuringACountdown(t *testing.T) {
 }
 
 func TestSupervisorKeysRefuseAfterANewerPress(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 7, promptEarly })
@@ -1579,6 +1631,7 @@ func TestSupervisorKeysRefuseAfterANewerPress(t *testing.T) {
 }
 
 func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	codexCache(t, h)
 	startClaudeSupervisor(h)
@@ -1587,7 +1640,7 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	if err := os.Remove(codex); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(codex, []byte("#!/nonexistent/sh\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(codex, []byte("#!/nonexistent/sh\n")); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "s1 stopped, continue it with") {
@@ -1604,6 +1657,7 @@ func startAgySupervisor(t *testing.T, h *harness, rt *fakeRuntime) string {
 }
 
 func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	has(t, "start", startAgySupervisor(t, h, rt), "harness: agy", "trust: accepted")
 	argv := rt.lastCreate().Command
@@ -1621,6 +1675,7 @@ func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 }
 
 func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.keyScreens = claudeTrustScreen(h.home), []string{claudeTrustScreenYes(h.home), "> \n"}
@@ -1641,6 +1696,7 @@ func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 }
 
 func TestAClaudeSupervisorWithCursorOnYesPressesOnlyEnter(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = claudeTrustScreenYes(h.home), "> \n" })
 	has(t, "start", startClaudeSupervisor(h), "trust: accepted")
@@ -1650,6 +1706,7 @@ func TestAClaudeSupervisorWithCursorOnYesPressesOnlyEnter(t *testing.T) {
 }
 
 func TestAnAgySupervisorFindsAndResumesItsConversation(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
 	argv := rt.lastCreate().Command
@@ -1689,6 +1746,7 @@ func ompConversation(t *testing.T, dir, id, cwd, prompt string, at time.Time) st
 }
 
 func TestAnOmpSupervisorFindsAndResumesItsSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
 	argv := rt.lastCreate().Command
@@ -1711,6 +1769,7 @@ func TestAnOmpSupervisorFindsAndResumesItsSession(t *testing.T) {
 }
 
 func TestAnOmpSupervisorFindsItsSessionUnderARelativeAgentDir(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	h.vars["PI_CODING_AGENT_DIR"] = ".omp-agent"
 	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
@@ -1725,6 +1784,7 @@ func TestAnOmpSupervisorFindsItsSessionUnderARelativeAgentDir(t *testing.T) {
 }
 
 func TestShowNamesTheAgentDirWhenThePaneHasAnOmpSessionHandCannotFind(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	agent := filepath.Join(t.TempDir(), "agent")
 	h.vars["PI_CODING_AGENT_DIR"] = agent
@@ -1737,6 +1797,7 @@ func TestShowNamesTheAgentDirWhenThePaneHasAnOmpSessionHandCannotFind(t *testing
 }
 
 func TestShowNamesTheAgentDirWhenLuvusReportsNoOmpSession(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	agent := filepath.Join(t.TempDir(), "agent")
 	h.vars["PI_CODING_AGENT_DIR"] = agent
@@ -1747,6 +1808,7 @@ func TestShowNamesTheAgentDirWhenLuvusReportsNoOmpSession(t *testing.T) {
 }
 
 func TestTheWatcherNamesTheOmpAgentDirOnceAndResetsWhenTheSessionArrives(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	agent := filepath.Join(t.TempDir(), "agent")
 	h.vars["PI_CODING_AGENT_DIR"] = agent
@@ -1788,6 +1850,7 @@ func TestTheWatcherNamesTheOmpAgentDirOnceAndResetsWhenTheSessionArrives(t *test
 }
 
 func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", "" })
@@ -1799,6 +1862,7 @@ func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {
 }
 
 func TestSwitchingFromAgyToClaudeAndBack(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
 	dir := agyConversations(t, h)
@@ -1839,6 +1903,7 @@ func agyConversations(t *testing.T, h *harness) string {
 }
 
 func TestAgyDiscoveryIgnoresAnotherFleetsConversation(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
 	argv := rt.lastCreate().Command
@@ -1856,6 +1921,7 @@ func TestAgyDiscoveryIgnoresAnotherFleetsConversation(t *testing.T) {
 }
 
 func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen = trustScreen("/elsewhere") })
 	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not pressed")
@@ -1869,6 +1935,7 @@ func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
 }
 
 func TestDeliveryWaitsWhileClaudeAsksForTrust(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen = claudeTrustScreen("/elsewhere") })
 	has(t, "start", startClaudeSupervisor(h), "trust: not pressed")
@@ -1906,6 +1973,7 @@ func firstSession(t *testing.T, h *harness) string {
 }
 
 func TestStoppingKeepsAnUndiscoveredSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
 	argv := rt.lastCreate().Command
@@ -1917,6 +1985,7 @@ func TestStoppingKeepsAnUndiscoveredSession(t *testing.T) {
 }
 
 func TestSwitchingHarnessKeepsAnUndiscoveredSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
 	argv := rt.lastCreate().Command
@@ -1929,6 +1998,7 @@ func TestSwitchingHarnessKeepsAnUndiscoveredSession(t *testing.T) {
 }
 
 func TestADeliveryCancelledMidPromptIsStillRecorded(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -1954,6 +2024,7 @@ func TestADeliveryCancelledMidPromptIsStillRecorded(t *testing.T) {
 }
 
 func TestSupervisorStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.closeFail = "backend_error" })
@@ -1965,6 +2036,7 @@ func TestSupervisorStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
 }
 
 func TestSwitchingHarnessSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	codexCache(t, h)
 	startClaudeSupervisor(h)
@@ -1976,6 +2048,7 @@ func TestSwitchingHarnessSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
 }
 
 func TestAWatcherStoppedMidQueueLeavesTheRestPending(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
 	pane := supervisorPane(t, startClaudeSupervisor(h))
@@ -2001,6 +2074,7 @@ func TestAWatcherStoppedMidQueueLeavesTheRestPending(t *testing.T) {
 }
 
 func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	session := fx.rt.lastCreate().Command[3]
@@ -2030,6 +2104,7 @@ func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
 }
 
 func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
@@ -2058,6 +2133,7 @@ func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
 }
 
 func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	policy := `{"supervisor":{"autoresume":true}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
@@ -2079,6 +2155,7 @@ func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
 }
 
 func TestBoardStartSurvivesCancelledRequest(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = trustScreen(h.home), "> \n" })
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2114,6 +2191,7 @@ func TestOpencodeSupervisorThatNeverSubmitsRecordsABlockedNote(t *testing.T) {
 }
 
 func TestOpencodeSupervisorResumesItsChosenSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	opencodeSupervisor(t, h, rt, func(int32) {})
 	h.ok("supervisor", "start", "--harness", "opencode")
@@ -2126,6 +2204,7 @@ func TestOpencodeSupervisorResumesItsChosenSession(t *testing.T) {
 }
 
 func TestOpencodeSupervisorFromAnOlderHandResumesByItsStoredSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	opencodeSupervisor(t, h, rt, func(int32) {})
 	h.ok("supervisor", "start", "--harness", "opencode")
@@ -2141,6 +2220,7 @@ func TestOpencodeSupervisorFromAnOlderHandResumesByItsStoredSession(t *testing.T
 }
 
 func TestOpencodeSupervisorWithNoStoredSessionIsNotResumed(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	opencodeSupervisor(t, h, rt, func(int32) {})
 	h.ok("supervisor", "start", "--harness", "opencode")
@@ -2159,6 +2239,7 @@ func TestOpencodeSupervisorWithNoStoredSessionIsNotResumed(t *testing.T) {
 }
 
 func TestOpencodeSupervisorLaunchedWithoutAStoredSessionStillGetsMessages(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	opencodeSupervisor(t, h, rt, func(int32) {})
 	h.ok("supervisor", "start", "--harness", "opencode")
@@ -2169,6 +2250,7 @@ func TestOpencodeSupervisorLaunchedWithoutAStoredSessionStillGetsMessages(t *tes
 }
 
 func TestSendReportsAPromptErrorWithNoCode(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop })
@@ -2179,6 +2261,7 @@ func TestSendReportsAPromptErrorWithNoCode(t *testing.T) {
 }
 
 func TestSendKeepsAMessageWhenTheSupervisorIsNotAtAPrompt(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
@@ -2189,6 +2272,7 @@ func TestSendKeepsAMessageWhenTheSupervisorIsNotAtAPrompt(t *testing.T) {
 }
 
 func TestSupervisorForceDeliversNormallyWhenNotBlocked(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "blocked", false })
@@ -2232,6 +2316,7 @@ func TestDeliverHoldsWakesOnTheTickThatRetriesALockMiss(t *testing.T) {
 }
 
 func TestDeliverResumesAfterLimitClears(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
@@ -2262,6 +2347,7 @@ func TestDeliverResumesAfterLimitClears(t *testing.T) {
 }
 
 func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	startClaudeSupervisor(fx.h)
 	fx.start()
@@ -2277,6 +2363,7 @@ func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
 }
 
 func TestSupervisorLimitAlertsAgainAfterItClears(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
@@ -2303,6 +2390,7 @@ func supervisorLimitAlerts(notes string) int {
 }
 
 func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
@@ -2340,6 +2428,7 @@ func supervisorLimitedRows(t *testing.T, fx *attemptFixture) int {
 }
 
 func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("desktop notifications are Unix-only")
 	}
@@ -2358,6 +2447,7 @@ func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
 }
 
 func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("project", "add", "hand", handRepo)
@@ -2376,6 +2466,7 @@ func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
 }
 
 func TestSupervisorStartWithTheThreeFlagsNeedsNoEarlierSupervisor(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	policy := `{}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
@@ -2385,6 +2476,7 @@ func TestSupervisorStartWithTheThreeFlagsNeedsNoEarlierSupervisor(t *testing.T) 
 }
 
 func TestSupervisorStartWithNoFlagsAndNoEarlierSupervisorGivesTheFlags(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	if _, errOut, code := h.run("supervisor", "start"); code != 2 || !strings.Contains(errOut, "there is no earlier supervisor to copy; give --harness, --model and --effort") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
@@ -2392,6 +2484,7 @@ func TestSupervisorStartWithNoFlagsAndNoEarlierSupervisorGivesTheFlags(t *testin
 }
 
 func TestSupervisorStartProfileIsAnUnknownFlag(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	if _, errOut, code := h.run("supervisor", "start", "--profile", "deep"); code != 2 || !strings.Contains(errOut, "-profile") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
@@ -2399,6 +2492,7 @@ func TestSupervisorStartProfileIsAnUnknownFlag(t *testing.T) {
 }
 
 func TestSupervisorForceReportsAWakeThatLuvusRefused(t *testing.T) {
+	t.Parallel()
 	for code, want := range map[string]string{"agent_not_ready": "supervisor is not at a prompt", "no_such_pane": "luvus refused the wake: luvus no_such_pane: gone"} {
 		t.Run(code, func(t *testing.T) {
 			h, rt := newSupervisorFixture(t)

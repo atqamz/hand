@@ -147,6 +147,7 @@ func pendingSwaps(t *testing.T, base string) map[string]string {
 }
 
 func TestSkillsAddByPathCopiesMarksListsAndRemoves(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
@@ -261,6 +262,7 @@ func TestSkillsUpdateFollowsTheCommit(t *testing.T) {
 }
 
 func TestSkillsUpdateOfAPathFollowsItsContent(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
@@ -301,6 +303,7 @@ func TestSkillsUpdateRefusesALocalChange(t *testing.T) {
 }
 
 func TestSkillsLeaveUnmanagedSkillsAlone(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	mine := filepath.Join(h.home, ".agents", "skills", "mine")
 	writeFiles(t, mine, skillFiles("mine", "hand-written"))
@@ -330,6 +333,7 @@ func TestSkillsLeaveUnmanagedSkillsAlone(t *testing.T) {
 }
 
 func TestSkillsUserScopeUsesHomeAndTouchesNoFleet(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
@@ -369,6 +373,7 @@ func TestSkillsUserScopeUsesHomeAndTouchesNoFleet(t *testing.T) {
 }
 
 func TestSkillsRefuseASourceThatIsNotASkill(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	empty := filepath.Join(t.TempDir(), "empty")
 	writeFiles(t, empty, map[string]string{"README.md": "x"})
@@ -426,6 +431,7 @@ func skipUnlessPermsHold(t *testing.T) {
 }
 
 func TestSkillsRefuseANameThatLeavesTheSkillsFolder(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	home := h.vars["HOME"]
 	src := filepath.Join(t.TempDir(), "bar")
@@ -540,6 +546,7 @@ func failRename(t *testing.T, hit func(from, to string) bool) func(*testing.T, *
 }
 
 func TestSkillsListSkipsDotFolders(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	writeFiles(t, filepath.Join(h.home, ".agents", "skills", ".hand-foo-123.old"), skillFiles("foo", "one"))
 	if out := h.ok("skills", "list", "--fleet"); strings.Contains(out, ".hand-foo") {
@@ -548,6 +555,7 @@ func TestSkillsListSkipsDotFolders(t *testing.T) {
 }
 
 func TestSkillsRerunFinishesAnInterruptedSwap(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "foo")
 	writeFiles(t, src, skillFiles("foo", "one"))
@@ -590,6 +598,7 @@ func fleetSum(t *testing.T, dir string) string {
 }
 
 func TestSkillsMarkerCountsOnlyInTheFrontmatter(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "quote")
 	writeFiles(t, src, skillFiles("quote", "one"))
@@ -605,6 +614,7 @@ func TestSkillsMarkerCountsOnlyInTheFrontmatter(t *testing.T) {
 }
 
 func TestSkillsRemoveRefusesAMarkedFolderWithNoRecord(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
@@ -623,6 +633,7 @@ func TestSkillsRemoveRefusesAMarkedFolderWithNoRecord(t *testing.T) {
 }
 
 func TestSkillsAcceptCRLFFrontmatter(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "crlf")
 	writeFiles(t, src, map[string]string{"SKILL.md": "---\r\nname: crlf\r\ndescription: x\r\n---\r\n\r\nbody\r\n"})
@@ -639,6 +650,7 @@ func TestSkillsAcceptCRLFFrontmatter(t *testing.T) {
 }
 
 func TestSkillsMarkerFollowsTheMetadataIndent(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "wide")
 	writeFiles(t, src, map[string]string{"SKILL.md": "---\nname: wide\ndescription: x\nmetadata:\n    version: 1\n---\n"})
@@ -650,6 +662,7 @@ func TestSkillsMarkerFollowsTheMetadataIndent(t *testing.T) {
 }
 
 func TestSkillsRefuseATreeOverTheCap(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := filepath.Join(t.TempDir(), "big")
 	writeFiles(t, src, skillFiles("big", "one"))
@@ -670,6 +683,7 @@ func TestSkillsRefuseATreeOverTheCap(t *testing.T) {
 }
 
 func TestSkillsConcurrentAddsKeepEveryRecord(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	names := []string{"a1", "a2", "a3", "a4", "a5", "a6"}
 	type result struct {

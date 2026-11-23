@@ -39,6 +39,7 @@ func running(pid int, marker string) bool {
 }
 
 func TestBoardStopStopsTheBoard(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	path := filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid")
 	pid, marker := fakeProcess(t, "exec sleep 60", path)
@@ -71,6 +72,7 @@ func TestBoardStopLeavesAProcessThatIgnoresTerm(t *testing.T) {
 }
 
 func TestWatchStopStopsOnlyThisFleetsWatcher(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init", h.home)
 	path := filepath.Join(h.home, "watch.pid")
@@ -85,6 +87,7 @@ func TestWatchStopStopsOnlyThisFleetsWatcher(t *testing.T) {
 }
 
 func TestWatchStopWarnsWhileTheBoardRuns(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init", h.home)
 	forget, err := update.WritePID(filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid"))

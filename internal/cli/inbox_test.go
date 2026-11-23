@@ -49,6 +49,7 @@ func pruneEvents(t *testing.T, h *harness) []string {
 }
 
 func TestInboxSizeOfAnEmptyAndAFullInbox(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	dir := toon.Value(filepath.Join(h.home, "inbox"))
@@ -67,6 +68,7 @@ func TestInboxSizeOfAnEmptyAndAFullInbox(t *testing.T) {
 }
 
 func TestInboxPruneNeedsOlderThanInDays(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	inboxFile(t, h, "20260801-000000-1.png", 5, 56*day)
@@ -88,6 +90,7 @@ func TestInboxPruneNeedsOlderThanInDays(t *testing.T) {
 }
 
 func TestInboxPruneMovesThenExpiresAndRecordsOneEvent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	dir := toon.Value(filepath.Join(h.home, "inbox"))
@@ -122,6 +125,7 @@ func TestInboxPruneMovesThenExpiresAndRecordsOneEvent(t *testing.T) {
 }
 
 func TestInboxPruneReportsAFailedFileAndGoesOn(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	inboxFile(t, h, "20260801-000000-1.png", 5, 56*day)
@@ -138,6 +142,7 @@ func TestInboxPruneReportsAFailedFileAndGoesOn(t *testing.T) {
 }
 
 func TestInboxPruneTakesTheFleetLock(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	inboxFile(t, h, "20260801-000000-1.png", 5, 56*day)
@@ -162,6 +167,7 @@ func TestInboxPruneTakesTheFleetLock(t *testing.T) {
 }
 
 func TestInboxPruneStillPrintsWhatMovedWhenTheEventFails(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	inboxFile(t, h, "20260801-000000-1.png", 5, 56*day)
@@ -183,6 +189,7 @@ func TestInboxPruneStillPrintsWhatMovedWhenTheEventFails(t *testing.T) {
 }
 
 func TestInboxPruneSweepsStaleUploadsAndReportsThem(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	inboxFile(t, h, ".upload-old", 7, 2*time.Hour)

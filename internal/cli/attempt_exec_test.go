@@ -101,6 +101,7 @@ func TestAttemptLaunchUsesTheScratchWrapper(t *testing.T) {
 }
 
 func TestAttemptExecRefusesAMovedFleetHome(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "gone", "scratch", "t1-a1")
 	before := snapshotTree(t, root)
@@ -249,6 +250,7 @@ func awaitScratch(t *testing.T, home string) {
 }
 
 func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	home, err := filepath.EvalSymlinks(fx.h.home)
@@ -425,6 +427,7 @@ func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
 }
 
 func TestAttemptExecRefusesAKeyThatNamesNoAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	home, err := filepath.EvalSymlinks(fx.h.home)
@@ -448,6 +451,7 @@ func TestAttemptExecRefusesAKeyThatNamesNoAttempt(t *testing.T) {
 }
 
 func TestAttemptExecRefusesAHomeTheSharedFolderDoesNotRegister(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	home, err := filepath.EvalSymlinks(fx.h.home)
@@ -500,6 +504,7 @@ func TestAttemptExecRefusesAHomeTheSharedFolderDoesNotRegister(t *testing.T) {
 }
 
 func TestAttemptExecRefusesTwoRegistrationsForOneHome(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	home, err := filepath.EvalSymlinks(fx.h.home)
@@ -535,6 +540,7 @@ func TestAttemptExecRefusesTwoRegistrationsForOneHome(t *testing.T) {
 }
 
 func TestAttemptExecUsesTheRootTheLauncherPassed(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	home, err := filepath.EvalSymlinks(fx.h.home)
@@ -568,6 +574,7 @@ func TestAttemptExecUsesTheRootTheLauncherPassed(t *testing.T) {
 }
 
 func TestAttemptExecRefusesARegisteredHomeWithoutItsDatabase(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	home, err := filepath.EvalSymlinks(fx.h.home)
@@ -590,6 +597,7 @@ func TestAttemptExecRefusesARegisteredHomeWithoutItsDatabase(t *testing.T) {
 }
 
 func TestAttemptExecRefusesARelativeDirectory(t *testing.T) {
+	t.Parallel()
 	for _, dir := range []string{"scratch/t1-a1", ""} {
 		out, code := execScratch(t, nil, dir)
 		if code != 2 || !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
@@ -599,6 +607,7 @@ func TestAttemptExecRefusesARelativeDirectory(t *testing.T) {
 }
 
 func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
@@ -633,6 +642,7 @@ func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
 }
 
 func TestAttemptExecWarnsWhenTheScratchPathIsTooLongForAUnixSocket(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("sun_path is a Unix limit")
 	}
@@ -652,6 +662,7 @@ func TestAttemptExecWarnsWhenTheScratchPathIsTooLongForAUnixSocket(t *testing.T)
 }
 
 func TestHiddenExecIsNotInHelpOrAnAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if _, errOut, code := fx.h.run("attempt"); code != 2 || strings.Contains(errOut, "_exec") {
 		t.Fatalf("attempt help: code=%d stderr=%q", code, errOut)
@@ -680,6 +691,7 @@ func TestHiddenExecIsNotInHelpOrAnAttempt(t *testing.T) {
 }
 
 func TestCleanRemovesTheAttemptScratch(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
@@ -700,6 +712,7 @@ func TestCleanRemovesTheAttemptScratch(t *testing.T) {
 }
 
 func TestGCListTheAttemptScratchAndRemovesIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	live := scratchOf(fx.h, fx.h.worktree("t1-a1"))
@@ -725,6 +738,7 @@ func TestGCListTheAttemptScratchAndRemovesIt(t *testing.T) {
 }
 
 func TestGCSkipsALiveAttemptsScratch(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("removing a live worktree is Unix-only")
 	}
@@ -892,6 +906,7 @@ func TestAttemptStartWarnsAndGoesWithoutABadCompactPercent(t *testing.T) {
 }
 
 func TestAttemptExecRefusesACompactPercentOutOfRange(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{"-1", "101"} {
 		cmd := exec.Command(os.Args[0], "attempt", "_exec", "--compact-percent", v, "--dir", t.TempDir(), "--", "/bin/true")
 		cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")

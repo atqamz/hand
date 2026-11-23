@@ -10,6 +10,7 @@ import (
 )
 
 func TestTheBoardTokenIsPrivate(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	path := filepath.Join(h.home, "board.token")
 	base, stop := startBoard(t, h, "127.0.0.1")

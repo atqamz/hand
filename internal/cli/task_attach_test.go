@@ -57,6 +57,7 @@ func eventDetails(t *testing.T, h *harness, kind string) []string {
 }
 
 func TestTaskAttachDetachAndShow(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	out := h.ok("task", "attach", "t1", attachedPNG, filepath.Join(h.home, "inbox", attachedLog))
 	for _, want := range []string{"task: t1", "attached: 2", cell(h, "1", "image", attachedPNG), cell(h, "2", "file", attachedLog)} {
@@ -96,6 +97,7 @@ func TestTaskAttachDetachAndShow(t *testing.T) {
 }
 
 func TestTaskAttachRefusesWhatIsNotAFileOfThisInbox(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	if err := os.Mkdir(filepath.Join(h.home, "inbox", "20261101-050000-3-dir"), 0o700); err != nil {
 		t.Fatal(err)
@@ -134,6 +136,7 @@ func TestTaskAttachRefusesWhatIsNotAFileOfThisInbox(t *testing.T) {
 }
 
 func TestTaskAttachRefusesASymlinkInTheInbox(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need a privilege on Windows")
 	}
@@ -159,6 +162,7 @@ func TestTaskAttachRefusesASymlinkInTheInbox(t *testing.T) {
 }
 
 func TestInboxPruneKeepsTheFilesOfAnOpenTask(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	inboxFile(t, h, "20260801-000000-1.png", 5, 56*day)
 	inboxFile(t, h, "20260801-000000-2-kept.log", 5, 56*day)
@@ -182,6 +186,7 @@ func TestInboxPruneKeepsTheFilesOfAnOpenTask(t *testing.T) {
 }
 
 func TestAttemptStartListsTheTaskFilesBeforeTheFooterButNotOnContinue(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	prompt := func() string {
 		call := fx.rt.lastCreate()
@@ -216,6 +221,7 @@ func TestAttemptStartListsTheTaskFilesBeforeTheFooterButNotOnContinue(t *testing
 }
 
 func TestTaskAttachWaitsForARunningPrune(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	if err := os.MkdirAll(filepath.Join(h.home, "locks"), 0o755); err != nil {
 		t.Fatal(err)
@@ -265,6 +271,7 @@ func inboxNames(t *testing.T, h *harness) []string {
 }
 
 func TestTaskAttachCopiesAnExternalFileIntoTheInbox(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	src := externalFile(t, "メモ notes.txt", []byte("hello"))
 	out := h.ok("task", "attach", "t1", src)
@@ -296,6 +303,7 @@ func TestTaskAttachCopiesAnExternalFileIntoTheInbox(t *testing.T) {
 }
 
 func TestTaskAttachCopiesFromTheReportsFolderButNotFromTheRestOfTheFleetFolder(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	report := filepath.Join(h.home, "reports", "out.txt")
 	if err := os.MkdirAll(filepath.Dir(report), 0o700); err != nil {
@@ -325,6 +333,7 @@ func TestTaskAttachCopiesFromTheReportsFolderButNotFromTheRestOfTheFleetFolder(t
 }
 
 func TestTaskAttachRefusesAFleetFileReachedThroughALinkedFolderDotDotOrAHardlink(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	if err := os.MkdirAll(filepath.Join(h.home, "reports"), 0o700); err != nil {
 		t.Fatal(err)
@@ -366,6 +375,7 @@ func TestTaskAttachRefusesAFleetFileReachedThroughALinkedFolderDotDotOrAHardlink
 }
 
 func TestTaskAttachCopiesNothingWhenTheFleetFolderCannotBeSearched(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("a folder with no permissions is still readable here")
 	}
@@ -385,6 +395,7 @@ func TestTaskAttachCopiesNothingWhenTheFleetFolderCannotBeSearched(t *testing.T)
 }
 
 func TestTaskAttachToAMissingTaskCopiesNothing(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	before := inboxNames(t, h)
 	if _, errOut, code := h.run("task", "attach", "t99", externalFile(t, "a.txt", []byte("x"))); code != 3 || !strings.Contains(errOut, "task t99") || !slices.Equal(before, inboxNames(t, h)) {
@@ -393,6 +404,7 @@ func TestTaskAttachToAMissingTaskCopiesNothing(t *testing.T) {
 }
 
 func TestTaskAttachCopiesNothingThatIsNotARegularFileUnderTheLimits(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "folder"), 0o700); err != nil {
@@ -445,6 +457,7 @@ func pngOfSize(w, h uint32) []byte {
 }
 
 func TestTaskDetachKeepsTheFileInTheInbox(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	h.ok("task", "attach", "t1", attachedPNG)
 	h.ok("task", "detach", "t1", attachedPNG)
@@ -454,6 +467,7 @@ func TestTaskDetachKeepsTheFileInTheInbox(t *testing.T) {
 }
 
 func TestTaskAttachRefusesAHardLinkOfAFleetFileWhenReportsIsASymlink(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("a symlink needs privileges on Windows")
 	}
@@ -477,6 +491,7 @@ func TestTaskAttachRefusesAHardLinkOfAFleetFileWhenReportsIsASymlink(t *testing.
 }
 
 func TestTaskAttachSkipsOnlyTheTopReportsFolderOfTheFleetFolder(t *testing.T) {
+	t.Parallel()
 	h := attachFixture(t)
 	nested := filepath.Join(h.home, "memory", "reports", "x.md")
 	if err := os.MkdirAll(filepath.Dir(nested), 0o700); err != nil {

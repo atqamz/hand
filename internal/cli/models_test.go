@@ -42,6 +42,7 @@ func listers(t *testing.T, h *harness, log string) string {
 }
 
 func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	listers(t, h, "")
 	cold := h.ok("models")
@@ -77,6 +78,7 @@ func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
 }
 
 func TestModelsOneHarnessAndUsage(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	listers(t, h, "")
 	out := h.ok("models", "--refresh", "agy")
@@ -97,6 +99,7 @@ func TestModelsOneHarnessAndUsage(t *testing.T) {
 }
 
 func TestModelsRefreshFailureIsAStateNotAnError(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	dir := listers(t, h, "")
 	fakebin.Install(t, dir, "claude", "lister", map[string]string{"stdout": "{" + invented + "\n", "version": "claude 1"})
@@ -120,6 +123,7 @@ func TestModelsRefreshFailureIsAStateNotAnError(t *testing.T) {
 }
 
 func TestModelsReportsAMissingCopilot(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	dir := listers(t, h, "")
 	if err := os.Remove(exe(dir, "copilot")); err != nil {
@@ -129,6 +133,7 @@ func TestModelsReportsAMissingCopilot(t *testing.T) {
 }
 
 func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	listers(t, h, "")
 	h.ok("init")
@@ -150,6 +155,7 @@ func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
 }
 
 func TestAttemptStartMarksAModelThatLeftTheList(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	dir := listers(t, fx.h, "")
 	fx.h.ok("models", "--refresh")
@@ -163,6 +169,7 @@ func TestAttemptStartMarksAModelThatLeftTheList(t *testing.T) {
 }
 
 func TestNoRequestPathRunsAHarness(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	log := filepath.Join(t.TempDir(), "log")
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
@@ -196,6 +203,7 @@ func loggedRuns(t *testing.T, log string) int {
 }
 
 func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	for _, name := range []string{"claude", "codex", "opencode"} {
 		if err := os.Remove(exe(fx.h.vars["PATH"], name)); err != nil {

@@ -25,6 +25,7 @@ import (
 )
 
 func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	out := fx.start()
 	for _, want := range []string{"attempt: a1", "status: running", "branch: " + fx.h.branch("t1-a1"), "pane: 2"} {
@@ -59,6 +60,7 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 }
 
 func TestAttemptStartLeavesAnEmptyEffortToTheHarness(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	out := fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--prompt-file", fx.brief, "t1")
 	if !strings.Contains(out, "status: running") || strings.Contains(out, "warn") {
@@ -74,6 +76,7 @@ func TestAttemptStartLeavesAnEmptyEffortToTheHarness(t *testing.T) {
 }
 
 func TestAttemptStartRefusesABriefTooLongForTheArgumentBeforeAnythingStarts(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	long := filepath.Join(t.TempDir(), "long.md")
 	if err := os.WriteFile(long, []byte(strings.Repeat("Keep the quotes \"as is\".\n", 700)), 0o644); err != nil {
@@ -94,9 +97,10 @@ func TestAttemptStartRefusesABriefTooLongForTheArgumentBeforeAnythingStarts(t *t
 }
 
 func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	hook := filepath.Join(fx.repo, ".git", "hooks", "post-checkout")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch hook-ran\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(hook, []byte("#!/bin/sh\ntouch hook-ran\n")); err != nil {
 		t.Fatal(err)
 	}
 	fx.start()
@@ -122,6 +126,7 @@ func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T
 }
 
 func TestAttemptStartTightensExistingWorktreeFoldersOnly(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("modes are not enforced on Windows")
 	}
@@ -150,13 +155,14 @@ func TestAttemptStartTightensExistingWorktreeFoldersOnly(t *testing.T) {
 }
 
 func TestAttemptStopRunsNoFsmonitorCommand(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fsmonitor script is a shell script")
 	}
 	fx := newAttemptFixture(t)
 	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
 	script := filepath.Join(t.TempDir(), "fsmonitor.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(script, []byte("#!/bin/sh\ntouch "+marker+"\n")); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command("git", "-C", fx.repo, "config", "core.fsmonitor", script).CombinedOutput(); err != nil {
@@ -172,6 +178,7 @@ func TestAttemptStopRunsNoFsmonitorCommand(t *testing.T) {
 }
 
 func TestAttemptStartRejectsBadRoutingBeforeTouchingGit(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	_, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "gpt 5.5", "--effort", "low", "--prompt-file", fx.brief, "t1")
 	if code != 2 {
@@ -211,6 +218,7 @@ func startOpencode(fx *attemptFixture, wait time.Duration) (string, string, int)
 }
 
 func TestOpencodeThatSubmitsItsOwnPromptIsSubmitted(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct{ screen, status string }{
 		"working, footer scrolled off": {opencodeWorking80x24, "working"},
 		"done, footer scrolled off":    {opencodeDone80x24, "done"},
@@ -232,6 +240,7 @@ func TestOpencodeThatSubmitsItsOwnPromptIsSubmitted(t *testing.T) {
 }
 
 func TestOpencodeSessionWithAUserMessageIsSubmittedWhateverTheScreenShows(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.opencodeSession(map[string]string{"messages": "model-switched,user,assistant"})
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeUnsentScreen, "working" })
@@ -242,6 +251,7 @@ func TestOpencodeSessionWithAUserMessageIsSubmittedWhateverTheScreenShows(t *tes
 }
 
 func TestOpencodeSessionWithoutAUserMessageFallsBackToTheScreen(t *testing.T) {
+	t.Parallel()
 	for name, params := range map[string]map[string]string{
 		"no user message": {"messages": "model-switched,assistant,idle"},
 		"unexpected":      {"body": `{"error":"nope"}`},
@@ -258,6 +268,7 @@ func TestOpencodeSessionWithoutAUserMessageFallsBackToTheScreen(t *testing.T) {
 }
 
 func TestOpencodeSessionWithoutAUserMessageDoesNotHideAnUnsentBrief(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.opencodeSession(map[string]string{"messages": "model-switched,assistant"})
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeUnsentScreen, "working" })
@@ -309,6 +320,7 @@ func TestOpencodeStillLoadingOrHoldingTheBriefingIsNotSubmitted(t *testing.T) {
 }
 
 func TestOpencodeUnsentBriefingGetsEnterWhenIdle(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.status, rt.afterKeys = opencodeUnsentScreen, 7, "idle", "working"
@@ -320,6 +332,7 @@ func TestOpencodeUnsentBriefingGetsEnterWhenIdle(t *testing.T) {
 }
 
 func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.status, rt.afterKeys = opencodeScreen, 7, "idle", "working"
@@ -341,6 +354,7 @@ func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 }
 
 func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -370,6 +384,7 @@ func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
 }
 
 func TestOpencodeGetsEnterOnlyWhileItIsKnownIdle(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]func(*fakeRuntime){
 		"working":        func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "working" },
 		"explain failed": func(rt *fakeRuntime) { rt.screen, rt.explainFail = opencodeScreen, "unavailable" },
@@ -396,6 +411,7 @@ func TestOpencodeStopsWaitingOnAGoneTerminal(t *testing.T) {
 }
 
 func TestFailedLaunchRemovesItsWorktreeAndBranch(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "create_failed", Message: "terminal failed to start"}
@@ -416,6 +432,7 @@ func TestFailedLaunchRemovesItsWorktreeAndBranch(t *testing.T) {
 }
 
 func TestRestartedServerInterruptsRunningAttempts(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.srv.SetGeneration("gen-2")
@@ -432,6 +449,7 @@ func TestRestartedServerInterruptsRunningAttempts(t *testing.T) {
 }
 
 func TestExitedWorkerIsRecorded(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.exitAll()
@@ -441,6 +459,7 @@ func TestExitedWorkerIsRecorded(t *testing.T) {
 }
 
 func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), func() time.Time { return fx.h.now })
 	if err != nil {
@@ -473,6 +492,7 @@ func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
 }
 
 func TestLaunchStopsTheWorkerWhenRecordingFails(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
 		res, err := fx.rt.create(params)
@@ -495,6 +515,7 @@ func TestLaunchStopsTheWorkerWhenRecordingFails(t *testing.T) {
 }
 
 func TestLostCreateReplyStopsTheWorkerAndKeepsTheWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
 		if _, err := fx.rt.create(params); err != nil {
@@ -517,6 +538,7 @@ func TestLostCreateReplyStopsTheWorkerAndKeepsTheWorktree(t *testing.T) {
 }
 
 func TestLateWorkerAfterALostReplyIsStoppedBySync(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	late := make(chan int, 1)
 	fx.rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
@@ -541,6 +563,7 @@ func TestLateWorkerAfterALostReplyIsStoppedBySync(t *testing.T) {
 }
 
 func TestSyncLeavesTheOperatorsTerminalsAlone(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	mine := fx.rt.addShell(t, fx.h.worktree("t1-a1"), "")
@@ -554,6 +577,7 @@ func TestSyncLeavesTheOperatorsTerminalsAlone(t *testing.T) {
 }
 
 func TestRestartStopsAWorkerThatSurvivedIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
@@ -565,6 +589,7 @@ func TestRestartStopsAWorkerThatSurvivedIt(t *testing.T) {
 }
 
 func TestStaleLaunchStaysLiveWhileItsCleanupFails(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), func() time.Time { return fx.h.now })
 	if err != nil {
@@ -588,6 +613,7 @@ func TestStaleLaunchStaysLiveWhileItsCleanupFails(t *testing.T) {
 }
 
 func TestCodexWorkerStartsInItsWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	codexHome := filepath.Join(fx.h.vars["HOME"], ".codex")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
@@ -626,6 +652,7 @@ func claudeTrustScreenYes(path string) string {
 }
 
 func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	out := fx.startAgy()
 	call := fx.rt.lastCreate()
@@ -639,6 +666,7 @@ func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
 }
 
 func TestAgyTrustScreenIsAcceptedInItsOwnWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -655,6 +683,7 @@ func TestAgyTrustScreenIsAcceptedInItsOwnWorktree(t *testing.T) {
 }
 
 func TestAgyTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	for name, path := range map[string]func(wt string) string{
 		"elsewhere": func(string) string { return "/tmp/elsewhere" },
 		"sibling":   func(wt string) string { return wt + "2" },
@@ -677,6 +706,7 @@ func TestAgyTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 }
 
 func TestAgyTrustScreenThatStaysIsNoted(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
@@ -690,6 +720,7 @@ func TestAgyTrustScreenThatStaysIsNoted(t *testing.T) {
 }
 
 func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -733,6 +764,7 @@ func TestAgyTrustClearCheckIsBoundedByItsDeadline(t *testing.T) {
 }
 
 func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
+	t.Parallel()
 	wt := func(fx *attemptFixture) string { return fx.h.worktree("t1-a1") }
 	for name, set := range map[string]func(fx *attemptFixture, rt *fakeRuntime){
 		"other cursor": func(fx *attemptFixture, rt *fakeRuntime) {
@@ -760,6 +792,7 @@ func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -805,6 +838,7 @@ func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
 }
 
 func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -821,6 +855,7 @@ func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	for name, path := range map[string]func(wt string) string{
 		"elsewhere": func(string) string { return "/tmp/elsewhere" },
 		"sibling":   func(wt string) string { return wt + "2" },
@@ -843,6 +878,7 @@ func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	screen := claudeTrustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
@@ -860,6 +896,7 @@ func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	screen := claudeTrustScreenYes(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
@@ -873,6 +910,7 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	blank := strings.Repeat("   \n", 24)
@@ -898,6 +936,7 @@ func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
 }
 
 func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -914,6 +953,7 @@ func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
 }
 
 func TestAttemptStartWarnsOnceFiveAttemptsAreLive(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	for i := 2; i <= 6; i++ {
 		fx.h.ok("task", "add", "app", "Task "+strconv.Itoa(i))
@@ -933,6 +973,7 @@ func TestAttemptStartWarnsOnceFiveAttemptsAreLive(t *testing.T) {
 }
 
 func TestAgyWarnsWhenItsModelListFailed(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1", "stderr": "Error: Please sign in to view available models."})
 	fx.h.ok("models", "--refresh", "agy")
@@ -946,6 +987,7 @@ func TestAgyWarnsWhenItsModelListFailed(t *testing.T) {
 }
 
 func TestAttemptStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.closeFail = "backend_error" })
@@ -956,6 +998,7 @@ func TestAttemptStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
 }
 
 func TestAttemptStartContinueInheritsTheRoute(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -975,6 +1018,7 @@ func TestAttemptStartContinueInheritsTheRoute(t *testing.T) {
 }
 
 func TestAttemptStartContinueOverridesOnlyTheFlagGiven(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -989,6 +1033,7 @@ func TestAttemptStartContinueOverridesOnlyTheFlagGiven(t *testing.T) {
 }
 
 func TestAttemptStartContinueHonorsAnExplicitlyEmptyFlag(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -1000,6 +1045,7 @@ func TestAttemptStartContinueHonorsAnExplicitlyEmptyFlag(t *testing.T) {
 }
 
 func TestAttemptStartContinueNamesTheAttemptWhenItsModelIsInvalid(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -1022,6 +1068,7 @@ func TestAttemptStartContinueNamesTheAttemptWhenItsModelIsInvalid(t *testing.T) 
 }
 
 func TestAttemptStartContinueWithNoRecordedRouteFallsBackToTheFlags(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -1051,6 +1098,7 @@ func TestAttemptStartContinueWithNoRecordedRouteFallsBackToTheFlags(t *testing.T
 }
 
 func TestAttemptStartWithoutContinueStillNeedsTheFlags(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -1064,6 +1112,7 @@ func TestAttemptStartWithoutContinueStillNeedsTheFlags(t *testing.T) {
 }
 
 func TestAttemptStartContinueChecksOutTheEarlierBranch(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	branch := fx.h.branch("t1-a1")
@@ -1104,6 +1153,7 @@ func TestAttemptStartContinueChecksOutTheEarlierBranch(t *testing.T) {
 }
 
 func TestAttemptStartContinueRefusesAnotherTasksAttemptAndBase(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -1124,6 +1174,7 @@ func TestAttemptStartContinueRefusesAnotherTasksAttemptAndBase(t *testing.T) {
 }
 
 func TestAttemptStartBasesTheWorktreeOnAFetchedOriginMain(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	origin := gitIn(t, fx.repo, "remote", "get-url", "origin")
 	other := t.TempDir()
@@ -1152,6 +1203,7 @@ func (fx *attemptFixture) startDefault() string {
 }
 
 func TestAttemptStartFollowsTheBranchOriginHeadPointsTo(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	other := t.TempDir()
 	gitIn(t, other, "clone", "-q", gitIn(t, fx.repo, "remote", "get-url", "origin"), ".")
@@ -1173,6 +1225,7 @@ func TestAttemptStartFollowsTheBranchOriginHeadPointsTo(t *testing.T) {
 }
 
 func TestAttemptStartWithoutAnOriginUsesTheLocalBranch(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	gitIn(t, fx.repo, "remote", "remove", "origin")
 	gitIn(t, fx.repo, "commit", "-q", "--allow-empty", "-m", "local only")
@@ -1186,6 +1239,7 @@ func TestAttemptStartWithoutAnOriginUsesTheLocalBranch(t *testing.T) {
 }
 
 func TestAttemptStartWarnsAndUsesTheLastFetchedRefWhenTheFetchFails(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	known := gitIn(t, fx.repo, "rev-parse", "origin/main")
 	gitIn(t, fx.repo, "commit", "-q", "--allow-empty", "-m", "local only")
@@ -1200,6 +1254,7 @@ func TestAttemptStartWarnsAndUsesTheLastFetchedRefWhenTheFetchFails(t *testing.T
 }
 
 func TestAttemptStartWarnsAndUsesTheLocalBranchWhenTheFetchFailsWithNothingFetched(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	gitIn(t, fx.repo, "remote", "remove", "origin")
 	gitIn(t, fx.repo, "remote", "add", "origin", filepath.Join(t.TempDir(), "missing.git"))
@@ -1213,6 +1268,7 @@ func TestAttemptStartWarnsAndUsesTheLocalBranchWhenTheFetchFailsWithNothingFetch
 }
 
 func TestAttemptStartContinueKeepsTheBranchWhenTheWorktreeCannotBeMade(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	branch := fx.h.branch("t1-a1")
@@ -1233,6 +1289,7 @@ func TestAttemptStartContinueKeepsTheBranchWhenTheWorktreeCannotBeMade(t *testin
 }
 
 func TestAttemptStartContinueRefusesAMissingBranchBeforeRecordingAnAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")

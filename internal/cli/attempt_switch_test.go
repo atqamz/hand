@@ -57,6 +57,7 @@ func attemptSwitchedEvents(t *testing.T, fx *attemptFixture) []string {
 }
 
 func TestAttemptSwitchRestartsThePaneOnTheSameSessionWithNoBrief(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, nil)
 	before := fx.h.ok("attempt", "show", "a1")
 	out := fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "deep")
@@ -99,6 +100,7 @@ func TestAttemptSwitchRestartsThePaneOnTheSameSessionWithNoBrief(t *testing.T) {
 }
 
 func TestAttemptSwitchWithoutAVariantSendsNone(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, nil)
 	out := fx.h.ok("attempt", "switch", "--model", "local/m2", "a1")
 	if strings.Contains(out, "effort:") {
@@ -110,6 +112,7 @@ func TestAttemptSwitchWithoutAVariantSendsNone(t *testing.T) {
 }
 
 func TestAttemptSwitchRefusesWithoutTouchingAnything(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		extra map[string]string
 		args  []string
@@ -141,6 +144,7 @@ func TestAttemptSwitchRefusesWithoutTouchingAnything(t *testing.T) {
 }
 
 func TestAttemptSwitchRefusesASessionOpencodeStillRuns(t *testing.T) {
+	t.Parallel()
 	list := filepath.Join(t.TempDir(), "sessions")
 	fx, o, session := runningWorker(t, map[string]string{"sessionlist": list})
 	body := fmt.Sprintf(`{"data":[{"id":%q,"time":{"updated":%d,"idle":0}}]}`, session, time.Now().UnixMilli())
@@ -157,6 +161,7 @@ func TestAttemptSwitchRefusesASessionOpencodeStillRuns(t *testing.T) {
 }
 
 func TestAttemptSwitchRefusesAClaudeAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
@@ -166,6 +171,7 @@ func TestAttemptSwitchRefusesAClaudeAttempt(t *testing.T) {
 }
 
 func TestAttemptSwitchFailureRelaunchesOnTheOldModel(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, map[string]string{"swreject": "Unknown provider nope"})
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	if code == 0 || !strings.Contains(errOut, "HTTP 400") || !strings.Contains(errOut, "attempt a1 is back on its pane, still on its old model") {
@@ -182,6 +188,7 @@ func TestAttemptSwitchFailureRelaunchesOnTheOldModel(t *testing.T) {
 }
 
 func TestAttemptSwitchSaysWhenItCannotConfirmTheOldModelAfterAFailedSwitch(t *testing.T) {
+	t.Parallel()
 	fx, o, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope", "getlater": filepath.Join(t.TempDir(), "read")})
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	if code == 0 || !strings.Contains(errOut, "attempt a1 is back on its pane, its model is unverified: the watcher records the session's model on its next sweep") || strings.Contains(errOut, "still on its old model") {
@@ -207,6 +214,7 @@ func failPanesAfter(fx *attemptFixture, o *opencodeRig, ok int32) {
 }
 
 func TestAttemptSwitchWithNoPaneLeftInterruptsTheAttemptWithAWayBack(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, map[string]string{"swreject": "Unknown provider nope"})
 	failPanesAfter(fx, o, 0)
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
@@ -217,6 +225,7 @@ func TestAttemptSwitchWithNoPaneLeftInterruptsTheAttemptWithAWayBack(t *testing.
 }
 
 func TestAttemptSwitchPutsTheSessionBackWhenThePaneCannotStart(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, nil)
 	failPanesAfter(fx, o, 0)
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2", "--effort", "deep")
@@ -231,6 +240,7 @@ func TestAttemptSwitchPutsTheSessionBackWhenThePaneCannotStart(t *testing.T) {
 }
 
 func TestAttemptSwitchSaysWhereTheSessionStaysWhenItsOldModelIsUnknown(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, map[string]string{"sessionmodel": ""})
 	failPanesAfter(fx, o, 0)
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
@@ -243,6 +253,7 @@ func TestAttemptSwitchSaysWhereTheSessionStaysWhenItsOldModelIsUnknown(t *testin
 }
 
 func TestAttemptSwitchSaysWhenTheOldModelCannotBePutBack(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, map[string]string{"swdiebody": `"id":"m1"`})
 	failPanesAfter(fx, o, 0)
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
@@ -252,6 +263,7 @@ func TestAttemptSwitchSaysWhenTheOldModelCannotBePutBack(t *testing.T) {
 }
 
 func TestAttemptSwitchRefusesAnUnlistedModelEvenForAVariantOnly(t *testing.T) {
+	t.Parallel()
 	fx, o, _ := runningWorker(t, map[string]string{"models": "local/m2\n"})
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m1", "--effort", "deep")
 	if code != 2 || !strings.Contains(errOut, "opencode model local/m1 is not in `opencode models`") {
@@ -263,12 +275,14 @@ func TestAttemptSwitchRefusesAnUnlistedModelEvenForAVariantOnly(t *testing.T) {
 }
 
 func TestAttemptSwitchTreatsADonePaneAsAtItsPrompt(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
 	has(t, "switch", fx.h.ok("attempt", "switch", "a1", "--model", "local/m2"), "status: running", "model: local/m2")
 }
 
 func TestAttemptSwitchOfAVariantOnlyKeepsTheModelAndRecordsTheVariant(t *testing.T) {
+	t.Parallel()
 	fx, o, session := runningWorker(t, nil)
 	fx.h.ok("attempt", "switch", "a1", "--model", "local/m1", "--effort", "deep")
 	want := []string{"stop", "switch " + session + ` {"model":{"providerID":"local","id":"m1","variant":"deep"}}`, "pane"}
@@ -279,6 +293,7 @@ func TestAttemptSwitchOfAVariantOnlyKeepsTheModelAndRecordsTheVariant(t *testing
 }
 
 func TestAttemptSwitchRecordsTheNewModelBeforeAnySweep(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "deep")
 	events, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"model.changed"}, 10)
@@ -289,6 +304,7 @@ func TestAttemptSwitchRecordsTheNewModelBeforeAnySweep(t *testing.T) {
 }
 
 func TestAttemptSwitchKeepsTheRecordedModelWhenItComesBackOnTheOldPane(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope"})
 	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	after := fx.h.ok("attempt", "show", "a1")
@@ -299,6 +315,7 @@ func TestAttemptSwitchKeepsTheRecordedModelWhenItComesBackOnTheOldPane(t *testin
 }
 
 func TestAttemptSwitchRefusesAStoppedAttempt(t *testing.T) {
+	t.Parallel()
 	fx, o, _ := runningWorker(t, nil)
 	fx.h.ok("attempt", "stop", "a1")
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
@@ -311,6 +328,7 @@ func TestAttemptSwitchRefusesAStoppedAttempt(t *testing.T) {
 }
 
 func TestAttemptSwitchClosesTheOldTerminalAndKeepsTheNewOne(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2")
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -327,6 +345,7 @@ func TestAttemptSwitchClosesTheOldTerminalAndKeepsTheNewOne(t *testing.T) {
 }
 
 func TestAttemptSwitchRefusesATurnStartedAfterTheFirstCheck(t *testing.T) {
+	t.Parallel()
 	fx, o, _ := runningWorker(t, nil)
 	var asked atomic.Int32
 	fx.rt.srv.Handle("agent.explain", func(p json.RawMessage) (any, error) {
@@ -346,6 +365,7 @@ func TestAttemptSwitchRefusesATurnStartedAfterTheFirstCheck(t *testing.T) {
 }
 
 func TestAttemptSwitchHoldsTheAttemptLockWhileThePaneIsGone(t *testing.T) {
+	t.Parallel()
 	fx, o, _ := runningWorker(t, nil)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once atomic.Bool
@@ -399,6 +419,7 @@ func TestAttemptSwitchHoldsTheAttemptLockWhileThePaneIsGone(t *testing.T) {
 }
 
 func TestAttemptSwitchSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	fx.rt.set(func(rt *fakeRuntime) { rt.closeFail = "backend_error" })
 	out, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
@@ -408,18 +429,21 @@ func TestAttemptSwitchSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
 }
 
 func TestAttemptSwitchStoresNoEffortForTheDefaultVariant(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "default")
 	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m2\n")
 }
 
 func TestAttemptSwitchRecordsTheModelTheSessionReadsBackAfterAFailedSwitch(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope", "sessionmodel": `{"id":"m3","providerID":"local"}`})
 	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m3\n")
 }
 
 func TestAttemptSwitchRequestsTheNewModelSoTheWatcherShowsNoMismatch(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "deep")
 	if got, err := openStore(t, fx.h).ModelNote(context.Background(), "a1", "local/m2", "deep"); err != nil || got != "" {
@@ -428,6 +452,7 @@ func TestAttemptSwitchRequestsTheNewModelSoTheWatcherShowsNoMismatch(t *testing.
 }
 
 func TestAttemptSwitchThatFailsKeepsTheOldRequest(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope"})
 	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	got, err := openStore(t, fx.h).ModelNote(context.Background(), "a1", "local/m2", "")
@@ -437,6 +462,7 @@ func TestAttemptSwitchThatFailsKeepsTheOldRequest(t *testing.T) {
 }
 
 func TestAttemptSwitchRecordsTheNewModelWhenTheSwitchErroredAfterApplying(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, map[string]string{"swdie": "reply lost", "swdieapply": "1"})
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	if code == 0 || !strings.Contains(errOut, "attempt a1 is back on its pane, its session is on local/m2") || strings.Contains(errOut, "still on its old model") {

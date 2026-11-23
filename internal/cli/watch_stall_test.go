@@ -85,6 +85,7 @@ func wantStall(t *testing.T, fx *attemptFixture, n int, text string) {
 }
 
 func TestStallWakesTheIdleSupervisorThenBacksOff(t *testing.T) {
+	t.Parallel()
 	fx, log := stallFleet(t, "")
 	stop := startWatch(t, fx, "--every", "30ms")
 	stallTick(t, fx)
@@ -127,6 +128,7 @@ func TestStallWakesTheIdleSupervisorThenBacksOff(t *testing.T) {
 }
 
 func TestAnyOtherEventStartsANewStallEpisode(t *testing.T) {
+	t.Parallel()
 	fx, log := stallFleet(t, "")
 	fx.h.ok("task", "add", "app", "Write docs")
 	fx.h.ok("task", "start", "t2")
@@ -149,6 +151,7 @@ func TestAnyOtherEventStartsANewStallEpisode(t *testing.T) {
 }
 
 func TestStallWaitsAfterTheSupervisorWorks(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
@@ -167,6 +170,7 @@ func TestStallWaitsAfterTheSupervisorWorks(t *testing.T) {
 }
 
 func TestNoStallWhileAnAttemptRuns(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	fx.start()
@@ -181,6 +185,7 @@ func TestNoStallWhileAnAttemptRuns(t *testing.T) {
 }
 
 func TestNoStallWhileADecisionIsOpen(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.h.ok("decision", "ask", "t1", "Keep the old cookie name?")
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -193,6 +198,7 @@ func TestNoStallWhileADecisionIsOpen(t *testing.T) {
 }
 
 func TestNoStallWithoutAnActiveTask(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.h.ok("task", "abandon", "t1")
 	fx.h.ok("task", "add", "app", "Later")
@@ -202,6 +208,7 @@ func TestNoStallWithoutAnActiveTask(t *testing.T) {
 }
 
 func TestNoStallForAStoppedSupervisor(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.h.ok("supervisor", "stop")
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -210,6 +217,7 @@ func TestNoStallForAStoppedSupervisor(t *testing.T) {
 }
 
 func TestNoStallForABlockedSupervisor(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -222,6 +230,7 @@ func TestNoStallForABlockedSupervisor(t *testing.T) {
 }
 
 func TestNoStallForALimitedSupervisor(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
 	stop := startWatch(t, fx, "--every", "30ms")
@@ -233,6 +242,7 @@ func TestNoStallForALimitedSupervisor(t *testing.T) {
 }
 
 func TestNoStallWhileASwitchIsPending(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	has(t, "switch", fx.h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "switch: pending")
@@ -248,6 +258,7 @@ func TestNoStallWhileASwitchIsPending(t *testing.T) {
 }
 
 func TestStallOffNeverWakes(t *testing.T) {
+	t.Parallel()
 	fx, log := stallFleet(t, `,"stall":"off"`)
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
@@ -258,6 +269,7 @@ func TestStallOffNeverWakes(t *testing.T) {
 }
 
 func TestStallFollowsTheConfiguredDelays(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, `,"stall":{"after":"5m","every":"15m"}`)
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
@@ -277,6 +289,7 @@ func TestStallFollowsTheConfiguredDelays(t *testing.T) {
 }
 
 func TestABadStallSettingIsNamedAndTheDefaultsApply(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, `,"stall":{"after":"soon"}`)
 	stop := startWatch(t, fx, "--every", "30ms")
 	stallTick(t, fx)

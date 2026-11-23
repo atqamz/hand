@@ -9,6 +9,7 @@ import (
 )
 
 func TestPlanSetFromFileAndShow(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	file := filepath.Join(t.TempDir(), "plan.md")
@@ -29,6 +30,7 @@ func TestPlanSetFromFileAndShow(t *testing.T) {
 }
 
 func TestPlanSetNeedsExactlyOneBodySource(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	if _, _, code := h.run("plan", "set", "t1"); code != 2 {
@@ -37,6 +39,7 @@ func TestPlanSetNeedsExactlyOneBodySource(t *testing.T) {
 }
 
 func TestPlanSetUnreadableBodyFileIsUsageError(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	if _, _, code := h.run("plan", "set", "--body-file", filepath.Join(t.TempDir(), "missing.md"), "t1"); code != 2 {
@@ -45,6 +48,7 @@ func TestPlanSetUnreadableBodyFileIsUsageError(t *testing.T) {
 }
 
 func TestTaskAndPlanShowBoundTheirText(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	goal := strings.Repeat(strings.Repeat("g", 99)+"\n", 100)
 	h.ok("task", "add", "--goal", goal, "hand", "Fix login")

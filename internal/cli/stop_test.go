@@ -42,6 +42,7 @@ func selfMarker(t *testing.T) string {
 }
 
 func TestBoardStopWithNoBoard(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	if out := h.ok("board", "stop"); field(out, "board") != "not running" || strings.Contains(out, "Removed") {
 		t.Fatalf("out = %q", out)
@@ -49,6 +50,7 @@ func TestBoardStopWithNoBoard(t *testing.T) {
 }
 
 func TestStopRemovesAStalePIDFileWithoutSignalling(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init", h.home)
 	board := filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid")
@@ -66,6 +68,7 @@ func TestStopRemovesAStalePIDFileWithoutSignalling(t *testing.T) {
 }
 
 func TestStopRefusesAProcessOfAnotherBinary(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	board := filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid")
 	other := filepath.Join(string(filepath.Separator), "elsewhere", "hand")
@@ -80,6 +83,7 @@ func TestStopRefusesAProcessOfAnotherBinary(t *testing.T) {
 }
 
 func TestWatchStopOutsideAFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, errOut, code := h.run("watch", "stop")
 	if code != 3 || !strings.Contains(errOut, "hand init") {
@@ -88,6 +92,7 @@ func TestWatchStopOutsideAFleet(t *testing.T) {
 }
 
 func TestStopTakesNoArguments(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init", h.home)
 	for _, c := range []string{"board", "watch"} {
@@ -98,6 +103,7 @@ func TestStopTakesNoArguments(t *testing.T) {
 }
 
 func TestStopRemovesOnlyTheRecordItStopped(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "board.pid")
 	old, fresh := []byte("1 old /bin/hand\n"), []byte("2 new /bin/hand\n")
 	for _, c := range []struct {

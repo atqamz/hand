@@ -24,6 +24,7 @@ func recordSocket(t *testing.T, h *harness, table, socket string) {
 }
 
 func TestAnAttemptOfAnotherLuvusIsRecordedAndNeverSignalled(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
@@ -44,6 +45,7 @@ func TestAnAttemptOfAnotherLuvusIsRecordedAndNeverSignalled(t *testing.T) {
 }
 
 func TestAnAttemptOfThisLuvusIsStillStoppedAfterARestart(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
@@ -60,6 +62,7 @@ func TestAnAttemptOfThisLuvusIsStillStoppedAfterARestart(t *testing.T) {
 }
 
 func TestAnAttemptFromBeforeTheSocketWasRecordedKeepsTheOldBehaviour(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
@@ -74,6 +77,7 @@ func TestAnAttemptFromBeforeTheSocketWasRecordedKeepsTheOldBehaviour(t *testing.
 }
 
 func TestAnExitedWorkerIsRecordedNotRequested(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.exitAll()
@@ -84,6 +88,7 @@ func TestAnExitedWorkerIsRecordedNotRequested(t *testing.T) {
 }
 
 func TestASupervisorOfAnotherLuvusIsRecordedAndNeverSignalled(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	pid := rt.lastPID()
@@ -100,6 +105,7 @@ func TestASupervisorOfAnotherLuvusIsRecordedAndNeverSignalled(t *testing.T) {
 }
 
 func TestASupervisorOfThisLuvusIsStillStoppedAfterARestart(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	pid := rt.lastPID()
@@ -140,6 +146,7 @@ func spellings(t *testing.T, socket string) map[string]string {
 }
 
 func TestAnotherPathToTheSameSocketIsNotForeign(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"uncleaned", "symlinked"} {
 		t.Run(name, func(t *testing.T) {
 			fx := newAttemptFixture(t)
@@ -159,6 +166,7 @@ func TestAnotherPathToTheSameSocketIsNotForeign(t *testing.T) {
 }
 
 func TestTheLaunchRecordsTheSocketOfItsLuvus(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	want := fx.h.vars["HAND_LUVUS_SOCKET"]
 	fx.start()
@@ -173,6 +181,7 @@ func TestTheLaunchRecordsTheSocketOfItsLuvus(t *testing.T) {
 }
 
 func TestASwitchRecordsTheSocketOfItsLuvus(t *testing.T) {
+	t.Parallel()
 	fx, _, _ := runningWorker(t, nil)
 	want := fx.h.vars["HAND_LUVUS_SOCKET"]
 	recordSocket(t, fx.h, "attempt", filepath.Dir(want)+"/./"+filepath.Base(want))
@@ -183,6 +192,7 @@ func TestASwitchRecordsTheSocketOfItsLuvus(t *testing.T) {
 }
 
 func TestAHealthyRowFromBeforeTheSocketWasRecordedGetsThisLuvusSocket(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	recordSocket(t, fx.h, "attempt", "")
@@ -200,6 +210,7 @@ func TestAHealthyRowFromBeforeTheSocketWasRecordedGetsThisLuvusSocket(t *testing
 }
 
 func TestCleaningAnAttemptOfAnotherLuvusIsRefused(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()

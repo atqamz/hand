@@ -79,6 +79,7 @@ func (o *opencodeRig) created(t *testing.T) (createBody, string) {
 }
 
 func TestOpencodeWorkerSessionIsCreatedOnItsModelBeforeThePane(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep", "--prompt-file", fx.brief, "t1")
@@ -95,6 +96,7 @@ func TestOpencodeWorkerSessionIsCreatedOnItsModelBeforeThePane(t *testing.T) {
 }
 
 func TestOpencodeWorkerModelKeepsEverythingAfterTheFirstSlash(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "openrouter/meta/llama:free@v2 beta", "--prompt-file", fx.brief, "t1")
@@ -108,6 +110,7 @@ func TestOpencodeWorkerModelKeepsEverythingAfterTheFirstSlash(t *testing.T) {
 }
 
 func TestOpencodeCreateOmitsAnEmptyVariant(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--prompt-file", fx.brief, "t1")
@@ -118,6 +121,7 @@ func TestOpencodeCreateOmitsAnEmptyVariant(t *testing.T) {
 }
 
 func TestOpencodeWithoutAModelCreatesNoSession(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
@@ -127,6 +131,7 @@ func TestOpencodeWithoutAModelCreatesNoSession(t *testing.T) {
 }
 
 func TestOpencodeUnlistedModelWarnsAndStarts(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m9", "--prompt-file", fx.brief, "t1")
@@ -137,6 +142,7 @@ func TestOpencodeUnlistedModelWarnsAndStarts(t *testing.T) {
 }
 
 func TestOpencodeUnlistedVariantWarnsAndStarts(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, map[string]string{"modelapi": `{"data":[{"providerID":"local","modelID":"m2","variants":[{"id":"fast"},{"id":"deep"}]}]}`})
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "thinking", "--prompt-file", fx.brief, "t1")
@@ -147,6 +153,7 @@ func TestOpencodeUnlistedVariantWarnsAndStarts(t *testing.T) {
 }
 
 func TestOpencodeWorkerRefusesAHashInTheModelBeforeTouchingGit(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	_, errOut, code := fx.h.run("attempt", "start", "--harness", "opencode", "--model", "local/m2#deep", "--prompt-file", fx.brief, "t1")
@@ -156,6 +163,7 @@ func TestOpencodeWorkerRefusesAHashInTheModelBeforeTouchingGit(t *testing.T) {
 }
 
 func TestOpencodeWorkerLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T) {
+	t.Parallel()
 	for name, extra := range map[string]map[string]string{
 		"HTTP 400":  {"reject": "Expected a string starting with ses"},
 		"exit code": {"die": "database is locked"},
@@ -186,6 +194,7 @@ func TestOpencodeWorkerLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T) {
 }
 
 func TestOpencodeWorkerLaunchFailsWhenTheAnswerIsNotTheRequestedSession(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		extra map[string]string
 		want  string
@@ -211,6 +220,7 @@ func TestOpencodeWorkerLaunchFailsWhenTheAnswerIsNotTheRequestedSession(t *testi
 }
 
 func TestOpencodeSupervisorLaunchFailsWhenTheAnswerIsAnotherSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, map[string]string{"answer": "ses_other"})
 	_, errOut, code := h.run("supervisor", "start", "--harness", "opencode", "--model", "local/m2")
@@ -224,6 +234,7 @@ func TestOpencodeSupervisorLaunchFailsWhenTheAnswerIsAnotherSession(t *testing.T
 }
 
 func TestOpencodeSupervisorSessionIsCreatedOnItsModelBeforeThePane(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, nil)
 	out := h.ok("supervisor", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep")
@@ -236,6 +247,7 @@ func TestOpencodeSupervisorSessionIsCreatedOnItsModelBeforeThePane(t *testing.T)
 }
 
 func TestOpencodeSupervisorLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, map[string]string{"reject": "Unknown provider nope"})
 	_, errOut, code := h.run("supervisor", "start", "--harness", "opencode", "--model", "local/m2")
@@ -249,6 +261,7 @@ func TestOpencodeSupervisorLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T
 }
 
 func TestOpencodeSupervisorStartAndResumeKeepTheModelAndResumeCreatesNoSession(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, nil)
 	h.ok("supervisor", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep")
@@ -274,6 +287,7 @@ func TestOpencodeSupervisorStartAndResumeKeepTheModelAndResumeCreatesNoSession(t
 }
 
 func TestAttemptShowNamesTheOpencodeModelAskedForWhenAnotherRuns(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	installOpencode(t, fx.h, fx.rt, nil)
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep", "--prompt-file", fx.brief, "t1")

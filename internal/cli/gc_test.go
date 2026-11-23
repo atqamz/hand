@@ -34,6 +34,7 @@ func homeHas(t *testing.T, h *harness, rel string) bool {
 }
 
 func TestGCListsDeletesNothingWithoutYes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	fleetFile(t, h, "reports/t1/a.md", 100, 40*day)
@@ -57,6 +58,7 @@ func TestGCListsDeletesNothingWithoutYes(t *testing.T) {
 }
 
 func TestGCYesDeletesExactlyTheListedFiles(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	fleetFile(t, h, "reports/t1/a.md", 100, 40*day)
@@ -82,6 +84,7 @@ func TestGCYesDeletesExactlyTheListedFiles(t *testing.T) {
 }
 
 func TestGCScopeLimitsTheDeletion(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	fleetFile(t, h, "reports/t1/a.md", 100, 40*day)
@@ -99,6 +102,7 @@ func TestGCScopeLimitsTheDeletion(t *testing.T) {
 }
 
 func TestGCRefusesWhatItMayNotTouch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	fleetFile(t, h, "memory/old.md", 7, 400*day)

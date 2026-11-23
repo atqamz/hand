@@ -52,6 +52,7 @@ func exists(path string) bool {
 }
 
 func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
@@ -79,6 +80,7 @@ func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) 
 }
 
 func TestCleanKeepScratchLeavesItAndNamesIt(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
@@ -94,6 +96,7 @@ func TestCleanKeepScratchLeavesItAndNamesIt(t *testing.T) {
 }
 
 func TestCleanWithoutScratchPrintsNothingAboutIt(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
@@ -107,6 +110,7 @@ func TestCleanWithoutScratchPrintsNothingAboutIt(t *testing.T) {
 }
 
 func TestGCListsOrphansByDefaultAndRemovesThemWithApply(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	live := fx.scratch(fx.h.worktree("t1-a1"))
@@ -147,6 +151,7 @@ func ageTree(t *testing.T, dir string, age time.Duration) {
 }
 
 func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	oldDir := fx.scratch(fx.h.worktree("t5-a8"))
 	newDir := fx.scratch(fx.h.worktree("t5-a9"))
@@ -165,6 +170,7 @@ func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
 }
 
 func TestGCOlderThanUsesTheAttemptScratchRoot(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	home, err := filepath.EvalSymlinks(fx.h.home)
 	if err != nil {
@@ -195,6 +201,7 @@ func TestGCOlderThanUsesTheAttemptScratchRoot(t *testing.T) {
 }
 
 func TestGCSkipsAnAttemptThatIsLiveInTheDatabase(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
@@ -234,6 +241,7 @@ func undeletable(t *testing.T, scratch string) {
 }
 
 func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	stuck := fx.scratch(fx.h.worktree("t5-a1"))
 	undeletable(t, stuck)
@@ -248,6 +256,7 @@ func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
 }
 
 func TestCleanWarnsWhenTheScratchDirectoryStaysAndStillCleans(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })

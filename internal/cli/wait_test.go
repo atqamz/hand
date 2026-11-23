@@ -10,6 +10,7 @@ import (
 )
 
 func TestWaitReturnsOnlyWakeEventsAfterTheCursor(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "start", "t1")
@@ -52,6 +53,7 @@ func TestWaitBlocksUntilAWakeEventArrives(t *testing.T) {
 }
 
 func TestWaitRejectsABadTimeout(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, bad := range []string{"soon", "-1s"} {
 		if _, _, code := h.run("wait", "--timeout", bad); code != 2 {
@@ -61,6 +63,7 @@ func TestWaitRejectsABadTimeout(t *testing.T) {
 }
 
 func TestProgressReportDoesNotWake(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "progress", "--text", "Halfway")
@@ -74,6 +77,7 @@ func TestProgressReportDoesNotWake(t *testing.T) {
 }
 
 func TestAFullBatchOfRidersStillWakes(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	st := openStore(t, fx.h)

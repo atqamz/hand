@@ -7,6 +7,7 @@ import (
 )
 
 func TestCopilotIsRefusedAsASupervisor(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	for _, args := range [][]string{
 		{"supervisor", "start", "--harness", "copilot", "--model", "auto"},

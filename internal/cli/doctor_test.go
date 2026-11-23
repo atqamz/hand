@@ -385,7 +385,7 @@ func TestDoctorReportsAStaleWatchUnit(t *testing.T) {
 			t.Fatal(err)
 		}
 		script := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*list-unit-files*) printf '%%s\\n' '%s';;\n*list-units*) printf '%%s\\n' '%s';;\n*show*) /bin/cat %s;;\nesac\n", files, units, shown)
-		if err := os.WriteFile(filepath.Join(fx.tools, "systemctl"), []byte(script), 0o755); err != nil {
+		if err := fakebin.WriteExecutable(filepath.Join(fx.tools, "systemctl"), []byte(script)); err != nil {
 			t.Fatal(err)
 		}
 		out := fx.h.ok("doctor")

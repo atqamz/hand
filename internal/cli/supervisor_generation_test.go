@@ -57,6 +57,7 @@ func watchGeneration(home string) string {
 }
 
 func TestAStaleGenerationRefusesToCloseTheSupervisorPane(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	term := rt.terms[0]
@@ -87,6 +88,7 @@ func TestAStaleGenerationRefusesToCloseTheSupervisorPane(t *testing.T) {
 }
 
 func TestAShortLivedStopStillClosesTheSupervisorPane(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	generation := liveGeneration(t, os.Getpid())
@@ -109,6 +111,7 @@ func TestAShortLivedStopStillClosesTheSupervisorPane(t *testing.T) {
 }
 
 func TestADeadGenerationRefusesToCloseTheSupervisorPane(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	term := rt.terms[0]
@@ -182,6 +185,7 @@ func TestAWatcherReseedsWhenTheBoardGenerationChanges(t *testing.T) {
 }
 
 func TestTheBoardRecordsTheGenerationItsWatchersHold(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	_, stop := startBoard(t, h, "127.0.0.1")
@@ -208,6 +212,7 @@ func TestTheBoardRecordsTheGenerationItsWatchersHold(t *testing.T) {
 }
 
 func TestAWatcherExitNamesWhoRecordedIt(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	term := rt.terms[0]

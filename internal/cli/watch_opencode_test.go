@@ -135,6 +135,7 @@ func (g *opencodeRig) changes() int {
 }
 
 func TestWatcherCopiesTheOpencodeModelToTheSupervisorAndTheWorker(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := newOpencodeRig(t, true, true)
 	user := strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1)
@@ -170,6 +171,7 @@ func TestWatcherCopiesTheOpencodeModelToTheSupervisorAndTheWorker(t *testing.T) 
 }
 
 func TestWatcherReadsTheWorkerByItsStoredSessionId(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true, "opencode", "--standalone", "--auto", "--session", "ses_2", "--prompt", "--session")
 	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
@@ -182,6 +184,7 @@ func TestWatcherReadsTheWorkerByItsStoredSessionId(t *testing.T) {
 }
 
 func TestWatcherReadsNothingByAWrongSessionId(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true, "opencode", "--standalone", "--auto", "--session", "ses_wrong", "--prompt", "x")
 	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
@@ -191,6 +194,7 @@ func TestWatcherReadsNothingByAWrongSessionId(t *testing.T) {
 }
 
 func TestWatcherSkipsAnAttemptLaunchedWithoutAStoredSessionId(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true, "opencode", "--standalone", "--auto", "--prompt", "Fix the login bug.")
 	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
@@ -203,6 +207,7 @@ func TestWatcherSkipsAnAttemptLaunchedWithoutAStoredSessionId(t *testing.T) {
 }
 
 func TestWatcherWritesNothingWhenOpencodeCannotExport(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true)
 	g.install("not json")
 	g.sync()
@@ -212,6 +217,7 @@ func TestWatcherWritesNothingWhenOpencodeCannotExport(t *testing.T) {
 }
 
 func TestWatcherWritesNothingWithoutOpencode(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, true, false)
 	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
@@ -221,6 +227,7 @@ func TestWatcherWritesNothingWithoutOpencode(t *testing.T) {
 }
 
 func TestWatcherFallsBackToTheSessionModel(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true)
 	g.install(strings.Replace(opencodeFixture(t, "opencode-info-model.json"), "Implement the change.", g.prompt, 1))
 	g.sync()
@@ -230,6 +237,7 @@ func TestWatcherFallsBackToTheSessionModel(t *testing.T) {
 }
 
 func TestWatcherForgetsTheTranscriptOfAChangedSupervisorSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := newOpencodeRig(t, true, true)
 	g.install(opencodeFixture(t, "opencode-assistant.json"))
@@ -254,6 +262,7 @@ func TestWatcherForgetsTheTranscriptOfAChangedSupervisorSession(t *testing.T) {
 }
 
 func TestWatcherReadsTheModelsFromOneApiCallPerSweep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := newOpencodeRig(t, true, true)
 	g.api = `{"data":[{"id":"ses_1","model":{"id":"gpt-5","providerID":"openai","variant":"high"}},{"id":"ses_2","model":{"id":"gpt-5","providerID":"openai","variant":"default"}},{"id":"ses_9","model":null}],"cursor":{}}`
@@ -272,6 +281,7 @@ func TestWatcherReadsTheModelsFromOneApiCallPerSweep(t *testing.T) {
 }
 
 func TestWatcherExportsASessionWithoutAnApiModelOnce(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true)
 	g.api = `{"data":[{"id":"ses_2","model":null}]}`
 	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
@@ -287,6 +297,7 @@ func TestWatcherExportsASessionWithoutAnApiModelOnce(t *testing.T) {
 }
 
 func TestWatcherReadsAnApiNullSessionAgainUntilTheExportHasAModel(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true)
 	g.api = `{"data":[{"id":"ses_2","model":null}]}`
 	assistant := strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1)
@@ -307,6 +318,7 @@ func TestWatcherReadsAnApiNullSessionAgainUntilTheExportHasAModel(t *testing.T) 
 }
 
 func TestWatcherExportsASessionTheApiDoesNotList(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true)
 	g.api = `{"data":[{"id":"ses_9","model":{"id":"gpt-5","providerID":"openai"}}]}`
 	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
@@ -317,6 +329,7 @@ func TestWatcherExportsASessionTheApiDoesNotList(t *testing.T) {
 }
 
 func TestWatcherFallsBackToTheExportWhenTheApiFails(t *testing.T) {
+	t.Parallel()
 	for name, api := range map[string]string{"exits": "", "not json": "not json", "no data": `{"cursor":{}}`, "data is not a list": `{"data":"x"}`} {
 		t.Run(name, func(t *testing.T) {
 			g := newOpencodeRig(t, true, true)
@@ -333,6 +346,7 @@ func TestWatcherFallsBackToTheExportWhenTheApiFails(t *testing.T) {
 }
 
 func TestWatcherForgetsTheTranscriptsOfEndedSessions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := newOpencodeRig(t, false, true)
 	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
@@ -350,6 +364,7 @@ func TestWatcherForgetsTheTranscriptsOfEndedSessions(t *testing.T) {
 }
 
 func TestLastSpecKeepsTheModelOpencodeReported(t *testing.T) {
+	t.Parallel()
 	got := lastSpec(state.Supervisor{Harness: "opencode", Model: "anthropic/claude-sonnet-5-5", Effort: "high"})
 	if got.Model != "anthropic/claude-sonnet-5-5" || got.Effort != "high" {
 		t.Fatalf("spec = %+v", got)
@@ -360,6 +375,7 @@ func TestLastSpecKeepsTheModelOpencodeReported(t *testing.T) {
 }
 
 func TestAReleasedHoldLeavesNoHeldAtEntryBehind(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, false, true)
 	srv := fakeuhp.Start(t, fakeuhp.ShortSocket(t))
 	srv.Handle("agent.explain", func(json.RawMessage) (any, error) {
@@ -377,6 +393,7 @@ func TestAReleasedHoldLeavesNoHeldAtEntryBehind(t *testing.T) {
 }
 
 func TestAPendingBlockDoesNotSurviveAnIdleSweep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := newOpencodeRig(t, false, true)
 	g.w.r.env.Stdout = io.Discard
@@ -406,6 +423,7 @@ func TestAPendingBlockDoesNotSurviveAnIdleSweep(t *testing.T) {
 }
 
 func TestAPendingBlockSurvivesAnIdleSweep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := newOpencodeRig(t, false, true)
 	g.w.r.env.Stdout = io.Discard

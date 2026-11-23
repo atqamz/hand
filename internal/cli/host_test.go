@@ -624,6 +624,7 @@ func TestBeatHostToleratesWindowsTickDriftAfterARename(t *testing.T) {
 }
 
 func TestTheHostNameIsTheMachinesName(t *testing.T) {
+	t.Parallel()
 	want, err := os.Hostname()
 	if err != nil || want == "" {
 		t.Skipf("machine has no name: %q, %v", want, err)

@@ -36,6 +36,7 @@ func (h *harness) inheritEnv() {
 }
 
 func TestLiveInitDownloadsTheTestedLuvus(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("HAND_LUVUS_IT") != "1" {
 		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
 	}

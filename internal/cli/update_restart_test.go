@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -31,7 +32,7 @@ func TestUpdateRestartsAWatchAfterTheNewBinaryPinnedTheFleet(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		target += ".exe"
 	}
-	if err := os.WriteFile(target, []byte("old hand\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(target, []byte("old hand\n")); err != nil {
 		t.Fatal(err)
 	}
 	oldTarget, oldWatch := cli.UpdateHooks.Target, *cli.WatchExe

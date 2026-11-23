@@ -69,6 +69,7 @@ func TestCodexInputSentDuringATurnGetsNoEnter(t *testing.T) {
 }
 
 func TestClaudeInputLuvusRefusedIsTypedAtAnEmptyPrompt(t *testing.T) {
+	t.Parallel()
 	c, sup, rt := supervisorTarget(t, "claude", func(rt *fakeRuntime) {
 		rt.ready, rt.status, rt.screen = false, "done", "────────\n❯\n────────\n  ⏵⏵ bypass permissions on"
 	})
@@ -83,6 +84,7 @@ func TestClaudeInputLuvusRefusedIsTypedAtAnEmptyPrompt(t *testing.T) {
 }
 
 func TestClaudeInputLuvusRefusedIsNotTypedIntoAMenu(t *testing.T) {
+	t.Parallel()
 	c, sup, rt := supervisorTarget(t, "claude", func(rt *fakeRuntime) {
 		rt.ready, rt.status, rt.screen = false, "done", "Select a model\n❯ 1. Sonnet\n  2. Opus"
 	})
@@ -93,6 +95,7 @@ func TestClaudeInputLuvusRefusedIsNotTypedIntoAMenu(t *testing.T) {
 }
 
 func TestClaudeInputLuvusRefusedDuringATurnIsNotTyped(t *testing.T) {
+	t.Parallel()
 	c, sup, rt := supervisorTarget(t, "claude", func(rt *fakeRuntime) {
 		rt.ready, rt.status, rt.screen = false, "working", "────────\n❯\n────────\n"
 	})
@@ -103,6 +106,7 @@ func TestClaudeInputLuvusRefusedDuringATurnIsNotTyped(t *testing.T) {
 }
 
 func TestQueuedMessagesAreNotTypedOnceTheFirstStartedATurn(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "blocked", false })

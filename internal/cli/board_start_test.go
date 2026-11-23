@@ -264,6 +264,7 @@ func TestOpeningFromATerminalRecordsThePath(t *testing.T) {
 }
 
 func TestOpeningFromATerminalRecordsThePathWhenTheBoardAnswers(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	fx.h.tty = true
 	fx.h.vars["PATH"] = "/opt/terminal/bin"

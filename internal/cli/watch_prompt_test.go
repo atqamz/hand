@@ -20,6 +20,7 @@ func readFixture(t *testing.T, name string) string {
 }
 
 func TestWatchNotesABlockOnlyFromARealPrompt(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		harness, model, effort, screen, hint string
 		blocked                              bool
@@ -69,6 +70,7 @@ func TestWatchNotesABlockOnlyFromARealPrompt(t *testing.T) {
 }
 
 func TestABlockPendingSurvivesANonPromptAndWakesOnARealPrompt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	box := readFixture(t, "omp-18.18.0-working.txt")
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status, rt.hint = box, "blocked", "╰─" })
@@ -101,6 +103,7 @@ func TestABlockPendingSurvivesANonPromptAndWakesOnARealPrompt(t *testing.T) {
 }
 
 func TestABlockFallsBackToTheHintWhenTheScreenCannotBeRead(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
 	fx.rt.set(func(rt *fakeRuntime) {

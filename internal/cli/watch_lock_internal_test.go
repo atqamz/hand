@@ -11,6 +11,7 @@ import (
 )
 
 func TestWatchLockedReadsALockInAReadOnlyFolder(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file modes")
 	}

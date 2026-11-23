@@ -520,6 +520,7 @@ func (rt *fakeRuntime) isClosed(id string) bool {
 }
 
 func TestACloseThatOutlivesTheReapFailsOpen(t *testing.T) {
+	t.Parallel()
 	reap := workerReap
 	workerReap = 50 * time.Millisecond
 	t.Cleanup(func() { workerReap = reap })

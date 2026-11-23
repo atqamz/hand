@@ -12,6 +12,7 @@ import (
 )
 
 func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	agents, err := os.ReadFile(filepath.Join(h.home, "AGENTS.md"))
@@ -51,6 +52,7 @@ func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
 }
 
 func TestInitInstallsTheCleanupSkill(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	for _, root := range []string{".claude", ".agents", ".grok", ".pi"} {
@@ -88,6 +90,7 @@ func TestInitInstallsTheCleanupSkill(t *testing.T) {
 }
 
 func TestInitNextToAForeignAgentsFileWritesNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	if err := os.WriteFile(filepath.Join(h.home, "AGENTS.md"), []byte("# my repo rules\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -103,6 +106,7 @@ func TestInitNextToAForeignAgentsFileWritesNothing(t *testing.T) {
 }
 
 func TestSkillMentionsOnlyRealCommands(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	for _, name := range []string{"secondhand", "secondhand-cleanup"} {
@@ -128,6 +132,7 @@ func TestSkillMentionsOnlyRealCommands(t *testing.T) {
 }
 
 func TestInitBesideA07FleetRefusesInOneLine(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for rel, body := range map[string]string{"state/hand.db": "0.7", "data/operator.md": "# Operator\n"} {
 		path := filepath.Join(h.home, rel)
@@ -150,6 +155,7 @@ func TestInitBesideA07FleetRefusesInOneLine(t *testing.T) {
 }
 
 func TestInitKeepsAnExistingFleetThatStillHasA07File(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	marker := filepath.Join(h.home, "state", "hand.db")

@@ -22,6 +22,7 @@ func fleetID(t *testing.T, h *harness) string {
 }
 
 func TestAttachSupervisorOpensItsPane(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	luvus := withLuvus(t, h)
 	has(t, "start", startClaudeSupervisor(h), "hand attach supervisor")
@@ -33,6 +34,7 @@ func TestAttachSupervisorOpensItsPane(t *testing.T) {
 }
 
 func TestAttachAnAttemptOpensItsPane(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	luvus := withLuvus(t, fx.h)
 	has(t, "start", fx.start(), "hand attach a1")
@@ -43,6 +45,7 @@ func TestAttachAnAttemptOpensItsPane(t *testing.T) {
 }
 
 func TestAttachWithNoTargetOpensTheWholeSession(t *testing.T) {
+	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	luvus := withLuvus(t, h)
 	h.ok("attach")
@@ -52,6 +55,7 @@ func TestAttachWithNoTargetOpensTheWholeSession(t *testing.T) {
 }
 
 func TestAttachRefusals(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	withLuvus(t, fx.h)
 	for _, c := range []struct {
@@ -79,6 +83,7 @@ func TestAttachRefusals(t *testing.T) {
 }
 
 func TestAttachRefusesATargetWithNoPane(t *testing.T) {
+	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	withLuvus(t, h)
 	rt.set(func(rt *fakeRuntime) { rt.blankPane = true })
