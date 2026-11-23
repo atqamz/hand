@@ -16,6 +16,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fleet"
 )
 
 const toolSource = "https://example.com/acme/tool-skill"
@@ -610,4 +611,22 @@ func TestSkillsAPIThirdPartyAddWithASymlinkAnswersAClientErrorAndLeavesNothing(t
 		}
 		f.nothingInstalled("a symlink")
 	}
+}
+
+func TestSkillsAPIThirdPartyAddOverTheSizeLimitAnswersAClientErrorNamingTheFile(t *testing.T) {
+	f := newToolFixture(t)
+	big, err := os.Create(filepath.Join(f.tool.work, "blob.dat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := big.Truncate(fleet.MaxSkillBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	_ = big.Close()
+	f.tool.commit(nil)
+	code, _, _, raw := f.api.post("add", f.body())
+	if code < 400 || code >= 500 || !strings.Contains(raw, "blob.dat takes a skill over 32 MiB") || strings.Contains(raw, f.tmp) {
+		t.Fatalf("an oversize skill = %d %s", code, raw)
+	}
+	f.nothingInstalled("an oversize skill")
 }

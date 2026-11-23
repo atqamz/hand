@@ -269,7 +269,7 @@ func Copy(src, dst string) error {
 			return err
 		}
 		if total += info.Size(); total > MaxSkillBytes {
-			return fmt.Errorf("%w: a skill is over %d MiB; a skill is a small folder", state.ErrInvalid, MaxSkillBytes>>20)
+			return fmt.Errorf("%w: %s takes a skill over %d MiB; a skill is a small folder", state.ErrInvalid, rel, MaxSkillBytes>>20)
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
