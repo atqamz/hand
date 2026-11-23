@@ -257,13 +257,19 @@ func TestSkillsAPIThirdPartyAddCatchesASourceThatAnswersAnotherCommit(t *testing
 
 func TestSkillsAPIThirdPartyAddNeverTakesAnOwnRepositoryURLForTheBareName(t *testing.T) {
 	f := newToolFixture(t)
+	wrap := wrapGit(t)
 	own := newSkillRemote(t, filepath.Join(t.TempDir(), "own.git"), skillFiles("skills", "v1"))
 	f.route("https://github.com/atqamz/skills", own.bare)
-	for _, src := range []string{"https://github.com/atqamz/skills", "https://github.com/atqamz/skills/"} {
-		code, run, receipt, raw := f.api.post("add", map[string]string{"scope": "fleet", "source": src})
-		if code != 200 || receipt != "Skills add: 1 review" || resultOf(run, "skills").State != "review" {
-			t.Fatalf("source %q = %d %q %s", src, code, receipt, raw)
+	for _, src := range []string{"https://github.com/atqamz/skills", "https://github.com/atqamz/skills/", "https://github.com/atqamz/skills.git"} {
+		for _, yes := range []string{"", "skills@" + strings.Repeat("a", 40)} {
+			code, _, _, raw := f.api.post("add", map[string]string{"scope": "fleet", "source": src, "yes": yes})
+			if code != http.StatusBadRequest || !strings.Contains(raw, "bare name") || strings.Contains(raw, "atqamz") {
+				t.Fatalf("source %q yes %q = %d %s", src, yes, code, raw)
+			}
 		}
+	}
+	if got := wrap.fetches(); len(got) != 0 {
+		t.Fatalf("an own repository URL was fetched: %q", got)
 	}
 	skillGone(t, f.h.home, "skills")
 	if _, err := os.Stat(fleetLock(f.h.home)); !os.IsNotExist(err) {

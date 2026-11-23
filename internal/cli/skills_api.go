@@ -171,6 +171,8 @@ func skillsAct(env Env, home, generation string) func(context.Context, board.Ski
 				if yes != "" {
 					return board.APISkillsRun{}, fmt.Errorf("%w: yes goes only with a third-party source", state.ErrInvalid)
 				}
+			case ownURL(a.Source):
+				return board.APISkillsRun{}, fmt.Errorf("%w: Hand's own repository is added by the bare name of its skill, not by its URL", state.ErrInvalid)
 			case httpsRepo(a.Source):
 				r.rec.review, yes = &addReview{yes: a.Yes}, ""
 			default:
