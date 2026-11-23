@@ -442,7 +442,7 @@ func cmdSkillsAdd(r *runner, args []string) error {
 	if err := r.refuseDirty(s, name); err != nil {
 		return err
 	}
-	unlock, err := s.Lock()
+	unlock, err := s.Lock(r.ctx())
 	if err != nil {
 		return err
 	}
@@ -533,7 +533,7 @@ func (r *runner) eachSkill(cmd string, args []string, extra func(*flag.FlagSet),
 		}
 	}
 	defer r.closeFetches()
-	unlock, err := s.Lock()
+	unlock, err := s.Lock(r.ctx())
 	if err != nil {
 		return err
 	}

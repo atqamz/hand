@@ -128,7 +128,7 @@ func (r *runner) bump(s fleet.Skills, name string, e fleet.Managed, p probed) (s
 		return "pending", fmt.Sprintf("the branch %s is on %s from an earlier run; merge its pull request and pull, or delete the branch to send it again; if that run stopped at `gh pr create`, open the pull request from the branch by hand", pr.branch, pr.repo), nil
 	}
 	cs := fleet.Skills{Base: c.repo, Scope: "project", Meta: filepath.Join(c.repo, ".git", "hand-skills")}
-	unlock, err := cs.Lock()
+	unlock, err := cs.Lock(ctx)
 	if err != nil {
 		return "", "", err
 	}
