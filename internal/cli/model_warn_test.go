@@ -16,7 +16,6 @@ import (
 )
 
 func TestSupervisorStartWarnsAboutAnUnverifiedModelAndLaunchesIt(t *testing.T) {
-	t.Parallel()
 	for _, c := range []struct {
 		name string
 		args []string
@@ -44,7 +43,6 @@ func TestSupervisorStartWarnsAboutAnUnverifiedModelAndLaunchesIt(t *testing.T) {
 }
 
 func TestSupervisorStartPrintsNoWarnForAVerifiedModel(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	if out := startClaudeSupervisor(h); strings.Contains(out, "warn") {
 		t.Fatalf("start = %q", out)
@@ -52,7 +50,6 @@ func TestSupervisorStartPrintsNoWarnForAVerifiedModel(t *testing.T) {
 }
 
 func TestSupervisorStartLeavesTheEffortToTheHarness(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	out := h.ok("supervisor", "start", "--harness", "claude", "--model", "sonnet")
 	has(t, "start", out, "status: running")
@@ -66,7 +63,6 @@ func TestSupervisorStartLeavesTheEffortToTheHarness(t *testing.T) {
 }
 
 func TestSupervisorSwitchRefusesAnotherSupervisorsRef(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	if _, errOut, code := h.run("supervisor", "switch", "--expect", "s2", "--model", "opus", "--effort", "high"); code != 3 || !strings.Contains(errOut, "s2 is on screen, but s1 is running now; refresh and try again") {
@@ -78,7 +74,6 @@ func TestSupervisorSwitchRefusesAnotherSupervisorsRef(t *testing.T) {
 }
 
 func TestAStaleRefLeavesThePendingSwitchAlone(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	has(t, "pending", h.ok("supervisor", "switch", "--expect", "s1", "--model", "opus", "--effort", "high"), "switch: pending", "model: opus")
@@ -89,7 +84,6 @@ func TestAStaleRefLeavesThePendingSwitchAlone(t *testing.T) {
 }
 
 func TestSupervisorSwitchChecksItsRefUnderTheDeliveryLock(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	ctx := context.Background()
@@ -149,7 +143,6 @@ func TestSupervisorSwitchChecksItsRefUnderTheDeliveryLock(t *testing.T) {
 }
 
 func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {
-	t.Parallel()
 	for _, c := range []struct {
 		args []string
 		want string
@@ -180,7 +173,6 @@ func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {
 }
 
 func TestSupervisorLaunchFailureNamesTheModel(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "create_failed", Message: "terminal failed to start"}
@@ -193,7 +185,6 @@ func TestSupervisorLaunchFailureNamesTheModel(t *testing.T) {
 }
 
 func TestSupervisorResumeAndSwitchRepeatTheWarning(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	h.ok("supervisor", "start", "--harness", "claude", "--model", "acme-opus", "--effort", "high")
 	h.ok("supervisor", "stop")

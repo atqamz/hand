@@ -88,7 +88,6 @@ func TestAnExitedWorkerIsRecordedNotRequested(t *testing.T) {
 }
 
 func TestASupervisorOfAnotherLuvusIsRecordedAndNeverSignalled(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	pid := rt.lastPID()
@@ -105,7 +104,6 @@ func TestASupervisorOfAnotherLuvusIsRecordedAndNeverSignalled(t *testing.T) {
 }
 
 func TestASupervisorOfThisLuvusIsStillStoppedAfterARestart(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	pid := rt.lastPID()
@@ -166,7 +164,6 @@ func TestAnotherPathToTheSameSocketIsNotForeign(t *testing.T) {
 }
 
 func TestTheLaunchRecordsTheSocketOfItsLuvus(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	want := fx.h.vars["HAND_LUVUS_SOCKET"]
 	fx.start()
@@ -192,7 +189,6 @@ func TestASwitchRecordsTheSocketOfItsLuvus(t *testing.T) {
 }
 
 func TestAHealthyRowFromBeforeTheSocketWasRecordedGetsThisLuvusSocket(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	recordSocket(t, fx.h, "attempt", "")

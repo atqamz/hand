@@ -93,7 +93,6 @@ func TestTaskDoneRecordsDeliverables(t *testing.T) {
 }
 
 func TestDeliverablesAreNewestFirstAcrossReportsAndDone(t *testing.T) {
-	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Mixed")
 	h.ok("task", "start", "t1")

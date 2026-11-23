@@ -414,7 +414,6 @@ func codexSession(t *testing.T, h *harness) {
 }
 
 func TestCodexSupervisorAcceptsTrustOfTheFleetHomeAndRecordsIt(t *testing.T) {
-	t.Parallel()
 	for _, old := range []bool{false, true} {
 		h, rt := newSupervisorFixture(t)
 		screen := codexTrustScreen(old, 120, h.home, "", false)
@@ -432,7 +431,6 @@ func TestCodexSupervisorAcceptsTrustOfTheFleetHomeAndRecordsIt(t *testing.T) {
 }
 
 func TestCodexSupervisorInsideAnotherRepositoryIsNotTrusted(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	screen := codexTrustScreen(false, 120, h.home, filepath.Dir(h.home), false)
 	rt.set(func(rt *fakeRuntime) { rt.screen = screen })
@@ -443,7 +441,6 @@ func TestCodexSupervisorInsideAnotherRepositoryIsNotTrusted(t *testing.T) {
 }
 
 func TestDeliveryWaitsWhileCodexAsksForTrust(t *testing.T) {
-	t.Parallel()
 	for _, old := range []bool{false, true} {
 		h, rt := newSupervisorFixture(t)
 		rt.set(func(rt *fakeRuntime) { rt.screen = codexTrustScreen(old, 120, "/elsewhere", "", false) })
@@ -458,7 +455,6 @@ func TestDeliveryWaitsWhileCodexAsksForTrust(t *testing.T) {
 }
 
 func TestDeliveryIgnoresTheTrustQuestionWhenNoTrustRowsShow(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	has(t, "start", startCodexSupervisor(t, h), "trust: not asked")
 	codexSession(t, h)

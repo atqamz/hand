@@ -27,7 +27,6 @@ func refuseAtPrompt(rt *fakeRuntime) {
 }
 
 func TestAQueuedMessageNamesBlockedWithTheHintAndTheKeysThatClearIt(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Trust this folder?" })
@@ -60,7 +59,6 @@ func TestABlockedMessageIsTypedByTheWatcherOnceTheScreenClearsAndLosesItsReason(
 }
 
 func TestAMessageTheHarnessRefusesWhileItWorksNamesTheTurnSince(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
@@ -74,7 +72,6 @@ func TestAMessageTheHarnessRefusesWhileItWorksNamesTheTurnSince(t *testing.T) {
 }
 
 func TestAMessageTheHarnessRefusesAtAnIdlePromptIsHeldNotATurn(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -86,7 +83,6 @@ func TestAMessageTheHarnessRefusesAtAnIdlePromptIsHeldNotATurn(t *testing.T) {
 }
 
 func TestAMessageRefusedUnderAUsageLimitNamesWhenItResets(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
@@ -98,7 +94,6 @@ func TestAMessageRefusedUnderAUsageLimitNamesWhenItResets(t *testing.T) {
 }
 
 func TestAMessageWaitsForAPendingSwitchAndNamesIt(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("supervisor", "switch", "--model", "opus", "--effort", "high")
@@ -112,7 +107,6 @@ func TestAMessageWaitsForAPendingSwitchAndNamesIt(t *testing.T) {
 }
 
 func TestAMessageWithNoSupervisorWaitsAsNoSupervisor(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "reason: no_supervisor")
 	if in := inputState(t, h, 1); in.Reason != state.ReasonNoSupervisor || in.Status() != "queued" {
@@ -121,7 +115,6 @@ func TestAMessageWithNoSupervisorWaitsAsNoSupervisor(t *testing.T) {
 }
 
 func TestAMessageWaitsAsLostWhenTheResumeNoteWasNotTaken(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	if err := openStore(t, h).NoteSupervisor(context.Background(), 1, "blocked", state.NoteLost); err != nil {
@@ -134,7 +127,6 @@ func TestAMessageWaitsAsLostWhenTheResumeNoteWasNotTaken(t *testing.T) {
 }
 
 func TestTwoWaitingMessagesShareOneReasonAndOneEvent(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Trust this folder?" })

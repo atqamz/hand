@@ -106,7 +106,6 @@ func TestClaudeInputLuvusRefusedDuringATurnIsNotTyped(t *testing.T) {
 }
 
 func TestQueuedMessagesAreNotTypedOnceTheFirstStartedATurn(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "blocked", false })

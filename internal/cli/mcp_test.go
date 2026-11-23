@@ -131,7 +131,6 @@ func TestMCPFlagIsNotInheritedByContinueAndAbsentWithoutIt(t *testing.T) {
 }
 
 func TestSupervisorStartHasNoMCPFlag(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	if _, errOut, code := fx.h.run("supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--mcp", "mcp.json"); code != 2 || !strings.Contains(errOut, "flag provided but not defined: -mcp") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)

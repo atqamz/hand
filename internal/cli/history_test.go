@@ -98,7 +98,6 @@ func TestHistorySearchPrintsDecisionsAndTaskTitlesAndReadsThemWhole(t *testing.T
 }
 
 func TestHistorySearchTakesFlagsAfterTheQueryAndJoinsWords(t *testing.T) {
-	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-11-10T10:00:00Z", "amber kiln")
 	s.input(2, "2026-11-10T11:00:00Z", "amber only")

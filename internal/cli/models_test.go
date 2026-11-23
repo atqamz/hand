@@ -169,7 +169,6 @@ func TestAttemptStartMarksAModelThatLeftTheList(t *testing.T) {
 }
 
 func TestNoRequestPathRunsAHarness(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	log := filepath.Join(t.TempDir(), "log")
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {

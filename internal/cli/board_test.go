@@ -599,7 +599,6 @@ func postBoard(t *testing.T, base, token, path string, form url.Values) int {
 }
 
 func TestALoopbackBoardServesControls(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	base, stop := startBoard(t, h, "127.0.0.1")
@@ -616,7 +615,6 @@ func TestALoopbackBoardServesControls(t *testing.T) {
 }
 
 func TestANetworkBoardIsReadOnly(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	base, stop := startBoard(t, h, "0.0.0.0")

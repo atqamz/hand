@@ -65,7 +65,6 @@ func afterStart(o *opencodeRig, n int) []string {
 }
 
 func TestOpencodeSwitchStopsSwitchesTheModelAndResumesTheSameSession(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, nil, "--model", "local/m1")
 	out := h.ok("supervisor", "switch", "--harness", "opencode", "--model", "local/m2", "--effort", "deep")
 	has(t, "switch", out, "supervisor: s2", "switch: applied", "model: local/m2", "effort: deep")
@@ -81,7 +80,6 @@ func TestOpencodeSwitchStopsSwitchesTheModelAndResumesTheSameSession(t *testing.
 }
 
 func TestOpencodeSwitchWithoutAVariantSendsNone(t *testing.T) {
-	t.Parallel()
 	h, _, o, session := runningOpencode(t, nil, "--model", "local/m1")
 	has(t, "switch", h.ok("supervisor", "switch", "--model", "local/m2"), "switch: applied", "model: local/m2")
 	if got := afterStart(o, 2); len(got) != 3 || got[1] != "switch "+session+` {"model":{"providerID":"local","id":"m2"}}` {
@@ -90,7 +88,6 @@ func TestOpencodeSwitchWithoutAVariantSendsNone(t *testing.T) {
 }
 
 func TestOpencodeSwitchOfTheVariantAloneKeepsTheModel(t *testing.T) {
-	t.Parallel()
 	h, _, o, session := runningOpencode(t, nil, "--model", "local/m2", "--effort", "fast")
 	has(t, "switch", h.ok("supervisor", "switch", "--effort", "deep"), "switch: applied", "model: local/m2", "effort: deep")
 	if got := afterStart(o, 2); len(got) != 3 || got[1] != "switch "+session+` {"model":{"providerID":"local","id":"m2","variant":"deep"}}` {
@@ -99,7 +96,6 @@ func TestOpencodeSwitchOfTheVariantAloneKeepsTheModel(t *testing.T) {
 }
 
 func TestOpencodeSwitchWhileWorkingCallsNothing(t *testing.T) {
-	t.Parallel()
 	h, rt, o, _ := runningOpencode(t, nil, "--model", "local/m1")
 	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	out := h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
@@ -110,7 +106,6 @@ func TestOpencodeSwitchWhileWorkingCallsNothing(t *testing.T) {
 }
 
 func TestOpencodeSwitchRefusesWhatCannotWork(t *testing.T) {
-	t.Parallel()
 	h, _, o, _ := runningOpencode(t, nil)
 	for _, c := range []struct {
 		args []string
@@ -132,7 +127,6 @@ func TestOpencodeSwitchRefusesWhatCannotWork(t *testing.T) {
 }
 
 func TestOpencodeSwitchFailureLeavesTheSupervisorStoppedWithTheResumeHint(t *testing.T) {
-	t.Parallel()
 	for name, tc := range map[string]struct {
 		extra map[string]string
 		want  string
@@ -157,7 +151,6 @@ func TestOpencodeSwitchFailureLeavesTheSupervisorStoppedWithTheResumeHint(t *tes
 }
 
 func TestOpencodeResumeAfterAPendingSwitchSwitchesBeforeTheNewPane(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, nil, "--model", "local/m1")
 	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	has(t, "switch", h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "deep"), "switch: pending")
@@ -170,7 +163,6 @@ func TestOpencodeResumeAfterAPendingSwitchSwitchesBeforeTheNewPane(t *testing.T)
 }
 
 func TestSwitchingFromClaudeToOpencodeStartsAFreshSession(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, map[string]string{"models": "local/m1\nlocal/m2\n"})
 	startClaudeSupervisor(h)
@@ -190,7 +182,6 @@ func TestSwitchingFromClaudeToOpencodeStartsAFreshSession(t *testing.T) {
 }
 
 func TestOpencodeSwitchToAnotherModelSendsNoVariantAndDefaultIsNotStored(t *testing.T) {
-	t.Parallel()
 	h, _, o, session := runningOpencode(t, nil, "--model", "local/m2", "--effort", "fast")
 	out := h.ok("supervisor", "switch", "--model", "local/m1")
 	has(t, "switch", out, "switch: applied", "model: local/m1")
@@ -212,7 +203,6 @@ func TestOpencodeSwitchToAnotherModelSendsNoVariantAndDefaultIsNotStored(t *test
 }
 
 func TestOpencodeSwitchRefusesAModelOpencodeDoesNotList(t *testing.T) {
-	t.Parallel()
 	h, _, o, _ := runningOpencode(t, nil, "--model", "local/m1")
 	_, errOut, code := h.run("supervisor", "switch", "--model", "nope/x")
 	if code != 2 || !strings.Contains(errOut, "opencode model nope/x is not in `opencode models`") || strings.Contains(errOut, "starting anyway") {
@@ -225,7 +215,6 @@ func TestOpencodeSwitchRefusesAModelOpencodeDoesNotList(t *testing.T) {
 }
 
 func TestOpencodeSwitchRefreshesTheModelListOnceBeforeRefusing(t *testing.T) {
-	t.Parallel()
 	more := filepath.Join(t.TempDir(), "more")
 	h, _, o, session := runningOpencode(t, map[string]string{"more": more}, "--model", "local/m1")
 	if err := os.WriteFile(more, []byte("late/m9\n"), 0o644); err != nil {
@@ -262,7 +251,6 @@ func pendingInputs(t *testing.T, h *harness) []state.SupervisorInput {
 }
 
 func TestOpencodeSwitchSaysWhenTheNewModelDoesNotTakeTheResumeNote(t *testing.T) {
-	t.Parallel()
 	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
 	out := h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
 	has(t, "switch", out, "supervisor: s2", "switch: \"applied, but "+lostNote+"\"")
@@ -320,7 +308,6 @@ func TestAWatcherThatAppliesASwitchTheNewModelDoesNotAnswerKeepsTheInputsPending
 const lostResume = "opencode did not take the resume note: is local/m2 available? Switch to another model with `hand supervisor switch --model M`"
 
 func TestResumingAHeldSupervisorOnTheSameModelHoldsTheMessagesAgain(t *testing.T) {
-	t.Parallel()
 	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
 	h.ok("supervisor", "switch", "--model", "local/m2")
 	has(t, "send", h.ok("supervisor", "send", "--text", "operator message"), "delivered: no")
@@ -366,7 +353,6 @@ func TestAnAutoresumeOnTheModelThatDidNotAnswerHoldsTheMessagesAgain(t *testing.
 }
 
 func TestOpencodeSwitchFromTheDefaultModelDoesNotNameAModelToSwitchBackTo(t *testing.T) {
-	t.Parallel()
 	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"})
 	out := h.ok("supervisor", "switch", "--model", "local/m2")
 	has(t, "switch", out, "Switch to another model with `hand supervisor switch --model M`")
@@ -376,7 +362,6 @@ func TestOpencodeSwitchFromTheDefaultModelDoesNotNameAModelToSwitchBackTo(t *tes
 }
 
 func TestACheckThatCannotReadTheSessionHoldsNothing(t *testing.T) {
-	t.Parallel()
 	listdie := filepath.Join(t.TempDir(), "listdie")
 	h, _, _, _ := runningOpencode(t, map[string]string{"listdie": listdie}, "--model", "local/m1")
 	if err := os.WriteFile(listdie, []byte("database is locked\n"), 0o644); err != nil {
@@ -391,7 +376,6 @@ func TestACheckThatCannotReadTheSessionHoldsNothing(t *testing.T) {
 }
 
 func TestOpencodeSwitchFailureCanBeDroppedAndTheSupervisorResumesOnItsOldModel(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, map[string]string{"swdie": "database is locked"}, "--model", "local/m1", "--effort", "fast")
 	if _, _, code := h.run("supervisor", "switch", "--model", "local/m2", "--effort", "deep"); code == 0 {
 		t.Fatal("the switch did not fail")
@@ -417,7 +401,6 @@ func TestOpencodeSwitchFailureCanBeDroppedAndTheSupervisorResumesOnItsOldModel(t
 }
 
 func TestOpencodeResumeRetriesAFailedSwitchAndSucceeds(t *testing.T) {
-	t.Parallel()
 	once := filepath.Join(t.TempDir(), "once")
 	h, _, o, session := runningOpencode(t, map[string]string{"swonce": once}, "--model", "local/m1")
 	if _, errOut, code := h.run("supervisor", "switch", "--model", "local/m2", "--effort", "deep"); code == 0 || !strings.Contains(errOut, "database is locked") {
@@ -433,7 +416,6 @@ func TestOpencodeResumeRetriesAFailedSwitchAndSucceeds(t *testing.T) {
 }
 
 func TestTheBoardSaysWhereToSwitchBackFrom(t *testing.T) {
-	t.Parallel()
 	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1", "--effort", "fast")
 	h.board = true
 	out := h.ok("supervisor", "switch", "--model", "local/m2")
@@ -444,7 +426,6 @@ func TestTheBoardSaysWhereToSwitchBackFrom(t *testing.T) {
 }
 
 func TestAFailedPaneAfterASuccessfulSwitchPutsTheSessionBackOnTheOldModel(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, nil, "--model", "local/m1")
 	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
@@ -459,7 +440,6 @@ func TestAFailedPaneAfterASuccessfulSwitchPutsTheSessionBackOnTheOldModel(t *tes
 }
 
 func TestAFailedPaneFromTheDefaultModelPutsTheSessionBackOnWhatItRanOn(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, map[string]string{"sessionmodel": `{"id":"m0","providerID":"local","variant":"fast"}`})
 	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
@@ -474,7 +454,6 @@ func TestAFailedPaneFromTheDefaultModelPutsTheSessionBackOnWhatItRanOn(t *testin
 }
 
 func TestAFailedPaneFromAnUnreadableModelSaysWhereTheSessionStays(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, nil)
 	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
@@ -489,7 +468,6 @@ func TestAFailedPaneFromAnUnreadableModelSaysWhereTheSessionStays(t *testing.T) 
 }
 
 func TestASwitchFromTheDefaultModelStopsWhenTheSessionModelCannotBeRead(t *testing.T) {
-	t.Parallel()
 	h, _, o, _ := runningOpencode(t, map[string]string{"getdie": "database is locked"})
 	_, errOut, code := h.run("supervisor", "switch", "--model", "local/m2")
 	if code == 0 || !strings.Contains(errOut, "database is locked") {
@@ -530,7 +508,6 @@ func TestAWatcherThatCannotReadTheSessionSaysSo(t *testing.T) {
 }
 
 func TestAFailedRevertSaysWhereTheSessionIsLeft(t *testing.T) {
-	t.Parallel()
 	h, rt, o, session := runningOpencode(t, map[string]string{"swdiebody": `"id":"m1"`}, "--model", "local/m1")
 	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
@@ -545,7 +522,6 @@ func TestAFailedRevertSaysWhereTheSessionIsLeft(t *testing.T) {
 }
 
 func TestAResumeNoteThatCouldNotBeSentHoldsNothing(t *testing.T) {
-	t.Parallel()
 	h, rt, _, _ := runningOpencode(t, nil, "--model", "local/m1")
 	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "not at a prompt"}

@@ -50,7 +50,6 @@ func TestLastTurnsIsEmptyWithoutOperatorOrSupervisorText(t *testing.T) {
 }
 
 func TestLastTurnsNormalisesLineEndingsAndSkipsEmptyEntries(t *testing.T) {
-	t.Parallel()
 	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "  a\r\nb  "), tailTurn("supervisor", "\n\n")})
 	if strings.Contains(got, "\r") || !strings.Contains(got, "\n\na\nb\n") || strings.Contains(got, "## supervisor") {
 		t.Fatalf("%q", got)
@@ -58,7 +57,6 @@ func TestLastTurnsNormalisesLineEndingsAndSkipsEmptyEntries(t *testing.T) {
 }
 
 func TestLastTurnsCutsTheMiddleOfAnOversizedNewestEntryAndKeepsItsEnd(t *testing.T) {
-	t.Parallel()
 	text := "START " + strings.Repeat("filler ", 2000) + "Which one should I brief?"
 	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "older"), tailTurn("supervisor", text)})
 	if !strings.Contains(got, "START ") || !strings.HasSuffix(got, "Which one should I brief?\n") || !strings.Contains(got, "bytes cut …]") {
@@ -78,7 +76,6 @@ func TestLastTurnsCutsTheMiddleOfAnOversizedNewestEntryAndKeepsItsEnd(t *testing
 }
 
 func TestLastTurnsKeepsMoreOfTheEndThanOfTheStart(t *testing.T) {
-	t.Parallel()
 	text := strings.Repeat("a", 5000) + strings.Repeat("b", 5000)
 	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("supervisor", text)})
 	if a, b := strings.Count(got, "a")-strings.Count(got[:strings.Index(got, "\n\n## ")], "a"), strings.Count(got, "b"); b <= a {
@@ -87,7 +84,6 @@ func TestLastTurnsKeepsMoreOfTheEndThanOfTheStart(t *testing.T) {
 }
 
 func TestLastTurnsCutsOnRuneBoundaries(t *testing.T) {
-	t.Parallel()
 	for shift := 0; shift < 4; shift++ {
 		text := strings.Repeat("a", shift) + strings.Repeat("日本語", 2000) + strings.Repeat("é", 10)
 		got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("supervisor", text)})
@@ -98,7 +94,6 @@ func TestLastTurnsCutsOnRuneBoundaries(t *testing.T) {
 }
 
 func TestLastTurnsStopsAtAnOversizedEntryInTheMiddle(t *testing.T) {
-	t.Parallel()
 	big := strings.Repeat("x", 4000)
 	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "Y"), tailTurn("operator", "oldest"), tailTurn("supervisor", big), tailTurn("operator", "newest")})
 	if !strings.Contains(got, "newest") || !strings.Contains(got, "bytes cut") || strings.Contains(got, "oldest") || strings.Contains(got, "\n\nY\n") {
@@ -107,7 +102,6 @@ func TestLastTurnsStopsAtAnOversizedEntryInTheMiddle(t *testing.T) {
 }
 
 func TestLastTurnsRemovesASecretBeforeTheCut(t *testing.T) {
-	t.Parallel()
 	token := "ghp_" + strings.Repeat("Z", 40)
 	left := tailBytes - tailBytes/3
 	for offset := -50; offset <= 50; offset += 5 {
@@ -124,7 +118,6 @@ func TestLastTurnsRemovesASecretBeforeTheCut(t *testing.T) {
 }
 
 func TestLastTurnsStaysUnderTheSizePin(t *testing.T) {
-	t.Parallel()
 	var in []transcript.Entry
 	for i := 0; i < 10; i++ {
 		in = append(in, tailTurn("supervisor", strings.Repeat("word ", 2000)))
@@ -247,7 +240,6 @@ func TestCutMiddleLandsOnAContinuationByteOfEveryWidth(t *testing.T) {
 }
 
 func TestLastTurnsKeepsTheTextWithinTheBudgetAndThePinnedSize(t *testing.T) {
-	t.Parallel()
 	body := func(got string) string {
 		_, b, _ := strings.Cut(got[strings.Index(got, "## supervisor"):], "\n\n")
 		return strings.TrimSuffix(b, "\n")
@@ -275,7 +267,6 @@ func TestLastTurnsKeepsTheTextWithinTheBudgetAndThePinnedSize(t *testing.T) {
 }
 
 func TestLastTurnsDropsAnEntryWhenNothingFitsBesideTheMarker(t *testing.T) {
-	t.Parallel()
 	got := lastTurns("s1", tailNow, []transcript.Entry{tailTurn("operator", "older"), tailTurn("supervisor", strings.Repeat("s", 5000)), tailTurn("operator", strings.Repeat("n", 3060))})
 	if strings.Contains(got, "bytes cut") || strings.Contains(got, "ssss") || strings.Contains(got, "older") || !strings.Contains(got, strings.Repeat("n", 3060)) {
 		t.Fatalf("%s", got)

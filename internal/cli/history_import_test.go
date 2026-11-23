@@ -249,7 +249,6 @@ func TestHistoryImportWritesLongSessionsInChunksOf500(t *testing.T) {
 }
 
 func TestHistoryImportRepliesAppearInHistorySearch(t *testing.T) {
-	t.Parallel()
 	g := newImportRig(t)
 	g.fleet()
 	g.h.ok("history", "import")

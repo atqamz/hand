@@ -220,7 +220,6 @@ func TestOpencodeWorkerLaunchFailsWhenTheAnswerIsNotTheRequestedSession(t *testi
 }
 
 func TestOpencodeSupervisorLaunchFailsWhenTheAnswerIsAnotherSession(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, map[string]string{"answer": "ses_other"})
 	_, errOut, code := h.run("supervisor", "start", "--harness", "opencode", "--model", "local/m2")
@@ -234,7 +233,6 @@ func TestOpencodeSupervisorLaunchFailsWhenTheAnswerIsAnotherSession(t *testing.T
 }
 
 func TestOpencodeSupervisorSessionIsCreatedOnItsModelBeforeThePane(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, nil)
 	out := h.ok("supervisor", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep")
@@ -247,7 +245,6 @@ func TestOpencodeSupervisorSessionIsCreatedOnItsModelBeforeThePane(t *testing.T)
 }
 
 func TestOpencodeSupervisorLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, map[string]string{"reject": "Unknown provider nope"})
 	_, errOut, code := h.run("supervisor", "start", "--harness", "opencode", "--model", "local/m2")
@@ -261,7 +258,6 @@ func TestOpencodeSupervisorLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T
 }
 
 func TestOpencodeSupervisorStartAndResumeKeepTheModelAndResumeCreatesNoSession(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, nil)
 	h.ok("supervisor", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep")

@@ -230,7 +230,6 @@ func TestAFarTimerDoesNotHoldTheStallWake(t *testing.T) {
 }
 
 func TestWakeIsRefusedWithoutAManagedSupervisor(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	gen := fx.rt.srv.Generation()
 	refused := "timers fire only while a managed supervisor runs, and none does: start one with `hand supervisor start`; a supervisor opened by hand waits with `hand wait --timeout` instead"
@@ -257,7 +256,6 @@ func TestWakeIsRefusedWithoutAManagedSupervisor(t *testing.T) {
 }
 
 func TestOrientShowsUnwatchedWorkWhenNoManagedSupervisorFiresTheTimer(t *testing.T) {
-	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	gen := fx.rt.srv.Generation()
 	fx.h.ok("wake", "--after", "30m", "--note", "check PR 909")

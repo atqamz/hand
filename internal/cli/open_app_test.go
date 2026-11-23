@@ -17,7 +17,6 @@ func tailscaleMain(args []string) int {
 }
 
 func TestOpenPrintPrintsTheAppLinkNextToTheTokenLink(t *testing.T) {
-	t.Parallel()
 	fx := newOpenFixture(t)
 	for ref, page := range map[string]string{
 		"t1":         "task/t1",

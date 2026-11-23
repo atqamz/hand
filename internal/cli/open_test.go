@@ -156,7 +156,6 @@ func (fx *openFixture) token(t *testing.T) string {
 }
 
 func TestOpenDeepLinks(t *testing.T) {
-	t.Parallel()
 	fx := newOpenFixture(t)
 	for i, c := range []struct {
 		args       []string
@@ -194,7 +193,6 @@ func TestOpenDeepLinks(t *testing.T) {
 }
 
 func TestOpenNeverPrintsTheToken(t *testing.T) {
-	t.Parallel()
 	fx := newOpenFixture(t)
 	fx.h.ok("open")
 	tok := fx.token(t)

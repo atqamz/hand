@@ -221,7 +221,6 @@ func TestAttemptStartListsTheTaskFilesBeforeTheFooterButNotOnContinue(t *testing
 }
 
 func TestTaskAttachWaitsForARunningPrune(t *testing.T) {
-	t.Parallel()
 	h := attachFixture(t)
 	if err := os.MkdirAll(filepath.Join(h.home, "locks"), 0o755); err != nil {
 		t.Fatal(err)

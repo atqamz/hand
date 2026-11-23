@@ -48,7 +48,6 @@ func turnLines(out string) []string {
 }
 
 func TestOrientFlagsALongSupervisorTurn(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	cursor := regexp.MustCompile(`(?m)^cursor: (\d+)$`).FindStringSubmatch(h.ok("orient"))[1]
@@ -92,7 +91,6 @@ func TestOrientFlagsALongSupervisorTurn(t *testing.T) {
 }
 
 func TestOrientDoesNotFlagATurnWithoutAManagedSupervisor(t *testing.T) {
-	t.Parallel()
 	h, _ := newSupervisorFixture(t)
 	h.advance(time.Hour)
 	if l := turnLines(h.ok("orient")); len(l) != 0 {
@@ -101,7 +99,6 @@ func TestOrientDoesNotFlagATurnWithoutAManagedSupervisor(t *testing.T) {
 }
 
 func TestOrientWarnsOnceWhenAnswerWithinIsInvalid(t *testing.T) {
-	t.Parallel()
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	cursor := regexp.MustCompile(`(?m)^cursor: (\d+)$`).FindStringSubmatch(h.ok("orient"))[1]
