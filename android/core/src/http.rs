@@ -12,7 +12,7 @@ use crate::proxy::unpaired_403;
 pub const MAX_BODY: usize = 16 << 20;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
-// The Board stops a skills read after 5 minutes (skillsWait in internal/board); 10 s of slack.
+// The Board stops a skills read or sync after 5 minutes (skillsWait in internal/board); 10 s of slack.
 pub const SKILLS_TIMEOUT: Duration = Duration::from_secs(310);
 pub const MAX_UPLOAD: usize = 10 << 20;
 const MAX_HEAD: usize = 16 * 1024;
@@ -157,7 +157,10 @@ impl Request {
         bytes.extend_from_slice(body);
         Ok(Self {
             bytes,
-            timeout: if method == Method::Get && path.split('?').next() == Some("/api/v1/skills") {
+            timeout: if matches!(
+                (method, path.split('?').next()),
+                (Method::Get, Some("/api/v1/skills")) | (Method::Post, Some("/api/v1/skills/sync"))
+            ) {
                 SKILLS_TIMEOUT
             } else {
                 REQUEST_TIMEOUT
@@ -954,9 +957,13 @@ mod tests {
     }
 
     #[test]
-    fn a_skills_read_outlasts_the_boards_five_minute_limit() {
+    fn a_skills_read_and_a_sync_outlast_the_boards_five_minute_limit() {
         assert!(SKILLS_TIMEOUT > Duration::from_secs(300));
         assert_eq!(timeout_of(Method::Get, "/api/v1/skills"), SKILLS_TIMEOUT);
+        assert_eq!(
+            timeout_of(Method::Post, "/api/v1/skills/sync"),
+            SKILLS_TIMEOUT
+        );
         assert_eq!(
             timeout_of(Method::Get, "/api/v1/skills?scope=project&project=web"),
             SKILLS_TIMEOUT
@@ -970,6 +977,7 @@ mod tests {
             "/api/v1/skill",
             "/api/v1/skillsx",
             "/api/v1/skills/update",
+            "/api/v1/skills/sync",
             "/alerts/feed",
         ] {
             assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");

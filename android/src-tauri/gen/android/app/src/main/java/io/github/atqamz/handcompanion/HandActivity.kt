@@ -203,7 +203,7 @@ class HandActivity : ComponentActivity() {
     val model = remember(fleet) { skillsModel(fleet) }
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.reload() }
-    SkillsScreen(state, onBack, model::reload)
+    SkillsScreen(state, onBack, model::reload) { model.sync(it.scope, it.project) }
   }
 
   private fun attemptModel(fleet: String, ref: String): AttemptModel =
