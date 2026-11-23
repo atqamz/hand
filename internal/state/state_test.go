@@ -447,17 +447,19 @@ func TestTypedDeliveriesAreReadInOneScan(t *testing.T) {
 	}
 }
 
-func TestSkillsSyncedIsAnEventAndNotAWakeKind(t *testing.T) {
+func TestSkillsEventsAreEventsAndNotWakeKinds(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
-	if err := s.SkillsSynced(ctx, "fleet by phone (Pixel): 1 updated"); err != nil {
-		t.Fatal(err)
-	}
-	events, err := s.RecentEventsOf(ctx, []string{"skills.synced"}, 5)
-	if err != nil || len(events) != 1 || events[0].Detail != "fleet by phone (Pixel): 1 updated" || events[0].TaskID != 0 {
-		t.Fatalf("events = %+v, %v", events, err)
-	}
-	if slices.Contains(WakeKinds, "skills.synced") {
-		t.Fatal("skills.synced wakes the supervisor")
+	for _, kind := range []string{"synced", "added", "removed"} {
+		if err := s.NoteSkills(ctx, kind, "fleet by phone (Pixel): 1 updated"); err != nil {
+			t.Fatal(err)
+		}
+		events, err := s.RecentEventsOf(ctx, []string{"skills." + kind}, 5)
+		if err != nil || len(events) != 1 || events[0].Detail != "fleet by phone (Pixel): 1 updated" || events[0].TaskID != 0 {
+			t.Fatalf("%s events = %+v, %v", kind, events, err)
+		}
+		if slices.Contains(WakeKinds, "skills."+kind) {
+			t.Fatalf("skills.%s wakes the supervisor", kind)
+		}
 	}
 }

@@ -101,6 +101,12 @@ var apiRoutes = []apiRoute{
 	{http.MethodPost, "/skills/propose", func(b *Board) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "propose") }
 	}},
+	{http.MethodPost, "/skills/add", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "add") }
+	}},
+	{http.MethodPost, "/skills/remove", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "remove") }
+	}},
 	{http.MethodPost, "/attempt/{id}/keys", func(b *Board) http.HandlerFunc { return b.apiAttemptKeys }},
 	{http.MethodPost, "/decision/{id}/answer", func(b *Board) http.HandlerFunc { return b.apiAnswer }},
 	{http.MethodPost, "/report/{id}/ack", func(b *Board) http.HandlerFunc { return b.apiAck }},

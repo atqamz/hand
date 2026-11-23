@@ -75,6 +75,21 @@ func (p *phoneSkills) ran() int {
 	return len(p.spy.actions)
 }
 
+func (p *phoneSkills) skillsEvents() []string {
+	p.t.Helper()
+	events, err := p.fx.st.EventsAfter(context.Background(), 0, nil, 10000)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	var out []string
+	for _, e := range events {
+		if strings.HasPrefix(e.Kind, "skills.") {
+			out = append(out, e.Kind+" "+e.Detail)
+		}
+	}
+	return out
+}
+
 func (p *phoneSkills) refuses(rec *httptest.ResponseRecorder, status int, code, sentence string) {
 	p.t.Helper()
 	e := testAPIError(p.t, rec, status, code)
@@ -84,7 +99,7 @@ func (p *phoneSkills) refuses(rec *httptest.ResponseRecorder, status int, code, 
 }
 
 const (
-	phoneNoUpdate = "a paired Companion cannot update or propose skills; use the host's Board"
+	phoneNoUpdate = "a paired Companion cannot update, propose, add or remove skills; use the host's Board"
 	phoneNoYes    = "a paired Companion cannot apply a third-party update; read the diff, then tell the supervisor or use the host's Board"
 	phoneNoUser   = "a paired Companion cannot sync the user scope; use the host's Board"
 )
@@ -136,19 +151,25 @@ func TestAPhoneCannotSyncWithAYes(t *testing.T) {
 	}
 }
 
-func TestAPhoneCannotUpdateOrPropose(t *testing.T) {
+func TestAPhoneCannotUpdateProposeAddOrRemove(t *testing.T) {
 	p := newPhoneSkills(t)
 	for _, c := range []struct{ verb, body string }{
 		{"update", `{"scope":"fleet"}`},
 		{"update", `{"scope":"project","project":"app","name":"triage"}`},
 		{"propose", `{"scope":"fleet","name":"triage"}`},
+		{"add", `{"scope":"fleet","source":"triage"}`},
+		{"add", `{"scope":"project","project":"app","source":"triage","ref":"v1"}`},
+		{"remove", `{"scope":"fleet","name":"triage"}`},
+		{"remove", `{"scope":"user","name":"triage"}`},
 		{"update", ``},
 		{"propose", `{"scope":"nowhere"}`},
+		{"add", `{"scope":"nowhere"}`},
+		{"remove", ``},
 	} {
 		p.refuses(p.phone(c.verb, c.body), http.StatusForbidden, "forbidden", phoneNoUpdate)
 	}
-	if p.ran() != 0 {
-		t.Fatal("the hook ran")
+	if p.ran() != 0 || len(p.events("skills.added", "skills.removed")) != 0 {
+		t.Fatal("the hook ran or an event was written")
 	}
 }
 
@@ -274,7 +295,7 @@ func TestSyncRecordsWhoAskedAndNothingElse(t *testing.T) {
 	}
 }
 
-func TestSyncWritesNoEventForARefusalAndOnlyOneForUpdateAndPropose(t *testing.T) {
+func TestARefusedSyncAndAnUpdateAndAProposeWriteNoSkillsEvent(t *testing.T) {
 	p := newPhoneSkills(t)
 	p.phone("sync", `{"scope":"user"}`)
 	p.phone("sync", `{"scope":"fleet","yes":"a@b"}`)
@@ -283,7 +304,69 @@ func TestSyncWritesNoEventForARefusalAndOnlyOneForUpdateAndPropose(t *testing.T)
 	p.post("sync", `{"scope":"fleet"}`, p.cookie, "")
 	p.hostPost("update", `{"scope":"fleet"}`)
 	p.hostPost("propose", `{"scope":"fleet","name":"triage"}`)
-	if got := p.events("skills.synced"); len(got) != 0 {
+	if got := p.skillsEvents(); len(got) != 0 {
+		t.Fatalf("events = %q", got)
+	}
+}
+
+func TestAddAndRemoveRecordOneEventEachWithTheSkillName(t *testing.T) {
+	p := newPhoneSkills(t)
+	p.spy.run = func(_ context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		st := map[string]string{"add": "added", "remove": "removed"}[a.Verb]
+		return board.APISkillsRun{Scope: a.Scope, Project: a.Project, Results: []board.APISkillResult{{Name: "triage", State: st, Detail: "/home/u/.agents/skills https://pat:pw@github.com/acme/x.git"}}}, nil
+	}
+	for _, c := range []struct{ verb, body string }{
+		{"add", `{"scope":"fleet","source":" triage ","ref":"v1"}`},
+		{"add", `{"scope":"project","project":"app","source":"review"}`},
+		{"remove", `{"scope":"user","name":"triage"}`},
+		{"remove", `{"scope":"project","project":"app","name":"review"}`},
+	} {
+		if rec := p.hostPost(c.verb, c.body); rec.Code != http.StatusOK {
+			t.Fatalf("%s %s = %d:\n%s", c.verb, c.body, rec.Code, rec.Body.String())
+		}
+	}
+	want := []string{
+		"skills.added fleet by operator (desktop): triage",
+		"skills.added project app by operator (desktop): review",
+		"skills.removed user by operator (desktop): triage",
+		"skills.removed project app by operator (desktop): review",
+	}
+	got := p.events("skills.added", "skills.removed")
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events = %q", got)
+	}
+	if len(p.events("skills.synced")) != 0 {
+		t.Fatal("add or remove wrote skills.synced")
+	}
+}
+
+func TestAddAndRemoveWriteNoEventWhenRefusedOrNothingChanged(t *testing.T) {
+	p := newPhoneSkills(t)
+	p.phone("add", `{"scope":"fleet","source":"triage"}`)
+	p.phone("remove", `{"scope":"fleet","name":"triage"}`)
+	p.post("add", `{"scope":"fleet","source":"triage"}`, host, "")
+	p.post("remove", `{"scope":"fleet","name":"triage"}`, host, "wrong")
+	p.hostPost("add", `{"scope":"all","source":"triage"}`)
+	p.hostPost("add", `{"scope":"fleet"}`)
+	p.hostPost("add", `{"scope":"fleet","source":"triage","name":"triage"}`)
+	p.hostPost("remove", `{"scope":"fleet"}`)
+	p.hostPost("remove", `{"scope":"fleet","name":"a\u0000b"}`)
+	p.hostPost("remove", `{"scope":"fleet","name":"triage","source":"x"}`)
+	if p.ran() != 0 {
+		t.Fatalf("a refused request ran the hook %d times", p.ran())
+	}
+	for _, err := range []error{state.ErrConflict, state.ErrInvalid, state.ErrNotFound, errors.New("git failed")} {
+		p.spy.run = func(context.Context, board.SkillsAction) (board.APISkillsRun, error) {
+			return board.APISkillsRun{}, err
+		}
+		p.hostPost("add", `{"scope":"fleet","source":"triage"}`)
+		p.hostPost("remove", `{"scope":"fleet","name":"triage"}`)
+	}
+	p.spy.run = func(_ context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		return board.APISkillsRun{Scope: a.Scope, Refused: 1, Results: []board.APISkillResult{{Name: "triage", State: "refused", Detail: "edited here"}}}, nil
+	}
+	p.hostPost("remove", `{"scope":"fleet","name":"triage"}`)
+	if got := p.events("skills.added", "skills.removed", "skills.synced"); len(got) != 0 {
 		t.Fatalf("events = %q", got)
 	}
 }
@@ -300,8 +383,8 @@ func TestAFailedSyncRecordsTheErrorKindNotTheMessage(t *testing.T) {
 	}
 }
 
-func TestASyncWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
-	p := newPhoneSkillsOn(t, func(fx *fixture) {
+func refuseSkillsEvents(t *testing.T, kinds string) func(*fixture) {
+	return func(fx *fixture) {
 		path := filepath.Join(t.TempDir(), "hand.db")
 		st, err := state.Open(path, func() time.Time { return time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC) })
 		if err != nil {
@@ -316,10 +399,27 @@ func TestASyncWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		if _, err := db.Exec(`CREATE TRIGGER refuse_sync BEFORE INSERT ON event WHEN NEW.kind = 'skills.synced' BEGIN SELECT RAISE(ABORT, 'event refused'); END`); err != nil {
+		if _, err := db.Exec(`CREATE TRIGGER refuse_skills BEFORE INSERT ON event WHEN NEW.kind IN (` + kinds + `) BEGIN SELECT RAISE(ABORT, 'event refused'); END`); err != nil {
 			t.Fatal(err)
 		}
 		fx.st = st
-	})
+	}
+}
+
+func TestASyncWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
+	p := newPhoneSkillsOn(t, refuseSkillsEvents(t, `'skills.synced'`))
 	p.refuses(p.phone("sync", `{"scope":"fleet"}`), http.StatusInternalServerError, "internal", "")
+}
+
+func TestAnAddOrRemoveWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
+	p := newPhoneSkillsOn(t, refuseSkillsEvents(t, `'skills.added','skills.removed'`))
+	p.spy.run = func(_ context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		st := map[string]string{"add": "added", "remove": "removed"}[a.Verb]
+		return board.APISkillsRun{Scope: a.Scope, Results: []board.APISkillResult{{Name: "triage", State: st}}}, nil
+	}
+	p.refuses(p.hostPost("add", `{"scope":"fleet","source":"triage"}`), http.StatusInternalServerError, "internal", "")
+	p.refuses(p.hostPost("remove", `{"scope":"fleet","name":"triage"}`), http.StatusInternalServerError, "internal", "")
+	if p.ran() != 2 {
+		t.Fatalf("ran %d times, want 2", p.ran())
+	}
 }
