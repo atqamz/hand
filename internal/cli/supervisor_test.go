@@ -810,7 +810,6 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 }
 
 func TestABurstOfTenEventsIsOneWakeAndNothingWakesForIt(t *testing.T) {
-	t.Parallel()
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
