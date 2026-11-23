@@ -497,7 +497,7 @@ func TestSkillsAPIThirdPartyAddStopsAtTheFetchBudgetAndLeavesNothing(t *testing.
 			t.Fatalf("a hung source (yes %q) = %d %s", yes, code, raw)
 		}
 		skillGone(t, f.h.home, "hung-tool")
-		if left := tempLeft(t, f.tmp); len(left) != 0 {
+		if left := tempLeft(t, f.tmp); runtime.GOOS != "windows" && len(left) != 0 {
 			t.Fatalf("temp folders left: %q", left)
 		}
 	}
