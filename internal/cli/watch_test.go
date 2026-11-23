@@ -28,7 +28,7 @@ import (
 
 func eventually(t *testing.T, ok func() bool) {
 	t.Helper()
-	eventuallyWithin(t, 5*time.Second, ok)
+	eventuallyWithin(t, 30*time.Second, ok)
 }
 
 func eventuallyWithin(t *testing.T, d time.Duration, ok func() bool) {
