@@ -11,6 +11,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 @Serializable
 data class SkillInfo(
@@ -37,17 +39,53 @@ data class SkillScopeInfo(
 
 @Serializable data class SkillsData(val scopes: List<SkillScopeInfo> = emptyList())
 
+@Serializable data class SkillResult(val name: String, val state: String, val detail: String = "")
+
+@Serializable
+data class SkillsRun(
+  val scope: String,
+  val project: String = "",
+  val results: List<SkillResult> = emptyList(),
+  val refused: Int = 0
+)
+
+data class SyncKey(val scope: String, val project: String = "")
+
+data class SyncOutcome(
+  val key: SyncKey,
+  val receipt: String? = null,
+  val results: List<SkillResult> = emptyList(),
+  val refused: Int = 0,
+  val problem: String? = null
+)
+
 data class SkillsState(
   val data: SkillsData? = null,
   val loading: Boolean = true,
   val problem: String? = null,
-  val unpaired: Boolean = false
+  val unpaired: Boolean = false,
+  val canSync: Boolean = false,
+  val syncing: SyncKey? = null,
+  val outcome: SyncOutcome? = null
 )
 
 const val SKILLS_READ_ONLY =
+  "Sync moves Hand's own skills. The user scope, third-party updates, update and propose stay on the host."
+
+const val SKILLS_HOST_ONLY =
   "Read-only here. A paired Companion cannot change skills; use the host's Board."
 
 const val SKILLS_NO_FEATURE = "This Board has no skills endpoints. Update Hand on the host."
+
+fun skillSyncs(skill: SkillInfo) = skill.managed && skill.trusted && skill.state == "behind"
+
+fun skillSyncShown(state: SkillsState, scope: SkillScopeInfo): Boolean {
+  val key = SyncKey(scope.scope, scope.project)
+  return state.canSync &&
+    scope.error.isEmpty() &&
+    scope.scope != "user" &&
+    (state.syncing == key || scope.skills.any(::skillSyncs))
+}
 
 fun skillScopeTitle(scope: SkillScopeInfo) =
   when (scope.scope) {
@@ -123,12 +161,30 @@ internal fun skillsProblem(error: BoardError): String =
     else -> "The Board's answer could not be read."
   }
 
+internal fun syncProblem(error: BoardError): String =
+  when (error) {
+    BoardError.TimedOut ->
+      "The Board did not answer in time. The sync may still be running on the host; check again in a minute."
+    BoardError.Lost,
+    BoardError.Unreachable,
+    BoardError.BoardNotRunning,
+    BoardError.NoHost,
+    BoardError.Busy -> "The Board could not be reached. The sync may not have run; check again."
+    is BoardError.Conflict -> error.message ?: "The Board is busy with another skills request."
+    is BoardError.Forbidden -> error.message ?: "The Board refused this sync."
+    is BoardError.BadRequest -> error.message ?: "The Board refused this sync."
+    is BoardError.Internal -> error.message ?: "The sync failed on the host."
+    else -> "The Board's answer could not be read."
+  }
+
 class SkillsModel(private val fleet: String, transport: Transport) : ViewModel() {
   private val mutableState = MutableStateFlow(SkillsState())
   val state: StateFlow<SkillsState> = mutableState
 
   private val client = BoardClient(fleet, transport)
   private val lock = Mutex()
+
+  @Volatile private var refused = false
 
   fun reload() {
     viewModelScope.launch { load() }
@@ -143,15 +199,74 @@ class SkillsModel(private val fleet: String, transport: Transport) : ViewModel()
     }
   }
 
+  fun sync(scope: String, project: String = "") {
+    viewModelScope.launch { runSync(SyncKey(scope, project)) }
+  }
+
+  suspend fun runSync(key: SyncKey) {
+    val state = mutableState.value
+    if (!state.canSync || key.scope !in setOf("fleet", "project")) return
+    if (!lock.tryLock()) return
+    try {
+      withContext(NonCancellable) {
+        mutableState.update { it.copy(syncing = key, outcome = null) }
+        if (post(key)) read()
+      }
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  private suspend fun post(key: SyncKey): Boolean {
+    val body =
+      buildJsonObject {
+          put("scope", key.scope)
+          if (key.project.isNotEmpty()) put("project", key.project)
+        }
+        .toString()
+    fun finish(outcome: SyncOutcome, canSync: Boolean = true) =
+      mutableState.update { it.copy(syncing = null, outcome = outcome, canSync = it.canSync && canSync) }
+    return try {
+      when (val written = client.write("skills/sync", body, SkillsRun.serializer())) {
+        is Write.Updated ->
+          finish(SyncOutcome(key, written.envelope.receipt, written.envelope.data.results, written.envelope.data.refused))
+        is Write.Accepted -> finish(SyncOutcome(key, written.receipt))
+      }
+      true
+    } catch (error: BoardError.AppliedUnread) {
+      finish(SyncOutcome(key, error.receipt, problem = "The sync ran, but the Board's answer could not be read."))
+      true
+    } catch (error: BoardError) {
+      when (error) {
+        BoardError.Unpaired -> mutableState.update { it.copy(syncing = null, unpaired = true) }
+        is BoardError.Forbidden -> {
+          refused = true
+          finish(SyncOutcome(key, problem = syncProblem(error)), canSync = false)
+        }
+        else -> finish(SyncOutcome(key, problem = syncProblem(error)))
+      }
+      false
+    }
+  }
+
   private suspend fun read() {
     mutableState.update { it.copy(loading = true, problem = null) }
     try {
-      if ("skills" !in client.features()) {
-        mutableState.update { it.copy(loading = false, problem = SKILLS_NO_FEATURE) }
+      val features = client.features()
+      if ("skills" !in features) {
+        mutableState.update { it.copy(loading = false, problem = SKILLS_NO_FEATURE, canSync = false) }
         return
       }
       val data = client.read("skills", SkillsData.serializer()).data
-      mutableState.update { it.copy(data = data, loading = false, problem = null, unpaired = false) }
+      mutableState.update {
+        it.copy(
+          data = data,
+          loading = false,
+          problem = null,
+          unpaired = false,
+          canSync = "skills_sync" in features && !refused
+        )
+      }
     } catch (error: BoardError) {
       mutableState.update {
         if (error == BoardError.Unpaired) it.copy(loading = false, unpaired = true)

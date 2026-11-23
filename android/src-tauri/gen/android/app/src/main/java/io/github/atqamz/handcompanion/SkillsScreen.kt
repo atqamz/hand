@@ -49,12 +49,52 @@ private fun SkillRow(skill: SkillInfo) {
 }
 
 @Composable
-private fun SkillsList(data: SkillsData) {
+private fun SyncOutcomeView(outcome: SyncOutcome) {
+  val hand = LocalHand.current
+  Column(
+    Modifier.fillMaxWidth().padding(16.dp, 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+    verticalArrangement = Arrangement.spacedBy(4.dp)
+  ) {
+    outcome.problem?.let { Text(it, color = hand.ink(Tone.Fail), style = type.bodyMedium) }
+    outcome.receipt?.let { Text(it, style = type.bodyMedium) }
+    outcome.results.forEach { result ->
+      Text(
+        listOf(result.name, result.state, result.detail).filter(String::isNotEmpty).joinToString(" · "),
+        color = hand.muted,
+        style = HandMono
+      )
+    }
+    if (outcome.refused > 0) Meta("${outcome.refused} refused")
+  }
+}
+
+@Composable
+private fun SkillsList(state: SkillsState, data: SkillsData, onSync: (SyncKey) -> Unit) {
   val hand = LocalHand.current
   LazyColumn(Modifier.fillMaxSize()) {
-    item { Text(SKILLS_READ_ONLY, Modifier.padding(16.dp, 12.dp, 16.dp, 0.dp), color = hand.muted, style = type.bodySmall) }
+    item {
+      Text(
+        if (state.canSync) SKILLS_READ_ONLY else SKILLS_HOST_ONLY,
+        Modifier.padding(16.dp, 12.dp, 16.dp, 0.dp),
+        color = hand.muted,
+        style = type.bodySmall
+      )
+    }
     data.scopes.forEach { scope ->
+      val key = SyncKey(scope.scope, scope.project)
       item { SectionHead(skillScopeTitle(scope)) }
+      if (skillSyncShown(state, scope)) {
+        item {
+          val running = state.syncing == key
+          Action(
+            if (running) "Syncing…" else "Sync",
+            { onSync(key) },
+            Modifier.padding(16.dp, 4.dp),
+            enabled = state.syncing == null && !state.loading
+          )
+        }
+      }
+      state.outcome?.takeIf { it.key == key }?.let { outcome -> item { SyncOutcomeView(outcome) } }
       if (scope.error.isNotEmpty()) {
         item {
           Text(
@@ -86,7 +126,12 @@ private fun SkillsProblem(text: String, onRetry: () -> Unit) {
 }
 
 @Composable
-fun SkillsScreen(state: SkillsState, onBack: () -> Unit, onRetry: () -> Unit) {
+fun SkillsScreen(
+  state: SkillsState,
+  onBack: () -> Unit,
+  onRetry: () -> Unit,
+  onSync: (SyncKey) -> Unit = {}
+) {
   val hand = LocalHand.current
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
     Row(
@@ -96,7 +141,7 @@ fun SkillsScreen(state: SkillsState, onBack: () -> Unit, onRetry: () -> Unit) {
     ) {
       IconButton(onBack) { Icon(HandIcons.Back, "Back", Modifier.size(20.dp)) }
       Text("Skills", Modifier.weight(1f), style = type.headlineSmall)
-      if (state.data != null && !state.loading) Action("Check again", onRetry)
+      if (state.data != null && !state.loading && state.syncing == null) Action("Check again", onRetry)
     }
     HorizontalDivider(color = hand.line)
     Box(Modifier.weight(1f)) {
@@ -116,7 +161,7 @@ fun SkillsScreen(state: SkillsState, onBack: () -> Unit, onRetry: () -> Unit) {
                 style = type.bodySmall
               )
             }
-            SkillsList(state.data)
+            SkillsList(state, state.data, onSync)
           }
         state.problem != null -> SkillsProblem(state.problem, onRetry)
         else -> Loading()
