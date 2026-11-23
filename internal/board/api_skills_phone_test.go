@@ -75,6 +75,21 @@ func (p *phoneSkills) ran() int {
 	return len(p.spy.actions)
 }
 
+func (p *phoneSkills) skillsEvents() []string {
+	p.t.Helper()
+	events, err := p.fx.st.EventsAfter(context.Background(), 0, nil, 10000)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	var out []string
+	for _, e := range events {
+		if strings.HasPrefix(e.Kind, "skills.") {
+			out = append(out, e.Kind+" "+e.Detail)
+		}
+	}
+	return out
+}
+
 func (p *phoneSkills) refuses(rec *httptest.ResponseRecorder, status int, code, sentence string) {
 	p.t.Helper()
 	e := testAPIError(p.t, rec, status, code)
@@ -280,7 +295,7 @@ func TestSyncRecordsWhoAskedAndNothingElse(t *testing.T) {
 	}
 }
 
-func TestSyncWritesNoEventForARefusalAndOnlyOneForUpdateAndPropose(t *testing.T) {
+func TestARefusedSyncAndAnUpdateAndAProposeWriteNoSkillsEvent(t *testing.T) {
 	p := newPhoneSkills(t)
 	p.phone("sync", `{"scope":"user"}`)
 	p.phone("sync", `{"scope":"fleet","yes":"a@b"}`)
@@ -289,7 +304,7 @@ func TestSyncWritesNoEventForARefusalAndOnlyOneForUpdateAndPropose(t *testing.T)
 	p.post("sync", `{"scope":"fleet"}`, p.cookie, "")
 	p.hostPost("update", `{"scope":"fleet"}`)
 	p.hostPost("propose", `{"scope":"fleet","name":"triage"}`)
-	if got := p.events("skills.synced"); len(got) != 0 {
+	if got := p.skillsEvents(); len(got) != 0 {
 		t.Fatalf("events = %q", got)
 	}
 }
@@ -368,8 +383,8 @@ func TestAFailedSyncRecordsTheErrorKindNotTheMessage(t *testing.T) {
 	}
 }
 
-func TestASyncWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
-	p := newPhoneSkillsOn(t, func(fx *fixture) {
+func refuseSkillsEvents(t *testing.T, kinds string) func(*fixture) {
+	return func(fx *fixture) {
 		path := filepath.Join(t.TempDir(), "hand.db")
 		st, err := state.Open(path, func() time.Time { return time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC) })
 		if err != nil {
@@ -384,10 +399,27 @@ func TestASyncWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		if _, err := db.Exec(`CREATE TRIGGER refuse_sync BEFORE INSERT ON event WHEN NEW.kind = 'skills.synced' BEGIN SELECT RAISE(ABORT, 'event refused'); END`); err != nil {
+		if _, err := db.Exec(`CREATE TRIGGER refuse_skills BEFORE INSERT ON event WHEN NEW.kind IN (` + kinds + `) BEGIN SELECT RAISE(ABORT, 'event refused'); END`); err != nil {
 			t.Fatal(err)
 		}
 		fx.st = st
-	})
+	}
+}
+
+func TestASyncWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
+	p := newPhoneSkillsOn(t, refuseSkillsEvents(t, `'skills.synced'`))
 	p.refuses(p.phone("sync", `{"scope":"fleet"}`), http.StatusInternalServerError, "internal", "")
+}
+
+func TestAnAddOrRemoveWhoseEventCannotBeWrittenAnswers500(t *testing.T) {
+	p := newPhoneSkillsOn(t, refuseSkillsEvents(t, `'skills.added','skills.removed'`))
+	p.spy.run = func(_ context.Context, a board.SkillsAction) (board.APISkillsRun, error) {
+		st := map[string]string{"add": "added", "remove": "removed"}[a.Verb]
+		return board.APISkillsRun{Scope: a.Scope, Results: []board.APISkillResult{{Name: "triage", State: st}}}, nil
+	}
+	p.refuses(p.hostPost("add", `{"scope":"fleet","source":"triage"}`), http.StatusInternalServerError, "internal", "")
+	p.refuses(p.hostPost("remove", `{"scope":"fleet","name":"triage"}`), http.StatusInternalServerError, "internal", "")
+	if p.ran() != 2 {
+		t.Fatalf("ran %d times, want 2", p.ran())
+	}
 }
