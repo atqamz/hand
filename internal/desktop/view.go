@@ -734,16 +734,6 @@ func roleName(e Entry) string {
 	return "hand"
 }
 
-func roleColor(e Entry, p palette) ui.Color {
-	switch e.Role {
-	case "operator":
-		return p.accent
-	case "supervisor":
-		return p.accent
-	}
-	return p.neutral
-}
-
 var (
 	optionLine  = regexp.MustCompile(`^\s*(\d+|[A-Z])[.)]\s+(.+)$`)
 	recommended = regexp.MustCompile(`(?i)\s*\(recommended\)`)
