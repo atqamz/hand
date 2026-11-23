@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,30 @@ func TestAnOlderBoardWithoutSkillsManageDrawsNoAddOrRemoveControl(t *testing.T) 
 			t.Errorf("an older board draws %q", gone)
 		}
 	}
+}
+
+func TestAFailedFeaturesReadDrawsNoAddOrRemoveControl(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	withSkills(f)
+	f.features = []string{"skills", "skills_manage"}
+	f.featuresErr = errors.New("boom")
+	app := newApp(t, f)
+	app.Show(desktop.SkillsScreen)
+	tt := newTester(app)
+	mustText(t, tt, "This board does not offer add or remove; update hand and restart the board. Until then run hand skills add or hand skills remove in a terminal.", "notes")
+	for _, gone := range []string{"Add a skill", "Source", "Remove", "Add", "Delete files"} {
+		if _, ok := tt.Find(gone); ok {
+			t.Errorf("a failed features read draws %q", gone)
+		}
+	}
+}
+
+func TestAPairedHostOnAnOlderBoardDrawsNoUpdateLine(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	f.fleets[0].Host = "hostid"
+	_, tt := skillsApp(t, f)
+	mustText(t, tt, "This fleet is on a paired host. A paired Companion cannot change skills; use the host's Board.")
+	mustNotText(t, tt, "This board does not offer add or remove")
 }
 
 func TestTheAddFormAndRemoveButtonsShowOnALocalFleetWithSkillsManage(t *testing.T) {
@@ -370,7 +395,7 @@ func TestRemoveAsksBeforeItDeletesAndThenPostsTheName(t *testing.T) {
 }
 
 func TestRemoveIsDisabledForAnEditedOrConflictedSkill(t *testing.T) {
-	for _, state := range []string{"edited", "conflict"} {
+	for _, state := range []string{"edited", "conflict", "pending"} {
 		t.Run(state, func(t *testing.T) {
 			f := scopes(goldenFixture(t), "project/hand")
 			f.skills.Scopes[0].Skills = []desktop.Skill{{Name: "deploy", Source: "https://github.com/atqamz/skills.git#skills/deploy", Ref: "main",
@@ -396,6 +421,7 @@ func TestRemoveIsOfferedOnlyForACurrentOrBehindManagedSkill(t *testing.T) {
 		{desktop.Skill{Name: "a", Managed: true, Trusted: false, State: "behind", Diff: thirdDiff, Latest: thirdLatest}, true},
 		{desktop.Skill{Name: "a", Managed: true, Trusted: true, State: "error", Detail: "the fetch failed"}, false},
 		{desktop.Skill{Name: "a", Managed: false}, false},
+		{desktop.Skill{Name: "a", Managed: true, Trusted: true}, false},
 	} {
 		f := scopes(goldenFixture(t), "project/hand")
 		f.skills.Scopes[0].Skills = []desktop.Skill{c.skill}
