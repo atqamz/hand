@@ -9,6 +9,7 @@ import (
 )
 
 func TestVersionPrintsTOON(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	if got, want := h.ok("version"), "version: 0.15.0\nchannel: source\ncommit: unknown\nschema: 28\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
 		t.Fatalf("version = %q, want %q", got, want)
@@ -25,6 +26,7 @@ func TestVersionNamesItsBuild(t *testing.T) {
 }
 
 func TestUnknownCommandIsUsageError(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, errOut, code := h.run("frobnicate")
 	if code != 2 || !strings.Contains(errOut, `unknown command "frobnicate"`) {
@@ -33,6 +35,7 @@ func TestUnknownCommandIsUsageError(t *testing.T) {
 }
 
 func TestNoCommandIsUsageError(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	if _, _, code := h.run(); code != 2 {
 		t.Fatalf("code = %d, want 2", code)
@@ -40,6 +43,7 @@ func TestNoCommandIsUsageError(t *testing.T) {
 }
 
 func TestHelpFlagPrintsFlagsAndExitsZero(t *testing.T) {
+	t.Parallel()
 	for _, flag := range []string{"-h", "--help"} {
 		h := newHarness(t)
 		out, errOut, code := h.run("init", flag)

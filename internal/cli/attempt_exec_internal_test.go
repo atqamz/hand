@@ -11,6 +11,7 @@ import (
 )
 
 func TestScratchEnvironmentReplacesEveryTempVariable(t *testing.T) {
+	t.Parallel()
 	got := scratchEnvironment([]string{"A=1", "TMPDIR=/tmp", "TMP=/tmp", "TEMP=/tmp", "GOTMPDIR=/tmp", "CLAUDE_CODE_TMPDIR=/tmp", "B=2"}, "/scratch", 0)
 	want := []string{"A=1", "B=2", "TMPDIR=/scratch", "TMP=/scratch", "TEMP=/scratch", "GOTMPDIR=/scratch", "CLAUDE_CODE_TMPDIR=/scratch"}
 	if !slices.Equal(got, want) {
@@ -19,6 +20,7 @@ func TestScratchEnvironmentReplacesEveryTempVariable(t *testing.T) {
 }
 
 func TestScratchSocketWarningCoversTheSunPathLimit(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("sun_path is a Unix limit")
 	}
@@ -34,6 +36,7 @@ func TestScratchSocketWarningCoversTheSunPathLimit(t *testing.T) {
 }
 
 func TestProcessExitCodeTranslatesANonzeroExit(t *testing.T) {
+	t.Parallel()
 	name, args := "/bin/sh", []string{"-c", "exit 7"}
 	if runtime.GOOS == "windows" {
 		name = os.Getenv("ComSpec")

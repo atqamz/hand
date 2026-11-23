@@ -137,6 +137,7 @@ func TestBoardLeavesTheWatchersAloneWhileAnUpdateRuns(t *testing.T) {
 }
 
 func TestBoardRefusesAnUpdateIntervalBelowTheMinimum(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for _, every := range []string{"5m", "1ns", "-1h"} {
 		_, errOut, code := h.run("board", "--addr", "127.0.0.1:0", "--update-every", every)

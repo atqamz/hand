@@ -21,6 +21,7 @@ func initWithProject(t *testing.T) *harness {
 }
 
 func TestTaskLifecycleThroughCLI(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	out := h.ok("task", "add", "--goal", "users can log in", "hand", "Fix login")
 	if !strings.Contains(out, "task: t1") || !strings.Contains(out, "status: inbox") {
@@ -38,6 +39,7 @@ func TestTaskLifecycleThroughCLI(t *testing.T) {
 }
 
 func TestRepeatedTransitionIsRefusedWithExit3(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "start", "t1")
@@ -49,6 +51,7 @@ func TestRepeatedTransitionIsRefusedWithExit3(t *testing.T) {
 }
 
 func TestTaskDoneRecordsDeliverables(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Build the brief")
 	h.ok("task", "start", "t1")
@@ -129,6 +132,7 @@ func TestDeliverablesAreNewestFirstAcrossReportsAndDone(t *testing.T) {
 }
 
 func TestCommandsOutsideAHomeAreRefused(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, errOut, code := h.run("task", "list")
 	if code != 3 || !strings.Contains(errOut, "run `hand init`") {
@@ -137,6 +141,7 @@ func TestCommandsOutsideAHomeAreRefused(t *testing.T) {
 }
 
 func TestBadIDIsUsageError(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if _, _, code := h.run("task", "show", "tx"); code != 2 {
 		t.Fatalf("code = %d, want 2", code)
@@ -144,6 +149,7 @@ func TestBadIDIsUsageError(t *testing.T) {
 }
 
 func TestBadListFiltersAreUsageErrors(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, args := range [][]string{
 		{"task", "list", "--status", "actve"},
@@ -157,6 +163,7 @@ func TestBadListFiltersAreUsageErrors(t *testing.T) {
 }
 
 func TestTransitionUsageNamesTheCommand(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if _, errOut, code := h.run("task", "start"); code != 2 || !strings.Contains(errOut, "task start:") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
@@ -164,6 +171,7 @@ func TestTransitionUsageNamesTheCommand(t *testing.T) {
 }
 
 func TestTaskListSearchesFinishedTasks(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Write docs", "Fix search"} {
 		h.ok("task", "add", "hand", title)
@@ -193,6 +201,7 @@ func TestTaskListSearchesFinishedTasks(t *testing.T) {
 }
 
 func TestTaskListQuerySearchesEveryStatus(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Fix inbox", "Fix search", "Write docs"} {
 		h.ok("task", "add", "hand", title)
@@ -219,6 +228,7 @@ func TestTaskListQuerySearchesEveryStatus(t *testing.T) {
 }
 
 func TestTaskListStatusWords(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Fix inbox", "Fix search"} {
 		h.ok("task", "add", "hand", title)
@@ -239,6 +249,7 @@ func TestTaskListStatusWords(t *testing.T) {
 }
 
 func TestTaskDeliverRecordsOnActiveAndDoneTasks(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Done", "Active", "Inbox", "Dropped"} {
 		h.ok("task", "add", "hand", title)
@@ -312,6 +323,7 @@ func TestTaskDeliverRecordsOnActiveAndDoneTasks(t *testing.T) {
 }
 
 func TestTaskDeliverIsIdempotent(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Backfill")
 	h.ok("task", "start", "t1")
@@ -346,6 +358,7 @@ func TestTaskDeliverIsIdempotent(t *testing.T) {
 }
 
 func TestTaskDeliverBackfillsNewestFirst(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Old")
 	h.ok("task", "start", "t1")
@@ -380,6 +393,7 @@ func TestTaskDeliverBackfillsNewestFirst(t *testing.T) {
 }
 
 func TestTaskAddParentAndParentCommand(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Epic")
 	out := h.ok("task", "add", "--parent", "t1", "hand", "Part")
@@ -408,6 +422,7 @@ func TestTaskAddParentAndParentCommand(t *testing.T) {
 }
 
 func TestTaskListNestsChildrenUnderTheirParent(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "A")
 	h.ok("task", "add", "hand", "B")
@@ -432,6 +447,7 @@ func TestTaskListNestsChildrenUnderTheirParent(t *testing.T) {
 }
 
 func TestTaskListHasNoParentColumnWhenNothingIsNested(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "A")
 	h.ok("task", "add", "hand", "B")
@@ -441,6 +457,7 @@ func TestTaskListHasNoParentColumnWhenNothingIsNested(t *testing.T) {
 }
 
 func TestTaskListShowsAnOrphanAsARootWithItsParentRef(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Parent")
 	h.ok("task", "add", "--parent", "t1", "hand", "Child")
@@ -458,6 +475,7 @@ func TestTaskListShowsAnOrphanAsARootWithItsParentRef(t *testing.T) {
 }
 
 func TestTaskShowPrintsParentAndChildren(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Epic")
 	h.ok("task", "add", "--parent", "t1", "hand", "Part")
@@ -472,6 +490,7 @@ func TestTaskShowPrintsParentAndChildren(t *testing.T) {
 }
 
 func TestTaskDoneWarnsAboutOpenSubTasksAndStillSucceeds(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Epic")
 	h.ok("task", "add", "--parent", "t1", "hand", "Part")

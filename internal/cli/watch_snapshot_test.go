@@ -27,6 +27,7 @@ func snapshotWatcher(t *testing.T) (*watcher, *bytes.Buffer, string) {
 }
 
 func TestSnapshotCancelledIsNotAFailureAndIsRetried(t *testing.T) {
+	t.Parallel()
 	w, out, dir := snapshotWatcher(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -44,6 +45,7 @@ func TestSnapshotCancelledIsNotAFailureAndIsRetried(t *testing.T) {
 }
 
 func TestSnapshotFailureStillLogsAndCountsAsTried(t *testing.T) {
+	t.Parallel()
 	w, out, dir := snapshotWatcher(t)
 	if err := os.MkdirAll(filepath.Join(dir, "hand-20260926.db.tmp", "child"), 0o700); err != nil {
 		t.Fatal(err)

@@ -7,6 +7,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func TestOpenReturnsWhileTheBrowserRuns(t *testing.T) {
@@ -15,7 +17,7 @@ func TestOpenReturnsWhileTheBrowserRuns(t *testing.T) {
 	if err := os.Remove(filepath.Join(fx.h.vars["PATH"], "xdg-open")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "xdg-open"), []byte(script), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(filepath.Join(fx.h.vars["PATH"], "xdg-open"), []byte(script)); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()

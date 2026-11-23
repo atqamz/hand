@@ -13,6 +13,7 @@ import (
 )
 
 func TestProjectAddRefusesARepositoryItCannotRead(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	repo := gitRepo(t)
@@ -35,6 +36,7 @@ func TestProjectAddRefusesARepositoryItCannotRead(t *testing.T) {
 }
 
 func TestProjectNoteCreatesTheFileAndItsFirstEntry(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -62,6 +64,7 @@ func TestProjectNoteCreatesTheFileAndItsFirstEntry(t *testing.T) {
 }
 
 func TestProjectNoteAppendsWithoutLosingTheFirstEntry(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -84,6 +87,7 @@ func TestProjectNoteAppendsWithoutLosingTheFirstEntry(t *testing.T) {
 }
 
 func TestProjectNotesPrintsTheFile(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -107,6 +111,7 @@ func TestProjectNotesPrintsTheFile(t *testing.T) {
 }
 
 func TestProjectNotesSaysNoNotesForAKnownProjectWithoutAFile(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -116,6 +121,7 @@ func TestProjectNotesSaysNoNotesForAKnownProjectWithoutAFile(t *testing.T) {
 }
 
 func TestProjectNoteRefusesAnUnknownProjectWithTheKnownNames(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -127,6 +133,7 @@ func TestProjectNoteRefusesAnUnknownProjectWithTheKnownNames(t *testing.T) {
 }
 
 func TestProjectNoteRefusesEmptyText(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -142,6 +149,7 @@ func TestProjectNoteRefusesEmptyText(t *testing.T) {
 }
 
 func TestProjectNoteRefusesUnsafeProjectNames(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -167,6 +175,7 @@ func TestProjectNoteRefusesUnsafeProjectNames(t *testing.T) {
 }
 
 func TestProjectNotePreservesMultiLineText(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -183,6 +192,7 @@ func TestProjectNotePreservesMultiLineText(t *testing.T) {
 }
 
 func TestProjectNoteTrimsTrailingNewlines(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -199,6 +209,7 @@ func TestProjectNoteTrimsTrailingNewlines(t *testing.T) {
 }
 
 func TestProjectNotesStripsControlCharactersFromItsOutput(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -221,6 +232,7 @@ func TestProjectNotesStripsControlCharactersFromItsOutput(t *testing.T) {
 }
 
 func TestProjectNoteConcurrentFirstWritesKeepOneTitle(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -261,6 +273,7 @@ func TestProjectNoteConcurrentFirstWritesKeepOneTitle(t *testing.T) {
 }
 
 func TestProjectNoteFileLivesInTheFleetHomeWithoutAbsolutePaths(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", t.TempDir())
@@ -279,6 +292,7 @@ func TestProjectNoteFileLivesInTheFleetHomeWithoutAbsolutePaths(t *testing.T) {
 }
 
 func TestProjectAddRecordsTheSettingsItFinds(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	repo := gitRepo(t)

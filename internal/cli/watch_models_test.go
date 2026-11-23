@@ -55,6 +55,7 @@ func runs(t *testing.T, log string) int {
 }
 
 func TestWatcherRefreshesDueListsAndLogsEachFailureOnce(t *testing.T) {
+	t.Parallel()
 	w, out, bin, clock := modelsWatcher(t)
 	logs := map[string]string{}
 	for _, c := range []struct{ name, stdout string }{{"agy", "gemini-3.8-flash-low\tGemini\n"}, {"claude", "{garbage\n"}} {
@@ -107,6 +108,7 @@ func TestWatcherRefreshesDueListsAndLogsEachFailureOnce(t *testing.T) {
 }
 
 func TestWatcherRefreshesEveryInstalledHarness(t *testing.T) {
+	t.Parallel()
 	w, _, bin, _ := modelsWatcher(t)
 	logs := map[string]string{}
 	for name, stdout := range map[string]string{"opencode": "anthropic/sonnet\n", "agy": "gemini-3.8-flash-low\tGemini\n"} {
@@ -123,6 +125,7 @@ func TestWatcherRefreshesEveryInstalledHarness(t *testing.T) {
 }
 
 func TestWatcherRunsOneRefreshAtATimeAndStopsWithItsContext(t *testing.T) {
+	t.Parallel()
 	w, out, bin, _ := modelsWatcher(t)
 	log := filepath.Join(t.TempDir(), "log")
 	fakebin.Install(t, bin, "agy", "lister", map[string]string{"stdout": "gemini-3.8-flash-low\tGemini\n", "log": log, "sleep": "500ms"})

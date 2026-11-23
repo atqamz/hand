@@ -121,6 +121,7 @@ func login(t *testing.T, fleetURL, token string) (int, string) {
 }
 
 func TestBoardPrintsTheHostAndKeepsAStableToken(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	out := runBoard(t, h)
 	if !regexp.MustCompile(`board: "http://127\.0\.0\.1:[0-9]+/"`).MatchString(out) || strings.Contains(out, "token=") || !strings.Contains(out, "hand open") {
@@ -141,6 +142,7 @@ func TestBoardPrintsTheHostAndKeepsAStableToken(t *testing.T) {
 }
 
 func TestBoardRejectsABadAddress(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if _, _, code := h.run("board", "--addr", "not-an-address"); code != 2 {
 		t.Fatalf("code = %d, want 2", code)
@@ -148,6 +150,7 @@ func TestBoardRejectsABadAddress(t *testing.T) {
 }
 
 func TestBoardFixesTokenPermissionsAndRefusesAMalformedToken(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	path := filepath.Join(h.home, "board.token")
 	if err := os.WriteFile(path, []byte(strings.Repeat("a", 48)+"\n"), 0o644); err != nil {
@@ -179,6 +182,7 @@ func TestBoardFixesTokenPermissionsAndRefusesAMalformedToken(t *testing.T) {
 }
 
 func TestBoardWarnsOnANetworkAddress(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if out := runBoard(t, h, "0.0.0.0:0"); !strings.Contains(out, "plain HTTP") {
 		t.Fatalf("no warning for a network address: %q", out)
@@ -189,6 +193,7 @@ func TestBoardWarnsOnANetworkAddress(t *testing.T) {
 }
 
 func TestOneBoardServesTwoFleets(t *testing.T) {
+	t.Parallel()
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")
 	b := newHarness(t)
@@ -221,6 +226,7 @@ func TestOneBoardServesTwoFleets(t *testing.T) {
 }
 
 func TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor(t *testing.T) {
+	t.Parallel()
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")
 	b := newHarness(t)
@@ -270,6 +276,7 @@ func TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor(t *testing.T) {
 }
 
 func TestTheRealBoardListsItsFleetsAndFeaturesInTheAPI(t *testing.T) {
+	t.Parallel()
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")
 	b := newHarness(t)
@@ -324,6 +331,7 @@ func TestTheRealBoardListsItsFleetsAndFeaturesInTheAPI(t *testing.T) {
 }
 
 func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
+	t.Parallel()
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")
 	b := newHarness(t)
@@ -399,6 +407,7 @@ func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
 }
 
 func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
+	t.Parallel()
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")
 	b := newHarness(t)
@@ -490,6 +499,7 @@ func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
 }
 
 func TestAMovedFleetIsFollowed(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("moving a home whose files are open is Unix-only")
 	}
@@ -533,6 +543,7 @@ func TestAMovedFleetIsFollowed(t *testing.T) {
 }
 
 func TestBoardAddrIsWrittenAndRemoved(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	base, stop := startBoard(t, h, "127.0.0.1")
 	b, err := os.ReadFile(addrFile(h))
@@ -562,6 +573,7 @@ func TestBoardAddrIsWrittenAndRemoved(t *testing.T) {
 }
 
 func TestANetworkBoardRecordsALoopbackAddress(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	base, _ := startBoard(t, h, "0.0.0.0")
 	if !strings.HasPrefix(base, "http://127.0.0.1:") {
@@ -619,6 +631,7 @@ func TestANetworkBoardIsReadOnly(t *testing.T) {
 }
 
 func TestARotatedTokenWorksWithoutARestart(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	base, _ := startBoard(t, h, "127.0.0.1")
 	fleetURL, old := fleetPage(t, base, h)
@@ -653,6 +666,7 @@ func TestARotatedTokenWorksWithoutARestart(t *testing.T) {
 }
 
 func TestASecondBoardOnTheSameAddressLeavesTheFirstAlone(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	base, stop := startBoard(t, h, "127.0.0.1")
 	if _, _, code := h.run("board", "--addr", strings.TrimPrefix(base, "http://")); code == 0 {
@@ -700,6 +714,7 @@ func proxiedSend(t *testing.T, method, u string, form url.Values, cookies []*htt
 }
 
 func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
+	t.Parallel()
 	a := newHarness(t)
 	a.ok("init", "--name", "alpha")
 	b := newHarness(t)
@@ -784,6 +799,7 @@ func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
 }
 
 func TestTheBoardCachesItsHarnessLookupForFiveSeconds(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	bin := t.TempDir()
 	h.vars["PATH"] = bin

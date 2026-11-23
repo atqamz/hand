@@ -10,6 +10,7 @@ import (
 )
 
 func TestOrientCommand(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	out := h.ok("orient")
@@ -19,6 +20,7 @@ func TestOrientCommand(t *testing.T) {
 }
 
 func TestOrientSinceListsOnlyWhatChanged(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	cursor := regexp.MustCompile(`(?m)^cursor: (\d+)$`).FindStringSubmatch(h.ok("orient"))[1]

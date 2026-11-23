@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
@@ -21,7 +23,7 @@ func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
 	}
 	log := filepath.Join(t.TempDir(), "systemd-run.log")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\necho 'systemd-run boom' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(bin, "systemd-run"), []byte(script), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(filepath.Join(bin, "systemd-run"), []byte(script)); err != nil {
 		t.Fatal(err)
 	}
 	path := h.vars["PATH"] + string(os.PathListSeparator) + bin

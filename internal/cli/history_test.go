@@ -48,6 +48,7 @@ func (s *historySeed) report(id, task int, at, body string) {
 }
 
 func TestHistorySearchPrintsOneRowPerHit(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-11-10T10:00:00Z", "open the amber kiln")
 	s.reply(2, 74, "2026-11-11T10:00:00Z", "1. Amber Kiln\n2. Birch Ferry")
@@ -71,6 +72,7 @@ func TestHistorySearchPrintsOneRowPerHit(t *testing.T) {
 }
 
 func TestHistorySearchPrintsDecisionsAndTaskTitlesAndReadsThemWhole(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.exec(`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (7, 'p', 'amber kiln copy', 'goal words', 'active', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z')`)
 	s.exec(`INSERT INTO decision(id, task_id, question, status, answer, answered_by, created_at) VALUES (3, 7, 'Amber or birch?
@@ -111,6 +113,7 @@ func TestHistorySearchTakesFlagsAfterTheQueryAndJoinsWords(t *testing.T) {
 }
 
 func TestHistorySearchFiltersBySinceAndTask(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-09-20T10:00:00Z", "amber old")
 	s.input(2, "2026-09-25T10:00:00Z", "amber new")
@@ -128,6 +131,7 @@ func TestHistorySearchFiltersBySinceAndTask(t *testing.T) {
 }
 
 func TestHistorySearchWithNoHitExitsZero(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-09-20T10:00:00Z", "amber")
 	out := h.ok("history", "search", "nothing")
@@ -137,6 +141,7 @@ func TestHistorySearchWithNoHitExitsZero(t *testing.T) {
 }
 
 func TestHistorySearchRefusesWhatItCannotRun(t *testing.T) {
+	t.Parallel()
 	h, _ := newHistorySeed(t)
 	for name, args := range map[string][]string{
 		"no query":      {"history", "search"},
@@ -164,6 +169,7 @@ func TestHistorySearchRefusesWhatItCannotRun(t *testing.T) {
 }
 
 func TestHistorySearchRedactsWhatItPrints(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	secret := strings.Join([]string{"gh", "p_", strings.Repeat("Zq9xK", 8)}, "")
 	s.input(1, "2026-09-20T10:00:00Z", "use "+secret+" for amber")
@@ -181,6 +187,7 @@ func TestHistorySearchRedactsWhatItPrints(t *testing.T) {
 }
 
 func TestHistorySearchDefaultOutputStaysUnder4KB(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	quotes := "amber " + strings.Repeat(`"`, 2000) + " kiln"
 	emoji := "amber " + strings.Repeat("😀", 400) + " kiln"
@@ -206,6 +213,7 @@ func TestHistorySearchDefaultOutputStaysUnder4KB(t *testing.T) {
 }
 
 func TestHistorySearchStopsAtTheCeilingAndCountsTheRest(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	for i := 1; i <= 60; i++ {
 		s.input(i, fmt.Sprintf("2026-11-10T10:%02d:00Z", i%60), "amber "+strings.Repeat(`"`, 1500)+" kiln")
@@ -227,6 +235,7 @@ func TestHistorySearchStopsAtTheCeilingAndCountsTheRest(t *testing.T) {
 }
 
 func TestHistorySearchContextRows(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-11-10T10:00:00Z", "before it")
 	s.reply(2, 3, "2026-11-10T10:01:00Z", "the amber one")
@@ -244,6 +253,7 @@ func TestHistorySearchContextRows(t *testing.T) {
 }
 
 func TestHistorySearchFullPrintsOneEntryWhole(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.report(1, 12, "2026-11-10T10:00:00Z", "first line\nsecond line")
 	out := h.ok("history", "search", "--full", "r1")
@@ -292,6 +302,7 @@ func TestHistorySearchFullPrintsOneEntryWhole(t *testing.T) {
 }
 
 func TestHistorySearchLeavesOrientAlone(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-11-10T10:00:00Z", "amber")
 	before := h.ok("orient")
@@ -304,6 +315,7 @@ func TestHistorySearchLeavesOrientAlone(t *testing.T) {
 }
 
 func TestHistorySearchShowsFiveHitsByDefaultAndSaysHowManyMore(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	for i := 1; i <= 7; i++ {
 		s.input(i, fmt.Sprintf("2026-11-10T10:0%d:00Z", i), "amber")
@@ -318,6 +330,7 @@ func TestHistorySearchShowsFiveHitsByDefaultAndSaysHowManyMore(t *testing.T) {
 }
 
 func TestHistorySearchNamesTheCommandItWasRunAs(t *testing.T) {
+	t.Parallel()
 	h, s := newHistorySeed(t)
 	s.input(1, "2026-11-10T10:00:00Z", "amber")
 	h.name = "hand-next"

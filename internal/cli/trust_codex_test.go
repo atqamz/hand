@@ -101,6 +101,7 @@ var codexPaths = []struct {
 }
 
 func TestCodexTrustScreensAreAcceptedForTheirOwnFolderAndRepository(t *testing.T) {
+	t.Parallel()
 	for _, old := range []bool{false, true} {
 		for _, width := range []int{60, 120} {
 			for _, p := range codexPaths {
@@ -127,6 +128,7 @@ func TestCodexTrustScreensAreAcceptedForTheirOwnFolderAndRepository(t *testing.T
 }
 
 func TestCodexTrustScreenWrapsItsPathsAcrossLines(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\Zoë Müller\.secondhand\worktrees\fab28ae721878\t209-a233`, `C:\Users\Zoë Müller\Documents\Projects\hand`
 	for _, old := range []bool{false, true} {
 		screen := strings.Replace(codexTrustScreen(old, 60, wt, repo, false), wt, "   \n  "+wt[:24]+"   \n  "+wt[24:]+"  ", 1)
@@ -138,6 +140,7 @@ func TestCodexTrustScreenWrapsItsPathsAcrossLines(t *testing.T) {
 }
 
 func TestCodexTrustScreenForAnotherFolderIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	wt := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`
 	for name, folder := range map[string]string{
 		"windows":  `C:\Windows`,
@@ -162,6 +165,7 @@ func TestCodexTrustScreenForAnotherFolderIsLeftAlone(t *testing.T) {
 }
 
 func TestCodexTrustScreenNamingAnotherRepositoryIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	for name, root := range map[string]string{
 		"other":   `C:\Users\me\other`,
@@ -184,6 +188,7 @@ func TestCodexTrustScreenNamingAnotherRepositoryIsLeftAlone(t *testing.T) {
 }
 
 func TestCodexTrustScreenWithAnUnreadableRepositoryNoteIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	wt := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`
 	for _, old := range []bool{false, true} {
 		screen := strings.Replace(codexTrustScreen(old, 120, wt, `C:\Users\me\repo`, false), "repository root:", "repository:", 1)
@@ -195,6 +200,7 @@ func TestCodexTrustScreenWithAnUnreadableRepositoryNoteIsLeftAlone(t *testing.T)
 }
 
 func TestCodexTrustScreenWithTheRepositoryNoteAfterTheQuestionIsStillChecked(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	for _, old := range []bool{false, true} {
 		for root, want := range map[string]string{repo: "accepted", `C:\Users\me\other`: "not pressed"} {
@@ -208,6 +214,7 @@ func TestCodexTrustScreenWithTheRepositoryNoteAfterTheQuestionIsStillChecked(t *
 }
 
 func TestCodexTrustScreenToleratesAWrappedAwaySpaceButNeverAnAddedOne(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct{ want, shown, trust string }{
 		"dropped":      {`C:\Users\a b\wt`, `C:\Users\ab\wt`, "accepted"},
 		"kept":         {`C:\Users\a b\wt`, `C:\Users\a b\wt`, "accepted"},
@@ -229,6 +236,7 @@ func TestCodexTrustScreenToleratesAWrappedAwaySpaceButNeverAnAddedOne(t *testing
 }
 
 func TestCodexTrustScreenWithNoProjectOnlyAcceptsItsOwnFolder(t *testing.T) {
+	t.Parallel()
 	wt := `C:\Users\me\fleet`
 	for _, old := range []bool{false, true} {
 		for name, root := range map[string]string{"with a note": `C:\Users\me`, "without": ""} {
@@ -242,6 +250,7 @@ func TestCodexTrustScreenWithNoProjectOnlyAcceptsItsOwnFolder(t *testing.T) {
 }
 
 func TestCodexTrustScreenWithTheHighlightOnQuitMovesFirst(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	for _, old := range []bool{false, true} {
 		quit, yes := codexTrustScreen(old, 120, wt, repo, true), codexTrustScreen(old, 120, wt, repo, false)
@@ -253,6 +262,7 @@ func TestCodexTrustScreenWithTheHighlightOnQuitMovesFirst(t *testing.T) {
 }
 
 func TestCodexTrustScreenThatStaysOnQuitIsNeverConfirmed(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	for _, old := range []bool{false, true} {
 		quit := codexTrustScreen(old, 120, wt, repo, true)
@@ -264,6 +274,7 @@ func TestCodexTrustScreenThatStaysOnQuitIsNeverConfirmed(t *testing.T) {
 }
 
 func TestCodexTrustScreenForAnotherFolderIsNotMovedEither(t *testing.T) {
+	t.Parallel()
 	repo := `C:\Users\me\repo`
 	quit := codexTrustScreen(false, 120, `C:\Windows`, repo, true)
 	run := runCodexTrust(t, `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, []string{repo}, func(rt *fakeRuntime) { rt.screen = quit })
@@ -273,6 +284,7 @@ func TestCodexTrustScreenForAnotherFolderIsNotMovedEither(t *testing.T) {
 }
 
 func TestCodexTrustScreenThatDoesNotAppearIsNotAsked(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]func(*fakeRuntime){
 		"working": func(rt *fakeRuntime) { rt.screen, rt.status = "› Ask Codex to do anything\n", "working" },
 		"idle":    func(rt *fakeRuntime) { rt.screen, rt.status = "› Ask Codex to do anything\n", "idle" },
@@ -287,6 +299,7 @@ func TestCodexTrustScreenThatDoesNotAppearIsNotAsked(t *testing.T) {
 }
 
 func TestCodexTrustScreenThatComesLateIsPressed(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	screen := codexTrustScreen(false, 120, wt, repo, false)
 	run := runCodexTrust(t, wt, []string{repo}, func(rt *fakeRuntime) {
@@ -298,6 +311,7 @@ func TestCodexTrustScreenThatComesLateIsPressed(t *testing.T) {
 }
 
 func TestCodexTrustRetriesOneRevisionConflict(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	screen := codexTrustScreen(false, 120, wt, repo, false)
 	run := runCodexTrust(t, wt, []string{repo}, func(rt *fakeRuntime) {
@@ -313,6 +327,7 @@ func TestCodexTrustRetriesOneRevisionConflict(t *testing.T) {
 }
 
 func TestCodexTrustScreenThatStaysIsNotedAsAccepted(t *testing.T) {
+	t.Parallel()
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	screen := codexTrustScreen(false, 120, wt, repo, false)
 	run := runCodexTrust(t, wt, []string{repo}, func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
@@ -322,6 +337,7 @@ func TestCodexTrustScreenThatStaysIsNotedAsAccepted(t *testing.T) {
 }
 
 func TestCodexWorkerTrustIsAcceptedAndRecorded(t *testing.T) {
+	t.Parallel()
 	for _, old := range []bool{false, true} {
 		fx := newAttemptFixture(t)
 		writeCodexModels(t, fx.h)
@@ -344,6 +360,7 @@ func TestCodexWorkerTrustIsAcceptedAndRecorded(t *testing.T) {
 }
 
 func TestCodexWorkerTrustScreenForAnotherRepositoryIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	writeCodexModels(t, fx.h)
 	screen := codexTrustScreen(false, 120, fx.h.worktree("t1-a1"), filepath.Join(filepath.Dir(fx.repo), "other"), false)

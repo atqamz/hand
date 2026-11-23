@@ -66,6 +66,7 @@ func eventKinds(t *testing.T, st *state.Store, kinds ...string) []string {
 }
 
 func TestConfirmBlockedDropsPendingAfterTheAttemptEnds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, a, w := pendingBlockWatcher(t)
 	if err := w.observe(ctx, luvus.Client{}, a, "blocked"); err != nil {
@@ -89,6 +90,7 @@ func TestConfirmBlockedDropsPendingAfterTheAttemptEnds(t *testing.T) {
 }
 
 func TestAPendingBlockDoesNotSurviveAnIdleWhileHeld(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, a, w := pendingBlockWatcher(t)
 	w.seen[a.ID] = "held"
@@ -113,6 +115,7 @@ func TestAPendingBlockDoesNotSurviveAnIdleWhileHeld(t *testing.T) {
 }
 
 func TestAFlickerDoesNotSeedTheNextBlock(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, a, w := pendingBlockWatcher(t)
 	for range 3 {

@@ -13,6 +13,7 @@ import (
 )
 
 func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.ready = "blocked", "Do you want to proceed?", false })
@@ -47,6 +48,7 @@ func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
 }
 
 func TestSendReportsAChangedTerminalAsNothingSent(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
@@ -59,6 +61,7 @@ func TestSendReportsAChangedTerminalAsNothingSent(t *testing.T) {
 }
 
 func TestKeysNeedTheRevisionTheOperatorRead(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision = 7 })
@@ -83,6 +86,7 @@ func TestKeysNeedTheRevisionTheOperatorRead(t *testing.T) {
 }
 
 func TestKeysAndSendAskForAProcessScanWhenLuvusDoesNotKnowTheAgent(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.needScan, rt.revision = true, 7 })
@@ -101,6 +105,7 @@ func TestKeysAndSendAskForAProcessScanWhenLuvusDoesNotKnowTheAgent(t *testing.T)
 }
 
 func TestInputIsRefusedAfterARestart(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.srv.SetGeneration("gen-2")
@@ -119,6 +124,7 @@ func TestInputIsRefusedAfterARestart(t *testing.T) {
 }
 
 func TestAttemptKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 8, promptLate })
@@ -131,6 +137,7 @@ func TestAttemptKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
 }
 
 func TestAttemptKeysRefuseAfterANewerPress(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, promptEarly })
@@ -142,6 +149,7 @@ func TestAttemptKeysRefuseAfterANewerPress(t *testing.T) {
 }
 
 func TestAttemptReadCapsLines(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	if out := fx.h.ok("attempt", "read", "--lines", "100000", "a1"); !strings.Contains(out, "lines: capped at 500") {

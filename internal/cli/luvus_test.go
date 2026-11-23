@@ -218,6 +218,7 @@ func TestAdoptingAMovedFleetLeavesThePinAlone(t *testing.T) {
 }
 
 func TestLuvusShowReportsABadHome(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	if _, _, code := h.run("--home", filepath.Join(t.TempDir(), "typo"), "luvus", "show"); code != 3 {
 		t.Fatalf("code = %d", code)
@@ -242,6 +243,7 @@ func TestAnUnreadablePinCanBeReplaced(t *testing.T) {
 }
 
 func TestLuvusShowOutsideAFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
 	out := h.ok("luvus", "show")
@@ -252,6 +254,7 @@ func TestLuvusShowOutsideAFleet(t *testing.T) {
 }
 
 func TestLuvusShowRefusesAnUnreadablePin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	if err := os.MkdirAll(fleet.LuvusStore(h.home), 0o755); err != nil {

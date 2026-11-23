@@ -58,10 +58,17 @@ var source = sync.OnceValues(func() (string, error) {
 	src := filepath.Join(filepath.Dir(exe), "fakebin.exe")
 	b, err := os.ReadFile(exe)
 	if err == nil {
-		err = os.WriteFile(src, b, 0o755)
+		err = WriteExecutable(src, b)
 	}
 	return src, err
 })
+
+// WriteExecutable holds syscall.ForkLock while the file is open: a process forked meanwhile keeps the write handle until it execs, and executing the file then fails with "text file busy".
+func WriteExecutable(path string, b []byte) error {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	return os.WriteFile(path, b, 0o755)
+}
 
 func Install(t testing.TB, dir, name, behavior string, params map[string]string) string {
 	t.Helper()
@@ -77,7 +84,7 @@ func Install(t testing.TB, dir, name, behavior string, params map[string]string)
 	if os.Link(exe, path) != nil {
 		b, err := os.ReadFile(exe)
 		if err == nil {
-			err = os.WriteFile(path, b, 0o755)
+			err = WriteExecutable(path, b)
 		}
 		if err != nil {
 			t.Fatal(err)

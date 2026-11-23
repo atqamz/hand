@@ -17,6 +17,7 @@ import (
 )
 
 func TestCommandsFindTheHomeFromAFolderInsideIt(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.ok("project", "add", "app", gitRepo(t))
@@ -36,6 +37,7 @@ func TestCommandsFindTheHomeFromAFolderInsideIt(t *testing.T) {
 }
 
 func TestHandHomeAndTheWorkingDirectoryMustAgree(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	other := t.TempDir()
@@ -51,6 +53,7 @@ func TestHandHomeAndTheWorkingDirectoryMustAgree(t *testing.T) {
 }
 
 func TestInitTargetsItsFolderNotHandHome(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	first := field(h.ok("init"), "id")
 	dir := t.TempDir()
@@ -62,6 +65,7 @@ func TestInitTargetsItsFolderNotHandHome(t *testing.T) {
 }
 
 func TestInitNamesAndRenamesTheFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	out := h.ok("init")
 	id := field(out, "id")
@@ -82,6 +86,7 @@ func TestInitNamesAndRenamesTheFleet(t *testing.T) {
 }
 
 func TestAMovedHomeIsAdoptedByTheFirstCommand(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	old := h.home
@@ -99,6 +104,7 @@ func TestAMovedHomeIsAdoptedByTheFirstCommand(t *testing.T) {
 }
 
 func TestACopiedHomeIsRefused(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	cp := t.TempDir()
@@ -130,6 +136,7 @@ func TestACopiedHomeIsRefused(t *testing.T) {
 }
 
 func TestInitRefusesAnUnusableFolderNameBeforeWriting(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	dir := filepath.Join(t.TempDir(), strings.Repeat("x", 65))
 	if _, errOut, code := h.run("init", dir); code != 2 || !strings.Contains(errOut, "pass --name") {
@@ -144,6 +151,7 @@ func TestInitRefusesAnUnusableFolderNameBeforeWriting(t *testing.T) {
 }
 
 func TestASymlinkedHomeIsTheSameFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	alias := filepath.Join(t.TempDir(), "alias")
@@ -158,6 +166,7 @@ func TestASymlinkedHomeIsTheSameFleet(t *testing.T) {
 }
 
 func TestAMissingHomeCreatesNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.home = filepath.Join(t.TempDir(), "nope")
 	h.cwd = t.TempDir()
@@ -176,6 +185,7 @@ func TestAMissingHomeCreatesNothing(t *testing.T) {
 }
 
 func TestInitRefusesToNestAFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	outer := t.TempDir()
@@ -198,6 +208,7 @@ func TestInitRefusesToNestAFleet(t *testing.T) {
 }
 
 func TestInitSeesThroughASymlinkedParent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	alias := filepath.Join(t.TempDir(), "alias")
@@ -224,6 +235,7 @@ func TestInitSeesThroughASymlinkedParent(t *testing.T) {
 }
 
 func TestAFailedInitDoesNotStopTheFirstCommandAdopting(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	old := h.home
@@ -243,6 +255,7 @@ func TestAFailedInitDoesNotStopTheFirstCommandAdopting(t *testing.T) {
 }
 
 func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	repo := filepath.Join(h.home, "projects", "app")

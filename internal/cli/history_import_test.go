@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 type importRig struct {
@@ -121,6 +123,7 @@ const importFleetRows = "sessions[6]{ref,harness,session,entries,inserted,status
 	"  s7,opencode,ses_1,0,0,harness missing\n"
 
 func TestHistoryImportStoresEverySessionAndNamesEachStatus(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.fleet()
 	out := g.h.ok("history", "import")
@@ -139,6 +142,7 @@ func TestHistoryImportStoresEverySessionAndNamesEachStatus(t *testing.T) {
 }
 
 func TestHistoryImportASecondRunInsertsNothingAndWritesNoEvent(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.fleet()
 	g.h.ok("history", "import")
@@ -154,6 +158,7 @@ func TestHistoryImportASecondRunInsertsNothingAndWritesNoEvent(t *testing.T) {
 }
 
 func TestHistoryImportBesideALivePassKeepsItsRowsAndAddsOnlyTheRest(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.fleet()
 	g.exec(`INSERT INTO supervisor_reply(supervisor_id, session, at, n, body) VALUES (2, 'sc', '2026-11-10T10:00:05.000Z', 0, 'stored live')`)
@@ -170,6 +175,7 @@ func TestHistoryImportBesideALivePassKeepsItsRowsAndAddsOnlyTheRest(t *testing.T
 }
 
 func TestHistoryImportDryRunWritesNothingAndReportsWhatARunWouldInsert(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.fleet()
 	seq := g.count(`SELECT max(seq) FROM event`)
@@ -191,6 +197,7 @@ func TestHistoryImportDryRunWritesNothingAndReportsWhatARunWouldInsert(t *testin
 }
 
 func TestHistoryImportSessionFilterTakesOnlyTheNamedSessions(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.fleet()
 	out := g.h.ok("history", "import", "--session", "sx", "--session", "gone")
@@ -210,6 +217,7 @@ func TestHistoryImportSessionFilterTakesOnlyTheNamedSessions(t *testing.T) {
 }
 
 func TestHistoryImportWritesLongSessionsInChunksOf500(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.sup(1, "claude", "big", "2026-11-10T09:00:00Z", "")
 	var lines []string
@@ -251,6 +259,7 @@ func TestHistoryImportRepliesAppearInHistorySearch(t *testing.T) {
 }
 
 func TestHistoryImportRedactsASecretShapeBeforeItIsStored(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, secret, mark string }{
 		{"github token", "ghp_" + strings.Repeat("q", 36), "[redacted:github-token]"},
 		{"bearer token", "Bearer " + strings.Repeat("b", 30), "[redacted:bearer]"},
@@ -271,6 +280,7 @@ func TestHistoryImportRedactsASecretShapeBeforeItIsStored(t *testing.T) {
 }
 
 func TestHistoryImportReportsAStoreErrorAndAReRunInsertsTheRest(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.sup(1, "claude", "big", "2026-11-10T09:00:00Z", "")
 	var lines []string
@@ -293,6 +303,7 @@ func TestHistoryImportReportsAStoreErrorAndAReRunInsertsTheRest(t *testing.T) {
 }
 
 func TestHistoryImportDryRunCountsOnlyTheNamedSessionWhenTwoShareATimestamp(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.sup(1, "claude", "a", "2026-11-10T09:00:00Z", "")
 	g.sup(2, "claude", "b", "2026-11-10T09:00:00Z", "")
@@ -306,6 +317,7 @@ func TestHistoryImportDryRunCountsOnlyTheNamedSessionWhenTwoShareATimestamp(t *t
 }
 
 func TestHistoryImportAttributesAnEntryOutsideEveryRowOfItsSessionToTheFirstRowNotToAnotherSession(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.sup(1, "claude", "sc", "2026-11-10T09:00:00Z", "2026-11-10T10:00:00Z")
 	g.sup(2, "codex", "sx", "2026-11-10T13:00:00Z", "2026-11-10T14:00:00Z")
@@ -317,6 +329,7 @@ func TestHistoryImportAttributesAnEntryOutsideEveryRowOfItsSessionToTheFirstRowN
 }
 
 func TestHistoryImportAttributesALateFlushOfAResumedSessionToItsLastRowAndAnEarlyOneToTheNextRow(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.sup(1, "claude", "sc", "2026-11-17T04:00:00Z", "2026-11-17T05:00:00Z")
 	g.sup(2, "claude", "sc", "2026-11-17T05:30:00Z", "2026-11-17T06:00:00Z")
@@ -347,7 +360,7 @@ func (g *importRig) opencode(script string) string {
 		g.t.Skip("the fake opencode is a shell script")
 	}
 	dir := g.t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\n"+script+"\n")); err != nil {
 		g.t.Fatal(err)
 	}
 	g.h.vars["PATH"] = dir + ":/usr/bin:/bin"
@@ -359,6 +372,7 @@ const opencodeExport = `cat <<'EOF'
 EOF`
 
 func TestHistoryImportLeavesALiveOpencodeSupervisorToTheWatcherAndReadsAnEndedOne(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	dir := g.opencode("touch \"$(dirname \"$0\")/called\"\n" + opencodeExport)
 	g.exec(`INSERT INTO supervisor(id, harness, model, effort, argv, session, status, created_at) VALUES (1, 'opencode', 'm', 'low', '[]', 'ses_live', 'running', '2026-11-10T09:00:00Z')`)
@@ -382,6 +396,7 @@ func TestHistoryImportLeavesALiveOpencodeSupervisorToTheWatcherAndReadsAnEndedOn
 }
 
 func TestHistoryImportStopsTheRowsAt16KiBAndSaysSo(t *testing.T) {
+	t.Parallel()
 	g := newImportRig(t)
 	g.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 600) INSERT INTO supervisor(id, harness, model, effort, argv, status, created_at) SELECT i, 'claude', 'm', 'low', '[]', 'stopped', '2026-11-10T09:00:00Z' FROM n`)
 	out := g.h.ok("history", "import", "--dry-run")

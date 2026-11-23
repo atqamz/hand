@@ -107,6 +107,7 @@ func TestCleanWithoutScratchPrintsNothingAboutIt(t *testing.T) {
 }
 
 func TestGCListsOrphansByDefaultAndRemovesThemWithApply(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	fx.start()
 	live := fx.scratch(fx.h.worktree("t1-a1"))
@@ -147,6 +148,7 @@ func ageTree(t *testing.T, dir string, age time.Duration) {
 }
 
 func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	oldDir := fx.scratch(fx.h.worktree("t5-a8"))
 	newDir := fx.scratch(fx.h.worktree("t5-a9"))
@@ -165,6 +167,7 @@ func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
 }
 
 func TestGCOlderThanUsesTheAttemptScratchRoot(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	home, err := filepath.EvalSymlinks(fx.h.home)
 	if err != nil {
@@ -234,6 +237,7 @@ func undeletable(t *testing.T, scratch string) {
 }
 
 func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
+	t.Parallel()
 	fx := newScratchFixture(t)
 	stuck := fx.scratch(fx.h.worktree("t5-a1"))
 	undeletable(t, stuck)

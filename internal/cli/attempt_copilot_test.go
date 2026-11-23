@@ -60,6 +60,7 @@ func copilotTrustScreen(path string, width, cursor int) string {
 }
 
 func TestCopilotWorkersStartWithTheirBrief(t *testing.T) {
+	t.Parallel()
 	for effort, flags := range map[string][]string{"": nil, "high": {"--reasoning-effort", "high"}} {
 		fx := newAttemptFixture(t)
 		var out string
@@ -84,6 +85,7 @@ func TestCopilotWorkersStartWithTheirBrief(t *testing.T) {
 }
 
 func TestCopilotTrustScreenIsAcceptedInItsOwnWorktreeAtEveryWidth(t *testing.T) {
+	t.Parallel()
 	for _, width := range []int{120, 80, 56} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			fx := newAttemptFixture(t)
@@ -103,6 +105,7 @@ func TestCopilotTrustScreenIsAcceptedInItsOwnWorktreeAtEveryWidth(t *testing.T) 
 }
 
 func TestCopilotTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
+	t.Parallel()
 	for name, path := range map[string]func(wt string) string{
 		"elsewhere": func(string) string { return "/tmp/elsewhere" },
 		"sibling":   func(wt string) string { return wt + "2" },
@@ -128,6 +131,7 @@ func TestCopilotTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 }
 
 func TestCopilotTrustScreenNeverTakesTheRememberRow(t *testing.T) {
+	t.Parallel()
 	for _, cursor := range []int{2, 3} {
 		fx := newAttemptFixture(t)
 		screen := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, cursor)
@@ -140,6 +144,7 @@ func TestCopilotTrustScreenNeverTakesTheRememberRow(t *testing.T) {
 }
 
 func TestCopilotMissingNamesItsInstallAndLogin(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if err := os.Remove(exe(fx.h.vars["PATH"], "copilot")); err != nil {
 		t.Fatal(err)
@@ -151,6 +156,7 @@ func TestCopilotMissingNamesItsInstallAndLogin(t *testing.T) {
 }
 
 func TestCopilotStartsFromTheFolderGhCopilotDownloadsTo(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	onPath := exe(fx.h.vars["PATH"], "copilot")
 	data := t.TempDir()
@@ -172,6 +178,7 @@ func TestCopilotStartsFromTheFolderGhCopilotDownloadsTo(t *testing.T) {
 }
 
 func TestCopilotAttemptsAreStoredAsWorkers(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	a, err := openStore(t, fx.h).Attempt(t.Context(), 1)
@@ -217,6 +224,7 @@ func startCopilotLaunch(t *testing.T, launch string) (*attemptFixture, string) {
 }
 
 func TestCopilotLaunchThatFellBackToAutoIsNotedBlockedAtEveryWidth(t *testing.T) {
+	t.Parallel()
 	problem := `✗ Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`
 	for _, width := range []int{120, 80, 56} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
@@ -235,6 +243,7 @@ func TestCopilotLaunchThatFellBackToAutoIsNotedBlockedAtEveryWidth(t *testing.T)
 }
 
 func TestCopilotLaunchThatIsSignedOutIsNotedBlockedAtEveryWidth(t *testing.T) {
+	t.Parallel()
 	for _, width := range []int{120, 80, 56} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			fx, out := startCopilotLaunch(t, copilotLaunchScreen("Please use /login to sign in to use Copilot", width, false, ""))
@@ -249,6 +258,7 @@ func TestCopilotLaunchThatIsSignedOutIsNotedBlockedAtEveryWidth(t *testing.T) {
 }
 
 func TestCopilotLaunchWordsPrintedLaterByTheWorkerAreNotAProblem(t *testing.T) {
+	t.Parallel()
 	later := wrapAt(`Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`, 80) + "Please use /login to sign in to use Copilot\n"
 	fx, out := startCopilotLaunch(t, copilotLaunchScreen("", 80, true, later))
 	if strings.Contains(out, "hand attempt read a1") {
@@ -260,6 +270,7 @@ func TestCopilotLaunchWordsPrintedLaterByTheWorkerAreNotAProblem(t *testing.T) {
 }
 
 func TestCopilotLaunchWordsAfterTheBannerScrolledAwayAreNotAProblem(t *testing.T) {
+	t.Parallel()
 	screen := wrapAt(`Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`, 80) + "❯\n"
 	fx, out := startCopilotLaunch(t, screen)
 	if strings.Contains(out, "hand attempt read a1") {
@@ -271,6 +282,7 @@ func TestCopilotLaunchWordsAfterTheBannerScrolledAwayAreNotAProblem(t *testing.T
 }
 
 func TestCopilotLaunchWithoutAnEchoEndsAtTheScreenWait(t *testing.T) {
+	t.Parallel()
 	fx, out := startCopilotLaunch(t, copilotLaunchScreen("", 80, false, ""))
 	if strings.Contains(out, "hand attempt read a1") {
 		t.Fatalf("start = %q", out)
@@ -302,6 +314,7 @@ func TestCopilotLaunchLineThatAppearsOnALaterReadIsNoted(t *testing.T) {
 }
 
 func TestCopilotModelLineWithoutTheFallbackClauseIsNotAProblem(t *testing.T) {
+	t.Parallel()
 	fx, out := startCopilotLaunch(t, copilotLaunchScreen(`✗ Model "gpt-nosuch" from --model flag is not available.`, 80, true, ""))
 	if strings.Contains(out, "hand attempt read a1") {
 		t.Fatalf("start = %q", out)

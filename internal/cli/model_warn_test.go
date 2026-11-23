@@ -197,6 +197,7 @@ func TestSupervisorResumeAndSwitchRepeatTheWarning(t *testing.T) {
 }
 
 func TestAttemptStartWarnsAboutAnUnverifiedModel(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	out := fx.h.ok("attempt", "start", "--harness", "claude", "--model", "acme-opus", "--effort", "high", "--prompt-file", fx.brief, "t1")
 	has(t, "start", out, "attempt: a1", `warn: "claude model acme-opus`)
@@ -206,6 +207,7 @@ func TestAttemptStartWarnsAboutAnUnverifiedModel(t *testing.T) {
 }
 
 func TestAttemptStartWarnsWithoutACodexCache(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.h.vars["HOME"] = t.TempDir()
 	out := fx.h.ok("attempt", "start", "--harness", "codex", "--model", "acme-coder-1", "--effort", "high", "--prompt-file", fx.brief, "t1")

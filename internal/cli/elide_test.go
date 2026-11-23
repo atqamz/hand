@@ -28,6 +28,7 @@ func markerLine(t *testing.T, out string) (head, marker, after string, omitted i
 }
 
 func TestElideLeavesAShortTextAlone(t *testing.T) {
+	t.Parallel()
 	for _, s := range []string{"", "one\ntwo\n", strings.Repeat("a\n", reportShowBytes/2), strings.Repeat("a", 1000) + "\n"} {
 		if got := elide(s, reportShowBytes, elideCmd); got != s {
 			t.Fatalf("elide changed a text of %d bytes", len(s))
@@ -36,6 +37,7 @@ func TestElideLeavesAShortTextAlone(t *testing.T) {
 }
 
 func TestElidePrintsWholeWhenTheCutSavesNothing(t *testing.T) {
+	t.Parallel()
 	for _, over := range []int{1, 30} {
 		s := strings.Repeat("a", 1000+over)
 		if got := elide(s, 1000, elideCmd); got != s {
@@ -49,6 +51,7 @@ func TestElidePrintsWholeWhenTheCutSavesNothing(t *testing.T) {
 }
 
 func TestElideKeepsTheHeadTheTailAndDeliveredLines(t *testing.T) {
+	t.Parallel()
 	x := strings.Repeat("x", 99) + "\n"
 	body := "Fixed login\n" + strings.Repeat(x, 50) + "Delivered: /abs/mid.md\n" + strings.Repeat(x, 50) + "Gate: CHANGES\nDelivered: https://example.com/pr/1\n"
 	got := elide(body, 1000, elideCmd)
@@ -78,6 +81,7 @@ func TestElideKeepsTheHeadTheTailAndDeliveredLines(t *testing.T) {
 }
 
 func TestElideCountsKeptDeliveredLinesAsShown(t *testing.T) {
+	t.Parallel()
 	x := strings.Repeat("x", 99) + "\n"
 	body := strings.Repeat(x, 30) + strings.Repeat("Delivered: /abs/f\n", 5) + strings.Repeat(x, 30)
 	head, _, after, omitted := markerLine(t, elide(body, 1000, elideCmd))
@@ -90,6 +94,7 @@ func TestElideCountsKeptDeliveredLinesAsShown(t *testing.T) {
 }
 
 func TestElideKeepsTheTailOfOneHugeLineAfterAShortFirstLine(t *testing.T) {
+	t.Parallel()
 	for _, first := range []int{7, 3000} {
 		body := strings.Repeat("s", first) + "\n" + strings.Repeat("x", 40000) + "\nVerdict: stuck\n"
 		got := elide(body, reportShowBytes, elideCmd)
@@ -104,6 +109,7 @@ func TestElideKeepsTheTailOfOneHugeLineAfterAShortFirstLine(t *testing.T) {
 }
 
 func TestElideCutsTheHeadAtTheLastLineThatFits(t *testing.T) {
+	t.Parallel()
 	const limit, share = 1256, 1256 - 157
 	for _, c := range []struct {
 		line int
@@ -118,6 +124,7 @@ func TestElideCutsTheHeadAtTheLastLineThatFits(t *testing.T) {
 }
 
 func TestElideStartsTheTailAtTheFirstLineItKeepsWhole(t *testing.T) {
+	t.Parallel()
 	const limit, tail = 1000, 125
 	prefix := strings.Repeat("a", 3000) + "\n"
 	for _, c := range []struct {
@@ -137,6 +144,7 @@ func TestElideStartsTheTailAtTheFirstLineItKeepsWhole(t *testing.T) {
 }
 
 func TestElideTrimsCRLFFromTheHeadAndKeptLines(t *testing.T) {
+	t.Parallel()
 	x := strings.Repeat("x", 98) + "\r\n"
 	body := strings.Repeat(x, 30) + "Delivered: /abs/mid.md\r\n" + strings.Repeat(x, 30)
 	head, _, after, _ := markerLine(t, elide(body, 1000, elideCmd))
@@ -146,6 +154,7 @@ func TestElideTrimsCRLFFromTheHeadAndKeptLines(t *testing.T) {
 }
 
 func TestElideKeepsListedDeliveredLines(t *testing.T) {
+	t.Parallel()
 	x := strings.Repeat("x", 99) + "\n"
 	body := strings.Repeat(x, 30) + "- Delivered: /a\n* Delivered: /b\n \tDelivered: /c\n" + strings.Repeat(x, 30)
 	_, _, after, _ := markerLine(t, elide(body, 1000, elideCmd))
@@ -155,6 +164,7 @@ func TestElideKeepsListedDeliveredLines(t *testing.T) {
 }
 
 func TestElideCutsLongLinesOnRuneBoundaries(t *testing.T) {
+	t.Parallel()
 	for _, r := range []string{"é", "🚀"} {
 		got := elide(strings.Repeat(r, 2000), 1000, elideCmd)
 		head, _, after, _ := markerLine(t, got)
@@ -165,6 +175,7 @@ func TestElideCutsLongLinesOnRuneBoundaries(t *testing.T) {
 }
 
 func TestElideBoundsTheDeliveredLinesItKeeps(t *testing.T) {
+	t.Parallel()
 	x := strings.Repeat("x", 99) + "\n"
 	many := strings.Repeat("Delivered: /abs/file\n", 500)
 	big := "Delivered: " + strings.Repeat("y", 5000) + "\n"
@@ -179,6 +190,7 @@ func TestElideBoundsTheDeliveredLinesItKeeps(t *testing.T) {
 }
 
 func TestElideKeepsDeliveredLinesUpToExactlyAEighthOfTheLimit(t *testing.T) {
+	t.Parallel()
 	x := strings.Repeat("x", 99) + "\n"
 	for _, c := range []struct {
 		name  string
@@ -198,6 +210,7 @@ func TestElideKeepsDeliveredLinesUpToExactlyAEighthOfTheLimit(t *testing.T) {
 }
 
 func TestReportFooterStaysUnderThePromptCap(t *testing.T) {
+	t.Parallel()
 	long := "C:/" + strings.Repeat("p", 200) + "/hand.exe"
 	for _, goos := range []string{"linux", "windows"} {
 		footer := reportFooterFor(goos, long)

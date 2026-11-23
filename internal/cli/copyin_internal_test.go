@@ -10,6 +10,7 @@ import (
 )
 
 func TestCopyInNeverReadsAFileSwappedForALinkToTheFleetDatabase(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("swapping a symlink in needs privileges on Windows")
 	}
@@ -68,6 +69,7 @@ func TestCopyInNeverReadsAFileSwappedForALinkToTheFleetDatabase(t *testing.T) {
 }
 
 func TestInFleetFolderFindsAHardLinkAndNothingElseOfTheSameOrAnotherSize(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	r := &runner{home: home}
 	inside := filepath.Join(home, "routing.json")

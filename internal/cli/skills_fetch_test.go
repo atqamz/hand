@@ -205,6 +205,7 @@ func collidingCommits(t *testing.T, r *skillRemote, benign, evil map[string]stri
 }
 
 func TestSkillsSyncYesNeedsTheWholeCommitNotAPrefix(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	h.ok("skills", "add", "--fleet", "--ref", "main", "file://"+filepath.ToSlash(tool.bare))
@@ -233,6 +234,7 @@ func TestSkillsSyncYesNeedsTheWholeCommitNotAPrefix(t *testing.T) {
 }
 
 func TestSkillsSyncInAProjectNeverTrustsAPathAndNamesItsHash(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	src := skillSource(t, "notes", "v1")
 	h.ok("skills", "add", src)

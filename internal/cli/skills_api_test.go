@@ -216,6 +216,7 @@ func TestSkillsAPISyncAppliesAnOwnRepoWithABackupAndTheCLIsRow(t *testing.T) {
 }
 
 func TestSkillsAPISyncMovesAThirdPartySkillOnlyWithTheWholeYes(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	src := "file://" + filepath.ToSlash(tool.bare)
@@ -421,6 +422,7 @@ func TestSkillsAPIRefusesAnArgumentThatWouldBeAFlag(t *testing.T) {
 }
 
 func TestSkillsAPIActsOnTheUserScope(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := skillSource(t, "notes", "one")
 	h.ok("skills", "add", "--user", src)
@@ -556,6 +558,7 @@ func TestSkillsAPIDropsALoginFromAReconcileGoal(t *testing.T) {
 }
 
 func TestSkillsLoginKeepsAnAtInAPathOrQuery(t *testing.T) {
+	t.Parallel()
 	for _, keep := range []string{"https://host/a@b", "https://host/a?u=x@y", "see https://host/p and mail a@b.test"} {
 		if got := cli.SkillsLogin(keep); got != keep {
 			t.Fatalf("login(%q) = %q", keep, got)

@@ -1455,6 +1455,7 @@ func TestSupervisorKeysAreRecorded(t *testing.T) {
 }
 
 func TestWakesNameTheTaskOnOneLine(t *testing.T) {
+	t.Parallel()
 	title := func(int64) string { return "Fix \"login\"\nnow" }
 	digest, last := cli.WakeDigest([]state.Event{{Seq: 3, Kind: "attempt.reported", TaskID: 1, Detail: "a1: r1 done"}, {Seq: 4, Kind: "decision.answered", Detail: "d1"}}, title)
 	want := "[hand v1 wake]\nattempt.reported a1: r1 done (t1 \"Fix 'login' now\")\ndecision.answered d1"
@@ -1512,6 +1513,7 @@ func TestSwitchingHarnessIsRefusedWhileWorking(t *testing.T) {
 }
 
 func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
+	t.Parallel()
 	title := func(int64) string { return "Fix login" }
 	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: Enter to confirm · Esc to cancel"}}, title)
 	if want := "[hand v1 wake]\nattempt.blocked a1: its screen waits for a key (t1 \"Fix login\")"; digest != want {
@@ -1520,6 +1522,7 @@ func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
 }
 
 func TestBlockedWakeNamesAQuestionWithoutItsText(t *testing.T) {
+	t.Parallel()
 	title := func(int64) string { return "Fix login" }
 	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: question: Keep the old column?"}}, title)
 	if want := "[hand v1 wake]\nattempt.blocked a1: its screen shows a question for the operator (t1 \"Fix login\")"; digest != want {
@@ -1587,7 +1590,7 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	if err := os.Remove(codex); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(codex, []byte("#!/nonexistent/sh\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(codex, []byte("#!/nonexistent/sh\n")); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "s1 stopped, continue it with") {

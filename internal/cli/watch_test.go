@@ -28,7 +28,7 @@ import (
 
 func eventually(t *testing.T, ok func() bool) {
 	t.Helper()
-	eventuallyWithin(t, 5*time.Second, ok)
+	eventuallyWithin(t, 30*time.Second, ok)
 }
 
 func eventuallyWithin(t *testing.T, d time.Duration, ok func() bool) {
@@ -730,6 +730,7 @@ func TestWatchIsNotBlockedByASlowNotifier(t *testing.T) {
 }
 
 func TestOnlyWatchNeedsTheEventStream(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.srv.Handle("uhp.capabilities", func(json.RawMessage) (any, error) {
 		return map[string]any{"protocol": map[string]any{"name": "luvus-uhp", "major": 1}, "methods": luvus.Required, "server_generation": "gen-1"}, nil
@@ -888,6 +889,7 @@ func TestWatchRunsWhenItsPidFileIsUnwritable(t *testing.T) {
 }
 
 func TestBoardRunsWhenItsPidFileIsUnwritable(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	pid := filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid")
 	if err := os.Mkdir(pid, 0o700); err != nil {

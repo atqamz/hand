@@ -8,6 +8,7 @@ import (
 )
 
 func TestWakeArmsListsAndCancelsTimers(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	h := fx.h
 	if out := h.ok("wake", "--after", "30m", "--note", "check PR 909"); out != "timer: w1\nstatus: armed\ndue: \"2026-09-26T00:30:00Z\"\nnote: check PR 909\n" {
@@ -43,6 +44,7 @@ func TestWakeArmsListsAndCancelsTimers(t *testing.T) {
 }
 
 func TestWakeRefusesBadTimers(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	h := fx.h
 	for _, c := range []struct {
@@ -272,6 +274,7 @@ func TestOrientShowsUnwatchedWorkWhenNoManagedSupervisorFiresTheTimer(t *testing
 }
 
 func TestWakeWaitsArmsShowsAndCancelsAWait(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	h := fx.h
 	if out := h.ok("wake", "--while", "t1", "--waits", "--after", "3d", "--note", "outside PR"); out != "timer: w1\nstatus: armed\ndue: \"2026-09-29T00:00:00Z\"\nwhile: t1\nwaits: yes\nnote: outside PR\n" {
@@ -304,6 +307,7 @@ func TestWakeWaitsArmsShowsAndCancelsAWait(t *testing.T) {
 }
 
 func TestWakeTakesDaysForAfterAndEvery(t *testing.T) {
+	t.Parallel()
 	fx, _ := stallFleet(t, "")
 	has(t, "after", fx.h.ok("wake", "--after", "2d"), "due: \"2026-09-28T00:00:00Z\"\n")
 	has(t, "every", fx.h.ok("wake", "--every", "1d"), "due: \"2026-09-27T00:00:00Z\"\nevery: 24h\n")

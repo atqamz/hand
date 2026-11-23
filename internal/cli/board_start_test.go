@@ -82,7 +82,7 @@ func newBoardStartFixture(t *testing.T) *boardStartFixture {
 	*cli.WatchExe = func() (string, error) { return proof, nil }
 	t.Cleanup(func() {
 		_ = os.WriteFile(bf.stop, nil, 0o600)
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(bf.done); err == nil {
 				removeWhenFree(t, fx.h.vars["SECONDHAND_HOME"])
 				return
@@ -97,7 +97,7 @@ func newBoardStartFixture(t *testing.T) *boardStartFixture {
 // under; retry until that exit releases it.
 func removeWhenFree(t *testing.T, dir string) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(25 * time.Millisecond) {
 		err := os.RemoveAll(dir)
 		if err == nil {
 			return
@@ -179,7 +179,7 @@ func TestBoardStartWaitsTenSecondsByDefault(t *testing.T) {
 	t.Cleanup(func() {
 		*cli.BoardWait = wait
 		_ = os.WriteFile(stop, nil, 0o600)
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(done); err == nil {
 				removeWhenFree(t, fx.h.vars["SECONDHAND_HOME"])
 				return
@@ -264,6 +264,7 @@ func TestOpeningFromATerminalRecordsThePath(t *testing.T) {
 }
 
 func TestOpeningFromATerminalRecordsThePathWhenTheBoardAnswers(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	fx.h.tty = true
 	fx.h.vars["PATH"] = "/opt/terminal/bin"

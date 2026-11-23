@@ -182,6 +182,7 @@ func TestAWatcherReseedsWhenTheBoardGenerationChanges(t *testing.T) {
 }
 
 func TestTheBoardRecordsTheGenerationItsWatchersHold(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	_, stop := startBoard(t, h, "127.0.0.1")

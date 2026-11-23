@@ -32,6 +32,7 @@ func runImportWithin(t *testing.T, h *harness, args ...string) (string, string, 
 }
 
 func TestFleetImportTreatsANonregularDestinationAsACollision(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
 	fx.h.ok("--home", fx.src, "task", "add", "app", "one")

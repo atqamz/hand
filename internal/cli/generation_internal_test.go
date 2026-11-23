@@ -12,12 +12,14 @@ import (
 )
 
 func TestARequesterWithNoCallerSaysUnknown(t *testing.T) {
+	t.Parallel()
 	if got := (requester{}).String(); !strings.Contains(got, "unknown") {
 		t.Fatalf("requester = %q", got)
 	}
 }
 
 func TestAStaleGenerationRecordsOneRefusal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, generationFile), []byte("9 stale\n"), 0o600); err != nil {
 		t.Fatal(err)

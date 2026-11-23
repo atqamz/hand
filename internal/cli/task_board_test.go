@@ -15,6 +15,7 @@ import (
 )
 
 func TestTaskListAndTheTasksPageAgree(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Fix inbox", "Fix search", "Write docs", "Fix docs links", "Fix runner"} {
 		h.ok("task", "add", "hand", title)

@@ -41,6 +41,7 @@ func TestOpenPrintPrintsTheAppLinkNextToTheTokenLink(t *testing.T) {
 }
 
 func TestNothingRunsTailscale(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	log := filepath.Join(t.TempDir(), "tailscale.log")
 	fakebin.Install(t, fx.h.vars["PATH"], "tailscale", "tailscale", map[string]string{"log": log})
@@ -53,6 +54,7 @@ func TestNothingRunsTailscale(t *testing.T) {
 }
 
 func TestTheAppLinkReproducesEveryCanonicalVector(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "companion-vectors.json"))
 	if err != nil {
 		t.Fatal(err)
