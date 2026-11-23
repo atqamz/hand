@@ -18,12 +18,10 @@ func lockFree(t *testing.T, s Skills) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer f.Close()
 	ok, err := flock.Lock(f, false)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if ok {
-		_ = flock.Release(f)
 	}
 	return ok
 }
