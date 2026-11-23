@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
@@ -21,6 +23,8 @@ import (
 )
 
 var gated = true
+
+const notifyTimeout = 5 * time.Second
 
 type options struct {
 	version bool
@@ -132,6 +136,15 @@ func main() {
 	}
 	var win *mygo.Window
 	var early [][]string
+	var earlyClicks []string
+	var openAttention func(string)
+	mygo.App.OnNotificationClick(func(id string) {
+		if win == nil {
+			earlyClicks = append(earlyClicks, id)
+			return
+		}
+		openAttention(id)
+	})
 	mygo.App.OnSecondInstance(func(args []string, _ string) {
 		if win == nil {
 			early = append(early, args)
@@ -175,7 +188,31 @@ func main() {
 		app.OnTitle = win.SetTitle
 		app.OnBadge = mygo.App.SetBadgeCount
 		app.OnFlash = win.FlashFrame
-		win.OnFocus(func() { app.SetFocused(true) })
+		app.NotifyOK = mygo.NotificationsSupported
+		app.OnNotify = func(al desktop.Alert) {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), notifyTimeout)
+				defer cancel()
+				err := mygo.NewNotification(mygo.NotificationOptions{ID: al.ID, Title: al.Title, Body: al.Body}).ShowContext(ctx)
+				if errors.Is(err, mygo.ErrNotificationsDenied) {
+					win.Update(app.NotifyDenied)
+				}
+			}()
+		}
+		openAttention = func(id string) {
+			win.Update(func() {
+				if app.OpenAttention(id) {
+					win.Restore()
+					win.Focus()
+				}
+			})
+		}
+		win.OnFocus(func() {
+			if app.Notify {
+				mygo.ClearNotifications()
+			}
+			app.SetFocused(true)
+		})
 		win.OnBlur(func() { app.SetFocused(false) })
 		win.OnMinimize(func() { app.SetMinimized(true) })
 		win.OnRestore(func() { app.SetMinimized(false) })
@@ -189,6 +226,9 @@ func main() {
 		win.OnClosed(func() { app.Close() })
 		for _, args := range early {
 			handoff(app, args)
+		}
+		for _, id := range earlyClicks {
+			openAttention(id)
 		}
 		app.StartRefresh()
 	})

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -10,7 +11,14 @@ import (
 const (
 	AttentionRefresh          = 5 * time.Second
 	MinimizedAttentionRefresh = 15 * time.Second
+	NotifyFleetGap            = time.Minute
+	NotifyGap                 = 10 * time.Second
+	notifyPrefix              = "attn:"
 )
+
+var notifyRef = regexp.MustCompile(`^[a-z]{1,4}[0-9]{1,8}$`)
+
+type Alert struct{ ID, Title, Body string }
 
 type FleetSignal struct {
 	Fleet string
@@ -156,6 +164,9 @@ func (a *App) observe(fleet string, s Signal) {
 	if s.Waiting == 0 {
 		a.dropFlash(fleet)
 		return
+	}
+	if seen && a.blockedEdge(prev, s) && (a.Unfocused || a.Minimized) {
+		a.notify(fleet, s)
 	}
 	if seen && (s.Waiting > prev.Waiting || s.rank() > prev.rank()) && s.rank() >= 2 && (a.Unfocused || a.Minimized) {
 		if a.flashed == nil {
@@ -313,4 +324,62 @@ func (a *App) attended(gen int, sigs []FleetSignal, err error) {
 	}
 	a.syncAttention()
 	a.armAttention()
+}
+
+func blocked(s Signal) bool {
+	return s.Waiting > 0 && (s.Worst == "blocked" || s.Worst == "worker")
+}
+
+func (a *App) blockedEdge(prev, s Signal) bool {
+	if !blocked(s) {
+		return false
+	}
+	return !blocked(prev) || (prev.Ref != "" && s.Ref != "" && s.Ref != prev.Ref)
+}
+
+func (a *App) notify(fleet string, s Signal) {
+	if !a.Notify || !a.notifyOK || a.OnNotify == nil {
+		return
+	}
+	now := a.now()
+	if t, ok := a.notifyAt[fleet]; ok && now.Sub(t) < NotifyFleetGap {
+		return
+	}
+	if !a.notifyLast.IsZero() && now.Sub(a.notifyLast) < NotifyGap {
+		return
+	}
+	if a.notifyAt == nil {
+		a.notifyAt = map[string]time.Time{}
+	}
+	a.notifyAt[fleet], a.notifyLast = now, now
+	title, body := "Hand", "A screen is blocked"
+	if f, ok := a.fleetByID(fleet); ok && f.Name != "" {
+		title += " · " + f.Name
+	}
+	if notifyRef.MatchString(s.Ref) {
+		body = s.Ref + " is blocked"
+	}
+	a.OnNotify(Alert{ID: notifyPrefix + fleet, Title: title, Body: body})
+}
+
+func (a *App) SetNotify(on bool) {
+	if a.Notify == on {
+		return
+	}
+	a.Notify, a.notifyNote = on, ""
+	a.settlePrefs()
+}
+
+func (a *App) NotifyDenied() {
+	a.Notify, a.notifyNote = false, "Notifications are blocked in system settings"
+	a.settlePrefs()
+}
+
+func (a *App) OpenAttention(id string) bool {
+	fleet, ok := strings.CutPrefix(id, notifyPrefix)
+	if !ok || !fleetIDShape.MatchString(fleet) || !a.hasFleet(fleet) {
+		return false
+	}
+	a.SelectFleet(fleet)
+	return true
 }

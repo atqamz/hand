@@ -27,6 +27,7 @@ type prefs struct {
 	Chat   float32 `json:"chat,omitempty"`
 	Width  int     `json:"width,omitempty"`
 	Height int     `json:"height,omitempty"`
+	Notify bool    `json:"notify,omitempty"`
 }
 
 func (a *App) loadPrefs() {
@@ -56,6 +57,7 @@ func (a *App) loadPrefs() {
 	if p.Width > 0 && p.Height > 0 {
 		a.WindowW, a.WindowH = p.Width, p.Height
 	}
+	a.Notify = p.Notify
 }
 
 func (a *App) savePrefs() {
@@ -63,7 +65,7 @@ func (a *App) savePrefs() {
 	if path == "" {
 		return
 	}
-	raw, err := json.Marshal(prefs{Zoom: a.Zoom, Chat: a.Chat, Width: a.WindowW, Height: a.WindowH})
+	raw, err := json.Marshal(prefs{Zoom: a.Zoom, Chat: a.Chat, Width: a.WindowW, Height: a.WindowH, Notify: a.Notify})
 	if err != nil {
 		return
 	}
