@@ -169,7 +169,7 @@ internal fun syncProblem(error: BoardError): String =
     BoardError.Unreachable,
     BoardError.BoardNotRunning,
     BoardError.NoHost,
-    BoardError.Busy -> "The Board could not be reached. The sync may not have run; check again."
+    BoardError.Busy -> "The Board could not be reached. The sync may have run or may still be running on the host; check again in a minute."
     is BoardError.Conflict -> error.message ?: "The Board is busy with another skills request."
     is BoardError.Forbidden -> error.message ?: "The Board refused this sync."
     is BoardError.BadRequest -> error.message ?: "The Board refused this sync."

@@ -333,6 +333,15 @@ class SkillsModelTest {
   }
 
   @Test
+  fun aLostConnectionDuringASyncSaysItMayHaveRunOrStillRun() = runBlocking {
+    val board = SkillsBoard(sync = { throw BoardError.Lost })
+    val model = synced(board)
+    model.runSync(SyncKey("fleet"))
+    assertTrue(model.state.value.outcome!!.problem!!.contains("may have run or may still be running"))
+    assertEquals(1, board.calls.count { it == "GET /api/v1/skills" })
+  }
+
+  @Test
   fun aSyncTheBoardRanButAnswerUnreadableSaysSoAndReadsTheListAgain() = runBlocking {
     val board = SkillsBoard(sync = { Raw(200, "{") })
     val model = synced(board)
