@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -118,6 +119,75 @@ func TestAnOwnSourceAddPostsTheScopeSourceAndRefAndClearsTheForm(t *testing.T) {
 	if f.skillsReads != 2 {
 		t.Fatalf("reads = %d, want a read after the add", f.skillsReads)
 	}
+}
+
+func TestAnEditMadeWhileAnAddRunsIsKept(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	f.features = []string{"skills", "skills_manage"}
+	f.skillsRun = desktop.SkillsRun{
+		Receipt: "Skills add: 1 added",
+		Results: []desktop.SkillResult{{Name: "triage", State: "added", Detail: ownLatest}},
+	}
+	app, posted := asyncApp(t, f)
+	tt := newTester(app)
+	app.Show(desktop.SkillsScreen)
+	drainSkills(t, tt, posted, "Add a skill")
+	addSource(t, tt, "triage", "")
+	f.skillsGate, f.skillsEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Add")
+	select {
+	case <-f.skillsEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the add never started")
+	}
+	typeInto(t, tt, "Source", "next-skill")
+	close(f.skillsGate)
+	drainSkills(t, tt, posted, "Skills add: 1 added")
+	f.skillsGate = nil
+	for deadline := time.After(5 * time.Second); f.readCount() < 2; {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			t.Fatalf("the list was read %d times", f.readCount())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	for drained := false; !drained; {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(50 * time.Millisecond):
+			drained = true
+		}
+	}
+	tt.Frame()
+	click(t, tt, "Add")
+	for deadline := time.After(5 * time.Second); len(f.skillCalls()) < 2; {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			t.Fatalf("calls = %+v", f.skillCalls())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	want := desktop.SkillsRequest{Scope: "project", Project: "hand", Source: "next-skill"}
+	if got := f.skillCalls(); len(got) != 2 || got[1].Req != want {
+		t.Fatalf("calls = %+v, want a second add of %+v", got, want)
+	}
+}
+
+func TestAReviewIsNotConfirmableOnceTheBoardNoLongerListsSkillsManage(t *testing.T) {
+	f := scopes(goldenFixture(t), "project/hand")
+	f.skillsRun = reviewRun(reviewSHA)
+	f.skillsOnRun = func(string, desktop.SkillsRequest) { f.features = []string{"skills"} }
+	_, tt := manageApp(t, f)
+	addSource(t, tt, notesSource, "")
+	click(t, tt, "Add")
+	tt.SetSize(windowWidth, 2400)
+	mustText(t, tt, "Review notes before it is added", "+description: Write notes after every task", "Close")
+	mustNotText(t, tt, "Add this skill")
 }
 
 func TestAThirdPartyAddOpensTheReviewCardAndConfirmsWithTheBoardsCommit(t *testing.T) {

@@ -163,7 +163,7 @@ func (a *App) afterAdd(key string, req SkillsRequest, out SkillsRun) {
 	for _, r := range out.Results {
 		switch r.State {
 		case "added":
-			if f := a.sk.adds[key]; f != nil {
+			if f := a.sk.adds[key]; f != nil && strings.TrimSpace(f.source) == req.Source && strings.TrimSpace(f.ref) == req.Ref {
 				*f = skillAdd{}
 			}
 			return
@@ -388,7 +388,7 @@ func (a *App) skillsReview(c *ui.Context, k kit.Colors, p palette, sc SkillScope
 			ui.Text(c, rv.diff).Font("monospace").FontSize(kit.Meta.Size)
 		})
 		ui.Row(c).Gap(kit.Space8).Children(func() {
-			if rv.commit != "" && !rv.cut {
+			if rv.commit != "" && !rv.cut && a.skillsManageable() {
 				if kit.PrimaryButton(c, k, "skills:add-yes:"+key, "Add this skill", 160, a.skillsBusy()) {
 					a.actSkills("add", sc, SkillsRequest{Source: rv.source, Ref: rv.ref, Yes: rv.name + "@" + rv.commit})
 				}
