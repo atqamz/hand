@@ -540,7 +540,11 @@ func TestSkillsAPIThirdPartyAddListsEveryFileAheadOfTheDiff(t *testing.T) {
 		t.Fatalf("diff = %q", d.Diff)
 	}
 	head, _, _ := strings.Cut(d.Diff, "diff --git")
-	for _, want := range []string{"100755 18 run.sh\n", "100644 4 data/blob.bin Binary file\n", " SKILL.md\n"} {
+	runMode := "100755"
+	if runtime.GOOS == "windows" {
+		runMode = "100644"
+	}
+	for _, want := range []string{runMode + " 18 run.sh\n", "100644 4 data/blob.bin Binary file\n", " SKILL.md\n"} {
 		if !strings.Contains(head, want) {
 			t.Errorf("file list lacks %q: %q", want, head)
 		}
@@ -566,7 +570,11 @@ func TestSkillsAPIThirdPartyAddRefusesYesWhenTheReviewDiffIsCut(t *testing.T) {
 	if strings.Contains(d.Diff, "late.md\n+late") {
 		t.Fatalf("the text past the cut is shown")
 	}
-	for _, want := range []string{"100644 ", " blob.bin Binary file\n", "100755 10 run.sh\n", " z/late.md\n", " a/huge.txt\n"} {
+	runMode := "100755"
+	if runtime.GOOS == "windows" {
+		runMode = "100644"
+	}
+	for _, want := range []string{"100644 ", " blob.bin Binary file\n", runMode + " 10 run.sh\n", " z/late.md\n", " a/huge.txt\n"} {
 		if !strings.Contains(d.Diff, want) {
 			t.Errorf("file list lacks %q", want)
 		}
@@ -584,6 +592,9 @@ func TestSkillsAPIThirdPartyAddRefusesYesWhenTheReviewDiffIsCut(t *testing.T) {
 }
 
 func TestSkillsAPIThirdPartyAddWithASymlinkAnswersAClientErrorAndLeavesNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git does not check out a symlink on Windows")
+	}
 	f := newToolFixture(t)
 	if err := os.MkdirAll(filepath.Join(f.tool.work, "docs"), 0o755); err != nil {
 		t.Fatal(err)
