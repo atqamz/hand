@@ -886,4 +886,25 @@ class FleetsModelTest {
     }
     assertTrue(droppedFleets.isEmpty())
   }
+
+  @Test
+  fun aFleetAnotherHostStillHoldsKeepsItsDrafts() {
+    var paired = listOf(host(LAPTOP, "atqa-laptop", ONE, TWO), host(VPS, "vps-berlin", ONE))
+    val droppedFleets = mutableListOf<Set<String>>()
+    val model =
+      FleetsModel(
+        Host { fleet, _ -> both(fleet) },
+        { phone(*paired.toTypedArray()) },
+        hostForgetter = { endpoint ->
+          paired = paired.filter { it.endpoint != endpoint }
+          true
+        },
+        dropped = { droppedFleets += it }
+      )
+    runBlocking {
+      model.refresh()
+      model.forget(Forgetting(VPS, "vps-berlin", 1))
+    }
+    assertEquals(listOf(emptySet<String>()), droppedFleets)
+  }
 }
