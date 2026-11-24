@@ -263,6 +263,7 @@ func (a *App) memo(src string, literal, paths bool) string {
 			rel = a.pathRel(k.fleet)
 		}
 		v.md, v.cands = linkRefs(k.fleet, src, rel)
+		v.md = softBreaks(v.md)
 		a.askPaths(k.fleet, v.cands)
 	}
 	n := len(src) + len(v.md)

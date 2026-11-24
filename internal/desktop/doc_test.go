@@ -70,14 +70,63 @@ func docShots(t *testing.T, name string, width, height int, open func(*desktop.A
 	}
 }
 
+func standupShape(t *testing.T, tt *ui.Tester, dark bool, minRun int) {
+	t.Helper()
+	texts := strings.Join(tt.Texts(), "\x00")
+	for _, want := range []string{
+		"Shipped\nExport job retried clean\nManifest written last\nBackfill at 30 days",
+		"Next\nRegion split\nAlert on stale manifest",
+		"Blocked\nNothing",
+	} {
+		if !strings.Contains(texts, want) {
+			t.Errorf("no paragraph %q in %q", want, tt.Texts())
+		}
+	}
+	top, ok := tt.Find("Shipped\nExport job retried clean\nManifest written last\nBackfill at 30 days")
+	if !ok {
+		t.Fatal("the first standup block is not on screen")
+	}
+	goals, ok := tt.Find("Goals")
+	if !ok {
+		t.Fatal("the heading under the standup blocks is not on screen")
+	}
+	img, bg := tt.Image(), kit.ColorsFor(dark).BG
+	groups, in := 0, false
+	for y := int(top.Y + top.H); y < int(goals.Y); y++ {
+		var run, best int
+		var last color.RGBA
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			p := img.RGBAAt(x, y)
+			if p == last {
+				run++
+			} else {
+				run, last = 1, p
+			}
+			if !rgbIs(p, bg) && run > best {
+				best = run
+			}
+		}
+		if rule := best >= minRun; rule != in {
+			in = rule
+			if rule {
+				groups++
+			}
+		}
+	}
+	if groups != 2 {
+		t.Errorf("rules under the first standup block = %d, want 2", groups)
+	}
+}
+
 func TestScenesTheMarkdownDocument(t *testing.T) {
 	docShots(t, "55-doc-markdown-1100x760", windowWidth, windowHeight,
 		func(a *desktop.App) { a.OpenDoc("reports/t1/design.md") },
 		func(t *testing.T, tt *ui.Tester, dark bool) {
 			mustText(t, tt, "Fleets / golden /", "reports", "t1", "design.md", "reports/t1/design.md", "Copy path",
 				"2 KiB", "Next →", "notes.txt", "Nightly export pipeline: design", "Goals", "A manifest written last",
-				"Open as a page")
+				"Open as a page", "Shipped", "Export job retried clean", "Region split", "Blocked")
 			mustNotText(t, tt, "← Previous")
+			standupShape(t, tt, dark, 900)
 			if !rowRun(tt.Image(), 600, kit.ColorsFor(dark).BG, 500) {
 				t.Error("the page under the text has no run of the ground")
 			}
@@ -650,7 +699,8 @@ func TestScenesTheDocumentInANarrowWindow(t *testing.T) {
 	docShots(t, "65-doc-markdown-880x760", 880, 760,
 		func(a *desktop.App) { a.OpenDoc("reports/t1/design.md") },
 		func(t *testing.T, tt *ui.Tester, dark bool) {
-			mustText(t, tt, "design.md", "Copy path", "Next →", "Nightly export pipeline: design")
+			mustText(t, tt, "design.md", "Copy path", "Next →", "Nightly export pipeline: design", "Shipped", "Region split")
+			standupShape(t, tt, dark, 700)
 			r, ok := tt.Find("Close the viewer")
 			if !ok || int(r.X+r.W) > 880-24 {
 				t.Errorf("the close button %v is outside the box", r)
