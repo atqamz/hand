@@ -116,8 +116,8 @@ class AlertsModelTest {
     val unacked = lines[0]
     assertEquals("Tue 24 Nov 09:59", unacked.raised)
     assertEquals("Tue 24 Nov 09:59", unacked.delivered)
-    assertEquals("not acknowledged", unacked.acknowledged)
-    assertEquals("no delay yet", unacked.delay)
+    assertEquals("no", unacked.acknowledged)
+    assertEquals("no", unacked.delay)
     assertFalse(unacked.slow)
     val slow = lines[1]
     assertEquals("1m35s", slow.delay)
@@ -134,7 +134,7 @@ class AlertsModelTest {
   @Test
   fun anUndeliveredReceiptSaysSo() {
     val line = alertLine(AlertReceipt(seq = 9, at = "2026-11-24T10:00:00Z", kind = "decision.asked"), utc)
-    assertEquals("not delivered", line.delivered)
+    assertEquals("no", line.delivered)
   }
 
   @Test

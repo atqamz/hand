@@ -91,9 +91,9 @@ fun alertLine(alert: AlertReceipt, zone: TimeZone): AlertLine =
     alert.kind,
     alert.ref,
     alert.text,
-    alert.fetchedAt.takeIf(String::isNotEmpty)?.let { historyWhen(it, zone) } ?: "not delivered",
-    alert.ackedAt.takeIf(String::isNotEmpty)?.let { historyWhen(it, zone) } ?: "not acknowledged",
-    alert.delaySeconds?.let(::alertDuration) ?: "no delay yet",
+    alert.fetchedAt.takeIf(String::isNotEmpty)?.let { historyWhen(it, zone) } ?: "no",
+    alert.ackedAt.takeIf(String::isNotEmpty)?.let { historyWhen(it, zone) } ?: "no",
+    alert.delaySeconds?.let(::alertDuration) ?: "no",
     alert.slow
   )
 
