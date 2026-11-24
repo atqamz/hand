@@ -957,6 +957,24 @@ mod tests {
     }
 
     #[test]
+    fn an_alerts_read_keeps_its_path_and_cursor_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/alerts",
+                "GET /f0123456789ab/api/v1/alerts HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/alerts?since=c1.abc-_",
+                "GET /f0123456789ab/api/v1/alerts?since=c1.abc-_ HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+    }
+
+    #[test]
     fn the_models_read_and_the_model_switch_keep_their_method_and_path_on_the_wire() {
         let models = Request::new(
             Method::Get,
