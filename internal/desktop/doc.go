@@ -44,6 +44,19 @@ type docState struct {
 	saving    bool
 	clip      string
 	clipReady bool
+
+	find       docFind
+	follow     docFollow
+	srcLines   []string
+	mark       int
+	scrollMark bool
+	lineIn     string
+	lineNote   string
+	lineBad    bool
+	findSaid   string
+	lineSaid   string
+	focusFind  bool
+	navGen     int
 }
 
 type docRead struct {
@@ -208,6 +221,7 @@ func (a *App) loadDoc() {
 		}
 		st.doc, st.ok = r.doc, true
 		st.window, st.body, st.image, st.row = r.window, r.body, r.image, r.row
+		st.srcLines = nil
 	}
 	if post == nil {
 		r := readDoc(ctx, model, fleet, req)
@@ -230,6 +244,7 @@ func (a *App) docWindowAt(from int, later bool) {
 		st.froms = st.froms[:n-1]
 	}
 	st.from = from
+	a.stopFollow("", false)
 	a.viewerScroll = ui.ScrollState{}
 	a.loadDoc()
 }
