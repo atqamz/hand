@@ -13,12 +13,13 @@ import (
 
 func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 	open := a.OpenInBrowser
-	if a.remoteFleet() {
+	if a.remoteFleet() || a.Screen == DocScreen {
 		open = nil
 	}
-	dismissed := kit.Viewer(c, k, kit.ViewerOptions{
+	opts := kit.ViewerOptions{
 		Name:    a.viewerName(),
-		Back:    len(a.back) > 0,
+		Wide:    a.DocWide && a.Screen == DocScreen && a.docTextual(),
+		Back:    len(a.back) > 0 || a.docPageOpen(),
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,
 		OnOpen:  open,
@@ -32,10 +33,18 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 		Body: func(*ui.Context) {
 			a.viewerBody(c, k, p)
 		},
-	})
-	if dismissed {
+	}
+	if a.docPageOpen() {
+		kit.ViewerPage(c, k, opts)
+		return
+	}
+	if kit.Viewer(c, k, opts) {
 		a.CloseViewer()
 	}
+}
+
+func (a *App) docPageOpen() bool {
+	return a.viewerOpen() && a.Screen == DocScreen
 }
 
 func (a *App) viewerName() string {

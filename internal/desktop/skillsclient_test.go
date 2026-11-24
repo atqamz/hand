@@ -42,6 +42,10 @@ func skillsServer(t *testing.T, delay time.Duration) (*httptest.Server, *[]strin
 {"scope":"project","project":"api","error":"the folder is not a git checkout","skills":[]}]}}`)
 		case r.Method == http.MethodPost && rest == "/api/v1/skills/sync":
 			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","receipt":"Skills sync: 1 refused","data":{"scope":"project","project":"hand","results":[{"name":"notes","state":"refused","detail":"notes moved"}],"refused":1,"reconcile":["hand task add --goal x"]}}`)
+		case r.Method == http.MethodPost && rest == "/api/v1/skills/add":
+			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","receipt":"Skills add: 1 review","data":{"scope":"project","project":"hand","results":[{"name":"notes","state":"review","detail":"`+strings.Repeat("a", 40)+`"}],"diffs":[{"name":"notes","diff":"+x\n","cut":true}],"refused":0}}`)
+		case r.Method == http.MethodPost && rest == "/api/v1/skills/remove":
+			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","receipt":"Skills remove: 1 removed","data":{"scope":"fleet","results":[{"name":"x","state":"removed"}],"refused":0}}`)
 		case r.Method == http.MethodPost && rest == "/api/v1/skills/propose":
 			w.WriteHeader(http.StatusForbidden)
 			io.WriteString(w, `{"error":{"status":403,"code":"forbidden","message":"a paired Companion cannot change skills; use the host's Board"}}`)
@@ -110,5 +114,47 @@ func TestHTTPClientKeepsTheBoardsSentenceForARefusedSkillsAction(t *testing.T) {
 	api, ok := err.(*desktop.APIError)
 	if !ok || api.Status != 403 || api.Code != "forbidden" || api.Message != "a paired Companion cannot change skills; use the host's Board" {
 		t.Fatalf("err = %#v", err)
+	}
+}
+
+func TestHTTPClientPostsAnAddWithSourceRefAndYesAndKeepsTheDiff(t *testing.T) {
+	srv, seen := skillsServer(t, 0)
+	c := goldenClient(t, srv.URL)
+	run, err := c.SkillsRun(context.Background(), fleetID, "add",
+		desktop.SkillsRequest{Scope: "project", Project: "hand", Source: "https://github.com/example/notes", Ref: "v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Receipt != "Skills add: 1 review" || len(run.Results) != 1 || run.Results[0].State != "review" ||
+		run.Results[0].Detail != strings.Repeat("a", 40) || len(run.Diffs) != 1 || run.Diffs[0].Name != "notes" ||
+		run.Diffs[0].Diff != "+x\n" || !run.Diffs[0].Cut {
+		t.Fatalf("run = %+v", run)
+	}
+	if _, err := c.SkillsRun(context.Background(), fleetID, "add",
+		desktop.SkillsRequest{Scope: "user", Source: "triage", Yes: "triage@" + strings.Repeat("a", 40)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SkillsRun(context.Background(), fleetID, "remove", desktop.SkillsRequest{Scope: "fleet", Name: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "POST /" + fleetID + "/api/v1/skills/"
+	want := []string{
+		prefix + "add " + testToken + ` {"scope":"project","project":"hand","source":"https://github.com/example/notes","ref":"v1"}`,
+		prefix + "add " + testToken + ` {"scope":"user","yes":"triage@` + strings.Repeat("a", 40) + `","source":"triage"}`,
+		prefix + "remove " + testToken + ` {"scope":"fleet","name":"x"}`,
+	}
+	var posts []string
+	for _, l := range *seen {
+		if strings.HasPrefix(l, "POST ") {
+			posts = append(posts, l)
+		}
+	}
+	if len(posts) != len(want) {
+		t.Fatalf("posts = %q", posts)
+	}
+	for i := range want {
+		if posts[i] != want[i] {
+			t.Errorf("post %d = %q, want %q", i, posts[i], want[i])
+		}
 	}
 }

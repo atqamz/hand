@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -19,11 +20,18 @@ const (
 	StatusAbandoned = "abandoned"
 )
 
+const MaxTaskNote = 200
+
 var statuses = []string{StatusInbox, StatusActive, StatusDone, StatusAbandoned}
 
 var transitions = map[string][]string{
 	StatusInbox:  {StatusActive, StatusAbandoned},
-	StatusActive: {StatusDone, StatusAbandoned},
+	StatusActive: {StatusDone, StatusAbandoned, StatusInbox},
+}
+
+type TransitionOpts struct {
+	Delivered []string
+	Note      string
 }
 
 type Task struct {
@@ -242,12 +250,30 @@ func (s *Store) CountTasks(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Transition(ctx context.Context, id int64, to string, delivered ...string) (Task, error) {
+func (s *Store) Transition(ctx context.Context, id int64, to string, opt ...TransitionOpts) (Task, error) {
 	if !slices.Contains(statuses, to) {
 		return Task{}, fmt.Errorf("%w: unknown task status %q", ErrInvalid, to)
 	}
-	if len(delivered) > 0 && to != StatusDone {
+	if len(opt) > 1 {
+		return Task{}, fmt.Errorf("%w: at most one set of transition options", ErrInvalid)
+	}
+	var o TransitionOpts
+	if len(opt) == 1 {
+		o = opt[0]
+	}
+	o.Note = strings.TrimSpace(o.Note)
+	if len(o.Delivered) > 0 && to != StatusDone {
 		return Task{}, fmt.Errorf("%w: only a task becoming done takes deliverables", ErrInvalid)
+	}
+	if o.Note != "" {
+		switch {
+		case to != StatusInbox:
+			return Task{}, fmt.Errorf("%w: only a task becoming inbox takes a note", ErrInvalid)
+		case !utf8.ValidString(o.Note) || utf8.RuneCountInString(o.Note) > MaxTaskNote:
+			return Task{}, fmt.Errorf("%w: a task note is at most %d characters of UTF-8", ErrInvalid, MaxTaskNote)
+		case strings.ContainsFunc(o.Note, unicode.IsControl):
+			return Task{}, fmt.Errorf("%w: a task note is one line without control characters", ErrInvalid)
+		}
 	}
 	var out Task
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -261,7 +287,8 @@ func (s *Store) Transition(ctx context.Context, id int64, to string, delivered .
 		if !slices.Contains(transitions[cur.Status], to) {
 			return fmt.Errorf("%w: task %s is %s and cannot become %s", ErrConflict, TaskRef(id), cur.Status, to)
 		}
-		if to == StatusDone || to == StatusAbandoned {
+		releases := to != StatusActive
+		if releases {
 			live, err := liveAttempt(tx, id)
 			if err != nil {
 				return err
@@ -293,15 +320,19 @@ func (s *Store) Transition(ctx context.Context, id int64, to string, delivered .
 			cur.FinishedAt = now
 		}
 		out = cur
-		if err := emit(tx, now, "task."+to, id, from+"->"+to); err != nil {
+		detail := from + "->" + to
+		if o.Note != "" {
+			detail += ": " + o.Note
+		}
+		if err := emit(tx, now, "task."+to, id, detail); err != nil {
 			return err
 		}
-		for _, ref := range delivered {
+		for _, ref := range o.Delivered {
 			if err := emit(tx, now, "task.delivered", id, ref); err != nil {
 				return err
 			}
 		}
-		if to == StatusDone || to == StatusAbandoned {
+		if releases {
 			if err := withdrawOpen(tx, id, now); err != nil {
 				return err
 			}
@@ -508,4 +539,22 @@ func Nested(tasks []Task) bool {
 		}
 	}
 	return false
+}
+
+func (s *Store) ParkedTasks(ctx context.Context) (map[int64]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT e.task_id, e.detail FROM event e JOIN task t ON t.id = e.task_id WHERE e.kind = 'task.inbox' AND t.status = 'inbox' ORDER BY e.seq`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var detail string
+		if err := rows.Scan(&id, &detail); err != nil {
+			return nil, err
+		}
+		out[id] = strings.TrimPrefix(strings.TrimPrefix(detail, StatusActive+"->"+StatusInbox), ": ")
+	}
+	return out, rows.Err()
 }

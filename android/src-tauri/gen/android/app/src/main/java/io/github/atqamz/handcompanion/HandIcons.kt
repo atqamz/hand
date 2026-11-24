@@ -71,6 +71,7 @@ object HandIcons {
       Shape("M5 8h.01M8 8h.01M11 8h.01")
     )
   val Back = icon("back", Shape("M13 8H3M7.25 3.75L3 8l4.25 4.25"))
+  val Search = icon("search", Shape("M7 2.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z"), Shape("M10.25 10.25L13.5 13.5"))
   val Close = icon("close", Shape("M4 4l8 8M12 4l-8 8"))
   val Scan =
     icon(

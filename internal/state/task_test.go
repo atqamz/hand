@@ -59,6 +59,7 @@ func TestTransitionTable(t *testing.T) {
 		{StatusInbox, StatusAbandoned}:  true,
 		{StatusActive, StatusDone}:      true,
 		{StatusActive, StatusAbandoned}: true,
+		{StatusActive, StatusInbox}:     true,
 	}
 	path := [][]string{
 		{StatusInbox},
@@ -163,13 +164,13 @@ func TestDoneRecordsOneEventPerDeliverable(t *testing.T) {
 	two, _ := s.AddTask(ctx, "hand", "Two", "")
 	_, _ = s.Transition(ctx, one.ID, StatusActive)
 	_, _ = s.Transition(ctx, two.ID, StatusActive)
-	if _, err := s.Transition(ctx, one.ID, StatusAbandoned, "/out/a.pdf"); !errors.Is(err, ErrInvalid) {
+	if _, err := s.Transition(ctx, one.ID, StatusAbandoned, TransitionOpts{Delivered: []string{"/out/a.pdf"}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("abandon with a deliverable err = %v", err)
 	}
-	if _, err := s.Transition(ctx, one.ID, StatusDone, "/out/a.pdf", "https://docs.example.com/b"); err != nil {
+	if _, err := s.Transition(ctx, one.ID, StatusDone, TransitionOpts{Delivered: []string{"/out/a.pdf", "https://docs.example.com/b"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Transition(ctx, two.ID, StatusDone, "/out/c.pdf"); err != nil {
+	if _, err := s.Transition(ctx, two.ID, StatusDone, TransitionOpts{Delivered: []string{"/out/c.pdf"}}); err != nil {
 		t.Fatal(err)
 	}
 	events, err := s.DeliveredEvents(ctx, one.ID)
@@ -186,7 +187,7 @@ func TestDoneRecordsOneEventPerDeliverable(t *testing.T) {
 	if none, err := s.DeliveredEvents(ctx); err != nil || none != nil {
 		t.Fatalf("no tasks = %+v, %v", none, err)
 	}
-	if _, err := s.Transition(ctx, one.ID, StatusDone, "/out/late.pdf"); !errors.Is(err, ErrConflict) {
+	if _, err := s.Transition(ctx, one.ID, StatusDone, TransitionOpts{Delivered: []string{"/out/late.pdf"}}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("done twice err = %v", err)
 	}
 	if events, _ := s.DeliveredEvents(ctx, one.ID); len(events) != 2 {

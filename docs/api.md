@@ -46,7 +46,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt, a links answer and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt, a links answer, the alerts and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
 
 - No `?since=`: always `200` with the full data.
 - `?since=` equal to the cursor the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first: for the pages above it costs no build and no body.
@@ -61,13 +61,14 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 |---|---|---|
 | `GET /api/v1/status` | `Status`: supervisor, agent state, pill, gauge, compactions, Needs summary and items, task counts, project count | the fleet page's status line and Needs |
 | `GET /api/v1/models` | `Models`: each harness the menus offer, its model groups and efforts, its stale and missing notes, and the running supervisor's choice; see [Models](#modelsdata) | the model menu and the Start strip |
-| `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
+| `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat and the Android Companion's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
-| `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | none yet; `hand history search` |
-| `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | none yet; `hand history search --full REF` |
-| `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
+| `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | the Android Companion's search; the Desktop Conversation page; `hand history search` |
+| `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | the Android Companion's entry view; the Desktop Conversation page; `hand history search --full REF` |
+| `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page, the Desktop Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
+| `GET /api/v1/alerts` | `Alerts`: the last 7 days of alert receipts, newest first, and the delay stats; see [`Alerts.data`](#alertsdata) | `/alerts`, the alerts page, the Android Companion's Alerts screen and the Desktop Alerts page; `/alerts/feed` is not this route |
 | `GET /api/v1/skills[?scope=SCOPE[&project=NAME]]` | `Skills`: each scope's skills with source, ref, commit, latest commit, trust, drift state and the pending diff; see [Skills](#skills) | none yet; `hand skills list` for every scope |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
@@ -86,9 +87,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message; takes `attachments`, a list of inbox names | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
-| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code |
-| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app |
-| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere |
+| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code, the Desktop Companion page, `hand companion code` |
+| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app, the Desktop Companion page |
+| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere, the Desktop Companion page |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
@@ -100,7 +101,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/skills/sync` | `SkillsRun`: a row per skill, third-party diffs, reconcile commands; see [Skills](#skills) | none yet; `hand skills sync` |
 | `POST /api/v1/skills/update` | the same `SkillsRun` | none yet; `hand skills update` |
 | `POST /api/v1/skills/propose` | the same `SkillsRun`, with the pull request's address | none yet; `hand skills propose` |
-| `POST /api/v1/skills/add` | the same `SkillsRun`, one `added` row | none yet; `hand skills add` |
+| `POST /api/v1/skills/add` | the same `SkillsRun`, one `added` row; for an `https` source, a `review` row with the new skill's diff first | none yet; `hand skills add` |
 | `POST /api/v1/skills/remove` | the same `SkillsRun`, one `removed` or `refused` row | none yet; `hand skills remove` |
 | `POST /api/v1/models/refresh` | the same `Models` the GET returns, after the refresh started | the overflow menu's Refresh models |
 | `POST /api/v1/attempt/{aN}/keys` | the same `AttemptDetail` the GET returns, after the key press | `/attempt/aN`'s key buttons |
@@ -207,6 +208,54 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 
 `GET /api/v1/history/{ref}` takes `iN`, `yN`, `rN`, `dN` or `tN` and answers `ref`, `who`, `at`, `supervisor`, `task`, `text` and `truncated`. `text` is the whole body, redacted, at most 16 KiB; `truncated` is `true` when it was cut at a character boundary. An unknown or malformed ref is `404`. The answer reads this fleet's database only: there is no fleet or `all` parameter, and the route takes the refusals of every read below. The envelope's `cursor` is a fingerprint of the answer, not a change cursor.
 
+### `Alerts.data`
+
+`GET /api/v1/alerts` reads the `alert` table the page at `/alerts` reads, with the same window (the last 7 days, `at` at or after now minus 7 × 24 h), the same delay (acknowledged minus raised) and the same percentile and rounding rules. Reading it never marks an alert fetched or acknowledged, which only `/<fleet id>/alerts/feed` does. It takes `?since=` and fingerprints its `data`, because an acknowledgement changes it without a board version change. It is the same for a host session and a paired Companion, which already receives these alerts through the feed.
+
+| Field | Meaning |
+|---|---|
+| `days` | the window, 7 |
+| `slow_after_seconds` | a delay over this is slow, 60 |
+| `stats.total` | alerts in the window |
+| `stats.unacked` | alerts with no acknowledgement |
+| `stats.slow` | alerts whose delay is over `slow_after_seconds` |
+| `stats.p50_seconds`, `p95_seconds`, `max_seconds` | the median, the 95th percentile (nearest rank, `ceil(p × n)`) and the longest delay among acknowledged alerts, each rounded to the nearest second; `null` when none is acknowledged |
+| `alerts` | the receipts, newest first (`seq` descending), `[]` when there are none |
+
+A receipt:
+
+| Field | Meaning |
+|---|---|
+| `seq` | the row's sequence number, the key and the ordering |
+| `at` | when the alert was raised, RFC 3339 UTC |
+| `kind` | what raised it, such as `attempt.failed` |
+| `ref` | the ref it names, such as `t12`, or empty |
+| `text` | the line sent to `notify` and shown on the alerts page (at most 200 characters) |
+| `fetched_at` | when the Board first wrote it to a feed answer, or `""` |
+| `acked_at` | when a later feed request acknowledged it, or `""` |
+| `delay_seconds` | `acked_at` minus `at`, rounded to the nearest second, or `null` while unacknowledged |
+| `slow` | `delay_seconds` is over `slow_after_seconds`, measured on the unrounded delay |
+
+A receipt carries no link, `task_id` or device. Delivery is reported as `fetched_at` and `acked_at`; there is no channel field, since every alert goes to `notify` and to the feed.
+
+```json
+{
+  "version": 1,
+  "fleet": {"id": "f0000000000ff", "name": "golden"},
+  "cursor": "c1.…",
+  "generated_at": "2026-11-24T10:00:00Z",
+  "data": {
+    "days": 7,
+    "slow_after_seconds": 60,
+    "stats": {"total": 2, "unacked": 1, "slow": 1, "p50_seconds": 95, "p95_seconds": 95, "max_seconds": 95},
+    "alerts": [
+      {"seq": 2, "at": "2026-11-24T09:59:00Z", "kind": "decision.asked", "ref": "d4", "text": "d4 asks: which build?", "fetched_at": "", "acked_at": "", "delay_seconds": null, "slow": false},
+      {"seq": 1, "at": "2026-11-24T09:00:00Z", "kind": "attempt.failed", "ref": "a3", "text": "a3 failed", "fetched_at": "2026-11-24T09:00:03Z", "acked_at": "2026-11-24T09:01:35Z", "delay_seconds": 95, "slow": true}
+    ]
+  }
+}
+```
+
 ### `Projects.data`
 
 `projects` is every registered project's name, in the order the Tasks filter lists them, which is the board's project order (`ORDER BY name`). The filter itself appears only when the fleet has more than one project; the list does not depend on whether a project has tasks today.
@@ -283,7 +332,7 @@ Every ref in a detail is the same `tN`, `aN`, `rN`, `dN`, `sN` the pages and the
 
 An event from a terminal screen (`attempt.blocked`, `attempt.limited`, `supervisor.blocked`, `supervisor.limited`) carries no `detail`, and neither does an event whose `detail` is a harness API error: that field would be screen text. Its `seq`, `at`, `kind` and `task` remain.
 
-The API never returns a host path except the `excerpt` and `options` (the same labels again under the item's `keys`) of a blocked or worker Needs item: they are the Board's own lines and keep a path as the screen printed it, so a client shows them as plain text and never logs them. The `title` keeps the Board's words but goes through the same absolute-path scrub as the rest of the API. An attempt carries its `branch` but not its worktree or launch command; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's or supervisor's `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
+The API never returns a host path except the `excerpt` and `options` (the same labels again under the item's `keys`) of a blocked or worker Needs item: they are the Board's own lines and keep a path as the screen printed it, so a client shows them as plain text and never logs them. The `title` keeps the Board's words but goes through the same absolute-path scrub as the rest of the API. An attempt carries its `branch` but not its worktree path or its launch line (the stored command without the brief): the launch line holds the harness's command-line flags, which can carry a session id or a local path, and the worktree path is a host path, so native clients never show either. `GET /api/v1/attempt/{aN}` and the golden files in `internal/board/testdata/api` hold no `worktree` or `launch` field, which `TestAPINeverReturnsScreenText` and the golden helper in `api_test.go` check; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's or supervisor's `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
 
 ## The event stream
 
@@ -524,7 +573,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "data": {
     "version": "0.14.0",
     "host": "workstation",
-    "features": ["events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_manage", "skills_sync"],
+    "features": ["alerts", "events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_manage", "skills_sync"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -534,6 +583,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 
 | Feature | Means |
 |---|---|
+| `alerts` | `GET /api/v1/alerts` |
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
 | `history` | `GET /api/v1/history/search` and `GET /api/v1/history/{ref}` |
@@ -542,7 +592,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 | `pair` | `POST /api/v1/pair` |
 | `phone` | `GET /api/v1/phone`, and its `code`, `app` and `revoke` actions |
 | `skills` | `GET /api/v1/skills` and its `sync`, `update` and `propose` actions |
-| `skills_manage` | `POST /api/v1/skills/add` and `remove`; a client that finds it missing (an older Board) draws no add or remove control |
+| `skills_manage` | `POST /api/v1/skills/add` and `remove`, with the `https` source and its `review` step; a client that finds it missing (an older Board) draws no add or remove control |
 | `skills_sync` | a paired Companion may run `POST /api/v1/skills/sync` under the rules in [Skills](#skills) |
 
 Both paths take the refusals of every read: a request through a proxy or Funnel, a network-address board, and a Companion on the peer listener that holds no fleet paired with its own key get `403` with `forbidden`; a caller that proves no fleet gets `401` with `unauthorized`; a method other than `GET` and `HEAD` gets `405` with `Allow: GET, HEAD`.
@@ -682,23 +732,26 @@ A scope is `fleet` (the supervisor's own skills in the fleet home), `project` (a
 
 Every read fetches each distinct source once, with the CLI's limits: one git step takes at most 90 seconds, the fetches of one request share 3 minutes, and the whole request is cut at 5 minutes, so it takes seconds on a fast link and is not for polling. `scope` and `project` narrow the read to one scope or one project; `project` goes only with `scope=project`, where it names one project (an unknown one is `404`) and, left out, reads every project. An action needs `project` with `scope: "project"`. A scope that cannot be fetched shows `state: error` per skill instead of failing the read. The envelope's `cursor` is a fingerprint of the answer, and `?since=` with it answers `304` when nothing changed.
 
-`POST /api/v1/skills/sync`, `update`, `propose`, `add` and `remove` take one JSON object: `scope` (required), `project` (with `scope: "project"` only), `name` (the skill; optional for `sync` and `update`, which then take every subscribed skill of the scope, and required for `propose` and `remove`; `add` takes none), `yes` (`sync` only: `NAME@COMMIT`, the whole commit id of the diff the client showed), and, for `add` only, `source` and `ref`. They run `hand skills sync`, `update`, `propose`, `add` and `remove` with the matching scope flag and the answer is a `SkillsRun`:
+`POST /api/v1/skills/sync`, `update`, `propose`, `add` and `remove` take one JSON object: `scope` (required), `project` (with `scope: "project"` only), `name` (the skill; optional for `sync` and `update`, which then take every subscribed skill of the scope, and required for `propose` and `remove`; `add` takes none), `yes` (`sync`, and `add` of an `https` source: `NAME@COMMIT`, the whole commit id of the diff the client showed), and, for `add` only, `source` and `ref`. They run `hand skills sync`, `update`, `propose`, `add` and `remove` with the matching scope flag and the answer is a `SkillsRun`:
 
 | Field | Meaning |
 |---|---|
 | `scope`, `project` | as asked |
-| `results` | one `{name, state, detail}` per skill, in the order the command prints its rows: `added` (`detail` is the commit), `updated`, `bumped` (`detail` is the pull request's address), `pending`, `behind`, `current`, `edited`, `conflict`, `restored`, `proposed` (`detail` is the pull request's address), `removed` or `refused` (`detail` is the reason) |
+| `results` | one `{name, state, detail}` per skill, in the order the command prints its rows: `added` (`detail` is the commit), `review` (`detail` is the whole commit of the diff to read), `updated`, `bumped` (`detail` is the pull request's address), `pending`, `behind`, `current`, `edited`, `conflict`, `restored`, `proposed` (`detail` is the pull request's address), `removed` or `refused` (`detail` is the reason) |
 | `refused` | how many skills the command refused; `hand skills` exits `3` for a non-zero count, and the API answers `200` with the rows instead |
-| `diffs` | for `sync`, a `{name, diff, cut}` for each third-party update that waits for a yes; the same 64 KiB cap, and as written like `diff` |
+| `diffs` | for `sync`, a `{name, diff, cut}` for each third-party update that waits for a yes; for `add` of an `https` source, the one for its `review` or `refused` row, the new skill against an empty tree; the same 64 KiB cap, and as written like `diff` |
 | `reconcile` | for a `conflict`, the `hand task add --goal …` command the CLI prints for a worker, with a login removed from a source address; the API creates no task |
 
-`POST /api/v1/skills/add` takes `scope` and `project` as above, `source` (required: the bare name of a skill of `atqamz/skills`, which Hand tracks on `main`) and `ref` (optional: a branch, tag or commit of that repository; the CLI's refusal of `refs/...`, `pull/...` and `merge-requests/...` stands). It takes no `name` and no `yes`, and any other `source` is `400 bad_request`: nothing is fetched or written, and the message names no value the client sent. It answers one row, `added` with the commit, and `409 conflict` for a skill whose folder exists or, in a project, is dirty in git. `POST /api/v1/skills/remove` takes `scope`, `project` and `name`, which is required: unlike `hand skills remove`, the API never removes every skill of a scope, and `source`, `ref` and `yes` are `400`. It answers `removed` or, for a copy edited since the install, an unmarked folder, a skill with no lock entry or a dirty project folder, `200` with a `refused` row and the CLI's reason; it deletes the copy in every root, its lock entry and its subscription.
+`POST /api/v1/skills/add` takes `scope` and `project` as above, `source` (required) and `ref` (optional: a branch, tag or commit; the CLI's refusal of `refs/...`, `pull/...` and `merge-requests/...` stands). It takes no `name`. `source` is the bare name of a skill of `atqamz/skills`, which Hand tracks on `main`, or a plain `https` repository address, `https://HOST[:PORT]/PATH`: lower-case `https`, a host, a path of letters, digits and `._~+-` with no empty, `.` or `..` element, and no login, query, fragment, `@` or `%`. The repository's root is the skill, named by the address's last element without `.git`. Any other `source` (`http`, `file://`, `git@`, `ssh://`, `ext::`, a local path) is `400 bad_request`: nothing is fetched or written, and the message names no value the client sent; `hand skills add` in a terminal takes those. A bare name takes no `yes`, answers one row `added` with the commit, and `409 conflict` for a skill whose folder exists or, in a project, is dirty in git.
+
+An `https` source is third-party in every scope. The address of Hand's own repository is refused with `400`: its skills are added by their bare name, the only trusted add here. It takes two calls. Without `yes` the Board fetches `ref` (the default branch when it is empty), installs nothing, writes nothing and answers one row `review` whose `detail` is the whole commit, with the skill's whole content in `diffs`: a list of every file of the skill (mode, size in bytes and path, with `Binary file` after a path whose first 8000 bytes hold a NUL byte), then a unified diff against an empty tree (third-party text, as written; the whole text is cut at 64 KiB, with `cut: true`); the receipt is `Skills add: 1 review`. With `yes` set to `NAME@COMMIT` from that row, the Board fetches again and installs only when `yes` names the skill and equals the whole commit it fetched at that moment. The install then fetches that commit by its whole id, so the lock's `ref` and `commit` are both that id, and it checks that the commit it got is the one named: if not, `409 conflict` and nothing stays. The skill is `trusted: false`. A `yes` that is a prefix, has no `@COMMIT`, names another skill or no longer matches because the source moved answers `200` with a `refused` row, `refused: 1` and the new `review` diff, as `sync` does; nothing is installed. A `yes` that matches while the review diff is cut is refused the same way, with the `refused` row's `detail` `the diff is cut, so the whole skill cannot be reviewed here; install it by hand after reading the repository`, because the text past the cut is unread; the file list ahead of the diff shows what lies past it. A skill that holds a symlink, or whose files together pass the 32 MiB limit, is `400` with a message that names the path inside the skill (the symlink, or the file that brought it over), and nothing stays. A client cannot make a `yes` the Board did not resolve itself: it only repeats what the `review` row said. The fetch never asks for a credential (a private source fails with `500` and git's scrubbed message), refuses a redirect to plain `http`, and is stopped by the three-minute fetch budget (the request itself is cut at five minutes) with its temporary clone removed on every path.
+ `POST /api/v1/skills/remove` takes `scope`, `project` and `name`, which is required: unlike `hand skills remove`, the API never removes every skill of a scope, and `source`, `ref` and `yes` are `400`. It answers `removed` or, for a copy edited since the install, an unmarked folder, a skill with no lock entry or a dirty project folder, `200` with a `refused` row and the CLI's reason; it deletes the copy in every root, its lock entry and its subscription.
 
 Trust and drift behave as the command does. `sync` applies Hand's own repository and local sources with a backup, never a third-party update without `yes`, never a copy that was edited here, and in a project scope opens a bump pull request for each skill instead of editing the checkout. `update` is the explicit command: it does not need a yes, and it is the one that edits a project checkout in place for a person to commit. `propose` pushes only its own branch and opens a pull request through `gh`, which the Board needs on its `PATH`.
 
-A paired Companion reads `GET /api/v1/skills` like any other read, and may run `POST /api/v1/skills/sync` in the `fleet` and `project` scopes without `yes` (`skills_sync` in `features`). It gets `403 forbidden` for `update`, `propose`, `add` and `remove` ("a paired Companion cannot update, propose, add or remove skills; use the host's Board"), for `sync` with a `yes` ("a paired Companion cannot apply a third-party update; read the diff, then tell the supervisor or use the host's Board") and for `sync` of the `user` scope ("a paired Companion cannot sync the user scope; use the host's Board"). `update`, `propose`, `add` and `remove` are refused before the body is read; the other two after it is validated, so a malformed `sync` from a Companion answers `400` before `403`. A refusal comes before the one-at-a-time lock and before any fetch. For a Companion, a local source is never applied: its row is `behind` with the detail "local source; apply it from the host's Board or CLI". A third-party source stays `behind` with its diff in `diffs`, as for the host, and the Companion cannot apply it. The reason for the limits: `update`, `propose`, `add`, `remove` and a `yes` run `git` and `gh` with the host's credentials on content nobody on the host read, or publish it, as `models/refresh` and the Companion actions do; `sync` without `yes` moves only what the host already trusts. Every `sync`, from the host or a Companion, records one `skills.synced` event: the scope (and the project, when it ran), `by` the host's session or `phone (NAME)`, and the receipt's counts, or `failed` and the error's kind (`conflict`, `bad_request`, `internal`); never a source address, a diff, a path or an error message. A refusal (`400`, `403`, `409`) writes none. If the event cannot be written, the request answers `500` with that error, after the sync ran. Every `add` and `remove` that completes with no error and no refusal records one `skills.added` or `skills.removed` event the same way: the scope (and the project, when it ran), `by` the host's session, and the skill's name (`fleet by operator (desktop): triage`). An `add` or `remove` that fails, answers a `refused` row or is refused (`400`, `403`, `409`) writes none, even when an I/O error left a partial change; a failed write of the event answers `500` after the change was made. Only the host's session can add or remove, so `by` is never a phone. A mutation needs the session's cookie and `X-Hand-CSRF`.
+A paired Companion reads `GET /api/v1/skills` like any other read, and may run `POST /api/v1/skills/sync` in the `fleet` and `project` scopes without `yes` (`skills_sync` in `features`). It gets `403 forbidden` for `update`, `propose`, `add` and `remove` ("a paired Companion cannot update, propose, add or remove skills; use the host's Board"), for `sync` with a `yes` ("a paired Companion cannot apply a third-party update; read the diff, then tell the supervisor or use the host's Board") and for `sync` of the `user` scope ("a paired Companion cannot sync the user scope; use the host's Board"). `update`, `propose`, `add` and `remove` are refused before the body is read; the other two after it is validated, so a malformed `sync` from a Companion answers `400` before `403`. A refusal comes before the one-at-a-time lock and before any fetch. For a Companion, a local source is never applied: its row is `behind` with the detail "local source; apply it from the host's Board or CLI". A third-party source stays `behind` with its diff in `diffs`, as for the host, and the Companion cannot apply it. The reason for the limits: `update`, `propose`, `add`, `remove` and a `yes` run `git` and `gh` with the host's credentials on content nobody on the host read, or publish it, as `models/refresh` and the Companion actions do; `sync` without `yes` moves only what the host already trusts. Every `sync`, from the host or a Companion, records one `skills.synced` event: the scope (and the project, when it ran), `by` the host's session or `phone (NAME)`, and the receipt's counts, or `failed` and the error's kind (`conflict`, `bad_request`, `internal`); never a source address, a diff, a path or an error message. A refusal (`400`, `403`, `409`) writes none. If the event cannot be written, the request answers `500` with that error, after the sync ran. Every `add` that installs a skill and every `remove` that completes with no error and no refusal records one `skills.added` or `skills.removed` event the same way: the scope (and the project, when it ran), `by` the host's session, and the skill's name (`fleet by operator (desktop): triage`; for an `https` source the address and `as NAME@COMMIT`). An `add` that answers `review`, a `refused` row or an error, a `remove` that fails or answers `refused`, or a request that is refused (`400`, `403`, `409`) writes none, even when an I/O error left a partial change; a failed write of the event answers `500` after the change was made. Only the host's session can add or remove, so `by` is never a phone. A mutation needs the session's cookie and `X-Hand-CSRF`.
 
-The Board runs one skills request at a time, a read or an action: a second one answers `409 conflict` ("another skills request is running on this board; try again when it ends") instead of queueing another fetch. An action is not cancelled when the client leaves; it runs to its own limits, and it stops when the Board shuts down: the `git` or `gh` step is cancelled, its clone folder is removed and the request ends: a `sync` or `update` answers `200` with a `refused` row for the skill it was on, and a `propose` an error. Error kinds follow the CLI's exit codes: an invalid scope, name or `yes` is `400 bad_request`, a project that is not registered `404 not_found`, a skill the command refuses before it reads any (no lock, a name that is not a skill name, a folder that exists) `400` or `409 conflict`, and any other failure `500 internal`. A request-level error carries the command's sentence with no path and no login (a `user:password@` in a URL is removed from it, whatever command or tool printed it).
+The Board runs one skills request at a time, a read or an action: a second one answers `409 conflict` ("another skills request is running on this board; try again when it ends") instead of queueing another fetch. An action is not cancelled when the client leaves; it runs to its own limits, and it stops when the Board shuts down: the `git` or `gh` step is cancelled, its clone folder is removed and the request ends: a `sync` or `update` answers `200` with a `refused` row for the skill it was on, and a `propose` an error. Error kinds follow the CLI's exit codes: an invalid scope, name or `yes` is `400 bad_request`, a project that is not registered `404 not_found`, a skill the command refuses before it reads any (no lock, a name that is not a skill name, a folder that exists) `400` or `409 conflict`, a skills lock that another process (such as `hand skills` in a terminal) still holds when the request ends or the Board shuts down `409 conflict` ("gave up waiting for the skills lock, which another process holds"), with nothing changed,, and any other failure `500 internal`. A request-level error carries the command's sentence with no path and no login (a `user:password@` in a URL is removed from it, whatever command or tool printed it).
 
 ## Errors
 

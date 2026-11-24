@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -709,5 +710,31 @@ func TestAHostsRefusalNeverMarksAFleetAnotherHostOwns(t *testing.T) {
 	}
 	if r.Refusal(rtA) != "" || r.Refusal(rtB) != desktop.CodeRevoked {
 		t.Fatalf("refusals: %q %q", r.Refusal(rtA), r.Refusal(rtB))
+	}
+}
+
+type streamModel struct {
+	stubModel
+	body string
+	err  error
+}
+
+func (s *streamModel) DocStream(_ context.Context, _, _ string, dst io.Writer) (int64, error) {
+	n, _ := io.WriteString(dst, s.body)
+	return int64(n), s.err
+}
+
+func TestRouterStreamsADocumentFromTheHostThatHoldsTheFleet(t *testing.T) {
+	local := &streamModel{body: "local"}
+	host := &streamModel{stubModel: stubModel{fleets: []desktop.Fleet{{ID: rtA, Host: rtHostA}}}, body: "from the host"}
+	r := desktop.NewRouter(local, host)
+	var buf bytes.Buffer
+	n, err := r.DocStream(context.Background(), rtA, "a.bin", &buf)
+	if err != nil || n != int64(len("from the host")) || buf.String() != "from the host" {
+		t.Fatalf("streamed %d %q, %v", n, buf.String(), err)
+	}
+	host.err = revokedErr()
+	if _, err := r.DocStream(context.Background(), rtA, "a.bin", io.Discard); err == nil {
+		t.Fatal("the host's refusal was lost")
 	}
 }
