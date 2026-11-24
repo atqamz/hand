@@ -558,3 +558,139 @@ func TestGoToLineJustPastTheWindowReadsTheNextOne(t *testing.T) {
 	}
 	mustText(t, tt, "From line 481")
 }
+
+func inView(t *testing.T, tt *ui.Tester, label string) {
+	t.Helper()
+	r, ok := tt.Find(label)
+	if !ok {
+		t.Fatalf("no %q in %q", label, brief(tt))
+	}
+	if r.Y < 140 || r.Y+r.H > windowHeight {
+		t.Fatalf("%q at %v is outside the page shown", label, r)
+	}
+}
+
+func TestGoToLineAndNextMatchInsideTheWindowScrollTheTargetIntoView(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(fmt.Sprint("dark=", dark), func(t *testing.T) {
+			_, tt := openFind(t, findFixture(t), bigLog, dark)
+			click(t, tt, "Go to line")
+			tt.Type("300")
+			click(t, tt, "Go")
+			tt.Frame()
+			inView(t, tt, "Line 300")
+			search(t, tt, "error")
+			click(t, tt, "Next match")
+			tt.Frame()
+			inView(t, tt, "Line 142")
+			click(t, tt, "Next match")
+			tt.Frame()
+			inView(t, tt, "Line 242")
+			click(t, tt, "Previous match")
+			tt.Frame()
+			inView(t, tt, "Line 142")
+		})
+	}
+}
+
+func TestAMarkedLineIsNotScrolledBackToAfterThePersonScrolls(t *testing.T) {
+	_, tt := openFind(t, findFixture(t), bigLog, false)
+	click(t, tt, "Go to line")
+	tt.Type("300")
+	click(t, tt, "Go")
+	tt.Frame()
+	inView(t, tt, "Line 300")
+	tt.Scroll(500, 400, 0, -6000)
+	tt.Frame()
+	tt.Frame()
+	if r, ok := tt.Find("Line 300"); ok && r.Y >= 140 && r.Y+r.H <= windowHeight {
+		t.Fatalf("the page was pulled back to the marked line: %v", r)
+	}
+}
+
+func TestGoToLineStopsFollowing(t *testing.T) {
+	f := findFixture(t)
+	_, tt := openFind(t, f, liveLog, false)
+	click(t, tt, "Follow")
+	mustText(t, tt, "Following")
+	click(t, tt, "Go to line")
+	tt.Type("10")
+	click(t, tt, "Go")
+	mustNotText(t, tt, "Following")
+	mustText(t, tt, "Line 10")
+	polls := f.count("window:" + liveLog + ":800")
+	f.grow(liveLog, "tick 0801")
+	tt.Advance(10 * time.Second)
+	tt.Frame()
+	if f.count("window:"+liveLog+":800") != polls {
+		t.Fatalf("polling went on after Go to line: %v", f.calls)
+	}
+}
+
+func TestPreviousWrapsFromTheFirstHitOnceTheSearchIsDone(t *testing.T) {
+	_, tt := openFind(t, findFixture(t), "reports/t1/design.md", false)
+	click(t, tt, "Source")
+	search(t, tt, "backfill")
+	click(t, tt, "Previous match")
+	if got := findCount(tt); got != "2 of 2" {
+		t.Fatalf("Previous from the first hit: %q", got)
+	}
+}
+
+func TestFindKeepsAtMostTwoHundredHits(t *testing.T) {
+	_, tt := openFind(t, findFixture(t), liveLog, false)
+	search(t, tt, "tick")
+	if got := findCount(tt); got != "1 of 200" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFindWaitsForTheTypingToPauseBeforeReading(t *testing.T) {
+	f := findFixture(t)
+	_, tt := openFind(t, f, bigLog, false)
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	before := f.served()
+	tt.Type("error")
+	tt.Advance(100 * time.Millisecond)
+	tt.Frame()
+	if f.served() != before || findCount(tt) != "" {
+		t.Fatalf("read after 100 ms of typing: %q", findCount(tt))
+	}
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	tt.Frame()
+	if findCount(tt) != "1 of 5+" {
+		t.Fatalf("after the pause: %q", findCount(tt))
+	}
+}
+
+func TestFollowKeepsTheLastFiveThousandLines(t *testing.T) {
+	f := findFixture(t)
+	_, tt := openFind(t, f, liveLog, false)
+	click(t, tt, "Follow")
+	more := make([]string, 5400)
+	for i := range more {
+		more[i] = fmt.Sprintf("tick %04d", 801+i)
+	}
+	f.grow(liveLog, more...)
+	for i := 0; i < 20; i++ {
+		tt.Advance(2500 * time.Millisecond)
+		tt.Frame()
+	}
+	mustText(t, tt, "From line 1201", "tick 6200")
+}
+
+func TestEndShowsTheLastHundredLinesWhenTheTailWindowIsShort(t *testing.T) {
+	f := findFixture(t)
+	lines := make([]string, 1001)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("entry %04d", i+1)
+	}
+	f.docLines["logs/tail.log"] = lines
+	f.docs["logs/tail.log"] = desktop.Doc{Path: "logs/tail.log", Name: "tail.log", Kind: "text", Text: true, Size: 12000, At: at("1"), FolderPage: 1}
+	_, tt := openFind(t, f, "logs/tail.log", false)
+	click(t, tt, "End")
+	mustText(t, tt, "From line 902", "entry 0902", "entry 1001")
+	mustNotText(t, tt, "entry 0901")
+}

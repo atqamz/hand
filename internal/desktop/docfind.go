@@ -310,6 +310,7 @@ func (a *App) showLine(n int) {
 		return
 	}
 	st.mark, st.scrollMark = n, true
+	st.scrollSeq++
 }
 
 func (a *App) loadAround(n int) {
@@ -338,6 +339,7 @@ func (a *App) loadAround(n int) {
 			default:
 				a.putWindow(w)
 				st.mark, st.scrollMark = n, true
+				st.scrollSeq++
 			}
 		}
 	})
@@ -534,8 +536,14 @@ func (a *App) mergeFollow(nw DocWindow) bool {
 
 func (a *App) docMarks(shown []string, first int) kit.DocMarks {
 	st := &a.doc
-	marks := kit.DocMarks{Line: st.mark, Scroll: st.scrollMark}
-	st.scrollMark = false
+	switch {
+	case !st.scrollMark:
+	case st.scrollArmed != st.scrollSeq:
+		st.scrollArmed, st.scrollFrom = st.scrollSeq, a.viewerScroll.Y
+	case a.viewerScroll.Y != st.scrollFrom:
+		st.scrollMark = false
+	}
+	marks := kit.DocMarks{Line: st.mark, Scroll: st.scrollMark, Seq: st.scrollSeq}
 	f := &st.find
 	if f.ran == "" {
 		return marks

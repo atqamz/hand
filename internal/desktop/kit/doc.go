@@ -59,10 +59,15 @@ type DocMatch struct {
 type DocMarks struct {
 	Line   int
 	Scroll bool
+	Seq    int
 	Hits   map[int][]DocMatch
 }
 
-const docScrollContext = 4
+const (
+	docScrollContext = 4
+	docBand          = 0.18
+	docBar           = 3
+)
 
 func DocLines(c *ui.Context, k Colors, first int, lines []string, wrap bool) {
 	DocLinesMarked(c, k, first, lines, wrap, DocMarks{})
@@ -134,9 +139,10 @@ func DocLinesMarked(c *ui.Context, k Colors, first int, lines []string, wrap boo
 		Label("Text").Children(func() {
 		if marked {
 			top := Space6 + float32(at)*Meta.Line
-			ui.Box(c).Absolute().Top(top).Left(0).Right(0).Height(Meta.Line).Background(k.AccentBG).Label("Line " + strconv.Itoa(marks.Line))
+			ui.Box(c).Absolute().Top(top).Left(0).Right(0).Height(Meta.Line).Background(k.AccentBG.Alpha(docBand)).Label("Line " + strconv.Itoa(marks.Line))
+			ui.Box(c).Absolute().Top(top).Left(0).Width(docBar).Height(Meta.Line).Background(k.Accent)
 			if marks.Scroll {
-				ui.Box(c).Absolute().Top(max(0, top-docScrollContext*Meta.Line)).Left(0).Width(1).
+				ui.Box(c.Key("doc:scroll:" + strconv.Itoa(marks.Seq))).Absolute().Top(max(0, top-docScrollContext*Meta.Line)).Left(0).Width(1).
 					Height((2*docScrollContext + 1) * Meta.Line).ScrollIntoView()
 			}
 		}

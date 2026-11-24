@@ -45,18 +45,21 @@ type docState struct {
 	clip      string
 	clipReady bool
 
-	find       docFind
-	follow     docFollow
-	srcLines   []string
-	mark       int
-	scrollMark bool
-	lineIn     string
-	lineNote   string
-	lineBad    bool
-	findSaid   string
-	lineSaid   string
-	focusFind  bool
-	navGen     int
+	find        docFind
+	follow      docFollow
+	srcLines    []string
+	mark        int
+	scrollMark  bool
+	scrollSeq   int
+	scrollArmed int
+	scrollFrom  float32
+	lineIn      string
+	lineNote    string
+	lineBad     bool
+	findSaid    string
+	lineSaid    string
+	focusFind   bool
+	navGen      int
 }
 
 type docRead struct {
