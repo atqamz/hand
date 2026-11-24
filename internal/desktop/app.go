@@ -27,10 +27,11 @@ const (
 	DecisionScreen
 	DocScreen
 	SkillsScreen
+	HistoryScreen
 )
 
 func isBase(s Screen) bool {
-	return s == BoardScreen || s == TasksScreen || s == SkillsScreen
+	return s == BoardScreen || s == TasksScreen || s == SkillsScreen || s == HistoryScreen
 }
 
 // The auto-refresh intervals: short while the window has keyboard focus,
@@ -136,6 +137,8 @@ type App struct {
 	receiptKey    string
 	receiptWarn   string
 	sk            skillsState
+	hi            histState
+	hq            string
 	notice        string
 	noticeTitle   string
 	noticeKey     string
@@ -531,6 +534,7 @@ func (a *App) SelectFleet(id string) {
 	a.Projects = Projects{}
 	a.searchScroll = ui.ScrollState{}
 	a.resetSkills()
+	a.resetHistory()
 	a.base = BoardScreen
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
@@ -654,6 +658,9 @@ func (a *App) Show(s Screen) {
 	}
 	if s == SkillsScreen {
 		a.openSkills()
+	}
+	if s == HistoryScreen {
+		a.openHistory()
 	}
 }
 
@@ -1900,6 +1907,9 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		case a.searchStale:
 			a.retryStaleSearch()
 		}
+	}
+	if a.Fleet.ID == fleet && a.Screen == HistoryScreen {
+		a.pollHistory(p.StatusFresh && moved)
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
