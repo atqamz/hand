@@ -206,6 +206,14 @@ class HandActivity : ComponentActivity() {
     SkillsScreen(state, onBack, model::reload) { model.sync(it.scope, it.project) }
   }
 
+  private fun taskSearchModel(fleet: String): TaskSearchModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { TaskSearchModel(fleet, CoreTransport) }
+      }
+    )["$fleet/task-search", TaskSearchModel::class.java]
+
   private fun attemptModel(fleet: String, ref: String): AttemptModel =
     ViewModelProvider(
       this,
@@ -586,6 +594,27 @@ class HandActivity : ComponentActivity() {
               }
             } else {
               BackHandler { open = null }
+              val taskSearch = remember(open) { taskSearchModel(open.orEmpty()) }
+              val found by taskSearch.state.collectAsStateWithLifecycle()
+              LaunchedEffect(taskSearch, state.tab) {
+                if (state.tab == Tab.Tasks) {
+                  taskSearch.open()
+                  lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { taskSearch.watch() }
+                }
+              }
+              val searchUi =
+                TaskSearchUi(
+                  found,
+                  { v -> taskSearch.edit { it.copy(q = v) } },
+                  { v -> taskSearch.edit { it.copy(status = v) } },
+                  { v -> taskSearch.edit { it.copy(project = v) } },
+                  { v -> taskSearch.edit { it.copy(since = v) } },
+                  { v -> taskSearch.edit { it.copy(until = v) } },
+                  taskSearch::search,
+                  taskSearch::clear,
+                  taskSearch::page,
+                  taskSearch::retry
+                )
               holder.SaveableStateProvider("fleet:$open") {
                 FleetScreen(
                   open.orEmpty(),
@@ -622,7 +651,8 @@ class HandActivity : ComponentActivity() {
                     }
                   },
                   choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } },
-                  onSkills = { skills = open }
+                  onSkills = { skills = open },
+                  search = searchUi
                 )
               }
             }
