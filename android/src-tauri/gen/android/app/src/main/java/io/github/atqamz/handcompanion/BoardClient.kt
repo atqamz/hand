@@ -256,8 +256,8 @@ class BoardClient(
   suspend fun doc(path: String, page: Int): Envelope<DocNode> =
     read("doc/${docRoute(path)}" + if (page > 1) "?page=$page" else "", DocNode.serializer())
 
-  suspend fun docWindow(path: String, from: Int): Envelope<DocWindow> =
-    read("doc/${docRoute(path)}?from=$from&lines=$DOC_LINES", DocWindow.serializer())
+  suspend fun docWindow(path: String, from: Int, lines: Int = DOC_LINES): Envelope<DocWindow> =
+    read("doc/${docRoute(path)}?from=$from&lines=$lines", DocWindow.serializer())
 
   suspend fun docRaw(path: String): String =
     send(false, "/api/v1/doc/${docRoute(path)}?raw", null).body

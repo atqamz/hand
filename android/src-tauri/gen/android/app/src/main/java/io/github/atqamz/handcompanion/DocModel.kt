@@ -9,9 +9,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 const val DOC_LINES = 500
+const val IMAGE_LIMIT = 8L * 1024 * 1024
+const val FIND_WINDOWS = 8
 
 @Serializable
 data class DocEntry(
@@ -47,9 +50,27 @@ data class DocWindow(
   val next: Int? = null
 )
 
+data class DocFind(
+  val query: String,
+  val hits: List<Int> = emptyList(),
+  val at: Int = -1,
+  val problem: String? = null
+)
+
+data class DocJump(val line: Int, val id: Int)
+
 data class DocState(
   val node: DocNode? = null,
   val blocks: List<MdBlock> = emptyList(),
+  val source: String? = null,
+  val image: ByteArray? = null,
+  val wrap: Boolean = true,
+  val first: Int = 1,
+  val find: DocFind? = null,
+  val jump: DocJump? = null,
+  val goLine: Int? = null,
+  val goProblem: String? = null,
+  val copyProblem: String? = null,
   val lines: List<String> = emptyList(),
   val next: Int? = null,
   val paging: Boolean = false,
@@ -70,6 +91,8 @@ enum class DocBody {
   Folder,
   Markdown,
   Text,
+  Image,
+  ImageTooLarge,
   Notice
 }
 
@@ -84,6 +107,12 @@ fun docBody(state: DocState): DocBody {
     node == null -> if (state.problem != null) DocBody.Failed else DocBody.Loading
     node.kind == "folder" -> DocBody.Folder
     node.kind == "markdown" -> DocBody.Markdown
+    node.kind == "image" ->
+      when {
+        state.image != null -> DocBody.Image
+        node.size > IMAGE_LIMIT -> DocBody.ImageTooLarge
+        else -> DocBody.Failed
+      }
     node.text && node.kind in TEXT_KINDS -> DocBody.Text
     else -> DocBody.Notice
   }
@@ -111,6 +140,32 @@ fun docLine(line: String): String =
     }
   }
 
+fun docMatches(line: String, query: String): List<IntRange> {
+  if (query.isEmpty()) return emptyList()
+  val found = ArrayList<IntRange>()
+  var at = line.indexOf(query, 0, ignoreCase = true)
+  while (at >= 0) {
+    found += at until at + query.length
+    at = line.indexOf(query, at + query.length, ignoreCase = true)
+  }
+  return found
+}
+
+fun docHits(first: Int, lines: List<String>, query: String): List<Int> =
+  if (query.isEmpty()) emptyList()
+  else lines.indices.filter { lines[it].contains(query, ignoreCase = true) }.map { first + it }
+
+private fun DocFind.over(first: Int, lines: List<String>): DocFind {
+  val now = docHits(first, lines, query)
+  val kept = hits.getOrNull(at)?.let(now::indexOf)?.takeIf { it >= 0 }
+  return copy(hits = now, at = kept ?: if (now.isEmpty()) -1 else 0)
+}
+
+private fun DocState.focus(at: Int): DocState {
+  val find = find ?: return this
+  return copy(find = find.copy(at = at), jump = DocJump(find.hits[at], (jump?.id ?: 0) + 1))
+}
+
 private fun docLines(window: DocWindow): List<String> {
   val cuts = window.cut.associate { it.line to it.bytes }
   return window.lines.mapIndexed { index, line ->
@@ -120,16 +175,18 @@ private fun docLines(window: DocWindow): List<String> {
 }
 
 class DocModel(
-  fleet: String,
+  private val fleetId: String,
   private val path: String,
   transport: Transport,
-  io: CoroutineDispatcher = Dispatchers.IO
+  io: CoroutineDispatcher = Dispatchers.IO,
+  private val files: FileSource = CoreFiles
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(DocState())
   val state: StateFlow<DocState> = mutableState
 
-  private val client = BoardClient(fleet, transport, io)
+  private val client = BoardClient(fleetId, transport, io)
   private val generation = AtomicInteger()
+  private val fetch = io
 
   fun retry() {
     viewModelScope.launch { load(mutableState.value.node?.page ?: 1) }
@@ -143,6 +200,29 @@ class DocModel(
     viewModelScope.launch { loadMore() }
   }
 
+  fun find(query: String) {
+    viewModelScope.launch { search(query) }
+  }
+
+  fun step(forward: Boolean) {
+    viewModelScope.launch { move(forward) }
+  }
+
+  fun goTo(line: Int) {
+    viewModelScope.launch { jumpTo(line) }
+  }
+
+  fun earlier() {
+    viewModelScope.launch { loadEarlier() }
+  }
+
+  fun toggleWrap() = mutableState.update { it.copy(wrap = !it.wrap) }
+
+  fun closeFind() {
+    generation.incrementAndGet()
+    mutableState.update { it.copy(find = null, paging = false) }
+  }
+
   suspend fun load(page: Int = 1) {
     val mine = generation.incrementAndGet()
     mutableState.update {
@@ -153,17 +233,31 @@ class DocModel(
       val shown =
         when {
           node.kind == "folder" -> DocState(node = node)
-          node.kind == "markdown" ->
-            DocState(node = node, blocks = markdown(client.docRaw(path)))
+          node.kind == "markdown" -> {
+            val source = client.docRaw(path)
+            DocState(node = node, blocks = markdown(source), source = source)
+          }
           node.text && node.kind in TEXT_KINDS -> {
             val window = client.docWindow(path, 1).data
             DocState(node = node, lines = docLines(window), next = window.next)
           }
+          node.kind == "image" && node.size <= IMAGE_LIMIT -> image(node)
           else -> DocState(node = node)
         }
-      mutableState.update { if (mine == generation.get()) shown.copy(loading = false) else it }
+      mutableState.update {
+        if (mine == generation.get()) shown.copy(loading = false, wrap = it.wrap) else it
+      }
     } catch (error: BoardError) {
       mutableState.update { if (mine == generation.get()) failed(it, error) else it }
+    }
+  }
+
+  private suspend fun image(node: DocNode): DocState {
+    val bytes = withContext(fetch) { files.file(fleetId, "/api/v1/doc/${docRoute(path)}?raw") }
+    return if (bytes == null || bytes.isEmpty()) {
+      DocState(node = node, problem = "The image could not be loaded.")
+    } else {
+      DocState(node = node, image = bytes)
     }
   }
 
@@ -177,7 +271,10 @@ class DocModel(
       val window = client.docWindow(path, from).data
       mutableState.update {
         if (mine != generation.get()) it
-        else it.copy(lines = it.lines + docLines(window), next = window.next, paging = false)
+        else {
+          val lines = it.lines + docLines(window)
+          it.copy(lines = lines, next = window.next, paging = false, find = it.find?.over(it.first, lines))
+        }
       }
     } catch (error: BoardError) {
       mutableState.update {
@@ -185,6 +282,142 @@ class DocModel(
         else if (error == BoardError.Unpaired) it.copy(paging = false, unpaired = true)
         else it.copy(paging = false, moreProblem = historyProblem(error))
       }
+    }
+  }
+
+  suspend fun search(query: String) {
+    val mine = generation.incrementAndGet()
+    val held = mutableState.value
+    val hits = docHits(held.first, held.lines, query)
+    mutableState.update {
+      val searched = it.copy(paging = false, find = DocFind(query, hits, if (hits.isEmpty()) -1 else 0))
+      if (hits.isEmpty()) searched else searched.focus(0)
+    }
+    if (hits.isEmpty() && query.isNotEmpty()) scan(mine, 0)
+  }
+
+  suspend fun move(forward: Boolean) {
+    val held = mutableState.value
+    val find = held.find ?: return
+    val count = find.hits.size
+    when {
+      count == 0 && held.next == null -> return
+      forward && find.at + 1 < count -> mutableState.update { it.focus(find.at + 1) }
+      forward && held.next != null -> scan(generation.incrementAndGet(), count)
+      forward -> mutableState.update { it.focus(0) }
+      count > 0 -> mutableState.update { it.focus(if (find.at <= 0) count - 1 else find.at - 1) }
+    }
+  }
+
+  private suspend fun scan(mine: Int, past: Int) {
+    repeat(FIND_WINDOWS) {
+      val from = mutableState.value.next ?: return
+      if (mine != generation.get()) return
+      mutableState.update {
+        if (mine == generation.get()) it.copy(paging = true, find = it.find?.copy(problem = null)) else it
+      }
+      try {
+        val window = client.docWindow(path, from).data
+        mutableState.update {
+          if (mine != generation.get()) it
+          else {
+            val lines = it.lines + docLines(window)
+            val find = it.find?.over(it.first, lines)
+            val grown = find != null && find.hits.size > past
+            val next = it.copy(lines = lines, next = window.next, paging = false, find = find)
+            if (grown) next.focus(past) else next
+          }
+        }
+      } catch (error: BoardError) {
+        mutableState.update {
+          if (mine != generation.get()) it
+          else if (error == BoardError.Unpaired) it.copy(paging = false, unpaired = true)
+          else it.copy(paging = false, find = it.find?.copy(problem = historyProblem(error)))
+        }
+        return
+      }
+      if (mine != generation.get() || (mutableState.value.find?.hits?.size ?: 0) > past) return
+    }
+  }
+
+  suspend fun jumpTo(line: Int) {
+    val held = mutableState.value
+    if (line < 1) {
+      mutableState.update { it.copy(goLine = line, goProblem = "Line numbers start at 1.") }
+      return
+    }
+    if (line >= held.first && line < held.first + held.lines.size) {
+      mutableState.update {
+        it.copy(goLine = line, goProblem = null, jump = DocJump(line, (it.jump?.id ?: 0) + 1))
+      }
+      return
+    }
+    val mine = generation.incrementAndGet()
+    mutableState.update { it.copy(goLine = line, goProblem = null, paging = true) }
+    try {
+      val window = client.docWindow(path, line).data
+      mutableState.update {
+        when {
+          mine != generation.get() -> it
+          window.lines.isEmpty() ->
+            it.copy(paging = false, goProblem = "The file has fewer than $line lines.")
+          else -> {
+            val lines = docLines(window)
+            it.copy(
+              lines = lines,
+              first = line,
+              next = window.next,
+              paging = false,
+              moreProblem = null,
+              find = it.find?.over(line, lines),
+              jump = DocJump(line, (it.jump?.id ?: 0) + 1)
+            )
+          }
+        }
+      }
+    } catch (error: BoardError) {
+      mutableState.update {
+        if (mine != generation.get()) it
+        else if (error == BoardError.Unpaired) it.copy(paging = false, unpaired = true)
+        else it.copy(paging = false, goProblem = historyProblem(error))
+      }
+    }
+  }
+
+  suspend fun loadEarlier() {
+    val mine = generation.get()
+    val held = mutableState.value
+    if (held.first <= 1 || held.paging) return
+    val from = maxOf(1, held.first - DOC_LINES)
+    mutableState.update { if (mine == generation.get()) it.copy(paging = true, moreProblem = null) else it }
+    try {
+      val window = client.docWindow(path, from, held.first - from).data
+      mutableState.update {
+        if (mine != generation.get()) it
+        else {
+          val lines = docLines(window) + it.lines
+          it.copy(lines = lines, first = from, paging = false, find = it.find?.over(from, lines))
+        }
+      }
+    } catch (error: BoardError) {
+      mutableState.update {
+        if (mine != generation.get()) it
+        else if (error == BoardError.Unpaired) it.copy(paging = false, unpaired = true)
+        else it.copy(paging = false, moreProblem = historyProblem(error))
+      }
+    }
+  }
+
+  suspend fun contents(): String? {
+    val held = mutableState.value
+    held.source?.let { return it }
+    return try {
+      client.docRaw(path).also { mutableState.update { state -> state.copy(copyProblem = null) } }
+    } catch (error: BoardError) {
+      val problem =
+        if (error == BoardError.TooLarge) "The file is too large to copy here." else historyProblem(error)
+      mutableState.update { it.copy(copyProblem = problem) }
+      null
     }
   }
 
