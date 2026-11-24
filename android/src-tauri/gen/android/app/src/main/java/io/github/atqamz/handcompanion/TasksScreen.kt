@@ -311,7 +311,7 @@ private fun SearchPager(ui: TaskSearchUi) {
 }
 
 @Composable
-private fun SearchFailed(message: String, onRetry: () -> Unit) {
+private fun SearchFailed(message: String, onRetry: (() -> Unit)?) {
   Column(
     Modifier.fillMaxWidth().padding(32.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -319,7 +319,7 @@ private fun SearchFailed(message: String, onRetry: () -> Unit) {
   ) {
     Text("The tasks could not be searched", style = type.titleMedium)
     Meta(message)
-    Action("Retry", onRetry)
+    if (onRetry != null) Action("Retry", onRetry)
   }
 }
 
@@ -343,7 +343,7 @@ private fun SearchTasks(
           TasksBody.Rows -> taskItems(state.tasks, onOpen, onShowAll)
         }
       SearchBody.Loading -> item(key = "searching") { Box(Modifier.padding(16.dp)) { Meta("Searching…") } }
-      SearchBody.Failed -> item(key = "search-failed") { SearchFailed(search.error.orEmpty(), ui.onRetry) }
+      SearchBody.Failed -> item(key = "search-failed") { SearchFailed(search.error.orEmpty(), ui.onRetry.takeIf { search.retriable }) }
       SearchBody.Empty -> {
         item(key = "summary") { SearchSummary(search) }
         item(key = "none") { Box(Modifier.padding(16.dp)) { Meta("No tasks match.") } }

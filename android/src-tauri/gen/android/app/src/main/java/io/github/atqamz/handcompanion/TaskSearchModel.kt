@@ -68,7 +68,9 @@ data class TaskSearchQuery(
   }
 }
 
-private fun goSpace(c: Char) = c.isWhitespace() || c == '\u0085'
+private fun goSpace(c: Char) =
+  c in '\t'..'\r' || c == ' ' || c == '\u0085' || c == '\u00A0' || c == '\u1680' ||
+    c in '\u2000'..'\u200A' || c == '\u2028' || c == '\u2029' || c == '\u202F' || c == '\u205F' || c == '\u3000'
 
 fun taskSearchQuery(form: TaskSearchForm, page: Int = 1) =
   TaskSearchQuery(
@@ -104,6 +106,7 @@ data class TaskSearchState(
   val result: TaskSearchData? = null,
   val busy: Boolean = false,
   val error: String? = null,
+  val retriable: Boolean = true,
   val stale: String? = null,
   val unpaired: Boolean = false
 )
@@ -200,7 +203,7 @@ class TaskSearchModel(
   fun clear() {
     generation++
     mutableState.update {
-      it.copy(form = TaskSearchForm(), applied = null, result = null, busy = false, error = null, stale = null)
+      it.copy(form = TaskSearchForm(), applied = null, result = null, busy = false, error = null, retriable = true, stale = null)
     }
   }
 
@@ -233,16 +236,14 @@ class TaskSearchModel(
     val mine = ++generation
     if (!quiet) {
       mutableState.update {
-        it.copy(applied = query, result = null, busy = true, error = null, stale = null)
+        it.copy(applied = query, result = null, busy = true, error = null, retriable = true, stale = null)
       }
-    } else {
-      mutableState.update { it.copy(busy = true) }
     }
     try {
       val data = client.read(query.path(), TaskSearchData.serializer()).data
       if (mine != generation) return
       mutableState.update {
-        it.copy(applied = query, result = data, busy = false, error = null, stale = null, unpaired = false)
+        it.copy(applied = query, result = data, busy = false, error = null, retriable = true, stale = null, unpaired = false)
       }
     } catch (error: BoardError) {
       if (mine != generation) return
@@ -253,9 +254,11 @@ class TaskSearchModel(
             it.copy(supported = false, applied = null, result = null, busy = false, error = null, stale = null)
           quiet ->
             it.copy(busy = false, stale = if (searchRetriable(error)) searchProblem(error) else it.stale)
-          else -> it.copy(busy = false, result = null, error = searchProblem(error))
+          else -> it.copy(busy = false, result = null, error = searchProblem(error), retriable = searchRetriable(error))
         }
       }
+    } finally {
+      if (mine == generation && mutableState.value.busy) mutableState.update { it.copy(busy = false) }
     }
   }
 }

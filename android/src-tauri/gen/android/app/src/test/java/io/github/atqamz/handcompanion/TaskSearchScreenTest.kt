@@ -113,7 +113,7 @@ class TaskSearchScreenTest {
   @Test fun loadingDark() = shot(true, base.copy(busy = true))
 
   @Test
-  fun failedLight() = shot(false, base.copy(error = "since must be a date"))
+  fun failedLight() = shot(false, base.copy(error = "since must be a date", retriable = false))
 
   @Test
   fun failedDark() = shot(true, base.copy(error = "The Board could not be reached."))

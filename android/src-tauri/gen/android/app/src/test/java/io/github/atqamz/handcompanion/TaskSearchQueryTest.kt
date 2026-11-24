@@ -117,6 +117,15 @@ class TaskSearchQueryTest {
   }
 
   @Test
+  fun trimmingIsGosTrimSpaceNotKotlinsIsWhitespace() {
+    val go = "\t\n\u000B\u000C\r \u0085\u00A0\u1680\u2000\u200A\u2028\u2029\u202F\u205F\u3000"
+    assertEquals("a", taskSearchQuery(TaskSearchForm(q = go + "a" + go)).q)
+    val kept = "\u001C\u001D\u001E\u001F"
+    assertEquals(kept + "a" + kept, taskSearchQuery(TaskSearchForm(q = kept + "a" + kept)).q)
+    assertEquals(kept, taskSearchQuery(TaskSearchForm(since = " " + kept + " ")).since)
+  }
+
+  @Test
   fun textAndDatesAreTrimmedAndStatusAndProjectAreNot() {
     val query = taskSearchQuery(TaskSearchForm(" a b ", " inbox", " p ", " 2026-11-01\n", "\u00a02026-11-24 "))
     assertEquals(TaskSearchQuery("a b", " inbox", " p ", "2026-11-01", "2026-11-24"), query)

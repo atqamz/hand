@@ -4,6 +4,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -243,6 +244,167 @@ class TaskSearchModelTest {
     assertEquals("tnew", state.result!!.groups.single().tasks.single().ref)
     assertFalse(state.busy)
     assertNotNull(state.result)
+  }
+
+  private fun blocking(first: Int = 1, entered: CountDownLatch, release: CountDownLatch, after: () -> Raw): (String) -> Raw {
+    val seen = java.util.concurrent.atomic.AtomicInteger()
+    return {
+      if (seen.incrementAndGet() == first) {
+        entered.countDown()
+        release.await()
+      }
+      after()
+    }
+  }
+
+  @Test
+  fun aCancelledSearchOrRefreshNeverLeavesTheModelBusy() = runBlocking {
+    for (quiet in listOf(false, true)) {
+      val entered = CountDownLatch(1)
+      val release = CountDownLatch(1)
+      val board = SearchBoard(search = blocking(2, entered, release) { searchPage(1, 1, 1, "t1") })
+      val model = TaskSearchModel(FLEET, board)
+      model.loadProjects()
+      model.run(hand, quiet = false)
+      val job = launch(Dispatchers.Default) { if (quiet) model.refresh() else model.run(hand, quiet = false) }
+      entered.await()
+      job.cancel()
+      release.countDown()
+      job.join()
+      assertFalse("quiet=$quiet", model.state.value.busy)
+    }
+  }
+
+  @Test
+  fun aQuietRefreshNeverFlipsTheModelBusy() = runBlocking {
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val board = SearchBoard(search = blocking(2, entered, release) { searchPage(1, 1, 1, "t1") })
+    val model = TaskSearchModel(FLEET, board)
+    model.loadProjects()
+    model.run(hand, quiet = false)
+    val job = launch(Dispatchers.Default) { model.refresh() }
+    entered.await()
+    try {
+      assertFalse(model.state.value.busy)
+    } finally {
+      release.countDown()
+    }
+    job.join()
+    assertFalse(model.state.value.busy)
+  }
+
+  @Test
+  fun aLateFailureOfAnOlderQueryNeverReplacesTheNewerAnswer() = runBlocking {
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val board =
+      SearchBoard(
+        search = { path ->
+          if ("q=old" in path) {
+            entered.countDown()
+            release.await()
+            throw BoardError.Unreachable
+          }
+          searchPage(1, 1, 1, "tnew")
+        }
+      )
+    val model = TaskSearchModel(FLEET, board)
+    model.loadProjects()
+    val older = async(Dispatchers.Default) { model.run(TaskSearchQuery(q = "old"), quiet = false) }
+    entered.await()
+    model.run(TaskSearchQuery(q = "new"), quiet = false)
+    release.countDown()
+    older.await()
+    val state = model.state.value
+    assertNull(state.error)
+    assertEquals("new", state.applied!!.q)
+    assertEquals(SearchBody.Rows, searchBody(state))
+    assertFalse(state.busy)
+  }
+
+  @Test
+  fun clearDropsAnAnswerThatArrivesAfterIt() = runBlocking {
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val board = SearchBoard(search = blocking(1, entered, release) { searchPage(1, 1, 1, "told") })
+    val model = TaskSearchModel(FLEET, board)
+    model.loadProjects()
+    val older = async(Dispatchers.Default) { model.run(hand, quiet = false) }
+    entered.await()
+    model.clear()
+    release.countDown()
+    older.await()
+    val state = model.state.value
+    assertNull(state.applied)
+    assertNull(state.result)
+    assertFalse(state.busy)
+    assertEquals(SearchBody.Legacy, searchBody(state))
+  }
+
+  @Test
+  fun aRefreshWhileASearchIsInFlightAsksNothing() = runBlocking {
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val board = SearchBoard(search = blocking(1, entered, release) { searchPage(1, 1, 1, "t1") })
+    val model = TaskSearchModel(FLEET, board)
+    model.loadProjects()
+    val search = async(Dispatchers.Default) { model.run(hand, quiet = false) }
+    entered.await()
+    assertTrue(model.state.value.busy)
+    model.refresh()
+    release.countDown()
+    search.await()
+    assertEquals(1, board.calls.count { it.startsWith("/api/v1/tasks/search") })
+  }
+
+  @Test
+  fun aBlankFormSearchAfterAnAppliedOneClearsTheResults() = runBlocking {
+    val board = SearchBoard()
+    val model = TaskSearchModel(FLEET, board)
+    model.loadProjects()
+    model.run(hand, quiet = false)
+    model.edit { TaskSearchForm() }
+    model.search()
+    val state = model.state.value
+    assertNull(state.applied)
+    assertNull(state.result)
+    assertEquals(SearchBody.Legacy, searchBody(state))
+    assertEquals(1, board.calls.count { it.startsWith("/api/v1/tasks/search") })
+  }
+
+  @Test
+  fun groupsWithoutTasksAreEmpty() = runBlocking {
+    val raw =
+      envelope(
+        """{"page":1,"page_size":50,"total":0,"pages":1,"groups":[{"day":"2026-11-20","name":"Nov 20","count":0,"tasks":[]}]}"""
+      )
+    val model = TaskSearchModel(FLEET, SearchBoard(search = { raw }))
+    model.loadProjects()
+    model.run(hand, quiet = false)
+    assertEquals(SearchBody.Empty, searchBody(model.state.value))
+  }
+
+  @Test
+  fun anUnpairedSearchSaysSo() = runBlocking {
+    val model = TaskSearchModel(FLEET, SearchBoard(search = { throw BoardError.Unpaired }))
+    model.loadProjects()
+    model.run(hand, quiet = false)
+    assertTrue(model.state.value.unpaired)
+    assertFalse(model.state.value.busy)
+  }
+
+  @Test
+  fun aRefusalIsNotRetriableAndANetworkFailureIs() = runBlocking {
+    val board = SearchBoard(search = { refusal(400, "bad_request", "since must be a date") })
+    val model = TaskSearchModel(FLEET, board)
+    model.loadProjects()
+    model.run(hand, quiet = false)
+    assertEquals("since must be a date", model.state.value.error)
+    assertFalse(model.state.value.retriable)
+    board.search = { throw BoardError.Unreachable }
+    model.run(hand, quiet = false)
+    assertTrue(model.state.value.retriable)
   }
 
   @Test
