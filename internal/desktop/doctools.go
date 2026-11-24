@@ -17,16 +17,33 @@ const (
 	notCopiedKind = "This kind of file is not copied here, so nothing was copied."
 )
 
-var textKindsNotShown = map[string]bool{"csv": true, "tsv": true, "svg": true, "html": true}
+var textKindsNotShown = map[string]bool{"svg": true}
+
+var noCopyKinds = map[string]bool{"pdf": true, "video": true, "audio": true}
 
 func (a *App) docTextual() bool {
 	d, st := a.doc.doc, &a.doc
-	return d.Kind == "text" || d.Kind == "markdown" && st.row == ""
+	return d.Kind == "text" || d.Kind == "markdown" && st.row == "" || d.Kind == "html" && a.DocSource
+}
+
+func (a *App) docIsTable() bool {
+	d := a.doc.doc
+	return (d.Kind == "csv" || d.Kind == "tsv") && a.doc.table != nil
+}
+
+func (a *App) docWindowed() bool {
+	d := a.doc.doc
+	return d.Kind == "text" || d.Kind == "html"
+}
+
+func (a *App) docSourceable() bool {
+	d := a.doc.doc
+	return d.Kind == "markdown" && a.doc.row == "" || d.Kind == "html"
 }
 
 func (a *App) docLinesShown() bool {
 	d := a.doc.doc
-	return d.Kind == "text" || d.Kind == "markdown" && a.DocSource && a.doc.row == ""
+	return d.Kind == "text" || d.Kind == "markdown" && a.DocSource && a.doc.row == "" || d.Kind == "html" && a.DocSource
 }
 
 func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
@@ -36,7 +53,7 @@ func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
 	a.flushClip(c)
 	ui.Column(c).Gap(kit.Space6).Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Label("Document actions").Children(func() {
-			if d.Kind == "markdown" && a.doc.row == "" {
+			if a.docSourceable() {
 				if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !a.DocSource) && a.DocSource {
 					a.setDocView(func() { a.DocSource = false })
 				}
@@ -52,7 +69,7 @@ func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			if a.copiedKey == key && !a.copiedAt.IsZero() && c.Now().Sub(a.copiedAt) < copyReceipt {
 				label = "Copied"
 			}
-			if kit.Button(c, k, "doc:tool:copy", label, 0, a.doc.copying) {
+			if !noCopyKinds[d.Kind] && kit.Button(c, k, "doc:tool:copy", label, 0, a.doc.copying) {
 				a.copyDoc(c)
 			}
 			if kit.Button(c, k, "doc:tool:download", "Download", 0, a.doc.saving || a.SaveAs == nil) {
@@ -109,7 +126,7 @@ func (a *App) copyDoc(c *ui.Context) {
 		st.clip, st.clipReady = st.body, true
 	case d.Kind == "text" && d.Size > docRawMax:
 		st.clip, st.clipReady = strings.Join(st.window.Lines, "\n"), true
-	case d.Kind == "text":
+	case d.Kind == "text" || d.Kind == "csv" || d.Kind == "tsv" || d.Kind == "html":
 		a.fetchCopy()
 	case textKindsNotShown[d.Kind]:
 		st.note, st.noteBad = notCopiedKind, true

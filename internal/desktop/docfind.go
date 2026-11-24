@@ -578,7 +578,7 @@ func (a *App) docMarks(shown []string, first int) kit.DocMarks {
 func (a *App) docFindRow(c *ui.Context, k kit.Colors, p palette) {
 	st := &a.doc
 	f, fo := &st.find, &st.follow
-	text := st.doc.Kind == "text"
+	text := a.docWindowed()
 	q := strings.TrimSpace(f.query)
 	switch {
 	case q != f.pending:
