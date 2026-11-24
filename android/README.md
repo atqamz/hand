@@ -350,8 +350,8 @@ tone, and the project, parent, waits and updated time; `goal` is lead text, not 
 and **Mark read** until `acked_at` is set, when it reads "read by …" from the `ReportDetail` the
 ack answered. A second tap while the ack is in flight is ignored; a refusal keeps the button and
 says so under the card, and nothing on the screen is cleared. A task, sub-task, decision, attempt or report ref opens
-its native screen; a fleet-relative repository path and a delivered file with a `/doc/...` href open the web
-fallback (a file outside the fleet stays plain text), and a PR or other link opens the browser. `LiveBus` hints that name this task or one of its sub-tasks, or a
+its native screen; a fleet-relative repository path and a delivered file with a `/doc/...` href open `DocScreen`
+(a file outside the fleet stays plain text), and a PR or other link opens the browser. `LiveBus` hints that name this task or one of its sub-tasks, or a
 report, decision or attempt the detail holds, re-read it; a hint naming anything else does not, and
 a hint during a read queues one more read for when it finishes. A host whose `meta.features` lacks
 `events` polls the detail every 5 seconds while the screen is shown, and the read stops when the
@@ -364,7 +364,7 @@ later reads; a `304` keeps what is shown and clears a stale notice, and a `bad_c
 cursor and reads full. The head is the summary through the Board's inline title, drawn once: the
 body's first line is the title and the Markdown below is the body's rest, as on the Board's card.
 Then the state chip, "from aN" with the attempt's native route, the time, and the task ref with its
-title. Then Delivered, where a PR opens the browser and a file opens the web fallback. **Mark read**
+title. Then Delivered, where a PR opens the browser and a file opens `DocScreen`. **Mark read**
 is docked at the foot and posts `report/{rN}/ack` under the same single-flight, `AppliedUnread` and
 refusal rules as a task's card; once `acked_at` is set the dock reads "read by …" from that answer,
 and the read after the ack still sends the read cursor. `touched` and `resync` hints naming this
@@ -378,7 +378,7 @@ heads drawn at the Board's two levels, unordered and numbered lists with six lev
 keep their written numbers, inline code, fenced code on the panel fill behind a **Copy code** button,
 quotes, tables whose columns align and scroll sideways, emphasis, strikethrough, safe `http`/`https`
 links, refs and paths. HTML, images and anything the parser cannot close stay text. A ref opens its
-native screen; a fleet-relative path opens the `/doc/` fallback until N8, while an absolute, `~/` or
+native screen; a fleet-relative path opens `DocScreen`, while an absolute, `~/` or
 drive path stays text because the Companion does not know the fleet home; a link opens the browser. The
 table lives in `refTarget` and `pathTarget`, and the parser's cases are the Board's own test table.
 
@@ -473,6 +473,8 @@ F-Droid reads the store text from `fastlane/metadata/android/en-US/`: `title.txt
 ## Contract with Hand
 
 The wire contract is [Hand's Companion contract](../docs/companion.md), with its test vectors in [`docs/companion-vectors.json`](../docs/companion-vectors.json). The app is in `android/` and the sidecar it dials is in `iroh/`, in one checkout, so a change to either meets the other's tests in the same pull request. `core/` reads that file by path from the same checkout, so `core/` builds only inside this repository, and `core/tests/vectors.rs` runs the parser over all 23 valid and 77 invalid pairing links and all 6 valid and 61 invalid open links as written. In short: iroh 1.4.1, ALPN `hand-board`, one bidirectional QUIC stream per loopback TCP connection, 12 open streams, one connection to a host, the Companion's endpoint ID as its identity, and the close and reset codes 1 to 5. `AGENTS.md` carries the rules this repository follows.
+
+**Documents** (`DocModel`, `DocScreen`) open every `/doc/…` href of a report, task or deliverable in a native viewer, so a document never goes to the web view: `ThreadTarget.Web` no longer exists and `TaskModelTest` maps a table of hrefs to `Doc` or nothing. A folder reads `GET /api/v1/doc/{path}` and `?page=N` (500 entries a page), a Markdown file is read whole with `?raw` and drawn by the report's Markdown renderer, and any other text, CSV or TSV file reads `?from=N&lines=500` windows with **Show more**. Control and bidirectional characters are drawn as visible marks. An image, a PDF, a video or a binary file shows a notice and no save action, because the app has none yet; images are the next slice. There is no `meta.features` name for the route, so a `404` or `405` without a Board error code reads "too old", and a `403`, `404`, `409` or `400` envelope shows the Board's own sentence with **Retry**. A later answer never replaces a newer read, a success clears an earlier error, and a failed refresh keeps the last page under a stale bar. Back returns to the screen where the link was tapped, and a document opened from another one reads again from the first page or window on the way back. `DocScreenTest` stores markdown, text, folder, error and refused, each light and dark, plus the stale, too old, notice, loading and failed-more frames.
 
 ## Roadmap
 

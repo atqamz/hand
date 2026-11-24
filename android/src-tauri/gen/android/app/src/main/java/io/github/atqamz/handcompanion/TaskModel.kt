@@ -195,7 +195,7 @@ sealed interface ThreadTarget {
 
   data class Report(val ref: String) : ThreadTarget
 
-  data class Web(val path: String) : ThreadTarget
+  data class Doc(val path: String) : ThreadTarget
 
   data class Browser(val url: String) : ThreadTarget
 
@@ -216,25 +216,37 @@ fun refTarget(ref: String): ThreadTarget =
 
 fun reportTarget(report: TaskReport) = refTarget(report.ref)
 
-fun pathTarget(path: String, fleet: String): ThreadTarget {
+fun pathTarget(path: String): ThreadTarget {
   val value = path.removePrefix("file:")
   if (value.isEmpty() || value.startsWith("/") || value.startsWith("~/") || DRIVE.containsMatchIn(value)) {
     return ThreadTarget.None
   }
-  val escaped =
-    value.split('/').joinToString("/") {
-      java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
-    }
-  return ThreadTarget.Web("/$fleet/doc/$escaped")
+  return docTarget(value)
+}
+
+internal fun docTarget(path: String): ThreadTarget {
+  val segments = path.trimEnd('/').split('/')
+  if (segments.any { it.isEmpty() || it == "." || it == ".." || '\\' in it || it.any(Char::isISOControl) }) {
+    return ThreadTarget.None
+  }
+  return ThreadTarget.Doc(segments.joinToString("/"))
+}
+
+internal fun hrefPath(href: String): String? {
+  val value = href.substringBefore('#').substringBefore('?')
+  if (!value.startsWith("/doc/")) return null
+  return try {
+    java.net.URLDecoder.decode(value.removePrefix("/doc/").replace("+", "%2B"), "UTF-8")
+  } catch (_: IllegalArgumentException) {
+    null
+  }
 }
 
 private val DRIVE = Regex("^[A-Za-z]:[\\\\/]")
 
-fun deliverableTarget(deliverable: TaskDeliverable, fleet: String): ThreadTarget =
+fun deliverableTarget(deliverable: TaskDeliverable): ThreadTarget =
   when (deliverable.kind) {
-    "file" ->
-      if (deliverable.href.isEmpty()) ThreadTarget.None
-      else ThreadTarget.Web("/$fleet${deliverable.href.removePrefix("/").let { "/$it" }}")
+    "file" -> hrefPath(deliverable.href)?.let(::docTarget) ?: ThreadTarget.None
     else -> if (deliverable.ref.isEmpty()) ThreadTarget.None else ThreadTarget.Browser(deliverable.ref)
   }
 
