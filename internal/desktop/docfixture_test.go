@@ -80,7 +80,7 @@ func stripes(t *testing.T, w, h int, tones ...color.RGBA) []byte {
 	return buf.Bytes()
 }
 
-const designMD = "# Nightly export pipeline: design\n\nProposal for `t1`, written by its worker. The [API notes](notes.txt) list the endpoints, and the [export notes](/f00000000e0aa/doc/reports/t1/sub/deep.md) explain why the old export is retired.\n\n## Goals\n\n- One job per night that is safe to retry\n- A manifest written last\n- A backfill of the last 30 days\n\n## Data flow\n\nThe export runs once a night, writes one CSV per region, and publishes a manifest last, so a reader never sees half a night.\n"
+const designMD = "# Nightly export pipeline: design\n\nProposal for `t1`, written by its worker. The [API notes](notes.txt) list the endpoints, and the [export notes](/f00000000e0aa/doc/reports/t1/sub/deep.md) explain why the old export is retired.\n\n**Shipped**\nExport job retried clean\nManifest written last\nBackfill at 30 days\n---\n**Next**\nRegion split\nAlert on stale manifest\n---\n**Blocked**\nNothing\n\n## Goals\n\n- One job per night that is safe to retry\n- A manifest written last\n- A backfill of the last 30 days\n\n## Data flow\n\nThe export runs once a night, writes one CSV per region, and publishes a manifest last, so a reader never sees half a night.\n"
 
 func at(day string) string { return "2026-11-0" + day + "T04:40:00Z" }
 
