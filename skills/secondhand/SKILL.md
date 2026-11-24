@@ -112,7 +112,7 @@ Never end a chat reply with a question for the operator; ask every question with
 
 1. When the operator pauses work, or it waits on something that will not move soon, and nobody means to drop it: `hand attempt stop aN` if a worker still runs (park is refused while an attempt is live), then `hand task park --note "WHY" tN`. The task goes back to `inbox`; its armed timers end and its open decisions are withdrawn, and a decision you still need is asked again after the restart. Unread reports stay unread: read and ack them as usual. Use `hand task abandon tN` only for work that is dropped.
 2. `hand orient` lists a parked task under `inbox` with a `parked` column (the note, or `yes`) that appears only when one is parked. Check it before you start any inbox task: never start a parked one unless the operator asks.
-3. To resume: `hand task start tN`, then arm again the timers it needs (`hand wake`). To continue the old worker's branch, run `hand attempt clean aN` first (it refuses a dirty tree without `--discard`), then `hand attempt start --continue aN`.
+3. To resume: `hand task start tN`, then arm again the timers it needs (`hand wake`). To continue the old worker's branch, run `hand attempt clean aN` first (it refuses a dirty tree without `--discard`), then `hand attempt start --continue aN --prompt-file BRIEF.md tN`.
 
 ## Disk
 

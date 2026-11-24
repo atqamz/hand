@@ -50,6 +50,6 @@ What the supervisor does, following the `secondhand` skill:
 5. Read reports with `hand report show rN`, act on them, and acknowledge them with `hand report ack rN`.
 6. Ask you with `hand decision ask tN "QUESTION"`.
 7. Verify the acceptance check, then `hand attempt stop aN` if the worker still runs, `hand attempt clean aN` and `hand task done tN`.
-8. When you pause work without dropping it, stop the live worker, then `hand task park --note "WHY" tN`: the task goes back to `inbox`, its timers end and its open decisions are withdrawn. Starting it again takes `hand task start tN`, and `hand attempt clean aN` comes before `hand attempt start --continue aN`.
+8. When you pause work without dropping it, stop the live worker, then `hand task park --note "WHY" tN`: the task goes back to `inbox`, its timers end and its open decisions are withdrawn. Starting it again takes `hand task start tN`, and `hand attempt clean aN` comes before `hand attempt start --continue aN --prompt-file BRIEF.md tN`.
 
 `hand models` lists what each harness offers. For `opencode`, `--model` is `provider/id` and `--effort` is opencode's own variant of that model: variant names such as `fast`, `thinking` or `none` are not effort levels, and `hand models opencode` lists each model's variants. `--harness opencode` alone starts opencode on its own configuration.
