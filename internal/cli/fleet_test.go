@@ -11,6 +11,7 @@ import (
 )
 
 func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	alpha := field(h.ok("init", "--name", "alpha"), "id")
 	other := t.TempDir()
@@ -31,6 +32,7 @@ func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
 }
 
 func TestInitAfterAMoveSkipsAWorktreeWithoutAGitFile(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	inner := filepath.Join(fx.h.home, "projects", "inner")
 	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {
@@ -69,6 +71,7 @@ func TestInitAfterAMoveSkipsAWorktreeWithoutAGitFile(t *testing.T) {
 }
 
 func TestInitAfterAMoveRepairsWorktreesOfProjectsInsideTheHome(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	inner := filepath.Join(fx.h.home, "projects", "inner")
 	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {

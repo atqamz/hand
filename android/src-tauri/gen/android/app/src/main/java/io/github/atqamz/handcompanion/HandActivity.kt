@@ -69,7 +69,8 @@ class HandActivity : ComponentActivity() {
           { phoneInfo(Core.phone()) },
           Core::unsaved,
           forgetter = Core::forget,
-          hostForgetter = Core::forgetHost
+          hostForgetter = Core::forgetHost,
+          dropped = { clearFleetDrafts(applicationContext.getSharedPreferences("drafts", MODE_PRIVATE), it) }
         )
       }
     }
@@ -203,8 +204,40 @@ class HandActivity : ComponentActivity() {
     val model = remember(fleet) { skillsModel(fleet) }
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.reload() }
-    SkillsScreen(state, onBack, model::reload)
+    SkillsScreen(state, onBack, model::reload) { model.sync(it.scope, it.project) }
   }
+
+  private fun alertsModel(fleet: String): AlertsModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { AlertsModel(fleet, CoreTransport) }
+      }
+    )["alerts:$fleet", AlertsModel::class.java]
+
+  @Composable
+  private fun Alerts(fleet: String, onBack: () -> Unit) {
+    val model = remember(fleet) { alertsModel(fleet) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) { model.reload() }
+    AlertsScreen(state, onBack, model::reload)
+  }
+
+  private fun modelsModel(fleet: String): ModelsModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { ModelsModel(fleet, CoreTransport) }
+      }
+    )["$fleet/models", ModelsModel::class.java]
+
+  private fun taskSearchModel(fleet: String): TaskSearchModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { TaskSearchModel(fleet, CoreTransport) }
+      }
+    )["$fleet/task-search", TaskSearchModel::class.java]
 
   private fun attemptModel(fleet: String, ref: String): AttemptModel =
     ViewModelProvider(
@@ -236,6 +269,22 @@ class HandActivity : ComponentActivity() {
       }
     )["$fleet/chat", ChatModel::class.java]
 
+  private fun docModel(fleet: String, path: String): DocModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { DocModel(fleet, path, CoreTransport) }
+      }
+    )["doc:$fleet:$path", DocModel::class.java]
+
+  private fun historyModel(fleet: String): HistoryModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { HistoryModel(fleet, CoreTransport) }
+      }
+    )["history:$fleet", HistoryModel::class.java]
+
   @Composable
   private fun Chat(
     fleet: String,
@@ -244,6 +293,8 @@ class HandActivity : ComponentActivity() {
     head: ChatHead,
     onTarget: (ThreadTarget) -> Unit,
     onHint: () -> Unit,
+    onSearch: () -> Unit,
+    models: ModelsUi,
     onControl: (HeadControl) -> Unit
   ) {
     val model = remember(fleet) { chatModel(fleet) }
@@ -272,8 +323,57 @@ class HandActivity : ComponentActivity() {
       onAttach = { picker.launch(arrayOf("*/*")) },
       onDetach = model::detach,
       head = head,
-      onControl = onControl
+      onControl = onControl,
+      onSearch = onSearch,
+      onRetryReveal = model::retryReveal,
+      models = models
     )
+  }
+
+  @Composable
+  private fun History(
+    fleet: String,
+    onBack: () -> Unit,
+    onTarget: (ThreadTarget) -> Unit,
+    onShow: () -> Unit
+  ) {
+    val model = remember(fleet) { historyModel(fleet) }
+    val chat = remember(fleet) { chatModel(fleet) }
+    val state by model.state.collectAsStateWithLifecycle()
+    BackHandler { if (state.open != null) model.close() else onBack() }
+    HistoryScreen(
+      state,
+      onBack,
+      model::edit,
+      model::search,
+      model::retry,
+      model::more,
+      model::open,
+      model::close,
+      model::retryOpen,
+      { hit ->
+        chat.reveal(hit.ref, hit.at, state.open?.entry?.text ?: hit.text)
+        onShow()
+      },
+      onTarget
+    )
+  }
+
+  @Composable
+  private fun Doc(
+    fleet: String,
+    path: String,
+    onBack: () -> Unit,
+    onTarget: (ThreadTarget) -> Unit
+  ) {
+    val model = remember(fleet, path) { docModel(fleet, path) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) { model.load() }
+    val tools =
+      remember(model) {
+        DocTools(model::find, model::step, model::closeFind, model::goTo, model::earlier, model::toggleWrap, model::contents)
+      }
+    DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget, tools)
   }
 
   @Composable
@@ -363,6 +463,9 @@ class HandActivity : ComponentActivity() {
         var signing by rememberSaveable { mutableStateOf<String?>(null) }
         var threads by rememberSaveable { mutableStateOf("") }
         var skills by rememberSaveable { mutableStateOf<String?>(null) }
+        var history by rememberSaveable { mutableStateOf<String?>(null) }
+        var docs by rememberSaveable { mutableStateOf("") }
+        var alerts by rememberSaveable { mutableStateOf<String?>(null) }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
@@ -399,7 +502,10 @@ class HandActivity : ComponentActivity() {
             decision = null
             web = null
             threads = ""
+            docs = ""
             skills = null
+            history = null
+            alerts = null
             phone = false
             signing = null
             open = id
@@ -512,7 +618,10 @@ class HandActivity : ComponentActivity() {
                 model.say(null)
                 fleetModel(it).enter()
                 threads = ""
+                docs = ""
                 skills = null
+                history = null
+                alerts = null
                 open = it
               },
               model::ask,
@@ -536,6 +645,7 @@ class HandActivity : ComponentActivity() {
             val shown = decision
             val place = currentTask(threads)
             val attemptRef = place?.takeIf { isRef(it, 'a') }
+            val docPath = currentTask(docs)
             val reportRef = place?.takeIf { isRef(it, 'r') }
             val thread = place?.takeIf { isRef(it, 't') }
             val target: (ThreadTarget) -> Unit = { to ->
@@ -544,7 +654,7 @@ class HandActivity : ComponentActivity() {
                 is ThreadTarget.Decision -> decision = to.ref
                 is ThreadTarget.Attempt -> if (place != to.ref) threads = pushTask(threads, to.ref)
                 is ThreadTarget.Report -> if (place != to.ref) threads = pushTask(threads, to.ref)
-                is ThreadTarget.Web -> web = to.path
+                is ThreadTarget.Doc -> if (docPath != to.path) docs = pushTask(docs, to.path)
                 is ThreadTarget.Browser ->
                   try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(to.url)))
@@ -558,6 +668,12 @@ class HandActivity : ComponentActivity() {
                 FallbackScreen(open.orEmpty(), state.name, page, { web = null }) {
                   WebBoard(page) { web = null }
                 }
+              }
+            } else if (docPath != null) {
+              val leave = { docs = popTask(docs) }
+              BackHandler(onBack = leave)
+              holder.SaveableStateProvider("doc:$open:$docPath") {
+                Doc(open.orEmpty(), docPath, leave, target)
               }
             } else if (shown != null) {
               BackHandler { decision = null }
@@ -579,6 +695,15 @@ class HandActivity : ComponentActivity() {
               holder.SaveableStateProvider("task:$open:$thread") {
                 Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
               }
+            } else if (history == open) {
+              holder.SaveableStateProvider("history:$open") {
+                History(open.orEmpty(), { history = null }, target) { history = null }
+              }
+            } else if (alerts == open) {
+              BackHandler { alerts = null }
+              holder.SaveableStateProvider("alerts:$open") {
+                Alerts(open.orEmpty()) { alerts = null }
+              }
             } else if (skills == open) {
               BackHandler { skills = null }
               holder.SaveableStateProvider("skills:$open") {
@@ -586,6 +711,36 @@ class HandActivity : ComponentActivity() {
               }
             } else {
               BackHandler { open = null }
+              val taskSearch = remember(open) { taskSearchModel(open.orEmpty()) }
+              val found by taskSearch.state.collectAsStateWithLifecycle()
+              LaunchedEffect(taskSearch, state.tab) {
+                if (state.tab == Tab.Tasks) {
+                  taskSearch.open()
+                  lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { taskSearch.watch() }
+                }
+              }
+              val searchUi =
+                TaskSearchUi(
+                  found,
+                  { v -> taskSearch.edit { it.copy(q = v) } },
+                  { v -> taskSearch.edit { it.copy(status = v) } },
+                  { v -> taskSearch.edit { it.copy(project = v) } },
+                  { v -> taskSearch.edit { it.copy(since = v) } },
+                  { v -> taskSearch.edit { it.copy(until = v) } },
+                  taskSearch::search,
+                  taskSearch::clear,
+                  taskSearch::page,
+                  taskSearch::retry
+                )
+              val models = remember(open) { modelsModel(open.orEmpty()) }
+              val modelsState by models.state.collectAsStateWithLifecycle()
+              LaunchedEffect(models, state.supervisor?.ref, state.supervisor?.model) { models.load() }
+              val modelsUi =
+                ModelsUi(
+                  modelsState,
+                  { name -> models.pick(name, state.supervisor?.ref) { fleet.refresh() } },
+                  models::reload
+                )
               holder.SaveableStateProvider("fleet:$open") {
                 FleetScreen(
                   open.orEmpty(),
@@ -611,7 +766,9 @@ class HandActivity : ComponentActivity() {
                       state.hintBlocked,
                       state.head(),
                       target,
-                      { fleet.select(Tab.Needs) }
+                      { fleet.select(Tab.Needs) },
+                      { history = open },
+                      modelsUi
                     ) { control ->
                       when (control) {
                         HeadControl.Interrupt -> fleet.interrupt()
@@ -622,13 +779,15 @@ class HandActivity : ComponentActivity() {
                     }
                   },
                   choice = { ref -> Choice(open.orEmpty(), ref) { decision = ref } },
-                  onSkills = { skills = open }
+                  onSkills = { skills = open },
+                  onAlerts = { alerts = open },
+                  search = searchUi
                 )
               }
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && currentTask(threads) == null && skills != open
+            fleet != null && web == null && decision == null && currentTask(docs) == null && currentTask(threads) == null && skills != open && history != open && alerts != open
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
           }

@@ -16,6 +16,7 @@ func SetSkillFetchLimits(t *testing.T, git, budget time.Duration) {
 }
 
 func TestTrustFollowsTheFetchedURLAndTheSubscription(t *testing.T) {
+	t.Parallel()
 	git := func(source, url, sub string) fleet.Managed {
 		return fleet.Managed{LockEntry: fleet.LockEntry{Source: source, SourceURL: url, SourceType: "github"}, Subscribed: sub}
 	}
@@ -55,6 +56,7 @@ func TestTrustFollowsTheFetchedURLAndTheSubscription(t *testing.T) {
 }
 
 func TestDriftStateNamesTheFourStatuses(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name           string
 		edited, behind bool
@@ -72,6 +74,7 @@ func TestDriftStateNamesTheFourStatuses(t *testing.T) {
 }
 
 func TestCommitWordNeverCarriesShellText(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"":                     "its content",
 		"0123456789abcdef0123": "0123456789ab",
@@ -87,6 +90,7 @@ func TestCommitWordNeverCarriesShellText(t *testing.T) {
 }
 
 func TestBumpTitleNamesOldAndNewAndNeverCarriesShellText(t *testing.T) {
+	t.Parallel()
 	e := fleet.Managed{LockEntry: fleet.LockEntry{Commit: "0123456789abcdef", ComputedHash: "feedface00000000"}}
 	if got := bumpTitle("triage", e, "fedcba9876543210", "aaaa"); got != "skills: triage 0123456789ab -> fedcba987654" {
 		t.Errorf("title = %q", got)
@@ -102,6 +106,7 @@ func TestBumpTitleNamesOldAndNewAndNeverCarriesShellText(t *testing.T) {
 }
 
 func TestBumpBodyFencesTheDiffAndCutsItAtALine(t *testing.T) {
+	t.Parallel()
 	e := fleet.Managed{LockEntry: fleet.LockEntry{Source: "atqamz/skills", SourceURL: skillsRepo, SourceType: "github", SkillPath: "skills/triage/SKILL.md"}}
 	e.Ref = "main"
 	got := bumpBody("skills: triage a -> b", e, "+```\n+````\n+x\n")
@@ -124,6 +129,7 @@ func TestBumpBodyFencesTheDiffAndCutsItAtALine(t *testing.T) {
 }
 
 func TestShownURLDropsWhatCouldHoldASecret(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"https://tok:sekrit@example.com/o/r.git":       "https://example.com/o/r.git",
 		"https://tok@example.com/o/r.git?token=x#frag": "https://example.com/o/r.git",
@@ -139,6 +145,7 @@ func TestShownURLDropsWhatCouldHoldASecret(t *testing.T) {
 }
 
 func TestBumpBodyDropsTheSourceCredentialFromTheDiff(t *testing.T) {
+	t.Parallel()
 	raw := "https://tok:s3k&t@example.com/o/r.git"
 	e := fleet.Managed{LockEntry: fleet.LockEntry{Source: raw, SourceURL: raw, SourceType: "git"}}
 	got := bumpBody("t", e, " \"source\": \"https://tok:s3k\\u0026t@example.com/o/r.git\",\n+\"also\": \""+raw+"\"\n+\"other\": \"https://tok:s3k&t@example.com/o/r\"\n")
@@ -148,6 +155,7 @@ func TestBumpBodyDropsTheSourceCredentialFromTheDiff(t *testing.T) {
 }
 
 func TestBumpBodyKeepsWhatASmallPasswordSpellsElsewhere(t *testing.T) {
+	t.Parallel()
 	diff := " \"ref\": \"main\",\n \"computedHash\": \"aabbcc0123456789\",\n a/.agents/skills/triage/SKILL.md\n+about a main thing on example.com\n"
 	for _, pw := range []string{"main", "a"} {
 		raw := "https://tok:" + pw + "@example.com/o/r.git"
@@ -160,6 +168,7 @@ func TestBumpBodyKeepsWhatASmallPasswordSpellsElsewhere(t *testing.T) {
 }
 
 func TestProjectRemoteTakesOnlyGitHubAddresses(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"https://github.com/acme/app.git":     "acme/app",
 		"https://github.com/acme/app":         "acme/app",
@@ -179,6 +188,34 @@ func TestProjectRemoteTakesOnlyGitHubAddresses(t *testing.T) {
 		}
 		if got != want {
 			t.Errorf("projectRemote(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestHTTPSRepoTakesOnlyAPlainRepositoryAddress(t *testing.T) {
+	for _, ok := range []string{
+		"https://github.com/acme/tool",
+		"https://github.com/acme/tool.git",
+		"https://github.com/acme/tool/",
+		"https://gitlab.example.com/group/sub.group/tool-skill",
+		"https://example.com:8443/acme/tool",
+		"https://127.0.0.1/acme/tool",
+		"https://example.com/~acme/tool+x",
+	} {
+		if !httpsRepo(ok) {
+			t.Errorf("%q is refused", ok)
+		}
+	}
+	for _, bad := range []string{
+		"", "https://", "https://github.com", "https://github.com/", "http://github.com/acme/tool", "HTTPS://github.com/acme/tool",
+		"https://u@github.com/acme/tool", "https://u:p@github.com/acme/tool", "https://github.com/acme/tool?a=b", "https://github.com/acme/tool?", "https://github.com/acme/tool#x",
+		"https://github.com/acme/tool@x", "https://github.com/acme//tool", "https://github.com/acme/../tool", "https://github.com/acme/./tool",
+		"https://github.com/acme/%2e%2e/tool", "https://github.com:/acme/tool", "https://[::1]/acme/tool", "https://github.com/acme/tool\n",
+		"https://github.com/acme/tool x", " https://github.com/acme/tool", "file:///srv/tool", "git@github.com:acme/tool.git", "ssh://github.com/acme/tool",
+		"ext::sh -c id", "tool", "./tool",
+	} {
+		if httpsRepo(bad) {
+			t.Errorf("%q is accepted", bad)
 		}
 	}
 }

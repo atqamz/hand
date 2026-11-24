@@ -44,6 +44,7 @@ func untracked(t *testing.T, repo string) []string {
 }
 
 func TestSkillsAddInACheckoutInstallsOneRootAndTheRepoLock(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	src := skillSource(t, "notes", "one")
 	if out := h.ok("skills", "add", src); !strings.Contains(out, "notes,added") {
@@ -79,6 +80,7 @@ func TestSkillsAddInACheckoutInstallsOneRootAndTheRepoLock(t *testing.T) {
 }
 
 func TestSkillsInTheFleetHomeNeedAProjectAFleetOrAUser(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	h.cwd = ""
 	src := skillSource(t, "notes", "one")
@@ -113,6 +115,7 @@ func TestSkillsInTheFleetHomeNeedAProjectAFleetOrAUser(t *testing.T) {
 }
 
 func TestSkillsFleetAndUserFlagsLeaveTheCheckoutAlone(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	src := skillSource(t, "notes", "one")
 	h.ok("skills", "add", "--fleet", src)
@@ -131,6 +134,7 @@ func TestSkillsFleetAndUserFlagsLeaveTheCheckoutAlone(t *testing.T) {
 }
 
 func TestSkillsRefuseAProjectPathThatIsDirtyInGit(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	src := skillSource(t, "notes", "one")
 	stray := filepath.Join(repo, ".agents", "skills", "notes")
@@ -168,6 +172,7 @@ func TestSkillsRefuseAProjectPathThatIsDirtyInGit(t *testing.T) {
 }
 
 func TestSkillsRecordAnInsideSourceRelativeToTheCheckout(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	src := filepath.Join(repo, "sources", "notes")
 	writeFiles(t, src, skillFiles("notes", "one"))
@@ -188,6 +193,7 @@ func TestSkillsRecordAnInsideSourceRelativeToTheCheckout(t *testing.T) {
 }
 
 func TestAWorkerAttemptStartedFromAProjectCheckoutHasTheInstalledSkill(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	src := skillSource(t, "notes", "one")
 	fx.h.cwd = fx.repo
@@ -218,6 +224,7 @@ func TestAWorkerAttemptStartedFromAProjectCheckoutHasTheInstalledSkill(t *testin
 }
 
 func TestSkillsRefuseASpecBreakWithTheFieldNamedAndInstallNothing(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	for name, c := range map[string]struct{ file, want string }{
 		"nofront":  {"# nofront\n", "frontmatter missing"},
@@ -247,6 +254,7 @@ func TestSkillsRefuseASpecBreakWithTheFieldNamedAndInstallNothing(t *testing.T) 
 }
 
 func TestSkillsUpdateRefusesASourceThatBrokeTheSpec(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := skillSource(t, "notes", "one")
 	h.ok("skills", "add", "--fleet", src)
@@ -261,6 +269,7 @@ func TestSkillsUpdateRefusesASourceThatBrokeTheSpec(t *testing.T) {
 }
 
 func TestSkillsLockKeepsTheEntriesOfOtherToolsAndRefusesAnotherVersion(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	foreign := `{"source":"vercel-labs/agent-skills","sourceType":"github","skillPath":"skills/pdf/SKILL.md","computedHash":"abc","installMode":"copy","skillName":"pdf"}`
 	if err := os.WriteFile(fleetLock(h.home), []byte(`{"version":2,"skills":{"pdf":`+foreign+`}}`), 0o644); err != nil {
@@ -311,6 +320,7 @@ func legacyHash(t *testing.T, dir string) string {
 }
 
 func TestSkillsMigrateThePreV2StateOnceOnRead(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	legacy := func(name, nl, body string) {
 		front := strings.ReplaceAll("---\nname: "+name+"\ndescription: x\nmetadata:\n  managed-by: hand-skills\n---\n\nbody\n"+body, "\n", nl)
@@ -363,6 +373,7 @@ func TestSkillsMigrateThePreV2StateOnceOnRead(t *testing.T) {
 }
 
 func TestSkillsKeepThePreV2StateWhenNothingMoves(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	old := filepath.Join(h.home, ".agents", "skills", ".hand-skills.json")
 	state := `{"gone":{"source":"/old/gone","scope":"fleet","sum":"stale"}}`

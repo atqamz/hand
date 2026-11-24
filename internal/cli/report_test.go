@@ -16,6 +16,7 @@ import (
 )
 
 func TestWorkerReportsFromInsideItsWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	sub := filepath.Join(fx.h.worktree("t1-a1"), "pkg")
@@ -55,6 +56,7 @@ func TestWorkerReportsFromInsideItsWorktree(t *testing.T) {
 }
 
 func TestReportOutsideAWorktreeNeedsAnAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	for _, dir := range []string{t.TempDir(), fx.repo} {
@@ -69,6 +71,7 @@ func TestReportOutsideAWorktreeNeedsAnAttempt(t *testing.T) {
 }
 
 func TestReportForAStoppedAttemptIsRefused(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -78,6 +81,7 @@ func TestReportForAStoppedAttemptIsRefused(t *testing.T) {
 }
 
 func TestBriefingTellsTheWorkerHowToReport(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	prompt := fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1]
@@ -109,6 +113,7 @@ func heredocDelimiter(t *testing.T, prompt string) string {
 }
 
 func TestEachBriefingClosesItsReportWithAnUnguessableDelimiter(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the Windows footer has no heredoc")
 	}
@@ -138,6 +143,7 @@ func (e *endless) Read(p []byte) (int, error) {
 }
 
 func TestEndlessStdinIsCutAtTheReportLimit(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.cwd = fx.h.worktree("t1-a1")
@@ -148,6 +154,7 @@ func TestEndlessStdinIsCutAtTheReportLimit(t *testing.T) {
 }
 
 func TestReportInsideAWorktreeCannotClaimAnotherAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("task", "add", "app", "Second task")
@@ -163,6 +170,7 @@ func TestReportInsideAWorktreeCannotClaimAnotherAttempt(t *testing.T) {
 }
 
 func TestTaskShowPairsTheReportWithTheLatestAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "first try")
@@ -174,6 +182,7 @@ func TestTaskShowPairsTheReportWithTheLatestAttempt(t *testing.T) {
 }
 
 func TestReportBodyFromStdinLeavesTheWorktreeClean(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.cwd = fx.h.worktree("t1-a1")
@@ -192,6 +201,7 @@ func TestReportBodyFromStdinLeavesTheWorktreeClean(t *testing.T) {
 }
 
 func TestReportBodyFromAFileOutsideTheWorktree(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.cwd = fx.h.worktree("t1-a1")
@@ -226,6 +236,7 @@ func TestGitIgnoresStderrWarnings(t *testing.T) {
 }
 
 func TestReportShowCutsALongBodyAndFullPrintsIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	body := "Fixed login\n" + strings.Repeat(strings.Repeat("x", 99)+"\n", 100) + "Delivered: /abs/mid.md\n" + strings.Repeat(strings.Repeat("y", 99)+"\n", 100) + "Gate: CHANGES\nDelivered: https://example.com/pr/1\n"
@@ -256,6 +267,7 @@ func TestReportShowCutsALongBodyAndFullPrintsIt(t *testing.T) {
 }
 
 func TestReportShowLeavesAShortBodyAlone(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	body := "Fixed login\nDelivered: https://example.com/pr/1\n"

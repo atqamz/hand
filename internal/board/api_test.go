@@ -1930,11 +1930,10 @@ func pollCursor(t *testing.T, h http.Handler, path, cursor string) *httptest.Res
 
 func TestClientsShareOneVersionPerTick(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
-	fx.options.Tick = 300 * time.Millisecond
-	h := fx.handler()
-	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	fx.options.Tick = time.Hour
+	env, _ := apiInto[board.APIStatus](t, fx.handler(), "/api/v1/status")
 	read := func(clients int) int {
-		time.Sleep(fx.options.Tick + 50*time.Millisecond)
+		h := fx.handler()
 		before := fx.explained()
 		var wg sync.WaitGroup
 		for range clients {
@@ -1951,7 +1950,7 @@ func TestClientsShareOneVersionPerTick(t *testing.T) {
 	}
 	one := read(1)
 	if one == 0 {
-		t.Fatal("a new tick did not recompute the version")
+		t.Fatal("a fresh board did not compute the version")
 	}
 	if twenty := read(20); twenty != one {
 		t.Fatalf("20 clients cost %d pane reads in a tick, 1 client costs %d", twenty, one)

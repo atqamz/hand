@@ -63,6 +63,7 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/links", func(b *Board) http.HandlerFunc { return b.apiLinks }},
 	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
 	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
+	{http.MethodGet, "/alerts", func(b *Board) http.HandlerFunc { return b.apiAlerts }},
 	{http.MethodGet, "/phone", func(b *Board) http.HandlerFunc { return b.apiPhone }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/skills", func(b *Board) http.HandlerFunc { return b.apiSkills }},
@@ -100,6 +101,12 @@ var apiRoutes = []apiRoute{
 	}},
 	{http.MethodPost, "/skills/propose", func(b *Board) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "propose") }
+	}},
+	{http.MethodPost, "/skills/add", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "add") }
+	}},
+	{http.MethodPost, "/skills/remove", func(b *Board) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { b.apiSkillsAction(w, r, "remove") }
 	}},
 	{http.MethodPost, "/attempt/{id}/keys", func(b *Board) http.HandlerFunc { return b.apiAttemptKeys }},
 	{http.MethodPost, "/decision/{id}/answer", func(b *Board) http.HandlerFunc { return b.apiAnswer }},

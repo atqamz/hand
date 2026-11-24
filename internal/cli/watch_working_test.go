@@ -78,6 +78,7 @@ func stoppedAttempt(t *testing.T, previous string) (string, *state.Store, state.
 }
 
 func TestWatchRecordsTheMoveOutOfAStoppedAttemptOnce(t *testing.T) {
+	t.Parallel()
 	for _, previous := range []string{"quiet", "idle", "limited"} {
 		t.Run(previous, func(t *testing.T) {
 			ctx := context.Background()
@@ -95,6 +96,7 @@ func TestWatchRecordsTheMoveOutOfAStoppedAttemptOnce(t *testing.T) {
 }
 
 func TestWatchStillRecordsTheMoveOutOfBlockedOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, st, a, w := stoppedAttempt(t, "blocked")
 	for turn := range 2 {
@@ -108,6 +110,7 @@ func TestWatchStillRecordsTheMoveOutOfBlockedOnce(t *testing.T) {
 }
 
 func TestOrientShowsRunningAfterTheMoveOutOfQuiet(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home, st, a, w := stoppedAttempt(t, "quiet")
 	cell := func() string {

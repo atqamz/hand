@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
 func TestImportSessionReadsTheSupervisorRowsAgainForAnOpencodeSessionResumedAfterTheSnapshot(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake opencode is a shell script")
 	}
@@ -24,7 +26,7 @@ func TestImportSessionReadsTheSupervisorRowsAgainForAnOpencodeSessionResumedAfte
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\ntouch \"$(dirname \"$0\")/called\"\nexit 1\n"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\ntouch \"$(dirname \"$0\")/called\"\nexit 1\n")); err != nil {
 		t.Fatal(err)
 	}
 	vars := map[string]string{"HOME": t.TempDir(), "PATH": bin + ":/usr/bin:/bin"}

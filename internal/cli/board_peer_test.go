@@ -98,6 +98,7 @@ func peerGet(t *testing.T, addr, preface, path string) (int, error) {
 }
 
 func TestBoardOpensNoPeerListenerAndNoSecretByDefault(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	_, stop := startBoard(t, h, "127.0.0.1")
 	out := stop()
@@ -110,6 +111,7 @@ func TestBoardOpensNoPeerListenerAndNoSecretByDefault(t *testing.T) {
 }
 
 func TestBoardPeerAddrServesTheSameBoardAsRemoteWithAPrivateSecret(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	base, peer, stop := startPeerBoard(t, h)
 	fleetURL, token := fleetPage(t, base, h)
@@ -153,6 +155,7 @@ func TestBoardPeerAddrServesTheSameBoardAsRemoteWithAPrivateSecret(t *testing.T)
 }
 
 func TestBoardKeepsItsPeerSecretAcrossRestarts(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	_, _, stop := startPeerBoard(t, h)
 	first, err := os.ReadFile(peerFile(h))
@@ -169,6 +172,7 @@ func TestBoardKeepsItsPeerSecretAcrossRestarts(t *testing.T) {
 }
 
 func TestBoardRefusesAPeerSecretThatIsNotFortyEightHexDigits(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for name, content := range map[string]string{
 		"not hex":        "short\n",
@@ -192,6 +196,7 @@ func TestBoardRefusesAPeerSecretThatIsNotFortyEightHexDigits(t *testing.T) {
 }
 
 func TestBoardTightensALoosePeerSecretFile(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no file modes")
 	}
@@ -217,6 +222,7 @@ func TestBoardTightensALoosePeerSecretFile(t *testing.T) {
 }
 
 func TestBoardRefusesAPeerSecretThatIsNotARegularFile(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	elsewhere := filepath.Join(t.TempDir(), "other")
 	if err := os.WriteFile(elsewhere, []byte(strings.Repeat("a", 48)+"\n"), 0o644); err != nil {
@@ -248,6 +254,7 @@ func TestBoardRefusesAPeerSecretThatIsNotARegularFile(t *testing.T) {
 }
 
 func TestBoardPeerAddrMustBeLoopbackOnALoopbackBoard(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -277,6 +284,7 @@ func TestBoardPeerAddrMustBeLoopbackOnALoopbackBoard(t *testing.T) {
 }
 
 func TestBoardPeerAnswersAStaleCompanionCookieAsNoLongerPaired(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	base, peer, _ := startPeerBoard(t, h)
 	fleetURL, _ := fleetPage(t, base, h)

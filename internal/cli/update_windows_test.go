@@ -10,6 +10,7 @@ import (
 )
 
 func TestStopOneLeavesTheChildAlive(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >nul")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -42,6 +43,7 @@ func TestStopOneLeavesTheChildAlive(t *testing.T) {
 }
 
 func TestTerminateSkipsAProcessWithAnotherStartMarker(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >nul")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

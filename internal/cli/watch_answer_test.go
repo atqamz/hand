@@ -95,6 +95,7 @@ func (f *answerFixture) status(id int64) (string, string) {
 }
 
 func TestAMessageIsAnsweredByTheSupervisorsFirstReplyAfterTheHarnessTookIt(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	id := f.send("status?")
 	f.w.stampAnswers(context.Background())
@@ -122,6 +123,7 @@ func TestAMessageIsAnsweredByTheSupervisorsFirstReplyAfterTheHarnessTookIt(t *te
 }
 
 func TestAReplyToTheTurnThatWasRunningDoesNotAnswerAMessageTypedIntoIt(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	id := f.send("status?")
 	f.append(claudeReply("2026-11-17T04:40:02.000Z", "the earlier turn is done"))
@@ -137,6 +139,7 @@ func TestAReplyToTheTurnThatWasRunningDoesNotAnswerAMessageTypedIntoIt(t *testin
 }
 
 func TestTwoMessagesDeliveredBeforeOneReplyAreBothAnswered(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	one, two := f.send("one"), f.send("two")
 	f.append(claudeUser("2026-11-17T04:40:03.000Z", "one"), claudeUser("2026-11-17T04:40:04.000Z", "two"), claudeReply("2026-11-17T04:40:10.000Z", "both read"))
@@ -153,6 +156,7 @@ func claudeToolReply(at, text string) string {
 }
 
 func TestAShortReplyBeforeAToolCallAnswersTheMessageAtOnce(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	id := f.send("status?")
 	f.append(claudeUser("2026-11-17T04:40:03.000Z", "status?"), claudeToolReply("2026-11-17T04:40:06.000Z", "Looking now."))
@@ -163,6 +167,7 @@ func TestAShortReplyBeforeAToolCallAnswersTheMessageAtOnce(t *testing.T) {
 }
 
 func TestAnAnswerIsStampedAfterTheSupervisorEndedBeforeTheNextSweep(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	id := f.send("status?")
 	f.append(claudeUser("2026-11-17T04:40:03.000Z", "status?"), claudeReply("2026-11-17T04:40:09.000Z", "t1 is in review"))
@@ -176,6 +181,7 @@ func TestAnAnswerIsStampedAfterTheSupervisorEndedBeforeTheNextSweep(t *testing.T
 }
 
 func TestAMessageTheHarnessNeverRecordsIsGivenUpAndTheReaderDropped(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	id := f.send("a message the harness rewrites")
 	f.w.stampAnswers(context.Background())
@@ -194,6 +200,7 @@ func TestAMessageTheHarnessNeverRecordsIsGivenUpAndTheReaderDropped(t *testing.T
 }
 
 func TestTheReaderIsDroppedOnceEveryMessageIsAnswered(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.send("status?")
 	f.append(claudeUser("2026-11-17T04:40:03.000Z", "status?"), claudeReply("2026-11-17T04:40:09.000Z", "ok"))
@@ -205,6 +212,7 @@ func TestTheReaderIsDroppedOnceEveryMessageIsAnswered(t *testing.T) {
 }
 
 func TestALaterMessageWithTheSameTextIsNotStampedByTheReplyToAnEarlierOne(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	one := f.send("continue")
 	*f.now = f.now.Add(5 * time.Second)
@@ -227,6 +235,7 @@ func TestALaterMessageWithTheSameTextIsNotStampedByTheReplyToAnEarlierOne(t *tes
 }
 
 func TestAMessageTheHarnessRecordedIsStillAnsweredPastTheHorizon(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	id := f.send("status?")
 	f.append(claudeUser("2026-11-17T04:42:00.000Z", "status?"))

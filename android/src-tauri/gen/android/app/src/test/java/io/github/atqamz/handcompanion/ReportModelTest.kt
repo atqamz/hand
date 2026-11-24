@@ -397,19 +397,23 @@ class ReportModelTest {
   }
 
   @Test
-  fun theRoutingTableKeepsEveryRefNativeAndPathsOnTheFallback() {
+  fun theRoutingTableKeepsEveryRefAndPathNative() {
     assertEquals(ThreadTarget.Task("t1"), refTarget("t1"))
     assertEquals(ThreadTarget.Attempt("a1"), refTarget("a1"))
     assertEquals(ThreadTarget.Decision("d1"), refTarget("d1"))
     assertEquals(ThreadTarget.Report("r1"), refTarget("r1"))
     assertEquals(ThreadTarget.None, refTarget("s1"))
-    assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a.md"), pathTarget("reports/a.md", FLEET))
-    assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a%20b.md"), pathTarget("reports/a b.md", FLEET))
-    assertEquals(ThreadTarget.Web("/$FLEET/doc/reports/a.md"), pathTarget("file:reports/a.md", FLEET))
-    assertEquals(ThreadTarget.None, pathTarget("file://", FLEET))
-    assertEquals(ThreadTarget.None, pathTarget("/reports/a.md", FLEET))
-    assertEquals(ThreadTarget.None, pathTarget("~/reports/a.md", FLEET))
-    assertEquals(ThreadTarget.None, pathTarget("C:\\reports\\a.md", FLEET))
-    assertEquals(ThreadTarget.None, pathTarget("//host/reports/a.md", FLEET))
+    assertEquals(ThreadTarget.Doc("reports/a.md"), pathTarget("reports/a.md"))
+    assertEquals(ThreadTarget.Doc("reports/a b.md"), pathTarget("reports/a b.md"))
+    assertEquals(ThreadTarget.Doc("reports/a.md"), pathTarget("file:reports/a.md"))
+    assertEquals(ThreadTarget.Doc("reports"), pathTarget("reports/"))
+    assertEquals(ThreadTarget.None, pathTarget("file://"))
+    assertEquals(ThreadTarget.None, pathTarget("/reports/a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("~/reports/a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("C:\\reports\\a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("//host/reports/a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("reports/../a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("reports//a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("reports/a\nb.md"))
   }
 }

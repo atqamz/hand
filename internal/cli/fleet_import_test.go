@@ -63,6 +63,7 @@ type harnessFixture struct {
 }
 
 func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	h := fx.h
 	repo := gitRepo(t)
@@ -235,6 +236,7 @@ func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
 }
 
 func TestFleetImportRefusesAProjectNameCollisionWithAnotherRepo(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	h := fx.h
 	h.ok("project", "add", "clash", gitRepo(t))
@@ -252,6 +254,7 @@ func TestFleetImportRefusesAProjectNameCollisionWithAnotherRepo(t *testing.T) {
 }
 
 func TestFleetImportRefusesALiveAttempt(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	h := fx.h
 	repo := gitRepo(t)
@@ -272,6 +275,7 @@ func TestFleetImportRefusesALiveAttempt(t *testing.T) {
 }
 
 func TestFleetImportRefusesAStaleSchema(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	importExec(t, fx.src, `PRAGMA user_version = 17`)
 	_, errOut, code := fx.h.run("fleet", "import", "--dry-run", fx.srcID, "INTO", fx.destID)
@@ -284,6 +288,7 @@ func TestFleetImportRefusesAStaleSchema(t *testing.T) {
 }
 
 func TestFleetImportRefusesTheSameFleet(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	_, errOut, code := fx.h.run("fleet", "import", fx.srcID, "INTO", fx.srcID)
 	if code != 3 || !strings.Contains(errOut, "same fleet") {
@@ -292,6 +297,7 @@ func TestFleetImportRefusesTheSameFleet(t *testing.T) {
 }
 
 func TestFleetImportRefusesWhenTheSourceMarkerExists(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.src, "imported-into"), []byte("elsewhere\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -309,6 +315,7 @@ func TestFleetImportRefusesWhenTheSourceMarkerExists(t *testing.T) {
 }
 
 func TestFleetImportDryRunOpensOnlyTheNamedFleets(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	third := t.TempDir()
 	fx.h.ok("init", "--name", "third", third)
@@ -336,6 +343,7 @@ func TestFleetImportDryRunOpensOnlyTheNamedFleets(t *testing.T) {
 }
 
 func TestFleetImportReusesAProjectSpelledRelativeOnTheDestination(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	repo := filepath.Join(fx.dest, "repo")
 	if err := os.MkdirAll(repo, 0o700); err != nil {
@@ -356,6 +364,7 @@ func TestFleetImportReusesAProjectSpelledRelativeOnTheDestination(t *testing.T) 
 }
 
 func TestFleetImportHelpNamesTheGrammarAndDryRunCaveat(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	out, _, code := h.run("fleet", "import", "--help")
 	if code != 0 {
@@ -411,6 +420,7 @@ func runImportProcesses(t *testing.T, h *harness, cmds ...[]string) []importRun 
 }
 
 func TestFleetImportConcurrentInvocationsImportOnce(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	h := fx.h
 	repo := gitRepo(t)
@@ -465,6 +475,7 @@ func TestFleetImportConcurrentInvocationsImportOnce(t *testing.T) {
 }
 
 func TestFleetImportRefusesAHeldImportLock(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
 	fx.h.ok("--home", fx.src, "task", "add", "app", "held")
@@ -495,6 +506,7 @@ func TestFleetImportRefusesAHeldImportLock(t *testing.T) {
 }
 
 func TestFleetImportTwoDestinationsImportTheSourceOnce(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	other := t.TempDir()
 	otherID := field(fx.h.ok("init", "--name", "other", other), "id")
@@ -560,6 +572,7 @@ type errorWriter struct{ err error }
 func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
 
 func TestFleetImportFinishesTheMarkerAndFilesWhenStdoutFails(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
 	fx.h.ok("--home", fx.src, "task", "add", "app", "one")
@@ -609,6 +622,7 @@ func writeImportFile(t *testing.T, home, rel, body string) {
 }
 
 func TestFleetImportMapsAReusedProjectLesson(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	repo := gitRepo(t)
 	fx.h.ok("project", "add", "beta", repo)
@@ -631,6 +645,7 @@ func TestFleetImportMapsAReusedProjectLesson(t *testing.T) {
 }
 
 func TestFleetImportReportsAReusedProjectLessonCollision(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	repo := gitRepo(t)
 	fx.h.ok("project", "add", "beta", repo)
@@ -672,6 +687,7 @@ func TestFleetImportRemovesATruncatedArchiveFile(t *testing.T) {
 }
 
 func TestFleetImportLeavesTheLastTurnsFileBehind(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	for name, body := range map[string]string{"last-turns.md": "conversation text\n", ".last-turns.md-482913": "partial conversation text\n", "handoff.md": "the note\n"} {
 		p := filepath.Join(fx.src, "memory", name)
@@ -694,6 +710,7 @@ func TestFleetImportLeavesTheLastTurnsFileBehind(t *testing.T) {
 }
 
 func TestFleetImportLeavesAnImportedOperatorNameCollisionAlone(t *testing.T) {
+	t.Parallel()
 	fx := importFixture(t)
 	writeImportFile(t, fx.src, "memory/operator.md", "source operator\n")
 	rel := filepath.Join("memory", "operator", "imported-"+fx.srcID+".md")

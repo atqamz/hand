@@ -283,7 +283,11 @@ func (r *runner) fetchClone(url, ref string) cloned {
 		return cloned{err: err}
 	}
 	repo := filepath.Join(dir, "repo")
-	for _, args := range [][]string{{"init", "--quiet", "repo"}, {"-C", "repo", "fetch", "--quiet", "--depth", "1", "--", url, ref}, {"-C", "repo", "checkout", "--quiet", "FETCH_HEAD"}} {
+	fetch := []string{"-C", "repo", "fetch", "--quiet", "--depth", "1", "--", url, ref}
+	if r.rec.review != nil {
+		fetch = slices.Insert(fetch, 2, "-c", "protocol.http.allow=never")
+	}
+	for _, args := range [][]string{{"init", "--quiet", "repo"}, fetch, {"-C", "repo", "checkout", "--quiet", "FETCH_HEAD"}} {
 		if _, err := gitcfg.RunBounded(fc.ctx, dir, skillGitTimeout, args...); err != nil {
 			return cloned{err: err}
 		}
@@ -438,7 +442,7 @@ func cmdSkillsAdd(r *runner, args []string) error {
 	if err := r.refuseDirty(s, name); err != nil {
 		return err
 	}
-	unlock, err := s.Lock()
+	unlock, err := s.Lock(r.ctx())
 	if err != nil {
 		return err
 	}
@@ -452,7 +456,18 @@ func cmdSkillsAdd(r *runner, args []string) error {
 			return fmt.Errorf("%w: %s already exists; `hand skills update %s` refreshes a skill Hand manages", state.ErrConflict, s.Dir(root, name), name)
 		}
 	}
-	if err := r.installSkill(s, name, &e); err != nil {
+	want := ""
+	if r.rec.review != nil {
+		var stop bool
+		if want, stop, err = r.reviewAdd(s, name, &e); stop || err != nil {
+			return err
+		}
+	}
+	err = r.installSkill(s, name, &e)
+	if err == nil && want != "" && e.Commit != want {
+		err = fmt.Errorf("%w: %s came back as %s, not the reviewed %s; nothing added", state.ErrConflict, name, e.Commit, want)
+	}
+	if err != nil {
 		_ = s.Remove(name)
 		return err
 	}
@@ -462,7 +477,8 @@ func cmdSkillsAdd(r *runner, args []string) error {
 		return err
 	}
 	var d toon.Doc
-	d.Rows("skills", []string{"name", "state", "detail"}, [][]string{{name, "added", e.Commit}})
+	r.rec.rows, r.rec.done = [][]string{{name, "added", e.Commit}}, true
+	d.Rows("skills", []string{"name", "state", "detail"}, r.rec.rows)
 	return r.print(&d)
 }
 
@@ -517,7 +533,7 @@ func (r *runner) eachSkill(cmd string, args []string, extra func(*flag.FlagSet),
 		}
 	}
 	defer r.closeFetches()
-	unlock, err := s.Lock()
+	unlock, err := s.Lock(r.ctx())
 	if err != nil {
 		return err
 	}

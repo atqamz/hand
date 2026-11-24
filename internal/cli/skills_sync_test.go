@@ -104,6 +104,7 @@ func TestSkillsSyncAppliesAnOwnRepoWithABackup(t *testing.T) {
 }
 
 func TestSkillsSyncShowsAThirdPartyDiffAndAppliesOnlyWithYes(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	url := "file://" + filepath.ToSlash(tool.bare)
@@ -147,6 +148,7 @@ func TestSkillsSyncShowsAThirdPartyDiffAndAppliesOnlyWithYes(t *testing.T) {
 }
 
 func TestSkillsSyncMovesAThirdPartyPinOnlyAfterYes(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	url := "file://" + filepath.ToSlash(tool.bare)
@@ -219,6 +221,7 @@ func TestSkillsSyncLeavesAnEditedCopyAlone(t *testing.T) {
 }
 
 func TestSkillsOutdatedStatesOfALocalSource(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	sources := map[string]string{}
 	for _, name := range []string{"same", "behind", "edited", "conflict"} {
@@ -307,6 +310,7 @@ func editJSON(t *testing.T, path string, edit func(skills map[string]map[string]
 }
 
 func TestSkillsSyncDoesNotTrustAPlantedLockEntry(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	url := "file://" + filepath.ToSlash(tool.bare)
@@ -349,6 +353,7 @@ func TestSkillsSyncAppliesAnOwnRepoOnlyWhenTheSubscriptionNamesIt(t *testing.T) 
 }
 
 func TestSkillsAddRefusesAPullRequestRef(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	url := "file://" + filepath.ToSlash(tool.bare)
@@ -361,6 +366,7 @@ func TestSkillsAddRefusesAPullRequestRef(t *testing.T) {
 }
 
 func TestSkillsSyncYesAppliesOnlyTheCommitThatWasDiffed(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	url := "file://" + filepath.ToSlash(tool.bare)
@@ -386,6 +392,7 @@ func TestSkillsSyncYesAppliesOnlyTheCommitThatWasDiffed(t *testing.T) {
 }
 
 func TestSkillsSyncYesIgnoresAnotherSkillsCommit(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	a := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-a.git"), skillFiles("tool-a", "v1"))
 	b := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-b.git"), skillFiles("tool-b", "v1"))
@@ -404,6 +411,7 @@ func TestSkillsSyncYesIgnoresAnotherSkillsCommit(t *testing.T) {
 }
 
 func TestSkillsSyncYesNeverOverwritesAnEditedOrConflictingCopy(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	remotes := map[string]*skillRemote{}
 	for _, name := range []string{"tool-edit", "tool-both"} {
@@ -434,6 +442,7 @@ func TestSkillsSyncYesNeverOverwritesAnEditedOrConflictingCopy(t *testing.T) {
 }
 
 func TestSkillsUpdateTakesABackupOfThePreviousCopy(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := skillSource(t, "notes", "v1")
 	h.ok("skills", "add", "--fleet", src)

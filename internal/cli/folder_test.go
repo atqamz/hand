@@ -7,6 +7,7 @@ import (
 )
 
 func TestFolderOf(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "program")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {

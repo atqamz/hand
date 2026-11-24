@@ -12,6 +12,7 @@ import (
 )
 
 func TestWatcherCopiesTheCodexModelAndEffortAndFollowsASwitch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home, codex := t.TempDir(), t.TempDir()
 	now := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)

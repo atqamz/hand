@@ -7,6 +7,7 @@ import (
 )
 
 func TestFleetEnvSilencesOmpOnly(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		in   []string
@@ -42,6 +43,7 @@ func TestFleetEnvSilencesOmpOnly(t *testing.T) {
 }
 
 func TestFleetEnvMatchesTheNotificationNameCaseInsensitivelyOnWindows(t *testing.T) {
+	t.Parallel()
 	got := fleetEnv([]string{"A=1", "pi_notifications=1"})
 	want := []string{"A=1", "pi_notifications=1", "PI_NOTIFICATIONS=0"}
 	if runtime.GOOS == "windows" {

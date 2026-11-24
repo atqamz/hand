@@ -219,6 +219,7 @@ func TestOpenNeverPrintsTheToken(t *testing.T) {
 }
 
 func TestOpenDelivered(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	for i, c := range []struct {
 		args []string
@@ -284,6 +285,7 @@ func TestOpenDelivered(t *testing.T) {
 }
 
 func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	dir := filepath.Join(fx.home(t), "reports", "t8")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -337,6 +339,7 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 }
 
 func TestOpenDocOpensTheViewerForAFleetPath(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	dir := filepath.Join(fx.home(t), "reports", "t8")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -381,6 +384,7 @@ func TestOpenDocOpensTheViewerForAFleetPath(t *testing.T) {
 }
 
 func TestOpenDocRefusesWhatTheViewerRefuses(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	home := fx.home(t)
 	for _, d := range []string{"reports/t8", "reports/.secret", "luvus", "locks", "projects/app", "backups", "cache/models", "Projects/app", "LUVUS"} {
@@ -437,6 +441,7 @@ func TestOpenDocRefusesWhatTheViewerRefuses(t *testing.T) {
 }
 
 func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	home := fx.home(t)
 	if err := os.WriteFile(filepath.Join(fx.dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
@@ -476,6 +481,7 @@ func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 }
 
 func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	home := fx.home(t)
 	if err := os.WriteFile(filepath.Join(fx.dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
@@ -501,6 +507,7 @@ func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
 }
 
 func TestOpenRefusals(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	for _, c := range []struct {
 		args []string
@@ -530,6 +537,7 @@ func TestOpenRefusals(t *testing.T) {
 }
 
 func TestConcurrentOpensShareOneToken(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	codes := make(chan int, 4)
 	for range 4 {
@@ -591,6 +599,7 @@ func TestOpenRefusesAnImpostor(t *testing.T) {
 }
 
 func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	out, errOut, code := fx.h.run("open", "--print", "t1")
 	if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+"/task/t1?token="+fx.token(t)+`"`) || strings.Contains(out, "keep=1") || !strings.Contains(out, "holds the fleet's token") {
@@ -602,6 +611,7 @@ func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
 }
 
 func TestOpenPrintOfScreenPhoneAndTasksHasNoAppLink(t *testing.T) {
+	t.Parallel()
 	fx := newOpenFixture(t)
 	for _, c := range []struct {
 		args []string

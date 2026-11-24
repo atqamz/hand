@@ -19,6 +19,7 @@ func capture(t *testing.T, name string) string {
 }
 
 func TestAttemptKeysPressesTheKeysOnAClaudePermissionScreenForAnyAttempt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, capture(t, "commit") })
@@ -34,6 +35,7 @@ func TestAttemptKeysPressesTheKeysOnAClaudePermissionScreenForAnyAttempt(t *test
 }
 
 func TestAttemptKeysPressesAnyKeyOnATrustScreenOfAnotherFolder(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen, rt.status = 7, capture(t, "trust"), "blocked" })
@@ -56,6 +58,7 @@ func legacyAttemptRow(t *testing.T, fx *attemptFixture) {
 }
 
 func TestAttemptShowPrintsNoApproveOrAccessEvenForALegacyRow(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	legacyAttemptRow(t, fx)
@@ -69,6 +72,7 @@ func TestAttemptShowPrintsNoApproveOrAccessEvenForALegacyRow(t *testing.T) {
 }
 
 func TestProjectGrantsIsAnUnknownCommand(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	_, errOut, code := h.run("project", "grants", "hand")
 	if code != 2 || !strings.Contains(errOut, "grants") {
@@ -77,6 +81,7 @@ func TestProjectGrantsIsAnUnknownCommand(t *testing.T) {
 }
 
 func TestWaitDoesNotWakeOnTheRemovedDeniedEvent(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "start", "t1")

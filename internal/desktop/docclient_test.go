@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
 )
@@ -44,6 +46,11 @@ func docServer(t *testing.T) (*httptest.Server, *[]string) {
 		case doc == "backups/x":
 			w.WriteHeader(http.StatusForbidden)
 			io.WriteString(w, `{"error":{"status":403,"code":"forbidden","message":"the Board does not show Hand's own files"}}`)
+		case doc == "slow.bin" && r.URL.RawQuery == "raw":
+			io.WriteString(w, "first ")
+			w.(http.Flusher).Flush()
+			time.Sleep(300 * time.Millisecond)
+			io.WriteString(w, "second")
 		case doc == "big.png" && r.URL.RawQuery == "raw":
 			w.Write(make([]byte, 10<<20+1))
 		case r.URL.RawQuery == "raw":
@@ -112,5 +119,32 @@ func TestHTTPClientKeepsTheBoardsWordsAndTheRawLimit(t *testing.T) {
 	}
 	if b, err := c.DocBytes(ctx, fleetID, "big.png"); err == nil || b != nil {
 		t.Fatalf("a file over the limit read as %d bytes, %v", len(b), err)
+	}
+}
+
+func TestHTTPClientStreamsAFileInFullAndSaysWhatTheBoardRefused(t *testing.T) {
+	srv, _ := docServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+	var buf bytes.Buffer
+	n, err := c.DocStream(ctx, fleetID, "big.png", &buf)
+	if err != nil || n != 10<<20+1 || buf.Len() != 10<<20+1 {
+		t.Fatalf("streamed %d bytes, %d held, %v", n, buf.Len(), err)
+	}
+	buf.Reset()
+	n, err = c.DocStream(ctx, fleetID, "backups/x", &buf)
+	var api *desktop.APIError
+	if !errors.As(err, &api) || api.Status != 403 || n != 0 || buf.Len() != 0 {
+		t.Fatalf("a refusal wrote %d bytes, %q: %v", n, buf.String(), err)
+	}
+}
+
+func TestHTTPClientStreamOutlivesTheShortRequestTimeout(t *testing.T) {
+	srv, _ := docServer(t)
+	c := goldenClient(t, srv.URL)
+	c.HTTP = &http.Client{Timeout: 100 * time.Millisecond}
+	var buf bytes.Buffer
+	if _, err := c.DocStream(context.Background(), fleetID, "slow.bin", &buf); err != nil || buf.String() != "first second" {
+		t.Fatalf("streamed %q, %v", buf.String(), err)
 	}
 }

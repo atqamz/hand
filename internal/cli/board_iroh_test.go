@@ -135,6 +135,7 @@ func phonePage(t *testing.T, fleetURL, token string) string {
 }
 
 func TestBoardIrohStartsTheSidecarAsItsChildAndShowsItsState(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, map[string]string{})
 	secret := ""
 	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
@@ -214,6 +215,7 @@ func TestBoardIrohGivesTheSidecarNoEnvironmentAndNoSecretInItsArguments(t *testi
 }
 
 func TestBoardIrohRecordsTheSettingAndABoardWithoutItClearsIt(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, map[string]string{})
 	path := filepath.Join(fx.root, "board.iroh")
 	_, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
@@ -240,6 +242,7 @@ func TestBoardIrohRecordsTheSettingAndABoardWithoutItClearsIt(t *testing.T) {
 }
 
 func TestBoardIrohWithNoSidecarStillServesAndSaysWhyItIsOff(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, nil)
 	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
 	fleetURL, token := fleetPage(t, base, fx.h)
@@ -259,6 +262,7 @@ func TestBoardIrohWithNoSidecarStillServesAndSaysWhyItIsOff(t *testing.T) {
 }
 
 func TestBoardIrohRefusesASidecarOfAnotherVersion(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, map[string]string{"version": "9.9.9"})
 	_, stop, stderr := startBoardLive(t, fx.h, "127.0.0.1", "--iroh")
 	within(t, "failed", func() bool { return strings.Contains(stderr(), "board: iroh: failed:") })
@@ -272,6 +276,7 @@ func TestBoardIrohRefusesASidecarOfAnotherVersion(t *testing.T) {
 }
 
 func TestBoardIrohRestartsAnExitedSidecarAndSaysWhy(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, map[string]string{"mode": "die"})
 	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
 	fleetURL, token := fleetPage(t, base, fx.h)
@@ -288,6 +293,7 @@ func TestBoardIrohRestartsAnExitedSidecarAndSaysWhy(t *testing.T) {
 }
 
 func TestBoardIrohReportsAStateWriteFailure(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, map[string]string{"delay": "2s"})
 	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
 	within(t, "the starting state", func() bool { return fx.state() == "starting" })
@@ -342,6 +348,7 @@ func TestBoardIrohStopsShowingReadyWhenThePeerListenerFails(t *testing.T) {
 }
 
 func TestBoardIrohNeedsALoopbackBoard(t *testing.T) {
+	t.Parallel()
 	fx := newIrohFixture(t, map[string]string{})
 	errOut, code := boardRefusal(fx.h, "--addr", "0.0.0.0:0", "--iroh")
 	if code != 2 || !strings.Contains(errOut, "board: --iroh needs --addr on a loopback address") {

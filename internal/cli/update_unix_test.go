@@ -30,6 +30,7 @@ func sleeper(t *testing.T, script string) (int, string) {
 }
 
 func TestStopOneTerminatesAProcess(t *testing.T) {
+	t.Parallel()
 	pid, marker := sleeper(t, "exec sleep 60")
 	if err := stopOne(pid, marker); err != nil {
 		t.Fatal(err)
@@ -53,6 +54,7 @@ func TestStopOneGivesUpOnAProcessThatIgnoresTerm(t *testing.T) {
 }
 
 func TestStopOneNeverSignalsARecycledPID(t *testing.T) {
+	t.Parallel()
 	pid, marker := sleeper(t, "exec sleep 60")
 	if err := stopOne(pid, "another marker"); err != nil {
 		t.Fatal(err)

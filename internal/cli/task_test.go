@@ -21,6 +21,7 @@ func initWithProject(t *testing.T) *harness {
 }
 
 func TestTaskLifecycleThroughCLI(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	out := h.ok("task", "add", "--goal", "users can log in", "hand", "Fix login")
 	if !strings.Contains(out, "task: t1") || !strings.Contains(out, "status: inbox") {
@@ -38,6 +39,7 @@ func TestTaskLifecycleThroughCLI(t *testing.T) {
 }
 
 func TestRepeatedTransitionIsRefusedWithExit3(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "start", "t1")
@@ -49,6 +51,7 @@ func TestRepeatedTransitionIsRefusedWithExit3(t *testing.T) {
 }
 
 func TestTaskDoneRecordsDeliverables(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Build the brief")
 	h.ok("task", "start", "t1")
@@ -129,6 +132,7 @@ func TestDeliverablesAreNewestFirstAcrossReportsAndDone(t *testing.T) {
 }
 
 func TestCommandsOutsideAHomeAreRefused(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, errOut, code := h.run("task", "list")
 	if code != 3 || !strings.Contains(errOut, "run `hand init`") {
@@ -137,6 +141,7 @@ func TestCommandsOutsideAHomeAreRefused(t *testing.T) {
 }
 
 func TestBadIDIsUsageError(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if _, _, code := h.run("task", "show", "tx"); code != 2 {
 		t.Fatalf("code = %d, want 2", code)
@@ -144,6 +149,7 @@ func TestBadIDIsUsageError(t *testing.T) {
 }
 
 func TestBadListFiltersAreUsageErrors(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, args := range [][]string{
 		{"task", "list", "--status", "actve"},
@@ -157,6 +163,7 @@ func TestBadListFiltersAreUsageErrors(t *testing.T) {
 }
 
 func TestTransitionUsageNamesTheCommand(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if _, errOut, code := h.run("task", "start"); code != 2 || !strings.Contains(errOut, "task start:") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
@@ -164,6 +171,7 @@ func TestTransitionUsageNamesTheCommand(t *testing.T) {
 }
 
 func TestTaskListSearchesFinishedTasks(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Write docs", "Fix search"} {
 		h.ok("task", "add", "hand", title)
@@ -193,6 +201,7 @@ func TestTaskListSearchesFinishedTasks(t *testing.T) {
 }
 
 func TestTaskListQuerySearchesEveryStatus(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Fix inbox", "Fix search", "Write docs"} {
 		h.ok("task", "add", "hand", title)
@@ -219,6 +228,7 @@ func TestTaskListQuerySearchesEveryStatus(t *testing.T) {
 }
 
 func TestTaskListStatusWords(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Fix login", "Fix inbox", "Fix search"} {
 		h.ok("task", "add", "hand", title)
@@ -239,6 +249,7 @@ func TestTaskListStatusWords(t *testing.T) {
 }
 
 func TestTaskDeliverRecordsOnActiveAndDoneTasks(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	for _, title := range []string{"Done", "Active", "Inbox", "Dropped"} {
 		h.ok("task", "add", "hand", title)
@@ -312,6 +323,7 @@ func TestTaskDeliverRecordsOnActiveAndDoneTasks(t *testing.T) {
 }
 
 func TestTaskDeliverIsIdempotent(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Backfill")
 	h.ok("task", "start", "t1")
@@ -346,6 +358,7 @@ func TestTaskDeliverIsIdempotent(t *testing.T) {
 }
 
 func TestTaskDeliverBackfillsNewestFirst(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Old")
 	h.ok("task", "start", "t1")
@@ -380,6 +393,7 @@ func TestTaskDeliverBackfillsNewestFirst(t *testing.T) {
 }
 
 func TestTaskAddParentAndParentCommand(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Epic")
 	out := h.ok("task", "add", "--parent", "t1", "hand", "Part")
@@ -408,6 +422,7 @@ func TestTaskAddParentAndParentCommand(t *testing.T) {
 }
 
 func TestTaskListNestsChildrenUnderTheirParent(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "A")
 	h.ok("task", "add", "hand", "B")
@@ -432,6 +447,7 @@ func TestTaskListNestsChildrenUnderTheirParent(t *testing.T) {
 }
 
 func TestTaskListHasNoParentColumnWhenNothingIsNested(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "A")
 	h.ok("task", "add", "hand", "B")
@@ -441,6 +457,7 @@ func TestTaskListHasNoParentColumnWhenNothingIsNested(t *testing.T) {
 }
 
 func TestTaskListShowsAnOrphanAsARootWithItsParentRef(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Parent")
 	h.ok("task", "add", "--parent", "t1", "hand", "Child")
@@ -458,6 +475,7 @@ func TestTaskListShowsAnOrphanAsARootWithItsParentRef(t *testing.T) {
 }
 
 func TestTaskShowPrintsParentAndChildren(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Epic")
 	h.ok("task", "add", "--parent", "t1", "hand", "Part")
@@ -472,6 +490,7 @@ func TestTaskShowPrintsParentAndChildren(t *testing.T) {
 }
 
 func TestTaskDoneWarnsAboutOpenSubTasksAndStillSucceeds(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Epic")
 	h.ok("task", "add", "--parent", "t1", "hand", "Part")
@@ -484,5 +503,94 @@ func TestTaskDoneWarnsAboutOpenSubTasksAndStillSucceeds(t *testing.T) {
 	h.ok("task", "start", "t3")
 	if out := h.ok("task", "done", "t3"); strings.Contains(out, "warn") {
 		t.Fatalf("task done without children warned: %q", out)
+	}
+}
+
+func TestTaskParkThroughCLI(t *testing.T) {
+	t.Parallel()
+	h := initWithProject(t)
+	for _, title := range []string{"One", "Two", "Three", "Four"} {
+		h.ok("task", "add", "hand", title)
+	}
+	h.ok("task", "start", "t1")
+	h.ok("task", "start", "t2")
+	h.ok("task", "start", "t3")
+	if out := h.ok("task", "park", "t1"); out != "task: t1\nstatus: inbox\n" {
+		t.Fatalf("park = %q", out)
+	}
+	if out := h.ok("task", "park", "--note", "paused by operator", "t2"); out != "task: t2\nstatus: inbox\n" {
+		t.Fatalf("park --note = %q", out)
+	}
+	h.ok("task", "start", "t2")
+	if out := h.ok("task", "park", "t2", "--note", "after the id"); !strings.Contains(out, "status: inbox") {
+		t.Fatalf("park t2 --note = %q", out)
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "status: inbox") || !strings.Contains(show, "parked: yes\n") {
+		t.Fatalf("show t1 = %q", show)
+	}
+	if show := h.ok("task", "show", "t2"); !strings.Contains(show, "parked: after the id\n") {
+		t.Fatalf("show t2 = %q", show)
+	}
+	for _, id := range []string{"t3", "t4"} {
+		if show := h.ok("task", "show", id); strings.Contains(show, "parked") {
+			t.Fatalf("show %s = %q", id, show)
+		}
+	}
+	h.ok("task", "start", "t1")
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "status: active") || strings.Contains(show, "parked") {
+		t.Fatalf("show after start = %q", show)
+	}
+	if orient := h.ok("orient"); !strings.Contains(orient, "tasks: inbox=2 active=2") || !strings.Contains(orient, "inbox[2]{id,project,title,parked}:\n  t2,hand,Two,after the id\n  t4,hand,Four,\"\"\n") {
+		t.Fatalf("orient = %q", orient)
+	}
+	for _, tc := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"park", "t4"}, 3, "task t4 is inbox and cannot become inbox"},
+		{[]string{"park", "t2"}, 3, "task t2 is inbox and cannot become inbox"},
+		{[]string{"park", "t99"}, 3, "task t99"},
+		{[]string{"park", "--note", "a\nb", "t1"}, 2, "one line without control characters"},
+		{[]string{"park", "--note", strings.Repeat("x", 201), "t1"}, 2, "at most 200 characters"},
+		{[]string{"park"}, 2, "task park: want 1 argument(s) after flags"},
+		{[]string{"park", "t1", "t3"}, 2, "task park: want 1 argument(s) after flags"},
+		{[]string{"done", "--note", "x", "t1"}, 2, "-note"},
+		{[]string{"abandon", "--note", "x", "t1"}, 2, "-note"},
+	} {
+		if _, errOut, code := h.run(append([]string{"task"}, tc.args...)...); code != tc.code || !strings.Contains(errOut, tc.want) {
+			t.Fatalf("%q: code=%d stderr=%q", tc.args, code, errOut)
+		}
+	}
+	h.ok("task", "done", "t3")
+	if _, errOut, code := h.run("task", "park", "t3"); code != 3 || !strings.Contains(errOut, "task t3 is done and cannot become inbox") {
+		t.Fatalf("park done: code=%d stderr=%q", code, errOut)
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "status: active") {
+		t.Fatalf("refusals changed t1: %q", show)
+	}
+}
+
+func TestTaskParkRefusesALiveAttempt(t *testing.T) {
+	t.Parallel()
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "One")
+	h.ok("task", "start", "t1")
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("task", "park", "t1"); code != 3 || !strings.Contains(errOut, "task t1 has live attempt a1; stop it first") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "status: active") {
+		t.Fatalf("show = %q", show)
 	}
 }

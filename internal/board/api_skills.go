@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -27,6 +28,9 @@ type SkillsAction struct {
 	Project string
 	Name    string
 	Yes     string
+	Source  string
+	Ref     string
+	Phone   bool
 }
 
 type APISkill struct {
@@ -80,6 +84,8 @@ type apiSkillsBody struct {
 	Project string `json:"project"`
 	Name    string `json:"name"`
 	Yes     string `json:"yes"`
+	Source  string `json:"source"`
+	Ref     string `json:"ref"`
 }
 
 var skillScopes = []string{"fleet", "project", "user"}
@@ -151,16 +157,18 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	if !b.apiCSRF(w, r) {
 		return
 	}
-	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
-		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot change skills; use the host's Board")
+	s, _ := r.Context().Value(sessionKey{}).(session)
+	phone := s.Device != nil
+	if phone && verb != "sync" {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot update, propose, add or remove skills; use the host's Board")
 		return
 	}
 	var in apiSkillsBody
-	const bad = "send one JSON object with scope, project (for scope project), name and, for sync, yes"
+	const bad = "send one JSON object with scope, project (for scope project), name, for sync or add yes, and for add source and ref"
 	if !b.apiObject(w, r, &in, bad) {
 		return
 	}
-	in.Name, in.Yes = strings.TrimSpace(in.Name), strings.TrimSpace(in.Yes)
+	in.Name, in.Yes, in.Source, in.Ref = strings.TrimSpace(in.Name), strings.TrimSpace(in.Yes), strings.TrimSpace(in.Source), strings.TrimSpace(in.Ref)
 	switch msg := skillsScope(in.Scope, in.Project, true); {
 	case msg != "":
 		b.apiFail(w, http.StatusBadRequest, "bad_request", msg)
@@ -168,11 +176,31 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	case verb == "propose" && in.Name == "":
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "propose needs the name of one skill")
 		return
-	case verb != "sync" && in.Yes != "":
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "yes goes only with sync")
+	case verb == "remove" && in.Name == "":
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "remove needs the name of one skill")
 		return
-	case !skillsText(in.Name) || !skillsText(in.Yes):
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "a name or yes with a control character or over 512 bytes")
+	case verb == "add" && in.Source == "":
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "add needs the source of one skill")
+		return
+	case verb == "add" && in.Name != "":
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "add takes a source, not a name")
+		return
+	case verb != "add" && (in.Source != "" || in.Ref != ""):
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "source and ref go only with add")
+		return
+	case verb != "sync" && verb != "add" && in.Yes != "":
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "yes goes only with sync or add")
+		return
+	case !skillsText(in.Name) || !skillsText(in.Yes) || !skillsText(in.Source) || !skillsText(in.Ref):
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "a name, yes, source or ref with a control character or over 512 bytes")
+		return
+	}
+	switch {
+	case phone && in.Yes != "":
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot apply a third-party update; read the diff, then tell the supervisor or use the host's Board")
+		return
+	case phone && in.Scope == "user":
+		b.apiFail(w, http.StatusForbidden, "forbidden", "a paired Companion cannot sync the user scope; use the host's Board")
 		return
 	}
 	f, err := b.st.Fleet(r.Context())
@@ -184,9 +212,23 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 		return
 	}
 	defer b.skillsBusy.Unlock()
-	ctx, cancel := b.skillsContext(context.WithoutCancel(r.Context()))
+	kept := context.WithoutCancel(r.Context())
+	ctx, cancel := b.skillsContext(kept)
 	defer cancel()
-	out, err := b.o.SkillsRun(ctx, SkillsAction{Verb: verb, Scope: in.Scope, Project: in.Project, Name: in.Name, Yes: in.Yes})
+	out, err := b.o.SkillsRun(ctx, SkillsAction{Verb: verb, Scope: in.Scope, Project: in.Project, Name: in.Name, Yes: in.Yes, Source: in.Source, Ref: in.Ref, Phone: phone})
+	detail := ""
+	switch {
+	case verb == "sync":
+		detail = skillsSynced(actor(kept, "operator (desktop)"), in, out, err)
+	case err == nil && out.Refused == 0 && (verb == "remove" || verb == "add" && skillsAdded(out)):
+		detail = skillsNamed(actor(kept, "operator (desktop)"), in)
+	}
+	if detail != "" {
+		if werr := b.st.NoteSkills(kept, skillsEvents[verb], detail); werr != nil {
+			b.apiFailErr(w, werr)
+			return
+		}
+	}
 	if err != nil {
 		b.apiFailErr(w, err)
 		return
@@ -195,7 +237,36 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	b.apiOK(w, f, "", out)
 }
 
-func skillsReceipt(verb string, out APISkillsRun) string {
+var skillsEvents = map[string]string{"sync": "synced", "add": "added", "remove": "removed"}
+
+func skillsAdded(out APISkillsRun) bool {
+	return slices.ContainsFunc(out.Results, func(r APISkillResult) bool { return r.State == "added" })
+}
+
+func skillsNamed(who string, in apiSkillsBody) string {
+	what := in.Scope
+	if in.Project != "" {
+		what += " " + in.Project
+	}
+	named := cmp.Or(in.Name, in.Source)
+	if in.Yes != "" {
+		named += " as " + in.Yes
+	}
+	return what + " by " + who + ": " + named
+}
+
+func skillsSynced(who string, in apiSkillsBody, out APISkillsRun, err error) string {
+	what, res := in.Scope, skillsCounts(out)
+	if err != nil {
+		status, _ := failure(err)
+		res = "failed " + apiCode(status)
+	} else if in.Project != "" {
+		what += " " + in.Project
+	}
+	return what + " by " + who + ": " + res
+}
+
+func skillsCounts(out APISkillsRun) string {
 	counts := map[string]int{}
 	for _, r := range out.Results {
 		counts[r.State]++
@@ -205,7 +276,11 @@ func skillsReceipt(verb string, out APISkillsRun) string {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[st], st))
 	}
 	if len(parts) == 0 {
-		return "Skills " + verb + ": nothing subscribed"
+		return "nothing subscribed"
 	}
-	return "Skills " + verb + ": " + strings.Join(parts, ", ")
+	return strings.Join(parts, ", ")
+}
+
+func skillsReceipt(verb string, out APISkillsRun) string {
+	return "Skills " + verb + ": " + skillsCounts(out)
 }

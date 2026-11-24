@@ -65,6 +65,13 @@ class HandActivityWiringTest {
   }
 
   @Test
+  fun theSkillsSyncStartsInTheModelsScopeSoARotationCannotCancelIt() {
+    val skills = body(activity, "private fun Skills(")
+    assertTrue(skills.contains("model.sync(it.scope, it.project)"))
+    assertFalse(skills.contains("runSync"))
+  }
+
+  @Test
   fun theFleetMenuOpensTheSkillsScreen() {
     assertTrue(activity.contains("onSkills = { skills = open }"))
   }

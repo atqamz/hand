@@ -27,10 +27,13 @@ const (
 	DecisionScreen
 	DocScreen
 	SkillsScreen
+	AlertsScreen
+	HistoryScreen
+	PhoneScreen
 )
 
 func isBase(s Screen) bool {
-	return s == BoardScreen || s == TasksScreen || s == SkillsScreen
+	return s == BoardScreen || s == TasksScreen || s == SkillsScreen || s == AlertsScreen || s == HistoryScreen || s == PhoneScreen
 }
 
 // The auto-refresh intervals: short while the window has keyboard focus,
@@ -77,10 +80,13 @@ type App struct {
 	PollTimeout time.Duration
 	// Post runs fetched state on the window's thread and repaints it. Nil
 	// reads inline, as the tests and Boot do.
-	Post    func(func())
-	OnTitle func(string)
-	OnBadge func(int)
-	OnFlash func(bool)
+	Post     func(func())
+	OnTitle  func(string)
+	OnBadge  func(int)
+	OnFlash  func(bool)
+	OnNotify func(Alert)
+	NotifyOK func() bool
+	Notify   bool
 	// Now is the time the working line counts from; nil uses the wall clock.
 	Now func() time.Time
 
@@ -133,6 +139,10 @@ type App struct {
 	receiptKey    string
 	receiptWarn   string
 	sk            skillsState
+	hi            histState
+	hq            string
+	ph            phoneState
+	al            alertsState
 	notice        string
 	noticeTitle   string
 	noticeKey     string
@@ -154,6 +164,10 @@ type App struct {
 	attachSay  string
 	Pick       func() []string
 	PickFolder func() string
+	SaveAs     func(name string) string
+	DocWide    bool
+	DocWrap    bool
+	DocSource  bool
 	NewFleet   func(context.Context, NewFleetRequest) (NewFleetResult, error)
 	Remote     RemoteDesk
 	RemoteOff  string
@@ -178,6 +192,7 @@ type App struct {
 
 	Status         Status
 	Search         TaskSearch
+	Alerts         AlertsData
 	SearchQuery    TaskSearchQuery
 	SearchQ        string
 	SearchStatus   string
@@ -225,6 +240,10 @@ type App struct {
 	seen       map[string]Signal
 	flashed    map[string]bool
 	flashing   bool
+	notifyOK   bool
+	notifyNote string
+	notifyAt   map[string]time.Time
+	notifyLast time.Time
 	badge      int
 	attnDown   bool
 	attnSoon   bool
@@ -260,6 +279,7 @@ type App struct {
 	back          []backStep
 	doc           docState
 	docGen        int
+	docOp         int
 	docCancel     context.CancelFunc
 	stopTimer     func()
 	stopGen       int
@@ -269,6 +289,8 @@ type App struct {
 	asideScroll   ui.ScrollState
 	boardScroll   ui.ScrollState
 	viewerPage    ui.Handle
+	findBox       ui.Handle
+	lineBox       ui.Handle
 	viewerFocus   bool
 	openerRef     string
 	boardFocus    bool
@@ -357,6 +379,7 @@ func (a *App) Boot() {
 // once Post is set. It does nothing until a fleet is selected.
 func (a *App) StartRefresh() {
 	a.polling, a.closed = true, false
+	a.notifyOK = a.NotifyOK != nil && a.NotifyOK()
 	a.armPoll()
 	a.armAttention()
 	a.watchDeny()
@@ -523,6 +546,9 @@ func (a *App) SelectFleet(id string) {
 	a.Projects = Projects{}
 	a.searchScroll = ui.ScrollState{}
 	a.resetSkills()
+	a.resetAlerts()
+	a.resetHistory()
+	a.resetPhone()
 	a.base = BoardScreen
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
@@ -624,9 +650,15 @@ func (a *App) install(f found, keep bool) {
 const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
+	if a.Screen == PhoneScreen && s != PhoneScreen {
+		a.resetPhone()
+	}
 	a.nfOpen = false
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.resetDoc()
+	if s == AlertsScreen {
+		a.resetAlerts()
+	}
 	if isBase(s) {
 		a.base = s
 	}
@@ -646,6 +678,12 @@ func (a *App) Show(s Screen) {
 	}
 	if s == SkillsScreen {
 		a.openSkills()
+	}
+	if s == PhoneScreen {
+		a.openPhone()
+	}
+	if s == HistoryScreen {
+		a.openHistory()
 	}
 }
 
@@ -687,6 +725,9 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 		return
 	}
 	if isBase(a.Screen) {
+		if a.Screen == PhoneScreen {
+			a.resetPhone()
+		}
 		a.base = a.Screen
 		a.viewerFocus = true
 	}
@@ -873,7 +914,7 @@ func (a *App) CloseViewer() {
 	if a.Screen == BoardScreen {
 		return
 	}
-	if a.openerRef != "" && !a.liveRef(a.openerRef) {
+	if a.openerRef != "" && !a.liveRef(a.openerRef) || a.Screen == DocScreen && a.base == BoardScreen {
 		a.boardFocus = true
 	}
 	a.openerRef = ""
@@ -885,6 +926,9 @@ func (a *App) CloseViewer() {
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
 	a.Reload()
+	if a.Screen == PhoneScreen {
+		a.openPhone()
+	}
 	if a.Screen == TasksScreen {
 		a.refreshTaskSearch()
 	}
@@ -920,6 +964,9 @@ func refScreen(ref string) (Screen, bool) {
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
+		if a.docPageOpen() {
+			a.CloseViewer()
+		}
 		return
 	}
 	step := a.back[len(a.back)-1]
@@ -1804,6 +1851,10 @@ func (a *App) pollOnce(gen, tick int) {
 			rc.Since = held[i]
 		}
 	}
+	if screen == AlertsScreen && a.al.old {
+		since.Screen.Skip = true
+		a.pollSkipped[readScreen] = true
+	}
 	if a.pollSkipped == [4]bool{true, true, true, true} {
 		a.armPoll()
 		return
@@ -1893,6 +1944,15 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 			a.retryStaleSearch()
 		}
 	}
+	if a.Fleet.ID == fleet && a.Screen == PhoneScreen {
+		a.pollPhone()
+	}
+	if a.Fleet.ID == fleet && a.Screen == HistoryScreen {
+		if p.TimelineErr != nil && a.hi.loaded && a.hi.stale == "" {
+			a.historyFailed(p.TimelineErr)
+		}
+		a.pollHistory(p.StatusFresh && moved || p.TimelineFresh)
+	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
 		tasksFresh = true
@@ -1948,6 +2008,8 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 		a.Attempt = p.Attempt
 	case DecisionScreen:
 		a.Decision = p.Decision
+	case AlertsScreen:
+		a.Alerts, a.al.loaded = p.Alerts, true
 	}
 	a.pollScreenFor, a.pollScreenCursor = key, p.ScreenCursor
 }
@@ -2062,6 +2124,9 @@ type loaded struct {
 	Task     TaskDetail
 	Attempt  AttemptDetail
 	Decision DecisionDetail
+	Alerts   AlertsData
+	AlertsOK bool
+	Old      bool
 	Err      string
 
 	TimelineOK  bool
@@ -2071,6 +2136,9 @@ type loaded struct {
 
 func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string, withTasks bool) loaded {
 	l := loaded{Screen: screen}
+	if screen == AlertsScreen {
+		l.Old = alertsOld(ctx, model, fleet)
+	}
 	st, err := model.Status(ctx, fleet)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -2096,6 +2164,11 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 		l.Attempt, err = model.Attempt(ctx, fleet, ref)
 	case DecisionScreen:
 		l.Decision, err = model.Decision(ctx, fleet, ref)
+	case AlertsScreen:
+		if !l.Old {
+			l.Alerts, err = model.Alerts(ctx, fleet)
+			l.AlertsOK = err == nil
+		}
 	}
 	if err != nil && ctx.Err() == nil {
 		l.Err = friendly(err)
@@ -2121,6 +2194,9 @@ func (a *App) apply(l loaded) {
 	for i := range a.reads {
 		a.reads[i].fresh = l.Err != "" || i == readTimeline && l.TimelineErr != ""
 	}
+	if l.Screen == AlertsScreen {
+		a.al.old = l.Old
+	}
 	if !l.StatusOK {
 		return
 	}
@@ -2144,6 +2220,10 @@ func (a *App) apply(l loaded) {
 		a.Attempt = l.Attempt
 	case DecisionScreen:
 		a.Decision = l.Decision
+	case AlertsScreen:
+		if l.AlertsOK {
+			a.Alerts, a.al.loaded = l.Alerts, true
+		}
 	}
 	if l.TasksOK {
 		a.Tasks = l.Tasks

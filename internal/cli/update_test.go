@@ -20,6 +20,7 @@ import (
 )
 
 func TestUpdateRefusesASourceBuildWithoutAChannel(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.vars["HAND_INSTALL_BASE"] = "http://127.0.0.1:1"
 	if out, errOut, code := h.run("update"); code != 2 || out != "" || !strings.Contains(errOut, "update: this hand was built from source; pass --channel edge or --channel stable") {
@@ -28,6 +29,7 @@ func TestUpdateRefusesASourceBuildWithoutAChannel(t *testing.T) {
 }
 
 func TestUpdateRefusesAnUnknownChannel(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.vars["HAND_INSTALL_BASE"] = "http://127.0.0.1:1"
 	if _, errOut, code := h.run("update", "--channel", "nightly"); code != 2 || !strings.Contains(errOut, "update: --channel must be edge or stable") {
@@ -36,6 +38,7 @@ func TestUpdateRefusesAnUnknownChannel(t *testing.T) {
 }
 
 func TestUpdateTakesNoArguments(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.vars["HAND_INSTALL_BASE"] = "http://127.0.0.1:1"
 	if _, errOut, code := h.run("update", "--channel", "edge", "now"); code != 2 || !strings.Contains(errOut, "want 0 argument(s)") {
@@ -89,6 +92,7 @@ func handReleaseSchema(t *testing.T, version, channel, commit string, schema int
 }
 
 func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	h.vars["HAND_INSTALL_BASE"] = handRelease(t, "0.15.0", "edge", "0123456789ab", "0.14.4")

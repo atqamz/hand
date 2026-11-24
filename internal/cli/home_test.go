@@ -8,6 +8,7 @@ import (
 )
 
 func TestInitCreatesHomeAndIsIdempotent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	first := h.ok("init")
 	if !strings.Contains(first, "created: true") {

@@ -31,6 +31,7 @@ func dropSession(t *testing.T, argv []string) []string {
 }
 
 func TestMCPFlagStartsTheWorkerWithOnlyThatFile(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	file := filepath.Join(fx.h.home, "mcp.json")
 	if err := os.WriteFile(file, []byte(`{"mcpServers":{}}`), 0o600); err != nil {
@@ -48,6 +49,7 @@ func TestMCPFlagStartsTheWorkerWithOnlyThatFile(t *testing.T) {
 }
 
 func TestMCPFlagIsRefusedBeforeAnyWorkerRuns(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.h.home, "mcp.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -106,6 +108,7 @@ func TestMCPFlagIsRefusedBeforeAnyWorkerRuns(t *testing.T) {
 }
 
 func TestMCPFlagIsNotInheritedByContinueAndAbsentWithoutIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.h.home, "mcp.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)

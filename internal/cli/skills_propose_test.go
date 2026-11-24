@@ -305,6 +305,7 @@ func TestSkillsProposeRefusals(t *testing.T) {
 }
 
 func TestSkillsProposeUsageNeedsOneName(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	for _, args := range [][]string{{"skills", "propose", "--fleet"}, {"skills", "propose", "--fleet", "a", "b"}, {"skills", "propose", "--fleet", "--user", "a"}} {
 		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "usage: hand skills propose") {
@@ -319,7 +320,7 @@ func TestSkillsProposeKeepsYourHooksAndSigning(t *testing.T) {
 			t.Skip("the hook is a shell script")
 		}
 		hooks := t.TempDir()
-		if err := os.WriteFile(filepath.Join(hooks, "commit-msg"), []byte("#!/bin/sh\necho hook-says-no >&2\nexit 1\n"), 0o755); err != nil {
+		if err := fakebin.WriteExecutable(filepath.Join(hooks, "commit-msg"), []byte("#!/bin/sh\necho hook-says-no >&2\nexit 1\n")); err != nil {
 			t.Fatal(err)
 		}
 		f := newProposeFixture(t, "[core]\n\thooksPath = "+filepath.ToSlash(hooks)+"\n")
@@ -471,7 +472,7 @@ func TestSkillsProposeNeverForcesAPush(t *testing.T) {
 	skillGit(t, f.hub.bare, "update-ref", "refs/heads/"+branch, planted)
 	wrap, hide := t.TempDir(), filepath.Join(t.TempDir(), "hide-ls-remote")
 	script := "#!/bin/sh\ncase \"$*\" in *ls-remote*) [ -e '" + hide + "' ] && exit 0;; esac\nexec '" + realGit + "' \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(wrap, "git"), []byte(script), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(filepath.Join(wrap, "git"), []byte(script)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(hide, nil, 0o644); err != nil {
@@ -722,6 +723,7 @@ func TestSkillsUpdateSendsAConflictOfAnUnmarkedCopyToReconcile(t *testing.T) {
 }
 
 func TestSkillsReconcileGoalOfASourceItCannotWriteInFull(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	dir := filepath.Join(t.TempDir(), "team skills", "notes")
 	writeFiles(t, dir, skillFiles("notes", "v1"))
@@ -747,6 +749,7 @@ func TestSkillsReconcileGoalOfASourceItCannotWriteInFull(t *testing.T) {
 }
 
 func TestSkillsReconcileGoalResolvesAProjectRelativeSource(t *testing.T) {
+	t.Parallel()
 	h, repo := projectHarness(t)
 	src := skillSource(t, "notes", "v1")
 	h.ok("skills", "add", "--project", "app", src)

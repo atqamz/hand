@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -36,16 +37,22 @@ func (a *App) docBody(c *ui.Context, k kit.Colors, p palette) {
 		})
 	case !st.ok:
 		a.readingPage(c, p)
+	case a.docIsTable():
+		a.docGridPage(c, k, p)
 	default:
-		a.pageScroll(c, func() { a.docPage(c, k, p) })
+		ui.Column(c).Grow(1).MinHeight(0).Children(func() {
+			if a.docLinesShown() {
+				ui.Column(c).Gap(kit.Space6).Padding(kit.Space12, kit.Space20, kit.Space8).Children(func() {
+					a.docFindRow(c, k, p)
+				})
+			}
+			a.pageScroll(c, func() { a.docPage(c, k, p) })
+		})
 	}
 }
 
 func (a *App) docRow(c *ui.Context, k kit.Colors, text string, retry bool) {
 	kit.DocNotice(c, k, text, func() {
-		if !a.remoteFleet() && kit.Button(c, k, "doc:open-row", "Open in browser", 0, false) {
-			a.OpenInBrowser()
-		}
 		if retry && kit.Button(c, k, "doc:retry", "Retry", 0, false) {
 			a.Retry()
 		}
@@ -63,6 +70,10 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 			a.docRow(c, k, a.doc.row, false)
 			return
 		}
+		if a.DocSource {
+			a.docSource(c, k, p)
+			return
+		}
 		a.markdownOf(c, a.linkedRefs(shownText(a.doc.body)), kit.DocTheme(c))
 	case "text":
 		a.docText(c, k, p, d)
@@ -74,6 +85,12 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 		w, h := c.Size()
 		bw, bh := kit.ViewerBox(w, h)
 		kit.DocPicture(c, k, a.doc.image, bw-2*kit.Space20, max(bh-300, 120), shownText(d.Name))
+	case "html":
+		if a.DocSource {
+			a.docText(c, k, p, d)
+			return
+		}
+		a.docRow(c, k, a.doc.row, false)
 	default:
 		a.docRow(c, k, a.doc.row, false)
 	}
@@ -90,7 +107,7 @@ func (a *App) docHead(c *ui.Context, k kit.Colors, p palette, d Doc) {
 		ui.Row(c).GapY(kit.Space4).GapX(kit.Space12).AlignItems(ui.Center).Wrap().Children(func() {
 			ui.Text(c, shownText(d.Path)).Font("monospace").FontSize(kit.Meta.Size).
 				FixedLineHeight(kit.Meta.Line).TextColor(p.neutral).MinWidth(0)
-			a.copyPath(c, k, d.Path)
+			a.copyPath(c, k, a.fullDocPath(d.Path))
 			if d.Kind != "folder" {
 				ui.Text(c, docSize(d.Size)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
@@ -98,6 +115,7 @@ func (a *App) docHead(c *ui.Context, k kit.Colors, p palette, d Doc) {
 				ui.Text(c, stamp(d.At)).FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
 			}
 		})
+		a.docTools(c, k, p, d)
 		if d.Prev != nil || d.Next != nil {
 			ui.Row(c).Gap(kit.Space16).Children(func() {
 				if d.Prev != nil && kit.DocStep(c, k, shownText(d.Prev.Name), false) {
@@ -135,6 +153,13 @@ func (a *App) docCrumbs(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			}
 		}
 	})
+}
+
+func (a *App) fullDocPath(rel string) string {
+	if a.Fleet.Host != "" || a.Fleet.Home == "" {
+		return rel
+	}
+	return filepath.Join(a.Fleet.Home, filepath.FromSlash(rel))
 }
 
 func (a *App) copyPath(c *ui.Context, k kit.Colors, text string) {
@@ -217,6 +242,7 @@ func (a *App) docText(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			}
 		})
 	}
+	a.followTick(c)
 	if len(w.Lines) == 0 {
 		a.quiet(c, p, "This file is empty.")
 		return
@@ -230,7 +256,7 @@ func (a *App) docText(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			lines[i] += "… " + docSize(cut.Bytes) + " more on this line"
 		}
 	}
-	kit.DocLines(c, k, w.From, lines)
+	kit.DocLinesMarked(c, k, w.From, lines, a.DocWrap, a.docMarks(lines, w.From))
 }
 
 func expandTabs(s string) string {
@@ -269,4 +295,18 @@ func docSize(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
 	}
+}
+
+func (a *App) docSource(c *ui.Context, k kit.Colors, p palette) {
+	body := a.doc.body
+	if body == "" {
+		a.quiet(c, p, "This file is empty.")
+		return
+	}
+	_, raw := a.docLineSet()
+	lines := make([]string, len(raw))
+	for i, line := range raw {
+		lines[i] = expandTabs(shownText(line))
+	}
+	kit.DocLinesMarked(c, k, 1, lines, a.DocWrap, a.docMarks(lines, 1))
 }

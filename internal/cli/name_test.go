@@ -11,6 +11,7 @@ import (
 )
 
 func TestCommandNameFollowsTheBinary(t *testing.T) {
+	t.Parallel()
 	for path, want := range map[string]string{"/home/me/.local/bin/hand-next": "hand-next", "/usr/bin/hand": "hand", "/tmp/go-build1/b001/cli.test": "hand", "/x/handy": "hand"} {
 		if got := cli.CommandName(path); got != want {
 			t.Fatalf("CommandName(%q) = %q, want %q", path, got, want)
@@ -19,6 +20,7 @@ func TestCommandNameFollowsTheBinary(t *testing.T) {
 }
 
 func TestAFleetMadeByHandNextSaysHandNext(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.name = "hand-next"
 	out := h.ok("init")

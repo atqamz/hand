@@ -12,7 +12,7 @@ use crate::proxy::unpaired_403;
 pub const MAX_BODY: usize = 16 << 20;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
-// The Board stops a skills read after 5 minutes (skillsWait in internal/board); 10 s of slack.
+// The Board stops a skills read or sync after 5 minutes (skillsWait in internal/board); 10 s of slack.
 pub const SKILLS_TIMEOUT: Duration = Duration::from_secs(310);
 pub const MAX_UPLOAD: usize = 10 << 20;
 const MAX_HEAD: usize = 16 * 1024;
@@ -157,7 +157,10 @@ impl Request {
         bytes.extend_from_slice(body);
         Ok(Self {
             bytes,
-            timeout: if method == Method::Get && path.split('?').next() == Some("/api/v1/skills") {
+            timeout: if matches!(
+                (method, path.split('?').next()),
+                (Method::Get, Some("/api/v1/skills")) | (Method::Post, Some("/api/v1/skills/sync"))
+            ) {
                 SKILLS_TIMEOUT
             } else {
                 REQUEST_TIMEOUT
@@ -914,6 +917,142 @@ mod tests {
         assert_eq!(parse(&[&wire], MAX_BODY).unwrap().body, bytes);
     }
 
+    #[test]
+    fn a_history_search_and_an_entry_keep_their_path_and_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/history/search?q=amber+%22kiln%22+kil*&limit=20",
+                "GET /f0123456789ab/api/v1/history/search?q=amber+%22kiln%22+kil*&limit=20 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/history/search?q=%C3%A9t%C3%A9+t12&limit=50",
+                "GET /f0123456789ab/api/v1/history/search?q=%C3%A9t%C3%A9+t12&limit=50 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/history/y412",
+                "GET /f0123456789ab/api/v1/history/y412 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/timeline?before=120",
+                "GET /f0123456789ab/api/v1/timeline?before=120 HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+        for path in [
+            "/api/v1/history/../status",
+            "/api/v1/history/%2e%2e/status",
+            "/api/v1/history/a%2fb",
+            "/api/v1/history/search?q=a b",
+            "/api/v1/history/search?q=a\r\nX: y",
+        ] {
+            assert_eq!(
+                Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").map(|_| ()),
+                Err(RequestError::Malformed),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_document_folder_file_raw_and_window_keep_their_path_and_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/doc/reports/t1",
+                "GET /f0123456789ab/api/v1/doc/reports/t1 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/t1?page=2",
+                "GET /f0123456789ab/api/v1/doc/reports/t1?page=2 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/a%20b%C3%A9.md?raw",
+                "GET /f0123456789ab/api/v1/doc/reports/a%20b%C3%A9.md?raw HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/t1/notes.txt?from=501&lines=500",
+                "GET /f0123456789ab/api/v1/doc/reports/t1/notes.txt?from=501&lines=500 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/t1/notes.txt?from=1&lines=299",
+                "GET /f0123456789ab/api/v1/doc/reports/t1/notes.txt?from=1&lines=299 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/p%20q.png?raw",
+                "GET /f0123456789ab/api/v1/doc/reports/p%20q.png?raw HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+        for path in [
+            "/api/v1/doc/../status",
+            "/api/v1/doc/reports/%2e%2e/status",
+            "/api/v1/doc/reports/a%2fb.md",
+            "/api/v1/doc/reports/a%5Cb.md",
+            "/api/v1/doc/reports/a b.md",
+            "/api/v1/doc/reports//a.md",
+            "/api/v1/doc/a.md#top",
+        ] {
+            assert_eq!(
+                Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").map(|_| ()),
+                Err(RequestError::Malformed),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_alerts_read_keeps_its_path_and_cursor_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/alerts",
+                "GET /f0123456789ab/api/v1/alerts HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/alerts?since=c1.abc-_",
+                "GET /f0123456789ab/api/v1/alerts?since=c1.abc-_ HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+    }
+
+    #[test]
+    fn the_models_read_and_the_model_switch_keep_their_method_and_path_on_the_wire() {
+        let models = Request::new(
+            Method::Get,
+            FLEET,
+            "/api/v1/models",
+            Some(COOKIES),
+            None,
+            b"",
+        )
+        .unwrap();
+        assert!(text(&models).starts_with("GET /f0123456789ab/api/v1/models HTTP/1.1\r\n"));
+        let switch = Request::new(
+            Method::Post,
+            FLEET,
+            "/api/v1/supervisor/switch",
+            Some(COOKIES),
+            Some("tok123"),
+            br#"{"ref":"s1","model":"opus"}"#,
+        )
+        .unwrap();
+        assert!(
+            text(&switch).starts_with("POST /f0123456789ab/api/v1/supervisor/switch HTTP/1.1\r\n")
+        );
+        assert_eq!(
+            timeout_of(Method::Post, "/api/v1/supervisor/switch"),
+            REQUEST_TIMEOUT
+        );
+    }
+
     fn split(request: &Request) -> (String, Vec<u8>) {
         let at = request
             .bytes
@@ -954,9 +1093,13 @@ mod tests {
     }
 
     #[test]
-    fn a_skills_read_outlasts_the_boards_five_minute_limit() {
+    fn a_skills_read_and_a_sync_outlast_the_boards_five_minute_limit() {
         assert!(SKILLS_TIMEOUT > Duration::from_secs(300));
         assert_eq!(timeout_of(Method::Get, "/api/v1/skills"), SKILLS_TIMEOUT);
+        assert_eq!(
+            timeout_of(Method::Post, "/api/v1/skills/sync"),
+            SKILLS_TIMEOUT
+        );
         assert_eq!(
             timeout_of(Method::Get, "/api/v1/skills?scope=project&project=web"),
             SKILLS_TIMEOUT
@@ -970,6 +1113,7 @@ mod tests {
             "/api/v1/skill",
             "/api/v1/skillsx",
             "/api/v1/skills/update",
+            "/api/v1/skills/sync",
             "/alerts/feed",
         ] {
             assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");

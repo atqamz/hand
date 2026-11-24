@@ -13,17 +13,28 @@ import (
 )
 
 type skillsState struct {
-	data    Skills
-	loaded  bool
-	err     string
-	busy    bool
-	gen     int
-	acting  string
-	runs    map[string]SkillsRun
-	failed  map[string]string
-	open    map[string]bool
-	confirm string
-	scroll  ui.ScrollState
+	data     Skills
+	loaded   bool
+	err      string
+	busy     bool
+	gen      int
+	acting   string
+	runs     map[string]SkillsRun
+	failed   map[string]string
+	open     map[string]bool
+	confirm  string
+	removing string
+	manage   bool
+	adds     map[string]*skillAdd
+	reviews  map[string]skillReview
+	scroll   ui.ScrollState
+}
+
+type skillAdd struct{ source, ref string }
+
+type skillReview struct {
+	name, commit, source, ref, diff string
+	cut                             bool
 }
 
 func (a *App) resetSkills() {
@@ -34,9 +45,11 @@ func (a *App) openSkills() {
 	if a.sk.acting != "" {
 		return
 	}
-	a.sk = skillsState{gen: a.sk.gen + 1, runs: a.sk.runs, failed: a.sk.failed}
+	a.sk = skillsState{gen: a.sk.gen + 1, runs: a.sk.runs, failed: a.sk.failed, adds: a.sk.adds, reviews: a.sk.reviews}
 	a.loadSkills()
 }
+
+func (a *App) skillsManageable() bool { return a.sk.manage && !a.remoteFleet() }
 
 func (a *App) skillsBusy() bool { return a.sk.busy || a.sk.acting != "" }
 
@@ -61,7 +74,7 @@ func (a *App) loadSkills() {
 	gen := a.sk.gen
 	a.sk.busy, a.sk.err = true, ""
 	ctx, cancel := context.WithTimeout(a.Context, skillsWait)
-	apply := func(s Skills, err error) {
+	apply := func(s Skills, manage bool, err error) {
 		if a.Fleet.ID != fleet || a.sk.gen != gen {
 			return
 		}
@@ -70,26 +83,35 @@ func (a *App) loadSkills() {
 			a.sk.err = skillsFriendly(err)
 			return
 		}
-		a.sk.data, a.sk.loaded = s, true
+		a.sk.data, a.sk.loaded, a.sk.manage = s, true, manage
 	}
-	load := func() (Skills, error) {
+	load := func() (Skills, bool, error) {
 		defer cancel()
-		if fs, err := read.Features(ctx, fleet); err == nil && !slices.Contains(fs, "skills") {
-			return Skills{}, errNoSkills
+		manage := false
+		if fs, err := read.Features(ctx, fleet); err == nil {
+			if !slices.Contains(fs, "skills") {
+				return Skills{}, false, errNoSkills
+			}
+			manage = slices.Contains(fs, "skills_manage")
 		}
-		return read.Skills(ctx, fleet)
+		s, err := read.Skills(ctx, fleet)
+		return s, manage, err
 	}
 	if post == nil {
 		apply(load())
 		return
 	}
 	go func() {
-		s, err := load()
-		post(func() { apply(s, err) })
+		s, manage, err := load()
+		post(func() { apply(s, manage, err) })
 	}()
 }
 
 func (a *App) runSkills(verb string, sc SkillScope, name, yes string) {
+	a.actSkills(verb, sc, SkillsRequest{Name: name, Yes: yes})
+}
+
+func (a *App) actSkills(verb string, sc SkillScope, req SkillsRequest) {
 	if a.Model == nil || a.Fleet.ID == "" || a.skillsBusy() {
 		return
 	}
@@ -97,9 +119,10 @@ func (a *App) runSkills(verb string, sc SkillScope, name, yes string) {
 	key := skillKey(sc)
 	a.sk.gen++
 	gen := a.sk.gen
-	a.sk.acting, a.sk.confirm = key, ""
+	a.sk.acting, a.sk.confirm, a.sk.removing = key, "", ""
 	delete(a.sk.failed, key)
-	req := SkillsRequest{Scope: sc.Scope, Project: sc.Project, Name: name, Yes: yes}
+	delete(a.sk.reviews, key)
+	req.Scope, req.Project = sc.Scope, sc.Project
 	ctx, cancel := context.WithTimeout(a.Context, skillsWait)
 	apply := func(out SkillsRun, err error) {
 		if a.Fleet.ID != fleet || a.sk.gen != gen {
@@ -115,6 +138,9 @@ func (a *App) runSkills(verb string, sc SkillScope, name, yes string) {
 			a.sk.failed = withEntry(a.sk.failed, key, "the board took the "+verb+" but its answer could not be read; the list below is read again")
 		} else {
 			a.sk.runs = withEntry(a.sk.runs, key, out)
+			if verb == "add" {
+				a.afterAdd(key, req, out)
+			}
 			a.showReceipt(out.Receipt, out.Warn, "skills:"+verb+":"+key)
 		}
 		a.loadSkills()
@@ -131,6 +157,32 @@ func (a *App) runSkills(verb string, sc SkillScope, name, yes string) {
 		out, err := run()
 		post(func() { apply(out, err) })
 	}()
+}
+
+func (a *App) afterAdd(key string, req SkillsRequest, out SkillsRun) {
+	for _, r := range out.Results {
+		switch r.State {
+		case "added":
+			if f := a.sk.adds[key]; f != nil && strings.TrimSpace(f.source) == req.Source && strings.TrimSpace(f.ref) == req.Ref {
+				*f = skillAdd{}
+			}
+			return
+		case "review", "refused":
+			rv := skillReview{name: r.Name, source: req.Source, ref: req.Ref}
+			if r.State == "review" {
+				rv.commit = r.Detail
+			}
+			for _, d := range out.Diffs {
+				if d.Name == r.Name {
+					rv.diff, rv.cut = d.Diff, d.Cut
+				}
+			}
+			if rv.diff != "" {
+				a.sk.reviews = withEntry(a.sk.reviews, key, rv)
+			}
+			return
+		}
+	}
 }
 
 func withEntry[V any](m map[string]V, key string, v V) map[string]V {
@@ -159,8 +211,10 @@ func (a *App) skillsPage(c *ui.Context, k kit.Colors, p palette) {
 					a.loadSkills()
 				}
 			})
-			ui.Text(c, "Add and remove are not in the board's API. Run hand skills add or hand skills remove in a terminal; the next check lists the change.").
-				FontSize(kit.Meta.Size).TextColor(p.neutral)
+			if a.sk.loaded && !a.sk.manage && !a.remoteFleet() {
+				ui.Text(c, "This board does not offer add or remove; update hand and restart the board. Until then run hand skills add or hand skills remove in a terminal.").
+					FontSize(kit.Meta.Size).TextColor(p.neutral)
+			}
 			if a.remoteFleet() {
 				ui.Text(c, "This fleet is on a paired host. A paired Companion cannot change skills; use the host's Board.").
 					FontSize(kit.Meta.Size).TextColor(p.wait)
@@ -254,6 +308,12 @@ func (a *App) skillScope(c *ui.Context, k kit.Colors, p palette, sc SkillScope) 
 		if msg := a.sk.failed[key]; msg != "" {
 			a.skillsFailure(c, k, p, key, msg)
 		}
+		if a.skillsManageable() && sc.Error == "" {
+			a.skillsAddForm(c, k, p, sc)
+		}
+		if rv, ok := a.sk.reviews[key]; ok {
+			a.skillsReview(c, k, p, sc, rv)
+		}
 		if sc.Error != "" {
 			ui.Column(c).Gap(kit.Space4).Padding(kit.Space12).Radius(kit.RadiusLG).
 				Background(p.failBG).Border(1, p.fail).Children(func() {
@@ -269,6 +329,90 @@ func (a *App) skillScope(c *ui.Context, k kit.Colors, p palette, sc SkillScope) 
 		ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Children(func() {
 			for _, s := range sc.Skills {
 				a.skillRow(c, k, p, sc, s)
+			}
+		})
+	})
+}
+
+func (a *App) skillAddFor(key string) *skillAdd {
+	if a.sk.adds == nil {
+		a.sk.adds = map[string]*skillAdd{}
+	}
+	f := a.sk.adds[key]
+	if f == nil {
+		f = &skillAdd{}
+		a.sk.adds[key] = f
+	}
+	return f
+}
+
+func (a *App) skillsAddForm(c *ui.Context, k kit.Colors, p palette, sc SkillScope) {
+	key := skillKey(sc)
+	f := a.skillAddFor(key)
+	source, ref := strings.TrimSpace(f.source), strings.TrimSpace(f.ref)
+	ui.Column(c).Gap(kit.Space8).Padding(kit.Space12).Radius(kit.RadiusLG).Background(p.card).
+		Border(1, p.line).Label("add a skill " + key).Children(func() {
+		ui.Text(c, "Add a skill").FontSize(kit.Body.Size).Bold()
+		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
+			kit.Field(c, k, "Source", "name or https address", &f.source)
+			kit.Field(c, k, "Ref", "branch, tag or commit (optional)", &f.ref)
+			if kit.Button(c, k, "skills:add:"+key, "Add", 80, a.skillsBusy() || source == "") {
+				a.actSkills("add", sc, SkillsRequest{Source: source, Ref: ref})
+			}
+		})
+		ui.Text(c, "A bare name adds a skill of Hand's own repository, tracked on main. An https address is third-party: the board shows the whole skill first and installs nothing until you confirm.").
+			FontSize(kit.Meta.Size).TextColor(p.neutral)
+	})
+}
+
+func (a *App) skillsReview(c *ui.Context, k kit.Colors, p palette, sc SkillScope, rv skillReview) {
+	key := skillKey(sc)
+	title, _ := skillScopeTitle(sc)
+	ui.Column(c).Gap(kit.Space8).Padding(kit.Space12).Radius(kit.RadiusLG).Background(p.waitBG).
+		Border(1, p.wait).Label("review " + rv.name).Children(func() {
+		if rv.commit == "" {
+			ui.Text(c, "Not added: "+rv.name).FontSize(kit.Body.Size).Bold().TextColor(p.fail)
+			ui.Text(c, "The board refused the yes and installed nothing. The diff below is the source as it is now; add it again to read its new commit.").
+				FontSize(kit.Meta.Size)
+		} else {
+			ui.Text(c, "Review "+rv.name+" before it is added").FontSize(kit.Body.Size).Bold()
+			ui.Text(c, "Nothing is installed yet. It would come from "+rv.source+" at commit "+shortCommit(rv.commit)+
+				", the commit of the diff below, into "+title+". A skill steers every worker that reads it.").FontSize(kit.Meta.Size)
+		}
+		if rv.cut {
+			ui.Text(c, "The diff is over 64 KiB and was cut, so the board will not add it from here. Read the repository, then run hand skills add in a terminal.").
+				FontSize(kit.Meta.Size).TextColor(p.wait)
+		}
+		ui.Scroll(c).Key("skills-review:"+key).Height(240).Padding(kit.Space8).Radius(kit.RadiusMD).
+			Background(k.BG).Border(1, p.line).Focusable().Label("diff of " + rv.name).Children(func() {
+			ui.Text(c, rv.diff).Font("monospace").FontSize(kit.Meta.Size)
+		})
+		ui.Row(c).Gap(kit.Space8).Children(func() {
+			if rv.commit != "" && !rv.cut && a.skillsManageable() {
+				if kit.PrimaryButton(c, k, "skills:add-yes:"+key, "Add this skill", 160, a.skillsBusy()) {
+					a.actSkills("add", sc, SkillsRequest{Source: rv.source, Ref: rv.ref, Yes: rv.name + "@" + rv.commit})
+				}
+			}
+			if kit.Button(c, k, "skills:review-close:"+key, "Close", 100, false) {
+				delete(a.sk.reviews, key)
+			}
+		})
+	})
+}
+
+func (a *App) skillsRemoveConfirm(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s Skill) {
+	key := skillKey(sc)
+	ui.Column(c).Gap(kit.Space8).Padding(kit.Space12).Radius(kit.RadiusLG).
+		Background(p.waitBG).Border(1, p.wait).Label("confirm remove " + s.Name).Children(func() {
+		ui.Text(c, "Remove "+s.Name+"?").FontSize(kit.Body.Size).Bold()
+		ui.Text(c, "This deletes the skill's files from this scope and unsubscribes it. The board refuses a copy edited here. The skill can be added again from its source.").
+			FontSize(kit.Meta.Size)
+		ui.Row(c).Gap(kit.Space8).Children(func() {
+			if kit.Button(c, k, "skills:remove-yes:"+key+"/"+s.Name, "Delete files", 120, a.skillsBusy()) {
+				a.runSkills("remove", sc, s.Name, "")
+			}
+			if kit.Button(c, k, "skills:remove-cancel:"+key+"/"+s.Name, "Cancel", 100, false) {
+				a.sk.removing = ""
 			}
 		})
 	})
@@ -306,9 +450,9 @@ func (a *App) skillsFailure(c *ui.Context, k kit.Colors, p palette, key, msg str
 
 func skillResultTone(state string) string {
 	switch state {
-	case "updated", "bumped", "proposed", "restored", "removed", "current":
+	case "updated", "bumped", "proposed", "restored", "removed", "added", "current":
 		return "pass"
-	case "pending", "behind", "edited":
+	case "pending", "behind", "edited", "review":
 		return "wait"
 	case "conflict", "refused":
 		return "fail"
@@ -359,7 +503,7 @@ func (a *App) skillsResultRow(c *ui.Context, k kit.Colors, p palette, r SkillRes
 		ui.Text(c, r.Name).Font("monospace").FontSize(kit.Meta.Size).Bold().Shrink(0)
 		ui.Text(c, r.State).FontSize(kit.Meta.Size).TextColor(fg).Shrink(0)
 		switch {
-		case strings.HasPrefix(r.Detail, "https://"):
+		case (r.State == "bumped" || r.State == "proposed") && strings.HasPrefix(r.Detail, "https://"):
 			if kit.TextButton(c, k, "skills:open:"+r.Detail, r.Detail) {
 				c.OpenURL(r.Detail)
 			}
@@ -453,6 +597,9 @@ func (a *App) skillRow(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s 
 			ui.Text(c, "Edited here while the source did not move. Propose opens a pull request to the source.").
 				FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
+		if a.sk.removing == key {
+			a.skillsRemoveConfirm(c, k, p, sc, s)
+		}
 		if a.sk.open[key] {
 			a.skillDiff(c, k, p, sc, s)
 		}
@@ -460,6 +607,17 @@ func (a *App) skillRow(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s 
 }
 
 func (a *App) skillActions(c *ui.Context, k kit.Colors, sc SkillScope, s Skill, key string) {
+	a.skillStateAction(c, k, sc, s, key)
+	if !s.Managed || !a.skillsManageable() || s.State == "error" || s.State == "" {
+		return
+	}
+	off := a.skillsBusy() || (s.State != "current" && s.State != "behind")
+	if kit.Button(c, k, "skills:remove:"+key, "Remove", 90, off) {
+		a.sk.removing = key
+	}
+}
+
+func (a *App) skillStateAction(c *ui.Context, k kit.Colors, sc SkillScope, s Skill, key string) {
 	busy := a.skillsBusy()
 	remote := a.remoteFleet()
 	switch {

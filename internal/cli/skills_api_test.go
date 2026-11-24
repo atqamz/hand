@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -25,6 +26,7 @@ type skillsAPI struct {
 	t    *testing.T
 	h    http.Handler
 	csrf string
+	act  func(context.Context, board.SkillsAction) (board.APISkillsRun, error)
 }
 
 func newSkillsAPI(t *testing.T, h *harness) *skillsAPI {
@@ -35,7 +37,7 @@ func newSkillsAPI(t *testing.T, h *harness) *skillsAPI {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	read, act := cli.SkillsHooks(h.env(io.Discard, io.Discard), h.home, "", st)
-	a := &skillsAPI{t: t, h: board.New(st, skillsAPIToken, board.Options{Controls: true, Home: h.home, Now: h.clock, Skills: read, SkillsRun: act})}
+	a := &skillsAPI{t: t, act: act, h: board.New(st, skillsAPIToken, board.Options{Controls: true, Home: h.home, Now: h.clock, Skills: read, SkillsRun: act})}
 	rec := a.do(httptest.NewRequest("GET", "/api/v1/session", nil))
 	var env struct{ Data board.APISession }
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Data.CSRF == "" {
@@ -214,6 +216,7 @@ func TestSkillsAPISyncAppliesAnOwnRepoWithABackupAndTheCLIsRow(t *testing.T) {
 }
 
 func TestSkillsAPISyncMovesAThirdPartySkillOnlyWithTheWholeYes(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	tool := newSkillRemote(t, filepath.Join(t.TempDir(), "tool-skill.git"), skillFiles("tool-skill", "v1"))
 	src := "file://" + filepath.ToSlash(tool.bare)
@@ -419,6 +422,7 @@ func TestSkillsAPIRefusesAnArgumentThatWouldBeAFlag(t *testing.T) {
 }
 
 func TestSkillsAPIActsOnTheUserScope(t *testing.T) {
+	t.Parallel()
 	h := skillsHarness(t)
 	src := skillSource(t, "notes", "one")
 	h.ok("skills", "add", "--user", src)
@@ -554,6 +558,7 @@ func TestSkillsAPIDropsALoginFromAReconcileGoal(t *testing.T) {
 }
 
 func TestSkillsLoginKeepsAnAtInAPathOrQuery(t *testing.T) {
+	t.Parallel()
 	for _, keep := range []string{"https://host/a@b", "https://host/a?u=x@y", "see https://host/p and mail a@b.test"} {
 		if got := cli.SkillsLogin(keep); got != keep {
 			t.Fatalf("login(%q) = %q", keep, got)

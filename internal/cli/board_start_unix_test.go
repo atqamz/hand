@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func unitShim(t *testing.T, fx *boardStartFixture, loadState string) string {
@@ -25,7 +27,7 @@ func unitShim(t *testing.T, fx *boardStartFixture, loadState string) string {
 		"systemctl":   "#!/bin/sh\nprintf 'systemctl %s\\n' \"$*\" >> " + log + "\ncase \"$*\" in\n*show*) echo " + loadState + ";;\n*start*) " + spawn + ";;\nesac\n",
 	}
 	for name, body := range tools {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+		if err := fakebin.WriteExecutable(filepath.Join(bin, name), []byte(body)); err != nil {
 			t.Fatal(err)
 		}
 	}

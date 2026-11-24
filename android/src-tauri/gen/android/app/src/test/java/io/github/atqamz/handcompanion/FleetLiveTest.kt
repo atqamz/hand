@@ -91,7 +91,8 @@ private fun rfc3339(millis: Long): String =
 private fun model(
   board: LiveBoard,
   bus: LiveBus = LiveBus(8),
-  nowMillis: () -> Long = { System.currentTimeMillis() }
+  nowMillis: () -> Long = { System.currentTimeMillis() },
+  slowMillis: Long = 5_000
 ) =
   FleetModel(
     FLEET,
@@ -103,7 +104,8 @@ private fun model(
     bus = bus,
     pollMillis = 20,
     startLive = { board.liveStarted = true },
-    stopLive = { board.liveStopped++ }
+    stopLive = { board.liveStopped++ },
+    slowMillis = slowMillis
   )
 
 private suspend fun awaitFailures(model: FleetModel, count: Int) {
@@ -365,5 +367,37 @@ class FleetLiveTest {
     assertTrue(model.state.value.unpaired)
     assertEquals(reads, board.statusReads())
     assertEquals(1, board.liveStopped)
+  }
+
+  @Test
+  fun aHostThatStopsAnsweringReadsAsUnreachableNotUnpairedAndRecoversWhenLive() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus, slowMillis = 100)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (!board.liveStarted) delay(5) }
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
+    withTimeout(5_000) { while (model.state.value.band?.title != "Reconnecting…") delay(5) }
+    assertTrue(model.state.value.reachable)
+    withTimeout(5_000) { while (model.state.value.band?.title?.startsWith("Can't reach 4d92…6ed6 since") != true) delay(20) }
+    assertFalse(model.state.value.unpaired)
+    assertFalse(model.state.value.reachable)
+    assertEquals(Body.Needs, body(model.state.value))
+    bus.link(FLEET, "live", 0)
+    withTimeout(5_000) { while (model.state.value.band != null) delay(5) }
+    assertTrue(model.state.value.reachable)
+    assertFalse(model.state.value.unpaired)
+    job.cancelAndJoin()
+  }
+
+  @Test
+  fun statusEventsApplyInTheOrderTheyArrive() = runBlocking {
+    val model = model(LiveBoard())
+    val seen = mutableListOf<Int>()
+    for (waiting in listOf(1, 3, 2, 0)) {
+      model.reduce(LiveEvent(FLEET, "status", statusData(items = if (waiting == 0) "" else REPORT, waiting = waiting)))
+      seen += model.state.value.waiting
+    }
+    assertEquals(listOf(1, 3, 2, 0), seen)
   }
 }

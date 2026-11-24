@@ -108,7 +108,7 @@ func TestDoctorDesktopReadsTheBinaryNextToHand(t *testing.T) {
 		next += ".exe"
 	}
 	b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
-	if err := os.WriteFile(next, b, 0o755); err != nil {
+	if err := fakebin.WriteExecutable(next, b); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(next) })
@@ -261,7 +261,7 @@ func TestDoctorDesktopAppRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
-	if err := os.WriteFile(bin, b, 0o755); err != nil {
+	if err := fakebin.WriteExecutable(bin, b); err != nil {
 		t.Fatal(err)
 	}
 	if r := row(); r[0] != "ok" {

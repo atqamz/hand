@@ -71,6 +71,7 @@ func eq(t *testing.T, what string, got, want []string) {
 }
 
 func TestALivePassStoresTheSupervisorsRepliesAndNothingElse(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.append(
 		claudeUser("2026-11-18T10:00:00.000Z", "status?"),
@@ -94,6 +95,7 @@ func TestALivePassStoresTheSupervisorsRepliesAndNothingElse(t *testing.T) {
 }
 
 func TestALaterPassStoresOnlyWhatIsNew(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.append(claudeUser("2026-11-18T10:00:00.000Z", "go"), claudeReply("2026-11-18T10:00:05.000Z", "first"))
 	f.ingest()
@@ -108,6 +110,7 @@ func TestALaterPassStoresOnlyWhatIsNew(t *testing.T) {
 }
 
 func TestTheWatermarkSkipsWhatItStoredAndARestartRereadsTheWholeTranscriptHarmlessly(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.append(claudeUser("2026-11-18T10:00:00.000Z", "go"), claudeReply("2026-11-18T10:00:05.000Z", "first"), claudeReply("2026-11-18T10:00:09.000Z", "second"))
 	f.ingest()
@@ -138,6 +141,7 @@ func TestTheWatermarkSkipsWhatItStoredAndARestartRereadsTheWholeTranscriptHarmle
 }
 
 func TestAnEndedSupervisorsLastRepliesAreStoredByTheNextSweep(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	ctx := context.Background()
 	f.append(claudeUser("2026-11-18T10:00:00.000Z", "go"), claudeReply("2026-11-18T10:00:05.000Z", "first"))
@@ -165,6 +169,7 @@ func TestAnEndedSupervisorsLastRepliesAreStoredByTheNextSweep(t *testing.T) {
 }
 
 func TestAWatcherStartedAfterAStopStoresTheLastSupervisorsReplies(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.append(claudeUser("2026-11-18T10:00:00.000Z", "go"), claudeReply("2026-11-18T10:00:05.000Z", "before the stop"))
 	if _, err := f.st.EndSupervisor(context.Background(), 1, state.AttemptStopped, "stopped"); err != nil {
@@ -179,6 +184,7 @@ func TestAWatcherStartedAfterAStopStoresTheLastSupervisorsReplies(t *testing.T) 
 }
 
 func TestATranscriptThatShrinksAndIsReadAgainStoresNothingTwice(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.append(claudeUser("2026-11-18T10:00:00.000Z", "go"), claudeReply("2026-11-18T10:00:05.000Z", "first"), claudeReply("2026-11-18T10:00:09.000Z", "second"))
 	f.ingest()
@@ -198,6 +204,7 @@ func TestATranscriptThatShrinksAndIsReadAgainStoresNothingTwice(t *testing.T) {
 }
 
 func TestAReaderErrorOrAMissingTranscriptIsSilent(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	f.rewrite("this is not a transcript", "{nor this")
 	f.ingest()
@@ -218,6 +225,7 @@ func TestAReaderErrorOrAMissingTranscriptIsSilent(t *testing.T) {
 }
 
 func TestASupervisorWithoutASessionReadsNothing(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	ctx := context.Background()
 	if _, err := f.st.EndSupervisor(ctx, 1, state.AttemptStopped, "stopped"); err != nil {
@@ -240,6 +248,7 @@ func TestASupervisorWithoutASessionReadsNothing(t *testing.T) {
 }
 
 func TestAReplyIsRedactedWhenTheWatcherStoresIt(t *testing.T) {
+	t.Parallel()
 	f := newAnswerFixture(t)
 	token := "ghp_" + strings.Repeat("b", 36)
 	f.append(claudeUser("2026-11-18T10:00:00.000Z", "go"), claudeReply("2026-11-18T10:00:05.000Z", "the token is "+token))
@@ -248,6 +257,7 @@ func TestAReplyIsRedactedWhenTheWatcherStoresIt(t *testing.T) {
 }
 
 func TestAnOpencodeSupervisorsRepliesAreStoredOnlyOnceItHasEnded(t *testing.T) {
+	t.Parallel()
 	g := newOpencodeRig(t, true, true)
 	g.api = `{"data":[{"id":"ses_1","model":{"id":"gpt-5","providerID":"openai","variant":"high"}},{"id":"ses_2","model":{"id":"gpt-5","providerID":"openai","variant":"default"}}],"cursor":{}}`
 	g.install(`{"info":{"id":"ses_1"},"messages":[{"type":"user","time":{"created":1793260115879},"text":"go"},{"type":"assistant","time":{"created":1793260119549},"finish":"stop","content":[{"type":"text","text":"opencode reply"}]}]}`)

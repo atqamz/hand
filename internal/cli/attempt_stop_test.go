@@ -25,6 +25,7 @@ func gone(pid int) bool {
 }
 
 func TestStopKillsTheWorkerProcessGroup(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	pid := fx.rt.lastPID()
@@ -43,6 +44,7 @@ func TestStopKillsTheWorkerProcessGroup(t *testing.T) {
 }
 
 func TestStopNeverSignalsAProcessWithAnotherStartMarker(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.marker, rt.runsIn = "1", t.TempDir() })
 	fx.start()
@@ -57,6 +59,7 @@ func TestStopNeverSignalsAProcessWithAnotherStartMarker(t *testing.T) {
 }
 
 func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 3 || !strings.Contains(errOut, "attempt a1 is running; stop it first") {
@@ -92,6 +95,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 }
 
 func TestCleanAfterTheWorktreeVanished(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
@@ -105,6 +109,7 @@ func TestCleanAfterTheWorktreeVanished(t *testing.T) {
 }
 
 func TestCleanRefusesUnreachableCommits(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")

@@ -1350,4 +1350,45 @@ class FleetModelTest {
     model.select(Tab.Tasks)
     assertEquals(kept, model.now().tasks)
   }
+
+  @Test
+  fun theCountdownRoundsUpToTheSecondAndNeverShowsAPastDeadline() {
+    assertNull(remaining(5_000, 5_000))
+    assertNull(remaining(5_000, 9_000))
+    assertEquals("0:01", remaining(1, 0))
+    assertEquals("0:01", remaining(1_000, 0))
+    assertEquals("0:02", remaining(1_001, 0))
+    assertEquals("0:59", remaining(59_000, 0))
+    assertEquals("1:00", remaining(60_000, 0))
+    assertEquals("1:01", remaining(61_000, 0))
+    assertEquals("999:00", remaining(999 * 60_000L, 0))
+  }
+
+  @Test
+  fun aDeniedScreenDoesNotCountDownAgainUntilTheBoardSendsALaterDeadline() {
+    val base = 1_700_000_000_000L
+    var deny = base + 2_000
+    var clock = base
+    val board = Board({ status(listOf(blockedNeed(deny = Instant.ofEpochMilli(deny).toString())), supervisor = supervisor()) })
+    val model = FleetModel(FLEET, null, board, { null }, { "12:41" }, 4_000, { clock })
+    runBlocking {
+      model.refresh()
+      assertEquals("0:02", model.now().left)
+      clock += 2_000
+      assertNotNull(model.tickOnce())
+      assertNull(model.now().left)
+      assertNull(model.now().deadline?.let { remaining(it, clock) })
+      model.refresh()
+      assertNull(model.now().left)
+      assertNull(model.now().deadline)
+      clock = base
+      model.refresh()
+      assertNull(model.now().left)
+      assertNull(model.now().deadline)
+      clock = base + 2_000
+      deny = clock + 90_000
+      model.refresh()
+      assertEquals("1:30", model.now().left)
+    }
+  }
 }

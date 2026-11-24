@@ -12,6 +12,7 @@ import (
 )
 
 func TestRolloverIsDueOnlyOutsideTheCooldownAndAfterNoFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	now := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
 	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time { return now })
@@ -49,6 +50,7 @@ func TestRolloverIsDueOnlyOutsideTheCooldownAndAfterNoFailure(t *testing.T) {
 }
 
 func TestWarningsAndTheLostNoteSurviveConcurrentUse(t *testing.T) {
+	t.Parallel()
 	r := &runner{env: Env{Stdout: io.Discard}}
 	w := &watcher{r: r}
 	var wg sync.WaitGroup

@@ -12,6 +12,7 @@ import (
 )
 
 func TestTwoFleetsSharingARepoKeepTheirWorkersApart(t *testing.T) {
+	t.Parallel()
 	luvusHome, err := os.MkdirTemp("", "lv")
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func TestTwoFleetsSharingARepoKeepTheirWorkersApart(t *testing.T) {
 }
 
 func TestReportFromAWorktreeOfAnUnregisteredFleetIsRefused(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.cwd = fx.h.worktree("t1-a1")
@@ -83,6 +85,7 @@ func TestReportFromAWorktreeOfAnUnregisteredFleetIsRefused(t *testing.T) {
 }
 
 func TestReportFromAWorktreeRefusesAnotherSelectedFleet(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	other := t.TempDir()

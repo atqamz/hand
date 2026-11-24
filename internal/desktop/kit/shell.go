@@ -378,6 +378,10 @@ func selectField(c *ui.Context, k Colors, name string, value *string, options []
 }
 
 func Button(c *ui.Context, k Colors, key, label string, width float32, disabled bool) bool {
+	return LabeledButton(c, k, key, label, label, width, disabled)
+}
+
+func LabeledButton(c *ui.Context, k Colors, key, text, label string, width float32, disabled bool) bool {
 	el := ui.ButtonBase(c.Key(key)).Height(Control).Padding(0, Space10).Radius(RadiusMD).
 		Border(1, k.LineStrong).Background(k.BG).Justify(ui.Center).AlignItems(ui.Center).
 		Disabled(disabled).Cursor(ui.CursorPointer).Label(label)
@@ -385,7 +389,7 @@ func Button(c *ui.Context, k Colors, key, label string, width float32, disabled 
 		el.Width(width)
 	}
 	el.Children(func() {
-		ui.Text(c, label).FontSize(Body.Size).TextColor(k.FG).SingleLine()
+		ui.Text(c, text).FontSize(Body.Size).TextColor(k.FG).SingleLine()
 	})
 	return el.Clicked()
 }

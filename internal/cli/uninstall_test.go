@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func TestUninstallListsRemovesAndKeeps(t *testing.T) {
@@ -23,7 +24,7 @@ func TestUninstallListsRemovesAndKeeps(t *testing.T) {
 	target := filepath.Join(bin, "hand")
 	iroh := filepath.Join(bin, "hand-iroh")
 	for _, p := range []string{target, iroh} {
-		if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+		if err := fakebin.WriteExecutable(p, []byte("x")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -64,7 +65,7 @@ func TestUninstallNeverCreatesTheFleetRoot(t *testing.T) {
 	h.vars["XDG_DATA_HOME"] = filepath.Join(home, "data")
 	h.vars["XDG_STATE_HOME"] = filepath.Join(home, "state")
 	target := filepath.Join(t.TempDir(), "hand")
-	if err := os.WriteFile(target, []byte("x"), 0o755); err != nil {
+	if err := fakebin.WriteExecutable(target, []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 	cli.UninstallHooks.Target = target

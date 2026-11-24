@@ -20,6 +20,7 @@ func (fx *attemptFixture) startT1() (string, string, int) {
 }
 
 func TestAStartIsRefusedForEverySettingBeforeAnythingRuns(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	for _, pattern := range gitcfg.Listed {
@@ -44,6 +45,7 @@ func TestAStartIsRefusedForEverySettingBeforeAnythingRuns(t *testing.T) {
 }
 
 func TestTrustingAcceptsTheSettingsAndTheStartRuns(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	gitIn(t, fx.repo, "config", "core.sshCommand", command)
@@ -79,6 +81,7 @@ func TestTrustingAcceptsTheSettingsAndTheStartRuns(t *testing.T) {
 }
 
 func TestSettingsPresentBeforeRegistrationAreNeverRefused(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	late := gitRepo(t)
@@ -114,6 +117,7 @@ func TestSettingsPresentBeforeRegistrationAreNeverRefused(t *testing.T) {
 }
 
 func TestAProjectWithNothingRecordedAdoptsWhatIsThereOnTheFirstGitRun(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	gitIn(t, fx.repo, "config", "core.sshCommand", command)
@@ -145,6 +149,7 @@ func TestAProjectWithNothingRecordedAdoptsWhatIsThereOnTheFirstGitRun(t *testing
 }
 
 func TestCleanIsRefusedAndRemovesNothingWhileASettingIsChanged(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	fx.start()
@@ -177,6 +182,7 @@ func TestCleanIsRefusedAndRemovesNothingWhileASettingIsChanged(t *testing.T) {
 }
 
 func TestCleanOfAWorktreeFolderDeletedByHandNeedsNoCheckOfIt(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	fx.start()
@@ -197,6 +203,7 @@ func TestCleanOfAWorktreeFolderDeletedByHandNeedsNoCheckOfIt(t *testing.T) {
 }
 
 func TestIncludedSettingsAreCheckedAndTrustedLikeAnyOther(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	extra := filepath.Join(t.TempDir(), "extra.cfg")
@@ -219,6 +226,7 @@ func TestIncludedSettingsAreCheckedAndTrustedLikeAnyOther(t *testing.T) {
 }
 
 func TestInitLeavesAProjectWhoseSettingsChangedUnrepaired(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	fx.start()
@@ -235,6 +243,7 @@ func TestInitLeavesAProjectWhoseSettingsChangedUnrepaired(t *testing.T) {
 }
 
 func TestAReportFromAWorktreeRunsNoConfiguredProgram(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	fx.start()

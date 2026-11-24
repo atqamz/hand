@@ -33,6 +33,7 @@ func TestAttachSupervisorOpensItsPane(t *testing.T) {
 }
 
 func TestAttachAnAttemptOpensItsPane(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	luvus := withLuvus(t, fx.h)
 	has(t, "start", fx.start(), "hand attach a1")

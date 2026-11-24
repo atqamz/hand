@@ -25,6 +25,7 @@ func vcRuntimeRows(t *testing.T, root string) [][]string {
 }
 
 func TestDoctorVCRuntimeRow(t *testing.T) {
+	t.Parallel()
 	if rows := vcRuntimeRows(t, ""); len(rows) != 0 {
 		t.Fatalf("no SystemRoot: %q", rows)
 	}
@@ -51,6 +52,7 @@ func TestDoctorVCRuntimeRow(t *testing.T) {
 }
 
 func TestMissingDLLsNamesWhatIsAbsent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if got := missingDLLs(dir); !reflect.DeepEqual(got, vcRuntimeDLLs) {
 		t.Fatalf("empty folder: %v", got)

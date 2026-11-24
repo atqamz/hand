@@ -60,11 +60,6 @@ func TestTheSkillsPageListsEachScopeWithSourceCommitAndDrift(t *testing.T) {
 	}
 }
 
-func TestTheSkillsPageSaysAddAndRemoveStayOnTheCommandLine(t *testing.T) {
-	_, tt := skillsApp(t, goldenFixture(t))
-	mustText(t, tt, "Add and remove are not in the board's API. Run hand skills add or hand skills remove in a terminal; the next check lists the change.")
-}
-
 func TestTheRailOpensTheSkillsPage(t *testing.T) {
 	f := withSkills(goldenFixture(t))
 	app := newApp(t, f)

@@ -123,6 +123,7 @@ func sameStrings(got, want []string) bool {
 }
 
 func TestWatcherRecordsEachContextMarkOncePerWorker(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, session := f.claude(120_000)
 	w := f.watcher()
@@ -151,6 +152,7 @@ func TestWatcherRecordsEachContextMarkOncePerWorker(t *testing.T) {
 }
 
 func TestWatcherRecordsContextFromExactlyTheFirstMarkUp(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, _ := f.claude(99_999)
 	f.sweep(f.watcher())
@@ -165,6 +167,7 @@ func TestWatcherRecordsContextFromExactlyTheFirstMarkUp(t *testing.T) {
 }
 
 func TestARestartedWatcherDoesNotRepeatContextMarks(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, session := f.claude(160_000)
 	f.sweep(f.watcher())
@@ -180,6 +183,7 @@ func TestARestartedWatcherDoesNotRepeatContextMarks(t *testing.T) {
 }
 
 func TestAWorkerOnAHarnessWithoutContextRecordsUnknownOnce(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	session := harness.NewSessionID()
 	a := f.attempt("copilot", []string{"copilot", "--session-id", session}, f.t.TempDir())
@@ -203,6 +207,7 @@ func TestAWorkerOnAHarnessWithoutContextRecordsUnknownOnce(t *testing.T) {
 }
 
 func TestALaunchingWorkerRecordsNoContextEvent(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	ctx := context.Background()
 	add := func(name string, argv []string) state.Attempt {
@@ -234,6 +239,7 @@ func TestALaunchingWorkerRecordsNoContextEvent(t *testing.T) {
 }
 
 func TestAReportingHarnessNeverRecordsContextUnknown(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, _ := f.claude(10_000)
 	f.sweep(f.watcher())
@@ -243,6 +249,7 @@ func TestAReportingHarnessNeverRecordsContextUnknown(t *testing.T) {
 }
 
 func TestWatcherReadsAnOmpWorkersContextThroughItsSessionLookup(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	marker := "You are worker a1 of the Hand fleet f."
 	a := f.attempt("omp", []string{"omp", "--", marker}, t.TempDir())
@@ -272,6 +279,7 @@ func TestWatcherReadsAnOmpWorkersContextThroughItsSessionLookup(t *testing.T) {
 }
 
 func TestAnEndedAttemptIsNoLongerTrackedForContext(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, session := f.claude(110_000)
 	w := f.watcher()
@@ -293,6 +301,7 @@ func TestAnEndedAttemptIsNoLongerTrackedForContext(t *testing.T) {
 }
 
 func TestContextEventsDoNotChangeTheAttemptsLastSignal(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	ctx := context.Background()
 	a, _ := f.claude(120_000)
@@ -332,6 +341,7 @@ func (c *failsOnce) Err() error {
 }
 
 func TestAFailedReadOfTheRecordedMarksRecordsNothingAndRepeatsNothing(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, _ := f.claude(120_000)
 	f.sweep(f.watcher())
@@ -350,6 +360,7 @@ func TestAFailedReadOfTheRecordedMarksRecordsNothingAndRepeatsNothing(t *testing
 }
 
 func TestACancelledSweepRecordsNoContext(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	a, _ := f.claude(110_000)
 	w := f.watcher()
@@ -371,6 +382,7 @@ func TestACancelledSweepRecordsNoContext(t *testing.T) {
 }
 
 func TestAWorkerWithNoTranscriptRecordsNoContextEvent(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	session := harness.NewSessionID()
 	claude := f.attempt("claude", []string{"claude", "--session-id", session, "brief"}, t.TempDir())
@@ -385,6 +397,7 @@ func TestAWorkerWithNoTranscriptRecordsNoContextEvent(t *testing.T) {
 }
 
 func TestWatcherReadsACodexWorkersContext(t *testing.T) {
+	t.Parallel()
 	f := newContextFixture(t)
 	prompt := "Fix the login bug."
 	a := f.attempt("codex", []string{"codex", "-m", "m", prompt}, t.TempDir())

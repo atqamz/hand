@@ -8,6 +8,7 @@ import (
 )
 
 func TestNotifyArgvKeepsTheTextOutOfTheScript(t *testing.T) {
+	t.Parallel()
 	text := `a"; do shell script "x`
 	bin, args := cli.NotifyArgv("fleet", text)
 	want := []string{"-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "fleet", text}

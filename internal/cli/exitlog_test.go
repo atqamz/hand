@@ -8,6 +8,7 @@ import (
 )
 
 func TestExitLogIgnoresARecordOlderThanExitKeep(t *testing.T) {
+	t.Parallel()
 	l := &exitLog{m: map[string]exitRecord{
 		"old":   {"terminal exited (code 3)", time.Now().Add(-exitKeep - time.Second)},
 		"fresh": {"terminal exited (code 4)", time.Now()},
@@ -22,6 +23,7 @@ func TestExitLogIgnoresARecordOlderThanExitKeep(t *testing.T) {
 }
 
 func TestExitLogNoteReportsSignalOverCode(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, detail, want string }{
 		{"signal", `{"exit_code":null,"signal":"SIGKILL"}`, "terminal exited (signal SIGKILL)"},
 		{"signal beats code", `{"exit_code":9,"signal":"SIGTERM"}`, "terminal exited (signal SIGTERM)"},

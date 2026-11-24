@@ -410,6 +410,7 @@ func TestTakeOverWarnsAndWentOnWhenTheMarkerCannotBeReread(t *testing.T) {
 }
 
 func TestFleetImportRefusesAFleetPinnedNewerAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	for _, which := range []string{"source", "destination"} {
 		t.Run(which, func(t *testing.T) {
 			fx := importFixture(t)

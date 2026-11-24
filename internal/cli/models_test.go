@@ -42,6 +42,7 @@ func listers(t *testing.T, h *harness, log string) string {
 }
 
 func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	listers(t, h, "")
 	cold := h.ok("models")
@@ -77,6 +78,7 @@ func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
 }
 
 func TestModelsOneHarnessAndUsage(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	listers(t, h, "")
 	out := h.ok("models", "--refresh", "agy")
@@ -97,6 +99,7 @@ func TestModelsOneHarnessAndUsage(t *testing.T) {
 }
 
 func TestModelsRefreshFailureIsAStateNotAnError(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	dir := listers(t, h, "")
 	fakebin.Install(t, dir, "claude", "lister", map[string]string{"stdout": "{" + invented + "\n", "version": "claude 1"})
@@ -120,6 +123,7 @@ func TestModelsRefreshFailureIsAStateNotAnError(t *testing.T) {
 }
 
 func TestModelsReportsAMissingCopilot(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	dir := listers(t, h, "")
 	if err := os.Remove(exe(dir, "copilot")); err != nil {
@@ -129,6 +133,7 @@ func TestModelsReportsAMissingCopilot(t *testing.T) {
 }
 
 func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	listers(t, h, "")
 	h.ok("init")

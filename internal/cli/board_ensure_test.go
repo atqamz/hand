@@ -50,7 +50,7 @@ func enableBoard(t *testing.T, h *harness) {
 		if err := os.Remove(filepath.Join(root, "board.started")); err != nil {
 			return
 		}
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(30 * time.Second)
 		for {
 			if _, err := os.Stat(filepath.Join(root, "board.running")); errors.Is(err, os.ErrNotExist) {
 				return

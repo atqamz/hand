@@ -88,7 +88,8 @@ One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by th
 | `15-delivered.png` | the viewer's Delivered aside in a task's page: a PR and a link that open in the browser, a fleet file that opens in the viewer, and a file outside the fleet as plain text |
 | `16-blocked-ask.png` | a blocked supervisor's question with one button per option, in place of the key toolbar |
 | `17-open-link.png` | the viewer opened from a `handboard://open/` link, on a decision's page |
-| `18-overflow-menu.png` | the pane head's menu: Refresh now, Open in browser and Refresh models |
+| `18-overflow-menu.png` | the pane head's menu: Refresh now, Open in browser, Refresh models and the disabled notification row of a window where the system offers none |
+| `85-notify-menu-<off, on or unavailable>-<light or dark>.png` | the same menu's notification row: unchecked, checked, and disabled with its reason |
 | `19-stop-armed.png` | Stop after its first press: "Press again to stop" |
 | `20-panes-<width>x<height>-<light or dark>.png` | the two panes at 1100×760 and 1440×900 in both themes |
 | `21-blocked-<width>x<height>-<light or dark>.png` | a blocked supervisor's ask in the chat pane, at 860×700 and 1100×760 in both themes |

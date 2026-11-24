@@ -6,6 +6,7 @@ import (
 )
 
 func TestDecisionFlowThroughCLI(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	if out := h.ok("decision", "ask", "t1", "Keep the old cookie name?"); !strings.Contains(out, "decision: d1") {
@@ -28,6 +29,7 @@ func TestDecisionFlowThroughCLI(t *testing.T) {
 }
 
 func TestDecisionShowReadsTheAnswer(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("decision", "ask", "t1", "Keep the old cookie name?")
@@ -44,6 +46,7 @@ func TestDecisionShowReadsTheAnswer(t *testing.T) {
 }
 
 func TestTaskShowListsEveryDecision(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("decision", "ask", "t1", "Keep the old cookie name?")
@@ -58,6 +61,7 @@ func TestTaskShowListsEveryDecision(t *testing.T) {
 }
 
 func TestDecisionListAllShowsAnsweredOnes(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("decision", "ask", "t1", "Keep the old cookie name?")
@@ -76,6 +80,7 @@ func TestDecisionListAllShowsAnsweredOnes(t *testing.T) {
 }
 
 func TestDecisionAskReadsAFileOrStdin(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "start", "t1")

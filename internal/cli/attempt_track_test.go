@@ -10,6 +10,7 @@ import (
 )
 
 func TestInitWritesAnEmptyRoutingPolicy(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	if out := h.ok("init"); !strings.Contains(out, "routing: "+toon.Value(filepath.Join(h.home, "routing.json"))) {
 		t.Fatalf("init = %q", out)
@@ -20,6 +21,7 @@ func TestInitWritesAnEmptyRoutingPolicy(t *testing.T) {
 }
 
 func TestAttemptStartTakesTheHarnessFlags(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	if _, errOut, code := fx.h.run("attempt", "start", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "give --harness, --model and --effort") {
 		t.Fatalf("no flags: code=%d stderr=%q", code, errOut)
@@ -37,16 +39,19 @@ func TestAttemptStartTakesTheHarnessFlags(t *testing.T) {
 }
 
 func TestAttemptStartStartsAnOpencodeWithNothingElse(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
 }
 
 func TestAttemptStartAgyTakesNoEffort(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.h.ok("attempt", "start", "--harness", "agy", "--model", "gemini-3-pro", "--prompt-file", fx.brief, "t1")
 }
 
 func TestRouteIsAnUnknownCommand(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	if _, _, code := h.run("route", "list"); code != 2 {
@@ -55,6 +60,7 @@ func TestRouteIsAnUnknownCommand(t *testing.T) {
 }
 
 func TestAttemptTrackEmptyTrackRecord(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	if list := h.ok("attempt", "track"); !strings.Contains(list, "track[0]{harness,model,effort,n,first_try,reattempt,stuck,sent_per,wakes_per,median_min}:") {
@@ -63,6 +69,7 @@ func TestAttemptTrackEmptyTrackRecord(t *testing.T) {
 }
 
 func TestAttemptTrackShowsTrackRecord(t *testing.T) {
+	t.Parallel()
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")

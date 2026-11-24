@@ -427,6 +427,7 @@ func TestFleetAdoptNamesAnUnreadableOldDatabase(t *testing.T) {
 }
 
 func TestFleetAdoptFromTheCurrentHomeIsCurrent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	for _, args := range [][]string{{"fleet", "adopt", "--from", h.home}, {"fleet", "adopt", "--check", "--from", h.home}} {
@@ -473,6 +474,7 @@ func TestFleetAdoptRefusesANewHomeInsideAnOldOne(t *testing.T) {
 }
 
 func TestFleetAdoptRemovesItsCopyWhenNothingChanged(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.ok("init")
 	gone := filepath.Join(filepath.Dir(h.home), "gone", "fleet")

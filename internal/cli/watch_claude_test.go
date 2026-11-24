@@ -12,6 +12,7 @@ import (
 )
 
 func TestWatcherRecordsTheServedClaudeAndCopilotModel(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	home, claude, copilot := t.TempDir(), t.TempDir(), t.TempDir()
 	now := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)

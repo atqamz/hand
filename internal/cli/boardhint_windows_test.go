@@ -10,6 +10,7 @@ import (
 )
 
 func TestBoardHint(t *testing.T) {
+	t.Parallel()
 	if !strings.Contains(cli.BoardHint, "shell:startup") {
 		t.Fatalf("hint = %q", cli.BoardHint)
 	}

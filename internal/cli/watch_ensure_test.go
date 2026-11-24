@@ -163,6 +163,7 @@ func TestEnsureWatcherSkipsHeldLock(t *testing.T) {
 }
 
 func TestOrientDoesNotCreateWatchLock(t *testing.T) {
+	t.Parallel()
 	h := initWithProject(t)
 	if !strings.Contains(h.ok("orient"), "watch: missing") {
 		t.Fatal("orient must report a missing watcher")

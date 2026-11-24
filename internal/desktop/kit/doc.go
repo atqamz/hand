@@ -51,7 +51,55 @@ func DocNotice(c *ui.Context, k Colors, text string, actions func()) {
 	})
 }
 
-func DocLines(c *ui.Context, k Colors, first int, lines []string) {
+type DocMatch struct {
+	From, To int
+	Now      bool
+}
+
+type DocMarks struct {
+	Line   int
+	Scroll bool
+	Seq    int
+	Hits   map[int][]DocMatch
+}
+
+const (
+	docScrollContext = 4
+	docBand          = 0.18
+	docBar           = 3
+)
+
+func DocLines(c *ui.Context, k Colors, first int, lines []string, wrap bool) {
+	DocLinesMarked(c, k, first, lines, wrap, DocMarks{})
+}
+
+func docSpans(k Colors, text string, ms []DocMatch, tail string) []ui.Span {
+	span := func(s string) ui.Span {
+		return ui.Span{Text: s, Font: "monospace", Size: Meta.Size, Color: k.FG}
+	}
+	var out []ui.Span
+	at := 0
+	for _, m := range ms {
+		if m.From < at || m.To > len(text) || m.From >= m.To {
+			continue
+		}
+		if m.From > at {
+			out = append(out, span(text[at:m.From]))
+		}
+		hit := span(text[m.From:m.To])
+		hit.Background, hit.Radius = k.WaitBG, RadiusSM
+		hit.Underline = true
+		if m.Now {
+			hit.Background, hit.Color, hit.Weight = k.Wait, k.BG, 700
+		}
+		out = append(out, hit)
+		at = m.To
+	}
+	out = append(out, span(text[at:]+tail))
+	return out
+}
+
+func DocLinesMarked(c *ui.Context, k Colors, first int, lines []string, wrap bool, marks DocMarks) {
 	last := first + len(lines) - 1
 	width := max(len(strconv.Itoa(last)), 3)
 	numbers := make([]string, len(lines))
@@ -59,12 +107,61 @@ func DocLines(c *ui.Context, k Colors, first int, lines []string) {
 		numbers[i] = strings.Repeat(" ", width-len(strconv.Itoa(first+i))) + strconv.Itoa(first+i)
 	}
 	gw, _ := c.MeasureText(1e6, ui.Span{Text: strings.Repeat("0", docDigits), Font: "monospace", Size: Meta.Size})
+	at := marks.Line - first
+	marked := marks.Line > 0 && at >= 0 && at < len(lines)
+	if wrap {
+		ui.Column(c).Padding(Space6, 0).Radius(RadiusMD).Background(k.Card).Border(1, k.Line).Clip().
+			Label("Text, wrapped").Children(func() {
+			for i, line := range lines {
+				row := ui.Row(c)
+				if marked && i == at {
+					row.Background(k.AccentBG).Label("Line " + strconv.Itoa(marks.Line))
+				}
+				row.Children(func() {
+					ui.Text(c, numbers[i]).Font("monospace").FontSize(Meta.Size).
+						FixedLineHeight(Meta.Line).TextColor(k.Muted).NoWrap().Unselectable().
+						Width(gw+docGutter).Padding(0, Space10, 0, Space12).Shrink(0).TextAlign(ui.End)
+					if ms := marks.Hits[i]; len(ms) > 0 {
+						ui.RichText(c, docSpans(k, line, ms, "")...).FixedLineHeight(Meta.Line).Grow(1).MinWidth(0).Padding(0, Space12, 0, 0)
+						return
+					}
+					ui.Text(c, line).Font("monospace").FontSize(Meta.Size).
+						FixedLineHeight(Meta.Line).Grow(1).MinWidth(0).Padding(0, Space12, 0, 0)
+				})
+				if marked && i == at && marks.Scroll {
+					row.ScrollIntoView()
+				}
+			}
+		})
+		return
+	}
 	ui.Row(c).Padding(Space6, 0).Radius(RadiusMD).Background(k.Card).Border(1, k.Line).Clip().
 		Label("Text").Children(func() {
+		if marked {
+			top := Space6 + float32(at)*Meta.Line
+			ui.Box(c).Absolute().Top(top).Left(0).Right(0).Height(Meta.Line).Background(k.AccentBG.Alpha(docBand)).Label("Line " + strconv.Itoa(marks.Line))
+			ui.Box(c).Absolute().Top(top).Left(0).Width(docBar).Height(Meta.Line).Background(k.Accent)
+			if marks.Scroll {
+				ui.Box(c.Key("doc:scroll:" + strconv.Itoa(marks.Seq))).Absolute().Top(max(0, top-docScrollContext*Meta.Line)).Left(0).Width(1).
+					Height((2*docScrollContext + 1) * Meta.Line).ScrollIntoView()
+			}
+		}
 		ui.Text(c, strings.Join(numbers, "\n")).Font("monospace").FontSize(Meta.Size).
 			FixedLineHeight(Meta.Line).TextColor(k.Muted).NoWrap().Unselectable().
 			Width(gw+docGutter).Padding(0, Space10, 0, Space12).Shrink(0).TextAlign(ui.End)
 		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Children(func() {
+			if len(marks.Hits) > 0 {
+				var spans []ui.Span
+				for i, line := range lines {
+					tail := "\n"
+					if i == len(lines)-1 {
+						tail = ""
+					}
+					spans = append(spans, docSpans(k, line, marks.Hits[i], tail)...)
+				}
+				ui.RichText(c, spans...).FixedLineHeight(Meta.Line).NoWrap().Padding(0, Space12, 0, 0)
+				return
+			}
 			ui.Text(c, strings.Join(lines, "\n")).Font("monospace").FontSize(Meta.Size).
 				FixedLineHeight(Meta.Line).NoWrap().Padding(0, Space12, 0, 0)
 		})
@@ -108,4 +205,24 @@ func DocTheme(c *ui.Context) *markdown.Theme {
 			Top: top / Message.Size, Bottom: Space4 / Message.Size}
 	}
 	return th
+}
+
+func DocToggle(c *ui.Context, k Colors, key, label string, on bool) bool {
+	state := label + ", off"
+	if on {
+		state = label + ", on"
+	}
+	el := ui.ButtonBase(c.Key(key)).Height(Control).Padding(0, Space10).Radius(RadiusMD).
+		Border(1, k.LineStrong).Background(k.BG).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Label(state)
+	if on {
+		el.Background(k.AccentBG).Border(2, k.Accent)
+	}
+	el.Children(func() {
+		t := ui.Text(c, label).FontSize(Body.Size).TextColor(k.FG).SingleLine()
+		if on {
+			t.Bold().TextColor(k.Accent)
+		}
+	})
+	return el.Clicked()
 }
