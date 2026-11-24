@@ -156,7 +156,7 @@ internal fun searchRetriable(error: BoardError) =
     else -> true
   }
 
-private fun routeMissing(error: BoardError) =
+internal fun routeMissing(error: BoardError) =
   error is BoardError.NotFound ||
     error is BoardError.MethodNotAllowed ||
     error is BoardError.Other && (error.status == 404 || error.status == 405)
