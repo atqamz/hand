@@ -2033,4 +2033,48 @@ class ChatModelTest {
     assertEquals(3, chat.state.value.to)
     assertEquals(reads, timelineReads(board).size)
   }
+
+  @Test
+  fun signingOutClearsEveryKeyOfThoseFleetsAndNoOtherFleetsOrNeighbour() {
+    val other = FLEET + "9"
+    val prefs =
+      MemoryPrefs(
+        mapOf(
+          draftKey(FLEET, 1_760_000_000_000) to "text",
+          unsureKey(FLEET) to encodeUnsure(UnsureSend("ok", 3)),
+          filesKey(FLEET) to encodeFiles(emptyList(), 1_760_000_000_000),
+          "$FLEET/d4" to "note",
+          draftKey(other, 1_760_000_000_000) to "kept",
+          "$other/d4" to "kept note"
+        )
+      )
+    clearFleetDrafts(prefs, setOf(FLEET))
+    assertEquals(setOf(draftKey(other, 1_760_000_000_000), "$other/d4"), prefs.values.keys)
+    val reborn = PrefsComposerDrafts(prefs)
+    assertEquals("", reborn.read(FLEET, 1_760_000_000_001))
+    assertEquals(null, reborn.readUnsure(FLEET))
+    assertEquals(emptyList<Attached>(), reborn.readFiles(FLEET, 1_760_000_000_001))
+    assertEquals("", PrefsDrafts(prefs).read(FLEET, "d4"))
+  }
+
+  @Test
+  fun aSnapshotBelowTheHeldCountNeverTouchesACoveredEntry() = runBlocking {
+    val board = ChatBoard()
+    val chat = model(board)
+    chat.load()
+    val key = "operator@2026-11-01T04:40:00Z"
+    val held = chat.state.value.page
+    val before = held.first { it.key == key }.entry.delivery
+    chat.reduce(
+      delta(
+        0,
+        2,
+        true,
+        entry(key, "operator", "2026-11-01T04:40:00Z", "status?", no = 1, delivery = "delivered", delivered = "2026-11-01T04:41:00Z")
+      )
+    )
+    assertEquals(3, chat.state.value.to)
+    assertEquals(before, chat.state.value.page.first { it.key == key }.entry.delivery)
+    assertEquals(held, chat.state.value.page)
+  }
 }

@@ -286,7 +286,8 @@ class FleetModel(
   private val receiptMillis: Long = RECEIPT_MILLIS,
   private val errorMillis: Long = ERROR_MILLIS,
   private val warnMillis: Long = WARN_MILLIS,
-  private val stopArmMillis: Long = STOP_ARM_MILLIS
+  private val stopArmMillis: Long = STOP_ARM_MILLIS,
+  private val slowMillis: Long = LINK_SLOW_MILLIS
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetState(name = name))
   val state: StateFlow<FleetState> = mutableState
@@ -353,7 +354,7 @@ class FleetModel(
               }
               slow?.cancel()
               slow = launch {
-                delay(LINK_SLOW_MILLIS)
+                delay(slowMillis)
                 mutableState.update { state ->
                   if (state.band?.live != true) state
                   else

@@ -69,7 +69,8 @@ class HandActivity : ComponentActivity() {
           { phoneInfo(Core.phone()) },
           Core::unsaved,
           forgetter = Core::forget,
-          hostForgetter = Core::forgetHost
+          hostForgetter = Core::forgetHost,
+          dropped = { clearFleetDrafts(applicationContext.getSharedPreferences("drafts", MODE_PRIVATE), it) }
         )
       }
     }

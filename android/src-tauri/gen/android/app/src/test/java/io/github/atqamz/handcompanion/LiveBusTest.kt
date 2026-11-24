@@ -187,4 +187,21 @@ class LiveBusTest {
     collector.join()
     assertFalse(seen[2].gap)
   }
+
+  @Test
+  fun aSnapshotIsNeverAGapWhereverItStarts() = runBlocking {
+    val bus = LiveBus(8)
+    val seen = mutableListOf<LiveEvent>()
+    val ready = CompletableDeferred<Unit>()
+    val collector =
+      launch(Dispatchers.Default) {
+        bus.events.onSubscription { ready.complete(Unit) }.take(3).toList(seen)
+      }
+    ready.await()
+    bus.publish(FLEET, "timeline", timeline(true, 0, 5))
+    bus.publish(FLEET, "timeline", timeline(true, 9, 12))
+    bus.publish(FLEET, "timeline", timeline(false, 12, 14))
+    collector.join()
+    assertEquals(listOf(false, false, false), seen.map { it.gap })
+  }
 }
