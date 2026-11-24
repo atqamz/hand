@@ -40,7 +40,16 @@ func asOldSchema(t *testing.T, home string, version int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`DROP TRIGGER decision_fts_insert`, `DROP TRIGGER decision_fts_delete`, `DROP TRIGGER decision_fts_update`, `DROP TRIGGER task_fts_insert`, `DROP TRIGGER task_fts_delete`, `DROP TRIGGER task_fts_update`, `DROP TABLE decision_fts`, `DROP TABLE task_fts`, `DROP VIEW history_decision`, `DROP VIEW history_task`, `DROP TABLE task_file`, fmt.Sprintf(`PRAGMA user_version = %d`, version)} {
+	for _, q := range []string{
+		`DROP TRIGGER task_fts_insert`, `DROP TRIGGER task_fts_delete`, `DROP TRIGGER task_fts_update`, `DROP VIEW history_task`,
+		`ALTER TABLE task DROP COLUMN former_titles`,
+		`CREATE VIEW history_task AS SELECT id, id AS task_id, created_at, title AS body FROM task`,
+		`INSERT INTO task_fts(task_fts) VALUES ('rebuild')`,
+		`CREATE TRIGGER task_fts_insert AFTER INSERT ON task BEGIN INSERT INTO task_fts(rowid, body) VALUES (new.id, new.title); END`,
+		`CREATE TRIGGER task_fts_delete AFTER DELETE ON task BEGIN INSERT INTO task_fts(task_fts, rowid, body) VALUES ('delete', old.id, old.title); END`,
+		`CREATE TRIGGER task_fts_update AFTER UPDATE OF title ON task BEGIN INSERT INTO task_fts(task_fts, rowid, body) VALUES ('delete', old.id, old.title); INSERT INTO task_fts(rowid, body) VALUES (new.id, new.title); END`,
+		fmt.Sprintf(`PRAGMA user_version = %d`, version),
+	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}

@@ -25,7 +25,7 @@ An app installed from a build made before this key (CI run 42762177268 and earli
 Prerequisites:
 
 - JDK 21 or newer (Paparazzi's Gradle plugin needs it), with `JAVA_HOME` set.
-- Android SDK platform 37, build-tools 36.0.0 and the command-line tools.
+- Android SDK platform 37.1, build-tools 36.0.0 and the command-line tools.
 - NDK 27.3.13750724, with `NDK_HOME` pointing at it. Gradle derives the target's clang, linker and `llvm-ar` paths from it.
 - Rust 1.98.1, from `rust-toolchain.toml`, with the `aarch64-linux-android` target for a phone and the `x86_64-linux-android` target for an emulator.
 

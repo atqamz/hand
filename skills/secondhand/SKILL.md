@@ -114,6 +114,12 @@ Never end a chat reply with a question for the operator; ask every question with
 2. `hand orient` lists a parked task under `inbox` with a `parked` column (the note, or `yes`) that appears only when one is parked. Check it before you start any inbox task: never start a parked one unless the operator asks.
 3. To resume: `hand task start tN`, then arm again the timers it needs (`hand wake`). To continue the old worker's branch, run `hand attempt clean aN` first (it refuses a dirty tree without `--discard`), then `hand attempt start --continue aN --prompt-file BRIEF.md tN`.
 
+## Edit a task
+
+1. When a task's title or goal no longer describes the work, change it with `hand task edit --title "TITLE" --goal "GOAL" tN` (either flag alone is enough; `--goal ""` clears the goal) instead of abandoning it and adding a copy. It works in every status, keeps the plan, attempts, reports and decisions, and a live worker keeps running with the brief it has: tell it with `hand attempt send --text "..." aN` if the change matters to it. Use `hand task abandon tN` only for work that is dropped. It cannot move a task to another project: for that, abandon and add.
+2. After an edit, read it back: your context still holds the old title. `hand orient` lists active and inbox tasks; for a done or abandoned task use `hand task show tN`.
+3. The old title keeps finding the task in `hand task list --q` and `hand history search`, but only the 10 newest former titles are kept (an 11th rename drops the oldest), and `hand fleet import` does not carry them. Do not rely on a title older than that.
+
 ## Disk
 
 1. Hand removes the worktree of a finished attempt by itself once `retention.worktrees` days (7 by default) have passed, and only when its tree is clean, its commits are on a remote branch, no process runs in it and no ignored file looks like config. Otherwise a Needs item on the Board names the reason; settle it, or run `hand attempt clean aN`. Never delete a worktree by hand.

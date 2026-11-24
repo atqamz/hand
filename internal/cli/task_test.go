@@ -594,3 +594,74 @@ func TestTaskParkRefusesALiveAttempt(t *testing.T) {
 		t.Fatalf("show = %q", show)
 	}
 }
+
+func TestTaskEditThroughCLI(t *testing.T) {
+	t.Parallel()
+	h := initWithProject(t)
+	h.ok("task", "add", "--goal", "first goal", "hand", "Old name")
+	h.ok("task", "add", "hand", "Other")
+	h.ok("task", "start", "t1")
+	if out := h.ok("task", "edit", "--title", "New name", "t1"); out != "task: t1\nstatus: edited\n" {
+		t.Fatalf("edit before id = %q", out)
+	}
+	if out := h.ok("task", "edit", "t1", "--goal", "second goal"); out != "task: t1\nstatus: edited\n" {
+		t.Fatalf("edit after id = %q", out)
+	}
+	if out := h.ok("task", "edit", "--title", "New name", "t1", "--goal", "second goal"); out != "task: t1\nstatus: unchanged\n" {
+		t.Fatalf("same values = %q", out)
+	}
+	show := h.ok("task", "show", "t1")
+	for _, want := range []string{"title: New name\n", "status: active\n", "second goal"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("show lacks %q: %q", want, show)
+		}
+	}
+	if orient := h.ok("orient"); !strings.Contains(orient, "t1,hand,New name,") || strings.Contains(orient, "Old name") {
+		t.Fatalf("orient = %q", orient)
+	}
+	if list := h.ok("task", "list", "--q", "old name"); !strings.Contains(list, "New name") {
+		t.Fatalf("list --q old title = %q", list)
+	}
+	if search := h.ok("history", "search", "--who", "task", "Old"); !strings.Contains(search, "t1") {
+		t.Fatalf("history search = %q", search)
+	}
+	if out := h.ok("task", "edit", "--goal", "", "t1"); out != "task: t1\nstatus: edited\n" {
+		t.Fatalf("clear goal = %q", out)
+	}
+	if show := h.ok("task", "show", "t1"); strings.Contains(show, "second goal") {
+		t.Fatalf("goal not cleared: %q", show)
+	}
+	h.ok("task", "done", "t1")
+	if out := h.ok("task", "edit", "--title", "Finished name", "t1"); !strings.Contains(out, "status: edited") {
+		t.Fatalf("edit done task = %q", out)
+	}
+}
+
+func TestTaskEditRefusals(t *testing.T) {
+	t.Parallel()
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Keep")
+	for _, tc := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"edit", "t1"}, 2, "task edit: give --title or --goal"},
+		{[]string{"edit"}, 2, "task edit: want 1 argument(s) after flags"},
+		{[]string{"edit", "--title", "x"}, 2, "task edit: want 1 argument(s) after flags"},
+		{[]string{"edit", "--title", "x", "t1", "t2"}, 2, "task edit: want 1 argument(s) after flags"},
+		{[]string{"edit", "--project", "other", "t1"}, 2, "-project"},
+		{[]string{"edit", "--title", "x", "nope"}, 2, "nope"},
+		{[]string{"edit", "--title", "", "t1"}, 2, "task title must be one line of 1-200 characters"},
+		{[]string{"edit", "--title", strings.Repeat("x", 201), "t1"}, 2, "task title must be one line of 1-200 characters"},
+		{[]string{"edit", "--title", "a\nb", "t1"}, 2, "task title must be one line of 1-200 characters"},
+		{[]string{"edit", "--title", "x", "t99"}, 3, "task t99"},
+	} {
+		if _, errOut, code := h.run(append([]string{"task"}, tc.args...)...); code != tc.code || !strings.Contains(errOut, tc.want) {
+			t.Fatalf("%q: code=%d stderr=%q", tc.args, code, errOut)
+		}
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "title: Keep\n") {
+		t.Fatalf("refusals changed t1: %q", show)
+	}
+}
