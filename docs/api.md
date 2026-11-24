@@ -68,7 +68,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | the Android Companion's entry view; the Desktop Conversation page; `hand history search --full REF` |
 | `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
-| `GET /api/v1/alerts` | `Alerts`: the last 7 days of alert receipts, newest first, and the delay stats; see [`Alerts.data`](#alertsdata) | `/alerts`, the alerts page; `/alerts/feed` is not this route |
+| `GET /api/v1/alerts` | `Alerts`: the last 7 days of alert receipts, newest first, and the delay stats; see [`Alerts.data`](#alertsdata) | `/alerts`, the alerts page, and the Android Companion's Alerts screen; `/alerts/feed` is not this route |
 | `GET /api/v1/skills[?scope=SCOPE[&project=NAME]]` | `Skills`: each scope's skills with source, ref, commit, latest commit, trust, drift state and the pending diff; see [Skills](#skills) | none yet; `hand skills list` for every scope |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |

@@ -36,6 +36,14 @@ type docState struct {
 	body   string
 	image  *ui.Bitmap
 	row    string
+
+	note      string
+	said      string
+	noteBad   bool
+	copying   bool
+	saving    bool
+	clip      string
+	clipReady bool
 }
 
 type docRead struct {
@@ -144,12 +152,14 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	a.pageTargetGen++
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.docOp++
 	a.doc = docState{path: rel, page: page, from: 1}
 	a.loadDoc()
 }
 
 func (a *App) resetDoc() {
 	a.docGen++
+	a.docOp++
 	if a.docCancel != nil {
 		a.docCancel()
 		a.docCancel = nil
