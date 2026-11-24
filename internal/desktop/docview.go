@@ -38,7 +38,14 @@ func (a *App) docBody(c *ui.Context, k kit.Colors, p palette) {
 	case !st.ok:
 		a.readingPage(c, p)
 	default:
-		a.pageScroll(c, func() { a.docPage(c, k, p) })
+		ui.Column(c).Grow(1).MinHeight(0).Children(func() {
+			if a.docLinesShown() {
+				ui.Column(c).Gap(kit.Space6).Padding(kit.Space12, kit.Space20, kit.Space8).Children(func() {
+					a.docFindRow(c, k, p)
+				})
+			}
+			a.pageScroll(c, func() { a.docPage(c, k, p) })
+		})
 	}
 }
 
@@ -227,6 +234,7 @@ func (a *App) docText(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			}
 		})
 	}
+	a.followTick(c)
 	if len(w.Lines) == 0 {
 		a.quiet(c, p, "This file is empty.")
 		return
@@ -240,7 +248,7 @@ func (a *App) docText(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			lines[i] += "… " + docSize(cut.Bytes) + " more on this line"
 		}
 	}
-	kit.DocLines(c, k, w.From, lines, a.DocWrap)
+	kit.DocLinesMarked(c, k, w.From, lines, a.DocWrap, a.docMarks(lines, w.From))
 }
 
 func expandTabs(s string) string {
@@ -287,9 +295,10 @@ func (a *App) docSource(c *ui.Context, k kit.Colors, p palette) {
 		a.quiet(c, p, "This file is empty.")
 		return
 	}
-	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
-	for i, line := range lines {
-		lines[i] = expandTabs(shownText(strings.TrimSuffix(line, "\r")))
+	_, raw := a.docLineSet()
+	lines := make([]string, len(raw))
+	for i, line := range raw {
+		lines[i] = expandTabs(shownText(line))
 	}
-	kit.DocLines(c, k, 1, lines, a.DocWrap)
+	kit.DocLinesMarked(c, k, 1, lines, a.DocWrap, a.docMarks(lines, 1))
 }

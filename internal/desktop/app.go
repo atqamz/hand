@@ -289,6 +289,8 @@ type App struct {
 	asideScroll   ui.ScrollState
 	boardScroll   ui.ScrollState
 	viewerPage    ui.Handle
+	findBox       ui.Handle
+	lineBox       ui.Handle
 	viewerFocus   bool
 	openerRef     string
 	boardFocus    bool

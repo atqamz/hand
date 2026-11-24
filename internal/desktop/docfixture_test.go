@@ -45,7 +45,8 @@ func (f *fixture) DocWindow(ctx context.Context, id, path string, from int) (des
 		size = 500
 	}
 	end := min(from-1+size, len(lines))
-	w := desktop.DocWindow{Path: path, Name: path, From: from, Lines: lines[from-1 : end]}
+	w := desktop.DocWindow{Path: path, Name: path, From: from, Lines: append([]string(nil), lines[from-1:end]...)}
+	f.linesServed += len(w.Lines)
 	if end < len(lines) {
 		w.Next = end + 1
 	}
