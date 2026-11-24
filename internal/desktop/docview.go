@@ -37,6 +37,8 @@ func (a *App) docBody(c *ui.Context, k kit.Colors, p palette) {
 		})
 	case !st.ok:
 		a.readingPage(c, p)
+	case a.docIsTable():
+		a.docGridPage(c, k, p)
 	default:
 		ui.Column(c).Grow(1).MinHeight(0).Children(func() {
 			if a.docLinesShown() {
@@ -83,6 +85,12 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 		w, h := c.Size()
 		bw, bh := kit.ViewerBox(w, h)
 		kit.DocPicture(c, k, a.doc.image, bw-2*kit.Space20, max(bh-300, 120), shownText(d.Name))
+	case "html":
+		if a.DocSource {
+			a.docText(c, k, p, d)
+			return
+		}
+		a.docRow(c, k, a.doc.row, false)
 	default:
 		a.docRow(c, k, a.doc.row, false)
 	}

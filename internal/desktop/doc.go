@@ -19,6 +19,8 @@ const (
 	docTooLarge  = "This picture is larger than this window reads."
 )
 
+const docCannot = " cannot be shown in this window."
+
 const notText = "This file is not text, so the Board does not show it; download it to open it."
 
 type docState struct {
@@ -36,6 +38,7 @@ type docState struct {
 	body   string
 	image  *ui.Bitmap
 	row    string
+	table  *docTable
 
 	note      string
 	said      string
@@ -68,12 +71,12 @@ type docRead struct {
 	body   string
 	image  *ui.Bitmap
 	row    string
+	table  *docTable
 	err    error
 }
 
 var docKindNouns = map[string]string{
-	"pdf": "A PDF", "html": "An HTML page", "svg": "An SVG picture", "csv": "A CSV table",
-	"tsv": "A TSV table", "video": "A video", "audio": "An audio file",
+	"pdf": "A PDF", "html": "An HTML page", "svg": "An SVG picture", "video": "A video", "audio": "An audio file",
 }
 
 func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRead {
@@ -112,12 +115,17 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 		r.image, r.row = drawBitmap(b, docPixelsMax)
 	case "binary":
 		r.row = notText
+	case "csv", "tsv":
+		r.table, r.err = readTable(ctx, m, fleet, req.path, d.Kind)
+	case "html":
+		r.row = docKindNouns[d.Kind] + docCannot
+		r.window, r.err = m.DocWindow(ctx, fleet, req.path, req.from)
 	default:
 		noun, ok := docKindNouns[d.Kind]
 		if !ok {
 			noun = "This file"
 		}
-		r.row = noun + " cannot be shown in this window."
+		r.row = noun + docCannot
 	}
 	return r
 }
@@ -223,7 +231,7 @@ func (a *App) loadDoc() {
 			return
 		}
 		st.doc, st.ok = r.doc, true
-		st.window, st.body, st.image, st.row = r.window, r.body, r.image, r.row
+		st.window, st.body, st.image, st.row, st.table = r.window, r.body, r.image, r.row, r.table
 		st.srcLines = nil
 	}
 	if post == nil {
