@@ -64,6 +64,10 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 			a.docRow(c, k, a.doc.row, false)
 			return
 		}
+		if a.DocSource {
+			a.docSource(c, k, p)
+			return
+		}
 		a.markdownOf(c, a.linkedRefs(shownText(a.doc.body)), kit.DocTheme(c))
 	case "text":
 		a.docText(c, k, p, d)
@@ -99,6 +103,7 @@ func (a *App) docHead(c *ui.Context, k kit.Colors, p palette, d Doc) {
 				ui.Text(c, stamp(d.At)).FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
 			}
 		})
+		a.docTools(c, k, p, d)
 		if d.Prev != nil || d.Next != nil {
 			ui.Row(c).Gap(kit.Space16).Children(func() {
 				if d.Prev != nil && kit.DocStep(c, k, shownText(d.Prev.Name), false) {
@@ -238,7 +243,7 @@ func (a *App) docText(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			lines[i] += "… " + docSize(cut.Bytes) + " more on this line"
 		}
 	}
-	kit.DocLines(c, k, w.From, lines)
+	kit.DocLines(c, k, w.From, lines, a.DocWrap)
 }
 
 func expandTabs(s string) string {
@@ -277,4 +282,17 @@ func docSize(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
 	}
+}
+
+func (a *App) docSource(c *ui.Context, k kit.Colors, p palette) {
+	body := a.doc.body
+	if body == "" {
+		a.quiet(c, p, "This file is empty.")
+		return
+	}
+	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = expandTabs(shownText(strings.TrimSuffix(line, "\r")))
+	}
+	kit.DocLines(c, k, 1, lines, a.DocWrap)
 }

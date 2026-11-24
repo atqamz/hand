@@ -51,7 +51,7 @@ func DocNotice(c *ui.Context, k Colors, text string, actions func()) {
 	})
 }
 
-func DocLines(c *ui.Context, k Colors, first int, lines []string) {
+func DocLines(c *ui.Context, k Colors, first int, lines []string, wrap bool) {
 	last := first + len(lines) - 1
 	width := max(len(strconv.Itoa(last)), 3)
 	numbers := make([]string, len(lines))
@@ -59,6 +59,21 @@ func DocLines(c *ui.Context, k Colors, first int, lines []string) {
 		numbers[i] = strings.Repeat(" ", width-len(strconv.Itoa(first+i))) + strconv.Itoa(first+i)
 	}
 	gw, _ := c.MeasureText(1e6, ui.Span{Text: strings.Repeat("0", docDigits), Font: "monospace", Size: Meta.Size})
+	if wrap {
+		ui.Column(c).Padding(Space6, 0).Radius(RadiusMD).Background(k.Card).Border(1, k.Line).Clip().
+			Label("Text, wrapped").Children(func() {
+			for i, line := range lines {
+				ui.Row(c).Children(func() {
+					ui.Text(c, numbers[i]).Font("monospace").FontSize(Meta.Size).
+						FixedLineHeight(Meta.Line).TextColor(k.Muted).NoWrap().Unselectable().
+						Width(gw+docGutter).Padding(0, Space10, 0, Space12).Shrink(0).TextAlign(ui.End)
+					ui.Text(c, line).Font("monospace").FontSize(Meta.Size).
+						FixedLineHeight(Meta.Line).Grow(1).MinWidth(0).Padding(0, Space12, 0, 0)
+				})
+			}
+		})
+		return
+	}
 	ui.Row(c).Padding(Space6, 0).Radius(RadiusMD).Background(k.Card).Border(1, k.Line).Clip().
 		Label("Text").Children(func() {
 		ui.Text(c, strings.Join(numbers, "\n")).Font("monospace").FontSize(Meta.Size).
@@ -108,4 +123,24 @@ func DocTheme(c *ui.Context) *markdown.Theme {
 			Top: top / Message.Size, Bottom: Space4 / Message.Size}
 	}
 	return th
+}
+
+func DocToggle(c *ui.Context, k Colors, key, label string, on bool) bool {
+	state := label + ", off"
+	if on {
+		state = label + ", on"
+	}
+	el := ui.ButtonBase(c.Key(key)).Height(Control).Padding(0, Space10).Radius(RadiusMD).
+		Border(1, k.LineStrong).Background(k.BG).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Label(state)
+	if on {
+		el.Background(k.AccentBG).Border(2, k.Accent)
+	}
+	el.Children(func() {
+		t := ui.Text(c, label).FontSize(Body.Size).TextColor(k.FG).SingleLine()
+		if on {
+			t.Bold().TextColor(k.Accent)
+		}
+	})
+	return el.Clicked()
 }

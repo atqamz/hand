@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -304,6 +305,10 @@ func (r *Router) DocWindow(ctx context.Context, fleet, path string, from int) (D
 
 func (r *Router) DocBytes(ctx context.Context, fleet, path string) ([]byte, error) {
 	return route(r, fleet, func(m ReadModel) ([]byte, error) { return m.DocBytes(ctx, fleet, path) })
+}
+
+func (r *Router) DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error) {
+	return route(r, fleet, func(m ReadModel) (int64, error) { return m.DocStream(ctx, fleet, path, dst) })
 }
 
 func (r *Router) AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error) {
