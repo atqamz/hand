@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"github.com/atqamz/hand/internal/qr"
 	"net"
 	"net/http"
 	"net/url"
@@ -574,7 +575,7 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 	}
 	code, until := b.mint(b.now(), set, base, false)
 	link := base + b.o.Base + "/pair#" + code
-	qr, _ := qrSVG(link, "QR code for the pairing link")
+	qr, _ := qr.SVG(link, "QR code for the pairing link")
 	w.Header().Set("Cache-Control", "no-store")
 	extra := map[string]any{"Code": code, "PairLink": link, "QR": qr, "Expires": until, "Address": base, "Plain": plainHTTP(base), "PairURL": base + b.o.Base + "/pair", "Set": set}
 	if len(set) > 1 {
@@ -606,7 +607,7 @@ func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
 		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This host cannot show a pairing link: its iroh relay address does not fit one."})
 		return
 	}
-	qr, _ := qrSVG(link, "QR code for the Hand app pairing link")
+	qr, _ := qr.SVG(link, "QR code for the Hand app pairing link")
 	w.Header().Set("Cache-Control", "no-store")
 	b.connectPage(w, r, http.StatusOK, map[string]any{"AppLink": link, "AppQR": qr, "AppExpires": until})
 }
