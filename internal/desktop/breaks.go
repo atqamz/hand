@@ -36,7 +36,7 @@ func softBreaks(src string) string {
 func markBreaks(lines []string, depth int) []string {
 	out := slices.Clone(lines)
 	kinds := make([]lineKind, len(lines))
-	fence, fenceIndent, codeIndent, math := "", 0, 0, ""
+	fence, fenceIndent, codeIndent, math, mathEnds := "", 0, 0, "", -1
 	inList, table, afterDef := false, false, false
 	for i := 0; i < len(lines); i++ {
 		l := lines[i]
@@ -48,6 +48,9 @@ func markBreaks(lines []string, depth int) []string {
 		}
 		wasDef := afterDef
 		afterDef = false
+		if math != "" && t != "" && ind <= mathEnds {
+			math = ""
+		}
 		switch {
 		case math != "":
 			if strings.HasSuffix(strings.TrimRight(l, " \t"), math) {
@@ -78,7 +81,10 @@ func markBreaks(lines []string, depth int) []string {
 				fence, fenceIndent = opensFence(t), ind
 			case mathOK:
 				if !mathDone {
-					math = closer
+					math, mathEnds = closer, -1
+					if inList && ind > 0 {
+						mathEnds = ind - 1
+					}
 				}
 			case refDef.MatchString(l):
 				afterDef = strings.HasSuffix(strings.TrimSpace(l), ":")
@@ -110,7 +116,7 @@ func markBreaks(lines []string, depth int) []string {
 					fence, fenceIndent = f, ind
 				} else if ok {
 					if !d {
-						math = c
+						math, mathEnds = c, ind
 					}
 				} else {
 					kinds[i] = kindItem
