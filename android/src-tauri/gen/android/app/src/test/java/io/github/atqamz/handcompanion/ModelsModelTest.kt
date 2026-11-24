@@ -1,7 +1,12 @@
 package io.github.atqamz.handcompanion
 
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -128,29 +133,29 @@ class ModelsModelTest {
   }
 
   @Test
-  fun aRefreshRereadsTheModelsAndNeverPostsTheRefreshRoute() = runBlocking {
+  fun aReloadRereadsTheModelsAndNeverPostsTheRefreshRoute() = runBlocking {
     val board = ModelsBoard()
     val model = ModelsModel(FLEET, board)
     model.load()
     board.models = {
       modelsRaw("opus").let { Raw(200, it.body.replace("\"haiku\",\"text\":\"haiku\"", "\"haiku\",\"text\":\"haiku\"},{\"name\":\"fable\",\"text\":\"fable\"")) }
     }
-    model.refreshNow()
+    model.reloadNow()
     assertEquals(listOf("GET /api/v1/models", "GET /api/v1/models"), board.calls.toList())
     assertTrue("fable" in model.state.value.choices.map { it.name })
-    assertFalse(model.state.value.refreshing)
+    assertFalse(model.state.value.reloading)
   }
 
   @Test
-  fun aFailedRefreshShowsTheErrorAndKeepsTheList() = runBlocking {
+  fun aFailedReloadShowsTheErrorAndKeepsTheList() = runBlocking {
     val board = ModelsBoard()
     val model = ModelsModel(FLEET, board)
     model.load()
     board.models = { throw BoardError.Unreachable }
-    model.refreshNow()
+    model.reloadNow()
     assertEquals(CONTROL_UNREACHABLE, model.state.value.error)
     assertEquals(3, model.state.value.choices.size)
-    assertFalse(model.state.value.refreshing)
+    assertFalse(model.state.value.reloading)
   }
 
   @Test
@@ -189,5 +194,40 @@ class ModelsModelTest {
   @Test
   fun theRequestBodyNamesTheRefAndTheModelOnly() {
     assertEquals("{\"ref\":\"s1\",\"model\":\"opus\"}", switchBody("s1", "opus"))
+  }
+
+  @Test
+  fun aSlowEarlierReadNeverOverwritesALaterSwitch() = runBlocking {
+    val started = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val reads = AtomicInteger()
+    val board = ModelsBoard()
+    board.models = {
+      if (reads.getAndIncrement() == 0) {
+        val before = modelsRaw("opus")
+        started.countDown()
+        release.await()
+        before
+      } else {
+        modelsRaw(board.running)
+      }
+    }
+    val model = ModelsModel(FLEET, board)
+    val slow = async(Dispatchers.IO) { model.load() }
+    withContext(Dispatchers.IO) { started.await() }
+    model.switchNow("sonnet", "s1") {}
+    release.countDown()
+    assertFalse(slow.await())
+    assertEquals(listOf("sonnet"), model.state.value.choices.filter { it.current }.map { it.name })
+  }
+
+  @Test
+  fun aSuccessfulReadClearsAnEarlierError() = runBlocking {
+    val board = ModelsBoard(switch = { refusal(409, "conflict", "nothing to switch") })
+    val model = ModelsModel(FLEET, board)
+    model.switchNow("sonnet", "s1") {}
+    assertEquals("nothing to switch", model.state.value.error)
+    model.load()
+    assertNull(model.state.value.error)
   }
 }

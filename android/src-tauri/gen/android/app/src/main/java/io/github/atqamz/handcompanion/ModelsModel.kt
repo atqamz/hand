@@ -33,20 +33,20 @@ data class ModelsState(
   val switchable: Boolean = false,
   val pending: String? = null,
   val switching: String? = null,
-  val refreshing: Boolean = false,
+  val reloading: Boolean = false,
   val error: String? = null
 ) {
   val visible: Boolean
     get() = supported == true && switchable && choices.isNotEmpty()
 
   val busy: Boolean
-    get() = switching != null || refreshing
+    get() = switching != null || reloading
 }
 
 class ModelsUi(
   val state: ModelsState,
   val onPick: (String) -> Unit,
-  val onRefresh: () -> Unit
+  val onReload: () -> Unit
 )
 
 fun modelChoices(data: ModelsData): List<ModelChoice> =
@@ -68,13 +68,10 @@ class ModelsModel(fleet: String, transport: Transport) : ViewModel() {
   val state: StateFlow<ModelsState> = mutableState
 
   private val client = BoardClient(fleet, transport)
+  private var newest = 0
 
   fun reload() {
-    viewModelScope.launch { load() }
-  }
-
-  fun refresh() {
-    viewModelScope.launch { refreshNow() }
+    viewModelScope.launch { reloadNow() }
   }
 
   fun pick(model: String, ref: String?, after: suspend () -> Unit) {
@@ -82,11 +79,14 @@ class ModelsModel(fleet: String, transport: Transport) : ViewModel() {
   }
 
   suspend fun load(): Boolean {
+    val mine = ++newest
     try {
       val data = client.read("models", ModelsData.serializer()).data
+      if (mine != newest) return false
       mutableState.update {
         it.copy(
           supported = true,
+          error = null,
           choices = modelChoices(data),
           switchable = data.switchable,
           pending = data.switching?.takeIf(String::isNotEmpty)
@@ -94,6 +94,7 @@ class ModelsModel(fleet: String, transport: Transport) : ViewModel() {
       }
       return true
     } catch (error: BoardError) {
+      if (mine != newest) return false
       mutableState.update {
         when {
           error == BoardError.Unpaired -> it
@@ -105,13 +106,13 @@ class ModelsModel(fleet: String, transport: Transport) : ViewModel() {
     }
   }
 
-  suspend fun refreshNow() {
+  suspend fun reloadNow() {
     if (mutableState.value.busy) return
-    mutableState.update { it.copy(refreshing = true, error = null) }
+    mutableState.update { it.copy(reloading = true, error = null) }
     try {
       load()
     } finally {
-      mutableState.update { it.copy(refreshing = false) }
+      mutableState.update { it.copy(reloading = false) }
     }
   }
 

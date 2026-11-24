@@ -42,19 +42,19 @@ internal fun ModelMenuBody(ui: ModelsUi) {
           style = type.bodyMedium
         )
       },
-      { ui.onPick(choice.name) },
+      { if (!choice.current) ui.onPick(choice.name) },
       Modifier.semantics { selected = choice.current },
       trailingIcon = {
         if (choice.current) Icon(HandIcons.Copied, "Current", Modifier.size(16.dp), hand.ink(Tone.Accent))
       },
-      enabled = !state.busy && !choice.current
+      enabled = !state.busy
     )
   }
   state.pending?.let { Text("next turn: $it", Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = hand.muted, style = type.bodySmall) }
   HorizontalDivider(color = hand.line)
   DropdownMenuItem(
-    { Text(if (state.refreshing) "Refreshing models…" else "Refresh models", style = type.bodyMedium) },
-    ui.onRefresh,
+    { Text(if (state.reloading) "Reloading models…" else "Reload models", style = type.bodyMedium) },
+    ui.onReload,
     enabled = !state.busy
   )
   state.error?.let {

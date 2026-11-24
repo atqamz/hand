@@ -679,7 +679,7 @@ class HandActivity : ComponentActivity() {
                 ModelsUi(
                   modelsState,
                   { name -> models.pick(name, state.supervisor?.ref) { fleet.refresh() } },
-                  models::refresh
+                  models::reload
                 )
               holder.SaveableStateProvider("fleet:$open") {
                 FleetScreen(

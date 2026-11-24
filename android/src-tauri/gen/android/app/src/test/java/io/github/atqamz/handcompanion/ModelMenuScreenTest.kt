@@ -39,9 +39,9 @@ class ModelMenuScreenTest {
 
   @Test fun switchingDark() = shot(true, open.copy(switching = "sonnet", pending = "sonnet high"))
 
-  @Test fun refreshingLight() = shot(false, open.copy(refreshing = true))
+  @Test fun reloadingLight() = shot(false, open.copy(reloading = true))
 
-  @Test fun refreshingDark() = shot(true, open.copy(refreshing = true))
+  @Test fun reloadingDark() = shot(true, open.copy(reloading = true))
 
   @Test
   fun errorLight() = shot(false, open.copy(error = "s2 is on screen, but s3 is running now; refresh and try again"))
