@@ -577,7 +577,7 @@ A device paired to a host through [Hand's Companion](#hands-companion), its Andr
 
 ### Pairing code
 
-The one-time code in the [companion link](#companion-link); the whole link is at most 213 bytes, and the code never goes in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [Companion](#companion).
+The one-time code in the [companion link](#companion-link); the whole link is at most 213 bytes, and the code never goes in a query, server log or report. It lasts 5 minutes and works once: the app redeems it with `POST /<fleet id>/api/v1/pair`, or through the pair page, and receives the cookie that makes it a [Companion](#companion). The Companion page and `hand companion code` make one.
 
 ### Companion access over iroh
 
