@@ -139,7 +139,7 @@ func (a *App) docCrumbs(c *ui.Context, k kit.Colors, p palette, d Doc) {
 }
 
 func (a *App) fullDocPath(rel string) string {
-	if a.Fleet.Host != "" {
+	if a.Fleet.Host != "" || a.Fleet.Home == "" {
 		return rel
 	}
 	return filepath.Join(a.Fleet.Home, filepath.FromSlash(rel))
