@@ -25,6 +25,7 @@ import kotlinx.serialization.json.longOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -1767,13 +1768,89 @@ class ChatModelTest {
   }
 
   @Test
-  fun revealStopsWhenAnOlderPageFails() = runBlocking {
-    val board = revealBoard("")
+  fun revealStopsWhenAnOlderPageFailsAndDoesNotSayTheEntryIsGone() = runBlocking {
+    val board = revealBoard(timeline(0, entry("i1", "operator", "2026-11-01T09:00:00Z", "Old", input = 1)))
     board.olderAnswer = { refused(500, "internal", "boom") }
     val chat = model(board)
     chat.load()
     chat.revealNow("i1", "")
+    assertTrue(chat.state.value.revealFailed)
+    assertFalse(chat.state.value.revealMissing)
+    assertNull(chat.state.value.focus)
+    board.olderAnswer = {
+      Raw(200, timeline(0, entry("i1", "operator", "2026-11-01T09:00:00Z", "Old", input = 1)))
+    }
+    chat.revealNow("i1", "")
+    assertFalse(chat.state.value.revealFailed)
+    assertFalse(chat.state.value.revealMissing)
+    assertNotNull(chat.state.value.focus)
+  }
+
+  @Test
+  fun revealPicksTheReplyWhoseTextAgreesWhenTwoShareATimestamp() = runBlocking {
+    val at = "2026-11-01T08:00:00Z"
+    val board =
+      revealBoard(
+        timeline(
+          0,
+          entry("s2", "supervisor", at, "Second reply about the kiln schedule", no = 4),
+          entry("s1", "supervisor", at, "First reply about the amber profile", no = 3)
+        )
+      )
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("y9", at, "First reply about the amber profile, in full and longer than held")
+    val held = chat.state.value
+    assertEquals(
+      "First reply about the amber profile",
+      displayEntries(held.page, held.older).first { it.key == held.focus }.entry.text
+    )
+    chat.revealNow("y10", at, "Second reply about the kiln schedule")
+    val again = chat.state.value
+    assertEquals(
+      "Second reply about the kiln schedule",
+      displayEntries(again.page, again.older).first { it.key == again.focus }.entry.text
+    )
+  }
+
+  @Test
+  fun revealWithTwoRepliesAtOneTimestampAndNoAgreeingTextFindsNothing() = runBlocking {
+    val at = "2026-11-01T08:00:00Z"
+    val board =
+      revealBoard(
+        timeline(
+          0,
+          entry("s2", "supervisor", at, "Alpha", no = 4),
+          entry("s1", "supervisor", at, "Beta", no = 3)
+        )
+      )
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("y9", at, "Gamma")
+    assertNull(chat.state.value.focus)
     assertTrue(chat.state.value.revealMissing)
+  }
+
+  @Test
+  fun revealStopsAfterTheCapOfPagesWithTheNotFoundWording() = runBlocking {
+    var page = 0
+    val board = revealBoard("")
+    board.olderAnswer = {
+      page++
+      Raw(
+        200,
+        timeline(
+          1000 - page,
+          entry("o$page", "operator", "2026-10-01T09:00:00Z", "Old $page", input = 100L + page)
+        )
+      )
+    }
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("i1", "")
+    assertEquals(REVEAL_PAGES, board.calls.count { "before=" in it })
+    assertTrue(chat.state.value.revealMissing)
+    assertFalse(chat.state.value.revealFailed)
   }
 
   @Test

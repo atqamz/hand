@@ -84,6 +84,9 @@ data class TimelineEvent(
 )
 
 const val REVEAL_MISSING = "That entry is no longer in the conversation view."
+const val REVEAL_FAILED = "Older messages could not be read."
+const val REVEAL_PAGES = 20
+private const val REVEAL_PREFIX = 64
 
 fun entryMatches(entry: TimelineEntry, ref: String, at: String) =
   when (ref.firstOrNull()) {
@@ -91,6 +94,16 @@ fun entryMatches(entry: TimelineEntry, ref: String, at: String) =
     'y' -> entry.role == "supervisor" && entry.at == at
     else -> false
   }
+
+fun entryPick(candidates: List<ChatEntry>, text: String): ChatEntry? {
+  if (candidates.size <= 1) return candidates.firstOrNull()
+  val wanted = text.trim().take(REVEAL_PREFIX)
+  if (wanted.isEmpty()) return null
+  return candidates.firstOrNull {
+    val held = it.entry.text.trim()
+    held.isNotEmpty() && (held.startsWith(wanted) || wanted.startsWith(held.take(REVEAL_PREFIX)))
+  }
+}
 
 fun entryIdentity(entry: TimelineEntry): String =
   when {
@@ -131,7 +144,8 @@ data class ChatState(
   val now: Long = 0,
   val history: Boolean = false,
   val focus: String? = null,
-  val revealMissing: Boolean = false
+  val revealMissing: Boolean = false,
+  val revealFailed: Boolean = false
 )
 
 enum class ChatBody {
@@ -1017,24 +1031,38 @@ class ChatModel(
       }
     }
 
-  fun reveal(ref: String, at: String) {
-    viewModelScope.launch { revealNow(ref, at) }
+  private var revealTarget: Triple<String, String, String>? = null
+
+  fun reveal(ref: String, at: String, text: String = "") {
+    revealTarget = Triple(ref, at, text)
+    viewModelScope.launch { revealNow(ref, at, text) }
   }
 
-  suspend fun revealNow(ref: String, at: String) {
-    mutableState.update { it.copy(focus = null, revealMissing = false) }
+  fun retryReveal() {
+    val target = revealTarget ?: return
+    viewModelScope.launch { revealNow(target.first, target.second, target.third) }
+  }
+
+  suspend fun revealNow(ref: String, at: String, text: String = "") {
+    mutableState.update { it.copy(focus = null, revealMissing = false, revealFailed = false) }
     mutableState.first { !it.loading }
+    var pages = 0
     while (true) {
       val held = mutableState.value
-      val found = displayEntries(held.page, held.older).firstOrNull { entryMatches(it.entry, ref, at) }
+      val found =
+        entryPick(displayEntries(held.page, held.older).filter { entryMatches(it.entry, ref, at) }, text)
       if (found != null) {
         mutableState.update { it.copy(focus = found.key) }
         return
       }
       val before = held.before
-      if (before <= 0) break
+      if (before <= 0 || pages >= REVEAL_PAGES) break
       older()
-      if (mutableState.value.before == before) break
+      pages++
+      if (mutableState.value.before == before) {
+        mutableState.update { it.copy(revealFailed = true) }
+        return
+      }
     }
     mutableState.update { it.copy(revealMissing = true) }
   }

@@ -901,6 +901,7 @@ fun ChatScreen(
   head: ChatHead,
   onControl: (HeadControl) -> Unit = {},
   onSearch: () -> Unit = {},
+  onRetryReveal: () -> Unit = {},
   input: MutableState<TextFieldValue> = rememberDraftField(state.draft)
 ) {
   var openText by rememberSaveable { mutableStateOf(expand.joinToString("\u0000")) }
@@ -928,6 +929,21 @@ fun ChatScreen(
               color = LocalHand.current.ink(Tone.Wait),
               style = type.bodySmall
             )
+          }
+          if (state.revealFailed) {
+            Row(
+              Modifier.fillMaxWidth().padding(16.dp, 4.dp).semantics { liveRegion = LiveRegionMode.Polite },
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+              Text(
+                REVEAL_FAILED,
+                Modifier.weight(1f),
+                color = LocalHand.current.ink(Tone.Wait),
+                style = type.bodySmall
+              )
+              Action("Retry", onRetryReveal)
+            }
           }
           Box(Modifier.weight(1f)) {
             ChatContent(

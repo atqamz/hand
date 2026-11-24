@@ -229,8 +229,11 @@ class ChatScreenTest {
   @Test
   fun revealedEntryLight() {
     val state = pageState()
-    shot(false, state.copy(history = true, focus = state.page[1].key, aboveBottom = true))
+    shot(false, state.copy(history = true, focus = state.page[0].key, aboveBottom = true))
   }
+
+  @Test
+  fun revealFailedLight() = shot(false, pageState().copy(history = true, revealFailed = true))
 
   @Test
   fun revealMissingLight() = shot(false, pageState().copy(history = true, revealMissing = true))

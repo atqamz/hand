@@ -57,6 +57,8 @@ class HistoryScreenTest {
 
   @Test fun moreLight() = shot(false, many)
 
+  @Test fun moreCappedLight() = shot(false, many.copy(limit = HISTORY_MAX))
+
   @Test fun searchingLight() = shot(false, HistoryState(query = "amber", searching = true))
 
   @Test fun emptyLight() = shot(false, HistoryState(query = "zzz", searched = "zzz"))
@@ -65,7 +67,7 @@ class HistoryScreenTest {
 
   @Test
   fun errorLight() =
-    shot(false, HistoryState(query = "amber", searched = "amber", problem = "q must not be blank"))
+    shot(false, HistoryState(query = "amber", searched = "amber", problem = "The Board could not be reached."))
 
   @Test
   fun errorDark() =

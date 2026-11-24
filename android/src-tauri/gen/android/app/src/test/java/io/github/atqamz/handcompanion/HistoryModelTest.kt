@@ -164,11 +164,100 @@ class HistoryModelTest {
   @Test
   fun aBlankQueryAsksNothing() = runBlocking {
     val board = HistoryBoard()
-    val model = HistoryModel(FLEET, board)
+    val model = HistoryModel(FLEET, board, Dispatchers.Unconfined)
     model.edit("   ")
     model.search()
     assertTrue(board.calls.isEmpty())
     assertEquals("   ", model.state.value.query)
+  }
+
+  @Test
+  fun searchTrimsTheQueryAndAsksForAPageOfTwenty() = runBlocking {
+    val board = HistoryBoard(search = { searchRaw(listOf(hit("i1", "operator", "«a» b"))) })
+    val model = HistoryModel(FLEET, board, Dispatchers.Unconfined)
+    model.edit("  amber kiln  ")
+    model.search()
+    assertEquals(listOf("GET /api/v1/history/search?q=amber+kiln&limit=20"), board.calls.toList())
+    assertEquals("amber kiln", model.state.value.searched)
+    assertEquals(1, model.state.value.hits.size)
+  }
+
+  @Test
+  fun moreAsksForFiftyOnceAndOnlyWhenTheBoardHasMore() = runBlocking {
+    val board = HistoryBoard(search = { searchRaw(listOf(hit("i1", "operator", "«a»")), 60, true) })
+    val model = HistoryModel(FLEET, board, Dispatchers.Unconfined)
+    model.edit("a")
+    model.search()
+    model.more()
+    assertEquals(
+      listOf("GET /api/v1/history/search?q=a&limit=20", "GET /api/v1/history/search?q=a&limit=50"),
+      board.calls.toList()
+    )
+    assertEquals(HISTORY_MAX, model.state.value.limit)
+    model.more()
+    assertEquals(2, board.calls.size)
+  }
+
+  @Test
+  fun moreAsksNothingWhenTheBoardHasNoMore() = runBlocking {
+    val board = HistoryBoard(search = { searchRaw(listOf(hit("i1", "operator", "«a»")), 1, false) })
+    val model = HistoryModel(FLEET, board, Dispatchers.Unconfined)
+    model.edit("a")
+    model.search()
+    model.more()
+    assertEquals(1, board.calls.size)
+  }
+
+  @Test
+  fun retryAsksAgainForTheQueryAndTheLimitItHad() = runBlocking {
+    val board = HistoryBoard(search = { searchRaw(listOf(hit("i1", "operator", "«a»")), 60, true) })
+    val model = HistoryModel(FLEET, board, Dispatchers.Unconfined)
+    model.edit("a")
+    model.search()
+    model.more()
+    board.search = { throw BoardError.Unreachable }
+    model.retry()
+    assertEquals("The Board could not be reached.", model.state.value.problem)
+    board.search = { searchRaw(listOf(hit("i1", "operator", "«a»")), 60, true) }
+    model.retry()
+    assertNull(model.state.value.problem)
+    assertEquals("GET /api/v1/history/search?q=a&limit=50", board.calls.last())
+    assertEquals(4, board.calls.size)
+  }
+
+  @Test
+  fun retryAfterAFirstFailureUsesTheTypedQuery() = runBlocking {
+    val board = HistoryBoard(search = { throw BoardError.Unreachable })
+    val model = HistoryModel(FLEET, board, Dispatchers.Unconfined)
+    model.edit(" amber ")
+    model.search()
+    board.search = { searchRaw(listOf(hit("i1", "operator", "«amber»"))) }
+    model.retry()
+    assertEquals("GET /api/v1/history/search?q=amber&limit=20", board.calls.last())
+    assertEquals(1, model.state.value.hits.size)
+  }
+
+  @Test
+  fun anEntryAnswerForAHitThatIsNoLongerOpenIsDropped() {
+    val release = java.util.concurrent.CountDownLatch(1)
+    val board =
+      HistoryBoard(
+        entry = {
+          if (it == "i1") release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+          entryRaw(it, "operator", "text of $it")
+        }
+      )
+    val model = HistoryModel(FLEET, board)
+    model.open(hit("i1", "operator", "«a»"))
+    model.open(hit("i2", "operator", "«b»"))
+    val deadline = System.currentTimeMillis() + 10_000
+    while (model.state.value.open?.entry == null && System.currentTimeMillis() < deadline) Thread.sleep(10)
+    assertEquals("text of i2", model.state.value.open?.entry?.text)
+    release.countDown()
+    while (board.calls.count { it.endsWith("/i1") } < 1 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+    Thread.sleep(200)
+    assertEquals("i2", model.state.value.open?.hit?.ref)
+    assertEquals("text of i2", model.state.value.open?.entry?.text)
   }
 
   @Test

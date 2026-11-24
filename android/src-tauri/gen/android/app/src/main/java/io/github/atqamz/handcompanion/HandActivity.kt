@@ -282,7 +282,8 @@ class HandActivity : ComponentActivity() {
       onDetach = model::detach,
       head = head,
       onControl = onControl,
-      onSearch = onSearch
+      onSearch = onSearch,
+      onRetryReveal = model::retryReveal
     )
   }
 
@@ -308,7 +309,7 @@ class HandActivity : ComponentActivity() {
       model::close,
       model::retryOpen,
       { hit ->
-        chat.reveal(hit.ref, hit.at)
+        chat.reveal(hit.ref, hit.at, state.open?.entry?.text ?: hit.text)
         onShow()
       },
       onTarget
