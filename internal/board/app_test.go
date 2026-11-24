@@ -3,6 +3,7 @@ package board_test
 import (
 	"bytes"
 	"context"
+	"github.com/atqamz/hand/internal/qr"
 	"html"
 	"log"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/sidecar"
 )
 
@@ -68,7 +68,7 @@ func TestTheHandAppLinkIsShownAsTextAndAQRCode(t *testing.T) {
 	p, id, _ := appRig(t, &sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay})
 	body, code := p.appCode(id)
 	want := "handboard://c#v=1&e=" + appEndpoint + "&f=" + id + "&c=" + code + "&r=https%3A%2F%2Frelay.example.test%3A7842%2F"
-	qr, err := board.QRSVG(want, "QR code for the Hand app pairing link")
+	qr, err := qr.SVG(want, "QR code for the Hand app pairing link")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestTheHandAppLinkOnTheCompanionPageCarriesTheHostName(t *testing.T) {
 	p.h = p.fx.handler()
 	body, code := p.appCode(id)
 	want := "handboard://c#v=1&e=" + appEndpoint + "&f=" + id + "&c=" + code + "&r=https%3A%2F%2Frelay.example.test%3A7842%2F&n=work-laptop"
-	qr, err := board.QRSVG(want, "QR code for the Hand app pairing link")
+	qr, err := qr.SVG(want, "QR code for the Hand app pairing link")
 	if err != nil {
 		t.Fatal(err)
 	}
