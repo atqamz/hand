@@ -103,6 +103,9 @@ func (a *App) View(c *ui.Context) {
 	shell := ui.Row(c).Fill()
 	if docPage {
 		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
+		if a.Screen == DocScreen {
+			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox)
+		}
 	}
 	shell.Children(func() {
 		if !a.narrow {
