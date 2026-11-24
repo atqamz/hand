@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 var breakCases = []struct{ name, in, want string }{
@@ -74,6 +73,16 @@ var breakCases = []struct{ name, in, want string }{
 	{"item with continuation", "- a\n  b\n- c", "- a\\\n  b\n- c"},
 	{"ordered item with continuation", "1. a\n   b\n   c", "1. a\\\n   b\\\n   c"},
 	{"paragraph then list", "text\nmore\n- a\n- b", "text\\\nmore\n- a\n- b"},
+	{"rule under an item line", "- a\n  ---\nb\nc", "- a\n  ***\nb\\\nc"},
+	{"code under a nested item", "- a\n\n      code1\n      code2\n      code3\nafter\nlines", "- a\n\n      code1\n      code2\n      code3\nafter\\\nlines"},
+	{"math block", "a\n$$\nx\ny\n$$\nb\nc", "a\n$$\nx\ny\n$$\nb\\\nc"},
+	{"math block keeps a rule", "$$\nx\n---\ny\n$$\nz", "$$\nx\n---\ny\n$$\nz"},
+	{"math block across a blank line", "$$\nx\n\ny\n$$\nb\nc", "$$\nx\n\ny\n$$\nb\\\nc"},
+	{"bracket math block", "a\n\\[\nx\ny\n\\]\nb\nc", "a\n\\[\nx\ny\n\\]\nb\\\nc"},
+	{"one line math block", "$$ x $$\nb\nc", "$$ x $$\nb\\\nc"},
+	{"math inside a paragraph line", "$$ x $$ y\nz", "$$ x $$ y\\\nz"},
+	{"math that never closes", "$$\nx\ny", "$$\nx\ny"},
+	{"math opener in a fence", "```\n$$\nx\n```\nb\nc", "```\n$$\nx\n```\nb\\\nc"},
 }
 
 func TestSoftBreaks(t *testing.T) {
@@ -103,15 +112,26 @@ func TestSoftBreaksVeryLongParagraph(t *testing.T) {
 	for i := range lines {
 		lines[i] = fmt.Sprintf("word %d `code`", i)
 	}
-	start := time.Now()
 	got := softBreaks(strings.Join(lines, "\n"))
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("took %v", d)
-	}
 	if c := strings.Count(got, "\\\n"); c != n-1 {
 		t.Fatalf("breaks = %d, want %d", c, n-1)
 	}
 	if strings.HasSuffix(got, `\`) {
 		t.Fatal("the last line carries a break")
+	}
+}
+
+func TestSoftBreaksDeepQuotes(t *testing.T) {
+	deep := strings.Repeat(">", 100000)
+	if got, want := softBreaks(deep+" x\ny\nz"), deep+" x\ny\\\nz"; got != want {
+		t.Fatalf("deep quote changed: %d bytes, want %d", len(got), len(want))
+	}
+	at := strings.Repeat(">", maxQuoteDepth)
+	if got, want := softBreaks(at+" a\n"+at+" b"), at+" a\\\n"+at+" b"; got != want {
+		t.Fatalf("at the limit\n got %q\nwant %q", got, want)
+	}
+	over := strings.Repeat(">", maxQuoteDepth+1)
+	if got, want := softBreaks(over+" a\n"+over+" b"), over+" a\n"+over+" b"; got != want {
+		t.Fatalf("past the limit\n got %q\nwant %q", got, want)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const maxQuoteDepth = 32
+
 type lineKind uint8
 
 const (
@@ -23,21 +25,18 @@ var (
 	delimRow    = regexp.MustCompile(`^[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$`)
 )
 
-// softBreaks makes mygo read Markdown as the Board renders it: a line of text
-// above `---` stays a paragraph above a rule, and each newline inside a
-// paragraph is a line break.
 func softBreaks(src string) string {
 	if !strings.ContainsAny(src, "\n\r") {
 		return src
 	}
 	text := strings.ReplaceAll(strings.ReplaceAll(src, "\r\n", "\n"), "\r", "\n")
-	return strings.Join(markBreaks(strings.Split(text, "\n")), "\n")
+	return strings.Join(markBreaks(strings.Split(text, "\n"), 0), "\n")
 }
 
-func markBreaks(lines []string) []string {
+func markBreaks(lines []string, depth int) []string {
 	out := slices.Clone(lines)
 	kinds := make([]lineKind, len(lines))
-	fence, fenceIndent, codeIndent := "", 0, 0
+	fence, fenceIndent, codeIndent, math := "", 0, 0, ""
 	inList, table, afterDef := false, false, false
 	for i := 0; i < len(lines); i++ {
 		l := lines[i]
@@ -50,6 +49,10 @@ func markBreaks(lines []string) []string {
 		wasDef := afterDef
 		afterDef = false
 		switch {
+		case math != "":
+			if strings.HasSuffix(strings.TrimRight(l, " \t"), math) {
+				math = ""
+			}
 		case fence != "":
 			if ind < fenceIndent+4 && closesFence(t, fence) {
 				fence = ""
@@ -68,14 +71,21 @@ func markBreaks(lines []string) []string {
 			if ind == 0 && prevBlank && !bulletItem.MatchString(t) && !orderedItem.MatchString(t) {
 				inList = false
 			}
+			closer, mathDone, mathOK := mathOpens(t)
+			mathOK = mathOK && ind < 4
 			switch {
 			case opensFence(t) != "":
 				fence, fenceIndent = opensFence(t), ind
+			case mathOK:
+				if !mathDone {
+					math = closer
+				}
 			case refDef.MatchString(l):
 				afterDef = strings.HasSuffix(strings.TrimSpace(l), ":")
 			case dashRule(t) && (prev == kindPlain || prev == kindItem && ind > 0):
 				out[i] = l[:len(l)-len(t)] + "***"
 			case rule(t):
+			case strings.HasPrefix(t, ">") && depth >= maxQuoteDepth:
 			case strings.HasPrefix(t, ">"):
 				j := i
 				var prefixes, inner []string
@@ -88,7 +98,7 @@ func markBreaks(lines []string) []string {
 					prefixes = append(prefixes, lines[j][:len(lines[j])-len(rest)])
 					inner = append(inner, rest)
 				}
-				for k, s := range markBreaks(inner) {
+				for k, s := range markBreaks(inner, depth+1) {
 					out[i+k] = prefixes[k] + s
 				}
 				i = j - 1
@@ -142,6 +152,27 @@ func indentOf(l string) int {
 	return n
 }
 
+func mathOpens(t string) (closer string, done, ok bool) {
+	open := "$$"
+	closer = "$$"
+	switch {
+	case strings.HasPrefix(t, "$$"):
+	case strings.HasPrefix(t, `\[`):
+		open, closer = `\[`, `\]`
+	default:
+		return "", false, false
+	}
+	body := t[len(open):]
+	j := strings.Index(body, closer)
+	if j < 0 {
+		return closer, false, true
+	}
+	if strings.Trim(body[j+len(closer):], " \t") != "" {
+		return "", false, false
+	}
+	return closer, true, true
+}
+
 func opensFence(t string) string {
 	for _, c := range []string{"`", "~"} {
 		run := len(t) - len(strings.TrimLeft(t, c))
@@ -186,8 +217,6 @@ func hardEnd(l string) bool {
 	return (len(l)-len(strings.TrimRight(l, `\`)))%2 == 1
 }
 
-// codeSpanNewlines reports, per line, whether the newline after it lies inside
-// an inline code span; a break there would land in the code.
 func codeSpanNewlines(lines []string) []bool {
 	in := make([]bool, len(lines))
 	text := strings.Join(lines, "\n")
