@@ -1875,6 +1875,31 @@ func TestOrientMovesAParkedTaskToInboxWithAParkedColumnOnlyWhenSomeInboxTaskIsPa
 	}
 }
 
+func TestOrientClipsAParkedNoteToTheTitleBudget(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	task, _ := st.AddTask(ctx, "hand", "Alpha", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	note := strings.Repeat("waiting on the vendor reply ", 7)
+	note = strings.TrimSpace(note)
+	if _, err := st.Transition(ctx, task.ID, state.StatusInbox, state.TransitionOpts{Note: note}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if strings.Contains(out, note) {
+		t.Fatalf("orient carries the whole %d-byte note:\n%s", len(note), out)
+	}
+	want := "  t1,hand,Alpha," + Clip(note, DefaultBudget.TitleBytes) + "\n"
+	if !strings.Contains(out, want) || len(Clip(note, DefaultBudget.TitleBytes)) > DefaultBudget.TitleBytes || !strings.Contains(out, "…") {
+		t.Fatalf("orient missing clipped note row %q:\n%s", want, out)
+	}
+}
+
 func TestOrientStaysWithinBudgetForParkedTasksWithLongNotesAndParents(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()

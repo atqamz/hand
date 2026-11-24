@@ -541,7 +541,6 @@ func Nested(tasks []Task) bool {
 	return false
 }
 
-// ParkedTasks maps each inbox task that was parked to the note of its latest park, "" for none.
 func (s *Store) ParkedTasks(ctx context.Context) (map[int64]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT e.task_id, e.detail FROM event e JOIN task t ON t.id = e.task_id WHERE e.kind = 'task.inbox' AND t.status = 'inbox' ORDER BY e.seq`)
 	if err != nil {
