@@ -537,4 +537,37 @@ class MarkdownTest {
       "```\nx\ny" to "<pre><code>x\ny</code></pre>"
     )
   }
+
+  private fun shape(blocks: List<MdBlock>): List<String> =
+    blocks.flatMap {
+      when (it) {
+        is MdParagraph -> listOf("P${it.lines.size}")
+        MdRule -> listOf("HR")
+        is MdHeading -> listOf("H")
+        is MdCodeBlock -> listOf("CODE")
+        is MdQuote -> listOf("QUOTE") + shape(it.blocks)
+        else -> listOf("OTHER")
+      }
+    }
+
+  private fun shape(text: String) = shape(markdown(text)).joinToString(" ")
+
+  @Test
+  fun theBlocksOfTheStandupShapeEqualTheBoardAndDesktopShapes() {
+    val standup =
+      "**Shipped**\nExport job retried clean\nManifest written last\nBackfill at 30 days\n---\n**Next**\nRegion split\nAlert on stale manifest\n---\n**Blocked**\nNothing\n"
+    for ((name, src, want) in
+      listOf(
+        Triple("standup", standup, "P4 HR P3 HR P2"),
+        Triple("label above a rule", "Label\n---\nbody", "P1 HR P1"),
+        Triple("rule after a blank line", "a\nb\n\n---\nc\nd", "P2 HR P2"),
+        Triple("heading and lines", "# Title\nfirst\nsecond", "H P2"),
+        Triple("code keeps its rule", "intro\nmore\n```\na\n---\nb\n```\nafter\nlines", "P2 CODE P2"),
+        Triple("quote lines", "> a\n> b\n\nc\nd", "QUOTE P2 P2"),
+        Triple("front matter", "---\ntitle: x\nowner: y\n---\nbody", "HR P2 HR P1"),
+        Triple("crlf", standup.replace("\n", "\r\n"), "P4 HR P3 HR P2")
+      )) {
+      assertEquals(name, want, shape(src))
+    }
+  }
 }

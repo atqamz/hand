@@ -69,7 +69,8 @@ class HandActivity : ComponentActivity() {
           { phoneInfo(Core.phone()) },
           Core::unsaved,
           forgetter = Core::forget,
-          hostForgetter = Core::forgetHost
+          hostForgetter = Core::forgetHost,
+          dropped = { clearFleetDrafts(applicationContext.getSharedPreferences("drafts", MODE_PRIVATE), it) }
         )
       }
     }
@@ -268,6 +269,14 @@ class HandActivity : ComponentActivity() {
       }
     )["$fleet/chat", ChatModel::class.java]
 
+  private fun docModel(fleet: String, path: String): DocModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { DocModel(fleet, path, CoreTransport) }
+      }
+    )["doc:$fleet:$path", DocModel::class.java]
+
   private fun historyModel(fleet: String): HistoryModel =
     ViewModelProvider(
       this,
@@ -348,6 +357,19 @@ class HandActivity : ComponentActivity() {
       },
       onTarget
     )
+  }
+
+  @Composable
+  private fun Doc(
+    fleet: String,
+    path: String,
+    onBack: () -> Unit,
+    onTarget: (ThreadTarget) -> Unit
+  ) {
+    val model = remember(fleet, path) { docModel(fleet, path) }
+    val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model) { model.load() }
+    DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget)
   }
 
   @Composable
@@ -438,6 +460,7 @@ class HandActivity : ComponentActivity() {
         var threads by rememberSaveable { mutableStateOf("") }
         var skills by rememberSaveable { mutableStateOf<String?>(null) }
         var history by rememberSaveable { mutableStateOf<String?>(null) }
+        var docs by rememberSaveable { mutableStateOf("") }
         var alerts by rememberSaveable { mutableStateOf<String?>(null) }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
@@ -475,6 +498,7 @@ class HandActivity : ComponentActivity() {
             decision = null
             web = null
             threads = ""
+            docs = ""
             skills = null
             history = null
             alerts = null
@@ -590,6 +614,7 @@ class HandActivity : ComponentActivity() {
                 model.say(null)
                 fleetModel(it).enter()
                 threads = ""
+                docs = ""
                 skills = null
                 history = null
                 alerts = null
@@ -616,6 +641,7 @@ class HandActivity : ComponentActivity() {
             val shown = decision
             val place = currentTask(threads)
             val attemptRef = place?.takeIf { isRef(it, 'a') }
+            val docPath = currentTask(docs)
             val reportRef = place?.takeIf { isRef(it, 'r') }
             val thread = place?.takeIf { isRef(it, 't') }
             val target: (ThreadTarget) -> Unit = { to ->
@@ -624,7 +650,7 @@ class HandActivity : ComponentActivity() {
                 is ThreadTarget.Decision -> decision = to.ref
                 is ThreadTarget.Attempt -> if (place != to.ref) threads = pushTask(threads, to.ref)
                 is ThreadTarget.Report -> if (place != to.ref) threads = pushTask(threads, to.ref)
-                is ThreadTarget.Web -> web = to.path
+                is ThreadTarget.Doc -> if (docPath != to.path) docs = pushTask(docs, to.path)
                 is ThreadTarget.Browser ->
                   try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(to.url)))
@@ -638,6 +664,12 @@ class HandActivity : ComponentActivity() {
                 FallbackScreen(open.orEmpty(), state.name, page, { web = null }) {
                   WebBoard(page) { web = null }
                 }
+              }
+            } else if (docPath != null) {
+              val leave = { docs = popTask(docs) }
+              BackHandler(onBack = leave)
+              holder.SaveableStateProvider("doc:$open:$docPath") {
+                Doc(open.orEmpty(), docPath, leave, target)
               }
             } else if (shown != null) {
               BackHandler { decision = null }
@@ -751,7 +783,7 @@ class HandActivity : ComponentActivity() {
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && currentTask(threads) == null && skills != open && history != open && alerts != open
+            fleet != null && web == null && decision == null && currentTask(docs) == null && currentTask(threads) == null && skills != open && history != open && alerts != open
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
           }
