@@ -146,11 +146,7 @@ class DocModel(
   suspend fun load(page: Int = 1) {
     val mine = generation.incrementAndGet()
     mutableState.update {
-      if (it.node == null) {
-        it.copy(loading = true, problem = null, refused = null, tooOld = false, paging = false)
-      } else {
-        it.copy(loading = true, paging = false)
-      }
+      it.copy(loading = true, problem = null, refused = null, tooOld = false, unpaired = false, paging = false)
     }
     try {
       val node = client.doc(path, page).data

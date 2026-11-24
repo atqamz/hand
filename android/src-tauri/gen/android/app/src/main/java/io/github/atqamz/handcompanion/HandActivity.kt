@@ -346,12 +346,12 @@ class HandActivity : ComponentActivity() {
   private fun Doc(
     fleet: String,
     path: String,
+    model: DocModel,
     onBack: () -> Unit,
     onTarget: (ThreadTarget) -> Unit
   ) {
-    val model = remember(fleet, path) { docModel(fleet, path) }
     val state by model.state.collectAsStateWithLifecycle()
-    LaunchedEffect(model) { model.load() }
+    LaunchedEffect(model) { if (model.state.value.node == null) model.load() }
     DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget)
   }
 
@@ -444,6 +444,8 @@ class HandActivity : ComponentActivity() {
         var skills by rememberSaveable { mutableStateOf<String?>(null) }
         var history by rememberSaveable { mutableStateOf<String?>(null) }
         var docs by rememberSaveable { mutableStateOf("") }
+        val docModels = remember { mutableMapOf<String, DocModel>() }
+        LaunchedEffect(docs) { if (docs.isEmpty()) docModels.clear() }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
@@ -518,10 +520,6 @@ class HandActivity : ComponentActivity() {
             is Landing.Thread -> {
               show(to.fleet)
               threads = to.stack()
-            }
-            is Landing.Doc -> {
-              show(to.fleet)
-              docs = pushTask("", to.path)
             }
             is Landing.Web -> {
               show(to.fleet)
@@ -653,7 +651,8 @@ class HandActivity : ComponentActivity() {
               val leave = { docs = popTask(docs) }
               BackHandler(onBack = leave)
               holder.SaveableStateProvider("doc:$open:$docPath") {
-                Doc(open.orEmpty(), docPath, leave, target)
+                val model = docModels.getOrPut("$open:$docPath") { docModel(open.orEmpty(), docPath) }
+                Doc(open.orEmpty(), docPath, model, leave, target)
               }
             } else if (shown != null) {
               BackHandler { decision = null }

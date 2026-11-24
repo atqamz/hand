@@ -77,7 +77,7 @@ private fun DocFolder(node: DocNode, onPage: (Int) -> Unit, onTarget: (ThreadTar
       Column {
         Row(
           Modifier.fillMaxWidth()
-            .clickable(enabled = open) { onTarget(ThreadTarget.Doc(entry.path)) }
+            .clickable(enabled = open) { onTarget(docTarget(entry.path)) }
             .heightIn(min = 52.dp)
             .padding(16.dp, 8.dp),
           verticalAlignment = Alignment.CenterVertically,

@@ -327,6 +327,29 @@ class DocModelTest {
   }
 
   @Test
+  fun everyStartClearsTheEarlierRefusalOldHostAndProblemEvenWithContentHeld() = runBlocking {
+    val board = DocBoard { folderNode(1, 1, "a.md") }
+    val model = model(board, "reports")
+    model.load()
+    board.answer = { refusal(403, "forbidden", "hidden") }
+    model.load()
+    assertEquals("hidden", model.state.value.refused)
+    board.answer = { throw BoardError.Lost }
+    model.load()
+    assertNull(model.state.value.refused)
+    assertFalse(model.state.value.tooOld)
+    assertEquals(DocBody.Folder, docBody(model.state.value))
+    board.answer = { Raw(404, "not found") }
+    model.load()
+    assertNull(model.state.value.problem)
+    assertTrue(model.state.value.tooOld)
+    board.answer = { throw BoardError.Lost }
+    model.load()
+    assertFalse(model.state.value.tooOld)
+    assertEquals("The Board could not be reached.", model.state.value.problem)
+  }
+
+  @Test
   fun aFailedMoreKeepsTheLinesAndOffersRetryOfThatMore() = runBlocking {
     var fail = false
     val board =

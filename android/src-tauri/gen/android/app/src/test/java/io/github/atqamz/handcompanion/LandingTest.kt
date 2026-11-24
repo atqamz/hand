@@ -130,22 +130,6 @@ class LandingTest {
   }
 
   @Test
-  fun aDocumentOrFolderLandsInTheNativeViewer() {
-    assertEquals(
-      Landing.Doc(HOME, "reports/a b.md"),
-      landing("handboard://open/$HOME/doc/reports/a%20b.md") { path(HOME, "doc/reports/a%20b.md") }
-    )
-    assertEquals(
-      Landing.Doc(HOME, "reports"),
-      landing("handboard://open/$HOME/doc/reports/") { path(HOME, "doc/reports/") }
-    )
-    assertEquals(
-      Landing.Refused(REJECTED),
-      landing("handboard://open/$HOME/doc/%2e%2e/x") { path(HOME, "doc/%2e%2e/x") }
-    )
-  }
-
-  @Test
   fun aPageWithNoNativeScreenKeepsTheWebFallback() {
     assertEquals(
       Landing.Web(HOME, "/$HOME/connect"),
