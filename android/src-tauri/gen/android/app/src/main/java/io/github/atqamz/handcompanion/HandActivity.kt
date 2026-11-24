@@ -206,6 +206,14 @@ class HandActivity : ComponentActivity() {
     SkillsScreen(state, onBack, model::reload) { model.sync(it.scope, it.project) }
   }
 
+  private fun modelsModel(fleet: String): ModelsModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { ModelsModel(fleet, CoreTransport) }
+      }
+    )["$fleet/models", ModelsModel::class.java]
+
   private fun taskSearchModel(fleet: String): TaskSearchModel =
     ViewModelProvider(
       this,
@@ -261,6 +269,7 @@ class HandActivity : ComponentActivity() {
     onTarget: (ThreadTarget) -> Unit,
     onHint: () -> Unit,
     onSearch: () -> Unit,
+    models: ModelsUi,
     onControl: (HeadControl) -> Unit
   ) {
     val model = remember(fleet) { chatModel(fleet) }
@@ -291,7 +300,8 @@ class HandActivity : ComponentActivity() {
       head = head,
       onControl = onControl,
       onSearch = onSearch,
-      onRetryReveal = model::retryReveal
+      onRetryReveal = model::retryReveal,
+      models = models
     )
   }
 
@@ -662,6 +672,15 @@ class HandActivity : ComponentActivity() {
                   taskSearch::page,
                   taskSearch::retry
                 )
+              val models = remember(open) { modelsModel(open.orEmpty()) }
+              val modelsState by models.state.collectAsStateWithLifecycle()
+              LaunchedEffect(models, state.supervisor?.ref, state.supervisor?.model) { models.load() }
+              val modelsUi =
+                ModelsUi(
+                  modelsState,
+                  { name -> models.pick(name, state.supervisor?.ref) { fleet.refresh() } },
+                  models::reload
+                )
               holder.SaveableStateProvider("fleet:$open") {
                 FleetScreen(
                   open.orEmpty(),
@@ -688,7 +707,8 @@ class HandActivity : ComponentActivity() {
                       state.head(),
                       target,
                       { fleet.select(Tab.Needs) },
-                      { history = open }
+                      { history = open },
+                      modelsUi
                     ) { control ->
                       when (control) {
                         HeadControl.Interrupt -> fleet.interrupt()
