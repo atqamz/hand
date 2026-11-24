@@ -346,26 +346,26 @@ func TestTheRailsConversationItemOpensThePage(t *testing.T) {
 
 func TestScenesTheConversationPage(t *testing.T) {
 	cases := map[string]func(t *testing.T, m *histModel, tt *ui.Tester){
-		"98-history-page": func(t *testing.T, m *histModel, tt *ui.Tester) {
+		"110-history-page": func(t *testing.T, m *histModel, tt *ui.Tester) {
 			older(t, tt)
 			tt.Frame()
 		},
-		"99-history-hits": func(t *testing.T, m *histModel, tt *ui.Tester) { searchFor(t, tt, "kiln") },
-		"100-history-empty": func(t *testing.T, m *histModel, tt *ui.Tester) {
+		"111-history-hits": func(t *testing.T, m *histModel, tt *ui.Tester) { searchFor(t, tt, "kiln") },
+		"112-history-empty": func(t *testing.T, m *histModel, tt *ui.Tester) {
 			searchFor(t, tt, "ghost")
 		},
-		"101-history-error": func(t *testing.T, m *histModel, tt *ui.Tester) {
+		"113-history-error": func(t *testing.T, m *histModel, tt *ui.Tester) {
 			m.searchErr = errors.New("the board did not answer in time")
 			searchFor(t, tt, "kiln")
 		},
-		"102-history-old": func(t *testing.T, m *histModel, tt *ui.Tester) {},
+		"114-history-old": func(t *testing.T, m *histModel, tt *ui.Tester) {},
 	}
 	for base, step := range cases {
 		for _, dark := range []bool{false, true} {
 			name := base + "-1100x760-" + theme(dark)
 			t.Run(name, func(t *testing.T) {
 				m := historyModel(t)
-				if base == "102-history-old" {
+				if base == "114-history-old" {
 					m.features = []string{"fleets"}
 				}
 				app := historyApp(t, m)
