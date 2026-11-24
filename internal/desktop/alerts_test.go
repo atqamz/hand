@@ -209,13 +209,13 @@ func TestTheAlertsRailItemIsCurrentOnlyOnThePage(t *testing.T) {
 
 func TestScenesTheAlertsPage(t *testing.T) {
 	cases := map[string]func(*fixture){
-		"94-alerts-rows": func(f *fixture) { withAlerts(f) },
-		"95-alerts-empty": func(f *fixture) {
+		"96-alerts-rows": func(f *fixture) { withAlerts(f) },
+		"97-alerts-empty": func(f *fixture) {
 			withAlerts(f)
 			f.alerts = desktop.AlertsData{Days: 7, SlowAfter: 60, Alerts: []desktop.AlertReceipt{}}
 		},
-		"96-alerts-error": func(f *fixture) { withAlerts(f); f.alertsErr = errors.New("the board did not answer in time") },
-		"97-alerts-old":   func(f *fixture) { f.features = []string{"fleets"} },
+		"98-alerts-error": func(f *fixture) { withAlerts(f); f.alertsErr = errors.New("the board did not answer in time") },
+		"99-alerts-old":   func(f *fixture) { f.features = []string{"fleets"} },
 	}
 	for base, setup := range cases {
 		for _, dark := range []bool{false, true} {
