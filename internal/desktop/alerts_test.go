@@ -38,7 +38,7 @@ func TestTheAlertsPageShowsStatsAndReceiptsNewestFirst(t *testing.T) {
 func TestTheAlertsPageStatsLabelEachValue(t *testing.T) {
 	app := alertsApp(t, withAlerts(goldenFixture(t)))
 	tt := sized(t, app, windowWidth, windowHeight, false)
-	for _, label := range []string{"alerts 6", "not acknowledged 2", "slow 1", "median delay 1m0s", "95th percentile delay 1m35s", "longest delay 1m35s"} {
+	for _, label := range []string{"alerts 6", "not acknowledged 2", "slow 1", "median delay 11s", "95th percentile delay 1m35s", "longest delay 1m35s"} {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("no stat %q in %q", label, tt.Texts())
 		}
@@ -209,13 +209,13 @@ func TestTheAlertsRailItemIsCurrentOnlyOnThePage(t *testing.T) {
 
 func TestScenesTheAlertsPage(t *testing.T) {
 	cases := map[string]func(*fixture){
-		"90-alerts-rows": func(f *fixture) { withAlerts(f) },
-		"91-alerts-empty": func(f *fixture) {
+		"94-alerts-rows": func(f *fixture) { withAlerts(f) },
+		"95-alerts-empty": func(f *fixture) {
 			withAlerts(f)
 			f.alerts = desktop.AlertsData{Days: 7, SlowAfter: 60, Alerts: []desktop.AlertReceipt{}}
 		},
-		"92-alerts-error": func(f *fixture) { withAlerts(f); f.alertsErr = errors.New("the board did not answer in time") },
-		"93-alerts-old":   func(f *fixture) { f.features = []string{"fleets"} },
+		"96-alerts-error": func(f *fixture) { withAlerts(f); f.alertsErr = errors.New("the board did not answer in time") },
+		"97-alerts-old":   func(f *fixture) { f.features = []string{"fleets"} },
 	}
 	for base, setup := range cases {
 		for _, dark := range []bool{false, true} {

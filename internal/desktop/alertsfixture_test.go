@@ -24,7 +24,7 @@ func withAlerts(f *fixture) *fixture {
 	f.features = append(f.features, "alerts")
 	f.alerts = desktop.AlertsData{
 		Days: 7, SlowAfter: 60,
-		Stats: desktop.AlertStats{Total: 6, Unacked: 2, Slow: 1, P50: secs(60), P95: secs(95), Max: secs(95)},
+		Stats: desktop.AlertStats{Total: 6, Unacked: 2, Slow: 1, P50: secs(11), P95: secs(95), Max: secs(95)},
 		Alerts: []desktop.AlertReceipt{
 			{Seq: 6, At: "2026-11-24T10:06:00Z", Kind: "worker.stuck", Ref: "tx", Text: "tx is stuck", FetchedAt: "2026-11-24T10:06:01Z", AckedAt: "2026-11-24T10:06:11Z", Delay: secs(11)},
 			{Seq: 5, At: "2026-11-24T10:05:00Z", Kind: "worker.idle", Ref: "s1", Text: "s1 went quiet", FetchedAt: "2026-11-24T10:05:02Z", AckedAt: "2026-11-24T10:05:12Z", Delay: secs(10)},

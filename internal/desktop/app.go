@@ -2095,6 +2095,9 @@ type loaded struct {
 
 func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string, withTasks bool) loaded {
 	l := loaded{Screen: screen}
+	if screen == AlertsScreen {
+		l.Old = alertsOld(ctx, model, fleet)
+	}
 	st, err := model.Status(ctx, fleet)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -2121,8 +2124,10 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	case DecisionScreen:
 		l.Decision, err = model.Decision(ctx, fleet, ref)
 	case AlertsScreen:
-		l.Alerts, l.Old, err = readAlerts(ctx, model, fleet)
-		l.AlertsOK = err == nil && !l.Old
+		if !l.Old {
+			l.Alerts, err = model.Alerts(ctx, fleet)
+			l.AlertsOK = err == nil
+		}
 	}
 	if err != nil && ctx.Err() == nil {
 		l.Err = friendly(err)
@@ -2148,6 +2153,9 @@ func (a *App) apply(l loaded) {
 	for i := range a.reads {
 		a.reads[i].fresh = l.Err != "" || i == readTimeline && l.TimelineErr != ""
 	}
+	if l.Screen == AlertsScreen {
+		a.al.old = l.Old
+	}
 	if !l.StatusOK {
 		return
 	}
@@ -2172,7 +2180,6 @@ func (a *App) apply(l loaded) {
 	case DecisionScreen:
 		a.Decision = l.Decision
 	case AlertsScreen:
-		a.al.old = l.Old
 		if l.AlertsOK {
 			a.Alerts, a.al.loaded = l.Alerts, true
 		}

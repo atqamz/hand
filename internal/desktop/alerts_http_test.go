@@ -13,17 +13,30 @@ import (
 
 type alertsBoard struct {
 	*fakeBoard
-	mu       sync.Mutex
-	features []string
-	cursor   string
-	full     int
-	text     string
-	notMod   int
-	sinces   []string
+	mu          sync.Mutex
+	features    []string
+	cursor      string
+	full        int
+	text        string
+	statusFails int
+	notMod      int
+	sinces      []string
 }
 
 func (b *alertsBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/"+fleetID)
+	if rest == "/api/v1/status" {
+		b.mu.Lock()
+		fail := b.statusFails > 0
+		if fail {
+			b.statusFails--
+		}
+		b.mu.Unlock()
+		if fail {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+	}
 	if rest != "/api/v1/alerts" && rest != "/api/v1/meta" {
 		b.fakeBoard.ServeHTTP(w, r)
 		return
@@ -138,4 +151,27 @@ func TestTheAlertsPollTakesAChangedBodyThroughTheClient(t *testing.T) {
 	if app.Stale != "" {
 		t.Fatalf("stale = %q", app.Stale)
 	}
+}
+
+func TestTheAlertsPageOnAnOldHostSaysSoAfterAFailedFirstStatus(t *testing.T) {
+	b := &alertsBoard{fakeBoard: newFakeBoard(), features: []string{"fleets"}, cursor: "c1.alerts"}
+	app, clock := alertsHTTPApp(t, b)
+	b.mu.Lock()
+	b.statusFails = 1
+	b.mu.Unlock()
+	app.Show(desktop.AlertsScreen)
+	app.StartRefresh()
+	for range 4 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.sinces) != 0 {
+		t.Fatalf("an old host was asked for alerts: %q", b.sinces)
+	}
+	if app.Stale != "" {
+		t.Fatalf("stale = %q", app.Stale)
+	}
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	mustText(t, tt, "This host is too old for Alerts")
 }

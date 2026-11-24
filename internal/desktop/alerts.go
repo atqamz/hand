@@ -56,12 +56,9 @@ func (r *Router) Alerts(ctx context.Context, fleet string) (AlertsData, error) {
 	return route(r, fleet, func(m ReadModel) (AlertsData, error) { return m.Alerts(ctx, fleet) })
 }
 
-func readAlerts(ctx context.Context, model ReadModel, fleet string) (AlertsData, bool, error) {
-	if fs, err := model.Features(ctx, fleet); err == nil && !slices.Contains(fs, "alerts") {
-		return AlertsData{}, true, nil
-	}
-	d, err := model.Alerts(ctx, fleet)
-	return d, false, err
+func alertsOld(ctx context.Context, model ReadModel, fleet string) bool {
+	fs, err := model.Features(ctx, fleet)
+	return err == nil && !slices.Contains(fs, "alerts")
 }
 
 func alertDelay(secs int64) string {
