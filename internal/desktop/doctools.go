@@ -83,6 +83,7 @@ func (a *App) setDocView(set func()) {
 	set()
 	a.doc.note = ""
 	a.viewerScroll = ui.ScrollState{}
+	a.viewerFocus = true
 	a.settlePrefs()
 }
 

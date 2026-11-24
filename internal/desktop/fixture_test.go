@@ -116,6 +116,7 @@ type fixture struct {
 	docBytes       map[string][]byte
 	docErr         map[string]error
 	docWindowSize  int
+	linesServed    int
 	inbox          map[string][]byte
 	inboxGets      []string
 	uploaded       []string
