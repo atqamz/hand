@@ -933,6 +933,9 @@ func refScreen(ref string) (Screen, bool) {
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
+		if a.docPageOpen() {
+			a.CloseViewer()
+		}
 		return
 	}
 	step := a.back[len(a.back)-1]

@@ -99,19 +99,24 @@ func (a *App) View(c *ui.Context) {
 			Type: kind, Timeout: timeout})
 		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
 	}
+	docPage := a.docPageOpen()
 	ui.Row(c).Fill().Children(func() {
 		if !a.narrow {
 			a.rail(c, k, p)
 		}
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			a.masthead(c, k, p)
-			a.body(c, k, p)
+			if docPage {
+				a.viewer(c, k, p)
+			} else {
+				a.body(c, k, p)
+			}
 		})
 	})
 	if a.narrow && a.sheetOpen {
 		a.sheet(c, k, p)
 	}
-	if a.viewerOpen() {
+	if a.viewerOpen() && !docPage {
 		a.viewer(c, k, p)
 	}
 	a.toasts(c, k, p)

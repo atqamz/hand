@@ -16,7 +16,7 @@ import (
 
 const (
 	docPixelsMax = 36 << 20
-	docTooLarge  = "This picture is larger than this window reads. Open it in the browser."
+	docTooLarge  = "This picture is larger than this window reads."
 )
 
 const notText = "This file is not text, so the Board does not show it; download it to open it."
@@ -101,7 +101,7 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 		if !ok {
 			noun = "This file"
 		}
-		r.row = noun + " opens in the Board's viewer, in the browser."
+		r.row = noun + " cannot be shown in this window."
 	}
 	return r
 }
@@ -112,7 +112,7 @@ func drawBitmap(b []byte, most int64) (*ui.Bitmap, string) {
 	}
 	bmp, err := ui.DecodeBitmap(b)
 	if err != nil {
-		return nil, "This picture could not be drawn here. Open it in the browser."
+		return nil, "This picture could not be drawn here."
 	}
 	return bmp, ""
 }
