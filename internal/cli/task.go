@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -29,6 +30,7 @@ var taskCommands = map[string]handler{
 	"park":    transitionCommand("park", state.StatusInbox),
 	"deliver": cmdTaskDeliver,
 	"parent":  cmdTaskParent,
+	"edit":    cmdTaskEdit,
 	"attach":  cmdTaskAttach,
 	"detach":  cmdTaskDetach,
 }
@@ -116,6 +118,58 @@ func cmdTaskParent(r *runner, args []string) error {
 	} else {
 		d.Field("parent", state.TaskRef(t.ParentID))
 	}
+	return r.print(&d)
+}
+
+func cmdTaskEdit(r *runner, args []string) error {
+	fs := flags("task edit")
+	title := fs.String("title", "", "new title")
+	goal := fs.String("goal", "", "new goal; empty clears it")
+	if err := fs.Parse(args); err != nil {
+		return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
+	}
+	pos := fs.Args()
+	if len(pos) > 0 {
+		if err := fs.Parse(pos[1:]); err != nil {
+			return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
+		}
+		pos = append(pos[:1:1], fs.Args()...)
+	}
+	if len(pos) != 1 {
+		return usageError{fmt.Sprintf("%s: want 1 argument(s) after flags, got %d", fs.Name(), len(pos))}
+	}
+	var newTitle, newGoal *string
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "title":
+			newTitle = title
+		case "goal":
+			newGoal = goal
+		}
+	})
+	if newTitle == nil && newGoal == nil {
+		return usageError{"task edit: give --title or --goal"}
+	}
+	id, err := parseID("t", pos[0])
+	if err != nil {
+		return err
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	t, changed, err := st.EditTask(context.Background(), id, newTitle, newGoal)
+	if err != nil {
+		return err
+	}
+	var d toon.Doc
+	d.Field("task", state.TaskRef(t.ID))
+	status := "unchanged"
+	if changed {
+		status = "edited"
+	}
+	d.Field("status", status)
 	return r.print(&d)
 }
 

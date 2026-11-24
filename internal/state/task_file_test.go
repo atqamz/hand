@@ -23,7 +23,7 @@ func TestAVersion27DatabaseMigratesToTaskFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	stmts := []string{schema}
-	stmts = append(stmts, migrations[:len(migrations)-1]...)
+	stmts = append(stmts, migrations[:len(migrations)-2]...)
 	stmts = append(stmts,
 		`PRAGMA user_version = 27`,
 		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/home/me/hand', '2026-09-26T00:00:00Z')`,

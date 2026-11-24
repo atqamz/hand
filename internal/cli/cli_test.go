@@ -11,7 +11,7 @@ import (
 func TestVersionPrintsTOON(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	if got, want := h.ok("version"), "version: 0.15.0\nchannel: source\ncommit: unknown\nschema: 28\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
+	if got, want := h.ok("version"), "version: 0.15.0\nchannel: source\ncommit: unknown\nschema: 29\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
 		t.Fatalf("version = %q, want %q", got, want)
 	}
 }
@@ -20,7 +20,7 @@ func TestVersionNamesItsBuild(t *testing.T) {
 	version, channel, commit := cli.Version, cli.Channel, cli.Commit
 	t.Cleanup(func() { cli.Version, cli.Channel, cli.Commit = version, channel, commit })
 	cli.Version, cli.Channel, cli.Commit = "0.9.0", "edge", "0123456789abcdef0123"
-	if got, want := newHarness(t).ok("version"), "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 28\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
+	if got, want := newHarness(t).ok("version"), "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 29\nluvus: 0.14.3\niroh: "+sidecar.Version+"\n"; got != want {
 		t.Fatalf("version = %q, want %q", got, want)
 	}
 }
