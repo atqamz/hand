@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -281,10 +282,10 @@ func TestScenesDocToolbar(t *testing.T) {
 		setup func(*desktop.App)
 		want  []string
 	}{
-		{"68-doc-tools-rendered-1100x760", designPath, windowWidth, windowHeight, func(*desktop.App) {}, []string{"Rendered", "Source", "Copy contents", "Download", "Wide"}},
-		{"69-doc-tools-source-1100x760", designPath, windowWidth, windowHeight, func(a *desktop.App) { a.DocSource = true }, []string{"## Goals", "Wrap"}},
-		{"71-doc-tools-wide-1440x900", designPath, 1440, 900, func(a *desktop.App) { a.DocWide = true }, []string{"Wide"}},
-		{"72-doc-tools-binary-1100x760", blobPath, windowWidth, windowHeight, func(*desktop.App) {}, []string{"Download", "Copy contents"}},
+		{"91-doc-tools-rendered-1100x760", designPath, windowWidth, windowHeight, func(*desktop.App) {}, []string{"Rendered", "Source", "Copy contents", "Download", "Wide"}},
+		{"92-doc-tools-source-1100x760", designPath, windowWidth, windowHeight, func(a *desktop.App) { a.DocSource = true }, []string{"## Goals", "Wrap"}},
+		{"94-doc-tools-wide-1440x900", designPath, 1440, 900, func(a *desktop.App) { a.DocWide = true }, []string{"Wide"}},
+		{"95-doc-tools-binary-1100x760", blobPath, windowWidth, windowHeight, func(*desktop.App) {}, []string{"Download", "Copy contents"}},
 	}
 	for _, tc := range cases {
 		docShots(t, tc.name, tc.w, tc.h, func(app *desktop.App) {
@@ -296,9 +297,9 @@ func TestScenesDocToolbar(t *testing.T) {
 		})
 	}
 	for _, dark := range []bool{false, true} {
-		name := "70-doc-tools-wrap-1100x760-light"
+		name := "93-doc-tools-wrap-1100x760-light"
 		if dark {
-			name = "70-doc-tools-wrap-1100x760-dark"
+			name = "93-doc-tools-wrap-1100x760-dark"
 		}
 		t.Run(name, func(t *testing.T) {
 			f := docFixture(t)
@@ -430,15 +431,120 @@ func TestARepeatedRefusalIsAnnouncedAgain(t *testing.T) {
 
 type gatedCopy struct {
 	*fixture
-	entered chan struct{}
-	release chan struct{}
+	entered  chan struct{}
+	release  chan struct{}
+	streamed chan struct{}
+	streamGo chan struct{}
 }
 
 func (g *gatedCopy) DocBytes(ctx context.Context, id, path string) ([]byte, error) {
 	b, err := g.fixture.DocBytes(ctx, id, path)
-	g.entered <- struct{}{}
-	<-g.release
+	if g.release != nil {
+		g.entered <- struct{}{}
+		<-g.release
+	}
 	return b, err
+}
+
+func (g *gatedCopy) DocStream(ctx context.Context, id, path string, dst io.Writer) (int64, error) {
+	if g.streamGo != nil {
+		g.streamed <- struct{}{}
+		<-g.streamGo
+	}
+	return g.fixture.DocStream(ctx, id, path, dst)
+}
+
+func gatedApp(t *testing.T, g *gatedCopy) (*desktop.App, chan func()) {
+	t.Helper()
+	app := desktop.New(func() (desktop.ReadModel, error) { return g, nil })
+	app.DraftDir = t.TempDir()
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	app.Boot()
+	drain(posted)
+	return app, posted
+}
+
+func TestCopyThenDownloadOverlapLeavesBothButtonsWorking(t *testing.T) {
+	g := &gatedCopy{fixture: docFixture(t), entered: make(chan struct{}, 4), release: make(chan struct{})}
+	app, posted := gatedApp(t, g)
+	var saves atomic.Int32
+	dest := filepath.Join(t.TempDir(), "n.txt")
+	app.SaveAs = func(string) string { saves.Add(1); return dest }
+	app.OpenDoc(notesPath)
+	tt := newTester(app)
+	drain(posted)
+	tt.Frame()
+	click(t, tt, "Copy contents")
+	<-g.entered
+	click(t, tt, "Download")
+	drain(posted)
+	tt.Frame()
+	close(g.release)
+	drain(posted)
+	tt.Frame()
+	if tt.Clipboard() == "" {
+		t.Fatal("the copy was dropped")
+	}
+	click(t, tt, "Download")
+	drain(posted)
+	if n := saves.Load(); n != 2 {
+		t.Fatalf("Download opened the dialog %d times, want 2", n)
+	}
+	tt.Frame()
+	click(t, tt, "Copied")
+	<-g.entered
+	drain(posted)
+}
+
+func TestDownloadThenCopyOverlapLeavesBothButtonsWorking(t *testing.T) {
+	g := &gatedCopy{fixture: docFixture(t), streamed: make(chan struct{}, 4), streamGo: make(chan struct{})}
+	app, posted := gatedApp(t, g)
+	var saves atomic.Int32
+	dest := filepath.Join(t.TempDir(), "n.txt")
+	app.SaveAs = func(string) string { saves.Add(1); return dest }
+	app.OpenDoc(notesPath)
+	tt := newTester(app)
+	drain(posted)
+	tt.Frame()
+	click(t, tt, "Download")
+	<-g.streamed
+	click(t, tt, "Copy contents")
+	drain(posted)
+	tt.Frame()
+	if tt.Clipboard() == "" {
+		t.Fatal("the copy was dropped")
+	}
+	close(g.streamGo)
+	drain(posted)
+	tt.Frame()
+	mustText(t, tt, "Saved")
+	click(t, tt, "Download")
+	drain(posted)
+	if n := saves.Load(); n != 2 {
+		t.Fatalf("Download opened the dialog %d times, want 2", n)
+	}
+}
+
+func TestADownloadFromAnEarlierVisitDoesNotLandOnTheNewVisit(t *testing.T) {
+	g := &gatedCopy{fixture: docFixture(t), streamed: make(chan struct{}, 4), streamGo: make(chan struct{})}
+	app, posted := gatedApp(t, g)
+	app.SaveAs = func(string) string { return filepath.Join(t.TempDir(), "n.txt") }
+	app.OpenDoc(notesPath)
+	tt := newTester(app)
+	drain(posted)
+	tt.Frame()
+	click(t, tt, "Download")
+	<-g.streamed
+	app.OpenDoc(designPath)
+	drain(posted)
+	app.OpenDoc(notesPath)
+	drain(posted)
+	tt.Frame()
+	close(g.streamGo)
+	drain(posted)
+	tt.Frame()
+	mustNotText(t, tt, "Saved")
 }
 
 func TestACopyFromAnEarlierVisitDoesNotLandOnTheNewVisit(t *testing.T) {

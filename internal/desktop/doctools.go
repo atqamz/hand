@@ -124,7 +124,6 @@ func (a *App) fetchCopy() {
 		return
 	}
 	st.copying = true
-	a.docOp++
 	op := a.docOp
 	a.offload(func() func() {
 		ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
@@ -151,7 +150,6 @@ func (a *App) downloadDoc() {
 		return
 	}
 	st.saving, st.note, st.said, st.noteBad = true, "", "", false
-	a.docOp++
 	op := a.docOp
 	model, fleet, rel, name, save := a.Model, a.Fleet.ID, a.Ref, d.Name, a.SaveAs
 	a.offload(func() func() {
