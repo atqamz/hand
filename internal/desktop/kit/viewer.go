@@ -47,15 +47,29 @@ func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 			Radius(RadiusLG).Clip().Label(v.Name).
 			Shadow(0, 8, 24, 0, k.Shadow).Children(func() {
 			ui.Column(c).FillHeight().Children(func() {
-				viewerTop(c, k, v)
-				if v.Notice != nil {
-					v.Notice(c)
-				}
-				v.Body(c)
+				viewerContent(c, k, v)
 			})
 		})
 	})
 	return el.Dismissed()
+}
+
+func viewerContent(c *ui.Context, k Colors, v ViewerOptions) {
+	viewerTop(c, k, v)
+	if v.Notice != nil {
+		v.Notice(c)
+	}
+	v.Body(c)
+}
+
+func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) {
+	ui.Column(c).Grow(1).MinHeight(0).MinWidth(0).Background(k.BG).AlignItems(ui.Center).Children(func() {
+		col := ui.Column(c).Grow(1).MinHeight(0).FillWidth().Label(v.Name)
+		if !v.Wide {
+			col.MaxWidth(ViewerMax)
+		}
+		col.Children(func() { viewerContent(c, k, v) })
+	})
 }
 
 func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {

@@ -900,7 +900,7 @@ func (a *App) CloseViewer() {
 	if a.Screen == BoardScreen {
 		return
 	}
-	if a.openerRef != "" && !a.liveRef(a.openerRef) {
+	if a.openerRef != "" && !a.liveRef(a.openerRef) || a.Screen == DocScreen && a.base == BoardScreen {
 		a.boardFocus = true
 	}
 	a.openerRef = ""
@@ -947,6 +947,9 @@ func refScreen(ref string) (Screen, bool) {
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
+		if a.docPageOpen() {
+			a.CloseViewer()
+		}
 		return
 	}
 	step := a.back[len(a.back)-1]

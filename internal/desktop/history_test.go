@@ -184,16 +184,18 @@ func TestMatchedEntryBoxMarksExactlyOneEntry(t *testing.T) {
 	click(t, tt, "Show in conversation")
 	tt.Frame()
 	n := 0
-	for _, ref := range []string{"i3", "i7", "i12", "y1", "y2", "y9", "r5"} {
-		if _, ok := tt.Find("Matched entry " + ref); ok {
+	for _, text := range tt.Texts() {
+		if text == "Matched entry i7" {
 			n++
 		}
 	}
 	if n != 1 {
-		t.Fatalf("%d entries carry the Matched entry box, want 1", n)
+		t.Fatalf("%d boxes are labelled Matched entry i7, want exactly 1", n)
 	}
-	if _, ok := tt.Find("Matched entry i7"); !ok {
-		t.Fatal("the box is not on i7")
+	for _, other := range []string{"i3", "i12", "y1", "y2", "y9", "r5"} {
+		if _, ok := tt.Find("Matched entry " + other); ok {
+			t.Fatalf("a box is labelled Matched entry %s", other)
+		}
 	}
 }
 
