@@ -366,4 +366,36 @@ class FleetLiveTest {
     assertEquals(reads, board.statusReads())
     assertEquals(1, board.liveStopped)
   }
+
+  @Test
+  fun aHostThatStopsAnsweringReadsAsUnreachableNotUnpairedAndRecoversWhenLive() = runBlocking {
+    val board = LiveBoard()
+    val bus = LiveBus(8)
+    val model = model(board, bus)
+    val job = launch(Dispatchers.Default) { model.run() }
+    withTimeout(5_000) { while (!board.liveStarted) delay(5) }
+    bus.link(FLEET, "reconnecting", 1_700_000_000_000)
+    withTimeout(5_000) { while (model.state.value.band?.title != "Reconnecting…") delay(5) }
+    assertTrue(model.state.value.reachable)
+    withTimeout(15_000) { while (model.state.value.band?.title?.startsWith("Can't reach 4d92…6ed6 since") != true) delay(20) }
+    assertFalse(model.state.value.unpaired)
+    assertFalse(model.state.value.reachable)
+    assertEquals(Body.Needs, body(model.state.value))
+    bus.link(FLEET, "live", 0)
+    withTimeout(5_000) { while (model.state.value.band != null) delay(5) }
+    assertTrue(model.state.value.reachable)
+    assertFalse(model.state.value.unpaired)
+    job.cancelAndJoin()
+  }
+
+  @Test
+  fun statusEventsApplyInTheOrderTheyArrive() = runBlocking {
+    val model = model(LiveBoard())
+    val seen = mutableListOf<Int>()
+    for (waiting in listOf(1, 3, 2, 0)) {
+      model.reduce(LiveEvent(FLEET, "status", statusData(items = if (waiting == 0) "" else REPORT, waiting = waiting)))
+      seen += model.state.value.waiting
+    }
+    assertEquals(listOf(1, 3, 2, 0), seen)
+  }
 }

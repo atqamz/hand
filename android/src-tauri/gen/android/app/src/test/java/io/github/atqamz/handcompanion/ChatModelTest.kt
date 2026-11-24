@@ -1961,4 +1961,76 @@ class ChatModelTest {
     assertFalse(without.state.value.history)
     running.forEach { it.cancelAndJoin() }
   }
+
+  @Test
+  fun aDraftLeftByLeavingTheScreenSurvivesAFreshProcessThroughThePhonesStore() = runBlocking {
+    val prefs = MemoryPrefs()
+    val chat = model(ChatBoard(), drafts = PrefsComposerDrafts(prefs), draftMillis = 10_000)
+    val job = launch(Dispatchers.Default) { chat.run() }
+    eventually("the page is read") { !chat.state.value.loading }
+    chat.edit("half written")
+    job.cancelAndJoin()
+    assertEquals(setOf(draftKey(FLEET, 1_760_000_000_000)), prefs.values.keys)
+    val reborn = model(ChatBoard(), drafts = PrefsComposerDrafts(prefs))
+    reborn.restoreDraft()
+    assertEquals("half written", reborn.state.value.draft)
+    assertEquals("Draft restored", reborn.state.value.draftNote)
+  }
+
+  @Test
+  fun aSentDraftIsGoneFromThePhonesStoreAndNoFreshProcessRestoresIt() = runBlocking {
+    val prefs = MemoryPrefs()
+    val chat = model(ChatBoard(), drafts = PrefsComposerDrafts(prefs))
+    chat.load()
+    chat.edit("ship it")
+    chat.flushDraft()
+    assertEquals(setOf(draftKey(FLEET, 1_760_000_000_000)), prefs.values.keys)
+    chat.sendNow()
+    assertEquals("", chat.state.value.draft)
+    assertTrue(prefs.values.keys.none { draftSavedAt(it, FLEET) != null })
+    val reborn = model(ChatBoard(), drafts = PrefsComposerDrafts(prefs))
+    reborn.restoreDraft()
+    assertEquals("", reborn.state.value.draft)
+    assertEquals("", reborn.state.value.draftNote)
+  }
+
+  private fun delta(from: Int, to: Int, snapshot: Boolean, vararg entries: String) =
+    LiveEvent(
+      FLEET,
+      "timeline",
+      """{"snapshot":$snapshot,"from":$from,"to":$to,"older":0,"live":true,"entries":[${entries.joinToString(",")}]}"""
+    )
+
+  private fun reply(at: String, no: Int) = entry("supervisor@$at", "supervisor", at, "reply $no", no = no, ref = "s1")
+
+  @Test
+  fun timelineDeltasApplyInOrderAndAReplayOfAnEarlierOneChangesNothing() = runBlocking {
+    val chat = model(ChatBoard())
+    chat.load()
+    val first = delta(3, 4, false, reply("2026-11-01T04:45:00Z", 3))
+    chat.reduce(first)
+    chat.reduce(delta(4, 5, false, reply("2026-11-01T04:46:00Z", 4)))
+    val held = chat.state.value.page
+    assertEquals(5, chat.state.value.to)
+    assertEquals(listOf("reply 4", "reply 3"), held.take(2).map { it.entry.text })
+    chat.reduce(first)
+    assertEquals(held, chat.state.value.page)
+    assertEquals(5, chat.state.value.to)
+  }
+
+  @Test
+  fun aSnapshotOlderThanThePageHeldAndAReusedRangeAreDropped() = runBlocking {
+    val board = ChatBoard()
+    val chat = model(board)
+    chat.load()
+    val held = chat.state.value.page
+    val reads = timelineReads(board).size
+    chat.reduce(delta(0, 2, true, entry("i9", "operator", "2026-11-01T05:00:00Z", "old", input = 9)))
+    assertEquals(held, chat.state.value.page)
+    assertEquals(3, chat.state.value.to)
+    chat.reduce(delta(1, 3, false, reply("2026-11-01T04:50:00Z", 9)))
+    assertEquals(held, chat.state.value.page)
+    assertEquals(3, chat.state.value.to)
+    assertEquals(reads, timelineReads(board).size)
+  }
 }

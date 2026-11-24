@@ -118,4 +118,73 @@ class LiveBusTest {
     collector.join()
     assertTrue(seen[2].gap)
   }
+
+  @Test
+  fun eventsReachTheCollectorInPublishOrderAcrossFleetsUnchanged() = runBlocking {
+    val bus = LiveBus(32)
+    val other = "f999999999999"
+    val seen = mutableListOf<LiveEvent>()
+    val ready = CompletableDeferred<Unit>()
+    val collector =
+      launch(Dispatchers.Default) {
+        bus.events.onSubscription { ready.complete(Unit) }.take(6).toList(seen)
+      }
+    ready.await()
+    val sent = listOf(FLEET to "a", other to "b", FLEET to "c", FLEET to "d", other to "e", FLEET to "f")
+    for ((fleet, topic) in sent) bus.publish(fleet, topic, """{"topic":"$topic"}""")
+    collector.join()
+    assertEquals(sent, seen.map { it.fleet to it.topic })
+    assertEquals(sent.map { """{"topic":"${it.second}"}""" }, seen.map { it.json })
+  }
+
+  @Test
+  fun aTimelineThatIsNotJsonIsNeverAGapAndDoesNotMoveTheHeldRange() = runBlocking {
+    val bus = LiveBus(8)
+    val seen = mutableListOf<LiveEvent>()
+    val ready = CompletableDeferred<Unit>()
+    val collector =
+      launch(Dispatchers.Default) {
+        bus.events.onSubscription { ready.complete(Unit) }.take(3).toList(seen)
+      }
+    ready.await()
+    bus.publish(FLEET, "timeline", timeline(true, 0, 5))
+    bus.publish(FLEET, "timeline", "not json")
+    bus.publish(FLEET, "timeline", timeline(false, 5, 8))
+    collector.join()
+    assertEquals(listOf(false, false, false), seen.map { it.gap })
+  }
+
+  @Test
+  fun resetForgetsTheHeldRangeSoTheNextTimelineIsNotAGap() = runBlocking {
+    val bus = LiveBus(8)
+    val seen = mutableListOf<LiveEvent>()
+    val ready = CompletableDeferred<Unit>()
+    val collector =
+      launch(Dispatchers.Default) {
+        bus.events.onSubscription { ready.complete(Unit) }.take(2).toList(seen)
+      }
+    ready.await()
+    bus.publish(FLEET, "timeline", timeline(true, 0, 5))
+    bus.reset()
+    bus.publish(FLEET, "timeline", timeline(false, 40, 44))
+    collector.join()
+    assertFalse(seen[1].gap)
+  }
+
+  @Test
+  fun aHelloForgetsThatFleetsHeldRangeSoTheNextTimelineIsNotAGap() = runBlocking {
+    val bus = LiveBus(8)
+    val seen = mutableListOf<LiveEvent>()
+    val ready = CompletableDeferred<Unit>()
+    val collector =
+      launch(Dispatchers.Default) {
+        bus.events.onSubscription { ready.complete(Unit) }.take(3).toList(seen)
+      }
+    ready.await()
+    bus.publish(FLEET, "timeline", timeline(true, 0, 5))
+    bus.publish(FLEET, "hello", "{}")
+    bus.publish(FLEET, "timeline", timeline(false, 40, 44))
+    collector.join()
+    assertFalse(seen[2].gap)
+  }
 }
