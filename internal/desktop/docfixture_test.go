@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
@@ -44,7 +45,8 @@ func (f *fixture) DocWindow(ctx context.Context, id, path string, from int) (des
 		size = 500
 	}
 	end := min(from-1+size, len(lines))
-	w := desktop.DocWindow{Path: path, Name: path, From: from, Lines: lines[from-1 : end]}
+	w := desktop.DocWindow{Path: path, Name: path, From: from, Lines: append([]string(nil), lines[from-1:end]...)}
+	f.linesServed += len(w.Lines)
 	if end < len(lines) {
 		w.Next = end + 1
 	}
@@ -65,6 +67,24 @@ func (f *fixture) DocBytes(ctx context.Context, id, path string) ([]byte, error)
 	return b, nil
 }
 
+func (f *fixture) DocStream(ctx context.Context, id, path string, dst io.Writer) (int64, error) {
+	f.note("stream:" + path)
+	f.mu.Lock()
+	b, ok := f.docBytes[path]
+	err := f.docErr[path]
+	f.mu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, &desktop.APIError{Status: 404, Code: "not_found", Message: "there is no file or folder at this path"}
+	}
+	n, err := dst.Write(b)
+	return int64(n), err
+}
+
+var blobBytes = []byte{0x00, 0xff, 0x10, 0x00, 0xfe, 0xff, 0x00, 0x80, '\r', '\n', 0xc3, 0x28}
+
 func stripes(t *testing.T, w, h int, tones ...color.RGBA) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -80,7 +100,7 @@ func stripes(t *testing.T, w, h int, tones ...color.RGBA) []byte {
 	return buf.Bytes()
 }
 
-const designMD = "# Nightly export pipeline: design\n\nProposal for `t1`, written by its worker. The [API notes](notes.txt) list the endpoints, and the [export notes](/f00000000e0aa/doc/reports/t1/sub/deep.md) explain why the old export is retired.\n\n## Goals\n\n- One job per night that is safe to retry\n- A manifest written last\n- A backfill of the last 30 days\n\n## Data flow\n\nThe export runs once a night, writes one CSV per region, and publishes a manifest last, so a reader never sees half a night.\n"
+const designMD = "# Nightly export pipeline: design\n\nProposal for `t1`, written by its worker. The [API notes](notes.txt) list the endpoints, and the [export notes](/f00000000e0aa/doc/reports/t1/sub/deep.md) explain why the old export is retired.\n\n**Shipped**\nExport job retried clean\nManifest written last\nBackfill at 30 days\n---\n**Next**\nRegion split\nAlert on stale manifest\n---\n**Blocked**\nNothing\n\n## Goals\n\n- One job per night that is safe to retry\n- A manifest written last\n- A backfill of the last 30 days\n\n## Data flow\n\nThe export runs once a night, writes one CSV per region, and publishes a manifest last, so a reader never sees half a night.\n"
 
 func at(day string) string { return "2026-11-0" + day + "T04:40:00Z" }
 
@@ -140,6 +160,11 @@ func withDocs(t *testing.T, f *fixture) *fixture {
 		"reports/t1/z-last.txt":  file("reports/t1/z-last.txt", "z-last.txt", "text", 12, "shot-3.png", "", 2),
 		"reports/t1/sub/deep.md": {Path: "reports/t1/sub/deep.md", Name: "deep.md", Kind: "markdown", Text: true, Size: 40, At: at("1"), FolderPage: 1},
 	}
+	f.docs["reports/t1/blob.bin"] = file("reports/t1/blob.bin", "blob.bin", "binary", int64(len(blobBytes)), "", "", 1)
+	f.docs["reports/t1/huge.log"] = file("reports/t1/huge.log", "huge.log", "text", 11<<20, "", "", 1)
+	f.docLines["reports/t1/huge.log"] = []string{"alpha", "beta", "gamma", "delta"}
+	f.docBytes["reports/t1/blob.bin"] = blobBytes
+	f.docBytes["reports/t1/notes.txt"] = []byte("line 1 of the export log\r\nline 2 of the export log\r\nline 3 of the export log\n\tindented\tby tabs\nline 5 of the export log\n")
 	f.docBytes["reports/t1/sub/deep.md"] = []byte("# Export notes\n\nThe old export is retired.\n")
 	f.docLines["reports/t1/z-last.txt"] = []string{"the end"}
 	f.docErr["reports/t1/flaky.md"] = errors.New("the connection was reset")

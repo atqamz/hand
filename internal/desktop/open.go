@@ -25,8 +25,6 @@ func (a *App) OpenInBrowser() {
 		a.runOpen(a.Ref)
 	case AttemptScreen, DecisionScreen:
 		a.runOpen(a.Ref)
-	case DocScreen:
-		a.runOpen("--doc", a.Ref)
 	default:
 		a.runOpen()
 	}
@@ -55,8 +53,6 @@ func (a *App) openBoardPage(dest string) bool {
 }
 
 func (a *App) OpenScreen() { a.runOpen("screen") }
-
-func (a *App) OpenPhone() { a.runOpen("phone") }
 
 func (a *App) runOpen(args ...string) {
 	if a.OpenBusy || a.remoteFleet() {

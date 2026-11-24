@@ -198,6 +198,7 @@ class ChatScreenTest {
     hint: String = "",
     hintBlocked: Boolean = false,
     head: ChatHead = runningHead,
+    models: ModelsUi? = null,
     input: androidx.compose.runtime.MutableState<TextFieldValue>? = null
   ) =
     paparazzi.snapshot {
@@ -215,6 +216,7 @@ class ChatScreenTest {
           hint = hint,
           hintBlocked = hintBlocked,
           head = head,
+          models = models,
           input = input ?: remember(state.draft) { mutableStateOf(TextFieldValue(state.draft)) }
         )
       }
@@ -222,7 +224,31 @@ class ChatScreenTest {
 
   @Test fun conversationLight() = shot(false, pageState())
 
+  @Test fun searchButtonLight() = shot(false, pageState().copy(history = true))
+
+  @Test fun searchButtonDark() = shot(true, pageState().copy(history = true))
+
+  @Test
+  fun revealedEntryLight() {
+    val state = pageState()
+    shot(false, state.copy(history = true, focus = state.page[0].key, aboveBottom = true))
+  }
+
+  @Test
+  fun revealFailedLight() = shot(false, pageState().copy(history = true, revealFailed = true))
+
+  @Test
+  fun revealMissingLight() = shot(false, pageState().copy(history = true, revealMissing = true))
+
   @Test fun conversationDark() = shot(true, pageState())
+
+  @Test
+  fun headModelsLight() =
+    shot(false, pageState(), models = ModelsUi(ModelsState(supported = true, switchable = true, choices = listOf(ModelChoice("opus", "opus", true))), {}, {}))
+
+  @Test
+  fun headModelsDark() =
+    shot(true, pageState(), models = ModelsUi(ModelsState(supported = true, switchable = true, choices = listOf(ModelChoice("opus", "opus", true))), {}, {}))
 
   @Test fun headEndedLight() = shot(false, pageState(), head = stoppedHead)
 

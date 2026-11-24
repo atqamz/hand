@@ -108,6 +108,12 @@ Never end a chat reply with a question for the operator; ask every question with
 2. `hand attempt stop aN` if it is still running, then `hand attempt clean aN`; the branch is kept. Pass `--discard` only when the uncommitted changes are worthless.
 3. `hand task done tN`. It is refused while a report is unread or an attempt is live. When the worker's result includes a file or a link, pass `--deliverable PATH_OR_URL` for each file or link (an http(s) URL or an absolute path), as in `hand task done --deliverable /abs/out.pdf tN`. For a result that is late or missing on an active or done task, record it with `hand task deliver tN PATH_OR_URL...`.
 
+## Pause a task
+
+1. When the operator pauses work, or it waits on something that will not move soon, and nobody means to drop it: `hand attempt stop aN` if a worker still runs (park is refused while an attempt is live), then `hand task park --note "WHY" tN`. The task goes back to `inbox`; its armed timers end and its open decisions are withdrawn, and a decision you still need is asked again after the restart. Unread reports stay unread: read and ack them as usual. Use `hand task abandon tN` only for work that is dropped.
+2. `hand orient` lists a parked task under `inbox` with a `parked` column (the note, or `yes`) that appears only when one is parked. Check it before you start any inbox task: never start a parked one unless the operator asks.
+3. To resume: `hand task start tN`, then arm again the timers it needs (`hand wake`). To continue the old worker's branch, run `hand attempt clean aN` first (it refuses a dirty tree without `--discard`), then `hand attempt start --continue aN --prompt-file BRIEF.md tN`.
+
 ## Disk
 
 1. Hand removes the worktree of a finished attempt by itself once `retention.worktrees` days (7 by default) have passed, and only when its tree is clean, its commits are on a remote branch, no process runs in it and no ignored file looks like config. Otherwise a Needs item on the Board names the reason; settle it, or run `hand attempt clean aN`. Never delete a worktree by hand.

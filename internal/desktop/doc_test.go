@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -61,11 +62,60 @@ func docShots(t *testing.T, name string, width, height int, open func(*desktop.A
 		}
 		t.Run(shotName, func(t *testing.T) {
 			app := newApp(t, docFixture(t))
+			app.SaveAs = func(string) string { return "" }
 			open(app)
 			tt := sized(t, app, width, height, dark)
 			check(t, tt, dark)
 			shotSized(t, tt, shotName, width, height)
 		})
+	}
+}
+
+func standupShape(t *testing.T, tt *ui.Tester, dark bool, minRun int) {
+	t.Helper()
+	texts := strings.Join(tt.Texts(), "\x00")
+	for _, want := range []string{
+		"Shipped\nExport job retried clean\nManifest written last\nBackfill at 30 days",
+		"Next\nRegion split\nAlert on stale manifest",
+		"Blocked\nNothing",
+	} {
+		if !strings.Contains(texts, want) {
+			t.Errorf("no paragraph %q in %q", want, tt.Texts())
+		}
+	}
+	top, ok := tt.Find("Shipped\nExport job retried clean\nManifest written last\nBackfill at 30 days")
+	if !ok {
+		t.Fatal("the first standup block is not on screen")
+	}
+	goals, ok := tt.Find("Goals")
+	if !ok {
+		t.Fatal("the heading under the standup blocks is not on screen")
+	}
+	img, bg := tt.Image(), kit.ColorsFor(dark).BG
+	groups, in := 0, false
+	for y := int(top.Y + top.H); y < int(goals.Y); y++ {
+		var run, best int
+		var last color.RGBA
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			p := img.RGBAAt(x, y)
+			if p == last {
+				run++
+			} else {
+				run, last = 1, p
+			}
+			if !rgbIs(p, bg) && run > best {
+				best = run
+			}
+		}
+		if rule := best >= minRun; rule != in {
+			in = rule
+			if rule {
+				groups++
+			}
+		}
+	}
+	if groups != 2 {
+		t.Errorf("rules under the first standup block = %d, want 2", groups)
 	}
 }
 
@@ -75,8 +125,9 @@ func TestScenesTheMarkdownDocument(t *testing.T) {
 		func(t *testing.T, tt *ui.Tester, dark bool) {
 			mustText(t, tt, "Fleets / golden /", "reports", "t1", "design.md", "reports/t1/design.md", "Copy path",
 				"2 KiB", "Next →", "notes.txt", "Nightly export pipeline: design", "Goals", "A manifest written last",
-				"Open as a page")
+				"Shipped", "Export job retried clean", "Region split", "Blocked")
 			mustNotText(t, tt, "← Previous")
+			standupShape(t, tt, dark, 900)
 			if !rowRun(tt.Image(), 600, kit.ColorsFor(dark).BG, 500) {
 				t.Error("the page under the text has no run of the ground")
 			}
@@ -312,7 +363,7 @@ func TestScenesAKindThatOpensInTheBrowser(t *testing.T) {
 	docShots(t, "61-doc-browser-1100x760", windowWidth, windowHeight,
 		func(a *desktop.App) { a.OpenDoc("reports/t1/plan.pdf") },
 		func(t *testing.T, tt *ui.Tester, dark bool) {
-			mustText(t, tt, "plan.pdf", "A PDF opens in the Board's viewer, in the browser.", "Open in browser", "Copy path")
+			mustText(t, tt, "plan.pdf", "A PDF cannot be shown in this window.", "Copy path")
 			if !hasRun(tt.Image(), kit.ColorsFor(dark).WaitBG, 50) {
 				t.Error("the row has no notice ground")
 			}
@@ -324,10 +375,9 @@ func TestEveryOtherKindHasARowThatOpensTheBoard(t *testing.T) {
 	f := docFixture(t)
 	f.fleets[0].Home = hand.home
 	for kind, row := range map[string]string{
-		"pdf": "A PDF opens", "html": "An HTML page opens", "svg": "An SVG picture opens", "csv": "A CSV table opens",
-		"tsv": "A TSV table opens", "video": "A video opens", "audio": "An audio file opens",
+		"pdf": "A PDF cannot be shown", "svg": "An SVG picture cannot be shown", "video": "A video cannot be shown", "audio": "An audio file cannot be shown",
 		"binary": "This file is not text, so the Board does not show it; download it to open it.",
-		"future": "This file opens",
+		"future": "This file cannot be shown",
 	} {
 		path := "reports/t1/x." + kind
 		f.docs[path] = desktop.Doc{Path: path, Name: "x." + kind, Kind: kind, Size: 9, At: at("1"), FolderPage: 1}
@@ -336,9 +386,11 @@ func TestEveryOtherKindHasARowThatOpensTheBoard(t *testing.T) {
 			app := newApp(t, f)
 			app.OpenDoc(path)
 			tt := newTester(app)
-			mustText(t, tt, row, "Open in browser")
-			click(t, tt, "Open in browser")
-			hand.want(t, "open", "--doc", path)
+			mustText(t, tt, row)
+			mustNotText(t, tt, "Open in browser")
+			if got := hand.calls(t); len(got) != 0 {
+				t.Fatalf("hand ran %q for a document", got)
+			}
 		})
 	}
 }
@@ -349,7 +401,7 @@ func TestAMarkdownThatIsNotTextOpensInTheBrowser(t *testing.T) {
 	app := newApp(t, f)
 	app.OpenDoc("reports/t1/design.md")
 	tt := newTester(app)
-	mustText(t, tt, "This file is not text, so the Board does not show it; download it to open it.", "Open in browser")
+	mustText(t, tt, "This file is not text, so the Board does not show it; download it to open it.")
 	mustNotText(t, tt, "Title")
 }
 
@@ -363,14 +415,14 @@ func TestAPictureTooLargeOrBrokenOpensInTheBrowser(t *testing.T) {
 	app := newApp(t, f)
 	app.OpenDoc("reports/t1/shot-1.png")
 	tt := newTester(app)
-	mustText(t, tt, "This picture is larger than this window reads.", "Open in browser")
+	mustText(t, tt, "This picture is larger than this window reads.")
 	if f.count("raw:reports/t1/shot-1.png") != 0 {
 		t.Fatal("a picture over the limit was read")
 	}
 	click(t, tt, "Next →")
-	mustText(t, tt, "This picture could not be drawn here.", "Open in browser")
+	mustText(t, tt, "This picture could not be drawn here.")
 	click(t, tt, "Next →")
-	mustText(t, tt, "This picture is larger than this window reads.", "Open in browser")
+	mustText(t, tt, "This picture is larger than this window reads.")
 }
 
 func TestScenesARefusedPath(t *testing.T) {
@@ -381,7 +433,7 @@ func TestScenesARefusedPath(t *testing.T) {
 			a.OpenDoc("backups/db.sqlite")
 		},
 		func(t *testing.T, tt *ui.Tester, dark bool) {
-			mustText(t, tt, "backups/db.sqlite", "Open in browser", docRefusedWords)
+			mustText(t, tt, "backups/db.sqlite", docRefusedWords)
 			mustNotText(t, tt, "The page could not be read")
 			mustNotText(t, tt, "Retry")
 			mustNotText(t, tt, "the board's API answers only on its loopback address")
@@ -394,7 +446,7 @@ func TestAMissingPathAndAChangedFileUseTheBoardsWords(t *testing.T) {
 	app := newApp(t, f)
 	app.OpenDoc("reports/t1/gone.md")
 	tt := newTester(app)
-	mustText(t, tt, "there is no file or folder at this path", "Open in browser")
+	mustText(t, tt, "there is no file or folder at this path")
 	mustNotText(t, tt, "Retry")
 	app.OpenDoc("reports/t1/moving.md")
 	tt.Frame()
@@ -436,8 +488,8 @@ func TestALongLineScrollsInsteadOfWideningTheBox(t *testing.T) {
 	app.OpenDoc("reports/t1/z-last.txt")
 	tt := newTester(app)
 	r, ok := tt.Find("Close the viewer")
-	if !ok || int(r.X+r.W) != 1067 {
-		t.Fatalf("the box's right edge is %v, want 1076", r)
+	if !ok || int(r.X+r.W) != 1060+32 {
+		t.Fatalf("the page's right edge is %v, want 1092", r)
 	}
 	if !hasRun(tt.Image(), kit.ColorsFor(false).Card, 50) {
 		t.Error("the lines have no card ground")
@@ -556,20 +608,49 @@ func TestAnAnswerIsDroppedWhenTheViewerMovedOn(t *testing.T) {
 	}
 }
 
-func TestCopyPathCopiesTheFleetRelativePath(t *testing.T) {
-	app := newApp(t, docFixture(t))
+func TestCopyPathCopiesTheFleetFolderJoinedWithThePath(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "fleet-x")
+	f := docFixture(t)
+	f.fleets[0].Home = home
+	app := newApp(t, f)
 	app.OpenDoc("reports/t1/design.md")
 	tt := newTester(app)
+	mustText(t, tt, "reports/t1/design.md", "Copy path")
 	click(t, tt, "Copy path")
-	if got := tt.Clipboard(); got != "reports/t1/design.md" {
-		t.Fatalf("clipboard = %q", got)
+	if got, want := tt.Clipboard(), filepath.Join(home, "reports", "t1", "design.md"); got != want {
+		t.Fatalf("clipboard = %q, want %q", got, want)
 	}
 	tt.Frame()
 	mustText(t, tt, "Copied")
 	app.OpenDoc("reports/t1")
 	tt.Frame()
 	click(t, tt, "Copy path")
-	if got := tt.Clipboard(); got != "reports/t1" || strings.HasPrefix(got, "/") {
+	if got, want := tt.Clipboard(), filepath.Join(home, "reports", "t1"); got != want {
+		t.Fatalf("clipboard = %q, want %q", got, want)
+	}
+}
+
+func TestCopyPathOfARemoteFleetKeepsTheShortPath(t *testing.T) {
+	f := docFixture(t)
+	f.fleets[0].Host = "hostA"
+	f.fleets[0].Home = "/local/layout"
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	click(t, tt, "Copy path")
+	if got := tt.Clipboard(); got != "reports/t1/design.md" {
+		t.Fatalf("clipboard = %q", got)
+	}
+}
+
+func TestCopyPathWithNoKnownFleetFolderKeepsTheShortPath(t *testing.T) {
+	f := docFixture(t)
+	f.fleets[0].Home = ""
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	click(t, tt, "Copy path")
+	if got := tt.Clipboard(); got != "reports/t1/design.md" {
 		t.Fatalf("clipboard = %q", got)
 	}
 }
@@ -620,10 +701,11 @@ func TestScenesTheDocumentInANarrowWindow(t *testing.T) {
 	docShots(t, "65-doc-markdown-880x760", 880, 760,
 		func(a *desktop.App) { a.OpenDoc("reports/t1/design.md") },
 		func(t *testing.T, tt *ui.Tester, dark bool) {
-			mustText(t, tt, "design.md", "Copy path", "Next →", "Nightly export pipeline: design")
+			mustText(t, tt, "design.md", "Copy path", "Next →", "Nightly export pipeline: design", "Shipped", "Region split")
+			standupShape(t, tt, dark, 700)
 			r, ok := tt.Find("Close the viewer")
-			if !ok || int(r.X+r.W) > 880-24 {
-				t.Errorf("the close button %v is outside the box", r)
+			if !ok || int(r.X+r.W) > 880 {
+				t.Errorf("the close button %v is outside the page", r)
 			}
 		})
 	docShots(t, "66-doc-folder-880x760", 880, 760,

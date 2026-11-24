@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/fsx"
@@ -108,7 +110,9 @@ func (s Skills) readPending() (map[string]string, error) {
 	return pending, nil
 }
 
-func (s Skills) Lock() (func(), error) {
+var LockPoll = 20 * time.Millisecond
+
+func (s Skills) Lock(ctx context.Context) (func(), error) {
 	dir := s.metaDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -117,14 +121,24 @@ func (s Skills) Lock() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok, err := flock.Lock(f, true); err != nil || !ok {
-		_ = f.Close()
-		if err == nil {
-			err = errors.New("could not lock the skills state")
+	for {
+		if err := ctx.Err(); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("%w: gave up waiting for the skills lock, which another process holds: %w", state.ErrConflict, err)
 		}
-		return nil, err
+		ok, err := flock.Lock(f, false)
+		if err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+		if ok {
+			return func() { _ = flock.Release(f) }, nil
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(LockPoll):
+		}
 	}
-	return func() { _ = flock.Release(f) }, nil
 }
 
 func (s Skills) Save(managed map[string]Managed) error {
@@ -262,14 +276,14 @@ func Copy(src, dst string) error {
 		case d.IsDir():
 			return os.MkdirAll(target, 0o755)
 		case !d.Type().IsRegular():
-			return fmt.Errorf("%s is not a regular file; a skill is copied, never linked", path)
+			return fmt.Errorf("%w: %s is not a regular file; a skill is copied, never linked", state.ErrInvalid, rel)
 		}
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
 		if total += info.Size(); total > MaxSkillBytes {
-			return fmt.Errorf("%s is over %d MiB; a skill is a small folder", src, MaxSkillBytes>>20)
+			return fmt.Errorf("%w: %s takes a skill over %d MiB; a skill is a small folder", state.ErrInvalid, rel, MaxSkillBytes>>20)
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {

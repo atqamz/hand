@@ -52,7 +52,7 @@ func cmdSkillsPropose(r *runner, args []string) error {
 }
 
 func (r *runner) prepareProposal(s fleet.Skills, name string) (proposal, error) {
-	unlock, err := s.Lock()
+	unlock, err := s.Lock(r.ctx())
 	if err != nil {
 		return proposal{}, err
 	}

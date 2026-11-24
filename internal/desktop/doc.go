@@ -16,8 +16,10 @@ import (
 
 const (
 	docPixelsMax = 36 << 20
-	docTooLarge  = "This picture is larger than this window reads. Open it in the browser."
+	docTooLarge  = "This picture is larger than this window reads."
 )
+
+const docCannot = " cannot be shown in this window."
 
 const notText = "This file is not text, so the Board does not show it; download it to open it."
 
@@ -36,6 +38,31 @@ type docState struct {
 	body   string
 	image  *ui.Bitmap
 	row    string
+	table  *docTable
+
+	note      string
+	said      string
+	noteBad   bool
+	copying   bool
+	saving    bool
+	clip      string
+	clipReady bool
+
+	find        docFind
+	follow      docFollow
+	srcLines    []string
+	mark        int
+	scrollMark  bool
+	scrollSeq   int
+	scrollArmed int
+	scrollFrom  float32
+	lineIn      string
+	lineNote    string
+	lineBad     bool
+	findSaid    string
+	lineSaid    string
+	focusFind   bool
+	navGen      int
 }
 
 type docRead struct {
@@ -44,12 +71,12 @@ type docRead struct {
 	body   string
 	image  *ui.Bitmap
 	row    string
+	table  *docTable
 	err    error
 }
 
 var docKindNouns = map[string]string{
-	"pdf": "A PDF", "html": "An HTML page", "svg": "An SVG picture", "csv": "A CSV table",
-	"tsv": "A TSV table", "video": "A video", "audio": "An audio file",
+	"pdf": "A PDF", "html": "An HTML page", "svg": "An SVG picture", "video": "A video", "audio": "An audio file",
 }
 
 func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRead {
@@ -88,12 +115,17 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 		r.image, r.row = drawBitmap(b, docPixelsMax)
 	case "binary":
 		r.row = notText
+	case "csv", "tsv":
+		r.table, r.err = readTable(ctx, m, fleet, req.path, d.Kind)
+	case "html":
+		r.row = docKindNouns[d.Kind] + docCannot
+		r.window, r.err = m.DocWindow(ctx, fleet, req.path, req.from)
 	default:
 		noun, ok := docKindNouns[d.Kind]
 		if !ok {
 			noun = "This file"
 		}
-		r.row = noun + " opens in the Board's viewer, in the browser."
+		r.row = noun + docCannot
 	}
 	return r
 }
@@ -104,7 +136,7 @@ func drawBitmap(b []byte, most int64) (*ui.Bitmap, string) {
 	}
 	bmp, err := ui.DecodeBitmap(b)
 	if err != nil {
-		return nil, "This picture could not be drawn here. Open it in the browser."
+		return nil, "This picture could not be drawn here."
 	}
 	return bmp, ""
 }
@@ -129,9 +161,14 @@ func (a *App) showDoc(rel string, page int, push bool) {
 		return
 	}
 	if isBase(a.Screen) {
+		if a.Screen == PhoneScreen {
+			a.resetPhone()
+		}
 		a.base = a.Screen
-		a.viewerFocus = true
 		a.tabFor = ""
+	}
+	if a.Screen != DocScreen {
+		a.viewerFocus = true
 	}
 	if push && !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
@@ -144,12 +181,14 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	a.pageTargetGen++
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.docOp++
 	a.doc = docState{path: rel, page: page, from: 1}
 	a.loadDoc()
 }
 
 func (a *App) resetDoc() {
 	a.docGen++
+	a.docOp++
 	if a.docCancel != nil {
 		a.docCancel()
 		a.docCancel = nil
@@ -195,7 +234,8 @@ func (a *App) loadDoc() {
 			return
 		}
 		st.doc, st.ok = r.doc, true
-		st.window, st.body, st.image, st.row = r.window, r.body, r.image, r.row
+		st.window, st.body, st.image, st.row, st.table = r.window, r.body, r.image, r.row, r.table
+		st.srcLines = nil
 	}
 	if post == nil {
 		r := readDoc(ctx, model, fleet, req)
@@ -218,6 +258,7 @@ func (a *App) docWindowAt(from int, later bool) {
 		st.froms = st.froms[:n-1]
 	}
 	st.from = from
+	a.stopFollow("", false)
 	a.viewerScroll = ui.ScrollState{}
 	a.loadDoc()
 }

@@ -43,6 +43,7 @@ type ReadModel interface {
 	Doc(ctx context.Context, fleet, path string, page int) (Doc, error)
 	DocWindow(ctx context.Context, fleet, path string, from int) (DocWindow, error)
 	DocBytes(ctx context.Context, fleet, path string) ([]byte, error)
+	DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error)
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error)
 	AckReport(ctx context.Context, fleet, ref string) (Acked, error)
 	SendMessage(ctx context.Context, fleet, text string, attachments []string) (Sent, error)
@@ -62,6 +63,13 @@ type ReadModel interface {
 	Links(ctx context.Context, fleet string, paths []string) ([]*Link, error)
 	Skills(ctx context.Context, fleet string) (Skills, error)
 	SkillsRun(ctx context.Context, fleet, verb string, req SkillsRequest) (SkillsRun, error)
+	Alerts(ctx context.Context, fleet string) (AlertsData, error)
+	HistorySearch(ctx context.Context, fleet, q string, limit int) (HistorySearch, error)
+	HistoryEntry(ctx context.Context, fleet, ref string) (HistoryEntry, error)
+	Phone(ctx context.Context, fleet string) (Phone, error)
+	PhoneCode(ctx context.Context, fleet string, req PhoneCodeRequest) (Phone, error)
+	PhoneApp(ctx context.Context, fleet string) (Phone, error)
+	PhoneRevoke(ctx context.Context, fleet string, req PhoneRevokeRequest) (Phone, error)
 }
 
 type ReadCursor struct {
@@ -97,6 +105,7 @@ type Poll struct {
 	Task           TaskDetail
 	Attempt        AttemptDetail
 	Decision       DecisionDetail
+	Alerts         AlertsData
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -522,6 +531,23 @@ func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, 
 	return b, err
 }
 
+func (c *HTTPClient) DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error) {
+	ctx = context.WithValue(ctx, longWait{}, true)
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return 0, err
+	}
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodGet, docPath(path)+"?raw", nil)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return 0, c.failure(res)
+	}
+	return io.Copy(dst, res.Body)
+}
+
 func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error) {
 	token, err := c.prepare(ctx, fleet)
 	if err != nil {
@@ -554,7 +580,7 @@ func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc
 
 func pollPath(screen Screen, ref string) string {
 	switch screen {
-	case TasksScreen, SkillsScreen, DocScreen:
+	case TasksScreen, SkillsScreen, DocScreen, HistoryScreen, PhoneScreen:
 		return ""
 	case TaskScreen:
 		return "/task/" + url.PathEscape(ref)
@@ -562,6 +588,8 @@ func pollPath(screen Screen, ref string) string {
 		return "/attempt/" + url.PathEscape(ref)
 	case DecisionScreen:
 		return "/decision/" + url.PathEscape(ref)
+	case AlertsScreen:
+		return "/alerts"
 	}
 	return "/tasks?all=1"
 }
@@ -574,6 +602,8 @@ func pollData(screen Screen, p *Poll) any {
 		return &p.Attempt
 	case DecisionScreen:
 		return &p.Decision
+	case AlertsScreen:
+		return &p.Alerts
 	}
 	return &p.Tasks
 }

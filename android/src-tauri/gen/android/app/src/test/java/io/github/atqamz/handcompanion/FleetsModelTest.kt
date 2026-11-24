@@ -4,10 +4,14 @@ import java.util.Collections
 import java.util.TimeZone
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -770,5 +774,137 @@ class FleetsModelTest {
     val ones = host.paths.filter { it.startsWith(ONE) }
     assertEquals(2, ones.size)
     assertFalse(ones.last().contains("since="))
+  }
+
+  @Test
+  fun signingOutThisCompanionRemovesEveryPairingAndLeavesNothingToAskOrShow() {
+    var paired = arrayOf(ONE, TWO)
+    var forgets = 0
+    val droppedFleets = mutableSetOf<String>()
+    val host = Host { fleet, _ -> both(fleet) }
+    val model =
+      FleetsModel(
+        host,
+        { if (paired.isEmpty()) phone() else phone(laptop(*paired)) },
+        forgetter = {
+          forgets++
+          paired = emptyArray()
+          true
+        },
+        dropped = { droppedFleets += it }
+      )
+    runBlocking { model.refresh() }
+    model.ask(Forgetting(null, null, 2))
+    runBlocking { model.forget(model.state.value.asking!!) }
+    runBlocking { model.refresh() }
+    val state = model.state.value
+    assertEquals(1, forgets)
+    assertEquals(setOf(ONE, TWO), droppedFleets)
+    assertTrue(state.loaded)
+    assertTrue(state.hosts.isEmpty())
+    assertTrue(state.phone?.hosts.orEmpty().isEmpty())
+    assertNull(state.asking)
+    assertNull(state.notice)
+    assertEquals(FleetsBody.Rows, fleetsBody(state))
+    val phone = thisPhone(state, "0.2.0")
+    assertTrue(phone.hosts.isEmpty() && phone.fleets.isEmpty())
+    assertEquals("Alerts are off", phone.alerts)
+    assertEquals("No fleet is paired.", phone.alertsDetail)
+    val reads = host.paths.size
+    runBlocking { model.refresh() }
+    assertEquals(reads, host.paths.size)
+  }
+
+  @Test
+  fun anAnswerThatLandsAfterTheSignOutDoesNotBringTheFleetsBack() {
+    val inFlight = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val removed = AtomicBoolean(false)
+    val model =
+      FleetsModel(
+        Host { _, _ ->
+          inFlight.countDown()
+          release.await(5, TimeUnit.SECONDS)
+          blocked
+        },
+        { if (removed.get()) phone() else phone(laptop(ONE)) },
+        forgetter = {
+          removed.set(true)
+          true
+        }
+      )
+    runBlocking {
+      val late = launch(Dispatchers.Default) { model.refresh() }
+      assertTrue(inFlight.await(5, TimeUnit.SECONDS))
+      val signingOut = launch(Dispatchers.Default) { model.forget(Forgetting(null, null, 1)) }
+      withTimeout(5_000) { while (!removed.get()) delay(5) }
+      release.countDown()
+      late.join()
+      signingOut.join()
+    }
+    assertTrue(model.state.value.hosts.isEmpty())
+    assertTrue(model.state.value.rows.isEmpty())
+    assertTrue(model.state.value.phone?.hosts.orEmpty().isEmpty())
+  }
+
+  @Test
+  fun forgettingOneHostDropsOnlyTheFleetsNoHostHoldsAnyMore() {
+    var paired = listOf(host(LAPTOP, "atqa-laptop", ONE, TWO), host(VPS, "vps-berlin", THREE))
+    val droppedFleets = mutableListOf<Set<String>>()
+    val model =
+      FleetsModel(
+        Host { fleet, _ -> both(fleet) },
+        { phone(*paired.toTypedArray()) },
+        hostForgetter = { endpoint ->
+          paired = paired.filter { it.endpoint != endpoint }
+          true
+        },
+        dropped = { droppedFleets += it }
+      )
+    runBlocking {
+      model.refresh()
+      model.forget(Forgetting(VPS, "vps-berlin", 1))
+    }
+    assertEquals(listOf(setOf(THREE)), droppedFleets)
+    runBlocking { model.forget(Forgetting(LAPTOP, "atqa-laptop", 2)) }
+    assertEquals(listOf(setOf(THREE), setOf(ONE, TWO)), droppedFleets)
+  }
+
+  @Test
+  fun aForgetThatFailsDropsNothing() {
+    val droppedFleets = mutableListOf<Set<String>>()
+    val model =
+      FleetsModel(
+        Host { fleet, _ -> both(fleet) },
+        { phone(laptop(ONE)) },
+        forgetter = { false },
+        dropped = { droppedFleets += it }
+      )
+    runBlocking {
+      model.refresh()
+      model.forget(Forgetting(null, null, 1))
+    }
+    assertTrue(droppedFleets.isEmpty())
+  }
+
+  @Test
+  fun aFleetAnotherHostStillHoldsKeepsItsDrafts() {
+    var paired = listOf(host(LAPTOP, "atqa-laptop", ONE, TWO), host(VPS, "vps-berlin", ONE))
+    val droppedFleets = mutableListOf<Set<String>>()
+    val model =
+      FleetsModel(
+        Host { fleet, _ -> both(fleet) },
+        { phone(*paired.toTypedArray()) },
+        hostForgetter = { endpoint ->
+          paired = paired.filter { it.endpoint != endpoint }
+          true
+        },
+        dropped = { droppedFleets += it }
+      )
+    runBlocking {
+      model.refresh()
+      model.forget(Forgetting(VPS, "vps-berlin", 1))
+    }
+    assertEquals(listOf(emptySet<String>()), droppedFleets)
   }
 }

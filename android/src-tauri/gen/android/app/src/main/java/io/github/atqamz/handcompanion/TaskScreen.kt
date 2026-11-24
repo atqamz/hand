@@ -48,7 +48,7 @@ internal fun SectionHead(text: String) {
 }
 
 @Composable
-private fun RowChevron() {
+internal fun RowChevron() {
   Icon(
     HandIcons.Chevron,
     null,
@@ -165,7 +165,7 @@ private fun Waiting(report: TaskReport, onTarget: (ThreadTarget) -> Unit) {
 @Composable
 internal fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (ThreadTarget) -> Unit) {
   val hand = LocalHand.current
-  val target = deliverableTarget(deliverable, fleet)
+  val target = deliverableTarget(deliverable)
   val badge = if (deliverable.kind == "file") fileBadge(deliverable.ref) else deliverable.kind.uppercase()
   Row(
     Modifier.fillMaxWidth()
@@ -184,7 +184,6 @@ internal fun Delivered(deliverable: TaskDeliverable, fleet: String, onTarget: (T
         color = if (target is ThreadTarget.Browser) hand.ink(Tone.Accent) else hand.fg,
         style = type.bodyLarge.copy(fontWeight = if (deliverable.kind == "file") FontWeight.Normal else FontWeight.SemiBold)
       )
-      if (deliverable.kind == "file" && target != ThreadTarget.None) Meta("Opens in the web Board")
     }
   }
 }
