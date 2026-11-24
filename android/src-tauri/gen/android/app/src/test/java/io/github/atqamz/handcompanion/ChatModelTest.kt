@@ -16,6 +16,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonArray
@@ -1847,6 +1849,70 @@ class ChatModelTest {
     chat.revealNow("y9", at, "Gamma")
     assertNull(chat.state.value.focus)
     assertTrue(chat.state.value.revealMissing)
+  }
+
+  @Test
+  fun revealPicksTheReplyWhoseFirstSixtyFourCharactersAreEqual() = runBlocking {
+    val at = "2026-11-01T08:00:00Z"
+    val shared = "The kiln profile was checked against the staging board: "
+    val board =
+      revealBoard(
+        timeline(
+          0,
+          entry("s2", "supervisor", at, shared + "stale, and nothing else changed.", no = 4),
+          entry("s1", "supervisor", at, shared + "fresh, and nothing else changed.", no = 3)
+        )
+      )
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("y9", at, shared + "fresh, and nothing else changed.")
+    val held = chat.state.value
+    assertEquals(
+      shared + "fresh, and nothing else changed.",
+      displayEntries(held.page, held.older).first { it.key == held.focus }.entry.text
+    )
+  }
+
+  @Test
+  fun revealOfAShortReplyIsNotTakenByALongerOneThatStartsWithIt() = runBlocking {
+    val at = "2026-11-01T08:00:00Z"
+    val board =
+      revealBoard(
+        timeline(
+          0,
+          entry("s2", "supervisor", at, "OK", no = 4),
+          entry("s1", "supervisor", at, "OK, done", no = 3)
+        )
+      )
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("y9", at, "OK, done")
+    var held = chat.state.value
+    assertEquals("OK, done", displayEntries(held.page, held.older).first { it.key == held.focus }.entry.text)
+    chat.revealNow("y10", at, "OK")
+    held = chat.state.value
+    assertEquals("OK", displayEntries(held.page, held.older).first { it.key == held.focus }.entry.text)
+  }
+
+  @Test
+  fun retryRevealRunsTheLastRevealAgain() = runBlocking {
+    Dispatchers.setMain(Dispatchers.Unconfined)
+    try {
+      val board = revealBoard("")
+      board.olderAnswer = { refused(500, "internal", "boom") }
+      val chat = model(board)
+      chat.load()
+      chat.reveal("i1", "", "")
+      eventually("the failed older page") { chat.state.value.revealFailed }
+      board.olderAnswer = {
+        Raw(200, timeline(0, entry("i1", "operator", "2026-11-01T09:00:00Z", "Old", input = 1)))
+      }
+      chat.retryReveal()
+      eventually("the entry after Retry") { chat.state.value.focus != null }
+      assertFalse(chat.state.value.revealFailed)
+    } finally {
+      Dispatchers.resetMain()
+    }
   }
 
   @Test

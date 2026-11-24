@@ -97,12 +97,11 @@ fun entryMatches(entry: TimelineEntry, ref: String, at: String) =
 
 fun entryPick(candidates: List<ChatEntry>, text: String): ChatEntry? {
   if (candidates.size <= 1) return candidates.firstOrNull()
-  val wanted = text.trim().take(REVEAL_PREFIX)
+  val wanted = text.trim()
   if (wanted.isEmpty()) return null
-  return candidates.firstOrNull {
-    val held = it.entry.text.trim()
-    held.isNotEmpty() && (held.startsWith(wanted) || wanted.startsWith(held.take(REVEAL_PREFIX)))
-  }
+  val held = candidates.filter { it.entry.text.trim().isNotEmpty() }
+  return held.firstOrNull { it.entry.text.trim().take(REVEAL_PREFIX) == wanted.take(REVEAL_PREFIX) }
+    ?: held.filter { wanted.startsWith(it.entry.text.trim()) }.maxByOrNull { it.entry.text.trim().length }
 }
 
 fun entryIdentity(entry: TimelineEntry): String =
