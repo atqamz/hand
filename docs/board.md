@@ -70,6 +70,8 @@ Every `aN` on the Board, in a reply, a report, a decision, an event or a Needs i
 
 A worktree that `hand attempt clean` removed is marked as removed, and its branch is kept. The page does not show the worker's screen or the last screen Hand stored, and has no transcript for a harness other than `copilot`; see [Attempt](vocabulary.md#attempt). A running attempt's page refreshes itself like the task page, every 10 seconds, so the timeline and the report fill in without a reload.
 
+The launch line and the worktree path are shown here and by `hand attempt show aN`, but the API withholds both, so Desktop and Android show neither (see [API](api.md)).
+
 The page holds nothing the task page does not already hold, apart from the brief, the launch line and a `copilot` worker's transcript, so a paired Companion opens it, the network-address board serves it read-only, and Funnel and unauthenticated requests are refused as for every other page.
 
 ## Pair a Companion
