@@ -17,6 +17,7 @@ type alertsBoard struct {
 	features []string
 	cursor   string
 	full     int
+	text     string
 	notMod   int
 	sinces   []string
 }
@@ -46,7 +47,7 @@ func (b *alertsBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"version": 1, "fleet": map[string]string{"id": fleetID, "name": "fake"}, "cursor": b.cursor,
 		"data": map[string]any{"days": 7, "slow_after_seconds": 60,
 			"stats":  map[string]any{"total": 1, "unacked": 1, "slow": 0, "p50_seconds": nil, "p95_seconds": nil, "max_seconds": nil},
-			"alerts": []map[string]any{{"seq": 1, "at": "2026-11-24T09:59:00Z", "kind": "decision.asked", "ref": "d4", "text": "d4 asks: which build?", "fetched_at": "", "acked_at": "", "delay_seconds": nil, "slow": false}}},
+			"alerts": []map[string]any{{"seq": 1, "at": "2026-11-24T09:59:00Z", "kind": "decision.asked", "ref": "d4", "text": b.bodyText(), "fetched_at": "", "acked_at": "", "delay_seconds": nil, "slow": false}}},
 	})
 }
 
@@ -107,5 +108,34 @@ func TestTheAlertsPollNeverAsksAnOldHost(t *testing.T) {
 	}
 	if app.Stale != "" {
 		t.Fatalf("stale = %q on an old host", app.Stale)
+	}
+}
+
+func (b *alertsBoard) bodyText() string {
+	if b.text == "" {
+		return "d4 asks: which build?"
+	}
+	return b.text
+}
+
+func TestTheAlertsPollTakesAChangedBodyThroughTheClient(t *testing.T) {
+	b := &alertsBoard{fakeBoard: newFakeBoard(), features: []string{"alerts"}, cursor: "c1.alerts"}
+	app, clock := alertsHTTPApp(t, b)
+	app.Show(desktop.AlertsScreen)
+	app.StartRefresh()
+	b.mu.Lock()
+	b.cursor, b.text = "c2.alerts", "d4 was answered"
+	b.mu.Unlock()
+	clock.Advance(desktop.FocusedRefresh)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.full < 2 {
+		t.Fatalf("no second full read: %d", b.full)
+	}
+	if len(app.Alerts.Alerts) != 1 || app.Alerts.Alerts[0].Text != "d4 was answered" {
+		t.Fatalf("poll did not carry the new body: %+v", app.Alerts)
+	}
+	if app.Stale != "" {
+		t.Fatalf("stale = %q", app.Stale)
 	}
 }

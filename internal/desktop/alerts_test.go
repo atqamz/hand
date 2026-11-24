@@ -21,13 +21,13 @@ func TestTheAlertsPageShowsStatsAndReceiptsNewestFirst(t *testing.T) {
 				"d4 asks: which build?", "a3 failed", "slow", "Delay no")
 			var seen []string
 			for _, s := range tt.Texts() {
-				for _, k := range []string{"decision.asked", "attempt.failed", "report.new", "supervisor.stopped"} {
+				for _, k := range []string{"worker.stuck", "worker.idle", "decision.asked", "attempt.failed", "report.new", "supervisor.stopped"} {
 					if s == k {
 						seen = append(seen, k)
 					}
 				}
 			}
-			want := []string{"decision.asked", "attempt.failed", "report.new", "supervisor.stopped"}
+			want := []string{"worker.stuck", "worker.idle", "decision.asked", "attempt.failed", "report.new", "supervisor.stopped"}
 			if !slices.Equal(seen, want) {
 				t.Fatalf("order = %v, want %v", seen, want)
 			}
@@ -38,7 +38,7 @@ func TestTheAlertsPageShowsStatsAndReceiptsNewestFirst(t *testing.T) {
 func TestTheAlertsPageStatsLabelEachValue(t *testing.T) {
 	app := alertsApp(t, withAlerts(goldenFixture(t)))
 	tt := sized(t, app, windowWidth, windowHeight, false)
-	for _, label := range []string{"alerts 4", "not acknowledged 2", "slow 1", "median delay 1m0s", "95th percentile delay 1m35s", "longest delay 1m35s"} {
+	for _, label := range []string{"alerts 6", "not acknowledged 2", "slow 1", "median delay 1m0s", "95th percentile delay 1m35s", "longest delay 1m35s"} {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("no stat %q in %q", label, tt.Texts())
 		}
@@ -51,9 +51,30 @@ func TestTheAlertsPageMarksOnlyTheSlowReceipt(t *testing.T) {
 	if n := exactTexts(tt, "slow"); n != 2 {
 		t.Fatalf("%d \"slow\" texts, want the stat label and one marker", n)
 	}
-	mustText(t, tt, "Delay 1m0s")
+	mustText(t, tt, "Delay 1m0s", "Delay 10s", "Delay 11s")
 	if n := exactTexts(tt, "Delay no"); n != 2 {
 		t.Fatalf("%d unacknowledged receipts shown, want 2", n)
+	}
+}
+
+func TestTheAlertsPageShowsOtherRefsAsPlainText(t *testing.T) {
+	app := alertsApp(t, withAlerts(goldenFixture(t)))
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	hover := func(ref string) ui.Cursor {
+		r, ok := tt.Find(ref)
+		if !ok {
+			t.Fatalf("no %q in %q", ref, tt.Texts())
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		return tt.Cursor()
+	}
+	if hover("d4") != ui.CursorPointer {
+		t.Fatal("a d ref is not a link")
+	}
+	for _, ref := range []string{"s1", "tx"} {
+		if hover(ref) == ui.CursorPointer {
+			t.Errorf("%q is a link, want plain text", ref)
+		}
 	}
 }
 
@@ -106,6 +127,23 @@ func TestTheAlertsPageKeepsReceiptsAndMarksStaleWhenTheBoardGoesAway(t *testing.
 	clock.Advance(desktop.FocusedRefresh)
 	tt.Frame()
 	mustText(t, tt, "Stale · retrying", "decision.asked")
+}
+
+func TestTheAlertsPageTakesItsFirstReceiptsFromAPollAfterAFailedRead(t *testing.T) {
+	f := withAlerts(goldenFixture(t))
+	f.alertsErr = errors.New("connection refused")
+	app := alertsApp(t, f)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	f.mu.Lock()
+	f.alertsErr = nil
+	f.mu.Unlock()
+	clock.Advance(desktop.FocusedRefresh)
+	tt.Frame()
+	mustText(t, tt, "decision.asked")
+	mustNotText(t, tt, "Reading the alerts")
 }
 
 func TestTheAlertsPageFollowsThePoll(t *testing.T) {
