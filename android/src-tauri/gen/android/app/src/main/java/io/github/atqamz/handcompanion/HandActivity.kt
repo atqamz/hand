@@ -369,7 +369,11 @@ class HandActivity : ComponentActivity() {
     val model = remember(fleet, path) { docModel(fleet, path) }
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.load() }
-    DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget)
+    val tools =
+      remember(model) {
+        DocTools(model::find, model::step, model::closeFind, model::goTo, model::earlier, model::toggleWrap, model::contents)
+      }
+    DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget, tools)
   }
 
   @Composable

@@ -975,6 +975,14 @@ mod tests {
                 "/api/v1/doc/reports/t1/notes.txt?from=501&lines=500",
                 "GET /f0123456789ab/api/v1/doc/reports/t1/notes.txt?from=501&lines=500 HTTP/1.1\r\n",
             ),
+            (
+                "/api/v1/doc/reports/t1/notes.txt?from=1&lines=299",
+                "GET /f0123456789ab/api/v1/doc/reports/t1/notes.txt?from=1&lines=299 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/p%20q.png?raw",
+                "GET /f0123456789ab/api/v1/doc/reports/p%20q.png?raw HTTP/1.1\r\n",
+            ),
         ] {
             let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
             assert!(text(&request).starts_with(line), "{path}");
