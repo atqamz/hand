@@ -18,6 +18,7 @@ var (
 	bulletItem  = regexp.MustCompile(`^[-+*]([ \t]|$)`)
 	orderedItem = regexp.MustCompile(`^[0-9]{1,9}[.)]([ \t]|$)`)
 	atxHeading  = regexp.MustCompile(`^#{1,6}([ \t]|$)`)
+	refDef      = regexp.MustCompile(`^ {0,3}\[[^\]]+\]:`)
 	underline   = regexp.MustCompile(`^ {0,3}(=+|-+)[ \t]*$`)
 	delimRow    = regexp.MustCompile(`^[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$`)
 )
@@ -36,8 +37,8 @@ func softBreaks(src string) string {
 func markBreaks(lines []string) []string {
 	out := slices.Clone(lines)
 	kinds := make([]lineKind, len(lines))
-	fence, codeIndent := "", 0
-	inList, table := false, false
+	fence, fenceIndent, codeIndent := "", 0, 0
+	inList, table, afterDef := false, false, false
 	for i := 0; i < len(lines); i++ {
 		l := lines[i]
 		t := strings.TrimLeft(l, " \t")
@@ -46,13 +47,16 @@ func markBreaks(lines []string) []string {
 		if i > 0 {
 			prev, prevBlank = kinds[i-1], strings.TrimSpace(lines[i-1]) == ""
 		}
+		wasDef := afterDef
+		afterDef = false
 		switch {
 		case fence != "":
-			if closesFence(t, fence) {
+			if ind < fenceIndent+4 && closesFence(t, fence) {
 				fence = ""
 			}
 		case t == "":
 			table = false
+		case wasDef:
 		case codeIndent > 0 && ind >= codeIndent:
 		case table && strings.Contains(l, "|"):
 		case ind >= 4 && prev == kindOther && !inList:
@@ -66,7 +70,9 @@ func markBreaks(lines []string) []string {
 			}
 			switch {
 			case opensFence(t) != "":
-				fence = opensFence(t)
+				fence, fenceIndent = opensFence(t), ind
+			case refDef.MatchString(l):
+				afterDef = strings.HasSuffix(strings.TrimSpace(l), ":")
 			case dashRule(t) && (prev == kindPlain || prev == kindItem && ind > 0):
 				out[i] = l[:len(l)-len(t)] + "***"
 			case rule(t):
@@ -88,7 +94,12 @@ func markBreaks(lines []string) []string {
 				i = j - 1
 			case atxHeading.MatchString(t), underline.MatchString(l):
 			case bulletItem.MatchString(t) || orderedItem.MatchString(t):
-				kinds[i], inList = kindItem, true
+				inList = true
+				if f := opensFence(itemContent(t)); f != "" {
+					fence, fenceIndent = f, ind
+				} else {
+					kinds[i] = kindItem
+				}
 			case tableHead(lines, i):
 				table = true
 			default:
@@ -139,6 +150,11 @@ func opensFence(t string) string {
 		}
 	}
 	return ""
+}
+
+func itemContent(t string) string {
+	t = strings.TrimLeft(t, "0123456789")
+	return strings.TrimLeft(t[1:], " \t")
 }
 
 func closesFence(t, open string) bool {
