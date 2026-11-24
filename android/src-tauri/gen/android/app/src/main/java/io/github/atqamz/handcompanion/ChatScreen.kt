@@ -49,6 +49,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
@@ -495,6 +496,11 @@ internal fun ChatContent(
       .distinctUntilChanged()
       .collect { report.value(it) }
   }
+  val shown = rememberUpdatedState(rows)
+  LaunchedEffect(list, state.focus) {
+    val index = shown.value.indexOfFirst { it.key == state.focus }
+    if (index >= 0) list.scrollToItem(index)
+  }
   LaunchedEffect(list, head, threshold) {
     if (head != null &&
       pinned(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset, threshold)
@@ -535,7 +541,17 @@ internal fun ChatContent(
             footer -> 14.dp
             else -> 0.dp
           }
-        Box(Modifier.padding(top = gap)) {
+        val focused = row.key == state.focus
+        Box(
+          Modifier.padding(top = gap)
+            .then(
+              if (focused) {
+                Modifier.clip(MaterialTheme.shapes.medium).background(hand.fill(Tone.Accent))
+              } else {
+                Modifier
+              }
+            )
+        ) {
           ChatRowView(row, fleet, zone, open, onToggle, onTarget)
         }
       }
@@ -652,7 +668,12 @@ private fun HeadChip(
 }
 
 @Composable
-private fun ChatHeadBar(head: ChatHead, onControl: (HeadControl) -> Unit) {
+private fun ChatHeadBar(
+  head: ChatHead,
+  searchable: Boolean,
+  onSearch: () -> Unit,
+  onControl: (HeadControl) -> Unit
+) {
   val hand = LocalHand.current
   Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
     Row(
@@ -667,6 +688,9 @@ private fun ChatHeadBar(head: ChatHead, onControl: (HeadControl) -> Unit) {
         overflow = TextOverflow.Ellipsis,
         style = type.labelLarge
       )
+      if (searchable) {
+        IconButton(onSearch) { Icon(HandIcons.Search, "Search the conversation", Modifier.size(20.dp)) }
+      }
       head.controls.forEach { control ->
         HeadChip(
           control,
@@ -876,6 +900,7 @@ fun ChatScreen(
   onDetach: (Int) -> Unit = {},
   head: ChatHead,
   onControl: (HeadControl) -> Unit = {},
+  onSearch: () -> Unit = {},
   input: MutableState<TextFieldValue> = rememberDraftField(state.draft)
 ) {
   var openText by rememberSaveable { mutableStateOf(expand.joinToString("\u0000")) }
@@ -894,8 +919,16 @@ fun ChatScreen(
       chatBody(state) == ChatBody.Loading -> Loading()
       else ->
         Column(Modifier.fillMaxSize()) {
-          ChatHeadBar(head, onControl)
+          ChatHeadBar(head, state.history, onSearch, onControl)
           HorizontalDivider(color = LocalHand.current.line)
+          if (state.revealMissing) {
+            Text(
+              REVEAL_MISSING,
+              Modifier.fillMaxWidth().padding(16.dp, 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+              color = LocalHand.current.ink(Tone.Wait),
+              style = type.bodySmall
+            )
+          }
           Box(Modifier.weight(1f)) {
             ChatContent(
               fleet,

@@ -1721,4 +1721,83 @@ class ChatModelTest {
     assertEquals(112, composerMaxDp(screenDp = 800, imeDp = 520))
     assertEquals(44, composerMaxDp(screenDp = 600, imeDp = 560))
   }
+
+  private fun revealBoard(older: String) =
+    ChatBoard(
+      timelineAnswer = {
+        Raw(200, timeline(120, entry("i5", "operator", "2026-11-05T09:00:00Z", "Latest", input = 5)))
+      },
+      olderAnswer = { Raw(200, older) }
+    )
+
+  @Test
+  fun revealPagesOlderUntilTheOperatorMessageIsFound() = runBlocking {
+    val board =
+      revealBoard(timeline(0, entry("i1", "operator", "2026-11-01T09:00:00Z", "Old", input = 1)))
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("i1", "")
+    val held = chat.state.value
+    val found = displayEntries(held.page, held.older).first { it.entry.input == 1L }
+    assertEquals(found.key, held.focus)
+    assertFalse(held.revealMissing)
+    assertEquals(listOf("GET /api/v1/timeline?before=120"), board.calls.filter { "before=" in it })
+  }
+
+  @Test
+  fun revealFindsAReplyByItsTimestamp() = runBlocking {
+    val at = "2026-11-01T08:00:00Z"
+    val board = revealBoard(timeline(0, entry("s1", "supervisor", at, "Reply", no = 3)))
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("y9", at)
+    val held = chat.state.value
+    assertEquals("Reply", displayEntries(held.page, held.older).first { it.key == held.focus }.entry.text)
+  }
+
+  @Test
+  fun revealStopsAtTheEndOfTheConversationAndSaysSo() = runBlocking {
+    val board = revealBoard(timeline(0, entry("i1", "operator", "2026-11-01T09:00:00Z", "Old", input = 1)))
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("i99", "")
+    assertNull(chat.state.value.focus)
+    assertTrue(chat.state.value.revealMissing)
+    assertEquals(1, board.calls.count { "before=" in it })
+  }
+
+  @Test
+  fun revealStopsWhenAnOlderPageFails() = runBlocking {
+    val board = revealBoard("")
+    board.olderAnswer = { refused(500, "internal", "boom") }
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("i1", "")
+    assertTrue(chat.state.value.revealMissing)
+  }
+
+  @Test
+  fun returningToTheBottomClearsTheRevealedEntry() = runBlocking {
+    val board = revealBoard(timeline(0))
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("i5", "")
+    assertEquals(chat.state.value.page.first().key, chat.state.value.focus)
+    chat.scrolled(true)
+    chat.scrolled(false)
+    assertNull(chat.state.value.focus)
+  }
+
+  @Test
+  fun theHistoryFeatureShowsTheSearchOnlyOnBoardsThatHaveIt() = runBlocking {
+    val withBoard = ChatBoard(features = listOf("events", "history"))
+    val withoutBoard = ChatBoard(features = listOf("events"))
+    val with = model(withBoard)
+    val without = model(withoutBoard)
+    val running = listOf(with, without).map { launch { it.run() } }
+    eventually("the history flag") { with.state.value.history }
+    eventually("the features read") { "GET /api/v1/meta" in withoutBoard.calls }
+    assertFalse(without.state.value.history)
+    running.forEach { it.cancelAndJoin() }
+  }
 }

@@ -222,6 +222,19 @@ class ChatScreenTest {
 
   @Test fun conversationLight() = shot(false, pageState())
 
+  @Test fun searchButtonLight() = shot(false, pageState().copy(history = true))
+
+  @Test fun searchButtonDark() = shot(true, pageState().copy(history = true))
+
+  @Test
+  fun revealedEntryLight() {
+    val state = pageState()
+    shot(false, state.copy(history = true, focus = state.page[1].key, aboveBottom = true))
+  }
+
+  @Test
+  fun revealMissingLight() = shot(false, pageState().copy(history = true, revealMissing = true))
+
   @Test fun conversationDark() = shot(true, pageState())
 
   @Test fun headEndedLight() = shot(false, pageState(), head = stoppedHead)
