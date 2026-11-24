@@ -36,6 +36,14 @@ type docState struct {
 	body   string
 	image  *ui.Bitmap
 	row    string
+
+	note      string
+	said      string
+	noteBad   bool
+	copying   bool
+	saving    bool
+	clip      string
+	clipReady bool
 }
 
 type docRead struct {

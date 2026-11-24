@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
@@ -64,6 +65,24 @@ func (f *fixture) DocBytes(ctx context.Context, id, path string) ([]byte, error)
 	}
 	return b, nil
 }
+
+func (f *fixture) DocStream(ctx context.Context, id, path string, dst io.Writer) (int64, error) {
+	f.note("stream:" + path)
+	f.mu.Lock()
+	b, ok := f.docBytes[path]
+	err := f.docErr[path]
+	f.mu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, &desktop.APIError{Status: 404, Code: "not_found", Message: "there is no file or folder at this path"}
+	}
+	n, err := dst.Write(b)
+	return int64(n), err
+}
+
+var blobBytes = []byte{0x00, 0xff, 0x10, 0x00, 0xfe, 0xff, 0x00, 0x80, '\r', '\n', 0xc3, 0x28}
 
 func stripes(t *testing.T, w, h int, tones ...color.RGBA) []byte {
 	t.Helper()
@@ -140,6 +159,9 @@ func withDocs(t *testing.T, f *fixture) *fixture {
 		"reports/t1/z-last.txt":  file("reports/t1/z-last.txt", "z-last.txt", "text", 12, "shot-3.png", "", 2),
 		"reports/t1/sub/deep.md": {Path: "reports/t1/sub/deep.md", Name: "deep.md", Kind: "markdown", Text: true, Size: 40, At: at("1"), FolderPage: 1},
 	}
+	f.docs["reports/t1/blob.bin"] = file("reports/t1/blob.bin", "blob.bin", "binary", int64(len(blobBytes)), "", "", 1)
+	f.docBytes["reports/t1/blob.bin"] = blobBytes
+	f.docBytes["reports/t1/notes.txt"] = []byte("line 1 of the export log\r\nline 2 of the export log\r\nline 3 of the export log\n\tindented\tby tabs\nline 5 of the export log\n")
 	f.docBytes["reports/t1/sub/deep.md"] = []byte("# Export notes\n\nThe old export is retired.\n")
 	f.docLines["reports/t1/z-last.txt"] = []string{"the end"}
 	f.docErr["reports/t1/flaky.md"] = errors.New("the connection was reset")

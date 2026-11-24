@@ -62,6 +62,7 @@ func docShots(t *testing.T, name string, width, height int, open func(*desktop.A
 		}
 		t.Run(shotName, func(t *testing.T) {
 			app := newApp(t, docFixture(t))
+			app.SaveAs = func(string) string { return "" }
 			open(app)
 			tt := sized(t, app, width, height, dark)
 			check(t, tt, dark)

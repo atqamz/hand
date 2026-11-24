@@ -43,6 +43,7 @@ type ReadModel interface {
 	Doc(ctx context.Context, fleet, path string, page int) (Doc, error)
 	DocWindow(ctx context.Context, fleet, path string, from int) (DocWindow, error)
 	DocBytes(ctx context.Context, fleet, path string) ([]byte, error)
+	DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error)
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (Answered, error)
 	AckReport(ctx context.Context, fleet, ref string) (Acked, error)
 	SendMessage(ctx context.Context, fleet, text string, attachments []string) (Sent, error)
@@ -520,6 +521,23 @@ func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, 
 		return nil, errors.New("the file is larger than this window reads")
 	}
 	return b, err
+}
+
+func (c *HTTPClient) DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error) {
+	ctx = context.WithValue(ctx, longWait{}, true)
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return 0, err
+	}
+	res, err := c.do(ctx, fleet, token, "", "", http.MethodGet, docPath(path)+"?raw", nil)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return 0, c.failure(res)
+	}
+	return io.Copy(dst, res.Body)
 }
 
 func (c *HTTPClient) Poll(ctx context.Context, fleet string, screen Screen, ref string, since PollCursors) (Poll, error) {

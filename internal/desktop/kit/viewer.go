@@ -17,8 +17,17 @@ func ViewerBox(w, h float32) (float32, float32) {
 	return min(float32(ViewerMax), w-2*ViewerEdge), h - 2*ViewerEdge
 }
 
+// ViewerBoxWide is the box with no width cap, as the Board's Wide toggle opens it.
+func ViewerBoxWide(w, h float32, wide bool) (float32, float32) {
+	if wide {
+		return w - 2*ViewerEdge, h - 2*ViewerEdge
+	}
+	return ViewerBox(w, h)
+}
+
 type ViewerOptions struct {
 	Name    string
+	Wide    bool
 	Back    bool
 	OnBack  func()
 	OnClose func()
@@ -34,7 +43,7 @@ func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 	el := ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		backdrop.Background(k.Backdrop)
 		w, h := c.Size()
-		bw, bh := ViewerBox(w, h)
+		bw, bh := ViewerBoxWide(w, h, v.Wide)
 		panel.Width(bw).Height(bh).Background(k.BG).Border(1, k.Line).
 			Radius(RadiusLG).Clip().Label(v.Name).
 			Shadow(0, 8, 24, 0, k.Shadow).Children(func() {

@@ -18,6 +18,7 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 	}
 	dismissed := kit.Viewer(c, k, kit.ViewerOptions{
 		Name:    a.viewerName(),
+		Wide:    a.DocWide && a.Screen == DocScreen && a.docTextual(),
 		Back:    len(a.back) > 0,
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,

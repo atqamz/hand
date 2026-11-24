@@ -157,6 +157,10 @@ type App struct {
 	attachSay  string
 	Pick       func() []string
 	PickFolder func() string
+	SaveAs     func(name string) string
+	DocWide    bool
+	DocWrap    bool
+	DocSource  bool
 	NewFleet   func(context.Context, NewFleetRequest) (NewFleetResult, error)
 	Remote     RemoteDesk
 	RemoteOff  string

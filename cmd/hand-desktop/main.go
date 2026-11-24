@@ -185,6 +185,10 @@ func main() {
 			}
 			return paths[0]
 		}
+		app.SaveAs = func(name string) string {
+			path, _ := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: win, Title: "Save the file", DefaultPath: name})
+			return path
+		}
 		app.OnTitle = win.SetTitle
 		app.OnBadge = mygo.App.SetBadgeCount
 		app.OnFlash = win.FlashFrame
