@@ -175,7 +175,7 @@ class DocScreenTest {
     shot(
       false,
       "reports/export.log",
-      textState().copy(goLine = 5000, goProblem = "The file has fewer than 5000 lines."),
+      textState().copy(goLine = 5000, goProblem = "line 5000 is past the end of this file"),
       DocTool.GoTo
     )
 
@@ -183,7 +183,7 @@ class DocScreenTest {
     shot(
       true,
       "reports/export.log",
-      textState().copy(goLine = 5000, goProblem = "The file has fewer than 5000 lines."),
+      textState().copy(goLine = 5000, goProblem = "line 5000 is past the end of this file"),
       DocTool.GoTo
     )
 

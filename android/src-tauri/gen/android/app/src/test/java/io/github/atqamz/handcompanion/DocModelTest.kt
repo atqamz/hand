@@ -64,13 +64,13 @@ class DocModelTest {
     files: FileSource = FileSource { _, _ -> null }
   ) = DocModel(FLEET, path, board, files = files)
 
-  private fun logBoard(total: Int, name: String = "a.txt") =
+  private fun logBoard(total: Int, name: String = "a.txt", cap: Int = Int.MAX_VALUE) =
     DocBoard { path ->
       val from = Regex("from=(\\d+)").find(path)?.groupValues?.get(1)?.toInt()
       if (from == null) {
         fileNode("text", true, name)
       } else {
-        val count = Regex("lines=(\\d+)").find(path)?.groupValues?.get(1)?.toInt() ?: DOC_LINES
+        val count = minOf(cap, Regex("lines=(\\d+)").find(path)?.groupValues?.get(1)?.toInt() ?: DOC_LINES)
         val last = minOf(total, from + count - 1)
         window(from, (from..last).map { "line $it" }, if (last < total) last + 1 else null)
       }
@@ -627,12 +627,12 @@ class DocModelTest {
     val model = model(board, "reports/a.txt")
     model.load()
     model.search("nowhere")
-    assertEquals(2 + FIND_WINDOWS, board.calls.size)
+    assertEquals(10, board.calls.size)
     assertTrue(model.state.value.find!!.hits.isEmpty())
     assertNotNull(model.state.value.next)
     val read = board.calls.size
     model.move(true)
-    assertEquals(read + FIND_WINDOWS, board.calls.size)
+    assertEquals(read + 8, board.calls.size)
   }
 
   @Test
@@ -775,7 +775,12 @@ class DocModelTest {
 
   @Test
   fun goToRefusesLineZeroAndALinePastTheEnd_AndASuccessClearsTheSentence() = runBlocking {
-    val board = logBoard(10)
+    val base = logBoard(10)
+    val board =
+      DocBoard {
+        if (it.contains("from=11")) refusal(400, "bad_request", "line 11 is past the end of this file")
+        else base.answer(it)
+      }
     val model = model(board, "reports/a.txt")
     model.load()
     val before = board.calls.size
@@ -783,7 +788,7 @@ class DocModelTest {
     assertEquals("Line numbers start at 1.", model.state.value.goProblem)
     assertEquals(before, board.calls.size)
     model.jumpTo(11)
-    assertEquals("The file has fewer than 11 lines.", model.state.value.goProblem)
+    assertEquals("line 11 is past the end of this file", model.state.value.goProblem)
     assertEquals(listOf("line 1"), model.state.value.lines.take(1))
     assertEquals(1, model.state.value.first)
     model.jumpTo(5)
@@ -849,6 +854,82 @@ class DocModelTest {
     assertEquals(1, model.state.value.first)
     assertEquals("GET /api/v1/doc/reports/a.txt?from=1&lines=299", board.calls.last())
     assertEquals(799, model.state.value.lines.size)
+  }
+
+  @Test
+  fun earlierLinesJoinWithoutAGapWhenTheHostAnswersFewerLinesThanAsked() = runBlocking {
+    val board = logBoard(3000, cap = 100)
+    val model = model(board, "reports/a.txt")
+    model.load()
+    model.jumpTo(1200)
+    model.loadEarlier()
+    assertEquals(700, model.state.value.first)
+    assertEquals((700..1299).map { "line $it" }, model.state.value.lines)
+    assertNull(model.state.value.moreProblem)
+    assertFalse(model.state.value.paging)
+  }
+
+  @Test
+  fun earlierLinesThatDoNotReachTheLoadedWindowChangeNothingAndSayWhy() = runBlocking {
+    val base = logBoard(3000)
+    val board = DocBoard { if (it.contains("from=700")) window(700, emptyList()) else base.answer(it) }
+    val model = model(board, "reports/a.txt")
+    model.load()
+    model.jumpTo(1200)
+    val before = model.state.value
+    model.loadEarlier()
+    val after = model.state.value
+    assertEquals(before.lines, after.lines)
+    assertEquals(1200, after.first)
+    assertNotNull(after.moreProblem)
+    assertFalse(after.paging)
+  }
+
+  @Test
+  fun aLateEarlierAnswerDoesNotJoinAFreshWindow() = runBlocking {
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val base = logBoard(3000)
+    val board =
+      DocBoard {
+        if (it.contains("from=700&")) {
+          entered.countDown()
+          release.await()
+        }
+        base.answer(it)
+      }
+    val model = model(board, "reports/a.txt")
+    model.load()
+    model.jumpTo(1200)
+    val slow = launch(Dispatchers.Default) { model.loadEarlier() }
+    entered.await()
+    model.jumpTo(2500)
+    release.countDown()
+    slow.join()
+    assertEquals(2500, model.state.value.first)
+    assertEquals("line 2500", model.state.value.lines.first())
+  }
+
+  @Test
+  fun anEmptyImageBodyIsCouldNotBeLoaded() = runBlocking {
+    val model = model(DocBoard { sized("image", 10, "p.png") }, "reports/p.png", FileSource { _, _ -> ByteArray(0) })
+    model.load()
+    assertEquals(DocBody.Failed, docBody(model.state.value))
+    assertEquals("The image could not be loaded.", model.state.value.problem)
+  }
+
+  @Test
+  fun moreLinesAreMatchedAgainstTheFindThatIsOpen() = runBlocking {
+    val board = logBoard(1200)
+    val model = model(board, "reports/a.txt")
+    model.load()
+    model.search("line 5")
+    val before = model.state.value.find!!.hits.size
+    model.loadMore()
+    val hits = model.state.value.find!!.hits
+    assertEquals(12, before)
+    assertEquals(111, hits.size)
+    assertEquals(599, hits.last())
   }
 
   @Test

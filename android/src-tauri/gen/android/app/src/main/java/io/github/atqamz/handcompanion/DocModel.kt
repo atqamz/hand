@@ -359,8 +359,6 @@ class DocModel(
       mutableState.update {
         when {
           mine != generation.get() -> it
-          window.lines.isEmpty() ->
-            it.copy(paging = false, goProblem = "The file has fewer than $line lines.")
           else -> {
             val lines = docLines(window)
             it.copy(
@@ -391,11 +389,27 @@ class DocModel(
     val from = maxOf(1, held.first - DOC_LINES)
     mutableState.update { if (mine == generation.get()) it.copy(paging = true, moreProblem = null) else it }
     try {
-      val window = client.docWindow(path, from, held.first - from).data
+      val target = held.first
+      var cursor = from
+      val got = mutableListOf<String>()
+      while (cursor < target) {
+        val window = client.docWindow(path, cursor, target - cursor).data
+        val part = docLines(window)
+        val next = window.next
+        if (part.isEmpty() || next == null || next <= cursor || next > target) {
+          mutableState.update {
+            if (mine == generation.get()) it.copy(paging = false, moreProblem = "Earlier lines could not be read.")
+            else it
+          }
+          return
+        }
+        got += part
+        cursor = next
+      }
       mutableState.update {
         if (mine != generation.get()) it
         else {
-          val lines = docLines(window) + it.lines
+          val lines = got + it.lines
           it.copy(lines = lines, first = from, paging = false, find = it.find?.over(from, lines))
         }
       }
