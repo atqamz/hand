@@ -102,6 +102,8 @@ class AlertsModelTest {
     assertEquals("3m20s", cells["95th percentile delay"])
     assertEquals("1h1m40s", cells["longest delay"])
     assertEquals("2", cells["not acknowledged"])
+    assertEquals("1", cells["slow"])
+    assertEquals("5", cells["alerts"])
   }
 
   @Test
@@ -199,5 +201,37 @@ class AlertsModelTest {
     model.load()
     assertTrue(model.state.value.unpaired)
     assertNull(model.state.value.problem)
+  }
+
+  @Test
+  fun anUnreachableBoardAfterATooOldHostDrawsNoTooOldSentence() = runBlocking {
+    var fail = false
+    val old = AlertsBoard(features = listOf("events"))
+    val model =
+      AlertsModel(
+        FLEET,
+        { fleet, post, path, csrf, body ->
+          if (fail) throw BoardError.Unreachable
+          old.request(fleet, post, path, csrf, body)
+        }
+      )
+    model.load()
+    assertTrue(model.state.value.tooOld)
+    fail = true
+    model.load()
+    assertFalse(model.state.value.tooOld)
+    assertEquals("The Board could not be reached.", model.state.value.problem)
+  }
+
+  @Test
+  fun anUnreachableBoardAfterAnUnpairedReadDrawsNoUnpairedFrame() = runBlocking {
+    val board = AlertsBoard(alerts = { throw BoardError.Unpaired })
+    val model = AlertsModel(FLEET, board)
+    model.load()
+    assertTrue(model.state.value.unpaired)
+    board.alerts = { throw BoardError.Unreachable }
+    model.load()
+    assertFalse(model.state.value.unpaired)
+    assertEquals("The Board could not be reached.", model.state.value.problem)
   }
 }

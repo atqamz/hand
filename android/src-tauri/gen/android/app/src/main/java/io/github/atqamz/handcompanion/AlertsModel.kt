@@ -137,7 +137,7 @@ class AlertsModel(
   }
 
   private suspend fun read() {
-    mutableState.update { it.copy(loading = true, problem = null) }
+    mutableState.update { it.copy(loading = true, problem = null, tooOld = false, unpaired = false) }
     try {
       if ("alerts" !in client.features()) {
         mutableState.update { it.copy(loading = false, tooOld = true, data = null) }
