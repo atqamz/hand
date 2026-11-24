@@ -81,6 +81,9 @@ var breakCases = []struct{ name, in, want string }{
 	{"bracket math block", "a\n\\[\nx\ny\n\\]\nb\nc", "a\n\\[\nx\ny\n\\]\nb\\\nc"},
 	{"one line math block", "$$ x $$\nb\nc", "$$ x $$\nb\\\nc"},
 	{"math inside a paragraph line", "$$ x $$ y\nz", "$$ x $$ y\\\nz"},
+	{"math block on an item line", "- $$\n  x\n  y\n  $$\n  after\n  lines", "- $$\n  x\n  y\n  $$\n  after\\\n  lines"},
+	{"one line math on an item line", "- $$ x $$\n  a\n  b", "- $$ x $$\n  a\\\n  b"},
+	{"math text after the closer on an item line", "- $$ x $$ y\n  a", "- $$ x $$ y\\\n  a"},
 	{"math that never closes", "$$\nx\ny", "$$\nx\ny"},
 	{"math opener in a fence", "```\n$$\nx\n```\nb\nc", "```\n$$\nx\n```\nb\\\nc"},
 }

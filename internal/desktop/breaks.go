@@ -105,8 +105,13 @@ func markBreaks(lines []string, depth int) []string {
 			case atxHeading.MatchString(t), underline.MatchString(l):
 			case bulletItem.MatchString(t) || orderedItem.MatchString(t):
 				inList = true
+				c, d, ok := mathOpens(itemContent(t))
 				if f := opensFence(itemContent(t)); f != "" {
 					fence, fenceIndent = f, ind
+				} else if ok {
+					if !d {
+						math = c
+					}
 				} else {
 					kinds[i] = kindItem
 				}
