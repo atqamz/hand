@@ -350,6 +350,64 @@ class DocModelTest {
   }
 
   @Test
+  fun aSecondLoadReadsAgainAndReplacesWhatWasHeld() = runBlocking {
+    val board = DocBoard { folderNode(2, 3, "a.md") }
+    val model = model(board, "reports")
+    model.load(2)
+    board.answer = { folderNode(1, 3, "b.md") }
+    model.load()
+    assertEquals(2, board.calls.size)
+    assertEquals(1, model.state.value.node?.page)
+    assertEquals("b.md", model.state.value.node?.entries?.single()?.name)
+  }
+
+  @Test
+  fun everyStartClearsTheUnpairedFlag() = runBlocking {
+    val board = DocBoard { throw BoardError.Unpaired }
+    val model = model(board, "reports")
+    model.load()
+    assertTrue(model.state.value.unpaired)
+    val seen = CopyOnWriteArrayList<DocState>()
+    board.answer = { seen += model.state.value; throw BoardError.Lost }
+    model.load()
+    assertFalse(seen.single().unpaired)
+    assertFalse(model.state.value.unpaired)
+  }
+
+  @Test
+  fun everyStartClearsAMoreStillInFlight() = runBlocking {
+    val started = CountDownLatch(1)
+    val gate = CountDownLatch(1)
+    val seen = CopyOnWriteArrayList<DocState>()
+    lateinit var paged: DocModel
+    val board = DocBoard {
+      when {
+        it.contains("from=2") -> {
+          started.countDown()
+          gate.await()
+          window(2, listOf("b"))
+        }
+        it.contains("from=") -> window(1, listOf("a"), 2)
+        else -> {
+          seen += paged.state.value
+          fileNode("text", true, "a.txt")
+        }
+      }
+    }
+    paged = model(board, "reports/a.txt")
+    paged.load()
+    val more = launch(Dispatchers.Default) { paged.loadMore() }
+    started.await()
+    assertTrue(paged.state.value.paging)
+    paged.load()
+    gate.countDown()
+    more.join()
+    assertFalse(seen.last().paging)
+    assertFalse(paged.state.value.paging)
+    assertEquals(1, paged.state.value.lines.size)
+  }
+
+  @Test
   fun aFailedMoreKeepsTheLinesAndOffersRetryOfThatMore() = runBlocking {
     var fail = false
     val board =
