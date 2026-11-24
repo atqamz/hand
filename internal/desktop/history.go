@@ -21,6 +21,7 @@ const (
 
 	historyHint    = "Search what was said: your messages, the supervisor's replies, reports, decisions and task titles."
 	historyMissing = "That entry is no longer in the conversation view."
+	historyCapped  = "The entry is further back than the 20 pages read so far. The conversation goes back further."
 )
 
 type HistoryHit struct {
@@ -78,9 +79,10 @@ type histOpen struct {
 }
 
 type histReveal struct {
-	hit   HistoryHit
-	text  string
-	pages int
+	hit    HistoryHit
+	text   string
+	pages  int
+	capped bool
 }
 
 type histState struct {
@@ -349,6 +351,13 @@ func (a *App) BackToResults() {
 	a.hi.inTimeline, a.hi.rev, a.hi.focus, a.hi.missing = false, nil, "", false
 }
 
+func (a *App) KeepLooking() {
+	if r := a.hi.rev; r != nil && r.capped {
+		r.capped, r.pages = false, 0
+		a.revealNext()
+	}
+}
+
 func (a *App) revealNext() {
 	r := a.hi.rev
 	if r == nil || !a.hi.loaded {
@@ -359,11 +368,15 @@ func (a *App) revealNext() {
 		a.hi.rev = nil
 		return
 	}
-	if a.hi.tl.Older <= 0 || r.pages >= historyRevealPages {
+	if a.hi.tl.Older <= 0 {
 		a.hi.rev, a.hi.missing = nil, true
 		return
 	}
-	if a.hi.olderBusy {
+	if r.pages >= historyRevealPages {
+		r.capped = true
+		return
+	}
+	if r.capped || a.hi.olderBusy {
 		return
 	}
 	r.pages++
@@ -390,15 +403,20 @@ func historyFind(entries []Entry, hit HistoryHit, text string) (Entry, bool) {
 			found = append(found, e)
 		}
 	}
-	if len(found) <= 1 {
-		if len(found) == 1 {
-			return found[0], true
-		}
+	if len(found) == 0 {
 		return Entry{}, false
+	}
+	if hit.Ref[0] == 'i' {
+		return found[0], true
 	}
 	wanted := strings.TrimSpace(text)
 	if wanted == "" {
-		return Entry{}, false
+		return found[0], len(found) == 1
+	}
+	for _, e := range found {
+		if strings.TrimSpace(e.Text) == wanted {
+			return e, true
+		}
 	}
 	prefix := func(s string) string {
 		s = strings.TrimSpace(s)
@@ -407,18 +425,16 @@ func historyFind(entries []Entry, hit HistoryHit, text string) (Entry, bool) {
 		}
 		return s
 	}
+	var near []Entry
 	for _, e := range found {
-		if t := strings.TrimSpace(e.Text); t != "" && prefix(t) == prefix(wanted) {
-			return e, true
+		if t := strings.TrimSpace(e.Text); t != "" && (prefix(t) == prefix(wanted) || strings.HasPrefix(wanted, t)) {
+			near = append(near, e)
 		}
 	}
-	best, size := Entry{}, 0
-	for _, e := range found {
-		if t := strings.TrimSpace(e.Text); t != "" && strings.HasPrefix(wanted, t) && len(t) > size {
-			best, size = e, len(t)
-		}
+	if len(near) == 1 {
+		return near[0], true
 	}
-	return best, size > 0
+	return Entry{}, false
 }
 
 func historyWho(who string) string {
@@ -670,6 +686,12 @@ func (a *App) historyTimeline(c *ui.Context, k kit.Colors, p palette) {
 	a.historyStatus(c, k, p, "")
 	if h.missing {
 		a.emptyCard(c, p, "Not in the conversation", historyMissing)
+	}
+	if h.rev != nil && h.rev.capped {
+		a.emptyCard(c, p, "Not found yet", historyCapped)
+		if kit.Button(c, k, "history:keep", "Keep looking", 140, false) {
+			a.KeepLooking()
+		}
 	}
 	if len(h.tl.Entries) == 0 {
 		note := h.tl.Note

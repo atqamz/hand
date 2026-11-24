@@ -477,3 +477,38 @@ func TestANewSearchDropsTheOldHitsWhileItWaits(t *testing.T) {
 	tt.Frame()
 	mustText(t, tt, "y9")
 }
+
+func TestTheRevealLimitIsNotAMissingEntryAndKeepLookingReadsOn(t *testing.T) {
+	m := historyModel(t)
+	m.pages = map[int]desktop.Timeline{
+		0: {Live: true, Older: 1000, Entries: []desktop.Entry{{Role: "supervisor", At: "2026-11-24T10:05:00Z", Text: "newest", Ref: "s3"}}},
+	}
+	for b := 1000; b >= 975; b-- {
+		older := b - 1
+		if b == 975 {
+			older = 0
+		}
+		m.pages[b] = desktop.Timeline{Older: older, Entries: []desktop.Entry{{
+			Role: "operator", At: "2026-11-23T07:" + strconv.Itoa(10+b-975) + ":00Z", Text: "filler " + strconv.Itoa(b), Input: int64(b), Ref: "s3",
+		}}}
+	}
+	app := historyApp(t, m)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	searchFor(t, tt, "kiln")
+	click(t, tt, "Open i7 from You")
+	tt.Frame()
+	click(t, tt, "Show in conversation")
+	tt.Frame()
+	if got := len(m.olders()); got != 20 {
+		t.Fatalf("older reads = %d, want the 20-page limit", got)
+	}
+	mustText(t, tt, "Not found yet", "The entry is further back than the 20 pages read so far. The conversation goes back further.", "Keep looking")
+	mustNotText(t, tt, "That entry is no longer in the conversation view.")
+	app.KeepLooking()
+	tt.Frame()
+	if got := len(m.olders()); got != 26 {
+		t.Fatalf("older reads = %d after Keep looking, want 26 (the whole conversation)", got)
+	}
+	mustText(t, tt, "That entry is no longer in the conversation view.")
+	mustNotText(t, tt, "Not found yet")
+}

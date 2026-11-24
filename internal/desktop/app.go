@@ -1928,7 +1928,10 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		}
 	}
 	if a.Fleet.ID == fleet && a.Screen == HistoryScreen {
-		a.pollHistory(p.StatusFresh && moved)
+		if p.TimelineErr != nil && a.hi.loaded && a.hi.stale == "" {
+			a.historyFailed(p.TimelineErr)
+		}
+		a.pollHistory(p.StatusFresh && moved || p.TimelineFresh)
 	}
 	if a.Fleet.ID == fleet && p.TasksFresh {
 		a.Tasks, a.pollTasks = p.Tasks, p.TasksCursor
