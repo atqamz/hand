@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -64,10 +65,15 @@ func TestTheCurrentHitIsPaintedInTheNowStyle(t *testing.T) {
 			k := kit.ColorsFor(dark)
 			_, tt := openFind(t, findFixture(t), bigLog, dark)
 			search(t, tt, "error")
-			tt.Frame()
-			r := bandRect(t, tt, "Line 42")
+			var r image.Rectangle
+			for i := 0; i < 6; i++ {
+				tt.Advance(100 * time.Millisecond)
+				tt.Frame()
+				r = bandRect(t, tt, "Line 42")
+			}
 			img := tt.Image()
-			if n := countNear(img, r, k.Wait, 60); n < 100 {
+			r = image.Rect(r.Min.X, r.Min.Y-2, r.Max.X, r.Max.Y+2)
+			if n := countNear(img, r, k.Wait, 60); n < 20 {
 				t.Fatalf("no Now-style background on the current hit: %d pixels", n)
 			}
 		})

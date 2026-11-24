@@ -694,3 +694,120 @@ func TestEndShowsTheLastHundredLinesWhenTheTailWindowIsShort(t *testing.T) {
 	mustText(t, tt, "From line 902", "entry 0902", "entry 1001")
 	mustNotText(t, tt, "entry 0901")
 }
+
+type holdWindow struct {
+	desktop.ReadModel
+	mu      sync.Mutex
+	hold    func(path string, from int) bool
+	entered chan struct{}
+	release chan struct{}
+	held    bool
+	empty   func(path string, from int) bool
+}
+
+func (h *holdWindow) DocWindow(ctx context.Context, fleet, path string, from int) (desktop.DocWindow, error) {
+	w, err := h.ReadModel.DocWindow(ctx, fleet, path, from)
+	h.mu.Lock()
+	hold := h.hold != nil && h.hold(path, from) && !h.held
+	h.held = h.held || hold
+	empty := h.empty != nil && h.empty(path, from)
+	h.mu.Unlock()
+	if hold {
+		h.entered <- struct{}{}
+		<-h.release
+	}
+	if empty {
+		return desktop.DocWindow{Path: w.Path, Name: w.Name, From: from}, nil
+	}
+	return w, err
+}
+
+func (h *holdWindow) arm(hold func(path string, from int) bool) {
+	h.mu.Lock()
+	h.hold, h.held = hold, false
+	h.mu.Unlock()
+}
+
+func asyncHold(t *testing.T) (*holdWindow, chan func(), *ui.Tester) {
+	t.Helper()
+	model := &holdWindow{ReadModel: findFixture(t), entered: make(chan struct{}, 4), release: make(chan struct{})}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	posted := make(chan func(), 32)
+	app.Post = func(fn func()) { posted <- fn }
+	app.OpenDoc(bigLog)
+	drain(posted)
+	tt := newTester(app)
+	tt.Frame()
+	return model, posted, tt
+}
+
+func waitHeld(t *testing.T, model *holdWindow) {
+	t.Helper()
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the held read never started")
+	}
+}
+
+func TestGoToLineInTheWindowCancelsAPendingFollowSeek(t *testing.T) {
+	model, posted, tt := asyncHold(t)
+	model.arm(func(path string, from int) bool { return path == bigLog && from > 1 })
+	click(t, tt, "Follow")
+	waitHeld(t, model)
+	click(t, tt, "Go to line")
+	tt.Type("5")
+	click(t, tt, "Go")
+	close(model.release)
+	drain(posted)
+	tt.Frame()
+	tt.Frame()
+	mustNotText(t, tt, "row 100000: nothing to see")
+	if line := markLine(t, tt); line != "Line 5" {
+		t.Fatalf("the seek took over: %q in %q", line, brief(tt))
+	}
+}
+
+func TestEndWhileFollowingIgnoresAPullInFlight(t *testing.T) {
+	model, posted, tt := asyncHold(t)
+	click(t, tt, "Follow")
+	drain(posted)
+	tt.Frame()
+	mustText(t, tt, "Following", "row 100000: nothing to see")
+	model.arm(func(path string, from int) bool { return path == bigLog && from == bigLines })
+	tt.Advance(2500 * time.Millisecond)
+	tt.Frame()
+	waitHeld(t, model)
+	model.ReadModel.(*fixture).grow(bigLog, "late one", "late two")
+	click(t, tt, "End")
+	drain(posted)
+	tt.Frame()
+	close(model.release)
+	drain(posted)
+	tt.Frame()
+	tt.Frame()
+	mustText(t, tt, "late one", "late two", "Following")
+	mustNotText(t, tt, "The file was replaced or shortened; reload to read it again.")
+}
+
+func TestFollowStopsWhenTheFileComesBackEmpty(t *testing.T) {
+	f := findFixture(t)
+	model := &holdWindow{ReadModel: f, entered: make(chan struct{}, 1), release: make(chan struct{})}
+	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	app.OpenDoc(liveLog)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	click(t, tt, "Follow")
+	mustText(t, tt, "Following")
+	model.mu.Lock()
+	model.empty = func(path string, from int) bool { return path == liveLog && from >= 800 }
+	model.mu.Unlock()
+	tt.Advance(2500 * time.Millisecond)
+	tt.Frame()
+	tt.Frame()
+	mustText(t, tt, "The file was replaced or shortened; reload to read it again.")
+	mustNotText(t, tt, "Following")
+}

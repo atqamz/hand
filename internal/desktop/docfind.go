@@ -299,6 +299,7 @@ func (a *App) findLabel() string {
 func (a *App) showLine(n int) {
 	st := &a.doc
 	a.stopFollow("", false)
+	st.navGen++
 	st.lineNote, st.lineBad = "", false
 	if st.doc.Kind == "markdown" {
 		if _, lines := a.docLineSet(); n > len(lines) {
@@ -368,6 +369,10 @@ func (a *App) seekEnd() {
 		return
 	}
 	st.navGen++
+	if f := &st.follow; f.on {
+		f.gen++
+		f.busy, f.seek = false, true
+	}
 	gen, op, model, fleet, rel := st.navGen, a.docOp, a.Model, a.Fleet.ID, a.Ref
 	ctx, cancel := context.WithTimeout(a.Context, findTimeout)
 	a.offload(func() func() {
@@ -415,6 +420,9 @@ func (a *App) toggleFollow() {
 func (a *App) stopFollow(note string, bad bool) {
 	f := &a.doc.follow
 	was := f.on
+	if f.seek {
+		a.doc.navGen++
+	}
 	f.on, f.busy, f.seek, f.stick, f.rearm = false, false, false, false, false
 	f.gen++
 	if was || note != "" {
@@ -498,7 +506,7 @@ func (a *App) mergeFollow(nw DocWindow) bool {
 		return true
 	}
 	if len(nw.Lines) == 0 {
-		return true
+		return false
 	}
 	last := len(w.Lines) - 1
 	if !w.Partial && nw.Lines[0] != w.Lines[last] {
