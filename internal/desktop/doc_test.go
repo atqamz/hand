@@ -375,8 +375,7 @@ func TestEveryOtherKindHasARowThatOpensTheBoard(t *testing.T) {
 	f := docFixture(t)
 	f.fleets[0].Home = hand.home
 	for kind, row := range map[string]string{
-		"pdf": "A PDF cannot be shown", "html": "An HTML page cannot be shown", "svg": "An SVG picture cannot be shown", "csv": "A CSV table cannot be shown",
-		"tsv": "A TSV table cannot be shown", "video": "A video cannot be shown", "audio": "An audio file cannot be shown",
+		"pdf": "A PDF cannot be shown", "svg": "An SVG picture cannot be shown", "video": "A video cannot be shown", "audio": "An audio file cannot be shown",
 		"binary": "This file is not text, so the Board does not show it; download it to open it.",
 		"future": "This file cannot be shown",
 	} {

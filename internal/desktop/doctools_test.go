@@ -99,7 +99,7 @@ func TestCopyContentsCopiesTheRawTextNotTheRendering(t *testing.T) {
 }
 
 func TestCopyContentsRefusesAFileThatIsNotText(t *testing.T) {
-	for _, rel := range []string{blobPath, "reports/t1/shot-1.png", "reports/t1/plan.pdf"} {
+	for _, rel := range []string{blobPath, "reports/t1/shot-1.png"} {
 		app, _ := toolsApp(t, rel)
 		tt := newTester(app)
 		click(t, tt, "Copy contents")
@@ -345,15 +345,13 @@ func TestCopyWindowCopiesTheLinesShownOfATextFileOverTenMiB(t *testing.T) {
 	}
 }
 
-func TestCopyContentsSaysAKindItDoesNotShowIsNotCopied(t *testing.T) {
-	app, _ := toolsApp(t, "reports/t1/table.csv")
-	tt := newTester(app)
-	click(t, tt, "Copy contents")
-	tt.Frame()
-	mustText(t, tt, "This kind of file is not copied here, so nothing was copied.")
-	mustNotText(t, tt, "not text")
-	if tt.Clipboard() != "" {
-		t.Fatalf("clipboard = %q", tt.Clipboard())
+func TestCopyContentsIsAbsentWhereNothingCanBeCopied(t *testing.T) {
+	for _, rel := range []string{"reports/t1/plan.pdf", voicePath, clipPath} {
+		app := newApp(t, kindsFixture(t))
+		app.OpenDoc(rel)
+		tt := newTester(app)
+		mustText(t, tt, "Download")
+		mustNotText(t, tt, "Copy contents")
 	}
 }
 
