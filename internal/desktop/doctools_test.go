@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -325,4 +327,81 @@ func TestToolbarOutcomesAreAnnounced(t *testing.T) {
 		}
 	}
 	t.Fatalf("the refusal was not announced: %q", tt.Announcements())
+}
+
+func TestCopyWindowCopiesTheLinesShownOfATextFileOverTenMiB(t *testing.T) {
+	app, f := toolsApp(t, "reports/t1/huge.log")
+	tt := newTester(app)
+	mustText(t, tt, "Copy window")
+	mustNotText(t, tt, "Copy contents")
+	click(t, tt, "Copy window")
+	if got := tt.Clipboard(); got != "alpha\nbeta\ngamma" {
+		t.Fatalf("clipboard = %q", got)
+	}
+	if n := f.count("raw:reports/t1/huge.log"); n != 0 {
+		t.Fatalf("read the whole file %d times", n)
+	}
+}
+
+func TestCopyContentsSaysAKindItDoesNotShowIsNotCopied(t *testing.T) {
+	app, _ := toolsApp(t, "reports/t1/table.csv")
+	tt := newTester(app)
+	click(t, tt, "Copy contents")
+	tt.Frame()
+	mustText(t, tt, "This kind of file is not copied here, so nothing was copied.")
+	mustNotText(t, tt, "not text")
+	if tt.Clipboard() != "" {
+		t.Fatalf("clipboard = %q", tt.Clipboard())
+	}
+}
+
+func TestSourceIsRememberedBetweenRuns(t *testing.T) {
+	app, _ := toolsApp(t, designPath)
+	tt := newTester(app)
+	click(t, tt, "Source")
+	tt.Frame()
+	app.Close()
+	again := newApp(t, docFixture(t))
+	again.DraftDir = app.DraftDir
+	again.Boot()
+	if !again.DocSource {
+		t.Fatal("Source was not remembered")
+	}
+}
+
+func TestDownloadedFileIsReadableAndTheButtonWaitsForTheFirstSave(t *testing.T) {
+	f := docFixture(t)
+	app := newApp(t, f)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	app.OpenDoc(blobPath)
+	dest := filepath.Join(t.TempDir(), "saved.bin")
+	var calls atomic.Int32
+	entered, release := make(chan struct{}, 4), make(chan struct{})
+	app.SaveAs = func(string) string {
+		calls.Add(1)
+		entered <- struct{}{}
+		<-release
+		return dest
+	}
+	tt := newTester(app)
+	drain(posted)
+	tt.Frame()
+	click(t, tt, "Download")
+	<-entered
+	tt.Frame()
+	click(t, tt, "Download")
+	tt.Frame()
+	close(release)
+	drain(posted)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the save dialog opened %d times", n)
+	}
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode = %v, want 0644", info.Mode().Perm())
+	}
 }

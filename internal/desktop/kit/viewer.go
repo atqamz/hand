@@ -17,7 +17,6 @@ func ViewerBox(w, h float32) (float32, float32) {
 	return min(float32(ViewerMax), w-2*ViewerEdge), h - 2*ViewerEdge
 }
 
-// ViewerBoxWide is the box with no width cap, as the Board's Wide toggle opens it.
 func ViewerBoxWide(w, h float32, wide bool) (float32, float32) {
 	if wide {
 		return w - 2*ViewerEdge, h - 2*ViewerEdge

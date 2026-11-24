@@ -160,6 +160,9 @@ func withDocs(t *testing.T, f *fixture) *fixture {
 		"reports/t1/sub/deep.md": {Path: "reports/t1/sub/deep.md", Name: "deep.md", Kind: "markdown", Text: true, Size: 40, At: at("1"), FolderPage: 1},
 	}
 	f.docs["reports/t1/blob.bin"] = file("reports/t1/blob.bin", "blob.bin", "binary", int64(len(blobBytes)), "", "", 1)
+	f.docs["reports/t1/huge.log"] = file("reports/t1/huge.log", "huge.log", "text", 11<<20, "", "", 1)
+	f.docLines["reports/t1/huge.log"] = []string{"alpha", "beta", "gamma", "delta"}
+	f.docs["reports/t1/table.csv"] = file("reports/t1/table.csv", "table.csv", "csv", 20, "", "", 1)
 	f.docBytes["reports/t1/blob.bin"] = blobBytes
 	f.docBytes["reports/t1/notes.txt"] = []byte("line 1 of the export log\r\nline 2 of the export log\r\nline 3 of the export log\n\tindented\tby tabs\nline 5 of the export log\n")
 	f.docBytes["reports/t1/sub/deep.md"] = []byte("# Export notes\n\nThe old export is retired.\n")

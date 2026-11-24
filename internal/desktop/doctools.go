@@ -12,7 +12,12 @@ import (
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
-const notTextCopy = "Copy contents is for text files. This file is not text, so nothing was copied."
+const (
+	notTextCopy   = "Copy contents is for text files. This file is not text, so nothing was copied."
+	notCopiedKind = "This kind of file is not copied here, so nothing was copied."
+)
+
+var textKindsNotShown = map[string]bool{"csv": true, "tsv": true, "svg": true, "html": true}
 
 func (a *App) docTextual() bool {
 	d, st := a.doc.doc, &a.doc
@@ -105,6 +110,8 @@ func (a *App) copyDoc(c *ui.Context) {
 		st.clip, st.clipReady = strings.Join(st.window.Lines, "\n"), true
 	case d.Kind == "text":
 		a.fetchCopy()
+	case textKindsNotShown[d.Kind]:
+		st.note, st.noteBad = notCopiedKind, true
 	default:
 		st.note, st.noteBad = notTextCopy, true
 	}
