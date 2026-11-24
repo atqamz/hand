@@ -167,6 +167,7 @@ class FleetsModel(
   private val unsaved: () -> Boolean = { false },
   private val forgetter: () -> Boolean = { true },
   private val hostForgetter: (String) -> Boolean = { true },
+  private val dropped: (Set<String>) -> Unit = {},
   private val clock: () -> String = { hhmm(Date()) }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(FleetsState())
@@ -207,11 +208,20 @@ class FleetsModel(
 
   suspend fun forget(target: Forgetting) {
     mutableState.update { it.copy(asking = null, notice = null) }
+    val leaving =
+      mutableState.value.phone?.hosts.orEmpty()
+        .filter { target.endpoint == null || it.endpoint == target.endpoint }
+        .flatMap { it.fleets.map(PairedFleet::id) }
+        .toSet()
     val forgotten =
       withContext(Dispatchers.IO) {
         if (target.endpoint == null) forgetter() else hostForgetter(target.endpoint)
       }
     refresh()
+    if (forgotten) {
+      val kept = mutableState.value.phone?.fleets.orEmpty().map(PairedFleet::id).toSet()
+      withContext(Dispatchers.IO) { dropped(leaving - kept) }
+    }
     if (forgotten && mutableState.value.hosts.isEmpty()) {
       mutableState.update { it.copy(alertsOff = false) }
     }

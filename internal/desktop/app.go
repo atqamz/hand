@@ -27,10 +27,11 @@ const (
 	DecisionScreen
 	DocScreen
 	SkillsScreen
+	AlertsScreen
 )
 
 func isBase(s Screen) bool {
-	return s == BoardScreen || s == TasksScreen || s == SkillsScreen
+	return s == BoardScreen || s == TasksScreen || s == SkillsScreen || s == AlertsScreen
 }
 
 // The auto-refresh intervals: short while the window has keyboard focus,
@@ -136,6 +137,7 @@ type App struct {
 	receiptKey    string
 	receiptWarn   string
 	sk            skillsState
+	al            alertsState
 	notice        string
 	noticeTitle   string
 	noticeKey     string
@@ -185,6 +187,7 @@ type App struct {
 
 	Status         Status
 	Search         TaskSearch
+	Alerts         AlertsData
 	SearchQuery    TaskSearchQuery
 	SearchQ        string
 	SearchStatus   string
@@ -536,6 +539,7 @@ func (a *App) SelectFleet(id string) {
 	a.Projects = Projects{}
 	a.searchScroll = ui.ScrollState{}
 	a.resetSkills()
+	a.resetAlerts()
 	a.base = BoardScreen
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
@@ -640,6 +644,9 @@ func (a *App) Show(s Screen) {
 	a.nfOpen = false
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.resetDoc()
+	if s == AlertsScreen {
+		a.resetAlerts()
+	}
 	if isBase(s) {
 		a.base = s
 	}
@@ -1820,6 +1827,10 @@ func (a *App) pollOnce(gen, tick int) {
 			rc.Since = held[i]
 		}
 	}
+	if screen == AlertsScreen && a.al.old {
+		since.Screen.Skip = true
+		a.pollSkipped[readScreen] = true
+	}
 	if a.pollSkipped == [4]bool{true, true, true, true} {
 		a.armPoll()
 		return
@@ -1964,6 +1975,8 @@ func (a *App) setScreen(screen Screen, key string, p *Poll) {
 		a.Attempt = p.Attempt
 	case DecisionScreen:
 		a.Decision = p.Decision
+	case AlertsScreen:
+		a.Alerts, a.al.loaded = p.Alerts, true
 	}
 	a.pollScreenFor, a.pollScreenCursor = key, p.ScreenCursor
 }
@@ -2078,6 +2091,9 @@ type loaded struct {
 	Task     TaskDetail
 	Attempt  AttemptDetail
 	Decision DecisionDetail
+	Alerts   AlertsData
+	AlertsOK bool
+	Old      bool
 	Err      string
 
 	TimelineOK  bool
@@ -2087,6 +2103,9 @@ type loaded struct {
 
 func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string, withTasks bool) loaded {
 	l := loaded{Screen: screen}
+	if screen == AlertsScreen {
+		l.Old = alertsOld(ctx, model, fleet)
+	}
 	st, err := model.Status(ctx, fleet)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -2112,6 +2131,11 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 		l.Attempt, err = model.Attempt(ctx, fleet, ref)
 	case DecisionScreen:
 		l.Decision, err = model.Decision(ctx, fleet, ref)
+	case AlertsScreen:
+		if !l.Old {
+			l.Alerts, err = model.Alerts(ctx, fleet)
+			l.AlertsOK = err == nil
+		}
 	}
 	if err != nil && ctx.Err() == nil {
 		l.Err = friendly(err)
@@ -2137,6 +2161,9 @@ func (a *App) apply(l loaded) {
 	for i := range a.reads {
 		a.reads[i].fresh = l.Err != "" || i == readTimeline && l.TimelineErr != ""
 	}
+	if l.Screen == AlertsScreen {
+		a.al.old = l.Old
+	}
 	if !l.StatusOK {
 		return
 	}
@@ -2160,6 +2187,10 @@ func (a *App) apply(l loaded) {
 		a.Attempt = l.Attempt
 	case DecisionScreen:
 		a.Decision = l.Decision
+	case AlertsScreen:
+		if l.AlertsOK {
+			a.Alerts, a.al.loaded = l.Alerts, true
+		}
 	}
 	if l.TasksOK {
 		a.Tasks = l.Tasks

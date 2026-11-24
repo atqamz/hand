@@ -386,6 +386,13 @@ fun draftSavedAt(key: String, fleet: String): Long? {
   return key.removePrefix(prefix).toLongOrNull()
 }
 
+fun clearFleetDrafts(prefs: SharedPreferences, fleets: Collection<String>) {
+  if (fleets.isEmpty()) return
+  val owned = prefs.all.keys.filter { key -> fleets.any { key.startsWith("$it@") || key.startsWith("$it!") || key.startsWith("$it/") } }
+  if (owned.isEmpty()) return
+  prefs.edit().apply { owned.forEach { remove(it) } }.apply()
+}
+
 fun fleetDraftKeys(all: Map<String, Any?>, fleet: String): List<String> =
   all.keys.filter { draftSavedAt(it, fleet) != null }
 
