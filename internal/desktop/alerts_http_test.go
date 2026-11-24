@@ -1,0 +1,111 @@
+package desktop_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/atqamz/hand/internal/desktop"
+)
+
+type alertsBoard struct {
+	*fakeBoard
+	mu       sync.Mutex
+	features []string
+	cursor   string
+	full     int
+	notMod   int
+	sinces   []string
+}
+
+func (b *alertsBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/"+fleetID)
+	if rest != "/api/v1/alerts" && rest != "/api/v1/meta" {
+		b.fakeBoard.ServeHTTP(w, r)
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if rest == "/api/v1/meta" {
+		json.NewEncoder(w).Encode(map[string]any{"version": 1, "data": map[string]any{"features": b.features}})
+		return
+	}
+	since := r.URL.Query().Get("since")
+	b.sinces = append(b.sinces, since)
+	if since == b.cursor {
+		b.notMod++
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	b.full++
+	json.NewEncoder(w).Encode(map[string]any{
+		"version": 1, "fleet": map[string]string{"id": fleetID, "name": "fake"}, "cursor": b.cursor,
+		"data": map[string]any{"days": 7, "slow_after_seconds": 60,
+			"stats":  map[string]any{"total": 1, "unacked": 1, "slow": 0, "p50_seconds": nil, "p95_seconds": nil, "max_seconds": nil},
+			"alerts": []map[string]any{{"seq": 1, "at": "2026-11-24T09:59:00Z", "kind": "decision.asked", "ref": "d4", "text": "d4 asks: which build?", "fetched_at": "", "acked_at": "", "delay_seconds": nil, "slow": false}}},
+	})
+}
+
+func alertsHTTPApp(t *testing.T, b *alertsBoard) (*desktop.App, *fakeClock) {
+	t.Helper()
+	srv := httptest.NewServer(b)
+	t.Cleanup(srv.Close)
+	c := &desktop.HTTPClient{
+		Base:  srv.URL,
+		Known: []desktop.Fleet{{ID: fleetID, Name: "fake"}},
+		Token: func(string) (string, error) { return testToken, nil },
+		HTTP:  srv.Client(),
+	}
+	app := desktop.New(func() (desktop.ReadModel, error) { return c, nil })
+	app.DraftDir = t.TempDir()
+	clock := newFakeClock()
+	app.Clock = clock
+	app.Boot()
+	if app.Err != "" {
+		t.Fatalf("boot: %s", app.Err)
+	}
+	return app, clock
+}
+
+func TestTheAlertsPollSendsItsCursorAndTakesA304(t *testing.T) {
+	b := &alertsBoard{fakeBoard: newFakeBoard(), features: []string{"alerts"}, cursor: "c1.alerts"}
+	app, clock := alertsHTTPApp(t, b)
+	app.Show(desktop.AlertsScreen)
+	app.StartRefresh()
+	if len(app.Alerts.Alerts) != 1 {
+		t.Fatalf("alerts = %+v", app.Alerts)
+	}
+	for range 3 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.notMod == 0 || b.sinces[len(b.sinces)-1] != "c1.alerts" {
+		t.Fatalf("no cursor sent or no 304 taken: sinces %q, 304s %d", b.sinces, b.notMod)
+	}
+	if len(app.Alerts.Alerts) != 1 || app.Stale != "" {
+		t.Fatalf("a 304 changed the page: %+v stale %q", app.Alerts, app.Stale)
+	}
+}
+
+func TestTheAlertsPollNeverAsksAnOldHost(t *testing.T) {
+	b := &alertsBoard{fakeBoard: newFakeBoard(), features: []string{"fleets"}, cursor: "c1.alerts"}
+	app, clock := alertsHTTPApp(t, b)
+	app.Show(desktop.AlertsScreen)
+	app.StartRefresh()
+	for range 3 {
+		clock.Advance(desktop.FocusedRefresh)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.sinces) != 0 {
+		t.Fatalf("an old host was asked for alerts: %q", b.sinces)
+	}
+	if app.Stale != "" {
+		t.Fatalf("stale = %q on an old host", app.Stale)
+	}
+}

@@ -62,6 +62,7 @@ type ReadModel interface {
 	Links(ctx context.Context, fleet string, paths []string) ([]*Link, error)
 	Skills(ctx context.Context, fleet string) (Skills, error)
 	SkillsRun(ctx context.Context, fleet, verb string, req SkillsRequest) (SkillsRun, error)
+	Alerts(ctx context.Context, fleet string) (AlertsData, error)
 }
 
 type ReadCursor struct {
@@ -97,6 +98,7 @@ type Poll struct {
 	Task           TaskDetail
 	Attempt        AttemptDetail
 	Decision       DecisionDetail
+	Alerts         AlertsData
 }
 
 // Control is a supervisor control's answer. Stale is true when the board ran
@@ -562,6 +564,8 @@ func pollPath(screen Screen, ref string) string {
 		return "/attempt/" + url.PathEscape(ref)
 	case DecisionScreen:
 		return "/decision/" + url.PathEscape(ref)
+	case AlertsScreen:
+		return "/alerts"
 	}
 	return "/tasks?all=1"
 }
@@ -574,6 +578,8 @@ func pollData(screen Screen, p *Poll) any {
 		return &p.Attempt
 	case DecisionScreen:
 		return &p.Decision
+	case AlertsScreen:
+		return &p.Alerts
 	}
 	return &p.Tasks
 }
