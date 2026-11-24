@@ -87,7 +87,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message; takes `attachments`, a list of inbox names | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
-| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code |
+| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code, `hand companion code` |
 | `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app |
 | `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |

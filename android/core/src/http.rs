@@ -974,6 +974,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_models_read_and_the_model_switch_keep_their_method_and_path_on_the_wire() {
+        let models = Request::new(
+            Method::Get,
+            FLEET,
+            "/api/v1/models",
+            Some(COOKIES),
+            None,
+            b"",
+        )
+        .unwrap();
+        assert!(text(&models).starts_with("GET /f0123456789ab/api/v1/models HTTP/1.1\r\n"));
+        let switch = Request::new(
+            Method::Post,
+            FLEET,
+            "/api/v1/supervisor/switch",
+            Some(COOKIES),
+            Some("tok123"),
+            br#"{"ref":"s1","model":"opus"}"#,
+        )
+        .unwrap();
+        assert!(
+            text(&switch).starts_with("POST /f0123456789ab/api/v1/supervisor/switch HTTP/1.1\r\n")
+        );
+        assert_eq!(
+            timeout_of(Method::Post, "/api/v1/supervisor/switch"),
+            REQUEST_TIMEOUT
+        );
+    }
+
     fn split(request: &Request) -> (String, Vec<u8>) {
         let at = request
             .bytes

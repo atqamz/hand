@@ -674,7 +674,8 @@ private fun ChatHeadBar(
   head: ChatHead,
   searchable: Boolean,
   onSearch: () -> Unit,
-  onControl: (HeadControl) -> Unit
+  onControl: (HeadControl) -> Unit,
+  models: ModelsUi? = null
 ) {
   val hand = LocalHand.current
   Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -690,6 +691,7 @@ private fun ChatHeadBar(
         overflow = TextOverflow.Ellipsis,
         style = type.labelLarge
       )
+      if (models?.state?.visible == true) ModelMenu(models)
       if (searchable) {
         IconButton(onSearch) { Icon(HandIcons.Search, "Search the conversation", Modifier.size(20.dp)) }
       }
@@ -904,6 +906,7 @@ fun ChatScreen(
   onControl: (HeadControl) -> Unit = {},
   onSearch: () -> Unit = {},
   onRetryReveal: () -> Unit = {},
+  models: ModelsUi? = null,
   input: MutableState<TextFieldValue> = rememberDraftField(state.draft)
 ) {
   var openText by rememberSaveable { mutableStateOf(expand.joinToString("\u0000")) }
@@ -922,7 +925,7 @@ fun ChatScreen(
       chatBody(state) == ChatBody.Loading -> Loading()
       else ->
         Column(Modifier.fillMaxSize()) {
-          ChatHeadBar(head, state.history, onSearch, onControl)
+          ChatHeadBar(head, state.history, onSearch, onControl, models)
           HorizontalDivider(color = LocalHand.current.line)
           if (state.revealMissing) {
             Text(
