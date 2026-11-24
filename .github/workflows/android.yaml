@@ -169,7 +169,7 @@ jobs:
         if: needs.changes.outputs.android == 'true'
       - name: Install the Android SDK packages
         if: needs.changes.outputs.android == 'true'
-        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+        run: sdkmanager --install "platforms;android-37.1" "build-tools;36.0.0" "ndk;$NDK_VERSION"
       - name: Point Gradle at the NDK
         if: needs.changes.outputs.android == 'true'
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"

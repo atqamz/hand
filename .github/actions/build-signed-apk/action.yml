@@ -26,7 +26,7 @@ runs:
       shell: bash
       env:
         NDK_VERSION: 27.3.13750724
-      run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+      run: sdkmanager --install "platforms;android-37.1" "build-tools;36.0.0" "ndk;$NDK_VERSION"
     - name: Point Gradle at the NDK
       shell: bash
       env:

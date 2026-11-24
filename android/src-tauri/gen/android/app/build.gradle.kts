@@ -32,7 +32,11 @@ val (abiName, targetTriple) = when (rustTarget) {
 val minSdkVersion = 24
 
 android {
-    compileSdk = 37
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 1
+        }
+    }
     namespace = "io.github.atqamz.handcompanion"
     defaultConfig {
         applicationId = "io.github.atqamz.handcompanion"
