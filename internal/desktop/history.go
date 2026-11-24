@@ -125,19 +125,7 @@ func (a *App) resetHistory() {
 }
 
 func (a *App) offThread(work func(ctx context.Context) func()) {
-	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
-	post := a.Post
-	if post == nil {
-		apply := work(ctx)
-		cancel()
-		apply()
-		return
-	}
-	go func() {
-		apply := work(ctx)
-		cancel()
-		post(apply)
-	}()
+	a.offThreadFor(a.pollTimeout(), work)
 }
 
 func (a *App) openHistory() {

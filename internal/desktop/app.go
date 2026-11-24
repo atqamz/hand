@@ -29,10 +29,11 @@ const (
 	SkillsScreen
 	AlertsScreen
 	HistoryScreen
+	PhoneScreen
 )
 
 func isBase(s Screen) bool {
-	return s == BoardScreen || s == TasksScreen || s == SkillsScreen || s == AlertsScreen || s == HistoryScreen
+	return s == BoardScreen || s == TasksScreen || s == SkillsScreen || s == AlertsScreen || s == HistoryScreen || s == PhoneScreen
 }
 
 // The auto-refresh intervals: short while the window has keyboard focus,
@@ -140,6 +141,7 @@ type App struct {
 	sk            skillsState
 	hi            histState
 	hq            string
+	ph            phoneState
 	al            alertsState
 	notice        string
 	noticeTitle   string
@@ -544,6 +546,7 @@ func (a *App) SelectFleet(id string) {
 	a.resetSkills()
 	a.resetAlerts()
 	a.resetHistory()
+	a.resetPhone()
 	a.base = BoardScreen
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
@@ -670,6 +673,9 @@ func (a *App) Show(s Screen) {
 	}
 	if s == SkillsScreen {
 		a.openSkills()
+	}
+	if s == PhoneScreen {
+		a.openPhone()
 	}
 	if s == HistoryScreen {
 		a.openHistory()
@@ -1926,6 +1932,9 @@ func (a *App) polled(gen, load int, fleet string, screen Screen, ref, key string
 		case a.searchStale:
 			a.retryStaleSearch()
 		}
+	}
+	if a.Fleet.ID == fleet && a.Screen == PhoneScreen {
+		a.pollPhone()
 	}
 	if a.Fleet.ID == fleet && a.Screen == HistoryScreen {
 		if p.TimelineErr != nil && a.hi.loaded && a.hi.stale == "" {

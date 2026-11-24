@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"github.com/egoist/mygo/ui"
+	"image"
 	"strings"
 	"time"
 )
@@ -113,3 +114,5 @@ func PathGen(a *App) int       { return a.pathGen }
 func SetRouterClock(r *Router, now func() time.Time) { r.now = now }
 
 func RemoteLinkPending(a *App) bool { return a.rf.pending != nil }
+
+func QRImage(link string) (*image.Gray, bool) { return qrImage(link) }
