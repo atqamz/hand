@@ -35,9 +35,7 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 		},
 	}
 	if a.docPageOpen() {
-		if kit.ViewerPage(c, k, opts) {
-			a.CloseViewer()
-		}
+		kit.ViewerPage(c, k, opts)
 		return
 	}
 	if kit.Viewer(c, k, opts) {

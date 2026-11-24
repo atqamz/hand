@@ -886,7 +886,7 @@ func (a *App) CloseViewer() {
 	if a.Screen == BoardScreen {
 		return
 	}
-	if a.openerRef != "" && !a.liveRef(a.openerRef) {
+	if a.openerRef != "" && !a.liveRef(a.openerRef) || a.Screen == DocScreen && a.base == BoardScreen {
 		a.boardFocus = true
 	}
 	a.openerRef = ""

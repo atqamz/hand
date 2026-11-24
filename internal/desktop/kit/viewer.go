@@ -62,11 +62,7 @@ func viewerContent(c *ui.Context, k Colors, v ViewerOptions) {
 	v.Body(c)
 }
 
-// ViewerPage draws the viewer as a page of the window: the strip and the
-// body fill the column, with no backdrop. It reports whether Escape was
-// pressed.
-func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) bool {
-	escape := c.Shortcut(0, ui.KeyEscape)
+func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) {
 	ui.Column(c).Grow(1).MinHeight(0).MinWidth(0).Background(k.BG).AlignItems(ui.Center).Children(func() {
 		col := ui.Column(c).Grow(1).MinHeight(0).FillWidth().Label(v.Name)
 		if !v.Wide {
@@ -74,7 +70,6 @@ func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) bool {
 		}
 		col.Children(func() { viewerContent(c, k, v) })
 	})
-	return escape
 }
 
 func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {

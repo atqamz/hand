@@ -138,8 +138,10 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	}
 	if isBase(a.Screen) {
 		a.base = a.Screen
-		a.viewerFocus = true
 		a.tabFor = ""
+	}
+	if a.Screen != DocScreen {
+		a.viewerFocus = true
 	}
 	if push && !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
 		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,

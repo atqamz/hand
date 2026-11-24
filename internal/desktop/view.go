@@ -100,7 +100,11 @@ func (a *App) View(c *ui.Context) {
 		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
 	}
 	docPage := a.docPageOpen()
-	ui.Row(c).Fill().Children(func() {
+	shell := ui.Row(c).Fill()
+	if docPage {
+		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
+	}
+	shell.Children(func() {
 		if !a.narrow {
 			a.rail(c, k, p)
 		}
@@ -113,6 +117,9 @@ func (a *App) View(c *ui.Context) {
 			}
 		})
 	})
+	if docPage != a.docPageOpen() && a.viewerOpen() {
+		a.viewerFocus = true
+	}
 	if a.narrow && a.sheetOpen {
 		a.sheet(c, k, p)
 	}

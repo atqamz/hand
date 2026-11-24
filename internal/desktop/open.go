@@ -25,8 +25,6 @@ func (a *App) OpenInBrowser() {
 		a.runOpen(a.Ref)
 	case AttemptScreen, DecisionScreen:
 		a.runOpen(a.Ref)
-	case DocScreen:
-		a.runOpen("--doc", a.Ref)
 	default:
 		a.runOpen()
 	}

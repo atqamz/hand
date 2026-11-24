@@ -60,6 +60,9 @@ func TestBackOnADocumentPageGoesBackThenCloses(t *testing.T) {
 	if app.Ref != "reports/t1/design.md" || app.Screen != desktop.DocScreen {
 		t.Fatalf("Back left %v %q", app.Screen, app.Ref)
 	}
+	if !tt.Focused("The page") {
+		t.Fatal("Back between documents left the focus off the page")
+	}
 	click(t, tt, "Back")
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("the last Back left %v %q, want the task", app.Screen, app.Ref)
@@ -75,6 +78,9 @@ func TestBackOnAFirstDocumentPageReturnsToTheBoard(t *testing.T) {
 	click(t, tt, "Back")
 	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("Back left %v", app.Screen)
+	}
+	if !tt.Focused("The board") {
+		t.Fatal("the focus did not come back to the board")
 	}
 	if desktop.DocShown(app) != "" {
 		t.Fatal("the closed page still holds the document")
@@ -189,5 +195,56 @@ func TestScenesTheDocumentPageInANarrowWindow(t *testing.T) {
 			mustText(t, tt, "design.md", "Back", "Close the viewer")
 			shotSized(t, tt, name, 880, 760)
 		})
+	}
+}
+
+func TestFocusFollowsADocumentOpenedFromATaskDialog(t *testing.T) {
+	app, tt, _ := docPageApp(t)
+	click(t, tt, "Fix login")
+	click(t, tt, "open /"+fleetID+"/doc/reports/t1/design.md")
+	if !tt.Focused("The page") {
+		t.Fatal("the focus is not in the document page opened from a task")
+	}
+	click(t, tt, "Back")
+	if app.Screen != desktop.TaskScreen || !tt.Focused("The page") {
+		t.Fatalf("Back to the task left the focus off its page (screen %v)", app.Screen)
+	}
+}
+
+func TestEscapeAndCloseReturnFocusToTheBoardFromADocumentPage(t *testing.T) {
+	for name, closeIt := range map[string]func(*testing.T, *ui.Tester){
+		"escape": func(t *testing.T, tt *ui.Tester) { tt.Key(0, ui.KeyEscape) },
+		"close":  func(t *testing.T, tt *ui.Tester) { click(t, tt, "Close the viewer") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, tt, _ := docPageApp(t)
+			click(t, tt, "Fix login")
+			click(t, tt, "open /"+fleetID+"/doc/reports/t1/design.md")
+			closeIt(t, tt)
+			tt.Frame()
+			if app.Screen != desktop.BoardScreen {
+				t.Fatalf("left on %v", app.Screen)
+			}
+			if !tt.Focused("The board") {
+				t.Fatal("the focus did not come back to the board")
+			}
+		})
+	}
+}
+
+func TestEscapeClosesTheDocumentPageFromARailItem(t *testing.T) {
+	app, tt, _ := docPageApp(t)
+	app.OpenDoc("reports/t1/design.md")
+	tt.Frame()
+	for i := 0; i < 12 && !tt.Focused("Board"); i++ {
+		tt.Key(ui.Shift, ui.KeyTab)
+	}
+	if !tt.Focused("Board") {
+		t.Fatal("could not reach the rail's Board item")
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("Escape on a rail item left %v", app.Screen)
 	}
 }
