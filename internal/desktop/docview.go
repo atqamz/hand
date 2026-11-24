@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -90,7 +91,7 @@ func (a *App) docHead(c *ui.Context, k kit.Colors, p palette, d Doc) {
 		ui.Row(c).GapY(kit.Space4).GapX(kit.Space12).AlignItems(ui.Center).Wrap().Children(func() {
 			ui.Text(c, shownText(d.Path)).Font("monospace").FontSize(kit.Meta.Size).
 				FixedLineHeight(kit.Meta.Line).TextColor(p.neutral).MinWidth(0)
-			a.copyPath(c, k, d.Path)
+			a.copyPath(c, k, a.fullDocPath(d.Path))
 			if d.Kind != "folder" {
 				ui.Text(c, docSize(d.Size)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
@@ -135,6 +136,13 @@ func (a *App) docCrumbs(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			}
 		}
 	})
+}
+
+func (a *App) fullDocPath(rel string) string {
+	if a.Fleet.Host != "" || a.Fleet.Home == "" {
+		return rel
+	}
+	return filepath.Join(a.Fleet.Home, filepath.FromSlash(rel))
 }
 
 func (a *App) copyPath(c *ui.Context, k kit.Colors, text string) {

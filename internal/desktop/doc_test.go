@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -556,20 +557,49 @@ func TestAnAnswerIsDroppedWhenTheViewerMovedOn(t *testing.T) {
 	}
 }
 
-func TestCopyPathCopiesTheFleetRelativePath(t *testing.T) {
-	app := newApp(t, docFixture(t))
+func TestCopyPathCopiesTheFleetFolderJoinedWithThePath(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "fleet-x")
+	f := docFixture(t)
+	f.fleets[0].Home = home
+	app := newApp(t, f)
 	app.OpenDoc("reports/t1/design.md")
 	tt := newTester(app)
+	mustText(t, tt, "reports/t1/design.md", "Copy path")
 	click(t, tt, "Copy path")
-	if got := tt.Clipboard(); got != "reports/t1/design.md" {
-		t.Fatalf("clipboard = %q", got)
+	if got, want := tt.Clipboard(), filepath.Join(home, "reports", "t1", "design.md"); got != want {
+		t.Fatalf("clipboard = %q, want %q", got, want)
 	}
 	tt.Frame()
 	mustText(t, tt, "Copied")
 	app.OpenDoc("reports/t1")
 	tt.Frame()
 	click(t, tt, "Copy path")
-	if got := tt.Clipboard(); got != "reports/t1" || strings.HasPrefix(got, "/") {
+	if got, want := tt.Clipboard(), filepath.Join(home, "reports", "t1"); got != want {
+		t.Fatalf("clipboard = %q, want %q", got, want)
+	}
+}
+
+func TestCopyPathOfARemoteFleetKeepsTheShortPath(t *testing.T) {
+	f := docFixture(t)
+	f.fleets[0].Host = "hostA"
+	f.fleets[0].Home = "/local/layout"
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	click(t, tt, "Copy path")
+	if got := tt.Clipboard(); got != "reports/t1/design.md" {
+		t.Fatalf("clipboard = %q", got)
+	}
+}
+
+func TestCopyPathWithNoKnownFleetFolderKeepsTheShortPath(t *testing.T) {
+	f := docFixture(t)
+	f.fleets[0].Home = ""
+	app := newApp(t, f)
+	app.OpenDoc("reports/t1/design.md")
+	tt := newTester(app)
+	click(t, tt, "Copy path")
+	if got := tt.Clipboard(); got != "reports/t1/design.md" {
 		t.Fatalf("clipboard = %q", got)
 	}
 }
