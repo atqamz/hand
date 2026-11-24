@@ -957,6 +957,65 @@ mod tests {
     }
 
     #[test]
+    fn a_document_folder_file_raw_and_window_keep_their_path_and_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/doc/reports/t1",
+                "GET /f0123456789ab/api/v1/doc/reports/t1 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/t1?page=2",
+                "GET /f0123456789ab/api/v1/doc/reports/t1?page=2 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/a%20b%C3%A9.md?raw",
+                "GET /f0123456789ab/api/v1/doc/reports/a%20b%C3%A9.md?raw HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/doc/reports/t1/notes.txt?from=501&lines=500",
+                "GET /f0123456789ab/api/v1/doc/reports/t1/notes.txt?from=501&lines=500 HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+        for path in [
+            "/api/v1/doc/../status",
+            "/api/v1/doc/reports/%2e%2e/status",
+            "/api/v1/doc/reports/a%2fb.md",
+            "/api/v1/doc/reports/a%5Cb.md",
+            "/api/v1/doc/reports/a b.md",
+            "/api/v1/doc/reports//a.md",
+            "/api/v1/doc/a.md#top",
+        ] {
+            assert_eq!(
+                Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").map(|_| ()),
+                Err(RequestError::Malformed),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_alerts_read_keeps_its_path_and_cursor_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/alerts",
+                "GET /f0123456789ab/api/v1/alerts HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/alerts?since=c1.abc-_",
+                "GET /f0123456789ab/api/v1/alerts?since=c1.abc-_ HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+    }
+
+    #[test]
     fn the_models_read_and_the_model_switch_keep_their_method_and_path_on_the_wire() {
         let models = Request::new(
             Method::Get,
