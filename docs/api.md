@@ -66,7 +66,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
 | `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | the Android Companion's search; the Desktop Conversation page; `hand history search` |
 | `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | the Android Companion's entry view; the Desktop Conversation page; `hand history search --full REF` |
-| `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
+| `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page, the Desktop Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/alerts` | `Alerts`: the last 7 days of alert receipts, newest first, and the delay stats; see [`Alerts.data`](#alertsdata) | `/alerts`, the alerts page, the Android Companion's Alerts screen and the Desktop Alerts page; `/alerts/feed` is not this route |
 | `GET /api/v1/skills[?scope=SCOPE[&project=NAME]]` | `Skills`: each scope's skills with source, ref, commit, latest commit, trust, drift state and the pending diff; see [Skills](#skills) | none yet; `hand skills list` for every scope |
@@ -87,9 +87,9 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message; takes `attachments`, a list of inbox names | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
-| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code, `hand companion code` |
-| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app |
-| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere |
+| `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code, the Desktop Companion page, `hand companion code` |
+| `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app, the Desktop Companion page |
+| `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere, the Desktop Companion page |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |

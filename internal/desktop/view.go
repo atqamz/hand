@@ -204,8 +204,8 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 		a.OpenScreen()
 	}
-	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone"}) {
-		a.OpenPhone()
+	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
+		a.Show(PhoneScreen)
 	}
 	if a.Model != nil {
 		kit.RailHead(c, k, open, "Fleets")
@@ -431,6 +431,9 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	case AlertsScreen:
 		a.alertsPage(c, k, p)
+		return
+	case PhoneScreen:
+		a.phonePage(c, k, p)
 		return
 	case HistoryScreen:
 		a.historyPage(c, k, p)

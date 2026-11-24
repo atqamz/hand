@@ -66,6 +66,10 @@ type ReadModel interface {
 	Alerts(ctx context.Context, fleet string) (AlertsData, error)
 	HistorySearch(ctx context.Context, fleet, q string, limit int) (HistorySearch, error)
 	HistoryEntry(ctx context.Context, fleet, ref string) (HistoryEntry, error)
+	Phone(ctx context.Context, fleet string) (Phone, error)
+	PhoneCode(ctx context.Context, fleet string, req PhoneCodeRequest) (Phone, error)
+	PhoneApp(ctx context.Context, fleet string) (Phone, error)
+	PhoneRevoke(ctx context.Context, fleet string, req PhoneRevokeRequest) (Phone, error)
 }
 
 type ReadCursor struct {
@@ -576,7 +580,7 @@ func (c *HTTPClient) pollRead(ctx context.Context, fleet, token, path string, rc
 
 func pollPath(screen Screen, ref string) string {
 	switch screen {
-	case TasksScreen, SkillsScreen, DocScreen, HistoryScreen:
+	case TasksScreen, SkillsScreen, DocScreen, HistoryScreen, PhoneScreen:
 		return ""
 	case TaskScreen:
 		return "/task/" + url.PathEscape(ref)
