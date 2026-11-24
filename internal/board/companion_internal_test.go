@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/atqamz/hand/internal/qr"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -214,7 +215,7 @@ func TestTheLinkWithAHostNameStillEncodesAsAQRCode(t *testing.T) {
 	if err != nil || len(got) > appLinkMax {
 		t.Fatalf("appLink = %q (%d bytes), %v", got, len(got), err)
 	}
-	if _, err := qrEncode(got); err != nil {
+	if _, err := qr.Matrix(got); err != nil {
 		t.Fatalf("the link of %d bytes does not encode: %v", len(got), err)
 	}
 	full, err := appLink(id, relay, fleet, code, "h")
@@ -224,7 +225,7 @@ func TestTheLinkWithAHostNameStillEncodesAsAQRCode(t *testing.T) {
 	for len(full) < appLinkMax {
 		full += "x"
 	}
-	if _, err := qrEncode(full); err != nil {
+	if _, err := qr.Matrix(full); err != nil {
 		t.Fatalf("213 bytes do not encode: %v", err)
 	}
 }

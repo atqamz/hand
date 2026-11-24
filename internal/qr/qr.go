@@ -1,4 +1,4 @@
-package board
+package qr
 
 import (
 	"errors"
@@ -378,7 +378,7 @@ func qrAbs(x int) int {
 	return x
 }
 
-func qrSVG(text, label string) (template.HTML, error) {
+func SVG(text, label string) (template.HTML, error) {
 	q, err := qrEncode(text)
 	if err != nil {
 		return "", err
@@ -402,4 +402,16 @@ func qrSVG(text, label string) (template.HTML, error) {
 	}
 	b.WriteString(`"/></svg>`)
 	return template.HTML(b.String()), nil
+}
+
+func Matrix(text string) ([][]bool, error) {
+	q, err := qrEncode(text)
+	if err != nil {
+		return nil, err
+	}
+	m := make([][]bool, q.size)
+	for y := range m {
+		m[y] = append([]bool(nil), q.dark[y]...)
+	}
+	return m, nil
 }
