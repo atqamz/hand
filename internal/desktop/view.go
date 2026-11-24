@@ -195,7 +195,9 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:alerts", Label: "Alerts", Icon: "waiting", Current: !a.formShown() && a.underScreen() == AlertsScreen}) {
 		a.Show(AlertsScreen)
 	}
-	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
+	if draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
+		a.Show(HistoryScreen)
+	}
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 		a.OpenScreen()
 	}
@@ -426,6 +428,9 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	case AlertsScreen:
 		a.alertsPage(c, k, p)
+		return
+	case HistoryScreen:
+		a.historyPage(c, k, p)
 		return
 	}
 	if a.narrow {
