@@ -917,6 +917,45 @@ mod tests {
         assert_eq!(parse(&[&wire], MAX_BODY).unwrap().body, bytes);
     }
 
+    #[test]
+    fn a_history_search_and_an_entry_keep_their_path_and_query_on_the_wire() {
+        for (path, line) in [
+            (
+                "/api/v1/history/search?q=amber+%22kiln%22+kil*&limit=20",
+                "GET /f0123456789ab/api/v1/history/search?q=amber+%22kiln%22+kil*&limit=20 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/history/search?q=%C3%A9t%C3%A9+t12&limit=50",
+                "GET /f0123456789ab/api/v1/history/search?q=%C3%A9t%C3%A9+t12&limit=50 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/history/y412",
+                "GET /f0123456789ab/api/v1/history/y412 HTTP/1.1\r\n",
+            ),
+            (
+                "/api/v1/timeline?before=120",
+                "GET /f0123456789ab/api/v1/timeline?before=120 HTTP/1.1\r\n",
+            ),
+        ] {
+            let request = Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").unwrap();
+            assert!(text(&request).starts_with(line), "{path}");
+            assert_eq!(timeout_of(Method::Get, path), REQUEST_TIMEOUT, "{path}");
+        }
+        for path in [
+            "/api/v1/history/../status",
+            "/api/v1/history/%2e%2e/status",
+            "/api/v1/history/a%2fb",
+            "/api/v1/history/search?q=a b",
+            "/api/v1/history/search?q=a\r\nX: y",
+        ] {
+            assert_eq!(
+                Request::new(Method::Get, FLEET, path, Some(COOKIES), None, b"").map(|_| ()),
+                Err(RequestError::Malformed),
+                "{path}"
+            );
+        }
+    }
+
     fn split(request: &Request) -> (String, Vec<u8>) {
         let at = request
             .bytes

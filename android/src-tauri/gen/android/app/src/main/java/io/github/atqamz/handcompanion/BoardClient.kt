@@ -242,6 +242,14 @@ class BoardClient(
   suspend fun tasks(all: Boolean): Envelope<Tasks> =
     read(if (all) "tasks?all=1" else "tasks", Tasks.serializer())
 
+  suspend fun historySearch(query: String, limit: Int): Envelope<HistorySearch> =
+    read("history/search?q=${URLEncoder.encode(query, "UTF-8")}&limit=$limit", HistorySearch.serializer())
+
+  suspend fun historyEntry(ref: String): Envelope<HistoryEntry> {
+    if (!HISTORY_REF.matches(ref)) throw BoardError.Malformed
+    return read("history/$ref", HistoryEntry.serializer())
+  }
+
   suspend fun <T> write(path: String, body: String?, data: KSerializer<T>): Write<T> {
     val raw =
       try {
