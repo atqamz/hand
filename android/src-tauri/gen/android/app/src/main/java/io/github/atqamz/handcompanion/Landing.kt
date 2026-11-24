@@ -13,6 +13,8 @@ sealed interface Landing {
 
   data class Thread(val fleet: String, val refs: List<String>) : Landing
 
+  data class Doc(val fleet: String, val path: String) : Landing
+
   data class Web(val fleet: String, val path: String) : Landing
 
   data class Refused(val message: String) : Landing
@@ -42,6 +44,9 @@ fun landing(link: String, open: (String) -> String?): Landing {
       Landing.Thread(fleet, listOf(task) + listOfNotNull(report.takeIf(String::isNotEmpty)))
     }
     page.startsWith("attempt/") -> Landing.Thread(fleet, listOf(page.removePrefix("attempt/")))
+    page.startsWith("doc/") ->
+      (hrefPath("/$page")?.let(::docTarget) as? ThreadTarget.Doc)?.let { Landing.Doc(fleet, it.path) }
+        ?: Landing.Refused(OPEN_REFUSED)
     else -> Landing.Web(fleet, path)
   }
 }

@@ -265,7 +265,7 @@ private fun AnnotatedString.Builder.inlines(
       is MdCode ->
         if (span.path == null) code(span.text, hand)
         else
-          link(pathTarget(span.path, fleet), "path:${span.path}", pathStyles(hand), onTarget) {
+          link(pathTarget(span.path), "path:${span.path}", pathStyles(hand), onTarget) {
             code(span.text, hand)
           }
       is MdStrong ->
@@ -293,7 +293,7 @@ private fun AnnotatedString.Builder.inlines(
           }
         }
       is MdPath ->
-        link(pathTarget(span.path, fleet), "path:${span.path}", pathStyles(hand), onTarget) {
+        link(pathTarget(span.path), "path:${span.path}", pathStyles(hand), onTarget) {
           inlines(span.children, hand, fleet, onTarget)
         }
     }
