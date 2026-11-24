@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -171,6 +172,78 @@ func TestOpeningAHitShowsTheWholeEntryAndShowInConversationFocusesIt(t *testing.
 			mustNotText(t, tt, "start the work")
 		})
 	}
+}
+
+func TestMatchedEntryBoxMarksExactlyOneEntry(t *testing.T) {
+	m := historyModel(t)
+	app := historyApp(t, m)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	searchFor(t, tt, "kiln")
+	click(t, tt, "Open i7 from You")
+	tt.Frame()
+	click(t, tt, "Show in conversation")
+	tt.Frame()
+	n := 0
+	for _, ref := range []string{"i3", "i7", "i12", "y1", "y2", "y9", "r5"} {
+		if _, ok := tt.Find("Matched entry " + ref); ok {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d entries carry the Matched entry box, want 1", n)
+	}
+	if _, ok := tt.Find("Matched entry i7"); !ok {
+		t.Fatal("the box is not on i7")
+	}
+}
+
+func TestAFailingOlderReadShowsItsErrorLine(t *testing.T) {
+	m := historyModel(t)
+	m.olderErr = errors.New("the board did not answer in time")
+	app := historyApp(t, m)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	older(t, tt)
+	tt.Frame()
+	mustText(t, tt, "Older messages could not be read: the board did not answer in time", "Older messages")
+	mustNotText(t, tt, "what about the kiln schedule?")
+}
+
+func TestEachDayOfTheConversationGetsOneDivider(t *testing.T) {
+	m := historyModel(t)
+	app := historyApp(t, m)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	mustText(t, tt, "Tue, Nov 24")
+	mustNotText(t, tt, "Mon, Nov 23")
+	older(t, tt)
+	tt.Frame()
+	older(t, tt)
+	tt.Frame()
+	mustText(t, tt, "Tue, Nov 24", "Mon, Nov 23")
+	days := 0
+	for _, s := range tt.Texts() {
+		if s == "Tue, Nov 24" {
+			days++
+		}
+	}
+	if days != 1 {
+		t.Fatalf("the day Tue, Nov 24 has %d dividers over its five entries, want 1", days)
+	}
+}
+
+func TestAFullPageOfHitsSaysToNarrowTheSearch(t *testing.T) {
+	m := historyModel(t)
+	var hits []desktop.HistoryHit
+	for i := range 50 {
+		hits = append(hits, desktop.HistoryHit{Ref: "i" + strconv.Itoa(100+i), Who: "operator", At: "2026-11-24T09:00:00Z", Text: "a «many» message"})
+	}
+	m.hits["many"] = desktop.HistorySearch{Q: "many", Total: 80, More: true, Hits: hits}
+	app := historyApp(t, m)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	searchFor(t, tt, "many")
+	app.MoreHistory()
+	tt.Frame()
+	mustText(t, tt, "Showing the first 50 of 80. Narrow the search.")
+	mustNotText(t, tt, "More matches")
 }
 
 func TestShowInConversationPicksTheReplyThatSharesATimestampByItsText(t *testing.T) {

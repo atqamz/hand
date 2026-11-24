@@ -56,3 +56,32 @@ func TestSnippetSplitsTheMatchedWords(t *testing.T) {
 		t.Fatalf("an unclosed mark is text: %+v", p)
 	}
 }
+
+type scriptedTimeline struct {
+	ReadModel
+	tl Timeline
+}
+
+func (m *scriptedTimeline) Timeline(ctx context.Context, fleet string, before int) (Timeline, error) {
+	return m.tl, nil
+}
+
+func TestAPollMergesIntoAPageWithOlderEntriesAlreadyRead(t *testing.T) {
+	m := &scriptedTimeline{tl: Timeline{Older: 40, Entries: []Entry{
+		{Role: "supervisor", At: "2026-11-24T10:06:00Z", Text: "new"},
+		{Role: "supervisor", At: "2026-11-24T10:05:00Z", Text: "newest before"},
+	}}}
+	a := &App{Model: m, Context: context.Background(), Fleet: Fleet{ID: "f0"}, Screen: HistoryScreen}
+	a.hi.loaded = true
+	a.hi.tl = Timeline{Older: 20, Entries: []Entry{
+		{Role: "supervisor", At: "2026-11-24T10:05:00Z", Text: "newest before"},
+		{Role: "supervisor", At: "2026-11-24T09:00:00Z", Text: "older"},
+	}}
+	a.pollHistory(true)
+	if got := len(a.hi.tl.Entries); got != 3 {
+		t.Fatalf("entries = %d (%+v), want the new one, the shared one and the older one read earlier", got, a.hi.tl.Entries)
+	}
+	if a.hi.tl.Older != 20 {
+		t.Fatalf("older = %d, want the cursor of the pages already read (20)", a.hi.tl.Older)
+	}
+}
