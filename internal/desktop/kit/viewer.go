@@ -17,8 +17,16 @@ func ViewerBox(w, h float32) (float32, float32) {
 	return min(float32(ViewerMax), w-2*ViewerEdge), h - 2*ViewerEdge
 }
 
+func ViewerBoxWide(w, h float32, wide bool) (float32, float32) {
+	if wide {
+		return w - 2*ViewerEdge, h - 2*ViewerEdge
+	}
+	return ViewerBox(w, h)
+}
+
 type ViewerOptions struct {
 	Name    string
+	Wide    bool
 	Back    bool
 	OnBack  func()
 	OnClose func()
@@ -34,20 +42,34 @@ func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
 	el := ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		backdrop.Background(k.Backdrop)
 		w, h := c.Size()
-		bw, bh := ViewerBox(w, h)
+		bw, bh := ViewerBoxWide(w, h, v.Wide)
 		panel.Width(bw).Height(bh).Background(k.BG).Border(1, k.Line).
 			Radius(RadiusLG).Clip().Label(v.Name).
 			Shadow(0, 8, 24, 0, k.Shadow).Children(func() {
 			ui.Column(c).FillHeight().Children(func() {
-				viewerTop(c, k, v)
-				if v.Notice != nil {
-					v.Notice(c)
-				}
-				v.Body(c)
+				viewerContent(c, k, v)
 			})
 		})
 	})
 	return el.Dismissed()
+}
+
+func viewerContent(c *ui.Context, k Colors, v ViewerOptions) {
+	viewerTop(c, k, v)
+	if v.Notice != nil {
+		v.Notice(c)
+	}
+	v.Body(c)
+}
+
+func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) {
+	ui.Column(c).Grow(1).MinHeight(0).MinWidth(0).Background(k.BG).AlignItems(ui.Center).Children(func() {
+		col := ui.Column(c).Grow(1).MinHeight(0).FillWidth().Label(v.Name)
+		if !v.Wide {
+			col.MaxWidth(ViewerMax)
+		}
+		col.Children(func() { viewerContent(c, k, v) })
+	})
 }
 
 func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {

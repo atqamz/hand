@@ -76,7 +76,7 @@ func TestDocNoticeMatchesTheBoardsNotice(t *testing.T) {
 func TestDocLinesMatchTheBoardsLines(t *testing.T) {
 	wantDecls(t, ".lines", "padding:var(--space-6) 0", "border:1px solid var(--line)", "border-radius:var(--r-md)", "background:var(--card)", "font-size:12px", "line-height:18px")
 	wantDecls(t, ".chunk>.gut", "width:calc(8ch + 22px)", "padding:0 var(--space-10) 0 var(--space-12)")
-	tt := host(func(c *ui.Context) { DocLines(c, ColorsFor(false), 1, []string{"a", "b", "c"}) })
+	tt := host(func(c *ui.Context) { DocLines(c, ColorsFor(false), 1, []string{"a", "b", "c"}, false) })
 	if got, want := rect(t, tt, "host").H, float32(3*Meta.Line+2*Space6+2); got != want {
 		t.Errorf("three lines are %v tall, want %v", got, want)
 	}

@@ -63,6 +63,7 @@ var apiRoutes = []apiRoute{
 	{http.MethodGet, "/links", func(b *Board) http.HandlerFunc { return b.apiLinks }},
 	{http.MethodGet, "/doc/{path...}", func(b *Board) http.HandlerFunc { return b.apiDoc }},
 	{http.MethodGet, "/inbox/{name}", func(b *Board) http.HandlerFunc { return b.apiInbox }},
+	{http.MethodGet, "/alerts", func(b *Board) http.HandlerFunc { return b.apiAlerts }},
 	{http.MethodGet, "/phone", func(b *Board) http.HandlerFunc { return b.apiPhone }},
 	{http.MethodGet, "/projects", func(b *Board) http.HandlerFunc { return b.apiProjects }},
 	{http.MethodGet, "/skills", func(b *Board) http.HandlerFunc { return b.apiSkills }},

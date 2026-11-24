@@ -1,4 +1,4 @@
-package board
+package qr
 
 import (
 	"bytes"
@@ -75,7 +75,7 @@ func TestQRRefusesWhatVersion10CannotHold(t *testing.T) {
 		if err != errQRTooLong || q != nil {
 			t.Fatalf("%d bytes = %v, %v; want errQRTooLong", len(text), q, err)
 		}
-		if svg, err := qrSVG(text, "label"); err != errQRTooLong || svg != "" {
+		if svg, err := SVG(text, "label"); err != errQRTooLong || svg != "" {
 			t.Fatalf("%d bytes as SVG = %q, %v; want no markup and errQRTooLong", len(text), svg, err)
 		}
 	}
@@ -338,7 +338,7 @@ func TestQRFunctionPatterns(t *testing.T) {
 }
 
 func TestQRSVGMarkup(t *testing.T) {
-	svg, err := qrSVG(pairingLink, `QR code for the "pairing" link`)
+	svg, err := SVG(pairingLink, `QR code for the "pairing" link`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestQRSVGMarkup(t *testing.T) {
 
 func TestQRSVGKeepsAQuietZoneOfFourModules(t *testing.T) {
 	for _, text := range []string{"hand", pairingLink, strings.Repeat("x", 213)} {
-		svg, err := qrSVG(text, "label")
+		svg, err := SVG(text, "label")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -450,7 +450,7 @@ func TestQRDecodesWithZbar(t *testing.T) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
 	for i, text := range texts {
-		svg, err := qrSVG(text, "label")
+		svg, err := SVG(text, "label")
 		if err != nil {
 			t.Fatalf("%d bytes: %v", len(text), err)
 		}
@@ -501,17 +501,17 @@ func TestQRDecodesWithZbar(t *testing.T) {
 }
 
 func TestQRCostOfThePairingLinkStaysSmall(t *testing.T) {
-	if allocs := testing.AllocsPerRun(20, func() { _, _ = qrSVG(pairingLink, "label") }); allocs > 400 {
+	if allocs := testing.AllocsPerRun(20, func() { _, _ = SVG(pairingLink, "label") }); allocs > 400 {
 		t.Errorf("the pairing link takes %.0f allocations, 94 when written (317 under -race)", allocs)
 	}
 	worst := strings.Repeat("x", 213)
-	if allocs := testing.AllocsPerRun(5, func() { _, _ = qrSVG(worst, "label") }); allocs > 1200 {
+	if allocs := testing.AllocsPerRun(5, func() { _, _ = SVG(worst, "label") }); allocs > 1200 {
 		t.Errorf("213 bytes take %.0f allocations, 162 when written (835 under -race)", allocs)
 	}
 	fastest := time.Hour
 	for range 7 {
 		start := time.Now()
-		_, _ = qrSVG(worst, "label")
+		_, _ = SVG(worst, "label")
 		fastest = min(fastest, time.Since(start))
 	}
 	if fastest > 150*time.Millisecond {
@@ -522,8 +522,49 @@ func TestQRCostOfThePairingLinkStaysSmall(t *testing.T) {
 func BenchmarkQRSVG(b *testing.B) {
 	var n int
 	for b.Loop() {
-		s, _ := qrSVG(pairingLink, "label")
+		s, _ := SVG(pairingLink, "label")
 		n = len(s)
 	}
 	b.ReportMetric(float64(n), "svg-bytes")
+}
+
+func TestPairingLinkMatchesTheRecordedBytes(t *testing.T) {
+	wantSVG, err := os.ReadFile("testdata/link.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, err := SVG(pairingLink, "QR code for the pairing link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(svg) != string(wantSVG) {
+		t.Errorf("the SVG of the pairing link differs from testdata/link.svg")
+	}
+	wantRows, err := os.ReadFile("testdata/link.matrix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := Matrix(pairingLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, row := range m {
+		for _, d := range row {
+			b.WriteByte(map[bool]byte{true: '#', false: '.'}[d])
+		}
+		b.WriteByte('\n')
+	}
+	if b.String() != string(wantRows) {
+		t.Errorf("the matrix of the pairing link differs from testdata/link.matrix")
+	}
+}
+
+func TestMatrixIsACopy(t *testing.T) {
+	a, _ := Matrix(pairingLink)
+	a[0][0] = !a[0][0]
+	b, _ := Matrix(pairingLink)
+	if a[0][0] == b[0][0] {
+		t.Errorf("Matrix shares storage between calls")
+	}
 }

@@ -99,19 +99,34 @@ func (a *App) View(c *ui.Context) {
 			Type: kind, Timeout: timeout})
 		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
 	}
-	ui.Row(c).Fill().Children(func() {
+	docPage := a.docPageOpen()
+	shell := ui.Row(c).Fill()
+	if docPage {
+		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
+		if a.Screen == DocScreen {
+			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox)
+		}
+	}
+	shell.Children(func() {
 		if !a.narrow {
 			a.rail(c, k, p)
 		}
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			a.masthead(c, k, p)
-			a.body(c, k, p)
+			if docPage {
+				a.viewer(c, k, p)
+			} else {
+				a.body(c, k, p)
+			}
 		})
 	})
+	if docPage != a.docPageOpen() && a.viewerOpen() {
+		a.viewerFocus = true
+	}
 	if a.narrow && a.sheetOpen {
 		a.sheet(c, k, p)
 	}
-	if a.viewerOpen() {
+	if a.viewerOpen() && !docPage {
 		a.viewer(c, k, p)
 	}
 	a.toasts(c, k, p)
@@ -180,12 +195,17 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:skills", Label: "Skills", Icon: "fleets", Current: !a.formShown() && a.underScreen() == SkillsScreen}) {
 		a.Show(SkillsScreen)
 	}
-	draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Inert: true, Dot: a.Status.AgentState == "working"})
+	if draw(kit.NavItem{Key: "screen:alerts", Label: "Alerts", Icon: "waiting", Current: !a.formShown() && a.underScreen() == AlertsScreen}) {
+		a.Show(AlertsScreen)
+	}
+	if draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
+		a.Show(HistoryScreen)
+	}
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
 		a.OpenScreen()
 	}
-	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone"}) {
-		a.OpenPhone()
+	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
+		a.Show(PhoneScreen)
 	}
 	if a.Model != nil {
 		kit.RailHead(c, k, open, "Fleets")
@@ -408,6 +428,15 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		return
 	case SkillsScreen:
 		a.skillsPage(c, k, p)
+		return
+	case AlertsScreen:
+		a.alertsPage(c, k, p)
+		return
+	case PhoneScreen:
+		a.phonePage(c, k, p)
+		return
+	case HistoryScreen:
+		a.historyPage(c, k, p)
 		return
 	}
 	if a.narrow {

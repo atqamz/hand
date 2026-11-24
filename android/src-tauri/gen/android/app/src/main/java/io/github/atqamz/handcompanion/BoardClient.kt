@@ -16,6 +16,9 @@ import kotlinx.serialization.json.jsonPrimitive
 
 const val API_VERSION = 1
 
+internal fun docRoute(path: String) =
+  path.split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+
 sealed class BoardError(message: String? = null, open val warn: String? = null) : Exception(message) {
   data object Busy : BoardError()
 
@@ -241,6 +244,23 @@ class BoardClient(
 
   suspend fun tasks(all: Boolean): Envelope<Tasks> =
     read(if (all) "tasks?all=1" else "tasks", Tasks.serializer())
+
+  suspend fun historySearch(query: String, limit: Int): Envelope<HistorySearch> =
+    read("history/search?q=${URLEncoder.encode(query, "UTF-8")}&limit=$limit", HistorySearch.serializer())
+
+  suspend fun historyEntry(ref: String): Envelope<HistoryEntry> {
+    if (!HISTORY_REF.matches(ref)) throw BoardError.Malformed
+    return read("history/$ref", HistoryEntry.serializer())
+  }
+
+  suspend fun doc(path: String, page: Int): Envelope<DocNode> =
+    read("doc/${docRoute(path)}" + if (page > 1) "?page=$page" else "", DocNode.serializer())
+
+  suspend fun docWindow(path: String, from: Int, lines: Int = DOC_LINES): Envelope<DocWindow> =
+    read("doc/${docRoute(path)}?from=$from&lines=$lines", DocWindow.serializer())
+
+  suspend fun docRaw(path: String): String =
+    send(false, "/api/v1/doc/${docRoute(path)}?raw", null).body
 
   suspend fun <T> write(path: String, body: String?, data: KSerializer<T>): Write<T> {
     val raw =

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/atqamz/hand/internal/qr"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1028,7 +1029,7 @@ func TestTheCodePageShowsThePairingLinkAsAQRCode(t *testing.T) {
 		return rec, body, m[1]
 	}
 	rec, body, code := show()
-	want, err := board.QRSVG("https://host.tailnet.example/pair#"+code, "QR code for the pairing link")
+	want, err := qr.SVG("https://host.tailnet.example/pair#"+code, "QR code for the pairing link")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ var taskCommands = map[string]handler{
 	"start":   transitionCommand("start", state.StatusActive),
 	"done":    transitionCommand("done", state.StatusDone),
 	"abandon": transitionCommand("abandon", state.StatusAbandoned),
+	"park":    transitionCommand("park", state.StatusInbox),
 	"deliver": cmdTaskDeliver,
 	"parent":  cmdTaskParent,
 	"attach":  cmdTaskAttach,
@@ -164,6 +166,15 @@ func cmdTaskShow(r *runner, args []string) error {
 		d.Field("attempt", state.AttemptRef(a.ID)+" "+a.Status)
 	} else {
 		d.Field("attempt", "none")
+	}
+	if t.Status == state.StatusInbox {
+		parked, err := st.ParkedTasks(context.Background())
+		if err != nil {
+			return err
+		}
+		if note, ok := parked[id]; ok {
+			d.Field("parked", cmp.Or(note, "yes"))
+		}
 	}
 	waits, err := st.Waits(context.Background())
 	if err != nil {
@@ -320,6 +331,10 @@ func transitionCommand(name, to string) handler {
 	return func(r *runner, args []string) error {
 		fs := flags("task " + name)
 		var delivered []string
+		var note string
+		if to == state.StatusInbox {
+			fs.StringVar(&note, "note", "", "why the task is parked: one line of at most 200 characters")
+		}
 		if to == state.StatusDone {
 			fs.Func("deliverable", "a file or link the supervisor produced: an http(s) URL or an absolute path; repeat for each", func(ref string) error {
 				if board.DeliverableKind(ref) == "" {
@@ -351,7 +366,7 @@ func transitionCommand(name, to string) handler {
 			return err
 		}
 		defer st.Close()
-		t, err := st.Transition(context.Background(), id, to, delivered...)
+		t, err := st.Transition(context.Background(), id, to, state.TransitionOpts{Delivered: delivered, Note: note})
 		if err != nil {
 			if len(delivered) > 0 {
 				err = fmt.Errorf("%w; no deliverable was recorded", err)

@@ -434,20 +434,47 @@ class TaskModelTest {
   }
 
   @Test
-  fun theDeliveredKindsChooseTheBrowserOrTheWebBoard() {
+  fun theDeliveredKindsChooseTheBrowserOrTheDocViewer() {
     assertEquals(
       ThreadTarget.Browser("https://github.com/atqamz/hand/pull/1241"),
-      deliverableTarget(TaskDeliverable("https://github.com/atqamz/hand/pull/1241", "PR"), FLEET)
+      deliverableTarget(TaskDeliverable("https://github.com/atqamz/hand/pull/1241", "PR"))
     )
     assertEquals(
       ThreadTarget.Browser("https://example.com/notes"),
-      deliverableTarget(TaskDeliverable("https://example.com/notes", "link"), FLEET)
+      deliverableTarget(TaskDeliverable("https://example.com/notes", "link"))
     )
     assertEquals(
-      ThreadTarget.Web("/$FLEET/doc/plan-t40.md"),
-      deliverableTarget(TaskDeliverable("plan-t40.md", "file", "/doc/plan-t40.md"), FLEET)
+      ThreadTarget.Doc("plan-t40.md"),
+      deliverableTarget(TaskDeliverable("plan-t40.md", "file", "/doc/plan-t40.md"))
     )
-    assertEquals(ThreadTarget.None, deliverableTarget(TaskDeliverable("plan-t40.md", "file"), FLEET))
+    assertEquals(ThreadTarget.None, deliverableTarget(TaskDeliverable("plan-t40.md", "file")))
+  }
+
+  @Test
+  fun everyDocOrDeliverableHrefIsADocTargetOrNothingAndNeverTheWeb() {
+    val hrefs =
+      mapOf(
+        "/doc/reports/t1/design.md" to ThreadTarget.Doc("reports/t1/design.md"),
+        "/doc/reports/a%20b%C3%A9.md" to ThreadTarget.Doc("reports/a bé.md"),
+        "/doc/reports/a+b.md" to ThreadTarget.Doc("reports/a+b.md"),
+        "/doc/reports/t1/" to ThreadTarget.Doc("reports/t1"),
+        "/doc/reports/t1?page=2" to ThreadTarget.Doc("reports/t1"),
+        "/doc/reports/a.md#L3" to ThreadTarget.Doc("reports/a.md"),
+        "/doc/reports/a%2fb.md" to ThreadTarget.Doc("reports/a/b.md"),
+        "/doc/reports/%2e%2e/x" to ThreadTarget.None,
+        "/doc/reports/%zz" to ThreadTarget.None,
+        "/doc/reports/a%0Ab.md" to ThreadTarget.None,
+        "/doc/" to ThreadTarget.None,
+        "/$FLEET/doc/a.md" to ThreadTarget.None,
+        "/connect" to ThreadTarget.None,
+        "https://example.com/doc/a.md" to ThreadTarget.None
+      )
+    for ((href, want) in hrefs) {
+      assertEquals(href, want, deliverableTarget(TaskDeliverable("x", "file", href)))
+    }
+    assertEquals(ThreadTarget.Doc("dir/sub"), pathTarget("dir/sub/"))
+    assertEquals(ThreadTarget.None, pathTarget("./a.md"))
+    assertEquals(ThreadTarget.None, pathTarget("a/./b"))
   }
 
   @Test

@@ -39,10 +39,17 @@ type SkillResult struct {
 	Detail string `json:"detail"`
 }
 
+type SkillDiff struct {
+	Name string `json:"name"`
+	Diff string `json:"diff"`
+	Cut  bool   `json:"cut"`
+}
+
 type SkillsRun struct {
 	Scope     string        `json:"scope"`
 	Project   string        `json:"project"`
 	Results   []SkillResult `json:"results"`
+	Diffs     []SkillDiff   `json:"diffs"`
 	Refused   int           `json:"refused"`
 	Reconcile []string      `json:"reconcile"`
 	Receipt   string        `json:"-"`
@@ -54,6 +61,8 @@ type SkillsRequest struct {
 	Project string `json:"project,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Yes     string `json:"yes,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Ref     string `json:"ref,omitempty"`
 }
 
 type longWait struct{}

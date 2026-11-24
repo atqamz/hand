@@ -116,6 +116,7 @@ type fixture struct {
 	docBytes       map[string][]byte
 	docErr         map[string]error
 	docWindowSize  int
+	linesServed    int
 	inbox          map[string][]byte
 	inboxGets      []string
 	uploaded       []string
@@ -129,6 +130,9 @@ type fixture struct {
 	attnBlock      chan struct{}
 	attnEntered    chan struct{}
 	features       []string
+	alerts         desktop.AlertsData
+	alertsErr      error
+	alertsReads    int
 	featuresErr    error
 	linkTable      map[string]desktop.Link
 	linksErr       error
@@ -395,6 +399,8 @@ func (f *fixture) Poll(ctx context.Context, id string, screen desktop.Screen, re
 		p.ScreenFresh, p.Attempt = true, f.attempt[id]
 	case desktop.DecisionScreen:
 		p.ScreenFresh, p.Decision = true, f.decision[id]
+	case desktop.AlertsScreen:
+		p.ScreenFresh, p.Alerts = true, f.alerts
 	}
 	return p, nil
 }

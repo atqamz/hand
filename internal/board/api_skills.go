@@ -164,7 +164,7 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 		return
 	}
 	var in apiSkillsBody
-	const bad = "send one JSON object with scope, project (for scope project), name, for sync yes, and for add source and ref"
+	const bad = "send one JSON object with scope, project (for scope project), name, for sync or add yes, and for add source and ref"
 	if !b.apiObject(w, r, &in, bad) {
 		return
 	}
@@ -188,8 +188,8 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	case verb != "add" && (in.Source != "" || in.Ref != ""):
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "source and ref go only with add")
 		return
-	case verb != "sync" && in.Yes != "":
-		b.apiFail(w, http.StatusBadRequest, "bad_request", "yes goes only with sync")
+	case verb != "sync" && verb != "add" && in.Yes != "":
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "yes goes only with sync or add")
 		return
 	case !skillsText(in.Name) || !skillsText(in.Yes) || !skillsText(in.Source) || !skillsText(in.Ref):
 		b.apiFail(w, http.StatusBadRequest, "bad_request", "a name, yes, source or ref with a control character or over 512 bytes")
@@ -220,7 +220,7 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 	switch {
 	case verb == "sync":
 		detail = skillsSynced(actor(kept, "operator (desktop)"), in, out, err)
-	case err == nil && out.Refused == 0 && (verb == "add" || verb == "remove"):
+	case err == nil && out.Refused == 0 && (verb == "remove" || verb == "add" && skillsAdded(out)):
 		detail = skillsNamed(actor(kept, "operator (desktop)"), in)
 	}
 	if detail != "" {
@@ -239,12 +239,20 @@ func (b *Board) apiSkillsAction(w http.ResponseWriter, r *http.Request, verb str
 
 var skillsEvents = map[string]string{"sync": "synced", "add": "added", "remove": "removed"}
 
+func skillsAdded(out APISkillsRun) bool {
+	return slices.ContainsFunc(out.Results, func(r APISkillResult) bool { return r.State == "added" })
+}
+
 func skillsNamed(who string, in apiSkillsBody) string {
 	what := in.Scope
 	if in.Project != "" {
 		what += " " + in.Project
 	}
-	return what + " by " + who + ": " + cmp.Or(in.Name, in.Source)
+	named := cmp.Or(in.Name, in.Source)
+	if in.Yes != "" {
+		named += " as " + in.Yes
+	}
+	return what + " by " + who + ": " + named
 }
 
 func skillsSynced(who string, in apiSkillsBody, out APISkillsRun, err error) string {

@@ -198,7 +198,7 @@ func TestSupervisorDeliverablesShowOnTheCardAndTaskPage(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
 	task := active(t, st, "Supervisor made a PDF")
-	if _, err := st.Transition(ctx, task.ID, state.StatusDone, "/home/me/out/brief.pdf", "https://docs.example.com/brief"); err != nil {
+	if _, err := st.Transition(ctx, task.ID, state.StatusDone, state.TransitionOpts{Delivered: []string{"/home/me/out/brief.pdf", "https://docs.example.com/brief"}}); err != nil {
 		t.Fatal(err)
 	}
 	h := board.New(st, token, board.Options{})

@@ -143,7 +143,8 @@ func TestAPISkillsActionRefusals(t *testing.T) {
 			{"scope": "fleet"},
 			{"scope": "fleet", "source": " "},
 			{"scope": "fleet", "source": "x", "name": "x"},
-			{"scope": "fleet", "source": "x", "yes": "x@y"},
+			{"scope": "fleet", "source": "x", "yes": strings.Repeat("x", 513)},
+			{"scope": "fleet", "source": "x", "yes": "a\nb"},
 			{"scope": "fleet", "source": strings.Repeat("x", 513)},
 			{"scope": "fleet", "source": "x", "ref": strings.Repeat("x", 513)},
 			{"scope": "fleet", "source": "x", "ref": "a\nb"},
@@ -178,9 +179,11 @@ func TestAPISkillsAddAndRemovePassWhatTheBodyNamesAndAnswerWithAReceipt(t *testi
 	if env.Receipt != "Skills remove: 1 removed" {
 		t.Fatalf("remove = %+v", env)
 	}
+	apiBody[board.APISkillsRun](t, apiPost(t, h, "/api/v1/skills/add", map[string]string{"scope": "fleet", "source": " https://example.com/acme/tool ", "yes": " tool@abc "}, token, true))
 	want := []board.SkillsAction{
 		{Verb: "add", Scope: "project", Project: "app", Source: "triage", Ref: "v1"},
 		{Verb: "remove", Scope: "user", Name: "triage"},
+		{Verb: "add", Scope: "fleet", Source: "https://example.com/acme/tool", Yes: "tool@abc"},
 	}
 	if fmt.Sprint(spy.actions) != fmt.Sprint(want) {
 		t.Fatalf("actions = %+v, want %+v", spy.actions, want)

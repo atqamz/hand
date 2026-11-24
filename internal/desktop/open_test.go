@@ -499,12 +499,10 @@ func TestSameNamedDeliveredFilesOpenTheirOwnDocument(t *testing.T) {
 	}
 }
 
-func TestRailScreenAndPhoneOpenThroughHandOpen(t *testing.T) {
+func TestRailScreenOpensThroughHandOpen(t *testing.T) {
 	hand := installFakeHand(t)
 	app := homedApp(t, hand.home)
 	tt := newTester(app)
 	click(t, tt, "Screen")
 	hand.want(t, "open", "screen")
-	click(t, tt, "Companion")
-	hand.want(t, "open", "phone")
 }

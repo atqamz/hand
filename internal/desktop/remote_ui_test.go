@@ -326,14 +326,14 @@ func TestADeadClientIsStateNotAnErrorCard(t *testing.T) {
 
 func TestOpenCallsOnARemoteFleetRunNothingAndSayNothing(t *testing.T) {
 	r := newRemoteUI(t, true)
-	for _, call := range []func(){r.app.OpenPhone, r.app.OpenScreen, r.app.OpenInBrowser, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1") }, func() { r.app.OpenBoardPath("/" + rtA + "/doc/") }, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1/x") }} {
+	for _, call := range []func(){r.app.OpenScreen, r.app.OpenInBrowser, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1") }, func() { r.app.OpenBoardPath("/" + rtA + "/doc/") }, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1/x") }} {
 		call()
 		if r.app.OpenErr != "" || r.app.OpenBusy {
 			t.Fatalf("a remote fleet ran or reported hand open: err %q busy %v", r.app.OpenErr, r.app.OpenBusy)
 		}
 	}
 	r.app.SelectFleet(rtLocal)
-	r.app.OpenPhone()
+	r.app.OpenScreen()
 	if r.app.OpenErr == "" {
 		t.Fatal("a local fleet with no folder no longer says so")
 	}

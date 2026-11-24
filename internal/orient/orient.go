@@ -155,11 +155,24 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if inboxNested {
 		inbox = state.Tree(inbox)
 	}
+	parked, err := st.ParkedTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	inboxParked := false
+	for _, t := range inbox {
+		_, ok := parked[t.ID]
+		inboxParked = inboxParked || ok
+	}
 	inboxRows := make([][]string, 0, len(inbox))
 	for _, t := range inbox {
 		row := []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes)}
 		if inboxNested {
 			row = append(row, parentCell(t))
+		}
+		if inboxParked {
+			note, ok := parked[t.ID]
+			row = append(row, parkedCell(note, ok, b.TitleBytes))
 		}
 		inboxRows = append(inboxRows, row)
 	}
@@ -223,6 +236,9 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	inboxFields := []string{"id", "project", "title"}
 	if inboxNested {
 		inboxFields = append(inboxFields, "parent")
+	}
+	if inboxParked {
+		inboxFields = append(inboxFields, "parked")
 	}
 	sections := []*section{
 		{"active", activeFields, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
@@ -527,6 +543,16 @@ func parentCell(t state.Task) string {
 		return ""
 	}
 	return state.TaskRef(t.ParentID)
+}
+
+func parkedCell(note string, parked bool, n int) string {
+	switch {
+	case !parked:
+		return ""
+	case note == "":
+		return "yes"
+	}
+	return Clip(note, n)
 }
 
 func dropLast(sections []*section) bool {
