@@ -56,18 +56,26 @@ func scanTask(row scanner) (Task, error) {
 	return t, err
 }
 
+func validTitle(title string) (string, error) {
+	title = strings.TrimSpace(title)
+	if title == "" || utf8.RuneCountInString(title) > 200 || strings.ContainsAny(title, "\r\n") {
+		return "", fmt.Errorf("%w: task title must be one line of 1-200 characters", ErrInvalid)
+	}
+	return title, nil
+}
+
 func (s *Store) AddTask(ctx context.Context, project, title, goal string) (Task, error) {
 	return s.AddTaskUnder(ctx, 0, project, title, goal)
 }
 
 func (s *Store) AddTaskUnder(ctx context.Context, parent int64, project, title, goal string) (Task, error) {
-	title = strings.TrimSpace(title)
-	if title == "" || utf8.RuneCountInString(title) > 200 || strings.ContainsAny(title, "\r\n") {
-		return Task{}, fmt.Errorf("%w: task title must be one line of 1-200 characters", ErrInvalid)
+	title, err := validTitle(title)
+	if err != nil {
+		return Task{}, err
 	}
 	now := s.stamp()
 	t := Task{Project: project, Title: title, Goal: goal, Status: StatusInbox, CreatedAt: now, UpdatedAt: now, ParentID: parent}
-	err := s.tx(ctx, func(tx *sql.Tx) error {
+	err = s.tx(ctx, func(tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRow(`SELECT count(*) FROM project WHERE name = ?`, project).Scan(&n); err != nil {
 			return err
@@ -204,8 +212,8 @@ func (s *Store) SearchTasks(ctx context.Context, q TaskQuery) ([]Task, int, erro
 		args = append(args, d.value)
 	}
 	for _, w := range strings.Fields(strings.ToLower(q.Q)) {
-		where = append(where, `(instr(lower(t.title), ?) > 0 OR instr(lower(t.goal), ?) > 0 OR 't' || t.id = ?)`)
-		args = append(args, w, w, w)
+		where = append(where, `(instr(lower(t.title), ?) > 0 OR instr(lower(t.former_titles), ?) > 0 OR instr(lower(t.goal), ?) > 0 OR 't' || t.id = ?)`)
+		args = append(args, w, w, w, w)
 	}
 	from := ` FROM task t LEFT JOIN (SELECT task_id, max(at) AS at FROM event WHERE kind IN ('task.done', 'task.abandoned') GROUP BY task_id) f ON f.task_id = t.id`
 	if len(where) > 0 {
@@ -378,6 +386,67 @@ func (s *Store) Deliver(ctx context.Context, id int64, refs ...string) (Task, []
 		added = nil
 	}
 	return out, added, err
+}
+
+const (
+	maxFormerTitles = 10
+	maxEditDetail   = 300
+)
+
+func editSide(s string) string {
+	if utf8.RuneCountInString(s) <= maxEditDetail {
+		return s
+	}
+	return string([]rune(s)[:maxEditDetail]) + "..."
+}
+
+func (s *Store) EditTask(ctx context.Context, id int64, title, goal *string) (Task, bool, error) {
+	var out Task
+	var changed bool
+	if title != nil {
+		t, err := validTitle(*title)
+		if err != nil {
+			return Task{}, false, err
+		}
+		title = &t
+	}
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE t.id = ?`, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: task %s", ErrNotFound, TaskRef(id))
+		}
+		if err != nil {
+			return err
+		}
+		out = cur
+		now := s.stamp()
+		if title != nil && *title != cur.Title {
+			var former string
+			if err := tx.QueryRow(`SELECT former_titles FROM task WHERE id = ?`, id).Scan(&former); err != nil {
+				return err
+			}
+			list := append([]string{cur.Title}, strings.Split(former, "\n")...)
+			list = slices.DeleteFunc(list, func(f string) bool { return f == "" })
+			if _, err := tx.Exec(`UPDATE task SET title = ?, former_titles = ? WHERE id = ?`, *title, strings.Join(list[:min(len(list), maxFormerTitles)], "\n"), id); err != nil {
+				return err
+			}
+			if err := emit(tx, now, "task.edited", id, "title: "+editSide(cur.Title)+" -> "+editSide(*title)); err != nil {
+				return err
+			}
+			out.Title, changed = *title, true
+		}
+		if goal != nil && *goal != cur.Goal {
+			if _, err := tx.Exec(`UPDATE task SET goal = ? WHERE id = ?`, *goal, id); err != nil {
+				return err
+			}
+			if err := emit(tx, now, "task.edited", id, "goal: "+editSide(cur.Goal)+" -> "+editSide(*goal)); err != nil {
+				return err
+			}
+			out.Goal, changed = *goal, true
+		}
+		return nil
+	})
+	return out, changed, err
 }
 
 func (s *Store) SetParent(ctx context.Context, id, parent int64) (Task, error) {
