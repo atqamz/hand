@@ -271,6 +271,7 @@ type App struct {
 	back          []backStep
 	doc           docState
 	docGen        int
+	docOp         int
 	docCancel     context.CancelFunc
 	stopTimer     func()
 	stopGen       int

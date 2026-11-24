@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -272,7 +273,7 @@ func TestToolbarHasAKeyboardPath(t *testing.T) {
 	tt.Frame()
 }
 
-func TestToolbarScenes(t *testing.T) {
+func TestScenesDocToolbar(t *testing.T) {
 	cases := []struct {
 		name  string
 		rel   string
@@ -404,4 +405,67 @@ func TestDownloadedFileIsReadableAndTheButtonWaitsForTheFirstSave(t *testing.T) 
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode = %v, want 0644", info.Mode().Perm())
 	}
+}
+
+func TestARepeatedRefusalIsAnnouncedAgain(t *testing.T) {
+	app, _ := toolsApp(t, blobPath)
+	tt := newTester(app)
+	count := func() int {
+		n := 0
+		for _, said := range tt.Announcements() {
+			if strings.Contains(said, "not text") {
+				n++
+			}
+		}
+		return n
+	}
+	click(t, tt, "Copy contents")
+	tt.Frame()
+	click(t, tt, "Copy contents")
+	tt.Frame()
+	if n := count(); n != 2 {
+		t.Fatalf("the refusal was announced %d times, want 2: %q", n, tt.Announcements())
+	}
+}
+
+type gatedCopy struct {
+	*fixture
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedCopy) DocBytes(ctx context.Context, id, path string) ([]byte, error) {
+	b, err := g.fixture.DocBytes(ctx, id, path)
+	g.entered <- struct{}{}
+	<-g.release
+	return b, err
+}
+
+func TestACopyFromAnEarlierVisitDoesNotLandOnTheNewVisit(t *testing.T) {
+	f := docFixture(t)
+	g := &gatedCopy{fixture: f, entered: make(chan struct{}, 4), release: make(chan struct{})}
+	app := desktop.New(func() (desktop.ReadModel, error) { return g, nil })
+	app.DraftDir = t.TempDir()
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	app.Boot()
+	drain(posted)
+	app.OpenDoc(notesPath)
+	tt := newTester(app)
+	drain(posted)
+	tt.Frame()
+	click(t, tt, "Copy contents")
+	<-g.entered
+	app.OpenDoc(designPath)
+	drain(posted)
+	app.OpenDoc(notesPath)
+	drain(posted)
+	tt.Frame()
+	close(g.release)
+	drain(posted)
+	tt.Frame()
+	if got := tt.Clipboard(); got != "" {
+		t.Fatalf("a copy from the first visit landed: %q", got)
+	}
+	mustNotText(t, tt, "Copied")
 }

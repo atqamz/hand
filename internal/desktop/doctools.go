@@ -102,7 +102,7 @@ func (a *App) flushClip(c *ui.Context) {
 
 func (a *App) copyDoc(c *ui.Context) {
 	st, d := &a.doc, a.doc.doc
-	st.note, st.noteBad = "", false
+	st.note, st.said, st.noteBad = "", "", false
 	switch {
 	case d.Kind == "markdown" && st.row == "":
 		st.clip, st.clipReady = st.body, true
@@ -124,12 +124,14 @@ func (a *App) fetchCopy() {
 		return
 	}
 	st.copying = true
+	a.docOp++
+	op := a.docOp
 	a.offload(func() func() {
 		ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 		defer cancel()
 		b, err := model.DocBytes(ctx, fleet, rel)
 		return func() {
-			if a.Screen != DocScreen || a.Ref != rel || a.Fleet.ID != fleet {
+			if a.docOp != op || a.Screen != DocScreen || a.Ref != rel || a.Fleet.ID != fleet {
 				return
 			}
 			st := &a.doc
@@ -148,7 +150,9 @@ func (a *App) downloadDoc() {
 	if a.SaveAs == nil || st.saving || a.Model == nil {
 		return
 	}
-	st.saving, st.note, st.noteBad = true, "", false
+	st.saving, st.note, st.said, st.noteBad = true, "", "", false
+	a.docOp++
+	op := a.docOp
 	model, fleet, rel, name, save := a.Model, a.Fleet.ID, a.Ref, d.Name, a.SaveAs
 	a.offload(func() func() {
 		dest := save(name)
@@ -158,7 +162,7 @@ func (a *App) downloadDoc() {
 			n, err = saveDoc(a.Context, model, fleet, rel, dest)
 		}
 		return func() {
-			if a.Screen != DocScreen || a.Ref != rel || a.Fleet.ID != fleet {
+			if a.docOp != op || a.Screen != DocScreen || a.Ref != rel || a.Fleet.ID != fleet {
 				return
 			}
 			st := &a.doc
