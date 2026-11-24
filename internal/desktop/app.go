@@ -725,6 +725,9 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 		return
 	}
 	if isBase(a.Screen) {
+		if a.Screen == PhoneScreen {
+			a.resetPhone()
+		}
 		a.base = a.Screen
 		a.viewerFocus = true
 	}
@@ -923,6 +926,9 @@ func (a *App) CloseViewer() {
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
 	a.viewerFocus = false
 	a.Reload()
+	if a.Screen == PhoneScreen {
+		a.openPhone()
+	}
 	if a.Screen == TasksScreen {
 		a.refreshTaskSearch()
 	}

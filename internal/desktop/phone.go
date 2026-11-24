@@ -5,8 +5,6 @@ import (
 	"log/slog"
 )
 
-// Secret holds a pairing code or link. It prints as a placeholder in every
-// format and log, so only Reveal gives the text out.
 type Secret string
 
 func (Secret) String() string       { return "[hidden]" }

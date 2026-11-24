@@ -486,7 +486,9 @@ func TestARevokeUpdatesTheList(t *testing.T) {
 
 func partialFailure(m *phoneModel) {
 	d := m.data
-	d.Devices = phoneDevices()[:1]
+	left := phoneDevices()[0]
+	left.Fleets = left.Fleets[1:]
+	d.Devices = []desktop.PhoneDevice{left}
 	d.Revoke = &desktop.PhoneRevoked{
 		Revoked: []desktop.PhoneFleetRef{{ID: fleetID, Name: "golden"}},
 		Failed:  []desktop.PhoneFailed{{ID: secondID, Name: "kiln", Reason: "unreachable"}},
@@ -935,4 +937,96 @@ func TestAnEmptyListWithAnUnreachableFleetDoesNotClaimNoneArePaired(t *testing.T
 	_, tt := phoneTester(t, m, false)
 	mustText(t, tt, "No Companion was found in the fleets that could be read.")
 	mustNotText(t, tt, "No Companion is paired.")
+}
+
+func codeOnScreen(tt *ui.Tester) bool {
+	if _, ok := tt.Find("QR code for the pairing link"); ok {
+		return true
+	}
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, phoneCode) || strings.Contains(s, "pair#") || s == "Copy link" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOpeningAPageOverTheCompanionPageDropsTheCodeLinkAndQR(t *testing.T) {
+	cases := []struct {
+		name string
+		open func(*desktop.App)
+		back bool
+	}{
+		{"ref", func(a *desktop.App) { a.OpenRef("t1") }, true},
+		{"link", func(a *desktop.App) { _ = a.OpenLink("handboard://open/" + fleetID + "/task/t1") }, false},
+		{"doc", func(a *desktop.App) { a.OpenDoc("README.md") }, true},
+	}
+	for _, tc := range cases {
+		for _, dark := range []bool{false, true} {
+			t.Run(tc.name+"/"+theme(dark), func(t *testing.T) {
+				m := phoneFixture(t)
+				app, tt := phoneTester(t, m, dark)
+				mint(t, tt)
+				if !codeOnScreen(tt) {
+					t.Fatal("no code on screen after minting")
+				}
+				m.mu.Lock()
+				m.readErr = errors.New("the board did not answer in time")
+				m.mu.Unlock()
+				tc.open(app)
+				if app.Screen == desktop.PhoneScreen {
+					t.Fatalf("%s did not leave the Companion page", tc.name)
+				}
+				if desktop.PhoneHeld(app) {
+					t.Fatal("the code, link or QR is still held under the opened page")
+				}
+				tt.Frame()
+				if codeOnScreen(tt) {
+					t.Fatal("the code, link or QR shows with a page open over the Companion page")
+				}
+				if !tc.back {
+					return
+				}
+				app.CloseViewer()
+				tt.Frame()
+				if desktop.PhoneHeld(app) || codeOnScreen(tt) {
+					t.Fatal("the closed viewer brought the code, link or QR back with no read")
+				}
+				mustText(t, tt, "The board could not be read")
+			})
+		}
+	}
+}
+
+func TestClosingTheViewerReadsTheCompanionPageAgain(t *testing.T) {
+	m := phoneFixture(t)
+	app, tt := phoneTester(t, m, false)
+	reads := m.reads
+	app.OpenRef("t1")
+	app.CloseViewer()
+	tt.Frame()
+	if m.reads <= reads {
+		t.Fatal("the page was not read again when the viewer closed")
+	}
+	mustText(t, tt, "Pixel 8")
+}
+
+func TestSwitchingFleetDropsTheCompanionPageData(t *testing.T) {
+	m := phoneFixture(t)
+	app, tt := phoneTester(t, m, false)
+	mint(t, tt)
+	if !desktop.PhoneHeld(app) {
+		t.Fatal("no code held after minting")
+	}
+	m.mu.Lock()
+	m.readErr = errors.New("the board did not answer in time")
+	m.mu.Unlock()
+	app.SelectFleet(secondID)
+	if desktop.PhoneHeld(app) {
+		t.Fatal("the first fleet's code is held after switching fleet")
+	}
+	tt.Frame()
+	if codeOnScreen(tt) {
+		t.Fatal("the first fleet's code shows after switching fleet")
+	}
 }

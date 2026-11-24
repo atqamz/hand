@@ -709,7 +709,7 @@ func phoneDeviceKey(d PhoneDevice) string {
 	return "id" + strconv.FormatInt(d.ID, 10)
 }
 
-func (a *App) phoneNote2(d PhoneDevice, fleetsOnly bool) string {
+func (a *App) phoneNote2(d PhoneDevice) string {
 	var parts []string
 	if d.Expired {
 		parts = append(parts, "signed out after 90 days")
@@ -734,7 +734,7 @@ func (a *App) phoneDevice(c *ui.Context, k kit.Colors, p palette, d PhoneDevice)
 		ui.Row(c).Gap(kit.Space10).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Gap(kit.Space2).Grow(1).MinWidth(0).Children(func() {
 				ui.Text(c, d.Name).FontSize(kit.Body.Size).Bold()
-				ui.Text(c, a.phoneNote2(d, len(d.Fleets) > 0)).FontSize(kit.Meta.Size).TextColor(p.neutral)
+				ui.Text(c, a.phoneNote2(d)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			})
 			switch {
 			case len(d.Fleets) == 0:

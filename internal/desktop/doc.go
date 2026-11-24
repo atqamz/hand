@@ -161,6 +161,9 @@ func (a *App) showDoc(rel string, page int, push bool) {
 		return
 	}
 	if isBase(a.Screen) {
+		if a.Screen == PhoneScreen {
+			a.resetPhone()
+		}
 		a.base = a.Screen
 		a.tabFor = ""
 	}
