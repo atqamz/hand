@@ -546,7 +546,9 @@ internal fun ChatContent(
           Modifier.padding(top = gap)
             .then(
               if (focused) {
-                Modifier.clip(MaterialTheme.shapes.medium).background(hand.fill(Tone.Accent))
+                Modifier.clip(MaterialTheme.shapes.medium)
+                  .background(hand.fill(Tone.Accent))
+                  .border(2.dp, hand.ink(Tone.Accent), MaterialTheme.shapes.medium)
               } else {
                 Modifier
               }

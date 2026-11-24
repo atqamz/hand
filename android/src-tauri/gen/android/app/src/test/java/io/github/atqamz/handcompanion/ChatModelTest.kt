@@ -1757,6 +1757,24 @@ class ChatModelTest {
   }
 
   @Test
+  fun revealIgnoresARepliesAtAnotherTimestampEvenWithTheSameText() = runBlocking {
+    val at = "2026-11-01T08:00:00Z"
+    val board =
+      revealBoard(
+        timeline(
+          0,
+          entry("s2", "supervisor", "2026-11-01T09:30:00Z", "Same words", no = 4),
+          entry("s1", "supervisor", at, "Same words", no = 3)
+        )
+      )
+    val chat = model(board)
+    chat.load()
+    chat.revealNow("y9", at, "Same words")
+    val held = chat.state.value
+    assertEquals(at, displayEntries(held.page, held.older).first { it.key == held.focus }.entry.at)
+  }
+
+  @Test
   fun revealStopsAtTheEndOfTheConversationAndSaysSo() = runBlocking {
     val board = revealBoard(timeline(0, entry("i1", "operator", "2026-11-01T09:00:00Z", "Old", input = 1)))
     val chat = model(board)
