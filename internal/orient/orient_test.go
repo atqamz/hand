@@ -1822,3 +1822,106 @@ func TestBytesOverBudgetWithEveryLineShownIsNotOver(t *testing.T) {
 		t.Fatalf("a core with every line shown is flagged:\n%s", out)
 	}
 }
+
+func TestOrientMovesAParkedTaskToInboxWithAParkedColumnOnlyWhenSomeInboxTaskIsParked(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Alpha", "")
+	b, _ := st.AddTask(ctx, "hand", "Beta", "")
+	c, _ := st.AddTask(ctx, "hand", "Gamma", "")
+	_, _ = st.AddTask(ctx, "hand", "Fresh", "")
+	for _, id := range []int64{a.ID, b.ID, c.ID} {
+		_, _ = st.Transition(ctx, id, state.StatusActive)
+	}
+	build := func() string {
+		t.Helper()
+		doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	if out := build(); strings.Contains(out, "parked") || !strings.Contains(out, "inbox[1]{id,project,title}:\n  t4,hand,Fresh\n") {
+		t.Fatalf("orient before parking:\n%s", out)
+	}
+	if _, err := st.Transition(ctx, a.ID, state.StatusInbox, state.TransitionOpts{Note: "paused by operator"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Transition(ctx, b.ID, state.StatusInbox); err != nil {
+		t.Fatal(err)
+	}
+	out := build()
+	for _, want := range []string{
+		"inbox[3]{id,project,title,parked}:\n  t1,hand,Alpha,paused by operator\n  t2,hand,Beta,yes\n  t4,hand,Fresh,\"\"\n",
+		"tasks: inbox=3 active=1 done=0 abandoned=0\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+	active := out[strings.Index(out, "active["):strings.Index(out, "inbox[")]
+	if strings.Contains(active, "t1,") || strings.Contains(active, "t2,") || !strings.Contains(active, "t3,hand,Gamma,") {
+		t.Fatalf("active section = %q", active)
+	}
+	if _, err := st.Transition(ctx, a.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Transition(ctx, b.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if out := build(); strings.Contains(out, "parked") {
+		t.Fatalf("orient after restart still has a parked column:\n%s", out)
+	}
+}
+
+func TestOrientStaysWithinBudgetForParkedTasksWithLongNotesAndParents(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	var parent int64
+	for i := range 40 {
+		task, err := st.AddTaskUnder(ctx, parent, "hand", strings.Repeat("x", 150)+string(rune('a'+i%26)), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		if _, err := st.Transition(ctx, task.ID, state.StatusInbox, state.TransitionOpts{Note: strings.Repeat("漢", state.MaxTaskNote)}); err != nil {
+			t.Fatal(err)
+		}
+		if i%3 != 0 {
+			parent = task.ID
+		}
+	}
+	doc, err := Build(ctx, st, home, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if len(out) >= DefaultBudget.Bytes {
+		t.Fatalf("orient is %d bytes, want < %d", len(out), DefaultBudget.Bytes)
+	}
+	if !strings.Contains(out, ",parent,parked}:") {
+		t.Fatalf("parked inbox rows lost their columns:\n%s", out)
+	}
+}
+
+func TestShortListsAParkEvent(t *testing.T) {
+	st, _ := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
+	since, _ := st.LastEventSeq(ctx)
+	if _, err := st.Transition(ctx, a.ID, state.StatusInbox, state.TransitionOpts{Note: "paused"}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Short(ctx, st, since, "", true, true, Turn{}, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "tasks: inbox=1 active=0 done=0 abandoned=0\n") || !strings.Contains(out, ","+"task.inbox,t1\n") {
+		t.Fatalf("short = \n%s", out)
+	}
+}

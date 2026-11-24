@@ -69,7 +69,7 @@ func cmdWake(r *runner, args []string) error {
 	after := spanFlag(fs, "after", "wake the supervisor once, this long from now, like 30m or 3d")
 	at := fs.String("at", "", "wake the supervisor once at this RFC 3339 time")
 	every := spanFlag(fs, "every", "wake the supervisor this often, like 30m or 1d")
-	while := fs.String("while", "", "cancel the timer when this task is done or abandoned")
+	while := fs.String("while", "", "cancel the timer when this task is done, abandoned or parked")
 	waits := fs.Bool("waits", false, "mark the --while task as waiting on an outside party until the timer fires")
 	note := fs.String("note", "", "what to check when it fires, or why the task waits, at most 200 characters")
 	if _, err := parse(fs, args, 0); err != nil {
