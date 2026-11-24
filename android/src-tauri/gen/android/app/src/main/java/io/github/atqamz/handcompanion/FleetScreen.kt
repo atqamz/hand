@@ -161,6 +161,7 @@ fun FleetScreen(
   onForce: () -> Unit,
   onAttempt: (String) -> Unit,
   onSkills: () -> Unit = {},
+  search: TaskSearchUi? = null,
   chat: @Composable () -> Unit,
   choice: @Composable (String) -> Unit
 ) {
@@ -176,7 +177,7 @@ fun FleetScreen(
           }
         Body.Loading -> Loading()
         Body.Needs -> NeedsScreen(state, onToggle, onReport, onWeb, onPress, onForce, onAttempt, choice)
-        Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry)
+        Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry, search)
         Body.Chat -> chat()
         Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }

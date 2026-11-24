@@ -46,7 +46,7 @@ Responses are `application/json; charset=utf-8`, `Cache-Control: no-store`, and 
 
 ## The change cursor
 
-`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt, a links answer and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
+`cursor` is opaque: a client stores it and sends it back as `?since=`. For `status`, `timeline`, `tasks`, `projects`, a task, a decision and a report it encodes the fleet and a signed fingerprint of the fleet's name, the path and query, and the board's version: the last event, the pending operator messages, the last alert, the supervisor's pane, transcript and worker signals, the Old files warning, whether each file under the fleet folder that a deliverable links to exists and what kind it is, and the size of each inbox image. After a board restart the first poll with an older cursor answers `200`. The board computes that version once per tick for all its clients and does not build the data to answer a poll, so a change reaches a poll within a couple of seconds (at once after a write made through the board). `phone` fingerprints its data with each code and link replaced by a keyed digest. A session, an attempt, a links answer, the alerts and an action's answer fingerprint their `data` instead, because an attempt's duration and transcript change without a board version change. A cursor is not a timestamp and not just an event sequence. The signature is keyed by the board, so a cursor it never issued is rejected even when its fleet and fingerprint look well formed.
 
 - No `?since=`: always `200` with the full data.
 - `?since=` equal to the cursor the board computes now: `304 Not Modified`, an empty body, and the current value in `X-Hand-Cursor`. Poll that first: for the pages above it costs no build and no body.
@@ -68,6 +68,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | the Android Companion's entry view; `hand history search --full REF` |
 | `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
+| `GET /api/v1/alerts` | `Alerts`: the last 7 days of alert receipts, newest first, and the delay stats; see [`Alerts.data`](#alertsdata) | `/alerts`, the alerts page; `/alerts/feed` is not this route |
 | `GET /api/v1/skills[?scope=SCOPE[&project=NAME]]` | `Skills`: each scope's skills with source, ref, commit, latest commit, trust, drift state and the pending diff; see [Skills](#skills) | none yet; `hand skills list` for every scope |
 | `GET /api/v1/doc/{path}[?page=N]` | `DocFolder` for a folder (entries and pager) or `DocFile` for a file (name, kind, size, time, neighbours); see [Documents](#documents) | `/doc/{path}`, the document viewer |
 | `GET /api/v1/doc/{path}?raw` | not an envelope: the file's bytes, as the page's `?raw` serves them | `/doc/{path}?raw` |
@@ -206,6 +207,54 @@ When the Board's Ask card would show a question for that screen, `supervisor` al
 `hits` are ordered by relevance (bm25 within each source, so mixing sources is approximate), then newest first, at most `limit`; `total` is every match under the filters and `more` is `total > len(hits)`. A hit has `ref`, `who`, `at`, `text` (a snippet of at most 300 bytes on one line, the match between `«` and `»`, a cut shown as `…`) and `context`; a reply carries `supervisor` (`sN`), a report carries `task`, an operator message carries neither. With `context` above 0, `context` lists up to that many entries before and then after a message or reply hit in the merged conversation of messages and replies, oldest first, each as `ref`, `who`, `at`, `text` (clipped the same way) and `supervisor` for a reply; a report hit has an empty `context`. Every returned text passes through the same redaction as a stored reply (`internal/redact`), because operator messages and reports are stored as written.
 
 `GET /api/v1/history/{ref}` takes `iN`, `yN`, `rN`, `dN` or `tN` and answers `ref`, `who`, `at`, `supervisor`, `task`, `text` and `truncated`. `text` is the whole body, redacted, at most 16 KiB; `truncated` is `true` when it was cut at a character boundary. An unknown or malformed ref is `404`. The answer reads this fleet's database only: there is no fleet or `all` parameter, and the route takes the refusals of every read below. The envelope's `cursor` is a fingerprint of the answer, not a change cursor.
+
+### `Alerts.data`
+
+`GET /api/v1/alerts` reads the `alert` table the page at `/alerts` reads, with the same window (the last 7 days, `at` at or after now minus 7 × 24 h), the same delay (acknowledged minus raised) and the same percentile and rounding rules. Reading it never marks an alert fetched or acknowledged, which only `/<fleet id>/alerts/feed` does. It takes `?since=` and fingerprints its `data`, because an acknowledgement changes it without a board version change. It is the same for a host session and a paired Companion, which already receives these alerts through the feed.
+
+| Field | Meaning |
+|---|---|
+| `days` | the window, 7 |
+| `slow_after_seconds` | a delay over this is slow, 60 |
+| `stats.total` | alerts in the window |
+| `stats.unacked` | alerts with no acknowledgement |
+| `stats.slow` | alerts whose delay is over `slow_after_seconds` |
+| `stats.p50_seconds`, `p95_seconds`, `max_seconds` | the median, the 95th percentile (nearest rank, `ceil(p × n)`) and the longest delay among acknowledged alerts, each rounded to the nearest second; `null` when none is acknowledged |
+| `alerts` | the receipts, newest first (`seq` descending), `[]` when there are none |
+
+A receipt:
+
+| Field | Meaning |
+|---|---|
+| `seq` | the row's sequence number, the key and the ordering |
+| `at` | when the alert was raised, RFC 3339 UTC |
+| `kind` | what raised it, such as `attempt.failed` |
+| `ref` | the ref it names, such as `t12`, or empty |
+| `text` | the line sent to `notify` and shown on the alerts page (at most 200 characters) |
+| `fetched_at` | when the Board first wrote it to a feed answer, or `""` |
+| `acked_at` | when a later feed request acknowledged it, or `""` |
+| `delay_seconds` | `acked_at` minus `at`, rounded to the nearest second, or `null` while unacknowledged |
+| `slow` | `delay_seconds` is over `slow_after_seconds`, measured on the unrounded delay |
+
+A receipt carries no link, `task_id` or device. Delivery is reported as `fetched_at` and `acked_at`; there is no channel field, since every alert goes to `notify` and to the feed.
+
+```json
+{
+  "version": 1,
+  "fleet": {"id": "f0000000000ff", "name": "golden"},
+  "cursor": "c1.…",
+  "generated_at": "2026-11-24T10:00:00Z",
+  "data": {
+    "days": 7,
+    "slow_after_seconds": 60,
+    "stats": {"total": 2, "unacked": 1, "slow": 1, "p50_seconds": 95, "p95_seconds": 95, "max_seconds": 95},
+    "alerts": [
+      {"seq": 2, "at": "2026-11-24T09:59:00Z", "kind": "decision.asked", "ref": "d4", "text": "d4 asks: which build?", "fetched_at": "", "acked_at": "", "delay_seconds": null, "slow": false},
+      {"seq": 1, "at": "2026-11-24T09:00:00Z", "kind": "attempt.failed", "ref": "a3", "text": "a3 failed", "fetched_at": "2026-11-24T09:00:03Z", "acked_at": "2026-11-24T09:01:35Z", "delay_seconds": 95, "slow": true}
+    ]
+  }
+}
+```
 
 ### `Projects.data`
 
@@ -524,7 +573,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
   "data": {
     "version": "0.14.0",
     "host": "workstation",
-    "features": ["events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_manage", "skills_sync"],
+    "features": ["alerts", "events", "fleets", "history", "host", "links", "pair", "phone", "skills", "skills_manage", "skills_sync"],
     "sidecar": {"state": "ready", "id": "9f2c…(64 hex characters)", "relay": "https://relay.example"}
   }
 }
@@ -534,6 +583,7 @@ Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page
 
 | Feature | Means |
 |---|---|
+| `alerts` | `GET /api/v1/alerts` |
 | `events` | `GET /api/v1/events`, the change stream |
 | `fleets` | `GET /api/v1/fleets` |
 | `history` | `GET /api/v1/history/search` and `GET /api/v1/history/{ref}` |
