@@ -99,19 +99,31 @@ func (a *App) View(c *ui.Context) {
 			Type: kind, Timeout: timeout})
 		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
 	}
-	ui.Row(c).Fill().Children(func() {
+	docPage := a.docPageOpen()
+	shell := ui.Row(c).Fill()
+	if docPage {
+		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
+	}
+	shell.Children(func() {
 		if !a.narrow {
 			a.rail(c, k, p)
 		}
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			a.masthead(c, k, p)
-			a.body(c, k, p)
+			if docPage {
+				a.viewer(c, k, p)
+			} else {
+				a.body(c, k, p)
+			}
 		})
 	})
+	if docPage != a.docPageOpen() && a.viewerOpen() {
+		a.viewerFocus = true
+	}
 	if a.narrow && a.sheetOpen {
 		a.sheet(c, k, p)
 	}
-	if a.viewerOpen() {
+	if a.viewerOpen() && !docPage {
 		a.viewer(c, k, p)
 	}
 	a.toasts(c, k, p)
