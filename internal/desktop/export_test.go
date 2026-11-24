@@ -115,4 +115,8 @@ func SetRouterClock(r *Router, now func() time.Time) { r.now = now }
 
 func RemoteLinkPending(a *App) bool { return a.rf.pending != nil }
 
+func PhoneHeld(a *App) bool {
+	return a.ph.data.Code != nil || a.ph.data.App != nil || a.ph.qr.link != "" || a.ph.appQR.link != ""
+}
+
 func QRImage(link string) (*image.Gray, bool) { return qrImage(link) }

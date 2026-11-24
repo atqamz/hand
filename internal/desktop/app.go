@@ -650,6 +650,9 @@ func (a *App) install(f found, keep bool) {
 const viewerStackMax = 20
 
 func (a *App) Show(s Screen) {
+	if a.Screen == PhoneScreen && s != PhoneScreen {
+		a.resetPhone()
+	}
 	a.nfOpen = false
 	a.Screen, a.Ref, a.back = s, "", nil
 	a.resetDoc()

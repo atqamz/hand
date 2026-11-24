@@ -173,11 +173,11 @@ func (a *App) setPhone(d Phone) {
 	}
 	a.expirePhone()
 	var code, app Secret
-	if d.Code != nil {
-		code = d.Code.Link
+	if a.ph.data.Code != nil {
+		code = a.ph.data.Code.Link
 	}
-	if d.App != nil {
-		app = d.App.Link
+	if a.ph.data.App != nil {
+		app = a.ph.data.App.Link
 	}
 	a.ph.qr = phoneQRFor(a.ph.qr, code)
 	a.ph.appQR = phoneQRFor(a.ph.appQR, app)
@@ -239,11 +239,11 @@ func (a *App) loadPhone() {
 func (a *App) phoneFailed(err error) {
 	if a.ph.loaded {
 		a.ph.stale = skillsFriendly(err)
-		a.ph.fails++
-		a.ph.skip = a.pollSkips(a.ph.fails)
-		return
+	} else {
+		a.ph.err = skillsFriendly(err)
 	}
-	a.ph.err = skillsFriendly(err)
+	a.ph.fails++
+	a.ph.skip = a.pollSkips(a.ph.fails)
 }
 
 func (a *App) RetryPhone() {
@@ -268,7 +268,7 @@ func (a *App) pollPhone() {
 	}
 	a.ph.tick++
 	switch {
-	case a.ph.stale != "":
+	case a.ph.stale != "" || a.ph.err != "":
 		if a.ph.skip > 0 {
 			a.ph.skip--
 			return
@@ -442,6 +442,9 @@ func (a *App) phoneBody(c *ui.Context, k kit.Colors, p palette) {
 		ui.Row(c).MinHeight(24).AlignItems(ui.Center).Children(func() {
 			ui.Spacer(c)
 			ui.Text(c, "Stale · retrying").FontSize(kit.Meta.Size).TextColor(p.wait).Tooltip(a.ph.stale)
+			if kit.Button(c, k, "phone:retry", "Retry", 80, false) {
+				a.RetryPhone()
+			}
 		})
 	}
 	a.phoneNetwork(c, k, p, d)
@@ -552,13 +555,17 @@ func (a *App) phoneActState(c *ui.Context, p palette, kind, busy string) {
 	}
 }
 
-func (a *App) phoneCopy(c *ui.Context, k kit.Colors, key, text string) {
+func (a *App) phoneCopy(c *ui.Context, k kit.Colors, key string, link Secret, expires string) {
 	label := "Copy link"
 	if a.copiedKey == key && !a.copiedAt.IsZero() && c.Now().Sub(a.copiedAt) < copyReceipt {
 		label = "Copied"
 	}
 	if kit.Button(c, k, key, label, 0, false) {
-		c.WriteClipboard(text)
+		if !a.phoneLive(expires) {
+			a.expirePhone()
+			return
+		}
+		c.WriteClipboard(link.Reveal())
 		a.copiedKey, a.copiedAt = key, c.Now()
 		c.After(copyReceipt)
 	}
@@ -602,7 +609,7 @@ func (a *App) phoneCodeBlock(c *ui.Context, k kit.Colors, p palette, code *Phone
 			}
 			ui.Text(c, lead).FontSize(kit.Body.Size)
 			ui.Text(c, code.Link.Reveal()).Font("monospace").FontSize(kit.Meta.Size).Selectable()
-			a.phoneCopy(c, k, "phone:copy", code.Link.Reveal())
+			a.phoneCopy(c, k, "phone:copy", code.Link, code.ExpiresAt)
 			ui.Text(c, "Or open "+code.URL+" and type the code:").FontSize(kit.Body.Size)
 			ui.Text(c, code.Code.Reveal()).Font("monospace").FontSize(kit.Display.Size).Bold().Selectable()
 			if len(code.Fleets) > 1 {
@@ -648,7 +655,7 @@ func (a *App) phoneAppPair(c *ui.Context, k kit.Colors, p palette, d Phone) {
 			ui.Column(c).Gap(kit.Space8).Grow(1).MinWidth(0).Children(func() {
 				ui.Text(c, "Scan the code with the Hand app, or open this link on the Companion:").FontSize(kit.Body.Size)
 				ui.Text(c, app.Link.Reveal()).Font("monospace").FontSize(kit.Meta.Size).Selectable()
-				a.phoneCopy(c, k, "phone:app:copy", app.Link.Reveal())
+				a.phoneCopy(c, k, "phone:app:copy", app.Link, app.ExpiresAt)
 				a.phoneUntil(c, p, app.ExpiresAt, "It pairs one Companion with this fleet, once,")
 				ui.Text(c, "A QR code that may have leaked is worth revoking after the Companion pairs.").
 					FontSize(kit.Meta.Size).TextColor(p.neutral)
@@ -669,7 +676,11 @@ func (a *App) phoneDevices(c *ui.Context, k kit.Colors, p palette, d Phone) {
 				FontSize(kit.Meta.Size).TextColor(p.wait)
 		}
 		if len(d.Devices) == 0 {
-			ui.Text(c, "No Companion is paired.").FontSize(kit.Body.Size).TextColor(p.neutral)
+			none := "No Companion is paired."
+			if len(d.Unreachable) > 0 {
+				none = "No Companion was found in the fleets that could be read."
+			}
+			ui.Text(c, none).FontSize(kit.Body.Size).TextColor(p.neutral)
 		} else {
 			ui.Column(c).Gap(0).BorderWidth(1, 0, 0, 0).BorderColor(p.line).Label("paired Companions").Children(func() {
 				for _, dev := range d.Devices {

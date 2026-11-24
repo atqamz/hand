@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -326,7 +327,9 @@ func TestTheQRFollowsTheLinkWhenANewCodeReplacesTheOld(t *testing.T) {
 func TestThePairingLinkIsNeverLoggedPrintedOrKeptAfterTheCodeIsGone(t *testing.T) {
 	var buf bytes.Buffer
 	old := slog.Default()
+	var jbuf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	jlog := slog.New(slog.NewJSONHandler(&jbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	t.Cleanup(func() { slog.SetDefault(old) })
 	m := phoneFixture(t)
 	app, tt := phoneTester(t, m, false)
@@ -337,7 +340,14 @@ func TestThePairingLinkIsNeverLoggedPrintedOrKeptAfterTheCodeIsGone(t *testing.T
 		t.Fatal(err)
 	}
 	slog.Info("phone", "data", d, "code", d.Code.Code, "link", d.Code.Link)
+	jlog.Info("phone", "data", d, "code", d.Code.Code, "link", d.Code.Link)
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, s := range []string{
+		string(raw),
+		jbuf.String(),
 		fmt.Sprintf("%v %+v %#v %s", d, d, d, d.Code.Link),
 		fmt.Sprintf("%v %+v %#v", *d.Code, *d.Code, *d.Code),
 		buf.String(),
@@ -819,4 +829,110 @@ func TestScenesTheCompanionPage(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestLeavingThePageDropsTheCodeAndTheQR(t *testing.T) {
+	m := phoneFixture(t)
+	app, tt := phoneTester(t, m, false)
+	mint(t, tt)
+	if !desktop.PhoneHeld(app) {
+		t.Fatal("no code held after minting")
+	}
+	app.Show(desktop.BoardScreen)
+	if desktop.PhoneHeld(app) {
+		t.Fatal("the code or its QR is still held after the page was left")
+	}
+}
+
+func TestAnExpiredCodeInAReplyLeavesNoQRBehind(t *testing.T) {
+	m := phoneFixture(t)
+	m.data.Code = &desktop.PhoneCode{Code: phoneCode, Link: phoneLink, URL: phoneBase + "/pair", Address: phoneBase,
+		Fleets: []desktop.PhoneFleetRef{{ID: fleetID, Name: "golden"}}, ExpiresAt: m.clock.Add(-time.Second).Format(time.RFC3339)}
+	m.data.App = &desktop.PhoneApp{Link: appLink, ExpiresAt: m.clock.Add(-time.Second).Format(time.RFC3339)}
+	app, _ := phoneTester(t, m, false)
+	if desktop.PhoneHeld(app) {
+		t.Fatal("an expired reply left a code, link or QR in memory")
+	}
+}
+
+func TestCopyLinkAfterTheCodeExpiredWritesNothing(t *testing.T) {
+	m := phoneFixture(t)
+	_, tt := phoneTester(t, m, false)
+	mint(t, tt)
+	*m.clock = m.clock.Add(10 * time.Minute)
+	click(t, tt, "Copy link")
+	if tt.Clipboard() != "" {
+		t.Fatalf("clipboard = %q after the code expired", tt.Clipboard())
+	}
+}
+
+func TestAStalePageOffersRetryThatReadsAtOnce(t *testing.T) {
+	m := phoneFixture(t)
+	app, tt := phoneTester(t, m, false)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	m.mu.Lock()
+	m.readErr = errors.New("connection refused")
+	m.mu.Unlock()
+	for range 15 {
+		clock.Advance(desktop.FocusedRefresh)
+		tt.Frame()
+	}
+	mustText(t, tt, "Stale · retrying", "Retry", "Pixel 8")
+	m.mu.Lock()
+	m.readErr = nil
+	m.mu.Unlock()
+	click(t, tt, "Retry")
+	tt.Frame()
+	mustNotText(t, tt, "Stale · retrying")
+	mustText(t, tt, "Pixel 8")
+}
+
+func TestAFailedFirstReadBacksOffBeforeReadingAgain(t *testing.T) {
+	m := phoneFixture(t)
+	m.readErr = errors.New("the board did not answer in time")
+	app, tt := phoneTester(t, m, false)
+	clock := newFakeClock()
+	app.Clock = clock
+	app.StartRefresh()
+	m.mu.Lock()
+	before := m.reads
+	m.mu.Unlock()
+	for range 200 {
+		clock.Advance(desktop.FocusedRefresh)
+		tt.Frame()
+	}
+	m.mu.Lock()
+	n := m.reads - before
+	m.mu.Unlock()
+	if n > 12 {
+		t.Fatalf("%d reads while the board did not answer; the page does not back off", n)
+	}
+	mustText(t, tt, "The board could not be read", "Retry")
+}
+
+func TestARevokeInOneFleetKeepsTheCompanionInTheOthers(t *testing.T) {
+	m := phoneFixture(t)
+	_, tt := phoneTester(t, m, false)
+	pressBottom(t, tt, "Revoke Pixel 8 in kiln")
+	click(t, tt, "Revoke now")
+	tt.Frame()
+	scrollToBottom(tt)
+	mustText(t, tt, "Pixel 8")
+	if _, ok := tt.Find("Revoke Pixel 8 in golden"); !ok {
+		t.Fatal("Pixel 8 lost its access to golden")
+	}
+	if _, ok := tt.Find("Revoke Pixel 8 in kiln"); ok {
+		t.Fatal("Pixel 8 still has access to kiln")
+	}
+}
+
+func TestAnEmptyListWithAnUnreachableFleetDoesNotClaimNoneArePaired(t *testing.T) {
+	m := phoneFixture(t)
+	m.data.Devices = nil
+	m.data.Unreachable = []string{"kiln"}
+	_, tt := phoneTester(t, m, false)
+	mustText(t, tt, "No Companion was found in the fleets that could be read.")
+	mustNotText(t, tt, "No Companion is paired.")
 }

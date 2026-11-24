@@ -14,6 +14,8 @@ func (Secret) GoString() string     { return `"[hidden]"` }
 func (Secret) LogValue() slog.Value { return slog.StringValue("[hidden]") }
 func (s Secret) Reveal() string     { return string(s) }
 
+func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"[hidden]"`), nil }
+
 type PhoneIroh struct {
 	State string `json:"state"`
 	Tone  string `json:"tone"`

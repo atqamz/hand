@@ -130,9 +130,22 @@ func (m *phoneModel) PhoneRevoke(ctx context.Context, id string, req desktop.Pho
 		return m.data, nil
 	}
 	d := m.data
-	d.Devices = slices.DeleteFunc(slices.Clone(d.Devices), func(x desktop.PhoneDevice) bool {
-		return req.ID != 0 && x.ID == req.ID || req.Phone != "" && x.Phone == req.Phone
-	})
+	var kept []desktop.PhoneDevice
+	for _, x := range d.Devices {
+		switch {
+		case req.ID != 0 && x.ID == req.ID:
+			continue
+		case req.Phone != "" && x.Phone == req.Phone && req.Fleet == "":
+			continue
+		case req.Phone != "" && x.Phone == req.Phone:
+			x.Fleets = slices.DeleteFunc(slices.Clone(x.Fleets), func(f desktop.PhoneAt) bool { return f.ID == req.Fleet })
+			if len(x.Fleets) == 0 {
+				continue
+			}
+		}
+		kept = append(kept, x)
+	}
+	d.Devices = kept
 	m.data = d
 	return d, nil
 }
