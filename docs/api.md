@@ -61,11 +61,11 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 |---|---|---|
 | `GET /api/v1/status` | `Status`: supervisor, agent state, pill, gauge, compactions, Needs summary and items, task counts, project count | the fleet page's status line and Needs |
 | `GET /api/v1/models` | `Models`: each harness the menus offer, its model groups and efforts, its stale and missing notes, and the running supervisor's choice; see [Models](#modelsdata) | the model menu and the Start strip |
-| `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat; `before` pages like "Older messages" |
+| `GET /api/v1/timeline[?before=N]` | `Timeline`: `live`, `working`, `entries`, `older`, `note` | the fleet page's Chat and the Android Companion's Chat; `before` pages like "Older messages" |
 | `GET /api/v1/tasks[?all=1]` | `Tasks`: `all`, `groups`, `hidden`, `finished_count` | the fleet page's Tasks |
 | `GET /api/v1/tasks/search[?q&status&project&since&until&page]` | `TaskSearch`: the search's echo, `page`, `page_size`, `total`, `pages` and day `groups` of task rows | `/tasks`, the searchable Tasks page |
-| `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | none yet; `hand history search` |
-| `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | none yet; `hand history search --full REF` |
+| `GET /api/v1/history/search?q=WORDS[&who&since&task&limit&context]` | `HistorySearch`: the search's echo, `total`, `more` and the `hits`; see [`HistorySearch.data`](#historysearchdata) | the Android Companion's search; `hand history search` |
+| `GET /api/v1/history/{ref}` | `HistoryEntry`: one operator message, supervisor reply, report, decision or task title whole | the Android Companion's entry view; `hand history search --full REF` |
 | `GET /api/v1/phone` | `Phone`: the paired Companions, the iroh state, the fleets a code may cover, and the code and app link while one shows; see [The Companion page](#the-companion-page) | `/connect`, the Companion page |
 | `GET /api/v1/projects` | `Projects`: the project names in the Tasks filter's order | the Tasks filter's Project list |
 | `GET /api/v1/alerts` | `Alerts`: the last 7 days of alert receipts, newest first, and the delay stats; see [`Alerts.data`](#alertsdata) | `/alerts`, the alerts page; `/alerts/feed` is not this route |

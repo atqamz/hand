@@ -244,6 +244,14 @@ class HandActivity : ComponentActivity() {
       }
     )["$fleet/chat", ChatModel::class.java]
 
+  private fun historyModel(fleet: String): HistoryModel =
+    ViewModelProvider(
+      this,
+      viewModelFactory {
+        initializer { HistoryModel(fleet, CoreTransport) }
+      }
+    )["history:$fleet", HistoryModel::class.java]
+
   @Composable
   private fun Chat(
     fleet: String,
@@ -252,6 +260,7 @@ class HandActivity : ComponentActivity() {
     head: ChatHead,
     onTarget: (ThreadTarget) -> Unit,
     onHint: () -> Unit,
+    onSearch: () -> Unit,
     onControl: (HeadControl) -> Unit
   ) {
     val model = remember(fleet) { chatModel(fleet) }
@@ -280,7 +289,38 @@ class HandActivity : ComponentActivity() {
       onAttach = { picker.launch(arrayOf("*/*")) },
       onDetach = model::detach,
       head = head,
-      onControl = onControl
+      onControl = onControl,
+      onSearch = onSearch,
+      onRetryReveal = model::retryReveal
+    )
+  }
+
+  @Composable
+  private fun History(
+    fleet: String,
+    onBack: () -> Unit,
+    onTarget: (ThreadTarget) -> Unit,
+    onShow: () -> Unit
+  ) {
+    val model = remember(fleet) { historyModel(fleet) }
+    val chat = remember(fleet) { chatModel(fleet) }
+    val state by model.state.collectAsStateWithLifecycle()
+    BackHandler { if (state.open != null) model.close() else onBack() }
+    HistoryScreen(
+      state,
+      onBack,
+      model::edit,
+      model::search,
+      model::retry,
+      model::more,
+      model::open,
+      model::close,
+      model::retryOpen,
+      { hit ->
+        chat.reveal(hit.ref, hit.at, state.open?.entry?.text ?: hit.text)
+        onShow()
+      },
+      onTarget
     )
   }
 
@@ -371,6 +411,7 @@ class HandActivity : ComponentActivity() {
         var signing by rememberSaveable { mutableStateOf<String?>(null) }
         var threads by rememberSaveable { mutableStateOf("") }
         var skills by rememberSaveable { mutableStateOf<String?>(null) }
+        var history by rememberSaveable { mutableStateOf<String?>(null) }
         val holder = rememberSaveableStateHolder()
         var adding by rememberSaveable { mutableStateOf(false) }
         var scanning by remember { mutableStateOf(false) }
@@ -408,6 +449,7 @@ class HandActivity : ComponentActivity() {
             web = null
             threads = ""
             skills = null
+            history = null
             phone = false
             signing = null
             open = id
@@ -521,6 +563,7 @@ class HandActivity : ComponentActivity() {
                 fleetModel(it).enter()
                 threads = ""
                 skills = null
+                history = null
                 open = it
               },
               model::ask,
@@ -587,6 +630,10 @@ class HandActivity : ComponentActivity() {
               holder.SaveableStateProvider("task:$open:$thread") {
                 Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
               }
+            } else if (history == open) {
+              holder.SaveableStateProvider("history:$open") {
+                History(open.orEmpty(), { history = null }, target) { history = null }
+              }
             } else if (skills == open) {
               BackHandler { skills = null }
               holder.SaveableStateProvider("skills:$open") {
@@ -640,7 +687,8 @@ class HandActivity : ComponentActivity() {
                       state.hintBlocked,
                       state.head(),
                       target,
-                      { fleet.select(Tab.Needs) }
+                      { fleet.select(Tab.Needs) },
+                      { history = open }
                     ) { control ->
                       when (control) {
                         HeadControl.Interrupt -> fleet.interrupt()
@@ -658,7 +706,7 @@ class HandActivity : ComponentActivity() {
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && currentTask(threads) == null && skills != open
+            fleet != null && web == null && decision == null && currentTask(threads) == null && skills != open && history != open
           refused?.let {
             Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
           }

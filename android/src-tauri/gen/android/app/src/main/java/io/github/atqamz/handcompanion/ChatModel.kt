@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -82,6 +83,27 @@ data class TimelineEvent(
   val drop: List<String> = emptyList()
 )
 
+const val REVEAL_MISSING = "That entry is no longer in the conversation view."
+const val REVEAL_FAILED = "Older messages could not be read."
+const val REVEAL_PAGES = 20
+private const val REVEAL_PREFIX = 64
+
+fun entryMatches(entry: TimelineEntry, ref: String, at: String) =
+  when (ref.firstOrNull()) {
+    'i' -> entry.input != 0L && "i${entry.input}" == ref
+    'y' -> entry.role == "supervisor" && entry.at == at
+    else -> false
+  }
+
+fun entryPick(candidates: List<ChatEntry>, text: String): ChatEntry? {
+  if (candidates.size <= 1) return candidates.firstOrNull()
+  val wanted = text.trim()
+  if (wanted.isEmpty()) return null
+  val held = candidates.filter { it.entry.text.trim().isNotEmpty() }
+  return held.firstOrNull { it.entry.text.trim().take(REVEAL_PREFIX) == wanted.take(REVEAL_PREFIX) }
+    ?: held.filter { wanted.startsWith(it.entry.text.trim()) }.maxByOrNull { it.entry.text.trim().length }
+}
+
 fun entryIdentity(entry: TimelineEntry): String =
   when {
     entry.input != 0L -> "i${entry.input}"
@@ -118,7 +140,11 @@ data class ChatState(
   val sending: Boolean = false,
   val sendError: String = "",
   val sendNote: String = "",
-  val now: Long = 0
+  val now: Long = 0,
+  val history: Boolean = false,
+  val focus: String? = null,
+  val revealMissing: Boolean = false,
+  val revealFailed: Boolean = false
 )
 
 enum class ChatBody {
@@ -744,15 +770,17 @@ class ChatModel(
 
   private suspend fun eventsSupported(): Boolean {
     if (supported == true) return true
-    val events =
+    val features =
       try {
-        "events" in client.features()
+        client.features()
       } catch (error: BoardError) {
         if (error == BoardError.Unpaired) {
           mutableState.update { it.copy(unpaired = true, loading = false) }
         }
-        false
+        emptySet()
       }
+    if ("history" in features) mutableState.update { it.copy(history = true) }
+    val events = "events" in features
     if (events) supported = true
     return events
   }
@@ -957,8 +985,8 @@ class ChatModel(
       if (above) {
         if (it.aboveBottom) it else it.copy(aboveBottom = true)
       } else {
-        if (!it.aboveBottom && it.newReplies == 0) it
-        else it.copy(aboveBottom = false, newReplies = 0)
+        if (!it.aboveBottom && it.newReplies == 0 && it.focus == null) it
+        else it.copy(aboveBottom = false, newReplies = 0, focus = null)
       }
     }
   }
@@ -1001,6 +1029,42 @@ class ChatModel(
         }
       }
     }
+
+  private var revealTarget: Triple<String, String, String>? = null
+
+  fun reveal(ref: String, at: String, text: String = "") {
+    revealTarget = Triple(ref, at, text)
+    viewModelScope.launch { revealNow(ref, at, text) }
+  }
+
+  fun retryReveal() {
+    val target = revealTarget ?: return
+    viewModelScope.launch { revealNow(target.first, target.second, target.third) }
+  }
+
+  suspend fun revealNow(ref: String, at: String, text: String = "") {
+    mutableState.update { it.copy(focus = null, revealMissing = false, revealFailed = false) }
+    mutableState.first { !it.loading }
+    var pages = 0
+    while (true) {
+      val held = mutableState.value
+      val found =
+        entryPick(displayEntries(held.page, held.older).filter { entryMatches(it.entry, ref, at) }, text)
+      if (found != null) {
+        mutableState.update { it.copy(focus = found.key) }
+        return
+      }
+      val before = held.before
+      if (before <= 0 || pages >= REVEAL_PAGES) break
+      older()
+      pages++
+      if (mutableState.value.before == before) {
+        mutableState.update { it.copy(revealFailed = true) }
+        return
+      }
+    }
+    mutableState.update { it.copy(revealMissing = true) }
+  }
 
   fun retryOlder() {
     if (!olderLock.isLocked) loadOlder()
