@@ -369,3 +369,61 @@ func TestNewerComparesNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchRefusesAPlainHTTPBaseOffThisMachine(t *testing.T) {
+	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1/x"} {
+		dir := t.TempDir()
+		_, err := FetchHand(context.Background(), base, "edge", "linux", "amd64", dir, os.Environ())
+		if err == nil || !strings.Contains(err.Error(), "must use https") {
+			t.Fatalf("%s: err = %v", base, err)
+		}
+		if _, err := probeIroh(context.Background(), base, "edge", "linux", "amd64"); err == nil || !strings.Contains(err.Error(), "must use https") {
+			t.Fatalf("%s: probe err = %v", base, err)
+		}
+		absent(t, filepath.Join(dir, "hand-linux-amd64.tar.gz"))
+	}
+}
+
+func TestFetchRefusesARedirectOffThisMachineToPlainHTTP(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		hits++
+		http.Redirect(w, req, "http://example.com/hand-linux-amd64.tar.gz", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	_, err := FetchHand(context.Background(), srv.URL, "edge", "linux", "amd64", dir, os.Environ())
+	if err == nil || !strings.Contains(err.Error(), "must use https") || hits != 1 {
+		t.Fatalf("hits %d, err = %v", hits, err)
+	}
+	absent(t, filepath.Join(dir, "hand-linux-amd64.tar.gz"))
+}
+
+func TestCheckRedirectKeepsHTTPSOnHTTPS(t *testing.T) {
+	get := func(raw string) *http.Request {
+		r, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	for _, c := range []struct {
+		name, from, to string
+		ok             bool
+	}{
+		{"https to https", "https://github.com/a", "https://objects.githubusercontent.com/b", true},
+		{"https to http", "https://github.com/a", "http://objects.example.com/b", false},
+		{"https to loopback http", "https://github.com/a", "http://127.0.0.1:8080/b", false},
+		{"loopback http to loopback http", "http://127.0.0.1:8080/a", "http://localhost:9090/b", true},
+		{"loopback http to https", "http://127.0.0.1:8080/a", "https://example.com/b", true},
+		{"loopback http to other http", "http://127.0.0.1:8080/a", "http://example.com/b", false},
+	} {
+		err := checkRedirect(get(c.to), []*http.Request{get(c.from)})
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok %v", c.name, err, c.ok)
+		}
+	}
+	if err := checkRedirect(get("https://example.com/"), make([]*http.Request, 10)); err == nil {
+		t.Error("ten redirects were followed")
+	}
+}

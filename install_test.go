@@ -539,3 +539,12 @@ func TestInstallScriptNeedsNoToolBeyondTheOnesItAlreadyNamedForTheSidecar(t *tes
 		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
 	}
 }
+
+func TestInstallScriptRefusesAPlainHTTPBaseOffThisMachine(t *testing.T) {
+	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1", "http://127.0.0.1.example.com"} {
+		dir, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"HAND_INSTALL_BASE": base}, "Linux", "x86_64")
+		if want := "install.sh: the base URL must use https, or http on this machine: " + base + "\n"; code != 1 || errOut != want || len(installed(t, dir)) != 0 {
+			t.Fatalf("%s: code %d %q, installed %q", base, code, errOut, installed(t, dir))
+		}
+	}
+}

@@ -10,6 +10,12 @@ die() {
 	exit 1
 }
 
+case "$base" in
+https://*) ;;
+http://127.0.0.1 | http://127.0.0.1[:/]* | http://localhost | http://localhost[:/]* | "http://[::1]" | "http://[::1]"[:/]*) ;;
+*) die "the base URL must use https, or http on this machine: $base" ;;
+esac
+
 case "$(uname -s)" in
 Linux) os=linux ;;
 Darwin) os=darwin ;;
@@ -46,8 +52,8 @@ ipart=""
 trap 'rm -rf "$tmp"; if [ -n "$part" ]; then rm -f "$part"; fi; if [ -n "$ipart" ]; then rm -f "$ipart"; fi' EXIT
 trap 'exit 1' HUP INT TERM
 
-curl -fsL -o "$tmp/$asset" "$url/$asset" || die "download failed: $url/$asset"
-curl -fsL -o "$tmp/checksums.txt" "$url/checksums.txt" || die "download failed: $url/checksums.txt"
+curl -fsL --proto-redir =https -o "$tmp/$asset" "$url/$asset" || die "download failed: $url/$asset"
+curl -fsL --proto-redir =https -o "$tmp/checksums.txt" "$url/checksums.txt" || die "download failed: $url/checksums.txt"
 grep " $asset\$" "$tmp/checksums.txt" >"$tmp/want" || die "checksum mismatch for $asset"
 (cd "$tmp" && $check >/dev/null 2>&1) || die "checksum mismatch for $asset"
 tar -xzf "$tmp/$asset" -C "$tmp" hand >/dev/null 2>&1 || die "cannot unpack $asset"
@@ -55,10 +61,10 @@ tar -xzf "$tmp/$asset" -C "$tmp" hand >/dev/null 2>&1 || die "cannot unpack $ass
 want=$("$tmp/hand" version 2>/dev/null | while read -r key value; do if [ "$key" = "iroh:" ]; then printf '%s' "$value"; fi; done)
 got=""
 if [ -n "$want" ]; then
-	status=$(curl -sL -o "$tmp/$iroh.tar.gz" -w '%{http_code}' "$url/$iroh.tar.gz") || die "download failed: $url/$iroh.tar.gz"
+	status=$(curl -sL --proto-redir =https -o "$tmp/$iroh.tar.gz" -w '%{http_code}' "$url/$iroh.tar.gz") || die "download failed: $url/$iroh.tar.gz"
 	case "$status" in
 	200)
-		curl -fsL -o "$tmp/$iroh.sha256" "$url/$iroh.sha256" || die "download failed: $url/$iroh.sha256"
+		curl -fsL --proto-redir =https -o "$tmp/$iroh.sha256" "$url/$iroh.sha256" || die "download failed: $url/$iroh.sha256"
 		grep " $iroh.tar.gz\$" "$tmp/$iroh.sha256" >"$tmp/want" || die "checksum mismatch for $iroh.tar.gz"
 		(cd "$tmp" && $check >/dev/null 2>&1) || die "checksum mismatch for $iroh.tar.gz"
 		tar -xzf "$tmp/$iroh.tar.gz" -C "$tmp" hand-iroh >/dev/null 2>&1 || die "cannot unpack $iroh.tar.gz"
