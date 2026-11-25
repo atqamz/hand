@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -eu
-git() { command git -c core.quotePath=false "$@"; }
 go=false android=false workflows=false desktop=false render=false iroh=false setup=false e2e_install=false e2e_harness=false docs=false
 emit() {
   for line in "go=$go" "android=$android" "workflows=$workflows" "desktop=$desktop" "render=$render" "iroh=$iroh" "setup=$setup" "e2e_install=$e2e_install" "e2e_harness=$e2e_harness" "docs=$docs"; do
@@ -24,21 +23,22 @@ if [ "${EVENT:-}" = "workflow_dispatch" ]; then
   emit
   exit 0
 fi
+list=$(mktemp)
+trap 'rm -f "$list"' EXIT
 computed=0
-changed=""
 if [ -n "${BASE_REF:-}" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
-  changed=$(git diff --no-renames --name-only "origin/$BASE_REF...HEAD") && computed=1
+  git diff -z --no-renames --name-only "origin/$BASE_REF...HEAD" >"$list" && computed=1
 elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-  changed=$(git diff --no-renames --name-only "$BEFORE" HEAD) && computed=1
+  git diff -z --no-renames --name-only "$BEFORE" HEAD >"$list" && computed=1
 fi
 if [ "$computed" -eq 0 ] && git rev-parse --verify --quiet "origin/main" >/dev/null; then
-  changed=$(git diff --no-renames --name-only "origin/main...HEAD") && computed=1
-  [ -n "$changed" ] || computed=0
+  git diff -z --no-renames --name-only "origin/main...HEAD" >"$list" && computed=1
+  [ -s "$list" ] || computed=0
 fi
 if [ "$computed" -eq 0 ]; then
-  changed=$(git ls-files)
+  git ls-files -z >"$list"
 fi
-while IFS= read -r file; do
+while IFS= read -r -d '' file; do
   case "$file" in
     android/*) ;;
     *) go=true ;;
@@ -70,7 +70,7 @@ while IFS= read -r file; do
   case "$file" in
     docs/* | README.md | www/* | .github/workflows/publish.yaml) docs=true ;;
   esac
-done <<<"$changed"
+done <"$list"
 if [ "${EVENT:-}" = "push" ]; then
   desktop=true render=false setup=false e2e_install=false e2e_harness=false
 fi
