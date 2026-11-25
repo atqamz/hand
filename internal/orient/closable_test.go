@@ -137,6 +137,16 @@ func TestClosableBlockKeepsTheByteBudgetsAndDropsAfterTheRowsBelowIt(t *testing.
 			_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 		}
 	}
+	asked, _ := st.AddTask(ctx, "hand", "Asks something", "")
+	_, _ = st.Transition(ctx, asked.ID, state.StatusActive)
+	if _, err := st.Ask(ctx, asked.ID, "Question?"); err != nil {
+		t.Fatal(err)
+	}
+	reporting, _ := st.AddTask(ctx, "hand", "Reports something", "")
+	_, _ = st.Transition(ctx, reporting.ID, state.StatusActive)
+	if _, err := st.AddReport(ctx, runningAttempt(t, st, reporting.ID).ID, state.ReportProgress, "Halfway"); err != nil {
+		t.Fatal(err)
+	}
 	long, short := bothOutputs(t, st, home, 0, DefaultBudget)
 	if len(long) >= DefaultBudget.Bytes || len(short) >= DefaultBudget.ShortBytes {
 		t.Fatalf("orient %d bytes, short %d bytes", len(long), len(short))
@@ -175,12 +185,18 @@ func TestClosableBlockKeepsTheByteBudgetsAndDropsAfterTheRowsBelowIt(t *testing.
 		if rows(s, "closable") < 5 && rows(s, "changed") > 0 {
 			t.Fatalf("short at %d bytes cut closable before changed:\n%s", limit, s)
 		}
+		if rows(s, "closable") > 0 && (rows(s, "open_decisions") == 0 || rows(s, "unacked_reports") == 0) {
+			t.Fatalf("short at %d bytes cut decisions or reports before closable:\n%s", limit, s)
+		}
 	}
 	for limit := len(long); limit > 1; limit -= 13 {
 		b.Bytes = limit
 		l, _ := bothOutputs(t, st, home, 0, b)
 		if rows(l, "closable") < 5 && (rows(l, "inbox") > 0 || rows(l, "recent") > 0) {
 			t.Fatalf("orient at %d bytes cut closable before inbox and recent:\n%s", limit, l)
+		}
+		if rows(l, "closable") > 0 && (rows(l, "open_decisions") == 0 || rows(l, "unacked_reports") == 0) {
+			t.Fatalf("orient at %d bytes cut decisions or reports before closable:\n%s", limit, l)
 		}
 	}
 	b.Bytes, b.ShortBytes = 1, 1

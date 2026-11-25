@@ -132,6 +132,16 @@ func TestClosableTasksFollowTheRule(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, false},
+		{"active sub-task", func(t *testing.T, s *Store, task Task) {
+			finished(t, s, task)
+			c, err := s.AddTaskUnder(ctx, task.ID, "hand", "child", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Transition(ctx, c.ID, StatusActive); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
 		{"done sub-task", func(t *testing.T, s *Store, task Task) {
 			finished(t, s, task)
 			c, err := s.AddTaskUnder(ctx, task.ID, "hand", "child", "")
