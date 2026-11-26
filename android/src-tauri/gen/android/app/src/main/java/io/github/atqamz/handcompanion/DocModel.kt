@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -308,7 +307,7 @@ class DocModel(
   private suspend fun <T> opening(release: (T) -> Unit, open: () -> T): T {
     var made: T? = null
     try {
-      return withContext(fetch + NonCancellable) { open().also { made = it } }
+      return withContext(fetch) { open().also { made = it } }
     } catch (error: CancellationException) {
       made?.let(release)
       throw error

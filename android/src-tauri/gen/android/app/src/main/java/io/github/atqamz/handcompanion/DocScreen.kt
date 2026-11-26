@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -307,8 +308,8 @@ private fun DocPdf(state: DocState, tools: DocTools) {
             Image(
               shown.asImageBitmap(),
               "Page ${index + 1} of ${state.pdfPages}",
-              Modifier.fillMaxWidth(),
-              contentScale = ContentScale.FillWidth
+              Modifier.widthIn(max = with(density) { shown.width.toDp() }).fillMaxWidth(),
+              contentScale = ContentScale.Fit
             )
           }
           Meta("Page ${index + 1} of ${state.pdfPages}")

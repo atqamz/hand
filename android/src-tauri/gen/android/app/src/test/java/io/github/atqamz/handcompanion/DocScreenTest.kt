@@ -120,6 +120,22 @@ private fun sheet(width: Int, index: Int): Bitmap {
   return bitmap
 }
 
+private fun tall(width: Int, index: Int): Bitmap {
+  val bitmap = Bitmap.createBitmap(8, 8192, Bitmap.Config.ARGB_8888)
+  val canvas = Canvas(bitmap)
+  canvas.drawColor(Color.WHITE)
+  val paint = Paint()
+  paint.color = Color.rgb(46, 110, 180)
+  canvas.drawRect(0f, 0f, 8f, 600f, paint)
+  return bitmap
+}
+
+private fun wide(width: Int, index: Int): Bitmap {
+  val bitmap = Bitmap.createBitmap(width, 1, Bitmap.Config.ARGB_8888)
+  bitmap.eraseColor(Color.rgb(46, 110, 180))
+  return bitmap
+}
+
 class DocScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2400))
@@ -222,10 +238,10 @@ class DocScreenTest {
   @Test fun copyFailedLight() =
     shot(false, "reports/export.log", textState().copy(copyProblem = "The file is too large to copy here."))
 
-  private fun media(dark: Boolean, path: String, shown: DocState) =
+  private fun media(dark: Boolean, path: String, shown: DocState, draw: (Int, Int) -> Bitmap = ::sheet) =
     paparazzi.snapshot {
       HandTheme(dark) {
-        DocScreen(FLEET, path, shown, {}, {}, {}, {}, {}, DocTools(drawn = { index, width -> sheet(width, index) }))
+        DocScreen(FLEET, path, shown, {}, {}, {}, {}, {}, DocTools(drawn = { index, width -> draw(width, index) }))
       }
     }
 
@@ -248,6 +264,14 @@ class DocScreenTest {
   @Test fun pdfPageLight() = media(false, "reports/paper.pdf", pdfState())
 
   @Test fun pdfPageDark() = media(true, "reports/paper.pdf", pdfState())
+
+  @Test fun pdfTallPageLight() = media(false, "reports/paper.pdf", pdfState(1), ::tall)
+
+  @Test fun pdfTallPageDark() = media(true, "reports/paper.pdf", pdfState(1), ::tall)
+
+  @Test fun pdfWidePageLight() = media(false, "reports/paper.pdf", pdfState(1), ::wide)
+
+  @Test fun pdfWidePageDark() = media(true, "reports/paper.pdf", pdfState(1), ::wide)
 
   @Test
   fun pdfTooLargeLight() =
