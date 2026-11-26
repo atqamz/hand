@@ -427,6 +427,10 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 			a.needBody(c, k, p, need)
 		}
 	})
+	if open && a.needReveal == needKey(need) {
+		a.needReveal = ""
+		card.ScrollIntoView()
+	}
 }
 
 func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, ink ui.Color) {

@@ -118,6 +118,7 @@ type App struct {
 	needChosen    map[string]bool
 	needTop       string
 	needClosedTop string
+	needReveal    string
 	ackDone       map[string]bool
 	ackRef        string
 	sentNeeds     map[string]sentRecord
@@ -553,7 +554,7 @@ func (a *App) SelectFleet(id string) {
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
 	a.modelsGen++
-	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
+	a.needChosen, a.needTop, a.needClosedTop, a.needReveal, a.ackDone, a.sentNeeds = nil, "", "", "", nil, nil
 	a.misreadOpen = nil
 	a.resetDeny()
 	a.focusSend, a.focusNote = false, false

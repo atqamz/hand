@@ -132,6 +132,7 @@ func (a *App) openBlockedNeed() {
 		if n.Kind == "blocked" && a.needOpens(n) {
 			a.needChosen = map[string]bool{needKey(n): true}
 			a.needClosedTop = ""
+			a.needReveal = needKey(n)
 			return
 		}
 	}

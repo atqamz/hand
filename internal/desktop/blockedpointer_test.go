@@ -129,3 +129,27 @@ func TestAnUnreadBlockedStatusLeavesTheComposerHintPlain(t *testing.T) {
 		t.Fatalf("an unread status keeps the hint a link (%d)", n)
 	}
 }
+
+func TestThePointerBringsTheBlockedItemIntoViewOnAWideWindow(t *testing.T) {
+	const ask = "Do you want to proceed?"
+	for _, dark := range []bool{false, true} {
+		t.Run(fmt.Sprint("dark=", dark), func(t *testing.T) {
+			app := newApp(t, blockedWithAnotherOpen(t))
+			tt := sized(t, app, 1100, 560, dark)
+			tt.Scroll(600, 300, 0, 4000)
+			if y, max := desktop.BoardScroll(app); y == 0 || max == 0 {
+				t.Fatalf("the work pane does not scroll: y=%v max=%v", y, max)
+			}
+			click(t, tt, "The question is in Needs")
+			tt.Frame()
+			tt.Frame()
+			r, ok := tt.Find(ask)
+			if !ok || r.H == 0 {
+				t.Fatalf("the ask is not shown after the pointer: %q", brief(tt))
+			}
+			if r.Y < 0 || r.Y+r.H > 560 {
+				t.Errorf("the ask is at y=%v h=%v, outside the 560 px window", r.Y, r.H)
+			}
+		})
+	}
+}
