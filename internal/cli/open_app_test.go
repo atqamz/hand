@@ -41,6 +41,7 @@ func TestOpenPrintPrintsTheViewLink(t *testing.T) {
 }
 
 func TestNothingRunsTailscale(t *testing.T) {
+	needDesktop(t)
 	t.Parallel()
 	fx := newOpenFixture(t)
 	log := filepath.Join(t.TempDir(), "tailscale.log")

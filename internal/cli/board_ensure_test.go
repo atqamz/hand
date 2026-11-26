@@ -89,6 +89,7 @@ func TestOpenStartsNothingWhenABoardRuns(t *testing.T) {
 }
 
 func TestOpenStartsABoardDetached(t *testing.T) {
+	needDesktop(t)
 	fx := openWithoutBoard(t)
 	fx.h.ok("open", "t1")
 	if n := boardSpawns(fx.h); n != 1 {

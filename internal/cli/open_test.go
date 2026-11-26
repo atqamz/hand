@@ -542,6 +542,7 @@ func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
 }
 
 func TestOpenRefusals(t *testing.T) {
+	needDesktop(t)
 	t.Parallel()
 	fx := newOpenFixture(t)
 	for _, c := range []struct {
