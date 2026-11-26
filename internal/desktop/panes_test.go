@@ -339,6 +339,9 @@ func TestScenesBlockedAndResumableHeads(t *testing.T) {
 			chatTab(t, tt, size[0])
 			shotSized(t, tt, fmt.Sprintf("21-blocked-%dx%d-%s", size[0], size[1], theme), size[0], size[1])
 		}
+		other := sized(t, newApp(t, blockedWithAnotherOpen(t)), 1100, 760, dark)
+		click(t, other, "Worker a2 needs a key")
+		shotSized(t, other, "21-blocked-other-open-1100x760-"+theme, 1100, 760)
 		f := resumableFixture(t)
 		tt := sized(t, newApp(t, f), 1100, 760, dark)
 		shotSized(t, tt, "22-resumable-1100x760-"+theme, 1100, 760)

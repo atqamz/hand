@@ -1470,7 +1470,6 @@ func (a *App) Press(label string, keys ...string) {
 		}
 		a.Busy, a.BusyAction = false, ""
 		if isConflict(err) {
-			delete(a.sentNeeds, ref)
 			a.receipt = "the screen moved; nothing was sent"
 			a.receiptKey = "key:" + ref
 			a.reopenNeed(need)

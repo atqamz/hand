@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 type wordCase struct {
@@ -170,6 +173,30 @@ func TestAWorkersLimitKeepsItsOwnWord(t *testing.T) {
 	}
 	if n := countExact(tt, "Working"); n != 1 {
 		t.Errorf("Working is shown %d times, want only the Conversation dot", n)
+	}
+	if n := countExact(tt, "limited"); n != 0 {
+		t.Errorf("the worker's limit puts limited on the supervisor %d times", n)
+	}
+	if n := countExact(tt, "working"); n != 2 {
+		t.Errorf("the supervisor's own word is shown %d times, want the masthead and the head", n)
+	}
+}
+
+func TestTheHeadWordIsDrawnInItsStateColour(t *testing.T) {
+	for _, c := range wordCases() {
+		tone := map[string]string{"blocked": "fail", "limited": "wait", "ready": "pass", "working": "accent"}[c.word]
+		if tone == "" {
+			continue
+		}
+		for _, dark := range []bool{false, true} {
+			k := kit.ColorsFor(dark)
+			want := map[string]ui.Color{"fail": k.Fail, "wait": k.Wait, "pass": k.Pass, "accent": k.Accent}[tone]
+			tt := sized(t, newApp(t, c.fixture(t)), windowWidth, windowHeight, dark)
+			head := bandRect(t, tt, "Supervisor")
+			if n := countNear(tt.Image(), head, want, 12); n < 40 {
+				t.Errorf("%s dark=%v: %d pixels of the %s colour in the pane head, want the word in it", c.name, dark, n, tone)
+			}
+		}
 	}
 }
 

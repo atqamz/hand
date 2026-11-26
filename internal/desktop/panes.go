@@ -228,6 +228,7 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 			})
 			return
 		}
+		a.blockedPointer(c, k)
 		if a.Models.Switching != "" {
 			ui.Row(c).FillWidth().Padding(0, kit.Space16, kit.Space8).Gap(kit.Space8).
 				AlignItems(ui.Center).Children(func() {
@@ -237,6 +238,25 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 					a.cancelSwitch(a.Models.DropRef)
 				}
 			})
+		}
+	})
+}
+
+func (a *App) blockedPointer(c *ui.Context, k kit.Colors) {
+	if !a.blockedHint() {
+		return
+	}
+	text := "The screen is in Needs"
+	if ask := a.Status.Supervisor.Ask; ask != nil && ask.Question != "" {
+		text = "The question is in Needs"
+	}
+	ui.Row(c).FillWidth().Padding(kit.Space8, kit.Space16).Children(func() {
+		link := ui.ButtonBase(c.Key("head:blocked")).Cursor(ui.CursorPointer).Label(text)
+		link.Children(func() {
+			ui.Text(c, text).FontSize(kit.Meta.Size).Bold().TextColor(k.Accent).SingleLine().Ellipsis("…")
+		})
+		if link.Clicked() {
+			a.openBlockedNeed()
 		}
 	})
 }

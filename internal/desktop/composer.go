@@ -121,6 +121,9 @@ func (a *App) openBlockedNeed() {
 	if a.Screen != BoardScreen {
 		a.Show(BoardScreen)
 	}
+	if a.narrow {
+		a.chooseTab(tabNeeds)
+	}
 	items := a.visibleNeeds()
 	if len(items) > 0 {
 		a.needTop = needKey(items[0])
