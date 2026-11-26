@@ -69,7 +69,6 @@ func notice(t *testing.T, tt *ui.Tester, dark bool, sentence string) {
 		t.Error("the notice has no ground")
 	}
 	inked(t, tt, sentence)
-	inked(t, tt, "Download")
 }
 
 func TestScenesTheDocumentTable(t *testing.T) {

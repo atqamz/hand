@@ -104,7 +104,8 @@ func (a *App) View(c *ui.Context) {
 	if docPage {
 		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
 		if a.Screen == DocScreen {
-			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox)
+			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox).
+				OnShortcut(0, ui.KeyBracketLeft, func() { a.stepDoc(false) }).OnShortcut(0, ui.KeyBracketRight, func() { a.stepDoc(true) })
 		}
 	}
 	shell.Children(func() {
