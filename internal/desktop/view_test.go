@@ -1981,3 +1981,29 @@ func TestTheRailBadgeIsTonedByTheWorstNeed(t *testing.T) {
 		}
 	}
 }
+
+func TestTheRailMarksCarryTheFleetsMonogram(t *testing.T) {
+	for _, open := range []bool{false, true} {
+		app := newApp(t, goldenFixture(t))
+		app.RailOpen = open
+		tt := newTester(app)
+		mustText(t, tt, "GO", "SE")
+	}
+}
+
+func TestTheOverflowButtonIsTheGearAndSaysWhatItHolds(t *testing.T) {
+	if desktop.OverflowIcon != "gear" {
+		t.Errorf("overflow icon = %q", desktop.OverflowIcon)
+	}
+	tt := newTester(newApp(t, goldenFixture(t)))
+	more, ok := tt.Find("More")
+	if !ok {
+		t.Fatalf("no More in %q", tt.Texts())
+	}
+	tt.Move(more.X+more.W/2, more.Y+more.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText(desktop.OverflowTip) {
+		t.Errorf("no tooltip on the overflow button in %q", tt.Texts())
+	}
+}

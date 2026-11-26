@@ -19,6 +19,7 @@ const (
 	TabHeight     = 40
 	SheetWidth    = 300
 	railPad       = 7
+	monoTile      = 28
 )
 
 func TintOf(id string) int {
@@ -133,7 +134,7 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 	}
 	el.Children(func() {
 		if n.Fleet != "" {
-			ui.Row(c).Size(24, 24).Radius(RadiusSM).Border(1, k.Tint[TintOf(n.Fleet)]).
+			ui.Row(c).Size(monoTile, 24).Radius(RadiusSM).Border(1, k.Tint[TintOf(n.Fleet)]).
 				Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, n.Mono).FontSize(Meta.Size).Bold().TextColor(fg).SingleLine()
 			})
@@ -194,16 +195,38 @@ func railTip(c *ui.Context, k Colors, el ui.Element, text string) {
 
 type Named struct{ ID, Name string }
 
-// Monograms assigns each fleet two letters, in ID order so a reorder never changes a mark.
+const monoAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
 func Monograms(fleets []Named) map[string]string {
-	order := append([]Named(nil), fleets...)
-	sort.SliceStable(order, func(i, j int) bool { return order[i].ID < order[j].ID })
-	taken := make(map[string]bool, len(order))
-	out := make(map[string]string, len(order))
-	for _, f := range order {
-		for _, m := range monoCandidates(f.Name, f.ID) {
+	bases := make(map[string]string, len(fleets))
+	count := make(map[string]int, len(fleets))
+	for _, f := range fleets {
+		if _, dup := bases[f.ID]; dup {
+			continue
+		}
+		bases[f.ID] = monoBase(f.Name, f.ID)
+		count[bases[f.ID]]++
+	}
+	out := make(map[string]string, len(bases))
+	taken := make(map[string]bool, len(bases))
+	var clash []string
+	for id, base := range bases {
+		if count[base] == 1 {
+			out[id], taken[base] = base, true
+		} else {
+			clash = append(clash, id)
+		}
+	}
+	sort.Strings(clash)
+	for _, id := range clash {
+		head := []rune(bases[id])[:1]
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(id))
+		start := int(h.Sum32() % uint32(len(monoAlphabet)))
+		for i := range monoAlphabet {
+			m := string(head) + string(monoAlphabet[(start+i)%len(monoAlphabet)])
 			if !taken[m] {
-				taken[m], out[f.ID] = true, m
+				out[id], taken[m] = m, true
 				break
 			}
 		}
@@ -211,7 +234,11 @@ func Monograms(fleets []Named) map[string]string {
 	return out
 }
 
-func monoCandidates(name, id string) []string {
+func wideRune(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
+
+func monoBase(name, id string) string {
 	var words, letters []rune
 	for _, w := range strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
 		r := []rune(w)
@@ -220,21 +247,25 @@ func monoCandidates(name, id string) []string {
 			letters = append(letters, unicode.ToUpper(x))
 		}
 	}
-	var out []string
+	pick := letters
 	if len(words) > 1 {
-		out = append(out, string(words[:2]))
+		pick = words
 	}
-	for i := 1; i < len(letters); i++ {
-		out = append(out, string([]rune{letters[0], letters[i]}))
-	}
-	first := "F"
-	if len(letters) > 0 {
-		first = string(letters[0])
+	if len(pick) > 0 && wideRune(pick[0]) {
+		return string(pick[:1])
 	}
 	for _, r := range strings.ToUpper(id) {
-		out = append(out, first+string(r))
+		if len(pick) >= 2 {
+			break
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			pick = append(pick, r)
+		}
 	}
-	return append(out, first+"?")
+	for len(pick) < 2 {
+		pick = append(pick, '?')
+	}
+	return string(pick[:2])
 }
 
 func FleetTip(id string) string { return "Fleet ID " + id }
@@ -322,8 +353,8 @@ func mastheadRow(c *ui.Context, k Colors, id, name string, pad float32, onMenu, 
 		ui.Icon(c, Icon("mark")).Size(22, 22).TextColor(tint)
 		title := ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
 		if id != "" {
+			title.Description(FleetTip(id)).Focusable()
 			ui.TooltipBase(c, title, func(tip ui.Element) {
-				tip.AttachTo(title, ui.AnchorStart, ui.AnchorEnd).Margin(Space6, 0, 0, 0)
 				tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
 				tip.Children(func() { ui.Text(c, FleetTip(id)).Font("monospace").FontSize(Meta.Size) })
 			})
