@@ -62,7 +62,7 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 	if err := requireHTTPS(req.URL); err != nil {
 		return err
 	}
-	if req.URL.Scheme == "http" && via[0].URL.Scheme == "https" {
+	if req.URL.Scheme == "http" && via[len(via)-1].URL.Scheme == "https" {
 		return fmt.Errorf("update: refusing a redirect from https to http: %s", req.URL.Redacted())
 	}
 	return nil

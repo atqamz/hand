@@ -423,6 +423,10 @@ func TestCheckRedirectKeepsHTTPSOnHTTPS(t *testing.T) {
 			t.Errorf("%s: err = %v, want ok %v", c.name, err, c.ok)
 		}
 	}
+	hops := []*http.Request{get("http://127.0.0.1:8080/a"), get("https://example.com/b")}
+	if err := checkRedirect(get("http://127.0.0.1:8080/c"), hops); err == nil {
+		t.Error("a downgrade after an https hop was followed")
+	}
 	if err := checkRedirect(get("https://example.com/"), make([]*http.Request, 10)); err == nil {
 		t.Error("ten redirects were followed")
 	}
