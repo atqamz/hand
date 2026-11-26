@@ -59,6 +59,13 @@ func TestRefused(t *testing.T) {
 		"handboard://view/f0123456789ab/doc//etc/passwd",
 		"handboard://view/f0123456789ab/doc/a%5Cb.md",
 		"handboard://view/f0123456789ab/doc/a%2Fb.md",
+		"handboard://view/f0123456789ab/doc/a%E2%80%AEb.md",
+		"handboard://view/f0123456789ab/doc/a%FFb.md",
+		"handboard://view/f0123456789ab/tasks?q=a%0Ab",
+		"handboard://view/f0123456789ab/tasks?q=a%00b",
+		"handboard://view/f0123456789ab/tasks?q=%ff",
+		"handboard://view/f0123456789ab/tasks?q=a%E2%80%AEb",
+		"handboard://view/f0123456789ab/tasks?q=a%E2%81%A6b",
 		"handboard://view/f0123456789ab/doc/a%00b.md",
 		"handboard://view/f0123456789ab/doc/a.md#L3",
 		"handboard://view/f0123456789ab/doc/a.md?x=1",
@@ -89,6 +96,9 @@ func TestFormatRefused(t *testing.T) {
 		{Fleet: fleet, Page: Item, Ref: "x3"},
 		{Fleet: fleet, Page: Item, Ref: "d3", Report: "r1"},
 		{Fleet: fleet, Page: Tasks, Query: "fix\nlogin"},
+		{Fleet: fleet, Page: Tasks, Query: "a\xffb"},
+		{Fleet: fleet, Page: Tasks, Query: "a\u202eb"},
+		{Fleet: fleet, Page: Doc, Path: "a\u202eb.md"},
 	} {
 		if s, err := Format(l); err == nil {
 			t.Errorf("Format(%+v) = %q, want refusal", l, s)

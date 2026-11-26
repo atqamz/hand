@@ -37,7 +37,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W4b | A codex found only as a `.cmd` shim is refused | Hand refuses a harness found only as a `.cmd` or `.bat` | agent | 0 |
 | W4c | A long, awkward brief reaches codex whole, and a brief over 16 KiB is refused | A prompt reaches the harness byte for byte when it fits both limits, and Hand refuses one that does not | agent | 1 |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
-| W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
+| W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the window | needs human | 0 |
 | W7 | `hand attach supervisor` in Windows Terminal | `hand attach` | needs human | 0 |
 | W8 | Stop and clean a worker that has a child process | Stop a worker | agent | 1 |
 | W9 | A worker commits in a worktree with paths over 260 characters | Paths over 260 characters | agent | 1 |
@@ -224,12 +224,12 @@ Steps:
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
 if (Get-NetTCPConnection -LocalPort 7777 -State Listen -ErrorAction SilentlyContinue) { Start-Process -FilePath (Get-Command hand).Source -ArgumentList 'board', '--addr', '127.0.0.1:7790' -WindowStyle Hidden -RedirectStandardOutput "$D\board.out" -RedirectStandardError "$D\board.err"; Start-Sleep -Seconds 3 }
-hand open --print
+hand open
 ```
 
-The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue.
+The last command opens the Hand window at this fleet's page. No command prints a Board login link, so never put a token into an issue.
 
-**2.** Ask the owner to open that link in a browser, and press **Start claude** on the fleet page, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Ask the owner to press **Start new, same as** the ref of the supervisor stopped in step 1 (the window offers it for a stopped supervisor), which starts it with the harness, model and effort of `W1`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 
@@ -557,7 +557,7 @@ The next block of the next check loads `env.ps1` again, which sets the home back
 
 ## W6: `hand open` starts the board, and no console window flashes
 
-- **Proves:** the `hand open` starts the board and opens the browser row.
+- **Proves:** the `hand open` starts the board and opens the window row.
 - **Run:** needs human. The owner watches the screen while the agent runs the steps.
 - **Real sessions:** 0.
 - **Preconditions:** `W1` or `W2` passed, and the supervisor runs, so that the board has a fleet to keep. No board of this home runs: stop one that you started, with `Stop-Process -Id ([int](Get-Content "$env:SECONDHAND_HOME\board.pid").Split(' ')[0])`. Nothing listens on port 7777; otherwise `skip` with `port 7777 busy`, and do not stop what listens. Run A only.
@@ -578,9 +578,9 @@ hand orient | Select-String '^watch:'
 
 The kill makes the board start the watcher again within 30 seconds, which starts Luvus and git commands too: that is the activity to watch.
 
-**2.** Ask the owner two questions: *Did your default browser open the Hand fleet page, already logged in (no question about a token)?* and *In those two minutes, did any console window appear, even briefly?* (yes or no for each, and which browser).
+**2.** Ask the owner two questions: *Did the Hand window open at the fleet page, with no question about a token?* and *In those two minutes, did any console window appear, even briefly?* (yes or no for each).
 
-Expected: `hand open` prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes); `board.addr` holds `127.0.0.1:7777`; `watch: running` returns within 60 seconds; the first answer is yes and the second is no.
+Expected: `hand open` prints `opened: "handboard://view/<fleet id>/"` (the link is in quotes) after `hand-desktop` takes it, or exits 1 with one reason line and that link when the window cannot open; `board.addr` holds `127.0.0.1:7777`; `watch: running` returns within 60 seconds; the first answer is yes and the second is no.
 
 Evidence: `& { hand open; Get-Content "$env:SECONDHAND_HOME\board.addr"; hand orient | Select-String '^watch:'; Get-Content "$env:SECONDHAND_HOME\board.log" -Tail 5 -ErrorAction SilentlyContinue } 2>&1 | Ev W6`, and both answers.
 
@@ -767,7 +767,7 @@ Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"supervisor":
 
 ```powershell
 . "$D\env.ps1"
-Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; hand open --print *> `$null; if (`$LASTEXITCODE -eq 0) { 'board-answers' }"
+Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; if (Get-NetTCPConnection -LocalPort ([int](Get-Content `$env:SECONDHAND_HOME\board.addr).Split(':')[-1]) -State Listen -ErrorAction SilentlyContinue) { 'board-answers' }"
 ```
 
 Ask the owner: *Log off from Windows, log on again, wait two minutes, then open PowerShell and run that line. Paste the output here. Did it print `board-answers`, `watch: running`, and a supervisor line that says `running` (resumed by the board's watcher) or `interrupted` (then run `hand supervisor resume`, and say whether it says `running` afterwards)?* (yes or no, and the output).

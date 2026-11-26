@@ -262,7 +262,7 @@ func sessionFaults(f sessionFault, viaProxy bool) string {
 	case viaProxy:
 		return "Pair this Companion first: open this fleet's Board, choose Companion in its menu, and show a pairing code."
 	}
-	return "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints."
+	return "This browser has no login for this fleet, and no command signs one in. Use the Hand window, or pair a Companion from the Companion page."
 }
 
 func (b *Board) closePeers(devices ...state.Device) {

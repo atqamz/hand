@@ -116,16 +116,18 @@ func TestReportLinkOpensOnlyWhatIsSafe(t *testing.T) {
 	}
 }
 
-func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
+func TestReportBoardLinkOpensInTheWindowAndRunsNoHand(t *testing.T) {
 	for _, tc := range []struct {
-		dest string
-		argv []string
+		dest   string
+		screen desktop.Screen
+		ref    string
+		fails  bool
 	}{
-		{"/" + fleetID + "/task/t1", []string{"open", "t1"}},
-		{"/" + fleetID + "/decision/d1#x", []string{"open", "d1"}},
-		{"/" + fleetID + "/", []string{"open"}},
-		{"/" + fleetID + "/doc/", nil},
-		{"/" + fleetID + "/doc", nil},
+		{"/" + fleetID + "/task/t1", desktop.TaskScreen, "t1", false},
+		{"/" + fleetID + "/decision/d1#x", desktop.DecisionScreen, "d1", false},
+		{"/" + fleetID + "/", desktop.BoardScreen, "", false},
+		{"/" + fleetID + "/doc/", 0, "", true},
+		{"/" + fleetID + "/doc", 0, "", true},
 	} {
 		t.Run(tc.dest, func(t *testing.T) {
 			hand := installFakeHand(t)
@@ -134,13 +136,18 @@ func TestReportBoardLinkGoesThroughHandOpen(t *testing.T) {
 			if got := tt.OpenedURLs(); len(got) != 0 {
 				t.Fatalf("opened %q in the browser directly", got)
 			}
-			if tc.argv == nil {
-				if app.OpenErr == "" || len(hand.calls(t)) != 0 {
-					t.Fatalf("err %q calls %q", app.OpenErr, hand.calls(t))
+			if len(hand.calls(t)) != 0 {
+				t.Fatalf("the window ran hand %q", hand.calls(t))
+			}
+			if tc.fails {
+				if app.OpenErr == "" {
+					t.Fatal("no error for a link the window cannot open")
 				}
 				return
 			}
-			hand.want(t, tc.argv...)
+			if app.OpenErr != "" || app.Screen != tc.screen || app.Ref != tc.ref {
+				t.Fatalf("screen %v ref %q err %q", app.Screen, app.Ref, app.OpenErr)
+			}
 		})
 	}
 }

@@ -420,11 +420,14 @@ export async function startBoard(box) {
     for (let i = 0; i < 50 && !box.read('board.addr'); i++) await new Promise((r) => setTimeout(r, 100));
   }
   const started = await box.hand(['board', 'start']);
-  if (started.code === 0) pass('hand board start starts the Board');
-  else await ok(await box.hand(['open', '--print']), 'an older hand open --print starts the Board');
+  if (started.code === 2 && /want 0 argument/.test(started.err)) {
+    await ok(await box.hand(['open', '--print']), 'an older hand open --print starts the Board');
+  } else {
+    await ok(started, 'hand board start starts the Board');
+  }
   const id = toon((await ok(await box.hand(['init']), 'hand init names the fleet')).out).fields.id;
   const host = box.read('board.addr').trim();
-  await fetch(`http://${host}/${id}/`).catch(() => null);
+  await fetch(`http://${host}/${id}/`, { signal: AbortSignal.timeout(10000) }).catch(() => null);
   let token = '';
   for (let i = 0; i < 50 && !token; i++) {
     try {

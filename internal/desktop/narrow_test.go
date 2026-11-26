@@ -653,10 +653,9 @@ func TestTheOpenCardKeepsTheChatColumnsMeasure(t *testing.T) {
 	f := goldenFixture(t)
 	f.fleets[0].Home = "/fleet"
 	app := newApp(t, f)
-	t.Setenv("PATH", t.TempDir())
 	tt := sized(t, app, 880, 760, false)
 	click(t, tt, "Chat")
-	app.OpenInBrowser()
+	app.OpenBoardLink("/" + fleetID + "/task/d3")
 	tt.Frame()
 	if app.OpenErr == "" {
 		t.Fatal("the failed open left no card")

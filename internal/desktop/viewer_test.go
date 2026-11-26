@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -171,10 +169,6 @@ func TestFocusMovesIntoTheViewerAndComesBack(t *testing.T) {
 	if !tt.Focused("Close the viewer") {
 		t.Fatal("Tab back from the body did not reach the strip before the page")
 	}
-	tt.Key(ui.Shift, ui.KeyTab)
-	if !tt.Focused("Open as a page") {
-		t.Fatal("the strip's Open as a page follows Close in the focus order")
-	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	if app.Screen != desktop.BoardScreen {
@@ -285,20 +279,6 @@ func TestTheStripNamesThePage(t *testing.T) {
 	}
 }
 
-func TestOpenAsAPageRunsHandOpen(t *testing.T) {
-	hand := installFakeHand(t)
-	f := viewFixture(t)
-	f.fleets[0].Home = hand.home
-	app := newApp(t, f)
-	tt := newTester(app)
-	click(t, tt, "Fix login")
-	click(t, tt, "Open as a page")
-	hand.want(t, "open", "t1")
-	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
-		t.Fatalf("the page link left the viewer on %v %q", app.Screen, app.Ref)
-	}
-}
-
 func TestTheOpenCardIsInTheTreeOnce(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -308,7 +288,6 @@ func TestTheOpenCardIsInTheTreeOnce(t *testing.T) {
 			f := goldenFixture(t)
 			f.fleets[0].Home = "/fleet"
 			app := newApp(t, f)
-			t.Setenv("PATH", t.TempDir())
 			tt := sized(t, app, tc.width, 760, false)
 			count := func() int {
 				n := 0
@@ -321,7 +300,7 @@ func TestTheOpenCardIsInTheTreeOnce(t *testing.T) {
 			}
 			app.OpenRef("t1")
 			tt.Frame()
-			click(t, tt, "Open as a page")
+			app.OpenBoardLink("/" + fleetID + "/task/d3")
 			tt.Frame()
 			if app.OpenErr == "" || app.Screen != desktop.TaskScreen {
 				t.Fatalf("OpenErr = %q on screen %v", app.OpenErr, app.Screen)
@@ -329,13 +308,13 @@ func TestTheOpenCardIsInTheTreeOnce(t *testing.T) {
 			if got := count(); got != 1 {
 				t.Fatalf("the frame holds %d open cards with the viewer open, want 1", got)
 			}
-			mustText(t, tt, "The browser did not open")
+			mustText(t, tt, "This page did not open")
 			click(t, tt, "Close the viewer")
 			tt.Frame()
 			if app.Screen != desktop.BoardScreen || app.OpenErr != "" {
 				t.Fatalf("closing the viewer left %v with OpenErr %q", app.Screen, app.OpenErr)
 			}
-			app.OpenInBrowser()
+			app.OpenBoardLink("/" + fleetID + "/task/d3")
 			tt.Frame()
 			if app.OpenErr == "" {
 				t.Fatal("the Board's failed open left no card")
@@ -343,64 +322,8 @@ func TestTheOpenCardIsInTheTreeOnce(t *testing.T) {
 			if got := count(); got != 1 {
 				t.Fatalf("the frame holds %d open cards with the viewer closed, want 1", got)
 			}
-			mustText(t, tt, "The browser did not open")
+			mustText(t, tt, "This page did not open")
 		})
-	}
-}
-
-func TestAFailedOpenAsAPageShowsInTheViewer(t *testing.T) {
-	hand := installFakeHand(t)
-	t.Setenv("FAKE_HAND_FAIL", "the board did not start")
-	f := viewFixture(t)
-	f.fleets[0].Home = hand.home
-	app := newApp(t, f)
-	tt := newTester(app)
-	click(t, tt, "Fix login")
-	click(t, tt, "Open as a page")
-	tt.Frame()
-	mustText(t, tt, "The browser did not open", "the board did not start")
-	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
-		t.Fatalf("the failure left the viewer on %v %q", app.Screen, app.Ref)
-	}
-	click(t, tt, "Dismiss")
-	mustNotText(t, tt, "The browser did not open")
-	if app.Screen != desktop.TaskScreen {
-		t.Fatalf("dismissing the failure closed the viewer: %v", app.Screen)
-	}
-}
-
-func TestAnOpenInFlightShowsInTheViewer(t *testing.T) {
-	hand := installFakeHand(t)
-	gate := filepath.Join(t.TempDir(), "gate")
-	t.Setenv("FAKE_HAND_GATE", gate)
-	f := viewFixture(t)
-	f.fleets[0].Home = hand.home
-	app := newApp(t, f)
-	tt := newTester(app)
-	click(t, tt, "Fix login")
-	posted := make(chan func(), 8)
-	app.Post = func(fn func()) { posted <- fn }
-	click(t, tt, "Open as a page")
-	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("hand never started")
-		}
-	}
-	tt.Frame()
-	mustText(t, tt, "Opening in the browser…")
-	if err := os.WriteFile(gate, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for app.OpenBusy {
-		waitPost(t, posted)()
-	}
-	tt.Frame()
-	mustNotText(t, tt, "Opening in the browser…")
-	if app.OpenErr != "" {
-		t.Fatalf("OpenErr = %q", app.OpenErr)
-	}
-	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
-		t.Fatalf("the run left the viewer on %v %q", app.Screen, app.Ref)
 	}
 }
 

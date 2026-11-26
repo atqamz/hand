@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const Head = "handboard://view/"
@@ -148,5 +149,7 @@ func docSegments(p string) ([]string, bool) {
 }
 
 func badText(s string) bool {
-	return strings.ContainsFunc(s, unicode.IsControl)
+	return !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || r == 0x200E || r == 0x200F || r == 0x061C || r >= 0x202A && r <= 0x202E || r >= 0x2066 && r <= 0x2069
+	})
 }

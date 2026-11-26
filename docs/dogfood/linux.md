@@ -197,7 +197,7 @@ If it fails: file the output above. If `trust` is `not pressed` or the attempt i
 
 ## L3: The board starts without a unit, and keeps the watcher alive
 
-- **Proves:** the Start the watcher on demand, and the board keeps watchers alive row, and the `hand open` starts the board and opens the browser row, on a host that may have no browser.
+- **Proves:** the Start the watcher on demand, and the board keeps watchers alive row, and the `hand open` starts the board and opens the window row, on a host that may have no browser.
 - **Run:** agent.
 - **Real sessions:** 0.
 - **Preconditions:** `L1` passed, and the supervisor runs, so that the board has a fleet to keep. No board of this home runs. Nothing listens on port 7777: `ss -ltn 'sport = :7777'` lists no listener (or `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing). Otherwise `skip` with `port 7777 busy`, and do not stop what listens.

@@ -154,7 +154,6 @@ type App struct {
 	ActionErr    string
 	ActionWarn   bool
 	OpenErr      string
-	OpenBusy     bool
 
 	Chips      []chip
 	chipSeq    int
@@ -563,7 +562,6 @@ func (a *App) SelectFleet(id string) {
 	a.Task, a.Attempt, a.Decision = TaskDetail{}, AttemptDetail{}, DecisionDetail{}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
-	a.OpenBusy = false
 	a.DraftErr, a.SendErr, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()

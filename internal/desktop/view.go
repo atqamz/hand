@@ -547,25 +547,16 @@ func (a *App) errorCardFor(c *ui.Context, p palette, msg string) {
 }
 
 func (a *App) openFeedback() bool {
-	return a.OpenBusy || a.OpenErr != ""
+	return a.OpenErr != ""
 }
 
 func (a *App) openCard(c *ui.Context, p palette) {
 	if !a.openFeedback() {
 		return
 	}
-	if a.OpenBusy {
-		ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.card).
-			Border(1, p.line).Children(func() {
-			ui.Text(c, "Opening in the browser…").FontSize(kit.Title.Size).Bold()
-			ui.Text(c, "`hand open` is starting this page.").FontSize(kit.Meta.Size).
-				TextColor(p.neutral)
-		})
-		return
-	}
 	ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The browser did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
+		ui.Text(c, "This page did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
 		ui.Text(c, a.OpenErr).FontSize(kit.Meta.Size)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-open"), "Dismiss").Clicked() {
@@ -852,7 +843,7 @@ func (a *App) markdownOf(c *ui.Context, linked string, theme *markdown.Theme) {
 		switch {
 		case board && a.openDocLink(target):
 		case board:
-			a.OpenBoardPath(target)
+			a.openBoardLink(target)
 		case target != "":
 			c.OpenURL(target)
 		}

@@ -2,6 +2,9 @@ package desktop_test
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -160,236 +163,77 @@ func homedApp(t *testing.T, home string) *desktop.App {
 	return newApp(t, f)
 }
 
-func TestEveryScreenOpensItsObjectThroughHandOpen(t *testing.T) {
+func TestNoWindowEntryRunsHandOpen(t *testing.T) {
 	hand := installFakeHand(t)
 	app := homedApp(t, hand.home)
 	tt := newTester(app)
-	for _, tc := range []struct {
-		screen string
-		open   func()
-		menu   bool
-		argv   []string
-	}{
-		{"panes", func() {}, true, []string{"open"}},
-		{"Board", func() { click(t, tt, "Board") }, true, []string{"open"}},
-		{"task", func() { app.OpenRef("t1") }, false, []string{"open", "t1"}},
-		{"attempt", func() { app.OpenRef("a1") }, false, []string{"open", "a1"}},
-		{"decision", func() { app.OpenRef("d1") }, false, []string{"open", "d1"}},
-		{"report", func() { app.OpenRef("r1") }, false, []string{"open", "r1"}},
-		{"task after a report", func() { app.OpenRef("t1"); app.OpenRef("r1"); app.Back() }, false, []string{"open", "t1"}},
-	} {
-		t.Run(tc.screen, func(t *testing.T) {
-			hand.reset(t)
-			tc.open()
-			tt.Frame()
-			if tc.menu {
-				menu(t, tt, "Open in browser")
-			} else {
-				click(t, tt, "Open as a page")
-			}
-			hand.want(t, tc.argv...)
-			if app.OpenErr != "" {
-				t.Fatalf("OpenErr = %q", app.OpenErr)
-			}
-		})
-	}
-}
-
-func TestAFailingHandShowsItsLastLine(t *testing.T) {
-	hand := installFakeHand(t)
-	t.Setenv("FAKE_HAND_FAIL", "the board did not start")
-	app := homedApp(t, hand.home)
-	tt := newTester(app)
-	menu(t, tt, "Open in browser")
-	mustText(t, tt, "The browser did not open", "the board did not start")
-	click(t, tt, "Dismiss")
-	mustNotText(t, tt, "The browser did not open")
-}
-
-func TestAMissingHandShowsAnError(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	app := homedApp(t, t.TempDir())
-	tt := newTester(app)
-	menu(t, tt, "Open in browser")
-	mustText(t, tt, "The browser did not open", "`hand` was not found")
-}
-
-func TestAFleetWithoutAFolderShowsAnError(t *testing.T) {
-	installFakeHand(t)
-	app := homedApp(t, "")
-	tt := newTester(app)
-	menu(t, tt, "Open in browser")
-	mustText(t, tt, "the fleet's folder is not known")
-}
-
-func TestABoardLinkGoesThroughHandOpen(t *testing.T) {
-	hand := installFakeHand(t)
-	app := homedApp(t, hand.home)
-	for dest, argv := range map[string][]string{
-		"/" + fleetID + "/":                    {"open"},
-		"/" + fleetID:                          {"open"},
-		"/" + fleetID + "/task/t12":            {"open", "t12"},
-		"/" + fleetID + "/decision/d3#x":       {"open", "d3"},
-		"/" + fleetID + "/report/r7":           {"open", "r7"},
-		"/" + fleetID + "/attempt/a2?tab=1":    {"open", "a2"},
-		"/" + fleetID + "/doc/reports/t1/x.md": {"open", "--doc", "reports/t1/x.md"},
-	} {
-		app.OpenBoardPath(dest)
-		hand.want(t, argv...)
+	click(t, tt, "More")
+	mustNotText(t, tt, "Open in browser")
+	for _, ref := range []string{"t1", "a1", "d1", "r1"} {
+		app.OpenRef(ref)
+		tt.Frame()
+		mustNotText(t, tt, "Open as a page")
+		mustNotText(t, tt, "Open in browser")
 	}
 	for _, dest := range []string{
+		"/" + fleetID + "/",
+		"/" + fleetID + "/task/t12",
+		"/" + fleetID + "/decision/d3#x",
+		"/" + fleetID + "/report/r7",
+		"/" + fleetID + "/attempt/a2?tab=1",
+		"/" + fleetID + "/doc/reports/t1/x.md",
 		"/" + fleetID + "/doc/",
-		"/" + fleetID + "/doc//etc/passwd",
-		"/" + fleetID + "/doc/sub%5Cx.md",
-		"/" + fleetID + "/doc/a%00b.md",
-		"/" + fleetID + "/docs/a.md",
 		"/" + fleetID + "/task/d3",
-		"/" + fleetID + "/task/t1/x",
-		"/" + fleetID + "x/task/t1",
 		"/" + secondID + "/task/t1",
 	} {
-		app.OpenBoardPath(dest)
-		if app.OpenErr == "" || len(hand.calls(t)) != 0 {
-			t.Fatalf("%s: err %q calls %q", dest, app.OpenErr, hand.calls(t))
-		}
+		app.OpenBoardLink(dest)
+	}
+	if got := hand.calls(t); len(got) != 0 {
+		t.Fatalf("the window ran hand %q", got)
 	}
 }
 
-func TestAHandThatLeavesADescendantOnThePipeStillReturns(t *testing.T) {
-	hand := installFakeHand(t)
-	t.Setenv("FAKE_HAND_BG", "1")
-	stop := filepath.Join(t.TempDir(), "stop")
-	t.Setenv("FAKE_HAND_STOP", stop)
-	defer func() {
-		os.WriteFile(stop, nil, 0o600)
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			if _, err := os.Stat(stop + ".gone"); err == nil {
-				time.Sleep(200 * time.Millisecond)
-				return
+func TestNoWindowSourceRunsHandOpen(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no source files: %v", err)
+	}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var stack []ast.Node
+		ast.Inspect(f, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
 			}
-		}
-	}()
-	app := homedApp(t, hand.home)
-	start := time.Now()
-	app.OpenInBrowser()
-	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("hand open held the window for %v", d)
-	}
-}
-
-func TestAnAsyncOpenIsBoundedAndShowsItsErrorOnlyForItsFleet(t *testing.T) {
-	for _, switched := range []bool{false, true} {
-		hand := installFakeHand(t)
-		t.Setenv("FAKE_HAND_SLEEP", "1")
-		restore := desktop.SetOpenTimeout(300 * time.Millisecond)
-		app := homedApp(t, hand.home)
-		tt := newTester(app)
-		posted := make(chan func(), 8)
-		app.Post = func(fn func()) { posted <- fn }
-		start := time.Now()
-		menu(t, tt, "Open in browser")
-		if switched {
-			app.SelectFleet(secondID)
-		}
-		waitPost(t, posted)()
-		for !switched && app.OpenBusy {
-			waitPost(t, posted)()
-		}
-		restore()
-		if d := time.Since(start); d > 5*time.Second {
-			t.Fatalf("switched=%v: the run took %v", switched, d)
-		}
-		if got := app.OpenErr != ""; got == switched {
-			t.Fatalf("switched=%v: OpenErr = %q", switched, app.OpenErr)
-		}
-		if app.OpenBusy {
-			t.Fatalf("switched=%v: still busy", switched)
-		}
-	}
-}
-
-func TestTheNarrowChatTabShowsTheBrowserOpenFeedback(t *testing.T) {
-	hand := installFakeHand(t)
-	gate := filepath.Join(t.TempDir(), "gate")
-	t.Setenv("FAKE_HAND_GATE", gate)
-	app := homedApp(t, hand.home)
-	posted := make(chan func(), 8)
-	app.Post = func(fn func()) { posted <- fn }
-	tt := sized(t, app, 880, 760, false)
-	click(t, tt, "Chat")
-	mustText(t, tt, "Message the supervisor")
-	menu(t, tt, "Open in browser")
-	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("hand never started")
-		}
-	}
-	tt.Frame()
-	mustText(t, tt, "Opening in the browser…", "`hand open` is starting this page.")
-	mustText(t, tt, "Message the supervisor")
-	if err := os.WriteFile(gate, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for app.OpenBusy {
-		waitPost(t, posted)()
-	}
-	tt.Frame()
-	mustNotText(t, tt, "Opening in the browser…")
-
-	t.Setenv("FAKE_HAND_FAIL", "the board did not start")
-	menu(t, tt, "Open in browser")
-	for app.OpenBusy {
-		waitPost(t, posted)()
-	}
-	tt.Frame()
-	mustText(t, tt, "The browser did not open", "the board did not start")
-	mustText(t, tt, "Message the supervisor")
-}
-
-func TestOpenInBrowserIsDisabledWhileARunIsInFlight(t *testing.T) {
-	hand := installFakeHand(t)
-	gate := filepath.Join(t.TempDir(), "gate")
-	t.Setenv("FAKE_HAND_GATE", gate)
-	app := homedApp(t, hand.home)
-	tt := newTester(app)
-	posted := make(chan func(), 8)
-	app.Post = func(fn func()) { posted <- fn }
-	menu(t, tt, "Open in browser")
-	for deadline := time.Now().Add(30 * time.Second); len(hand.calls(t)) != 2; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("hand never started")
-		}
-	}
-	tt.Frame()
-	tt.Click("More")
-	tt.Click("Open in browser")
-	if !app.OpenBusy {
-		t.Fatal("the window is not busy while hand runs")
-	}
-	if got := hand.calls(t); len(got) != 2 {
-		t.Fatalf("hand ran %q, want one call while busy", got)
-	}
-	if err := os.WriteFile(gate, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for app.OpenBusy {
-		waitPost(t, posted)()
-	}
-	if got := hand.calls(t); len(got) != 2 {
-		t.Fatalf("hand ran %q, want one call", got)
-	}
-	tt.Frame()
-	if _, ok := tt.Find("Open in browser"); !ok {
-		click(t, tt, "More")
-	}
-	if err := tt.Click("Open in browser"); err != nil {
-		t.Fatal(err)
-	}
-	for app.OpenBusy {
-		waitPost(t, posted)()
-	}
-	if got := hand.calls(t); len(got) != 4 {
-		t.Fatalf("hand ran %q, want a second call once idle", got)
+			stack = append(stack, n)
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING || lit.Value != `"open"` || len(stack) < 2 {
+				return true
+			}
+			switch p := stack[len(stack)-2].(type) {
+			case *ast.CompositeLit:
+				t.Errorf("%s: a string list holds \"open\"", name)
+			case *ast.CallExpr:
+				switch fn := p.Fun.(type) {
+				case *ast.SelectorExpr:
+					if strings.HasPrefix(fn.Sel.Name, "Command") {
+						t.Errorf("%s: a command is run with \"open\"", name)
+					}
+				case *ast.Ident:
+					if fn.Name == "append" {
+						t.Errorf("%s: \"open\" is appended to an argv", name)
+					}
+				}
+			}
+			return true
+		})
 	}
 }
 

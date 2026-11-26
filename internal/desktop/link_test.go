@@ -268,6 +268,30 @@ func TestViewLinkBeforeTheBoardIsReadWaitsForIt(t *testing.T) {
 	}
 }
 
+func TestViewLinkQueuedBeforeTheBoardOpensItsPageOnceItIsRead(t *testing.T) {
+	f := goldenFixture(t)
+	up := false
+	app := desktop.New(func() (desktop.ReadModel, error) {
+		if !up {
+			return nil, desktop.ErrNoBoard
+		}
+		return f, nil
+	})
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	if err := app.OpenLink("handboard://view/" + fleetID + "/log"); err != nil {
+		t.Fatal(err)
+	}
+	if app.Screen == desktop.HistoryScreen {
+		t.Fatal("opened the log before the Board was read")
+	}
+	up = true
+	app.Refresh()
+	if app.Screen != desktop.HistoryScreen {
+		t.Fatalf("screen %d after the Board was read, want the log", app.Screen)
+	}
+}
+
 func TestParseLinkTakesBothGrammarsOnly(t *testing.T) {
 	for link, ok := range map[string]bool{
 		"handboard://open/" + fleetID + "/task/t1": true,
@@ -280,5 +304,22 @@ func TestParseLinkTakesBothGrammarsOnly(t *testing.T) {
 		if err := desktop.ParseLink(link); (err == nil) != ok {
 			t.Errorf("ParseLink(%q) = %v, want ok=%v", link, err, ok)
 		}
+	}
+}
+
+func TestViewLinkRoutesAReportOfATask(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	app.Show(desktop.BoardScreen)
+	if err := app.OpenLink("handboard://view/" + secondID + "/task/t1#r1"); err != nil {
+		t.Fatal(err)
+	}
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || desktop.PageReport(app) != "r1" {
+		t.Fatalf("screen %d, ref %q, report %q", app.Screen, app.Ref, desktop.PageReport(app))
+	}
+	if err := app.OpenLink("handboard://view/" + secondID + "/task/t1"); err != nil {
+		t.Fatal(err)
+	}
+	if desktop.PageReport(app) != "" {
+		t.Fatalf("a task link kept the report %q", desktop.PageReport(app))
 	}
 }

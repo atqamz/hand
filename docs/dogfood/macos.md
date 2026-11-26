@@ -22,7 +22,7 @@ The order is by risk, riskiest first. `M0` comes first because every other check
 | M5 | The watcher starts a killed Luvus server again | The watcher starts a killed Luvus server again | agent | 0 |
 | M6 | codex, agy and opencode start | Start codex or agy; Start opencode | agent, per harness | 1 each |
 | M7 | `hand attach supervisor` | `hand attach` | needs human | 0 |
-| M8 | `hand open` starts the board and opens the browser | `hand open` starts the board and opens the browser | needs human | 0 |
+| M8 | `hand open` starts the board and opens the window | `hand open` starts the board and opens the window | needs human | 0 |
 | M9 | A notification appears | Desktop notifications | needs human | 0 |
 | M10 | `hand update` from the latest release | `hand update` | agent, then needs human | 0 |
 | M11 | The LaunchAgent starts the board at login | Start the board at login | agent, then needs human | 0 (a resume) |
@@ -223,7 +223,7 @@ hand board start
 
 The last command prints only `board running`; it prints no link and no token. Starting a board is also part of `M8`; `M3` does not judge it.
 
-**2.** Run `hand open supervisor` to open the Hand window at the supervisor, and ask the owner to press **Start claude** there, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Run `hand open supervisor` to open the Hand window at the supervisor, and ask the owner to press **Start new, same as** the ref of the supervisor stopped in step 1 there, which starts it with the harness, model and effort of `M1`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 
@@ -422,9 +422,9 @@ Evidence: the answer, and `hand supervisor show | ev M7`.
 
 If it fails: file what the owner saw, and what `hand attach supervisor` printed (for example `attach needs a terminal`).
 
-## M8: `hand open` starts the board and opens the browser
+## M8: `hand open` starts the board and opens the window
 
-- **Proves:** the `hand open` starts the board and opens the browser row.
+- **Proves:** the `hand open` starts the board and opens the window row.
 - **Run:** needs human.
 - **Real sessions:** 0.
 - **Preconditions:** `M0` passed. No board of this home runs: stop one that you started, with `kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid)`. Nothing listens on port 7777: `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing. Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
@@ -440,9 +440,9 @@ sleep 3
 cat $SECONDHAND_HOME/board.addr
 ```
 
-**2.** Ask the owner: *Did your default browser open the Hand fleet page, already logged in (no question about a token)?* (yes or no, and which browser).
+**2.** Ask the owner: *Did the Hand window open at the fleet page, with no question about a token?* (yes or no).
 
-Expected: `hand open` prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes); `board.addr` holds `127.0.0.1:7777`; the answer is yes.
+Expected: `hand open` prints `opened: "handboard://view/<fleet id>/"` (the link is in quotes) after `hand-desktop` takes it, or exits 1 with one reason line and that link when the window cannot open; `board.addr` holds `127.0.0.1:7777`; the answer is yes.
 
 Evidence: `{ hand open; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; } 2>&1 | ev M8`, and the answer.
 
@@ -601,7 +601,7 @@ EOF
 
 ```zsh
 . $D/env.sh
-echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; hand open --print > /dev/null && echo board-answers"
+echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; lsof -nP -iTCP:\$(cut -d: -f2 \$SECONDHAND_HOME/board.addr) -sTCP:LISTEN > /dev/null && echo board-answers"
 ```
 
 Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run that line. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
