@@ -176,6 +176,8 @@ func (a *App) pickFor(h Harness) *pick {
 		p = &pick{effort: h.Effort}
 		if _, found := modelNamed(h, h.Model); found {
 			p.model = h.Model
+		} else if needsModel(h) {
+			p.model = firstModel(h)
 		}
 		a.picks[h.Name] = p
 	}
@@ -370,13 +372,13 @@ func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) 
 		kit.Select(c, k, &a.change.harness, options)
 		if target.Name == cur.Name {
 			a.menuFields(c, k, p, cur, &a.change, "keep "+orText(a.Models.Model, "current"),
-				"keep "+orText(a.Models.Effort, "current"))
+				"keep "+orText(a.Models.Effort, "current"), a.Models.Model == "")
 			label := "Switch after this turn"
 			if a.Status.AgentState == "ready" {
 				label = "Switch now"
 			}
 			if kit.Button(c, k, "switch:now", label, width, a.Busy) {
-				model, effort := a.chosen(cur, &a.change)
+				model, effort := a.chosenBare(cur, &a.change, a.Models.Model == "")
 				a.switchSupervisor(Switch{Model: model, Effort: effort})
 			}
 			if cur.Note != "" {
@@ -385,24 +387,21 @@ func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) 
 			return
 		}
 		pk := a.pickFor(target)
-		if pk.model == "" && needsModel(target) {
-			pk.model = firstModel(target)
-		}
-		keep := ""
-		if !needsModel(target) {
-			keep = "default"
-		}
-		a.menuFields(c, k, p, target, pk, keep, "default")
+		a.menuFields(c, k, p, target, pk, keepDefault(target), "default", true)
 		ref := a.Status.Supervisor.Ref
 		ui.Text(c, "Stops "+ref+" and starts a new session on "+target.Name+"; "+ref+"'s conversation stays in Chat.").
 			FontSize(kit.Meta.Size)
-		working := a.Status.AgentState == "working"
-		if working {
+		working, blocked := a.Status.AgentState == "working", a.Status.Supervisor != nil && a.Status.Supervisor.Blocked
+		switch {
+		case working:
 			ui.Text(c, ref+" is working; switch harness when its turn ends, or interrupt it first").
 				FontSize(kit.Meta.Size).TextColor(p.wait)
+		case blocked:
+			ui.Text(c, ref+" is blocked; answer its screen or wait until it is idle, then switch harness").
+				FontSize(kit.Meta.Size).TextColor(p.wait)
 		}
-		model, effort := a.chosen(target, pk)
-		if kit.Button(c, k, "switch:"+target.Name, "Switch to "+target.Name, width, a.Busy || working || model == "" && needsModel(target)) {
+		model, effort := a.chosenBare(target, pk, true)
+		if kit.Button(c, k, "switch:"+target.Name, "Switch to "+target.Name, width, a.Busy || working || blocked || model == "" && needsModel(target)) {
 			a.switchSupervisor(Switch{Harness: target.Name, Model: model, Effort: effort})
 		}
 		if target.Note != "" {
@@ -430,6 +429,27 @@ func supervisable(h Harness) bool { return h.Name != "copilot" }
 
 func needsModel(h Harness) bool { return h.Name != "opencode" }
 
+func keepDefault(h Harness) string {
+	if needsModel(h) {
+		return ""
+	}
+	return "default"
+}
+
+func hasModel(pk *pick) bool { return pk.model != "" || strings.TrimSpace(pk.other) != "" }
+
+func noVariant(h Harness, pk *pick, bare bool) bool {
+	return bare && h.Name == "opencode" && !hasModel(pk)
+}
+
+func (a *App) chosenBare(h Harness, p *pick, bare bool) (string, string) {
+	model, effort := a.chosen(h, p)
+	if model == "" && noVariant(h, p, bare) {
+		effort = ""
+	}
+	return model, effort
+}
+
 func orText(value, fallback string) string {
 	if value == "" {
 		return fallback
@@ -437,18 +457,23 @@ func orText(value, fallback string) string {
 	return value
 }
 
-func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string) {
+func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string, bare bool) {
 	if len(h.Groups) == 0 {
 		kit.FieldLabel(c, k, "Model")
 		ui.TextInput(c, &pk.other).Placeholder(orText(h.Model, "model")).Label(h.Name + " model")
-		kit.FieldLabel(c, k, effortWord(h))
-		ui.TextInput(c, &pk.effort).Placeholder(orText(h.Effort, "effort")).Label(h.Name + " " + strings.ToLower(effortWord(h)))
+		if !noVariant(h, pk, bare) {
+			kit.FieldLabel(c, k, effortWord(h))
+			ui.TextInput(c, &pk.effort).Placeholder(orText(h.Effort, "effort")).Label(h.Name + " " + strings.ToLower(effortWord(h)))
+		}
 		return
 	}
 	kit.FieldLabel(c, k, "Model")
 	kit.Select(c, k, &pk.model, modelOptions(h, keepModel))
 	kit.FieldLabel(c, k, "Other model")
 	ui.TextInput(c, &pk.other).Placeholder("Other model").Label(h.Name + " other model")
+	if noVariant(h, pk, bare) {
+		return
+	}
 	options, hidden := effortOptions(h, pk.model, keepEffort)
 	if hidden {
 		if h.Name == "opencode" {
@@ -499,8 +524,8 @@ func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width 
 	harness := h
 	pk := a.pickFor(harness)
 	start := func(w float32) {
-		if kit.Button(c, k, "start:"+harness.Name, "Start "+harness.Name, w, a.Busy || harness.Missing != "") {
-			model, effort := a.chosen(harness, pk)
+		if kit.Button(c, k, "start:"+harness.Name, "Start "+harness.Name, w, a.Busy || harness.Missing != "" || needsModel(harness) && !hasModel(pk)) {
+			model, effort := a.chosenBare(harness, pk, true)
 			a.startSupervisor(harness.Name, model, effort)
 		}
 	}
@@ -543,16 +568,21 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 		if h.Name == "opencode" {
 			placeholder = "variant"
 		}
-		effortField(1).Children(func() {
-			ui.TextInput(c, &pk.effort).Placeholder(placeholder).Label(h.Name + " " + placeholder)
-		})
+		if !noVariant(h, pk, true) {
+			effortField(1).Children(func() {
+				ui.TextInput(c, &pk.effort).Placeholder(placeholder).Label(h.Name + " " + placeholder)
+			})
+		}
 		return
 	}
-	field(modelGrow).Children(func() { kit.Select(c, k, &pk.model, modelOptions(h, "default")) })
+	field(modelGrow).Children(func() { kit.Select(c, k, &pk.model, modelOptions(h, keepDefault(h))) })
 	if wide {
 		field(otherGrow).Children(func() {
 			ui.TextInput(c, &pk.other).Placeholder("Other model").Label(h.Name + " other model")
 		})
+	}
+	if noVariant(h, pk, true) {
+		return
 	}
 	options, hidden := effortOptions(h, pk.model, "default")
 	if hidden {

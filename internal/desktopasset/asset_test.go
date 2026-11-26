@@ -75,31 +75,24 @@ func TestVerifyRequiresTheVersionAndCommitOfThisHand(t *testing.T) {
 	}
 }
 
-func TestSupportedIsLinuxMacOSAndEdgeWindows(t *testing.T) {
-	for _, c := range []struct {
-		goos, goarch, channel string
-		ok                    bool
-	}{
-		{"linux", "amd64", "stable", true},
-		{"linux", "arm64", "edge", true},
-		{"linux", "amd64", "source", true},
-		{"linux", "386", "edge", false},
-		{"windows", "amd64", "edge", true},
-		{"windows", "amd64", "stable", false},
-		{"windows", "amd64", "source", false},
-		{"windows", "amd64", "", false},
-		{"windows", "arm64", "edge", false},
-		{"darwin", "arm64", "edge", true},
-		{"darwin", "arm64", "stable", true},
-		{"darwin", "amd64", "stable", true},
-		{"darwin", "amd64", "source", true},
-		{"darwin", "386", "edge", false},
-	} {
-		if got := Supported(c.goos, c.goarch, c.channel); got != c.ok {
-			t.Fatalf("Supported(%s, %s, %s) = %v", c.goos, c.goarch, c.channel, got)
+func TestSupportedPerSystemArchitectureAndChannel(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin", "windows", "freebsd"} {
+		for _, goarch := range []string{"amd64", "arm64", "386"} {
+			for _, channel := range []string{"stable", "edge", "source", ""} {
+				want := false
+				switch goos {
+				case "linux", "darwin":
+					want = goarch == "amd64" || goarch == "arm64"
+				case "windows":
+					want = goarch == "amd64" && (channel == "stable" || channel == "edge")
+				}
+				if got := Supported(goos, goarch, channel); got != want {
+					t.Errorf("Supported(%s, %s, %q) = %v, want %v", goos, goarch, channel, got, want)
+				}
+			}
 		}
 	}
-	if why := Unsupported("freebsd", "arm64"); !strings.Contains(why, "freebsd/arm64") || !strings.Contains(why, "Linux and macOS") || !strings.Contains(why, "edge builds only, on Windows") {
+	if why := Unsupported("freebsd", "arm64"); !strings.Contains(why, "freebsd/arm64") || !strings.Contains(why, "Linux and macOS") || !strings.Contains(why, "Windows (amd64, in stable and edge builds)") {
 		t.Fatalf("Unsupported = %q", why)
 	}
 }
