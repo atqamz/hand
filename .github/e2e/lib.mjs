@@ -422,7 +422,15 @@ export async function startBoard(box) {
   await ok(await box.hand(['board', 'start']), 'hand board start starts the Board');
   const id = toon((await ok(await box.hand(['init']), 'hand init names the fleet')).out).fields.id;
   const host = box.read('board.addr').trim();
-  const token = box.read('board.token').trim();
+  await fetch(`http://${host}/${id}/`).catch(() => null);
+  let token = '';
+  for (let i = 0; i < 50 && !token; i++) {
+    try {
+      token = fs.readFileSync(path.join(box.fleet, 'board.token'), 'utf8').trim();
+    } catch {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
   check(Boolean(host) && Boolean(token), 'the Board wrote its address and the fleet its token');
   return new URL(`http://${host}/${id}/?token=${token}`);
 }
