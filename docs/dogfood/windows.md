@@ -767,7 +767,7 @@ Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"supervisor":
 
 ```powershell
 . "$D\env.ps1"
-Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; if (Get-NetTCPConnection -LocalPort ([int](Get-Content `$env:SECONDHAND_HOME\board.addr).Split(':')[-1]) -State Listen -ErrorAction SilentlyContinue) { 'board-answers' }"
+Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; `$l = Get-NetTCPConnection -LocalPort ([int](Get-Content `$env:SECONDHAND_HOME\board.addr).Split(':')[-1]) -State Listen -ErrorAction SilentlyContinue; if (`$l.OwningProcess -contains [int](Get-Content `$env:SECONDHAND_HOME\board.pid).Split(' ')[0]) { 'board-answers' }"
 ```
 
 Ask the owner: *Log off from Windows, log on again, wait two minutes, then open PowerShell and run that line. Paste the output here. Did it print `board-answers`, `watch: running`, and a supervisor line that says `running` (resumed by the board's watcher) or `interrupted` (then run `hand supervisor resume`, and say whether it says `running` afterwards)?* (yes or no, and the output).

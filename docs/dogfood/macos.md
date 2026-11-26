@@ -601,7 +601,7 @@ EOF
 
 ```zsh
 . $D/env.sh
-echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; lsof -nP -iTCP:\$(cut -d: -f2 \$SECONDHAND_HOME/board.addr) -sTCP:LISTEN > /dev/null && echo board-answers"
+echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; lsof -t -nP -iTCP:\$(cut -d: -f2 \$SECONDHAND_HOME/board.addr) -sTCP:LISTEN | grep -qx \$(cut -d' ' -f1 \$SECONDHAND_HOME/board.pid) && echo board-answers"
 ```
 
 Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run that line. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
