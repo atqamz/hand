@@ -225,10 +225,10 @@ hand orient | sed -n 1,5p
 
 Expected:
 - the board runs detached, with its output in `board.log`: `board.addr` holds `127.0.0.1:7777`, and `board-answers` prints;
-- `hand open` either prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes) with exit 0, or fails with a message that names the missing opener and tells you to open the page yourself (with the board still started); a hang is a failure;
+- `hand open` either prints `opened: "handboard://view/<fleet id>/"` with exit 0 after `hand-desktop` takes the link, or exits 1 with one reason line and that link when the window is missing or cannot open it (with the board still started); a hang is a failure;
 - `watch: running` returns within 60 seconds of the kill.
 
-Evidence: `{ hand board start; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never print `hand open --print` into an issue.
+Evidence: `{ hand board start; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never put a login link or a board token into an issue.
 
 If it fails: file the output above and the end of `$SECONDHAND_HOME/board.log`.
 

@@ -221,9 +221,9 @@ if lsof -nP -iTCP:7777 -sTCP:LISTEN >/dev/null; then ($D/bin/hand board --addr 1
 hand board start
 ```
 
-The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue. Starting a board is also part of `M8`; `M3` does not judge it.
+The last command prints only `board running`; it prints no link and no token. Starting a board is also part of `M8`; `M3` does not judge it.
 
-**2.** Ask the owner to open that link in a browser, and press **Start claude** on the fleet page, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Run `hand open supervisor` to open the Hand window at the supervisor, and ask the owner to press **Start claude** there, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 

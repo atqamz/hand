@@ -70,6 +70,9 @@ func Format(l Link) (string, error) {
 		if l.Query == "" {
 			return head + "tasks", nil
 		}
+		if badText(l.Query) {
+			return "", ErrNotViewLink
+		}
 		return head + "tasks?q=" + url.QueryEscape(l.Query), nil
 	case Log, Companion, Alerts:
 		return head + l.Page, nil

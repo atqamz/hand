@@ -148,7 +148,7 @@ func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, o
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if resp, err := http.Get("http://" + strings.TrimSpace(string(addr)) + "/" + e.Name() + "/"); err == nil {
+		if resp, err := (&http.Client{Timeout: 10 * time.Second}).Get("http://" + strings.TrimSpace(string(addr)) + "/" + e.Name() + "/"); err == nil {
 			_ = resp.Body.Close()
 		}
 	}

@@ -87,6 +87,7 @@ func TestFormatRefused(t *testing.T) {
 		{Fleet: fleet, Page: Item},
 		{Fleet: fleet, Page: Item, Ref: "x3"},
 		{Fleet: fleet, Page: Item, Ref: "d3", Report: "r1"},
+		{Fleet: fleet, Page: Tasks, Query: "fix\nlogin"},
 	} {
 		if s, err := Format(l); err == nil {
 			t.Errorf("Format(%+v) = %q, want refusal", l, s)
