@@ -10,7 +10,7 @@ import (
 )
 
 type pick struct {
-	model, other, effort string
+	model, other, effort, harness string
 }
 
 func (a *App) modelsKey() string {
@@ -210,7 +210,10 @@ func effortWord(h Harness) string {
 }
 
 func modelOptions(h Harness, keep string) []kit.Option {
-	options := []kit.Option{{Label: keep}}
+	var options []kit.Option
+	if keep != "" {
+		options = append(options, kit.Option{Label: keep})
+	}
 	for _, g := range h.Groups {
 		for _, m := range g.Models {
 			options = append(options, kit.Option{Value: m.Name, Label: m.Text})
@@ -310,7 +313,6 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 						inner := width - 2*kit.Space12
 						a.menuNow(c, k, p)
 						a.menuChange(c, k, p, inner)
-						a.menuHarnesses(c, k, p, inner)
 					}
 				})
 			})
@@ -340,62 +342,99 @@ func (a *App) menuNow(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) {
-	h, ok := a.harnessNamed(a.Models.Current)
+	cur, ok := a.harnessNamed(a.Models.Current)
 	if !ok {
 		return
 	}
-	kit.FieldLabel(c, k, "Change model or "+strings.ToLower(effortWord(h)))
+	var options []kit.Option
+	var unavailable []Harness
+	for _, h := range a.Models.Harnesses {
+		switch {
+		case !supervisable(h):
+		case h.Missing != "" && h.Name != cur.Name:
+			unavailable = append(unavailable, h)
+		case h.Name == cur.Name:
+			options = append(options, kit.Option{Value: h.Name, Label: h.Name + " (running)"})
+		default:
+			options = append(options, kit.Option{Value: h.Name, Label: h.Name})
+		}
+	}
+	target := cur
+	if h, ok := a.harnessNamed(a.change.harness); ok && supervisable(h) && h.Missing == "" {
+		target = h
+	}
+	a.change.harness = target.Name
+	kit.FieldLabel(c, k, "Change harness, model or "+strings.ToLower(effortWord(cur)))
 	kit.Form(c, k, func() {
-		a.menuFields(c, k, p, h, &a.change, "keep "+orText(a.Models.Model, "current"),
-			"keep "+orText(a.Models.Effort, "current"))
-		label := "Switch after this turn"
-		if a.Status.AgentState == "ready" {
-			label = "Switch now"
+		kit.FieldLabel(c, k, "Harness")
+		kit.Select(c, k, &a.change.harness, options)
+		if target.Name == cur.Name {
+			a.menuFields(c, k, p, cur, &a.change, "keep "+orText(a.Models.Model, "current"),
+				"keep "+orText(a.Models.Effort, "current"))
+			label := "Switch after this turn"
+			if a.Status.AgentState == "ready" {
+				label = "Switch now"
+			}
+			if kit.Button(c, k, "switch:now", label, width, a.Busy) {
+				model, effort := a.chosen(cur, &a.change)
+				a.switchSupervisor(Switch{Model: model, Effort: effort})
+			}
+			if cur.Note != "" {
+				ui.Text(c, cur.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
+			}
+			return
 		}
-		if kit.Button(c, k, "switch:now", label, width, a.Busy) {
-			model, effort := a.chosen(h, &a.change)
-			a.switchSupervisor(Switch{Model: model, Effort: effort})
+		pk := a.pickFor(target)
+		if pk.model == "" && needsModel(target) {
+			pk.model = firstModel(target)
 		}
-		if h.Note != "" {
-			ui.Text(c, h.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
+		keep := ""
+		if !needsModel(target) {
+			keep = "default"
+		}
+		a.menuFields(c, k, p, target, pk, keep, "default")
+		ref := a.Status.Supervisor.Ref
+		ui.Text(c, "Stops "+ref+" and starts a new session on "+target.Name+"; "+ref+"'s conversation stays in Chat.").
+			FontSize(kit.Meta.Size)
+		working := a.Status.AgentState == "working"
+		if working {
+			ui.Text(c, ref+" is working; switch harness when its turn ends, or interrupt it first").
+				FontSize(kit.Meta.Size).TextColor(p.wait)
+		}
+		model, effort := a.chosen(target, pk)
+		if kit.Button(c, k, "switch:"+target.Name, "Switch to "+target.Name, width, a.Busy || working || model == "" && needsModel(target)) {
+			a.switchSupervisor(Switch{Harness: target.Name, Model: model, Effort: effort})
+		}
+		if target.Note != "" {
+			ui.Text(c, target.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
 		}
 	})
+	if len(unavailable) > 0 {
+		kit.FieldLabel(c, k, "Unavailable")
+		for _, h := range unavailable {
+			ui.Text(c, h.Name+": "+h.Missing).FontSize(kit.Meta.Size).TextColor(p.wait)
+		}
+	}
 }
+
+func firstModel(h Harness) string {
+	for _, g := range h.Groups {
+		for _, m := range g.Models {
+			return m.Name
+		}
+	}
+	return ""
+}
+
+func supervisable(h Harness) bool { return h.Name != "copilot" }
+
+func needsModel(h Harness) bool { return h.Name != "opencode" }
 
 func orText(value, fallback string) string {
 	if value == "" {
 		return fallback
 	}
 	return value
-}
-
-func (a *App) menuHarnesses(c *ui.Context, k kit.Colors, p palette, width float32) {
-	others := false
-	for _, h := range a.Models.Harnesses {
-		if h.Name == a.Models.Current {
-			continue
-		}
-		if !others {
-			kit.FieldLabel(c, k, "Switch the supervisor to another harness")
-			others = true
-		}
-		harness := h
-		kit.Form(c, k, func() {
-			ui.Text(c, harness.Name).FontSize(kit.Body.Size).Bold()
-			pk := a.pickFor(harness)
-			a.menuFields(c, k, p, harness, pk, "default", "default")
-			if kit.Button(c, k, "switch:"+harness.Name, "Switch to "+harness.Name, width, a.Busy || harness.Missing != "") {
-				model, effort := a.chosen(harness, pk)
-				a.switchSupervisor(Switch{Harness: harness.Name, Model: model, Effort: effort})
-			}
-			if harness.Missing != "" {
-				ui.Text(c, harness.Missing).FontSize(kit.Body.Size).TextColor(p.wait)
-			}
-			if harness.Note != "" {
-				ui.Text(c, harness.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
-			}
-		})
-	}
 }
 
 func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string) {
