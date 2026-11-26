@@ -210,10 +210,15 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if a.Model != nil {
 		kit.RailHead(c, k, open, "Fleets")
 	}
+	named := make([]kit.Named, len(a.Fleets))
+	for i, f := range a.Fleets {
+		named[i] = kit.Named{ID: f.ID, Name: fleetName(f)}
+	}
+	monos := kit.Monograms(named)
 	for _, f := range a.Fleets {
 		fleet := f
 		tone, status := a.mark(fleet)
-		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
+		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Mono: monos[fleet.ID], Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
 		if m, ok := a.linkOf(fleet); ok {
 			_, n.LinkFG = toneColors(m.tone, p)
 			n.Link, n.LinkIcon = m.word, m.icon

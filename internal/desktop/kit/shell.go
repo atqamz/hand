@@ -3,6 +3,9 @@ package kit
 import (
 	"fmt"
 	"hash/fnv"
+	"sort"
+	"strings"
+	"unicode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -53,6 +56,7 @@ func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
 				Background(ui.Transparent).Justify(ui.Center).AlignItems(ui.Center).
 				Cursor(ui.CursorPointer).Label(label)
 			b.Children(func() { ui.Icon(c, Icon("sidebar")).TextColor(k.Muted) })
+			railTip(c, k, b, label)
 			if b.Clicked() {
 				toggle()
 			}
@@ -78,7 +82,7 @@ type NavItem struct {
 	Count            int
 	CountBG, CountFG ui.Color
 	Dot              bool
-	Fleet            string
+	Fleet, Mono      string
 	Tone, Status     string
 	Link, LinkIcon   string
 	LinkFG           ui.Color
@@ -129,7 +133,10 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 	}
 	el.Children(func() {
 		if n.Fleet != "" {
-			ui.Icon(c, Icon("mark")).Size(18, 18).TextColor(k.Tint[TintOf(n.Fleet)])
+			ui.Row(c).Size(24, 24).Radius(RadiusSM).Border(1, k.Tint[TintOf(n.Fleet)]).
+				Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, n.Mono).FontSize(Meta.Size).Bold().TextColor(fg).SingleLine()
+			})
 		} else {
 			ui.Icon(c, Icon(n.Icon)).TextColor(fg)
 		}
@@ -172,14 +179,65 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 		}
 	})
 	if !n.Open {
-		ui.TooltipBase(c, el, func(tip ui.Element) {
-			tip.AttachTo(el, ui.AnchorEnd, ui.AnchorStart).MarginStart(Space10)
-			tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
-			tip.Children(func() { ui.Text(c, n.Name()).FontSize(Meta.Size) })
-		})
+		railTip(c, k, el, n.Name())
 	}
 	return el.Clicked() && !n.Inert
 }
+
+func railTip(c *ui.Context, k Colors, el ui.Element, text string) {
+	ui.TooltipBase(c, el, func(tip ui.Element) {
+		tip.AttachTo(el, ui.AnchorEnd, ui.AnchorStart).MarginStart(Space10)
+		tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
+		tip.Children(func() { ui.Text(c, text).FontSize(Meta.Size) })
+	})
+}
+
+type Named struct{ ID, Name string }
+
+// Monograms assigns each fleet two letters, in ID order so a reorder never changes a mark.
+func Monograms(fleets []Named) map[string]string {
+	order := append([]Named(nil), fleets...)
+	sort.SliceStable(order, func(i, j int) bool { return order[i].ID < order[j].ID })
+	taken := make(map[string]bool, len(order))
+	out := make(map[string]string, len(order))
+	for _, f := range order {
+		for _, m := range monoCandidates(f.Name, f.ID) {
+			if !taken[m] {
+				taken[m], out[f.ID] = true, m
+				break
+			}
+		}
+	}
+	return out
+}
+
+func monoCandidates(name, id string) []string {
+	var words, letters []rune
+	for _, w := range strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		r := []rune(w)
+		words = append(words, unicode.ToUpper(r[0]))
+		for _, x := range r {
+			letters = append(letters, unicode.ToUpper(x))
+		}
+	}
+	var out []string
+	if len(words) > 1 {
+		out = append(out, string(words[:2]))
+	}
+	for i := 1; i < len(letters); i++ {
+		out = append(out, string([]rune{letters[0], letters[i]}))
+	}
+	first := "F"
+	if len(letters) > 0 {
+		first = string(letters[0])
+	}
+	for _, r := range strings.ToUpper(id) {
+		out = append(out, first+string(r))
+	}
+	return append(out, first+"?")
+}
+
+func FleetTip(id string) string { return "Fleet ID " + id }
 
 func attentionDot(c *ui.Context, k Colors, tone string, open bool) {
 	shape := func() {
@@ -200,7 +258,7 @@ func attentionDot(c *ui.Context, k Colors, tone string, open bool) {
 		shape()
 		return
 	}
-	ui.Box(c).Absolute().Top(5).Right(5).Padding(2).Radius(RadiusPill).Background(k.Panel).Children(shape)
+	ui.Box(c).Absolute().Top(-2).Right(-4).Padding(2).Radius(RadiusPill).Background(k.Panel).Children(shape)
 }
 
 func countPill(c *ui.Context, text string, bg, fg ui.Color) {
@@ -262,9 +320,13 @@ func mastheadRow(c *ui.Context, k Colors, id, name string, pad float32, onMenu, 
 			onMenu()
 		}
 		ui.Icon(c, Icon("mark")).Size(22, 22).TextColor(tint)
-		ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
+		title := ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
 		if id != "" {
-			ui.Text(c, id).Font("monospace").FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
+			ui.TooltipBase(c, title, func(tip ui.Element) {
+				tip.AttachTo(title, ui.AnchorStart, ui.AnchorEnd).Margin(Space6, 0, 0, 0)
+				tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
+				tip.Children(func() { ui.Text(c, FleetTip(id)).Font("monospace").FontSize(Meta.Size) })
+			})
 		}
 		ui.Spacer(c)
 		trailing()

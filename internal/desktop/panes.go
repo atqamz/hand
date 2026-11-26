@@ -360,7 +360,7 @@ func (a *App) workerKeyButtons(c *ui.Context, p palette, need Need) {
 func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 	more := ui.ButtonBase(c.Key("more")).Size(kit.Control, kit.Control).Radius(kit.RadiusMD).
 		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("More")
-	more.Children(func() { ui.Icon(c, kit.Icon("more")).TextColor(k.Muted) })
+	more.Children(func() { ui.Icon(c, kit.Icon("gear")).TextColor(k.Muted) })
 	more.PopoverMenuButton(func(m *ui.Menu) {
 		if sup != nil && sup.Resumable && !sup.Live && sup.Status != "running" && m.Item("New session").Disabled(a.Busy).Chosen() {
 			a.Supervise("start")

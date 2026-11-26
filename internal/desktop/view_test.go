@@ -90,7 +90,8 @@ func TestFleetSwitch(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "golden", "second")
 	click(t, tt, "second")
-	mustText(t, tt, "second", secondID)
+	mustText(t, tt, "second")
+	mustNotText(t, tt, secondID)
 	mustNotText(t, tt, "f00000000e0aa")
 	if app.Fleet.ID != secondID {
 		t.Fatalf("fleet = %s, want %s", app.Fleet.ID, secondID)

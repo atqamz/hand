@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -255,6 +256,87 @@ func TestAClosedRailDrawsTheLinkShapeAtTheLowerRightOfTheFleetMark(t *testing.T)
 		without := mk("")
 		if lr, other := red(without, "lab"); lr+other != 0 {
 			t.Errorf("dark=%v: a fleet with no link draws %d link pixels", dark, lr+other)
+		}
+	}
+}
+
+func TestMonograms(t *testing.T) {
+	got := Monograms([]Named{{"b2", "Hand Dev"}, {"a1", "hand"}, {"c3", "Harbor"}, {"d4", "ha"}, {"e5", "x"}, {"f6", ""}})
+	want := map[string]string{"a1": "HA", "b2": "HD", "c3": "HR", "d4": "H4", "e5": "XE", "f6": "FF"}
+	if !maps.Equal(got, want) {
+		t.Errorf("monograms = %v, want %v", got, want)
+	}
+	seen := map[string]string{}
+	for id, m := range got {
+		if len([]rune(m)) != 2 {
+			t.Errorf("%s: %q is not two letters", id, m)
+		}
+		if other, dup := seen[m]; dup {
+			t.Errorf("%q used by %s and %s", m, other, id)
+		}
+		seen[m] = id
+	}
+	rev := Monograms([]Named{{"f6", ""}, {"e5", "x"}, {"d4", "ha"}, {"c3", "Harbor"}, {"b2", "Hand Dev"}, {"a1", "hand"}})
+	if !maps.Equal(got, rev) {
+		t.Errorf("order changes marks: %v vs %v", got, rev)
+	}
+}
+
+func TestFleetTip(t *testing.T) {
+	if got := FleetTip("f00000000e0b1"); got != "Fleet ID f00000000e0b1" {
+		t.Errorf("tip = %q", got)
+	}
+}
+
+func hoverShows(tt *ui.Tester, target, want string) bool {
+	el, ok := tt.Find(target)
+	if !ok {
+		return false
+	}
+	tt.Move(el.X+el.W/2, el.Y+el.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	_, shown := tt.Find(want)
+	return shown
+}
+
+func TestTheMastheadShowsTheFleetIDOnlyInATooltipOnTheName(t *testing.T) {
+	k := ColorsFor(false)
+	const id = "f00000000e0b1"
+	tt := ui.NewTester(func(c *ui.Context) { Masthead(c, k, id, "golden", func() {}) }, 600, 200)
+	tt.Frame()
+	if tt.HasText(FleetTip(id)) || tt.HasText(id) {
+		t.Errorf("the fleet ID is in the masthead: %q", tt.Texts())
+	}
+	if !hoverShows(tt, "golden", FleetTip(id)) {
+		t.Errorf("no tooltip on the name, in %q", tt.Texts())
+	}
+}
+
+func TestTheRailToggleNamesItselfOnHover(t *testing.T) {
+	k := ColorsFor(false)
+	for _, open := range []bool{false, true} {
+		label := "Show labels"
+		if open {
+			label = "Hide labels"
+		}
+		tt := ui.NewTester(func(c *ui.Context) { Rail(c, k, open, func() {}, func() {}) }, 400, 300)
+		tt.Frame()
+		el, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("no %q in %q", label, tt.Texts())
+		}
+		tt.Move(el.X+el.W/2, el.Y+el.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		n := 0
+		for _, s := range tt.Texts() {
+			if s == label {
+				n++
+			}
+		}
+		if n < 2 {
+			t.Errorf("open=%v: no tooltip, in %q", open, tt.Texts())
 		}
 	}
 }
