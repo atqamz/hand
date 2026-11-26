@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -36,6 +37,14 @@ func TestAPIDocFrameTakesRangesAndHead(t *testing.T) {
 	head := request(h, "HEAD", "/api/v1/doc/reports/t1/page.html?raw&frame", nil, true)
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != strconv.Itoa(len(full)) {
 		t.Errorf("head = %d, %d bytes, length %q, body is %d", head.Code, head.Body.Len(), head.Header().Get("Content-Length"), len(full))
+	}
+	req := httptest.NewRequest("GET", "/api/v1/doc/reports/t1/page.html?raw&frame", nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	req.Header.Set("Range", "bytes=0-9")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent || rec.Body.String() != full[:10] || rec.Header().Get("Content-Range") != "bytes 0-9/"+strconv.Itoa(len(full)) {
+		t.Errorf("range = %d %q %q, want 206 %q of %d", rec.Code, rec.Body, rec.Header().Get("Content-Range"), full[:10], len(full))
 	}
 }
 
@@ -140,6 +149,42 @@ func TestAPIDocFrameRefusesWhatRawRefuses(t *testing.T) {
 			testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
 			if rec.Header().Get("Content-Security-Policy") == pdfPolicy || strings.Contains(rec.Body.String(), "data:image") {
 				t.Errorf("%s%s without the cookie leaked: %q", name, q, rec.Body)
+			}
+		}
+	}
+}
+
+func TestAPIDocFrameIsIgnoredForAnSVGWithAnImage(t *testing.T) {
+	svg := `<img src="flow.png"><svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"></svg>`
+	files := docFiles()
+	files["reports/t1/pic.svg"] = svg
+	h, _ := apiDocBoard(t, files)
+	for _, q := range []string{"?raw", "?raw&frame"} {
+		rec := request(h, "GET", "/api/v1/doc/reports/t1/pic.svg"+q, nil, true)
+		if rec.Body.String() != svg || rec.Header().Get("Content-Type") != "image/svg+xml" {
+			t.Errorf("%s = %q %q", q, rec.Header().Get("Content-Type"), rec.Body)
+		}
+	}
+}
+
+func TestAPIDocPDFPolicyFollowsTheNameInAnyCaseAndOnlyIt(t *testing.T) {
+	files := docFiles()
+	for _, rel := range []string{"up.PDF", "mixed.PdF"} {
+		files["reports/t1/"+rel] = pdfBytes
+	}
+	for _, rel := range []string{"x.txt", "x.html", "x.htm", "x.svg", "x.pdf.html", "x.pdfx", "x.pdf.txt"} {
+		files["reports/t1/"+rel] = pdfBytes + "<script>1</script>"
+	}
+	h, _ := apiDocBoard(t, files)
+	for _, rel := range []string{"up.PDF", "mixed.PdF"} {
+		rec := request(h, "GET", "/api/v1/doc/reports/t1/"+rel+"?raw", nil, true)
+		headers(t, rel, rec, map[string]string{"Content-Type": "application/pdf", "Content-Security-Policy": pdfPolicy})
+	}
+	for _, rel := range []string{"x.txt", "x.html", "x.htm", "x.svg", "x.pdf.html", "x.pdfx", "x.pdf.txt"} {
+		for _, q := range []string{"?raw", "?raw&frame"} {
+			rec := request(h, "GET", "/api/v1/doc/reports/t1/"+rel+q, nil, true)
+			if rec.Header().Get("Content-Type") == "application/pdf" || !strings.HasPrefix(rec.Header().Get("Content-Security-Policy"), "sandbox;") {
+				t.Errorf("%s%s = %q under %q", rel, q, rec.Header().Get("Content-Type"), rec.Header().Get("Content-Security-Policy"))
 			}
 		}
 	}
