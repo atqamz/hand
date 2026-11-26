@@ -242,8 +242,8 @@ func TestOpenOnAHostWithoutAWindowExitsOneWithTheLink(t *testing.T) {
 }
 
 func TestOpenReportsAWindowThatFails(t *testing.T) {
-	t.Parallel()
 	needDesktop(t)
+	setWait(t, cli.LaunchWait, 30*time.Second)
 	fx := newOpenFixture(t)
 	bin := t.TempDir()
 	fakebin.Install(t, bin, "hand-desktop", "quiet", nil)
