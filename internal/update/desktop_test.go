@@ -559,26 +559,30 @@ func skipUnlessWindows(t *testing.T) {
 	}
 }
 
-func TestRunWritesTheStartMenuShortcutOnAWindowsEdgeUpdate(t *testing.T) {
+func TestRunWritesTheStartMenuShortcutOnAWindowsUpdate(t *testing.T) {
 	skipUnlessWindows(t)
-	f := windowFixture(t, "edge")
-	rep, err := Run(context.Background(), f.o)
-	if err != nil || rep.Failed || len(rep.Help) != 0 {
-		t.Fatalf("report = %+v, %v", rep, err)
-	}
-	if state, where := launcher.Check(f.o.Getenv, desktopasset.Path(f.target, "windows", "")); state != launcher.OK {
-		t.Fatalf("the shortcut is %q at %s", state, where)
-	}
-	f.o.Check = true
-	f.isCurrent()
-	if err := os.Remove(filepath.Join(f.data, "Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Run(context.Background(), f.o); err != nil {
-		t.Fatal(err)
-	}
-	if state, _ := launcher.Check(f.o.Getenv, desktopasset.Path(f.target, "windows", "")); state != launcher.Missing {
-		t.Fatalf("--check wrote the shortcut: %q", state)
+	for _, channel := range []string{"edge", "stable"} {
+		t.Run(channel, func(t *testing.T) {
+			f := windowFixture(t, channel)
+			rep, err := Run(context.Background(), f.o)
+			if err != nil || rep.Failed || len(rep.Help) != 0 {
+				t.Fatalf("report = %+v, %v", rep, err)
+			}
+			if state, where := launcher.Check(f.o.Getenv, desktopasset.Path(f.target, "windows", "")); state != launcher.OK {
+				t.Fatalf("the shortcut is %q at %s", state, where)
+			}
+			f.o.Check = true
+			f.isCurrent()
+			if err := os.Remove(filepath.Join(f.data, "Microsoft", "Windows", "Start Menu", "Programs", "Hand.lnk")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Run(context.Background(), f.o); err != nil {
+				t.Fatal(err)
+			}
+			if state, _ := launcher.Check(f.o.Getenv, desktopasset.Path(f.target, "windows", "")); state != launcher.Missing {
+				t.Fatalf("--check wrote the shortcut: %q", state)
+			}
+		})
 	}
 }
 

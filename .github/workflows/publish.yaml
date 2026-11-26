@@ -198,7 +198,7 @@ jobs:
   release-setup:
     name: "[Release] Windows Setup"
     needs: [release-binaries, release-iroh]
-    if: ${{ !cancelled() && needs.release-binaries.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.release-iroh.result) }}
+    if: ${{ !cancelled() && needs.release-binaries.result == 'success' }}
     permissions:
       contents: write
     uses: ./.github/workflows/setup.yaml

@@ -92,7 +92,7 @@ func TestSupportedPerSystemArchitectureAndChannel(t *testing.T) {
 			}
 		}
 	}
-	if why := Unsupported("freebsd", "arm64"); !strings.Contains(why, "freebsd/arm64") || !strings.Contains(why, "Linux and macOS") || !strings.Contains(why, "Windows (amd64, in release and edge builds)") {
+	if why := Unsupported("freebsd", "arm64"); !strings.Contains(why, "freebsd/arm64") || !strings.Contains(why, "Linux and macOS") || !strings.Contains(why, "Windows (amd64, in stable and edge builds)") {
 		t.Fatalf("Unsupported = %q", why)
 	}
 }

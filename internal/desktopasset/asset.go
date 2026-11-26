@@ -61,7 +61,7 @@ func Supported(goos, goarch, channel string) bool {
 }
 
 func Unsupported(goos, goarch string) string {
-	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux and macOS (amd64 and arm64) and on Windows (amd64, in release and edge builds); the Board works in a browser"
+	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux and macOS (amd64 and arm64) and on Windows (amd64, in stable and edge builds); the Board works in a browser"
 }
 
 func Path(self, goos, home string) string {
