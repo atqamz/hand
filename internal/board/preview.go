@@ -26,6 +26,7 @@ const (
 	maxRows     = 2000
 	maxCell     = 300
 	sandbox     = "sandbox; default-src 'none'"
+	pdfPolicy   = "default-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 )
 
 var (
@@ -72,7 +73,7 @@ func isHTML(name string) bool {
 	return ext == ".html" || ext == ".htm"
 }
 
-func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.FileInfo, rel, sniffed string, head []byte) {
+func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.FileInfo, rel, sniffed string, head []byte, api bool) {
 	name := path.Base(rel)
 	h := w.Header()
 	text := textHead(head)
@@ -86,6 +87,9 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 		ctype = media(sniffed, name)
 	case isPDF(head, name):
 		ctype = "application/pdf"
+		if api {
+			policy = pdfPolicy
+		}
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 	case text && strings.EqualFold(path.Ext(name), ".svg"):
 		ctype, policy = "image/svg+xml", sandbox+"; style-src 'unsafe-inline'"
@@ -93,7 +97,7 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 		ctype, policy = "text/html; charset=utf-8", sandbox+"; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 		q := r.URL.Query()
-		frame = q.Has("frame") && !q.Has("raw") && fi.Size() <= maxWhole
+		frame = q.Has("frame") && (api || !q.Has("raw")) && fi.Size() <= maxWhole
 	case !text:
 		ctype = "application/octet-stream"
 		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))

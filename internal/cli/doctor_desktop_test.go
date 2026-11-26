@@ -84,10 +84,11 @@ func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
 }
 
 func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
-	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "stable") {
-		t.Skip("this platform supports hand-desktop on a stable build")
+	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "source") {
+		t.Skip("this platform supports hand-desktop on a source build")
 	}
 	fx := newDoctorFixture(t)
+	buildChannel(t, "source")
 	holdWatchLock(t, fx.h.home)
 	out := fx.h.ok("doctor")
 	row := checkRows(t, out)["desktop"]
@@ -97,24 +98,33 @@ func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
 }
 
 func TestDoctorDesktopReadsTheBinaryNextToHand(t *testing.T) {
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
-	}
-	fx := newDoctorFixture(t)
-	buildChannel(t, "edge")
-	holdWatchLock(t, fx.h.home)
-	next := filepath.Join(fx.self, desktopasset.Name)
-	if runtime.GOOS == "windows" {
-		next += ".exe"
-	}
-	b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
-	if err := fakebin.WriteExecutable(next, b); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Remove(next) })
-	out := fx.h.ok("doctor")
-	if !strings.Contains(field(out, "desktop"), next) {
-		t.Fatalf("desktop field = %q, want %s", field(out, "desktop"), next)
+	for _, channel := range []string{"edge", "stable"} {
+		t.Run(channel, func(t *testing.T) {
+			if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, channel) {
+				t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
+			}
+			fx := newDoctorFixture(t)
+			buildChannel(t, channel)
+			holdWatchLock(t, fx.h.home)
+			next := filepath.Join(fx.self, desktopasset.Name)
+			if runtime.GOOS == "windows" {
+				next += ".exe"
+			}
+			b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+			if err := fakebin.WriteExecutable(next, b); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Remove(next) })
+			out := fx.h.ok("doctor")
+			if !strings.Contains(field(out, "desktop"), next) {
+				t.Fatalf("desktop field = %q, want %s", field(out, "desktop"), next)
+			}
+			if runtime.GOOS == "windows" {
+				if row := checkRows(t, out)["desktop window"]; row[0] != "info" || !strings.Contains(row[1], "untested on a real Windows PC") {
+					t.Fatalf("desktop window = %q in:\n%s", row, out)
+				}
+			}
+		})
 	}
 }
 
@@ -200,7 +210,7 @@ func TestDoctorSaysHowFarTheWindowWasTried(t *testing.T) {
 		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
 	}
 	fx := newDoctorFixture(t)
-	buildChannel(t, "edge")
+	buildChannel(t, "stable")
 	holdWatchLock(t, fx.h.home)
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
@@ -220,7 +230,7 @@ func TestDoctorSaysHowFarTheWindowWasTried(t *testing.T) {
 		}
 		return
 	}
-	if window[0] != "info" || !strings.Contains(window[1], "edge builds only") || !strings.Contains(window[1], "CI runner, not yet on a real Windows PC") {
+	if window[0] != "info" || !strings.Contains(window[1], "untested on a real Windows PC") || !strings.Contains(window[1], "opened on a CI runner") {
 		t.Fatalf("desktop window = %q", window)
 	}
 	if entry[0] != "" {

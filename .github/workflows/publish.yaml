@@ -195,6 +195,16 @@ jobs:
       ref: ${{ needs.release-e2e.outputs.sha }}
       tag: ${{ inputs.tag || github.ref_name }}
 
+  release-setup:
+    name: "[Release] Windows Setup"
+    needs: [release-binaries, release-iroh]
+    if: ${{ !cancelled() && needs.release-binaries.result == 'success' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/setup.yaml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+
   android-release:
     name: "[Android] Release"
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-v')) || (github.event_name == 'workflow_dispatch' && inputs.job == 'android-release')

@@ -147,7 +147,7 @@ func (b *Board) apiDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	sniffed := http.DetectContentType(head)
 	if q.Has("raw") {
-		b.raw(w, r, f, fi, rel, sniffed, head)
+		b.raw(w, r, f, fi, rel, sniffed, head, true)
 		return
 	}
 	if ranged {
