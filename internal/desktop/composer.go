@@ -121,6 +121,9 @@ func (a *App) openBlockedNeed() {
 	if a.Screen != BoardScreen {
 		a.Show(BoardScreen)
 	}
+	if a.narrow {
+		a.chooseTab(tabNeeds)
+	}
 	items := a.visibleNeeds()
 	if len(items) > 0 {
 		a.needTop = needKey(items[0])
@@ -129,6 +132,7 @@ func (a *App) openBlockedNeed() {
 		if n.Kind == "blocked" && a.needOpens(n) {
 			a.needChosen = map[string]bool{needKey(n): true}
 			a.needClosedTop = ""
+			a.needReveal = needKey(n)
 			return
 		}
 	}

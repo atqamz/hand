@@ -223,9 +223,12 @@ func blockedFixture(t *testing.T) *fixture {
 
 func TestABlockedSupervisorShowsTheKeys(t *testing.T) {
 	f := blockedFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{Kind: "blocked", Ref: "s1", Word: "BLOCKED", Tone: "fail"}}, st.Needs.Items...)
+	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	mustText(t, tt, "Keys", "Enter", "Esc", "↑", "↓", "1", "2", "3")
+	mustText(t, tt, "Enter", "Esc", "↑", "↓", "1", "2", "3")
 	click(t, tt, "Enter")
 	if f.count("keys:enter") != 1 {
 		t.Fatalf("key calls = %d", f.count("keys:enter"))
@@ -294,12 +297,12 @@ func TestAStaleAskPressIsRefusedAndTheAskStays(t *testing.T) {
 	}
 }
 
-func TestTheBlockedPromptSitsBesideTheNeedsNotBehindThem(t *testing.T) {
+func TestTheBlockedPromptShowsOnceInTheNeeds(t *testing.T) {
 	app := newApp(t, askFixture(t))
 	tt := newTester(app)
-	mustText(t, tt, "Blocked · s1", "Do you want to proceed?")
-	click(t, tt, "Blocked · s1")
-	mustText(t, tt, "Do you want to proceed?")
+	if n := countText(t, tt, "Do you want to proceed?"); n != 1 {
+		t.Fatalf("the ask is shown %d times, want once in the card", n)
+	}
 	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("screen = %v", app.Screen)
 	}
