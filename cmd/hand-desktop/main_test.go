@@ -144,8 +144,11 @@ func TestRefusalFollowsTheStampedChannel(t *testing.T) {
 		t.Fatal("an unstamped build did not refuse on Windows")
 	}
 	desktopasset.Channel = "stable"
-	if refusal("windows", "amd64") == "" {
-		t.Fatal("a stable build did not refuse on Windows")
+	if msg := refusal("windows", "amd64"); msg != "" {
+		t.Fatalf("a stable build refused on Windows: %q", msg)
+	}
+	if refusal("windows", "arm64") == "" {
+		t.Fatal("a stable build did not refuse on Windows arm64")
 	}
 	desktopasset.Channel = "edge"
 	if msg := refusal("windows", "amd64"); msg != "" {

@@ -117,15 +117,11 @@ try {
     Expect ($l.Dir -eq $bin) "the shortcut starts in $($l.Dir)"
     Expect ($l.Icon -eq "$(Join-Path $bin 'hand.ico'),0") "the shortcut's icon is $($l.Icon)"
     Expect ($l.Description -eq $description) "the shortcut's description is '$($l.Description)'"
-    $channel = ''
-    foreach ($line in @(& (Join-Path $bin 'hand.exe') version)) { if ($line -match '^channel: (\S+)\s*$') { $channel = $Matches[1] } }
-    if ($channel -eq 'edge') {
-        $env:SECONDHAND_HOME = Join-Path $Work 'home'
-        Push-Location (Join-Path $Work 'cwd')
-        try { $doctor = (@(& (Join-Path $bin 'hand.exe') doctor 2>&1 | Out-String) -join '') }
-        finally { Pop-Location }
-        Expect ($doctor -match '(?m)^\s*start menu shortcut,ok,') "hand doctor does not call the shortcut ok:`n$doctor"
-    }
+    $env:SECONDHAND_HOME = Join-Path $Work 'home'
+    Push-Location (Join-Path $Work 'cwd')
+    try { $doctor = (@(& (Join-Path $bin 'hand.exe') doctor 2>&1 | Out-String) -join '') }
+    finally { Pop-Location }
+    Expect ($doctor -match '(?m)^\s*start menu shortcut,ok,') "hand doctor does not call the shortcut ok:`n$doctor"
 
     Write-Host '== silent install over the install'
     Expect ((Invoke-Setup @() (Join-Path $logs 'reinstall.log')) -eq 0) 'the second silent install failed'
