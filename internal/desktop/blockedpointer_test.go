@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -76,5 +77,55 @@ func TestABlockedHeldSupervisorReadsBlocked(t *testing.T) {
 	st.Supervisor = &sup
 	if got := desktop.SupervisorWord(st); got != "blocked" {
 		t.Fatalf("a blocked and held supervisor reads %q, want blocked", got)
+	}
+}
+
+func TestNoPointerWhileNeedsHoldsNoBlockedItem(t *testing.T) {
+	f := blockedScreen(t, true)
+	st := f.status[fleetID]
+	st.Needs.Items = slices.DeleteFunc(slices.Clone(st.Needs.Items), func(n desktop.Need) bool { return n.Kind == "blocked" })
+	f.status[fleetID] = st
+	tt := sized(t, newApp(t, f), 1100, 760, false)
+	mustNotText(t, tt, "The question is in Needs")
+	mustNotText(t, tt, "The screen is in Needs")
+}
+
+func TestAnUnreadStatusShowsNoPointer(t *testing.T) {
+	f := blockedScreen(t, true)
+	app := newApp(t, f)
+	f.fail = errors.New("the status read failed")
+	app.Refresh()
+	tt := sized(t, app, 1100, 760, false)
+	mustText(t, tt, "unknown")
+	mustNotText(t, tt, "The question is in Needs")
+}
+
+func TestABlockedHeldSupervisorKeepsThePointer(t *testing.T) {
+	f := blockedScreen(t, true)
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Held = true
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+	tt := sized(t, newApp(t, f), 1100, 760, false)
+	mustText(t, tt, "The question is in Needs")
+}
+
+func TestAnUnreadBlockedStatusLeavesTheComposerHintPlain(t *testing.T) {
+	const hint = "s1 is waiting on a screen in Needs; your message waits too."
+	f := blockedScreen(t, true)
+	st := f.status[fleetID]
+	st.ComposerHint = hint
+	f.status[fleetID] = st
+	app := newApp(t, f)
+	tt := sized(t, app, 1100, 760, false)
+	if n := countExact(tt, hint); n != 2 {
+		t.Fatalf("a blocked supervisor's hint is shown %d times, want a link with its label and text", n)
+	}
+	f.fail = errors.New("the status read failed")
+	app.Refresh()
+	tt = sized(t, app, 1100, 760, false)
+	if n := countExact(tt, hint); n > 1 {
+		t.Fatalf("an unread status keeps the hint a link (%d)", n)
 	}
 }

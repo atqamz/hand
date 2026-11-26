@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -243,7 +244,9 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 }
 
 func (a *App) blockedPointer(c *ui.Context, k kit.Colors) {
-	if !a.blockedHint() {
+	if !a.blockedHint() || !slices.ContainsFunc(a.Status.Needs.Items, func(n Need) bool {
+		return n.Kind == "blocked" && n.Ref == a.Status.Supervisor.Ref
+	}) {
 		return
 	}
 	text := "The screen is in Needs"
