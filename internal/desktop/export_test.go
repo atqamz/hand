@@ -120,3 +120,8 @@ func PhoneHeld(a *App) bool {
 }
 
 func QRImage(link string) (*image.Gray, bool) { return qrImage(link) }
+
+const (
+	OverflowIcon = overflowIcon
+	OverflowTip  = overflowTip
+)
