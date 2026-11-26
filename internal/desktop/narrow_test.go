@@ -128,7 +128,7 @@ func TestTheSheetOpensFromTheMastheadAndClosesOnEscapeOrAPick(t *testing.T) {
 	if _, ok := tt.Find("Pages and fleets"); !ok {
 		t.Fatal("the sheet is not drawn")
 	}
-	mustText(t, tt, "Board", "Screen", "Companion", "golden", "second")
+	mustText(t, tt, "Board", "Companion", "golden", "second")
 	if _, ok := tt.Find("Show labels"); ok {
 		t.Error("the rail is drawn beside the sheet")
 	}
@@ -152,7 +152,7 @@ func TestTheSheetOpensFromTheMastheadAndClosesOnEscapeOrAPick(t *testing.T) {
 		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyTab)
-	if !tt.Focused("Screen") {
+	if !tt.Focused("Companion") {
 		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEscape)

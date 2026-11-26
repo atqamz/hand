@@ -16,7 +16,7 @@ func tailscaleMain(args []string) int {
 	return 0
 }
 
-func TestOpenPrintPrintsTheAppLinkNextToTheTokenLink(t *testing.T) {
+func TestOpenPrintPrintsTheViewLink(t *testing.T) {
 	fx := newOpenFixture(t)
 	for ref, page := range map[string]string{
 		"t1":         "task/t1",
@@ -31,10 +31,10 @@ func TestOpenPrintPrintsTheAppLinkNextToTheTokenLink(t *testing.T) {
 			args = append(args, ref)
 		}
 		out := fx.h.ok(args...)
-		if got, want := field(out, "app"), "handboard://open/"+fx.id+"/"+page; got != want {
-			t.Fatalf("open --print %q app = %q, want %q", ref, got, want)
+		if got, want := field(out, "link"), "handboard://view/"+fx.id+"/"+page; got != want {
+			t.Fatalf("open --print %q link = %q, want %q", ref, got, want)
 		}
-		if strings.Contains(field(out, "app"), fx.token(t)) || !strings.HasPrefix(field(out, "url"), fx.base+"/"+fx.id+"/") {
+		if strings.Contains(out, "token") || strings.Contains(out, "url:") || strings.Contains(out, "app:") {
 			t.Fatalf("open --print %q = %q", ref, out)
 		}
 	}

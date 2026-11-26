@@ -498,11 +498,3 @@ func TestSameNamedDeliveredFilesOpenTheirOwnDocument(t *testing.T) {
 		t.Fatalf("the second file opened %v %q", app.Screen, app.Ref)
 	}
 }
-
-func TestRailScreenOpensThroughHandOpen(t *testing.T) {
-	hand := installFakeHand(t)
-	app := homedApp(t, hand.home)
-	tt := newTester(app)
-	click(t, tt, "Screen")
-	hand.want(t, "open", "screen")
-}

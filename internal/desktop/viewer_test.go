@@ -137,15 +137,15 @@ func TestTheBackdropBlocksThePage(t *testing.T) {
 	}
 	for range 12 {
 		tt.Key(0, ui.KeyTab)
-		for _, behind := range []string{"Board", "Tasks", "Skills", "Conversation", "Screen", "Companion"} {
+		for _, behind := range []string{"Board", "Tasks", "Skills", "Conversation", "Companion"} {
 			if tt.Focused(behind) {
 				t.Fatalf("Tab left the viewer for %q", behind)
 			}
 		}
 	}
-	screen, ok := tt.Find("Screen")
+	screen, ok := tt.Find("Companion")
 	if !ok {
-		t.Fatal("no Screen in the rail behind the viewer")
+		t.Fatal("no Companion in the rail behind the viewer")
 	}
 	tt.ClickAt(8, screen.Y+screen.H/2)
 	tt.Frame()

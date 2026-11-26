@@ -218,7 +218,7 @@ Steps:
 . $D/env.sh; cd $D/fleet
 hand supervisor stop
 if lsof -nP -iTCP:7777 -sTCP:LISTEN >/dev/null; then ($D/bin/hand board --addr 127.0.0.1:7790 > $D/board.log 2>&1 &); sleep 3; fi
-hand open --print
+hand board start
 ```
 
 The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue. Starting a board is also part of `M8`; `M3` does not judge it.
@@ -575,7 +575,7 @@ EOF
 launchctl load $PLIST
 sleep 10
 launchctl list | grep dev.secondhand.dogfood
-hand open --print > /dev/null && echo board-answers
+hand board start > /dev/null && echo board-answers
 ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='
 ```
 

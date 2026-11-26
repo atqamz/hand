@@ -60,6 +60,8 @@ func TestParseArgsRefusesWhatIsNotAnOpenLink(t *testing.T) {
 		"fleet name":   {"--open", "handboard://open/alpha/"},
 		"pairing link": {"--open", "handboard://c#v=1&f=" + fleetID},
 		"traversal":    {"--open", "handboard://open/" + fleetID + "/../../etc/passwd"},
+		"view dotdot":  {"--open", "handboard://view/" + fleetID + "/doc/../../etc/passwd"},
+		"view screen":  {"--open", "handboard://view/" + fleetID + "/screen"},
 		"newline":      {"--open", "handboard://open/" + fleetID + "/task/t1\n--fleet=x"},
 		"no value":     {"--open"},
 		"positional":   {"handboard://open/" + fleetID + "/"},
@@ -210,5 +212,13 @@ func TestRemoteHostsAreOffOnWindowsWithTheReason(t *testing.T) {
 	defer closer()
 	if rd.desk != nil || rd.RemoteStore != nil || !strings.Contains(rd.off, "Windows") {
 		t.Fatalf("windows gave %+v", rd)
+	}
+}
+
+func TestParseArgsTakesAViewLink(t *testing.T) {
+	link := "handboard://view/" + fleetID + "/doc/my%20notes/a.md"
+	got, err := parseArgs([]string{"--open", link})
+	if err != nil || got.open != link {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 }

@@ -52,8 +52,6 @@ func (a *App) openBoardPage(dest string) bool {
 	return true
 }
 
-func (a *App) OpenScreen() { a.runOpen("screen") }
-
 func (a *App) runOpen(args ...string) {
 	if a.OpenBusy || a.remoteFleet() {
 		return

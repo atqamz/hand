@@ -212,7 +212,7 @@ hand open; echo "exit=$?"
 sleep 3
 cat $SECONDHAND_HOME/board.addr
 ls $SECONDHAND_HOME/board.log
-hand open --print > /dev/null && echo board-answers
+hand board start > /dev/null && echo board-answers
 ```
 
 **2.** Kill the watcher. The board starts it again within 30 seconds; wait up to 60:
@@ -228,7 +228,7 @@ Expected:
 - `hand open` either prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes) with exit 0, or fails with a message that names the missing opener and tells you to open the page yourself (with the board still started); a hang is a failure;
 - `watch: running` returns within 60 seconds of the kill.
 
-Evidence: `{ hand open; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never print `hand open --print` into an issue.
+Evidence: `{ hand board start; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never print `hand open --print` into an issue.
 
 If it fails: file the output above and the end of `$SECONDHAND_HOME/board.log`.
 

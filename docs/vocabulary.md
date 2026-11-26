@@ -603,7 +603,11 @@ What the Companion page shows, as a QR code and as text, to pair the Companion a
 
 ### Open link
 
-What an alert sends to open an item in the Hand app: `handboard://open/<fleet id>/<page>`, with `<page>` empty for the fleet page, `task/tN`, `decision/dN` or `attempt/aN`, and `#rN` after `task/tN` for a report. Hand puts it in `HAND_NOTIFY_APP_URL` and prints it as `app` with `hand open --print`. It holds no token, code or endpoint ID. The host `open` keeps it apart from the [companion link](#companion-link), whose host is `c`. The grammar and its test vectors are in [`companion.md`](companion.md#the-open-link).
+What an alert sends to open an item in the Hand app: `handboard://open/<fleet id>/<page>`, with `<page>` empty for the fleet page, `task/tN`, `decision/dN` or `attempt/aN`, and `#rN` after `task/tN` for a report. Hand puts it in `HAND_NOTIFY_APP_URL` and `hand open --print` prints the [view link](#view-link) instead. It holds no token, code or endpoint ID. The host `open` keeps it apart from the [companion link](#companion-link), whose host is `c`. The grammar and its test vectors are in [`companion.md`](companion.md#the-open-link).
+
+### View link
+
+`handboard://view/<fleet id>/<page>`, a link for the Hand window only: the fleet page, `task/tN`, `decision/dN`, `attempt/aN`, `task/tN#rN`, `doc/PATH` (each segment percent-escaped), `tasks[?q=QUERY]`, `log`, `companion` and `alerts`. `hand open` builds it and runs `hand-desktop --open` with it; `hand open --print` prints it as `link`. It holds no token. The [open link](#open-link) stays the alert's and the Companion's. See [the view link](companion.md#the-view-link).
 
 ### Alert feed
 

@@ -27,12 +27,11 @@ The previews load the file from `?raw`, which sets the headers by type, always w
 
 It never shows dot files and dot folders, the files at the top of the fleet folder (`hand.db`, `board.token`, `AGENTS.md` and the rest of Hand's own), `backups/`, `cache/`, `luvus/`, `locks/`, `projects/`, a FIFO or device, a regular file with more than one hard link (a hard link to `hand.db` or `board.token` would otherwise pass the name check; it counts the links on Linux, macOS and Windows, so copy such a file to show it), or a path whose real path, after symlinks, leaves the fleet folder, and it says which rule refused the path. It works on a network address too, so the fleet's token also reads the fleet folder's files: keep the board on loopback and reach it through a tunnel.
 
-`hand open` opens a page in your browser, from inside a fleet:
+`hand open` opens the Hand window, not a browser page, from inside a fleet. The table lists the Board page each target used to open; the targets now open the same item in the window ([commands](commands.md)), and `hand open screen` is gone:
 
 | Command | Opens |
 |---|---|
 | `hand open`, `hand open supervisor` | the fleet page |
-| `hand open screen` | the Screen page (`/supervisor`) |
 | `hand open companion` (or `hand open phone`) | the Companion page (`/connect`) |
 | `hand open tasks [--] [QUERY]` | the Tasks page, searched for `QUERY` (`/tasks?q=`) when given |
 | `hand open tN` | the task |

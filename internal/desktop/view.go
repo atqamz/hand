@@ -202,9 +202,6 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
 		a.Show(HistoryScreen)
 	}
-	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
-		a.OpenScreen()
-	}
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
 		a.Show(PhoneScreen)
 	}

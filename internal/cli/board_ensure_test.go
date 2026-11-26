@@ -78,10 +78,11 @@ func openWithoutBoard(t *testing.T) *openFixture {
 }
 
 func TestOpenStartsNothingWhenABoardRuns(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	enableBoard(t, fx.h)
 	fx.h.ok("open")
-	fx.h.ok("open", "--print")
+	fx.h.ok("open")
 	if n := boardSpawns(fx.h); n != 0 {
 		t.Fatalf("boards started = %d, want 0", n)
 	}
@@ -89,10 +90,6 @@ func TestOpenStartsNothingWhenABoardRuns(t *testing.T) {
 
 func TestOpenStartsABoardDetached(t *testing.T) {
 	fx := openWithoutBoard(t)
-	out := fx.h.ok("open", "--print", "t1")
-	if !strings.Contains(out, "/"+fx.id+"/task/t1?token="+fx.token(t)) {
-		t.Fatalf("open --print = %q", out)
-	}
 	fx.h.ok("open", "t1")
 	if n := boardSpawns(fx.h); n != 1 {
 		t.Fatalf("boards started = %d, want 1", n)
@@ -100,12 +97,13 @@ func TestOpenStartsABoardDetached(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")); err != nil {
 		t.Fatalf("no board.log: %v", err)
 	}
-	if got := fx.opened(t, 1); len(got) != 1 || !strings.Contains(got[0], "/"+fx.id+"/task/t1?token=") {
+	if got := fx.opened(t, 1); len(got) != 1 || got[0] != "desktop --open handboard://view/"+fx.id+"/task/t1" {
 		t.Fatalf("opened %q", got)
 	}
 }
 
 func TestOpenTimesOutWhenTheBoardNeverAnswers(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	fx.stop()
 	log := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")
@@ -121,13 +119,14 @@ func TestOpenTimesOutWhenTheBoardNeverAnswers(t *testing.T) {
 		for deadline := time.Now().Add(10 * time.Second); os.Remove(log) != nil && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		}
 	})
-	_, errOut, code := fx.h.run("open", "--print")
+	_, errOut, code := fx.h.run("open")
 	if code != 3 || !strings.Contains(errOut, "the board did not answer within 300ms") || !strings.Contains(errOut, "read "+log) || !strings.Contains(errOut, "hand board") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
 
 func TestOpenReportsABoardThatExitsAtOnce(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	fx.stop()
 	dead := fakebin.Install(t, t.TempDir(), "dead", "die", nil)
@@ -140,7 +139,7 @@ func TestOpenReportsABoardThatExitsAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	began := time.Now()
-	_, errOut, code := fx.h.run("open", "--print")
+	_, errOut, code := fx.h.run("open")
 	if took := time.Since(began); took > 5*time.Second {
 		t.Fatalf("open took %s", took)
 	}
@@ -150,6 +149,7 @@ func TestOpenReportsABoardThatExitsAtOnce(t *testing.T) {
 }
 
 func TestOpenReportsASilentBoardWithoutATrailingColon(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	fx.stop()
 	quiet := fakebin.Install(t, t.TempDir(), "quiet", "quiet", nil)
@@ -157,7 +157,7 @@ func TestOpenReportsASilentBoardWithoutATrailingColon(t *testing.T) {
 	t.Cleanup(func() {
 		*cli.WatchExe = func() (string, error) { return "", errors.New("watcher start disabled in tests") }
 	})
-	_, errOut, code := fx.h.run("open", "--print")
+	_, errOut, code := fx.h.run("open")
 	log := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")
 	if code != 3 || !strings.Contains(errOut, "exited before it answered (exit status 1); read "+log) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
@@ -165,6 +165,7 @@ func TestOpenReportsASilentBoardWithoutATrailingColon(t *testing.T) {
 }
 
 func TestConcurrentOpensStartOneBoard(t *testing.T) {
+	needDesktop(t)
 	fx := openWithoutBoard(t)
 	var wg sync.WaitGroup
 	outs := make(chan string, 4)
@@ -172,7 +173,7 @@ func TestConcurrentOpensStartOneBoard(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			out, errOut, code := fx.h.run("open", "--print")
+			out, errOut, code := fx.h.run("open")
 			if code != 0 || errOut != "" {
 				outs <- "code=" + errOut
 				return
@@ -183,7 +184,7 @@ func TestConcurrentOpensStartOneBoard(t *testing.T) {
 	wg.Wait()
 	close(outs)
 	for out := range outs {
-		if !strings.Contains(out, "url:") {
+		if !strings.Contains(out, "opened:") {
 			t.Fatalf("a concurrent open failed: %s", out)
 		}
 	}
