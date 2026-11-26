@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/kit"
+	"github.com/atqamz/hand/internal/harness"
 )
 
 func fullModels() desktop.Models {
@@ -359,6 +361,11 @@ func TestScenesTheHarnessChoice(t *testing.T) {
 			"Stops s1 and starts a new session on codex; s1's conversation stays in Chat.", "listed 2 h ago"}},
 		{"working", nil, "codex", []string{"Switch to codex", "s1 is working; switch harness when its turn ends, or interrupt it first"}},
 		{"opencode", idleFixture, "opencode", []string{"opencode", "default", "Switch to opencode"}},
+		{"blocked", func(f *fixture) {
+			st := f.status[fleetID]
+			st.AgentState = "blocked"
+			f.status[fleetID] = st
+		}, "codex", []string{"Switch to codex", "s1 is blocked; answer its screen or wait until it is idle, then switch harness"}},
 	}
 	for _, dark := range []bool{false, true} {
 		mode := map[bool]string{false: "light", true: "dark"}[dark]
@@ -430,8 +437,8 @@ func TestTheFirstRunStripStartsTheChosenHarness(t *testing.T) {
 	tt := newTester(newApp(t, f))
 	mustText(t, tt, "Other harness, model or effort", "Start claude", "Start codex", "Start opencode", "Start agy", "Start omp")
 	mustNotText(t, tt, "Open in browser")
-	click(t, tt, "default")
 	click(t, tt, "Opus 5.5 · opus")
+	click(t, tt, "Sonnet 5.5 · sonnet")
 	click(t, tt, "default")
 	click(t, tt, "high")
 	click(t, tt, "Start claude")
@@ -439,10 +446,94 @@ func TestTheFirstRunStripStartsTheChosenHarness(t *testing.T) {
 	f.mu.Lock()
 	harness, model, effort := f.startHarness, f.startModel, f.startEffort
 	f.mu.Unlock()
-	if harness != "claude" || model != "opus" || effort != "high" {
+	if harness != "claude" || model != "sonnet" || effort != "high" {
 		t.Fatalf("start sent %q %q %q", harness, model, effort)
 	}
 	mustText(t, tt, "Starting the supervisor…")
+}
+
+func startableModels(lastHarness string) desktop.Models {
+	m := firstRunModels()
+	for i := range m.Harnesses {
+		h := &m.Harnesses[i]
+		h.Missing = ""
+		if h.Name == "omp" {
+			h.Groups = []desktop.ModelGroup{{Label: "built-in", Models: []desktop.ModelOption{{Name: "omp-fast", Text: "omp-fast"}}}}
+		}
+		if h.Name == lastHarness {
+			h.Model, h.Effort = firstModelOf(*h), ""
+		}
+	}
+	return m
+}
+
+func firstModelOf(h desktop.Harness) string {
+	return h.Groups[0].Models[len(h.Groups[0].Models)-1].Name
+}
+
+func acceptedByStart(t *testing.T, harnessName, model, effort string) {
+	t.Helper()
+	spec := harness.Spec{Harness: harnessName, Model: model, Effort: effort}
+	if err := harness.CheckSupervisor(spec); err != nil {
+		t.Errorf("start %q %q %q: %v", harnessName, model, effort, err)
+		return
+	}
+	why, err := harness.Check(spec, harness.Env{Getenv: func(string) string { return "" }})
+	if err != nil {
+		t.Errorf("start %q %q %q: %v", harnessName, model, effort, err)
+		return
+	}
+	if why.Text != "" && !why.Unread {
+		t.Errorf("start %q %q %q: %s", harnessName, model, effort, why.Text)
+	}
+}
+
+func TestTheStartStripSendsARequestStartAcceptsForEveryHarness(t *testing.T) {
+	for _, last := range []string{"first-run", "codex"} {
+		for _, name := range []string{"claude", "codex", "agy", "omp", "opencode"} {
+			t.Run(last+"-"+name, func(t *testing.T) {
+				f := menuFixture(t, func(f *fixture) {
+					st := f.status[fleetID]
+					st.Supervisor = nil
+					f.status[fleetID] = st
+					f.models[fleetID] = startableModels(strings.TrimPrefix(last, "first-run"))
+				})
+				tt := newTester(newApp(t, f))
+				click(t, tt, "Start "+name)
+				tt.Frame()
+				if f.count("start:"+name) != 1 {
+					t.Fatalf("Start %s sent no request", name)
+				}
+				f.mu.Lock()
+				harnessName, model, effort := f.startHarness, f.startModel, f.startEffort
+				f.mu.Unlock()
+				if harnessName != name {
+					t.Fatalf("start sent %q, want %q", harnessName, name)
+				}
+				if name == "opencode" && model != "" {
+					t.Errorf("opencode sent model %q, want its own default", model)
+				}
+				acceptedByStart(t, harnessName, model, effort)
+			})
+		}
+	}
+}
+
+func TestTheStartStripDoesNotStartAHarnessWithoutAModel(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		ms := startableModels("")
+		ms.Harnesses[1].Groups, ms.Harnesses[1].Efforts = nil, nil
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Start codex")
+	tt.Frame()
+	if f.count("start:codex") != 0 {
+		t.Fatal("Start codex was sent without a model")
+	}
 }
 
 func TestTheFirstRunStripStartsAHarnessOnItsDefaultModel(t *testing.T) {
@@ -466,23 +557,85 @@ func TestTheFirstRunStripStartsAHarnessOnItsDefaultModel(t *testing.T) {
 	}
 }
 
-func TestTheStartStripSendsAVariantTheListDoesNotHold(t *testing.T) {
+func TestTheStartStripSendsAVariantOnlyWithAModel(t *testing.T) {
 	f := menuFixture(t, func(f *fixture) {
 		st := f.status[fleetID]
 		st.Supervisor = nil
 		f.status[fleetID] = st
-		f.models[fleetID] = firstRunModels()
+		ms := firstRunModels()
+		ms.Harnesses = []desktop.Harness{ms.Harnesses[2]}
+		f.models[fleetID] = ms
 	})
 	tt := newTester(newApp(t, f))
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "default")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
 	click(t, tt, "opencode variant")
 	tt.Type("thinking")
 	click(t, tt, "Start opencode")
 	tt.Frame()
 	f.mu.Lock()
-	harness, model, effort := f.startHarness, f.startModel, f.startEffort
+	harnessName, model, effort := f.startHarness, f.startModel, f.startEffort
 	f.mu.Unlock()
-	if harness != "opencode" || model != "" || effort != "thinking" {
-		t.Fatalf("start sent %q %q %q", harness, model, effort)
+	if harnessName != "opencode" || model != "anthropic/sonnet" || effort != "thinking" {
+		t.Fatalf("start sent %q %q %q", harnessName, model, effort)
+	}
+	acceptedByStart(t, harnessName, model, effort)
+	click(t, tt, "anthropic/sonnet")
+	click(t, tt, "default")
+	tt.Frame()
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "Start opencode")
+	tt.Frame()
+	f.mu.Lock()
+	harnessName, model, effort = f.startHarness, f.startModel, f.startEffort
+	f.mu.Unlock()
+	if harnessName != "opencode" || model != "" || effort != "" {
+		t.Fatalf("start sent %q %q %q, want no variant without a model", harnessName, model, effort)
+	}
+	acceptedByStart(t, harnessName, model, effort)
+}
+
+func TestTheHarnessSwitchSendsNoVariantWithoutAModel(t *testing.T) {
+	f := menuFixture(t, idleFixture)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "opencode")
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "default")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
+	click(t, tt, "opencode variant")
+	tt.Type("thinking")
+	click(t, tt, "anthropic/sonnet")
+	click(t, tt, "default")
+	tt.Frame()
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "Switch to opencode")
+	tt.Frame()
+	sw := lastSwitch(f)
+	if sw.Harness != "opencode" || sw.Model != "" || sw.Effort != "" {
+		t.Fatalf("switch sent %+v, want no variant without a model", sw)
+	}
+	acceptedByStart(t, sw.Harness, sw.Model, sw.Effort)
+}
+
+func TestTheHarnessSwitchWaitsWhileTheSupervisorIsBlockedAndSaysWhy(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.AgentState = "blocked"
+		f.status[fleetID] = st
+	})
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "codex")
+	mustText(t, tt, "s1 is blocked; answer its screen or wait until it is idle, then switch harness")
+	mustNotText(t, tt, "s1 is working; switch harness when its turn ends, or interrupt it first")
+	click(t, tt, "Switch to codex")
+	tt.Frame()
+	if f.count("switch") != 0 {
+		t.Fatal("a harness switch was sent while the supervisor is blocked")
 	}
 }
 
