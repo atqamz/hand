@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 func blockedWithAnotherOpen(t *testing.T) *fixture {
@@ -149,6 +150,45 @@ func TestThePointerBringsTheBlockedItemIntoViewOnAWideWindow(t *testing.T) {
 			}
 			if r.Y < 0 || r.Y+r.H > 560 {
 				t.Errorf("the ask is at y=%v h=%v, outside the 560 px window", r.Y, r.H)
+			}
+		})
+	}
+}
+
+func TestThePointerScrollsTheBlockedItemIntoViewOnlyOnce(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(fmt.Sprint("dark=", dark), func(t *testing.T) {
+			app := newApp(t, blockedWithAnotherOpen(t))
+			tt := sized(t, app, 1100, 560, dark)
+			tt.Scroll(600, 300, 0, 4000)
+			_, max := desktop.BoardScroll(app)
+			if max == 0 {
+				t.Fatalf("the work pane does not scroll: max=%v", max)
+			}
+			click(t, tt, "The question is in Needs")
+			tt.Frame()
+			tt.Frame()
+			if y, _ := desktop.BoardScroll(app); y >= max {
+				t.Fatalf("the pointer left the work pane at y=%v of %v", y, max)
+			}
+			tt.Scroll(600, 300, 0, 4000)
+			for range 5 {
+				tt.Frame()
+			}
+			if y, _ := desktop.BoardScroll(app); y < max {
+				t.Errorf("the work pane was pulled back to y=%v of %v after the reader scrolled away", y, max)
+			}
+		})
+	}
+}
+
+func TestThePointerLinkIsDrawnInTheAccentColour(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(fmt.Sprint("dark=", dark), func(t *testing.T) {
+			tt := sized(t, newApp(t, blockedWithAnotherOpen(t)), windowWidth, windowHeight, dark)
+			link := bandRect(t, tt, "The question is in Needs")
+			if n := countNear(tt.Image(), link, kit.ColorsFor(dark).Accent, 12); n < 40 {
+				t.Errorf("%d accent pixels in the pointer link, want its text drawn in the accent", n)
 			}
 		})
 	}
