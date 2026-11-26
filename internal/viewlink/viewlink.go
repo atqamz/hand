@@ -114,7 +114,7 @@ func Parse(link string) (Link, error) {
 		segs := strings.Split(raw, "/")
 		for i, s := range segs {
 			u, err := url.PathUnescape(s)
-			if err != nil {
+			if err != nil || strings.Contains(u, "/") {
 				return Link{}, ErrNotViewLink
 			}
 			segs[i] = u

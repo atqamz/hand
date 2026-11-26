@@ -58,6 +58,7 @@ func TestRefused(t *testing.T) {
 		"handboard://view/f0123456789ab/doc//x.md",
 		"handboard://view/f0123456789ab/doc//etc/passwd",
 		"handboard://view/f0123456789ab/doc/a%5Cb.md",
+		"handboard://view/f0123456789ab/doc/a%2Fb.md",
 		"handboard://view/f0123456789ab/doc/a%00b.md",
 		"handboard://view/f0123456789ab/doc/a.md#L3",
 		"handboard://view/f0123456789ab/doc/a.md?x=1",
