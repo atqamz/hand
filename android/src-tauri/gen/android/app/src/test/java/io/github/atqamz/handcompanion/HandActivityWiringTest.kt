@@ -28,6 +28,13 @@ class HandActivityWiringTest {
   private val notifier = File("$sources/Notifier.kt").readText()
 
   @Test
+  fun aDocumentReleasesItsMediaWhenTheActivityStops() {
+    assertTrue(
+      body(activity, "private fun Doc(").contains("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.release() }")
+    )
+  }
+
+  @Test
   fun aNewIntentFromTheBackgroundIsTakenLikeTheFirstOne() {
     assertTrue(body(activity, "override fun onNewIntent").contains("take(intent)"))
   }

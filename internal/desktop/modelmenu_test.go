@@ -95,19 +95,15 @@ func TestScenesTheModelMenu(t *testing.T) {
 		want   []string
 	}{
 		{"full", nil, openMenu,
-			[]string{"Running now", "Harness", "claude", "Model", "sonnet", "Effort", "Change model or effort",
-				"Other model", "Switch after this turn", "Switch the supervisor to another harness",
-				"codex", "Switch to codex", "opencode", "Switch to opencode", "agy", "Switch to agy", "omp",
-				"omp not found on the board's PATH; restart the board after installing it"}},
+			[]string{"Running now", "Harness", "claude", "Model", "sonnet", "Effort", "Change harness, model or effort",
+				"claude (running)", "Other model", "Switch after this turn", "Unavailable",
+				"omp: omp not found on the board's PATH; restart the board after installing it"}},
 		{"cold", func(f *fixture) {
 			ms := f.models[fleetID]
 			ms.Harnesses[0].Note = "refresh failed: no model list yet; run `hand models --refresh claude`"
-			ms.Harnesses[1].Note = "listed 2 h ago"
 			f.models[fleetID] = ms
 		}, openMenu, []string{
 			"refresh failed: no model list yet; run `hand models --refresh claude`",
-			"listed 2 h ago",
-			"Switch to codex",
 		}},
 		{"now", func(f *fixture) {
 			st := f.status[fleetID]
@@ -236,25 +232,151 @@ func TestTheMenuSwitchesTheModelWithTheRunningRef(t *testing.T) {
 	mustNotText(t, tt, "Running now")
 }
 
-func TestTheMenuSwitchesTheHarnessWithItsModelAndEffort(t *testing.T) {
+func pickHarness(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	if tt.HasText("claude (running)") {
+		click(t, tt, "claude (running)")
+	} else {
+		click(t, tt, "codex")
+	}
+	click(t, tt, name)
+	tt.Frame()
+}
+
+func lastSwitch(f *fixture) desktop.Switch {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.switchReq
+}
+
+func TestTheMenuSwitchesTheHarnessWithItsOwnModelAndEffort(t *testing.T) {
+	f := menuFixture(t, idleFixture)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	click(t, tt, "keep sonnet")
+	click(t, tt, "Opus 5.5 · opus")
+	pickHarness(t, tt, "codex")
+	mustText(t, tt, "GPT-6 Luna · gpt-6-luna", "Switch to codex", "Stops s1 and starts a new session on codex; s1's conversation stays in Chat.")
+	mustNotText(t, tt, "Opus 5.5 · opus")
+	mustNotText(t, tt, "Switch now")
+	click(t, tt, "default")
+	mustText(t, tt, "low", "medium", "high")
+	mustNotText(t, tt, "xhigh")
+	mustNotText(t, tt, "max")
+	click(t, tt, "high")
+	click(t, tt, "Switch to codex")
+	tt.Frame()
+	if sw := lastSwitch(f); sw.Ref != "s1" || sw.Harness != "codex" || sw.Model != "gpt-6-luna" || sw.Effort != "high" {
+		t.Fatalf("switch sent %+v", sw)
+	}
+	mustText(t, tt, "Switching to codex…")
+}
+
+func TestTheHarnessChoiceNeverKeepsTheModelOfTheHarnessBefore(t *testing.T) {
+	f := menuFixture(t, idleFixture)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	click(t, tt, "keep sonnet")
+	click(t, tt, "Opus 5.5 · opus")
+	click(t, tt, "keep low")
+	click(t, tt, "max")
+	pickHarness(t, tt, "codex")
+	click(t, tt, "GPT-6 Luna · gpt-6-luna")
+	click(t, tt, "GPT-6 Sol · gpt-6-sol")
+	pickHarness(t, tt, "opencode")
+	mustText(t, tt, "default")
+	mustNotText(t, tt, "GPT-6 Sol · gpt-6-sol")
+	mustNotText(t, tt, "max")
+	click(t, tt, "Switch to opencode")
+	tt.Frame()
+	if sw := lastSwitch(f); sw.Harness != "opencode" || sw.Model != "" || sw.Effort != "" {
+		t.Fatalf("switch sent %+v, want opencode on its own configuration", sw)
+	}
+}
+
+func TestTheHarnessChoiceOffersOnlyHarnessesASupervisorCanRun(t *testing.T) {
 	f := menuFixture(t, func(f *fixture) {
 		ms := f.models[fleetID]
-		ms.Harnesses = ms.Harnesses[:2]
+		ms.Harnesses = append(ms.Harnesses, desktop.Harness{Name: "copilot", Groups: []desktop.ModelGroup{{Label: "built-in",
+			Models: []desktop.ModelOption{{Name: "auto", Text: "auto"}}}}})
 		f.models[fleetID] = ms
 	})
 	tt := newTester(newApp(t, f))
 	openMenu(t, tt, f)
-	tt.Scroll(860, 400, 0, 300)
-	tt.Frame()
+	click(t, tt, "claude (running)")
+	mustText(t, tt, "codex", "opencode", "agy")
+	mustNotText(t, tt, "copilot")
+	mustNotText(t, tt, "Switch to omp")
+	mustNotText(t, tt, "Switch to copilot")
+	mustText(t, tt, "omp: omp not found on the board's PATH; restart the board after installing it")
+}
+
+func TestTheHarnessSwitchWaitsForTheTurnAndSaysWhy(t *testing.T) {
+	f := menuFixture(t, nil)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "codex")
+	mustText(t, tt, "s1 is working; switch harness when its turn ends, or interrupt it first")
 	click(t, tt, "Switch to codex")
 	tt.Frame()
-	f.mu.Lock()
-	sw := f.switchReq
-	f.mu.Unlock()
-	if sw.Ref != "s1" || sw.Harness != "codex" || sw.Model != "" || sw.Effort != "" {
+	if f.count("switch") != 0 {
+		t.Fatal("a harness switch was sent while the supervisor works")
+	}
+}
+
+func TestTheHarnessSwitchNeedsAModelUnlessTheHarnessHasItsOwn(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		idleFixture(f)
+		ms := f.models[fleetID]
+		ms.Harnesses[3].Groups = nil
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "agy")
+	click(t, tt, "Switch to agy")
+	tt.Frame()
+	if f.count("switch") != 0 {
+		t.Fatal("a harness switch without a model was sent")
+	}
+	click(t, tt, "agy model")
+	tt.Type("gemini-pro")
+	click(t, tt, "Switch to agy")
+	tt.Frame()
+	if sw := lastSwitch(f); sw.Harness != "agy" || sw.Model != "gemini-pro" {
 		t.Fatalf("switch sent %+v", sw)
 	}
-	mustText(t, tt, "Switching to codex…")
+}
+
+func TestScenesTheHarnessChoice(t *testing.T) {
+	scenes := []struct {
+		name   string
+		change func(*fixture)
+		harn   string
+		want   []string
+	}{
+		{"codex", idleFixture, "codex", []string{"Harness", "codex", "GPT-6 Luna · gpt-6-luna", "Switch to codex",
+			"Stops s1 and starts a new session on codex; s1's conversation stays in Chat.", "listed 2 h ago"}},
+		{"working", nil, "codex", []string{"Switch to codex", "s1 is working; switch harness when its turn ends, or interrupt it first"}},
+		{"opencode", idleFixture, "opencode", []string{"opencode", "default", "Switch to opencode"}},
+	}
+	for _, dark := range []bool{false, true} {
+		mode := map[bool]string{false: "light", true: "dark"}[dark]
+		for _, sc := range scenes {
+			t.Run(sc.name+"-"+mode, func(t *testing.T) {
+				f := menuFixture(t, sc.change)
+				tt := darkTester(newApp(t, f), dark)
+				openMenu(t, tt, f)
+				pickHarness(t, tt, sc.harn)
+				shot(t, tt, "87-harness-"+sc.name+"-"+mode)
+				for _, s := range sc.want {
+					if !tt.HasText(s) {
+						t.Errorf("missing %q in %q", s, tt.Texts())
+					}
+				}
+			})
+		}
+	}
 }
 
 func TestThePendingSwitchCancelPostsTheSwitchOwnersRef(t *testing.T) {
