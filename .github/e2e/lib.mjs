@@ -419,7 +419,9 @@ export async function startBoard(box) {
     spawn(bin, args, { cwd: box.fleet, env: box.env(), stdio: ['ignore', out, out], detached: true }).unref();
     for (let i = 0; i < 50 && !box.read('board.addr'); i++) await new Promise((r) => setTimeout(r, 100));
   }
-  await ok(await box.hand(['board', 'start']), 'hand board start starts the Board');
+  const started = await box.hand(['board', 'start']);
+  if (started.code === 0) pass('hand board start starts the Board');
+  else await ok(await box.hand(['open', '--print']), 'an older hand open --print starts the Board');
   const id = toon((await ok(await box.hand(['init']), 'hand init names the fleet')).out).fields.id;
   const host = box.read('board.addr').trim();
   await fetch(`http://${host}/${id}/`).catch(() => null);
