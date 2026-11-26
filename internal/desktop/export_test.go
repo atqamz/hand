@@ -121,6 +121,10 @@ func PhoneHeld(a *App) bool {
 
 func QRImage(link string) (*image.Gray, bool) { return qrImage(link) }
 
+var SupervisorWord = supervisorWord
+
+var ToneOf = toneOf
+
 const (
 	OverflowIcon = overflowIcon
 	OverflowTip  = overflowTip

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -75,9 +76,6 @@ func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
 	}
 	pane.Children(func() {
 		a.paneHead(c, k, p, width)
-		if sup := a.Status.Supervisor; sup != nil && sup.Blocked && a.known() {
-			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 8).Children(func() { a.blockedKeys(c, p, sup) })
-		}
 		if a.TimelineErr != "" || a.OlderErr != "" {
 			ui.Scroll(c).MaxHeight(blockedMax).Padding(12, 16, 0).Children(func() {
 				ui.Column(c).Gap(8).Children(func() { a.timelineError(c, p) })
@@ -130,6 +128,59 @@ func (a *App) timelineError(c *ui.Context, p palette) {
 
 func (a *App) known() bool { return !a.Loading && !a.errStatus }
 
+func supervisorWord(st Status) string {
+	sup := st.Supervisor
+	switch {
+	case sup == nil:
+		return "no supervisor"
+	case sup.Status != "running":
+		if sup.Live {
+			return "starting"
+		}
+		return sup.Status
+	case st.Line == "unreachable":
+		return st.Line
+	case sup.Blocked:
+		return "blocked"
+	case sup.Held:
+		return "held"
+	}
+	for _, n := range st.Needs.Items {
+		if n.Kind == "limited" && n.Ref == sup.Ref {
+			return "limited"
+		}
+	}
+	if st.AgentState == "working" {
+		return "working"
+	}
+	return "ready"
+}
+
+func (a *App) supWord() string {
+	if !a.known() {
+		return ""
+	}
+	return supervisorWord(a.Status)
+}
+
+func (a *App) needWord(n Need) string {
+	switch n.Kind {
+	case "blocked", "limited", "resume":
+		if sup := a.Status.Supervisor; sup != nil && n.Ref == sup.Ref && a.known() {
+			return strings.ToUpper(a.supWord())
+		}
+	}
+	return n.Word
+}
+
+func (a *App) headWord(c *ui.Context, p palette) {
+	word := a.supWord()
+	ui.Row(c).Gap(kit.Space4).AlignItems(ui.Center).Shrink(0).Children(func() {
+		ui.Icon(c, stateIcon(word)).TextColor(stateColor(word, p))
+		ui.Text(c, word).FontSize(kit.Meta.Size).Bold().TextColor(stateColor(word, p)).SingleLine()
+	})
+}
+
 func (a *App) knownSupervisor() *Supervisor {
 	if !a.known() {
 		return nil
@@ -164,6 +215,7 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 						a.modelHead(c, k, p, sup)
 					})
 				}
+				a.headWord(c, p)
 				a.controls(c, k, sup)
 			}
 			a.overflow(c, k, a.knownSupervisor())
@@ -177,6 +229,7 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 			})
 			return
 		}
+		a.blockedPointer(c, k)
 		if a.Models.Switching != "" {
 			ui.Row(c).FillWidth().Padding(0, kit.Space16, kit.Space8).Gap(kit.Space8).
 				AlignItems(ui.Center).Children(func() {
@@ -186,6 +239,27 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 					a.cancelSwitch(a.Models.DropRef)
 				}
 			})
+		}
+	})
+}
+
+func (a *App) blockedPointer(c *ui.Context, k kit.Colors) {
+	if !a.blockedHint() || !slices.ContainsFunc(a.Status.Needs.Items, func(n Need) bool {
+		return n.Kind == "blocked" && n.Ref == a.Status.Supervisor.Ref
+	}) {
+		return
+	}
+	text := "The screen is in Needs"
+	if ask := a.Status.Supervisor.Ask; ask != nil && ask.Question != "" {
+		text = "The question is in Needs"
+	}
+	ui.Row(c).FillWidth().Padding(kit.Space8, kit.Space16).Children(func() {
+		link := ui.ButtonBase(c.Key("head:blocked")).Cursor(ui.CursorPointer).Label(text)
+		link.Children(func() {
+			ui.Text(c, text).FontSize(kit.Meta.Size).Bold().TextColor(k.Accent).SingleLine().Ellipsis("…")
+		})
+		if link.Clicked() {
+			a.openBlockedNeed()
 		}
 	})
 }
@@ -256,19 +330,6 @@ func (a *App) controls(c *ui.Context, k kit.Colors, sup *Supervisor) {
 // rule: both key on the form the head actually draws.
 func headShowsResume(sup *Supervisor) bool {
 	return sup != nil && sup.Status != "running" && !sup.Live && sup.Resumable
-}
-
-func (a *App) blockedKeys(c *ui.Context, p palette, sup *Supervisor) {
-	if sup.Ask != nil {
-		a.supervisorAsk(c, p, sup)
-		return
-	}
-	ui.Row(c).Gap(8).Wrap().Children(func() {
-		ui.Text(c, "Keys").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).Padding(0, 8, 0, 0)
-		a.keyButtons(c, p, supervisorKeyChoices(sup), a.Busy || sup.Keys == nil, func(choice keyChoice) {
-			a.Press(choice.Label, choice.Keys...)
-		})
-	})
 }
 
 type keyChoice struct {
