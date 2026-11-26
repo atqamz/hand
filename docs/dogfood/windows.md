@@ -46,8 +46,8 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W12 | The toast recipe shows a toast | Desktop notifications | needs human | 0 |
 | W13 | The ssh note: the `ssh-agent` service | (the note on signing and ssh in `docs/install.md`) | agent | 0 |
 | W14 | The watcher starts a killed Luvus server again | The watcher starts a killed Luvus server again | agent | 0 |
-| WD1 | The wizard downloads and starts as a user meets it | The `edge` release carries `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
-| WD2 | The wizard installs with its defaults | The `edge` release carries `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
+| WD1 | The wizard downloads and starts as a user meets it | Each release and the `edge` release carry `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
+| WD2 | The wizard installs with its defaults | Each release and the `edge` release carry `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
 | WD3 | The installed files, the `PATH` entry and `hand doctor` | `hand update` keeps a launcher entry for the window in step with it | agent, then needs human | 0 |
 | WD4 | First launch of the window | `hand-desktop` opens a real window | needs human | 0 |
 | WD5 | The Start Menu shortcut, and a second start | `hand update` keeps a launcher entry for the window in step with it; the single-instance lock (`hand-desktop --open LINK` is not exercised) | needs human | 0 |
@@ -56,7 +56,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | WD8 | A message from the composer | `hand-desktop` over a running board | needs human | 0 |
 | WD9 | `hand update` with the window open | `hand update`; The release carries `hand-desktop` | agent, then needs human | 0 |
 | WD10 | `hand uninstall --dry-run` and the real one on a script install | `hand uninstall` | agent, then needs human | 0 |
-| WD11 | Uninstall of the wizard install from Settings | The `edge` release carries `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
+| WD11 | Uninstall of the wizard install from Settings | Each release and the `edge` release carry `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
 
 The checks hand the supervisor on to each other, and each says whether the supervisor must be running or stopped. A supervisor that runs spends nothing while it is idle.
 
@@ -955,7 +955,7 @@ Nothing has run these on a real Windows PC; a run in a VM has seen the window, t
 
 All of the window's UI work these checks depend on has landed: U13 (the window starts the Board, #1308) and U4 (two panes, #1250) are on `main`, as are the three tabs below 900 px, the composer and the model menu. No check waits on them. Compare with `docs/images/desktop/20-panes-1100x760-light.png`, which is the headless scene, not a Windows picture.
 
-Get the wizard in. **The real route, for the gate:** in the machine, open the [`edge` release](https://github.com/atqamz/hand/releases/tag/edge) in Edge and download `Hand-Setup-VERSION-x64.exe` and its `.sha256`: it is the only route that shows SmartScreen. Use the `edge` build, since a stable build does not start the window on Windows; its wizard carries `hand-iroh.exe` only when the `edge` release had the sidecar when the wizard was built, and the window does not need it. **The quick route, for trying a change:** build `hand` and `hand-desktop` with `GOOS=windows GOARCH=amd64 CGO_ENABLED=0` (`-ldflags=-H=windowsgui` for the window), copy both to `%LOCALAPPDATA%\hand\bin` inside the machine, not onto a network share. That route has no wizard, shortcut, `PATH` entry or `unins000.exe`: skip WD1, WD2, WD3, WD5 and WD11 with that reason, run `hand` by its full path, and start the window by running `hand-desktop.exe`. Git for Windows must be installed, because `hand init` needs `git`. No harness is needed. A VM's virtual display runs the window on the CPU; say so in the run issue.
+Get the wizard in. **The real route, for the gate:** in the machine, open the [`edge` release](https://github.com/atqamz/hand/releases/tag/edge), or a stable release once one carries the wizard, in Edge and download `Hand-Setup-VERSION-x64.exe` and its `.sha256`: it is the only route that shows SmartScreen. Say in the run issue which channel you used; the wizard carries `hand-iroh.exe` only when the release had the sidecar when the wizard was built, and the window does not need it. **The quick route, for trying a change:** build `hand` and `hand-desktop` with `GOOS=windows GOARCH=amd64 CGO_ENABLED=0` (`-ldflags=-H=windowsgui` for the window), copy both to `%LOCALAPPDATA%\hand\bin` inside the machine, not onto a network share. That route has no wizard, shortcut, `PATH` entry or `unins000.exe`: skip WD1, WD2, WD3, WD5 and WD11 with that reason, run `hand` by its full path, and start the window by running `hand-desktop.exe`. Git for Windows must be installed, because `hand init` needs `git`. No harness is needed. A VM's virtual display runs the window on the CPU; say so in the run issue.
 
 Before WD1, `Get-Command hand -ErrorAction SilentlyContinue` must print nothing and `Test-Path "$env:LOCALAPPDATA\hand"` must print `False`; otherwise stop, because the checks assume a clean profile.
 
