@@ -236,7 +236,7 @@ func TestEscapeClosesTheDocumentPageFromARailItem(t *testing.T) {
 	app, tt, _ := docPageApp(t)
 	app.OpenDoc("reports/t1/design.md")
 	tt.Frame()
-	for i := 0; i < 16 && !tt.Focused("Board"); i++ {
+	for i := 0; i < 14 && !tt.Focused("Board"); i++ {
 		tt.Key(ui.Shift, ui.KeyTab)
 	}
 	if !tt.Focused("Board") {

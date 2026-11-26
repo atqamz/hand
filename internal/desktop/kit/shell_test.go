@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -421,5 +422,45 @@ func TestTheMastheadOffersNoTipWithoutAFleetID(t *testing.T) {
 	tt.Frame()
 	if hoverShows(tt, "golden", FleetTip("")) {
 		t.Errorf("a tooltip with no fleet ID, in %q", tt.Texts())
+	}
+}
+
+func TestEveryFleetGetsAMarkEvenPastTheFreeSlots(t *testing.T) {
+	var fleets []Named
+	for i := 0; i < 40; i++ {
+		fleets = append(fleets, Named{fmt.Sprintf("f%02d", i), "hand"})
+	}
+	got := Monograms(fleets)
+	seen := map[string]bool{}
+	for _, f := range fleets {
+		m := got[f.ID]
+		if m == "" || []rune(m)[0] != 'H' {
+			t.Errorf("%s: mark %q", f.ID, m)
+		}
+		seen[m] = true
+	}
+	if len(seen) != len(monoAlphabet) {
+		t.Errorf("%d distinct marks, want %d", len(seen), len(monoAlphabet))
+	}
+	if !maps.Equal(got, Monograms(fleets)) {
+		t.Error("not deterministic")
+	}
+}
+
+func TestAUniqueMarkIsNeverTakenByAClashingFleet(t *testing.T) {
+	fleets := []Named{{"u", "ha"}}
+	for i := 0; i < len(monoAlphabet)-1; i++ {
+		fleets = append(fleets, Named{fmt.Sprintf("f%02d", i), "hx"})
+	}
+	got := Monograms(fleets)
+	if got["u"] != "HA" {
+		t.Fatalf("unique mark = %q", got["u"])
+	}
+	seen := map[string]string{}
+	for id, m := range got {
+		if other, dup := seen[m]; dup {
+			t.Errorf("%q used by %s and %s", m, other, id)
+		}
+		seen[m] = id
 	}
 }

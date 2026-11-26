@@ -223,6 +223,7 @@ func Monograms(fleets []Named) map[string]string {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(id))
 		start := int(h.Sum32() % uint32(len(monoAlphabet)))
+		out[id] = string(head) + string(monoAlphabet[start])
 		for i := range monoAlphabet {
 			m := string(head) + string(monoAlphabet[(start+i)%len(monoAlphabet)])
 			if !taken[m] {
