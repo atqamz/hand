@@ -19,7 +19,7 @@ const (
 	TabHeight     = 40
 	SheetWidth    = 300
 	railPad       = 7
-	monoTile      = 28
+	monoTile      = 30
 )
 
 func TintOf(id string) int {
