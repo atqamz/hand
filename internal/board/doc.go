@@ -317,7 +317,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	text := textHead(head)
 	q := r.URL.Query()
 	if q.Has("raw") || q.Has("frame") && !q.Has("download") {
-		b.raw(w, r, f, fi, rel, sniffed, head)
+		b.raw(w, r, f, fi, rel, sniffed, head, false)
 		return
 	}
 	if q.Has("from") && text {
