@@ -1,7 +1,9 @@
 package io.github.atqamz.handcompanion
 
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -59,11 +61,23 @@ data class DocFind(
 
 data class DocJump(val line: Int, val id: Int)
 
+data class DocNotice(val title: String, val detail: String)
+
+data class AudioView(
+  val playing: Boolean = false,
+  val position: Int = 0,
+  val duration: Int = 0,
+  val error: String? = null
+)
+
 data class DocState(
   val node: DocNode? = null,
   val blocks: List<MdBlock> = emptyList(),
   val source: String? = null,
   val image: ByteArray? = null,
+  val audio: AudioView? = null,
+  val pdfPages: Int = 0,
+  val notice: DocNotice? = null,
   val wrap: Boolean = true,
   val first: Int = 1,
   val find: DocFind? = null,
@@ -93,6 +107,9 @@ enum class DocBody {
   Text,
   Image,
   ImageTooLarge,
+  Audio,
+  Pdf,
+  MediaNotice,
   Notice
 }
 
@@ -113,6 +130,9 @@ fun docBody(state: DocState): DocBody {
         node.size > IMAGE_LIMIT -> DocBody.ImageTooLarge
         else -> DocBody.Failed
       }
+    state.notice != null -> DocBody.MediaNotice
+    node.kind == "audio" -> if (state.audio != null) DocBody.Audio else DocBody.Failed
+    node.kind == "pdf" -> if (state.pdfPages > 0) DocBody.Pdf else DocBody.Failed
     node.text && node.kind in TEXT_KINDS -> DocBody.Text
     else -> DocBody.Notice
   }
@@ -179,7 +199,9 @@ class DocModel(
   private val path: String,
   transport: Transport,
   io: CoroutineDispatcher = Dispatchers.IO,
-  private val files: FileSource = CoreFiles
+  private val files: FileSource = CoreFiles,
+  private val audioOpener: AudioOpener = PlatformAudio,
+  private val pdfOpener: PdfOpener = PdfOpener { throw IOException("No PDF renderer.") }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(DocState())
   val state: StateFlow<DocState> = mutableState
@@ -225,6 +247,7 @@ class DocModel(
 
   suspend fun load(page: Int = 1) {
     val mine = generation.incrementAndGet()
+    releaseMedia()
     mutableState.update {
       it.copy(loading = true, problem = null, refused = null, tooOld = false, unpaired = false, paging = false)
     }
@@ -242,6 +265,8 @@ class DocModel(
             DocState(node = node, lines = docLines(window), next = window.next)
           }
           node.kind == "image" && node.size <= IMAGE_LIMIT -> image(node)
+          node.kind == "audio" -> audio(node, mine)
+          node.kind == "pdf" -> pdf(node, mine)
           else -> DocState(node = node)
         }
       mutableState.update {
@@ -259,6 +284,178 @@ class DocModel(
     } else {
       DocState(node = node, image = bytes)
     }
+  }
+
+  private suspend fun mediaBytes(node: DocNode): ByteArray? {
+    val bytes = withContext(fetch) { files.file(fleetId, "/api/v1/doc/${docRoute(path)}?raw") }
+    return bytes?.takeIf { it.isNotEmpty() }
+  }
+
+  private fun tooLarge(node: DocNode, what: String) =
+    DocState(
+      node = node,
+      notice =
+        DocNotice(
+          "This $what is too large to show here.",
+          "${node.kind} · ${docSize(node.size)}. The limit is ${docSize(MEDIA_LIMIT)}."
+        )
+    )
+
+  private suspend fun audio(node: DocNode, mine: Int): DocState {
+    if (node.size > MEDIA_LIMIT) return tooLarge(node, "audio file")
+    val bytes = mediaBytes(node) ?: return DocState(node = node, problem = "The audio could not be loaded.")
+    if (bytes.size > MEDIA_LIMIT) return tooLarge(node.copy(size = bytes.size.toLong()), "audio file")
+    val opened =
+      try {
+        withContext(fetch) { audioOpener.open(bytes, events) }
+      } catch (_: IOException) {
+        return DocState(
+          node = node,
+          notice = DocNotice("This audio can't be played here.", "${node.kind} · ${docSize(node.size)}")
+        )
+      }
+    synchronized(media) {
+      if (mine != generation.get()) {
+        opened.release()
+        return DocState(node = node)
+      }
+      player = opened
+      audioBytes = bytes
+    }
+    return DocState(node = node, audio = AudioView(duration = opened.duration))
+  }
+
+  private suspend fun pdf(node: DocNode, mine: Int): DocState {
+    if (node.size > MEDIA_LIMIT) return tooLarge(node, "PDF")
+    val bytes = mediaBytes(node) ?: return DocState(node = node, problem = "The PDF could not be loaded.")
+    if (bytes.size > MEDIA_LIMIT) return tooLarge(node.copy(size = bytes.size.toLong()), "PDF")
+    val opened =
+      try {
+        withContext(fetch) { pdfOpener.open(bytes) }
+      } catch (_: PdfRefused) {
+        return DocState(
+          node = node,
+          notice = DocNotice("This PDF is protected, so it can't be shown here.", "It needs a password.")
+        )
+      } catch (_: IOException) {
+        return DocState(node = node, problem = "The PDF could not be opened.")
+      }
+    if (opened.count < 1) {
+      opened.close()
+      return DocState(node = node, problem = "The PDF has no pages.")
+    }
+    synchronized(media) {
+      if (mine != generation.get()) {
+        opened.close()
+        return DocState(node = node)
+      }
+      pdf = opened
+    }
+    return DocState(node = node, pdfPages = opened.count)
+  }
+
+  private val media = Any()
+  private var player: AudioPlayer? = null
+  private var audioBytes: ByteArray? = null
+  private var pdf: PdfPages? = null
+
+  private val events =
+    object : AudioEvents {
+      override fun ended() {
+        mutableState.update { it.copy(audio = it.audio?.copy(playing = false, position = it.audio.duration)) }
+      }
+
+      override fun failed() {
+        releasePlayer()
+        mutableState.update {
+          it.copy(audio = it.audio?.copy(playing = false, error = "The audio stopped with an error."))
+        }
+      }
+    }
+
+  private fun releasePlayer() {
+    val held = synchronized(media) { player.also { player = null } }
+    held?.release()
+  }
+
+  private fun releaseMedia() {
+    releasePlayer()
+    val held =
+      synchronized(media) {
+        audioBytes = null
+        pdf.also { pdf = null }
+      }
+    held?.close()
+  }
+
+  fun release() {
+    val held = synchronized(media) { player }
+    val at = held?.position
+    releasePlayer()
+    mutableState.update { state ->
+      state.copy(audio = state.audio?.copy(playing = false, position = at ?: state.audio.position))
+    }
+  }
+
+  public override fun onCleared() = releaseMedia()
+
+  fun play() {
+    viewModelScope.launch { start() }
+  }
+
+  suspend fun start() {
+    val view = mutableState.value.audio ?: return
+    var current = synchronized(media) { player }
+    if (current == null) {
+      val bytes = synchronized(media) { audioBytes } ?: return
+      val mine = generation.get()
+      current =
+        try {
+          withContext(fetch) { audioOpener.open(bytes, events) }
+        } catch (_: IOException) {
+          mutableState.update {
+            if (mine == generation.get()) it.copy(audio = it.audio?.copy(playing = false, error = "The audio could not be played.")) else it
+          }
+          return
+        }
+      synchronized(media) {
+        if (mine != generation.get() || audioBytes == null) {
+          current.release()
+          return
+        }
+        player = current
+      }
+    }
+    val from = if (view.duration > 0 && view.position >= view.duration) 0 else view.position
+    current.seekTo(from)
+    current.start()
+    mutableState.update { it.copy(audio = it.audio?.copy(playing = true, position = from, error = null)) }
+  }
+
+  fun pause() {
+    val held = synchronized(media) { player } ?: return
+    held.pause()
+    val at = held.position
+    mutableState.update { it.copy(audio = it.audio?.copy(playing = false, position = at)) }
+  }
+
+  fun seek(millis: Int) {
+    val held = synchronized(media) { player }
+    held?.seekTo(millis)
+    mutableState.update { it.copy(audio = it.audio?.copy(position = millis)) }
+  }
+
+  fun tick() {
+    val held = synchronized(media) { player } ?: return
+    val at = held.position
+    mutableState.update { state ->
+      if (state.audio?.playing == true) state.copy(audio = state.audio.copy(position = at)) else state
+    }
+  }
+
+  suspend fun render(index: Int, width: Int): Bitmap? {
+    val held = synchronized(media) { pdf } ?: return null
+    return withContext(fetch) { held.render(index, width) }
   }
 
   suspend fun loadMore() {

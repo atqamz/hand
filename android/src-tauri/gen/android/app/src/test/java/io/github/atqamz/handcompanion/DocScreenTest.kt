@@ -92,6 +92,34 @@ private fun imageState(bytes: ByteArray?, size: Long = 48211, problem: String? =
 private val findHits =
   textState().copy(find = DocFind("manifest", listOf(2), 0))
 
+private fun audioState(audio: AudioView) =
+  DocState(
+    node = DocNode("reports/standup.mp3", "standup.mp3", "audio", false, 2_400_000),
+    audio = audio,
+    loading = false
+  )
+
+private fun pdfState(pages: Int = 3) =
+  DocState(
+    node = DocNode("reports/paper.pdf", "paper.pdf", "pdf", false, 310_000),
+    pdfPages = pages,
+    loading = false
+  )
+
+private fun pdfNode(size: Long) = DocNode("reports/paper.pdf", "paper.pdf", "pdf", false, size)
+
+private fun sheet(width: Int, index: Int): Bitmap {
+  val bitmap = Bitmap.createBitmap(width, width * 4 / 3, Bitmap.Config.ARGB_8888)
+  val canvas = Canvas(bitmap)
+  canvas.drawColor(Color.WHITE)
+  val paint = Paint()
+  paint.color = Color.rgb(60, 70, 90)
+  for (row in 0 until 14) canvas.drawRect(width * 0.1f, width * (0.12f + row * 0.07f), width * (0.9f - (row % 3) * 0.12f), width * (0.15f + row * 0.07f), paint)
+  paint.color = Color.rgb(46, 110, 180)
+  canvas.drawRect(width * 0.1f, width * 0.04f, width * (0.3f + index * 0.1f), width * 0.08f, paint)
+  return bitmap
+}
+
 class DocScreenTest {
   @get:Rule
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2400))
@@ -144,8 +172,8 @@ class DocScreenTest {
   @Test fun noticeLight() =
     shot(
       false,
-      "reports/flow.pdf",
-      DocState(node = DocNode("reports/flow.pdf", "flow.pdf", "pdf", false, 48211), loading = false)
+      "reports/flow.mp4",
+      DocState(node = DocNode("reports/flow.mp4", "flow.mp4", "video", false, 48211), loading = false)
     )
 
   @Test fun loadingLight() = shot(false, "reports/standup.md", DocState())
@@ -193,4 +221,83 @@ class DocScreenTest {
 
   @Test fun copyFailedLight() =
     shot(false, "reports/export.log", textState().copy(copyProblem = "The file is too large to copy here."))
+
+  private fun media(dark: Boolean, path: String, shown: DocState) =
+    paparazzi.snapshot {
+      HandTheme(dark) {
+        DocScreen(FLEET, path, shown, {}, {}, {}, {}, {}, DocTools(drawn = { index, width -> sheet(width, index) }))
+      }
+    }
+
+  @Test fun audioIdleLight() = media(false, "reports/standup.mp3", audioState(AudioView(false, 0, 215_000)))
+
+  @Test fun audioIdleDark() = media(true, "reports/standup.mp3", audioState(AudioView(false, 0, 215_000)))
+
+  @Test fun audioPlayingLight() = media(false, "reports/standup.mp3", audioState(AudioView(true, 72_000, 215_000)))
+
+  @Test fun audioPlayingDark() = media(true, "reports/standup.mp3", audioState(AudioView(true, 72_000, 215_000)))
+
+  @Test
+  fun audioErrorLight() =
+    media(false, "reports/standup.mp3", audioState(AudioView(false, 72_000, 215_000, "The audio stopped with an error.")))
+
+  @Test
+  fun audioErrorDark() =
+    media(true, "reports/standup.mp3", audioState(AudioView(false, 72_000, 215_000, "The audio stopped with an error.")))
+
+  @Test fun pdfPageLight() = media(false, "reports/paper.pdf", pdfState())
+
+  @Test fun pdfPageDark() = media(true, "reports/paper.pdf", pdfState())
+
+  @Test
+  fun pdfTooLargeLight() =
+    media(
+      false,
+      "reports/paper.pdf",
+      DocState(
+        node = pdfNode(21_000_000),
+        notice = DocNotice("This PDF is too large to show here.", "pdf · 20.0 MB. The limit is 15.0 MB."),
+        loading = false
+      )
+    )
+
+  @Test
+  fun pdfTooLargeDark() =
+    media(
+      true,
+      "reports/paper.pdf",
+      DocState(
+        node = pdfNode(21_000_000),
+        notice = DocNotice("This PDF is too large to show here.", "pdf · 20.0 MB. The limit is 15.0 MB."),
+        loading = false
+      )
+    )
+
+  @Test
+  fun pdfErrorLight() =
+    media(
+      false,
+      "reports/paper.pdf",
+      DocState(node = pdfNode(310_000), problem = "The PDF could not be opened.", loading = false)
+    )
+
+  @Test
+  fun pdfErrorDark() =
+    media(
+      true,
+      "reports/paper.pdf",
+      DocState(node = pdfNode(310_000), problem = "The PDF could not be opened.", loading = false)
+    )
+
+  @Test
+  fun pdfProtectedLight() =
+    media(
+      false,
+      "reports/paper.pdf",
+      DocState(
+        node = pdfNode(310_000),
+        notice = DocNotice("This PDF is protected, so it can't be shown here.", "It needs a password."),
+        loading = false
+      )
+    )
 }

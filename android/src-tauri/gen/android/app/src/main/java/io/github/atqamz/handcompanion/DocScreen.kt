@@ -1,6 +1,12 @@
 package io.github.atqamz.handcompanion
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -243,6 +249,75 @@ private fun DocImage(state: DocState) {
   }
 }
 
+fun clock(millis: Int): String {
+  val seconds = millis.coerceAtLeast(0) / 1000
+  return "%d:%02d".format(java.util.Locale.ROOT, seconds / 60, seconds % 60)
+}
+
+@Composable
+private fun DocAudio(state: DocState, tools: DocTools) {
+  val hand = LocalHand.current
+  val audio = state.audio ?: return
+  LaunchedEffect(audio.playing) {
+    while (audio.playing) {
+      delay(500)
+      tools.tick()
+    }
+  }
+  Column(
+    Modifier.fillMaxSize().padding(24.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Text(state.node?.name.orEmpty(), color = hand.fg, textAlign = TextAlign.Center, style = type.titleMedium)
+    Slider(
+      audio.position.toFloat().coerceIn(0f, maxOf(1, audio.duration).toFloat()),
+      { tools.seek(it.toInt()) },
+      Modifier.fillMaxWidth(),
+      valueRange = 0f..maxOf(1, audio.duration).toFloat()
+    )
+    Meta("${clock(audio.position)} / ${clock(audio.duration)}")
+    Action(if (audio.playing) "Pause" else "Play", if (audio.playing) tools.pause else tools.play)
+    audio.error?.let {
+      Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Meta(it, hand.ink(Tone.Fail)) }
+    }
+  }
+}
+
+@Composable
+private fun DocPdf(state: DocState, tools: DocTools) {
+  val hand = LocalHand.current
+  val density = LocalDensity.current
+  LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp)
+  ) {
+    items(state.pdfPages, key = { "page:$it" }) { index ->
+      BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val width = with(density) { maxWidth.roundToPx() }
+        val bitmap by produceState(tools.drawn(index, width), index, width) { value = value ?: tools.page(index, width) }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          val shown = bitmap
+          if (shown == null) {
+            Box(Modifier.fillMaxWidth().height(240.dp).background(hand.line), Alignment.Center) {
+              Meta("Page ${index + 1}")
+            }
+          } else {
+            Image(
+              shown.asImageBitmap(),
+              "Page ${index + 1} of ${state.pdfPages}",
+              Modifier.fillMaxWidth(),
+              contentScale = ContentScale.FillWidth
+            )
+          }
+          Meta("Page ${index + 1} of ${state.pdfPages}")
+        }
+      }
+    }
+  }
+}
+
 enum class DocTool {
   Find,
   GoTo
@@ -255,7 +330,13 @@ class DocTools(
   val goTo: (Int) -> Unit = {},
   val earlier: () -> Unit = {},
   val wrap: () -> Unit = {},
-  val copy: suspend () -> String? = { null }
+  val copy: suspend () -> String? = { null },
+  val play: () -> Unit = {},
+  val pause: () -> Unit = {},
+  val seek: (Int) -> Unit = {},
+  val tick: () -> Unit = {},
+  val page: suspend (Int, Int) -> Bitmap? = { _, _ -> null },
+  val drawn: (Int, Int) -> Bitmap? = { _, _ -> null }
 )
 
 @Composable
@@ -438,6 +519,10 @@ fun DocScreen(
             "This image is too large to show here.",
             listOfNotNull(node?.kind, node?.size?.let(::docSize)).joinToString(" · ")
           ) {}
+        DocBody.Audio -> DocAudio(state, tools)
+        DocBody.Pdf -> DocPdf(state, tools)
+        DocBody.MediaNotice ->
+          DocMessage(state.notice?.title.orEmpty(), state.notice?.detail.orEmpty()) {}
         DocBody.Notice ->
           DocMessage(
             "This file can't be shown here.",
