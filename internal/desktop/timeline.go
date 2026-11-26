@@ -423,6 +423,9 @@ func (a *App) operatorText(c *ui.Context, text string) {
 
 func (a *App) working(c *ui.Context, p palette) {
 	w := a.Timeline.Working
+	if word := a.supWord(); word != "" && word != "working" {
+		w = nil
+	}
 	if w == nil {
 		if a.Timeline.Live {
 			ui.Row(c).FillWidth().Padding(kit.Space10, 0).Children(func() {

@@ -318,12 +318,12 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 		prev, afterOpen := "", false
 		for i, item := range items {
 			need := item
-			first := need.Word != prev
+			first := a.needWord(need) != prev
 			if first {
 				_, ink := toneColors(need.Tone, p)
-				ui.Text(c, capitalize(strings.ToLower(need.Word))).FontSize(kit.Meta.Size).Bold().TextColor(ink).
+				ui.Text(c, capitalize(strings.ToLower(a.needWord(need)))).FontSize(kit.Meta.Size).Bold().TextColor(ink).
 					Padding(kit.Space20*float32(min(i, 1)), kit.Space16, kit.Space4)
-				prev = need.Word
+				prev = a.needWord(need)
 			}
 			isOpen := needKey(need) == open
 			a.needRow(c, k, p, need, top, first, afterOpen, isOpen)
@@ -448,8 +448,8 @@ func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, in
 		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).TextColor(slug).SingleLine()
 	}
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
-		if need.Word != "" {
-			ui.Badge(c, need.Word).Background(bg).TextColor(ink)
+		if word := a.needWord(need); word != "" {
+			ui.Badge(c, word).Background(bg).TextColor(ink)
 		}
 		ref(need.Ref)
 		if need.Task != need.Ref {
