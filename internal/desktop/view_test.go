@@ -1231,7 +1231,7 @@ func TestEmptyStates(t *testing.T) {
 func TestErrorState(t *testing.T) {
 	app := newApp(t, errorFixture())
 	tt := newTester(app)
-	mustText(t, tt, "The Board refused this window.", "hand open")
+	mustText(t, tt, "The Board refused this window.", "hand board stop")
 	mustNotText(t, tt, "Back")
 	click(t, tt, "Try again")
 	mustText(t, tt, "The Board refused this window.")

@@ -537,7 +537,7 @@ Test-Path "$D\old\hand.exe.old"
 Get-Content "$D\fleet2\watch.pid", "$env:SECONDHAND_HOME\board.pid"
 Start-Sleep -Seconds 5
 & "$D\old\hand.exe" orient | Select-String '^watch:'
-& "$D\old\hand.exe" open --print *> $null; if ($LASTEXITCODE -eq 0) { 'board-answers' }
+$l = Get-NetTCPConnection -LocalPort ([int](Get-Content "$env:SECONDHAND_HOME\board.addr").Split(':')[-1]) -State Listen -ErrorAction SilentlyContinue; if ($l.OwningProcess -contains [int](Get-Content "$env:SECONDHAND_HOME\board.pid").Split(' ')[0]) { 'board-answers' }
 ```
 
 **3.** Ask the owner: *During the install and the update, did SmartScreen, Defender or Windows Security show any prompt, warning or notification about `hand.exe`?* (yes or no, and its text).
@@ -546,7 +546,7 @@ Expected:
 - the check prints `status: checked`; the update prints `status: updated`, `from: 0.13.0 stable ...` and `to: 0.13.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - the first `Test-Path` after the update prints `True` (the running `hand.exe` was renamed to `hand.exe.old`), and the second, after one more `hand` run, prints `False`;
 - `hand version` prints `channel: edge`;
-- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints because `hand open` starts the board on the new binary;
+- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints only when the board of that home still runs after the update: the listener on the port in its `board.addr` is the process in its `board.pid`, and a failed update leaves nothing listening and prints nothing;
 - the answer is no.
 
 Evidence: `& { & "$D\old\hand.exe" version; Get-Content "$D\fleet2\watch.pid", "$env:SECONDHAND_HOME\board.pid"; Get-Content "$D\watch2.err", "$D\board2.err" -Tail 5 } 2>&1 | Ev W5`, the update's output, and the answer.

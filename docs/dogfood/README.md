@@ -62,7 +62,7 @@ On each OS it runs:
 What stays manual, and is checked by the guides in this folder:
 - a real harness: its login, its trust screens, a worker that reports, a supervisor that wakes;
 - a real phone and a real tunnel (`ssh -L`, Cloudflare): CI sends the proxy headers itself;
-- the browser a person uses, its extensions, and `hand open` opening it;
+- the Hand window opening from `hand open` on a real desktop;
 - desktop notifications, autostart at a real login, Gatekeeper, SmartScreen and Defender prompts;
 - a systemd user session: CI runs the plain path, where Hand starts the board, the watcher and Luvus as detached processes;
 - a worker or supervisor session with a real model.
