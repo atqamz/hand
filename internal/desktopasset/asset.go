@@ -55,13 +55,13 @@ func Supported(goos, goarch, channel string) bool {
 	case "darwin":
 		return goarch == "amd64" || goarch == "arm64"
 	case "windows":
-		return goarch == "amd64" && channel == "edge"
+		return goarch == "amd64" && (channel == "edge" || channel == "stable")
 	}
 	return false
 }
 
 func Unsupported(goos, goarch string) string {
-	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux and macOS (amd64 and arm64) and, in edge builds only, on Windows (amd64); the Board works in a browser"
+	return "unsupported on " + goos + "/" + goarch + ": the window runs on Linux and macOS (amd64 and arm64) and on Windows (amd64, in release and edge builds); the Board works in a browser"
 }
 
 func Path(self, goos, home string) string {

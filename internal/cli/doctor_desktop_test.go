@@ -84,8 +84,8 @@ func TestDoctorDesktopRowFollowsWhatIsInstalled(t *testing.T) {
 }
 
 func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
-	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "stable") {
-		t.Skip("this platform supports hand-desktop on a stable build")
+	if desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "source") {
+		t.Skip("this platform supports hand-desktop on a source build")
 	}
 	fx := newDoctorFixture(t)
 	holdWatchLock(t, fx.h.home)
@@ -97,24 +97,33 @@ func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
 }
 
 func TestDoctorDesktopReadsTheBinaryNextToHand(t *testing.T) {
-	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, "edge") {
-		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
-	}
-	fx := newDoctorFixture(t)
-	buildChannel(t, "edge")
-	holdWatchLock(t, fx.h.home)
-	next := filepath.Join(fx.self, desktopasset.Name)
-	if runtime.GOOS == "windows" {
-		next += ".exe"
-	}
-	b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
-	if err := fakebin.WriteExecutable(next, b); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Remove(next) })
-	out := fx.h.ok("doctor")
-	if !strings.Contains(field(out, "desktop"), next) {
-		t.Fatalf("desktop field = %q, want %s", field(out, "desktop"), next)
+	for _, channel := range []string{"edge", "stable"} {
+		t.Run(channel, func(t *testing.T) {
+			if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, channel) {
+				t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
+			}
+			fx := newDoctorFixture(t)
+			buildChannel(t, channel)
+			holdWatchLock(t, fx.h.home)
+			next := filepath.Join(fx.self, desktopasset.Name)
+			if runtime.GOOS == "windows" {
+				next += ".exe"
+			}
+			b := fakebin.Embed(t, "desktop", map[string]string{"version": cli.Version, "commit": "0123456789ab"})
+			if err := fakebin.WriteExecutable(next, b); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Remove(next) })
+			out := fx.h.ok("doctor")
+			if !strings.Contains(field(out, "desktop"), next) {
+				t.Fatalf("desktop field = %q, want %s", field(out, "desktop"), next)
+			}
+			if runtime.GOOS == "windows" {
+				if row := checkRows(t, out)["desktop window"]; row[0] != "info" || !strings.Contains(row[1], "untested on a real Windows PC") {
+					t.Fatalf("desktop window = %q in:\n%s", row, out)
+				}
+			}
+		})
 	}
 }
 
