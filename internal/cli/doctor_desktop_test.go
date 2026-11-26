@@ -88,6 +88,7 @@ func TestDoctorSaysTheDesktopIsUnsupportedHere(t *testing.T) {
 		t.Skip("this platform supports hand-desktop on a source build")
 	}
 	fx := newDoctorFixture(t)
+	buildChannel(t, "source")
 	holdWatchLock(t, fx.h.home)
 	out := fx.h.ok("doctor")
 	row := checkRows(t, out)["desktop"]
@@ -209,7 +210,7 @@ func TestDoctorSaysHowFarTheWindowWasTried(t *testing.T) {
 		t.Skip("hand-desktop assets are for Linux, macOS and Windows only")
 	}
 	fx := newDoctorFixture(t)
-	buildChannel(t, "edge")
+	buildChannel(t, "stable")
 	holdWatchLock(t, fx.h.home)
 	installDesktop(t, fx, map[string]string{"version": cli.Version, "commit": "0123456789ab"})
 	rows := checkRows(t, fx.h.ok("doctor"))
@@ -229,7 +230,7 @@ func TestDoctorSaysHowFarTheWindowWasTried(t *testing.T) {
 		}
 		return
 	}
-	if window[0] != "info" || !strings.Contains(window[1], "edge builds only") || !strings.Contains(window[1], "CI runner, not yet on a real Windows PC") {
+	if window[0] != "info" || !strings.Contains(window[1], "untested on a real Windows PC") || !strings.Contains(window[1], "opened on a CI runner") {
 		t.Fatalf("desktop window = %q", window)
 	}
 	if entry[0] != "" {
