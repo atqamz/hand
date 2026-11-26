@@ -306,6 +306,28 @@ class DocMediaTest {
   }
 
   @Test
+  fun clearingTheModelDuringALoadReleasesWhatTheLoadOpens() {
+    for (kind in listOf("audio", "pdf")) {
+      val entered = CountDownLatch(1)
+      val go = CountDownLatch(1)
+      val model =
+        model(MediaBoard { mediaNode(kind, 10, "a.$kind") }, "reports/a.$kind") {
+          entered.countDown()
+          go.await(5, TimeUnit.SECONDS)
+        }
+      val worker = Thread { runBlocking { model.load() } }
+      worker.start()
+      assertTrue(entered.await(5, TimeUnit.SECONDS))
+      model.onCleared()
+      go.countDown()
+      worker.join(5000)
+      if (kind == "audio") assertTrue(audio.players.all { it.released }) else assertTrue(pdfs.opened.all { it.closed })
+    }
+    assertEquals(1, audio.players.size)
+    assertEquals(1, pdfs.opened.size)
+  }
+
+  @Test
   fun aPdfOverTheLimitByOneByteIsRefusedAndAtTheLimitOpens() = runBlocking {
     model(paper(MEDIA_LIMIT), "reports/paper.pdf").also { it.load() }
     assertEquals(1, pdfs.opened.size)

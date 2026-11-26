@@ -397,7 +397,10 @@ class DocModel(
     }
   }
 
-  public override fun onCleared() = releaseMedia()
+  public override fun onCleared() {
+    generation.incrementAndGet()
+    releaseMedia()
+  }
 
   fun play() {
     viewModelScope.launch { start() }
