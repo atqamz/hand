@@ -418,10 +418,19 @@ func (a *App) workerKeyButtons(c *ui.Context, p palette, need Need) {
 	})
 }
 
+const (
+	overflowIcon = "gear"
+	overflowTip  = "Refresh, open in browser, models, notifications"
+)
+
 func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 	more := ui.ButtonBase(c.Key("more")).Size(kit.Control, kit.Control).Radius(kit.RadiusMD).
-		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("More")
-	more.Children(func() { ui.Icon(c, kit.Icon("more")).TextColor(k.Muted) })
+		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("More").Description(overflowTip)
+	more.Children(func() { ui.Icon(c, kit.Icon(overflowIcon)).TextColor(k.Muted) })
+	ui.TooltipBase(c, more, func(tip ui.Element) {
+		tip.Padding(3, kit.Space8).Radius(kit.RadiusSM).Background(k.FG).TextColor(k.BG)
+		tip.Children(func() { ui.Text(c, overflowTip).FontSize(kit.Meta.Size) })
+	})
 	more.PopoverMenuButton(func(m *ui.Menu) {
 		if sup != nil && sup.Resumable && !sup.Live && sup.Status != "running" && m.Item("New session").Disabled(a.Busy).Chosen() {
 			a.Supervise("start")

@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"context"
 	"errors"
+	"image"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -90,7 +91,8 @@ func TestFleetSwitch(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "golden", "second")
 	click(t, tt, "second")
-	mustText(t, tt, "second", secondID)
+	mustText(t, tt, "second")
+	mustNotText(t, tt, secondID)
 	mustNotText(t, tt, "f00000000e0aa")
 	if app.Fleet.ID != secondID {
 		t.Fatalf("fleet = %s, want %s", app.Fleet.ID, secondID)
@@ -1981,5 +1983,94 @@ func TestTheRailBadgeIsTonedByTheWorstNeed(t *testing.T) {
 		if got := railBadgeFill(t, worst); got != [3]uint8{want.R, want.G, want.B} {
 			t.Errorf("worst=%q: badge fill %v, want %v", worst, got, want)
 		}
+	}
+}
+
+func TestTheRailMarksCarryTheFleetsMonogram(t *testing.T) {
+	for _, open := range []bool{false, true} {
+		app := newApp(t, goldenFixture(t))
+		app.RailOpen = open
+		tt := newTester(app)
+		mustText(t, tt, "GO", "SE")
+	}
+}
+
+func TestTheOverflowButtonIsTheGearAndSaysWhatItHolds(t *testing.T) {
+	if desktop.OverflowIcon != "gear" {
+		t.Errorf("overflow icon = %q", desktop.OverflowIcon)
+	}
+	tt := newTester(newApp(t, goldenFixture(t)))
+	more, ok := tt.Find("More")
+	if !ok {
+		t.Fatalf("no More in %q", tt.Texts())
+	}
+	tt.Move(more.X+more.W/2, more.Y+more.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText(desktop.OverflowTip) {
+		t.Errorf("no tooltip on the overflow button in %q", tt.Texts())
+	}
+}
+
+func rectInk(img *image.RGBA, r ui.Rect) int {
+	x0, y0, x1, y1 := int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H)
+	bg := img.RGBAAt(x0, y0)
+	n := 0
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if img.RGBAAt(x, y) != bg {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func TestTheOverflowButtonDrawsTheGearNotTheDots(t *testing.T) {
+	k := kit.ColorsFor(false)
+	ref := func(name string) int {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Row(c).Size(kit.Control, kit.Control).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, kit.Icon(name)).TextColor(k.Muted)
+			})
+		}, 60, 60)
+		tt.Frame()
+		return rectInk(tt.Image(), ui.Rect{W: 60, H: 60})
+	}
+	gear, dots := ref("gear"), ref("more")
+	if gear == dots {
+		t.Fatalf("gear and dots draw the same ink: %d", gear)
+	}
+	tt := sized(t, newApp(t, goldenFixture(t)), windowWidth, windowHeight, false)
+	more, ok := tt.Find("More")
+	if !ok {
+		t.Fatalf("no More in %q", tt.Texts())
+	}
+	got := rectInk(tt.Image(), more)
+	if d, o := abs(got-gear), abs(got-dots); d >= o {
+		t.Errorf("the overflow button has %d inked pixels; the gear has %d and the dots %d", got, gear, dots)
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func TestTabReachesTheFleetNameAndShowsItsID(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	for i := 0; i < 20 && !tt.Focused("golden"); i++ {
+		tt.Key(0, ui.KeyTab)
+	}
+	if !tt.Focused("golden") {
+		t.Fatal("no Tab stop on the fleet name")
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText(kit.FleetTip(app.Fleet.ID)) {
+		t.Errorf("no fleet ID tip on focus, in %q", tt.Texts())
 	}
 }
