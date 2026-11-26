@@ -6,8 +6,12 @@ import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -63,8 +67,12 @@ private class FakeAudio : AudioOpener {
   val players = CopyOnWriteArrayList<FakePlayer>()
   var broken = false
   var events: AudioEvents? = null
+  var entered: CountDownLatch? = null
+  var gate: CountDownLatch? = null
 
   override fun open(bytes: ByteArray, events: AudioEvents): AudioPlayer {
+    entered?.countDown()
+    gate?.await(5, TimeUnit.SECONDS)
     if (broken) throw IOException("no codec")
     this.events = events
     return FakePlayer().also { players += it }
@@ -89,13 +97,18 @@ private class FakePdfs(var pages: Int = 3) : PdfOpener {
   val opened = CopyOnWriteArrayList<FakePages>()
   var failure: Exception? = null
 
+  var entered: CountDownLatch? = null
+  var gate: CountDownLatch? = null
+
   override fun open(bytes: ByteArray): PdfPages {
+    entered?.countDown()
+    gate?.await(5, TimeUnit.SECONDS)
     failure?.let { throw it }
     return FakePages(pages).also { opened += it }
   }
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, DelicateCoroutinesApi::class)
 class DocMediaTest {
   @get:Rule val folder = TemporaryFolder()
 
@@ -189,9 +202,11 @@ class DocMediaTest {
     player.position = 4000
     model.tick()
     assertEquals(4000, model.state.value.audio!!.position)
+    player.position = 4500
     model.pause()
     assertFalse(player.running)
     assertFalse(model.state.value.audio!!.playing)
+    assertEquals(4500, model.state.value.audio!!.position)
     model.seek(9000)
     assertEquals(9000, player.position)
     assertEquals(9000, model.state.value.audio!!.position)
@@ -328,6 +343,119 @@ class DocMediaTest {
   }
 
   @Test
+  fun aCancelledLoadReleasesThePlayerItOpened() {
+    val entered = CountDownLatch(1)
+    val gate = CountDownLatch(1)
+    audio.entered = entered
+    audio.gate = gate
+    val model = model(song(), "reports/a.mp3")
+    val job = Job()
+    val worker = Thread { runBlocking(job) { model.load() } }
+    worker.start()
+    assertTrue(entered.await(5, TimeUnit.SECONDS))
+    job.cancel()
+    gate.countDown()
+    worker.join(5000)
+    assertEquals(1, audio.players.size)
+    assertTrue(audio.players[0].released)
+  }
+
+  @Test
+  fun aCancelledLoadClosesThePagesItOpened() {
+    val entered = CountDownLatch(1)
+    val gate = CountDownLatch(1)
+    pdfs.entered = entered
+    pdfs.gate = gate
+    val model = model(paper(), "reports/paper.pdf")
+    val job = Job()
+    val worker = Thread { runBlocking(job) { model.load() } }
+    worker.start()
+    assertTrue(entered.await(5, TimeUnit.SECONDS))
+    job.cancel()
+    gate.countDown()
+    worker.join(5000)
+    assertEquals(1, pdfs.opened.size)
+    assertTrue(pdfs.opened[0].closed)
+  }
+
+  @Test
+  fun leavingDuringAReopenDoesNotPlayInTheBackground() {
+    val model = model(song(), "reports/a.mp3")
+    runBlocking {
+      model.load()
+      model.release()
+    }
+    val entered = CountDownLatch(1)
+    val gate = CountDownLatch(1)
+    audio.entered = entered
+    audio.gate = gate
+    val job = GlobalScope.launch(Dispatchers.Default) { model.start() }
+    assertTrue(entered.await(5, TimeUnit.SECONDS))
+    model.release()
+    gate.countDown()
+    runBlocking { job.join() }
+    assertEquals(2, audio.players.size)
+    assertFalse(audio.players[1].running)
+    assertTrue(audio.players[1].released)
+    assertFalse(model.state.value.audio!!.playing)
+  }
+
+  @Test
+  fun aPdfIsCopiedOpenedAndTheCopyGoesWithIt() {
+    val dir = folder.newFolder("doc")
+    val files = mutableListOf<File>()
+    val opener = PlatformPdf(dir) { file -> files += file; FakePages(2) }
+    val pages = opener.open(byteArrayOf(1, 2))
+    assertTrue(files[0].exists())
+    assertEquals(2, pages.count)
+    pages.close()
+    assertFalse(files[0].exists())
+  }
+
+  @Test
+  fun aPdfThatFailsToOpenLeavesNoCopy() {
+    val dir = folder.newFolder("doc")
+    var failure: Exception = IOException("bad")
+    val opener = PlatformPdf(dir) { throw failure }
+    assertThrowsIo { opener.open(byteArrayOf(1)) }
+    failure = SecurityException("password")
+    try {
+      opener.open(byteArrayOf(1))
+      throw AssertionError("not refused")
+    } catch (_: PdfRefused) {}
+    assertEquals(0, dir.listFiles()!!.size)
+  }
+
+  @Test
+  fun leftoverCopiesAreSweptOnTheFirstOpenOnly() {
+    val dir = folder.newFolder("doc")
+    val old = File(dir, "doc-old.pdf").also { it.writeText("x") }
+    val opener = PlatformPdf(dir) { FakePages(1) }
+    opener.open(byteArrayOf(1))
+    assertFalse(old.exists())
+    val late = File(dir, "doc-late.pdf").also { it.writeText("x") }
+    opener.open(byteArrayOf(1))
+    assertTrue(late.exists())
+  }
+
+  @Test
+  fun aTallPageKeepsItsShapeWithinTheHeightLimit() {
+    assertEquals(1000 to 1415, pageSize(1000, 595, 842))
+    assertEquals(1000 to 8000, pageSize(1000, 100, 800))
+    val (w, h) = pageSize(1000, 100, 100_000)
+    assertEquals(8192, h)
+    assertEquals(8, w)
+    assertEquals(1 to 1, pageSize(1, 1, 1))
+  }
+
+  private fun assertThrowsIo(block: () -> Unit) {
+    try {
+      block()
+      throw AssertionError("no IOException")
+    } catch (_: IOException) {}
+  }
+
+  @Test
   fun aPdfOverTheLimitByOneByteIsRefusedAndAtTheLimitOpens() = runBlocking {
     model(paper(MEDIA_LIMIT), "reports/paper.pdf").also { it.load() }
     assertEquals(1, pdfs.opened.size)
@@ -437,8 +565,10 @@ class DocMediaTest {
     File(dir, "doc-1.pdf").writeText("x")
     File(dir, "doc-2.pdf").writeText("x")
     File(dir, "keep.txt").writeText("x")
+    File(dir, "doc-3.txt").writeText("x")
+    File(dir, "other.pdf").writeText("x")
     TempCopy.sweep(dir)
-    assertEquals(listOf("keep.txt"), dir.list()!!.toList())
+    assertEquals(listOf("doc-3.txt", "keep.txt", "other.pdf"), dir.list()!!.sorted())
     TempCopy.sweep(File(dir, "missing"))
   }
 

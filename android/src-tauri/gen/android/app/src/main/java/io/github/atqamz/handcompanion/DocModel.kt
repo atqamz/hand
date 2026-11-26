@@ -5,11 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -301,21 +305,32 @@ class DocModel(
         )
     )
 
+  private suspend fun <T> opening(release: (T) -> Unit, open: () -> T): T {
+    var made: T? = null
+    try {
+      return withContext(fetch + NonCancellable) { open().also { made = it } }
+    } catch (error: CancellationException) {
+      made?.let(release)
+      throw error
+    }
+  }
+
   private suspend fun audio(node: DocNode, mine: Int): DocState {
     if (node.size > MEDIA_LIMIT) return tooLarge(node, "audio file")
     val bytes = mediaBytes(node) ?: return DocState(node = node, problem = "The audio could not be loaded.")
     if (bytes.size > MEDIA_LIMIT) return tooLarge(node.copy(size = bytes.size.toLong()), "audio file")
     val opened =
       try {
-        withContext(fetch) { audioOpener.open(bytes, events) }
+        opening(AudioPlayer::release) { audioOpener.open(bytes, events) }
       } catch (_: IOException) {
         return DocState(
           node = node,
           notice = DocNotice("This audio can't be played here.", "${node.kind} · ${docSize(node.size)}")
         )
       }
+    val live = currentCoroutineContext().isActive
     synchronized(media) {
-      if (mine != generation.get()) {
+      if (!live || mine != generation.get()) {
         opened.release()
         return DocState(node = node)
       }
@@ -331,7 +346,7 @@ class DocModel(
     if (bytes.size > MEDIA_LIMIT) return tooLarge(node.copy(size = bytes.size.toLong()), "PDF")
     val opened =
       try {
-        withContext(fetch) { pdfOpener.open(bytes) }
+        opening(PdfPages::close) { pdfOpener.open(bytes) }
       } catch (_: PdfRefused) {
         return DocState(
           node = node,
@@ -344,8 +359,9 @@ class DocModel(
       opened.close()
       return DocState(node = node, problem = "The PDF has no pages.")
     }
+    val live = currentCoroutineContext().isActive
     synchronized(media) {
-      if (mine != generation.get()) {
+      if (!live || mine != generation.get()) {
         opened.close()
         return DocState(node = node)
       }
@@ -358,6 +374,7 @@ class DocModel(
   private var player: AudioPlayer? = null
   private var audioBytes: ByteArray? = null
   private var pdf: PdfPages? = null
+  private var stops = 0
 
   private val events =
     object : AudioEvents {
@@ -389,7 +406,11 @@ class DocModel(
   }
 
   fun release() {
-    val held = synchronized(media) { player }
+    val held =
+      synchronized(media) {
+        stops++
+        player
+      }
     val at = held?.position
     releasePlayer()
     mutableState.update { state ->
@@ -412,17 +433,19 @@ class DocModel(
     if (current == null) {
       val bytes = synchronized(media) { audioBytes } ?: return
       val mine = generation.get()
+      val epoch = synchronized(media) { stops }
       current =
         try {
-          withContext(fetch) { audioOpener.open(bytes, events) }
+          opening(AudioPlayer::release) { audioOpener.open(bytes, events) }
         } catch (_: IOException) {
           mutableState.update {
             if (mine == generation.get()) it.copy(audio = it.audio?.copy(playing = false, error = "The audio could not be played.")) else it
           }
           return
         }
+      val live = currentCoroutineContext().isActive
       synchronized(media) {
-        if (mine != generation.get() || audioBytes == null) {
+        if (!live || stops != epoch || mine != generation.get() || audioBytes == null) {
           current.release()
           return
         }

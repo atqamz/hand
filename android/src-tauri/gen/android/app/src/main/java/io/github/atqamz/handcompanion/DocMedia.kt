@@ -135,60 +135,77 @@ class TempCopy private constructor(val file: File) {
   }
 }
 
-class PlatformPdf(private val dir: File) : PdfOpener {
+fun pageSize(width: Int, pageWidth: Int, pageHeight: Int): Pair<Int, Int> {
+  val height = width.toLong() * pageHeight / maxOf(1, pageWidth)
+  if (height <= PAGE_HEIGHT_LIMIT) return width to height.coerceAtLeast(1).toInt()
+  val narrowed = (PAGE_HEIGHT_LIMIT * pageWidth / maxOf(1, pageHeight)).coerceAtLeast(1).toInt()
+  return narrowed to PAGE_HEIGHT_LIMIT.toInt()
+}
+
+class PlatformPdf(
+  private val dir: File,
+  private val renderer: (File) -> PdfPages = ::platformRenderer
+) : PdfOpener {
   private val swept by lazy { TempCopy.sweep(dir) }
 
   override fun open(bytes: ByteArray): PdfPages {
     swept
     val copy = TempCopy.make(dir, bytes)
-    var fd: ParcelFileDescriptor? = null
     try {
-      fd = ParcelFileDescriptor.open(copy.file, ParcelFileDescriptor.MODE_READ_ONLY)
-      val renderer = PdfRenderer(fd)
-      return Pages(renderer, fd, copy)
+      return Owned(renderer(copy.file), copy)
     } catch (error: SecurityException) {
-      fd?.close()
       copy.close()
       throw PdfRefused()
     } catch (error: Exception) {
-      fd?.close()
       copy.close()
       throw IOException("The PDF could not be opened.", error)
     }
   }
 
-  private class Pages(
-    private val renderer: PdfRenderer,
-    private val fd: ParcelFileDescriptor,
-    private val copy: TempCopy
-  ) : PdfPages {
-    private var closed = false
-    override val count = renderer.pageCount
-
-    override fun render(index: Int, width: Int): Bitmap? =
-      synchronized(this) {
-        if (closed || index !in 0 until count || width < 1) return null
-        try {
-          renderer.openPage(index).use { page ->
-            val height = (width.toLong() * page.height / maxOf(1, page.width)).coerceIn(1, PAGE_HEIGHT_LIMIT)
-            Bitmap.createBitmap(width, height.toInt(), Bitmap.Config.ARGB_8888).also {
-              it.eraseColor(Color.WHITE)
-              page.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            }
-          }
-        } catch (_: Exception) {
-          null
-        }
-      }
-
-    override fun close() =
-      synchronized(this) {
-        if (!closed) {
-          closed = true
-          renderer.close()
-          fd.close()
-          copy.close()
-        }
-      }
+  private class Owned(private val pages: PdfPages, private val copy: TempCopy) : PdfPages by pages {
+    override fun close() {
+      pages.close()
+      copy.close()
+    }
   }
+}
+
+fun platformRenderer(file: File): PdfPages {
+  val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+  try {
+    return Pages(PdfRenderer(fd), fd)
+  } catch (error: Exception) {
+    fd.close()
+    throw error
+  }
+}
+
+private class Pages(private val renderer: PdfRenderer, private val fd: ParcelFileDescriptor) : PdfPages {
+  private var closed = false
+  override val count = renderer.pageCount
+
+  override fun render(index: Int, width: Int): Bitmap? =
+    synchronized(this) {
+      if (closed || index !in 0 until count || width < 1) return null
+      try {
+        renderer.openPage(index).use { page ->
+          val (w, h) = pageSize(width, page.width, page.height)
+          Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
+            it.eraseColor(Color.WHITE)
+            page.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+          }
+        }
+      } catch (_: Exception) {
+        null
+      }
+    }
+
+  override fun close() =
+    synchronized(this) {
+      if (!closed) {
+        closed = true
+        renderer.close()
+        fd.close()
+      }
+    }
 }
