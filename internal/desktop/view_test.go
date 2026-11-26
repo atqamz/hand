@@ -59,7 +59,7 @@ func shotSized(t *testing.T, tt *ui.Tester, name string, width, height int) {
 func mustText(t *testing.T, tt *ui.Tester, want ...string) {
 	t.Helper()
 	for _, s := range want {
-		if !tt.HasText(s) {
+		if !tt.HasText(s) && !inDocMenu(tt, s) {
 			t.Errorf("missing %q in %q", s, tt.Texts())
 		}
 	}
@@ -67,14 +67,33 @@ func mustText(t *testing.T, tt *ui.Tester, want ...string) {
 
 func mustNotText(t *testing.T, tt *ui.Tester, want string) {
 	t.Helper()
-	if tt.HasText(want) {
+	if tt.HasText(want) || inDocMenu(tt, want) {
 		t.Errorf("unexpected %q in %q", want, tt.Texts())
 	}
 }
 
+func inDocMenu(tt *ui.Tester, label string) bool {
+	if !docMenuItems[label] || tt.Click("More document actions") != nil {
+		return false
+	}
+	found := tt.HasText(label)
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	return found
+}
+
+var docMenuItems = map[string]bool{"Copy contents": true, "Copy window": true, "Copied": true, "Download": true, "Wide": true, "Wrap": true}
+
 func click(t *testing.T, tt *ui.Tester, text string) {
 	t.Helper()
-	if err := tt.Click(text); err != nil {
+	err := tt.Click(text)
+	if err != nil && docMenuItems[text] {
+		if oerr := tt.Click("More document actions"); oerr != nil {
+			t.Fatalf("open the document menu: %v", oerr)
+		}
+		err = tt.Click(text)
+	}
+	if err != nil {
 		t.Fatalf("click %q: %v", text, err)
 	}
 }

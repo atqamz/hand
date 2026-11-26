@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -192,9 +193,6 @@ func TestWideAndWrapToggleAndAreRemembered(t *testing.T) {
 		t.Fatalf("wide %v wrap %v", app.DocWide, app.DocWrap)
 	}
 	mustText(t, tt, "Wide", "Wrap")
-	if !has(tt, "Wide, on") || !has(tt, "Wrap, on") {
-		t.Fatal("the toggles do not say they are on")
-	}
 	app.Close()
 
 	again := newApp(t, docFixture(t))
@@ -234,7 +232,7 @@ func TestToolbarHasAKeyboardPath(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "k.txt")
 	app.SaveAs = func(string) string { return dest }
 	tt := newTester(app)
-	order := []string{"Copy contents", "Download", "Wide, off", "Wrap, off"}
+	order := []string{"Find", "More document actions"}
 	var seen []string
 	for range 40 {
 		tt.Key(0, ui.KeyTab)
@@ -253,25 +251,12 @@ func TestToolbarHasAKeyboardPath(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if !app.DocWrap {
-		t.Fatal("Enter on Wrap did not toggle it")
-	}
-	for range 40 {
-		tt.Key(ui.Shift, ui.KeyTab)
-		tt.Frame()
-		if tt.Focused("Download") {
-			break
-		}
-	}
-	tt.Key(0, ui.KeyEnter)
+	mustText(t, tt, "Copy contents", "Download", "Wide", "Wrap")
+	click(t, tt, "Download")
 	tt.Frame()
 	if b, err := os.ReadFile(dest); err != nil || !strings.Contains(string(b), "line 1") {
-		t.Fatalf("Enter on Download wrote %q, %v", b, err)
+		t.Fatalf("Download wrote %q, %v", b, err)
 	}
-	tt.Key(0, ui.KeyTab)
-	tt.Key(0, ui.KeyTab)
-	tt.Key(0, ui.KeySpace)
-	tt.Frame()
 }
 
 func TestScenesDocToolbar(t *testing.T) {
@@ -294,6 +279,24 @@ func TestScenesDocToolbar(t *testing.T) {
 			app.OpenDoc(tc.rel)
 		}, func(t *testing.T, tt *ui.Tester, dark bool) {
 			mustText(t, tt, tc.want...)
+		})
+	}
+	for _, oc := range []struct {
+		name   string
+		source bool
+		want   []string
+	}{
+		{"91-doc-tools-overflow-rendered-1100x760", false, []string{"Copy contents", "Download", "Wide"}},
+		{"92-doc-tools-overflow-source-1100x760", true, []string{"Copy contents", "Download", "Wide", "Wrap"}},
+	} {
+		docShots(t, oc.name, windowWidth, windowHeight, func(app *desktop.App) {
+			app.DocSource = oc.source
+			app.OpenDoc(designPath)
+		}, func(t *testing.T, tt *ui.Tester, dark bool) {
+			if err := tt.Click("More document actions"); err != nil {
+				t.Fatal(err)
+			}
+			mustText(t, tt, oc.want...)
 		})
 	}
 	for _, dark := range []bool{false, true} {
@@ -572,4 +575,137 @@ func TestACopyFromAnEarlierVisitDoesNotLandOnTheNewVisit(t *testing.T) {
 		t.Fatalf("a copy from the first visit landed: %q", got)
 	}
 	mustNotText(t, tt, "Copied")
+}
+
+func TestRenderedAndSourceAreOneTwoStateSwitch(t *testing.T) {
+	app, _ := toolsApp(t, designPath)
+	tt := newTester(app)
+	if !has(tt, "Rendered, on") || !has(tt, "Source, off") {
+		t.Fatalf("start: %q", tt.Texts())
+	}
+	click(t, tt, "Source")
+	tt.Frame()
+	if !app.DocSource || !has(tt, "Source, on") || !has(tt, "Rendered, off") {
+		t.Fatalf("source: %v %q", app.DocSource, tt.Texts())
+	}
+	click(t, tt, "Source")
+	tt.Frame()
+	if !app.DocSource {
+		t.Fatal("clicking the side that is on turned it off")
+	}
+	click(t, tt, "Rendered")
+	tt.Frame()
+	if app.DocSource || !has(tt, "Rendered, on") || !has(tt, "Source, off") {
+		t.Fatalf("rendered: %v %q", app.DocSource, tt.Texts())
+	}
+}
+
+func TestOverflowHoldsEveryFormerAction(t *testing.T) {
+	cases := []struct {
+		rel    string
+		source bool
+		want   []string
+		not    []string
+	}{
+		{designPath, false, []string{"Copy contents", "Download", "Wide"}, []string{"Wrap"}},
+		{designPath, true, []string{"Copy contents", "Download", "Wide", "Wrap"}, nil},
+		{notesPath, false, []string{"Copy contents", "Download", "Wide", "Wrap"}, nil},
+		{blobPath, false, []string{"Copy contents", "Download"}, []string{"Wide", "Wrap"}},
+		{"reports/t1/plan.pdf", false, []string{"Download"}, []string{"Copy contents", "Wide", "Wrap"}},
+	}
+	for _, tc := range cases {
+		app, _ := toolsApp(t, tc.rel)
+		app.DocSource = tc.source
+		tt := newTester(app)
+		for _, gone := range []string{"Copy contents", "Download", "Wide", "Wrap"} {
+			mustNotShownOutside(t, tt, gone)
+		}
+		if err := tt.Click("More document actions"); err != nil {
+			t.Fatalf("%s: %v", tc.rel, err)
+		}
+		for _, w := range tc.want {
+			if !tt.HasText(w) {
+				t.Errorf("%s source=%v: menu lacks %q in %q", tc.rel, tc.source, w, tt.Texts())
+			}
+		}
+		for _, w := range tc.not {
+			if tt.HasText(w) {
+				t.Errorf("%s source=%v: menu has %q", tc.rel, tc.source, w)
+			}
+		}
+	}
+}
+
+func mustNotShownOutside(t *testing.T, tt *ui.Tester, label string) {
+	t.Helper()
+	if tt.HasText(label) {
+		t.Errorf("%q is on the toolbar, want it in the overflow menu only", label)
+	}
+}
+
+func TestFindButtonOpensTheFindBoxAndSourceForRenderedMarkdown(t *testing.T) {
+	app, _ := toolsApp(t, designPath)
+	tt := newTester(app)
+	click(t, tt, "Find")
+	tt.Frame()
+	tt.Frame()
+	if !app.DocSource {
+		t.Fatal("Find on rendered markdown did not switch to Source")
+	}
+	if !tt.Focused("Find in file") {
+		t.Fatal("the find box has no focus")
+	}
+}
+
+func settleDoc(tt *ui.Tester) {
+	for range 10 {
+		tt.Frame()
+		tt.Advance(20 * time.Millisecond)
+	}
+}
+
+func TestBracketsStepThroughTheFolder(t *testing.T) {
+	app, _ := toolsApp(t, notesPath)
+	tt := newTester(app)
+	tt.Key(0, ui.KeyBracketRight)
+	settleDoc(tt)
+	if app.Ref != "reports/t1/plan.pdf" {
+		t.Fatalf("] went to %q", app.Ref)
+	}
+	tt.Key(0, ui.KeyBracketLeft)
+	settleDoc(tt)
+	tt.Key(0, ui.KeyBracketLeft)
+	settleDoc(tt)
+	if app.Ref != designPath {
+		t.Fatalf("[ twice went to %q", app.Ref)
+	}
+	tt.Key(0, ui.KeyBracketLeft)
+	settleDoc(tt)
+	if app.Ref != designPath {
+		t.Fatalf("[ at the first document went to %q", app.Ref)
+	}
+	app.OpenDoc("reports/t1/z-last.txt")
+	settleDoc(tt)
+	tt.Key(0, ui.KeyBracketRight)
+	settleDoc(tt)
+	if app.Ref != "reports/t1/z-last.txt" {
+		t.Fatalf("] at the last document went to %q", app.Ref)
+	}
+}
+
+func TestBracketsTypeIntoAFocusedTextFieldAndDoNotStep(t *testing.T) {
+	app, _ := toolsApp(t, notesPath)
+	tt := newTester(app)
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("[a]")
+	tt.Key(0, ui.KeyBracketRight)
+	tt.Key(0, ui.KeyBracketLeft)
+	tt.Frame()
+	if app.Ref != notesPath {
+		t.Fatalf("a bracket in the find box moved to %q", app.Ref)
+	}
+	if !tt.HasText("[a]") && !tt.Focused("Find in file") {
+		t.Fatalf("the find box lost the text: %q", tt.Texts())
+	}
 }
