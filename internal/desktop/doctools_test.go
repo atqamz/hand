@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"bytes"
 	"context"
+	"image"
 	"io"
 	"os"
 	"path/filepath"
@@ -707,5 +708,118 @@ func TestBracketsTypeIntoAFocusedTextFieldAndDoNotStep(t *testing.T) {
 	}
 	if !tt.HasText("[a]") && !tt.Focused("Find in file") {
 		t.Fatalf("the find box lost the text: %q", tt.Texts())
+	}
+}
+
+func menuRowPixels(t *testing.T, rel string, set func(*desktop.App), label string) []uint8 {
+	t.Helper()
+	app, _ := toolsApp(t, rel)
+	app.SaveAs = func(string) string { return "" }
+	set(app)
+	tt := newTester(app)
+	if err := tt.Click("More document actions"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	r, ok := tt.Find(label)
+	if !ok {
+		t.Fatalf("no %q in %q", label, tt.Texts())
+	}
+	img := tt.Image()
+	rect := image.Rect(int(r.X)+2, int(r.Y)+2, int(r.X+r.W)-2, int(r.Y+r.H)-2).Intersect(img.Bounds())
+	var out []uint8
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		for x := rect.Min.X; x < rect.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			out = append(out, uint8(r>>8), uint8(g>>8), uint8(b>>8))
+		}
+	}
+	return out
+}
+
+func TestMenuItemsShowTheirDisabledAndCheckedState(t *testing.T) {
+	none := func(*desktop.App) {}
+	if bytes.Equal(menuRowPixels(t, designPath, none, "Download"), menuRowPixels(t, designPath, func(a *desktop.App) { a.SaveAs = nil }, "Download")) {
+		t.Error("Download looks the same with and without a save dialog")
+	}
+	if bytes.Equal(menuRowPixels(t, designPath, none, "Wide"), menuRowPixels(t, designPath, func(a *desktop.App) { a.DocWide = true }, "Wide")) {
+		t.Error("Wide looks the same checked and unchecked")
+	}
+	src := func(a *desktop.App) { a.DocSource = true }
+	srcWrap := func(a *desktop.App) { a.DocSource, a.DocWrap = true, true }
+	if bytes.Equal(menuRowPixels(t, designPath, src, "Wrap"), menuRowPixels(t, designPath, srcWrap, "Wrap")) {
+		t.Error("Wrap looks the same checked and unchecked")
+	}
+}
+
+func TestFindButtonFocusesTheFindBoxOnText(t *testing.T) {
+	app, _ := toolsApp(t, notesPath)
+	tt := newTester(app)
+	click(t, tt, "Find")
+	settleDoc(tt)
+	if !tt.Focused("Find in file") {
+		t.Fatal("the find box has no focus after Find")
+	}
+}
+
+func TestFindIsOnlyOnKindsThatCanFind(t *testing.T) {
+	for _, rel := range []string{designPath, notesPath} {
+		app, _ := toolsApp(t, rel)
+		if !has(newTester(app), "Find") {
+			t.Errorf("%s: no Find", rel)
+		}
+	}
+	if _, tt := openKind(t, kindsFixture(t), pagePath, false); !has(tt, "Find") {
+		t.Errorf("html: no Find")
+	}
+	for _, rel := range []string{salesCSV, planPath, voicePath, clipPath} {
+		_, tt := openKind(t, kindsFixture(t), rel, false)
+		if has(tt, "Find") {
+			t.Errorf("%s: Find is shown where nothing can be found", rel)
+		}
+	}
+	for _, rel := range []string{blobPath, "reports/t1/shot-1.png"} {
+		app, _ := toolsApp(t, rel)
+		if has(newTester(app), "Find") {
+			t.Errorf("%s: Find is shown where nothing can be found", rel)
+		}
+	}
+}
+
+func TestSteppingWithBracketsLeavesNoHistory(t *testing.T) {
+	app, _ := toolsApp(t, notesPath)
+	tt := newTester(app)
+	tt.Key(0, ui.KeyBracketRight)
+	settleDoc(tt)
+	click(t, tt, "Back")
+	settleDoc(tt)
+	if app.Screen == desktop.DocScreen {
+		t.Fatalf("Back after ] landed on a document, %q", app.Ref)
+	}
+}
+
+func TestTheSwitchAndTheMenuNameTheBracketKeys(t *testing.T) {
+	app, _ := toolsApp(t, designPath)
+	tt := newTester(app)
+	for _, at := range []string{"Source", "More document actions"} {
+		r, ok := tt.Find(at)
+		if !ok {
+			t.Fatalf("no %q", at)
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		seen := false
+		for _, s := range tt.Texts() {
+			if strings.Contains(s, "[ and ] open the previous and next document") {
+				seen = true
+			}
+		}
+		if !seen {
+			t.Errorf("resting on %q shows no hint for [ and ]", at)
+		}
+		tt.Move(2, 2)
+		tt.Advance(time.Second)
+		tt.Frame()
 	}
 }
