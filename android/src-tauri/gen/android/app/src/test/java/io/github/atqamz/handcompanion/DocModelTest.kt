@@ -145,7 +145,7 @@ class DocModelTest {
       model.load()
       assertEquals(kind, DocBody.Text, docBody(model.state.value))
     }
-    for (kind in listOf("svg", "html", "pdf", "video", "audio", "binary")) {
+    for (kind in listOf("svg", "html", "video", "binary")) {
       val board = DocBoard { fileNode(kind, kind == "svg" || kind == "html") }
       val model = model(board)
       model.load()

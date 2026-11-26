@@ -37,10 +37,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -273,7 +275,9 @@ class HandActivity : ComponentActivity() {
     ViewModelProvider(
       this,
       viewModelFactory {
-        initializer { DocModel(fleet, path, CoreTransport) }
+        initializer {
+          DocModel(fleet, path, CoreTransport, pdfOpener = PlatformPdf(File(cacheDir, "doc")))
+        }
       }
     )["doc:$fleet:$path", DocModel::class.java]
 
@@ -369,9 +373,23 @@ class HandActivity : ComponentActivity() {
     val model = remember(fleet, path) { docModel(fleet, path) }
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.load() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.release() }
     val tools =
       remember(model) {
-        DocTools(model::find, model::step, model::closeFind, model::goTo, model::earlier, model::toggleWrap, model::contents)
+        DocTools(
+          model::find,
+          model::step,
+          model::closeFind,
+          model::goTo,
+          model::earlier,
+          model::toggleWrap,
+          model::contents,
+          model::play,
+          model::pause,
+          model::seek,
+          model::tick,
+          model::render
+        )
       }
     DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget, tools)
   }
