@@ -372,13 +372,13 @@ func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) 
 		kit.Select(c, k, &a.change.harness, options)
 		if target.Name == cur.Name {
 			a.menuFields(c, k, p, cur, &a.change, "keep "+orText(a.Models.Model, "current"),
-				"keep "+orText(a.Models.Effort, "current"), false)
+				"keep "+orText(a.Models.Effort, "current"), a.Models.Model == "")
 			label := "Switch after this turn"
 			if a.Status.AgentState == "ready" {
 				label = "Switch now"
 			}
 			if kit.Button(c, k, "switch:now", label, width, a.Busy) {
-				model, effort := a.chosen(cur, &a.change)
+				model, effort := a.chosenBare(cur, &a.change, a.Models.Model == "")
 				a.switchSupervisor(Switch{Model: model, Effort: effort})
 			}
 			if cur.Note != "" {
@@ -391,7 +391,7 @@ func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) 
 		ref := a.Status.Supervisor.Ref
 		ui.Text(c, "Stops "+ref+" and starts a new session on "+target.Name+"; "+ref+"'s conversation stays in Chat.").
 			FontSize(kit.Meta.Size)
-		working, blocked := a.Status.AgentState == "working", a.Status.AgentState == "blocked"
+		working, blocked := a.Status.AgentState == "working", a.Status.Supervisor != nil && a.Status.Supervisor.Blocked
 		switch {
 		case working:
 			ui.Text(c, ref+" is working; switch harness when its turn ends, or interrupt it first").
@@ -400,7 +400,7 @@ func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) 
 			ui.Text(c, ref+" is blocked; answer its screen or wait until it is idle, then switch harness").
 				FontSize(kit.Meta.Size).TextColor(p.wait)
 		}
-		model, effort := a.chosenForNewSession(target, pk)
+		model, effort := a.chosenBare(target, pk, true)
 		if kit.Button(c, k, "switch:"+target.Name, "Switch to "+target.Name, width, a.Busy || working || blocked || model == "" && needsModel(target)) {
 			a.switchSupervisor(Switch{Harness: target.Name, Model: model, Effort: effort})
 		}
@@ -438,9 +438,13 @@ func keepDefault(h Harness) string {
 
 func hasModel(pk *pick) bool { return pk.model != "" || strings.TrimSpace(pk.other) != "" }
 
-func (a *App) chosenForNewSession(h Harness, p *pick) (string, string) {
+func noVariant(h Harness, pk *pick, bare bool) bool {
+	return bare && h.Name == "opencode" && !hasModel(pk)
+}
+
+func (a *App) chosenBare(h Harness, p *pick, bare bool) (string, string) {
 	model, effort := a.chosen(h, p)
-	if model == "" {
+	if model == "" && noVariant(h, p, bare) {
 		effort = ""
 	}
 	return model, effort
@@ -453,11 +457,11 @@ func orText(value, fallback string) string {
 	return value
 }
 
-func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string, fresh bool) {
+func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string, bare bool) {
 	if len(h.Groups) == 0 {
 		kit.FieldLabel(c, k, "Model")
 		ui.TextInput(c, &pk.other).Placeholder(orText(h.Model, "model")).Label(h.Name + " model")
-		if !fresh || needsModel(h) || hasModel(pk) {
+		if !noVariant(h, pk, bare) {
 			kit.FieldLabel(c, k, effortWord(h))
 			ui.TextInput(c, &pk.effort).Placeholder(orText(h.Effort, "effort")).Label(h.Name + " " + strings.ToLower(effortWord(h)))
 		}
@@ -467,13 +471,14 @@ func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *
 	kit.Select(c, k, &pk.model, modelOptions(h, keepModel))
 	kit.FieldLabel(c, k, "Other model")
 	ui.TextInput(c, &pk.other).Placeholder("Other model").Label(h.Name + " other model")
+	if noVariant(h, pk, bare) {
+		return
+	}
 	options, hidden := effortOptions(h, pk.model, keepEffort)
 	if hidden {
 		if h.Name == "opencode" {
-			if !fresh || hasModel(pk) {
-				kit.FieldLabel(c, k, effortWord(h))
-				ui.TextInput(c, &pk.effort).Placeholder("variant").Label(h.Name + " variant")
-			}
+			kit.FieldLabel(c, k, effortWord(h))
+			ui.TextInput(c, &pk.effort).Placeholder("variant").Label(h.Name + " variant")
 		} else {
 			pk.effort = ""
 		}
@@ -520,7 +525,7 @@ func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width 
 	pk := a.pickFor(harness)
 	start := func(w float32) {
 		if kit.Button(c, k, "start:"+harness.Name, "Start "+harness.Name, w, a.Busy || harness.Missing != "" || needsModel(harness) && !hasModel(pk)) {
-			model, effort := a.chosenForNewSession(harness, pk)
+			model, effort := a.chosenBare(harness, pk, true)
 			a.startSupervisor(harness.Name, model, effort)
 		}
 	}
@@ -563,7 +568,7 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 		if h.Name == "opencode" {
 			placeholder = "variant"
 		}
-		if needsModel(h) || hasModel(pk) {
+		if !noVariant(h, pk, true) {
 			effortField(1).Children(func() {
 				ui.TextInput(c, &pk.effort).Placeholder(placeholder).Label(h.Name + " " + placeholder)
 			})
@@ -576,13 +581,13 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 			ui.TextInput(c, &pk.other).Placeholder("Other model").Label(h.Name + " other model")
 		})
 	}
+	if noVariant(h, pk, true) {
+		return
+	}
 	options, hidden := effortOptions(h, pk.model, "default")
 	if hidden {
 		if h.Name != "opencode" {
 			pk.effort = ""
-			return
-		}
-		if !hasModel(pk) {
 			return
 		}
 		effortField(effortGrow).Children(func() {
