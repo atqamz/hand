@@ -498,8 +498,7 @@ func (a *App) phoneNoteCard(c *ui.Context, k kit.Colors, p palette) {
 
 func (a *App) phoneNetwork(c *ui.Context, k kit.Colors, p palette, d Phone) {
 	a.phoneSection(c, k, p, "Network", func() {
-		ui.Text(c, "This Board listens on this computer only. A Companion reaches it through a tunnel you set up, such as an SSH tunnel or WireGuard. Type the address the Companion opens, below.").
-			FontSize(kit.Body.Size).TextColor(p.neutral)
+		ui.Text(c, phoneReach(d.Iroh)).FontSize(kit.Body.Size).TextColor(p.neutral)
 		if d.Iroh == nil {
 			return
 		}
@@ -509,7 +508,8 @@ func (a *App) phoneNetwork(c *ui.Context, k kit.Colors, p palette, d Phone) {
 			ui.Text(c, d.Iroh.Text).FontSize(kit.Meta.Size)
 			if d.Iroh.ID != "" {
 				ui.Text(c, "Endpoint ID").FontSize(kit.Meta.Size).TextColor(p.neutral)
-				ui.Text(c, d.Iroh.ID).Font("monospace").FontSize(kit.Meta.Size)
+				ui.Text(c, shortEndpointID(d.Iroh.ID)).Font("monospace").FontSize(kit.Meta.Size).Tooltip(d.Iroh.ID)
+				a.phoneCopyID(c, k, d.Iroh.ID)
 			}
 		})
 	})
@@ -566,6 +566,34 @@ func (a *App) phoneCopy(c *ui.Context, k kit.Colors, key string, link Secret, ex
 			return
 		}
 		c.WriteClipboard(link.Reveal())
+		a.copiedKey, a.copiedAt = key, c.Now()
+		c.After(copyReceipt)
+	}
+}
+
+func shortEndpointID(id string) string {
+	r := []rune(id)
+	if len(r) <= 9 {
+		return id
+	}
+	return string(r[:4]) + "…" + string(r[len(r)-4:])
+}
+
+func phoneReach(i *PhoneIroh) string {
+	if i != nil && i.State == "ready" {
+		return "The Hand app reaches this computer over iroh with no address to type; any other Companion needs a tunnel you set up to the address you type below."
+	}
+	return "A Companion reaches this computer only through a tunnel you set up to the address you type below."
+}
+
+func (a *App) phoneCopyID(c *ui.Context, k kit.Colors, id string) {
+	const key = "phone:id:copy"
+	label := "Copy"
+	if a.copiedKey == key && !a.copiedAt.IsZero() && c.Now().Sub(a.copiedAt) < copyReceipt {
+		label = "Copied"
+	}
+	if kit.LabeledButton(c, k, key, label, "Copy endpoint ID", 0, false) {
+		c.WriteClipboard(id)
 		a.copiedKey, a.copiedAt = key, c.Now()
 		c.After(copyReceipt)
 	}

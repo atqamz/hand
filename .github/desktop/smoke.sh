@@ -28,15 +28,16 @@ test "$got" = "hand-desktop $want" || {
 printf 'hand-desktop --version: %s\n' "$got"
 
 if [ "$(go env GOOS)" = windows ]; then
+	CGO_ENABLED=0 go build -trimpath -tags mygo_noinspector -ldflags "$(printf '%s' "$deskflags" | sed 's/desktopasset.Channel=stable/desktopasset.Channel=source/')" -o "$out/hand-desktop-source$exe" ./cmd/hand-desktop
 	code=0
-	"$out/hand-desktop$exe" >"$out/refusal" 2>&1 </dev/null || code=$?
+	"$out/hand-desktop-source$exe" >"$out/refusal" 2>&1 </dev/null || code=$?
 	test "$code" = 2 || {
-		echo "a stable hand-desktop on $(go env GOOS) exited $code, want 2" >&2
+		echo "a source hand-desktop on $(go env GOOS) exited $code, want 2" >&2
 		exit 1
 	}
 	grep -q '^hand-desktop: unsupported on ' "$out/refusal" || {
-		echo "a stable hand-desktop on $(go env GOOS) printed '$(cat "$out/refusal")'" >&2
+		echo "a source hand-desktop on $(go env GOOS) printed '$(cat "$out/refusal")'" >&2
 		exit 1
 	}
-	printf 'stable build refuses on %s: %s\n' "$(go env GOOS)" "$(cat "$out/refusal")"
+	printf 'source build refuses on %s: %s\n' "$(go env GOOS)" "$(cat "$out/refusal")"
 fi

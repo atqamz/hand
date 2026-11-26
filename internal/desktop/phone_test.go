@@ -1030,3 +1030,56 @@ func TestSwitchingFleetDropsTheCompanionPageData(t *testing.T) {
 		t.Fatal("the first fleet's code shows after switching fleet")
 	}
 }
+
+func TestEndpointIDShowsShortAndCopiesInFull(t *testing.T) {
+	const full = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	for _, dark := range []bool{false, true} {
+		t.Run(theme(dark), func(t *testing.T) {
+			m := phoneFixture(t)
+			_, tt := phoneTester(t, m, dark)
+			mustText(t, tt, "0123…cdef", "Copy")
+			mustNotText(t, tt, full)
+			if tt.Clipboard() != "" {
+				t.Fatalf("clipboard holds %q before any click", tt.Clipboard())
+			}
+			click(t, tt, "Copy endpoint ID")
+			if tt.Clipboard() != full {
+				t.Fatalf("clipboard = %q, want the full endpoint ID", tt.Clipboard())
+			}
+			tt.Frame()
+			mustText(t, tt, "Copied")
+			tt.Advance(2 * time.Second)
+			tt.Frame()
+			mustText(t, tt, "Copy")
+		})
+	}
+}
+
+func TestShortEndpointIDsAreShownWhole(t *testing.T) {
+	for _, tc := range []struct{ id, shown string }{
+		{"abcd", "abcd"},
+		{"abcd1234", "abcd1234"},
+		{"abcd12345", "abcd12345"},
+		{"abcd123456", "abcd…3456"},
+	} {
+		m := phoneFixture(t)
+		m.data.Iroh.ID = tc.id
+		_, tt := phoneTester(t, m, false)
+		mustText(t, tt, tc.shown)
+		click(t, tt, "Copy endpoint ID")
+		if tt.Clipboard() != tc.id {
+			t.Fatalf("id %q: clipboard = %q", tc.id, tt.Clipboard())
+		}
+	}
+}
+
+func TestNetworkSentenceFollowsTheSidecar(t *testing.T) {
+	m := phoneFixture(t)
+	_, tt := phoneTester(t, m, false)
+	mustText(t, tt, "The Hand app reaches this computer over iroh with no address to type; any other Companion needs a tunnel you set up to the address you type below.")
+	m = phoneFixture(t)
+	m.data.Iroh = &desktop.PhoneIroh{State: "off", Tone: "neutral", Text: "Companion access over iroh is off."}
+	_, tt = phoneTester(t, m, false)
+	mustText(t, tt, "A Companion reaches this computer only through a tunnel you set up to the address you type below.")
+	mustNotText(t, tt, "Copy endpoint ID")
+}
