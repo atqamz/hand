@@ -12,17 +12,21 @@ die() {
 
 authority=${base#*://}
 authority=${authority%%[/?#]*}
+shown=$base
+case "$authority" in
+*@*) shown=${base%%://*}://${base#*://"${authority%@*}"@} ;;
+esac
 case "${base%%://*}" in
 [Hh][Tt][Tt][Pp][Ss]) ;;
 [Hh][Tt][Tt][Pp])
 	case "$authority" in
 	127.0.0.1 | localhost | "[::1]") ;;
-	127.0.0.1:*[!0-9]* | localhost:*[!0-9]* | "[::1]":*[!0-9]*) die "the base URL must use https, or http on this machine: $base" ;;
+	127.0.0.1:*[!0-9]* | localhost:*[!0-9]* | "[::1]":*[!0-9]*) die "the base URL must use https, or http on this machine: $shown" ;;
 	127.0.0.1:[0-9]* | localhost:[0-9]* | "[::1]":[0-9]*) ;;
-	*) die "the base URL must use https, or http on this machine: $base" ;;
+	*) die "the base URL must use https, or http on this machine: $shown" ;;
 	esac
 	;;
-*) die "the base URL must use https, or http on this machine: $base" ;;
+*) die "the base URL must use https, or http on this machine: $shown" ;;
 esac
 
 case "$(uname -s)" in

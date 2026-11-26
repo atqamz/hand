@@ -541,7 +541,7 @@ func TestInstallScriptNeedsNoToolBeyondTheOnesItAlreadyNamedForTheSidecar(t *tes
 }
 
 func TestInstallScriptRefusesAPlainHTTPBaseOffThisMachine(t *testing.T) {
-	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1", "http://127.0.0.1.example.com", "http://localhost:80@example.com/releases", "http://127.0.0.1:80@example.com", "http://127.0.0.1:", "http://[::1]:9x"} {
+	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1", "http://127.0.0.1.example.com", "http://127.0.0.1:", "http://[::1]:9x"} {
 		dir, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"HAND_INSTALL_BASE": base}, "Linux", "x86_64")
 		if want := "install.sh: the base URL must use https, or http on this machine: " + base + "\n"; code != 1 || errOut != want || len(installed(t, dir)) != 0 {
 			t.Fatalf("%s: code %d %q, installed %q", base, code, errOut, installed(t, dir))
@@ -554,6 +554,31 @@ func TestInstallScriptAcceptsAnUppercaseSchemeAndLoopbackForms(t *testing.T) {
 	for _, base := range []string{srv.URL, strings.Replace(srv.URL, "http://127.0.0.1", "HTTP://127.0.0.1", 1)} {
 		if _, _, errOut, code := runInstall(t, srv, map[string]string{"HAND_INSTALL_BASE": base}, "Linux", "x86_64"); code != 0 {
 			t.Fatalf("%s: code %d %s", base, code, errOut)
+		}
+	}
+}
+
+func TestInstallScriptRefusesARedirectToPlainHTTP(t *testing.T) {
+	target := fakeRelease(t, "9.9.9", nil)
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, target.URL+req.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(redirect.Close)
+	dir, _, errOut, code := runInstall(t, target, map[string]string{"HAND_INSTALL_BASE": redirect.URL}, "Linux", "x86_64")
+	if code != 1 || !strings.Contains(errOut, "install.sh: download failed: ") || len(installed(t, dir)) != 0 || len(target.asked()) != 0 {
+		t.Fatalf("code %d %q, installed %q, target asked %q", code, errOut, installed(t, dir), target.asked())
+	}
+}
+
+func TestInstallScriptDoesNotEchoTheUserInformationOfARefusedBase(t *testing.T) {
+	for base, shown := range map[string]string{
+		"http://user:s3cret@example.com/releases":  "http://example.com/releases",
+		"http://localhost:80@example.com/releases": "http://example.com/releases",
+		"http://127.0.0.1:80@example.com":          "http://example.com",
+	} {
+		_, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"HAND_INSTALL_BASE": base}, "Linux", "x86_64")
+		if want := "install.sh: the base URL must use https, or http on this machine: " + shown + "\n"; code != 1 || errOut != want {
+			t.Fatalf("%s: code %d %q", base, code, errOut)
 		}
 	}
 }

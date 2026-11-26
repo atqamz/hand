@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -371,7 +372,7 @@ func TestNewerComparesNumbers(t *testing.T) {
 }
 
 func TestFetchRefusesAPlainHTTPBaseOffThisMachine(t *testing.T) {
-	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1/x"} {
+	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1/x", "http://localhost.example.com", "http://127.0.0.1.example.com", "http://localhost:80@example.com/releases"} {
 		dir := t.TempDir()
 		_, err := FetchHand(context.Background(), base, "edge", "linux", "amd64", dir, os.Environ())
 		if err == nil || !strings.Contains(err.Error(), "must use https") {
@@ -417,6 +418,11 @@ func TestCheckRedirectKeepsHTTPSOnHTTPS(t *testing.T) {
 		{"loopback http to loopback http", "http://127.0.0.1:8080/a", "http://localhost:9090/b", true},
 		{"loopback http to https", "http://127.0.0.1:8080/a", "https://example.com/b", true},
 		{"loopback http to other http", "http://127.0.0.1:8080/a", "http://example.com/b", false},
+		{"loopback http to ::1 http", "http://127.0.0.1:8080/a", "http://[::1]:9090/b", true},
+		{"::1 http to https", "http://[::1]:8080/a", "https://example.com/b", true},
+		{"https to ::1 http", "https://github.com/a", "http://[::1]:9090/b", false},
+		{"loopback http to a lookalike host", "http://127.0.0.1:8080/a", "http://localhost.example.com/b", false},
+		{"loopback http to a 127.0.0.1 lookalike", "http://127.0.0.1:8080/a", "http://127.0.0.1.example.com/b", false},
 	} {
 		err := checkRedirect(get(c.to), []*http.Request{get(c.from)})
 		if (err == nil) != c.ok {
@@ -429,5 +435,27 @@ func TestCheckRedirectKeepsHTTPSOnHTTPS(t *testing.T) {
 	}
 	if err := checkRedirect(get("https://example.com/"), make([]*http.Request, 10)); err == nil {
 		t.Error("ten redirects were followed")
+	}
+}
+
+func TestRequireHTTPSKnowsTheHost(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://github.com/atqamz/hand/releases": true,
+		"http://127.0.0.1:8080/x":                 true,
+		"http://localhost/x":                      true,
+		"http://[::1]:8080/x":                     true,
+		"http://[::1]/x":                          true,
+		"http://localhost.example.com/x":          false,
+		"http://127.0.0.1.example.com:8080/x":     false,
+		"http://[::2]:8080/x":                     false,
+		"http://localhost:80@example.com/x":       false,
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := requireHTTPS(u); (err == nil) != ok {
+			t.Errorf("%s: err = %v, want ok %v", raw, err, ok)
+		}
 	}
 }
