@@ -13,6 +13,7 @@ use iroh::endpoint::{Builder, Endpoint, PortmapperConfig, QuicTransportConfig, V
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
+use crate::alerts::{AlertSink, CookieSource, Supervisor};
 use crate::dialer::{ALPN, Dialer, STREAMS_PER_CONNECTION, parse_target};
 use crate::dialers::Dialers;
 use crate::http::{Request, RequestError, Response, exchange};
@@ -22,6 +23,7 @@ use crate::pair::{PairError, redeem};
 use crate::pairing::{Offer, OfferError, Pairing};
 use crate::proxy::{self, Proxy, Slot};
 use crate::sessions::{Jar, Paired, Refusal, Sessions};
+use crate::signout::{Fate, Left, SignOut, sign_out_fleet};
 
 pub const POLL_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -233,6 +235,59 @@ impl Companion {
         }
         self.dialers.remove(endpoint).await;
         cleared
+    }
+
+    pub async fn sign_out_host<J, C, S>(
+        &self,
+        sessions: &Sessions<J>,
+        supervisor: &Arc<Supervisor<C, S>>,
+        endpoint: &str,
+        clear: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<SignOut>
+    where
+        J: Jar,
+        C: CookieSource + Send + 'static,
+        S: AlertSink + Send + 'static,
+    {
+        let fleets = sessions
+            .hosts()
+            .into_iter()
+            .find(|host| host.endpoint == endpoint)
+            .map(|host| host.fleets)
+            .unwrap_or_default();
+        let ids: Vec<String> = fleets.iter().map(|fleet| fleet.id.clone()).collect();
+        supervisor.hold(&ids);
+        let mut left = Vec::new();
+        let mut down = false;
+        for fleet in fleets {
+            let fate = if down {
+                Fate::Unreachable
+            } else {
+                let verdict = sign_out_fleet(self, sessions, &fleet.id).await;
+                down = verdict.host_down;
+                verdict.fate
+            };
+            if fate != Fate::Done {
+                left.push(Left {
+                    id: fleet.id,
+                    name: fleet.name,
+                    fate,
+                });
+            }
+        }
+        let done = left.is_empty();
+        let cleared = if done {
+            self.forget_host(endpoint, clear).await
+        } else {
+            Ok(())
+        };
+        supervisor.release(&ids).await;
+        cleared?;
+        Ok(if done {
+            SignOut::Done
+        } else {
+            SignOut::Left(left)
+        })
     }
 
     #[cfg(test)]

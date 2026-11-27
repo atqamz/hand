@@ -85,7 +85,7 @@ class StatesScreenTest {
   @Test fun taskRefusedDark() = task(true, TaskState(loading = false, refused = "not found: task t99"))
 
   private fun phone(dark: Boolean, phone: ThisPhone) =
-    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}, {}) } }
 
   private val nothing =
     ThisPhone(alerts = "Alerts are off", alertsDetail = "No fleet is paired.", phoneId = "9ab2…11fe", app = "0.2.0", core = "0.1.0")

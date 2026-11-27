@@ -70,6 +70,7 @@ class HandActivity : ComponentActivity() {
           Core::unsaved,
           forgetter = Core::forget,
           hostForgetter = Core::forgetHost,
+          signer = { signOutResult(Core.signOutHost(it)) },
           dropped = { clearFleetDrafts(applicationContext.getSharedPreferences("drafts", MODE_PRIVATE), it) }
         )
       }
@@ -598,6 +599,10 @@ class HandActivity : ComponentActivity() {
               thisPhone(state, BuildConfig.VERSION_NAME),
               leave,
               model::ask,
+              {
+                val leaves = state.hosts.size <= 1 || state.asking?.endpoint == null
+                model.signOut { if (leaves) phone = false }
+              },
               {
                 val leaves = state.hosts.size <= 1 || state.asking?.endpoint == null
                 model.forget()

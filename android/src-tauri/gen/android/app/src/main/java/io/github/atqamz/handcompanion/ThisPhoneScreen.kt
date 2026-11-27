@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -72,6 +74,7 @@ fun ThisPhoneScreen(
   phone: ThisPhone,
   onBack: () -> Unit,
   onAsk: (Forgetting?) -> Unit,
+  onSignOut: () -> Unit,
   onForget: () -> Unit,
   onSettings: () -> Unit
 ) {
@@ -102,18 +105,18 @@ fun ThisPhoneScreen(
         phone.hosts.forEach { host ->
           Line(host.name, host.detail, mono = true) {
             Action(
-              "Forget",
+              "Sign out",
               { onAsk(Forgetting(host.endpoint, host.name, host.fleets)) },
-              Modifier.semantics { contentDescription = "Forget ${host.name}" }
+              Modifier.semantics { contentDescription = "Sign out ${host.name}" }
             )
           }
         }
         if (phone.hosts.size > 1) {
-          Line("Forget everything", "Every host and all ${phone.fleets.size} fleets") {
+          Line("Sign out of everything", "Every host and all ${phone.fleets.size} fleets") {
             Action(
-              "Forget",
+              "Sign out",
               { onAsk(Forgetting(null, null, phone.fleets.size)) },
-              Modifier.semantics { contentDescription = "Forget everything" }
+              Modifier.semantics { contentDescription = "Sign out of everything" }
             )
           }
         }
@@ -130,5 +133,65 @@ fun ThisPhoneScreen(
       }
     }
   }
-  phone.asking?.let { ForgetDialog(it, onForget) { onAsk(null) } }
+  phone.asking?.let { SignOutDialog(it, phone.failure, phone.signing, onSignOut, onForget) { onAsk(null) } }
+}
+
+internal data class SignOutChoices(
+  val confirm: String,
+  val forgetsOnly: Boolean,
+  val alsoForget: Boolean,
+  val enabled: Boolean
+)
+
+internal fun signOutChoices(failure: SignOutFailure?, signing: Boolean) =
+  when {
+    failure?.retry == false -> SignOutChoices("Forget only", true, false, true)
+    failure == null -> SignOutChoices("Sign out", false, true, !signing)
+    else -> SignOutChoices("Try again", false, true, !signing)
+  }
+
+@Composable
+internal fun SignOutDialog(
+  asking: Forgetting,
+  failure: SignOutFailure?,
+  signing: Boolean,
+  onSignOut: () -> Unit,
+  onForget: () -> Unit,
+  onCancel: () -> Unit
+) {
+  val everything = asking.endpoint == null
+  val who = if (everything) "every host" else asking.name ?: "your host"
+  val fleets =
+    when {
+      everything -> " and all ${asking.fleets} fleets"
+      asking.fleets == 0 -> ""
+      else -> " and its ${asking.fleets} fleet${if (asking.fleets == 1) "" else "s"}"
+    }
+  val text =
+    when {
+      failure != null -> failure.sentence
+      signing -> "Signing out…"
+      else ->
+        "This Companion ends its pairing on $who$fleets, then leaves. Alerts stop. " +
+          "Forget only leaves without telling the host, which keeps listing this Companion " +
+          "until it is revoked on the host's Companion page. " +
+          "To use it again, pair with a new code from the Board."
+    }
+  val choices = signOutChoices(failure, signing)
+  AlertDialog(
+    onDismissRequest = { if (!signing) onCancel() },
+    title = { Text(if (everything) "Sign out of everything?" else "Sign out of ${asking.name ?: "your host"}?") },
+    text = { Text(text) },
+    confirmButton = {
+      TextButton(if (choices.forgetsOnly) onForget else onSignOut, enabled = choices.enabled) {
+        Text(choices.confirm, color = LocalHand.current.ink(Tone.Fail))
+      }
+    },
+    dismissButton = {
+      Row {
+        if (choices.alsoForget) TextButton(onForget, enabled = !signing) { Text("Forget only") }
+        TextButton(onCancel, enabled = !signing) { Text("Cancel") }
+      }
+    }
+  )
 }

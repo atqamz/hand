@@ -34,7 +34,7 @@ class ThisPhoneScreenTest {
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2200))
 
   private fun shot(dark: Boolean, phone: ThisPhone) =
-    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}, {}) } }
 
   @Test fun oneFleetLight() = shot(false, phoneOf(listOf(phoneAtlas)))
 
@@ -51,9 +51,23 @@ class ThisPhoneScreenTest {
 
   @Test fun alertsOffDark() = shot(true, off)
 
-  @Test fun forgetConfirmLight() = shot(false, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
+  @Test fun signOutConfirmLight() = shot(false, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
 
-  @Test fun forgetConfirmDark() = shot(true, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
+  @Test fun signOutConfirmDark() = shot(true, phoneOf(phoneSeveral).copy(asking = Forgetting("e1", "atqa-laptop", 4)))
+
+  private val silent =
+    signOutFailure(
+      "vps-berlin",
+      SignOutResult.Failed(listOf(SignOutMiss("f000000000005", "orchard", "unreachable")))
+    )
+
+  private val vpsAsk = Forgetting("e2", "vps-berlin", 1)
+
+  @Test fun signOutFailedLight() =
+    shot(false, phoneOf(phoneSeveral, listOf(laptopLine, vpsLine)).copy(asking = vpsAsk, failure = silent))
+
+  @Test fun signOutFailedDark() =
+    shot(true, phoneOf(phoneSeveral, listOf(laptopLine, vpsLine)).copy(asking = vpsAsk, failure = silent))
 
   private val two =
     phoneOf(phoneSeveral + FleetLine("f000000000021", "ops", "paired Nov 9 · signs out Feb 7"), listOf(laptopLine, vpsLine))

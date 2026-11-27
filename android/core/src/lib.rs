@@ -14,6 +14,7 @@ mod open;
 mod pair;
 mod pairing;
 mod sessions;
+mod signout;
 #[cfg(test)]
 mod testutil;
 
@@ -42,5 +43,6 @@ pub use pair::{NAME_MAX, PairError, parse_answer, redeem, valid_name};
 pub use pairing::{Offer, OfferError, PAIRING_PENDING, Pairing};
 pub use proxy::Proxy;
 pub use sessions::{HostInfo, Jar, Listed, Paired, Refusal, Sessions};
+pub use signout::{Fate, Left, SignOut};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

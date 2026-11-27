@@ -18,6 +18,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 
 const val POLL_MILLIS = 5_000L
 
@@ -57,11 +59,67 @@ data class HostGroup(
 
 data class Forgetting(val endpoint: String?, val name: String?, val fleets: Int)
 
+data class SignOutMiss(val id: String, val name: String, val reason: String)
+
+sealed interface SignOutResult {
+  object Done : SignOutResult
+
+  object NotCleared : SignOutResult
+
+  data class Failed(val fleets: List<SignOutMiss>) : SignOutResult
+}
+
+data class SignOutFailure(val sentence: String, val retry: Boolean)
+
+fun signOutResult(text: String?): SignOutResult {
+  val root = parse(text)
+  return when (root.field("outcome")) {
+    "done" -> SignOutResult.Done
+    "failed" ->
+      SignOutResult.Failed(
+        (root["fleets"] as? JsonArray)
+          ?.mapNotNull { item ->
+            val fleet = item as? JsonObject ?: return@mapNotNull null
+            SignOutMiss(
+              fleet.field("id") ?: return@mapNotNull null,
+              fleet.field("name").orEmpty(),
+              fleet.field("reason").orEmpty()
+            )
+          }
+          .orEmpty()
+      )
+    else -> SignOutResult.NotCleared
+  }
+}
+
+const val SIGN_OUT_TOO_OLD =
+  "This host is too old to sign out. Update it, or Forget only and revoke this Companion on its Companion page."
+
+fun signOutFailure(host: String, result: SignOutResult): SignOutFailure {
+  val misses = (result as? SignOutResult.Failed)?.fleets.orEmpty()
+  val silent = misses.filter { it.reason == "unreachable" }
+  return when {
+    silent.isNotEmpty() ->
+      SignOutFailure(
+        "$host did not answer for ${silent.joinToString(", ") { it.name.ifBlank { it.id } }}. " +
+          "This Companion is still paired there. Try again, or Forget only and revoke it from " +
+          "the host's Companion page.",
+        true
+      )
+    misses.any { it.reason == "too_old" } -> SignOutFailure(SIGN_OUT_TOO_OLD, false)
+    misses.any { it.reason == "not_recognised" } ->
+      SignOutFailure("$host no longer recognises this Companion. Forget only, then revoke it on the host.", false)
+    else -> SignOutFailure(FORGET_FAILED, true)
+  }
+}
+
 data class FleetsState(
   val hosts: List<HostGroup> = emptyList(),
   val band: Band? = null,
   val alertsOff: Boolean = false,
   val asking: Forgetting? = null,
+  val signing: Boolean = false,
+  val failure: SignOutFailure? = null,
   val notice: String? = null,
   val loaded: Boolean = false,
   val phone: PhoneInfo? = null
@@ -167,6 +225,7 @@ class FleetsModel(
   private val unsaved: () -> Boolean = { false },
   private val forgetter: () -> Boolean = { true },
   private val hostForgetter: (String) -> Boolean = { true },
+  private val signer: (String) -> SignOutResult = { SignOutResult.Done },
   private val dropped: (Set<String>) -> Unit = {},
   private val clock: () -> String = { hhmm(Date()) }
 ) : ViewModel() {
@@ -197,9 +256,44 @@ class FleetsModel(
 
   fun alerts(off: Boolean) = mutableState.update { it.copy(alertsOff = off) }
 
-  fun say(text: String?) = mutableState.update { it.copy(notice = text, asking = null) }
+  fun say(text: String?) = mutableState.update { it.copy(notice = text, asking = null, failure = null) }
 
-  fun ask(forgetting: Forgetting?) = mutableState.update { it.copy(asking = forgetting, notice = null) }
+  fun ask(forgetting: Forgetting?) =
+    mutableState.update { it.copy(asking = forgetting, notice = null, failure = null) }
+
+  fun signOut(done: () -> Unit = {}) {
+    val state = mutableState.value
+    val target = state.asking ?: return
+    if (state.signing) return
+    viewModelScope.launch { if (signOut(target)) done() }
+  }
+
+  suspend fun signOut(target: Forgetting): Boolean {
+    mutableState.update { it.copy(signing = true, failure = null, notice = null) }
+    val hosts =
+      mutableState.value.phone?.hosts.orEmpty().filter { target.endpoint == null || it.endpoint == target.endpoint }
+    val leaving = hosts.flatMap { it.fleets.map(PairedFleet::id) }.toSet()
+    var failure: SignOutFailure? = null
+    for (host in hosts) {
+      val result = withContext(Dispatchers.IO) { signer(host.endpoint) }
+      if (result != SignOutResult.Done) {
+        failure = signOutFailure(host.name, result)
+        break
+      }
+    }
+    refresh()
+    val kept = mutableState.value.phone?.fleets.orEmpty().map(PairedFleet::id).toSet()
+    withContext(Dispatchers.IO) { dropped(leaving - kept) }
+    mutableState.update {
+      it.copy(
+        signing = false,
+        failure = failure,
+        asking = it.asking.takeIf { failure != null },
+        alertsOff = it.alertsOff && it.hosts.isNotEmpty()
+      )
+    }
+    return failure == null
+  }
 
   fun forget() {
     val target = mutableState.value.asking ?: return
@@ -207,7 +301,7 @@ class FleetsModel(
   }
 
   suspend fun forget(target: Forgetting) {
-    mutableState.update { it.copy(asking = null, notice = null) }
+    mutableState.update { it.copy(asking = null, notice = null, failure = null) }
     val leaving =
       mutableState.value.phone?.hosts.orEmpty()
         .filter { target.endpoint == null || it.endpoint == target.endpoint }
