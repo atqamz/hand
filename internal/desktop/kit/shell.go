@@ -60,9 +60,9 @@ func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
 		w, label = RailWidthOpen, "Hide labels"
 	}
 	ui.Column(c).Width(w).FillHeight().Background(k.Shell).
-		BorderWidth(0, 1, 0, 0).BorderColor(k.Line).Label("Pages and fleets").Children(func() {
+		BorderWidth(0, 1, 0, 0).BorderColor(k.ShellLine).Label("Pages and fleets").Children(func() {
 		ui.Row(c).Height(RowLG).Padding(0, railPad).AlignItems(ui.Center).
-			BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Children(func() {
+			BorderWidth(0, 0, 1, 0).BorderColor(k.ShellLine).Children(func() {
 			b := ui.ButtonBase(c.Key("rail-toggle")).Size(Row, Row).Radius(RadiusMD).
 				Background(ui.Transparent).Justify(ui.Center).AlignItems(ui.Center).
 				Cursor(ui.CursorPointer).Label(label)

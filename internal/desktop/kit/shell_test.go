@@ -464,3 +464,27 @@ func TestAUniqueMarkIsNeverTakenByAClashingFleet(t *testing.T) {
 		seen[m] = id
 	}
 }
+
+func TestTheRailIsSteelWithItsOwnEdges(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		k := ColorsFor(dark)
+		tt := ui.NewTester(func(c *ui.Context) {
+			Rail(c, k, false, func() {}, func() {})
+		}, 400, 300)
+		tt.Frame()
+		img := tt.Image()
+		same := func(got interface{ RGBA() (r, g, b, a uint32) }, want ui.Color) bool {
+			r, g, b, _ := got.RGBA()
+			return uint8(r>>8) == want.R && uint8(g>>8) == want.G && uint8(b>>8) == want.B
+		}
+		if got := img.At(RailWidth/2, 200); !same(got, k.Shell) {
+			t.Errorf("dark=%v: the rail is %v, want the steel Shell %+v", dark, got, k.Shell)
+		}
+		if got := img.At(RailWidth-1, 200); !same(got, k.ShellLine) {
+			t.Errorf("dark=%v: the rail's edge is %v, want ShellLine %+v", dark, got, k.ShellLine)
+		}
+		if got := img.At(RailWidth/2, RowLG-1); !same(got, k.ShellLine) {
+			t.Errorf("dark=%v: the rail's header rule is %v, want ShellLine %+v", dark, got, k.ShellLine)
+		}
+	}
+}

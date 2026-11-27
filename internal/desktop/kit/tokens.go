@@ -29,7 +29,6 @@ type Colors struct {
 	Backdrop   ui.Color
 	Shell      ui.Color
 	ShellLine  ui.Color
-	Ticket     ui.Color
 	Tint       [12]ui.Color
 }
 
@@ -41,7 +40,7 @@ func ColorsFor(dark bool) Colors {
 			Fail: ui.Hex("#ff9ca0"), Wait: ui.Hex("#f0b03a"), Pass: ui.Hex("#5fcd89"), Neutral: ui.Hex("#b1b9c1"), Accent: ui.Hex("#9dbbff"),
 			FailBG: ui.Hex("#3b1a1e"), WaitBG: ui.Hex("#33270e"), PassBG: ui.Hex("#123020"), NeutralBG: ui.Hex("#23292e"), AccentBG: ui.Hex("#1a2947"),
 			Screen: ui.Hex("#0b0d0f"), ScreenFG: ui.Hex("#d6dce2"), Primary: ui.Hex("#e8ebee"), OnPrimary: ui.Hex("#14171a"), Shadow: ui.RGBA(0, 0, 0, .55), Backdrop: ui.RGBA(0, 0, 0, .32),
-			Shell: ui.Hex("#242a2f"), ShellLine: ui.Hex("#323a41"), Ticket: ui.Hex("#2b3137"),
+			Shell: ui.Hex("#242a2f"), ShellLine: ui.Hex("#323a41"),
 			Tint: [12]ui.Color{
 				ui.Hex("#5b8fe0"), ui.Hex("#8b82ea"), ui.Hex("#b06fe3"), ui.Hex("#d955cc"), ui.Hex("#e0628f"), ui.Hex("#e06a5e"),
 				ui.Hex("#c18a3c"), ui.Hex("#9aa13a"), ui.Hex("#6ea73d"), ui.Hex("#45ad50"), ui.Hex("#3fac7c"), ui.Hex("#3fa6b0"),
@@ -54,7 +53,7 @@ func ColorsFor(dark bool) Colors {
 		Fail: ui.Hex("#c0182b"), Wait: ui.Hex("#8a5200"), Pass: ui.Hex("#16703a"), Neutral: ui.Hex("#535b63"), Accent: ui.Hex("#1d55c4"),
 		FailBG: ui.Hex("#fde9eb"), WaitBG: ui.Hex("#ffefcf"), PassBG: ui.Hex("#e2f2e7"), NeutralBG: ui.Hex("#eceff1"), AccentBG: ui.Hex("#e5edfc"),
 		Screen: ui.Hex("#111417"), ScreenFG: ui.Hex("#d6dce2"), Primary: ui.Hex("#14171a"), OnPrimary: ui.Hex("#ffffff"), Shadow: ui.RGBA(20, 23, 26, .12), Backdrop: ui.RGBA(0, 0, 0, .32),
-		Shell: ui.Hex("#d3d9de"), ShellLine: ui.Hex("#b3bbc2"), Ticket: ui.Hex("#ffffff"),
+		Shell: ui.Hex("#d3d9de"), ShellLine: ui.Hex("#b3bbc2"),
 		Tint: [12]ui.Color{
 			ui.Hex("#407acc"), ui.Hex("#736ad7"), ui.Hex("#9f58d3"), ui.Hex("#ca38be"), ui.Hex("#ce4880"), ui.Hex("#cd4f44"),
 			ui.Hex("#a1702b"), ui.Hex("#777f22"), ui.Hex("#4d8724"), ui.Hex("#258b2d"), ui.Hex("#24895f"), ui.Hex("#25848d"),

@@ -107,12 +107,12 @@ func TestThePassPaletteKeepsItsRoles(t *testing.T) {
 		name := map[bool]string{false: "light", true: "dark"}[dark]
 		light := func(c ui.Color) float64 { return float64(c.R) + float64(c.G) + float64(c.B) }
 		if dark {
-			if !(light(k.Ticket) > light(k.Shell) && light(k.Shell) > light(k.BG) && light(k.BG) > light(k.Panel)) {
-				t.Errorf("%s: want Ticket > Shell > BG > Panel in lightness, got %+v %+v %+v %+v", name, k.Ticket, k.Shell, k.BG, k.Panel)
+			if !(light(k.Shell) > light(k.BG) && light(k.BG) > light(k.Panel)) {
+				t.Errorf("%s: want Shell > BG > Panel in lightness, got %+v %+v %+v", name, k.Shell, k.BG, k.Panel)
 			}
 		} else {
-			if k.Ticket != k.BG || !(light(k.BG) > light(k.Panel) && light(k.Panel) > light(k.Shell)) {
-				t.Errorf("%s: want a white Ticket on BG, then Panel, then the steel Shell, got %+v %+v %+v %+v", name, k.Ticket, k.BG, k.Panel, k.Shell)
+			if k.BG != ui.Hex("#ffffff") || !(light(k.BG) > light(k.Panel) && light(k.Panel) > light(k.Shell)) {
+				t.Errorf("%s: want white BG, then Panel, then the steel Shell, got %+v %+v %+v", name, k.BG, k.Panel, k.Shell)
 			}
 		}
 		for _, c := range []struct {

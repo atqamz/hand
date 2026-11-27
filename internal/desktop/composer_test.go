@@ -644,14 +644,9 @@ func TestSendIsPrimaryUntilTheHeadShowsResume(t *testing.T) {
 				if c.primary {
 					return
 				}
-				rest := sized(t, newApp(t, goldenFixture(t)), 1100, 760, dark)
-				click(t, rest, "Message the supervisor")
-				rest.Type("x")
-				rest.Frame()
-				primary, _ := rest.Find("Send")
-				ink, want := inkCount(img, send, bg), inkCount(rest.Image(), primary, k.Primary)
-				if ink*10 < want*8 {
-					t.Errorf("the default Send's label has %d ink pixels against the primary's %d, want the same weight", ink, want)
+				regular, bold := sendLabelInk(t, send, k, dark, false), sendLabelInk(t, send, k, dark, true)
+				if ink := inkCount(img, send, bg); abs(ink-bold) >= abs(ink-regular) {
+					t.Errorf("the default Send's label has %d ink pixels, want the bold weight's %d and not the regular's %d", ink, bold, regular)
 				}
 			})
 		}
@@ -660,6 +655,30 @@ func TestSendIsPrimaryUntilTheHeadShowsResume(t *testing.T) {
 
 func sameInk(got color.RGBA, want ui.Color) bool {
 	return got.R == want.R && got.G == want.G && got.B == want.B
+}
+
+func sendLabelInk(t *testing.T, send ui.Rect, k kit.Colors, dark, bold bool) int {
+	t.Helper()
+	tt := ui.NewTester(func(c *ui.Context) {
+		th := ui.LightTheme()
+		if dark {
+			th = ui.DarkTheme()
+		}
+		th.Font = kit.Sans
+		c.SetTheme(th)
+		ui.Row(c).Width(send.W).Height(send.H).Background(k.BG).Justify(ui.Center).AlignItems(ui.Center).Label("ref").Children(func() {
+			txt := ui.Text(c, "Send").FontSize(kit.Body.Size).TextColor(k.FG).SingleLine()
+			if bold {
+				txt.Bold()
+			}
+		})
+	}, 300, 100)
+	tt.Frame()
+	r, ok := tt.Find("ref")
+	if !ok {
+		t.Fatal("no reference label")
+	}
+	return inkCount(tt.Image(), r, k.BG)
 }
 
 func inkCount(img *image.RGBA, r ui.Rect, bg ui.Color) int {

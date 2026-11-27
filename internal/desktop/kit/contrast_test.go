@@ -68,7 +68,7 @@ func TestColorsKeepWCAGContrast(t *testing.T) {
 	}
 	grounds := []tone{
 		{"BG", func(c Colors) ui.Color { return c.BG }}, {"Panel", func(c Colors) ui.Color { return c.Panel }},
-		{"Card", func(c Colors) ui.Color { return c.Card }}, {"Ticket", func(c Colors) ui.Color { return c.Ticket }},
+		{"Card", func(c Colors) ui.Color { return c.Card }},
 		{"Hover", func(c Colors) ui.Color { return c.Hover }},
 	}
 	shellText := []tone{text[0], text[1], text[3]}
