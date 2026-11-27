@@ -45,7 +45,7 @@ func tolerances() tolerance {
 	if runtime.GOOS == "windows" {
 		ink = windowsInk
 	}
-	return tolerance{ink: ink, linkW: 12, linkH: 15, textH: 14, viewer: true}
+	return tolerance{ink: ink, linkW: 11, linkH: 15, textH: 14, viewer: true}
 }
 
 const (
