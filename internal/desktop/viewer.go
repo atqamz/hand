@@ -89,6 +89,7 @@ func (a *App) viewerBody(c *ui.Context, k kit.Colors, p palette) {
 	}
 	switch a.Screen {
 	case DocScreen:
+		a.actionCard(c, p)
 		a.docBody(c, k, p)
 	case TaskScreen:
 		if a.Task.Task.Ref != a.Ref {

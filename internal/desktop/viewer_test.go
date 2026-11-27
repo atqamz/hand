@@ -1037,3 +1037,55 @@ func TestBackWaitsForAPageThatIsStillLoadingBeforeItRestoresTheScroll(t *testing
 		t.Fatalf("the page came back at %v, want the scroll it left at %v", y, want)
 	}
 }
+
+func TestAFailedSupervisorControlShowsOnADocumentPage(t *testing.T) {
+	f := viewFixture(t)
+	app := newApp(t, f)
+	tt := newTesterAt(app, 1800, 900)
+	app.OpenDoc("reports/t1/design.md")
+	tt.Frame()
+	if app.Screen != desktop.DocScreen {
+		t.Fatalf("OpenDoc opened %v, want the document page", app.Screen)
+	}
+	f.action = errors.New("the board did not answer")
+	app.Supervise("interrupt")
+	tt.Frame()
+	if app.ActionErr == "" {
+		t.Fatalf("the failed control left no error")
+	}
+	mustText(t, tt, app.ActionErr)
+}
+
+func TestBackKeepsTheScrollWhenTheReportRevealWasPending(t *testing.T) {
+	f := viewFixture(t)
+	app := newApp(t, f)
+	tt := newTesterAt(app, 1800, 900)
+	app.OpenRef("t1")
+	tt.Frame()
+	tt.Scroll(400, 400, 0, 320)
+	tt.Frame()
+	click(t, tt, "open report r3")
+	tt.Frame()
+	tt.Frame()
+	if desktop.PageReport(app) != "r3" {
+		t.Fatalf("the report did not open at r3: %q", desktop.PageReport(app))
+	}
+	revealed, max := desktop.ViewerScroll(app)
+	if max == 0 || revealed == 0 {
+		t.Fatalf("the report did not reveal itself: y=%v max=%v", revealed, max)
+	}
+	tt.Scroll(400, 400, 0, -60)
+	tt.Frame()
+	want, _ := desktop.ViewerScroll(app)
+	if want == revealed {
+		t.Fatalf("the scroll did not move off the reveal: y=%v", want)
+	}
+	app.OpenRef("a1")
+	tt.Frame()
+	app.Back()
+	tt.Frame()
+	tt.Frame()
+	if y, _ := desktop.ViewerScroll(app); y != want {
+		t.Fatalf("Back put the page at %v, want %v where it left", y, want)
+	}
+}

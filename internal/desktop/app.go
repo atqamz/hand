@@ -1046,7 +1046,7 @@ func (a *App) Back() {
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.tabFor = ""
-	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
+	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, ""
 	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
 	a.pageTargetNeed = pageTargetSettled
 	if step.HasTarget {
