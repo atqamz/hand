@@ -73,7 +73,6 @@ fun ThisPhoneScreen(
   onBack: () -> Unit,
   onAsk: (Forgetting?) -> Unit,
   onForget: () -> Unit,
-  onSignOut: (String) -> Unit,
   onSettings: () -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -121,13 +120,7 @@ fun ThisPhoneScreen(
         Section("Fleets")
         if (phone.fleets.isEmpty()) Line("No fleet is paired", null)
         phone.fleets.forEach { fleet ->
-          Line(fleet.name, fleet.dates) {
-            Action(
-              "Sign out",
-              { onSignOut(fleet.id) },
-              Modifier.semantics { contentDescription = "Sign out of ${fleet.name}" }
-            )
-          }
+          Line(fleet.name, fleet.dates)
         }
         Section("Alerts")
         Line(phone.alerts, phone.alertsDetail) { Action("Settings", onSettings) }
@@ -138,27 +131,4 @@ fun ThisPhoneScreen(
     }
   }
   phone.asking?.let { ForgetDialog(it, onForget) { onAsk(null) } }
-}
-
-@Composable
-fun ThisPhoneRoute(
-  phone: ThisPhone,
-  signing: String?,
-  onSigning: (String?) -> Unit,
-  onBack: () -> Unit,
-  onAsk: (Forgetting?) -> Unit,
-  onForget: () -> Unit,
-  onSettings: () -> Unit,
-  web: @Composable (String) -> Unit
-) {
-  if (signing == null) {
-    ThisPhoneScreen(phone, onBack, onAsk, onForget, onSigning, onSettings)
-  } else {
-    val path = signOutPath(signing)
-    key(signing) {
-      FallbackScreen(signing, phone.fleets.firstOrNull { it.id == signing }?.name, path, { onSigning(null) }) {
-        web(path)
-      }
-    }
-  }
 }

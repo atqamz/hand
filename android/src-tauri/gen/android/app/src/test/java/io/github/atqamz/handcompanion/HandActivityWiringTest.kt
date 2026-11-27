@@ -53,7 +53,7 @@ class HandActivityWiringTest {
 
   @Test
   fun aThreadLinkStacksItsRefsThroughTheTaskStack() {
-    val thread = activity.substringAfter("is Landing.Thread ->").substringBefore("is Landing.Web")
+    val thread = activity.substringAfter("is Landing.Thread ->").substringBefore("is Landing.Unshown")
     assertTrue(thread.contains("threads = to.stack()"))
   }
 
@@ -81,5 +81,39 @@ class HandActivityWiringTest {
   @Test
   fun theFleetMenuOpensTheSkillsScreen() {
     assertTrue(activity.contains("onSkills = { skills = open }"))
+  }
+
+  private fun squashed(text: String) = text.replace(Regex("\\s+"), "")
+
+  @Test
+  fun anUnshownPageShowsItsFleetAndNamesThePageInTheNotice() {
+    val branch = activity.substringAfter("is Landing.Unshown ->").substringBefore("is Landing.Refused")
+    assertTrue(branch.contains("show(to.fleet)"))
+    assertTrue(branch.contains("refused = notShown(to.what)"))
+  }
+
+  @Test
+  fun aRefusedLinkShowsTheCoresMessage() {
+    val branch = activity.substringAfter("is Landing.Refused ->").lineSequence().first()
+    assertTrue(branch.contains("refused = to.message"))
+  }
+
+  @Test
+  fun theQueueNoticeCallbackSetsTheNotice() {
+    val call = squashed(activity.substringAfter("holder.SaveableStateProvider(\"fleet:\$open\")").substringBefore("chat ="))
+    assertTrue(call.contains("{threads=pushTask(threads,it)},{refused=it},{threads=pushTask(threads,it)}"))
+  }
+
+  @Test
+  fun theNoticeIsDrawnFromTheRefusedState() {
+    assertTrue(squashed(activity).contains("refused?.let{Refusal(it,tabs)}"))
+  }
+
+  @Test
+  fun everyMarkdownLinkSpanAsksTheLinkTarget() {
+    val markdown = File("$sources/MarkdownView.kt").readText()
+    assertTrue(Regex("""link\(linkTarget\(span\),""").findAll(markdown).count() == 3)
+    assertFalse(markdown.contains("ThreadTarget.Browser("))
+    assertTrue(squashed(body(markdown, "internal fun linkTarget")).contains("isMdLink->externalTarget(span.url)"))
   }
 }

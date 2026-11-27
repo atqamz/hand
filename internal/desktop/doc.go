@@ -65,7 +65,17 @@ type docState struct {
 	navGen      int
 }
 
+type docEnv struct {
+	openAudio func([]byte) (AudioPlayer, error)
+	web       bool
+	source    bool
+	keep      bool
+}
+
 type docRead struct {
+	player AudioPlayer
+	frame  *DocFrame
+	keep   bool
 	doc    Doc
 	window DocWindow
 	body   string
@@ -79,7 +89,7 @@ var docKindNouns = map[string]string{
 	"pdf": "A PDF", "html": "An HTML page", "svg": "An SVG picture", "video": "A video", "audio": "An audio file",
 }
 
-func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRead {
+func readDoc(ctx context.Context, m ReadModel, fleet string, req docState, env docEnv) docRead {
 	var r docRead
 	r.doc = req.doc
 	if !req.ok {
@@ -118,8 +128,46 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState) docRe
 	case "csv", "tsv":
 		r.table, r.err = readTable(ctx, m, fleet, req.path, d.Kind)
 	case "html":
-		r.row = docKindNouns[d.Kind] + docCannot
-		r.window, r.err = m.DocWindow(ctx, fleet, req.path, req.from)
+		if r.window, r.err = m.DocWindow(ctx, fleet, req.path, req.from); r.err != nil {
+			break
+		}
+		switch {
+		case !env.web:
+			r.row = docKindNouns[d.Kind] + docCannot
+		case env.source:
+		case env.keep:
+			r.keep = true
+		default:
+			var f DocFrame
+			if f, r.err = m.(DocFramer).DocFrame(ctx, fleet, req.path); r.err == nil {
+				f.URL += "&frame"
+				r.frame = &f
+			}
+		}
+	case "audio":
+		switch {
+		case env.keep:
+			r.keep = true
+		case d.Size > docRawMax:
+			r.row = audioTooLarge
+		default:
+			var b []byte
+			if b, r.err = m.DocBytes(ctx, fleet, req.path); r.err == nil {
+				r.player, r.row = openedAudio(env.openAudio, b)
+			}
+		}
+	case "pdf":
+		switch {
+		case !env.web:
+			r.row = docKindNouns[d.Kind] + docCannot
+		case env.keep:
+			r.keep = true
+		default:
+			var f DocFrame
+			if f, r.err = m.(DocFramer).DocFrame(ctx, fleet, req.path); r.err == nil {
+				r.frame = &f
+			}
+		}
 	default:
 		noun, ok := docKindNouns[d.Kind]
 		if !ok {
@@ -176,6 +224,7 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	}
 	_, _, stop := a.nextLoad()
 	stop()
+	a.releaseMedia()
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = DocScreen, rel, "", ""
 	a.pageTarget, a.pageTargetOK, a.pageTargetNeed = Report{}, false, pageTargetSettled
 	a.pageTargetGen++
@@ -186,7 +235,23 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	a.loadDoc()
 }
 
+func (a *App) settleMedia(r docRead) {
+	rel := a.Ref
+	switch {
+	case r.keep:
+	case r.player != nil:
+		a.releaseMedia()
+		a.au = audioState{path: rel, player: r.player}
+	case r.frame != nil:
+		a.releaseMedia()
+		a.openWeb(rel, docKindNouns[a.doc.doc.Kind], *r.frame)
+	default:
+		a.releaseMedia()
+	}
+}
+
 func (a *App) resetDoc() {
+	a.releaseMedia()
 	a.docGen++
 	a.docOp++
 	if a.docCancel != nil {
@@ -217,12 +282,18 @@ func (a *App) loadDoc() {
 	a.doc.err, a.doc.refused, a.doc.conflict = "", false, false
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	a.docCancel = cancel
+	env := docEnv{openAudio: a.audioOpener(), web: a.webReady(), source: a.DocSource,
+		keep: a.audioHeld(a.Ref) || a.web.path == a.Ref && a.web.notice == ""}
 	apply := func(r docRead) {
-		if a.docGen != gen || a.Fleet.ID != fleet {
+		if a.docGen != gen || a.Fleet.ID != fleet || a.closed {
+			if r.player != nil {
+				r.player.Close()
+			}
 			return
 		}
 		st := &a.doc
 		if r.err != nil {
+			a.releaseMedia()
 			st.err = friendly(r.err)
 			if api := docRefusal(r.err); api != nil {
 				st.err, st.refused, st.conflict = api.Message, true, api.Status == http.StatusConflict
@@ -236,15 +307,16 @@ func (a *App) loadDoc() {
 		st.doc, st.ok = r.doc, true
 		st.window, st.body, st.image, st.row, st.table = r.window, r.body, r.image, r.row, r.table
 		st.srcLines = nil
+		a.settleMedia(r)
 	}
 	if post == nil {
-		r := readDoc(ctx, model, fleet, req)
+		r := readDoc(ctx, model, fleet, req, env)
 		cancel()
 		apply(r)
 		return
 	}
 	go func() {
-		r := readDoc(ctx, model, fleet, req)
+		r := readDoc(ctx, model, fleet, req, env)
 		cancel()
 		post(func() { apply(r) })
 	}()

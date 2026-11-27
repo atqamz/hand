@@ -247,7 +247,7 @@ private val DRIVE = Regex("^[A-Za-z]:[\\\\/]")
 fun deliverableTarget(deliverable: TaskDeliverable): ThreadTarget =
   when (deliverable.kind) {
     "file" -> hrefPath(deliverable.href)?.let(::docTarget) ?: ThreadTarget.None
-    else -> if (deliverable.ref.isEmpty()) ThreadTarget.None else ThreadTarget.Browser(deliverable.ref)
+    else -> externalTarget(deliverable.ref)
   }
 
 fun pushTask(path: String, ref: String) = if (path.isEmpty()) ref else "$path\n$ref"

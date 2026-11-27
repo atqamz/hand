@@ -283,10 +283,4 @@ class ThisPhoneTest {
     assertNull(noticeHost(PhoneInfo("a…b", "0.1.0", twoHosts.hosts.take(1)), ONE))
     assertNull(noticeHost(null, ONE))
   }
-
-  @Test
-  fun signOutOpensTheBoardsPhonePageOfThatFleet() {
-    assertEquals("/$ONE/connect", signOutPath(ONE))
-    assertEquals("/$TWO/connect", signOutPath(TWO))
-  }
 }

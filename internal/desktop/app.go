@@ -145,6 +145,9 @@ type App struct {
 	hq            string
 	ph            phoneState
 	al            alertsState
+	au            audioState
+	web           webState
+	webGen        int
 	notice        string
 	noticeTitle   string
 	noticeKey     string
@@ -166,6 +169,9 @@ type App struct {
 	Pick       func() []string
 	PickFolder func() string
 	SaveAs     func(name string) string
+	OpenWeb    func(DocFrame) (WebHandle, error)
+	OpenAudio  func([]byte) (AudioPlayer, error)
+	AudioErr   func() error
 	DocWide    bool
 	DocWrap    bool
 	DocSource  bool
@@ -393,6 +399,7 @@ func (a *App) Close() {
 	a.flushPrefs()
 	a.savePrefs()
 	a.polling, a.closed = false, true
+	a.releaseMedia()
 	a.resetPoll()
 	a.resetAttention()
 	a.resetDeny()

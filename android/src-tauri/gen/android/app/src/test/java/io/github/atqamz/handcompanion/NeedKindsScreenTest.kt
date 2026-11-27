@@ -88,15 +88,15 @@ class NeedKindsTest {
     assertEquals(
       listOf(
         Opens.Row,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web,
-        Opens.Web
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown,
+        Opens.Unshown
       ),
       entries(failure, resume, limited, limitedAttempt, nosup, stalled, quiet, long, kept, artifacts).map { it.opens }
     )
@@ -135,7 +135,7 @@ class NeedKindsRouteTest {
   private class Taken {
     val attempts = mutableListOf<String>()
     val reports = mutableListOf<String>()
-    var web = 0
+    val notices = mutableListOf<String>()
   }
 
   private fun shown(state: FleetState, act: Taps.() -> Unit): Taken {
@@ -153,7 +153,7 @@ class NeedKindsRouteTest {
           {},
           {},
           { taken.reports += it },
-          { taken.web++ },
+          { taken.notices += it },
           {},
           {},
           { _, _ -> },
@@ -174,11 +174,11 @@ class NeedKindsRouteTest {
         tap("Limited a70")
       }
     assertEquals(listOf("a61", "a70"), taken.attempts)
-    assertEquals(0, taken.web)
+    assertTrue(taken.notices.isEmpty())
   }
 
   @Test
-  fun aKindWithNoAttemptFallsBackToTheBoardPage() {
+  fun aKindWithNoAttemptSaysThisAppDoesNotShowIt() {
     val taken =
       shown(interrupted) {
         tap("The supervisor stopped unexpectedly")
@@ -187,11 +187,19 @@ class NeedKindsRouteTest {
         tap("Supervisor idle with 2 inbox tasks and no running attempt")
       }
     assertTrue(taken.attempts.isEmpty())
-    assertEquals(4, taken.web)
+    assertEquals(
+      listOf(
+        "This app does not show the interrupted item s2.",
+        "This app does not show the limited item s2.",
+        "This app does not show the no supervisor item.",
+        "This app does not show the stalled item s2."
+      ),
+      taken.notices
+    )
   }
 
   @Test
-  fun theBackgroundKindsOpenTheirAttemptOrThePage() {
+  fun theBackgroundKindsOpenTheirAttemptOrSayThisAppDoesNotShowThem() {
     val taken =
       shown(background) {
         tap("Its turn ended without a report")
@@ -200,6 +208,6 @@ class NeedKindsRouteTest {
         tap("3 old files in reports/ and shots/")
       }
     assertEquals(listOf("a8", "a9", "a55"), taken.attempts)
-    assertEquals(1, taken.web)
+    assertEquals(listOf("This app does not show the old files item."), taken.notices)
   }
 }

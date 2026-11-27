@@ -130,9 +130,9 @@ class LandingTest {
   }
 
   @Test
-  fun aPageWithNoNativeScreenKeepsTheWebFallback() {
+  fun aPageWithNoNativeScreenIsNamedInAPlainNotice() {
     assertEquals(
-      Landing.Web(HOME, "/$HOME/connect"),
+      Landing.Unshown(HOME, "the page \"connect\""),
       landing("handboard://open/$HOME/connect") { path(HOME, "connect") }
     )
   }

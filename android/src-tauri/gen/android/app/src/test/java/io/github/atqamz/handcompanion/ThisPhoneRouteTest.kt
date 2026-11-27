@@ -1,7 +1,6 @@
 package io.github.atqamz.handcompanion
 
 import android.view.View
-import androidx.compose.material3.Text
 import androidx.compose.ui.platform.LocalView
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
@@ -14,9 +13,7 @@ import org.junit.Test
 private class Calls {
   val asks = mutableListOf<Forgetting?>()
   var forgets = 0
-  val signings = mutableListOf<String?>()
   var settings = 0
-  val pages = mutableSetOf<String>()
   var labels = emptyList<String>()
 }
 
@@ -27,7 +24,7 @@ class ThisPhoneRouteTest {
   val paparazzi =
     Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2200), snapshotHandler = frames)
 
-  private fun shown(phone: ThisPhone, signing: String?, act: Taps.() -> Unit): Calls {
+  private fun shown(phone: ThisPhone, act: Taps.() -> Unit): Calls {
     val calls = Calls()
     lateinit var view: View
     frames.onFrame = {
@@ -38,18 +35,7 @@ class ThisPhoneRouteTest {
     paparazzi.snapshot {
       HandTheme(false) {
         view = LocalView.current
-        ThisPhoneRoute(
-          phone,
-          signing,
-          { calls.signings += it },
-          {},
-          { calls.asks += it },
-          { calls.forgets++ },
-          { calls.settings++ }
-        ) { path ->
-          calls.pages += path
-          Text(path)
-        }
+        ThisPhoneScreen(phone, {}, { calls.asks += it }, { calls.forgets++ }, { calls.settings++ })
       }
     }
     return calls
@@ -57,16 +43,15 @@ class ThisPhoneRouteTest {
 
   @Test
   fun tappingForgetRaisesTheQuestionAndDoesNotForget() {
-    val calls = shown(phoneOf(phoneSeveral), null) { tap("Forget") }
+    val calls = shown(phoneOf(phoneSeveral)) { tap("Forget") }
     assertEquals(listOf(Forgetting("e1", "atqa-laptop", 4)), calls.asks)
     assertEquals(0, calls.forgets)
-    assertTrue(calls.signings.isEmpty())
   }
 
   @Test
   fun eachHostForgetNamesItsOwnHostAndForgetEverythingNamesNone() {
     val two = phoneOf(phoneSeveral, listOf(laptopLine, vpsLine))
-    val calls = shown(two, null) {
+    val calls = shown(two) {
       tap("Forget atqa-laptop")
       tap("Forget vps-berlin")
       tap("Forget everything")
@@ -102,49 +87,34 @@ class ThisPhoneRouteTest {
       model.refresh()
       model.forget(Forgetting("e2", "vps-berlin", 1))
     }
-    val calls = shown(thisPhone(model.state.value, "0.2.0"), null) {}
+    val calls = shown(thisPhone(model.state.value, "0.2.0")) {}
     assertTrue(FORGET_FAILED in calls.labels)
     assertTrue("Forget vps-berlin" in calls.labels)
   }
 
   @Test
   fun oneHostHasNoSecondWayToForgetEverything() {
-    val calls = shown(phoneOf(phoneSeveral), null) {}
+    val calls = shown(phoneOf(phoneSeveral)) {}
     assertTrue("Forget everything" !in calls.labels)
   }
 
   @Test
-  fun eachSignOutNamesItsOwnFleet() {
-    val calls = shown(phoneOf(phoneSeveral), null) {
-      tap("Sign out of atlas")
-      tap("Sign out of harbor")
-    }
-    assertEquals(listOf("f000000000003", "f000000000017"), calls.signings)
-    assertTrue(calls.asks.isEmpty())
-    assertEquals(0, calls.forgets)
+  fun noFleetLineOffersASignOut() {
+    val calls = shown(phoneOf(phoneSeveral)) {}
+    assertTrue(calls.labels.none { it.startsWith("Sign out") })
+    assertTrue("atlas" in calls.labels)
   }
 
   @Test
   fun settingsOpensTheNotificationSettingsAndNothingElse() {
-    val calls = shown(phoneOf(phoneSeveral), null) { tap("Settings") }
+    val calls = shown(phoneOf(phoneSeveral)) { tap("Settings") }
     assertEquals(1, calls.settings)
     assertTrue(calls.asks.isEmpty())
-    assertTrue(calls.signings.isEmpty())
   }
 
   @Test
-  fun aFleetBeingSignedOutShowsItsPhonePageInTheFallbackAndCloseGoesBack() {
-    val calls = shown(phoneOf(phoneSeveral), "f000000000005") { tap("Close") }
-    assertEquals(setOf("/f000000000005/connect"), calls.pages)
-    assertTrue("orchard · connect" in calls.labels)
-    assertTrue("Forget" !in calls.labels)
-    assertEquals(listOf<String?>(null), calls.signings)
-  }
-
-  @Test
-  fun noFleetBeingSignedOutShowsThePhoneAndNoWebPage() {
-    val calls = shown(phoneOf(phoneSeveral), null) {}
-    assertTrue(calls.pages.isEmpty())
+  fun theScreenIsThePhoneAndNeverAWebPage() {
+    val calls = shown(phoneOf(phoneSeveral)) {}
     assertTrue("This Companion" in calls.labels)
   }
 }

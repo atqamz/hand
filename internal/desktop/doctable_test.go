@@ -194,7 +194,7 @@ func TestTabReachesTheToolbarThenTheTable(t *testing.T) {
 
 func TestOtherKindsShowOneSentenceTheNameAndTheSize(t *testing.T) {
 	for _, tc := range []struct{ path, name, size, sentence string }{
-		{voicePath, "standup.mp3", "3.0 MiB", "An audio file cannot be shown in this window."},
+		{opusPath, "standup.opus", "3.0 MiB", "This audio file cannot be played in this window. It plays WAV and MP3; download it to play it elsewhere."},
 		{clipPath, "demo.mp4", "3.0 MiB", "A video cannot be shown in this window."},
 		{planPath, "plan.pdf", "51 KiB", "A PDF cannot be shown in this window."},
 		{pagePath, "preview.html", "177 B", "An HTML page cannot be shown in this window."},
@@ -203,9 +203,9 @@ func TestOtherKindsShowOneSentenceTheNameAndTheSize(t *testing.T) {
 			both(t, func(t *testing.T, dark bool) {
 				_, tt := openKind(t, kindsFixture(t), tc.path, dark)
 				mustText(t, tt, tc.name, tc.size, tc.sentence, "Download", "Copy path")
-				noneOf(t, tt, "Wrap", "Wide", "Find in file", "Go to line", "Follow", "Open in browser", "Open as a page")
+				noneOf(t, tt, "Open in browser", "Open as a page")
 				if tc.path != pagePath {
-					noneOf(t, tt, "Rendered", "Source", "Copy contents")
+					noneOf(t, tt, "Wrap", "Wide", "Find in file", "Go to line", "Follow", "Rendered", "Source", "Copy contents")
 				}
 			})
 		})
@@ -215,7 +215,7 @@ func TestOtherKindsShowOneSentenceTheNameAndTheSize(t *testing.T) {
 func TestAnHTMLPageToggleShowsItsSourceAndItsControls(t *testing.T) {
 	app, tt := openKind(t, kindsFixture(t), pagePath, false)
 	mustText(t, tt, "Rendered", "Source", "An HTML page cannot be shown in this window.")
-	noneOf(t, tt, "Wrap", "Wide", "Find in file", "Go to line", "Follow")
+	mustContain(t, tt, "<h1>Nightly export</h1>")
 	click(t, tt, "Source")
 	tt.Frame()
 	if !app.DocSource {
@@ -227,7 +227,6 @@ func TestAnHTMLPageToggleShowsItsSourceAndItsControls(t *testing.T) {
 	click(t, tt, "Rendered")
 	tt.Frame()
 	mustText(t, tt, "An HTML page cannot be shown in this window.")
-	noneOf(t, tt, "Wrap", "Find in file", "Go to line", "Follow")
 }
 
 func TestFindInAnHTMLSourceFindsHits(t *testing.T) {
