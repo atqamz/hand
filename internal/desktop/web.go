@@ -30,10 +30,6 @@ type webState struct {
 	notice string
 }
 
-func (a *App) webKind(kind string) bool {
-	return kind == "pdf" || kind == "html"
-}
-
 func (a *App) webReady() bool {
 	if a.OpenWeb == nil {
 		return false

@@ -2,8 +2,11 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -108,6 +111,9 @@ func TestTheWebViewIsUntrustedAndInItsOwnEphemeralSession(t *testing.T) {
 	}
 	if !strings.Contains(page.PreloadScript, "'print'") || !strings.Contains(page.PreloadScript, "configurable:false") {
 		t.Errorf("the preload script does not pin window.print: %q", page.PreloadScript)
+	}
+	if !strings.Contains(page.PreloadScript, blockLinkHover) {
+		t.Errorf("the preload script does not cancel link clicks: %q", page.PreloadScript)
 	}
 }
 
@@ -344,5 +350,89 @@ func TestThePreloadMakesPrintANoOpThatThePageCannotRestore(t *testing.T) {
 	want := `[["call",true],["assignment",true],["returns",true],["accessor",true],["redefine",true],["getter",true],["setter",true]]`
 	if strings.TrimSpace(string(out)) != want {
 		t.Errorf("print probe = %s, want %s", strings.TrimSpace(string(out)), want)
+	}
+}
+
+const hoverProbe = `
+const out = [];
+for (const protocol of ["http:", "https:", "webkit-pdfjs-viewer:"]) {
+  const styles = [];
+  const root = { firstChild: "first", insertBefore: (s, ref) => styles.push([s.textContent, ref]) };
+  let seen;
+  globalThis.location = { protocol: protocol };
+  globalThis.document = { documentElement: root, createElement: () => ({ textContent: "" }) };
+  globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; } observe(n, o) { seen = [n === document, o]; globalThis.obs = this; } };
+  %s
+  const sel = styles[0][0].replace(/\{pointer-events:none!important\}$/, "");
+  const link = (matches) => {
+    const props = {};
+    return { nodeType: 1, props, matches: (s) => matches && s === sel, style: {
+      getPropertyValue: (n) => props[n] ? props[n][0] : "", getPropertyPriority: (n) => props[n] ? props[n][1] : "",
+      setProperty: (n, v, p) => { props[n] = [v, p]; } } };
+  };
+  const a = link(true), plain = link(false), later = link(true);
+  later.style.setProperty("pointer-events", "auto", "important");
+  const nested = link(true);
+  const box = { nodeType: 1, matches: () => false, style: plain.style, querySelectorAll: (s) => s === sel ? [nested] : [] };
+  obs.fn([{ type: "childList", addedNodes: [a, plain, box, { nodeType: 3 }] }, { type: "attributes", target: later }], obs);
+  out.push([protocol, styles.length, styles[0][1], sel, seen[0], seen[1].subtree, seen[1].attributeFilter.join(),
+    a.props["pointer-events"], plain.props["pointer-events"], nested.props["pointer-events"], later.props["pointer-events"]]);
+}
+globalThis.location = { protocol: "http:" };
+const styles = [];
+const late = { firstChild: null, insertBefore: (s) => styles.push(s.textContent) };
+globalThis.document = { documentElement: null, createElement: () => ({ textContent: "" }) };
+globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; } observe() { globalThis.obs = this; } };
+%s
+const before = styles.length;
+document.documentElement = late;
+obs.fn([], obs);
+obs.fn([], obs);
+out.push(["late", before, styles.length]);
+console.log(JSON.stringify(out));
+`
+
+func TestThePreloadTurnsLinksIntoSurfacesThatTakeNoPointer(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("node is needed to run the preload script: %v", err)
+		}
+		t.Skip("node is not installed")
+	}
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(strings.Replace(strings.Replace(hoverProbe, "%s", blockLinkHover, 1), "%s", blockLinkHover, 1))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	none := `["none","important"]`
+	web := `a[*|href],area[*|href]`
+	pdf := `a[*|href]:not([href^=\"#\"]),area[*|href]:not([href^=\"#\"])`
+	row := func(protocol, sel string) string {
+		return fmt.Sprintf(`["%s",1,"first","%s",true,true,"style,href",%s,null,%s,%s]`, protocol, sel, none, none, none)
+	}
+	want := "[" + row("http:", web) + "," + row("https:", web) + "," + row("webkit-pdfjs-viewer:", pdf) + `,["late",0,1]]`
+	if strings.TrimSpace(string(out)) != want {
+		t.Errorf("hover probe = %s\nwant %s", strings.TrimSpace(string(out)), want)
+	}
+}
+
+const boardPolicy = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
+
+func TestTheProbesPolicyIsTheBoardsPolicyForAnHTMLFile(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile(filepath.Join("..", "..", "internal", "board", "preview.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox := regexp.MustCompile(`sandbox\s*=\s*"([^"]+)"`).FindSubmatch(src)
+	html := regexp.MustCompile(`isHTML\(name\):\s*ctype, policy = "[^"]+", sandbox\+"([^"]+)"`).FindSubmatch(src)
+	if sandbox == nil || html == nil {
+		t.Fatal("the Board's HTML policy is not where this test reads it: internal/board/preview.go")
+	}
+	if got := string(sandbox[1]) + string(html[1]); got != boardPolicy {
+		t.Errorf("the Board serves an HTML file with %q, the probe with %q", got, boardPolicy)
 	}
 }

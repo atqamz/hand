@@ -15,6 +15,10 @@ const sizePDFViewer = `(function(){if(document.contentType!=='application/pdf')r
 // MyGo's web view exposes no WebKitGTK print signal, so window.print is a no-op in every frame; pdf.js's own assignment is ignored.
 const blockPDFPrint = `(function(){try{Object.defineProperty(window,'print',{get:function(){return function(){}},set:function(){},configurable:false})}catch(e){}})();`
 
+// WebKitGTK opens an idle connection to a link's address when the pointer reaches it, before any policy runs; a link that takes no pointer events is not reached.
+// An observer pins the property inline too, which beats the page's own stylesheet; in the PDF viewer only links that leave the page are disabled.
+const blockLinkHover = `(function(){var web=location.protocol==='http:'||location.protocol==='https:';var sel=web?'a[*|href],area[*|href]':'a[*|href]:not([href^="#"]),area[*|href]:not([href^="#"])';var rule=sel+'{pointer-events:none!important}';var added=false;function ensure(){if(added||!document.documentElement)return;added=true;var s=document.createElement('style');s.textContent=rule;document.documentElement.insertBefore(s,document.documentElement.firstChild)}function pin(e){if(e.nodeType!==1||!e.matches(sel))return;var st=e.style;if(st.getPropertyValue('pointer-events')!=='none'||st.getPropertyPriority('pointer-events')!=='important')st.setProperty('pointer-events','none','important')}function all(n){pin(n);if(n.querySelectorAll){var l=n.querySelectorAll(sel);for(var i=0;i<l.length;i++)pin(l[i])}}new MutationObserver(function(rs){ensure();for(var i=0;i<rs.length;i++){var r=rs[i];if(r.type==='attributes'){pin(r.target)}else{for(var j=0;j<r.addedNodes.length;j++)all(r.addedNodes[j])}}}).observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['style','href']});ensure()})();`
+
 type webPage interface {
 	LoadURL(string) error
 	OnWillNavigate(func(*mygo.NavigateEvent)) func()
@@ -65,7 +69,7 @@ func (s mygoSession) SetCookie(name, value, domain string) error {
 }
 
 func (e mygoEngine) NewView(s webhost.Session) (webhost.View, error) {
-	p, err := e.makeView(mygo.WebViewOptions{Page: mygo.PageOptions{Session: s.(mygoSession).s, Untrusted: true, PreloadScript: blockPDFPrint + sizePDFViewer, PreloadAllFrames: true}})
+	p, err := e.makeView(mygo.WebViewOptions{Page: mygo.PageOptions{Session: s.(mygoSession).s, Untrusted: true, PreloadScript: blockPDFPrint + blockLinkHover + sizePDFViewer, PreloadAllFrames: true}})
 	if err != nil {
 		return nil, err
 	}

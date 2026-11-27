@@ -20,21 +20,59 @@ import (
 const (
 	probeToken  = "PROBETOKEN"
 	probeCookie = "hand_board_f0"
-	boardPolicy = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
-	probeSettle = 5 * time.Second
+	probeQuiet  = 2 * time.Second
 )
 
 type probeHit struct{ server, method, uri, cookie string }
 
 type probeLog struct {
-	mu   sync.Mutex
-	hits []probeHit
+	mu    sync.Mutex
+	hits  []probeHit
+	last  time.Time
+	conns map[string]int
 }
 
 func (l *probeLog) add(server string, r *http.Request) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.hits = append(l.hits, probeHit{server, r.Method, r.URL.RequestURI(), r.Header.Get("Cookie")})
+	l.last = time.Now()
+}
+
+func (l *probeLog) conn(server string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.conns == nil {
+		l.conns = map[string]int{}
+	}
+	l.conns[server]++
+	l.last = time.Now()
+}
+
+func (l *probeLog) connections(server string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.conns[server]
+}
+
+func (l *probeLog) quietFor(d time.Duration) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return time.Since(l.last) >= d
+}
+
+type countingListener struct {
+	net.Listener
+	log  *probeLog
+	name string
+}
+
+func (c countingListener) Accept() (net.Conn, error) {
+	conn, err := c.Listener.Accept()
+	if err == nil {
+		c.log.conn(c.name)
+	}
+	return conn, err
 }
 
 func (l *probeLog) all() []probeHit {
@@ -94,6 +132,12 @@ setTimeout(function(){for(var i=1;i<=10;i++){document.getElementById('l'+i).clic
 setTimeout(function(){fetch('%[3]s/self/done')},2500);
 </script></body></html>`
 
+const clickPage = `<!doctype html><html><head><style>
+body{margin:0}
+a{display:block;height:50vh;background:#ccc;font-size:24px;pointer-events:auto!important}
+a:hover{pointer-events:auto!important}
+</style></head><body><a href="%[1]s/clicked">other port</a><a href="%[2]s/clicked" style="pointer-events:auto!important">other host</a></body></html>`
+
 const renderPage = `<!doctype html><html><head><style>
 body{margin:0;background:#fff}
 #a{width:300px;height:200px;background:#ff00ff}
@@ -113,6 +157,7 @@ func probeServers(t *testing.T, policy string) (*probeLog, string, string, strin
 	board, otherPort, otherHost := listen("127.0.0.1:0"), listen("127.0.0.1:0"), listen("127.0.0.2:0")
 	boardURL, portURL, hostURL := "http://"+board.Addr().String(), "http://"+otherPort.Addr().String(), "http://"+otherHost.Addr().String()
 	log := &probeLog{}
+	otherPort, otherHost = countingListener{otherPort, log, "other-port"}, countingListener{otherHost, log, "other-host"}
 	go func() {
 		_ = http.Serve(board, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			log.add("board", r)
@@ -125,6 +170,10 @@ func probeServers(t *testing.T, policy string) (*probeLog, string, string, strin
 				}
 				h.Set("X-Content-Type-Options", "nosniff")
 				fmt.Fprintf(w, hostilePage, portURL, hostURL, boardURL, portURL+"/?u="+boardURL+"/", portURL+"/x/"+boardURL+"/")
+			case strings.HasPrefix(r.URL.Path, "/click"):
+				h.Set("Content-Type", "text/html; charset=utf-8")
+				h.Set("Content-Security-Policy", policy)
+				fmt.Fprintf(w, clickPage, portURL, hostURL)
 			case strings.HasPrefix(r.URL.Path, "/render"):
 				h.Set("Content-Type", "text/html; charset=utf-8")
 				h.Set("Content-Security-Policy", policy)
@@ -218,8 +267,7 @@ func settle(t *testing.T, log *probeLog, finish string) bool {
 	for end := time.Now().Add(30 * time.Second); !finished && time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
 		finished = log.saw("board", finish)
 	}
-	end := time.Now().Add(probeSettle)
-	until(t, "the page to finish", 2*probeSettle, func() bool { return time.Now().After(end) })
+	until(t, "the page to go quiet", 30*time.Second, func() bool { return log.quietFor(probeQuiet) })
 	return finished
 }
 
@@ -295,8 +343,10 @@ func TestRealWebViewDrawsAnHTMLPageUnderTheBoardsPolicy(t *testing.T) {
 	t.Logf("pixels sampled every second row and column: pink %d, green %d", best[0], best[1])
 }
 
-func TestRealWebViewShowsNoContextMenuOverAnHTMLPage(t *testing.T) {
-	drawnInTwoColours(t)
+type probeBox struct{ x, y, w, h int }
+
+func probeGeometry(t *testing.T) probeBox {
+	t.Helper()
 	if _, err := exec.LookPath("xdotool"); err != nil {
 		if os.Getenv("CI") != "" {
 			t.Fatal("xdotool is not installed")
@@ -316,7 +366,68 @@ func TestRealWebViewShowsNoContextMenuOverAnHTMLPage(t *testing.T) {
 	if geo["WIDTH"] == 0 {
 		t.Fatalf("the probe window has no geometry: %s", out)
 	}
-	checkNoContextMenu(t, t.TempDir(), geo["X"]+geo["WIDTH"]/4, geo["Y"]+geo["HEIGHT"]/4)
+	return probeBox{geo["X"], geo["Y"], geo["WIDTH"], geo["HEIGHT"]}
+}
+
+func TestRealWebViewShowsNoContextMenuOverAnHTMLPage(t *testing.T) {
+	drawnInTwoColours(t)
+	g := probeGeometry(t)
+	checkNoContextMenu(t, t.TempDir(), g.x+g.w/4, g.y+g.h/4)
+}
+
+func TestRealWebViewOpensNoConnectionWhenThePointerReachesOrClicksALink(t *testing.T) {
+	if _, err := exec.LookPath("import"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("ImageMagick import is not installed")
+		}
+		t.Skip("ImageMagick import is not installed")
+	}
+	bin := probeBinary(t)
+	log, boardURL, _, _ := probeServers(t, boardPolicy)
+	startProbe(t, bin, boardURL+"/click")
+	until(t, "the page request", 90*time.Second, func() bool { return log.saw("board", "/click") })
+	shot := filepath.Join(t.TempDir(), "screen.png")
+	until(t, "the two links drawn", 60*time.Second, func() bool {
+		img := screenshot(t, shot)
+		grey := 0
+		b := img.Bounds()
+		for y := b.Min.Y; y < b.Max.Y; y += 2 {
+			for x := b.Min.X; x < b.Max.X; x += 2 {
+				if r, g, bl, _ := img.At(x, y).RGBA(); r>>8 == 0xcc && g>>8 == 0xcc && bl>>8 == 0xcc {
+					grey++
+				}
+			}
+		}
+		return grey >= renderMin
+	})
+	g := probeGeometry(t)
+	x := strconv.Itoa(g.x + g.w/2)
+	for _, y := range []int{g.y + g.h/4, g.y + 3*g.h/4} {
+		for _, args := range [][]string{
+			{"click", "1"},
+			{"click", "2"},
+			{"keydown", "ctrl", "click", "1", "keyup", "ctrl"},
+			{"keydown", "shift", "click", "1", "keyup", "shift"},
+			{"keydown", "alt", "click", "1", "keyup", "alt"},
+		} {
+			cmd := append([]string{"mousemove", x, strconv.Itoa(y)}, args...)
+			if b, err := exec.Command("xdotool", cmd...).CombinedOutput(); err != nil {
+				t.Fatalf("xdotool %v: %v\n%s", cmd, err, b)
+			}
+		}
+	}
+	time.Sleep(3 * time.Second)
+	for _, h := range log.all() {
+		t.Logf("%s %s %s", h.server, h.method, h.uri)
+		if h.server != "board" || !strings.HasPrefix(h.uri, "/click") {
+			t.Errorf("a click reached %s: %s %s", h.server, h.method, h.uri)
+		}
+	}
+	for _, server := range []string{"other-port", "other-host"} {
+		if n := log.connections(server); n != 0 {
+			t.Errorf("the pointer on a link opened %d connections to %s", n, server)
+		}
+	}
 }
 
 const renderMin = 8000
