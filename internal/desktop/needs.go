@@ -358,11 +358,10 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 	inert := !needHasBody(need) || wasSent
 	open = open && !inert
 	bg, ink := toneColors(need.Tone, p)
-	refs := []string{need.Ref}
+	task := ""
 	if need.Task != "" && need.Task != need.Ref {
-		refs = append(refs, need.Task)
+		task = need.Task
 	}
-	slug := strings.TrimSpace(strings.Join(refs, " "))
 	card := ui.Column(c)
 	if open {
 		card.Margin(kit.Space6, 0, kit.Space10).Border(1, k.Line).Radius(kit.RadiusLG).Clip()
@@ -389,14 +388,17 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 				icon.Margin(3, 0, 0)
 			}
 			closed := func() {
-				if slug != "" {
-					ui.Text(c, slug).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+				if task != "" {
+					ui.Text(c, task).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 				if need.CreatedAt != "" {
 					ui.Text(c, stamp(need.CreatedAt)).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 			}
 			title := needLabel(need)
+			if !open {
+				kit.Ref(c, need.Ref, k.Muted)
+			}
 			if open {
 				ui.Column(c).Grow(1).MinWidth(0).Gap(kit.Space2).Children(func() {
 					ui.Text(c, title).FontSize(kit.Title.Size).Bold()
@@ -474,14 +476,21 @@ func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, in
 			if sup == nil {
 				return
 			}
-			meta(joined(strings.TrimSpace(sup.Harness+" "+sup.Model), sup.Status))
+			meta(joined(strings.TrimSpace(sup.Harness+" "+sup.Model), a.unlessWord(need, sup.Status)))
 			meta(at(sup.EndedAt))
 		case need.AttemptMeta != nil:
 			m := need.AttemptMeta
-			meta(joined(strings.TrimSpace(m.Harness+" "+m.Model), m.Status))
+			meta(joined(strings.TrimSpace(m.Harness+" "+m.Model), a.unlessWord(need, m.Status)))
 			meta(at(m.EndedAt))
 		}
 	})
+}
+
+func (a *App) unlessWord(need Need, status string) string {
+	if strings.EqualFold(status, a.needWord(need)) {
+		return ""
+	}
+	return status
 }
 
 func joined(parts ...string) string {
