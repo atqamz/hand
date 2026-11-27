@@ -78,6 +78,7 @@ func (a *App) releaseMedia() {
 		a.web.handle.Close()
 	}
 	a.web = webState{}
+	a.webGen++
 }
 
 func (a *App) audioHeld(rel string) bool {

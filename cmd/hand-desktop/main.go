@@ -103,7 +103,13 @@ func remotes(getenv func(string) string, goos string, repaint func()) (remoteDes
 	return remoteDesk{RemoteStore: store, RemoteClients: sup, desk: &desktop.Remotes{Store: store, Clients: sup}}, sup.Close
 }
 
+var probe func()
+
 func main() {
+	if probe != nil {
+		probe()
+		return
+	}
 	opts, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hand-desktop:", err)

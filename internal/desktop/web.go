@@ -9,12 +9,14 @@ import (
 const (
 	webEngineMissing = " cannot be shown in this window: the system web engine is not available (WebKitGTK on Linux, WebView2 on Windows). Download the file to open it elsewhere."
 	webPlaceholder   = "The system web view draws the file here. A scene cannot show a real web view."
+	webGone          = " stopped drawing: the web view's process ended. The source is shown instead. Choose Rendered to try again."
 	webMinHeight     = 360
 )
 
 type WebHandle struct {
-	View  ui.NativeWebView
-	Close func()
+	View   ui.NativeWebView
+	Close  func()
+	OnGone func(func())
 }
 
 type webState struct {
@@ -24,7 +26,7 @@ type webState struct {
 }
 
 func (a *App) webKind(kind string) bool {
-	return kind == "pdf"
+	return kind == "pdf" || kind == "html"
 }
 
 func (a *App) webReady() bool {
@@ -42,6 +44,40 @@ func (a *App) openWeb(rel, noun string, f DocFrame) {
 		return
 	}
 	a.web = webState{path: rel, handle: h}
+	if h.OnGone != nil {
+		gen := a.webGen
+		h.OnGone(func() { a.later(func() { a.webEnded(rel, gen, noun) }) })
+	}
+}
+
+func (a *App) later(f func()) {
+	if a.Post != nil {
+		a.Post(f)
+		return
+	}
+	f()
+}
+
+func (a *App) webEnded(rel string, gen int, noun string) {
+	if a.webGen != gen || a.web.path != rel || a.web.handle.Close == nil {
+		return
+	}
+	a.releaseMedia()
+	a.web = webState{path: rel, notice: noun + webGone}
+}
+
+func (a *App) htmlNotice() string {
+	switch {
+	case !a.webReady():
+		return a.doc.row
+	case a.web.path == a.Ref:
+		return a.web.notice
+	}
+	return ""
+}
+
+func (a *App) htmlAsSource() bool {
+	return a.DocSource || a.htmlNotice() != ""
 }
 
 func (a *App) docWeb(c *ui.Context, k kit.Colors, p palette) {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
@@ -58,6 +60,42 @@ func (v mygoView) WillOpenWindow(func(string) bool) {
 
 func (v mygoView) WillUsePermission(allow func(string) bool) {
 	v.v.Page().SetPermissionHandler(func(r mygo.PermissionRequest) bool { return allow(r.Origin) })
+}
+
+func (v mygoView) OnlyOrigin(origin string) error {
+	rules, err := originRules(origin)
+	if err != nil {
+		return err
+	}
+	v.v.Page().SetContentRules(rules)
+	return nil
+}
+
+func (v mygoView) OnGone(fn func()) {
+	v.v.Page().OnRenderProcessGone(func(string) { fn() })
+}
+
+var confine struct {
+	sync.Mutex
+	origin string
+	rules  *mygo.ContentRules
+}
+
+func originRules(origin string) (*mygo.ContentRules, error) {
+	confine.Lock()
+	if confine.rules != nil && confine.origin == origin {
+		defer confine.Unlock()
+		return confine.rules, nil
+	}
+	confine.Unlock()
+	rules, err := mygo.CompileContentRules("hand-board-origin", webhost.OriginRules(origin))
+	if err != nil {
+		return nil, err
+	}
+	confine.Lock()
+	confine.origin, confine.rules = origin, rules
+	confine.Unlock()
+	return rules, nil
 }
 
 func (v mygoView) Destroy() { v.v.Destroy() }

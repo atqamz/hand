@@ -23,7 +23,7 @@ var noCopyKinds = map[string]bool{"pdf": true, "video": true, "audio": true}
 
 func (a *App) docTextual() bool {
 	d, st := a.doc.doc, &a.doc
-	return d.Kind == "text" || d.Kind == "markdown" && st.row == "" || d.Kind == "html" && a.DocSource
+	return d.Kind == "text" || d.Kind == "markdown" && st.row == "" || d.Kind == "html" && a.htmlAsSource()
 }
 
 func (a *App) docIsTable() bool {
@@ -43,7 +43,7 @@ func (a *App) docSourceable() bool {
 
 func (a *App) docLinesShown() bool {
 	d := a.doc.doc
-	return d.Kind == "text" || d.Kind == "markdown" && a.DocSource && a.doc.row == "" || d.Kind == "html" && a.DocSource
+	return d.Kind == "text" || d.Kind == "markdown" && a.DocSource && a.doc.row == "" || d.Kind == "html" && a.htmlAsSource()
 }
 
 func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
@@ -78,7 +78,7 @@ func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
 
 func (a *App) docSwitch(c *ui.Context, k kit.Colors) {
 	ui.Row(c).Gap(0).AlignItems(ui.Center).Label("Rendered or Source").Children(func() {
-		if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !a.DocSource) && a.DocSource {
+		if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !a.DocSource) && (a.DocSource || a.htmlAsSource()) {
 			a.setDocView(func() { a.DocSource = false })
 		}
 		if kit.DocToggle(c, k, "doc:tool:source", "Source", a.DocSource) && !a.DocSource {
@@ -144,6 +144,17 @@ func (a *App) setDocView(set func()) {
 	a.viewerScroll = ui.ScrollState{}
 	a.viewerFocus = true
 	a.settlePrefs()
+	if a.doc.doc.Kind == "html" && a.doc.ok {
+		a.htmlViewChanged()
+	}
+}
+
+func (a *App) htmlViewChanged() {
+	if a.DocSource {
+		a.releaseMedia()
+		return
+	}
+	a.loadDoc()
 }
 
 func (a *App) flushClip(c *ui.Context) {
