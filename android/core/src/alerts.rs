@@ -512,15 +512,16 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         }
     }
 
+    pub fn unhold(&self, fleets: &[String]) -> bool {
+        let mut state = self.state.lock().unwrap();
+        for fleet in fleets {
+            state.held.remove(fleet);
+        }
+        state.scanner.is_some()
+    }
+
     pub async fn release(self: &Arc<Self>, fleets: &[String]) {
-        let running = {
-            let mut state = self.state.lock().unwrap();
-            for fleet in fleets {
-                state.held.remove(fleet);
-            }
-            state.scanner.is_some()
-        };
-        if running {
+        if self.unhold(fleets) {
             self.scan().await;
         }
     }

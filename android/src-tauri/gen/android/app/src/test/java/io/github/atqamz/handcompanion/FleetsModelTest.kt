@@ -818,6 +818,7 @@ class FleetsModelTest {
     runBlocking { model.refresh() }
     assertFalse(runBlocking { model.signOut(Forgetting(null, null, 3)) })
     assertEquals(listOf(LAPTOP, VPS), signed)
+    assertEquals(Forgetting(VPS, "vps-berlin", 1), model.state.value.asking)
     assertEquals(listOf(setOf(ONE, TWO)), dropped)
     assertEquals(listOf("vps-berlin"), model.state.value.hosts.map { it.name })
   }

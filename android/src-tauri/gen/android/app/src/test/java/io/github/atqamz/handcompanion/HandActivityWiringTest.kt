@@ -35,6 +35,14 @@ class HandActivityWiringTest {
   }
 
   @Test
+  fun aStoreThatWillNotClearAfterASignOutChecksTheAlertsLikeAFailedForget() {
+    val effect = activity.substringAfter("LaunchedEffect(listed.notice, listed.failure)").substringBefore("var refused")
+    assertTrue(effect.contains("listed.notice == FORGET_FAILED"))
+    assertTrue(effect.contains("listed.failure?.sentence == FORGET_FAILED"))
+    assertTrue(effect.contains("checkAlerts()"))
+  }
+
+  @Test
   fun aNewIntentFromTheBackgroundIsTakenLikeTheFirstOne() {
     assertTrue(body(activity, "override fun onNewIntent").contains("take(intent)"))
   }

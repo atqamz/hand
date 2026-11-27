@@ -94,6 +94,28 @@ struct Gate {
     resume: tokio::sync::Notify,
 }
 
+struct Holding<'a, C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> {
+    supervisor: &'a Supervisor<C, S>,
+    fleets: Vec<String>,
+}
+
+impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Holding<'_, C, S> {
+    fn add(&mut self, fleets: &[String]) {
+        self.supervisor.hold(fleets);
+        self.fleets.extend_from_slice(fleets);
+    }
+
+    fn take(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.fleets)
+    }
+}
+
+impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Drop for Holding<'_, C, S> {
+    fn drop(&mut self) {
+        self.supervisor.unhold(&self.fleets);
+    }
+}
+
 impl Companion {
     pub fn dialers(&self) -> &Dialers {
         &self.dialers
@@ -265,6 +287,10 @@ impl Companion {
         S: AlertSink + Send + 'static,
     {
         let mut clear = Some(clear);
+        let mut holding = Holding {
+            supervisor,
+            fleets: Vec::new(),
+        };
         let mut attempted: HashSet<String> = HashSet::new();
         let mut left = Vec::new();
         let mut down = false;
@@ -306,14 +332,13 @@ impl Companion {
                     }
                     Ok(false) => continue,
                     Err(error) => {
-                        let ids: Vec<String> = attempted.iter().cloned().collect();
-                        supervisor.release(&ids).await;
+                        supervisor.release(&holding.take()).await;
                         return Err(error);
                     }
                 }
             }
             let ids: Vec<String> = fresh.iter().map(|fleet| fleet.id.clone()).collect();
-            supervisor.hold(&ids);
+            holding.add(&ids);
             attempted.extend(ids);
             for fleet in fresh {
                 let fate = if down {
@@ -332,8 +357,7 @@ impl Companion {
                 }
             }
         }
-        let ids: Vec<String> = attempted.into_iter().collect();
-        supervisor.release(&ids).await;
+        supervisor.release(&holding.take()).await;
         Ok(if done {
             SignOut::Done
         } else {

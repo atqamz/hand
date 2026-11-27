@@ -69,6 +69,22 @@ class ThisPhoneScreenTest {
   @Test fun signOutFailedDark() =
     shot(true, phoneOf(phoneSeveral, listOf(laptopLine, vpsLine)).copy(asking = vpsAsk, failure = silent))
 
+  private val tooOld = signOutFailure("vps-berlin", SignOutResult.Failed(listOf(SignOutMiss("f000000000005", "orchard", "too_old"))))
+
+  private val replaced =
+    signOutFailure("vps-berlin", SignOutResult.Failed(listOf(SignOutMiss("f000000000005", "orchard", "not_recognised"))))
+
+  private fun asked(failure: SignOutFailure) =
+    phoneOf(phoneSeveral, listOf(laptopLine, vpsLine)).copy(asking = vpsAsk, failure = failure)
+
+  @Test fun signOutTooOldLight() = shot(false, asked(tooOld))
+
+  @Test fun signOutTooOldDark() = shot(true, asked(tooOld))
+
+  @Test fun signOutNotRecognisedLight() = shot(false, asked(replaced))
+
+  @Test fun signOutNotRecognisedDark() = shot(true, asked(replaced))
+
   private val two =
     phoneOf(phoneSeveral + FleetLine("f000000000021", "ops", "paired Nov 9 · signs out Feb 7"), listOf(laptopLine, vpsLine))
       .let { it.copy(alertsDetail = "Hand is partly connected · watching ${it.fleets.size} fleets") }

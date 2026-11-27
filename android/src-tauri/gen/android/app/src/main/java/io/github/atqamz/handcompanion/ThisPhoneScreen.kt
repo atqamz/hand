@@ -182,16 +182,22 @@ internal fun SignOutDialog(
     onDismissRequest = { if (!signing) onCancel() },
     title = { Text(if (everything) "Sign out of everything?" else "Sign out of ${asking.name ?: "your host"}?") },
     text = { Text(text) },
-    confirmButton = {
-      TextButton(if (choices.forgetsOnly) onForget else onSignOut, enabled = choices.enabled) {
-        Text(choices.confirm, color = LocalHand.current.ink(Tone.Fail))
-      }
-    },
-    dismissButton = {
-      Row {
-        if (choices.alsoForget) TextButton(onForget, enabled = !signing) { Text("Forget only") }
-        TextButton(onCancel, enabled = !signing) { Text("Cancel") }
-      }
-    }
+    confirmButton = { SignOutConfirm(choices, onSignOut = onSignOut, onForget = onForget) },
+    dismissButton = { SignOutDismiss(choices, signing, onForget = onForget, onCancel = onCancel) }
   )
+}
+
+@Composable
+internal fun SignOutConfirm(choices: SignOutChoices, onSignOut: () -> Unit, onForget: () -> Unit) {
+  TextButton(if (choices.forgetsOnly) onForget else onSignOut, enabled = choices.enabled) {
+    Text(choices.confirm, color = LocalHand.current.ink(Tone.Fail))
+  }
+}
+
+@Composable
+internal fun SignOutDismiss(choices: SignOutChoices, signing: Boolean, onForget: () -> Unit, onCancel: () -> Unit) {
+  Row {
+    if (choices.alsoForget) TextButton(onForget, enabled = !signing) { Text("Forget only") }
+    TextButton(onCancel, enabled = !signing) { Text("Cancel") }
+  }
 }

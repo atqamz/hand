@@ -497,3 +497,25 @@ async fn a_fleet_paired_during_the_round_is_signed_out_too_and_never_dropped_unr
     assert_eq!(revokes[0].csrf.as_deref(), Some(csrf(C).as_str()));
     assert_eq!(revokes[0].cookie.as_deref(), Some(rig.cookie(C).as_str()));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sign_out_that_is_cancelled_gives_the_loops_back() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let rig = rig(&bin, &[(A, Mode::Live), (B, Mode::Live)], Some(A)).await;
+    rig.supervisor.start();
+    assert!(until(|| [A, B].iter().all(|fleet| rig.cursor(fleet).is_some())).await);
+    let cleared = flag();
+
+    let cancelled = tokio::time::timeout(Duration::from_millis(300), rig.sign_out(&cleared)).await;
+
+    assert!(cancelled.is_err());
+    assert!(!cleared.load(Ordering::SeqCst));
+    let polled = rig.requests(B, "/alerts/feed").len();
+    assert!(
+        until(|| rig.requests(B, "/alerts/feed").len() > polled + 1).await,
+        "the feed of B never came back"
+    );
+    rig.supervisor.stop();
+}

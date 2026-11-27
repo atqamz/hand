@@ -274,10 +274,12 @@ class FleetsModel(
       mutableState.value.phone?.hosts.orEmpty().filter { target.endpoint == null || it.endpoint == target.endpoint }
     val leaving = hosts.flatMap { it.fleets.map(PairedFleet::id) }.toSet()
     var failure: SignOutFailure? = null
+    var stuck: Forgetting? = null
     for (host in hosts) {
       val result = withContext(Dispatchers.IO) { signer(host.endpoint) }
       if (result != SignOutResult.Done) {
         failure = signOutFailure(host.name, result)
+        stuck = Forgetting(host.endpoint, host.name, host.fleets.size)
         break
       }
     }
@@ -288,7 +290,7 @@ class FleetsModel(
       it.copy(
         signing = false,
         failure = failure,
-        asking = it.asking.takeIf { failure != null },
+        asking = stuck,
         alertsOff = it.alertsOff && it.hosts.isNotEmpty()
       )
     }

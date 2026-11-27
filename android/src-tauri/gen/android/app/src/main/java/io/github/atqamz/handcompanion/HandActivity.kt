@@ -483,7 +483,9 @@ class HandActivity : ComponentActivity() {
         var scanning by remember { mutableStateOf(false) }
         val pairing by pair.state.collectAsStateWithLifecycle()
         val listed by model.state.collectAsStateWithLifecycle()
-        LaunchedEffect(listed.notice) { if (listed.notice == FORGET_FAILED) checkAlerts() }
+        LaunchedEffect(listed.notice, listed.failure) {
+          if (listed.notice == FORGET_FAILED || listed.failure?.sentence == FORGET_FAILED) checkAlerts()
+        }
         var refused by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(refused) {
           if (refused != null) {
