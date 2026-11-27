@@ -54,7 +54,7 @@ func ContextBar(c *ui.Context, k Colors, pct int, fill ui.Color) {
 	})
 }
 
-func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
+func Rail(c *ui.Context, k Colors, open bool, keys string, toggle func(), body func()) {
 	w, label := float32(RailWidth), "Show labels"
 	if open {
 		w, label = RailWidthOpen, "Hide labels"
@@ -67,7 +67,11 @@ func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
 				Background(ui.Transparent).Justify(ui.Center).AlignItems(ui.Center).
 				Cursor(ui.CursorPointer).Label(label)
 			b.Children(func() { ui.Icon(c, Icon("sidebar")).TextColor(k.Muted) })
-			railTip(c, k, b, label)
+			tip := label
+			if keys != "" {
+				tip += " · " + keys
+			}
+			railTip(c, k, b, tip)
 			if b.Clicked() {
 				toggle()
 			}
@@ -94,9 +98,17 @@ type NavItem struct {
 	CountBG, CountFG ui.Color
 	Dot              bool
 	Fleet, Mono      string
+	Keys             string
 	Tone, Status     string
 	Link, LinkIcon   string
 	LinkFG           ui.Color
+}
+
+func (n NavItem) tip() string {
+	if n.Keys == "" {
+		return n.Name()
+	}
+	return n.Name() + " · " + n.Keys
 }
 
 func (n NavItem) Name() string {
@@ -162,6 +174,9 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 			})
 		case n.Open:
 			ui.Text(c, n.Label).FontSize(Body.Size).Bold().TextColor(fg).SingleLine().Ellipsis("…").Grow(1)
+			if n.Keys != "" {
+				ui.Text(c, n.Keys).Font(Mono).FontSize(Meta.Size).TextColor(k.Muted).SingleLine().Shrink(0)
+			}
 		case n.Link != "":
 			ui.Box(c).Absolute().Bottom(4).Right(4).Padding(1).Radius(RadiusPill).Background(k.Panel).Children(func() {
 				ui.Icon(c, Icon(n.LinkIcon)).Size(12, 12).TextColor(n.LinkFG)
@@ -190,7 +205,7 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 		}
 	})
 	if !n.Open {
-		railTip(c, k, el, n.Name())
+		railTip(c, k, el, n.tip())
 	}
 	return el.Clicked() && !n.Inert
 }
