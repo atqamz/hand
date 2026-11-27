@@ -285,6 +285,28 @@ func (b *Board) apiPhoneApp(w http.ResponseWriter, r *http.Request) {
 	b.apiPhoneAnswer(r.Context(), w, f, own, apiReply{}, nil)
 }
 
+func (b *Board) apiSessionRevoke(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	s, _ := ctx.Value(sessionKey{}).(session)
+	if s.Device == nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "only a paired Companion signs itself out; the host revokes on the Companion page")
+		return
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	if _, err := b.revokeDevice(ctx, s.Device.ID); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiOK(w, f, "", APIAccepted{Accepted: true})
+}
+
 func (b *Board) apiPhoneRevoke(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if !b.apiCSRF(w, r) || !b.apiPhoneHost(w, r) {

@@ -265,7 +265,7 @@ private fun AnnotatedString.Builder.inlines(
       is MdCode ->
         if (span.path == null) code(span.text, hand)
         else
-          link(pathTarget(span.path), "path:${span.path}", pathStyles(hand), onTarget) {
+          link(linkTarget(span), "path:${span.path}", pathStyles(hand), onTarget) {
             code(span.text, hand)
           }
       is MdStrong ->
@@ -281,7 +281,7 @@ private fun AnnotatedString.Builder.inlines(
           inlines(span.children, hand, fleet, onTarget)
         }
       is MdLink ->
-        link(ThreadTarget.Browser(span.url), span.url, linkStyles(hand), onTarget) {
+        link(linkTarget(span), span.url, linkStyles(hand), onTarget) {
           withStyle(SpanStyle(color = hand.ink(Tone.Accent))) {
             inlines(span.children, hand, fleet, onTarget)
           }
@@ -293,7 +293,7 @@ private fun AnnotatedString.Builder.inlines(
           }
         }
       is MdPath ->
-        link(pathTarget(span.path), "path:${span.path}", pathStyles(hand), onTarget) {
+        link(linkTarget(span), "path:${span.path}", pathStyles(hand), onTarget) {
           inlines(span.children, hand, fleet, onTarget)
         }
     }
@@ -311,6 +311,14 @@ private fun AnnotatedString.Builder.code(text: String, hand: HandColors) {
     append(shown(text))
   }
 }
+
+internal fun linkTarget(span: MdInline): ThreadTarget =
+  when (span) {
+    is MdLink -> externalTarget(span.url)
+    is MdPath -> pathTarget(span.path)
+    is MdCode -> span.path?.let(::pathTarget) ?: ThreadTarget.None
+    else -> ThreadTarget.None
+  }
 
 private fun AnnotatedString.Builder.link(
   target: ThreadTarget,

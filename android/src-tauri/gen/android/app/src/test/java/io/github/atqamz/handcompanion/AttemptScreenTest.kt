@@ -110,7 +110,7 @@ class AttemptScreenTest {
   private fun shot(dark: Boolean, shown: AttemptState) =
     paparazzi.snapshot {
       HandTheme(dark) {
-        AttemptScreen(FLEET, "a62", shown, {}, {}, {}, {}, {}, {})
+        AttemptScreen(FLEET, "a62", shown, {}, {}, {}, {}, {})
       }
     }
 

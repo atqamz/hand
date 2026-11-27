@@ -34,7 +34,7 @@ class ThisPhoneScreenTest {
   val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(screenHeight = 2200))
 
   private fun shot(dark: Boolean, phone: ThisPhone) =
-    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}) } }
 
   @Test fun oneFleetLight() = shot(false, phoneOf(listOf(phoneAtlas)))
 

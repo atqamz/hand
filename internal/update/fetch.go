@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,7 +38,46 @@ var luvusTriples = map[string]string{
 	"windows/amd64": "x86_64-pc-windows-msvc",
 }
 
-var client = &http.Client{Timeout: 5 * time.Minute}
+var client = &http.Client{Timeout: 5 * time.Minute, CheckRedirect: checkRedirect}
+
+func onThisMachine(u *url.URL) bool {
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+func requireHTTPS(u *url.URL) error {
+	if u.Scheme == "https" || u.Scheme == "http" && onThisMachine(u) && u.User == nil {
+		return nil
+	}
+	return fmt.Errorf("update: the URL must use https, or http on this machine: %s", u.Redacted())
+}
+
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("update: stopped after 10 redirects")
+	}
+	if err := requireHTTPS(req.URL); err != nil {
+		return err
+	}
+	if req.URL.Scheme == "http" && via[len(via)-1].URL.Scheme == "https" {
+		return fmt.Errorf("update: refusing a redirect from https to http: %s", req.URL.Redacted())
+	}
+	return nil
+}
+
+func newRequest(ctx context.Context, method, raw string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, raw, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireHTTPS(req.URL); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
 
 var ErrMissing = errors.New("not published")
 
@@ -123,7 +163,7 @@ func probeIroh(ctx context.Context, base, channel, goos, arch string) (bool, err
 func probeAsset(ctx context.Context, base, channel, name, goos, arch string) (bool, error) {
 	ext, _ := packaging(goos)
 	url := releaseURL(base, channel) + "/" + name + "-" + goos + "-" + arch + ext
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	req, err := newRequest(ctx, http.MethodHead, url)
 	if err != nil {
 		return false, err
 	}
@@ -247,7 +287,7 @@ func listed(path, asset string) (string, error) {
 }
 
 func download(ctx context.Context, url, path string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := newRequest(ctx, http.MethodGet, url)
 	if err != nil {
 		return err
 	}
