@@ -156,7 +156,7 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState, env d
 				r.player, r.row = openedAudio(env.openAudio, b)
 			}
 		}
-	case "pdf":
+	case "pdf", "video":
 		switch {
 		case !env.web:
 			r.row = docKindNouns[d.Kind] + docCannot
@@ -165,6 +165,7 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState, env d
 		default:
 			var f DocFrame
 			if f, r.err = m.(DocFramer).DocFrame(ctx, fleet, req.path); r.err == nil {
+				f.Kind = d.Kind
 				r.frame = &f
 			}
 		}

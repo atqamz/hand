@@ -202,7 +202,7 @@ func probeServers(t *testing.T, policy string) (*probeLog, string, string, strin
 	return log, boardURL, portURL, hostURL
 }
 
-func startProbe(t *testing.T, bin, url string) {
+func startProbe(t *testing.T, bin, url string, extra ...string) {
 	t.Helper()
 	if os.Getenv("DISPLAY") == "" {
 		if os.Getenv("CI") != "" {
@@ -221,6 +221,7 @@ func startProbe(t *testing.T, bin, url string) {
 	cmd.Env = append(env, "HOME="+home, "XDG_DATA_HOME="+filepath.Join(home, "data"), "XDG_CACHE_HOME="+filepath.Join(home, "cache"),
 		"XDG_CONFIG_HOME="+filepath.Join(home, "config"), "XDG_STATE_HOME="+filepath.Join(home, "state"),
 		"HAND_WEBPROBE_URL="+url, "HAND_WEBPROBE_COOKIE="+probeCookie, "HAND_WEBPROBE_TOKEN="+probeToken, "HAND_WEBPROBE_DOMAIN=127.0.0.1")
+	cmd.Env = append(cmd.Env, extra...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

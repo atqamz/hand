@@ -89,6 +89,8 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 		a.docAudio(c, k, p)
 	case "pdf":
 		a.docWeb(c, k, p)
+	case "video":
+		a.docVideo(c, k, p)
 	case "html":
 		if n := a.htmlNotice(); n != "" && !a.DocSource {
 			a.docRow(c, k, n, false)

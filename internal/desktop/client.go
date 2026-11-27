@@ -33,6 +33,7 @@ const LocalHost = "local"
 type WebCookie struct{ Name, Value, Domain string }
 
 type DocFrame struct {
+	Kind   string
 	Host   string
 	URL    string
 	Cookie WebCookie
