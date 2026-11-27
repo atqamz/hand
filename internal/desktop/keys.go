@@ -14,10 +14,11 @@ type chord struct {
 }
 
 type shortcut struct {
-	Group  string
-	Does   string
-	Chords []chord
-	Text   string
+	Group    string
+	Does     string
+	Chords   []chord
+	Text     string
+	CmdApple bool
 }
 
 const (
@@ -27,6 +28,7 @@ const (
 	groupDecision = "On an open decision"
 	groupMessage  = "In the message box"
 	groupHelp     = "In this list"
+	groupRail     = "Pages and fleets"
 )
 
 var (
@@ -49,6 +51,14 @@ var (
 
 	keySend = shortcut{Group: groupMessage, Does: "Send the message", Chords: []chord{{ui.Ctrl, ui.KeyEnter}, {ui.Super, ui.KeyEnter}}}
 
+	keyPageBoard     = shortcut{Group: groupRail, CmdApple: true, Does: "Open the Board", Chords: []chord{{ui.Ctrl, ui.Key1}, {ui.Super, ui.Key1}}}
+	keyPageTasks     = shortcut{Group: groupRail, CmdApple: true, Does: "Open Tasks", Chords: []chord{{ui.Ctrl, ui.Key2}, {ui.Super, ui.Key2}}}
+	keyPageSkills    = shortcut{Group: groupRail, CmdApple: true, Does: "Open Skills", Chords: []chord{{ui.Ctrl, ui.Key3}, {ui.Super, ui.Key3}}}
+	keyPageAlerts    = shortcut{Group: groupRail, CmdApple: true, Does: "Open Alerts", Chords: []chord{{ui.Ctrl, ui.Key4}, {ui.Super, ui.Key4}}}
+	keyPageChat      = shortcut{Group: groupRail, CmdApple: true, Does: "Open the Conversation", Chords: []chord{{ui.Ctrl, ui.Key5}, {ui.Super, ui.Key5}}}
+	keyPageCompanion = shortcut{Group: groupRail, CmdApple: true, Does: "Open the Companion page", Chords: []chord{{ui.Ctrl, ui.Key6}, {ui.Super, ui.Key6}}}
+	keyRailToggle    = shortcut{Group: groupRail, CmdApple: true, Does: "Show or hide the rail labels", Chords: []chord{{ui.Ctrl, ui.KeyB}, {ui.Super, ui.KeyB}}}
+
 	keyHelpClose = shortcut{Group: groupHelp, Does: "Close this list", Chords: []chord{{ui.Shift, ui.KeySlash}, {0, ui.KeyEscape}}}
 )
 
@@ -58,6 +68,7 @@ var shortcuts = []shortcut{
 	keyFindNext, keyFindPrev, keyFindClear,
 	keyChoose, keyAnswer,
 	keySend,
+	keyPageBoard, keyPageTasks, keyPageSkills, keyPageAlerts, keyPageChat, keyPageCompanion, keyRailToggle,
 	keyHelpClose,
 }
 
@@ -79,6 +90,28 @@ func (s shortcut) pressed(c *ui.Context) bool {
 	return false
 }
 
+func (s shortcut) bound(apple bool) []chord {
+	if !s.CmdApple || apple {
+		return s.Chords
+	}
+	var out []chord
+	for _, ch := range s.Chords {
+		if ch.Mods&ui.Super == 0 {
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+func (s shortcut) pressedOn(c *ui.Context, apple bool) bool {
+	for _, ch := range s.bound(apple) {
+		if c.Shortcut(ch.Mods, ch.Key) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s shortcut) on(e ui.Element, fn func()) ui.Element {
 	for _, ch := range s.Chords {
 		e = e.OnShortcut(ch.Mods, ch.Key, fn)
@@ -88,7 +121,7 @@ func (s shortcut) on(e ui.Element, fn func()) ui.Element {
 
 var keyNames = map[ui.Key]string{
 	ui.KeyEscape: "Esc", ui.KeyEnter: "Enter", ui.KeySlash: "/", ui.KeyEqual: "=", ui.KeyMinus: "-",
-	ui.Key0: "0", ui.KeyF: "F", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]",
+	ui.Key0: "0", ui.Key1: "1", ui.Key2: "2", ui.Key3: "3", ui.Key4: "4", ui.Key5: "5", ui.Key6: "6", ui.KeyB: "B", ui.KeyF: "F", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]",
 }
 
 var shiftedNames = map[ui.Key]string{ui.KeySlash: "?", ui.KeyEqual: "+"}

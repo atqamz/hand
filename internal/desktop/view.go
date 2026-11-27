@@ -113,6 +113,7 @@ func (a *App) View(c *ui.Context) {
 			shell = keyNextDoc.on(shell, func() { a.stepDoc(true) })
 		}
 	}
+	a.pageKeys(c)
 	shell.Children(func() {
 		if !a.narrow {
 			a.rail(c, k, p)
@@ -177,7 +178,7 @@ func (a *App) underScreen() Screen {
 }
 
 func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
-	kit.Rail(c, k, a.RailOpen, a.toggleRail, func() {
+	kit.Rail(c, k, a.RailOpen, keyRailToggle.label(a.Apple), a.toggleRail, func() {
 		a.nav(c, k, p, a.RailOpen, func(n kit.NavItem) bool { return kit.Nav(c, k, n) })
 	})
 }
@@ -191,24 +192,24 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 		n.Open = open
 		return item(n)
 	}
-	if draw(kit.NavItem{Key: "screen:needs", Label: "Board", Icon: "board", Current: !a.formShown() && a.underScreen() == BoardScreen,
+	if draw(kit.NavItem{Key: "screen:needs", Keys: keyPageBoard.label(a.Apple), Label: "Board", Icon: "board", Current: !a.formShown() && a.underScreen() == BoardScreen,
 		Count: a.waitingNeeds(), CountBG: bg, CountFG: fg}) {
 		a.Show(BoardScreen)
 	}
-	if draw(kit.NavItem{Key: "screen:tasks", Label: "Tasks", Icon: "tasks", Current: !a.formShown() && a.underScreen() == TasksScreen}) {
+	if draw(kit.NavItem{Key: "screen:tasks", Keys: keyPageTasks.label(a.Apple), Label: "Tasks", Icon: "tasks", Current: !a.formShown() && a.underScreen() == TasksScreen}) {
 		a.resetTaskForm()
 		a.Show(TasksScreen)
 	}
-	if draw(kit.NavItem{Key: "screen:skills", Label: "Skills", Icon: "fleets", Current: !a.formShown() && a.underScreen() == SkillsScreen}) {
+	if draw(kit.NavItem{Key: "screen:skills", Keys: keyPageSkills.label(a.Apple), Label: "Skills", Icon: "fleets", Current: !a.formShown() && a.underScreen() == SkillsScreen}) {
 		a.Show(SkillsScreen)
 	}
-	if draw(kit.NavItem{Key: "screen:alerts", Label: "Alerts", Icon: "waiting", Current: !a.formShown() && a.underScreen() == AlertsScreen}) {
+	if draw(kit.NavItem{Key: "screen:alerts", Keys: keyPageAlerts.label(a.Apple), Label: "Alerts", Icon: "waiting", Current: !a.formShown() && a.underScreen() == AlertsScreen}) {
 		a.Show(AlertsScreen)
 	}
-	if draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
+	if draw(kit.NavItem{Key: "screen:conversation", Keys: keyPageChat.label(a.Apple), Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
 		a.Show(HistoryScreen)
 	}
-	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
+	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Keys: keyPageCompanion.label(a.Apple), Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
 		a.Show(PhoneScreen)
 	}
 	if a.Model != nil {
@@ -239,10 +240,40 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	}
 }
 
+func (a *App) goPage(s Screen) {
+	if s == TasksScreen {
+		a.resetTaskForm()
+	}
+	a.Show(s)
+}
+
+func (a *App) pageKeys(c *ui.Context) {
+	if a.keysOpen {
+		return
+	}
+	switch {
+	case keyPageBoard.pressedOn(c, a.Apple):
+		a.goPage(BoardScreen)
+	case keyPageTasks.pressedOn(c, a.Apple):
+		a.goPage(TasksScreen)
+	case keyPageSkills.pressedOn(c, a.Apple):
+		a.goPage(SkillsScreen)
+	case keyPageAlerts.pressedOn(c, a.Apple):
+		a.goPage(AlertsScreen)
+	case keyPageChat.pressedOn(c, a.Apple):
+		a.goPage(HistoryScreen)
+	case keyPageCompanion.pressedOn(c, a.Apple) && !a.remoteFleet():
+		a.goPage(PhoneScreen)
+	case keyRailToggle.pressedOn(c, a.Apple):
+		a.toggleRail()
+	}
+}
+
 func (a *App) sheet(c *ui.Context, k kit.Colors, p palette) {
 	open, picked := true, false
 	dismissed := kit.NavSheet(c, k, &open, func() {
 		a.nav(c, k, p, true, func(n kit.NavItem) bool {
+			n.Keys = ""
 			if !kit.Nav(c, k, n) {
 				return false
 			}
