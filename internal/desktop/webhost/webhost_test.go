@@ -223,6 +223,8 @@ func TestAViewIsConfinedToTheBoardsOriginBeforeItLoads(t *testing.T) {
 		"default port": {"http://127.0.0.1:80/f0/api/v1/doc/a.html?raw&frame", "127.0.0.1", "http://127.0.0.1"},
 		"no port":      {"http://localhost/f0/api/v1/doc/a.html?raw&frame", "localhost", "http://localhost"},
 		"other port":   {"http://localhost:8080/f0/api/v1/doc/a.html?raw&frame", "localhost", "http://localhost:8080"},
+		"IPv6":         {"http://[::1]:4100/f0/api/v1/doc/a.html?raw&frame", "::1", "http://[::1]:4100"},
+		"IPv6 port 80": {"http://[::1]:80/f0/api/v1/doc/a.html?raw&frame", "::1", "http://[::1]"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := &fakeEngine{}

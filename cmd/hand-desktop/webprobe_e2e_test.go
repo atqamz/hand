@@ -55,6 +55,12 @@ func (l *probeLog) connections(server string) int {
 	return l.conns[server]
 }
 
+func (l *probeLog) touch() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.last = time.Now()
+}
+
 func (l *probeLog) quietFor(d time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -136,7 +142,7 @@ const clickPage = `<!doctype html><html><head><style>
 body{margin:0}
 a{display:block;height:50vh;background:#ccc;font-size:24px;pointer-events:auto!important}
 a:hover{pointer-events:auto!important}
-</style></head><body><a href="%[1]s/clicked">other port</a><a href="%[2]s/clicked" style="pointer-events:auto!important">other host</a></body></html>`
+</style></head><body><a href="%[1]s/clicked">other port</a><a href="%[2]s/clicked" style="pointer-events:auto!important">other host</a><p><a href="%[1]s/plain">plain</a> <a href="%[2]s/plain">plain</a></p></body></html>`
 
 const renderPage = `<!doctype html><html><head><style>
 body{margin:0;background:#fff}
@@ -375,7 +381,7 @@ func TestRealWebViewShowsNoContextMenuOverAnHTMLPage(t *testing.T) {
 	checkNoContextMenu(t, t.TempDir(), g.x+g.w/4, g.y+g.h/4)
 }
 
-func TestRealWebViewOpensNoConnectionWhenThePointerReachesOrClicksALink(t *testing.T) {
+func TestRealWebViewOpensNoConnectionWhenAnOrdinaryLinkIsClickedOrEntered(t *testing.T) {
 	if _, err := exec.LookPath("import"); err != nil {
 		if os.Getenv("CI") != "" {
 			t.Fatal("ImageMagick import is not installed")
@@ -416,16 +422,24 @@ func TestRealWebViewOpensNoConnectionWhenThePointerReachesOrClicksALink(t *testi
 			}
 		}
 	}
-	time.Sleep(3 * time.Second)
+	for i := 0; i < 8; i++ {
+		for _, key := range []string{"Tab", "Return"} {
+			if b, err := exec.Command("xdotool", "key", key).CombinedOutput(); err != nil {
+				t.Fatalf("xdotool key %s: %v\n%s", key, err, b)
+			}
+		}
+	}
+	log.touch()
+	until(t, "the page to go quiet", 30*time.Second, func() bool { return log.quietFor(probeQuiet) })
 	for _, h := range log.all() {
 		t.Logf("%s %s %s", h.server, h.method, h.uri)
 		if h.server != "board" || !strings.HasPrefix(h.uri, "/click") {
-			t.Errorf("a click reached %s: %s %s", h.server, h.method, h.uri)
+			t.Errorf("a click or a key reached %s: %s %s", h.server, h.method, h.uri)
 		}
 	}
 	for _, server := range []string{"other-port", "other-host"} {
 		if n := log.connections(server); n != 0 {
-			t.Errorf("the pointer on a link opened %d connections to %s", n, server)
+			t.Errorf("a click or Tab and Return on a link opened %d connections to %s", n, server)
 		}
 	}
 }

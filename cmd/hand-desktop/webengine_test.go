@@ -112,7 +112,7 @@ func TestTheWebViewIsUntrustedAndInItsOwnEphemeralSession(t *testing.T) {
 	if !strings.Contains(page.PreloadScript, "'print'") || !strings.Contains(page.PreloadScript, "configurable:false") {
 		t.Errorf("the preload script does not pin window.print: %q", page.PreloadScript)
 	}
-	if !strings.Contains(page.PreloadScript, blockLinkHover) {
+	if !strings.Contains(page.PreloadScript, guardLinks) {
 		t.Errorf("the preload script does not cancel link clicks: %q", page.PreloadScript)
 	}
 }
@@ -353,7 +353,7 @@ func TestThePreloadMakesPrintANoOpThatThePageCannotRestore(t *testing.T) {
 	}
 }
 
-const hoverProbe = `
+const linkProbe = `
 const out = [];
 for (const protocol of ["http:", "https:", "webkit-pdfjs-viewer:"]) {
   const styles = [];
@@ -365,18 +365,20 @@ for (const protocol of ["http:", "https:", "webkit-pdfjs-viewer:"]) {
   %s
   const sel = styles[0][0].replace(/\{pointer-events:none!important\}$/, "");
   const link = (matches) => {
-    const props = {};
-    return { nodeType: 1, props, matches: (s) => matches && s === sel, style: {
+    const props = {}, attrs = {};
+    return { nodeType: 1, props, attrs, getAttribute: (n) => n in attrs ? attrs[n] : null, setAttribute: (n, v) => { attrs[n] = v; }, matches: (s) => matches && s === sel, style: {
       getPropertyValue: (n) => props[n] ? props[n][0] : "", getPropertyPriority: (n) => props[n] ? props[n][1] : "",
       setProperty: (n, v, p) => { props[n] = [v, p]; } } };
   };
   const a = link(true), plain = link(false), later = link(true);
   later.style.setProperty("pointer-events", "auto", "important");
+  later.setAttribute("tabindex", "0");
   const nested = link(true);
   const box = { nodeType: 1, matches: () => false, style: plain.style, querySelectorAll: (s) => s === sel ? [nested] : [] };
   obs.fn([{ type: "childList", addedNodes: [a, plain, box, { nodeType: 3 }] }, { type: "attributes", target: later }], obs);
   out.push([protocol, styles.length, styles[0][1], sel, seen[0], seen[1].subtree, seen[1].attributeFilter.join(),
-    a.props["pointer-events"], plain.props["pointer-events"], nested.props["pointer-events"], later.props["pointer-events"]]);
+    a.props["pointer-events"], plain.props["pointer-events"], nested.props["pointer-events"], later.props["pointer-events"],
+    a.attrs.tabindex, plain.attrs.tabindex === undefined, nested.attrs.tabindex, later.attrs.tabindex]);
 }
 globalThis.location = { protocol: "http:" };
 const styles = [];
@@ -392,7 +394,7 @@ out.push(["late", before, styles.length]);
 console.log(JSON.stringify(out));
 `
 
-func TestThePreloadTurnsLinksIntoSurfacesThatTakeNoPointer(t *testing.T) {
+func TestThePreloadTurnsLinksIntoSurfacesThatTakeNoPointerAndNoTabStop(t *testing.T) {
 	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -402,7 +404,7 @@ func TestThePreloadTurnsLinksIntoSurfacesThatTakeNoPointer(t *testing.T) {
 		t.Skip("node is not installed")
 	}
 	cmd := exec.Command(node, "-")
-	cmd.Stdin = strings.NewReader(strings.Replace(strings.Replace(hoverProbe, "%s", blockLinkHover, 1), "%s", blockLinkHover, 1))
+	cmd.Stdin = strings.NewReader(strings.Replace(strings.Replace(linkProbe, "%s", guardLinks, 1), "%s", guardLinks, 1))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, out)
@@ -411,11 +413,11 @@ func TestThePreloadTurnsLinksIntoSurfacesThatTakeNoPointer(t *testing.T) {
 	web := `a[*|href],area[*|href]`
 	pdf := `a[*|href]:not([href^=\"#\"]),area[*|href]:not([href^=\"#\"])`
 	row := func(protocol, sel string) string {
-		return fmt.Sprintf(`["%s",1,"first","%s",true,true,"style,href",%s,null,%s,%s]`, protocol, sel, none, none, none)
+		return fmt.Sprintf(`["%s",1,"first","%s",true,true,"style,href,tabindex",%s,null,%s,%s,"-1",true,"-1","-1"]`, protocol, sel, none, none, none)
 	}
 	want := "[" + row("http:", web) + "," + row("https:", web) + "," + row("webkit-pdfjs-viewer:", pdf) + `,["late",0,1]]`
 	if strings.TrimSpace(string(out)) != want {
-		t.Errorf("hover probe = %s\nwant %s", strings.TrimSpace(string(out)), want)
+		t.Errorf("link probe = %s\nwant %s", strings.TrimSpace(string(out)), want)
 	}
 }
 
