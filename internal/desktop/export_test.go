@@ -155,3 +155,12 @@ type Chord = chord
 func LabelOf(apple bool, chords ...chord) string { return shortcut{Chords: chords}.label(apple) }
 
 func (a *App) OpenBoardLink(dest string) { a.openBoardLink(dest) }
+
+func BoundChords(does string, apple bool) []Chord {
+	for _, s := range shortcuts {
+		if s.Does == does {
+			return s.bound(apple)
+		}
+	}
+	return nil
+}
