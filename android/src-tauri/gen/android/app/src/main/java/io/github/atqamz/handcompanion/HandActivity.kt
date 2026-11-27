@@ -523,19 +523,19 @@ class HandActivity : ComponentActivity() {
             is Landing.Pairing -> {
               open = null
               decision = null
-                threads = ""
+              threads = ""
               scanning = false
               phone = false
-                adding = true
+              adding = true
               pair.offer(to.link)
             }
             Landing.Phone -> {
               open = null
               decision = null
-                threads = ""
+              threads = ""
               scanning = false
               adding = false
-                phone = true
+              phone = true
             }
             is Landing.Decision -> {
               show(to.fleet)

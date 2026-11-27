@@ -315,12 +315,58 @@ class NoWebSourceTest {
     }
   }
 
+  private fun lines(file: File, vararg words: String) =
+    file.readLines().count { line -> words.any { it in line } }
+
   @Test
-  fun aBrowserIntentGoesOnlyThroughTheExternalTargetInTheActivity() {
-    val holders = outsideTheFallback().filter { "ACTION_VIEW" in it.readText() }.map { it.name }
-    assertEquals(listOf("AlertNotice.kt", "HandActivity.kt"), holders)
-    assertTrue(File(SOURCES, "AlertNotice.kt").readText().contains("OPEN_PREFIX = \"handboard://open/\""))
-    assertTrue(File(SOURCES, "HandActivity.kt").readText().contains("is ThreadTarget.Browser ->"))
+  fun aBrowserIntentHasOneCallSiteAndItIsFedByTheExternalTarget() {
+    val views = arrayOf("ACTION_VIEW", "intent.action.VIEW", "\"VIEW\"")
+    val holders = outsideTheFallback().filter { lines(it, *views) > 0 }
+    assertEquals(listOf("AlertNotice.kt", "HandActivity.kt"), holders.map { it.name })
+    val activity = File(SOURCES, "HandActivity.kt")
+    assertEquals(1, lines(activity, *views))
+    val branch = activity.readText().substringAfter("is ThreadTarget.Browser ->").substringBefore("ThreadTarget.None ->")
+    assertTrue(branch, "Intent.ACTION_VIEW, Uri.parse(to.url)" in branch)
+    val notice = File(SOURCES, "AlertNotice.kt")
+    assertEquals(1, lines(notice, *views))
+    assertTrue(notice.readText().contains("OPEN_PREFIX = \"handboard://open/\""))
+    val browser = Regex("""(?<!is )ThreadTarget\.Browser\(""")
+    val builders = outsideTheFallback().filter { browser.containsMatchIn(it.readText()) }
+    assertEquals(listOf("ExternalTarget.kt"), builders.map { it.name })
+  }
+
+  @Test
+  fun aWebViewIsBuiltOnlyForTheDocPreviewAndTheStorageClearer() {
+    val allowed = mapOf("DocHtml.kt" to 1, "AppHost.kt" to 1)
+    val construction = Regex("""\bWebView\(""")
+    for (file in outsideTheFallback()) {
+      assertEquals(file.name, allowed[file.name] ?: 0, construction.findAll(file.readText()).count())
+    }
+    assertTrue(File(SOURCES, "AppHost.kt").readText().substringAfter("fun clearCookies").substringBefore("fun stopService").contains("destroy()"))
+  }
+
+  @Test
+  fun noSourceLoadsAnAddressIntoAWebView() {
+    for (file in outsideTheFallback()) {
+      val text = file.readText()
+      assertFalse("${file.name} loadUrl", "loadUrl(" in text)
+      assertFalse("${file.name} loadData", "loadData(" in text)
+      assertFalse("${file.name} postUrl", "postUrl(" in text)
+      if (file.name != "DocHtml.kt") assertFalse("${file.name} loadDataWithBaseURL", "loadDataWithBaseURL(" in text)
+    }
+  }
+
+  @Test
+  fun noSourceReachesTheFallbackByReflectionOrByName() {
+    val names = listOf("FallbackScreen", "WebBoard", "FallbackKt", "Fallback.kt", "BoardBody", "navigation(", "CookieJar")
+    val words = Regex("""\b(OPEN_FAILED|COOKIE_REFUSED|BOARD_TIMED_OUT|OPEN_MILLIS)\b""")
+    for (file in outsideTheFallback()) {
+      val text = file.readText()
+      assertFalse("${file.name} Class.forName", "Class.forName" in text)
+      assertFalse("${file.name} loadClass", "loadClass(" in text)
+      for (name in names) assertFalse("${file.name} holds $name", name in text)
+      assertFalse("${file.name} holds a fallback constant", words.containsMatchIn(text))
+    }
   }
 
   @Test
