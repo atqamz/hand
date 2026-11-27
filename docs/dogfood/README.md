@@ -134,6 +134,10 @@ RENDER_PLAYWRIGHT=/path/to/node_modules/playwright RENDER_OUT=/tmp/hand-render n
 
 `RENDER_ONLY=busy,menu` limits the scenes, `RENDER_ASSERT=0` prints problems without failing, and `RENDER_REPO` renders another checkout. A new scene is a fleet in `scenes()` and a row in the list at the top of `check.mjs`.
 
+## What the tests check on the Desktop window's layout
+
+The `TestLayout*` tests in `internal/desktop/layout_scenes_test.go` run the checks of `.github/render/check.mjs` that apply to a native window over the same fixture states, at 1440x900, 1024x768 and 860x720, light and dark: every scene loads and draws text; no control leaves the window or its pane; no control is collapsed; no two texts overprint; text keeps its contrast, measured from the drawn pixels with a floor of 3.0 because thin strokes read lower than their colour (the exact 4.5 pair check stays in `kit/contrast_test.go`); no rule is drawn twice; nested tasks indent; menus and sheets stay inside the window; and the conversation's day dividers follow the local zone. The helpers sit in `internal/desktop/layout_test.go` and read the tester's laid-out text and hit boxes. The 390 px phone width, the strict CSP, console errors, the HTTP status, the read-only network and the `RENDER_BREAK` self-test have no Desktop counterpart.
+
 ## If a command in the guide is wrong
 
 Commands that nobody could run on that OS are marked `unverified`. If a command fails for a reason that is not Hand, file it as a failed check with the title `<ID>: guide command fails`.
