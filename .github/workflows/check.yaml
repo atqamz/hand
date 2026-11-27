@@ -647,11 +647,11 @@ jobs:
       - name: Reserve the Windows exception stack (golang/go#81238)
         if: runner.os == 'Windows'
         run: sh .github/scripts/windows-stack-reserve.sh
-      - name: Install GTK, a virtual display and Mesa
+      - name: Install GTK, WebKitGTK, a virtual display and Mesa
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-3-0 xvfb xauth libgl1-mesa-dri libglx-mesa0 libegl-mesa0 x11-utils xdotool dbus
+          sudo apt-get install -y --no-install-recommends libgtk-3-0 xvfb xauth libgl1-mesa-dri libglx-mesa0 libegl-mesa0 x11-utils xdotool dbus libwebkit2gtk-4.1-0 imagemagick
       - name: Set the output folder
         run: echo "HAND_WINDOW_OUT=$RUNNER_TEMP/hand-window" >> "$GITHUB_ENV"
       - name: Open the window, read its elements, capture it and quit
@@ -669,6 +669,17 @@ jobs:
           set -eu
           xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowAttention$' -count=1 -v
           test -s "$HAND_WINDOW_OUT/attention/window.png"
+      - name: Open a PDF in the web view and check that it is drawn across it
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowPDF$' -count=1 -v
+          test -s "$HAND_WINDOW_OUT/pdf/window.png"
+      - name: Load a hostile HTML page in the web view and check that it sends no request outside the Board's origin and that a click or Tab and Return on an ordinary link opens no connection
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWebView' -count=1 -v
       - name: Make a fleet from the New fleet form with real hand init and board start, then stop the Board
         run: |
           set -eu

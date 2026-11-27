@@ -42,11 +42,13 @@ enum class Opens {
   Choice,
   Row,
   Report,
-  Web
+  Unshown
 }
 
 data class Entry(val need: Need, val opens: Opens) {
   val key = "${need.kind}:${need.ref}"
+
+  fun unshown() = "the ${need.word.lowercase()} item" + need.ref?.takeIf(String::isNotEmpty)?.let { " $it" }.orEmpty()
 }
 
 data class NeedsBand(val title: String, val tone: Tone, val entries: List<Entry>)
@@ -89,10 +91,10 @@ private fun opens(need: Need) =
   when (need.kind) {
     "report" -> Opens.Report
     "blocked" -> Opens.Card
-    "worker" -> if (need.keys != null) Opens.Card else Opens.Web
+    "worker" -> if (need.keys != null) Opens.Card else Opens.Unshown
     "decision" -> Opens.Choice
     "failure" -> Opens.Row
-    else -> Opens.Web
+    else -> Opens.Unshown
   }
 
 fun bands(items: List<Need>): List<NeedsBand> {
@@ -193,8 +195,7 @@ enum class Body {
   Unpaired,
   Needs,
   Tasks,
-  Chat,
-  Placeholder
+  Chat
 }
 
 fun body(state: FleetState) =
@@ -204,7 +205,7 @@ fun body(state: FleetState) =
     state.tab == Tab.Needs -> Body.Needs
     state.tab == Tab.Tasks -> Body.Tasks
     state.tab == Tab.Chat -> Body.Chat
-    else -> Body.Placeholder
+    else -> Body.Loading
   }
 
 fun FleetState.openKey(): String? {

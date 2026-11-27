@@ -5,7 +5,7 @@ description: Use when changing the Hand Desktop window (internal/desktop, intern
 
 # Hand Desktop
 
-Desktop is a native MyGo window (package `ui`, no webview) and a client of the running Board. Read the Desktop bullet of `AGENTS.md` first: what it reads, writes and never imports. Docs: `docs/platforms.md` (support), `docs/install.md`, `docs/update.md`, `docs/companion.md` (`handboard://open/` grammar), `docs/vocabulary.md` (terms), `docs/images/desktop/` (one screenshot per scene).
+Desktop is a native MyGo window (package `ui`; the system web view only through the `App.OpenWeb` hook and `internal/desktop/webhost`) and a client of the running Board. Read the Desktop bullet of `AGENTS.md` first: what it reads, writes and never imports. Docs: `docs/platforms.md` (support), `docs/install.md`, `docs/update.md`, `docs/companion.md` (`handboard://open/` grammar), `docs/vocabulary.md` (terms), `docs/images/desktop/` (one screenshot per scene).
 
 ## MyGo pin
 

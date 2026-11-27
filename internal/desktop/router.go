@@ -107,6 +107,7 @@ func remoteClient(h remote.Host, store RemoteStore, clients RemoteClients, hc *h
 		fleets[i] = Fleet{ID: f.ID, Name: f.Name, Host: h.ID}
 	}
 	return &HTTPClient{
+		Host:   h.ID,
 		Paired: true,
 		Known:  fleets,
 		HTTP:   hc,
@@ -305,6 +306,16 @@ func (r *Router) DocWindow(ctx context.Context, fleet, path string, from int) (D
 
 func (r *Router) DocBytes(ctx context.Context, fleet, path string) ([]byte, error) {
 	return route(r, fleet, func(m ReadModel) ([]byte, error) { return m.DocBytes(ctx, fleet, path) })
+}
+
+func (r *Router) DocFrame(ctx context.Context, fleet, path string) (DocFrame, error) {
+	return route(r, fleet, func(m ReadModel) (DocFrame, error) {
+		f, ok := m.(DocFramer)
+		if !ok {
+			return DocFrame{}, errors.New("this host cannot give a web view a file")
+		}
+		return f.DocFrame(ctx, fleet, path)
+	})
 }
 
 func (r *Router) DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error) {

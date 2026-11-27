@@ -36,8 +36,10 @@ import androidx.compose.ui.unit.dp
 
 internal val TABS_HEIGHT = 80.dp
 
+internal fun fleetMenu(onAlerts: () -> Unit, onSkills: () -> Unit) = listOf("Alerts" to onAlerts, "Skills" to onSkills)
+
 @Composable
-private fun TopBar(id: String, state: FleetState, onBack: () -> Unit, onWeb: () -> Unit, onSkills: () -> Unit, onAlerts: () -> Unit) {
+private fun TopBar(id: String, state: FleetState, onBack: () -> Unit, onSkills: () -> Unit, onAlerts: () -> Unit) {
   val hand = LocalHand.current
   val mark = hand.tints[tint(id)]
   Box(Modifier.fillMaxWidth().height(3.dp).background(mark))
@@ -56,7 +58,7 @@ private fun TopBar(id: String, state: FleetState, onBack: () -> Unit, onWeb: () 
       style = type.headlineSmall
     )
     state.pill?.let { Chip(it.text, it.tone, 24, glyph(it.tone)) }
-    Menu(listOf("Alerts" to onAlerts, "Skills" to onSkills, "Open web Board" to onWeb))
+    Menu(fleetMenu(onAlerts, onSkills))
   }
   HorizontalDivider(color = hand.line)
 }
@@ -133,19 +135,6 @@ internal fun Loading() {
 }
 
 @Composable
-private fun Placeholder(tab: Tab, onWeb: () -> Unit) {
-  Column(
-    Modifier.fillMaxSize().padding(32.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-    horizontalAlignment = Alignment.CenterHorizontally
-  ) {
-    Text(tab.name, style = type.headlineSmall)
-    Meta("Not built here yet. The web Board has it.")
-    Action("Open web Board", onWeb)
-  }
-}
-
-@Composable
 fun FleetScreen(
   id: String,
   state: FleetState,
@@ -154,7 +143,7 @@ fun FleetScreen(
   onTab: (Tab) -> Unit,
   onToggle: (String) -> Unit,
   onReport: (String) -> Unit,
-  onWeb: () -> Unit,
+  onNotice: (String) -> Unit,
   onTask: (String) -> Unit,
   onShowAll: () -> Unit,
   onPress: (String, List<String>) -> Unit,
@@ -167,7 +156,7 @@ fun FleetScreen(
   choice: @Composable (String) -> Unit
 ) {
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-    TopBar(id, state, onBack, onWeb, onSkills, onAlerts)
+    TopBar(id, state, onBack, onSkills, onAlerts)
     state.band?.let { BandView(it, onRetry) }
     Box(Modifier.weight(1f)) {
       when (body(state)) {
@@ -177,10 +166,9 @@ fun FleetScreen(
             Meta("Pair this Companion again on the host's Board.")
           }
         Body.Loading -> Loading()
-        Body.Needs -> NeedsScreen(state, onToggle, onReport, onWeb, onPress, onForce, onAttempt, choice)
+        Body.Needs -> NeedsScreen(state, onToggle, onReport, onNotice, onPress, onForce, onAttempt, choice)
         Body.Tasks -> TasksScreen(state, onTask, onShowAll, onRetry, search)
         Body.Chat -> chat()
-        Body.Placeholder -> Placeholder(state.tab ?: Tab.Chat, onWeb)
       }
     }
     state.notice?.let {

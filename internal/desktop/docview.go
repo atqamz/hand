@@ -85,12 +85,19 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 		w, h := c.Size()
 		bw, bh := kit.ViewerBox(w, h)
 		kit.DocPicture(c, k, a.doc.image, bw-2*kit.Space20, max(bh-300, 120), shownText(d.Name))
+	case "audio":
+		a.docAudio(c, k, p)
+	case "pdf":
+		a.docWeb(c, k, p)
 	case "html":
-		if a.DocSource {
+		if n := a.htmlNotice(); n != "" && !a.DocSource {
+			a.docRow(c, k, n, false)
+		}
+		if a.htmlAsSource() {
 			a.docText(c, k, p, d)
 			return
 		}
-		a.docRow(c, k, a.doc.row, false)
+		a.docWeb(c, k, p)
 	default:
 		a.docRow(c, k, a.doc.row, false)
 	}

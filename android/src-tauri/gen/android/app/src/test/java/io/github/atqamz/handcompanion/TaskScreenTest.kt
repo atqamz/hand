@@ -123,7 +123,7 @@ class TaskScreenTest {
   private fun shot(dark: Boolean, shown: TaskState) =
     paparazzi.snapshot {
       HandTheme(dark) {
-        TaskScreen(FLEET, "t40", shown, {}, {}, {}, {}, {})
+        TaskScreen(FLEET, "t40", shown, {}, {}, {}, {})
       }
     }
 

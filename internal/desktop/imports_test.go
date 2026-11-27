@@ -16,12 +16,15 @@ func TestNoBoardOwnerImports(t *testing.T) {
 		"github.com/atqamz/hand/internal/board",
 		"github.com/atqamz/hand/internal/state",
 	}
+	const rootMyGo = "github.com/egoist/mygo"
 	fset := token.NewFileSet()
+	seen := map[string]bool{}
 	for _, root := range []string{".", filepath.Join("..", "..", "cmd", "hand-desktop")} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 				return err
 			}
+			seen[filepath.ToSlash(filepath.Dir(path))] = true
 			f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
 			if err != nil {
 				return err
@@ -30,6 +33,9 @@ func TestNoBoardOwnerImports(t *testing.T) {
 				p, err := strconv.Unquote(spec.Path.Value)
 				if err != nil {
 					return err
+				}
+				if root == "." && p == rootMyGo {
+					t.Errorf("%s imports the root mygo package, which only cmd/hand-desktop may", filepath.ToSlash(path))
 				}
 				for _, bad := range forbidden {
 					if p == bad || strings.HasPrefix(p, bad+"/") {
@@ -41,6 +47,11 @@ func TestNoBoardOwnerImports(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{".", "kit", "remote", "webhost", "../../cmd/hand-desktop"} {
+		if !seen[dir] {
+			t.Errorf("the import check read no Go file in %s", dir)
 		}
 	}
 }
