@@ -90,6 +90,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code, the Desktop Companion page, `hand companion code` |
 | `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app, the Desktop Companion page |
 | `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere, the Desktop Companion page |
+| `POST /api/v1/session/revoke` | `{"accepted": true}`; no body in the request; a paired Companion ends its own pairing in this fleet; see [Signing a Companion out](#signing-a-companion-out) | the Hand app's Sign out, in a later app release |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
@@ -532,7 +533,7 @@ The Board's Companion page (`/<fleet id>/connect`) is one fleet's page that read
 
 `revoked` holds the fleets where a record was removed; a fleet that held none is in neither list. `failed` holds the fleets the revoke could not reach, whose record of the Companion, if it has one, is still active: `reason` is `the fleet did not answer`, in fixed words, never the error's own text or a path. The answer is `200` when some or all failed, so a client reads `revoke.failed`; `warn` then carries the page's sentence ("Revoked in hand. web could not be reached: … Press Revoke everywhere again when it is back."), and `receipt` is absent. Press Revoke everywhere again for the same Companion when the fleet is back: the call repeats safely, and a Companion already revoked is an empty report. Revoking an `id` that is not there is an empty report too, as on the page.
 
-A paired Companion is refused on all four paths: it manages no Companions, and the page lets it sign out only itself. The board reads what an answer needs before it acts, so every refusal below leaves everything as it was, and none mints a code or revokes a device. The answer to an action is built from that read, with the revoked records removed, not read again: a Companion that pairs or is seen in this fleet between the read and the answer is missing from that one answer, and the next read has it.
+A paired Companion is refused on all four `/phone` paths: it manages no Companions. It ends only its own pairing, through [`POST /api/v1/session/revoke`](#signing-a-companion-out). The board reads what an answer needs before it acts, so every refusal below leaves everything as it was, and none mints a code or revokes a device. The answer to an action is built from that read, with the revoked records removed, not read again: a Companion that pairs or is seen in this fleet between the read and the answer is missing from that one answer, and the next read has it.
 
 - `400 bad_request`: a body that is not one JSON object as above; for `code`, a `base` that is not `scheme://host` (no path, login, query or fragment); for `revoke`, a body without exactly one of `phone` (16 lowercase hex characters) and `id` (positive), or with `fleet` and no `phone`.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
@@ -543,6 +544,21 @@ A paired Companion is refused on all four paths: it manages no Companions, and t
 The code and the link are credentials: a Companion that holds either becomes a paired device of this fleet. They are returned only by these endpoints, to the host's session behind the same cookie, CSRF and loopback rules as every action, in `code.code`, `code.link` and `app.link` and nowhere else: not in `receipt`, `warn`, an error, the event stream, another endpoint, a page other than the one that showed it, the database or a log. A client keeps them in memory, never logs or stores them, and stops showing them at `expires_at`. The `cursor` of `phone` fingerprints a keyed digest of the code, not the code, so it is safe to log.
 
 Poll `GET /api/v1/phone` every 2 seconds while a code or link shows, so the page learns when the Companion paired (the code leaves, the device arrives) or the time passed, sending the cursor it last read: an unchanged answer is `304`. Without a code on screen it reads once when the page opens and after each action, which already answers the fresh data.
+
+### Signing a Companion out
+
+`POST /api/v1/session/revoke` takes no body and ends the session that sent it, in this fleet, and nothing else: the one `device` row of the calling Companion goes, through the same revoke as the Companion page's, so the timeline gets the usual `board.revoked` event. It names no id and no label, so a Companion cannot name another one, and it reaches no other fleet: a Companion paired with several fleets of a host signs out of each with that fleet's own cookie, one call per fleet. The fleet's other Companions and this Companion's records in other fleets stay. It is not under `/phone`, which a paired Companion is refused.
+
+It needs the Companion's own `hand_phone_<fleet id>` cookie and its `X-Hand-CSRF`, read from `GET /api/v1/session`, on the peer listener as every Companion call. The answer is `200` with `{"accepted": true}`, because there is no record left to read back, and sets no cookie: the client drops its own. The host session is refused: the board token is not revocable (change `board.token`), and the host revokes a Companion on the Companion page, through `/phone/revoke`. The call closes no iroh connection, since one connection carries all of a host's fleets that the Companion holds; the Companion's next request on it, with the cookie gone, is refused as below.
+
+- `401 unauthorized`: no cookie, or none this fleet knows. Over the peer listener a cookie of this fleet that no longer exists answers `403` with `X-Hand-Error: no longer paired` instead, and `401` only when another fleet's live cookie in the same request proves the peer. A client treats both as signed out here already.
+- `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
+- `403 forbidden`: the host session; a network board or a proxied request; a request on the peer listener from a Companion that did not pair with its own key. A Companion past its 90 days, or one whose key was replaced, cannot authenticate and so cannot sign out: the first gets the `403` with `X-Hand-Error` above (its row waits for the host to revoke it), the second a plain `403`.
+- `404 not_found`: `GET`; the path has no read.
+- `405 method_not_allowed`: any other method but `POST`, with `Allow: POST`. A host that predates this path answers `405` or `404` to the call, which a client reads as "too old".
+- `500 internal`: the record could not be deleted, and it is still there.
+
+The call is idempotent: a record that is already gone is success, so two racing calls leave one event, and the later one may answer `401`.
 
 ### The fleet list and the features
 

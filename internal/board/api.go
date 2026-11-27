@@ -76,6 +76,7 @@ var apiRoutes = []apiRoute{
 	{http.MethodPost, "/phone/code", func(b *Board) http.HandlerFunc { return b.apiPhoneCodeNew }},
 	{http.MethodPost, "/phone/app", func(b *Board) http.HandlerFunc { return b.apiPhoneApp }},
 	{http.MethodPost, "/phone/revoke", func(b *Board) http.HandlerFunc { return b.apiPhoneRevoke }},
+	{http.MethodPost, "/session/revoke", func(b *Board) http.HandlerFunc { return b.apiSessionRevoke }},
 	{http.MethodPost, "/message", func(b *Board) http.HandlerFunc { return b.apiMessage }},
 	{http.MethodPost, "/supervisor/start", func(b *Board) http.HandlerFunc { return b.apiStart }},
 	{http.MethodPost, "/supervisor/resume", func(b *Board) http.HandlerFunc {
