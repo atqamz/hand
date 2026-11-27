@@ -1234,7 +1234,7 @@ func TestEmptyStates(t *testing.T) {
 func TestErrorState(t *testing.T) {
 	app := newApp(t, errorFixture())
 	tt := newTester(app)
-	mustText(t, tt, "The Board refused this window.", "hand board stop")
+	mustText(t, tt, "The Board refused this window.", "The Board answers, but it did not accept this fleet's token. In a terminal run hand board stop, then hand board start, then try again.")
 	mustNotText(t, tt, "Back")
 	click(t, tt, "Try again")
 	mustText(t, tt, "The Board refused this window.")

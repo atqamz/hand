@@ -216,8 +216,8 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 			})
 	case a.auth:
 		card("Board", p.fail, "refused", "The Board refused this window.",
-			"The Board answers, but it did not accept this fleet's token. Stop the Board in a terminal, start it again, then try again. The first command stops it:",
-			"hand board stop", "The fleet and its workers keep running without this window.",
+			"The Board answers, but it did not accept this fleet's token. In a terminal run hand board stop, then hand board start, then try again.",
+			"", "The fleet and its workers keep running without this window.",
 			nil, func() {
 				if button(c, k, "start:retry", "Try again", true) {
 					a.Refresh()

@@ -427,7 +427,7 @@ If it fails: file what the owner saw, and what `hand attach supervisor` printed 
 - **Proves:** the `hand open` starts the board and opens the window row.
 - **Run:** needs human.
 - **Real sessions:** 0.
-- **Preconditions:** `M0` passed. No board of this home runs: stop one that you started, with `kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid)`. Nothing listens on port 7777: `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing. Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
+- **Preconditions:** `M0` passed. No board of this home runs: stop one that you started, with `kill $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1)`. Nothing listens on port 7777: `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing. Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
 
 Steps:
 
@@ -507,7 +507,7 @@ SECONDHAND_HOME=$H2 $D/old/hand version
 cat $D/fleet2/watch.pid $H2/board.pid
 sleep 5
 SECONDHAND_HOME=$H2 $D/old/hand orient | grep '^watch:'
-lsof -t -nP -iTCP:$(cut -d: -f2 $H2/board.addr) -sTCP:LISTEN | grep -qx $(cut -d' ' -f1 $H2/board.pid) && echo board-answers
+lsof -t -nP -iTCP:$(cut -d: -f2 $H2/board.addr) -sTCP:LISTEN | grep -qx $(head -n1 $H2/board.pid | cut -d' ' -f1) && echo board-answers
 ```
 
 **3.** Ask the owner: *During the update, did macOS show any dialog or notification about `hand`, such as "cannot be opened" or "malware"?* (yes or no, and its text).
@@ -542,7 +542,7 @@ test ! -e ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist && echo free
 ```zsh
 . $D/env.sh; cd $D/fleet
 PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
-kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) 2>/dev/null
+kill $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) 2>/dev/null
 TOOLS=$(dirname $(command -v claude)):$(dirname $(command -v git))
 cat > $PLIST <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -576,7 +576,7 @@ launchctl load $PLIST
 sleep 10
 launchctl list | grep dev.secondhand.dogfood
 hand board start > /dev/null && echo board-answers
-ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='
+ps eww -p $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) | tr ' ' '\n' | grep '^PATH='
 ```
 
 **3.** The board must keep the watcher alive. Kill the watcher, and wait up to 60 seconds:
@@ -601,7 +601,7 @@ EOF
 
 ```zsh
 . $D/env.sh
-echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; lsof -t -nP -iTCP:\$(cut -d: -f2 \$SECONDHAND_HOME/board.addr) -sTCP:LISTEN | grep -qx \$(cut -d' ' -f1 \$SECONDHAND_HOME/board.pid) && echo board-answers"
+echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; lsof -t -nP -iTCP:\$(cut -d: -f2 \$SECONDHAND_HOME/board.addr) -sTCP:LISTEN | grep -qx \$(head -n1 \$SECONDHAND_HOME/board.pid | cut -d' ' -f1) && echo board-answers"
 ```
 
 Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run that line. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
@@ -614,7 +614,7 @@ Expected:
 - after login, the board runs again, and the board's watcher resumed the supervisor (`supervisor: s... claude haiku low running`, perhaps `(resumes s...)`), which proves that the board's `PATH` finds `claude`;
 - the answer is yes.
 
-Evidence: `{ launchctl list | grep dev.secondhand.dogfood; hand orient | sed -n 1,5p; ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='; } 2>&1 | ev M11`, and the owner's answer.
+Evidence: `{ launchctl list | grep dev.secondhand.dogfood; hand orient | sed -n 1,5p; ps eww -p $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) | tr ' ' '\n' | grep '^PATH='; } 2>&1 | ev M11`, and the owner's answer.
 
 If it fails: file the output above and `tail -20 $SECONDHAND_HOME/board.log`.
 

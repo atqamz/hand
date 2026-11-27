@@ -150,7 +150,7 @@ func TestTheWindowStartsNothingWhenTheBoardRefusesTheToken(t *testing.T) {
 	tt := newTester(app)
 	app.StartRefresh()
 	tt.Frame()
-	mustText(t, tt, "The Board refused this window.", "hand board stop")
+	mustText(t, tt, "The Board refused this window.", "The Board answers, but it did not accept this fleet's token. In a terminal run hand board stop, then hand board start, then try again.")
 	if spy.count() != 0 {
 		t.Fatalf("starts = %d, want 0", spy.count())
 	}
@@ -554,7 +554,7 @@ func TestScenesBoardRefused(t *testing.T) {
 			app := startApp(t, func() (desktop.ReadModel, error) { return errorFixture(), nil }, (&startSpy{}).run)
 			app.Post = func(func()) {}
 			tt := darkTester(app, dark)
-			mustText(t, tt, "The Board refused this window.", "hand board stop", "Try again")
+			mustText(t, tt, "The Board refused this window.", "The Board answers, but it did not accept this fleet's token. In a terminal run hand board stop, then hand board start, then try again.", "Try again")
 			shot(t, tt, "board-refused-"+theme)
 		})
 	}
