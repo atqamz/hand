@@ -21,6 +21,7 @@ const (
 	probeToken  = "PROBETOKEN"
 	probeCookie = "hand_board_f0"
 	probeQuiet  = 2 * time.Second
+	clickQuiet  = 5 * time.Second
 )
 
 type probeHit struct{ server, method, uri, cookie string }
@@ -430,7 +431,7 @@ func TestRealWebViewOpensNoConnectionWhenAnOrdinaryLinkIsClickedOrEntered(t *tes
 		}
 	}
 	log.touch()
-	until(t, "the page to go quiet", 30*time.Second, func() bool { return log.quietFor(probeQuiet) })
+	until(t, "the page to go quiet", 30*time.Second, func() bool { return log.quietFor(clickQuiet) })
 	for _, h := range log.all() {
 		t.Logf("%s %s %s", h.server, h.method, h.uri)
 		if h.server != "board" || !strings.HasPrefix(h.uri, "/click") {
