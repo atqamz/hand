@@ -19,7 +19,7 @@ func TestTheWindowsThemeFontIsNotoSans(t *testing.T) {
 }
 
 func TestEveryDrawnStampIsSetInMono(t *testing.T) {
-	drawn := regexp.MustCompile(`ui\.Text\(c, (stamp|taskClock)\(`)
+	drawn := regexp.MustCompile(`ui\.Text\(c, (stamp|taskClock|clock)\(`)
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
