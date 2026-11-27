@@ -85,8 +85,6 @@ fun noticeHost(info: PhoneInfo?, fleet: String): String? =
 
 fun signOutSeconds(paired: Long) = paired + SIGN_OUT_DAYS * DAY_SECONDS
 
-fun signOutPath(fleet: String) = "/$fleet/connect"
-
 private fun day(seconds: Long) =
   SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(seconds * 1000))
 
