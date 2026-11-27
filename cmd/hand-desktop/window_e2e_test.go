@@ -586,17 +586,50 @@ func checkMadeFleet(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, fo
 	}
 }
 
-const tinyPDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+const tinyPDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R/OpenAction<</S/Named/N/Print>>>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
 	"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n" +
 	"4 0 obj<</Length 44>>stream\nBT /F1 36 Tf 30 90 Td (PDF CHECK) Tj ET\nendstream\nendobj\n" +
 	"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n"
 
 const pdfDarkMin = 8000
 
+func needPixels(t *testing.T) bool {
+	t.Helper()
+	_, errImport := exec.LookPath("import")
+	_, errXdo := exec.LookPath("xdotool")
+	if errImport == nil && errXdo == nil && os.Getenv("DISPLAY") != "" {
+		return true
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatalf("CI needs ImageMagick import, xdotool and an X display to check the PDF: import %v, xdotool %v, DISPLAY %q", errImport, errXdo, os.Getenv("DISPLAY"))
+	}
+	t.Log("no ImageMagick import, xdotool or X display: the PDF's pixels are not checked")
+	return false
+}
+
+func printDialogs() []string {
+	b, _ := exec.Command("xdotool", "search", "--name", "^Print").Output()
+	return strings.Fields(string(b))
+}
+
+func failOnPrintDialog(t *testing.T, outDir string) {
+	t.Helper()
+	if w := printDialogs(); len(w) > 0 {
+		_ = exec.Command("import", "-window", "root", filepath.Join(outDir, "print-dialog.png")).Run()
+		t.Fatalf("a print dialog opened over the PDF (X windows %v); see print-dialog.png", w)
+	}
+}
+
+func checkNoPrintDialog(t *testing.T, outDir string) {
+	t.Helper()
+	for deadline := time.Now().Add(4 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		failOnPrintDialog(t, outDir)
+	}
+}
+
 func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 	t.Helper()
-	if _, err := exec.LookPath("import"); err != nil || os.Getenv("DISPLAY") == "" {
-		t.Log("no ImageMagick import or no X display: the PDF's pixels are not checked")
+	if !needPixels(t) {
 		return
 	}
 	var view *node
@@ -625,8 +658,8 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 	}
 	shot := filepath.Join(outDir, "screen.png")
 	best := 0
-	for i := 0; i < 30 && best < pdfDarkMin; i++ {
-		time.Sleep(500 * time.Millisecond)
+	for deadline := time.Now().Add(30 * time.Second); best < pdfDarkMin && time.Now().Before(deadline); {
+		failOnPrintDialog(t, outDir)
 		if b, err := exec.Command("import", "-window", "root", shot).CombinedOutput(); err != nil {
 			t.Fatalf("import: %v\n%s", err, b)
 		}
@@ -655,4 +688,5 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 	if best < pdfDarkMin {
 		t.Fatalf("the PDF is not drawn across the web view: %d dark pixels, want at least %d", best, pdfDarkMin)
 	}
+	checkNoPrintDialog(t, outDir)
 }

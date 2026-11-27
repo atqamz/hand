@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -38,14 +39,24 @@ type fakeAudio struct {
 	mu      sync.Mutex
 	players []*fakePlayer
 	err     error
+	panics  bool
 	dur     time.Duration
 	sizes   []int
+	entered chan struct{}
+	gate    chan struct{}
 }
 
 func (a *fakeAudio) open(b []byte) (desktop.AudioPlayer, error) {
+	if a.entered != nil {
+		a.entered <- struct{}{}
+		<-a.gate
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sizes = append(a.sizes, len(b))
+	if a.panics {
+		panic("index out of range")
+	}
 	if a.err != nil {
 		return nil, a.err
 	}
@@ -261,51 +272,63 @@ func TestTheAudioSizeCapIsExact(t *testing.T) {
 	}
 }
 
-func TestAnAudioAnswerThatArrivesAfterLeavingIsIgnoredAndReleased(t *testing.T) {
-	fa := &fakeAudio{dur: time.Minute}
+func gatedAudio(t *testing.T) (*fakeAudio, *desktop.App, chan func()) {
+	t.Helper()
+	fa := &fakeAudio{dur: time.Minute, entered: make(chan struct{}, 1), gate: make(chan struct{})}
 	app := audioApp(t, kindsFixture(t), fa)
 	posted := make(chan func(), 16)
 	app.Post = func(fn func()) { posted <- fn }
+	return fa, app, posted
+}
+
+func waitAudioRead(t *testing.T, fa *fakeAudio) {
+	t.Helper()
+	select {
+	case <-fa.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the window never started reading the file")
+	}
+}
+
+func runPostedUntil(t *testing.T, posted chan func(), done func() bool, what string) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for !done() {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-deadline:
+			t.Fatal(what)
+		}
+	}
+}
+
+func TestAnAudioAnswerThatArrivesAfterLeavingIsIgnoredAndReleased(t *testing.T) {
+	fa, app, posted := gatedAudio(t)
 	app.OpenDoc(voicePath)
-	deadline := time.After(5 * time.Second)
-	for fa.opens() == 0 {
-		select {
-		case fn := <-posted:
-			if fa.opens() > 0 {
-				posted <- fn
-			}
-		case <-deadline:
-			t.Fatal("the window never read the file")
-		case <-time.After(time.Millisecond):
-		}
-	}
+	waitAudioRead(t, fa)
 	app.CloseViewer()
-	var held []func()
-	for len(held) == 0 {
-		select {
-		case fn := <-posted:
-			held = append(held, fn)
-		case <-deadline:
-			t.Fatal("the answer never arrived")
-		}
-	}
-drain:
-	for {
-		select {
-		case fn := <-posted:
-			held = append(held, fn)
-		case <-time.After(20 * time.Millisecond):
-			break drain
-		}
-	}
-	for _, fn := range held {
-		fn()
-	}
+	close(fa.gate)
+	runPostedUntil(t, posted, func() bool { return len(fa.made()) == 1 && fa.made()[0].closes() > 0 }, "the late player was never released")
 	tt := sized(t, app, windowWidth, windowHeight, false)
 	mustNotText(t, tt, "Play")
-	p := fa.made()[0]
-	if p.closes() != 1 {
-		t.Fatalf("the late player was closed %d times, want 1", p.closes())
+	if c := fa.made()[0].closes(); c != 1 {
+		t.Fatalf("the late player was closed %d times, want 1", c)
+	}
+}
+
+func TestAnAudioAnswerThatArrivesAfterTheWindowClosedIsReleasedNotAdopted(t *testing.T) {
+	fa, app, posted := gatedAudio(t)
+	app.OpenDoc(voicePath)
+	waitAudioRead(t, fa)
+	app.Close()
+	close(fa.gate)
+	runPostedUntil(t, posted, func() bool { return len(fa.made()) == 1 && fa.made()[0].closes() > 0 }, "the player read after Close was never released")
+	if c := fa.made()[0].closes(); c != 1 {
+		t.Fatalf("the player read after Close was closed %d times, want 1", c)
+	}
+	if fa.made()[0].plays != 0 {
+		t.Fatal("the player read after Close was played")
 	}
 }
 
@@ -348,4 +371,53 @@ func TestTheAudioSliderSeeksThePlayer(t *testing.T) {
 	if got < 80*time.Second || got > 120*time.Second {
 		t.Fatalf("seek = %v, want about the middle of 3:20", got)
 	}
+}
+
+func TestAnOpenerThatPanicsGetsTheNoticeAndNoPlayer(t *testing.T) {
+	both(t, func(t *testing.T, dark bool) {
+		fa := &fakeAudio{panics: true}
+		app := audioApp(t, kindsFixture(t), fa)
+		app.OpenDoc(voicePath)
+		tt := sized(t, app, windowWidth, windowHeight, dark)
+		mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere.", "Download")
+		mustNotText(t, tt, "Play")
+		if len(fa.made()) != 0 {
+			t.Fatal("a player was made by a panicking opener")
+		}
+	})
+}
+
+func TestMalformedOggVorbisFilesGetTheNoticeAndNeverAPlayer(t *testing.T) {
+	for _, name := range []string{"ogg-header-panic.ogg", "ogg-decode-panic.ogg"} {
+		t.Run(name, func(t *testing.T) {
+			b, err := os.ReadFile("testdata/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := kindsFixture(t)
+			f.docBytes[voicePath] = b
+			app := newApp(t, f)
+			app.SaveAs = func(string) string { return "" }
+			app.OpenDoc(voicePath)
+			tt := sized(t, app, windowWidth, windowHeight, false)
+			mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere.", "Download")
+			mustNotText(t, tt, "Play")
+		})
+	}
+}
+
+func TestAWellFormedOggVorbisFileGetsAPlayer(t *testing.T) {
+	b, err := os.ReadFile("testdata/tone.ogg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := kindsFixture(t)
+	f.docBytes[voicePath] = b
+	app := newApp(t, f)
+	app.SaveAs = func(string) string { return "" }
+	app.OpenDoc(voicePath)
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	mustText(t, tt, "Play")
+	mustNotText(t, tt, "cannot be played")
+	app.Close()
 }

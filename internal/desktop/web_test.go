@@ -20,9 +20,16 @@ type framedModel struct {
 	fmu    sync.Mutex
 	err    error
 	frames int
+
+	entered chan struct{}
+	gate    chan struct{}
 }
 
 func (m *framedModel) DocFrame(ctx context.Context, fleet, path string) (desktop.DocFrame, error) {
+	if m.entered != nil {
+		m.entered <- struct{}{}
+		<-m.gate
+	}
 	m.fmu.Lock()
 	defer m.fmu.Unlock()
 	m.frames++
@@ -188,30 +195,57 @@ func TestAFrameErrorClearsWhenRetrySucceeds(t *testing.T) {
 	}
 }
 
-func TestAWebAnswerThatArrivesAfterLeavingOpensNoView(t *testing.T) {
+func gatedWeb(t *testing.T) (*framedModel, *fakeWeb, *desktop.App, chan func()) {
+	t.Helper()
+	m := &framedModel{fixture: kindsFixture(t), entered: make(chan struct{}, 1), gate: make(chan struct{})}
 	w := &fakeWeb{}
-	app := webApp(t, &framedModel{fixture: kindsFixture(t)}, w)
+	app := webApp(t, m, w)
 	posted := make(chan func(), 16)
 	app.Post = func(fn func()) { posted <- fn }
-	app.OpenDoc(planPath)
-	app.CloseViewer()
-	deadline := time.After(2 * time.Second)
-	var ran int
-	for {
-		select {
-		case fn := <-posted:
-			fn()
-			ran++
-			continue
-		case <-time.After(150 * time.Millisecond):
-		case <-deadline:
-		}
-		break
+	return m, w, app, posted
+}
+
+func waitFrame(t *testing.T, m *framedModel) {
+	t.Helper()
+	select {
+	case <-m.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the window never asked for the frame")
 	}
-	if ran == 0 {
+}
+
+func settleWebAnswer(t *testing.T, m *framedModel, posted chan func()) {
+	t.Helper()
+	close(m.gate)
+	select {
+	case fn := <-posted:
+		fn()
+	case <-time.After(10 * time.Second):
 		t.Fatal("the window never posted the load")
 	}
+}
+
+func TestAWebAnswerThatArrivesAfterLeavingOpensNoView(t *testing.T) {
+	m, w, app, posted := gatedWeb(t)
+	app.OpenDoc(planPath)
+	waitFrame(t, m)
+	app.CloseViewer()
+	settleWebAnswer(t, m, posted)
 	if w.opens() != 0 {
 		t.Fatalf("a view opened for a page the window had left: %d", w.opens())
+	}
+}
+
+func TestAWebAnswerThatArrivesAfterTheWindowClosedOpensNoView(t *testing.T) {
+	m, w, app, posted := gatedWeb(t)
+	app.OpenDoc(planPath)
+	waitFrame(t, m)
+	app.Close()
+	settleWebAnswer(t, m, posted)
+	if w.opens() != 0 {
+		t.Fatalf("a view opened after the window closed: %d", w.opens())
+	}
+	if w.closes() != 0 {
+		t.Fatalf("closes = %d with nothing opened", w.closes())
 	}
 }

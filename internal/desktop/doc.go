@@ -285,7 +285,7 @@ func (a *App) loadDoc() {
 	env := docEnv{openAudio: a.audioOpener(), web: a.webReady(), source: a.DocSource,
 		keep: a.audioHeld(a.Ref) || a.web.path == a.Ref && a.web.notice == ""}
 	apply := func(r docRead) {
-		if a.docGen != gen || a.Fleet.ID != fleet {
+		if a.docGen != gen || a.Fleet.ID != fleet || a.closed {
 			if r.player != nil {
 				r.player.Close()
 			}

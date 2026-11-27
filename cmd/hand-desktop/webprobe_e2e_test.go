@@ -87,6 +87,7 @@ setTimeout(function(){
  try{location.href='%[3]s/locationhref'}catch(e){}
 },500);
 setTimeout(function(){for(var i=1;i<=8;i++){document.getElementById('l'+i).click()}},1500);
+setTimeout(function(){fetch('%[3]s/self/done')},2500);
 </script></body></html>`
 
 const renderPage = `<!doctype html><html><head><style>
@@ -206,44 +207,45 @@ func until(t *testing.T, what string, within time.Duration, ok func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-func settle(t *testing.T, log *probeLog, ran string) {
+func settle(t *testing.T, log *probeLog, finish string) bool {
 	t.Helper()
 	until(t, "the page request", 90*time.Second, func() bool { return log.saw("board", "/page") })
-	if ran != "" {
-		until(t, "the page's script to run", 30*time.Second, func() bool { return log.saw("board", ran) })
+	finished := finish == ""
+	for end := time.Now().Add(30 * time.Second); !finished && time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		finished = log.saw("board", finish)
 	}
 	end := time.Now().Add(probeSettle)
 	until(t, "the page to finish", 2*probeSettle, func() bool { return time.Now().After(end) })
+	return finished
 }
 
 func TestRealWebViewKeepsAHostilePageOnTheBoardsOrigin(t *testing.T) {
 	bin := probeBinary(t)
 	for name, tc := range map[string]struct{ policy, ran string }{
-		"engine alone":       {"", "/self/script-ran"},
+		"engine alone":       {"", "/self/done"},
 		"with the Board CSP": {boardPolicy, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			log, boardURL, _, _ := probeServers(t, tc.policy)
 			startProbe(t, bin, boardURL+"/page")
-			settle(t, log, tc.ran)
+			finished := settle(t, log, tc.ran)
 			for _, h := range log.all() {
 				t.Logf("%s %s %s", h.server, h.method, h.uri)
 				if h.server != "board" {
 					t.Errorf("%s was reached: %s %s cookie=%q", h.server, h.method, h.uri, h.cookie)
 					continue
 				}
-				if !strings.HasPrefix(h.uri, "/page") && h.uri != "/self/script-ran" {
+				if !strings.HasPrefix(h.uri, "/page") && h.uri != "/self/script-ran" && h.uri != "/self/done" {
 					t.Errorf("the page reached the Board outside its own load: %s %s", h.method, h.uri)
 				}
 				if strings.HasPrefix(h.uri, "/page") && !strings.Contains(h.cookie, probeCookie+"="+probeToken) {
 					t.Errorf("the page request carries no session cookie: %q", h.cookie)
 				}
 			}
-			if tc.ran != "" {
-				if h := log.all(); len(h) < 2 {
-					t.Fatalf("the hostile script never ran: %v", h)
-				}
-			} else if log.saw("board", "/self/") {
+			if tc.ran != "" && !finished {
+				t.Error("the hostile script did not run to its end, so the test proved nothing")
+			}
+			if tc.ran == "" && log.saw("board", "/self/") {
 				t.Error("a script ran under the Board's policy")
 			}
 		})

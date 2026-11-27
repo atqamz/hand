@@ -38,7 +38,7 @@ func runProbe() {
 			}
 		})})
 		var err error
-		handle, err = (&webhost.Host{Engine: mygoEngine{win}}).Open(f)
+		handle, err = (&webhost.Host{Engine: newMygoEngine(win)}).Open(f)
 		fmt.Println("open error:", err)
 		win.Update(func() {})
 		go func() {
