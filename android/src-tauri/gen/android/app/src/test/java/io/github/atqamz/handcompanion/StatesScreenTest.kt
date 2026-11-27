@@ -67,14 +67,14 @@ class StatesScreenTest {
   @Test fun decisionFailedDark() = decision(true, DecisionState(failed = true))
 
   private fun attempt(dark: Boolean, state: AttemptState) =
-    paparazzi.snapshot { HandTheme(dark) { AttemptScreen("f000000000003", "a62", state, {}, {}, {}, {}, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { AttemptScreen("f000000000003", "a62", state, {}, {}, {}, {}, {}) } }
 
   @Test fun attemptNoLongerPairedLight() = attempt(false, AttemptState(loading = false, unpaired = true))
 
   @Test fun attemptNoLongerPairedDark() = attempt(true, AttemptState(loading = false, unpaired = true))
 
   private fun task(dark: Boolean, state: TaskState) =
-    paparazzi.snapshot { HandTheme(dark) { TaskScreen("f000000000003", "t40", state, {}, {}, {}, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { TaskScreen("f000000000003", "t40", state, {}, {}, {}, {}) } }
 
   @Test fun taskNoLongerPairedLight() = task(false, TaskState(loading = false, unpaired = true))
 
@@ -85,7 +85,7 @@ class StatesScreenTest {
   @Test fun taskRefusedDark() = task(true, TaskState(loading = false, refused = "not found: task t99"))
 
   private fun phone(dark: Boolean, phone: ThisPhone) =
-    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}, {}) } }
+    paparazzi.snapshot { HandTheme(dark) { ThisPhoneScreen(phone, {}, {}, {}, {}) } }
 
   private val nothing =
     ThisPhone(alerts = "Alerts are off", alertsDetail = "No fleet is paired.", phoneId = "9ab2…11fe", app = "0.2.0", core = "0.1.0")

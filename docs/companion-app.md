@@ -31,7 +31,7 @@ ntfy documents a custom scheme in `Click` as "the responsible app may open". If 
 - After pairing, the whole board, with supervisor controls, except `/<fleet id>/proof`, which `hand open` uses on the board's own address. A connection that sends a revoked Companion's cookie is capped again. Neither a fleet's token nor its host cookie opens anything on this listener, whichever fleet a Companion's cookie names, so a tunnel that holds only a token cannot use the board.
 - A request that carries `Tailscale-Funnel-Request`, the header Tailscale adds to Funnel traffic, is refused, as on the board's own address.
 
-A Companion's own **Sign out this Companion** writes the signed-out page and flushes it before the board closes its connections, so the app reads the acknowledgement instead of a reset.
+A Companion's own **Sign out this Companion** writes the signed-out page and flushes it before the board closes its connections, so the app reads the acknowledgement instead of a reset. The Android app no longer reaches that page, so a paired phone cannot sign itself out on the host until an API for it exists; it can only Forget locally.
 
 **What a peer cannot do.** It cannot make the board believe a proxy header: `X-Forwarded-*`, `Forwarded` and `Tailscale-*` are dropped, so a Companion cannot claim a login, mark itself HTTPS or pick its own rate-limit key. A connection with no [preface](vocabulary.md#peer-preface) shares one rate limit with every other such connection (five wrong codes make a minute's wait for all of them), and the pairing code's ten-wrong-tries cancel stays global.
 

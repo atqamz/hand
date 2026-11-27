@@ -419,10 +419,10 @@ class FleetModelTest {
     assertEquals(Opens.Choice, opensOf(decision))
     assertEquals(Opens.Row, opensOf(failure))
     assertEquals(Opens.Report, opensOf(report))
-    assertEquals(Opens.Web, opensOf(worker))
+    assertEquals(Opens.Unshown, opensOf(worker))
     assertEquals(Opens.Card, opensOf(workerNeed()))
-    assertEquals(Opens.Web, opensOf(limited))
-    assertEquals(Opens.Web, opensOf(need("artifacts", "OLD FILES", "neutral")))
+    assertEquals(Opens.Unshown, opensOf(limited))
+    assertEquals(Opens.Unshown, opensOf(need("artifacts", "OLD FILES", "neutral")))
   }
 
   @Test

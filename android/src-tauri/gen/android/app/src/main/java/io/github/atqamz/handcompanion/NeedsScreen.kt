@@ -85,7 +85,7 @@ private fun NeedRow(entry: Entry, supervisor: Supervisor?, sent: String?, onClic
       Icon(
         HandIcons.Chevron,
         null,
-        Modifier.size(16.dp).rotate(if (entry.opens == Opens.Web || entry.opens == Opens.Report) -90f else 0f),
+        Modifier.size(16.dp).rotate(if (entry.opens == Opens.Unshown || entry.opens == Opens.Report) -90f else 0f),
         hand.muted
       )
     }
@@ -255,7 +255,7 @@ fun NeedsScreen(
   state: FleetState,
   onToggle: (String) -> Unit,
   onReport: (String) -> Unit,
-  onWeb: () -> Unit,
+  onNotice: (String) -> Unit,
   onPress: (String, List<String>) -> Unit,
   onForce: () -> Unit,
   onAttempt: (String) -> Unit,
@@ -307,9 +307,9 @@ fun NeedsScreen(
           expands -> NeedRow(entry, state.supervisor, sent) { onToggle(entry.key) }
           entry.opens == Opens.Report ->
             NeedRow(entry, state.supervisor, sent) { onReport(ref) }
-          entry.opens == Opens.Web ->
+          entry.opens == Opens.Unshown ->
             NeedRow(entry, state.supervisor, sent) {
-              if (attempt != null) onAttempt(attempt) else onWeb()
+              if (attempt != null) onAttempt(attempt) else onNotice(notShown(entry.unshown()))
             }
           else -> NeedRow(entry, state.supervisor, sent, attempt?.let { { onAttempt(it) } })
         }
