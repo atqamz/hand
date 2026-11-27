@@ -14,6 +14,7 @@ const (
 	bigCSV     = "reports/t1/events.csv"
 	voicePath  = "reports/t1/standup.mp3"
 	clipPath   = "reports/t1/demo.mp4"
+	opusPath   = "reports/t1/standup.opus"
 	pagePath   = "reports/t1/preview.html"
 	planPath   = "reports/t1/plan.pdf"
 	emptyCSV   = "reports/t1/empty.csv"
@@ -56,11 +57,12 @@ func kindsFixture(t *testing.T) *fixture {
 	f.docs[bigCSV] = desktop.Doc{Path: bigCSV, Name: "events.csv", Kind: "csv", Text: true, Size: 61 << 10, At: at("1"), FolderPage: 1}
 	f.docLines[bigCSV] = eventRows(tableRows + 500)
 	f.docBytes[planPath] = []byte("%PDF-1.7 fixture")
-	for path, kind := range map[string]string{voicePath: "audio", clipPath: "video"} {
+	for path, kind := range map[string]string{voicePath: "audio", opusPath: "audio", clipPath: "video"} {
 		name := path[strings.LastIndex(path, "/")+1:]
 		f.docs[path] = desktop.Doc{Path: path, Name: name, Kind: kind, Size: 3 << 20, At: at("1"), FolderPage: 1}
 		f.docBytes[path] = []byte("RIFF" + kind)
 	}
+	f.docBytes[opusPath] = []byte("OggSOpusHead")
 	f.docs[pagePath] = desktop.Doc{Path: pagePath, Name: "preview.html", Kind: "html", Text: true, Size: size(pageSource), At: at("1"), FolderPage: 1}
 	f.docBytes[pagePath] = []byte(pageSource)
 	f.docLines[pagePath] = strings.Split(pageSource, "\n")
