@@ -39,7 +39,14 @@ func (a *App) webReady() bool {
 }
 
 func (a *App) openWeb(rel, noun string, f DocFrame) {
+	gen := a.docGen
 	h, err := a.OpenWeb(f)
+	if a.docGen != gen || a.closed {
+		if err == nil && h.Close != nil {
+			h.Close()
+		}
+		return
+	}
 	if err != nil {
 		notice := webEngineMissing
 		if errors.Is(err, ErrWebUnconfined) {

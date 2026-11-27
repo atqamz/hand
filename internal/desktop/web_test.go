@@ -249,3 +249,33 @@ func TestAWebAnswerThatArrivesAfterTheWindowClosedOpensNoView(t *testing.T) {
 		t.Fatalf("closes = %d with nothing opened", w.closes())
 	}
 }
+
+func TestAWebViewThatOpensAfterAnotherLoadBeganIsClosedAndNeverAdopted(t *testing.T) {
+	w := &fakeWeb{}
+	app := webApp(t, &framedModel{fixture: kindsFixture(t)}, nil)
+	app.OpenWeb = func(f desktop.DocFrame) (desktop.WebHandle, error) {
+		h, err := w.open(f)
+		app.OpenDoc("reports/t1/design.md")
+		return h, err
+	}
+	app.OpenDoc(planPath)
+	sized(t, app, windowWidth, windowHeight, false)
+	if w.opens() != 1 || w.closes() != 1 {
+		t.Fatalf("opens = %d, closes = %d, want 1 and 1: the superseded view must be closed", w.opens(), w.closes())
+	}
+}
+
+func TestAWebViewThatOpensAfterTheWindowClosedIsClosedAndNeverAdopted(t *testing.T) {
+	w := &fakeWeb{}
+	app := webApp(t, &framedModel{fixture: kindsFixture(t)}, nil)
+	app.OpenWeb = func(f desktop.DocFrame) (desktop.WebHandle, error) {
+		h, err := w.open(f)
+		app.Close()
+		return h, err
+	}
+	app.OpenDoc(planPath)
+	sized(t, app, windowWidth, windowHeight, false)
+	if w.opens() != 1 || w.closes() != 1 {
+		t.Fatalf("opens = %d, closes = %d, want 1 and 1", w.opens(), w.closes())
+	}
+}

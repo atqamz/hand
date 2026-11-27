@@ -14,6 +14,7 @@ var errAudioDecoder = errors.New("the audio decoder failed")
 const (
 	oggPageHead = 27
 	oggEOS      = 4
+	oggMaxRate  = 384000
 )
 
 type oggPage struct {
@@ -46,11 +47,11 @@ func oggPages(b []byte) ([]oggPage, bool) {
 	return ps, len(ps) > 0
 }
 
-// The decoder is only ever read from the start to the first end of stream, which is what this accepts: one stream, an end flag on the last page only, and granules that never fall or pass the frames decoded.
+// The decoder is only ever read from the start to the first end of stream, which is what this accepts: one stream, an end flag on the last page and no other, and granules that never fall or pass the frames decoded.
 func oggStructure(ps []oggPage, frames int64) bool {
 	prev := int64(0)
 	for i, p := range ps {
-		if p.serial != ps[0].serial || p.flags&oggEOS != 0 && i != len(ps)-1 {
+		if p.serial != ps[0].serial || (p.flags&oggEOS != 0) != (i == len(ps)-1) {
 			return false
 		}
 		if p.granule == -1 {
@@ -62,6 +63,54 @@ func oggStructure(ps []oggPage, frames int64) bool {
 		prev = p.granule
 	}
 	return prev <= frames
+}
+
+func oggPackets(b []byte, want int) [][]byte {
+	var out [][]byte
+	var cur []byte
+	for off := 0; off < len(b) && len(out) < want; {
+		n := int(b[off+26])
+		body := off + oggPageHead + n
+		for _, lace := range b[off+oggPageHead : body] {
+			cur = append(cur, b[body:body+int(lace)]...)
+			body += int(lace)
+			if lace < 255 {
+				out = append(out, cur)
+				cur = nil
+				if len(out) == want {
+					break
+				}
+			}
+		}
+		off = body
+	}
+	return out
+}
+
+// The Vorbis decoder allocates what the comment header declares before it checks it, and MyGo sizes a ring from the sample rate; both are refused here before either runs.
+func oggHeaders(b []byte) bool {
+	ps := oggPackets(b, 2)
+	if len(ps) < 2 {
+		return false
+	}
+	id, com := ps[0], ps[1]
+	if len(id) < 16 || string(id[:7]) != "\x01vorbis" {
+		return false
+	}
+	if rate := binary.LittleEndian.Uint32(id[12:]); rate < 1 || rate > oggMaxRate {
+		return false
+	}
+	if len(com) < 8 || string(com[:7]) != "\x03vorbis" {
+		return false
+	}
+	com = com[7:]
+	vendor := int64(binary.LittleEndian.Uint32(com))
+	if int64(len(com)) < 8+vendor {
+		return false
+	}
+	com = com[4+vendor:]
+	count := int64(binary.LittleEndian.Uint32(com))
+	return count <= int64(len(com)-4)/4
 }
 
 func oggFrames(b []byte, open func([]byte) (audio.Decoder, error)) (frames int64, err error) {
@@ -101,6 +150,9 @@ func openOgg(b []byte) (*audio.Player, error) {
 func openOggWith(b []byte, open func([]byte) (audio.Decoder, error)) (*audio.Player, error) {
 	ps, ok := oggPages(b)
 	if !ok {
+		return nil, errAudioDecoder
+	}
+	if !oggHeaders(b) {
 		return nil, errAudioDecoder
 	}
 	frames, err := oggFrames(b, open)

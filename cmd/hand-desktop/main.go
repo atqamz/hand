@@ -161,12 +161,6 @@ func main() {
 		win.Restore()
 		win.Focus()
 	})
-	if opts.open != "" {
-		if err := app.OpenLink(opts.open); err != nil && app.Model != nil {
-			fmt.Fprintln(os.Stderr, "hand-desktop:", err)
-			os.Exit(2)
-		}
-	}
 	mygo.App.WhenReady(func() {
 		area := mygo.Screen.PrimaryDisplay().WorkArea
 		width, height := app.WindowSize(int(area.Width), int(area.Height))
@@ -237,6 +231,12 @@ func main() {
 			app.SetWindowSize(w, h)
 		})
 		win.OnClosed(func() { app.Close() })
+		if opts.open != "" {
+			if err := app.OpenLink(opts.open); err != nil && app.Model != nil {
+				fmt.Fprintln(os.Stderr, "hand-desktop:", err)
+				os.Exit(2)
+			}
+		}
 		for _, args := range early {
 			handoff(app, args)
 		}
