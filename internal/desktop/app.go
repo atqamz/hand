@@ -101,6 +101,7 @@ type App struct {
 	WindowW     int
 	WindowH     int
 	sheetOpen   bool
+	keysOpen    bool
 	narrow      bool
 	tabFor      string
 	prefsTimer  func()

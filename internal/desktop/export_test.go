@@ -129,3 +129,27 @@ const (
 	OverflowIcon = overflowIcon
 	OverflowTip  = overflowTip
 )
+
+type ShortcutRow struct {
+	Group, Does string
+	Caps        [][]string
+	AppleCaps   [][]string
+	Keys        []ui.Key
+	Mods        []ui.Modifiers
+}
+
+func ShortcutRows() []ShortcutRow {
+	var out []ShortcutRow
+	for _, s := range shortcuts {
+		r := ShortcutRow{Group: s.Group, Does: s.Does, Caps: s.caps(false), AppleCaps: s.caps(true)}
+		for _, ch := range s.Chords {
+			r.Keys, r.Mods = append(r.Keys, ch.Key), append(r.Mods, ch.Mods)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func DocStepTip() string { return docStepTip() }
+
+func SendHint(apple bool) string { return keySend.label(apple) }

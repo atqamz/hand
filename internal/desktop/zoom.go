@@ -47,16 +47,12 @@ func (a *App) drawnZoom(c *ui.Context) float32 {
 }
 
 func (a *App) zoomKeys(c *ui.Context) {
-	in := c.Shortcut(ui.Ctrl, ui.KeyEqual)
-	plus := c.Shortcut(ui.Ctrl|ui.Shift, ui.KeyEqual)
-	out := c.Shortcut(ui.Ctrl, ui.KeyMinus)
-	reset := c.Shortcut(ui.Ctrl, ui.Key0)
 	switch {
-	case in || plus:
+	case keyZoomIn.pressed(c):
 		a.setZoom(zoomStep(a.Zoom, 1))
-	case out:
+	case keyZoomOut.pressed(c):
 		a.setZoom(zoomStep(a.Zoom, -1))
-	case reset:
+	case keyZoomReset.pressed(c):
 		a.setZoom(zoomDefault)
 	}
 }

@@ -64,6 +64,7 @@ func boardTheme(dark bool) *ui.Theme {
 func (a *App) View(c *ui.Context) {
 	c.SetZoom(a.drawnZoom(c))
 	a.zoomKeys(c)
+	a.helpKeys(c)
 	if w, _ := c.Size(); w > 0 {
 		a.narrow = w < kit.BoardWidth
 	}
@@ -102,10 +103,11 @@ func (a *App) View(c *ui.Context) {
 	docPage := a.docPageOpen()
 	shell := ui.Row(c).Fill()
 	if docPage {
-		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
+		shell = keyClosePage.on(shell, a.CloseViewer)
 		if a.Screen == DocScreen {
-			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox).
-				OnShortcut(0, ui.KeyBracketLeft, func() { a.stepDoc(false) }).OnShortcut(0, ui.KeyBracketRight, func() { a.stepDoc(true) })
+			shell = keyFind.on(shell, a.focusFindBox)
+			shell = keyPrevDoc.on(shell, func() { a.stepDoc(false) })
+			shell = keyNextDoc.on(shell, func() { a.stepDoc(true) })
 		}
 	}
 	shell.Children(func() {
@@ -130,6 +132,7 @@ func (a *App) View(c *ui.Context) {
 	if a.viewerOpen() && !docPage {
 		a.viewer(c, k, p)
 	}
+	a.keysSheet(c, k)
 	a.toasts(c, k, p)
 }
 
