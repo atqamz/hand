@@ -675,6 +675,11 @@ jobs:
           set -eu
           xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWindowPDF$' -count=1 -v
           test -s "$HAND_WINDOW_OUT/pdf/window.png"
+      - name: Load a hostile HTML page in the web view and check that it sends no request outside the Board's origin and that a click or Tab and Return on an ordinary link opens no connection
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          xvfb-run -a -s "-screen 0 1600x1000x24" go test -tags e2e ./cmd/hand-desktop -run '^TestRealWebView' -count=1 -v
       - name: Make a fleet from the New fleet form with real hand init and board start, then stop the Board
         run: |
           set -eu

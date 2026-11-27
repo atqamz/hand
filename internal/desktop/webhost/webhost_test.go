@@ -1,7 +1,9 @@
 package webhost_test
 
 import (
+	"encoding/json"
 	"errors"
+	"regexp"
 	"sync"
 	"testing"
 
@@ -30,23 +32,35 @@ type fakeView struct {
 	download  func(string) bool
 	window    func(string) bool
 	permit    func(string) bool
+	origins   []string
+	originErr error
+	gone      func()
+	order     []string
 	destroyed int
 }
 
 func (v *fakeView) Native() ui.NativeWebView                  { return nil }
-func (v *fakeView) Load(u string)                             { v.loaded = append(v.loaded, u) }
+func (v *fakeView) Load(u string)                             { v.loaded = append(v.loaded, u); v.order = append(v.order, "load") }
 func (v *fakeView) WillNavigate(allow func(string) bool)      { v.navigate = allow }
 func (v *fakeView) WillDownload(allow func(string) bool)      { v.download = allow }
 func (v *fakeView) WillOpenWindow(allow func(string) bool)    { v.window = allow }
 func (v *fakeView) WillUsePermission(allow func(string) bool) { v.permit = allow }
+func (v *fakeView) OnGone(fn func())                          { v.gone = fn }
 func (v *fakeView) Destroy()                                  { v.destroyed++ }
 
+func (v *fakeView) OnlyOrigin(o string) error {
+	v.origins = append(v.origins, o)
+	v.order = append(v.order, "origin")
+	return v.originErr
+}
+
 type fakeEngine struct {
-	mu       sync.Mutex
-	sessions []*fakeSession
-	views    []*fakeView
-	sessErr  error
-	viewErr  error
+	mu        sync.Mutex
+	sessions  []*fakeSession
+	views     []*fakeView
+	sessErr   error
+	viewErr   error
+	originErr error
 }
 
 func (e *fakeEngine) NewSession() (webhost.Session, error) {
@@ -66,7 +80,7 @@ func (e *fakeEngine) NewView(s webhost.Session) (webhost.View, error) {
 	if e.viewErr != nil {
 		return nil, e.viewErr
 	}
-	v := &fakeView{session: s.(*fakeSession)}
+	v := &fakeView{session: s.(*fakeSession), originErr: e.originErr}
 	e.views = append(e.views, v)
 	return v, nil
 }
@@ -200,5 +214,145 @@ func TestAMissingEngineIsAnErrorNotACrash(t *testing.T) {
 				t.Fatal("a handle came with the error")
 			}
 		})
+	}
+}
+
+func TestAViewIsConfinedToTheBoardsOriginBeforeItLoads(t *testing.T) {
+	for name, tc := range map[string]struct{ url, domain, origin string }{
+		"port":         {"http://127.0.0.1:4100/f0/api/v1/doc/a.html?raw&frame", "127.0.0.1", "http://127.0.0.1:4100"},
+		"default port": {"http://127.0.0.1:80/f0/api/v1/doc/a.html?raw&frame", "127.0.0.1", "http://127.0.0.1"},
+		"no port":      {"http://localhost/f0/api/v1/doc/a.html?raw&frame", "localhost", "http://localhost"},
+		"other port":   {"http://localhost:8080/f0/api/v1/doc/a.html?raw&frame", "localhost", "http://localhost:8080"},
+		"IPv6":         {"http://[::1]:4100/f0/api/v1/doc/a.html?raw&frame", "::1", "http://[::1]:4100"},
+		"IPv6 port 80": {"http://[::1]:80/f0/api/v1/doc/a.html?raw&frame", "::1", "http://[::1]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := &fakeEngine{}
+			h := &webhost.Host{Engine: e}
+			f := desktop.DocFrame{Host: "local", URL: tc.url, Cookie: desktop.WebCookie{Name: "c", Value: "t", Domain: tc.domain}}
+			if _, err := h.Open(f); err != nil {
+				t.Fatal(err)
+			}
+			v := e.views[0]
+			if len(v.origins) != 1 || v.origins[0] != tc.origin {
+				t.Fatalf("origins = %v, want [%s]", v.origins, tc.origin)
+			}
+			if len(v.order) != 2 || v.order[0] != "origin" || v.order[1] != "load" {
+				t.Fatalf("order = %v, want the origin set before the load", v.order)
+			}
+		})
+	}
+}
+
+func TestAViewThatCannotBeConfinedIsDestroyedAndNeverLoads(t *testing.T) {
+	e := &fakeEngine{originErr: errors.New("content rules are not available")}
+	h := &webhost.Host{Engine: e}
+	handle, err := h.Open(frame("local", "127.0.0.1", "t"))
+	if err == nil {
+		t.Fatal("opened a view that is not confined")
+	}
+	if !errors.Is(err, desktop.ErrWebUnconfined) || !errors.Is(err, e.originErr) {
+		t.Fatalf("err = %v, want ErrWebUnconfined wrapping the cause", err)
+	}
+	if handle.View != nil || handle.Close != nil || handle.OnGone != nil {
+		t.Fatal("a handle came with the error")
+	}
+	v := e.views[0]
+	if len(v.loaded) != 0 || v.destroyed != 1 {
+		t.Fatalf("loaded = %v, destroyed = %d", v.loaded, v.destroyed)
+	}
+}
+
+func TestTheHandleReportsAViewWhoseProcessIsGone(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	handle, err := h.Open(frame("local", "127.0.0.1", "t"))
+	if err != nil || handle.OnGone == nil {
+		t.Fatalf("err = %v, OnGone nil = %v", err, handle.OnGone == nil)
+	}
+	called := 0
+	handle.OnGone(func() { called++ })
+	e.views[0].gone()
+	if called != 1 {
+		t.Fatalf("called = %d", called)
+	}
+}
+
+type ruleJSON struct {
+	Trigger struct {
+		Filter string `json:"url-filter"`
+	} `json:"trigger"`
+	Action struct {
+		Type string `json:"type"`
+	} `json:"action"`
+}
+
+func blocked(t *testing.T, rules, url string) bool {
+	t.Helper()
+	var list []ruleJSON
+	if err := json.Unmarshal([]byte(rules), &list); err != nil {
+		t.Fatal(err)
+	}
+	out := false
+	for _, r := range list {
+		if !regexp.MustCompile("(?i)" + r.Trigger.Filter).MatchString(url) {
+			continue
+		}
+		switch r.Action.Type {
+		case "block":
+			out = true
+		case "ignore-previous-rules":
+			out = false
+		default:
+			t.Fatalf("action %q", r.Action.Type)
+		}
+	}
+	return out
+}
+
+func TestTheRulesLetOnlyTheBoardsOriginLoad(t *testing.T) {
+	rules := webhost.OriginRules("http://127.0.0.1:4100")
+	for _, u := range []string{
+		"http://127.0.0.1:4100/f0/api/v1/doc/a.html?raw&frame",
+		"http://127.0.0.1:4100/",
+		"data:image/png;base64,AAAA",
+		"about:blank",
+		"webkit-pdfjs-viewer://pdfjs/web/viewer.html",
+	} {
+		if blocked(t, rules, u) {
+			t.Errorf("%s is blocked", u)
+		}
+	}
+	for _, u := range []string{
+		"http://127.0.0.1:4101/x",
+		"http://127.0.0.1:41000/x",
+		"http://127.0.0.1:410/x",
+		"http://127.0.0.1/x",
+		"http://127.0.0.2:4100/x",
+		"http://127x0x0x1:4100/x",
+		"http://127.0.0.1:4100@203.0.113.9/x",
+		"http://127.0.0.1:4100.example.com/x",
+		"http://localhost:4100/x",
+		"https://127.0.0.1:4100/x",
+		"ws://127.0.0.1:4100/x",
+		"wss://127.0.0.1:4100/x",
+		"http://203.0.113.9/x",
+		"https://example.com/x",
+		"http://127.0.0.1:4101/?u=http://127.0.0.1:4100/",
+		"http://127.0.0.1:4101/x/http://127.0.0.1:4100/y",
+		"http://127.0.0.2:4100/#http://127.0.0.1:4100/",
+		"https://example.com/?next=http%3A%2F%2F127.0.0.1%3A4100%2F&u=http://127.0.0.1:4100/",
+		"ws://127.0.0.1:4101/?u=http://127.0.0.1:4100/",
+	} {
+		if !blocked(t, rules, u) {
+			t.Errorf("%s is not blocked", u)
+		}
+	}
+}
+
+func TestTheRulesEscapeAnIPv6Origin(t *testing.T) {
+	rules := webhost.OriginRules("http://[::1]:4100")
+	if blocked(t, rules, "http://[::1]:4100/x") || !blocked(t, rules, "http://[::2]:4100/x") || !blocked(t, rules, "http://[::1]:4101/x") {
+		t.Fatal("the IPv6 origin is not matched exactly")
 	}
 }

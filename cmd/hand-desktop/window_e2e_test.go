@@ -748,6 +748,6 @@ func checkNoContextMenu(t *testing.T, outDir string, x, y int) {
 	t.Logf("pixels changed by a right-click: %d", changed)
 	_ = exec.Command("xdotool", "key", "Escape").Run()
 	if changed > 200 {
-		t.Fatalf("a right-click in the PDF changed %d pixels around the pointer: a context menu opened; see after-rclick.png", changed)
+		t.Fatalf("a right-click in the web view changed %d pixels around the pointer: a context menu opened; see after-rclick.png", changed)
 	}
 }

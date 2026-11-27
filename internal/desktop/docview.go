@@ -90,11 +90,14 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 	case "pdf":
 		a.docWeb(c, k, p)
 	case "html":
-		if a.DocSource {
+		if n := a.htmlNotice(); n != "" && !a.DocSource {
+			a.docRow(c, k, n, false)
+		}
+		if a.htmlAsSource() {
 			a.docText(c, k, p, d)
 			return
 		}
-		a.docRow(c, k, a.doc.row, false)
+		a.docWeb(c, k, p)
 	default:
 		a.docRow(c, k, a.doc.row, false)
 	}
