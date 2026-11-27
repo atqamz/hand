@@ -149,7 +149,7 @@ class DocMediaTest {
     val model = model(song(), "reports/song one.mp3")
     model.load()
     assertEquals(listOf("$FLEET /api/v1/doc/reports/song%20one.mp3?raw"), calls.toList())
-    assertEquals(AudioView(duration = 60_000), model.state.value.audio)
+    assertEquals(Playback(duration = 60_000), model.state.value.audio)
     assertEquals(DocBody.Audio, docBody(model.state.value))
   }
 
@@ -229,7 +229,7 @@ class DocMediaTest {
     audio.players[0].position = 7000
     model.release()
     assertTrue(audio.players[0].released)
-    assertEquals(AudioView(false, 7000, 60_000), model.state.value.audio)
+    assertEquals(Playback(false, 7000, 60_000), model.state.value.audio)
     model.start()
     assertEquals(2, audio.players.size)
     assertEquals(listOf(7000), audio.players[1].seeks)
@@ -261,7 +261,7 @@ class DocMediaTest {
     model.load()
     model.start()
     audio.events!!.ended()
-    assertEquals(AudioView(false, 60_000, 60_000), model.state.value.audio)
+    assertEquals(Playback(false, 60_000, 60_000), model.state.value.audio)
     model.start()
     assertEquals(0, model.state.value.audio!!.position)
     assertTrue(model.state.value.audio!!.playing)

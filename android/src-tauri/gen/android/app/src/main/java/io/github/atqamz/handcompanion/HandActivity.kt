@@ -388,7 +388,11 @@ class HandActivity : ComponentActivity() {
           model::pause,
           model::seek,
           model::tick,
-          model::render
+          model::render,
+          toggle = model::toggleRendered,
+          gone = model::viewGone,
+          video = { playing, modifier -> VideoSurface(playing, model::surface, modifier) },
+          html = { page, gone, modifier -> HtmlPreview(page, gone, modifier) }
         )
       }
     DocScreen(fleet, path, state, onBack, model::retry, model::more, model::page, onTarget, tools)

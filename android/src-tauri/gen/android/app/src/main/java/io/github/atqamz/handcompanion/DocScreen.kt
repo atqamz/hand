@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -259,6 +261,41 @@ fun clock(millis: Int): String {
 private fun DocAudio(state: DocState, tools: DocTools) {
   val hand = LocalHand.current
   val audio = state.audio ?: return
+  Column(
+    Modifier.fillMaxSize().padding(24.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Text(state.node?.name.orEmpty(), color = hand.fg, textAlign = TextAlign.Center, style = type.titleMedium)
+    PlayControls(audio, tools)
+  }
+}
+
+@Composable
+private fun DocVideo(state: DocState, tools: DocTools) {
+  val audio = state.audio ?: return
+  val aspect = if (audio.width > 0 && audio.height > 0) audio.width.toFloat() / audio.height else 16f / 9f
+  Column(
+    Modifier.fillMaxSize().padding(16.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Box(Modifier.fillMaxWidth().aspectRatio(aspect).background(Color.Black)) {
+      tools.video(audio.playing, Modifier.fillMaxSize())
+    }
+    PlayControls(audio, tools)
+  }
+}
+
+@Composable
+private fun DocHtml(state: DocState, tools: DocTools) {
+  val page = state.html ?: return
+  Box(Modifier.fillMaxSize().background(Color.White)) { tools.html(page, tools.gone, Modifier.fillMaxSize()) }
+}
+
+@Composable
+private fun PlayControls(audio: Playback, tools: DocTools) {
+  val hand = LocalHand.current
   LaunchedEffect(audio.playing) {
     while (audio.playing) {
       delay(500)
@@ -266,11 +303,10 @@ private fun DocAudio(state: DocState, tools: DocTools) {
     }
   }
   Column(
-    Modifier.fillMaxSize().padding(24.dp),
-    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    Modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
-    Text(state.node?.name.orEmpty(), color = hand.fg, textAlign = TextAlign.Center, style = type.titleMedium)
     Slider(
       audio.position.toFloat().coerceIn(0f, maxOf(1, audio.duration).toFloat()),
       { tools.seek(it.toInt()) },
@@ -337,7 +373,11 @@ class DocTools(
   val seek: (Int) -> Unit = {},
   val tick: () -> Unit = {},
   val page: suspend (Int, Int) -> Bitmap? = { _, _ -> null },
-  val drawn: (Int, Int) -> Bitmap? = { _, _ -> null }
+  val drawn: (Int, Int) -> Bitmap? = { _, _ -> null },
+  val toggle: () -> Unit = {},
+  val gone: () -> Unit = {},
+  val video: @Composable (Boolean, Modifier) -> Unit = { _, _ -> },
+  val html: @Composable (String, () -> Unit, Modifier) -> Unit = { _, _, _ -> }
 )
 
 @Composable
@@ -359,11 +399,13 @@ private fun DocToolbar(
     }
   }
   val text = body == DocBody.Text
-  if (!text && body != DocBody.Markdown) return
+  val preview = state.node?.kind == "html" && state.html != null
+  if (!text && body != DocBody.Markdown && body != DocBody.Html) return
   Row(
     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(16.dp, 8.dp),
     horizontalArrangement = Arrangement.spacedBy(8.dp)
   ) {
+    if (preview) Action(if (state.rendered) "Source" else "Rendered", tools.toggle)
     if (text) {
       Action("Find", { onTool(if (tool == DocTool.Find) null else DocTool.Find) })
       Action("Go to line", { onTool(if (tool == DocTool.GoTo) null else DocTool.GoTo) })
@@ -490,6 +532,11 @@ fun DocScreen(
     HorizontalDivider(color = hand.line)
     DocToolbar(state, body, tool, { tool = it }, tools)
     if (tool != null && body == DocBody.Text) DocPanel(state, tool!!, tools) { tool = null }
+    if (body == DocBody.Text && state.notice != null) {
+      Box(Modifier.padding(16.dp, 4.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
+        Meta("${state.notice.title} ${state.notice.detail}", hand.ink(Tone.Wait))
+      }
+    }
     if (node != null && state.problem != null && body != DocBody.Failed) DocStale("Showing the last read. ${state.problem}", onRetry)
     Column(Modifier.weight(1f)) {
       when (body) {
@@ -521,6 +568,8 @@ fun DocScreen(
             listOfNotNull(node?.kind, node?.size?.let(::docSize)).joinToString(" · ")
           ) {}
         DocBody.Audio -> DocAudio(state, tools)
+        DocBody.Video -> DocVideo(state, tools)
+        DocBody.Html -> DocHtml(state, tools)
         DocBody.Pdf -> DocPdf(state, tools)
         DocBody.MediaNotice ->
           DocMessage(state.notice?.title.orEmpty(), state.notice?.detail.orEmpty()) {}
