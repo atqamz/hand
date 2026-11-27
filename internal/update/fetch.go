@@ -49,7 +49,7 @@ func onThisMachine(u *url.URL) bool {
 }
 
 func requireHTTPS(u *url.URL) error {
-	if u.Scheme == "https" || u.Scheme == "http" && onThisMachine(u) {
+	if u.Scheme == "https" || u.Scheme == "http" && onThisMachine(u) && u.User == nil {
 		return nil
 	}
 	return fmt.Errorf("update: the URL must use https, or http on this machine: %s", u.Redacted())

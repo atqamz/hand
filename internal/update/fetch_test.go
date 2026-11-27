@@ -372,7 +372,7 @@ func TestNewerComparesNumbers(t *testing.T) {
 }
 
 func TestFetchRefusesAPlainHTTPBaseOffThisMachine(t *testing.T) {
-	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1/x", "http://localhost.example.com", "http://127.0.0.1.example.com", "http://localhost:80@example.com/releases"} {
+	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1/x", "http://localhost.example.com", "http://127.0.0.1.example.com", "http://localhost:80@example.com/releases", "http://user:pw@localhost:8080", "http://user@127.0.0.1:8080"} {
 		dir := t.TempDir()
 		_, err := FetchHand(context.Background(), base, "edge", "linux", "amd64", dir, os.Environ())
 		if err == nil || !strings.Contains(err.Error(), "must use https") {
@@ -449,6 +449,8 @@ func TestRequireHTTPSKnowsTheHost(t *testing.T) {
 		"http://127.0.0.1.example.com:8080/x":     false,
 		"http://[::2]:8080/x":                     false,
 		"http://localhost:80@example.com/x":       false,
+		"http://user:pw@localhost:8080/x":         false,
+		"https://user:pw@github.com/x":            true,
 	} {
 		u, err := url.Parse(raw)
 		if err != nil {
