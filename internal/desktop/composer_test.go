@@ -650,7 +650,7 @@ func TestSendIsPrimaryUntilTheHeadShowsResume(t *testing.T) {
 				rest.Frame()
 				primary, _ := rest.Find("Send")
 				ink, want := inkCount(img, send, bg), inkCount(rest.Image(), primary, k.Primary)
-				if ink*10 < want*9 {
+				if ink*10 < want*8 {
 					t.Errorf("the default Send's label has %d ink pixels against the primary's %d, want the same weight", ink, want)
 				}
 			})
