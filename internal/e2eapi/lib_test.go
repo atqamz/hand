@@ -955,7 +955,6 @@ func startBoard(t *testing.T, b *box) fleetBox {
 	addr, _ := b.read("board.addr")
 	addr = strings.TrimSpace(addr)
 	origin := "http://" + addr
-	// the first request to a fleet makes the Board create its board.token; the old release has no API route, so any path will do
 	_, _ = (&http.Client{Timeout: 10 * time.Second}).Get(origin + "/" + id + "/")
 	var token string
 	for range 50 {

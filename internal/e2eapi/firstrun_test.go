@@ -277,9 +277,19 @@ func boardChecks(t *testing.T, b *box, m made) {
 		gotStatus, gotCode := errorOf(t, r)
 		check(t, gotStatus == 403 && gotCode == "forbidden" && strings.Contains(r.body, "does not show Hand") && !strings.Contains(r.body, "SQLite format") && !strings.Contains(r.body, fb.token) && !strings.Contains(r.body, "inside "), "the document endpoint refuses "+hidden+" with the reason")
 	}
-	for _, climb := range []string{"/doc/docs/../hand.db", "/doc/docs/%2e%2e/hand.db", "/doc/docs/..%2fhand.db"} {
+	up := strings.Repeat("../", 40)
+	upEncoded := strings.Repeat("%2e%2e/", 40)
+	for name, climb := range map[string]string{
+		"a climb inside the folder":          "/doc/docs/../hand.db",
+		"an encoded climb inside the folder": "/doc/docs/%2e%2e/hand.db",
+		"an encoded slash":                   "/doc/docs/..%2fhand.db",
+		"a climb to a shown document":        "/doc/docs/nested/%2e%2e/export-notes.md",
+		"a climb past the folder":            "/doc/" + up + "etc/hosts",
+		"an encoded climb past the folder":   "/doc/" + upEncoded + "etc/hosts",
+		"a climb from a folder past it":      "/doc/docs/" + upEncoded + "etc/hosts",
+	} {
 		r := host.get(t, fb.api(climb))
-		check(t, r.status != 200 && !strings.Contains(r.body, "SQLite format"), "the document endpoint does not serve hand.db through "+climb+" ("+strconv.Itoa(r.status)+")")
+		check(t, r.status != 200 && !strings.Contains(r.body, "SQLite format") && !strings.Contains(r.body, "localhost"), "the document endpoint serves nothing for "+name+" ("+strconv.Itoa(r.status)+")")
 	}
 	refused(t, anon.get(t, fb.api("/doc/docs/export-notes.md")), 401, "unauthorized", "the document endpoint refuses a request without a session")
 
@@ -392,6 +402,13 @@ func companionChecks(t *testing.T, b *box, m made) {
 	alerts := dataOf(t, phoneA.get(t, fb.api("/alerts")), "the paired Companion reads the alerts")
 	check(t, at(alerts, "stats.total") != nil, "the alerts answer carries its stats")
 	equal(t, phoneA.get(t, fb.api("/tasks")).status, 200, "the paired Companion reads the tasks")
+	feed := phoneA.get(t, "/"+id+"/alerts/feed?wait=0")
+	equal(t, feed.status, 200, "the paired Companion reads the alert feed")
+	matches(t, feed.header.Get("Content-Type"), `^application/json`, "the alert feed is JSON")
+	equal(t, feed.header.Get("Content-Length"), strconv.Itoa(len(feed.body)), "the alert feed carries its Content-Length")
+	feedBody := parse(t, feed.body)
+	equal(t, []any{at(feedBody, "version"), at(feedBody, "fleet.id")}, []any{float64(1), id}, "the alert feed names its version and this fleet")
+	check(t, at(feedBody, "alerts") != nil && at(feedBody, "cursor") != nil, "the alert feed carries its alerts and cursor")
 	refused(t, phoneA.get(t, fb.api("/phone")), 403, "forbidden", "a paired Companion cannot read the Companion state")
 	refused(t, phoneA.post(t, fb.api("/phone/code"), `{"base":"`+fb.origin+`"}`, pcsrf), 403, "forbidden", "a paired Companion cannot mint a code")
 	refused(t, phoneA.post(t, fb.api("/session/revoke"), ``, ""), 403, "csrf_required", "signing out needs the Companion's form token")
@@ -428,6 +445,8 @@ func companionChecks(t *testing.T, b *box, m made) {
 	away := phoneA.get(t, fb.api("/status"))
 	check(t, away.status == 403 && away.header.Get("X-Hand-Error") != "", "the revoked Companion is refused at once, with the reason in X-Hand-Error")
 	equal(t, phoneA.get(t, fb.api("/alerts")).status, 403, "the revoked Companion is refused the alerts")
+	lostFeed := phoneA.get(t, "/"+id+"/alerts/feed?wait=0")
+	check(t, lostFeed.status == 403 && lostFeed.header.Get("X-Hand-Error") != "", "the revoked Companion is refused the alert feed, with the reason in X-Hand-Error")
 	equal(t, host.get(t, fb.api("/status")).status, 200, "the host stays signed in after the revoke")
 	equal(t, len(list(at(dataOf(t, host.get(t, fb.api("/phone")), "the host lists no Companion"), "devices"))), 0, "no Companion is left")
 
