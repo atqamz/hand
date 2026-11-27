@@ -20,7 +20,17 @@ const (
 	SheetWidth    = 300
 	railPad       = 7
 	monoTile      = 30
+	RefWidth      = 52
 )
+
+func Ref(c *ui.Context, text string, fg ui.Color) {
+	if text == "" {
+		ui.Box(c).Width(RefWidth).Shrink(0)
+		return
+	}
+	ui.Text(c, text).Font("monospace").FontSize(Meta.Size).TextColor(fg).FontFeatures("tnum").
+		SingleLine().Ellipsis("…").Width(RefWidth).Shrink(0)
+}
 
 func TintOf(id string) int {
 	if id == "" {
