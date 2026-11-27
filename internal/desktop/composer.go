@@ -39,7 +39,7 @@ func (a *App) composer(c *ui.Context, k kit.Colors, p palette, pane float32) {
 			OnChange(func() { a.saveDraft() }).
 			OnPaste(func(text string) bool { return text == "" && a.pasteImage(clip) }).
 			OnTextKey(func(key ui.TextKey) bool {
-				if key.Key != ui.KeyEnter || (key.Mods != ui.Ctrl && key.Mods != ui.Super) {
+				if !keySend.is(key.Mods, key.Key) {
 					return false
 				}
 				a.Draft = key.Text()
@@ -142,10 +142,7 @@ func (a *App) sendKeyHint(pane float32) string {
 	if pane < 520 {
 		return ""
 	}
-	if a.Apple {
-		return "⌘ Enter"
-	}
-	return "Ctrl Enter"
+	return keySend.label(a.Apple)
 }
 
 func (a *App) draftNote() string {

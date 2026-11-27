@@ -84,7 +84,7 @@ func (a *App) docSwitch(c *ui.Context, k kit.Colors) {
 		if kit.DocToggle(c, k, "doc:tool:source", "Source", a.DocSource) && !a.DocSource {
 			a.setDocView(func() { a.DocSource = true })
 		}
-	}).Tooltip("Rendered or Source. [ and ] open the previous and next document in this folder.")
+	}).Tooltip("Rendered or Source. " + docStepTip())
 }
 
 func (a *App) findInDoc() {
@@ -100,7 +100,7 @@ func (a *App) findInDoc() {
 func (a *App) docOverflow(c *ui.Context, k kit.Colors, d Doc) {
 	more := ui.ButtonBase(c.Key("doc:tool:more")).Size(kit.Control, kit.Control).Radius(kit.RadiusMD).
 		Border(1, k.LineStrong).Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
-		Label("More document actions").Tooltip("More document actions. [ and ] open the previous and next document in this folder.")
+		Label("More document actions").Tooltip("More document actions. " + docStepTip())
 	more.Children(func() { ui.Icon(c, kit.Icon("more")).TextColor(k.Muted) })
 	more.PopoverMenuButton(func(m *ui.Menu) {
 		label := "Copy contents"
@@ -257,4 +257,8 @@ func saveDoc(ctx context.Context, m ReadModel, fleet, rel, dest string) (int64, 
 		return 0, err
 	}
 	return n, nil
+}
+
+func docStepTip() string {
+	return keyPrevDoc.label(false) + " and " + keyNextDoc.label(false) + " open the previous and next document in this folder."
 }
