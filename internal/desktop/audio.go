@@ -2,12 +2,12 @@ package desktop
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/egoist/mygo/audio"
 	_ "github.com/egoist/mygo/audio/mp3"
-	_ "github.com/egoist/mygo/audio/vorbis"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop/kit"
@@ -16,7 +16,8 @@ import (
 const (
 	audioTick     = 250 * time.Millisecond
 	audioTooLarge = "This audio file is larger than this window reads; download it to play it elsewhere."
-	audioFormat   = "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere."
+	audioMaxRate  = 384000
+	audioFormat   = "This audio file cannot be played in this window. It plays WAV and MP3; download it to play it elsewhere."
 )
 
 type AudioPlayer interface {
@@ -36,19 +37,20 @@ type audioState struct {
 	played bool
 }
 
+var errAudioRate = errors.New("the audio sample rate is not between 1 and 384000 Hz")
+
 func openAudio(b []byte) (AudioPlayer, error) {
 	if bytes.HasPrefix(b, []byte("OggS")) {
-		p, err := openOgg(b)
-		if err != nil {
-			return nil, err
-		}
-		return p, nil
+		return nil, audio.ErrFormat
 	}
-	p, err := audio.OpenStream(bytes.NewReader(b))
+	d, _, err := audio.NewDecoder(bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
-	return p, nil
+	if r := d.SampleRate(); r < 1 || r > audioMaxRate {
+		return nil, errAudioRate
+	}
+	return audio.NewPlayer(d), nil
 }
 
 func (a *App) audioOpener() func([]byte) (AudioPlayer, error) {

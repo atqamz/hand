@@ -2,7 +2,6 @@ package desktop_test
 
 import (
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -231,7 +230,7 @@ func TestAnAudioFileInAnUnplayableFormatShowsTheNoticeAndTheSavePath(t *testing.
 		app := audioApp(t, kindsFixture(t), fa)
 		app.OpenDoc(voicePath)
 		tt := sized(t, app, windowWidth, windowHeight, dark)
-		mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere.", "Download")
+		mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV and MP3; download it to play it elsewhere.", "Download")
 		mustNotText(t, tt, "Play")
 	})
 }
@@ -379,45 +378,10 @@ func TestAnOpenerThatPanicsGetsTheNoticeAndNoPlayer(t *testing.T) {
 		app := audioApp(t, kindsFixture(t), fa)
 		app.OpenDoc(voicePath)
 		tt := sized(t, app, windowWidth, windowHeight, dark)
-		mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere.", "Download")
+		mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV and MP3; download it to play it elsewhere.", "Download")
 		mustNotText(t, tt, "Play")
 		if len(fa.made()) != 0 {
 			t.Fatal("a player was made by a panicking opener")
 		}
 	})
-}
-
-func TestMalformedOggVorbisFilesGetTheNoticeAndNeverAPlayer(t *testing.T) {
-	for _, name := range []string{"ogg-header-panic.ogg", "ogg-decode-panic.ogg"} {
-		t.Run(name, func(t *testing.T) {
-			b, err := os.ReadFile("testdata/" + name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f := kindsFixture(t)
-			f.docBytes[voicePath] = b
-			app := newApp(t, f)
-			app.SaveAs = func(string) string { return "" }
-			app.OpenDoc(voicePath)
-			tt := sized(t, app, windowWidth, windowHeight, false)
-			mustText(t, tt, "standup.mp3", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere.", "Download")
-			mustNotText(t, tt, "Play")
-		})
-	}
-}
-
-func TestAWellFormedOggVorbisFileGetsAPlayer(t *testing.T) {
-	b, err := os.ReadFile("testdata/tone.ogg")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := kindsFixture(t)
-	f.docBytes[voicePath] = b
-	app := newApp(t, f)
-	app.SaveAs = func(string) string { return "" }
-	app.OpenDoc(voicePath)
-	tt := sized(t, app, windowWidth, windowHeight, false)
-	mustText(t, tt, "Play")
-	mustNotText(t, tt, "cannot be played")
-	app.Close()
 }
