@@ -252,10 +252,17 @@ fun deliverableTarget(deliverable: TaskDeliverable): ThreadTarget =
 
 private val EXTERNAL = setOf("http", "https", "mailto", "tel")
 
+private fun loopbackV6(host: String) =
+  try {
+    java.net.InetAddress.getByName(host.trim('[', ']')).let { it.isLoopbackAddress || it.isAnyLocalAddress }
+  } catch (_: java.net.UnknownHostException) {
+    true
+  }
+
 fun externalTarget(url: String): ThreadTarget {
   val uri = try { java.net.URI(url) } catch (_: java.net.URISyntaxException) { return ThreadTarget.None }
   val host = uri.host?.lowercase().orEmpty()
-  val board = host == "localhost" || host.startsWith("127.") || host == "[::1]"
+  val board = host == "localhost" || host.startsWith("127.") || (host.startsWith("[") && loopbackV6(host))
   return if (uri.scheme?.lowercase() in EXTERNAL && !board) ThreadTarget.Browser(url) else ThreadTarget.None
 }
 

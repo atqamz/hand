@@ -87,6 +87,38 @@ class OpenVectorRouteTest {
   }
 
   @Test
+  fun aLinkTheCoreRefusesForAPageThisAppDoesNotShowNamesThePage() {
+    val refused = "This is not a link Hand can open."
+    for (page in listOf("connect", "screen/a3", "history", "alerts", "pair", "report/r1", "doc/a/b.md", "future-x9")) {
+      val landed = landing("handboard://open/$FLEET/$page") { """{"message":"$refused"}""" }
+      val want = notShown("the page \"${page.substringBefore('/')}\"")
+      assertEquals(page, Landing.Refused(want), landed)
+    }
+  }
+
+  @Test
+  fun aMalformedOrUnpairedLinkKeepsTheCoresSentence() {
+    val refused = "This is not a link Hand can open."
+    val unpaired = "Pair this Companion with your host first."
+    val malformed =
+      listOf(
+        "handboard://open/$FLEET//task/t3",
+        "handboard://open/$FLEET/Task/t3",
+        "handboard://open/$FLEET/%74ask/t3",
+        "handboard://open/$FLEET/../task/t3",
+        "handboard://open/$FLEET/?x=1",
+        "handboard://open/$FLEET/task/t0",
+        "handboard://open/$FLEET/connect\n",
+        "handboard://open/f0123456789a/connect"
+      )
+    for (link in malformed) assertEquals(link, Landing.Refused(refused), landing(link) { """{"message":"$refused"}""" })
+    assertEquals(
+      Landing.Refused(unpaired),
+      landing("handboard://open/$FLEET/connect") { """{"message":"$unpaired"}""" }
+    )
+  }
+
+  @Test
   fun aPageWithAReportAnchorStillNamesOnlyThePage() {
     val landed = landing("x", answering("/$FLEET/connect#r5"))
     assertEquals(Landing.Unshown(FLEET, "the page \"connect\""), landed)
@@ -166,6 +198,9 @@ class DeliveredRouteTest {
         "http://127.0.0.1:8080/$FLEET/doc/a.md",
         "http://127.1.2.3/",
         "http://[::1]:8080/$FLEET/",
+        "http://[0:0:0:0:0:0:0:1]/$FLEET/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://[::]/",
         "file:///etc/passwd",
         "javascript:alert(1)",
         "handboard://open/$FLEET/task/t3",
