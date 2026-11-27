@@ -146,8 +146,11 @@ private class StreamSource(private val reader: RangedReader) : MediaDataSource()
 }
 
 internal fun releaseStream(reader: Closeable, release: () -> Unit) {
-  reader.close()
-  release()
+  try {
+    reader.close()
+  } finally {
+    release()
+  }
 }
 
 object PlatformVideo : VideoOpener {

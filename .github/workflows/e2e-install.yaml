@@ -1,7 +1,6 @@
 name: "[Reuse] E2E Install"
 
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       ref:
@@ -12,27 +11,9 @@ on:
       sha:
         description: The commit that was built and tested.
         value: ${{ jobs.e2e-build.outputs.sha }}
-  pull_request:
-    branches: [main]
-    paths:
-      - install.sh
-      - install.ps1
-      - install_test.go
-      - main.go
-      - go.mod
-      - go.sum
-      - internal/**
-      - .github/e2e/**
-      - .github/scripts/**
-      - .github/workflows/e2e-install.yaml
-      - .github/workflows/publish.yaml
 
 permissions:
   contents: read
-
-concurrency:
-  group: e2e-install-${{ github.workflow }}-${{ inputs.ref || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PLAYWRIGHT_VERSION: "1.63.0"

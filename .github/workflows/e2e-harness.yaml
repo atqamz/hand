@@ -1,36 +1,15 @@
 name: "[Reuse] E2E Harness"
 
 on:
-  workflow_dispatch:
-    inputs:
-      versions:
-        description: Harness versions to install, pinned in .github/e2e/versions.env or the latest releases.
-        type: choice
-        options: [pinned, latest]
-        default: pinned
   workflow_call:
     inputs:
       versions:
         description: Harness versions to install, pinned in .github/e2e/versions.env or the latest releases.
         type: string
         default: pinned
-  pull_request:
-    paths:
-      - internal/harness/**
-      - internal/luvus/**
-      - internal/cli/attempt*.go
-      - internal/cli/supervisor*.go
-      - internal/e2e/**
-      - .github/e2e/versions.env
-      - .github/e2e/install-*.sh
-      - .github/workflows/e2e-harness.yaml
 
 permissions:
   contents: read
-
-concurrency:
-  group: e2e-harness-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   e2e-harness:
