@@ -37,7 +37,7 @@ Desktop is a native MyGo window (package `ui`; the system web view only through 
 - One `ui.NewTester(app.View, w, h)` per screen; fixtures in `fixture_test.go` and the `*fixture_test.go` files. Window scene size is `windowWidth` x `windowHeight` (1100 x 760); also test a narrow window (`narrow_test.go`) and the minimum size.
 - Two clocks: the tester's, moved with `tt.Advance(d)` (never `time.Sleep`), and the real one that `Window.Update` and `time.Now` use. Call `tt.Frame` after changing state from outside the view; `tt.FramePending` says whether the view still asks for frames.
 - Drive with `tt.Click`, `tt.Key`, `tt.Type`, `tt.RightClick`, `tt.ChooseMenuItem`; read with `tt.HasText`, `tt.Texts`, `tt.Find`, `tt.Announcements`, `tt.SetPreferences`, `tt.SetSize`, `tt.SetZoom`. Not in v0.7.4: `tt.Access`.
-- Scenes are `TestScenes*`. Screenshots: `DESKTOP_SHOTS=<folder> go test ./internal/desktop -run TestScenes`; copy changed ones to `docs/images/desktop/`.
+- Scenes are `TestScenes*`; a test that writes a shot is named so. The fixtures fix the clock (`newDesktop`, not `desktop.New`) and the zone (`TestMain`). Regenerate: `FONTCONFIG_FILE=$PWD/internal/desktop/testdata/fonts.conf DESKTOP_SHOTS=$PWD/docs/images/desktop go test ./internal/desktop -run TestScenes`. CI (`.github/desktop/check-scenes.sh`, Linux) fails on any committed file that differs byte for byte from its render.
 - A UI change that adds a screen or state adds a scene.
 
 ## Gate

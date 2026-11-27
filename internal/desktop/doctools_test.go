@@ -458,7 +458,7 @@ func (g *gatedCopy) DocStream(ctx context.Context, id, path string, dst io.Write
 
 func gatedApp(t *testing.T, g *gatedCopy) (*desktop.App, chan func()) {
 	t.Helper()
-	app := desktop.New(func() (desktop.ReadModel, error) { return g, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return g, nil })
 	app.DraftDir = t.TempDir()
 	posted := make(chan func(), 16)
 	app.Post = func(fn func()) { posted <- fn }
@@ -552,7 +552,7 @@ func TestADownloadFromAnEarlierVisitDoesNotLandOnTheNewVisit(t *testing.T) {
 func TestACopyFromAnEarlierVisitDoesNotLandOnTheNewVisit(t *testing.T) {
 	f := docFixture(t)
 	g := &gatedCopy{fixture: f, entered: make(chan struct{}, 4), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return g, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return g, nil })
 	app.DraftDir = t.TempDir()
 	posted := make(chan func(), 16)
 	app.Post = func(fn func()) { posted <- fn }

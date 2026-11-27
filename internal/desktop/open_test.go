@@ -21,6 +21,7 @@ import (
 func TestMain(m *testing.M) {
 	base := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
 	if base != "hand" {
+		time.Local = time.UTC
 		os.Exit(m.Run())
 	}
 	if verb := os.Getenv("FAKE_HAND_FAIL_VERB"); verb == "" || slices.Contains(os.Args[1:], verb) {

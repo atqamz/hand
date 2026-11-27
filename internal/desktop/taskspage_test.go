@@ -298,7 +298,7 @@ func TestScenesTheTasksSearchWithAnOvertakenAnswer(t *testing.T) {
 				Groups: []desktop.TaskSearchGroup{{Name: "Sun 1 Nov UTC", Count: 1, Tasks: []desktop.TaskSearchRow{fast}}}}
 			model := &slowSearch{ReadModel: f, gate: "slow",
 				entered: make(chan struct{}, 1), release: make(chan struct{})}
-			app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+			app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 			app.DraftDir = t.TempDir()
 			app.Boot()
 			app.Show(desktop.TasksScreen)
@@ -706,7 +706,7 @@ func (q *quietBoard) Poll(ctx context.Context, id string, screen desktop.Screen,
 func quietApp(t *testing.T, f *fixture, fresh bool) (*desktop.App, *ui.Tester) {
 	t.Helper()
 	model := &quietBoard{ReadModel: f, fresh: fresh}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	app.Show(desktop.TasksScreen)
@@ -1066,7 +1066,7 @@ func (w *workerPoll) Poll(ctx context.Context, id string, screen desktop.Screen,
 func workerApp(t *testing.T, f *fixture) *desktop.App {
 	t.Helper()
 	model := &workerPoll{ReadModel: f, cursor: "cursor-1"}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	app.Show(desktop.TasksScreen)

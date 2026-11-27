@@ -624,7 +624,7 @@ func (m *screenErrorPoll) Poll(ctx context.Context, fleet string, screen desktop
 
 func reportPageApp(t *testing.T, model desktop.ReadModel) *desktop.App {
 	t.Helper()
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	if app.Err != "" {

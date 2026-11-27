@@ -39,6 +39,16 @@ jobs:
         run: sh .github/scripts/windows-stack-reserve.sh
       - name: Test the window headless
         run: go test ./internal/desktop ./cmd/hand-desktop
+      - name: Check the committed scene images against fresh renders
+        if: runner.os == 'Linux'
+        env:
+          SCENES_OUT: ${{ runner.temp }}/scenes
+        run: sh .github/desktop/check-scenes.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ failure() && runner.os == 'Linux' }}
+        with:
+          name: scenes-render
+          path: ${{ runner.temp }}/scenes
       - name: Vet the window with mygo
         run: |
           go mod download

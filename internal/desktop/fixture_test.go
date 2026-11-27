@@ -827,7 +827,7 @@ func noFleetsFixture() *fixture {
 
 func newApp(t *testing.T, f *fixture) *desktop.App {
 	t.Helper()
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	if app.Err != "" && f.fail == nil {
@@ -838,7 +838,7 @@ func newApp(t *testing.T, f *fixture) *desktop.App {
 
 func newLandingApp(t *testing.T, f *fixture) *desktop.App {
 	t.Helper()
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	return app
