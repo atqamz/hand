@@ -22,12 +22,14 @@ const guardLinks = `(function(){var web=location.protocol==='http:'||location.pr
 
 type webPage interface {
 	LoadURL(string) error
+	LoadHTML(string, string)
 	OnWillNavigate(func(*mygo.NavigateEvent)) func()
 	OnWillDownload(func(*mygo.DownloadEvent)) func()
 	SetWindowOpenHandler(func(mygo.WindowOpenRequest) *mygo.WindowOptions)
 	SetPermissionHandler(func(mygo.PermissionRequest) bool)
 	SetContentRules(...*mygo.ContentRules)
 	OnRenderProcessGone(func(string)) func()
+	OnDidFailLoad(func(*mygo.LoadError)) func()
 	OnContextMenu(func(*mygo.ContextMenuEvent)) func()
 }
 
@@ -82,6 +84,8 @@ func (v mygoView) Native() ui.NativeWebView { return v.p.native }
 
 func (v mygoView) Load(url string) { v.p.page.LoadURL(url) }
 
+func (v mygoView) LoadHTML(page, base string) { v.p.page.LoadHTML(page, base) }
+
 func (v mygoView) WillNavigate(allow func(string) bool) {
 	v.p.page.OnWillNavigate(func(e *mygo.NavigateEvent) {
 		if !allow(e.URL) {
@@ -116,7 +120,15 @@ func (v mygoView) OnlyOrigin(origin string) error {
 }
 
 func (v mygoView) OnGone(fn func()) {
-	v.p.page.OnRenderProcessGone(func(string) { fn() })
+	if fn != nil {
+		v.p.page.OnRenderProcessGone(func(string) { fn() })
+	}
+}
+
+func (v mygoView) OnFailed(fn func()) {
+	if fn != nil {
+		v.p.page.OnDidFailLoad(func(*mygo.LoadError) { fn() })
+	}
 }
 
 type ruleCache struct {
