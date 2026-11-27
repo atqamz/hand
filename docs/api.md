@@ -90,7 +90,7 @@ Every `200` and `304` of a fleet's endpoints carries `X-Hand-Cursor`; a client m
 | `POST /api/v1/phone/code` | the same `Phone` the GET returns, with a new pairing code showing | the Companion page's Show pairing code, the Desktop Companion page, `hand companion code` |
 | `POST /api/v1/phone/app` | the same `Phone`, with a new app link showing | the Companion page's Pair the Hand app, the Desktop Companion page |
 | `POST /api/v1/phone/revoke` | the same `Phone`, with `revoke`: the fleets the revoke reached and those it did not | the Companion page's Revoke and Revoke everywhere, the Desktop Companion page |
-| `POST /api/v1/session/revoke` | `{"accepted": true}`; no body in the request; a paired Companion ends its own pairing in this fleet; see [Signing a Companion out](#signing-a-companion-out) | the Hand app's Sign out, in a later app release |
+| `POST /api/v1/session/revoke` | `{"accepted": true}`; no body in the request; a paired Companion ends its own pairing in this fleet; see [Signing a Companion out](#signing-a-companion-out) | the Hand app's Sign out, once per fleet |
 | `POST /api/v1/pair` | `Paired`: the cookie to set for each fleet the code named; no session needed | the pair page's form |
 | `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session, and the Start strip's harness rows |
 | `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |

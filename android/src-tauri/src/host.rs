@@ -9,7 +9,7 @@ use std::time::Duration;
 use hand_android_core::{
     Alert, AlertSink, Cancel, CipherError, Companion, CompanionConfig, Feed, Fleet, Jar, KeyCipher,
     Live, LiveSink, Method, OPEN_REJECTED, POLL_HOST, PairError, Polled, RESCAN, Reporter, Request,
-    RequestError, Response, Route, Sessions, Supervisor, VERSION, open_paired,
+    RequestError, Response, Route, Sessions, SignOut, Supervisor, VERSION, open_paired,
 };
 use jni::errors::LogErrorAndDefault;
 use jni::objects::{Global, JByteArray, JClass, JObject, JString, JValue};
@@ -150,6 +150,50 @@ pub fn forget_host_alerts(endpoint: &str) -> io::Result<()> {
         warn("the web view's cookies or the session store could not be cleared");
     }
     cleared
+}
+
+fn sign_out_host(core: &Arc<Core>, endpoint: &str) -> serde_json::Value {
+    let fleets: Vec<String> = core
+        .sessions
+        .hosts()
+        .into_iter()
+        .filter(|host| host.endpoint == endpoint)
+        .flat_map(|host| host.fleets.into_iter().map(|fleet| fleet.id))
+        .collect();
+    let watched = core
+        .live
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|running| running.fleet.clone())
+        .filter(|fleet| fleets.contains(fleet));
+    core.stop_live_of(&fleets);
+    let outcome = runtime().block_on(core.companion.sign_out_host(
+        &core.sessions,
+        &core.alerts,
+        endpoint,
+        || forget_host_alerts(endpoint),
+    ));
+    if !matches!(outcome, Ok(SignOut::Done))
+        && let Some(fleet) = watched
+    {
+        core.start_live(&fleet);
+    }
+    match outcome {
+        Ok(SignOut::Done) => serde_json::json!({ "outcome": "done" }),
+        Ok(SignOut::Left(left)) => serde_json::json!({
+            "outcome": "failed",
+            "fleets": left
+                .iter()
+                .map(|fleet| serde_json::json!({
+                    "id": fleet.id,
+                    "name": fleet.name,
+                    "reason": fleet.fate.name(),
+                }))
+                .collect::<Vec<_>>(),
+        }),
+        Err(_) => serde_json::json!({ "outcome": "not_cleared" }),
+    }
 }
 
 unsafe extern "C" {
@@ -1050,4 +1094,24 @@ pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_forgetHost<'loca
         })
     }));
     forgotten.unwrap_or(false)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_atqamz_handcompanion_Core_signOutHost<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+) -> JString<'local> {
+    unowned_env
+        .with_env_no_catch(|env| {
+            let answer = catch_unwind(AssertUnwindSafe(|| {
+                match (text(env, &host).ok().flatten(), core()) {
+                    (Some(host), Some(core)) => sign_out_host(&core, &host),
+                    _ => serde_json::json!({ "outcome": "not_cleared" }),
+                }
+            }))
+            .unwrap_or_else(|_| serde_json::json!({ "outcome": "not_cleared" }));
+            reply(env, answer)
+        })
+        .resolve::<LogErrorAndDefault>()
 }

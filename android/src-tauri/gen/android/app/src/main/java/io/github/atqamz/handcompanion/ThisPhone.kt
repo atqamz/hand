@@ -46,6 +46,8 @@ data class ThisPhone(
   val app: String = "",
   val core: String? = null,
   val asking: Forgetting? = null,
+  val signing: Boolean = false,
+  val failure: SignOutFailure? = null,
   val notice: String? = null
 )
 
@@ -135,6 +137,8 @@ fun thisPhone(state: FleetsState, app: String): ThisPhone {
     app = app,
     core = info?.core?.ifEmpty { null },
     asking = state.asking,
+    signing = state.signing,
+    failure = state.failure,
     notice = state.notice
   )
 }

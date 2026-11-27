@@ -36,6 +36,8 @@ object Core {
 
   @JvmStatic external fun forgetHost(host: String): Boolean
 
+  @JvmStatic external fun signOutHost(host: String): String?
+
   @JvmStatic external fun watch()
 
   @JvmStatic external fun unwatch()

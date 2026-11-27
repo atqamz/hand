@@ -70,6 +70,7 @@ class HandActivity : ComponentActivity() {
           Core::unsaved,
           forgetter = Core::forget,
           hostForgetter = Core::forgetHost,
+          signer = { signOutResult(Core.signOutHost(it)) },
           dropped = { clearFleetDrafts(applicationContext.getSharedPreferences("drafts", MODE_PRIVATE), it) }
         )
       }
@@ -482,7 +483,9 @@ class HandActivity : ComponentActivity() {
         var scanning by remember { mutableStateOf(false) }
         val pairing by pair.state.collectAsStateWithLifecycle()
         val listed by model.state.collectAsStateWithLifecycle()
-        LaunchedEffect(listed.notice) { if (listed.notice == FORGET_FAILED) checkAlerts() }
+        LaunchedEffect(listed.notice, listed.failure) {
+          if (listed.notice == FORGET_FAILED || listed.failure?.sentence == FORGET_FAILED) checkAlerts()
+        }
         var refused by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(refused) {
           if (refused != null) {
@@ -598,6 +601,10 @@ class HandActivity : ComponentActivity() {
               thisPhone(state, BuildConfig.VERSION_NAME),
               leave,
               model::ask,
+              {
+                val leaves = state.hosts.size <= 1 || state.asking?.endpoint == null
+                model.signOut { if (leaves) phone = false }
+              },
               {
                 val leaves = state.hosts.size <= 1 || state.asking?.endpoint == null
                 model.forget()

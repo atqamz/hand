@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::io;
@@ -13,6 +14,7 @@ use iroh::endpoint::{Builder, Endpoint, PortmapperConfig, QuicTransportConfig, V
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
+use crate::alerts::{AlertSink, CookieSource, Supervisor};
 use crate::dialer::{ALPN, Dialer, STREAMS_PER_CONNECTION, parse_target};
 use crate::dialers::Dialers;
 use crate::http::{Request, RequestError, Response, exchange};
@@ -22,6 +24,7 @@ use crate::pair::{PairError, redeem};
 use crate::pairing::{Offer, OfferError, Pairing};
 use crate::proxy::{self, Proxy, Slot};
 use crate::sessions::{Jar, Paired, Refusal, Sessions};
+use crate::signout::{Fate, Left, SignOut, sign_out_fleet};
 
 pub const POLL_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -89,6 +92,28 @@ pub struct Companion {
 struct Gate {
     reached: tokio::sync::Notify,
     resume: tokio::sync::Notify,
+}
+
+struct Holding<'a, C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> {
+    supervisor: &'a Supervisor<C, S>,
+    fleets: Vec<String>,
+}
+
+impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Holding<'_, C, S> {
+    fn add(&mut self, fleets: &[String]) {
+        self.supervisor.hold(fleets);
+        self.fleets.extend_from_slice(fleets);
+    }
+
+    fn take(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.fleets)
+    }
+}
+
+impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Drop for Holding<'_, C, S> {
+    fn drop(&mut self) {
+        self.supervisor.unhold(&self.fleets);
+    }
 }
 
 impl Companion {
@@ -222,8 +247,22 @@ impl Companion {
         endpoint: &str,
         clear: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<()> {
+        self.forget_host_when(endpoint, || true, clear)
+            .await
+            .map(|_| ())
+    }
+
+    async fn forget_host_when(
+        &self,
+        endpoint: &str,
+        still: impl FnOnce() -> bool,
+        clear: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<bool> {
         let cleared = {
             let _store = self.store.lock().unwrap();
+            if !still() {
+                return Ok(false);
+            }
             let cleared = clear();
             self.pairing.lock().unwrap().forget_host(endpoint);
             cleared
@@ -232,7 +271,98 @@ impl Companion {
             self.slot.clear_if(&dialer);
         }
         self.dialers.remove(endpoint).await;
-        cleared
+        cleared.map(|()| true)
+    }
+
+    pub async fn sign_out_host<J, C, S>(
+        &self,
+        sessions: &Sessions<J>,
+        supervisor: &Arc<Supervisor<C, S>>,
+        endpoint: &str,
+        clear: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<SignOut>
+    where
+        J: Jar,
+        C: CookieSource + Send + 'static,
+        S: AlertSink + Send + 'static,
+    {
+        let mut clear = Some(clear);
+        let mut holding = Holding {
+            supervisor,
+            fleets: Vec::new(),
+        };
+        let mut attempted: HashSet<String> = HashSet::new();
+        let mut left = Vec::new();
+        let mut down = false;
+        let mut done = false;
+        loop {
+            let fresh: Vec<_> = sessions
+                .hosts()
+                .into_iter()
+                .find(|host| host.endpoint == endpoint)
+                .map(|host| host.fleets)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|fleet| !attempted.contains(&fleet.id))
+                .collect();
+            if fresh.is_empty() {
+                if !left.is_empty() {
+                    break;
+                }
+                let signed = &attempted;
+                let forgotten = self
+                    .forget_host_when(
+                        endpoint,
+                        || {
+                            sessions
+                                .hosts()
+                                .into_iter()
+                                .find(|host| host.endpoint == endpoint)
+                                .is_none_or(|host| {
+                                    host.fleets.iter().all(|fleet| signed.contains(&fleet.id))
+                                })
+                        },
+                        || clear.take().expect("clear runs once")(),
+                    )
+                    .await;
+                match forgotten {
+                    Ok(true) => {
+                        done = true;
+                        break;
+                    }
+                    Ok(false) => continue,
+                    Err(error) => {
+                        supervisor.release(&holding.take()).await;
+                        return Err(error);
+                    }
+                }
+            }
+            let ids: Vec<String> = fresh.iter().map(|fleet| fleet.id.clone()).collect();
+            holding.add(&ids);
+            attempted.extend(ids);
+            for fleet in fresh {
+                let fate = if down {
+                    Fate::Unreachable
+                } else {
+                    let verdict = sign_out_fleet(self, sessions, &fleet.id).await;
+                    down = verdict.host_down;
+                    verdict.fate
+                };
+                if fate != Fate::Done {
+                    left.push(Left {
+                        id: fleet.id,
+                        name: fleet.name,
+                        fate,
+                    });
+                }
+            }
+        }
+        supervisor.release(&holding.take()).await;
+        Ok(if done {
+            SignOut::Done
+        } else {
+            SignOut::Left(left)
+        })
     }
 
     #[cfg(test)]

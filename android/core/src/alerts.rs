@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::future::Future;
 use std::io::{self, Write};
@@ -432,6 +432,7 @@ struct Stopped {
 struct State {
     loops: HashMap<String, Running>,
     stopped: HashMap<String, Stopped>,
+    held: HashSet<String>,
     scanner: Option<JoinHandle<()>>,
 }
 
@@ -501,6 +502,30 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
         self.feed.forget_cursors();
     }
 
+    pub fn hold(&self, fleets: &[String]) {
+        let mut state = self.state.lock().unwrap();
+        for fleet in fleets {
+            if let Some(running) = state.loops.remove(fleet) {
+                running.task.abort();
+            }
+            state.held.insert(fleet.clone());
+        }
+    }
+
+    pub fn unhold(&self, fleets: &[String]) -> bool {
+        let mut state = self.state.lock().unwrap();
+        for fleet in fleets {
+            state.held.remove(fleet);
+        }
+        state.scanner.is_some()
+    }
+
+    pub async fn release(self: &Arc<Self>, fleets: &[String]) {
+        if self.unhold(fleets) {
+            self.scan().await;
+        }
+    }
+
     pub fn forget_fleets(&self, fleets: &[String]) {
         let mut state = self.state.lock().unwrap();
         for fleet in fleets {
@@ -535,6 +560,9 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
             ..
         } in present
         {
+            if state.held.contains(&fleet) {
+                continue;
+            }
             if let Some(running) = state.loops.get_mut(&fleet)
                 && !running.task.is_finished()
             {
@@ -595,6 +623,9 @@ impl<C: CookieSource + Send + 'static, S: AlertSink + Send + 'static> Supervisor
                 value: cookie,
             } in present
             {
+                if state.held.contains(&fleet) {
+                    continue;
+                }
                 let stopped = state.stopped.get(&fleet);
                 if let Some(stopped) = stopped
                     && stopped.cookie == cookie
