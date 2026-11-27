@@ -61,6 +61,14 @@ func clip(s string) string {
 	return strconv.Quote(s)
 }
 
+func startLink(app *desktop.App, openWeb func(desktop.DocFrame) (desktop.WebHandle, error), link string) error {
+	app.OpenWeb = openWeb
+	if link == "" {
+		return nil
+	}
+	return app.OpenLink(link)
+}
+
 func handoff(app *desktop.App, args []string) {
 	o, err := parseArgs(args)
 	if err != nil {
@@ -191,7 +199,6 @@ func main() {
 			return path
 		}
 		web := &webhost.Host{Engine: newMygoEngine(win)}
-		app.OpenWeb = web.Open
 		app.OnTitle = win.SetTitle
 		app.OnBadge = mygo.App.SetBadgeCount
 		app.OnFlash = win.FlashFrame
@@ -231,11 +238,9 @@ func main() {
 			app.SetWindowSize(w, h)
 		})
 		win.OnClosed(func() { app.Close() })
-		if opts.open != "" {
-			if err := app.OpenLink(opts.open); err != nil && app.Model != nil {
-				fmt.Fprintln(os.Stderr, "hand-desktop:", err)
-				os.Exit(2)
-			}
+		if err := startLink(app, web.Open, opts.open); err != nil && app.Model != nil {
+			fmt.Fprintln(os.Stderr, "hand-desktop:", err)
+			os.Exit(2)
 		}
 		for _, args := range early {
 			handoff(app, args)

@@ -725,17 +725,26 @@ func checkNoContextMenu(t *testing.T, outDir string, x, y int) {
 	if b, err := exec.Command("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y), "click", "3").CombinedOutput(); err != nil {
 		t.Fatalf("xdotool: %v\n%s", err, b)
 	}
-	// A fixed delay: a menu that opens later than this is not seen, so a pass is no proof that none ever opens.
-	time.Sleep(2 * time.Second)
-	after := screenshot(t, filepath.Join(outDir, "after-rclick.png"))
-	changed := 0
-	for yy := y; yy < y+300; yy++ {
-		for xx := x; xx < x+300; xx++ {
-			if before.At(xx, yy) != after.At(xx, yy) {
-				changed++
+	const watch = 5 * time.Second
+	deadline := time.Now().Add(watch)
+	changed, polls := 0, 0
+	for {
+		time.Sleep(250 * time.Millisecond)
+		after := screenshot(t, filepath.Join(outDir, "after-rclick.png"))
+		polls++
+		changed = 0
+		for yy := y; yy < y+300; yy++ {
+			for xx := x; xx < x+300; xx++ {
+				if before.At(xx, yy) != after.At(xx, yy) {
+					changed++
+				}
 			}
 		}
+		if changed > 200 || time.Now().After(deadline) {
+			break
+		}
 	}
+	t.Logf("polls: %d over up to %s", polls, watch)
 	t.Logf("pixels changed by a right-click: %d", changed)
 	_ = exec.Command("xdotool", "key", "Escape").Run()
 	if changed > 200 {
