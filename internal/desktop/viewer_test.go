@@ -1089,3 +1089,52 @@ func TestBackKeepsTheScrollWhenTheReportRevealWasPending(t *testing.T) {
 		t.Fatalf("Back put the page at %v, want %v where it left", y, want)
 	}
 }
+
+func TestAPageOpenedWhileBackIsStillLoadingKeepsTheScrollBackWillRestore(t *testing.T) {
+	f := viewFixture(t)
+	sub := f.task[fleetID]
+	sub.Task.Ref, sub.Task.Title = "t3", "Rotate the docs"
+	f.taskExtra = map[string]desktop.TaskDetail{"t3": sub}
+	app := newApp(t, f)
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	settle := func() {
+		t.Helper()
+		for app.Loading {
+			waitPost(t, posted)()
+		}
+	}
+	tt := newTesterAt(app, 1800, 420)
+	app.OpenRef("t1")
+	settle()
+	tt.Frame()
+	tt.Scroll(400, 300, 0, 320)
+	tt.Frame()
+	want, max := desktop.ViewerScroll(app)
+	if max == 0 || want == 0 {
+		t.Fatalf("the page does not scroll: y=%v max=%v", want, max)
+	}
+	app.OpenRef("t3")
+	settle()
+	tt.Frame()
+	app.Back()
+	tt.Frame()
+	if app.Ref != "t1" || !app.Loading {
+		t.Fatalf("Back left %q with Loading=%v, want t1 still loading", app.Ref, app.Loading)
+	}
+	app.OpenDoc("reports/t1/design.md")
+	for app.Loading {
+		waitPost(t, posted)()
+	}
+	tt.Frame()
+	app.Back()
+	settle()
+	tt.Frame()
+	tt.Frame()
+	if app.Ref != "t1" {
+		t.Fatalf("Back left %q, want t1", app.Ref)
+	}
+	if y, _ := desktop.ViewerScroll(app); y != want {
+		t.Fatalf("the page came back at %v, want the scroll it left at %v", y, want)
+	}
+}

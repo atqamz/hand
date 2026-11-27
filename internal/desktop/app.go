@@ -770,9 +770,13 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 }
 
 func (a *App) pushBack() {
+	scroll, aside := a.viewerScroll.Y, a.asideScroll.Y
+	if a.restore.on {
+		scroll, aside = a.restore.page, a.restore.aside
+	}
 	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
 		Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page,
-		Scroll: a.viewerScroll.Y, Aside: a.asideScroll.Y})
+		Scroll: scroll, Aside: aside})
 }
 
 type scrollMemo struct {
