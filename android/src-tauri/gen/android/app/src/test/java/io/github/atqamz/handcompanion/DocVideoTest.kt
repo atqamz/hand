@@ -31,6 +31,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+private const val END_OF_HEADERS = 0x0D0A0D0A
 private const val FLEET = "f000000000007"
 private const val COOKIE = "hand_phone_f000000000007=1.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
@@ -529,7 +530,11 @@ class DocVideoTest {
     val acceptor =
       Thread {
         try {
-          held += silent.accept()
+          val socket = silent.accept()
+          held += socket
+          val input = socket.getInputStream()
+          var tail = 0
+          while (tail != END_OF_HEADERS) tail = (tail shl 8) or input.read().also { if (it < 0) throw IOException() }
           accepted.countDown()
         } catch (_: IOException) {}
       }
@@ -695,9 +700,29 @@ class DocVideoTest {
   }
 
   @Test
+  fun releaseThePlayerEvenWhenClosingTheReaderThrows() {
+    val order = mutableListOf<String>()
+    val reader =
+      Closeable {
+        order += "reader"
+        throw IOException("close failed")
+      }
+    try {
+      releaseStream(reader) { order += "player" }
+      throw AssertionError("expected the close failure")
+    } catch (error: IOException) {
+      assertEquals("close failed", error.message)
+    }
+    assertEquals(listOf("reader", "player"), order)
+  }
+
+  @Test
   fun theVideoSurfaceKeepsTheScreenOnWhilePlaying() {
     val source = File("src/main/java/io/github/atqamz/handcompanion/DocVideo.kt").readText()
     val surface = source.substringAfter("fun VideoSurface(")
-    assertTrue(surface.contains("update = { it.keepScreenOn = playing }"))
+    assertTrue(
+      "VideoSurface must keep `update = { it.keepScreenOn = playing }` exactly",
+      surface.contains("update = { it.keepScreenOn = playing }"),
+    )
   }
 }

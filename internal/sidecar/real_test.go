@@ -14,7 +14,7 @@ func realBinary(t *testing.T) string {
 	t.Helper()
 	bin := os.Getenv("HAND_IROH_BIN")
 	if bin == "" {
-		t.Skip("HAND_IROH_BIN is not set: build the sidecar with `cargo build --locked` in iroh/ and point HAND_IROH_BIN at target/debug/hand-iroh (the Iroh workflow does)")
+		t.Skip("HAND_IROH_BIN is not set: build the sidecar with `cargo build --locked` in iroh/ and point HAND_IROH_BIN at target/debug/hand-iroh (the `[CI] Iroh` job does)")
 	}
 	abs, err := filepath.Abs(bin)
 	if err != nil {
