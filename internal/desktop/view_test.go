@@ -3,6 +3,7 @@ package desktop_test
 import (
 	"context"
 	"errors"
+	"image"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -59,7 +60,7 @@ func shotSized(t *testing.T, tt *ui.Tester, name string, width, height int) {
 func mustText(t *testing.T, tt *ui.Tester, want ...string) {
 	t.Helper()
 	for _, s := range want {
-		if !tt.HasText(s) {
+		if !tt.HasText(s) && !inDocMenu(tt, s) {
 			t.Errorf("missing %q in %q", s, tt.Texts())
 		}
 	}
@@ -67,14 +68,33 @@ func mustText(t *testing.T, tt *ui.Tester, want ...string) {
 
 func mustNotText(t *testing.T, tt *ui.Tester, want string) {
 	t.Helper()
-	if tt.HasText(want) {
+	if tt.HasText(want) || inDocMenu(tt, want) {
 		t.Errorf("unexpected %q in %q", want, tt.Texts())
 	}
 }
 
+func inDocMenu(tt *ui.Tester, label string) bool {
+	if !docMenuItems[label] || tt.Click("More document actions") != nil {
+		return false
+	}
+	found := tt.HasText(label)
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	return found
+}
+
+var docMenuItems = map[string]bool{"Copy contents": true, "Copy window": true, "Copied": true, "Download": true, "Wide": true, "Wrap": true}
+
 func click(t *testing.T, tt *ui.Tester, text string) {
 	t.Helper()
-	if err := tt.Click(text); err != nil {
+	err := tt.Click(text)
+	if err != nil && docMenuItems[text] {
+		if oerr := tt.Click("More document actions"); oerr != nil {
+			t.Fatalf("open the document menu: %v", oerr)
+		}
+		err = tt.Click(text)
+	}
+	if err != nil {
 		t.Fatalf("click %q: %v", text, err)
 	}
 }
@@ -90,7 +110,8 @@ func TestFleetSwitch(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "golden", "second")
 	click(t, tt, "second")
-	mustText(t, tt, "second", secondID)
+	mustText(t, tt, "second")
+	mustNotText(t, tt, secondID)
 	mustNotText(t, tt, "f00000000e0aa")
 	if app.Fleet.ID != secondID {
 		t.Fatalf("fleet = %s, want %s", app.Fleet.ID, secondID)
@@ -202,9 +223,12 @@ func blockedFixture(t *testing.T) *fixture {
 
 func TestABlockedSupervisorShowsTheKeys(t *testing.T) {
 	f := blockedFixture(t)
+	st := f.status[fleetID]
+	st.Needs.Items = append([]desktop.Need{{Kind: "blocked", Ref: "s1", Word: "BLOCKED", Tone: "fail"}}, st.Needs.Items...)
+	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	mustText(t, tt, "Keys", "Enter", "Esc", "↑", "↓", "1", "2", "3")
+	mustText(t, tt, "Enter", "Esc", "↑", "↓", "1", "2", "3")
 	click(t, tt, "Enter")
 	if f.count("keys:enter") != 1 {
 		t.Fatalf("key calls = %d", f.count("keys:enter"))
@@ -273,12 +297,12 @@ func TestAStaleAskPressIsRefusedAndTheAskStays(t *testing.T) {
 	}
 }
 
-func TestTheBlockedPromptSitsBesideTheNeedsNotBehindThem(t *testing.T) {
+func TestTheBlockedPromptShowsOnceInTheNeeds(t *testing.T) {
 	app := newApp(t, askFixture(t))
 	tt := newTester(app)
-	mustText(t, tt, "Blocked · s1", "Do you want to proceed?")
-	click(t, tt, "Blocked · s1")
-	mustText(t, tt, "Do you want to proceed?")
+	if n := countText(t, tt, "Do you want to proceed?"); n != 1 {
+		t.Fatalf("the ask is shown %d times, want once in the card", n)
+	}
 	if app.Screen != desktop.BoardScreen {
 		t.Fatalf("screen = %v", app.Screen)
 	}
@@ -1210,7 +1234,7 @@ func TestEmptyStates(t *testing.T) {
 func TestErrorState(t *testing.T) {
 	app := newApp(t, errorFixture())
 	tt := newTester(app)
-	mustText(t, tt, "The Board refused this window.", "hand open")
+	mustText(t, tt, "The Board refused this window.", "The Board answers, but it did not accept this fleet's token. In a terminal run hand board stop, then hand board start, then try again.")
 	mustNotText(t, tt, "Back")
 	click(t, tt, "Try again")
 	mustText(t, tt, "The Board refused this window.")
@@ -1238,6 +1262,8 @@ func TestScenes(t *testing.T) {
 		{Ref: "export.csv", Kind: "file"},
 	}
 	delivered.task[fleetID] = td
+	openErr := newApp(t, goldenFixture(t))
+	openErr.OpenBoardLink("/" + fleetID + "/task/d3")
 	opened := newApp(t, goldenFixture(t))
 	if err := opened.OpenLink("handboard://open/" + secondID + "/decision/d1"); err != nil {
 		t.Fatal(err)
@@ -1275,10 +1301,7 @@ func TestScenes(t *testing.T) {
 		}},
 		{"13-supervisor-controls", newApp(t, blocked), nil},
 		{"16-blocked-ask", newApp(t, askFixture(t)), nil},
-		{"14-open-error", homedApp(t, "/very/long/path/to/a-fleet"), func(t *testing.T, tt *ui.Tester) {
-			t.Setenv("PATH", t.TempDir())
-			menu(t, tt, "Open in browser")
-		}},
+		{"14-open-error", openErr, nil},
 		{"15-delivered", newApp(t, delivered), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "Fix login")
 		}},
@@ -1978,5 +2001,94 @@ func TestTheRailBadgeIsTonedByTheWorstNeed(t *testing.T) {
 		if got := railBadgeFill(t, worst); got != [3]uint8{want.R, want.G, want.B} {
 			t.Errorf("worst=%q: badge fill %v, want %v", worst, got, want)
 		}
+	}
+}
+
+func TestTheRailMarksCarryTheFleetsMonogram(t *testing.T) {
+	for _, open := range []bool{false, true} {
+		app := newApp(t, goldenFixture(t))
+		app.RailOpen = open
+		tt := newTester(app)
+		mustText(t, tt, "GO", "SE")
+	}
+}
+
+func TestTheOverflowButtonIsTheGearAndSaysWhatItHolds(t *testing.T) {
+	if desktop.OverflowIcon != "gear" {
+		t.Errorf("overflow icon = %q", desktop.OverflowIcon)
+	}
+	tt := newTester(newApp(t, goldenFixture(t)))
+	more, ok := tt.Find("More")
+	if !ok {
+		t.Fatalf("no More in %q", tt.Texts())
+	}
+	tt.Move(more.X+more.W/2, more.Y+more.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText(desktop.OverflowTip) {
+		t.Errorf("no tooltip on the overflow button in %q", tt.Texts())
+	}
+}
+
+func rectInk(img *image.RGBA, r ui.Rect) int {
+	x0, y0, x1, y1 := int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H)
+	bg := img.RGBAAt(x0, y0)
+	n := 0
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if img.RGBAAt(x, y) != bg {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func TestTheOverflowButtonDrawsTheGearNotTheDots(t *testing.T) {
+	k := kit.ColorsFor(false)
+	ref := func(name string) int {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Row(c).Size(kit.Control, kit.Control).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, kit.Icon(name)).TextColor(k.Muted)
+			})
+		}, 60, 60)
+		tt.Frame()
+		return rectInk(tt.Image(), ui.Rect{W: 60, H: 60})
+	}
+	gear, dots := ref("gear"), ref("more")
+	if gear == dots {
+		t.Fatalf("gear and dots draw the same ink: %d", gear)
+	}
+	tt := sized(t, newApp(t, goldenFixture(t)), windowWidth, windowHeight, false)
+	more, ok := tt.Find("More")
+	if !ok {
+		t.Fatalf("no More in %q", tt.Texts())
+	}
+	got := rectInk(tt.Image(), more)
+	if d, o := abs(got-gear), abs(got-dots); d >= o {
+		t.Errorf("the overflow button has %d inked pixels; the gear has %d and the dots %d", got, gear, dots)
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func TestTabReachesTheFleetNameAndShowsItsID(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	for i := 0; i < 20 && !tt.Focused("golden"); i++ {
+		tt.Key(0, ui.KeyTab)
+	}
+	if !tt.Focused("golden") {
+		t.Fatal("no Tab stop on the fleet name")
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText(kit.FleetTip(app.Fleet.ID)) {
+		t.Errorf("no fleet ID tip on focus, in %q", tt.Texts())
 	}
 }

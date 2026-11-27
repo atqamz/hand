@@ -64,6 +64,7 @@ func boardTheme(dark bool) *ui.Theme {
 func (a *App) View(c *ui.Context) {
 	c.SetZoom(a.drawnZoom(c))
 	a.zoomKeys(c)
+	a.helpKeys(c)
 	if w, _ := c.Size(); w > 0 {
 		a.narrow = w < kit.BoardWidth
 	}
@@ -102,9 +103,13 @@ func (a *App) View(c *ui.Context) {
 	docPage := a.docPageOpen()
 	shell := ui.Row(c).Fill()
 	if docPage {
-		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
+		if !a.keysOpen {
+			shell = keyClosePage.on(shell, a.CloseViewer)
+		}
 		if a.Screen == DocScreen {
-			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox)
+			shell = keyFind.on(shell, a.focusFindBox)
+			shell = keyPrevDoc.on(shell, func() { a.stepDoc(false) })
+			shell = keyNextDoc.on(shell, func() { a.stepDoc(true) })
 		}
 	}
 	shell.Children(func() {
@@ -129,6 +134,7 @@ func (a *App) View(c *ui.Context) {
 	if a.viewerOpen() && !docPage {
 		a.viewer(c, k, p)
 	}
+	a.keysSheet(c, k)
 	a.toasts(c, k, p)
 }
 
@@ -201,19 +207,21 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
 		a.Show(HistoryScreen)
 	}
-	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
-		a.OpenScreen()
-	}
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
 		a.Show(PhoneScreen)
 	}
 	if a.Model != nil {
 		kit.RailHead(c, k, open, "Fleets")
 	}
+	named := make([]kit.Named, len(a.Fleets))
+	for i, f := range a.Fleets {
+		named[i] = kit.Named{ID: f.ID, Name: fleetName(f)}
+	}
+	monos := kit.Monograms(named)
 	for _, f := range a.Fleets {
 		fleet := f
 		tone, status := a.mark(fleet)
-		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
+		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Mono: monos[fleet.ID], Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
 		if m, ok := a.linkOf(fleet); ok {
 			_, n.LinkFG = toneColors(m.tone, p)
 			n.Link, n.LinkIcon = m.word, m.icon
@@ -361,7 +369,7 @@ func (a *App) mastheadStrip(c *ui.Context, k kit.Colors, p palette) {
 	ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {
 		if a.Model != nil && a.Fleet.ID != "" {
 			a.linkPill(c, p)
-			statusPill(c, p, a.Status.Pill)
+			statusPill(c, p, a.supWord())
 			if sup := a.Status.Supervisor; sup != nil && sup.Pending > 0 {
 				ui.Textf(c, "%d queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
@@ -544,25 +552,16 @@ func (a *App) errorCardFor(c *ui.Context, p palette, msg string) {
 }
 
 func (a *App) openFeedback() bool {
-	return a.OpenBusy || a.OpenErr != ""
+	return a.OpenErr != ""
 }
 
 func (a *App) openCard(c *ui.Context, p palette) {
 	if !a.openFeedback() {
 		return
 	}
-	if a.OpenBusy {
-		ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.card).
-			Border(1, p.line).Children(func() {
-			ui.Text(c, "Opening in the browser…").FontSize(kit.Title.Size).Bold()
-			ui.Text(c, "`hand open` is starting this page.").FontSize(kit.Meta.Size).
-				TextColor(p.neutral)
-		})
-		return
-	}
 	ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The browser did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
+		ui.Text(c, "This page did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
 		ui.Text(c, a.OpenErr).FontSize(kit.Meta.Size)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-open"), "Dismiss").Clicked() {
@@ -604,17 +603,6 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 	})
 }
 
-func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
-	ui.Column(c).Gap(8).Padding(12).Radius(8).Background(p.card).Border(1, p.line).Children(func() {
-		ui.Text(c, sup.Ask.Question).FontSize(kit.Body.Size).Bold()
-		ui.Column(c).Gap(8).Children(func() {
-			a.keyRow(c, p, askKeyChoices(sup.Ask), sup.Keys == nil, func(choice keyChoice) {
-				a.Press(choice.Label, choice.Keys...)
-			})
-		})
-	})
-}
-
 var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
 
 func more(c *ui.Context, p palette, text string) {
@@ -644,7 +632,7 @@ func statusPill(c *ui.Context, p palette, word string) {
 
 func toneOf(state string) string {
 	switch state {
-	case "fail", "failing", "failed", "failure", "blocked", "worker", "resume", "interrupted", "stuck":
+	case "fail", "failing", "failed", "failure", "blocked", "unreachable", "held", "exited", "worker", "resume", "interrupted", "stuck":
 		return "fail"
 	case "wait", "warn", "waiting", "limited", "nosup", "stalled", "decision", "pending":
 		return "wait"
@@ -849,7 +837,7 @@ func (a *App) markdownOf(c *ui.Context, linked string, theme *markdown.Theme) {
 		switch {
 		case board && a.openDocLink(target):
 		case board:
-			a.OpenBoardPath(target)
+			a.openBoardLink(target)
 		case target != "":
 			c.OpenURL(target)
 		}

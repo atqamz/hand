@@ -188,7 +188,7 @@ func TestTheOpenItemsSlugLineCarriesTheAttemptsWords(t *testing.T) {
 		}
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "FAILED", "a2", "t2", "codex gpt-6-luna · failed", when(ended), "the launch found an old worktree")
+	mustText(t, tt, "FAILED", "a2", "t2", "codex gpt-6-luna", when(ended), "the launch found an old worktree")
 	click(t, tt, "Cookie fixed")
 	mustText(t, tt, "REPORT", "r1", "t1", "project hand", "a1 · done", when(ended))
 }
@@ -202,7 +202,7 @@ func TestASlugLineLeavesNoGapForAFieldTheBoardOmitted(t *testing.T) {
 		}}
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "codex · failed")
+	mustText(t, tt, "codex")
 	mustNotText(t, tt, "codex  ·")
 	mustNotText(t, tt, "failed ·")
 }
@@ -261,7 +261,7 @@ func TestAResumeItemShowsTheSupervisorsLineAndEnd(t *testing.T) {
 		}}
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "claude sonnet · interrupted", when(ended), "Resume", "New session")
+	mustText(t, tt, "claude sonnet", when(ended), "Resume", "New session")
 	next, ok := tt.Find("New session")
 	if !ok {
 		t.Fatal("no New session button")
@@ -538,13 +538,13 @@ func TestABlockedNeedOpensToTheSupervisorsKeys(t *testing.T) {
 	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	mustText(t, tt, "Blocked", "Keys")
-	if n := countText(t, tt, "Esc"); n != 2 {
-		t.Fatalf("Esc shown %d times, want in the card and beside the conversation", n)
+	mustText(t, tt, "Blocked")
+	if n := countText(t, tt, "Esc"); n != 1 {
+		t.Fatalf("Esc shown %d times, want once in the card", n)
 	}
 	click(t, tt, "Bash: rm -f x · Proceed?")
-	if n := countText(t, tt, "Esc"); n != 1 {
-		t.Fatalf("Esc shown %d times after the card closed, want once", n)
+	if n := countText(t, tt, "Esc"); n != 0 {
+		t.Fatalf("Esc shown %d times after the card closed, want none", n)
 	}
 }
 
@@ -1016,8 +1016,8 @@ func TestAStaleWorkerPressReopensOnTheFreshScreen(t *testing.T) {
 
 func TestTheBlockedCardSwitchesBetweenAskOptionsAndTheFixedKeys(t *testing.T) {
 	ask := newTester(newApp(t, blockedScreen(t, true)))
-	if n := countText(t, ask, "1 Yes"); n != 2 {
-		t.Errorf("ask options shown %d times, want the card and the conversation", n)
+	if n := countText(t, ask, "1 Yes"); n != 1 {
+		t.Errorf("ask options shown %d times, want once in the card", n)
 	}
 	mustNotText(t, ask, "Keys")
 	fixed := newTester(newApp(t, blockedScreen(t, false)))
@@ -1027,8 +1027,8 @@ func TestTheBlockedCardSwitchesBetweenAskOptionsAndTheFixedKeys(t *testing.T) {
 			enters++
 		}
 	}
-	if enters != 2 {
-		t.Errorf("fixed keys shown %d times, want the card and the conversation", enters)
+	if enters != 1 {
+		t.Errorf("fixed keys shown %d times, want once in the card", enters)
 	}
 	mustNotText(t, fixed, "1 Yes")
 }
@@ -1141,33 +1141,6 @@ func TestTheCountdownArmsWhenTheWindowInstallsPost(t *testing.T) {
 	}
 }
 
-func TestARefusedSecondPressClearsTheSentRow(t *testing.T) {
-	f := blockedScreen(t, true)
-	sent := f.status[fleetID]
-	sup := *sent.Supervisor
-	sup.Keys = &desktop.Keys{Revision: 7, Digest: screenDigest, Pressed: 3}
-	sent.Supervisor = &sup
-	f.keyStatus = &sent
-	app := newApp(t, f)
-	tt := newTester(app)
-	click(t, tt, "1 Yes")
-	tt.Frame()
-	mustText(t, tt, "Sent 1 · waiting…")
-
-	fresh := f.status[fleetID]
-	fresh.Needs.Items = append([]desktop.Need(nil), fresh.Needs.Items...)
-	fresh.Needs.Items[0].Excerpt = "screen after the second press"
-	next := *fresh.Supervisor
-	next.Keys = &desktop.Keys{Revision: 8, Digest: screenDigest, Pressed: 5}
-	fresh.Supervisor = &next
-	f.status[fleetID] = fresh
-	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 7; nothing was sent"}
-	click(t, tt, "1 Yes")
-	tt.Frame()
-	mustText(t, tt, "the screen moved; nothing was sent", "screen after the second press")
-	mustNotText(t, tt, "Sent 1 · waiting…")
-}
-
 const nextDigest = "fedcba9876543210fedcba9876543210"
 
 func laterPrompt(t *testing.T, f *fixture, revision int64, digest, excerpt string) {
@@ -1269,7 +1242,7 @@ func TestScenesTheOpenSlugAndTheReceipts(t *testing.T) {
 			shotSized(t, failure, scene("slug-failure"), size[0], size[1])
 
 			resumed := sized(t, newApp(t, resume(t)), size[0], size[1], dark)
-			mustText(t, resumed, "claude sonnet · interrupted")
+			mustText(t, resumed, "claude sonnet")
 			shotSized(t, resumed, scene("slug-resume"), size[0], size[1])
 
 			warned := sized(t, newApp(t, warn(t)), size[0], size[1], dark)

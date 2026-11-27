@@ -101,6 +101,7 @@ type App struct {
 	WindowW     int
 	WindowH     int
 	sheetOpen   bool
+	keysOpen    bool
 	narrow      bool
 	tabFor      string
 	prefsTimer  func()
@@ -118,6 +119,7 @@ type App struct {
 	needChosen    map[string]bool
 	needTop       string
 	needClosedTop string
+	needReveal    string
 	ackDone       map[string]bool
 	ackRef        string
 	sentNeeds     map[string]sentRecord
@@ -154,7 +156,6 @@ type App struct {
 	ActionErr    string
 	ActionWarn   bool
 	OpenErr      string
-	OpenBusy     bool
 
 	Chips      []chip
 	chipSeq    int
@@ -553,7 +554,7 @@ func (a *App) SelectFleet(id string) {
 	a.Models, a.modelErr, a.modelOpen, a.modelsFor = Models{}, "", false, ""
 	a.picks, a.change, a.modelsAgain, a.modelsBusy = nil, pick{}, false, false
 	a.modelsGen++
-	a.needChosen, a.needTop, a.needClosedTop, a.ackDone, a.sentNeeds = nil, "", "", nil, nil
+	a.needChosen, a.needTop, a.needClosedTop, a.needReveal, a.ackDone, a.sentNeeds = nil, "", "", "", nil, nil
 	a.misreadOpen = nil
 	a.resetDeny()
 	a.focusSend, a.focusNote = false, false
@@ -563,7 +564,6 @@ func (a *App) SelectFleet(id string) {
 	a.Task, a.Attempt, a.Decision = TaskDetail{}, AttemptDetail{}, DecisionDetail{}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
-	a.OpenBusy = false
 	a.DraftErr, a.SendErr, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()
@@ -1470,7 +1470,6 @@ func (a *App) Press(label string, keys ...string) {
 		}
 		a.Busy, a.BusyAction = false, ""
 		if isConflict(err) {
-			delete(a.sentNeeds, ref)
 			a.receipt = "the screen moved; nothing was sent"
 			a.receiptKey = "key:" + ref
 			a.reopenNeed(need)
@@ -2243,7 +2242,7 @@ func friendly(err error) string {
 	if errors.As(err, &api) {
 		switch api.Status {
 		case 401:
-			return "the board did not accept this fleet's token; open the fleet once with `hand open`"
+			return "the board did not accept this fleet's token; stop the board with `hand board stop`, then start it again with `hand board start`"
 		case 403:
 			if api.Code == "csrf_required" || api.Remote {
 				return api.Message

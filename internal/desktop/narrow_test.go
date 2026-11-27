@@ -128,7 +128,7 @@ func TestTheSheetOpensFromTheMastheadAndClosesOnEscapeOrAPick(t *testing.T) {
 	if _, ok := tt.Find("Pages and fleets"); !ok {
 		t.Fatal("the sheet is not drawn")
 	}
-	mustText(t, tt, "Board", "Screen", "Companion", "golden", "second")
+	mustText(t, tt, "Board", "Companion", "golden", "second")
 	if _, ok := tt.Find("Show labels"); ok {
 		t.Error("the rail is drawn beside the sheet")
 	}
@@ -152,7 +152,7 @@ func TestTheSheetOpensFromTheMastheadAndClosesOnEscapeOrAPick(t *testing.T) {
 		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyTab)
-	if !tt.Focused("Screen") {
+	if !tt.Focused("Companion") {
 		t.Errorf("Tab did not walk the sheet's items: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEscape)
@@ -653,10 +653,9 @@ func TestTheOpenCardKeepsTheChatColumnsMeasure(t *testing.T) {
 	f := goldenFixture(t)
 	f.fleets[0].Home = "/fleet"
 	app := newApp(t, f)
-	t.Setenv("PATH", t.TempDir())
 	tt := sized(t, app, 880, 760, false)
 	click(t, tt, "Chat")
-	app.OpenInBrowser()
+	app.OpenBoardLink("/" + fleetID + "/task/d3")
 	tt.Frame()
 	if app.OpenErr == "" {
 		t.Fatal("the failed open left no card")

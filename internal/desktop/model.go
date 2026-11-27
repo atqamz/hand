@@ -51,6 +51,7 @@ type Supervisor struct {
 	Pending   int    `json:"pending"`
 	Resumable bool   `json:"resumable"`
 	Blocked   bool   `json:"blocked,omitempty"`
+	Held      bool   `json:"held,omitempty"`
 	Keys      *Keys  `json:"keys,omitempty"`
 	Ask       *Ask   `json:"ask,omitempty"`
 }

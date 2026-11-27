@@ -3,6 +3,9 @@ package kit
 import (
 	"fmt"
 	"hash/fnv"
+	"sort"
+	"strings"
+	"unicode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -16,7 +19,18 @@ const (
 	TabHeight     = 40
 	SheetWidth    = 300
 	railPad       = 7
+	monoTile      = 30
+	RefWidth      = 52
 )
+
+func Ref(c *ui.Context, text string, fg ui.Color) {
+	if text == "" {
+		ui.Box(c).Width(RefWidth).Shrink(0)
+		return
+	}
+	ui.Text(c, text).Font("monospace").FontSize(Meta.Size).TextColor(fg).FontFeatures("tnum").
+		SingleLine().Ellipsis("…").Width(RefWidth).Shrink(0)
+}
 
 func TintOf(id string) int {
 	if id == "" {
@@ -53,6 +67,7 @@ func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
 				Background(ui.Transparent).Justify(ui.Center).AlignItems(ui.Center).
 				Cursor(ui.CursorPointer).Label(label)
 			b.Children(func() { ui.Icon(c, Icon("sidebar")).TextColor(k.Muted) })
+			railTip(c, k, b, label)
 			if b.Clicked() {
 				toggle()
 			}
@@ -78,7 +93,7 @@ type NavItem struct {
 	Count            int
 	CountBG, CountFG ui.Color
 	Dot              bool
-	Fleet            string
+	Fleet, Mono      string
 	Tone, Status     string
 	Link, LinkIcon   string
 	LinkFG           ui.Color
@@ -129,7 +144,10 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 	}
 	el.Children(func() {
 		if n.Fleet != "" {
-			ui.Icon(c, Icon("mark")).Size(18, 18).TextColor(k.Tint[TintOf(n.Fleet)])
+			ui.Row(c).Size(monoTile, 24).Radius(RadiusSM).Border(1, k.Tint[TintOf(n.Fleet)]).
+				Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, n.Mono).FontSize(Meta.Size).Bold().TextColor(fg).SingleLine()
+			})
 		} else {
 			ui.Icon(c, Icon(n.Icon)).TextColor(fg)
 		}
@@ -172,14 +190,96 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 		}
 	})
 	if !n.Open {
-		ui.TooltipBase(c, el, func(tip ui.Element) {
-			tip.AttachTo(el, ui.AnchorEnd, ui.AnchorStart).MarginStart(Space10)
-			tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
-			tip.Children(func() { ui.Text(c, n.Name()).FontSize(Meta.Size) })
-		})
+		railTip(c, k, el, n.Name())
 	}
 	return el.Clicked() && !n.Inert
 }
+
+func railTip(c *ui.Context, k Colors, el ui.Element, text string) {
+	ui.TooltipBase(c, el, func(tip ui.Element) {
+		tip.AttachTo(el, ui.AnchorEnd, ui.AnchorStart).MarginStart(Space10)
+		tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
+		tip.Children(func() { ui.Text(c, text).FontSize(Meta.Size) })
+	})
+}
+
+type Named struct{ ID, Name string }
+
+const monoAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func Monograms(fleets []Named) map[string]string {
+	bases := make(map[string]string, len(fleets))
+	count := make(map[string]int, len(fleets))
+	for _, f := range fleets {
+		if _, dup := bases[f.ID]; dup {
+			continue
+		}
+		bases[f.ID] = monoBase(f.Name, f.ID)
+		count[bases[f.ID]]++
+	}
+	out := make(map[string]string, len(bases))
+	taken := make(map[string]bool, len(bases))
+	var clash []string
+	for id, base := range bases {
+		if count[base] == 1 {
+			out[id], taken[base] = base, true
+		} else {
+			clash = append(clash, id)
+		}
+	}
+	sort.Strings(clash)
+	for _, id := range clash {
+		head := []rune(bases[id])[:1]
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(id))
+		start := int(h.Sum32() % uint32(len(monoAlphabet)))
+		out[id] = string(head) + string(monoAlphabet[start])
+		for i := range monoAlphabet {
+			m := string(head) + string(monoAlphabet[(start+i)%len(monoAlphabet)])
+			if !taken[m] {
+				out[id], taken[m] = m, true
+				break
+			}
+		}
+	}
+	return out
+}
+
+func wideRune(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
+
+func monoBase(name, id string) string {
+	var words, letters []rune
+	for _, w := range strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		r := []rune(w)
+		words = append(words, unicode.ToUpper(r[0]))
+		for _, x := range r {
+			letters = append(letters, unicode.ToUpper(x))
+		}
+	}
+	pick := letters
+	if len(words) > 1 {
+		pick = words
+	}
+	if len(pick) > 0 && wideRune(pick[0]) {
+		return string(pick[:1])
+	}
+	for _, r := range strings.ToUpper(id) {
+		if len(pick) >= 2 {
+			break
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			pick = append(pick, r)
+		}
+	}
+	for len(pick) < 2 {
+		pick = append(pick, '?')
+	}
+	return string(pick[:2])
+}
+
+func FleetTip(id string) string { return "Fleet ID " + id }
 
 func attentionDot(c *ui.Context, k Colors, tone string, open bool) {
 	shape := func() {
@@ -200,7 +300,7 @@ func attentionDot(c *ui.Context, k Colors, tone string, open bool) {
 		shape()
 		return
 	}
-	ui.Box(c).Absolute().Top(5).Right(5).Padding(2).Radius(RadiusPill).Background(k.Panel).Children(shape)
+	ui.Box(c).Absolute().Top(-2).Right(-4).Padding(2).Radius(RadiusPill).Background(k.Panel).Children(shape)
 }
 
 func countPill(c *ui.Context, text string, bg, fg ui.Color) {
@@ -262,9 +362,13 @@ func mastheadRow(c *ui.Context, k Colors, id, name string, pad float32, onMenu, 
 			onMenu()
 		}
 		ui.Icon(c, Icon("mark")).Size(22, 22).TextColor(tint)
-		ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
+		title := ui.Text(c, name).FontSize(Title.Size).LineHeight(Title.Line).Bold().SingleLine().Ellipsis("…")
 		if id != "" {
-			ui.Text(c, id).Font("monospace").FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
+			title.Description(FleetTip(id)).Focusable()
+			ui.TooltipBase(c, title, func(tip ui.Element) {
+				tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
+				tip.Children(func() { ui.Text(c, FleetTip(id)).Font("monospace").FontSize(Meta.Size) })
+			})
 		}
 		ui.Spacer(c)
 		trailing()

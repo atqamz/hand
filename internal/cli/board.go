@@ -160,7 +160,7 @@ func cmdBoard(r *runner, args []string) error {
 		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L")
 		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
-	help := []string{"Open a fleet's page with `hand open` from inside the fleet; keep its link private, since the token is the only thing guarding that fleet", control}
+	help := []string{"Open a fleet's page in the Hand window with `hand open` from inside the fleet; the token in `board.token` is the only thing guarding that fleet, so keep it private", control}
 	if side != nil {
 		help = append(help, "`hand doctor` shows the iroh row and, once it is ready, the endpoint ID a Companion dials")
 	}

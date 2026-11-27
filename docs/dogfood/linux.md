@@ -197,7 +197,7 @@ If it fails: file the output above. If `trust` is `not pressed` or the attempt i
 
 ## L3: The board starts without a unit, and keeps the watcher alive
 
-- **Proves:** the Start the watcher on demand, and the board keeps watchers alive row, and the `hand open` starts the board and opens the browser row, on a host that may have no browser.
+- **Proves:** the Start the watcher on demand, and the board keeps watchers alive row, and the `hand open` starts the board and opens the window row, on a host that may have no browser.
 - **Run:** agent.
 - **Real sessions:** 0.
 - **Preconditions:** `L1` passed, and the supervisor runs, so that the board has a fleet to keep. No board of this home runs. Nothing listens on port 7777: `ss -ltn 'sport = :7777'` lists no listener (or `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing). Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
@@ -212,7 +212,7 @@ hand open; echo "exit=$?"
 sleep 3
 cat $SECONDHAND_HOME/board.addr
 ls $SECONDHAND_HOME/board.log
-hand open --print > /dev/null && echo board-answers
+hand board start > /dev/null && echo board-answers
 ```
 
 **2.** Kill the watcher. The board starts it again within 30 seconds; wait up to 60:
@@ -225,10 +225,10 @@ hand orient | sed -n 1,5p
 
 Expected:
 - the board runs detached, with its output in `board.log`: `board.addr` holds `127.0.0.1:7777`, and `board-answers` prints;
-- `hand open` either prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes) with exit 0, or fails with a message that names the missing opener and tells you to open the page yourself (with the board still started); a hang is a failure;
+- `hand open` either prints `opened: "handboard://view/<fleet id>/"` with exit 0 after `hand-desktop` takes the link, or exits 1 with one reason line and that link when the window is missing or cannot open it (with the board still started); a hang is a failure;
 - `watch: running` returns within 60 seconds of the kill.
 
-Evidence: `{ hand open; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never print `hand open --print` into an issue.
+Evidence: `{ hand board start; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never put a login link or a board token into an issue.
 
 If it fails: file the output above and the end of `$SECONDHAND_HOME/board.log`.
 
@@ -312,7 +312,7 @@ Run it at the end, even after a failure. It stops every process of this run, and
 . /tmp/hand-dogfood.XXXXXX/env.sh
 for f in $D/fleet/watch.pid $D/home/board.pid; do
   [ -f $f ] || continue
-  p=$(cut -d' ' -f1 $f)
+  p=$(head -n1 $f | cut -d' ' -f1)
   ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
 for s in $(ls $LUVUS_HOME/sessions 2>/dev/null); do $LUVUS_BIN session stop $s; done

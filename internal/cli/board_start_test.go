@@ -230,6 +230,7 @@ func TestBoardStartUsesTheRecordedPath(t *testing.T) {
 }
 
 func TestOpenUsesTheCallersPathNotTheRecordedOne(t *testing.T) {
+	needDesktop(t)
 	fx := openWithoutBoard(t)
 	root := fx.h.vars["SECONDHAND_HOME"]
 	fx.h.vars["PATH"] = "/opt/caller/bin"
@@ -239,7 +240,7 @@ func TestOpenUsesTheCallersPathNotTheRecordedOne(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "env")
 	env := fakebin.Install(t, t.TempDir(), "env", "env", map[string]string{"out": out})
 	*cli.WatchExe = func() (string, error) { return env, nil }
-	_, _, _ = fx.h.run("open", "--print")
+	_, _, _ = fx.h.run("open")
 	b, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
@@ -250,9 +251,10 @@ func TestOpenUsesTheCallersPathNotTheRecordedOne(t *testing.T) {
 }
 
 func TestOpeningFromATerminalRecordsThePath(t *testing.T) {
+	needDesktop(t)
 	fx := newBoardStartFixture(t)
 	fx.h.tty = true
-	fx.h.ok("open", "--print")
+	fx.h.ok("open")
 	root := fx.h.vars["SECONDHAND_HOME"]
 	b, err := os.ReadFile(filepath.Join(root, "board.path"))
 	if err != nil {
@@ -265,6 +267,7 @@ func TestOpeningFromATerminalRecordsThePath(t *testing.T) {
 
 func TestOpeningFromATerminalRecordsThePathWhenTheBoardAnswers(t *testing.T) {
 	t.Parallel()
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	fx.h.tty = true
 	fx.h.vars["PATH"] = "/opt/terminal/bin"
@@ -272,7 +275,7 @@ func TestOpeningFromATerminalRecordsThePathWhenTheBoardAnswers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "board.path"), []byte("/opt/stale/bin\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fx.h.ok("open", "--print")
+	_, _, _ = fx.h.run("open")
 	b, err := os.ReadFile(filepath.Join(root, "board.path"))
 	if err != nil {
 		t.Fatal(err)

@@ -183,12 +183,12 @@ func TestTheTableTakesTheKeyboardAndScrolls(t *testing.T) {
 func TestTabReachesTheToolbarThenTheTable(t *testing.T) {
 	_, tt := openKind(t, eventsFixture(t, 30), bigCSV, false)
 	tt.Key(ui.Shift, ui.KeyTab)
-	if !tt.Focused("Download") {
-		t.Fatalf("Shift+Tab from the table did not reach Download")
+	if !tt.Focused("More document actions") {
+		t.Fatalf("Shift+Tab from the table did not reach the document menu")
 	}
 	tt.Key(0, ui.KeyTab)
 	if !tt.Focused("Table of events.csv") {
-		t.Fatalf("Tab from Download did not reach the table")
+		t.Fatalf("Tab from the document menu did not reach the table")
 	}
 }
 
@@ -319,7 +319,7 @@ func TestTheTableKeepsItsHeadAndRowsAtTheNarrowestWindows(t *testing.T) {
 			app := newApp(t, kindsFixture(t))
 			app.OpenDoc(salesCSV)
 			tt := sized(t, app, size[0], size[1], dark)
-			for _, want := range []string{"sales.csv", "Download", "Region", "north"} {
+			for _, want := range []string{"sales.csv", "Copy path", "Region", "north"} {
 				if _, ok := tt.Find(want); !ok {
 					t.Errorf("%vx%v dark=%v: no %q in %q", size[0], size[1], dark, want, tt.Texts())
 				}

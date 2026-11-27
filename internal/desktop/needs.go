@@ -318,12 +318,12 @@ func (a *App) needsScreen(c *ui.Context, k kit.Colors, p palette) {
 		prev, afterOpen := "", false
 		for i, item := range items {
 			need := item
-			first := need.Word != prev
+			first := a.needWord(need) != prev
 			if first {
 				_, ink := toneColors(need.Tone, p)
-				ui.Text(c, capitalize(strings.ToLower(need.Word))).FontSize(kit.Meta.Size).Bold().TextColor(ink).
+				ui.Text(c, capitalize(strings.ToLower(a.needWord(need)))).FontSize(kit.Meta.Size).Bold().TextColor(ink).
 					Padding(kit.Space20*float32(min(i, 1)), kit.Space16, kit.Space4)
-				prev = need.Word
+				prev = a.needWord(need)
 			}
 			isOpen := needKey(need) == open
 			a.needRow(c, k, p, need, top, first, afterOpen, isOpen)
@@ -358,11 +358,10 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 	inert := !needHasBody(need) || wasSent
 	open = open && !inert
 	bg, ink := toneColors(need.Tone, p)
-	refs := []string{need.Ref}
+	task := ""
 	if need.Task != "" && need.Task != need.Ref {
-		refs = append(refs, need.Task)
+		task = need.Task
 	}
-	slug := strings.TrimSpace(strings.Join(refs, " "))
 	card := ui.Column(c)
 	if open {
 		card.Margin(kit.Space6, 0, kit.Space10).Border(1, k.Line).Radius(kit.RadiusLG).Clip()
@@ -389,14 +388,17 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 				icon.Margin(3, 0, 0)
 			}
 			closed := func() {
-				if slug != "" {
-					ui.Text(c, slug).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+				if task != "" {
+					ui.Text(c, task).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 				if need.CreatedAt != "" {
 					ui.Text(c, stamp(need.CreatedAt)).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 			}
 			title := needLabel(need)
+			if !open {
+				kit.Ref(c, need.Ref, k.Muted)
+			}
 			if open {
 				ui.Column(c).Grow(1).MinWidth(0).Gap(kit.Space2).Children(func() {
 					ui.Text(c, title).FontSize(kit.Title.Size).Bold()
@@ -427,6 +429,10 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 			a.needBody(c, k, p, need)
 		}
 	})
+	if open && a.needReveal == needKey(need) {
+		a.needReveal = ""
+		card.ScrollIntoView()
+	}
 }
 
 func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, ink ui.Color) {
@@ -448,8 +454,8 @@ func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, in
 		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).TextColor(slug).SingleLine()
 	}
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
-		if need.Word != "" {
-			ui.Badge(c, need.Word).Background(bg).TextColor(ink)
+		if word := a.needWord(need); word != "" {
+			ui.Badge(c, word).Background(bg).TextColor(ink)
 		}
 		ref(need.Ref)
 		if need.Task != need.Ref {
@@ -470,14 +476,21 @@ func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, in
 			if sup == nil {
 				return
 			}
-			meta(joined(strings.TrimSpace(sup.Harness+" "+sup.Model), sup.Status))
+			meta(joined(strings.TrimSpace(sup.Harness+" "+sup.Model), a.unlessWord(need, sup.Status)))
 			meta(at(sup.EndedAt))
 		case need.AttemptMeta != nil:
 			m := need.AttemptMeta
-			meta(joined(strings.TrimSpace(m.Harness+" "+m.Model), m.Status))
+			meta(joined(strings.TrimSpace(m.Harness+" "+m.Model), a.unlessWord(need, m.Status)))
 			meta(at(m.EndedAt))
 		}
 	})
+}
+
+func (a *App) unlessWord(need Need, status string) string {
+	if strings.EqualFold(status, a.needWord(need)) {
+		return ""
+	}
+	return status
 }
 
 func joined(parts ...string) string {

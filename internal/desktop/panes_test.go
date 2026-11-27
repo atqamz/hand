@@ -134,11 +134,11 @@ func TestTheConversationOpensAtItsNewestEntryWithTheComposerPinned(t *testing.T)
 	}
 }
 
-func TestTheOverflowMenuHoldsRefreshNowAndOpenInBrowser(t *testing.T) {
+func TestTheOverflowMenuHoldsRefreshNow(t *testing.T) {
 	tt := newTester(newApp(t, goldenFixture(t)))
 	mustNotText(t, tt, "Refresh now")
 	click(t, tt, "More")
-	mustText(t, tt, "Refresh now", "Open in browser", "Refresh models")
+	mustText(t, tt, "Refresh now", "Refresh models")
 }
 
 func TestPollingRunsAtTheBoardsTickAndSlowsWhenUnfocused(t *testing.T) {
@@ -187,21 +187,16 @@ func chatTab(t *testing.T, tt *ui.Tester, width int) {
 	}
 }
 
-func TestTheBlockedKeysStayInsideTheChatPane(t *testing.T) {
+func TestTheBlockedKeysAreNotInTheChatPane(t *testing.T) {
 	for _, width := range []int{780, 860, 1100} {
-		f := blockedFixture(t)
-		tasks := f.tasks[fleetID]
-		for i := range tasks.Groups {
-			tasks.Groups[i].Count = 7 + i
-		}
-		f.tasks[fleetID] = tasks
-		tt := sized(t, newApp(t, f), width, 700, false)
+		tt := sized(t, newApp(t, blockedFixture(t)), width, 700, false)
 		chatTab(t, tt, width)
-		inPane(t, tt, width, 700, "Enter", "Esc", "↑", "↓", "1", "2", "3", "Message the supervisor", "Send")
-		first, ok := tt.Find("status?")
-		keys, _ := tt.Find("3")
-		if ok && first.H > 0 && keys.Y+keys.H > first.Y {
-			t.Errorf("%d wide: the key row ends at %.0f over the first entry at %.0f", width, keys.Y+keys.H, first.Y)
+		inPane(t, tt, width, 700, "Message the supervisor", "Send", "Force")
+		left := chatLeft(t, tt)
+		for _, key := range []string{"Enter", "Esc", "1"} {
+			if r, ok := tt.Find(key); ok && r.H > 0 && r.X >= left {
+				t.Errorf("%d wide: key %q is in the chat pane at %v", width, key, r)
+			}
 		}
 	}
 }
@@ -241,7 +236,7 @@ func TestAResumableHeadLeadsWithAPrimaryResumeAndKeepsStartInTheMenu(t *testing.
 	}
 	mustNotText(t, tt, "Start new")
 	click(t, tt, "More")
-	mustText(t, tt, "New session", "Refresh now", "Open in browser")
+	mustText(t, tt, "New session", "Refresh now")
 	click(t, tt, "New session")
 	if f.count("control:start") != 1 {
 		t.Fatalf("New session ran %d starts", f.count("control:start"))
@@ -344,6 +339,9 @@ func TestScenesBlockedAndResumableHeads(t *testing.T) {
 			chatTab(t, tt, size[0])
 			shotSized(t, tt, fmt.Sprintf("21-blocked-%dx%d-%s", size[0], size[1], theme), size[0], size[1])
 		}
+		other := sized(t, newApp(t, blockedWithAnotherOpen(t)), 1100, 760, dark)
+		click(t, other, "Worker a2 needs a key")
+		shotSized(t, other, "21-blocked-other-open-1100x760-"+theme, 1100, 760)
 		f := resumableFixture(t)
 		tt := sized(t, newApp(t, f), 1100, 760, dark)
 		shotSized(t, tt, "22-resumable-1100x760-"+theme, 1100, 760)
@@ -525,38 +523,5 @@ func TestAShortConversationSitsNextToTheComposer(t *testing.T) {
 	}
 	if bottom := view.Y + view.H; one.Y+one.H > bottom || bottom-(one.Y+one.H) > 40 {
 		t.Errorf("the only entry is at %v in the viewport %v, want it against the composer", one, view)
-	}
-}
-
-func TestTheOverflowHidesOpenInBrowserOnlyBeforeAnySupervisor(t *testing.T) {
-	firstRun := menuFixture(t, func(f *fixture) {
-		st := f.status[fleetID]
-		st.Supervisor = nil
-		f.status[fleetID] = st
-		f.models[fleetID] = firstRunModels()
-	})
-	stopped := menuFixture(t, func(f *fixture) {
-		st := f.status[fleetID]
-		sup := *st.Supervisor
-		sup.Status, sup.Live, sup.Resumable = "stopped", false, false
-		st.Supervisor = &sup
-		f.status[fleetID] = st
-	})
-	for _, tc := range []struct {
-		name string
-		f    *fixture
-		want bool
-	}{
-		{"first-run", firstRun, false},
-		{"stopped", stopped, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tt := newTester(newApp(t, tc.f))
-			click(t, tt, "More")
-			mustText(t, tt, "Refresh now", "Refresh models")
-			if got := tt.HasText("Open in browser"); got != tc.want {
-				t.Fatalf("Open in browser shown = %v, want %v in %q", got, tc.want, tt.Texts())
-			}
-		})
 	}
 }

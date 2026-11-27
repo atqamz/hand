@@ -106,7 +106,7 @@ Never end a chat reply with a question for the operator; ask every question with
 
 1. Verify the acceptance check from evidence you can read: the worker's report and its evidence, the diff at the head, CI and the review verdict. Re-run nothing yourself.
 2. `hand attempt stop aN` if it is still running, then `hand attempt clean aN`; the branch is kept. Pass `--discard` only when the uncommitted changes are worthless.
-3. `hand task done tN`. It is refused while a report is unread or an attempt is live. When the worker's result includes a file or a link, pass `--deliverable PATH_OR_URL` for each file or link (an http(s) URL or an absolute path), as in `hand task done --deliverable /abs/out.pdf tN`. For a result that is late or missing on an active or done task, record it with `hand task deliver tN PATH_OR_URL...`.
+3. `hand task done tN`. It is refused while a report is unread or an attempt is live. When the worker's result includes a file or a link, pass `--deliverable PATH_OR_URL` for each file or link (an http(s) URL or an absolute path), as in `hand task done --deliverable /abs/out.pdf tN`. For a result that is late or missing on an active or done task, record it with `hand task deliver tN PATH_OR_URL...`. A `closable` row in `hand orient` names an active task whose newest report is `done` and which has nothing live, unread, open or armed: check the evidence (a merged PR, an accepted deliverable), then run `hand task done tN`, or arm `hand wake --while tN --waits --after 30m` when you still wait on something outside Hand.
 
 ## Pause a task
 

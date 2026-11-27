@@ -12,19 +12,15 @@ import (
 )
 
 func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
-	open := a.OpenInBrowser
-	if a.remoteFleet() || a.Screen == DocScreen {
-		open = nil
-	}
 	opts := kit.ViewerOptions{
 		Name:    a.viewerName(),
+		Strip:   a.viewerStrip(),
 		Wide:    a.DocWide && a.Screen == DocScreen && a.docTextual(),
 		Back:    len(a.back) > 0 || a.docPageOpen(),
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,
-		OnOpen:  open,
 		Notice: func(nc *ui.Context) {
-			if a.OpenBusy || a.OpenErr != "" {
+			if a.OpenErr != "" {
 				ui.Box(nc).Padding(kit.Space10, kit.Space20, 0).Children(func() {
 					a.openCard(nc, p)
 				})
@@ -45,6 +41,16 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 
 func (a *App) docPageOpen() bool {
 	return a.viewerOpen() && a.Screen == DocScreen
+}
+
+func (a *App) viewerStrip() string {
+	switch a.Screen {
+	case TaskScreen, AttemptScreen, DecisionScreen:
+		if a.Ref != "" {
+			return shownText(a.Ref)
+		}
+	}
+	return a.viewerName()
 }
 
 func (a *App) viewerName() string {
@@ -813,8 +819,8 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 			case !board:
 				c.OpenURL(dest)
 			case a.openDocLink(dest):
-			case !a.openBoardPage(dest):
-				a.OpenBoardPath(dest)
+			default:
+				a.openBoardLink(dest)
 			}
 		}
 		switch {
@@ -856,7 +862,7 @@ func (a *App) subtaskRow(c *ui.Context, p palette, r TaskRow) {
 		state := taskState(r)
 		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
 			Label("state " + stateWord(state))
-		ui.Text(c, shownText(r.Ref)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent)
+		kit.Ref(c, shownText(r.Ref), p.accent)
 		ui.Text(c, shownText(r.Title)).FontSize(kit.Body.Size).Grow(1).MinWidth(0).SingleLine()
 		ui.Text(c, stateWord(state)).FontSize(kit.Meta.Size).TextColor(stateColor(state, p))
 	})

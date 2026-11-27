@@ -26,11 +26,11 @@ func ViewerBoxWide(w, h float32, wide bool) (float32, float32) {
 
 type ViewerOptions struct {
 	Name    string
+	Strip   string
 	Wide    bool
 	Back    bool
 	OnBack  func()
 	OnClose func()
-	OnOpen  func()
 	Notice  func(*ui.Context)
 	Body    func(*ui.Context)
 }
@@ -88,19 +88,12 @@ func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {
 		if v.Back && back.Clicked() && v.OnBack != nil {
 			v.OnBack()
 		}
-		ui.Text(c, v.Name).Font("monospace").FontSize(Meta.Size).TextColor(k.FG).
-			SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
-		if v.OnOpen != nil {
-			tab := ui.ButtonBase(c.Key("viewer:open")).Height(Control).Padding(0, Space12).
-				Radius(RadiusMD).Border(1, k.LineStrong).Cursor(ui.CursorPointer).
-				Label("Open as a page").Shrink(0)
-			tab.Children(func() {
-				ui.Text(c, "Open as a page").FontSize(Body.Size).Bold().TextColor(k.FG).SingleLine()
-			})
-			if tab.Clicked() {
-				v.OnOpen()
-			}
+		strip := v.Strip
+		if strip == "" {
+			strip = v.Name
 		}
+		ui.Text(c, strip).Font("monospace").FontSize(Meta.Size).TextColor(k.FG).
+			SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 		close := ui.ButtonBase(c.Key("viewer:close")).Size(Control, Control).Radius(RadiusMD).
 			Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
 			Label("Close the viewer")

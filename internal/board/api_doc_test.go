@@ -336,11 +336,14 @@ func TestAPIDocRawIsTheBoardsRaw(t *testing.T) {
 				t.Fatalf("%s: API %d %q, Board %d", name, got.Code, got.Body.String(), want.Code)
 			}
 			for _, k := range []string{"Content-Type", "Content-Security-Policy", "X-Content-Type-Options", "X-Frame-Options", "Content-Disposition", "Cache-Control"} {
+				if name == "spec.pdf" && k == "Content-Security-Policy" {
+					continue
+				}
 				if got.Header().Get(k) != want.Header().Get(k) {
 					t.Errorf("%s: %s = %q, Board %q", name, k, got.Header().Get(k), want.Header().Get(k))
 				}
 			}
-			if got.Header().Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(got.Header().Get("Content-Security-Policy"), "sandbox") {
+			if got.Header().Get("X-Content-Type-Options") != "nosniff" || strings.Contains(got.Header().Get("Content-Security-Policy"), "sandbox") != (name != "spec.pdf") {
 				t.Errorf("%s: unsafe headers %v", name, got.Header())
 			}
 		})
@@ -353,19 +356,13 @@ func TestAPIDocRawIsTheBoardsRaw(t *testing.T) {
 	headers(t, "binary", request(h, "GET", "/api/v1/doc/reports/t1/blob.bin?raw", nil, true), map[string]string{"Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename=blob.bin`})
 }
 
-func TestAPIDocRawNeverInlines(t *testing.T) {
+func TestAPIDocRawInlinesOnlyWithFrame(t *testing.T) {
 	h, _ := apiDocBoard(t, docFiles())
-	inlined := request(h, "GET", "/doc/reports/t1/page.html?frame", nil, true).Body.String()
-	if !strings.Contains(inlined, "data:image/png;base64,") {
-		t.Fatalf("the Board's frame no longer inlines pictures, so this test pins nothing:\n%s", inlined)
+	rec := request(h, "GET", "/api/v1/doc/reports/t1/page.html?raw", nil, true)
+	if rec.Body.String() != docFiles()["reports/t1/page.html"] {
+		t.Errorf("?raw changed the page:\n%s", rec.Body)
 	}
-	for _, q := range []string{"?raw", "?raw&frame", "?frame&raw"} {
-		rec := request(h, "GET", "/api/v1/doc/reports/t1/page.html"+q, nil, true)
-		if rec.Body.String() != docFiles()["reports/t1/page.html"] || strings.Contains(rec.Body.String(), "data:image") {
-			t.Errorf("%s inlined the page:\n%s", q, rec.Body)
-		}
-	}
-	rec := request(h, "GET", "/api/v1/doc/reports/t1/page.html?frame", nil, true)
+	rec = request(h, "GET", "/api/v1/doc/reports/t1/page.html?frame", nil, true)
 	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") || strings.Contains(rec.Body.String(), "data:image") {
 		t.Errorf("?frame alone must not serve the frame: %q\n%s", rec.Header().Get("Content-Type"), rec.Body)
 	}

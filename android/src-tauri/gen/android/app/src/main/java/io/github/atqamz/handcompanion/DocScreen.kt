@@ -1,5 +1,6 @@
 package io.github.atqamz.handcompanion
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +13,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -19,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -30,9 +33,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,15 +46,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -243,6 +252,109 @@ private fun DocImage(state: DocState) {
   }
 }
 
+fun clock(millis: Int): String {
+  val seconds = millis.coerceAtLeast(0) / 1000
+  return "%d:%02d".format(java.util.Locale.ROOT, seconds / 60, seconds % 60)
+}
+
+@Composable
+private fun DocAudio(state: DocState, tools: DocTools) {
+  val hand = LocalHand.current
+  val audio = state.audio ?: return
+  Column(
+    Modifier.fillMaxSize().padding(24.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Text(state.node?.name.orEmpty(), color = hand.fg, textAlign = TextAlign.Center, style = type.titleMedium)
+    PlayControls(audio, tools)
+  }
+}
+
+@Composable
+private fun DocVideo(state: DocState, tools: DocTools) {
+  val audio = state.audio ?: return
+  val aspect = if (audio.width > 0 && audio.height > 0) audio.width.toFloat() / audio.height else 16f / 9f
+  Column(
+    Modifier.fillMaxSize().padding(16.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Box(Modifier.fillMaxWidth().aspectRatio(aspect).background(Color.Black)) {
+      tools.video(audio.playing, Modifier.fillMaxSize())
+    }
+    PlayControls(audio, tools)
+  }
+}
+
+@Composable
+private fun DocHtml(state: DocState, tools: DocTools) {
+  val page = state.html ?: return
+  Box(Modifier.fillMaxSize().background(Color.White)) { tools.html(page, tools.gone, Modifier.fillMaxSize()) }
+}
+
+@Composable
+private fun PlayControls(audio: Playback, tools: DocTools) {
+  val hand = LocalHand.current
+  LaunchedEffect(audio.playing) {
+    while (audio.playing) {
+      delay(500)
+      tools.tick()
+    }
+  }
+  Column(
+    Modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    Slider(
+      audio.position.toFloat().coerceIn(0f, maxOf(1, audio.duration).toFloat()),
+      { tools.seek(it.toInt()) },
+      Modifier.fillMaxWidth(),
+      valueRange = 0f..maxOf(1, audio.duration).toFloat()
+    )
+    Meta("${clock(audio.position)} / ${clock(audio.duration)}")
+    Action(if (audio.playing) "Pause" else "Play", if (audio.playing) tools.pause else tools.play)
+    audio.error?.let {
+      Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Meta(it, hand.ink(Tone.Fail)) }
+    }
+  }
+}
+
+@Composable
+private fun DocPdf(state: DocState, tools: DocTools) {
+  val hand = LocalHand.current
+  val density = LocalDensity.current
+  LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp)
+  ) {
+    items(state.pdfPages, key = { "page:$it" }) { index ->
+      BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val width = with(density) { maxWidth.roundToPx() }
+        val bitmap by produceState(tools.drawn(index, width), index, width) { value = value ?: tools.page(index, width) }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          val shown = bitmap
+          if (shown == null) {
+            Box(Modifier.fillMaxWidth().height(240.dp).background(hand.line), Alignment.Center) {
+              Meta("Page ${index + 1}")
+            }
+          } else {
+            Image(
+              shown.asImageBitmap(),
+              "Page ${index + 1} of ${state.pdfPages}",
+              Modifier.widthIn(max = with(density) { shown.width.toDp() }).fillMaxWidth(),
+              contentScale = ContentScale.Fit
+            )
+          }
+          Meta("Page ${index + 1} of ${state.pdfPages}")
+        }
+      }
+    }
+  }
+}
+
 enum class DocTool {
   Find,
   GoTo
@@ -255,7 +367,17 @@ class DocTools(
   val goTo: (Int) -> Unit = {},
   val earlier: () -> Unit = {},
   val wrap: () -> Unit = {},
-  val copy: suspend () -> String? = { null }
+  val copy: suspend () -> String? = { null },
+  val play: () -> Unit = {},
+  val pause: () -> Unit = {},
+  val seek: (Int) -> Unit = {},
+  val tick: () -> Unit = {},
+  val page: suspend (Int, Int) -> Bitmap? = { _, _ -> null },
+  val drawn: (Int, Int) -> Bitmap? = { _, _ -> null },
+  val toggle: () -> Unit = {},
+  val gone: () -> Unit = {},
+  val video: @Composable (Boolean, Modifier) -> Unit = { _, _ -> },
+  val html: @Composable (String, () -> Unit, Modifier) -> Unit = { _, _, _ -> }
 )
 
 @Composable
@@ -277,11 +399,13 @@ private fun DocToolbar(
     }
   }
   val text = body == DocBody.Text
-  if (!text && body != DocBody.Markdown) return
+  val preview = state.node?.kind == "html" && state.html != null
+  if (!text && body != DocBody.Markdown && body != DocBody.Html) return
   Row(
     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(16.dp, 8.dp),
     horizontalArrangement = Arrangement.spacedBy(8.dp)
   ) {
+    if (preview) Action(if (state.rendered) "Source" else "Rendered", tools.toggle)
     if (text) {
       Action("Find", { onTool(if (tool == DocTool.Find) null else DocTool.Find) })
       Action("Go to line", { onTool(if (tool == DocTool.GoTo) null else DocTool.GoTo) })
@@ -408,6 +532,11 @@ fun DocScreen(
     HorizontalDivider(color = hand.line)
     DocToolbar(state, body, tool, { tool = it }, tools)
     if (tool != null && body == DocBody.Text) DocPanel(state, tool!!, tools) { tool = null }
+    if (body == DocBody.Text && state.notice != null) {
+      Box(Modifier.padding(16.dp, 4.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
+        Meta("${state.notice.title} ${state.notice.detail}", hand.ink(Tone.Wait))
+      }
+    }
     if (node != null && state.problem != null && body != DocBody.Failed) DocStale("Showing the last read. ${state.problem}", onRetry)
     Column(Modifier.weight(1f)) {
       when (body) {
@@ -438,6 +567,12 @@ fun DocScreen(
             "This image is too large to show here.",
             listOfNotNull(node?.kind, node?.size?.let(::docSize)).joinToString(" · ")
           ) {}
+        DocBody.Audio -> DocAudio(state, tools)
+        DocBody.Video -> DocVideo(state, tools)
+        DocBody.Html -> DocHtml(state, tools)
+        DocBody.Pdf -> DocPdf(state, tools)
+        DocBody.MediaNotice ->
+          DocMessage(state.notice?.title.orEmpty(), state.notice?.detail.orEmpty()) {}
         DocBody.Notice ->
           DocMessage(
             "This file can't be shown here.",

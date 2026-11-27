@@ -10,8 +10,15 @@ import (
 )
 
 type pick struct {
-	model, other, effort string
+	model, other, effort, harness string
+	fold                          int
 }
+
+const (
+	foldDefault = iota
+	foldOpen
+	foldShut
+)
 
 func (a *App) modelsKey() string {
 	sup := a.Status.Supervisor
@@ -176,6 +183,8 @@ func (a *App) pickFor(h Harness) *pick {
 		p = &pick{effort: h.Effort}
 		if _, found := modelNamed(h, h.Model); found {
 			p.model = h.Model
+		} else if needsModel(h) {
+			p.model = firstModel(h)
 		}
 		a.picks[h.Name] = p
 	}
@@ -210,7 +219,10 @@ func effortWord(h Harness) string {
 }
 
 func modelOptions(h Harness, keep string) []kit.Option {
-	options := []kit.Option{{Label: keep}}
+	var options []kit.Option
+	if keep != "" {
+		options = append(options, kit.Option{Label: keep})
+	}
 	for _, g := range h.Groups {
 		for _, m := range g.Models {
 			options = append(options, kit.Option{Value: m.Name, Label: m.Text})
@@ -295,11 +307,11 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 		return
 	}
 	w, h := c.Size()
-	width, room := float32(min(300, w-24)), max(float32(h)-120, 240)
+	width, room := float32(min(300, w-24)), menuRoom(float32(h), pill.Bounds())
 	ui.PopoverBase(c, pill, &a.modelOpen, func(panel ui.Element) {
 		kit.MenuPanel(c, k, panel, width, room)
 		panel.Children(func() {
-			ui.Scroll(c).FillWidth().MaxHeight(room - 2*kit.Space12).Children(func() {
+			ui.Scroll(c).FillWidth().MaxHeight(room).Children(func() {
 				ui.Column(c).FillWidth().Gap(kit.Space8).Children(func() {
 					switch {
 					case a.modelErr != "":
@@ -307,16 +319,22 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 					case a.modelsBusy && len(a.Models.Harnesses) == 0:
 						more(c, p, "Reading the models…")
 					default:
-						inner := width - 2*kit.Space12
+						inner := width - 2*kit.Space12 - 2
 						a.menuNow(c, k, p)
 						a.menuChange(c, k, p, inner)
-						a.menuHarnesses(c, k, p, inner)
 					}
 				})
 			})
 		})
 	})
 }
+
+func menuRoom(window float32, anchor ui.Rect) float32 {
+	below, above := window-(anchor.Y+anchor.H), anchor.Y
+	return max(max(below, above)-kit.Space8-kit.Space6, minMenuRoom)
+}
+
+const minMenuRoom = 120
 
 func (a *App) menuNow(c *ui.Context, k kit.Colors, p palette) {
 	kit.FieldLabel(c, k, "Running now")
@@ -340,26 +358,110 @@ func (a *App) menuNow(c *ui.Context, k kit.Colors, p palette) {
 }
 
 func (a *App) menuChange(c *ui.Context, k kit.Colors, p palette, width float32) {
-	h, ok := a.harnessNamed(a.Models.Current)
+	cur, ok := a.harnessNamed(a.Models.Current)
 	if !ok {
 		return
 	}
-	kit.FieldLabel(c, k, "Change model or "+strings.ToLower(effortWord(h)))
+	var options []kit.Option
+	var unavailable []Harness
+	for _, h := range a.Models.Harnesses {
+		switch {
+		case !supervisable(h):
+		case h.Missing != "" && h.Name != cur.Name:
+			unavailable = append(unavailable, h)
+		case h.Name == cur.Name:
+			options = append(options, kit.Option{Value: h.Name, Label: h.Name + " (running)"})
+		default:
+			options = append(options, kit.Option{Value: h.Name, Label: h.Name})
+		}
+	}
+	target := cur
+	if h, ok := a.harnessNamed(a.change.harness); ok && supervisable(h) && h.Missing == "" {
+		target = h
+	}
+	a.change.harness = target.Name
+	kit.FieldLabel(c, k, "Change harness, model or "+strings.ToLower(effortWord(cur)))
 	kit.Form(c, k, func() {
-		a.menuFields(c, k, p, h, &a.change, "keep "+orText(a.Models.Model, "current"),
-			"keep "+orText(a.Models.Effort, "current"))
-		label := "Switch after this turn"
-		if a.Status.AgentState == "ready" {
-			label = "Switch now"
+		kit.FieldLabel(c, k, "Harness")
+		kit.Select(c, k, &a.change.harness, options)
+		if target.Name == cur.Name {
+			a.menuFields(c, k, p, cur, &a.change, "keep "+orText(a.Models.Model, "current"),
+				"keep "+orText(a.Models.Effort, "current"), a.Models.Model == "")
+			label := "Switch after this turn"
+			if a.Status.AgentState == "ready" {
+				label = "Switch now"
+			}
+			if kit.Button(c, k, "switch:now", label, width, a.Busy) {
+				model, effort := a.chosenBare(cur, &a.change, a.Models.Model == "")
+				a.switchSupervisor(Switch{Model: model, Effort: effort})
+			}
+			if cur.Note != "" {
+				ui.Text(c, cur.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
+			}
+			return
 		}
-		if kit.Button(c, k, "switch:now", label, width, a.Busy) {
-			model, effort := a.chosen(h, &a.change)
-			a.switchSupervisor(Switch{Model: model, Effort: effort})
+		pk := a.pickFor(target)
+		a.menuFields(c, k, p, target, pk, keepDefault(target), "default", true)
+		ref := a.Status.Supervisor.Ref
+		ui.Text(c, "Stops "+ref+" and starts a new session on "+target.Name+"; "+ref+"'s conversation stays in Chat.").
+			FontSize(kit.Meta.Size)
+		working, blocked := a.Status.AgentState == "working", a.Status.Supervisor != nil && a.Status.Supervisor.Blocked
+		switch {
+		case working:
+			ui.Text(c, ref+" is working; switch harness when its turn ends, or interrupt it first").
+				FontSize(kit.Meta.Size).TextColor(p.wait)
+		case blocked:
+			ui.Text(c, ref+" is blocked; answer its screen or wait until it is idle, then switch harness").
+				FontSize(kit.Meta.Size).TextColor(p.wait)
 		}
-		if h.Note != "" {
-			ui.Text(c, h.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
+		model, effort := a.chosenBare(target, pk, true)
+		if kit.Button(c, k, "switch:"+target.Name, "Switch to "+target.Name, width, a.Busy || working || blocked || model == "" && needsModel(target)) {
+			a.switchSupervisor(Switch{Harness: target.Name, Model: model, Effort: effort})
+		}
+		if target.Note != "" {
+			ui.Text(c, target.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
 		}
 	})
+	if len(unavailable) > 0 {
+		kit.FieldLabel(c, k, "Unavailable")
+		for _, h := range unavailable {
+			ui.Text(c, h.Name+": "+h.Missing).FontSize(kit.Meta.Size).TextColor(p.wait)
+		}
+	}
+}
+
+func firstModel(h Harness) string {
+	for _, g := range h.Groups {
+		for _, m := range g.Models {
+			return m.Name
+		}
+	}
+	return ""
+}
+
+func supervisable(h Harness) bool { return h.Name != "copilot" }
+
+func needsModel(h Harness) bool { return h.Name != "opencode" }
+
+func keepDefault(h Harness) string {
+	if needsModel(h) {
+		return ""
+	}
+	return "default"
+}
+
+func hasModel(pk *pick) bool { return pk.model != "" || strings.TrimSpace(pk.other) != "" }
+
+func noVariant(h Harness, pk *pick, bare bool) bool {
+	return bare && h.Name == "opencode" && !hasModel(pk)
+}
+
+func (a *App) chosenBare(h Harness, p *pick, bare bool) (string, string) {
+	model, effort := a.chosen(h, p)
+	if model == "" && noVariant(h, p, bare) {
+		effort = ""
+	}
+	return model, effort
 }
 
 func orText(value, fallback string) string {
@@ -369,47 +471,23 @@ func orText(value, fallback string) string {
 	return value
 }
 
-func (a *App) menuHarnesses(c *ui.Context, k kit.Colors, p palette, width float32) {
-	others := false
-	for _, h := range a.Models.Harnesses {
-		if h.Name == a.Models.Current {
-			continue
-		}
-		if !others {
-			kit.FieldLabel(c, k, "Switch the supervisor to another harness")
-			others = true
-		}
-		harness := h
-		kit.Form(c, k, func() {
-			ui.Text(c, harness.Name).FontSize(kit.Body.Size).Bold()
-			pk := a.pickFor(harness)
-			a.menuFields(c, k, p, harness, pk, "default", "default")
-			if kit.Button(c, k, "switch:"+harness.Name, "Switch to "+harness.Name, width, a.Busy || harness.Missing != "") {
-				model, effort := a.chosen(harness, pk)
-				a.switchSupervisor(Switch{Harness: harness.Name, Model: model, Effort: effort})
-			}
-			if harness.Missing != "" {
-				ui.Text(c, harness.Missing).FontSize(kit.Body.Size).TextColor(p.wait)
-			}
-			if harness.Note != "" {
-				ui.Text(c, harness.Note).FontSize(kit.Meta.Size).TextColor(p.wait)
-			}
-		})
-	}
-}
-
-func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string) {
+func (a *App) menuFields(c *ui.Context, k kit.Colors, p palette, h Harness, pk *pick, keepModel, keepEffort string, bare bool) {
 	if len(h.Groups) == 0 {
 		kit.FieldLabel(c, k, "Model")
 		ui.TextInput(c, &pk.other).Placeholder(orText(h.Model, "model")).Label(h.Name + " model")
-		kit.FieldLabel(c, k, effortWord(h))
-		ui.TextInput(c, &pk.effort).Placeholder(orText(h.Effort, "effort")).Label(h.Name + " " + strings.ToLower(effortWord(h)))
+		if !noVariant(h, pk, bare) {
+			kit.FieldLabel(c, k, effortWord(h))
+			ui.TextInput(c, &pk.effort).Placeholder(orText(h.Effort, "effort")).Label(h.Name + " " + strings.ToLower(effortWord(h)))
+		}
 		return
 	}
 	kit.FieldLabel(c, k, "Model")
 	kit.Select(c, k, &pk.model, modelOptions(h, keepModel))
 	kit.FieldLabel(c, k, "Other model")
 	ui.TextInput(c, &pk.other).Placeholder("Other model").Label(h.Name + " other model")
+	if noVariant(h, pk, bare) {
+		return
+	}
 	options, hidden := effortOptions(h, pk.model, keepEffort)
 	if hidden {
 		if h.Name == "opencode" {
@@ -446,33 +524,76 @@ func (a *App) startStrip(c *ui.Context, k kit.Colors, p palette, width float32) 
 		return
 	}
 	_, h := c.Size()
+	opened := a.startOpened()
 	ui.Scroll(c).FillWidth().MaxHeight(max(float32(h)-260, 200)).Children(func() {
 		ui.Column(c).FillWidth().Gap(kit.Space8).Children(func() {
 			kit.FieldLabel(c, k, "Other harness, model or effort")
 			for _, harness := range a.Models.Harnesses {
-				a.startRow(c, k, p, harness, width-2*kit.Space16)
+				a.startRow(c, k, p, harness, width-2*kit.Space16, harness.Name == opened)
 			}
 		})
 	})
 }
 
-func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width float32) {
+func (a *App) startOpened() string {
+	first := ""
+	for _, h := range a.Models.Harnesses {
+		pk := a.pickFor(h)
+		if pk.fold == foldOpen {
+			return h.Name
+		}
+		if first == "" && pk.fold == foldDefault && h.Missing == "" {
+			first = h.Name
+		}
+	}
+	return first
+}
+
+func (a *App) toggleStart(name string, open bool) {
+	for _, pk := range a.picks {
+		pk.fold = foldShut
+	}
+	if !open {
+		a.picks[name].fold = foldOpen
+	}
+}
+
+func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width float32, open bool) {
 	harness := h
 	pk := a.pickFor(harness)
 	start := func(w float32) {
-		if kit.Button(c, k, "start:"+harness.Name, "Start "+harness.Name, w, a.Busy || harness.Missing != "") {
-			model, effort := a.chosen(harness, pk)
+		if kit.Button(c, k, "start:"+harness.Name, "Start "+harness.Name, w, a.Busy || harness.Missing != "" || needsModel(harness) && !hasModel(pk)) {
+			model, effort := a.chosenBare(harness, pk, true)
 			a.startSupervisor(harness.Name, model, effort)
 		}
 	}
 	ui.Column(c).Gap(kit.Space4).Children(func() {
+		head := ui.ButtonBase(c.Key("start-head:"+harness.Name)).FillWidth().Height(kit.Control).Padding(0, kit.Space10).
+			Gap(kit.Space6).Radius(kit.RadiusMD).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+			Border(1, k.Line).Label(harness.Name)
+		if open {
+			head.Background(k.Hover)
+		}
+		head.Children(func() {
+			ui.Text(c, harness.Name).FontSize(kit.Body.Size).Bold().Grow(1)
+			chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
+			if open {
+				chevron.Rotate(180)
+			}
+		})
+		if head.Clicked() {
+			a.toggleStart(harness.Name, open)
+		}
+		if harness.Missing != "" {
+			ui.Text(c, harness.Missing).FontSize(kit.Body.Size).TextColor(p.wait)
+		}
+		if !open {
+			return
+		}
 		ui.Row(c).FillWidth().Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 			a.stripFields(c, k, harness, pk, width >= 520)
 			start(120)
 		})
-		if harness.Missing != "" {
-			ui.Text(c, harness.Missing).FontSize(kit.Body.Size).TextColor(p.wait)
-		}
 		if unverified(harness, pk) {
 			ui.Text(c, "efforts unverified").FontSize(kit.Meta.Size).Bold().TextColor(p.wait)
 		}
@@ -504,16 +625,21 @@ func (a *App) stripFields(c *ui.Context, k kit.Colors, h Harness, pk *pick, wide
 		if h.Name == "opencode" {
 			placeholder = "variant"
 		}
-		effortField(1).Children(func() {
-			ui.TextInput(c, &pk.effort).Placeholder(placeholder).Label(h.Name + " " + placeholder)
-		})
+		if !noVariant(h, pk, true) {
+			effortField(1).Children(func() {
+				ui.TextInput(c, &pk.effort).Placeholder(placeholder).Label(h.Name + " " + placeholder)
+			})
+		}
 		return
 	}
-	field(modelGrow).Children(func() { kit.Select(c, k, &pk.model, modelOptions(h, "default")) })
+	field(modelGrow).Children(func() { kit.Select(c, k, &pk.model, modelOptions(h, keepDefault(h))) })
 	if wide {
 		field(otherGrow).Children(func() {
 			ui.TextInput(c, &pk.other).Placeholder("Other model").Label(h.Name + " other model")
 		})
+	}
+	if noVariant(h, pk, true) {
+		return
 	}
 	options, hidden := effortOptions(h, pk.model, "default")
 	if hidden {

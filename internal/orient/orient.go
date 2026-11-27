@@ -23,6 +23,7 @@ type Budget struct {
 	Inbox       int
 	Decisions   int
 	Reports     int
+	Closable    int
 	Events      int
 	Changes     int
 	ShortBytes  int
@@ -36,7 +37,7 @@ const (
 	folderFiles = 500
 )
 
-var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Events: 10, Changes: 20, ShortBytes: 3000, MemoryBytes: 4000, TitleBytes: 50, Bytes: 6000}
+var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Closable: 5, Events: 10, Changes: 20, ShortBytes: 3000, MemoryBytes: 4000, TitleBytes: 50, Bytes: 6000}
 
 const maxTopics = 12
 
@@ -147,6 +148,11 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		return nil, err
 	}
 
+	closable, err := closableSection(ctx, st, b)
+	if err != nil {
+		return nil, err
+	}
+
 	inbox, err := st.Tasks(ctx, []string{state.StatusInbox}, b.Inbox)
 	if err != nil {
 		return nil, err
@@ -244,6 +250,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"active", activeFields, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
 		{"open_decisions", []string{"id", "task", "question"}, decisionRows, openTotal, "hand decision list --limit 500"},
 		{"unacked_reports", []string{"id", "attempt", "status", "summary"}, reportRows, unacked, "hand report list --unacked --limit 500"},
+		closable,
 		{"inbox", inboxFields, inboxRows, counts[state.StatusInbox], "hand task list --status inbox --limit 500"},
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
@@ -264,6 +271,18 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		}
 		om.lines = om.lines[:len(om.lines)-1]
 	}
+}
+
+func closableSection(ctx context.Context, st *state.Store, b Budget) (*section, error) {
+	tasks, total, err := st.ClosableTasks(ctx, b.Closable)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([][]string, 0, len(tasks))
+	for _, t := range tasks {
+		rows = append(rows, []string{state.TaskRef(t.ID), Clip(t.Title, b.TitleBytes)})
+	}
+	return &section{"closable", []string{"id", "title"}, rows, total, "hand task list --status active --limit 500"}, nil
 }
 
 func queues(ctx context.Context, st *state.Store, b Budget) (decisionRows [][]string, openTotal int, reportRows [][]string, unacked int, err error) {
@@ -408,6 +427,10 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 	if err != nil {
 		return nil, err
 	}
+	closable, err := closableSection(ctx, st, b)
+	if err != nil {
+		return nil, err
+	}
 	unwatched, err := st.Unwatched(ctx, managed)
 	if err != nil {
 		return nil, err
@@ -428,6 +451,7 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 	sections := []*section{
 		{"open_decisions", []string{"id", "task", "question"}, decisionRows, openTotal, "hand decision list --limit 500"},
 		{"unacked_reports", []string{"id", "attempt", "status", "summary"}, reportRows, unacked, "hand report list --unacked --limit 500"},
+		closable,
 		{"changed", []string{"id", "project", "title", "status", "plan", "attempt", "report", "open_decisions"}, taskRows, touchedTotal, "hand orient"},
 		{"events", []string{"seq", "kind", "task"}, eventRows, eventsTotal, "hand orient"},
 	}
@@ -436,9 +460,9 @@ func Short(ctx context.Context, st *state.Store, since int64, pane string, watch
 		if len(d.String()) < b.ShortBytes {
 			return d, nil
 		}
-		if events := sections[3]; len(events.rows) > wakes {
+		if events := sections[4]; len(events.rows) > wakes {
 			events.rows = events.rows[:len(events.rows)-1]
-		} else if !dropLast(sections[:3]) && !dropLast(sections[3:]) {
+		} else if !dropLast(sections[:4]) && !dropLast(sections[4:]) {
 			return d, nil
 		}
 	}
@@ -611,7 +635,9 @@ func render(home string, f state.Fleet, move, supervisor, you string, turn Turn,
 		d.Field("artifacts", artifacts)
 	}
 	for _, s := range sections {
-		d.Rows(s.name, s.fields, s.rows)
+		if len(s.rows) > 0 || s.name != "closable" {
+			d.Rows(s.name, s.fields, s.rows)
+		}
 		if s.cmd != "" && len(s.rows) < s.total {
 			d.Field(s.name+"_more", fmt.Sprintf("%d of %d shown; run `%s`", len(s.rows), s.total, s.cmd))
 		}

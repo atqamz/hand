@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-func SetOpenTimeout(d time.Duration) func() {
-	old := openTimeout
-	openTimeout = d
-	return func() { openTimeout = old }
-}
-
 func SetBoardStartTimeout(d time.Duration) func() {
 	old := boardStartTimeout
 	boardStartTimeout = d
@@ -120,3 +114,44 @@ func PhoneHeld(a *App) bool {
 }
 
 func QRImage(link string) (*image.Gray, bool) { return qrImage(link) }
+
+var SupervisorWord = supervisorWord
+
+var ToneOf = toneOf
+
+const (
+	OverflowIcon = overflowIcon
+	OverflowTip  = overflowTip
+)
+
+func MenuRoom(window float32, anchor ui.Rect) float32 { return menuRoom(window, anchor) }
+
+type ShortcutRow struct {
+	Group, Does string
+	Caps        [][]string
+	AppleCaps   [][]string
+	Keys        []ui.Key
+	Mods        []ui.Modifiers
+}
+
+func ShortcutRows() []ShortcutRow {
+	var out []ShortcutRow
+	for _, s := range shortcuts {
+		r := ShortcutRow{Group: s.Group, Does: s.Does, Caps: s.caps(false), AppleCaps: s.caps(true)}
+		for _, ch := range s.Chords {
+			r.Keys, r.Mods = append(r.Keys, ch.Key), append(r.Mods, ch.Mods)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func DocStepTip() string { return docStepTip() }
+
+func SendHint(apple bool) string { return keySend.label(apple) }
+
+type Chord = chord
+
+func LabelOf(apple bool, chords ...chord) string { return shortcut{Chords: chords}.label(apple) }
+
+func (a *App) OpenBoardLink(dest string) { a.openBoardLink(dest) }

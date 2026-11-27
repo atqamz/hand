@@ -38,7 +38,7 @@ func parseArgs(args []string) (options, error) {
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&o.version, "version", false, "print the version and commit, then exit")
 	fs.StringVar(&o.fleet, "fleet", "", "fleet id or name to open")
-	fs.StringVar(&o.open, "open", "", "open link: handboard://open/<fleet id>/[task/tN|decision/dN|attempt/aN]")
+	fs.StringVar(&o.open, "open", "", "open link: handboard://open/<fleet id>/[task/tN|decision/dN|attempt/aN] or handboard://view/<fleet id>/[PAGE]")
 	if fs.Parse(args) != nil {
 		return o, errors.New("unexpected flag; hand-desktop takes --open LINK, --fleet NAME and --version")
 	}
@@ -46,7 +46,7 @@ func parseArgs(args []string) (options, error) {
 		return o, fmt.Errorf("unexpected argument %s", clip(fs.Arg(0)))
 	}
 	if o.open != "" {
-		if _, err := desktop.ParseOpenLink(o.open); err != nil {
+		if err := desktop.ParseLink(o.open); err != nil {
 			return o, fmt.Errorf("--open %s: %w", clip(o.open), err)
 		}
 	}

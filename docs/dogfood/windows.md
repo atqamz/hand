@@ -37,7 +37,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W4b | A codex found only as a `.cmd` shim is refused | Hand refuses a harness found only as a `.cmd` or `.bat` | agent | 0 |
 | W4c | A long, awkward brief reaches codex whole, and a brief over 16 KiB is refused | A prompt reaches the harness byte for byte when it fits both limits, and Hand refuses one that does not | agent | 1 |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
-| W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
+| W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the window | needs human | 0 |
 | W7 | `hand attach supervisor` in Windows Terminal | `hand attach` | needs human | 0 |
 | W8 | Stop and clean a worker that has a child process | Stop a worker | agent | 1 |
 | W9 | A worker commits in a worktree with paths over 260 characters | Paths over 260 characters | agent | 1 |
@@ -46,8 +46,8 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W12 | The toast recipe shows a toast | Desktop notifications | needs human | 0 |
 | W13 | The ssh note: the `ssh-agent` service | (the note on signing and ssh in `docs/install.md`) | agent | 0 |
 | W14 | The watcher starts a killed Luvus server again | The watcher starts a killed Luvus server again | agent | 0 |
-| WD1 | The wizard downloads and starts as a user meets it | The `edge` release carries `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
-| WD2 | The wizard installs with its defaults | The `edge` release carries `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
+| WD1 | The wizard downloads and starts as a user meets it | Each release and the `edge` release carry `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
+| WD2 | The wizard installs with its defaults | Each release and the `edge` release carry `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
 | WD3 | The installed files, the `PATH` entry and `hand doctor` | `hand update` keeps a launcher entry for the window in step with it | agent, then needs human | 0 |
 | WD4 | First launch of the window | `hand-desktop` opens a real window | needs human | 0 |
 | WD5 | The Start Menu shortcut, and a second start | `hand update` keeps a launcher entry for the window in step with it; the single-instance lock (`hand-desktop --open LINK` is not exercised) | needs human | 0 |
@@ -56,7 +56,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | WD8 | A message from the composer | `hand-desktop` over a running board | needs human | 0 |
 | WD9 | `hand update` with the window open | `hand update`; The release carries `hand-desktop` | agent, then needs human | 0 |
 | WD10 | `hand uninstall --dry-run` and the real one on a script install | `hand uninstall` | agent, then needs human | 0 |
-| WD11 | Uninstall of the wizard install from Settings | The `edge` release carries `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
+| WD11 | Uninstall of the wizard install from Settings | Each release and the `edge` release carry `Hand-Setup-VERSION-x64.exe` | needs human | 0 |
 
 The checks hand the supervisor on to each other, and each says whether the supervisor must be running or stopped. A supervisor that runs spends nothing while it is idle.
 
@@ -224,12 +224,12 @@ Steps:
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
 if (Get-NetTCPConnection -LocalPort 7777 -State Listen -ErrorAction SilentlyContinue) { Start-Process -FilePath (Get-Command hand).Source -ArgumentList 'board', '--addr', '127.0.0.1:7790' -WindowStyle Hidden -RedirectStandardOutput "$D\board.out" -RedirectStandardError "$D\board.err"; Start-Sleep -Seconds 3 }
-hand open --print
+hand open
 ```
 
-The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue.
+The last command opens the Hand window at this fleet's page. No command prints a Board login link, so never put a token into an issue.
 
-**2.** Ask the owner to open that link in a browser, and press **Start claude** on the fleet page, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Ask the owner to press **Start new, same as** the ref of the supervisor stopped in step 1 (the window offers it for a stopped supervisor), which starts it with the harness, model and effort of `W1`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 
@@ -537,7 +537,7 @@ Test-Path "$D\old\hand.exe.old"
 Get-Content "$D\fleet2\watch.pid", "$env:SECONDHAND_HOME\board.pid"
 Start-Sleep -Seconds 5
 & "$D\old\hand.exe" orient | Select-String '^watch:'
-& "$D\old\hand.exe" open --print *> $null; if ($LASTEXITCODE -eq 0) { 'board-answers' }
+$l = Get-NetTCPConnection -LocalPort ([int](Get-Content "$env:SECONDHAND_HOME\board.addr").Split(':')[-1]) -State Listen -ErrorAction SilentlyContinue; if ($l.OwningProcess -contains [int](Get-Content "$env:SECONDHAND_HOME\board.pid").Split(' ')[0]) { 'board-answers' }
 ```
 
 **3.** Ask the owner: *During the install and the update, did SmartScreen, Defender or Windows Security show any prompt, warning or notification about `hand.exe`?* (yes or no, and its text).
@@ -546,7 +546,7 @@ Expected:
 - the check prints `status: checked`; the update prints `status: updated`, `from: 0.13.0 stable ...` and `to: 0.13.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - the first `Test-Path` after the update prints `True` (the running `hand.exe` was renamed to `hand.exe.old`), and the second, after one more `hand` run, prints `False`;
 - `hand version` prints `channel: edge`;
-- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints because `hand open` starts the board on the new binary;
+- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints only when the board of that home still runs after the update: the listener on the port in its `board.addr` is the process in its `board.pid`, and a failed update leaves nothing listening and prints nothing;
 - the answer is no.
 
 Evidence: `& { & "$D\old\hand.exe" version; Get-Content "$D\fleet2\watch.pid", "$env:SECONDHAND_HOME\board.pid"; Get-Content "$D\watch2.err", "$D\board2.err" -Tail 5 } 2>&1 | Ev W5`, the update's output, and the answer.
@@ -557,7 +557,7 @@ The next block of the next check loads `env.ps1` again, which sets the home back
 
 ## W6: `hand open` starts the board, and no console window flashes
 
-- **Proves:** the `hand open` starts the board and opens the browser row.
+- **Proves:** the `hand open` starts the board and opens the window row.
 - **Run:** needs human. The owner watches the screen while the agent runs the steps.
 - **Real sessions:** 0.
 - **Preconditions:** `W1` or `W2` passed, and the supervisor runs, so that the board has a fleet to keep. No board of this home runs: stop one that you started, with `Stop-Process -Id ([int](Get-Content "$env:SECONDHAND_HOME\board.pid").Split(' ')[0])`. Nothing listens on port 7777; otherwise `skip` with `port 7777 busy`, and do not stop what listens. Run A only.
@@ -578,9 +578,9 @@ hand orient | Select-String '^watch:'
 
 The kill makes the board start the watcher again within 30 seconds, which starts Luvus and git commands too: that is the activity to watch.
 
-**2.** Ask the owner two questions: *Did your default browser open the Hand fleet page, already logged in (no question about a token)?* and *In those two minutes, did any console window appear, even briefly?* (yes or no for each, and which browser).
+**2.** Ask the owner two questions: *Did the Hand window open at the fleet page, with no question about a token?* and *In those two minutes, did any console window appear, even briefly?* (yes or no for each).
 
-Expected: `hand open` prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes); `board.addr` holds `127.0.0.1:7777`; `watch: running` returns within 60 seconds; the first answer is yes and the second is no.
+Expected: `hand open` prints `opened: "handboard://view/<fleet id>/"` (the link is in quotes) after `hand-desktop` takes it, or exits 1 with one reason line and that link when the window cannot open; `board.addr` holds `127.0.0.1:7777`; `watch: running` returns within 60 seconds; the first answer is yes and the second is no.
 
 Evidence: `& { hand open; Get-Content "$env:SECONDHAND_HOME\board.addr"; hand orient | Select-String '^watch:'; Get-Content "$env:SECONDHAND_HOME\board.log" -Tail 5 -ErrorAction SilentlyContinue } 2>&1 | Ev W6`, and both answers.
 
@@ -767,7 +767,7 @@ Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"supervisor":
 
 ```powershell
 . "$D\env.ps1"
-Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; hand open --print *> `$null; if (`$LASTEXITCODE -eq 0) { 'board-answers' }"
+Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; `$l = Get-NetTCPConnection -LocalPort ([int](Get-Content `$env:SECONDHAND_HOME\board.addr).Split(':')[-1]) -State Listen -ErrorAction SilentlyContinue; if (`$l.OwningProcess -contains [int](Get-Content `$env:SECONDHAND_HOME\board.pid).Split(' ')[0]) { 'board-answers' }"
 ```
 
 Ask the owner: *Log off from Windows, log on again, wait two minutes, then open PowerShell and run that line. Paste the output here. Did it print `board-answers`, `watch: running`, and a supervisor line that says `running` (resumed by the board's watcher) or `interrupted` (then run `hand supervisor resume`, and say whether it says `running` afterwards)?* (yes or no, and the output).
@@ -955,7 +955,7 @@ Nothing has run these on a real Windows PC; a run in a VM has seen the window, t
 
 All of the window's UI work these checks depend on has landed: U13 (the window starts the Board, #1308) and U4 (two panes, #1250) are on `main`, as are the three tabs below 900 px, the composer and the model menu. No check waits on them. Compare with `docs/images/desktop/20-panes-1100x760-light.png`, which is the headless scene, not a Windows picture.
 
-Get the wizard in. **The real route, for the gate:** in the machine, open the [`edge` release](https://github.com/atqamz/hand/releases/tag/edge) in Edge and download `Hand-Setup-VERSION-x64.exe` and its `.sha256`: it is the only route that shows SmartScreen. Use the `edge` build, since a stable build does not start the window on Windows; its wizard carries `hand-iroh.exe` only when the `edge` release had the sidecar when the wizard was built, and the window does not need it. **The quick route, for trying a change:** build `hand` and `hand-desktop` with `GOOS=windows GOARCH=amd64 CGO_ENABLED=0` (`-ldflags=-H=windowsgui` for the window), copy both to `%LOCALAPPDATA%\hand\bin` inside the machine, not onto a network share. That route has no wizard, shortcut, `PATH` entry or `unins000.exe`: skip WD1, WD2, WD3, WD5 and WD11 with that reason, run `hand` by its full path, and start the window by running `hand-desktop.exe`. Git for Windows must be installed, because `hand init` needs `git`. No harness is needed. A VM's virtual display runs the window on the CPU; say so in the run issue.
+Get the wizard in. **The real route, for the gate:** in the machine, open the [`edge` release](https://github.com/atqamz/hand/releases/tag/edge), or a stable release once one carries the wizard, in Edge and download `Hand-Setup-VERSION-x64.exe` and its `.sha256`: it is the only route that shows SmartScreen. Say in the run issue which channel you used; the wizard carries `hand-iroh.exe` only when the release had the sidecar when the wizard was built, and the window does not need it. **The quick route, for trying a change:** build `hand` and `hand-desktop` with `GOOS=windows GOARCH=amd64 CGO_ENABLED=0` (`-ldflags=-H=windowsgui` for the window), copy both to `%LOCALAPPDATA%\hand\bin` inside the machine, not onto a network share. That route has no wizard, shortcut, `PATH` entry or `unins000.exe`: skip WD1, WD2, WD3, WD5 and WD11 with that reason, run `hand` by its full path, and start the window by running `hand-desktop.exe`. Git for Windows must be installed, because `hand init` needs `git`. No harness is needed. A VM's virtual display runs the window on the CPU; say so in the run issue.
 
 Before WD1, `Get-Command hand -ErrorAction SilentlyContinue` must print nothing and `Test-Path "$env:LOCALAPPDATA\hand"` must print `False`; otherwise stop, because the checks assume a clean profile.
 
