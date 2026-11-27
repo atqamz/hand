@@ -23,6 +23,7 @@ type webPage interface {
 	SetPermissionHandler(func(mygo.PermissionRequest) bool)
 	SetContentRules(...*mygo.ContentRules)
 	OnRenderProcessGone(func(string)) func()
+	OnContextMenu(func(*mygo.ContextMenuEvent)) func()
 }
 
 type webParts struct {
@@ -68,6 +69,7 @@ func (e mygoEngine) NewView(s webhost.Session) (webhost.View, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.page.OnContextMenu(func(e *mygo.ContextMenuEvent) { e.PreventDefault() })
 	return mygoView{p}, nil
 }
 

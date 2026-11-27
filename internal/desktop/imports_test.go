@@ -18,11 +18,13 @@ func TestNoBoardOwnerImports(t *testing.T) {
 	}
 	const rootMyGo = "github.com/egoist/mygo"
 	fset := token.NewFileSet()
+	seen := map[string]bool{}
 	for _, root := range []string{".", filepath.Join("..", "..", "cmd", "hand-desktop")} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 				return err
 			}
+			seen[filepath.ToSlash(filepath.Dir(path))] = true
 			f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
 			if err != nil {
 				return err
@@ -45,6 +47,11 @@ func TestNoBoardOwnerImports(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{".", "kit", "remote", "webhost", "../../cmd/hand-desktop"} {
+		if !seen[dir] {
+			t.Errorf("the import check read no Go file in %s", dir)
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"image/png"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -657,6 +659,7 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 		}
 	}
 	shot := filepath.Join(outDir, "screen.png")
+	var x0cl, y0cl int
 	best := 0
 	for deadline := time.Now().Add(30 * time.Second); best < pdfDarkMin && time.Now().Before(deadline); {
 		failOnPrintDialog(t, outDir)
@@ -674,6 +677,7 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 		}
 		dark := 0
 		x0, y0 := int(origin.X+view.Bounds.X), int(origin.Y+view.Bounds.Y)
+		x0cl, y0cl = x0+int(view.Bounds.Width)/3, y0+int(view.Bounds.Height)/3
 		for y := y0; y < y0+int(view.Bounds.Height); y++ {
 			for x := x0; x < x0+int(view.Bounds.Width); x++ {
 				r, g, b, _ := img.At(x, y).RGBA()
@@ -689,4 +693,45 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 		t.Fatalf("the PDF is not drawn across the web view: %d dark pixels, want at least %d", best, pdfDarkMin)
 	}
 	checkNoPrintDialog(t, outDir)
+	checkNoContextMenu(t, outDir, x0cl, y0cl)
+}
+
+func screenshot(t *testing.T, path string) image.Image {
+	t.Helper()
+	if b, err := exec.Command("import", "-window", "root", path).CombinedOutput(); err != nil {
+		t.Fatalf("import: %v\n%s", err, b)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img
+}
+
+func checkNoContextMenu(t *testing.T, outDir string, x, y int) {
+	t.Helper()
+	before := screenshot(t, filepath.Join(outDir, "before-rclick.png"))
+	if b, err := exec.Command("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y), "click", "3").CombinedOutput(); err != nil {
+		t.Fatalf("xdotool: %v\n%s", err, b)
+	}
+	time.Sleep(2 * time.Second)
+	after := screenshot(t, filepath.Join(outDir, "after-rclick.png"))
+	changed := 0
+	for yy := y; yy < y+300; yy++ {
+		for xx := x; xx < x+300; xx++ {
+			if before.At(xx, yy) != after.At(xx, yy) {
+				changed++
+			}
+		}
+	}
+	t.Logf("pixels changed by a right-click: %d", changed)
+	_ = exec.Command("xdotool", "key", "Escape").Run()
+	if changed > 200 {
+		t.Fatalf("a right-click in the PDF changed %d pixels around the pointer: a context menu opened; see after-rclick.png", changed)
+	}
 }

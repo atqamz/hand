@@ -1,7 +1,6 @@
 name: "[Reuse] Iroh"
 
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       ref:
@@ -12,33 +11,9 @@ on:
         description: Release tag to attach the assets to; empty builds everything and uploads nothing.
         type: string
         default: ""
-  push:
-    branches: [main]
-    paths:
-      - iroh/**
-      - internal/board/peer.go
-      - internal/board/iroh_client_test.go
-      - internal/board/companion_host_test.go
-      - internal/sidecar/**
-      - internal/desktop/remote/**
-      - .github/workflows/iroh.yaml
-  pull_request:
-    branches: [main]
-    paths:
-      - iroh/**
-      - internal/board/peer.go
-      - internal/board/iroh_client_test.go
-      - internal/board/companion_host_test.go
-      - internal/sidecar/**
-      - internal/desktop/remote/**
-      - .github/workflows/iroh.yaml
 
 permissions:
   contents: read
-
-concurrency:
-  group: iroh-${{ github.workflow }}-${{ inputs.ref || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
