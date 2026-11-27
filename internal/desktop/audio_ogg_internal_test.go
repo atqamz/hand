@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"github.com/egoist/mygo/audio"
@@ -154,6 +155,9 @@ func TestEachStructuralCheckOfAnOggVorbisFileRefusesOnItsOwn(t *testing.T) {
 			for _, p := range pages[6:] {
 				setGranule(b, p, granuleOf(b, pages[5]))
 			}
+		}},
+		{"no end of stream flag on the last page", func(b []byte, pages []int) {
+			b[pages[len(pages)-1]+5] &^= oggEOS
 		}},
 		{"a second logical stream", func(b []byte, pages []int) {
 			binary.LittleEndian.PutUint32(b[pages[len(pages)-1]+14:], 0x1234)
@@ -446,5 +450,60 @@ func TestAnyReadBufferStaysOnThePagesTheCheckRead(t *testing.T) {
 		if got != frames {
 			t.Fatalf("buffer of %d: read %d frames, want %d", size, got, frames)
 		}
+	}
+}
+
+func TestAnOggVorbisFileWithHeadersThatWouldOverAllocateIsRefusedBeforeTheDecoderOpens(t *testing.T) {
+	commentCount := func(b []byte) int {
+		i := bytes.Index(b, []byte("\x03vorbis")) + 7
+		return i + 4 + int(binary.LittleEndian.Uint32(b[i:]))
+	}
+	cases := []struct {
+		name string
+		edit func(b []byte, pages []int)
+	}{
+		{"four billion comments declared", func(b []byte, _ []int) {
+			binary.LittleEndian.PutUint32(b[commentCount(b):], 0xffffffff)
+		}},
+		{"a vendor string longer than the packet", func(b []byte, _ []int) {
+			binary.LittleEndian.PutUint32(b[bytes.Index(b, []byte("\x03vorbis"))+7:], 0xffffffff)
+		}},
+		{"a sample rate of two billion", func(b []byte, _ []int) {
+			binary.LittleEndian.PutUint32(b[bytes.Index(b, []byte("\x01vorbis"))+12:], 2147483647)
+		}},
+		{"a sample rate of zero", func(b []byte, _ []int) {
+			binary.LittleEndian.PutUint32(b[bytes.Index(b, []byte("\x01vorbis"))+12:], 0)
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := editedOgg(t, c.edit)
+			if _, ok := oggPages(b); !ok {
+				t.Fatal("the edit broke the page layout")
+			}
+			opened := false
+			p, err := openOggWith(b, func([]byte) (audio.Decoder, error) {
+				opened = true
+				return nil, errAudioDecoder
+			})
+			if p != nil || err == nil {
+				t.Fatalf("player = %v, err = %v, want no player and an error", p, err)
+			}
+			if opened {
+				t.Fatal("the decoder was opened on headers that make it allocate what the file declares")
+			}
+		})
+	}
+}
+
+func TestAnUntouchedAndAHighRateOggVorbisFilePassTheHeaderCheck(t *testing.T) {
+	b := editedOgg(t, func(b []byte, _ []int) {
+		binary.LittleEndian.PutUint32(b[bytes.Index(b, []byte("\x01vorbis"))+12:], 192000)
+	})
+	if !oggHeaders(b) {
+		t.Fatal("a 192 kHz file with its comments as written was refused")
+	}
+	if untouched := editedOgg(t, func([]byte, []int) {}); !oggHeaders(untouched) {
+		t.Fatal("the untouched file was refused")
 	}
 }
