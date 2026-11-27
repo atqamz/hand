@@ -276,7 +276,7 @@ func (a *App) newFleetFields(c *ui.Context, k kit.Colors, p palette) {
 	ui.Text(c, a.nf.err).FontSize(kit.Body.Size).TextColor(p.fail)
 	if a.nf.cmd != "" {
 		ui.Text(c, "Run it yourself in "+terminalName(runtime.GOOS)+":").FontSize(kit.Meta.Size).TextColor(k.Muted)
-		ui.Text(c, a.nf.cmd).Font("monospace").FontSize(kit.Body.Size)
+		ui.Text(c, a.nf.cmd).Font(kit.Mono).FontSize(kit.Body.Size)
 	}
 }
 

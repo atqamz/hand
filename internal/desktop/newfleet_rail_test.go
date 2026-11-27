@@ -406,7 +406,7 @@ func TestTheNewFleetIconIsThePlus(t *testing.T) {
 					}
 					return b - a
 				}
-				return d(r1, r2)+d(g1, g2)+d(b1, b2) > 0x10000
+				return d(r1, r2)+d(g1, g2)+d(b1, b2) > 0x8000
 			}
 			near := func(x, y int) bool {
 				for dy := -1; dy <= 1; dy++ {

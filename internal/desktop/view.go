@@ -58,6 +58,7 @@ func boardTheme(dark bool) *ui.Theme {
 	t.Radius = kit.RadiusMD
 	t.Spacing = kit.Space4
 	t.FontSize = kit.Body.Size
+	t.Font = kit.Sans
 	return t
 }
 
@@ -379,7 +380,7 @@ func (a *App) mastheadStrip(c *ui.Context, k kit.Colors, p palette) {
 					fg = p.accent
 				}
 				kit.ContextBar(c, k, g.Pct, fg)
-				text := ui.Text(c, g.Text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
+				text := ui.Text(c, g.Text).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
 				if g.Level != "" {
 					text.TextColor(fg)
 				}
