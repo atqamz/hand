@@ -654,7 +654,7 @@ PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
 if grep -q "$D/" $PLIST 2>/dev/null; then launchctl unload $PLIST; rm -f $PLIST; fi
 for f in $D/fleet*/watch.pid(N) $D/home*/board.pid(N); do
   [ -f $f ] || continue
-  p=$(cut -d' ' -f1 $f)
+  p=$(head -n1 $f | cut -d' ' -f1)
   ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
 [ -f $D/caffeinate.pid ] && ps -p $(cat $D/caffeinate.pid) -o command= | grep -q "^caffeinate" && kill $(cat $D/caffeinate.pid)

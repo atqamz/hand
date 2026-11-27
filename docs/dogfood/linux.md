@@ -312,7 +312,7 @@ Run it at the end, even after a failure. It stops every process of this run, and
 . /tmp/hand-dogfood.XXXXXX/env.sh
 for f in $D/fleet/watch.pid $D/home/board.pid; do
   [ -f $f ] || continue
-  p=$(cut -d' ' -f1 $f)
+  p=$(head -n1 $f | cut -d' ' -f1)
   ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
 for s in $(ls $LUVUS_HOME/sessions 2>/dev/null); do $LUVUS_BIN session stop $s; done

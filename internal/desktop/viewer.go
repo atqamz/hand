@@ -14,6 +14,7 @@ import (
 func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 	opts := kit.ViewerOptions{
 		Name:    a.viewerName(),
+		Strip:   a.viewerStrip(),
 		Wide:    a.DocWide && a.Screen == DocScreen && a.docTextual(),
 		Back:    len(a.back) > 0 || a.docPageOpen(),
 		OnBack:  a.Back,
@@ -40,6 +41,16 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 
 func (a *App) docPageOpen() bool {
 	return a.viewerOpen() && a.Screen == DocScreen
+}
+
+func (a *App) viewerStrip() string {
+	switch a.Screen {
+	case TaskScreen, AttemptScreen, DecisionScreen:
+		if a.Ref != "" {
+			return shownText(a.Ref)
+		}
+	}
+	return a.viewerName()
 }
 
 func (a *App) viewerName() string {
@@ -851,7 +862,7 @@ func (a *App) subtaskRow(c *ui.Context, p palette, r TaskRow) {
 		state := taskState(r)
 		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
 			Label("state " + stateWord(state))
-		ui.Text(c, shownText(r.Ref)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent)
+		kit.Ref(c, shownText(r.Ref), p.accent)
 		ui.Text(c, shownText(r.Title)).FontSize(kit.Body.Size).Grow(1).MinWidth(0).SingleLine()
 		ui.Text(c, stateWord(state)).FontSize(kit.Meta.Size).TextColor(stateColor(state, p))
 	})

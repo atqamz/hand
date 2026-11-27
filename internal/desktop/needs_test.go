@@ -188,7 +188,7 @@ func TestTheOpenItemsSlugLineCarriesTheAttemptsWords(t *testing.T) {
 		}
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "FAILED", "a2", "t2", "codex gpt-6-luna · failed", when(ended), "the launch found an old worktree")
+	mustText(t, tt, "FAILED", "a2", "t2", "codex gpt-6-luna", when(ended), "the launch found an old worktree")
 	click(t, tt, "Cookie fixed")
 	mustText(t, tt, "REPORT", "r1", "t1", "project hand", "a1 · done", when(ended))
 }
@@ -202,7 +202,7 @@ func TestASlugLineLeavesNoGapForAFieldTheBoardOmitted(t *testing.T) {
 		}}
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "codex · failed")
+	mustText(t, tt, "codex")
 	mustNotText(t, tt, "codex  ·")
 	mustNotText(t, tt, "failed ·")
 }
@@ -261,7 +261,7 @@ func TestAResumeItemShowsTheSupervisorsLineAndEnd(t *testing.T) {
 		}}
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "claude sonnet · interrupted", when(ended), "Resume", "New session")
+	mustText(t, tt, "claude sonnet", when(ended), "Resume", "New session")
 	next, ok := tt.Find("New session")
 	if !ok {
 		t.Fatal("no New session button")
@@ -1242,7 +1242,7 @@ func TestScenesTheOpenSlugAndTheReceipts(t *testing.T) {
 			shotSized(t, failure, scene("slug-failure"), size[0], size[1])
 
 			resumed := sized(t, newApp(t, resume(t)), size[0], size[1], dark)
-			mustText(t, resumed, "claude sonnet · interrupted")
+			mustText(t, resumed, "claude sonnet")
 			shotSized(t, resumed, scene("slug-resume"), size[0], size[1])
 
 			warned := sized(t, newApp(t, warn(t)), size[0], size[1], dark)

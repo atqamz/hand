@@ -26,6 +26,7 @@ func ViewerBoxWide(w, h float32, wide bool) (float32, float32) {
 
 type ViewerOptions struct {
 	Name    string
+	Strip   string
 	Wide    bool
 	Back    bool
 	OnBack  func()
@@ -87,7 +88,11 @@ func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {
 		if v.Back && back.Clicked() && v.OnBack != nil {
 			v.OnBack()
 		}
-		ui.Text(c, v.Name).Font("monospace").FontSize(Meta.Size).TextColor(k.FG).
+		strip := v.Strip
+		if strip == "" {
+			strip = v.Name
+		}
+		ui.Text(c, strip).Font("monospace").FontSize(Meta.Size).TextColor(k.FG).
 			SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 		close := ui.ButtonBase(c.Key("viewer:close")).Size(Control, Control).Radius(RadiusMD).
 			Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
