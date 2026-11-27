@@ -14,6 +14,9 @@ func transcriptApp(t *testing.T, entries ...desktop.Entry) (*desktop.App, *ui.Te
 	inUTC(t)
 	f := goldenFixture(t)
 	f.fleets[0].Home = installFakeHand(t).home
+	st := f.status[fleetID]
+	st.Needs = desktop.Needs{}
+	f.status[fleetID] = st
 	tl := f.timeline[fleetID]
 	tl.Entries = entries
 	f.timeline[fleetID] = tl
