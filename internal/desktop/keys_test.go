@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -148,25 +149,23 @@ func TestTheRowsOfAGroupSitTogether(t *testing.T) {
 	}
 }
 
-var keyIdents = map[ui.Key]string{
-	ui.KeyEscape: "KeyEscape", ui.KeyEnter: "KeyEnter", ui.KeySlash: "KeySlash", ui.KeyEqual: "KeyEqual",
-	ui.KeyMinus: "KeyMinus", ui.Key0: "Key0", ui.KeyF: "KeyF", ui.KeyBracketLeft: "KeyBracketLeft",
-	ui.KeyBracketRight: "KeyBracketRight",
-}
+type callSite struct{ file, fn, mods, key string }
 
-func TestEveryKeyTheWindowHandlesIsInTheTable(t *testing.T) {
-	inTable := map[string]bool{}
-	for _, row := range desktop.ShortcutRows() {
-		for _, key := range row.Keys {
-			inTable[keyIdents[key]] = true
-		}
-	}
+func TestEveryKeyTheWindowHandlesComesFromTheTable(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// choicePress builds Key0 to Key9 and KeyA to KeyZ from an option's key; the table row says "1–9, A–Z".
-	rangeStart := map[string]bool{"KeyA": true}
+	wantCalls := map[callSite]bool{
+		{"needs.go", "choiceKeys", "0", "key"}:         true,
+		{"needs.go", "choiceKeys", "ui.Shift", "key"}:  true,
+		{"needs.go", "choiceKeys", "0", "ui.KeyEnter"}: true,
+	}
+	wantRefs := map[string]bool{
+		"needs.go choiceKeys ui.KeyEnter": true, "needs.go choicePress ui.Key0": true,
+		"needs.go choicePress ui.KeyA": true, "needs.go choicePress ui.Key": true,
+	}
+	gotCalls, gotRefs := map[callSite]bool{}, map[string]bool{}
 	fset := token.NewFileSet()
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") || name == "keys.go" {
@@ -176,19 +175,82 @@ func TestEveryKeyTheWindowHandlesIsInTheTable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
 			if !ok {
-				return true
+				continue
 			}
-			if x, ok := sel.X.(*ast.Ident); ok && x.Name == "ui" && strings.HasPrefix(sel.Sel.Name, "Key") && len(sel.Sel.Name) > 3 {
-				if id := sel.Sel.Name; !inTable[id] && !rangeStart[id] {
-					t.Errorf("%s uses ui.%s with no row in the table", fset.Position(sel.Pos()), id)
+			ast.Inspect(fd, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.CallExpr:
+					sel, ok := n.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					switch sel.Sel.Name {
+					case "Shortcut", "OnShortcut", "OverlayShortcut":
+						if len(n.Args) < 2 {
+							t.Errorf("%s: %s with %d arguments", fset.Position(n.Pos()), sel.Sel.Name, len(n.Args))
+							return true
+						}
+						gotCalls[callSite{name, fd.Name.Name, types.ExprString(n.Args[0]), types.ExprString(n.Args[1])}] = true
+					case "OnTextKey":
+						if !callsIs(n) {
+							t.Errorf("%s: OnTextKey does not read the table through .is", fset.Position(n.Pos()))
+						}
+					}
+				case *ast.SelectorExpr:
+					if x, ok := n.X.(*ast.Ident); ok && x.Name == "ui" && strings.HasPrefix(n.Sel.Name, "Key") && n.Sel.Name != "KeyboardEvent" {
+						gotRefs[name+" "+fd.Name.Name+" ui."+n.Sel.Name] = true
+					}
 				}
-			}
-			return true
-		})
+				return true
+			})
+		}
 	}
+	for c := range gotCalls {
+		if !wantCalls[c] {
+			t.Errorf("%s %s binds a key directly (%s, %s) instead of reading the table", c.file, c.fn, c.mods, c.key)
+		}
+	}
+	for c := range wantCalls {
+		if !gotCalls[c] {
+			t.Errorf("expected key binding %+v is gone; update the list", c)
+		}
+	}
+	for r := range gotRefs {
+		if !wantRefs[r] {
+			t.Errorf("%s names a key outside the table", r)
+		}
+	}
+	for r := range wantRefs {
+		if !gotRefs[r] {
+			t.Errorf("expected key reference %q is gone; update the list", r)
+		}
+	}
+	var answer, choose bool
+	for _, row := range desktop.ShortcutRows() {
+		for i, key := range row.Keys {
+			answer = answer || row.Group == "On an open decision" && key == ui.KeyEnter && row.Mods[i] == 0
+		}
+		choose = choose || row.Does == "Pick the option with that key"
+	}
+	if !answer || !choose {
+		t.Errorf("the decision rows are missing: answer %v, choose %v", answer, choose)
+	}
+}
+
+func callsIs(call *ast.CallExpr) bool {
+	found := false
+	ast.Inspect(call, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "is" {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 func TestTheComposerHintComesFromTheTable(t *testing.T) {
@@ -254,4 +316,76 @@ func TestScenesShortcutSheet(t *testing.T) {
 		mustText(t, tt, sheetTitle)
 		shotSized(t, tt, "129-shortcut-sheet-1100x760-"+name, windowWidth, windowHeight)
 	})
+}
+
+func TestEscapeOverADocumentPageClosesOnlyTheSheet(t *testing.T) {
+	themes(t, func(t *testing.T, dark bool, _ string) {
+		app, _ := toolsApp(t, designPath)
+		tt := newTester(app)
+		tt.SetDark(dark)
+		pressHelp(tt)
+		mustText(t, tt, sheetTitle)
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		mustNotText(t, tt, sheetTitle)
+		if app.Screen != desktop.DocScreen {
+			t.Fatalf("one Escape closed the document too, screen %v", app.Screen)
+		}
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		if app.Screen == desktop.DocScreen {
+			t.Error("a second Escape did not close the document")
+		}
+	})
+}
+
+func TestTheFindRowKeepsSlashWhereCmdIsSuper(t *testing.T) {
+	find := []desktop.Chord{{Mods: ui.Super, Key: ui.KeyF}, {Mods: 0, Key: ui.KeySlash}}
+	for _, apple := range []bool{false, true} {
+		if got := desktop.LabelOf(apple, find...); got != "⌘ F or /" {
+			t.Errorf("apple=%v: find row reads %q, want %q", apple, got, "⌘ F or /")
+		}
+	}
+}
+
+func TestACtrlAndASuperTwinSplitByPlatformAndPlainChordsStay(t *testing.T) {
+	send := []desktop.Chord{{Mods: ui.Ctrl, Key: ui.KeyEnter}, {Mods: ui.Super, Key: ui.KeyEnter}, {Mods: 0, Key: ui.KeyEscape}}
+	if got := desktop.LabelOf(false, send...); got != "Ctrl Enter or Esc" {
+		t.Errorf("not Apple: %q", got)
+	}
+	if got := desktop.LabelOf(true, send...); got != "⌘ Enter or Esc" {
+		t.Errorf("Apple: %q", got)
+	}
+}
+
+func TestTheHelpRowShowsALiteralQuestionMark(t *testing.T) {
+	for _, row := range desktop.ShortcutRows() {
+		if row.Does == "Show this list" {
+			if len(row.Caps) != 1 || len(row.Caps[0]) != 1 || row.Caps[0][0] != "?" {
+				t.Fatalf("the help row shows %q, want a single ? key", row.Caps)
+			}
+			return
+		}
+	}
+	t.Fatal("no help row")
+}
+
+func TestTheSheetScrollsAndStaysInsideAShortWindow(t *testing.T) {
+	const h = 300
+	tt := sized(t, newApp(t, goldenFixture(t)), windowWidth, h, false)
+	pressHelp(tt)
+	title, ok := tt.Find(sheetTitle)
+	if !ok || title.Y < 16 {
+		t.Fatalf("title %v, found %v: want it inside the 16 px margin", title, ok)
+	}
+	last, ok := tt.Find("Close this list")
+	if !ok || last.Y+last.H <= h-16 {
+		t.Fatalf("the last row at %v is already in view: the sheet does not need to scroll", last)
+	}
+	tt.Scroll(windowWidth/2, h/2, 0, 2000)
+	tt.Frame()
+	last, ok = tt.Find("Close this list")
+	if !ok || last.Y < 0 || last.Y+last.H > h-16 {
+		t.Errorf("after scrolling the last row is at %v (found %v), want it inside the window and its margin", last, ok)
+	}
 }

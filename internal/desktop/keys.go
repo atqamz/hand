@@ -114,17 +114,28 @@ func (ch chord) parts() []string {
 	return append(out, name)
 }
 
+func (s shortcut) has(ch chord) bool {
+	for _, o := range s.Chords {
+		if o == ch {
+			return true
+		}
+	}
+	return false
+}
+
 func (s shortcut) shown(apple bool) []chord {
-	super := false
-	for _, ch := range s.Chords {
-		super = super || ch.Mods&ui.Super != 0
-	}
-	if !super {
-		return s.Chords
-	}
 	var out []chord
 	for _, ch := range s.Chords {
-		if (ch.Mods&ui.Super != 0) == apple {
+		switch {
+		case ch.Mods&ui.Super != 0 && s.has(chord{ch.Mods&^ui.Super | ui.Ctrl, ch.Key}):
+			if apple {
+				out = append(out, ch)
+			}
+		case ch.Mods&ui.Ctrl != 0 && s.has(chord{ch.Mods&^ui.Ctrl | ui.Super, ch.Key}):
+			if !apple {
+				out = append(out, ch)
+			}
+		default:
 			out = append(out, ch)
 		}
 	}

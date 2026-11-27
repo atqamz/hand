@@ -153,3 +153,7 @@ func ShortcutRows() []ShortcutRow {
 func DocStepTip() string { return docStepTip() }
 
 func SendHint(apple bool) string { return keySend.label(apple) }
+
+type Chord = chord
+
+func LabelOf(apple bool, chords ...chord) string { return shortcut{Chords: chords}.label(apple) }

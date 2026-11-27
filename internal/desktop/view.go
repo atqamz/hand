@@ -103,7 +103,9 @@ func (a *App) View(c *ui.Context) {
 	docPage := a.docPageOpen()
 	shell := ui.Row(c).Fill()
 	if docPage {
-		shell = keyClosePage.on(shell, a.CloseViewer)
+		if !a.keysOpen {
+			shell = keyClosePage.on(shell, a.CloseViewer)
+		}
 		if a.Screen == DocScreen {
 			shell = keyFind.on(shell, a.focusFindBox)
 			shell = keyPrevDoc.on(shell, func() { a.stepDoc(false) })
