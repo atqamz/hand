@@ -507,6 +507,9 @@ func TestAClosedViewerDropsTheDeepLinksOwedTab(t *testing.T) {
 			if app.Tab != "chat" {
 				t.Fatalf("a deep link undone before its load left the tab on %q, want chat", app.Tab)
 			}
+			app.CloseViewer()
+			settle()
+			tt.Frame()
 			mustText(t, tt, "Message the supervisor")
 		})
 	}

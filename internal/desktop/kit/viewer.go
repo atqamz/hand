@@ -4,54 +4,22 @@ import "github.com/egoist/mygo/ui"
 
 const (
 	ViewerMax      = 1200
-	ViewerEdge     = 24
 	ViewerColumns  = 1000
 	ViewerAside    = 300
 	ViewerAsideGap = 40
 	ViewerTop      = Control + 12
+	SupStrip       = 40
 )
-
-// ViewerBox is the box's size in a window of w by h: no wider than 1200,
-// and ViewerEdge from each edge.
-func ViewerBox(w, h float32) (float32, float32) {
-	return min(float32(ViewerMax), w-2*ViewerEdge), h - 2*ViewerEdge
-}
-
-func ViewerBoxWide(w, h float32, wide bool) (float32, float32) {
-	if wide {
-		return w - 2*ViewerEdge, h - 2*ViewerEdge
-	}
-	return ViewerBox(w, h)
-}
 
 type ViewerOptions struct {
 	Name    string
 	Strip   string
 	Wide    bool
-	Back    bool
 	OnBack  func()
 	OnClose func()
 	Notice  func(*ui.Context)
 	Body    func(*ui.Context)
-}
-
-// Viewer draws the Board's viewer: the backdrop, the box and its strip.
-// It reports whether a click outside the box or Escape dismissed it.
-func Viewer(c *ui.Context, k Colors, v ViewerOptions) bool {
-	open := true
-	el := ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(k.Backdrop)
-		w, h := c.Size()
-		bw, bh := ViewerBoxWide(w, h, v.Wide)
-		panel.Width(bw).Height(bh).Background(k.BG).Border(1, k.Line).
-			Radius(RadiusLG).Clip().Label(v.Name).
-			Shadow(0, 8, 24, 0, k.Shadow).Children(func() {
-			ui.Column(c).FillHeight().Children(func() {
-				viewerContent(c, k, v)
-			})
-		})
-	})
-	return el.Dismissed()
+	Keys    func(ui.Element) ui.Element
 }
 
 func viewerContent(c *ui.Context, k Colors, v ViewerOptions) {
@@ -63,7 +31,11 @@ func viewerContent(c *ui.Context, k Colors, v ViewerOptions) {
 }
 
 func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) {
-	ui.Column(c).Grow(1).MinHeight(0).MinWidth(0).Background(k.BG).AlignItems(ui.Center).Children(func() {
+	outer := ui.Column(c).Grow(1).MinHeight(0).MinWidth(0).Background(k.BG).AlignItems(ui.Center)
+	if v.Keys != nil {
+		outer = v.Keys(outer)
+	}
+	outer.Children(func() {
 		col := ui.Column(c).Grow(1).MinHeight(0).FillWidth().Label(v.Name)
 		if !v.Wide {
 			col.MaxWidth(ViewerMax)
@@ -77,15 +49,9 @@ func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {
 		AlignItems(ui.Center).Background(k.Panel).
 		BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Children(func() {
 		back := ui.ButtonBase(c.Key("viewer:back")).Size(Control, Control).Radius(RadiusMD).
-			Justify(ui.Center).AlignItems(ui.Center).Label("Back").Disabled(!v.Back)
-		fg := k.FG
-		if v.Back {
-			back.Cursor(ui.CursorPointer)
-		} else {
-			fg = k.Muted.Alpha(.55)
-		}
-		back.Children(func() { ui.Icon(c, Icon("back")).TextColor(fg) })
-		if v.Back && back.Clicked() && v.OnBack != nil {
+			Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back")
+		back.Children(func() { ui.Icon(c, Icon("back")).TextColor(k.FG) })
+		if back.Clicked() && v.OnBack != nil {
 			v.OnBack()
 		}
 		strip := v.Strip

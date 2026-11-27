@@ -28,7 +28,7 @@ func chatWidth(pref, total, viewport float32) float32 {
 	return min(max(pref, minChat), max(minChat, total-minWork))
 }
 
-func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
+func (a *App) panes(c *ui.Context, k kit.Colors, p palette, work func()) {
 	box := ui.Column(c).Grow(1).MinHeight(0)
 	total, rail := box.Bounds().W, float32(kit.RailWidth)
 	if a.RailOpen {
@@ -45,16 +45,73 @@ func (a *App) panes(c *ui.Context, k kit.Colors, p palette) {
 		a.RailOpen = false
 		c.Invalidate()
 	}
-	work := max(total-chatWidth(a.Chat, total, total+rail), 0)
+	if a.collapsedSupervisor() {
+		a.workW = max(total-kit.SupStrip, 0)
+		box.Children(func() {
+			ui.Row(c).Grow(1).MinHeight(0).Children(func() {
+				ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(work)
+				a.supervisorStrip(c, k, p)
+			})
+		})
+		return
+	}
+	split := max(total-chatWidth(a.Chat, total, total+rail), 0)
+	a.workW = split
 	box.Children(func() {
-		split := ui.Split(c, &work, func() { a.workPane(c, k, p) }, func() { a.chatPane(c, k, p) }).Grow(1)
-		if split.Changed() {
-			if chat := chatWidth(total-work, total, total+rail); chat != a.Chat {
+		sp := ui.Split(c, &split, work, func() { a.chatPane(c, k, p) }).Grow(1)
+		if sp.Changed() {
+			if chat := chatWidth(total-split, total, total+rail); chat != a.Chat {
 				a.Chat = chat
 				a.savePrefs()
 			}
 		}
 	})
+}
+
+func (a *App) objectLayout(c *ui.Context, k kit.Colors, p palette) {
+	if a.narrow {
+		a.workW, _ = c.Size()
+		a.viewer(c, k, p)
+		return
+	}
+	a.panes(c, k, p, func() { a.viewer(c, k, p) })
+}
+
+func (a *App) collapsedSupervisor() bool {
+	return a.supCollapsed && a.viewerOpen() && !a.narrow
+}
+
+func (a *App) toggleSupervisor() {
+	a.supCollapsed = !a.supCollapsed
+	a.viewerFocus = true
+}
+
+func (a *App) supervisorStrip(c *ui.Context, k kit.Colors, p palette) {
+	sup := a.knownSupervisor()
+	name := "Supervisor"
+	if sup != nil {
+		name += " " + sup.Ref + " " + a.supWord()
+	}
+	ui.Column(c).Width(kit.SupStrip).FillHeight().Shrink(0).Background(k.Panel).
+		BorderWidth(0, 0, 0, 1).BorderColor(k.Line).AlignItems(ui.Center).
+		Padding(kit.Space8, 0).Gap(kit.Space10).Label(name).Children(func() {
+		a.supervisorToggle(c, k, "Expand the supervisor")
+		if sup == nil {
+			return
+		}
+		word := a.supWord()
+		ui.Icon(c, stateIcon(word)).TextColor(stateColor(word, p))
+		ui.Text(c, sup.Ref).Font(kit.Mono).FontSize(kit.Meta.Size).Bold().SingleLine().TextColor(k.FG)
+	})
+}
+
+func (a *App) supervisorToggle(c *ui.Context, k kit.Colors, label string) {
+	btn := ui.ButtonBase(c.Key("supervisor:toggle")).Size(kit.Control, kit.Control).Radius(kit.RadiusMD).
+		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(label)
+	btn.Children(func() { ui.Icon(c, kit.Icon("sidebar")).TextColor(k.Muted) })
+	if btn.Clicked() {
+		a.toggleSupervisor()
+	}
 }
 
 func (a *App) chatPane(c *ui.Context, k kit.Colors, p palette) {
@@ -217,6 +274,9 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 				}
 				a.headWord(c, p)
 				a.controls(c, k, sup)
+			}
+			if a.viewerOpen() && !a.narrow {
+				a.supervisorToggle(c, k, "Collapse the supervisor")
 			}
 			a.overflow(c, k, a.knownSupervisor())
 		})

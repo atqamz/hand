@@ -1099,7 +1099,7 @@ func TestBackFromAReportReturnsToTheTask(t *testing.T) {
 
 func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	click(t, tt, "Fix login")
 	tt.Scroll(400, 400, 0, 160)
 	tt.Frame()
@@ -1547,7 +1547,7 @@ func TestTaskShowsDecisionHistory(t *testing.T) {
 	td := f.task[fleetID]
 	f.extra = map[string]desktop.DecisionDetail{"d0": {Decision: td.Decisions[0], Task: td.Task, Body: td.Decisions[0].Question}}
 	app := newApp(t, f)
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	click(t, tt, "Fix login")
 	mustText(t, tt, "Rename the helper?", "Yes")
 	click(t, tt, "Answer d1")

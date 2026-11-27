@@ -12,13 +12,13 @@ import (
 )
 
 func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
-	opts := kit.ViewerOptions{
+	kit.ViewerPage(c, k, kit.ViewerOptions{
 		Name:    a.viewerName(),
 		Strip:   a.viewerStrip(),
 		Wide:    a.DocWide && a.Screen == DocScreen && a.docTextual(),
-		Back:    len(a.back) > 0 || a.docPageOpen(),
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,
+		Keys:    a.pageKeys,
 		Notice: func(nc *ui.Context) {
 			if a.OpenErr != "" {
 				ui.Box(nc).Padding(kit.Space10, kit.Space20, 0).Children(func() {
@@ -29,18 +29,20 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 		Body: func(*ui.Context) {
 			a.viewerBody(c, k, p)
 		},
-	}
-	if a.docPageOpen() {
-		kit.ViewerPage(c, k, opts)
-		return
-	}
-	if kit.Viewer(c, k, opts) {
-		a.CloseViewer()
-	}
+	})
 }
 
-func (a *App) docPageOpen() bool {
-	return a.viewerOpen() && a.Screen == DocScreen
+func (a *App) pageKeys(e ui.Element) ui.Element {
+	if !a.keysOpen {
+		e = keyClosePage.on(e, a.CloseViewer)
+	}
+	e = keyBack.on(e, a.Back)
+	if a.Screen == DocScreen {
+		e = keyFind.on(e, a.focusFindBox)
+		e = keyPrevDoc.on(e, func() { a.stepDoc(false) })
+		e = keyNextDoc.on(e, func() { a.stepDoc(true) })
+	}
+	return e
 }
 
 func (a *App) viewerStrip() string {
@@ -93,15 +95,13 @@ func (a *App) viewerBody(c *ui.Context, k kit.Colors, p palette) {
 			a.readingPage(c, p)
 			return
 		}
-		w, _ := c.Size()
-		a.taskPage(c, k, p, w >= kit.ViewerColumns)
+		a.taskPage(c, k, p, a.workW >= kit.ViewerColumns)
 	case AttemptScreen:
 		if a.Attempt.Attempt.Ref != a.Ref {
 			a.readingPage(c, p)
 			return
 		}
-		w, _ := c.Size()
-		a.attemptPage(c, k, p, w >= kit.ViewerColumns)
+		a.attemptPage(c, k, p, a.workW >= kit.ViewerColumns)
 	case DecisionScreen:
 		if a.Decision.Decision.Ref != a.Ref {
 			a.readingPage(c, p)
@@ -121,6 +121,7 @@ func (a *App) readingPage(c *ui.Context, p palette) {
 }
 
 func (a *App) pageScroll(c *ui.Context, body func()) {
+	a.restoreScroll()
 	ui.Scroll(c).Grow(1).MinHeight(0).Padding(kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
 		Bind(&a.viewerPage).
@@ -167,6 +168,7 @@ func (a *App) taskPage(c *ui.Context, k kit.Colors, p palette, wide bool) {
 }
 
 func (a *App) taskMain(c *ui.Context, k kit.Colors, p palette, asideFirst bool) {
+	a.restoreScroll()
 	ui.Scroll(c).Grow(1).FillHeight().MinHeight(0).Padding(kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
 		Bind(&a.viewerPage).
@@ -238,6 +240,7 @@ func (a *App) attemptPage(c *ui.Context, k kit.Colors, p palette, wide bool) {
 }
 
 func (a *App) attemptMain(c *ui.Context, k kit.Colors, p palette, asideFirst bool) {
+	a.restoreScroll()
 	ui.Scroll(c).Grow(1).FillHeight().MinHeight(0).Padding(kit.Space16, kit.Space20, 32).
 		Focusable().FocusRing(false).TrackScroll(&a.viewerScroll).Label("The page").
 		Bind(&a.viewerPage).

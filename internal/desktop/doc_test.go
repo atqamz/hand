@@ -71,8 +71,14 @@ func docShots(t *testing.T, name string, width, height int, open func(*desktop.A
 	}
 }
 
-func standupShape(t *testing.T, tt *ui.Tester, dark bool, minRun int) {
+func standupShape(t *testing.T, tt *ui.Tester, dark bool) {
 	t.Helper()
+	closeR, ok := tt.Find("Close the viewer")
+	if !ok {
+		t.Fatal("no close button")
+	}
+	backR, _ := tt.Find("Back")
+	minRun := int((closeR.X + closeR.W - backR.X) * 8 / 10)
 	texts := strings.Join(tt.Texts(), "\x00")
 	for _, want := range []string{
 		"Shipped\nExport job retried clean\nManifest written last\nBackfill at 30 days",
@@ -127,7 +133,7 @@ func TestScenesTheMarkdownDocument(t *testing.T) {
 				"2 KiB", "Next →", "notes.txt", "Nightly export pipeline: design", "Goals", "A manifest written last",
 				"Shipped", "Export job retried clean", "Region split", "Blocked")
 			mustNotText(t, tt, "← Previous")
-			standupShape(t, tt, dark, 900)
+			standupShape(t, tt, dark)
 			if !rowRun(tt.Image(), 600, kit.ColorsFor(dark).BG, 500) {
 				t.Error("the page under the text has no run of the ground")
 			}
@@ -489,8 +495,15 @@ func TestALongLineScrollsInsteadOfWideningTheBox(t *testing.T) {
 	app.OpenDoc("reports/t1/z-last.txt")
 	tt := newTester(app)
 	r, ok := tt.Find("Close the viewer")
-	if !ok || int(r.X+r.W) != 1060+32 {
-		t.Fatalf("the page's right edge is %v, want 1092", r)
+	if !ok {
+		t.Fatal("no close button")
+	}
+	short := newApp(t, docFixture(t))
+	short.OpenDoc("reports/t1/notes.txt")
+	st := newTester(short)
+	sr, ok := st.Find("Close the viewer")
+	if !ok || r.X+r.W != sr.X+sr.W {
+		t.Fatalf("the page's right edge is %v with a long line, %v with short ones", r, sr)
 	}
 	if !hasRun(tt.Image(), kit.ColorsFor(false).Card, 50) {
 		t.Error("the lines have no card ground")
@@ -703,7 +716,7 @@ func TestScenesTheDocumentInANarrowWindow(t *testing.T) {
 		func(a *desktop.App) { a.OpenDoc("reports/t1/design.md") },
 		func(t *testing.T, tt *ui.Tester, dark bool) {
 			mustText(t, tt, "design.md", "Copy path", "Next →", "Nightly export pipeline: design", "Shipped", "Region split")
-			standupShape(t, tt, dark, 700)
+			standupShape(t, tt, dark)
 			r, ok := tt.Find("Close the viewer")
 			if !ok || int(r.X+r.W) > 880 {
 				t.Errorf("the close button %v is outside the page", r)
