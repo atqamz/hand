@@ -22,6 +22,7 @@ func init() {
 
 func runProbe() {
 	f := desktop.DocFrame{
+		Kind: os.Getenv("HAND_WEBPROBE_KIND"),
 		Host: "probe",
 		URL:  os.Getenv("HAND_WEBPROBE_URL"),
 		Cookie: desktop.WebCookie{
