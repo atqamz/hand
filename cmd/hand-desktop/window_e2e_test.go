@@ -593,7 +593,10 @@ const tinyPDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R/OpenAction<</S/Nam
 	"4 0 obj<</Length 44>>stream\nBT /F1 36 Tf 30 90 Td (PDF CHECK) Tj ET\nendstream\nendobj\n" +
 	"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n"
 
-const pdfDarkMin = 8000
+const (
+	pdfDarkMin  = 8000
+	pdfLightMin = 150000
+)
 
 func needPixels(t *testing.T) bool {
 	t.Helper()
@@ -660,8 +663,8 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 	}
 	shot := filepath.Join(outDir, "screen.png")
 	var x0cl, y0cl int
-	best := 0
-	for deadline := time.Now().Add(30 * time.Second); best < pdfDarkMin && time.Now().Before(deadline); {
+	best, bestLight := 0, 0
+	for deadline := time.Now().Add(30 * time.Second); (best < pdfDarkMin || bestLight < pdfLightMin) && time.Now().Before(deadline); {
 		failOnPrintDialog(t, outDir)
 		if b, err := exec.Command("import", "-window", "root", shot).CombinedOutput(); err != nil {
 			t.Fatalf("import: %v\n%s", err, b)
@@ -675,7 +678,7 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dark := 0
+		dark, light := 0, 0
 		x0, y0 := int(origin.X+view.Bounds.X), int(origin.Y+view.Bounds.Y)
 		x0cl, y0cl = x0+int(view.Bounds.Width)/3, y0+int(view.Bounds.Height)/3
 		for y := y0; y < y0+int(view.Bounds.Height); y++ {
@@ -684,13 +687,16 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 				if r+g+b < 3*0x2000 {
 					dark++
 				}
+				if r+g+b > 3*0xe000 {
+					light++
+				}
 			}
 		}
-		best = max(best, dark)
+		best, bestLight = max(best, dark), max(bestLight, light)
 	}
-	t.Logf("dark pixels in the web view: %d", best)
-	if best < pdfDarkMin {
-		t.Fatalf("the PDF is not drawn across the web view: %d dark pixels, want at least %d", best, pdfDarkMin)
+	t.Logf("dark pixels in the web view: %d, light pixels: %d", best, bestLight)
+	if best < pdfDarkMin || bestLight < pdfLightMin {
+		t.Fatalf("the PDF is not drawn across the web view: %d dark pixels (want at least %d) and %d light pixels (want at least %d)", best, pdfDarkMin, bestLight, pdfLightMin)
 	}
 	checkNoPrintDialog(t, outDir)
 	checkNoContextMenu(t, outDir, x0cl, y0cl)
@@ -719,6 +725,7 @@ func checkNoContextMenu(t *testing.T, outDir string, x, y int) {
 	if b, err := exec.Command("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y), "click", "3").CombinedOutput(); err != nil {
 		t.Fatalf("xdotool: %v\n%s", err, b)
 	}
+	// A fixed delay: a menu that opens later than this is not seen, so a pass is no proof that none ever opens.
 	time.Sleep(2 * time.Second)
 	after := screenshot(t, filepath.Join(outDir, "after-rclick.png"))
 	changed := 0
