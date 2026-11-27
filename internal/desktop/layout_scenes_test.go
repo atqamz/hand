@@ -5,6 +5,7 @@ import (
 	"image"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,9 @@ func TestLayoutEverySceneLoadsAndDrawsText(t *testing.T) {
 		for _, s := range tt.Texts() {
 			if s == "Could not reach the board" || s == "The board refused the request" {
 				t.Fatalf("the scene shows the error screen %q", s)
+			}
+			if bad := errorText(s); bad && !contains(sc.errors, s) {
+				t.Fatalf("the scene shows an error state %q the fixture does not name", s)
 			}
 		}
 	})
@@ -337,4 +341,23 @@ func TestScenesLayout(t *testing.T) {
 		}
 		n++
 	}
+}
+
+func errorText(s string) bool {
+	l := strings.ToLower(s)
+	for _, w := range []string{"not found", "could not", "couldn't", "unavailable", "not_found", "refused", "unauthorized", "forbidden", "internal error"} {
+		if strings.Contains(l, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

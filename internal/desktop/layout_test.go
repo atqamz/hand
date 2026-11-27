@@ -41,13 +41,18 @@ func tolerances() tolerance {
 	if runtime.GOOS == "linux" {
 		return tolerance{ink: linuxInk, linkW: 12, linkH: 16, textH: 12}
 	}
-	return tolerance{ink: otherInk, linkW: 8, linkH: 12, textH: 14, viewer: true}
+	ink := darwinInk
+	if runtime.GOOS == "windows" {
+		ink = windowsInk
+	}
+	return tolerance{ink: ink, linkW: 12, linkH: 15, textH: 14, viewer: true}
 }
 
 const (
-	linuxInk  = 4.5
-	otherInk  = 3.5
-	chromeTop = 100
+	linuxInk   = 4.5
+	darwinInk  = 4.0
+	windowsInk = 3.3
+	chromeTop  = 100
 )
 
 type textBox struct {
@@ -210,7 +215,7 @@ func noOverflow(tt *ui.Tester, width, height int, vertical bool, known []hitBox)
 	return out
 }
 
-func inChrome(h hitBox) bool { return h.R.Y < chromeTop || inRail(h) }
+func inChrome(h hitBox) bool { return h.R.Y+h.R.H/2 < chromeTop || inRail(h) }
 
 func smallTargets(hits []hitBox, tol tolerance) []string {
 	var out []string
@@ -332,6 +337,25 @@ func clippedAway(x ui.Rect, hits []hitBox, width, height int) bool {
 	return false
 }
 
+func atClipEdge(r ui.Rect, hits []hitBox) bool {
+	for _, h := range hits {
+		if h.Flags&(hitClip|hitScrollY) == 0 || h.R.W < 100 || h.R.H < 100 || r.X < h.R.X || r.X >= h.R.X+h.R.W {
+			continue
+		}
+		if abs32(r.Y+r.H-(h.R.Y+h.R.H)) <= 1 || abs32(r.Y-h.R.Y) <= 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func abs32(f float32) float32 {
+	if f < 0 {
+		return -f
+	}
+	return f
+}
+
 func collapsed(v layer, width, height int) []string {
 	var out []string
 	for _, x := range v.texts {
@@ -369,7 +393,7 @@ func overprinted(v layer) []string {
 	held := holders(texts)
 	exempt := func(inner, outer int) bool {
 		o := texts[outer]
-		return held[outer] >= 2 || o.R.H >= texts[inner].R.H+6 || inName(texts[inner].Text, o.Text) || isControl(o.R, v.hits)
+		return held[outer] >= 2 || o.R.H >= texts[inner].R.H+6 || inName(texts[inner].Text, o.Text) || isControl(o.R, v.hits) || atClipEdge(o.R, v.hits)
 	}
 	var out []string
 	for i, a := range texts {

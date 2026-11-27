@@ -304,12 +304,13 @@ func layoutLongReply(t *testing.T) *fixture {
 }
 
 type layoutScene struct {
-	name  string
-	web   string
-	open  func(t *testing.T, width, height int, dark bool) *ui.Tester
-	fresh bool
-	modal func(width int) bool
-	under func(t *testing.T, width, height int, dark bool) *ui.Tester
+	name   string
+	web    string
+	open   func(t *testing.T, width, height int, dark bool) *ui.Tester
+	fresh  bool
+	modal  func(width int) bool
+	under  func(t *testing.T, width, height int, dark bool) *ui.Tester
+	errors []string
 }
 
 func boardOpen(fx func(t *testing.T) *fixture, then func(t *testing.T, app *desktop.App, tt *ui.Tester)) func(t *testing.T, w, h int, dark bool) *ui.Tester {
@@ -343,7 +344,7 @@ func openRef(ref string) func(t *testing.T, app *desktop.App, tt *ui.Tester) {
 
 func layoutScenes() []layoutScene {
 	return []layoutScene{
-		{name: "empty", web: "e001", open: boardOpen(func(t *testing.T) *fixture { return emptyFixture() }, nil)},
+		{name: "empty", web: "e001", errors: []string{"omp not found on the board's PATH; restart the board after installing it"}, open: boardOpen(func(t *testing.T) *fixture { return emptyFixture() }, nil)},
 		{name: "ready", web: "e002", fresh: true, open: boardOpen(layoutReady, nil)},
 		{name: "working", web: "e003", fresh: true, open: boardOpen(layoutQueued, nil)},
 		{name: "blocked", web: "e004, e016", fresh: true, open: boardOpen(layoutBlocked, nil)},
@@ -379,7 +380,7 @@ func layoutScenes() []layoutScene {
 			t.Helper()
 			return sized(t, alertsApp(t, withAlerts(goldenFixture(t))), w, h, dark)
 		}},
-		{name: "skills", web: "none, Desktop only", open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
+		{name: "skills", web: "none, Desktop only", errors: []string{"This scope could not be read"}, open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
 			t.Helper()
 			app, _ := skillsApp(t, goldenFixture(t))
 			return sized(t, app, w, h, dark)
