@@ -276,7 +276,7 @@ func TestScenesRailTooltip(t *testing.T) {
 		tt := sized(t, app, windowWidth, windowHeight, dark)
 		hoverTip(t, tt, "Tasks")
 		mustText(t, tt, "Tasks · Ctrl 2")
-		shotSized(t, tt, "142-rail-tooltip-1100x760-"+name, windowWidth, windowHeight)
+		shotSized(t, tt, "155-rail-tooltip-1100x760-"+name, windowWidth, windowHeight)
 	})
 }
 
