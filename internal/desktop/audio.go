@@ -17,6 +17,7 @@ const (
 	audioTick     = 250 * time.Millisecond
 	audioTooLarge = "This audio file is larger than this window reads; download it to play it elsewhere."
 	audioMaxRate  = 384000
+	audioMaxChans = 8
 	audioFormat   = "This audio file cannot be played in this window. It plays WAV and MP3; download it to play it elsewhere."
 )
 
@@ -39,6 +40,8 @@ type audioState struct {
 
 var errAudioRate = errors.New("the audio sample rate is not between 1 and 384000 Hz")
 
+var errAudioChannels = errors.New("the audio channel count is not between 1 and 8")
+
 func openAudio(b []byte) (AudioPlayer, error) {
 	if bytes.HasPrefix(b, []byte("OggS")) {
 		return nil, audio.ErrFormat
@@ -49,6 +52,9 @@ func openAudio(b []byte) (AudioPlayer, error) {
 	}
 	if r := d.SampleRate(); r < 1 || r > audioMaxRate {
 		return nil, errAudioRate
+	}
+	if c := d.Channels(); c < 1 || c > audioMaxChans {
+		return nil, errAudioChannels
 	}
 	return audio.NewPlayer(d), nil
 }

@@ -146,17 +146,19 @@ func TestADecoderThatReportsNoSampleRateIsRefused(t *testing.T) {
 	}
 }
 
-func wavBytes(rate uint32) []byte {
+func wavBytes(rate uint32) []byte { return wavChannelBytes(rate, 1) }
+
+func wavChannelBytes(rate uint32, channels uint16) []byte {
 	var b bytes.Buffer
 	b.WriteString("RIFF")
 	binary.Write(&b, binary.LittleEndian, uint32(36+4))
 	b.WriteString("WAVEfmt ")
 	binary.Write(&b, binary.LittleEndian, uint32(16))
 	binary.Write(&b, binary.LittleEndian, uint16(1))
-	binary.Write(&b, binary.LittleEndian, uint16(1))
+	binary.Write(&b, binary.LittleEndian, channels)
 	binary.Write(&b, binary.LittleEndian, rate)
-	binary.Write(&b, binary.LittleEndian, rate*2)
-	binary.Write(&b, binary.LittleEndian, uint16(2))
+	binary.Write(&b, binary.LittleEndian, rate*uint32(channels)*2)
+	binary.Write(&b, binary.LittleEndian, channels*2)
 	binary.Write(&b, binary.LittleEndian, uint16(16))
 	b.WriteString("data")
 	binary.Write(&b, binary.LittleEndian, uint32(4))
@@ -188,5 +190,52 @@ func TestAWavFileOverTheRateBoundGetsTheNoticeAndNoPlayer(t *testing.T) {
 	p, row := openedAudio(openAudio, wavBytes(audioMaxRate+1))
 	if p != nil || row != audioFormat {
 		t.Fatalf("openedAudio = %v, %q, want no player and %q", p, row, audioFormat)
+	}
+}
+
+func TestAWavFileOpensOnlyWithOneToEightChannels(t *testing.T) {
+	for _, tc := range []struct {
+		channels uint16
+		ok       bool
+	}{
+		{0, false}, {1, true}, {2, true}, {8, true}, {9, false}, {1000, false}, {65535, false},
+	} {
+		p, err := openAudio(wavChannelBytes(8000, tc.channels))
+		if p != nil {
+			p.Close()
+		}
+		if tc.ok && (p == nil || err != nil) {
+			t.Errorf("channels %d: %v, %v, want a player", tc.channels, p, err)
+		}
+		if !tc.ok && (p != nil || err == nil) {
+			t.Errorf("channels %d: %v, %v, want a refusal", tc.channels, p, err)
+		}
+	}
+}
+
+func TestAWavFileWithTooManyChannelsGetsTheNoticeAndNoPlayer(t *testing.T) {
+	for _, c := range []uint16{9, 1000, 65535} {
+		p, row := openedAudio(openAudio, wavChannelBytes(8000, c))
+		if p != nil || row != audioFormat {
+			t.Fatalf("channels %d: openedAudio = %v, %q, want no player and %q", c, p, row, audioFormat)
+		}
+	}
+}
+
+type channeled int
+
+func (c channeled) SampleRate() int           { return 8000 }
+func (c channeled) Channels() int             { return int(c) }
+func (channeled) Read([]float32) (int, error) { return 0, io.EOF }
+func (channeled) SetPosition(int64) error     { return nil }
+func (channeled) Len() int64                  { return 0 }
+
+func TestADecoderThatReportsNoChannelsOrTooManyIsRefused(t *testing.T) {
+	for magic, ch := range map[string]int{"CZER": 0, "CNEG": -1, "CNIN": 9} {
+		audio.RegisterFormat("chan"+magic, magic, func(io.ReadSeeker) (audio.Decoder, error) { return channeled(ch), nil })
+		p, err := openAudio([]byte(magic))
+		if p != nil || !errors.Is(err, errAudioChannels) {
+			t.Errorf("channels %d: %v, %v, want no player and errAudioChannels", ch, p, err)
+		}
 	}
 }
