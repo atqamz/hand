@@ -14,8 +14,6 @@ import (
 	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
-const inkFloor = 3.0
-
 type layoutSize struct{ w, h int }
 
 func (s layoutSize) String() string { return fmt.Sprintf("%dx%d", s.w, s.h) }
@@ -47,6 +45,31 @@ func underlay(t *testing.T, sc layoutScene, sz layoutSize, dark bool) []textBox 
 	return texts
 }
 
+func layerFor(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) layer {
+	t.Helper()
+	v, bad := layerOf(tt, underlay(t, sc, sz, dark))
+	if bad != "" {
+		t.Fatal(bad)
+	}
+	return v
+}
+
+func TestLayoutNoTextIsSilentlyLeftUnchecked(t *testing.T) {
+	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
+		v := layerFor(t, sc, sz, dark, tt)
+		modal := sc.modal != nil && sc.modal(sz.w)
+		if (v.dropped > 0) != modal {
+			t.Fatalf("modal %v but %d of %d texts are under a modal dialog", modal, v.dropped, v.total)
+		}
+		if named := sc.under != nil && !modal; (v.known > 0) != named {
+			t.Fatalf("%d texts taken out as the underlay, scene names one: %v", v.known, named)
+		}
+		if v.checked() < 5 {
+			t.Fatalf("only %d of %d texts are checked", v.checked(), v.total)
+		}
+	})
+}
+
 func TestLayoutEverySceneLoadsAndDrawsText(t *testing.T) {
 	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
 		if len(tt.Texts()) < 5 {
@@ -68,91 +91,96 @@ func TestLayoutNothingOverflowsTheWindowOrItsPane(t *testing.T) {
 
 func TestLayoutControlsKeepTheirMinimumHitSize(t *testing.T) {
 	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
-		report(t, "hit size", smallTargets(tt, minHitWidth, minHitHeight, nil))
-		report(t, "chrome hit size", smallTargets(tt, kit.Control, kit.Control, inRail))
+		report(t, "hit size", smallTargets(hitsOf(tt), tolerances()))
 	})
 }
 
 func TestLayoutNoTextIsOverprinted(t *testing.T) {
 	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
-		report(t, "overprint", overprinted(tt, sz.w, sz.h, underlay(t, sc, sz, dark)))
+		v := layerFor(t, sc, sz, dark, tt)
+		report(t, "overprint", overprinted(v))
+		report(t, "collapsed text", collapsed(v, sz.w, sz.h))
 	})
 }
 
 func TestLayoutTextKeepsItsContrast(t *testing.T) {
 	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
-		report(t, "contrast", lowContrast(tt, sz.w, sz.h, inkFloor, underlay(t, sc, sz, dark)))
+		report(t, "contrast", lowContrast(layerFor(t, sc, sz, dark, tt), tt.Image(), tolerances()))
 	})
 }
 
 func TestLayoutNoRuleIsDoubled(t *testing.T) {
 	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
-		report(t, "double hairline", doubledRules(tt.Image(), dark, panelEdges(hitsOf(tt), sz.w, sz.h)))
+		report(t, "double hairline", doubledRules(tt.Image(), dark, hitsOf(tt), tolerances()))
 	})
 }
 
-func ruleSpans(img *image.RGBA, y int, colors ...ui.Color) [][2]int {
-	var spans [][2]int
-	start := -1
-	for x := img.Bounds().Min.X; x <= img.Bounds().Max.X; x++ {
-		hit := false
-		if x < img.Bounds().Max.X {
-			for _, c := range colors {
-				if rgbIs(img.RGBAAt(x, y), c) {
-					hit = true
+func ruleRows(img *image.RGBA, colors ...ui.Color) map[int][][2]int {
+	b := img.Bounds()
+	want := make([][3]uint8, len(colors))
+	for i, c := range colors {
+		want[i] = [3]uint8{c.R, c.G, c.B}
+	}
+	rows := map[int][][2]int{}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		row := img.Pix[(y-b.Min.Y)*img.Stride:]
+		start := -1
+		for x := b.Min.X; x <= b.Max.X; x++ {
+			hit := false
+			if x < b.Max.X {
+				o := (x - b.Min.X) * 4
+				px := [3]uint8{row[o], row[o+1], row[o+2]}
+				for _, w := range want {
+					if px == w {
+						hit = true
+						break
+					}
 				}
 			}
-		}
-		switch {
-		case hit && start < 0:
-			start = x
-		case !hit && start >= 0:
-			if x-start >= 120 {
-				spans = append(spans, [2]int{start, x})
+			switch {
+			case hit && start < 0:
+				start = x
+			case !hit && start >= 0:
+				if x-start >= 120 {
+					rows[y] = append(rows[y], [2]int{start, x})
+				}
+				start = -1
 			}
-			start = -1
 		}
 	}
-	return spans
+	return rows
 }
 
-func panelEdges(hits []hitBox, width, height int) []int {
-	var ys []int
+func ownBorder(y1, y2, lo, hi int, hits []hitBox, tol tolerance) bool {
 	for _, h := range hits {
-		if h.R.W > 300 && h.R.H > 300 && h.R.W < float32(width)-1 {
-			ys = append(ys, int(h.R.Y), int(h.R.Y+h.R.H))
-		}
-	}
-	return ys
-}
-
-func nearAny(y int, edges []int) bool {
-	for _, e := range edges {
-		if y >= e-3 && y <= e+3 {
-			return true
+		top, bot := int(h.R.Y), int(h.R.Y+h.R.H)
+		switch {
+		case h.Flags&hitClickable != 0 && h.R.H > 0 && h.R.H <= 60:
+			if int(h.R.X)+3 > lo || int(h.R.X+h.R.W)-3 < hi {
+				continue
+			}
+			if y1 >= top-1 && y2 <= top+3 || y1 >= bot-3 && y2 <= bot+1 {
+				return true
+			}
+		case tol.viewer && h.Flags&hitScrollY != 0 && h.R.H > 300:
+			if y1 >= top-3 && y2 <= top+3 || y1 >= bot-3 && y2 <= bot+3 {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func doubledRules(img *image.RGBA, dark bool, panels []int) []string {
+func doubledRules(img *image.RGBA, dark bool, hits []hitBox, tol tolerance) []string {
 	k := kit.ColorsFor(dark)
-	rows := map[int][][2]int{}
-	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
-		if sp := ruleSpans(img, y, k.Line, k.LineStrong); len(sp) > 0 {
-			rows[y] = sp
-		}
-	}
+	rows := ruleRows(img, k.Line, k.LineStrong)
 	var out []string
 	for y, a := range rows {
-		for gap := 2; gap <= 3; gap++ {
+		for gap := 1; gap <= 3; gap++ {
 			for _, sa := range a {
 				for _, sb := range rows[y+gap] {
 					lo, hi := max(sa[0], sb[0]), min(sa[1], sb[1])
-					if nearAny(y, panels) || nearAny(y+gap, panels) {
-						continue
-					}
-					if hi-lo >= 120 && hi-lo >= (min(sa[1]-sa[0], sb[1]-sb[0]))*9/10 {
+					if hi-lo >= 120 && hi-lo >= min(sa[1]-sa[0], sb[1]-sb[0])*9/10 && !ownBorder(y, y+gap, lo, hi, hits, tol) {
 						out = append(out, fmt.Sprintf("rules at y=%d and y=%d, x %d to %d", y, y+gap, lo, hi))
 					}
 				}

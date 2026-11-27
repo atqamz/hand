@@ -55,11 +55,16 @@ func setTasks(f *fixture, groups ...desktop.TaskGroup) {
 	f.status[fleetID] = st
 }
 
+func noNeeds(f *fixture) {
+	setStatus(f, func(st *desktop.Status) { st.Needs = desktop.Needs{} })
+}
+
 func layoutReady(t *testing.T) *fixture {
 	f := goldenFixture(t)
 	setStatus(f, func(st *desktop.Status) {
 		st.AgentState, st.Pill, st.Line = "idle", "ready", "idle"
 		st.Gauge = desktop.Gauge{Text: "510K / 1M", Pct: 51}
+		st.Supervisor.Pending = 0
 	})
 	tl := f.timeline[fleetID]
 	tl.Working = nil
@@ -144,6 +149,7 @@ func layoutManyTasks(t *testing.T) *fixture {
 		inbox = append(inbox, desktop.TaskRow{Ref: fmt.Sprintf("t%d", 50+i), Title: fmt.Sprintf("Inbox item %d", i), Status: "inbox", State: "idle", Project: "hand"})
 	}
 	setTasks(f, desktop.TaskGroup{Name: "Active", Count: len(active), Tasks: active}, desktop.TaskGroup{Name: "Inbox", Count: len(inbox), Tasks: inbox})
+	noNeeds(f)
 	return f
 }
 
@@ -186,6 +192,7 @@ func layoutDeliverables(t *testing.T) *fixture {
 			{Ref: "t30", Title: "Inbox item without a deliverable", Status: "inbox", State: "idle", Project: "hand"},
 			{Ref: "t31", Title: "Another inbox item", Status: "inbox", State: "idle", Project: "hand"},
 		}})
+	noNeeds(f)
 	return f
 }
 
@@ -235,9 +242,24 @@ func layoutDecisions(t *testing.T) *fixture {
 		st.Needs = desktop.Needs{Waiting: len(items), Worst: "decision", WorstWord: "decision", WorstCount: len(items), Items: items}
 		st.Gauge = desktop.Gauge{Text: "420K / 1M", Pct: 42}
 	})
-	dd := f.decision[fleetID]
-	dd.Decision.Question = "Pin luvus to which version?\n\nCI broke when luvus 0.15 changed the output of `luvus session list`. Pick how CI follows luvus from now on.\n\n1. Pin 0.14.2 — reproducible, but misses fixes\n2. Track 0.14.x — gets fixes, can still break\n3. Other (write your own)"
-	f.decision[fleetID] = dd
+	long := "Pin luvus to which version?\n\nCI broke when luvus 0.15 changed the output of `luvus session list`. Pick how CI follows luvus from now on.\n\n1. Pin 0.14.2 \u2014 reproducible, but misses fixes\n2. Track 0.14.x \u2014 gets fixes, can still break\n3. Other (write your own)"
+	f.extra = map[string]desktop.DecisionDetail{}
+	for i, h := range heads {
+		ref := fmt.Sprintf("d%d", 20+i)
+		dd := f.decision[fleetID]
+		dd.Decision.Ref, dd.Decision.Task, dd.Decision.Headline, dd.Decision.Question = ref, fmt.Sprintf("t%d", 20+i), h, h+"\n\n1. Yes\n2. No"
+		dd.Body = "1. Yes\n2. No"
+		if i == 0 {
+			dd.Decision.Question = long
+			dd.Body = "1. Pin 0.14.2 \u2014 reproducible, but misses fixes\n2. Track 0.14.x \u2014 gets fixes, can still break\n3. Other (write your own)"
+			dd.Options = []desktop.Option{
+				{Key: "1", Label: "Pin 0.14.2 \u2014 reproducible, but misses fixes", Value: "1. Pin 0.14.2"},
+				{Key: "2", Label: "Track 0.14.x \u2014 gets fixes, can still break", Value: "2. Track 0.14.x"},
+				{Key: "3", Label: "Other (write your own)", Value: "3. Other"},
+			}
+		}
+		f.extra[ref] = dd
+	}
 	return f
 }
 
@@ -253,6 +275,7 @@ func layoutNested(t *testing.T) *fixture {
 			{Ref: "t14", Title: "Write the release notes", Project: "hand", Status: "active", State: "idle", Parent: "t15"},
 		}},
 		desktop.TaskGroup{Name: "Inbox", Count: 1, Tasks: []desktop.TaskRow{{Ref: "t16", Title: "Add dark mode toggle", Project: "hand", Status: "inbox", State: "idle"}}})
+	noNeeds(f)
 	return f
 }
 
@@ -285,6 +308,7 @@ type layoutScene struct {
 	web   string
 	open  func(t *testing.T, width, height int, dark bool) *ui.Tester
 	fresh bool
+	modal func(width int) bool
 	under func(t *testing.T, width, height int, dark bool) *ui.Tester
 }
 
@@ -334,9 +358,9 @@ func layoutScenes() []layoutScene {
 		{name: "reply-first", web: "e01a", fresh: true, open: boardOpen(layoutReplyFirst, nil)},
 		{name: "long-reply", web: "e010 chat", fresh: true, open: boardOpen(layoutLongReply, nil)},
 		{name: "tasks", web: "e010 tasks", open: boardOpen(subtaskSearchFixture, showScreen(desktop.TasksScreen))},
-		{name: "task", web: "task, dialog", open: boardOpen(goldenFixture, openRef("t1"))},
-		{name: "attempt", web: "attempt", open: boardOpen(goldenFixture, openRef("a1"))},
-		{name: "decision", web: "decision", open: boardOpen(goldenFixture, openRef("d1"))},
+		{name: "task", modal: always, web: "task, dialog", open: boardOpen(goldenFixture, openRef("t1"))},
+		{name: "attempt", modal: always, web: "attempt", open: boardOpen(goldenFixture, openRef("a1"))},
+		{name: "decision", modal: always, web: "decision", open: boardOpen(goldenFixture, openRef("d1"))},
 		{name: "document", web: "document, documents", open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
 			t.Helper()
 			app := newApp(t, docFixture(t))
@@ -360,7 +384,7 @@ func layoutScenes() []layoutScene {
 			app, _ := skillsApp(t, goldenFixture(t))
 			return sized(t, app, w, h, dark)
 		}},
-		{name: "overflow-menu", web: "menu", under: boardOpen(goldenFixture, nil), open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
+		{name: "overflow-menu", modal: narrow, web: "menu", under: boardOpen(goldenFixture, nil), open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
 			t.Helper()
 			tt := sized(t, newApp(t, goldenFixture(t)), w, h, dark)
 			click(t, tt, menuButton(w))
@@ -368,6 +392,10 @@ func layoutScenes() []layoutScene {
 		}},
 	}
 }
+
+func always(int) bool { return true }
+
+func narrow(width int) bool { return width < 900 }
 
 func menuButton(width int) string {
 	if width < 900 {

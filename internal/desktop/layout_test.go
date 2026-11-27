@@ -5,21 +5,49 @@ import (
 	"image"
 	"math"
 	"reflect"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"unsafe"
 
 	"github.com/egoist/mygo/ui"
+
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 const (
 	hitClickable   = 1 << 0
 	hitFocusable   = 1 << 1
 	hitEditable    = 1 << 2
+	hitScrollY     = 1 << 5
+	hitClip        = 1<<6 | 1<<7
 	hitDisabled    = 1 << 9
+	hitModal       = 1 << 22
 	hitInteractive = hitClickable | hitFocusable | hitEditable
 	layoutSlack    = 0.5
+)
+
+type tolerance struct {
+	ink    float64
+	linkW  float32
+	linkH  float32
+	textH  float32
+	viewer bool
+}
+
+func tolerances() tolerance {
+	if runtime.GOOS == "linux" {
+		return tolerance{ink: linuxInk, linkW: 12, linkH: 16, textH: 12}
+	}
+	return tolerance{ink: otherInk, linkW: 8, linkH: 12, textH: 14, viewer: true}
+}
+
+const (
+	linuxInk  = 4.5
+	otherInk  = 3.5
+	chromeTop = 100
 )
 
 type textBox struct {
@@ -138,7 +166,8 @@ func covered(hits []hitBox, width, height int) bool {
 }
 
 func noOverflow(tt *ui.Tester, width, height int, vertical bool, known []hitBox) []string {
-	hits := without(hitsOf(tt), known)
+	texts, all := readBoxes(tt)
+	hits := without(all, known)
 	var out []string
 	win := ui.Rect{W: float32(width), H: float32(height)}
 	div, hasDiv := tt.Find("Divider")
@@ -146,56 +175,61 @@ func noOverflow(tt *ui.Tester, width, height int, vertical bool, known []hitBox)
 	if covered(hits, width, height) {
 		edges = [][2]float32{{0, win.W}}
 	}
-	for _, h := range hits {
-		if h.Flags&hitInteractive == 0 || h.R.W <= 0 || h.R.H <= 0 {
-			continue
+	cross := func(what string, r ui.Rect) {
+		if !within(r, 0, win.W) {
+			out = append(out, fmt.Sprintf("%s %s leaves the %d px window", what, describe(r), width))
+			return
 		}
-		if hasDiv && isDivider(h.R, div) {
-			continue
+		if vertical && (r.Y < -layoutSlack || r.Y+r.H > win.H+layoutSlack) {
+			out = append(out, fmt.Sprintf("%s %s leaves the %d px window", what, describe(r), height))
+			return
 		}
-		if !within(h.R, 0, win.W) {
-			out = append(out, fmt.Sprintf("control %s leaves the %d px window", describe(h.R), width))
-			continue
-		}
-		if vertical && (h.R.Y < -layoutSlack || h.R.Y+h.R.H > win.H+layoutSlack) {
-			out = append(out, fmt.Sprintf("control %s leaves the %d px window", describe(h.R), height))
-			continue
-		}
-		if h.R.W > 300 && h.R.H > 300 {
-			continue
-		}
-		cx := h.R.X + h.R.W/2
+		cx := r.X + r.W/2
 		for _, e := range edges {
-			if cx >= e[0] && cx < e[1] && !within(h.R, e[0], e[1]) {
-				out = append(out, fmt.Sprintf("control %s crosses its pane %.0f to %.0f", describe(h.R), e[0], e[1]))
+			if cx >= e[0] && cx < e[1] && !within(r, e[0], e[1]) {
+				out = append(out, fmt.Sprintf("%s %s crosses its pane %.0f to %.0f", what, describe(r), e[0], e[1]))
 			}
+		}
+	}
+	for _, h := range hits {
+		if h.R.W <= 0 || h.R.H <= 0 || hasDiv && isDivider(h.R, div) {
+			continue
+		}
+		if h.Flags&hitInteractive != 0 && !(h.R.W > 300 && h.R.H > 300) {
+			cross("control", h.R)
+		} else if h.Flags&hitClip != 0 && !(h.R.W >= win.W-1 && h.R.H >= win.H-1) {
+			cross("panel", h.R)
+		}
+	}
+	held := holders(texts)
+	for i, x := range texts {
+		if x.R.W > 0 && x.R.H > 0 && x.R.H <= 120 && held[i] == 0 {
+			cross("text "+strconv.Quote(shorten(x.Text)), x.R)
 		}
 	}
 	return out
 }
 
-func smallTargets(tt *ui.Tester, minW, minH float32, keep func(hitBox) bool) []string {
-	_, hits := readBoxes(tt)
+func inChrome(h hitBox) bool { return h.R.Y < chromeTop || inRail(h) }
+
+func smallTargets(hits []hitBox, tol tolerance) []string {
 	var out []string
 	for _, h := range hits {
 		if h.Flags&hitClickable == 0 || h.R.W <= 0 || h.R.H <= 0 {
 			continue
 		}
-		if keep != nil && !keep(h) {
-			continue
+		minW, minH, what := tol.linkW, tol.linkH, "link"
+		if inChrome(h) {
+			minW, minH, what = kit.Control, kit.Control, "control"
 		}
 		if h.R.W < minW || h.R.H < minH {
-			out = append(out, fmt.Sprintf("hit target %s under %.0fx%.0f px", describe(h.R), minW, minH))
+			out = append(out, fmt.Sprintf("%s hit target %s under %.0fx%.0f px", what, describe(h.R), minW, minH))
 		}
 	}
 	return out
 }
 
-const (
-	minHitWidth  = 8
-	minHitHeight = 12
-	railWidth    = 56
-)
+const railWidth = 56
 
 func inRail(h hitBox) bool { return h.R.X+h.R.W <= railWidth+layoutSlack }
 
@@ -211,23 +245,60 @@ func badge(s string) bool {
 	return true
 }
 
-func topLayer(texts []textBox, width, height int) []textBox {
-	for i, x := range texts {
-		r := x.R
-		if r.X >= 8 && r.Y >= 8 && r.X+r.W <= float32(width)-8 && r.Y+r.H <= float32(height)-8 && r.W*r.H >= float32(width*height)/2 {
-			return texts[i:]
-		}
-	}
-	return texts
+type layer struct {
+	texts   []textBox
+	hits    []hitBox
+	total   int
+	dropped int
+	known   int
 }
 
-func holdsAnother(texts []textBox, i int) bool {
-	for j, b := range texts {
-		if j != i && b.R != texts[i].R && inside(b.R, texts[i].R) {
-			return true
+func sameRect(a, b ui.Rect) bool {
+	return math.Abs(float64(a.X-b.X)) < 1 && math.Abs(float64(a.Y-b.Y)) < 1 && math.Abs(float64(a.W-b.W)) < 1 && math.Abs(float64(a.H-b.H)) < 1
+}
+
+func layerOf(tt *ui.Tester, known []textBox) (layer, string) {
+	texts, hits := readBoxes(tt)
+	v := layer{hits: hits, total: len(texts)}
+	start := 0
+	for i, h := range hits {
+		if h.Flags&hitModal == 0 {
+			continue
+		}
+		if i+1 >= len(hits) {
+			return v, "a modal backdrop with no dialog after it"
+		}
+		found := -1
+		for j, x := range texts {
+			if sameRect(x.R, hits[i+1].R) {
+				found = j
+				break
+			}
+		}
+		if found < 0 {
+			return v, "a modal dialog with no label of its own"
+		}
+		start = found
+	}
+	v.dropped = start
+	rest := withoutText(texts[start:], known)
+	v.known = len(texts) - start - len(rest)
+	v.texts = rest
+	return v, ""
+}
+
+func (v layer) checked() int { return len(v.texts) }
+
+func holders(texts []textBox) []int {
+	n := make([]int, len(texts))
+	for i, a := range texts {
+		for j, b := range texts {
+			if i != j && !sameRect(a.R, b.R) && a.R.W > 0 && b.R.W > 0 && inside(b.R, a.R) {
+				n[i]++
+			}
 		}
 	}
-	return false
+	return n
 }
 
 func withoutText(texts, known []textBox) []textBox {
@@ -246,23 +317,75 @@ func withoutText(texts, known []textBox) []textBox {
 	return out
 }
 
-func overprinted(tt *ui.Tester, width, height int, known []textBox) []string {
-	texts, _ := readBoxes(tt)
-	texts = withoutText(topLayer(texts, width, height), known)
-	var out []string
-	for i, a := range texts {
-		if a.R.H > 60 || a.R.W <= 0 || a.R.H <= 0 {
+func clippedAway(x ui.Rect, hits []hitBox, width, height int) bool {
+	if x.X >= float32(width) || x.Y >= float32(height) || x.X < 0 || x.Y < 0 {
+		return true
+	}
+	for _, h := range hits {
+		if h.Flags&(hitClip|hitScrollY) == 0 || h.R.W < 100 || h.R.H < 100 || x.X < h.R.X || x.X >= h.R.X+h.R.W {
 			continue
 		}
-		for _, b := range texts[i+1:] {
-			if b.R.H > 60 || b.R.W <= 0 || b.R.H <= 0 || a.Text == b.Text {
+		if x.Y >= h.R.Y+h.R.H-layoutSlack || h.Flags&hitScrollY != 0 && x.Y <= h.R.Y+layoutSlack {
+			return true
+		}
+	}
+	return false
+}
+
+func collapsed(v layer, width, height int) []string {
+	var out []string
+	for _, x := range v.texts {
+		if (x.R.W <= 0 || x.R.H <= 0) && strings.TrimSpace(x.Text) != "" && !clippedAway(x.R, v.hits, width, height) {
+			out = append(out, fmt.Sprintf("%q collapsed to %s in view", shorten(x.Text), describe(x.R)))
+		}
+	}
+	return out
+}
+
+func wordsOf(s string) []string { return strings.Fields(strings.ToLower(s)) }
+
+func inName(visible, name string) bool {
+	v, n := wordsOf(visible), wordsOf(name)
+	i := 0
+	for _, w := range n {
+		if i < len(v) && strings.HasPrefix(w, v[i]) || i < len(v) && strings.Contains(w, v[i]) {
+			i++
+		}
+	}
+	return len(v) > 0 && i == len(v)
+}
+
+func isControl(r ui.Rect, hits []hitBox) bool {
+	for _, h := range hits {
+		if h.Flags&hitInteractive != 0 && sameRect(h.R, r) {
+			return true
+		}
+	}
+	return false
+}
+
+func overprinted(v layer) []string {
+	texts := v.texts
+	held := holders(texts)
+	exempt := func(inner, outer int) bool {
+		o := texts[outer]
+		return held[outer] >= 2 || o.R.H >= texts[inner].R.H+6 || inName(texts[inner].Text, o.Text) || isControl(o.R, v.hits)
+	}
+	var out []string
+	for i, a := range texts {
+		if a.R.H > 60 || a.R.W <= 0 || a.R.H < 6 {
+			continue
+		}
+		for j := i + 1; j < len(texts); j++ {
+			b := texts[j]
+			if b.R.H > 60 || b.R.W <= 0 || b.R.H < 6 || a.Text == b.Text {
 				continue
 			}
 			w, h := overlap(a.R, b.R)
-			if w <= 2 || h <= 2 || badge(a.Text) || badge(b.Text) {
+			if w <= 2 || h <= 2 || badge(a.Text) || badge(b.Text) || sameRect(a.R, b.R) {
 				continue
 			}
-			if inside(a.R, b.R) || inside(b.R, a.R) {
+			if inside(a.R, b.R) && exempt(i, j) || inside(b.R, a.R) && exempt(j, i) {
 				continue
 			}
 			out = append(out, fmt.Sprintf("%q %s overprints %q %s", shorten(a.Text), describe(a.R), shorten(b.Text), describe(b.R)))
@@ -330,20 +453,18 @@ func disabledAt(hits []hitBox, r ui.Rect) bool {
 	return false
 }
 
-func lowContrast(tt *ui.Tester, width, height int, floor float64, known []textBox) []string {
-	img := tt.Image()
-	texts, hits := readBoxes(tt)
-	texts = withoutText(topLayer(texts, width, height), known)
+func lowContrast(v layer, img *image.RGBA, tol tolerance) []string {
+	held := holders(v.texts)
 	var out []string
-	for i, a := range texts {
-		if disabledAt(hits, a.R) || holdsAnother(texts, i) {
+	for i, a := range v.texts {
+		if disabledAt(v.hits, a.R) || held[i] > 0 {
 			continue
 		}
-		if strings.TrimSpace(a.Text) == "" || a.R.H > 120 || a.R.W*a.R.H > 60000 || a.R.W < 3 || a.R.H < 14 {
+		if strings.TrimSpace(a.Text) == "" || a.R.H > 120 || a.R.W*a.R.H > 60000 || a.R.W <= 0 || a.R.H < tol.textH {
 			continue
 		}
-		if r, ok := inkContrast(img, a.R); ok && r < floor {
-			out = append(out, fmt.Sprintf("%q %s contrast %.2f under %.1f", shorten(a.Text), describe(a.R), r, floor))
+		if r, ok := inkContrast(img, a.R); ok && r < tol.ink {
+			out = append(out, fmt.Sprintf("%q %s contrast %.2f under %.1f", shorten(a.Text), describe(a.R), r, tol.ink))
 		}
 	}
 	return out
