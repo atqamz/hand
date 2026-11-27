@@ -1450,20 +1450,36 @@ func chevronPointsDown(t *testing.T, tt *ui.Tester, name string) bool {
 	}
 	img := tt.Image()
 	mid := int(r.Y + r.H/2)
+	const x0, x1 = 1050, 1080
 	bg := img.RGBAAt(1046, mid)
-	ink := func(from, to int) int {
-		n := 0
-		for y := from; y < to; y++ {
-			for x := 1050; x < 1080; x++ {
-				p := img.RGBAAt(x, y)
-				if p != bg {
-					n++
+	y0, y1 := -1, -1
+	for y := mid - 12; y <= mid+12; y++ {
+		for x := x0; x < x1; x++ {
+			if img.RGBAAt(x, y) != bg {
+				if y0 < 0 {
+					y0 = y
 				}
+				y1 = y
+				break
 			}
 		}
-		return n
 	}
-	top, bottom := ink(mid-6, mid), ink(mid, mid+6)
+	if y0 < 0 || y1-y0 < 3 {
+		t.Fatalf("no chevron beside %q: ink rows %d to %d", name, y0, y1)
+	}
+	span := func(y int) int {
+		lo, hi := -1, -1
+		for x := x0; x < x1; x++ {
+			if img.RGBAAt(x, y) != bg {
+				if lo < 0 {
+					lo = x
+				}
+				hi = x
+			}
+		}
+		return hi - lo
+	}
+	top, bottom := span(y0)+span(y0+1), span(y1)+span(y1-1)
 	if top == bottom {
 		t.Fatalf("the chevron of %q is symmetric: %d and %d", name, top, bottom)
 	}
