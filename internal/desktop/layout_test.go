@@ -192,7 +192,7 @@ func smallTargets(tt *ui.Tester, minW, minH float32, keep func(hitBox) bool) []s
 }
 
 const (
-	minHitWidth  = 12
+	minHitWidth  = 8
 	minHitHeight = 12
 	railWidth    = 56
 )
