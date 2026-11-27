@@ -190,7 +190,7 @@ func main() {
 			path, _ := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: win, Title: "Save the file", DefaultPath: name})
 			return path
 		}
-		web := &webhost.Host{Engine: mygoEngine{win}}
+		web := &webhost.Host{Engine: newMygoEngine(win)}
 		app.OpenWeb = web.Open
 		app.OnTitle = win.SetTitle
 		app.OnBadge = mygo.App.SetBadgeCount
