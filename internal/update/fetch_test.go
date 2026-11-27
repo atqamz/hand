@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -366,6 +367,97 @@ func TestNewerComparesNumbers(t *testing.T) {
 	}{{"0.14.10", "0.14.9", true}, {"0.14.4", "", true}, {"0.14.4", "0.14.4", false}, {"0.14.3", "0.15.0", false}, {"x", "0.1.0", false}} {
 		if got := Newer(c.a, c.b); got != c.want {
 			t.Fatalf("Newer(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}
+
+func TestFetchRefusesAPlainHTTPBaseOffThisMachine(t *testing.T) {
+	for _, base := range []string{"http://example.com/releases", "http://10.0.0.5:8080", "ftp://127.0.0.1/x", "http://localhost.example.com", "http://127.0.0.1.example.com", "http://localhost:80@example.com/releases", "http://user:pw@localhost:8080", "http://user@127.0.0.1:8080"} {
+		dir := t.TempDir()
+		_, err := FetchHand(context.Background(), base, "edge", "linux", "amd64", dir, os.Environ())
+		if err == nil || !strings.Contains(err.Error(), "must use https") {
+			t.Fatalf("%s: err = %v", base, err)
+		}
+		if _, err := probeIroh(context.Background(), base, "edge", "linux", "amd64"); err == nil || !strings.Contains(err.Error(), "must use https") {
+			t.Fatalf("%s: probe err = %v", base, err)
+		}
+		absent(t, filepath.Join(dir, "hand-linux-amd64.tar.gz"))
+	}
+}
+
+func TestFetchRefusesARedirectOffThisMachineToPlainHTTP(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		hits++
+		http.Redirect(w, req, "http://example.com/hand-linux-amd64.tar.gz", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	_, err := FetchHand(context.Background(), srv.URL, "edge", "linux", "amd64", dir, os.Environ())
+	if err == nil || !strings.Contains(err.Error(), "must use https") || hits != 1 {
+		t.Fatalf("hits %d, err = %v", hits, err)
+	}
+	absent(t, filepath.Join(dir, "hand-linux-amd64.tar.gz"))
+}
+
+func TestCheckRedirectKeepsHTTPSOnHTTPS(t *testing.T) {
+	get := func(raw string) *http.Request {
+		r, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	for _, c := range []struct {
+		name, from, to string
+		ok             bool
+	}{
+		{"https to https", "https://github.com/a", "https://objects.githubusercontent.com/b", true},
+		{"https to http", "https://github.com/a", "http://objects.example.com/b", false},
+		{"https to loopback http", "https://github.com/a", "http://127.0.0.1:8080/b", false},
+		{"loopback http to loopback http", "http://127.0.0.1:8080/a", "http://localhost:9090/b", true},
+		{"loopback http to https", "http://127.0.0.1:8080/a", "https://example.com/b", true},
+		{"loopback http to other http", "http://127.0.0.1:8080/a", "http://example.com/b", false},
+		{"loopback http to ::1 http", "http://127.0.0.1:8080/a", "http://[::1]:9090/b", true},
+		{"::1 http to https", "http://[::1]:8080/a", "https://example.com/b", true},
+		{"https to ::1 http", "https://github.com/a", "http://[::1]:9090/b", false},
+		{"loopback http to a lookalike host", "http://127.0.0.1:8080/a", "http://localhost.example.com/b", false},
+		{"loopback http to a 127.0.0.1 lookalike", "http://127.0.0.1:8080/a", "http://127.0.0.1.example.com/b", false},
+	} {
+		err := checkRedirect(get(c.to), []*http.Request{get(c.from)})
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok %v", c.name, err, c.ok)
+		}
+	}
+	hops := []*http.Request{get("http://127.0.0.1:8080/a"), get("https://example.com/b")}
+	if err := checkRedirect(get("http://127.0.0.1:8080/c"), hops); err == nil {
+		t.Error("a downgrade after an https hop was followed")
+	}
+	if err := checkRedirect(get("https://example.com/"), make([]*http.Request, 10)); err == nil {
+		t.Error("ten redirects were followed")
+	}
+}
+
+func TestRequireHTTPSKnowsTheHost(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://github.com/atqamz/hand/releases": true,
+		"http://127.0.0.1:8080/x":                 true,
+		"http://localhost/x":                      true,
+		"http://[::1]:8080/x":                     true,
+		"http://[::1]/x":                          true,
+		"http://localhost.example.com/x":          false,
+		"http://127.0.0.1.example.com:8080/x":     false,
+		"http://[::2]:8080/x":                     false,
+		"http://localhost:80@example.com/x":       false,
+		"http://user:pw@localhost:8080/x":         false,
+		"https://user:pw@github.com/x":            true,
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := requireHTTPS(u); (err == nil) != ok {
+			t.Errorf("%s: err = %v, want ok %v", raw, err, ok)
 		}
 	}
 }
