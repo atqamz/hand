@@ -419,7 +419,7 @@ func (a *App) searchRow(c *ui.Context, p palette, sr TaskSearchRow, finished str
 		state := taskState(r)
 		ui.Icon(c, stateIcon(state)).TextColor(stateColor(state, p)).
 			Label("state " + stateWord(state))
-		ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.accent).SingleLine()
+		kit.Ref(c, r.Ref, p.accent)
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, r.Title).FontSize(kit.Body.Size).FixedLineHeight(20).SingleLine()
 			if a.Status.Projects > 1 && r.Project != "" || r.Attempt != nil || r.Waits != nil || r.Delivered != nil ||
