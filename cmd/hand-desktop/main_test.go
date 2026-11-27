@@ -8,6 +8,7 @@ import (
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktopasset"
+	"github.com/atqamz/hand/internal/viewlink"
 )
 
 const fleetID = "f00000000e0aa"
@@ -220,5 +221,49 @@ func TestParseArgsTakesAViewLink(t *testing.T) {
 	got, err := parseArgs([]string{"--open", link})
 	if err != nil || got.open != link {
 		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+type pdfStub struct {
+	stub
+	frames int
+}
+
+func (*pdfStub) Doc(_ context.Context, _, path string, _ int) (desktop.Doc, error) {
+	return desktop.Doc{Path: path, Name: "plan.pdf", Kind: "pdf", Size: 1024}, nil
+}
+
+func (m *pdfStub) DocFrame(context.Context, string, string) (desktop.DocFrame, error) {
+	m.frames++
+	return desktop.DocFrame{Host: "local", URL: "http://127.0.0.1:4100/x?raw"}, nil
+}
+
+func TestAStartupLinkToAPDFOpensTheWebViewBecauseTheHookIsSetFirst(t *testing.T) {
+	link, err := viewlink.Format(viewlink.Link{Fleet: fleetID, Page: viewlink.Doc, Path: "reports/plan.pdf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &pdfStub{}
+	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	opened := 0
+	hook := func(desktop.DocFrame) (desktop.WebHandle, error) {
+		opened++
+		return desktop.WebHandle{Close: func() {}}, nil
+	}
+	if err := startLink(app, hook, link); err != nil {
+		t.Fatalf("startLink: %v", err)
+	}
+	if opened != 1 || m.frames != 1 {
+		t.Fatalf("web views opened = %d, frames asked = %d, want 1 and 1: the startup link ran before the web view hook was set", opened, m.frames)
+	}
+	app.Close()
+}
+
+func TestAStartupWithoutALinkStillSetsTheHook(t *testing.T) {
+	app := booted()
+	if err := startLink(app, func(desktop.DocFrame) (desktop.WebHandle, error) { return desktop.WebHandle{}, nil }, ""); err != nil || app.OpenWeb == nil {
+		t.Fatalf("err = %v, hook set = %v", err, app.OpenWeb != nil)
 	}
 }

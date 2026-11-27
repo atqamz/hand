@@ -16,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/remote"
+	"github.com/atqamz/hand/internal/desktop/webhost"
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/egoist/mygo"
@@ -58,6 +59,14 @@ func clip(s string) string {
 		s = s[:80] + "…"
 	}
 	return strconv.Quote(s)
+}
+
+func startLink(app *desktop.App, openWeb func(desktop.DocFrame) (desktop.WebHandle, error), link string) error {
+	app.OpenWeb = openWeb
+	if link == "" {
+		return nil
+	}
+	return app.OpenLink(link)
 }
 
 func handoff(app *desktop.App, args []string) {
@@ -154,12 +163,6 @@ func main() {
 		win.Restore()
 		win.Focus()
 	})
-	if opts.open != "" {
-		if err := app.OpenLink(opts.open); err != nil && app.Model != nil {
-			fmt.Fprintln(os.Stderr, "hand-desktop:", err)
-			os.Exit(2)
-		}
-	}
 	mygo.App.WhenReady(func() {
 		area := mygo.Screen.PrimaryDisplay().WorkArea
 		width, height := app.WindowSize(int(area.Width), int(area.Height))
@@ -189,6 +192,7 @@ func main() {
 			path, _ := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: win, Title: "Save the file", DefaultPath: name})
 			return path
 		}
+		web := &webhost.Host{Engine: newMygoEngine(win)}
 		app.OnTitle = win.SetTitle
 		app.OnBadge = mygo.App.SetBadgeCount
 		app.OnFlash = win.FlashFrame
@@ -228,6 +232,10 @@ func main() {
 			app.SetWindowSize(w, h)
 		})
 		win.OnClosed(func() { app.Close() })
+		if err := startLink(app, web.Open, opts.open); err != nil && app.Model != nil {
+			fmt.Fprintln(os.Stderr, "hand-desktop:", err)
+			os.Exit(2)
+		}
 		for _, args := range early {
 			handoff(app, args)
 		}
