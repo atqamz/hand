@@ -158,12 +158,12 @@ func (a *App) alertRow(c *ui.Context, p palette, r AlertReceipt) {
 	ui.Column(c).Gap(kit.Space4).Padding(kit.Space8, kit.Space4).BorderWidth(0, 0, 1, 0).BorderColor(p.line).
 		Role(ui.RoleListItem).Label("alert " + key).Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
-			ui.Text(c, stamp(r.At)).FontSize(kit.Meta.Size).TextColor(p.neutral)
-			ui.Text(c, r.Kind).Font("monospace").FontSize(kit.Meta.Size)
+			ui.Text(c, stamp(r.At)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			ui.Text(c, r.Kind).Font(kit.Mono).FontSize(kit.Meta.Size)
 			if alertRefLink(r.Ref) {
 				a.taskLink(c, p, "alert-ref:"+key, r.Ref, r.Ref)
 			} else if r.Ref != "" {
-				ui.Text(c, r.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+				ui.Text(c, r.Ref).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 		})
 		ui.Text(c, r.Text).FontSize(kit.Body.Size)

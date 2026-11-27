@@ -432,7 +432,7 @@ func (a *App) searchRow(c *ui.Context, p palette, sr TaskSearchRow, finished str
 				Label(fmt.Sprintf("%d open %s", n, decisionWord(n))).Shrink(0)
 		}
 		if finished != "" {
-			ui.Text(c, taskClock(finished)).Font("monospace").FontSize(kit.Meta.Size).
+			ui.Text(c, taskClock(finished)).Font(kit.Mono).FontSize(kit.Meta.Size).
 				TextColor(p.neutral).FontFeatures("tnum").SingleLine()
 		}
 	})

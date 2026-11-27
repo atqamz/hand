@@ -75,7 +75,7 @@ func DocLines(c *ui.Context, k Colors, first int, lines []string, wrap bool) {
 
 func docSpans(k Colors, text string, ms []DocMatch, tail string) []ui.Span {
 	span := func(s string) ui.Span {
-		return ui.Span{Text: s, Font: "monospace", Size: Meta.Size, Color: k.FG}
+		return ui.Span{Text: s, Font: Mono, Size: Meta.Size, Color: k.FG}
 	}
 	var out []ui.Span
 	at := 0
@@ -106,7 +106,7 @@ func DocLinesMarked(c *ui.Context, k Colors, first int, lines []string, wrap boo
 	for i := range lines {
 		numbers[i] = strings.Repeat(" ", width-len(strconv.Itoa(first+i))) + strconv.Itoa(first+i)
 	}
-	gw, _ := c.MeasureText(1e6, ui.Span{Text: strings.Repeat("0", docDigits), Font: "monospace", Size: Meta.Size})
+	gw, _ := c.MeasureText(1e6, ui.Span{Text: strings.Repeat("0", docDigits), Font: Mono, Size: Meta.Size})
 	at := marks.Line - first
 	marked := marks.Line > 0 && at >= 0 && at < len(lines)
 	if wrap {
@@ -118,14 +118,14 @@ func DocLinesMarked(c *ui.Context, k Colors, first int, lines []string, wrap boo
 					row.Background(k.AccentBG).Label("Line " + strconv.Itoa(marks.Line))
 				}
 				row.Children(func() {
-					ui.Text(c, numbers[i]).Font("monospace").FontSize(Meta.Size).
+					ui.Text(c, numbers[i]).Font(Mono).FontSize(Meta.Size).
 						FixedLineHeight(Meta.Line).TextColor(k.Muted).NoWrap().Unselectable().
 						Width(gw+docGutter).Padding(0, Space10, 0, Space12).Shrink(0).TextAlign(ui.End)
 					if ms := marks.Hits[i]; len(ms) > 0 {
-						ui.RichText(c, docSpans(k, line, ms, "")...).FixedLineHeight(Meta.Line).Grow(1).MinWidth(0).Padding(0, Space12, 0, 0)
+						ui.RichText(c, docSpans(k, line, ms, "")...).Font(Mono).FontSize(Meta.Size).FixedLineHeight(Meta.Line).Grow(1).MinWidth(0).Padding(0, Space12, 0, 0)
 						return
 					}
-					ui.Text(c, line).Font("monospace").FontSize(Meta.Size).
+					ui.Text(c, line).Font(Mono).FontSize(Meta.Size).
 						FixedLineHeight(Meta.Line).Grow(1).MinWidth(0).Padding(0, Space12, 0, 0)
 				})
 				if marked && i == at && marks.Scroll {
@@ -146,7 +146,7 @@ func DocLinesMarked(c *ui.Context, k Colors, first int, lines []string, wrap boo
 					Height((2*docScrollContext + 1) * Meta.Line).ScrollIntoView()
 			}
 		}
-		ui.Text(c, strings.Join(numbers, "\n")).Font("monospace").FontSize(Meta.Size).
+		ui.Text(c, strings.Join(numbers, "\n")).Font(Mono).FontSize(Meta.Size).
 			FixedLineHeight(Meta.Line).TextColor(k.Muted).NoWrap().Unselectable().
 			Width(gw+docGutter).Padding(0, Space10, 0, Space12).Shrink(0).TextAlign(ui.End)
 		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Children(func() {
@@ -159,10 +159,10 @@ func DocLinesMarked(c *ui.Context, k Colors, first int, lines []string, wrap boo
 					}
 					spans = append(spans, docSpans(k, line, marks.Hits[i], tail)...)
 				}
-				ui.RichText(c, spans...).FixedLineHeight(Meta.Line).NoWrap().Padding(0, Space12, 0, 0)
+				ui.RichText(c, spans...).Font(Mono).FontSize(Meta.Size).FixedLineHeight(Meta.Line).NoWrap().Padding(0, Space12, 0, 0)
 				return
 			}
-			ui.Text(c, strings.Join(lines, "\n")).Font("monospace").FontSize(Meta.Size).
+			ui.Text(c, strings.Join(lines, "\n")).Font(Mono).FontSize(Meta.Size).
 				FixedLineHeight(Meta.Line).NoWrap().Padding(0, Space12, 0, 0)
 		})
 	})

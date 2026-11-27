@@ -385,7 +385,7 @@ func (a *App) skillsReview(c *ui.Context, k kit.Colors, p palette, sc SkillScope
 		}
 		ui.Scroll(c).Key("skills-review:"+key).Height(240).Padding(kit.Space8).Radius(kit.RadiusMD).
 			Background(k.BG).Border(1, p.line).Focusable().Label("diff of " + rv.name).Children(func() {
-			ui.Text(c, rv.diff).Font("monospace").FontSize(kit.Meta.Size)
+			ui.Text(c, rv.diff).Font(kit.Mono).FontSize(kit.Meta.Size)
 		})
 		ui.Row(c).Gap(kit.Space8).Children(func() {
 			if rv.commit != "" && !rv.cut && a.skillsManageable() {
@@ -480,7 +480,7 @@ func (a *App) skillsRunCard(c *ui.Context, k kit.Colors, p palette, key string, 
 		}
 		for _, cmd := range run.Reconcile {
 			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, cmd).Font("monospace").FontSize(kit.Meta.Size).Grow(1).MinWidth(0)
+				ui.Text(c, cmd).Font(kit.Mono).FontSize(kit.Meta.Size).Grow(1).MinWidth(0)
 				if kit.TextButton(c, k, "skills:copy:"+key+":"+cmd, "Copy") {
 					c.WriteClipboard(cmd)
 				}
@@ -500,7 +500,7 @@ func (a *App) skillsResultRow(c *ui.Context, k kit.Colors, p palette, r SkillRes
 	_, fg := toneColors(tone, p)
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Label("result " + r.Name + " " + r.State).Children(func() {
 		ui.Icon(c, stateIcon(tone)).TextColor(fg)
-		ui.Text(c, r.Name).Font("monospace").FontSize(kit.Meta.Size).Bold().Shrink(0)
+		ui.Text(c, r.Name).Font(kit.Mono).FontSize(kit.Meta.Size).Bold().Shrink(0)
 		ui.Text(c, r.State).FontSize(kit.Meta.Size).TextColor(fg).Shrink(0)
 		switch {
 		case (r.State == "bumped" || r.State == "proposed") && strings.HasPrefix(r.Detail, "https://"):
@@ -572,7 +572,7 @@ func (a *App) skillRow(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s 
 		Role(ui.RoleListItem).Label("skill " + s.Name + " " + word).Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, stateIcon(tone)).TextColor(fg).Label("state " + word)
-			ui.Text(c, s.Name).Font("monospace").FontSize(kit.Body.Size).Bold().Shrink(0)
+			ui.Text(c, s.Name).Font(kit.Mono).FontSize(kit.Body.Size).Bold().Shrink(0)
 			ui.Text(c, word).FontSize(kit.Meta.Size).TextColor(fg).Shrink(0)
 			if s.Managed {
 				trust := "third-party"
@@ -585,7 +585,7 @@ func (a *App) skillRow(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s 
 			a.skillActions(c, k, sc, s, key)
 		})
 		if line := skillSourceLine(s); line != "" {
-			ui.Text(c, line).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+			ui.Text(c, line).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		}
 		switch {
 		case s.Detail != "":
@@ -657,7 +657,7 @@ func (a *App) skillDiff(c *ui.Context, k kit.Colors, p palette, sc SkillScope, s
 		}
 		ui.Scroll(c).Key("skills-diff:"+key).Height(240).Padding(kit.Space8).Radius(kit.RadiusMD).
 			Background(k.BG).Border(1, p.line).Focusable().Label("diff of " + s.Name).Children(func() {
-			ui.Text(c, s.Diff).Font("monospace").FontSize(kit.Meta.Size)
+			ui.Text(c, s.Diff).Font(kit.Mono).FontSize(kit.Meta.Size)
 		})
 		if s.DiffCut || s.Latest == "" || a.remoteFleet() {
 			return

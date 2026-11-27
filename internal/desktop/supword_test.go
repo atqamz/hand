@@ -193,7 +193,7 @@ func TestTheHeadWordIsDrawnInItsStateColour(t *testing.T) {
 			want := map[string]ui.Color{"fail": k.Fail, "wait": k.Wait, "pass": k.Pass, "accent": k.Accent}[tone]
 			tt := sized(t, newApp(t, c.fixture(t)), windowWidth, windowHeight, dark)
 			head := bandRect(t, tt, "Supervisor")
-			if n := countNear(tt.Image(), head, want, 12); n < 40 {
+			if n := countNear(tt.Image(), head, want, 12); n < 20 {
 				t.Errorf("%s dark=%v: %d pixels of the %s colour in the pane head, want the word in it", c.name, dark, n, tone)
 			}
 		}

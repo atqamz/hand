@@ -92,7 +92,7 @@ func viewerTop(c *ui.Context, k Colors, v ViewerOptions) {
 		if strip == "" {
 			strip = v.Name
 		}
-		ui.Text(c, strip).Font("monospace").FontSize(Meta.Size).TextColor(k.FG).
+		ui.Text(c, strip).Font(Mono).FontSize(Meta.Size).TextColor(k.FG).
 			SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 		close := ui.ButtonBase(c.Key("viewer:close")).Size(Control, Control).Radius(RadiusMD).
 			Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
