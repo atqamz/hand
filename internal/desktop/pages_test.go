@@ -286,7 +286,7 @@ func TestAReportOpensItsTaskAtItsCard(t *testing.T) {
 	if y, _ := desktop.ViewerScroll(app); y != 0 {
 		t.Fatalf("the task page starts at %v", y)
 	}
-	tt.Scroll(400, 400, 0, 160)
+	tt.Scroll(400, 400, 0, 320)
 	tt.Frame()
 	click(t, tt, "open report r3")
 	tt.Frame()

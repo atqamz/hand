@@ -23,6 +23,6 @@ const MeasureCharacters = 72
 // MeasureOf is board.css's 72ch in the face the window draws with: a ch is
 // the advance of "0", which the system font and its hinting decide.
 func MeasureOf(c *ui.Context) float32 {
-	w, _ := c.MeasureText(1e6, ui.Span{Text: strings.Repeat("0", MeasureCharacters), Size: Message.Size})
+	w, _ := c.MeasureText(1e6, ui.Span{Text: strings.Repeat("0", MeasureCharacters), Font: Sans, Size: Message.Size})
 	return w
 }

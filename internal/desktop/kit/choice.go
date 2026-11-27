@@ -44,7 +44,7 @@ func ChoiceList(c *ui.Context, k Colors, choices []Choice) (picked string) {
 					circle.Border(1, k.LineStrong)
 				}
 				circle.Children(func() {
-					ui.Text(c, choice.Key).Font("monospace").FontSize(Meta.Size).Bold().TextColor(fg)
+					ui.Text(c, choice.Key).Font(Mono).FontSize(Meta.Size).Bold().TextColor(fg)
 				})
 				ui.Column(c).Gap(Space2).Grow(1).MinWidth(0).Children(func() {
 					ui.Row(c).Gap(Space12).AlignItems(ui.Center).Children(func() {

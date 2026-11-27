@@ -32,7 +32,7 @@ func (a *App) docBody(c *ui.Context, k kit.Colors, p palette) {
 		a.pageScroll(c, func() { a.viewerError(c, p, st.err) })
 	case st.err != "":
 		a.pageScroll(c, func() {
-			ui.Text(c, shownText(a.Ref)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+			ui.Text(c, shownText(a.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			a.docRow(c, k, shownText(st.err), st.conflict)
 		})
 	case !st.ok:
@@ -112,14 +112,14 @@ func (a *App) docHead(c *ui.Context, k kit.Colors, p palette, d Doc) {
 		}
 		ui.Text(c, title).FontSize(kit.Display.Size).FixedLineHeight(kit.Display.Line).FontWeight(600)
 		ui.Row(c).GapY(kit.Space4).GapX(kit.Space12).AlignItems(ui.Center).Wrap().Children(func() {
-			ui.Text(c, shownText(d.Path)).Font("monospace").FontSize(kit.Meta.Size).
+			ui.Text(c, shownText(d.Path)).Font(kit.Mono).FontSize(kit.Meta.Size).
 				FixedLineHeight(kit.Meta.Line).TextColor(p.neutral).MinWidth(0)
 			a.copyPath(c, k, a.fullDocPath(d.Path))
 			if d.Kind != "folder" {
 				ui.Text(c, docSize(d.Size)).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
 			if d.At != "" {
-				ui.Text(c, stamp(d.At)).FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
+				ui.Text(c, stamp(d.At)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).FontFeatures("tnum")
 			}
 		})
 		a.docTools(c, k, p, d)

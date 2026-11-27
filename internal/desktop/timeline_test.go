@@ -205,7 +205,7 @@ func TestMessageTextIs15OnA24Line(t *testing.T) {
 	}
 	var w15 float32
 	ui.NewTester(func(c *ui.Context) {
-		w15, _ = c.MeasureText(1e6, ui.Span{Text: run, Size: kit.Message.Size})
+		w15, _ = c.MeasureText(1e6, ui.Span{Text: run, Size: kit.Message.Size, Font: kit.Sans})
 	}, 10, 10)
 	if d := r.W - w15; d < -1 || d > 1 {
 		t.Errorf("the run is %.0f wide, want %.0f at %v px", r.W, w15, kit.Message.Size)

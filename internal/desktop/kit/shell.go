@@ -28,7 +28,7 @@ func Ref(c *ui.Context, text string, fg ui.Color) {
 		ui.Box(c).Width(RefWidth).Shrink(0)
 		return
 	}
-	ui.Text(c, text).Font("monospace").FontSize(Meta.Size).TextColor(fg).FontFeatures("tnum").
+	ui.Text(c, text).Font(Mono).FontSize(Meta.Size).TextColor(fg).FontFeatures("tnum").
 		SingleLine().Ellipsis("…").Width(RefWidth).Shrink(0)
 }
 
@@ -59,10 +59,10 @@ func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
 	if open {
 		w, label = RailWidthOpen, "Hide labels"
 	}
-	ui.Column(c).Width(w).FillHeight().Background(k.Panel).
-		BorderWidth(0, 1, 0, 0).BorderColor(k.Line).Label("Pages and fleets").Children(func() {
+	ui.Column(c).Width(w).FillHeight().Background(k.Shell).
+		BorderWidth(0, 1, 0, 0).BorderColor(k.ShellLine).Label("Pages and fleets").Children(func() {
 		ui.Row(c).Height(RowLG).Padding(0, railPad).AlignItems(ui.Center).
-			BorderWidth(0, 0, 1, 0).BorderColor(k.Line).Children(func() {
+			BorderWidth(0, 0, 1, 0).BorderColor(k.ShellLine).Children(func() {
 			b := ui.ButtonBase(c.Key("rail-toggle")).Size(Row, Row).Radius(RadiusMD).
 				Background(ui.Transparent).Justify(ui.Center).AlignItems(ui.Center).
 				Cursor(ui.CursorPointer).Label(label)
@@ -313,7 +313,7 @@ func countPill(c *ui.Context, text string, bg, fg ui.Color) {
 func Keycap(c *ui.Context, k Colors, text string) {
 	ui.Row(c).Height(Badge).Padding(0, Space6).Radius(RadiusSM).BorderWidth(1, 1, 2, 1).
 		BorderColor(k.Line).AlignItems(ui.Center).Label(text).Children(func() {
-		ui.Text(c, text).Font("monospace").FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
+		ui.Text(c, text).Font(Mono).FontSize(Meta.Size).TextColor(k.Muted).SingleLine()
 	})
 }
 
@@ -367,7 +367,7 @@ func mastheadRow(c *ui.Context, k Colors, id, name string, pad float32, onMenu, 
 			title.Description(FleetTip(id)).Focusable()
 			ui.TooltipBase(c, title, func(tip ui.Element) {
 				tip.Padding(3, Space8).Radius(RadiusSM).Background(k.FG).TextColor(k.BG)
-				tip.Children(func() { ui.Text(c, FleetTip(id)).Font("monospace").FontSize(Meta.Size) })
+				tip.Children(func() { ui.Text(c, FleetTip(id)).Font(Mono).FontSize(Meta.Size) })
 			})
 		}
 		ui.Spacer(c)

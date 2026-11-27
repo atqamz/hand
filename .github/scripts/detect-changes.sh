@@ -50,10 +50,10 @@ while IFS= read -r -d '' file; do
     .github/workflows/* | .github/actions/*) workflows=true ;;
   esac
   case "$file" in
-    internal/desktop/* | internal/desktopasset/* | internal/launcher/* | internal/update/* | internal/board/* | cmd/hand-desktop/* | internal/cli/cli.go | internal/buildstamp/* | .github/desktop/* | .github/scripts/build-desktop.sh | go.mod | go.sum | .github/workflows/check.yaml) desktop=true ;;
+    internal/desktop/* | internal/desktopasset/* | internal/launcher/* | internal/update/* | internal/board/* | cmd/hand-desktop/* | internal/cli/cli.go | internal/buildstamp/* | .github/desktop/* | .github/scripts/build-desktop.sh | go.mod | go.sum | .github/workflows/desktop.yaml | .github/workflows/check.yaml) desktop=true ;;
   esac
   case "$file" in
-    internal/board/* | .github/render/* | .github/scripts/windows-stack-reserve.sh | go.mod | go.sum | .github/workflows/check.yaml) render=true ;;
+    internal/board/* | .github/render/* | .github/scripts/windows-stack-reserve.sh | go.mod | go.sum | .github/workflows/render.yaml | .github/workflows/check.yaml) render=true ;;
   esac
   case "$file" in
     iroh/* | internal/board/peer.go | internal/board/iroh_client_test.go | internal/board/companion_host_test.go | internal/sidecar/* | internal/desktop/remote/* | .github/workflows/iroh.yaml | .github/workflows/check.yaml) iroh=true ;;
