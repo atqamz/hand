@@ -593,10 +593,10 @@ const tinyPDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R/OpenAction<</S/Nam
 	"4 0 obj<</Length 44>>stream\nBT /F1 36 Tf 30 90 Td (PDF CHECK) Tj ET\nendstream\nendobj\n" +
 	"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n"
 
-const (
-	pdfDarkMin  = 8000
-	pdfLightMin = 150000
-)
+func pdfMins(view *node) (dark, light int) {
+	area := int(view.Bounds.Width) * int(view.Bounds.Height)
+	return area / 80, area * 6 / 10
+}
 
 func needPixels(t *testing.T) bool {
 	t.Helper()
@@ -662,6 +662,7 @@ func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
 		}
 	}
 	shot := filepath.Join(outDir, "screen.png")
+	pdfDarkMin, pdfLightMin := pdfMins(view)
 	var x0cl, y0cl int
 	best, bestLight := 0, 0
 	for deadline := time.Now().Add(30 * time.Second); (best < pdfDarkMin || bestLight < pdfLightMin) && time.Now().Before(deadline); {
