@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -150,8 +151,18 @@ func TestScenesTheModelMenu(t *testing.T) {
 			f.status[fleetID] = st
 			f.models[fleetID] = firstRunModels()
 			f.timeline[fleetID] = desktop.Timeline{}
-		}, nil, []string{"Other harness, model or effort", "Start claude", "Start codex",
-			"Start opencode", "Start agy", "Start omp", "omp not found on the board's PATH; restart the board after installing it"}},
+		}, nil, []string{"Other harness, model or effort", "Start claude", "codex",
+			"opencode", "agy", "omp", "omp not found on the board's PATH; restart the board after installing it"}},
+		{"first-run-codex", func(f *fixture) {
+			st := f.status[fleetID]
+			st.Supervisor = nil
+			f.status[fleetID] = st
+			f.models[fleetID] = firstRunModels()
+			f.timeline[fleetID] = desktop.Timeline{}
+		}, func(t *testing.T, tt *ui.Tester, f *fixture) {
+			click(t, tt, "codex")
+			tt.Frame()
+		}, []string{"Start codex", "claude", "opencode"}},
 		{"stop-armed", nil, func(t *testing.T, tt *ui.Tester, f *fixture) {
 			click(t, tt, "Stop")
 			tt.Frame()
@@ -423,6 +434,14 @@ func TestTheDropSwitchPostsTheRefThePendingSwitchBelongsTo(t *testing.T) {
 	mustText(t, tt, "Switch canceled")
 }
 
+func openStart(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	if !tt.HasText("Start " + name) {
+		click(t, tt, name)
+		tt.Frame()
+	}
+}
+
 func TestTheFirstRunStripStartsTheChosenHarness(t *testing.T) {
 	f := menuFixture(t, func(f *fixture) {
 		st := f.status[fleetID]
@@ -431,7 +450,7 @@ func TestTheFirstRunStripStartsTheChosenHarness(t *testing.T) {
 		f.models[fleetID] = firstRunModels()
 	})
 	tt := newTester(newApp(t, f))
-	mustText(t, tt, "Other harness, model or effort", "Start claude", "Start codex", "Start opencode", "Start agy", "Start omp")
+	mustText(t, tt, "Other harness, model or effort", "Start claude", "codex", "opencode", "agy", "omp")
 	mustNotText(t, tt, "Open in browser")
 	click(t, tt, "Opus 5.5 · opus")
 	click(t, tt, "Sonnet 5.5 · sonnet")
@@ -495,6 +514,7 @@ func TestTheStartStripSendsARequestStartAcceptsForEveryHarness(t *testing.T) {
 					f.models[fleetID] = startableModels(strings.TrimPrefix(last, "first-run"))
 				})
 				tt := newTester(newApp(t, f))
+				openStart(t, tt, name)
 				click(t, tt, "Start "+name)
 				tt.Frame()
 				if f.count("start:"+name) != 1 {
@@ -531,6 +551,7 @@ func TestTheStartStripDoesNotStartAHarnessWithoutAModel(t *testing.T) {
 		f.models[fleetID] = ms
 	})
 	tt := newTester(newApp(t, f))
+	openStart(t, tt, "codex")
 	click(t, tt, "Start codex")
 	tt.Frame()
 	if f.count("start:codex") != 0 {
@@ -546,10 +567,12 @@ func TestTheFirstRunStripStartsAHarnessOnItsDefaultModel(t *testing.T) {
 		f.models[fleetID] = firstRunModels()
 	})
 	tt := newTester(newApp(t, f))
+	openStart(t, tt, "omp")
 	click(t, tt, "Start omp")
 	if f.count("start:omp") != 0 {
 		t.Fatal("a missing harness started")
 	}
+	openStart(t, tt, "opencode")
 	click(t, tt, "Start opencode")
 	f.mu.Lock()
 	harness, model, effort := f.startHarness, f.startModel, f.startEffort
@@ -673,6 +696,7 @@ func TestTheStartStripSendsAModelTypedForAHarnessWithoutAList(t *testing.T) {
 		f.models[fleetID] = ms
 	})
 	tt := newTester(newApp(t, f))
+	openStart(t, tt, "codex")
 	mustText(t, tt, "Start codex")
 	click(t, tt, "codex model")
 	tt.Type("gpt-6-luna")
@@ -1191,5 +1215,216 @@ func TestTheStartStripOffersNoDefaultModelToAHarnessThatNeedsOne(t *testing.T) {
 	tt.Frame()
 	if got := countText(t, tt, "default"); got != 0 {
 		t.Fatalf("the model list offers default to agy")
+	}
+}
+
+func menuBottom(t *testing.T, tt *ui.Tester, dark bool, height int) int {
+	t.Helper()
+	r, ok := tt.Find("Running now")
+	if !ok {
+		t.Fatalf("no menu; the window shows %q", tt.Texts())
+	}
+	img, tone := tt.Image(), kit.ColorsFor(dark).BG
+	x := int(r.X) - 6
+	y := int(r.Y)
+	for y < height && sameInk(img.RGBAAt(x, y), tone) {
+		y++
+	}
+	return y
+}
+
+func TestTheModelMenuFitsAShortWindowAndScrollsInside(t *testing.T) {
+	for _, height := range []int{300, 480, 500, 760} {
+		for _, dark := range []bool{false, true} {
+			for _, name := range []string{"claude", "codex", "opencode", "agy"} {
+				t.Run(fmt.Sprintf("%d-%t-%s", height, dark, name), func(t *testing.T) {
+					f := menuFixture(t, idleFixture)
+					tt := sized(t, newApp(t, f), 1100, height, dark)
+					openMenu(t, tt, f)
+					if name != "claude" {
+						pickHarness(t, tt, name)
+					}
+					r, _ := tt.Find("Running now")
+					bottom := menuBottom(t, tt, dark, height)
+					if bottom >= height-1 {
+						t.Fatalf("the menu runs to the window's edge at %d of %d", bottom, height)
+					}
+					if bottom <= int(r.Y) {
+						t.Fatalf("no panel under %q", "Running now")
+					}
+					last := "Switch now"
+					if name != "claude" {
+						last = "Switch to " + name
+					}
+					lr, ok := tt.Find(last)
+					if height == 760 {
+						if !ok || lr.H == 0 || int(lr.Y+lr.H) > bottom {
+							t.Fatalf("%q is cut off at 760: %v in a panel ending at %d", last, lr, bottom)
+						}
+						return
+					}
+					if ok && lr.H > 0 && int(lr.Y+lr.H) <= bottom {
+						return
+					}
+					for i := 0; i < 20; i++ {
+						tt.Scroll(r.X+20, r.Y+20, 0, 120)
+						tt.Frame()
+					}
+					lr, ok = tt.Find(last)
+					if !ok || lr.H == 0 || int(lr.Y+lr.H) > bottom {
+						t.Fatalf("%q is out of reach after scrolling: %v in a panel ending at %d", last, lr, bottom)
+					}
+					if after := menuBottom(t, tt, dark, height); after != bottom {
+						t.Errorf("the panel moved from %d to %d while scrolling", bottom, after)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestTheMenuRoomIsTheSpaceOnTheRoomierSideOfTheButton(t *testing.T) {
+	anchor := func(y float32) ui.Rect { return ui.Rect{X: 700, Y: y, W: 100, H: 32} }
+	tests := []struct {
+		name   string
+		window float32
+		anchor ui.Rect
+		want   float32
+	}{
+		{"below", 760, anchor(60), 760 - 92 - 14},
+		{"above", 760, anchor(600), 600 - 14},
+		{"floor", 200, anchor(90), 120},
+		{"no bounds yet", 500, ui.Rect{}, 500 - 14},
+	}
+	for _, tc := range tests {
+		if got := desktop.MenuRoom(tc.window, tc.anchor); got != tc.want {
+			t.Errorf("%s: room %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func firstRunStrip(t *testing.T) (*fixture, *ui.Tester) {
+	t.Helper()
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		f.models[fleetID] = firstRunModels()
+	})
+	return f, newTester(newApp(t, f))
+}
+
+func TestTheStartStripOpensOneHarnessAtATime(t *testing.T) {
+	_, tt := firstRunStrip(t)
+	mustText(t, tt, "Start claude", "codex", "opencode", "agy", "omp")
+	mustNotText(t, tt, "Start codex")
+	mustNotText(t, tt, "Start opencode")
+	mustNotText(t, tt, "Start agy")
+	click(t, tt, "codex")
+	tt.Frame()
+	mustText(t, tt, "Start codex", "GPT-6 Luna · gpt-6-luna", "claude")
+	mustNotText(t, tt, "Start claude")
+	click(t, tt, "opencode")
+	tt.Frame()
+	mustText(t, tt, "Start opencode", "codex")
+	mustNotText(t, tt, "Start codex")
+	mustNotText(t, tt, "Start claude")
+	click(t, tt, "opencode")
+	tt.Frame()
+	mustNotText(t, tt, "Start opencode")
+	mustNotText(t, tt, "Start codex")
+	mustNotText(t, tt, "Start claude")
+	click(t, tt, "claude")
+	tt.Frame()
+	mustText(t, tt, "Start claude")
+	mustNotText(t, tt, "Start opencode")
+}
+
+func TestTheStartStripKeepsWhatWasChosenInAClosedHarness(t *testing.T) {
+	f, tt := firstRunStrip(t)
+	click(t, tt, "default")
+	click(t, tt, "high")
+	click(t, tt, "codex")
+	tt.Frame()
+	click(t, tt, "claude")
+	tt.Frame()
+	mustText(t, tt, "high")
+	click(t, tt, "Start claude")
+	tt.Frame()
+	f.mu.Lock()
+	harness, effort := f.startHarness, f.startEffort
+	f.mu.Unlock()
+	if harness != "claude" || effort != "high" {
+		t.Fatalf("start sent %q %q", harness, effort)
+	}
+}
+
+func TestTheStartStripShowsWhyAHarnessCannotStartWhileItIsClosed(t *testing.T) {
+	_, tt := firstRunStrip(t)
+	mustText(t, tt, "omp not found on the board's PATH; restart the board after installing it")
+	click(t, tt, "omp")
+	tt.Frame()
+	mustText(t, tt, "Start omp", "omp not found on the board's PATH; restart the board after installing it")
+}
+
+func topRight(t *testing.T, tt *ui.Tester, dark bool, text string) int {
+	t.Helper()
+	r, ok := tt.Find(text)
+	head, _ := tt.Find("Running now")
+	if !ok {
+		t.Fatalf("no %q in %q", text, tt.Texts())
+	}
+	img, tone := tt.Image(), kit.ColorsFor(dark).BG
+	y := int(r.Y+r.H/2) - int(kit.Control)/2
+	last := 0
+	for dy := -1; dy <= 1; dy++ {
+		for x := int(r.X + r.W/2); x < int(head.X)+276; x++ {
+			if !sameInk(img.RGBAAt(x, y+dy), tone) {
+				last = max(last, x)
+			}
+		}
+	}
+	return last
+}
+
+func TestTheSwitchButtonSpansTheMenuAsTheFieldsDo(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		f := menuFixture(t, idleFixture)
+		tt := darkTester(newApp(t, f), dark)
+		openMenu(t, tt, f)
+		tt.Frame()
+		field, button := topRight(t, tt, dark, "claude (running)"), topRight(t, tt, dark, "Switch now")
+		if field != button {
+			t.Errorf("dark %t: the field's top border ends at %d and the Switch button's at %d", dark, field, button)
+		}
+	}
+}
+
+func TestTheStartStripOpensTheFirstHarnessThatCanStart(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		ms := firstRunModels()
+		ms.Harnesses = []desktop.Harness{ms.Harnesses[4], ms.Harnesses[1], ms.Harnesses[0]}
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "Start codex")
+	mustNotText(t, tt, "Start omp")
+	mustNotText(t, tt, "Start claude")
+}
+
+func TestScenesTheModelMenuInAShortWindow(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		mode := map[bool]string{false: "light", true: "dark"}[dark]
+		t.Run(mode, func(t *testing.T) {
+			f := menuFixture(t, nil)
+			tt := sized(t, newApp(t, f), 1100, desktop.MinWindowHeight, dark)
+			openMenu(t, tt, f)
+			tt.Frame()
+			shotSized(t, tt, "42-menu-short-1100x480-"+mode, 1100, desktop.MinWindowHeight)
+			mustText(t, tt, "Running now", "Change harness, model or effort")
+		})
 	}
 }
