@@ -27,6 +27,7 @@ const (
 	groupDecision = "On an open decision"
 	groupMessage  = "In the message box"
 	groupHelp     = "In this list"
+	groupRail     = "Pages and fleets"
 )
 
 var (
@@ -49,6 +50,14 @@ var (
 
 	keySend = shortcut{Group: groupMessage, Does: "Send the message", Chords: []chord{{ui.Ctrl, ui.KeyEnter}, {ui.Super, ui.KeyEnter}}}
 
+	keyPageBoard     = shortcut{Group: groupRail, Does: "Open the Board", Chords: []chord{{ui.Alt, ui.Key1}}}
+	keyPageTasks     = shortcut{Group: groupRail, Does: "Open Tasks", Chords: []chord{{ui.Alt, ui.Key2}}}
+	keyPageSkills    = shortcut{Group: groupRail, Does: "Open Skills", Chords: []chord{{ui.Alt, ui.Key3}}}
+	keyPageAlerts    = shortcut{Group: groupRail, Does: "Open Alerts", Chords: []chord{{ui.Alt, ui.Key4}}}
+	keyPageChat      = shortcut{Group: groupRail, Does: "Open the Conversation", Chords: []chord{{ui.Alt, ui.Key5}}}
+	keyPageCompanion = shortcut{Group: groupRail, Does: "Open the Companion page", Chords: []chord{{ui.Alt, ui.Key6}}}
+	keyRailToggle    = shortcut{Group: groupRail, Does: "Show or hide the rail labels", Chords: []chord{{ui.Alt, ui.KeyB}}}
+
 	keyHelpClose = shortcut{Group: groupHelp, Does: "Close this list", Chords: []chord{{ui.Shift, ui.KeySlash}, {0, ui.KeyEscape}}}
 )
 
@@ -58,6 +67,7 @@ var shortcuts = []shortcut{
 	keyFindNext, keyFindPrev, keyFindClear,
 	keyChoose, keyAnswer,
 	keySend,
+	keyPageBoard, keyPageTasks, keyPageSkills, keyPageAlerts, keyPageChat, keyPageCompanion, keyRailToggle,
 	keyHelpClose,
 }
 
@@ -88,7 +98,7 @@ func (s shortcut) on(e ui.Element, fn func()) ui.Element {
 
 var keyNames = map[ui.Key]string{
 	ui.KeyEscape: "Esc", ui.KeyEnter: "Enter", ui.KeySlash: "/", ui.KeyEqual: "=", ui.KeyMinus: "-",
-	ui.Key0: "0", ui.KeyF: "F", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]",
+	ui.Key0: "0", ui.Key1: "1", ui.Key2: "2", ui.Key3: "3", ui.Key4: "4", ui.Key5: "5", ui.Key6: "6", ui.KeyB: "B", ui.KeyF: "F", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]",
 }
 
 var shiftedNames = map[ui.Key]string{ui.KeySlash: "?", ui.KeyEqual: "+"}
