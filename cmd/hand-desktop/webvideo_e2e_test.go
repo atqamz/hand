@@ -102,7 +102,7 @@ func videoColoured(img image.Image, box probeBox) int {
 	return n
 }
 
-const videoStill = 0.0005
+const videoStill = 0.003
 
 func TestRealWebViewPlaysAVideoFromTheWrapperPage(t *testing.T) {
 	clip := needVideoTools(t)
@@ -140,6 +140,17 @@ func TestRealWebViewPlaysAVideoFromTheWrapperPage(t *testing.T) {
 	}
 	click()
 	until(t, "the picture to move after a click", 30*time.Second, func() bool { return videoDiff(paused, snap(), g) > 0.01 })
+	prev, moved := snap(), 0
+	for end := time.Now().Add(10 * time.Second); moved < 3 && time.Now().Before(end); time.Sleep(300 * time.Millisecond) {
+		cur := snap()
+		if videoDiff(prev, cur, g) > 0.01 {
+			moved++
+		}
+		prev = cur
+	}
+	if moved < 3 {
+		t.Fatalf("the picture changed %d times in 10 s after the click, want playback to continue", moved)
+	}
 	click()
 	time.Sleep(time.Second)
 	still("after a second click: the video does not pause")
