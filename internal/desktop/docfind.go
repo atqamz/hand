@@ -592,14 +592,14 @@ func (a *App) docFindRow(c *ui.Context, k kit.Colors, p palette) {
 		}
 	}
 	ui.Row(c).GapY(kit.Space6).GapX(kit.Space8).AlignItems(ui.Center).Wrap().Label("Find and go to line").Children(func() {
-		ui.TextInput(c, &f.query).Bind(&a.findBox).Placeholder("Find in file").Label("Find in file").
+		keyFindClear.on(ui.TextInput(c, &f.query).Bind(&a.findBox).Placeholder("Find in file").Label("Find in file").
 			Width(220).FontSize(kit.Body.Size).
 			OnTextKey(func(key ui.TextKey) bool {
 				switch {
-				case key.Key == ui.KeyEnter && key.Mods == 0, key.Key == ui.KeyEnter && key.Mods == ui.Shift:
+				case keyFindNext.is(key.Mods, key.Key), keyFindPrev.is(key.Mods, key.Key):
 					f.query = key.Text()
 					step := 1
-					if key.Mods == ui.Shift {
+					if keyFindPrev.is(key.Mods, key.Key) {
 						step = -1
 					}
 					if t := strings.TrimSpace(f.query); t != f.ran {
@@ -611,15 +611,14 @@ func (a *App) docFindRow(c *ui.Context, k kit.Colors, p palette) {
 					return true
 				}
 				return false
-			}).
-			OnShortcut(0, ui.KeyEscape, func() {
-				if f.query == "" {
-					a.CloseViewer()
-					return
-				}
-				f.query, f.pending = "", ""
-				a.startFind("")
-			})
+			}), func() {
+			if f.query == "" {
+				a.CloseViewer()
+				return
+			}
+			f.query, f.pending = "", ""
+			a.startFind("")
+		})
 		if st.focusFind {
 			st.focusFind = false
 			a.findBox.Focus(c)
