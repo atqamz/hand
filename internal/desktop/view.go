@@ -104,7 +104,8 @@ func (a *App) View(c *ui.Context) {
 	if docPage {
 		shell = shell.OnShortcut(0, ui.KeyEscape, a.CloseViewer)
 		if a.Screen == DocScreen {
-			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox)
+			shell = shell.OnShortcut(ui.Cmd, ui.KeyF, a.focusFindBox).OnShortcut(0, ui.KeySlash, a.focusFindBox).
+				OnShortcut(0, ui.KeyBracketLeft, func() { a.stepDoc(false) }).OnShortcut(0, ui.KeyBracketRight, func() { a.stepDoc(true) })
 		}
 	}
 	shell.Children(func() {
@@ -210,10 +211,15 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if a.Model != nil {
 		kit.RailHead(c, k, open, "Fleets")
 	}
+	named := make([]kit.Named, len(a.Fleets))
+	for i, f := range a.Fleets {
+		named[i] = kit.Named{ID: f.ID, Name: fleetName(f)}
+	}
+	monos := kit.Monograms(named)
 	for _, f := range a.Fleets {
 		fleet := f
 		tone, status := a.mark(fleet)
-		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
+		n := kit.NavItem{Key: "fleet:" + fleet.ID, Label: fleetName(fleet), Fleet: fleet.ID, Mono: monos[fleet.ID], Current: !a.formShown() && fleet.ID == a.Fleet.ID, Tone: tone, Status: status}
 		if m, ok := a.linkOf(fleet); ok {
 			_, n.LinkFG = toneColors(m.tone, p)
 			n.Link, n.LinkIcon = m.word, m.icon
@@ -361,7 +367,7 @@ func (a *App) mastheadStrip(c *ui.Context, k kit.Colors, p palette) {
 	ui.Row(c).Gap(kit.Space12).AlignItems(ui.Center).Children(func() {
 		if a.Model != nil && a.Fleet.ID != "" {
 			a.linkPill(c, p)
-			statusPill(c, p, a.Status.Pill)
+			statusPill(c, p, a.supWord())
 			if sup := a.Status.Supervisor; sup != nil && sup.Pending > 0 {
 				ui.Textf(c, "%d queued", sup.Pending).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}
@@ -604,17 +610,6 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 	})
 }
 
-func (a *App) supervisorAsk(c *ui.Context, p palette, sup *Supervisor) {
-	ui.Column(c).Gap(8).Padding(12).Radius(8).Background(p.card).Border(1, p.line).Children(func() {
-		ui.Text(c, sup.Ask.Question).FontSize(kit.Body.Size).Bold()
-		ui.Column(c).Gap(8).Children(func() {
-			a.keyRow(c, p, askKeyChoices(sup.Ask), sup.Keys == nil, func(choice keyChoice) {
-				a.Press(choice.Label, choice.Keys...)
-			})
-		})
-	})
-}
-
 var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
 
 func more(c *ui.Context, p palette, text string) {
@@ -644,7 +639,7 @@ func statusPill(c *ui.Context, p palette, word string) {
 
 func toneOf(state string) string {
 	switch state {
-	case "fail", "failing", "failed", "failure", "blocked", "worker", "resume", "interrupted", "stuck":
+	case "fail", "failing", "failed", "failure", "blocked", "unreachable", "held", "exited", "worker", "resume", "interrupted", "stuck":
 		return "fail"
 	case "wait", "warn", "waiting", "limited", "nosup", "stalled", "decision", "pending":
 		return "wait"

@@ -538,13 +538,13 @@ func TestABlockedNeedOpensToTheSupervisorsKeys(t *testing.T) {
 	f.status[fleetID] = st
 	app := newApp(t, f)
 	tt := newTester(app)
-	mustText(t, tt, "Blocked", "Keys")
-	if n := countText(t, tt, "Esc"); n != 2 {
-		t.Fatalf("Esc shown %d times, want in the card and beside the conversation", n)
+	mustText(t, tt, "Blocked")
+	if n := countText(t, tt, "Esc"); n != 1 {
+		t.Fatalf("Esc shown %d times, want once in the card", n)
 	}
 	click(t, tt, "Bash: rm -f x · Proceed?")
-	if n := countText(t, tt, "Esc"); n != 1 {
-		t.Fatalf("Esc shown %d times after the card closed, want once", n)
+	if n := countText(t, tt, "Esc"); n != 0 {
+		t.Fatalf("Esc shown %d times after the card closed, want none", n)
 	}
 }
 
@@ -1016,8 +1016,8 @@ func TestAStaleWorkerPressReopensOnTheFreshScreen(t *testing.T) {
 
 func TestTheBlockedCardSwitchesBetweenAskOptionsAndTheFixedKeys(t *testing.T) {
 	ask := newTester(newApp(t, blockedScreen(t, true)))
-	if n := countText(t, ask, "1 Yes"); n != 2 {
-		t.Errorf("ask options shown %d times, want the card and the conversation", n)
+	if n := countText(t, ask, "1 Yes"); n != 1 {
+		t.Errorf("ask options shown %d times, want once in the card", n)
 	}
 	mustNotText(t, ask, "Keys")
 	fixed := newTester(newApp(t, blockedScreen(t, false)))
@@ -1027,8 +1027,8 @@ func TestTheBlockedCardSwitchesBetweenAskOptionsAndTheFixedKeys(t *testing.T) {
 			enters++
 		}
 	}
-	if enters != 2 {
-		t.Errorf("fixed keys shown %d times, want the card and the conversation", enters)
+	if enters != 1 {
+		t.Errorf("fixed keys shown %d times, want once in the card", enters)
 	}
 	mustNotText(t, fixed, "1 Yes")
 }
@@ -1139,33 +1139,6 @@ func TestTheCountdownArmsWhenTheWindowInstallsPost(t *testing.T) {
 	if got := f.count("status:" + fleetID); got != reads+1 {
 		t.Fatalf("the stale status re-read again: %d reads, want %d", got, reads+1)
 	}
-}
-
-func TestARefusedSecondPressClearsTheSentRow(t *testing.T) {
-	f := blockedScreen(t, true)
-	sent := f.status[fleetID]
-	sup := *sent.Supervisor
-	sup.Keys = &desktop.Keys{Revision: 7, Digest: screenDigest, Pressed: 3}
-	sent.Supervisor = &sup
-	f.keyStatus = &sent
-	app := newApp(t, f)
-	tt := newTester(app)
-	click(t, tt, "1 Yes")
-	tt.Frame()
-	mustText(t, tt, "Sent 1 · waiting…")
-
-	fresh := f.status[fleetID]
-	fresh.Needs.Items = append([]desktop.Need(nil), fresh.Needs.Items...)
-	fresh.Needs.Items[0].Excerpt = "screen after the second press"
-	next := *fresh.Supervisor
-	next.Keys = &desktop.Keys{Revision: 8, Digest: screenDigest, Pressed: 5}
-	fresh.Supervisor = &next
-	f.status[fleetID] = fresh
-	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "the screen changed since revision 7; nothing was sent"}
-	click(t, tt, "1 Yes")
-	tt.Frame()
-	mustText(t, tt, "the screen moved; nothing was sent", "screen after the second press")
-	mustNotText(t, tt, "Sent 1 · waiting…")
 }
 
 const nextDigest = "fedcba9876543210fedcba9876543210"

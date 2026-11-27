@@ -1,6 +1,7 @@
 package desktop_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/kit"
+	"github.com/atqamz/hand/internal/harness"
 )
 
 func fullModels() desktop.Models {
@@ -95,19 +97,15 @@ func TestScenesTheModelMenu(t *testing.T) {
 		want   []string
 	}{
 		{"full", nil, openMenu,
-			[]string{"Running now", "Harness", "claude", "Model", "sonnet", "Effort", "Change model or effort",
-				"Other model", "Switch after this turn", "Switch the supervisor to another harness",
-				"codex", "Switch to codex", "opencode", "Switch to opencode", "agy", "Switch to agy", "omp",
-				"omp not found on the board's PATH; restart the board after installing it"}},
+			[]string{"Running now", "Harness", "claude", "Model", "sonnet", "Effort", "Change harness, model or effort",
+				"claude (running)", "Other model", "Switch after this turn", "Unavailable",
+				"omp: omp not found on the board's PATH; restart the board after installing it"}},
 		{"cold", func(f *fixture) {
 			ms := f.models[fleetID]
 			ms.Harnesses[0].Note = "refresh failed: no model list yet; run `hand models --refresh claude`"
-			ms.Harnesses[1].Note = "listed 2 h ago"
 			f.models[fleetID] = ms
 		}, openMenu, []string{
 			"refresh failed: no model list yet; run `hand models --refresh claude`",
-			"listed 2 h ago",
-			"Switch to codex",
 		}},
 		{"now", func(f *fixture) {
 			st := f.status[fleetID]
@@ -236,25 +234,152 @@ func TestTheMenuSwitchesTheModelWithTheRunningRef(t *testing.T) {
 	mustNotText(t, tt, "Running now")
 }
 
-func TestTheMenuSwitchesTheHarnessWithItsModelAndEffort(t *testing.T) {
+func pickHarness(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	if tt.HasText("claude (running)") {
+		click(t, tt, "claude (running)")
+	} else {
+		click(t, tt, "codex")
+	}
+	click(t, tt, name)
+	tt.Frame()
+}
+
+func lastSwitch(f *fixture) desktop.Switch {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.switchReq
+}
+
+func TestTheMenuSwitchesTheHarnessWithItsOwnModelAndEffort(t *testing.T) {
+	f := menuFixture(t, idleFixture)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	click(t, tt, "keep sonnet")
+	click(t, tt, "Opus 5.5 · opus")
+	pickHarness(t, tt, "codex")
+	mustText(t, tt, "GPT-6 Luna · gpt-6-luna", "Switch to codex", "Stops s1 and starts a new session on codex; s1's conversation stays in Chat.")
+	mustNotText(t, tt, "Opus 5.5 · opus")
+	mustNotText(t, tt, "Switch now")
+	click(t, tt, "default")
+	mustText(t, tt, "low", "medium", "high")
+	mustNotText(t, tt, "xhigh")
+	mustNotText(t, tt, "max")
+	click(t, tt, "high")
+	click(t, tt, "Switch to codex")
+	tt.Frame()
+	if sw := lastSwitch(f); sw.Ref != "s1" || sw.Harness != "codex" || sw.Model != "gpt-6-luna" || sw.Effort != "high" {
+		t.Fatalf("switch sent %+v", sw)
+	}
+	mustText(t, tt, "Switching to codex…")
+}
+
+func TestTheHarnessChoiceNeverKeepsTheModelOfTheHarnessBefore(t *testing.T) {
+	f := menuFixture(t, idleFixture)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	click(t, tt, "keep sonnet")
+	click(t, tt, "Opus 5.5 · opus")
+	click(t, tt, "keep low")
+	click(t, tt, "max")
+	pickHarness(t, tt, "codex")
+	click(t, tt, "GPT-6 Luna · gpt-6-luna")
+	click(t, tt, "GPT-6 Sol · gpt-6-sol")
+	pickHarness(t, tt, "opencode")
+	mustText(t, tt, "default")
+	mustNotText(t, tt, "GPT-6 Sol · gpt-6-sol")
+	mustNotText(t, tt, "max")
+	click(t, tt, "Switch to opencode")
+	tt.Frame()
+	if sw := lastSwitch(f); sw.Harness != "opencode" || sw.Model != "" || sw.Effort != "" {
+		t.Fatalf("switch sent %+v, want opencode on its own configuration", sw)
+	}
+}
+
+func TestTheHarnessChoiceOffersOnlyHarnessesASupervisorCanRun(t *testing.T) {
 	f := menuFixture(t, func(f *fixture) {
 		ms := f.models[fleetID]
-		ms.Harnesses = ms.Harnesses[:2]
+		ms.Harnesses = append(ms.Harnesses, desktop.Harness{Name: "copilot", Groups: []desktop.ModelGroup{{Label: "built-in",
+			Models: []desktop.ModelOption{{Name: "auto", Text: "auto"}}}}})
 		f.models[fleetID] = ms
 	})
 	tt := newTester(newApp(t, f))
 	openMenu(t, tt, f)
-	tt.Scroll(860, 400, 0, 300)
-	tt.Frame()
+	click(t, tt, "claude (running)")
+	mustText(t, tt, "codex", "opencode", "agy")
+	mustNotText(t, tt, "copilot")
+	mustNotText(t, tt, "Switch to omp")
+	mustNotText(t, tt, "Switch to copilot")
+	mustText(t, tt, "omp: omp not found on the board's PATH; restart the board after installing it")
+}
+
+func TestTheHarnessSwitchWaitsForTheTurnAndSaysWhy(t *testing.T) {
+	f := menuFixture(t, nil)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "codex")
+	mustText(t, tt, "s1 is working; switch harness when its turn ends, or interrupt it first")
 	click(t, tt, "Switch to codex")
 	tt.Frame()
-	f.mu.Lock()
-	sw := f.switchReq
-	f.mu.Unlock()
-	if sw.Ref != "s1" || sw.Harness != "codex" || sw.Model != "" || sw.Effort != "" {
+	if f.count("switch") != 0 {
+		t.Fatal("a harness switch was sent while the supervisor works")
+	}
+}
+
+func TestTheHarnessSwitchNeedsAModelUnlessTheHarnessHasItsOwn(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		idleFixture(f)
+		ms := f.models[fleetID]
+		ms.Harnesses[3].Groups = nil
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "agy")
+	click(t, tt, "Switch to agy")
+	tt.Frame()
+	if f.count("switch") != 0 {
+		t.Fatal("a harness switch without a model was sent")
+	}
+	click(t, tt, "agy model")
+	tt.Type("gemini-pro")
+	click(t, tt, "Switch to agy")
+	tt.Frame()
+	if sw := lastSwitch(f); sw.Harness != "agy" || sw.Model != "gemini-pro" {
 		t.Fatalf("switch sent %+v", sw)
 	}
-	mustText(t, tt, "Switching to codex…")
+}
+
+func TestScenesTheHarnessChoice(t *testing.T) {
+	scenes := []struct {
+		name   string
+		change func(*fixture)
+		harn   string
+		want   []string
+	}{
+		{"codex", idleFixture, "codex", []string{"Harness", "codex", "GPT-6 Luna · gpt-6-luna", "Switch to codex",
+			"Stops s1 and starts a new session on codex; s1's conversation stays in Chat.", "listed 2 h ago"}},
+		{"working", nil, "codex", []string{"Switch to codex", "s1 is working; switch harness when its turn ends, or interrupt it first"}},
+		{"opencode", idleFixture, "opencode", []string{"opencode", "default", "Switch to opencode"}},
+		{"blocked", blockedMenu, "codex", []string{"Switch to codex", "s1 is blocked; answer its screen or wait until it is idle, then switch harness"}},
+	}
+	for _, dark := range []bool{false, true} {
+		mode := map[bool]string{false: "light", true: "dark"}[dark]
+		for _, sc := range scenes {
+			t.Run(sc.name+"-"+mode, func(t *testing.T) {
+				f := menuFixture(t, sc.change)
+				tt := darkTester(newApp(t, f), dark)
+				openMenu(t, tt, f)
+				pickHarness(t, tt, sc.harn)
+				shot(t, tt, "87-harness-"+sc.name+"-"+mode)
+				for _, s := range sc.want {
+					if !tt.HasText(s) {
+						t.Errorf("missing %q in %q", s, tt.Texts())
+					}
+				}
+			})
+		}
+	}
 }
 
 func TestThePendingSwitchCancelPostsTheSwitchOwnersRef(t *testing.T) {
@@ -308,8 +433,8 @@ func TestTheFirstRunStripStartsTheChosenHarness(t *testing.T) {
 	tt := newTester(newApp(t, f))
 	mustText(t, tt, "Other harness, model or effort", "Start claude", "Start codex", "Start opencode", "Start agy", "Start omp")
 	mustNotText(t, tt, "Open in browser")
-	click(t, tt, "default")
 	click(t, tt, "Opus 5.5 · opus")
+	click(t, tt, "Sonnet 5.5 · sonnet")
 	click(t, tt, "default")
 	click(t, tt, "high")
 	click(t, tt, "Start claude")
@@ -317,10 +442,100 @@ func TestTheFirstRunStripStartsTheChosenHarness(t *testing.T) {
 	f.mu.Lock()
 	harness, model, effort := f.startHarness, f.startModel, f.startEffort
 	f.mu.Unlock()
-	if harness != "claude" || model != "opus" || effort != "high" {
+	if harness != "claude" || model != "sonnet" || effort != "high" {
 		t.Fatalf("start sent %q %q %q", harness, model, effort)
 	}
 	mustText(t, tt, "Starting the supervisor…")
+}
+
+func startableModels(lastHarness string) desktop.Models {
+	m := firstRunModels()
+	for i := range m.Harnesses {
+		h := &m.Harnesses[i]
+		h.Missing = ""
+		if h.Name == "omp" {
+			h.Groups = []desktop.ModelGroup{{Label: "built-in", Models: []desktop.ModelOption{{Name: "omp-fast", Text: "omp-fast"}}}}
+		}
+		if h.Name == lastHarness {
+			h.Model, h.Effort = firstModelOf(*h), ""
+		}
+	}
+	return m
+}
+
+func firstModelOf(h desktop.Harness) string {
+	return h.Groups[0].Models[len(h.Groups[0].Models)-1].Name
+}
+
+func acceptedByStart(t *testing.T, harnessName, model, effort string) {
+	t.Helper()
+	spec := harness.Spec{Harness: harnessName, Model: model, Effort: effort}
+	if err := harness.CheckSupervisor(spec); err != nil {
+		t.Errorf("start %q %q %q: %v", harnessName, model, effort, err)
+		return
+	}
+	why, err := harness.Check(spec, harness.Env{Getenv: func(string) string { return "" }})
+	if err != nil {
+		t.Errorf("start %q %q %q: %v", harnessName, model, effort, err)
+		return
+	}
+	if why.Text != "" && !why.Unread {
+		t.Errorf("start %q %q %q: %s", harnessName, model, effort, why.Text)
+	}
+}
+
+func TestTheStartStripSendsARequestStartAcceptsForEveryHarness(t *testing.T) {
+	for _, last := range []string{"first-run", "codex"} {
+		for _, name := range []string{"claude", "codex", "agy", "omp", "opencode"} {
+			t.Run(last+"-"+name, func(t *testing.T) {
+				f := menuFixture(t, func(f *fixture) {
+					st := f.status[fleetID]
+					st.Supervisor = nil
+					f.status[fleetID] = st
+					f.models[fleetID] = startableModels(strings.TrimPrefix(last, "first-run"))
+				})
+				tt := newTester(newApp(t, f))
+				click(t, tt, "Start "+name)
+				tt.Frame()
+				if f.count("start:"+name) != 1 {
+					t.Fatalf("Start %s sent no request", name)
+				}
+				f.mu.Lock()
+				harnessName, model, effort := f.startHarness, f.startModel, f.startEffort
+				f.mu.Unlock()
+				if harnessName != name {
+					t.Fatalf("start sent %q, want %q", harnessName, name)
+				}
+				if name == last {
+					want := firstModelOf(startableModels(last).Harnesses[1])
+					if model != want {
+						t.Errorf("%s sent %q, want the board's prefilled %q", name, model, want)
+					}
+				}
+				if name == "opencode" && model != "" {
+					t.Errorf("opencode sent model %q, want its own default", model)
+				}
+				acceptedByStart(t, harnessName, model, effort)
+			})
+		}
+	}
+}
+
+func TestTheStartStripDoesNotStartAHarnessWithoutAModel(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		ms := startableModels("")
+		ms.Harnesses[1].Groups, ms.Harnesses[1].Efforts = nil, nil
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	click(t, tt, "Start codex")
+	tt.Frame()
+	if f.count("start:codex") != 0 {
+		t.Fatal("Start codex was sent without a model")
+	}
 }
 
 func TestTheFirstRunStripStartsAHarnessOnItsDefaultModel(t *testing.T) {
@@ -344,23 +559,107 @@ func TestTheFirstRunStripStartsAHarnessOnItsDefaultModel(t *testing.T) {
 	}
 }
 
-func TestTheStartStripSendsAVariantTheListDoesNotHold(t *testing.T) {
+func TestTheStartStripSendsAVariantOnlyWithAModel(t *testing.T) {
 	f := menuFixture(t, func(f *fixture) {
 		st := f.status[fleetID]
 		st.Supervisor = nil
 		f.status[fleetID] = st
-		f.models[fleetID] = firstRunModels()
+		ms := firstRunModels()
+		ms.Harnesses = []desktop.Harness{ms.Harnesses[2]}
+		f.models[fleetID] = ms
 	})
 	tt := newTester(newApp(t, f))
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "default")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
 	click(t, tt, "opencode variant")
 	tt.Type("thinking")
 	click(t, tt, "Start opencode")
 	tt.Frame()
 	f.mu.Lock()
-	harness, model, effort := f.startHarness, f.startModel, f.startEffort
+	harnessName, model, effort := f.startHarness, f.startModel, f.startEffort
 	f.mu.Unlock()
-	if harness != "opencode" || model != "" || effort != "thinking" {
-		t.Fatalf("start sent %q %q %q", harness, model, effort)
+	if harnessName != "opencode" || model != "anthropic/sonnet" || effort != "thinking" {
+		t.Fatalf("start sent %q %q %q", harnessName, model, effort)
+	}
+	acceptedByStart(t, harnessName, model, effort)
+	click(t, tt, "anthropic/sonnet")
+	click(t, tt, "default")
+	tt.Frame()
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "Start opencode")
+	tt.Frame()
+	f.mu.Lock()
+	harnessName, model, effort = f.startHarness, f.startModel, f.startEffort
+	f.mu.Unlock()
+	if harnessName != "opencode" || model != "" || effort != "" {
+		t.Fatalf("start sent %q %q %q, want no variant without a model", harnessName, model, effort)
+	}
+	acceptedByStart(t, harnessName, model, effort)
+}
+
+func TestTheHarnessSwitchSendsNoVariantWithoutAModel(t *testing.T) {
+	f := menuFixture(t, idleFixture)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "opencode")
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "default")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
+	click(t, tt, "opencode variant")
+	tt.Type("thinking")
+	click(t, tt, "anthropic/sonnet")
+	click(t, tt, "default")
+	tt.Frame()
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "Switch to opencode")
+	tt.Frame()
+	sw := lastSwitch(f)
+	if sw.Harness != "opencode" || sw.Model != "" || sw.Effort != "" {
+		t.Fatalf("switch sent %+v, want no variant without a model", sw)
+	}
+	acceptedByStart(t, sw.Harness, sw.Model, sw.Effort)
+}
+
+func blockedMenu(f *fixture) {
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	sup.Blocked = true
+	st.Supervisor = &sup
+	st.AgentState, st.Pill, st.Line = "blocked", "failing", "blocked"
+	f.status[fleetID] = st
+}
+
+func TestTheHarnessSwitchWaitsWhileTheSupervisorIsBlockedAndSaysWhy(t *testing.T) {
+	f := menuFixture(t, blockedMenu)
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "codex")
+	mustText(t, tt, "s1 is blocked; answer its screen or wait until it is idle, then switch harness")
+	mustNotText(t, tt, "s1 is working; switch harness when its turn ends, or interrupt it first")
+	click(t, tt, "Switch to codex")
+	tt.Frame()
+	if f.count("switch") != 0 {
+		t.Fatal("a harness switch was sent while the supervisor is blocked")
+	}
+}
+
+func TestTheHarnessSwitchIsOfferedToAHeldSupervisor(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.AgentState = "blocked"
+		f.status[fleetID] = st
+	})
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "codex")
+	mustNotText(t, tt, "s1 is blocked; answer its screen or wait until it is idle, then switch harness")
+	click(t, tt, "Switch to codex")
+	tt.Frame()
+	if sw := lastSwitch(f); f.count("switch") != 1 || sw.Harness != "codex" || sw.Model != "gpt-6-luna" {
+		t.Fatalf("switch sent %+v", sw)
 	}
 }
 
@@ -681,5 +980,216 @@ func TestStopDisarmsWhenAKeyIsPressed(t *testing.T) {
 	mustNotText(t, tt, "Press again to stop")
 	if app.StopArmed {
 		t.Fatal("Stop stayed armed through a key press")
+	}
+}
+
+func opencodeOnly(efforts []string, list bool) func(*fixture) {
+	return func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		ms := firstRunModels()
+		oc := ms.Harnesses[2]
+		oc.Efforts = efforts
+		if efforts != nil {
+			oc.Groups[0].Models[0].Efforts = efforts
+		}
+		if !list {
+			oc.Groups = nil
+		}
+		ms.Harnesses = []desktop.Harness{oc}
+		f.models[fleetID] = ms
+	}
+}
+
+func lastStart(f *fixture) (string, string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.startHarness, f.startModel, f.startEffort
+}
+
+func TestTheStartStripOffersNoEffortSelectWithoutAModelOnRealShapedOpencodeData(t *testing.T) {
+	plain := newTester(newApp(t, menuFixture(t, opencodeOnly(nil, true))))
+	mustText(t, plain, "Start opencode")
+	f := menuFixture(t, opencodeOnly([]string{"high", "max"}, true))
+	tt := newTester(newApp(t, f))
+	mustText(t, tt, "Start opencode")
+	if got, want := countText(t, tt, "default"), countText(t, plain, "default"); got != want {
+		t.Fatalf("%d default selects with the union of variants, %d without", got, want)
+	}
+	click(t, tt, "Start opencode")
+	tt.Frame()
+	h, m, e := lastStart(f)
+	if h != "opencode" || m != "" || e != "" {
+		t.Fatalf("start sent %q %q %q", h, m, e)
+	}
+	acceptedByStart(t, h, m, e)
+	click(t, tt, "default")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
+	if got, want := countText(t, tt, "default"), countText(t, plain, "default"); got != want {
+		t.Fatalf("%d default selects with a model, want its variant select in place of the model's", got)
+	}
+	click(t, tt, "default")
+	click(t, tt, "max")
+	click(t, tt, "Start opencode")
+	tt.Frame()
+	h, m, e = lastStart(f)
+	if h != "opencode" || m != "anthropic/sonnet" || e != "max" {
+		t.Fatalf("start sent %q %q %q", h, m, e)
+	}
+	acceptedByStart(t, h, m, e)
+}
+
+func TestTheHarnessSwitchOffersNoEffortSelectWithoutAModelOnRealShapedOpencodeData(t *testing.T) {
+	plain := menuFixture(t, idleFixture)
+	pt := newTester(newApp(t, plain))
+	openMenu(t, pt, plain)
+	pickHarness(t, pt, "opencode")
+	f := menuFixture(t, func(f *fixture) {
+		idleFixture(f)
+		ms := f.models[fleetID]
+		ms.Harnesses[2].Efforts = []string{"high", "max"}
+		ms.Harnesses[2].Groups[0].Models[0].Efforts = []string{"high", "max"}
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "opencode")
+	if got, want := countText(t, tt, "default"), countText(t, pt, "default"); got != want {
+		t.Fatalf("%d default selects with the union of variants, %d without", got, want)
+	}
+	click(t, tt, "default")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
+	click(t, tt, "default")
+	click(t, tt, "high")
+	click(t, tt, "Switch to opencode")
+	tt.Frame()
+	sw := lastSwitch(f)
+	if sw.Harness != "opencode" || sw.Model != "anthropic/sonnet" || sw.Effort != "high" {
+		t.Fatalf("switch sent %+v", sw)
+	}
+	acceptedByStart(t, sw.Harness, sw.Model, sw.Effort)
+}
+
+func TestTheStartStripAsksForAnOpencodeVariantOnlyOnceAModelIsTyped(t *testing.T) {
+	f := menuFixture(t, opencodeOnly(nil, false))
+	tt := newTester(newApp(t, f))
+	if err := tt.Click("opencode variant"); err == nil {
+		t.Fatal("a variant field is offered without a model")
+	}
+	click(t, tt, "opencode model")
+	tt.Type("anthropic/sonnet")
+	tt.Frame()
+	click(t, tt, "opencode variant")
+	tt.Type("thinking")
+	click(t, tt, "Start opencode")
+	tt.Frame()
+	h, m, e := lastStart(f)
+	if h != "opencode" || m != "anthropic/sonnet" || e != "thinking" {
+		t.Fatalf("start sent %q %q %q", h, m, e)
+	}
+	acceptedByStart(t, h, m, e)
+}
+
+func TestTheHarnessSwitchAsksForAnOpencodeVariantOnlyOnceAModelIsTyped(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		idleFixture(f)
+		ms := f.models[fleetID]
+		ms.Harnesses[2].Groups = nil
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	openMenu(t, tt, f)
+	pickHarness(t, tt, "opencode")
+	if err := tt.Click("opencode variant"); err == nil {
+		t.Fatal("a variant field is offered without a model")
+	}
+	click(t, tt, "opencode model")
+	tt.Type("anthropic/sonnet")
+	tt.Frame()
+	click(t, tt, "opencode variant")
+	tt.Type("thinking")
+	click(t, tt, "Switch to opencode")
+	tt.Frame()
+	sw := lastSwitch(f)
+	if sw.Harness != "opencode" || sw.Model != "anthropic/sonnet" || sw.Effort != "thinking" {
+		t.Fatalf("switch sent %+v", sw)
+	}
+	acceptedByStart(t, sw.Harness, sw.Model, sw.Effort)
+}
+
+func runningOpencode(model string) func(*fixture) {
+	return func(f *fixture) {
+		idleFixture(f)
+		st := f.status[fleetID]
+		sup := *st.Supervisor
+		sup.Harness, sup.Model, sup.Effort = "opencode", model, ""
+		st.Supervisor = &sup
+		f.status[fleetID] = st
+		ms := f.models[fleetID]
+		ms.Current, ms.Model, ms.Effort = "opencode", model, ""
+		f.models[fleetID] = ms
+	}
+}
+
+func TestTheSwitchOfAnOpencodeSupervisorOnItsDefaultModelSendsNoVariantWithoutAModel(t *testing.T) {
+	f := menuFixture(t, runningOpencode(""))
+	tt := newTester(newApp(t, f))
+	click(t, tt, "opencode")
+	tt.Frame()
+	mustText(t, tt, "Switch now", "keep current")
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "keep current")
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
+	click(t, tt, "opencode variant")
+	tt.Type("thinking")
+	click(t, tt, "anthropic/sonnet")
+	click(t, tt, "keep current")
+	tt.Frame()
+	mustNotText(t, tt, "opencode variant")
+	click(t, tt, "Switch now")
+	tt.Frame()
+	sw := lastSwitch(f)
+	if sw.Model != "" || sw.Effort != "" {
+		t.Fatalf("switch sent %+v, want no variant without a model", sw)
+	}
+	acceptedByStart(t, "opencode", sw.Model, sw.Effort)
+}
+
+func TestTheSwitchOfAnOpencodeSupervisorOnAModelKeepsItsVariantField(t *testing.T) {
+	f := menuFixture(t, runningOpencode("anthropic/sonnet"))
+	tt := newTester(newApp(t, f))
+	click(t, tt, "anthropic/sonnet")
+	tt.Frame()
+	mustText(t, tt, "opencode variant")
+	click(t, tt, "opencode variant")
+	tt.Type("thinking")
+	click(t, tt, "Switch now")
+	tt.Frame()
+	sw := lastSwitch(f)
+	if sw.Model != "" || sw.Effort != "thinking" {
+		t.Fatalf("switch sent %+v", sw)
+	}
+	acceptedByStart(t, "opencode", "anthropic/sonnet", sw.Effort)
+}
+
+func TestTheStartStripOffersNoDefaultModelToAHarnessThatNeedsOne(t *testing.T) {
+	f := menuFixture(t, func(f *fixture) {
+		st := f.status[fleetID]
+		st.Supervisor = nil
+		f.status[fleetID] = st
+		ms := firstRunModels()
+		ms.Harnesses = []desktop.Harness{ms.Harnesses[3]}
+		f.models[fleetID] = ms
+	})
+	tt := newTester(newApp(t, f))
+	mustNotText(t, tt, "default")
+	click(t, tt, "Gemini Pro · gemini-pro")
+	tt.Frame()
+	if got := countText(t, tt, "default"); got != 0 {
+		t.Fatalf("the model list offers default to agy")
 	}
 }

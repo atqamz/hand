@@ -53,34 +53,14 @@ func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
 	a.flushClip(c)
 	ui.Column(c).Gap(kit.Space6).Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Label("Document actions").Children(func() {
-			if a.docSourceable() {
-				if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !a.DocSource) && a.DocSource {
-					a.setDocView(func() { a.DocSource = false })
-				}
-				if kit.DocToggle(c, k, "doc:tool:source", "Source", a.DocSource) && !a.DocSource {
-					a.setDocView(func() { a.DocSource = true })
-				}
+			sourceable := a.docSourceable()
+			if sourceable {
+				a.docSwitch(c, k)
 			}
-			label := "Copy contents"
-			if d.Kind == "text" && d.Size > docRawMax {
-				label = "Copy window"
+			if (sourceable || a.docLinesShown()) && kit.Button(c, k, "doc:tool:find", "Find", 0, false) {
+				a.findInDoc()
 			}
-			key := "doc:contents:" + a.Ref
-			if a.copiedKey == key && !a.copiedAt.IsZero() && c.Now().Sub(a.copiedAt) < copyReceipt {
-				label = "Copied"
-			}
-			if !noCopyKinds[d.Kind] && kit.Button(c, k, "doc:tool:copy", label, 0, a.doc.copying) {
-				a.copyDoc(c)
-			}
-			if kit.Button(c, k, "doc:tool:download", "Download", 0, a.doc.saving || a.SaveAs == nil) {
-				a.downloadDoc()
-			}
-			if a.docTextual() && kit.DocToggle(c, k, "doc:tool:wide", "Wide", a.DocWide) {
-				a.setDocView(func() { a.DocWide = !a.DocWide })
-			}
-			if a.docLinesShown() && kit.DocToggle(c, k, "doc:tool:wrap", "Wrap", a.DocWrap) {
-				a.setDocView(func() { a.DocWrap = !a.DocWrap })
-			}
+			a.docOverflow(c, k, d)
 		})
 		if a.doc.note != "" {
 			if a.doc.note != a.doc.said {
@@ -94,6 +74,68 @@ func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
 			ui.Text(c, shownText(a.doc.note)).FontSize(kit.Meta.Size).TextColor(tone)
 		}
 	})
+}
+
+func (a *App) docSwitch(c *ui.Context, k kit.Colors) {
+	ui.Row(c).Gap(0).AlignItems(ui.Center).Label("Rendered or Source").Children(func() {
+		if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !a.DocSource) && a.DocSource {
+			a.setDocView(func() { a.DocSource = false })
+		}
+		if kit.DocToggle(c, k, "doc:tool:source", "Source", a.DocSource) && !a.DocSource {
+			a.setDocView(func() { a.DocSource = true })
+		}
+	}).Tooltip("Rendered or Source. [ and ] open the previous and next document in this folder.")
+}
+
+func (a *App) findInDoc() {
+	if !a.docLinesShown() {
+		if !a.docSourceable() {
+			return
+		}
+		a.setDocView(func() { a.DocSource = true })
+	}
+	a.focusFindBox()
+}
+
+func (a *App) docOverflow(c *ui.Context, k kit.Colors, d Doc) {
+	more := ui.ButtonBase(c.Key("doc:tool:more")).Size(kit.Control, kit.Control).Radius(kit.RadiusMD).
+		Border(1, k.LineStrong).Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		Label("More document actions").Tooltip("More document actions. [ and ] open the previous and next document in this folder.")
+	more.Children(func() { ui.Icon(c, kit.Icon("more")).TextColor(k.Muted) })
+	more.PopoverMenuButton(func(m *ui.Menu) {
+		label := "Copy contents"
+		if d.Kind == "text" && d.Size > docRawMax {
+			label = "Copy window"
+		}
+		key := "doc:contents:" + a.Ref
+		if a.copiedKey == key && !a.copiedAt.IsZero() && c.Now().Sub(a.copiedAt) < copyReceipt {
+			label = "Copied"
+		}
+		if !noCopyKinds[d.Kind] && m.Item(label).Disabled(a.doc.copying).Chosen() {
+			a.copyDoc(c)
+		}
+		if m.Item("Download").Disabled(a.doc.saving || a.SaveAs == nil).Chosen() {
+			a.downloadDoc()
+		}
+		if a.docTextual() && m.Item("Wide").Checked(a.DocWide).Chosen() {
+			a.setDocView(func() { a.DocWide = !a.DocWide })
+		}
+		if a.docLinesShown() && m.Item("Wrap").Checked(a.DocWrap).Chosen() {
+			a.setDocView(func() { a.DocWrap = !a.DocWrap })
+		}
+	})
+}
+
+func (a *App) stepDoc(next bool) {
+	d := a.doc.doc
+	to := d.Prev
+	if next {
+		to = d.Next
+	}
+	if to != nil {
+		a.showDoc(to.Path, 1, false)
+		a.viewerFocus = true
+	}
 }
 
 func (a *App) setDocView(set func()) {
