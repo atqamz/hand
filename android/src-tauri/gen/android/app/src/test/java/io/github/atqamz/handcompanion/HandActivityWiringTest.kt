@@ -43,6 +43,7 @@ class HandActivityWiringTest {
     }
     val dialog = body(screen, "internal fun SignOutDialog(")
     assertTrue(dialog.contains("signOutContent(asking, failure, signing, onSignOut = onSignOut, onForget = onForget, onCancel = onCancel)"))
+    assertTrue(dialog.contains("onDismissRequest = { if (!signing) onCancel() },"))
     assertTrue(dialog.contains("confirmButton = content.confirm,"))
     assertTrue(dialog.contains("dismissButton = content.dismiss"))
   }
