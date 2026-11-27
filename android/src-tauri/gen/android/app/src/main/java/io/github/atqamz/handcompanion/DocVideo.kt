@@ -50,10 +50,16 @@ class RangedReader(
   private val connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection }
 ) : Closeable {
   private val url = URL("$base/$fleet/api/v1/doc/$route?raw")
-  private var from = -1L
-  private var block = ByteArray(0)
-  private var closed = false
 
+  @Volatile private var from = -1L
+
+  @Volatile private var block = ByteArray(0)
+
+  @Volatile private var closed = false
+
+  @Volatile private var live: HttpURLConnection? = null
+
+  @Volatile
   var broke: IOException? = null
     private set
 
@@ -70,19 +76,31 @@ class RangedReader(
       if (closed) throw IOException("The video was closed.")
       if (position < from || position >= from + block.size) {
         val start = position / STREAM_BLOCK * STREAM_BLOCK
-        block = fetch(start, minOf(start + STREAM_BLOCK, size) - 1)
+        val fetched = fetch(start, minOf(start + STREAM_BLOCK, size) - 1)
+        if (closed) throw IOException("The video was closed.")
+        block = fetched
         from = start
+        if (closed) block = ByteArray(0)
       }
     } catch (error: IOException) {
       broke = error
       throw error
     }
-    return readSlice(block, position - from, buffer, offset, count)
+    val held = block
+    val at = from
+    if (closed) {
+      val error = IOException("The video was closed.")
+      broke = error
+      throw error
+    }
+    return readSlice(held, position - at, buffer, offset, count)
   }
 
   private fun fetch(start: Long, end: Long): ByteArray {
     val link = connect(url)
+    live = link
     try {
+      if (closed) throw IOException("The video was closed.")
       link.instanceFollowRedirects = false
       link.connectTimeout = CONNECT_MILLIS
       link.readTimeout = READ_MILLIS
@@ -105,13 +123,14 @@ class RangedReader(
       }
       return bytes
     } finally {
+      live = null
       link.disconnect()
     }
   }
 
-  @Synchronized
   override fun close() {
     closed = true
+    live?.disconnect()
     block = ByteArray(0)
     from = -1
   }

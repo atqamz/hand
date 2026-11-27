@@ -2,6 +2,7 @@ package io.github.atqamz.handcompanion
 
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
+import android.webkit.WebViewClient
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -17,6 +18,8 @@ import org.junit.Before
 import org.junit.Test
 
 private const val FLEET = "f000000000007"
+
+private val META = "<meta http-equiv=\"Content-Security-Policy\" content=\"$HTML_POLICY\">"
 
 private fun pageNode(size: Long) =
   Raw(
@@ -157,8 +160,116 @@ class DocHtmlTest {
     assertTrue(policy.contains("form-action 'none'"))
     assertFalse(HTML_POLICY.contains("http"))
     assertFalse(HTML_POLICY.contains("*"))
-    val page = htmlPage("<!doctype html><script>x</script>")
-    assertTrue(page.startsWith("<meta http-equiv=\"Content-Security-Policy\" content=\"$HTML_POLICY\">"))
+    assertTrue(htmlPage("<p>x</p>").startsWith(META))
+  }
+
+  private fun assertMetaFirstOf(page: String, worker: String) {
+    val at = page.indexOf(META)
+    assertTrue(page, at >= 0)
+    assertEquals(page, page.indexOf(META), page.lastIndexOf(META))
+    assertEquals(worker, page.substring(0, at) + page.substring(at + META.length))
+  }
+
+  @Test
+  fun aLeadingDoctypeStaysFirstAndThePolicyFollowsIt() {
+    assertEquals("<!doctype html>$META<p>x</p>", htmlPage("<!doctype html><p>x</p>"))
+    assertEquals("<!DOCTYPE html PUBLIC \"a\" \"b\">$META<html>", htmlPage("<!DOCTYPE html PUBLIC \"a\" \"b\"><html>"))
+    assertEquals("\uFEFF \n<!-- c -->\t<!doctype html>$META<p>", htmlPage("\uFEFF \n<!-- c -->\t<!doctype html><p>"))
+    assertEquals("<!--a--><!--b--><!doctype html>$META", htmlPage("<!--a--><!--b--><!doctype html>"))
+    assertEquals("<!--a--!><!doctype html>$META", htmlPage("<!--a--!><!doctype html>"))
+    assertEquals("<!doctype html <script>$META" + "x</script>", htmlPage("<!doctype html <script>x</script>"))
+  }
+
+  @Test
+  fun thePolicyPrecedesEveryWorkerTagWhateverComesBeforeIt() {
+    val hostile =
+      listOf(
+        "<script>x</script><!doctype html>",
+        "<!doctype html><script>x</script>",
+        "<!-- <script> --><script>x</script>",
+        "<!--> <script>x</script><!doctype html>",
+        "<!---> <script>x</script><!doctype html>",
+        "<!-- unterminated <script>x</script><!doctype html>",
+        "<!--a--!> <script>x</script><!doctype html>",
+        "<p><!doctype html>",
+        "<?xml version=\"1.0\"?><!doctype html>",
+        "<!doctypex><script>x</script>",
+        "",
+        "   "
+      )
+    for (worker in hostile) {
+      val page = htmlPage(worker)
+      assertMetaFirstOf(page, worker)
+      val tags = Regex("<script|<p>|<\\?xml").findAll(page).map { it.range.first }.toList()
+      val at = page.indexOf(META)
+      assertTrue(worker, tags.none { it < at })
+    }
+  }
+
+  @Test
+  fun aCommentThatClosesAtOnceDoesNotHideTheScriptAfterIt() {
+    val page = htmlPage("<!--> <script>x</script> --><!doctype html>")
+    assertTrue(page, page.indexOf(META) < page.indexOf("<script>"))
+    val bang = htmlPage("<!-- a --!> <script>x</script> --><!doctype html>")
+    assertTrue(bang, bang.indexOf(META) < bang.indexOf("<script>"))
+  }
+
+  @Test
+  fun aHugeHostileHeadIsScannedInLinearTime() {
+    val comments = "<!--a-->".repeat(200_000)
+    val started = System.nanoTime()
+    assertTrue(htmlPage(comments + "<p>x</p>").startsWith(META))
+    assertTrue(htmlPage("$comments<!doctype html>").startsWith("$comments<!doctype html>$META"))
+    assertTrue(htmlPage("<!--a-->".repeat(200_000) + "<!--").startsWith(META))
+    assertTrue(htmlPage("-->".repeat(300_000)).startsWith(META))
+    assertTrue(System.nanoTime() - started < 5_000_000_000L)
+  }
+
+  private class Target : PreviewTarget {
+    val steps = mutableListOf<String>()
+    val locked = Settings()
+    var client: WebViewClient? = null
+    var downloads = false
+    var loaded: String? = null
+    var lockedAtLoad: Boolean? = null
+
+    override val settings: PreviewSettings = locked
+
+    override fun client(client: WebViewClient) {
+      steps += "client"
+      this.client = client
+    }
+
+    override fun dropDownloads() {
+      steps += "downloads"
+      downloads = true
+    }
+
+    override fun load(page: String) {
+      steps += "load"
+      loaded = page
+      lockedAtLoad = !locked.javaScriptEnabled && !locked.allowFileAccess && locked.blockNetworkLoads
+    }
+  }
+
+  @Test
+  fun preparingAViewLocksItDownSetsTheClientDropsDownloadsAndLoadsLast() {
+    val target = Target()
+    var gone = 0
+    prepare(target, { gone++ }, "<p>x</p>")
+    assertFalse(target.locked.javaScriptEnabled)
+    assertFalse(target.locked.allowFileAccess)
+    assertFalse(target.locked.allowContentAccess)
+    assertTrue(target.locked.blockNetworkLoads)
+    assertTrue(target.client is PreviewClient)
+    assertTrue((target.client as PreviewClient).shouldOverrideUrlLoading(null, null as WebResourceRequest?))
+    assertTrue(target.client!!.onRenderProcessGone(null, null))
+    assertEquals(1, gone)
+    assertTrue(target.downloads)
+    assertEquals("<p>x</p>", target.loaded)
+    assertEquals(true, target.lockedAtLoad)
+    assertEquals("load", target.steps.last())
+    assertEquals(setOf("client", "downloads", "load"), target.steps.toSet())
   }
 
   @Test

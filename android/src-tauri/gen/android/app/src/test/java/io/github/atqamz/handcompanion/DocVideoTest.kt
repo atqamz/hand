@@ -422,6 +422,8 @@ class DocVideoTest {
       assertEquals(1, rig.hits.size)
       assertEquals("GET /$FLEET/api/v1/doc/reports/a.mp4?raw HTTP/1.1", rig.hits[0]["line"])
       assertEquals(COOKIE, rig.hits[0]["cookie"])
+      assertEquals("identity", rig.hits[0]["accept-encoding"])
+      assertEquals("close", rig.hits[0]["connection"])
       assertEquals("bytes=0-${STREAM_BLOCK - 1}", rig.hits[0]["range"])
       assertEquals(100, reader.read(STREAM_BLOCK * 2L, out, 0, 1000))
       assertEquals(2, rig.hits.size)
@@ -510,6 +512,52 @@ class DocVideoTest {
         throw AssertionError("expected a refusal")
       } catch (_: IOException) {}
       assertEquals(1, rig.hits.size)
+    }
+  }
+
+  @Test
+  fun closeDoesNotWaitForAStalledFetchAndTheReadFailsCleanly() {
+    val held = CopyOnWriteArrayList<Socket>()
+    val accepted = CountDownLatch(1)
+    val silent = ServerSocket(0, 8, InetAddress.getLoopbackAddress())
+    val acceptor =
+      Thread {
+        try {
+          held += silent.accept()
+          accepted.countDown()
+        } catch (_: IOException) {}
+      }
+    acceptor.isDaemon = true
+    acceptor.start()
+    try {
+      val reader = reader(silent.localPort, 1000)
+      val failure = CopyOnWriteArrayList<Throwable>()
+      val worker =
+        Thread {
+          try {
+            reader.read(0, ByteArray(10), 0, 10)
+          } catch (error: IOException) {
+            failure += error
+          }
+        }
+      worker.isDaemon = true
+      worker.start()
+      assertTrue(accepted.await(5, TimeUnit.SECONDS))
+      val closer = Thread { reader.close() }
+      closer.isDaemon = true
+      closer.start()
+      closer.join(2000)
+      assertFalse("close waited for the fetch", closer.isAlive)
+      worker.join(5000)
+      assertFalse("the stalled read never ended", worker.isAlive)
+      assertEquals(1, failure.size)
+      try {
+        reader.read(0, ByteArray(10), 0, 10)
+        throw AssertionError("expected a refusal")
+      } catch (_: IOException) {}
+    } finally {
+      silent.close()
+      held.forEach { it.close() }
     }
   }
 
