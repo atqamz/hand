@@ -189,6 +189,7 @@ class DocHtmlTest {
         "<!-- <script> --><script>x</script>",
         "<!--> <script>x</script><!doctype html>",
         "<!---> <script>x</script><!doctype html>",
+        "<!---> <script>x</script> --><!doctype html>",
         "<!-- unterminated <script>x</script><!doctype html>",
         "<!--a--!> <script>x</script><!doctype html>",
         "<p><!doctype html>",
