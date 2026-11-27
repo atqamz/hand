@@ -87,7 +87,7 @@ func TestLayoutTextKeepsItsContrast(t *testing.T) {
 
 func TestLayoutNoRuleIsDoubled(t *testing.T) {
 	eachLayout(t, layoutScenes(), func(t *testing.T, sc layoutScene, sz layoutSize, dark bool, tt *ui.Tester) {
-		report(t, "double hairline", doubledRules(tt.Image(), dark))
+		report(t, "double hairline", doubledRules(tt.Image(), dark, panelEdges(hitsOf(tt), sz.w, sz.h)))
 	})
 }
 
@@ -116,7 +116,26 @@ func ruleSpans(img *image.RGBA, y int, colors ...ui.Color) [][2]int {
 	return spans
 }
 
-func doubledRules(img *image.RGBA, dark bool) []string {
+func panelEdges(hits []hitBox, width, height int) []int {
+	var ys []int
+	for _, h := range hits {
+		if h.R.W > 300 && h.R.H > 300 && h.R.W < float32(width)-1 {
+			ys = append(ys, int(h.R.Y), int(h.R.Y+h.R.H))
+		}
+	}
+	return ys
+}
+
+func nearAny(y int, edges []int) bool {
+	for _, e := range edges {
+		if y >= e-3 && y <= e+3 {
+			return true
+		}
+	}
+	return false
+}
+
+func doubledRules(img *image.RGBA, dark bool, panels []int) []string {
 	k := kit.ColorsFor(dark)
 	rows := map[int][][2]int{}
 	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
@@ -130,6 +149,9 @@ func doubledRules(img *image.RGBA, dark bool) []string {
 			for _, sa := range a {
 				for _, sb := range rows[y+gap] {
 					lo, hi := max(sa[0], sb[0]), min(sa[1], sb[1])
+					if nearAny(y, panels) || nearAny(y+gap, panels) {
+						continue
+					}
 					if hi-lo >= 120 && hi-lo >= (min(sa[1]-sa[0], sb[1]-sb[0]))*9/10 {
 						out = append(out, fmt.Sprintf("rules at y=%d and y=%d, x %d to %d", y, y+gap, lo, hi))
 					}

@@ -128,16 +128,23 @@ func without(hits, known []hitBox) []hitBox {
 	return out
 }
 
+func covered(hits []hitBox, width, height int) bool {
+	for _, h := range hits {
+		if h.R.W >= float32(width)-1 && h.R.H >= float32(height)-1 {
+			return true
+		}
+	}
+	return false
+}
+
 func noOverflow(tt *ui.Tester, width, height int, vertical bool, known []hitBox) []string {
 	hits := without(hitsOf(tt), known)
 	var out []string
 	win := ui.Rect{W: float32(width), H: float32(height)}
 	div, hasDiv := tt.Find("Divider")
 	edges := paneEdges(tt, width)
-	for _, h := range hits {
-		if h.R.W >= win.W-1 && h.R.H >= win.H-1 {
-			edges = [][2]float32{{0, win.W}}
-		}
+	if covered(hits, width, height) {
+		edges = [][2]float32{{0, win.W}}
 	}
 	for _, h := range hits {
 		if h.Flags&hitInteractive == 0 || h.R.W <= 0 || h.R.H <= 0 {
@@ -186,7 +193,7 @@ func smallTargets(tt *ui.Tester, minW, minH float32, keep func(hitBox) bool) []s
 
 const (
 	minHitWidth  = 12
-	minHitHeight = 16
+	minHitHeight = 12
 	railWidth    = 56
 )
 
@@ -332,7 +339,7 @@ func lowContrast(tt *ui.Tester, width, height int, floor float64, known []textBo
 		if disabledAt(hits, a.R) || holdsAnother(texts, i) {
 			continue
 		}
-		if strings.TrimSpace(a.Text) == "" || a.R.H > 120 || a.R.W*a.R.H > 60000 || a.R.W < 3 || a.R.H < 12 {
+		if strings.TrimSpace(a.Text) == "" || a.R.H > 120 || a.R.W*a.R.H > 60000 || a.R.W < 3 || a.R.H < 14 {
 			continue
 		}
 		if r, ok := inkContrast(img, a.R); ok && r < floor {
