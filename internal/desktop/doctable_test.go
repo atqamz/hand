@@ -194,7 +194,7 @@ func TestTabReachesTheToolbarThenTheTable(t *testing.T) {
 
 func TestOtherKindsShowOneSentenceTheNameAndTheSize(t *testing.T) {
 	for _, tc := range []struct{ path, name, size, sentence string }{
-		{voicePath, "standup.mp3", "3.0 MiB", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere."},
+		{opusPath, "standup.opus", "3.0 MiB", "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere."},
 		{clipPath, "demo.mp4", "3.0 MiB", "A video cannot be shown in this window."},
 		{planPath, "plan.pdf", "51 KiB", "A PDF cannot be shown in this window."},
 		{pagePath, "preview.html", "177 B", "An HTML page cannot be shown in this window."},
