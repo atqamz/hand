@@ -1,6 +1,7 @@
 package io.github.atqamz.handcompanion
 
 import android.graphics.Bitmap
+import android.view.SurfaceHolder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.IOException
@@ -66,11 +67,13 @@ data class DocJump(val line: Int, val id: Int)
 
 data class DocNotice(val title: String, val detail: String)
 
-data class AudioView(
+data class Playback(
   val playing: Boolean = false,
   val position: Int = 0,
   val duration: Int = 0,
-  val error: String? = null
+  val error: String? = null,
+  val width: Int = 0,
+  val height: Int = 0
 )
 
 data class DocState(
@@ -78,7 +81,9 @@ data class DocState(
   val blocks: List<MdBlock> = emptyList(),
   val source: String? = null,
   val image: ByteArray? = null,
-  val audio: AudioView? = null,
+  val audio: Playback? = null,
+  val html: String? = null,
+  val rendered: Boolean = true,
   val pdfPages: Int = 0,
   val notice: DocNotice? = null,
   val wrap: Boolean = true,
@@ -111,6 +116,8 @@ enum class DocBody {
   Image,
   ImageTooLarge,
   Audio,
+  Video,
+  Html,
   Pdf,
   MediaNotice,
   Notice
@@ -133,8 +140,15 @@ fun docBody(state: DocState): DocBody {
         node.size > IMAGE_LIMIT -> DocBody.ImageTooLarge
         else -> DocBody.Failed
       }
+    node.kind == "html" ->
+      when {
+        state.html != null && state.rendered -> DocBody.Html
+        node.text -> DocBody.Text
+        else -> DocBody.Notice
+      }
     state.notice != null -> DocBody.MediaNotice
     node.kind == "audio" -> if (state.audio != null) DocBody.Audio else DocBody.Failed
+    node.kind == "video" -> if (state.audio != null) DocBody.Video else DocBody.Failed
     node.kind == "pdf" -> if (state.pdfPages > 0) DocBody.Pdf else DocBody.Failed
     node.text && node.kind in TEXT_KINDS -> DocBody.Text
     else -> DocBody.Notice
@@ -204,6 +218,7 @@ class DocModel(
   io: CoroutineDispatcher = Dispatchers.IO,
   private val files: FileSource = CoreFiles,
   private val audioOpener: AudioOpener = PlatformAudio,
+  private val videoOpener: VideoOpener = PlatformVideo,
   private val pdfOpener: PdfOpener = PdfOpener { throw IOException("No PDF renderer.") }
 ) : ViewModel() {
   private val mutableState = MutableStateFlow(DocState())
@@ -269,6 +284,8 @@ class DocModel(
           }
           node.kind == "image" && node.size <= IMAGE_LIMIT -> image(node)
           node.kind == "audio" -> audio(node, mine)
+          node.kind == "video" -> video(node, mine)
+          node.kind == "html" -> html(node)
           node.kind == "pdf" -> pdf(node, mine)
           else -> DocState(node = node)
         }
@@ -294,15 +311,28 @@ class DocModel(
     return bytes?.takeIf { it.isNotEmpty() }
   }
 
-  private fun tooLarge(node: DocNode, what: String) =
-    DocState(
-      node = node,
-      notice =
-        DocNotice(
-          "This $what is too large to show here.",
-          "${node.kind} · ${docSize(node.size)}. The limit is ${docSize(MEDIA_LIMIT)}."
-        )
+  private fun tooLarge(node: DocNode, what: String, limit: Long = MEDIA_LIMIT) =
+    DocState(node = node, notice = tooLargeNotice(node, what, limit))
+
+  private fun tooLargeNotice(node: DocNode, what: String, limit: Long) =
+    DocNotice(
+      "This $what is too large to show here.",
+      "${node.kind} · ${docSize(node.size)}. The limit is ${docSize(limit)}."
     )
+
+  private suspend fun html(node: DocNode): DocState {
+    val window = client.docWindow(path, 1).data
+    val source = DocState(node = node, lines = docLines(window), next = window.next)
+    if (node.size > HTML_LIMIT) return source.copy(notice = tooLargeNotice(node, "page", HTML_LIMIT))
+    val bytes = withContext(fetch) { files.file(fleetId, "/api/v1/doc/${docRoute(path)}?raw&frame") }
+    return when {
+      bytes == null || bytes.isEmpty() ->
+        source.copy(notice = DocNotice("The preview could not be loaded.", "The source is shown instead."))
+      bytes.size > HTML_LIMIT ->
+        source.copy(notice = tooLargeNotice(node.copy(size = bytes.size.toLong()), "page", HTML_LIMIT))
+      else -> source.copy(html = htmlPage(String(bytes, Charsets.UTF_8)))
+    }
+  }
 
   private suspend fun <T> opening(release: (T) -> Unit, open: () -> T): T {
     var made: T? = null
@@ -328,15 +358,44 @@ class DocModel(
         )
       }
     val live = currentCoroutineContext().isActive
+    if (!adopt(opened, live, mine) { audioOpener.open(bytes, events) }) return DocState(node = node)
+    return DocState(node = node, audio = Playback(duration = opened.duration))
+  }
+
+  private suspend fun video(node: DocNode, mine: Int): DocState {
+    val route = docRoute(path)
+    val open = { videoOpener.open(fleetId, route, node.size, events) }
+    val opened =
+      try {
+        opening(AudioPlayer::release, open)
+      } catch (_: Unplayable) {
+        return DocState(
+          node = node,
+          notice = DocNotice("This video can't be played here.", "${node.kind} · ${docSize(node.size)}")
+        )
+      } catch (_: IOException) {
+        return DocState(node = node, problem = "The video could not be loaded.")
+      }
+    val live = currentCoroutineContext().isActive
+    if (!adopt(opened, live, mine, open)) return DocState(node = node)
+    return DocState(
+      node = node,
+      audio = Playback(duration = opened.duration, width = opened.width, height = opened.height)
+    )
+  }
+
+  private fun adopt(opened: AudioPlayer, live: Boolean, mine: Int, again: () -> AudioPlayer): Boolean {
     synchronized(media) {
       if (!live || mine != generation.get()) {
         opened.release()
-        return DocState(node = node)
+        return false
       }
       player = opened
-      audioBytes = bytes
+      reopen = again
+      what = if (opened is VideoPlayer) "video" else "audio"
+      (opened as? VideoPlayer)?.display(holder)
     }
-    return DocState(node = node, audio = AudioView(duration = opened.duration))
+    return true
   }
 
   private suspend fun pdf(node: DocNode, mine: Int): DocState {
@@ -371,7 +430,9 @@ class DocModel(
 
   private val media = Any()
   private var player: AudioPlayer? = null
-  private var audioBytes: ByteArray? = null
+  private var reopen: (() -> AudioPlayer)? = null
+  private var what = "audio"
+  private var holder: SurfaceHolder? = null
   private var pdf: PdfPages? = null
   private var stops = 0
 
@@ -384,7 +445,7 @@ class DocModel(
       override fun failed() {
         releasePlayer()
         mutableState.update {
-          it.copy(audio = it.audio?.copy(playing = false, error = "The audio stopped with an error."))
+          it.copy(audio = it.audio?.copy(playing = false, error = "The $what stopped with an error."))
         }
       }
     }
@@ -398,7 +459,7 @@ class DocModel(
     releasePlayer()
     val held =
       synchronized(media) {
-        audioBytes = null
+        reopen = null
         pdf.also { pdf = null }
       }
     held?.close()
@@ -430,25 +491,26 @@ class DocModel(
     val view = mutableState.value.audio ?: return
     var current = synchronized(media) { player }
     if (current == null) {
-      val bytes = synchronized(media) { audioBytes } ?: return
+      val again = synchronized(media) { reopen } ?: return
       val mine = generation.get()
       val epoch = synchronized(media) { stops }
       current =
         try {
-          opening(AudioPlayer::release) { audioOpener.open(bytes, events) }
+          opening(AudioPlayer::release, again)
         } catch (_: IOException) {
           mutableState.update {
-            if (mine == generation.get()) it.copy(audio = it.audio?.copy(playing = false, error = "The audio could not be played.")) else it
+            if (mine == generation.get()) it.copy(audio = it.audio?.copy(playing = false, error = "The $what could not be played.")) else it
           }
           return
         }
       val live = currentCoroutineContext().isActive
       synchronized(media) {
-        if (!live || stops != epoch || mine != generation.get() || audioBytes == null) {
+        if (!live || stops != epoch || mine != generation.get() || reopen == null) {
           current.release()
           return
         }
         player = current
+        (current as? VideoPlayer)?.display(holder)
       }
     }
     val from = if (view.duration > 0 && view.position >= view.duration) 0 else view.position
@@ -456,6 +518,23 @@ class DocModel(
     current.start()
     mutableState.update { it.copy(audio = it.audio?.copy(playing = true, position = from, error = null)) }
   }
+
+  fun surface(next: SurfaceHolder?) {
+    synchronized(media) {
+      holder = next
+      (player as? VideoPlayer)?.display(next)
+    }
+  }
+
+  fun toggleRendered() = mutableState.update { it.copy(rendered = !it.rendered) }
+
+  fun viewGone() =
+    mutableState.update {
+      it.copy(
+        html = null,
+        notice = DocNotice("The preview stopped working.", "The page closed the viewer. The source is shown instead.")
+      )
+    }
 
   fun pause() {
     val held = synchronized(media) { player } ?: return
