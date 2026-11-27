@@ -1,6 +1,12 @@
 package io.github.atqamz.handcompanion
 
+import java.io.ByteArrayInputStream
+import java.io.Closeable
+import java.io.File
+import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -567,5 +573,131 @@ class DocVideoTest {
     assertEquals(-1, reader.read(10, ByteArray(1), 0, 1))
     assertEquals(-1, reader.read(-1, ByteArray(1), 0, 1))
     assertNull(reader.broke)
+  }
+
+  private class Scripted(
+    url: URL,
+    private val body: ByteArray,
+    private val start: Long,
+    private val onResponse: () -> Unit = {},
+    private val onRead: () -> Unit = {}
+  ) : HttpURLConnection(url) {
+    var responses = 0
+
+    override fun connect() {}
+
+    override fun disconnect() {}
+
+    override fun usingProxy() = false
+
+    override fun getResponseCode(): Int {
+      responses++
+      onResponse()
+      return 206
+    }
+
+    override fun getHeaderField(name: String?) =
+      if (name == "Content-Range") "bytes $start-${start + body.size - 1}/${body.size}" else null
+
+    override fun getInputStream(): InputStream =
+      object : FilterInputStream(ByteArrayInputStream(body)) {
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+          onRead()
+          return super.read(buffer, offset, length)
+        }
+      }
+  }
+
+  private fun scripted(
+    size: Int,
+    onResponse: (RangedReader) -> Unit = {},
+    onRead: (RangedReader) -> Unit = {},
+    onConnect: (RangedReader) -> Unit = {}
+  ): Triple<RangedReader, CopyOnWriteArrayList<Scripted>, () -> Int> {
+    val made = CopyOnWriteArrayList<Scripted>()
+    val holder = arrayOfNulls<RangedReader>(1)
+    val reader =
+      RangedReader("http://localhost:1", FLEET, "reports/a.mp4", COOKIE, size.toLong()) { url ->
+        holder[0]?.let(onConnect)
+        Scripted(url, ByteArray(size), 0, { onResponse(holder[0]!!) }, { onRead(holder[0]!!) }).also { made += it }
+      }
+    holder[0] = reader
+    return Triple(reader, made) { made.size }
+  }
+
+  private fun refused(reader: RangedReader) {
+    try {
+      reader.read(0, ByteArray(10), 0, 10)
+      throw AssertionError("expected a refusal")
+    } catch (_: IOException) {}
+  }
+
+  @Test
+  fun aReadAfterCloseOpensNoConnection() {
+    val (reader, made, count) = scripted(100)
+    reader.close()
+    refused(reader)
+    assertEquals(0, count())
+    assertTrue(made.isEmpty())
+  }
+
+  @Test
+  fun aCloseDuringTheConnectSendsNoRequestAndFailsTheRead() {
+    val (reader, made, _) = scripted(100, onConnect = { it.close() })
+    refused(reader)
+    assertEquals(1, made.size)
+    assertEquals(0, made[0].responses)
+    assertNotNull(reader.broke)
+  }
+
+  @Test
+  fun aCloseDuringTheResponseFailsTheReadAndKeepsNothing() {
+    val (reader, _, _) = scripted(100, onResponse = { it.close() })
+    refused(reader)
+    assertNotNull(reader.broke)
+    assertBlockDropped(reader)
+  }
+
+  @Test
+  fun aCloseDuringTheStreamFailsTheReadAndKeepsNothing() {
+    val (reader, _, _) = scripted(100, onRead = { it.close() })
+    refused(reader)
+    assertNotNull(reader.broke)
+    assertBlockDropped(reader)
+  }
+
+  @Test
+  fun closingDropsTheCachedBlockAndItsPosition() {
+    val (reader, _, count) = scripted(100)
+    assertEquals(10, reader.read(0, ByteArray(10), 0, 10))
+    assertEquals(1, count())
+    assertEquals(100, blockSize(reader))
+    reader.close()
+    assertBlockDropped(reader)
+  }
+
+  private fun field(reader: RangedReader, name: String) =
+    RangedReader::class.java.getDeclaredField(name).apply { isAccessible = true }.get(reader)
+
+  private fun blockSize(reader: RangedReader) = (field(reader, "block") as ByteArray).size
+
+  private fun assertBlockDropped(reader: RangedReader) {
+    assertEquals(0, blockSize(reader))
+    assertEquals(-1L, field(reader, "from"))
+  }
+
+  @Test
+  fun closeBeforeReleasingThePlayerSoAStalledFetchEndsFirst() {
+    val order = mutableListOf<String>()
+    val reader = Closeable { order += "reader" }
+    releaseStream(reader) { order += "player" }
+    assertEquals(listOf("reader", "player"), order)
+  }
+
+  @Test
+  fun theVideoSurfaceKeepsTheScreenOnWhilePlaying() {
+    val source = File("src/main/java/io/github/atqamz/handcompanion/DocVideo.kt").readText()
+    val surface = source.substringAfter("fun VideoSurface(")
+    assertTrue(surface.contains("update = { it.keepScreenOn = playing }"))
   }
 }

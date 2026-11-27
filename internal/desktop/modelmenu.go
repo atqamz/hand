@@ -11,7 +11,14 @@ import (
 
 type pick struct {
 	model, other, effort, harness string
+	fold                          int
 }
+
+const (
+	foldDefault = iota
+	foldOpen
+	foldShut
+)
 
 func (a *App) modelsKey() string {
 	sup := a.Status.Supervisor
@@ -300,11 +307,11 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 		return
 	}
 	w, h := c.Size()
-	width, room := float32(min(300, w-24)), max(float32(h)-120, 240)
+	width, room := float32(min(300, w-24)), menuRoom(float32(h), pill.Bounds())
 	ui.PopoverBase(c, pill, &a.modelOpen, func(panel ui.Element) {
 		kit.MenuPanel(c, k, panel, width, room)
 		panel.Children(func() {
-			ui.Scroll(c).FillWidth().MaxHeight(room - 2*kit.Space12).Children(func() {
+			ui.Scroll(c).FillWidth().MaxHeight(room).Children(func() {
 				ui.Column(c).FillWidth().Gap(kit.Space8).Children(func() {
 					switch {
 					case a.modelErr != "":
@@ -312,7 +319,7 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 					case a.modelsBusy && len(a.Models.Harnesses) == 0:
 						more(c, p, "Reading the models…")
 					default:
-						inner := width - 2*kit.Space12
+						inner := width - 2*kit.Space12 - 2
 						a.menuNow(c, k, p)
 						a.menuChange(c, k, p, inner)
 					}
@@ -321,6 +328,13 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 		})
 	})
 }
+
+func menuRoom(window float32, anchor ui.Rect) float32 {
+	below, above := window-(anchor.Y+anchor.H), anchor.Y
+	return max(max(below, above)-kit.Space8-kit.Space6, minMenuRoom)
+}
+
+const minMenuRoom = 120
 
 func (a *App) menuNow(c *ui.Context, k kit.Colors, p palette) {
 	kit.FieldLabel(c, k, "Running now")
@@ -510,17 +524,41 @@ func (a *App) startStrip(c *ui.Context, k kit.Colors, p palette, width float32) 
 		return
 	}
 	_, h := c.Size()
+	opened := a.startOpened()
 	ui.Scroll(c).FillWidth().MaxHeight(max(float32(h)-260, 200)).Children(func() {
 		ui.Column(c).FillWidth().Gap(kit.Space8).Children(func() {
 			kit.FieldLabel(c, k, "Other harness, model or effort")
 			for _, harness := range a.Models.Harnesses {
-				a.startRow(c, k, p, harness, width-2*kit.Space16)
+				a.startRow(c, k, p, harness, width-2*kit.Space16, harness.Name == opened)
 			}
 		})
 	})
 }
 
-func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width float32) {
+func (a *App) startOpened() string {
+	first := ""
+	for _, h := range a.Models.Harnesses {
+		pk := a.pickFor(h)
+		if pk.fold == foldOpen {
+			return h.Name
+		}
+		if first == "" && pk.fold == foldDefault && h.Missing == "" {
+			first = h.Name
+		}
+	}
+	return first
+}
+
+func (a *App) toggleStart(name string, open bool) {
+	for _, pk := range a.picks {
+		pk.fold = foldShut
+	}
+	if !open {
+		a.picks[name].fold = foldOpen
+	}
+}
+
+func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width float32, open bool) {
 	harness := h
 	pk := a.pickFor(harness)
 	start := func(w float32) {
@@ -530,13 +568,32 @@ func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width 
 		}
 	}
 	ui.Column(c).Gap(kit.Space4).Children(func() {
+		head := ui.ButtonBase(c.Key("start-head:"+harness.Name)).FillWidth().Height(kit.Control).Padding(0, kit.Space10).
+			Gap(kit.Space6).Radius(kit.RadiusMD).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+			Border(1, k.Line).Label(harness.Name)
+		if open {
+			head.Background(k.Hover)
+		}
+		head.Children(func() {
+			ui.Text(c, harness.Name).FontSize(kit.Body.Size).Bold().Grow(1)
+			chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
+			if open {
+				chevron.Rotate(180)
+			}
+		})
+		if head.Clicked() {
+			a.toggleStart(harness.Name, open)
+		}
+		if harness.Missing != "" {
+			ui.Text(c, harness.Missing).FontSize(kit.Body.Size).TextColor(p.wait)
+		}
+		if !open {
+			return
+		}
 		ui.Row(c).FillWidth().Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 			a.stripFields(c, k, harness, pk, width >= 520)
 			start(120)
 		})
-		if harness.Missing != "" {
-			ui.Text(c, harness.Missing).FontSize(kit.Body.Size).TextColor(p.wait)
-		}
 		if unverified(harness, pk) {
 			ui.Text(c, "efforts unverified").FontSize(kit.Meta.Size).Bold().TextColor(p.wait)
 		}
