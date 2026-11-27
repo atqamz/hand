@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/egoist/mygo/ui"
@@ -18,7 +19,23 @@ func transcriptApp(t *testing.T, entries ...desktop.Entry) (*desktop.App, *ui.Te
 	tl.Entries = entries
 	f.timeline[fleetID] = tl
 	app := newApp(t, f)
+	app.Now = func() time.Time { return transcriptNow }
 	return app, sized(t, app, 1100, 760, false)
+}
+
+var transcriptNow = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+
+func TestTranscriptAppReadsAPinnedClock(t *testing.T) {
+	_, tt := transcriptApp(t, wake("2026-10-31T12:05:00Z", "attempt a71 reported"))
+	for _, s := range tt.Texts() {
+		if strings.HasPrefix(s, "· ") && strings.Contains(s, "since the turn began") {
+			if want := "· 7h 20m · last output 7h 19m ago · since the turn began"; s != want {
+				t.Fatalf("working line %q, want %q", s, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("no working line: %q", tt.Texts())
 }
 
 func operator(text string) desktop.Entry {
