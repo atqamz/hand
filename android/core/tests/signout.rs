@@ -470,3 +470,30 @@ async fn the_feed_is_stopped_first_so_no_no_longer_paired_notice_is_posted() {
     assert_eq!(rig.requests(A, "/alerts/feed").len(), polled);
     rig.supervisor.stop();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fleet_paired_during_the_round_is_signed_out_too_and_never_dropped_unrevoked() {
+    let Some(bin) = sidecar_bin() else {
+        return;
+    };
+    let rig = rig(&bin, &[(A, Mode::Live), (B, Mode::Live)], Some(A)).await;
+    let cleared = flag();
+    let late = Paired {
+        id: C.to_owned(),
+        name: format!("fleet {C}"),
+        value: value(C),
+    };
+
+    let (outcome, _) = tokio::join!(rig.sign_out(&cleared), async {
+        assert!(until(|| !rig.requests(A, "/api/v1/session/revoke").is_empty()).await);
+        rig.sessions.pair(&rig.host, None, &[late]).unwrap();
+    });
+
+    assert_eq!(outcome, SignOut::Done);
+    assert!(cleared.load(Ordering::SeqCst));
+    assert_eq!(rig.held(), 0);
+    let revokes = rig.requests(C, "/api/v1/session/revoke");
+    assert_eq!(revokes.len(), 1);
+    assert_eq!(revokes[0].csrf.as_deref(), Some(csrf(C).as_str()));
+    assert_eq!(revokes[0].cookie.as_deref(), Some(rig.cookie(C).as_str()));
+}

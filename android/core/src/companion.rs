@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::io;
@@ -224,8 +225,22 @@ impl Companion {
         endpoint: &str,
         clear: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<()> {
+        self.forget_host_when(endpoint, || true, clear)
+            .await
+            .map(|_| ())
+    }
+
+    async fn forget_host_when(
+        &self,
+        endpoint: &str,
+        still: impl FnOnce() -> bool,
+        clear: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<bool> {
         let cleared = {
             let _store = self.store.lock().unwrap();
+            if !still() {
+                return Ok(false);
+            }
             let cleared = clear();
             self.pairing.lock().unwrap().forget_host(endpoint);
             cleared
@@ -234,7 +249,7 @@ impl Companion {
             self.slot.clear_if(&dialer);
         }
         self.dialers.remove(endpoint).await;
-        cleared
+        cleared.map(|()| true)
     }
 
     pub async fn sign_out_host<J, C, S>(
@@ -249,40 +264,76 @@ impl Companion {
         C: CookieSource + Send + 'static,
         S: AlertSink + Send + 'static,
     {
-        let fleets = sessions
-            .hosts()
-            .into_iter()
-            .find(|host| host.endpoint == endpoint)
-            .map(|host| host.fleets)
-            .unwrap_or_default();
-        let ids: Vec<String> = fleets.iter().map(|fleet| fleet.id.clone()).collect();
-        supervisor.hold(&ids);
+        let mut clear = Some(clear);
+        let mut attempted: HashSet<String> = HashSet::new();
         let mut left = Vec::new();
         let mut down = false;
-        for fleet in fleets {
-            let fate = if down {
-                Fate::Unreachable
-            } else {
-                let verdict = sign_out_fleet(self, sessions, &fleet.id).await;
-                down = verdict.host_down;
-                verdict.fate
-            };
-            if fate != Fate::Done {
-                left.push(Left {
-                    id: fleet.id,
-                    name: fleet.name,
-                    fate,
-                });
+        let mut done = false;
+        loop {
+            let fresh: Vec<_> = sessions
+                .hosts()
+                .into_iter()
+                .find(|host| host.endpoint == endpoint)
+                .map(|host| host.fleets)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|fleet| !attempted.contains(&fleet.id))
+                .collect();
+            if fresh.is_empty() {
+                if !left.is_empty() {
+                    break;
+                }
+                let signed = &attempted;
+                let forgotten = self
+                    .forget_host_when(
+                        endpoint,
+                        || {
+                            sessions
+                                .hosts()
+                                .into_iter()
+                                .find(|host| host.endpoint == endpoint)
+                                .is_none_or(|host| {
+                                    host.fleets.iter().all(|fleet| signed.contains(&fleet.id))
+                                })
+                        },
+                        || clear.take().expect("clear runs once")(),
+                    )
+                    .await;
+                match forgotten {
+                    Ok(true) => {
+                        done = true;
+                        break;
+                    }
+                    Ok(false) => continue,
+                    Err(error) => {
+                        let ids: Vec<String> = attempted.iter().cloned().collect();
+                        supervisor.release(&ids).await;
+                        return Err(error);
+                    }
+                }
+            }
+            let ids: Vec<String> = fresh.iter().map(|fleet| fleet.id.clone()).collect();
+            supervisor.hold(&ids);
+            attempted.extend(ids);
+            for fleet in fresh {
+                let fate = if down {
+                    Fate::Unreachable
+                } else {
+                    let verdict = sign_out_fleet(self, sessions, &fleet.id).await;
+                    down = verdict.host_down;
+                    verdict.fate
+                };
+                if fate != Fate::Done {
+                    left.push(Left {
+                        id: fleet.id,
+                        name: fleet.name,
+                        fate,
+                    });
+                }
             }
         }
-        let done = left.is_empty();
-        let cleared = if done {
-            self.forget_host(endpoint, clear).await
-        } else {
-            Ok(())
-        };
+        let ids: Vec<String> = attempted.into_iter().collect();
         supervisor.release(&ids).await;
-        cleared?;
         Ok(if done {
             SignOut::Done
         } else {
