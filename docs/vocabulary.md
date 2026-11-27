@@ -545,7 +545,7 @@ The Board's composer accepts attachments, which it copies into `inbox/` and writ
 
 ### Shortcut sheet
 
-The list of every keyboard shortcut of the desktop [window](#desktop), grouped by where it works, that `?` opens when no text field has focus. `Escape` or `?` closes it. One table in `internal/desktop/keys.go` feeds the sheet, the [composer](#composer)'s send key and the `[` and `]` hint of the document tools, so a shortcut shown in one place is shown in all. It is not on the Board, and it opens only where the keyboard types `?` as Shift with the Slash key.
+The list of every keyboard shortcut of the desktop [window](#desktop), grouped by where it works, that `?` opens when no text field has focus. `Escape` or `?` closes it. One table in `internal/desktop/keys.go` feeds the sheet, the [composer](#composer)'s send key, the `[` and `]` hint of the document tools, the rail's tooltips and open-rail key text, and the keys that open the rail's pages and show or hide its labels (Ctrl+1 to Ctrl+6 and Ctrl+B, Cmd on Apple hardware), so a shortcut shown in one place is shown in all. The narrow window's navigation sheet shows no keys, because a shortcut does not fire behind a dialog. It is not on the Board, and it opens only where the keyboard types `?` as Shift with the Slash key.
 
 ### Draft
 

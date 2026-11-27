@@ -38,7 +38,7 @@ func width(t *testing.T, tt *ui.Tester, label string) float32 {
 func TestRailIsFiftySixWideAndOpensToTwoThirtyTwo(t *testing.T) {
 	open := false
 	tt := ui.NewTester(func(c *ui.Context) {
-		Rail(c, ColorsFor(false), open, func() { open = !open }, func() {
+		Rail(c, ColorsFor(false), open, "", func() { open = !open }, func() {
 			Nav(c, ColorsFor(false), NavItem{Key: "a", Label: "Board", Icon: "board", Open: open})
 		})
 	}, 400, 300)
@@ -59,7 +59,7 @@ func TestRailIsFiftySixWideAndOpensToTwoThirtyTwo(t *testing.T) {
 func nav(t *testing.T, n NavItem) *ui.Tester {
 	k := ColorsFor(false)
 	return ui.NewTester(func(c *ui.Context) {
-		Rail(c, k, false, func() {}, func() { Nav(c, k, n) })
+		Rail(c, k, false, "", func() {}, func() { Nav(c, k, n) })
 	}, 400, 300)
 }
 
@@ -156,7 +156,7 @@ func TestAClosedRailNamesEveryItemOnHoverEvenAnInertOne(t *testing.T) {
 func inertRail(clicked *[]string) *ui.Tester {
 	k := ColorsFor(false)
 	return ui.NewTester(func(c *ui.Context) {
-		Rail(c, k, false, func() {}, func() {
+		Rail(c, k, false, "", func() {}, func() {
 			for _, n := range []NavItem{
 				{Key: "board", Label: "Board", Icon: "board"},
 				{Key: "phone", Label: "Companion", Icon: "phone", Inert: true},
@@ -243,7 +243,7 @@ func TestAClosedRailDrawsTheLinkShapeAtTheLowerRightOfTheFleetMark(t *testing.T)
 		k := ColorsFor(dark)
 		mk := func(link string) *ui.Tester {
 			tt := ui.NewTester(func(c *ui.Context) {
-				Rail(c, k, false, func() {}, func() {
+				Rail(c, k, false, "", func() {}, func() {
 					Nav(c, k, NavItem{Key: "f", Label: "lab", Fleet: "f00000000e0aa", Link: link, LinkIcon: "failure", LinkFG: probe})
 				})
 			}, 400, 300)
@@ -327,7 +327,7 @@ func TestAWideMonogramFitsTheTile(t *testing.T) {
 	k := ColorsFor(false)
 	for _, mono := range []string{"WW", "MW", "日", "AB"} {
 		tt := ui.NewTester(func(c *ui.Context) {
-			Rail(c, k, true, func() {}, func() { Nav(c, k, NavItem{Key: "f", Label: "fleet", Fleet: "f1", Mono: mono, Open: true}) })
+			Rail(c, k, true, "", func() {}, func() { Nav(c, k, NavItem{Key: "f", Label: "fleet", Fleet: "f1", Mono: mono, Open: true}) })
 		}, 400, 300)
 		tt.Frame()
 		el, ok := tt.Find(mono)
@@ -343,7 +343,7 @@ func TestAWideMonogramFitsTheTile(t *testing.T) {
 func TestANavFleetDrawsItsMonogram(t *testing.T) {
 	k := ColorsFor(false)
 	tt := ui.NewTester(func(c *ui.Context) {
-		Rail(c, k, false, func() {}, func() { Nav(c, k, NavItem{Key: "f", Label: "golden", Fleet: "f1", Mono: "GO"}) })
+		Rail(c, k, false, "", func() {}, func() { Nav(c, k, NavItem{Key: "f", Label: "golden", Fleet: "f1", Mono: "GO"}) })
 	}, 400, 300)
 	tt.Frame()
 	if !tt.HasText("GO") {
@@ -395,7 +395,7 @@ func TestTheRailToggleNamesItselfOnHover(t *testing.T) {
 		if open {
 			label = "Hide labels"
 		}
-		tt := ui.NewTester(func(c *ui.Context) { Rail(c, k, open, func() {}, func() {}) }, 400, 300)
+		tt := ui.NewTester(func(c *ui.Context) { Rail(c, k, open, "", func() {}, func() {}) }, 400, 300)
 		tt.Frame()
 		el, ok := tt.Find(label)
 		if !ok {
@@ -469,7 +469,7 @@ func TestTheRailIsSteelWithItsOwnEdges(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		k := ColorsFor(dark)
 		tt := ui.NewTester(func(c *ui.Context) {
-			Rail(c, k, false, func() {}, func() {})
+			Rail(c, k, false, "", func() {}, func() {})
 		}, 400, 300)
 		tt.Frame()
 		img := tt.Image()
@@ -497,6 +497,22 @@ func TestTheRailEdgeIsToldFromTheSteel(t *testing.T) {
 		k := ColorsFor(dark)
 		if r := wcagRatio(k.ShellLine, k.Shell); r < 1.15 {
 			t.Errorf("dark=%v: ShellLine on Shell is %.2f:1, want at least 1.15:1", dark, r)
+		}
+	}
+}
+
+func TestAnOpenNavItemShowsItsKeyBesideABadgeAndADot(t *testing.T) {
+	k := ColorsFor(false)
+	for name, n := range map[string]NavItem{
+		"count": {Key: "a", Label: "Board", Icon: "board", Keys: "Ctrl 1", Count: 3, CountBG: k.Panel, CountFG: k.FG},
+		"dot":   {Key: "a", Label: "Conversation", Icon: "chat", Keys: "Ctrl 5", Dot: true},
+		"plain": {Key: "a", Label: "Tasks", Icon: "tasks", Keys: "Ctrl 2"},
+	} {
+		n.Open = true
+		tt := ui.NewTester(func(c *ui.Context) { Rail(c, k, true, "", func() {}, func() { Nav(c, k, n) }) }, 400, 300)
+		tt.Frame()
+		if !tt.HasText(n.Keys) {
+			t.Errorf("%s: no key %q in %q", name, n.Keys, tt.Texts())
 		}
 	}
 }
