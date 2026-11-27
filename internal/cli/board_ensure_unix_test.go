@@ -42,10 +42,11 @@ func userManagerBoard(t *testing.T, loadState string) (*openFixture, string) {
 }
 
 func TestOpenStartsTheInstalledBoardUnit(t *testing.T) {
+	needDesktop(t)
 	fx, log := userManagerBoard(t, "loaded")
-	out := fx.h.ok("open", "--print")
-	if !strings.Contains(out, "url:") {
-		t.Fatalf("open --print = %q", out)
+	out := fx.h.ok("open")
+	if !strings.Contains(out, "opened:") {
+		t.Fatalf("open = %q", out)
 	}
 	got, _ := os.ReadFile(log)
 	want := "systemctl --user show -p LoadState --value secondhand-board.service\nsystemctl --user start secondhand-board.service\n"
@@ -58,10 +59,11 @@ func TestOpenStartsTheInstalledBoardUnit(t *testing.T) {
 }
 
 func TestOpenStartsATransientBoardUnit(t *testing.T) {
+	needDesktop(t)
 	fx, log := userManagerBoard(t, "not-found")
-	out := fx.h.ok("open", "--print")
-	if !strings.Contains(out, "url:") {
-		t.Fatalf("open --print = %q", out)
+	out := fx.h.ok("open")
+	if !strings.Contains(out, "opened:") {
+		t.Fatalf("open = %q", out)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -79,11 +81,12 @@ func TestOpenStartsATransientBoardUnit(t *testing.T) {
 }
 
 func TestOpenKeepsTheUpdateIntervalOfTheBoardItRestarts(t *testing.T) {
+	needDesktop(t)
 	fx, log := userManagerBoard(t, "not-found")
 	if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.update-every"), []byte("1h0m0s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fx.h.ok("open", "--print")
+	fx.h.ok("open")
 	got, _ := os.ReadFile(log)
 	if !strings.Contains(string(got), " -p KillMode=process ") || !strings.Contains(string(got), " board --update-every 1h0m0s\n") {
 		t.Fatalf("calls = %q", got)
@@ -91,6 +94,7 @@ func TestOpenKeepsTheUpdateIntervalOfTheBoardItRestarts(t *testing.T) {
 }
 
 func TestOpenKeepsTheIrohSettingOfTheBoardItRestarts(t *testing.T) {
+	needDesktop(t)
 	for state, want := range map[string]bool{"stopped": true, "ready " + irohID + " " + relayURL: true, "": false} {
 		fx, log := userManagerBoard(t, "not-found")
 		if state != "" {
@@ -98,7 +102,7 @@ func TestOpenKeepsTheIrohSettingOfTheBoardItRestarts(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		fx.h.ok("open", "--print")
+		fx.h.ok("open")
 		got, _ := os.ReadFile(log)
 		if has := strings.Contains(string(got), " board --iroh\n"); has != want {
 			t.Fatalf("with board.iroh %q: iroh passed = %v, want %v in %q", state, has, want, got)

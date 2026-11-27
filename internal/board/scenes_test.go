@@ -626,7 +626,7 @@ func scenes() []scene {
 			ask("Merge the CLI help PR", "Merge PR 51 now?\n\nCI is green and both reviews are clean on the head.\n\n1. Yes\n2. No")
 			ask("Investigate the nightly arm64 failure", "How should the nightly arm64 job run until the toolchain settles?\n\n1. Keep the arm64 job in the nightly run and add one automatic retry with a fresh module cache, so a flaky linker run no longer turns the whole night red, at the cost of up to 25 more minutes per night\n2. Move the arm64 job to a weekly run on Sunday nights and report it as a separate check, so the nightly stays green but an arm64 regression can go unseen for up to six days\n3. Drop the arm64 job from CI until the Go toolchain ships the linker fix, and run it by hand before each release; nothing arm64-specific is checked in between")
 			ask("Name the next release", "What should the 0.12 release be called?\n\nThe board redesign is the headline of this release.\n\n1. Desk\n2. Console\n3. Other (write your own)")
-			ask("Rotate the board token", "Rotate the board token now?\n\nEvery open board tab logs out and needs a fresh `hand open` link.\n\n1. Rotate now\n2. Wait until Friday")
+			ask("Rotate the board token", "Rotate the board token now?\n\nEvery open board tab logs out and has to sign in again.\n\n1. Rotate now\n2. Wait until Friday")
 			if d := ask("Publish the design note", "Publish the design note outside the team?\n\n1. Yes, publish it\n2. No, keep it internal"); d.ID > 0 {
 				if _, err := fx.st.Answer(ctx, d.ID, "2. No, keep it internal\n\nKeep it internal until the board redesign lands.", "operator (board)"); err != nil {
 					t.Fatal(err)

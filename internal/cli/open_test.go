@@ -1,11 +1,9 @@
 package cli_test
 
 import (
-	"cmp"
 	"context"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -16,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -79,10 +79,18 @@ func newOpenFixture(t *testing.T) *openFixture {
 	fx := &openFixture{h: h, id: field(h.ok("init"), "id"), log: filepath.Join(t.TempDir(), "opened"), dir: dir}
 	bin := t.TempDir()
 	fakebin.Install(t, bin, openerName(), "opener", nil)
+	fakebin.Install(t, bin, "hand-desktop", "deskopen", nil)
 	h.vars["PATH"] = bin
 	h.vars["XDG_LOG"] = fx.log
 	fx.base, fx.stop = startBoard(t, h, "127.0.0.1")
 	return fx
+}
+
+func needDesktop(t *testing.T) {
+	t.Helper()
+	if !desktopasset.Supported(runtime.GOOS, runtime.GOARCH, cli.Channel) {
+		t.Skip("the window is not supported on this host's source build")
+	}
 }
 
 func deliverByReport(t *testing.T, h *harness, task int64, refs ...string) {
@@ -156,43 +164,97 @@ func (fx *openFixture) token(t *testing.T) string {
 }
 
 func TestOpenDeepLinks(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	for i, c := range []struct {
-		args       []string
-		path, frag string
+		args []string
+		page string
 	}{
-		{nil, "/", ""},
-		{[]string{"supervisor"}, "/", ""},
-		{[]string{"t2"}, "/task/t2", ""},
-		{[]string{"d1"}, "/decision/d1", ""},
-		{[]string{"r2"}, "/task/t1", "#r2"},
-		{[]string{"a1"}, "/attempt/a1", ""},
-		{[]string{"screen"}, "/supervisor", ""},
-		{[]string{"phone"}, "/connect", ""},
-		{[]string{"companion"}, "/connect", ""},
-		{[]string{"tasks"}, "/tasks", ""},
-		{[]string{"tasks", "login bug&x=1"}, "/tasks?q=login+bug%26x%3D1", ""},
+		{nil, ""},
+		{[]string{"supervisor"}, ""},
+		{[]string{"t2"}, "task/t2"},
+		{[]string{"d1"}, "decision/d1"},
+		{[]string{"r2"}, "task/t1#r2"},
+		{[]string{"a1"}, "attempt/a1"},
+		{[]string{"phone"}, "companion"},
+		{[]string{"companion"}, "companion"},
+		{[]string{"tasks"}, "tasks"},
+		{[]string{"tasks", "login bug&x=1"}, "tasks?q=login+bug%26x%3D1"},
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t, i+1)
 		if len(opened) != i+1 {
 			t.Fatalf("open %q logged %d launches, want %d", c.args, len(opened), i+1)
 		}
-		sep := "?"
-		if strings.Contains(c.path, "?") {
-			sep = "&"
-		}
-		want := fx.base + "/" + fx.id + c.path + sep + "token=" + fx.token(t) + "&keep=1" + c.frag
-		if got := opened[len(opened)-1]; got != want {
+		want := "handboard://view/" + fx.id + "/" + c.page
+		if got := opened[len(opened)-1]; got != "desktop --open "+want {
 			t.Fatalf("open %q = %q, want %q", c.args, got, want)
 		}
-		if field(out, "opened") != fx.base+"/"+fx.id+c.path+c.frag {
+		if field(out, "opened") != want {
 			t.Fatalf("open %q printed %q", c.args, out)
 		}
 	}
 }
 
+func TestOpenScreenIsGone(t *testing.T) {
+	t.Parallel()
+	fx := newOpenFixture(t)
+	for _, args := range [][]string{{"open", "screen"}, {"open", "--print", "screen"}} {
+		if out, errOut, code := fx.h.run(args...); code != 2 || out != "" || !strings.Contains(errOut, "hand attach") {
+			t.Fatalf("%q: code=%d out=%q stderr=%q", args, code, out, errOut)
+		}
+	}
+	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
+		t.Fatalf("hand open screen launched something: %v", err)
+	}
+}
+
+func TestOpenWithoutTheWindowExitsOneWithTheLink(t *testing.T) {
+	t.Parallel()
+	needDesktop(t)
+	fx := newOpenFixture(t)
+	fx.h.vars["PATH"] = t.TempDir()
+	for args, want := range map[string]string{"t1": "task/t1", "": "", "companion": "companion"} {
+		cmd := []string{"open"}
+		if args != "" {
+			cmd = append(cmd, args)
+		}
+		out, errOut, code := fx.h.run(cmd...)
+		link := "handboard://view/" + fx.id + "/" + want
+		if code != 1 || out != "" || !strings.Contains(errOut, "hand-desktop") || !strings.Contains(errOut, "link: "+link) || strings.Count(strings.TrimSpace(errOut), "\n") != 0 {
+			t.Fatalf("open %q without hand-desktop: code=%d out=%q stderr=%q", args, code, out, errOut)
+		}
+	}
+}
+
+func TestOpenOnAHostWithoutAWindowExitsOneWithTheLink(t *testing.T) {
+	fx := newOpenFixture(t)
+	old := *cli.DesktopUnsupported
+	*cli.DesktopUnsupported = func() string { return "unsupported on this host" }
+	t.Cleanup(func() { *cli.DesktopUnsupported = old })
+	out, errOut, code := fx.h.run("open", "t1")
+	if code != 1 || out != "" || !strings.Contains(errOut, "unsupported on this host") || !strings.Contains(errOut, "link: handboard://view/"+fx.id+"/task/t1") {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out, errOut)
+	}
+	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
+		t.Fatalf("an unsupported host launched something: %v", err)
+	}
+}
+
+func TestOpenReportsAWindowThatFails(t *testing.T) {
+	needDesktop(t)
+	setWait(t, cli.LaunchWait, 30*time.Second)
+	fx := newOpenFixture(t)
+	bin := t.TempDir()
+	fakebin.Install(t, bin, "hand-desktop", "quiet", nil)
+	fx.h.vars["PATH"] = bin
+	if _, errOut, code := fx.h.run("open", "t1"); code != 1 || !strings.Contains(errOut, "hand-desktop could not open") || !strings.Contains(errOut, "handboard://view/"+fx.id+"/task/t1") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
 func TestOpenNeverPrintsTheToken(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	fx.h.ok("open")
 	tok := fx.token(t)
@@ -286,6 +348,7 @@ func TestOpenDelivered(t *testing.T) {
 
 func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 	t.Parallel()
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	dir := filepath.Join(fx.home(t), "reports", "t8")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -296,50 +359,37 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client := &http.Client{Jar: jar}
-	loginOut := fx.h.ok("open", "--print", "t1")
 	for i, c := range []struct {
-		byReport   bool
-		name, path string
+		byReport bool
+		name     string
+		path     string
 	}{
-		{false, "notes.md", "/doc/reports/t8/notes.md"},
-		{true, "notes.md", "/doc/reports/t8/notes.md"},
-		{true, "my notes.md", "/doc/reports/t8/my%20notes.md"},
-		{false, "résumé.md", "/doc/reports/t8/r%C3%A9sum%C3%A9.md"},
-		{true, "a#1%.md", "/doc/reports/t8/a%231%25.md"},
-		{false, "", "/doc/reports/t8"},
+		{false, "notes.md", "doc/reports/t8/notes.md"},
+		{true, "notes.md", "doc/reports/t8/notes.md"},
+		{true, "my notes.md", "doc/reports/t8/my%20notes.md"},
+		{false, "résumé.md", "doc/reports/t8/r%C3%A9sum%C3%A9.md"},
+		{true, "a#1%.md", "doc/reports/t8/a%231%25.md"},
+		{false, "", "doc/reports/t8"},
 	} {
 		task := fx.deliver(t, c.byReport, filepath.Join(dir, c.name))
-		page := fx.base + "/" + fx.id + c.path
+		want := "handboard://view/" + fx.id + "/" + c.path
 		out := fx.h.ok("open", task, "--delivered")
 		opened := fx.opened(t, i+1)
 		if len(opened) != i+1 {
 			t.Fatalf("open %s logged %d launches, want %d", task, len(opened), i+1)
 		}
-		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
-			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, page)
+		if got := opened[len(opened)-1]; got != "desktop --open "+want || field(out, "opened") != want {
+			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, want)
 		}
-		if got := fx.h.ok("open", "--print", task, "--delivered"); got != strings.Replace(withoutApp(loginOut), "/task/t1?", c.path+"?", 1) {
-			t.Fatalf("open --print %s --delivered = %q, want the login link of %q", task, got, loginOut)
-		}
-		res, err := client.Get(opened[len(opened)-1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := io.ReadAll(res.Body)
-		_ = res.Body.Close()
-		if want := "<title>" + cmp.Or(c.name, "t8") + " · "; res.StatusCode != http.StatusOK || res.Request.URL.String() != page || !strings.Contains(string(body), want) {
-			t.Fatalf("GET %s landed on %s: %d, want %s with %q", c.path, res.Request.URL, res.StatusCode, page, want)
+		if got := fx.h.ok("open", "--print", task, "--delivered"); field(got, "link") != want || strings.Contains(got, "token") {
+			t.Fatalf("open --print %s --delivered = %q, want %q", task, got, want)
 		}
 	}
 }
 
 func TestOpenDocOpensTheViewerForAFleetPath(t *testing.T) {
 	t.Parallel()
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	dir := filepath.Join(fx.home(t), "reports", "t8")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -350,35 +400,20 @@ func TestOpenDocOpensTheViewerForAFleetPath(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client := &http.Client{Jar: jar}
-	loginOut := fx.h.ok("open", "--print", "t1")
-	for i, c := range []struct{ arg, name, path string }{
-		{"reports/t8/notes.md", "notes.md", "/doc/reports/t8/notes.md"},
-		{"reports//t8/my notes.md", "my notes.md", "/doc/reports/t8/my%20notes.md"},
-		{"reports/t8/a#1%.md", "a#1%.md", "/doc/reports/t8/a%231%25.md"},
-		{"reports/t8", "t8", "/doc/reports/t8"},
+	for i, c := range []struct{ arg, path string }{
+		{"reports/t8/notes.md", "doc/reports/t8/notes.md"},
+		{"reports//t8/my notes.md", "doc/reports/t8/my%20notes.md"},
+		{"reports/t8/a#1%.md", "doc/reports/t8/a%231%25.md"},
+		{"reports/t8", "doc/reports/t8"},
 	} {
 		out := fx.h.ok("open", "--doc", c.arg)
 		opened := fx.opened(t, i+1)
-		page := fx.base + "/" + fx.id + c.path
-		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
-			t.Fatalf("open --doc %q = %q, printed %q, want %q", c.arg, got, out, page)
+		want := "handboard://view/" + fx.id + "/" + c.path
+		if got := opened[len(opened)-1]; got != "desktop --open "+want || field(out, "opened") != want {
+			t.Fatalf("open --doc %q = %q, printed %q, want %q", c.arg, got, out, want)
 		}
-		if got := fx.h.ok("open", "--print", "--doc", c.arg); got != strings.Replace(withoutApp(loginOut), "/task/t1?", c.path+"?", 1) {
+		if got := fx.h.ok("open", "--print", "--doc", c.arg); field(got, "link") != want {
 			t.Fatalf("open --print --doc %q = %q", c.arg, got)
-		}
-		res, err := client.Get(opened[len(opened)-1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := io.ReadAll(res.Body)
-		_ = res.Body.Close()
-		if want := "<title>" + c.name + " · "; res.StatusCode != http.StatusOK || res.Request.URL.String() != page || !strings.Contains(string(body), want) {
-			t.Fatalf("GET %s landed on %s: %d, want %s with %q", c.path, res.Request.URL, res.StatusCode, page, want)
 		}
 	}
 }
@@ -507,6 +542,7 @@ func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
 }
 
 func TestOpenRefusals(t *testing.T) {
+	needDesktop(t)
 	t.Parallel()
 	fx := newOpenFixture(t)
 	for _, c := range []struct {
@@ -519,9 +555,11 @@ func TestOpenRefusals(t *testing.T) {
 	}
 	path := fx.h.vars["PATH"]
 	fx.h.vars["PATH"] = t.TempDir()
-	_, errOut, code := fx.h.run("open", "t1")
-	if code != 3 || !strings.Contains(errOut, fx.base+"/"+fx.id+"/task/t1") || !strings.Contains(errOut, "board.token") {
-		t.Fatalf("no xdg-open: code=%d stderr=%q", code, errOut)
+	if needsWindow := desktopasset.Supported(runtime.GOOS, runtime.GOARCH, cli.Channel); needsWindow {
+		_, errOut, code := fx.h.run("open", "t1")
+		if code != 1 || !strings.Contains(errOut, "link: handboard://view/"+fx.id+"/task/t1") {
+			t.Fatalf("no hand-desktop: code=%d stderr=%q", code, errOut)
+		}
 	}
 	fx.h.vars["PATH"] = path
 	fx.stop()
@@ -536,8 +574,9 @@ func TestOpenRefusals(t *testing.T) {
 	}
 }
 
-func TestConcurrentOpensShareOneToken(t *testing.T) {
+func TestConcurrentOpensAllReachTheWindow(t *testing.T) {
 	t.Parallel()
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	codes := make(chan int, 4)
 	for range 4 {
@@ -551,19 +590,15 @@ func TestConcurrentOpensShareOneToken(t *testing.T) {
 			t.Fatalf("a concurrent open exited %d", code)
 		}
 	}
-	tok := fx.token(t)
-	opened := fx.opened(t, 4)
-	if len(tok) != 48 || len(opened) != 4 {
-		t.Fatalf("token %q, opened %q", tok, opened)
-	}
-	for _, u := range opened {
-		if !strings.HasSuffix(u, "?token="+tok+"&keep=1") {
-			t.Fatalf("concurrent opens used different tokens: %q", opened)
+	for _, u := range fx.opened(t, 4) {
+		if u != "desktop --open handboard://view/"+fx.id+"/" {
+			t.Fatalf("a concurrent open sent %q", u)
 		}
 	}
 }
 
 func TestOpenRefusesAnImpostor(t *testing.T) {
+	needDesktop(t)
 	fx := newOpenFixture(t)
 	fx.h.ok("open")
 	before := len(fx.opened(t, 1))
@@ -598,39 +633,42 @@ func TestOpenRefusesAnImpostor(t *testing.T) {
 	}
 }
 
-func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
+func TestOpenPrintPrintsTheLinkOnly(t *testing.T) {
 	t.Parallel()
 	fx := newOpenFixture(t)
 	out, errOut, code := fx.h.run("open", "--print", "t1")
-	if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+"/task/t1?token="+fx.token(t)+`"`) || strings.Contains(out, "keep=1") || !strings.Contains(out, "holds the fleet's token") {
-		t.Fatalf("open --print: code=%d out=%q stderr=%q", code, out, errOut)
+	if want := "link: \"handboard://view/" + fx.id + "/task/t1\"\n"; code != 0 || errOut != "" || out != want {
+		t.Fatalf("open --print: code=%d out=%q stderr=%q, want %q", code, out, errOut, want)
 	}
 	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
-		t.Fatalf("open --print launched a browser: %v", err)
+		t.Fatalf("open --print launched something: %v", err)
 	}
 }
 
-func TestOpenPrintOfScreenPhoneAndTasksHasNoAppLink(t *testing.T) {
+func TestOpenPrintNeedsNoBoardAndNoWindow(t *testing.T) {
 	t.Parallel()
 	fx := newOpenFixture(t)
+	fx.stop()
+	fx.h.vars["PATH"] = t.TempDir()
 	for _, c := range []struct {
 		args []string
-		path string
+		page string
 	}{
-		{[]string{"--print", "screen"}, "/supervisor?token="},
-		{[]string{"--print", "phone"}, "/connect?token="},
-		{[]string{"--print", "companion"}, "/connect?token="},
-		{[]string{"--print", "tasks", "Q"}, "/tasks?q=Q&token="},
-		{[]string{"tasks", "a b", "--print"}, "/tasks?q=a+b&token="},
-		{[]string{"--print", "tasks", "--", "-x"}, "/tasks?q=-x&token="},
+		{[]string{"--print"}, ""},
+		{[]string{"--print", "phone"}, "companion"},
+		{[]string{"--print", "companion"}, "companion"},
+		{[]string{"--print", "tasks", "Q"}, "tasks?q=Q"},
+		{[]string{"tasks", "a b", "--print"}, "tasks?q=a+b"},
+		{[]string{"--print", "tasks", "--", "-x"}, "tasks?q=-x"},
+		{[]string{"--print", "r2"}, "task/t1#r2"},
 	} {
 		out, errOut, code := fx.h.run(append([]string{"open"}, c.args...)...)
-		if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+c.path) || strings.Contains(out, "app:") || strings.Contains(out, "keep=1") {
-			t.Fatalf("open %q: code=%d out=%q stderr=%q", c.args, code, out, errOut)
+		if want := "handboard://view/" + fx.id + "/" + c.page; code != 0 || errOut != "" || field(out, "link") != want {
+			t.Fatalf("open %q: code=%d out=%q stderr=%q, want %q", c.args, code, out, errOut, want)
 		}
 	}
-	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
-		t.Fatalf("open --print launched a browser: %v", err)
+	if _, err := os.Stat(addrFile(fx.h)); !os.IsNotExist(err) {
+		t.Fatalf("open --print started a board: %v", err)
 	}
 }
 

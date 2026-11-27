@@ -60,9 +60,9 @@ func (r *runner) doctorDesktop(ctx context.Context, d *toon.Doc, c *checks, path
 func windowTried(goos string) string {
 	switch goos {
 	case "windows":
-		return "untested on a real Windows PC: a real window has opened on a CI runner; if it does not start, `hand open` shows the Board in a browser"
+		return "untested on a real Windows PC: a real window has opened on a CI runner; if it does not start, `hand open` prints the reason and exits 1 when the window stops within 2 seconds"
 	case "darwin":
-		return "untested on a real Mac: a real window has opened from Hand.app on a CI runner (arm64 only; the amd64 build has never run); a copy that arrives with a quarantine mark is stopped by Gatekeeper, so install it with `hand update`; if it does not start, `hand open` shows the Board in a browser"
+		return "untested on a real Mac: a real window has opened from Hand.app on a CI runner (arm64 only; the amd64 build has never run); a copy that arrives with a quarantine mark is stopped by Gatekeeper, so install it with `hand update`; if it does not start, `hand open` prints the reason and exits 1 when the window stops within 2 seconds"
 	}
 	return ""
 }

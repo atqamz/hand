@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-func SetOpenTimeout(d time.Duration) func() {
-	old := openTimeout
-	openTimeout = d
-	return func() { openTimeout = old }
-}
-
 func SetBoardStartTimeout(d time.Duration) func() {
 	old := boardStartTimeout
 	boardStartTimeout = d
@@ -157,3 +151,5 @@ func SendHint(apple bool) string { return keySend.label(apple) }
 type Chord = chord
 
 func LabelOf(apple bool, chords ...chord) string { return shortcut{Chords: chords}.label(apple) }
+
+func (a *App) OpenBoardLink(dest string) { a.openBoardLink(dest) }

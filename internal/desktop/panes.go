@@ -438,9 +438,6 @@ func (a *App) overflow(c *ui.Context, k kit.Colors, sup *Supervisor) {
 		if m.Item("Refresh now").Chosen() {
 			a.Refresh()
 		}
-		if !a.remoteFleet() && sup != nil && m.Item("Open in browser").Disabled(a.OpenBusy).Chosen() {
-			a.OpenInBrowser()
-		}
 		if !a.remoteFleet() && m.Item("Refresh models").Disabled(a.modelsBusy).Chosen() {
 			a.refreshModels()
 		}

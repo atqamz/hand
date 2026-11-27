@@ -12,10 +12,6 @@ import (
 )
 
 func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
-	open := a.OpenInBrowser
-	if a.remoteFleet() || a.Screen == DocScreen {
-		open = nil
-	}
 	opts := kit.ViewerOptions{
 		Name:    a.viewerName(),
 		Strip:   a.viewerStrip(),
@@ -23,9 +19,8 @@ func (a *App) viewer(c *ui.Context, k kit.Colors, p palette) {
 		Back:    len(a.back) > 0 || a.docPageOpen(),
 		OnBack:  a.Back,
 		OnClose: a.CloseViewer,
-		OnOpen:  open,
 		Notice: func(nc *ui.Context) {
-			if a.OpenBusy || a.OpenErr != "" {
+			if a.OpenErr != "" {
 				ui.Box(nc).Padding(kit.Space10, kit.Space20, 0).Children(func() {
 					a.openCard(nc, p)
 				})
@@ -824,8 +819,8 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 			case !board:
 				c.OpenURL(dest)
 			case a.openDocLink(dest):
-			case !a.openBoardPage(dest):
-				a.OpenBoardPath(dest)
+			default:
+				a.openBoardLink(dest)
 			}
 		}
 		switch {
