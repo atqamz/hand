@@ -145,6 +145,11 @@ private class StreamSource(private val reader: RangedReader) : MediaDataSource()
   override fun close() = reader.close()
 }
 
+internal fun releaseStream(reader: Closeable, release: () -> Unit) {
+  reader.close()
+  release()
+}
+
 object PlatformVideo : VideoOpener {
   override fun open(fleet: String, route: String, size: Long, events: AudioEvents): VideoPlayer {
     val link = proxyLink(Core.fallback(fleet), fleet) ?: throw IOException("The video could not be reached.")
@@ -165,8 +170,7 @@ object PlatformVideo : VideoOpener {
       }
       player.prepare()
     } catch (error: Exception) {
-      player.release()
-      reader.close()
+      releaseStream(reader, player::release)
       throw reader.broke ?: Unplayable()
     }
     return object : VideoPlayer {
@@ -187,10 +191,7 @@ object PlatformVideo : VideoOpener {
           player.setDisplay(holder)
         } catch (_: IllegalStateException) {}
 
-      override fun release() {
-        player.release()
-        reader.close()
-      }
+      override fun release() = releaseStream(reader, player::release)
     }
   }
 }
