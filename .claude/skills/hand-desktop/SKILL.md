@@ -25,7 +25,7 @@ Desktop is a native MyGo window (package `ui`, no webview) and a client of the r
 ## Rules
 
 - Colours, lengths and type come from `internal/desktop/kit` only: `kit.ColorsFor(dark)`, `kit.Body`, `kit.Heading`, `kit.Message`. No literal colours or sizes in views.
-- `kit` mirrors `internal/board/static/board.css`; `kit/tokens_test.go` reads it by path and fails on a difference. A token change edits both in one PR.
+- `kit` colours and fonts are the window's own and no longer mirror `internal/board/static/board.css`; `kit/contrast_test.go` holds every text pair to WCAG AA. Lengths and type sizes are still read from `board.css` by `kit/tokens_test.go`. Fonts are Noto Sans and JetBrains Mono (`kit.Sans`, `kit.Mono`), embedded from `kit/fonts/` with their OFL texts; never name `"monospace"`.
 - No code comments unless a hidden constraint needs one (3 lines at most). Keep existing comments.
 - Light and dark parity: every new scene and test runs both `tt.SetDark(false)` and `tt.SetDark(true)`; no state is legible in only one theme. Status uses shape or text as well as colour.
 - Elements expire each build: store data and `ui.Handle`, never an element. Slow I/O off the UI thread, results through `Window.Update`.

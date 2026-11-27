@@ -3,7 +3,6 @@ package kit
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,14 +21,7 @@ var lengths = map[string]float32{
 	"row-sm": RowSM, "row": Row, "tap": Tap, "row-lg": RowLG, "sheet": Sheet,
 }
 
-var unmirrored = []string{"doc-bg", "pane", "screen-fade", "screen-fade-fg", "screen-fade-fg-clear", "screen-thumb", "veil"}
-
-var (
-	declaration = regexp.MustCompile(`--([a-z0-9-]+):([^;}]+)`)
-	tintRule    = regexp.MustCompile(`\.tint-(\d+)\{--tint:(#[0-9a-f]{6})\}`)
-	rgbaValue   = regexp.MustCompile(`^rgba\((\d+),(\d+),(\d+),(\.?\d+)\)$`)
-	slashValue  = regexp.MustCompile(`^rgb\((\d+) (\d+) (\d+) / (\.?\d+)\)$`)
-)
+var declaration = regexp.MustCompile(`--([a-z0-9-]+):([^;}]+)`)
 
 func boardCSS(t *testing.T) (light, dark string) {
 	t.Helper()
@@ -69,90 +61,6 @@ func rootTokens(t *testing.T, block string) map[string]string {
 	return tokens
 }
 
-func cssColor(t *testing.T, v string) ui.Color {
-	t.Helper()
-	n := func(s string) uint8 { x, _ := strconv.Atoi(s); return uint8(x) }
-	if m := rgbaValue.FindStringSubmatch(v); m != nil {
-		a, _ := strconv.ParseFloat(m[4], 32)
-		return ui.RGBA(n(m[1]), n(m[2]), n(m[3]), float32(a))
-	}
-	if m := slashValue.FindStringSubmatch(v); m != nil {
-		a, _ := strconv.ParseFloat(m[4], 32)
-		return ui.RGBA(n(m[1]), n(m[2]), n(m[3]), float32(a))
-	}
-	return ui.Hex(v)
-}
-
-func tints(t *testing.T, block string) map[int]ui.Color {
-	t.Helper()
-	out := map[int]ui.Color{}
-	for _, m := range tintRule.FindAllStringSubmatch(block, -1) {
-		i, _ := strconv.Atoi(m[1])
-		out[i] = ui.Hex(m[2])
-	}
-	return out
-}
-
-func TestColorsMatchBoardCSS(t *testing.T) {
-	lightCSS, darkCSS := boardCSS(t)
-	light := rootTokens(t, lightCSS)
-	dark := map[string]string{}
-	for k, v := range light {
-		dark[k] = v
-	}
-	for k, v := range rootTokens(t, darkCSS) {
-		dark[k] = v
-	}
-	lightTints := tints(t, lightCSS)
-	darkTints := tints(t, darkCSS)
-	mirrored := map[string]bool{}
-	for _, name := range unmirrored {
-		if _, ok := light[name]; !ok {
-			t.Errorf("--%s is on the unmirrored list but not in board.css", name)
-		}
-		mirrored[name] = true
-	}
-	for _, th := range []struct {
-		name   string
-		dark   bool
-		tokens map[string]string
-		tints  map[int]ui.Color
-	}{{"light", false, light, lightTints}, {"dark", true, dark, darkTints}} {
-		v := reflect.ValueOf(ColorsFor(th.dark))
-		for i := range v.NumField() {
-			name := v.Type().Field(i).Tag.Get("css")
-			if name == "" {
-				if v.Type().Field(i).Name != "Tint" {
-					t.Errorf("Colors.%s has no css tag", v.Type().Field(i).Name)
-				}
-				continue
-			}
-			mirrored[name] = true
-			raw, ok := th.tokens[name]
-			if !ok {
-				t.Errorf("%s: --%s is not in board.css", th.name, name)
-				continue
-			}
-			if got, want := v.Field(i).Interface().(ui.Color), cssColor(t, raw); got != want {
-				t.Errorf("%s: kit %s = %+v, board.css --%s = %s", th.name, v.Type().Field(i).Name, got, name, raw)
-			}
-		}
-		for name, raw := range th.tokens {
-			if (strings.HasPrefix(raw, "#") || strings.HasPrefix(raw, "rgb")) && !mirrored[name] {
-				t.Errorf("%s: board.css --%s = %s is neither in kit nor on the unmirrored list", th.name, name, raw)
-			}
-		}
-		if len(th.tints) != 12 {
-			t.Fatalf("%s: board.css has %d tints, want 12", th.name, len(th.tints))
-		}
-		for i, got := range ColorsFor(th.dark).Tint {
-			if got != th.tints[i] {
-				t.Errorf("%s: kit Tint[%d] = %+v, board.css .tint-%d = %+v", th.name, i, got, i, th.tints[i])
-			}
-		}
-	}
-}
-
 func TestLengthsMatchBoardCSS(t *testing.T) {
 	lightCSS, _ := boardCSS(t)
 	tokens := rootTokens(t, lightCSS)
@@ -190,5 +98,36 @@ func TestTypeRolesMatchBoardCSS(t *testing.T) {
 	}
 	if want := fmt.Sprintf(".card .copy{font-size:%gpx;line-height:%g}", Message.Size, Message.Line/Message.Size); !strings.Contains(lightCSS, want) {
 		t.Errorf("kit Message is %gpx on %gpx, board.css has no %q", Message.Size, Message.Line, want)
+	}
+}
+
+func TestThePassPaletteKeepsItsRoles(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		k := ColorsFor(dark)
+		name := map[bool]string{false: "light", true: "dark"}[dark]
+		light := func(c ui.Color) float64 { return float64(c.R) + float64(c.G) + float64(c.B) }
+		if dark {
+			if !(light(k.Ticket) > light(k.Shell) && light(k.Shell) > light(k.BG) && light(k.BG) > light(k.Panel)) {
+				t.Errorf("%s: want Ticket > Shell > BG > Panel in lightness, got %+v %+v %+v %+v", name, k.Ticket, k.Shell, k.BG, k.Panel)
+			}
+		} else {
+			if k.Ticket != k.BG || !(light(k.BG) > light(k.Panel) && light(k.Panel) > light(k.Shell)) {
+				t.Errorf("%s: want a white Ticket on BG, then Panel, then the steel Shell, got %+v %+v %+v %+v", name, k.Ticket, k.BG, k.Panel, k.Shell)
+			}
+		}
+		for _, c := range []struct {
+			what string
+			col  ui.Color
+			ok   bool
+		}{
+			{"Fail is red", k.Fail, k.Fail.R > k.Fail.G && k.Fail.R > k.Fail.B},
+			{"Wait is amber", k.Wait, k.Wait.R > k.Wait.G && k.Wait.G > k.Wait.B},
+			{"Pass is green", k.Pass, k.Pass.G > k.Pass.R && k.Pass.G > k.Pass.B},
+			{"Accent is blue", k.Accent, k.Accent.B > k.Accent.R && k.Accent.B > k.Accent.G},
+		} {
+			if !c.ok {
+				t.Errorf("%s: %s, got %+v", name, c.what, c.col)
+			}
+		}
 	}
 }

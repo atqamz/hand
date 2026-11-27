@@ -206,7 +206,7 @@ func (a *App) paneHead(c *ui.Context, k kit.Colors, p palette, width float32) {
 			case !a.known(), sup == nil:
 				ui.Spacer(c)
 			default:
-				ui.Text(c, sup.Ref).Font("monospace").FontSize(kit.Meta.Size).Bold().Shrink(0)
+				ui.Text(c, sup.Ref).Font(kit.Mono).FontSize(kit.Meta.Size).Bold().Shrink(0)
 				if sup.Status != "running" {
 					a.modelOpen = false
 					ui.Text(c, modelLine(sup)).FontSize(kit.Body.Size).Bold().SingleLine().Ellipsis("…").Grow(1)
@@ -403,7 +403,7 @@ func (a *App) keyButtons(c *ui.Context, p palette, choices []keyChoice, disabled
 			BorderColor(p.lineStrong).Background(p.bg).Justify(ui.Center).AlignItems(ui.Center).
 			Disabled(disabled || a.Busy).Cursor(ui.CursorPointer)
 		button.Children(func() {
-			ui.Text(c, label).Font("monospace").FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).SingleLine()
+			ui.Text(c, label).Font(kit.Mono).FontSize(kit.Meta.Size).Bold().TextColor(p.neutral).SingleLine()
 		})
 		if button.Clicked() && !disabled && !a.Busy {
 			act(option)

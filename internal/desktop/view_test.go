@@ -1093,6 +1093,8 @@ func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
 	click(t, tt, "Fix login")
+	tt.Scroll(400, 400, 0, 160)
+	tt.Frame()
 	click(t, tt, "Open d1")
 	mustText(t, tt, "Options")
 	click(t, tt, "Back")

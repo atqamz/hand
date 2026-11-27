@@ -592,8 +592,8 @@ func (a *App) historyHit(c *ui.Context, p palette, i int, hit HistoryHit) {
 		ui.Column(c).Gap(kit.Space4).FillWidth().Children(func() {
 			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
 				ui.Text(c, historyWho(hit.Who)).FontSize(kit.Meta.Size).Bold()
-				ui.Text(c, hit.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-				ui.Text(c, stamp(hit.At)).FontSize(kit.Meta.Size).TextColor(p.neutral)
+				ui.Text(c, hit.Ref).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
+				ui.Text(c, stamp(hit.At)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			})
 			a.snippet(c, p, hit.Text)
 		})
@@ -631,8 +631,8 @@ func (a *App) historyEntryCard(c *ui.Context, k kit.Colors, p palette, o *histOp
 		Background(p.card).Border(1, p.line).Label("entry " + e.Ref).Children(func() {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
 			ui.Text(c, historyWho(e.Who)).FontSize(kit.Meta.Size).Bold()
-			ui.Text(c, e.Ref).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
-			ui.Text(c, stamp(e.At)).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			ui.Text(c, e.Ref).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
+			ui.Text(c, stamp(e.At)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			if e.Task != "" {
 				ui.Text(c, "Task "+e.Task).FontSize(kit.Meta.Size).TextColor(p.neutral)
 			}

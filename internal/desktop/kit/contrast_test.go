@@ -56,45 +56,67 @@ func apcaLc(fg, bg ui.Color) float64 {
 }
 
 func TestColorsKeepWCAGContrast(t *testing.T) {
+	type tone struct {
+		name string
+		get  func(Colors) ui.Color
+	}
+	text := []tone{
+		{"FG", func(c Colors) ui.Color { return c.FG }}, {"Muted", func(c Colors) ui.Color { return c.Muted }},
+		{"Neutral", func(c Colors) ui.Color { return c.Neutral }}, {"Accent", func(c Colors) ui.Color { return c.Accent }},
+		{"Fail", func(c Colors) ui.Color { return c.Fail }}, {"Wait", func(c Colors) ui.Color { return c.Wait }},
+		{"Pass", func(c Colors) ui.Color { return c.Pass }},
+	}
+	grounds := []tone{
+		{"BG", func(c Colors) ui.Color { return c.BG }}, {"Panel", func(c Colors) ui.Color { return c.Panel }},
+		{"Card", func(c Colors) ui.Color { return c.Card }}, {"Ticket", func(c Colors) ui.Color { return c.Ticket }},
+		{"Hover", func(c Colors) ui.Color { return c.Hover }},
+	}
+	shellText := []tone{text[0], text[1], text[3]}
 	type pair struct {
 		name   string
 		fg, bg func(Colors) ui.Color
 		min    float64
 	}
-	grounds := map[string]func(Colors) ui.Color{
-		"BG": func(c Colors) ui.Color { return c.BG }, "Panel": func(c Colors) ui.Color { return c.Panel },
-		"Card": func(c Colors) ui.Color { return c.Card },
-	}
 	var pairs []pair
-	for name, bg := range grounds {
-		pairs = append(pairs,
-			pair{"FG/" + name, func(c Colors) ui.Color { return c.FG }, bg, 4.5},
-			pair{"Muted/" + name, func(c Colors) ui.Color { return c.Muted }, bg, 4.5},
-			pair{"Accent/" + name, func(c Colors) ui.Color { return c.Accent }, bg, 4.5},
-		)
+	for _, bg := range grounds {
+		for _, fg := range text {
+			pairs = append(pairs, pair{fg.name + "/" + bg.name, fg.get, bg.get, 4.5})
+		}
 	}
-	pairs = append(pairs,
-		pair{"Neutral/BG", func(c Colors) ui.Color { return c.Neutral }, grounds["BG"], 4.5},
-		pair{"Fail/BG", func(c Colors) ui.Color { return c.Fail }, grounds["BG"], 3},
-		pair{"Wait/BG", func(c Colors) ui.Color { return c.Wait }, grounds["BG"], 3},
-		pair{"Pass/BG", func(c Colors) ui.Color { return c.Pass }, grounds["BG"], 3},
-		pair{"Accent/AccentBG", func(c Colors) ui.Color { return c.Accent }, func(c Colors) ui.Color { return c.AccentBG }, 4.5},
-		pair{"Fail/FailBG", func(c Colors) ui.Color { return c.Fail }, func(c Colors) ui.Color { return c.FailBG }, 4.5},
-		pair{"Wait/WaitBG", func(c Colors) ui.Color { return c.Wait }, func(c Colors) ui.Color { return c.WaitBG }, 4.5},
-		pair{"Pass/PassBG", func(c Colors) ui.Color { return c.Pass }, func(c Colors) ui.Color { return c.PassBG }, 4.5},
-		pair{"Neutral/NeutralBG", func(c Colors) ui.Color { return c.Neutral }, func(c Colors) ui.Color { return c.NeutralBG }, 4.5},
-		pair{"ScreenFG/Screen", func(c Colors) ui.Color { return c.ScreenFG }, func(c Colors) ui.Color { return c.Screen }, 4.5},
-		pair{"OnPrimary/Primary", func(c Colors) ui.Color { return c.OnPrimary }, func(c Colors) ui.Color { return c.Primary }, 4.5},
-		pair{"LineStrong/BG", func(c Colors) ui.Color { return c.LineStrong }, grounds["BG"], 3},
-		pair{"LineStrong/Panel", func(c Colors) ui.Color { return c.LineStrong }, grounds["Panel"], 3},
-	)
+	shell := tone{"Shell", func(c Colors) ui.Color { return c.Shell }}
+	for _, fg := range shellText {
+		pairs = append(pairs, pair{fg.name + "/Shell", fg.get, shell.get, 4.5})
+	}
+	for _, fg := range text[4:] {
+		pairs = append(pairs, pair{fg.name + "/Shell shape", fg.get, shell.get, 3})
+	}
+	chips := []struct {
+		fg, bg tone
+	}{
+		{text[3], tone{"AccentBG", func(c Colors) ui.Color { return c.AccentBG }}},
+		{text[4], tone{"FailBG", func(c Colors) ui.Color { return c.FailBG }}},
+		{text[5], tone{"WaitBG", func(c Colors) ui.Color { return c.WaitBG }}},
+		{text[6], tone{"PassBG", func(c Colors) ui.Color { return c.PassBG }}},
+		{text[2], tone{"NeutralBG", func(c Colors) ui.Color { return c.NeutralBG }}},
+		{tone{"ScreenFG", func(c Colors) ui.Color { return c.ScreenFG }}, tone{"Screen", func(c Colors) ui.Color { return c.Screen }}},
+		{tone{"OnPrimary", func(c Colors) ui.Color { return c.OnPrimary }}, tone{"Primary", func(c Colors) ui.Color { return c.Primary }}},
+	}
+	for _, p := range chips {
+		pairs = append(pairs, pair{p.fg.name + "/" + p.bg.name, p.fg.get, p.bg.get, 4.5})
+	}
+	line := tone{"LineStrong", func(c Colors) ui.Color { return c.LineStrong }}
+	for _, bg := range append(grounds[:4:4], shell) {
+		pairs = append(pairs, pair{"LineStrong/" + bg.name, line.get, bg.get, 3})
+	}
 	for _, theme := range []struct {
 		name string
 		dark bool
 	}{{"light", false}, {"dark", true}} {
 		c := ColorsFor(theme.dark)
 		for _, p := range pairs {
-			if got := wcagRatio(p.fg(c), p.bg(c)); got < p.min {
+			got := wcagRatio(p.fg(c), p.bg(c))
+			t.Logf("%s %s: %.2f", theme.name, p.name, got)
+			if got < p.min {
 				t.Errorf("%s %s: WCAG 2 contrast %.2f, want at least %.1f", theme.name, p.name, got, p.min)
 			}
 		}
