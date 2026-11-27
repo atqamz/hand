@@ -125,4 +125,33 @@ const (
 )
 
 func MenuRoom(window float32, anchor ui.Rect) float32 { return menuRoom(window, anchor) }
-func (a *App) OpenBoardLink(dest string)              { a.openBoardLink(dest) }
+
+type ShortcutRow struct {
+	Group, Does string
+	Caps        [][]string
+	AppleCaps   [][]string
+	Keys        []ui.Key
+	Mods        []ui.Modifiers
+}
+
+func ShortcutRows() []ShortcutRow {
+	var out []ShortcutRow
+	for _, s := range shortcuts {
+		r := ShortcutRow{Group: s.Group, Does: s.Does, Caps: s.caps(false), AppleCaps: s.caps(true)}
+		for _, ch := range s.Chords {
+			r.Keys, r.Mods = append(r.Keys, ch.Key), append(r.Mods, ch.Mods)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func DocStepTip() string { return docStepTip() }
+
+func SendHint(apple bool) string { return keySend.label(apple) }
+
+type Chord = chord
+
+func LabelOf(apple bool, chords ...chord) string { return shortcut{Chords: chords}.label(apple) }
+
+func (a *App) OpenBoardLink(dest string) { a.openBoardLink(dest) }
