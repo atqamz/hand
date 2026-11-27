@@ -3,6 +3,7 @@ package webhost
 import (
 	"errors"
 	"fmt"
+	"html"
 	"net/url"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 type Session interface {
@@ -19,12 +21,14 @@ type Session interface {
 type View interface {
 	Native() ui.NativeWebView
 	Load(url string)
+	LoadHTML(page, base string)
 	WillNavigate(allow func(url string) bool)
 	WillDownload(allow func(url string) bool)
 	WillOpenWindow(allow func(url string) bool)
 	WillUsePermission(allow func(origin string) bool)
 	OnlyOrigin(origin string) error
 	OnGone(fn func())
+	OnFailed(fn func())
 	Destroy()
 }
 
@@ -73,7 +77,8 @@ func (h *Host) Open(f desktop.DocFrame) (desktop.WebHandle, error) {
 	if err != nil {
 		return desktop.WebHandle{}, err
 	}
-	v.WillNavigate(func(to string) bool { return to == f.URL })
+	video := f.Kind == "video"
+	v.WillNavigate(func(to string) bool { return !video && to == f.URL })
 	v.WillDownload(func(string) bool { return false })
 	v.WillOpenWindow(func(string) bool { return false })
 	v.WillUsePermission(func(string) bool { return false })
@@ -81,8 +86,19 @@ func (h *Host) Open(f desktop.DocFrame) (desktop.WebHandle, error) {
 		v.Destroy()
 		return desktop.WebHandle{}, fmt.Errorf("%w: %w", desktop.ErrWebUnconfined, err)
 	}
-	v.Load(f.URL)
-	return desktop.WebHandle{View: v.Native(), Close: v.Destroy, OnGone: v.OnGone}, nil
+	if !video {
+		v.Load(f.URL)
+		return desktop.WebHandle{View: v.Native(), Close: v.Destroy, OnGone: v.OnGone}, nil
+	}
+	v.LoadHTML(VideoPage(f.URL), origin(u)+"/")
+	return desktop.WebHandle{View: v.Native(), Close: v.Destroy, OnGone: func(fn func()) { v.OnGone(fn); v.OnFailed(fn) }}, nil
+}
+
+func VideoPage(src string) string {
+	m := kit.ColorsFor(true).Screen
+	return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src 'self'; style-src 'unsafe-inline'">` +
+		fmt.Sprintf(`<style>html,body{margin:0;height:100%%;background:#%02x%02x%02x}video{width:100%%;height:100%%}</style>`, m.R, m.G, m.B) +
+		`<video controls preload="metadata" src="` + html.EscapeString(src) + `"></video>`
 }
 
 func origin(u *url.URL) string {

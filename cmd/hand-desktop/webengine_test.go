@@ -21,11 +21,20 @@ type recordedPage struct {
 	permission func(mygo.PermissionRequest) bool
 	rules      [][]*mygo.ContentRules
 	gone       func(string)
+	failed     func(*mygo.LoadError)
+	html, base []string
 	menu       func(*mygo.ContextMenuEvent)
 }
 
 func (p *recordedPage) OnContextMenu(fn func(*mygo.ContextMenuEvent)) func() {
 	p.menu = fn
+	return func() {}
+}
+
+func (p *recordedPage) LoadHTML(h, b string) { p.html, p.base = append(p.html, h), append(p.base, b) }
+
+func (p *recordedPage) OnDidFailLoad(fn func(*mygo.LoadError)) func() {
+	p.failed = fn
 	return func() {}
 }
 
@@ -305,6 +314,36 @@ func TestTheWebViewReportsAGoneRenderProcess(t *testing.T) {
 	r.page.gone("crashed")
 	if n != 1 {
 		t.Errorf("OnGone fired %d times, want once", n)
+	}
+}
+
+func TestTheWebViewLoadsAGivenPageAtABaseAddress(t *testing.T) {
+	t.Parallel()
+	r, v := newRecordedView(t)
+	v.LoadHTML("<video></video>", "http://127.0.0.1:4100/")
+	if len(r.page.loaded) != 0 || len(r.page.html) != 1 || r.page.html[0] != "<video></video>" || r.page.base[0] != "http://127.0.0.1:4100/" {
+		t.Errorf("loaded %v, html %v, base %v", r.page.loaded, r.page.html, r.page.base)
+	}
+}
+
+func TestTheWebViewReportsAFailedLoad(t *testing.T) {
+	t.Parallel()
+	r, v := newRecordedView(t)
+	var n int
+	v.OnFailed(func() { n++ })
+	r.page.failed(&mygo.LoadError{URL: "http://127.0.0.1:4100/", Code: -1})
+	if n != 1 {
+		t.Errorf("OnFailed fired %d times, want once", n)
+	}
+}
+
+func TestAMissingSignalHandlerIsNoSignalAndNeverACrash(t *testing.T) {
+	t.Parallel()
+	r, v := newRecordedView(t)
+	v.OnGone(nil)
+	v.OnFailed(nil)
+	if r.page.gone != nil || r.page.failed != nil {
+		t.Error("a nil handler was registered")
 	}
 }
 

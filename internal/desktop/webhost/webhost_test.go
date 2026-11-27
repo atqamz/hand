@@ -3,13 +3,17 @@ package webhost_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 	"github.com/atqamz/hand/internal/desktop/webhost"
 )
 
@@ -28,6 +32,9 @@ func (s *fakeSession) SetCookie(name, value, domain string) error {
 type fakeView struct {
 	session   *fakeSession
 	loaded    []string
+	pages     []string
+	bases     []string
+	failed    func()
 	navigate  func(string) bool
 	download  func(string) bool
 	window    func(string) bool
@@ -39,8 +46,13 @@ type fakeView struct {
 	destroyed int
 }
 
-func (v *fakeView) Native() ui.NativeWebView                  { return nil }
-func (v *fakeView) Load(u string)                             { v.loaded = append(v.loaded, u); v.order = append(v.order, "load") }
+func (v *fakeView) Native() ui.NativeWebView { return nil }
+func (v *fakeView) Load(u string)            { v.loaded = append(v.loaded, u); v.order = append(v.order, "load") }
+func (v *fakeView) LoadHTML(page, base string) {
+	v.pages, v.bases = append(v.pages, page), append(v.bases, base)
+	v.order = append(v.order, "html")
+}
+func (v *fakeView) OnFailed(fn func())                        { v.failed = fn }
 func (v *fakeView) WillNavigate(allow func(string) bool)      { v.navigate = allow }
 func (v *fakeView) WillDownload(allow func(string) bool)      { v.download = allow }
 func (v *fakeView) WillOpenWindow(allow func(string) bool)    { v.window = allow }
@@ -354,5 +366,176 @@ func TestTheRulesEscapeAnIPv6Origin(t *testing.T) {
 	rules := webhost.OriginRules("http://[::1]:4100")
 	if blocked(t, rules, "http://[::1]:4100/x") || !blocked(t, rules, "http://[::2]:4100/x") || !blocked(t, rules, "http://[::1]:4101/x") {
 		t.Fatal("the IPv6 origin is not matched exactly")
+	}
+}
+
+func videoFrame(url string) desktop.DocFrame {
+	f := frame("local", "127.0.0.1", "t")
+	f.Kind, f.URL = "video", url
+	return f
+}
+
+const hostileName = `a"onerror="x()<b>&amp;javascript:alert(1)'.mp4`
+
+func TestAVideoLoadsOnlyAPageTheWindowWroteAndNeverTheFileAsADocument(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	f := videoFrame("http://127.0.0.1:4100/f0/api/v1/doc/reports/clip.mp4?raw")
+	if _, err := h.Open(f); err != nil {
+		t.Fatal(err)
+	}
+	v := e.views[0]
+	if len(v.loaded) != 0 {
+		t.Fatalf("the file was loaded as a document: %v", v.loaded)
+	}
+	if len(v.pages) != 1 || len(v.bases) != 1 || v.bases[0] != "http://127.0.0.1:4100/" {
+		t.Fatalf("pages = %d, bases = %v", len(v.pages), v.bases)
+	}
+	if want := []string{"origin", "html"}; len(v.order) != 2 || v.order[0] != want[0] || v.order[1] != want[1] {
+		t.Fatalf("order = %v, want the origin set before the page loads", v.order)
+	}
+	want := `<video controls preload="metadata" src="` + f.URL + `"></video>`
+	if !strings.HasSuffix(v.pages[0], want) {
+		t.Fatalf("page = %q, want it to end with %q", v.pages[0], want)
+	}
+	if strings.Contains(v.pages[0], "autoplay") || strings.Contains(v.pages[0], "<script") {
+		t.Fatalf("page has autoplay or a script: %q", v.pages[0])
+	}
+}
+
+func TestAVideoPageAllowsOnlyMediaFromItsOwnOriginUnderACSP(t *testing.T) {
+	page := webhost.VideoPage("http://127.0.0.1:4100/f0/api/v1/doc/a.mp4?raw")
+	m := regexp.MustCompile(`<meta http-equiv="Content-Security-Policy" content="([^"]*)">`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatalf("no Content-Security-Policy meta: %q", page)
+	}
+	if m[1] != "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'" {
+		t.Fatalf("policy = %q", m[1])
+	}
+	if strings.Index(page, "Content-Security-Policy") > strings.Index(page, "<video") || strings.Index(page, "Content-Security-Policy") > strings.Index(page, "<style") {
+		t.Fatal("the policy comes after content it must cover")
+	}
+	matte := kit.ColorsFor(true).Screen
+	if want := fmt.Sprintf("background:#%02x%02x%02x", matte.R, matte.G, matte.B); !strings.Contains(page, want) || strings.Count(page, "#") != 1 {
+		t.Fatalf("the page must use the kit's Screen colour (%s) and no other: %q", want, page)
+	}
+	if n := strings.Count(page, "<"); n != 6 {
+		t.Fatalf("tag openers = %d, want doctype, meta, style and video only: %q", n, page)
+	}
+}
+
+func TestAVideoNameWithMarkupStaysInsideTheSrcAttribute(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	f := videoFrame("http://127.0.0.1:4100/f0/api/v1/doc/" + hostileName + "?raw")
+	if _, err := h.Open(f); err != nil {
+		t.Fatal(err)
+	}
+	page := e.views[0].pages[0]
+	i := strings.Index(page, `<video controls preload="metadata" src="`)
+	if i < 0 {
+		t.Fatalf("no video element: %q", page)
+	}
+	rest := page[i+len(`<video controls preload="metadata" src="`):]
+	end := strings.Index(rest, `"`)
+	if end < 0 || rest[end:] != `"></video>` {
+		t.Fatalf("the attribute does not end where the page does: %q", rest)
+	}
+	if got := html.UnescapeString(rest[:end]); got != f.URL {
+		t.Fatalf("src = %q, want %q", got, f.URL)
+	}
+	if strings.ContainsAny(rest[:end], `"<>'`) || strings.Contains(rest[:end], "&amp;amp;amp;") {
+		t.Fatalf("src is not escaped: %q", rest[:end])
+	}
+	if strings.Count(page, "<") != 6 {
+		t.Fatalf("the name added a tag: %q", page)
+	}
+}
+
+func TestAVideoWithAJavascriptNameIsStillOnlyTheHTTPAddress(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	if _, err := h.Open(videoFrame("javascript:alert(1)")); err == nil {
+		t.Fatal("opened a javascript: address")
+	}
+	if len(e.views) != 0 {
+		t.Fatal("a view was made")
+	}
+	if _, err := h.Open(videoFrame("http://127.0.0.1:4100/f0/api/v1/doc/javascript:alert(1).mp4?raw")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(e.views[0].pages[0], `src="http://127.0.0.1:4100/f0/`) {
+		t.Fatalf("page = %q", e.views[0].pages[0])
+	}
+}
+
+func TestAVideoViewNavigatesNowhereDownloadsNothingAndOpensNoWindow(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	f := videoFrame("http://127.0.0.1:4100/f0/api/v1/doc/reports/clip.mp4?raw")
+	if _, err := h.Open(f); err != nil {
+		t.Fatal(err)
+	}
+	v := e.views[0]
+	for _, to := range []string{f.URL, "http://127.0.0.1:4100/", "http://127.0.0.1:4100/f0/api/v1/status", "https://example.com/", "about:blank", "javascript:alert(1)", ""} {
+		if v.navigate(to) {
+			t.Errorf("navigation to %q is allowed", to)
+		}
+	}
+	if v.download(f.URL) || v.download("http://127.0.0.1:4100/x") {
+		t.Error("a download is allowed")
+	}
+	if v.window(f.URL) || v.window("https://example.com/") {
+		t.Error("a new window is allowed")
+	}
+	if v.permit("http://127.0.0.1:4100") || v.permit("") {
+		t.Error("a permission is granted")
+	}
+}
+
+func TestAVideoViewIsConfinedBeforeThePageLoadsAndNeverLoadsWhenItCannotBe(t *testing.T) {
+	e := &fakeEngine{originErr: errors.New("content rules are not available")}
+	h := &webhost.Host{Engine: e}
+	handle, err := h.Open(videoFrame("http://127.0.0.1:4100/f0/api/v1/doc/a.mp4?raw"))
+	if !errors.Is(err, desktop.ErrWebUnconfined) {
+		t.Fatalf("err = %v", err)
+	}
+	v := e.views[0]
+	if handle.View != nil || handle.Close != nil || len(v.pages) != 0 || len(v.loaded) != 0 || v.destroyed != 1 {
+		t.Fatalf("handle = %+v, pages = %d, loaded = %d, destroyed = %d", handle, len(v.pages), len(v.loaded), v.destroyed)
+	}
+}
+
+func TestAVideoReportsALoadFailureAndAGoneProcessThroughOneHook(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	handle, err := h.Open(videoFrame("http://127.0.0.1:4100/f0/api/v1/doc/a.mp4?raw"))
+	if err != nil || handle.OnGone == nil {
+		t.Fatalf("err = %v", err)
+	}
+	called := 0
+	handle.OnGone(func() { called++ })
+	v := e.views[0]
+	if v.gone == nil || v.failed == nil {
+		t.Fatal("a signal is not wired")
+	}
+	v.gone()
+	v.failed()
+	if called != 2 {
+		t.Fatalf("called = %d, want 2", called)
+	}
+}
+
+func TestADocumentViewDoesNotWatchLoadFailuresAndKeepsItsOwnPolicy(t *testing.T) {
+	e := &fakeEngine{}
+	h := &webhost.Host{Engine: e}
+	handle, err := h.Open(frame("local", "127.0.0.1", "t"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle.OnGone(func() {})
+	v := e.views[0]
+	if v.failed != nil || len(v.pages) != 0 {
+		t.Fatalf("a document view got the video path: failed set = %v, pages = %d", v.failed != nil, len(v.pages))
 	}
 }
