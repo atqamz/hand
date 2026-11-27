@@ -460,8 +460,7 @@ fun TaskScreen(
   onBack: () -> Unit,
   onRetry: () -> Unit,
   onMarkRead: (String) -> Unit,
-  onTarget: (ThreadTarget) -> Unit,
-  onWeb: () -> Unit
+  onTarget: (ThreadTarget) -> Unit
 ) {
   val hand = LocalHand.current
   Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -472,8 +471,6 @@ fun TaskScreen(
     ) {
       IconButton(onBack) { Icon(HandIcons.Back, "Back", Modifier.size(20.dp)) }
       Text(ref, color = hand.muted, style = type.titleMedium)
-      Spacer(Modifier.weight(1f))
-      Menu(listOf("Open web Board" to onWeb))
     }
     HorizontalDivider(color = hand.line)
     Box(Modifier.weight(1f)) {

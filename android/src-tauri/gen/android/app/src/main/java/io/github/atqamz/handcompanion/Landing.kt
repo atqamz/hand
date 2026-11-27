@@ -4,6 +4,8 @@ const val PAIRING_PENDING = "Finish or dismiss the current pairing first"
 private const val OPEN_REFUSED = "This is not a link Hand can open."
 const val PHONE_LINK = "hand:phone"
 
+fun notShown(what: String) = "This app does not show $what."
+
 sealed interface Landing {
   data class Pairing(val link: String) : Landing
 
@@ -13,7 +15,7 @@ sealed interface Landing {
 
   data class Thread(val fleet: String, val refs: List<String>) : Landing
 
-  data class Web(val fleet: String, val path: String) : Landing
+  data class Unshown(val fleet: String, val what: String) : Landing
 
   data class Refused(val message: String) : Landing
 
@@ -42,6 +44,6 @@ fun landing(link: String, open: (String) -> String?): Landing {
       Landing.Thread(fleet, listOf(task) + listOfNotNull(report.takeIf(String::isNotEmpty)))
     }
     page.startsWith("attempt/") -> Landing.Thread(fleet, listOf(page.removePrefix("attempt/")))
-    else -> Landing.Web(fleet, path)
+    else -> Landing.Unshown(fleet, "the page \"${page.substringBefore('#')}\"")
   }
 }

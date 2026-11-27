@@ -53,7 +53,7 @@ class HandActivityWiringTest {
 
   @Test
   fun aThreadLinkStacksItsRefsThroughTheTaskStack() {
-    val thread = activity.substringAfter("is Landing.Thread ->").substringBefore("is Landing.Web")
+    val thread = activity.substringAfter("is Landing.Thread ->").substringBefore("is Landing.Unshown")
     assertTrue(thread.contains("threads = to.stack()"))
   }
 

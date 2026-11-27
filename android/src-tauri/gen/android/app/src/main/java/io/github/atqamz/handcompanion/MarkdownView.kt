@@ -281,7 +281,7 @@ private fun AnnotatedString.Builder.inlines(
           inlines(span.children, hand, fleet, onTarget)
         }
       is MdLink ->
-        link(ThreadTarget.Browser(span.url), span.url, linkStyles(hand), onTarget) {
+        link(externalTarget(span.url), span.url, linkStyles(hand), onTarget) {
           withStyle(SpanStyle(color = hand.ink(Tone.Accent))) {
             inlines(span.children, hand, fleet, onTarget)
           }

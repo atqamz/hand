@@ -61,7 +61,7 @@ class ReportScreenTest {
   private fun shot(dark: Boolean, shown: ReportState) =
     paparazzi.snapshot {
       HandTheme(dark) {
-        ReportScreen(FLEET, "r91", shown, {}, {}, {}, {}, {})
+        ReportScreen(FLEET, "r91", shown, {}, {}, {}, {})
       }
     }
 

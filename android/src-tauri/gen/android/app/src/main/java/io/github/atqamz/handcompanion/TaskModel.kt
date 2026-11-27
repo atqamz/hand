@@ -247,8 +247,17 @@ private val DRIVE = Regex("^[A-Za-z]:[\\\\/]")
 fun deliverableTarget(deliverable: TaskDeliverable): ThreadTarget =
   when (deliverable.kind) {
     "file" -> hrefPath(deliverable.href)?.let(::docTarget) ?: ThreadTarget.None
-    else -> if (deliverable.ref.isEmpty()) ThreadTarget.None else ThreadTarget.Browser(deliverable.ref)
+    else -> externalTarget(deliverable.ref)
   }
+
+private val EXTERNAL = setOf("http", "https", "mailto", "tel")
+
+fun externalTarget(url: String): ThreadTarget {
+  val uri = try { java.net.URI(url) } catch (_: java.net.URISyntaxException) { return ThreadTarget.None }
+  val host = uri.host?.lowercase().orEmpty()
+  val board = host == "localhost" || host.startsWith("127.") || host == "[::1]"
+  return if (uri.scheme?.lowercase() in EXTERNAL && !board) ThreadTarget.Browser(url) else ThreadTarget.None
+}
 
 fun pushTask(path: String, ref: String) = if (path.isEmpty()) ref else "$path\n$ref"
 

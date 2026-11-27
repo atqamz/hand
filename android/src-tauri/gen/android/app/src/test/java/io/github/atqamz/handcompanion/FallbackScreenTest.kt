@@ -121,13 +121,13 @@ class FallbackScreenTest {
   @Test
   fun fleetMenuLight() =
     shot(false) {
-      Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, chat = { Loading() }) {} }
+      Over(fleetMenu({}, {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, chat = { Loading() }) {} }
     }
 
   @Test
   fun fleetMenuDark() =
     shot(true) {
-      Over(listOf("Open web Board" to {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, chat = { Loading() }) {} }
+      Over(fleetMenu({}, {})) { FleetScreen("f000000000003", fleet, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, chat = { Loading() }) {} }
     }
 
   @Test fun listMenuLight() = shot(false) { Over(listOf("This Companion" to {})) { fleets(connected) } }

@@ -23,14 +23,12 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -403,8 +401,7 @@ class HandActivity : ComponentActivity() {
     fleet: String,
     ref: String,
     onBack: () -> Unit,
-    onTarget: (ThreadTarget) -> Unit,
-    onWeb: () -> Unit
+    onTarget: (ThreadTarget) -> Unit
   ) {
     val model = remember(fleet, ref) { attemptModel(fleet, ref) }
     val state by model.state.collectAsStateWithLifecycle()
@@ -419,8 +416,7 @@ class HandActivity : ComponentActivity() {
       onBack,
       model::retry,
       model::markRead,
-      onTarget,
-      onWeb
+      onTarget
     )
   }
 
@@ -429,8 +425,7 @@ class HandActivity : ComponentActivity() {
     fleet: String,
     ref: String,
     onBack: () -> Unit,
-    onTarget: (ThreadTarget) -> Unit,
-    onWeb: (String) -> Unit
+    onTarget: (ThreadTarget) -> Unit
   ) {
     val model = remember(fleet, ref) { reportModel(fleet, ref) }
     val state by model.state.collectAsStateWithLifecycle()
@@ -445,10 +440,7 @@ class HandActivity : ComponentActivity() {
       model::retry,
       model::markRead,
       onTarget
-    ) {
-      val task = state.detail?.task?.ref
-      onWeb(if (task == null) "/$fleet" else "/$fleet/task/$task#$ref")
-    }
+    )
   }
 
   @Composable
@@ -456,15 +448,14 @@ class HandActivity : ComponentActivity() {
     fleet: String,
     ref: String,
     onBack: () -> Unit,
-    onTarget: (ThreadTarget) -> Unit,
-    onWeb: () -> Unit
+    onTarget: (ThreadTarget) -> Unit
   ) {
     val model = remember(fleet, ref) { taskModel(fleet, ref) }
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) {
       lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.run() }
     }
-    TaskScreen(fleet, ref, state, onBack, model::retry, model::markRead, onTarget, onWeb)
+    TaskScreen(fleet, ref, state, onBack, model::retry, model::markRead, onTarget)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -480,9 +471,7 @@ class HandActivity : ComponentActivity() {
       HandTheme {
         var open by rememberSaveable { mutableStateOf<String?>(null) }
         var decision by rememberSaveable { mutableStateOf<String?>(null) }
-        var web by rememberSaveable { mutableStateOf<String?>(null) }
         var phone by rememberSaveable { mutableStateOf(false) }
-        var signing by rememberSaveable { mutableStateOf<String?>(null) }
         var threads by rememberSaveable { mutableStateOf("") }
         var skills by rememberSaveable { mutableStateOf<String?>(null) }
         var history by rememberSaveable { mutableStateOf<String?>(null) }
@@ -502,10 +491,9 @@ class HandActivity : ComponentActivity() {
           }
         }
         val fleet = open?.let(::fleetModel)
-        val live = fleet != null && web == null
-        LaunchedEffect(open, live) {
+        LaunchedEffect(open) {
           lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (live) fleet.run() else if (fleet == null) model.poll()
+            if (fleet != null) fleet.run() else model.poll()
           }
         }
         LaunchedEffect(incoming, pairing.busy, pairing.done) {
@@ -522,14 +510,12 @@ class HandActivity : ComponentActivity() {
             adding = false
             scanning = false
             decision = null
-            web = null
             threads = ""
             docs = ""
             skills = null
             history = null
             alerts = null
             phone = false
-            signing = null
             open = id
           }
           model.say(null)
@@ -537,23 +523,19 @@ class HandActivity : ComponentActivity() {
             is Landing.Pairing -> {
               open = null
               decision = null
-              web = null
-              threads = ""
+                threads = ""
               scanning = false
               phone = false
-              signing = null
-              adding = true
+                adding = true
               pair.offer(to.link)
             }
             Landing.Phone -> {
               open = null
               decision = null
-              web = null
-              threads = ""
+                threads = ""
               scanning = false
               adding = false
-              signing = null
-              phone = true
+                phone = true
             }
             is Landing.Decision -> {
               show(to.fleet)
@@ -564,9 +546,9 @@ class HandActivity : ComponentActivity() {
               show(to.fleet)
               threads = to.stack()
             }
-            is Landing.Web -> {
+            is Landing.Unshown -> {
               show(to.fleet)
-              web = to.path
+              refused = notShown(to.what)
             }
             is Landing.Refused -> refused = to.message
           }
@@ -611,11 +593,9 @@ class HandActivity : ComponentActivity() {
               model.ask(null)
               phone = false
             }
-            BackHandler(enabled = signing == null, onBack = leave)
-            ThisPhoneRoute(
+            BackHandler(onBack = leave)
+            ThisPhoneScreen(
               thisPhone(state, BuildConfig.VERSION_NAME),
-              signing,
-              { signing = it },
               leave,
               model::ask,
               {
@@ -624,9 +604,7 @@ class HandActivity : ComponentActivity() {
                 if (leaves) phone = false
               },
               { notificationSettings() }
-            ) { path ->
-              WebBoard(path) { signing = null }
-            }
+            )
           } else if (fleet == null) {
             val state by model.state.collectAsStateWithLifecycle()
             FleetsScreen(
@@ -663,7 +641,6 @@ class HandActivity : ComponentActivity() {
                 fleet.tick()
               }
             }
-            val page = web
             val shown = decision
             val place = currentTask(threads)
             val attemptRef = place?.takeIf { isRef(it, 'a') }
@@ -685,13 +662,7 @@ class HandActivity : ComponentActivity() {
               }
             }
             val back = { threads = popTask(threads) }
-            if (page != null) {
-              key(page) {
-                FallbackScreen(open.orEmpty(), state.name, page, { web = null }) {
-                  WebBoard(page) { web = null }
-                }
-              }
-            } else if (docPath != null) {
+            if (docPath != null) {
               val leave = { docs = popTask(docs) }
               BackHandler(onBack = leave)
               holder.SaveableStateProvider("doc:$open:$docPath") {
@@ -703,19 +674,17 @@ class HandActivity : ComponentActivity() {
             } else if (reportRef != null) {
               BackHandler(onBack = back)
               holder.SaveableStateProvider("report:$open:$reportRef") {
-                Report(open.orEmpty(), reportRef, back, target) { web = it }
+                Report(open.orEmpty(), reportRef, back, target)
               }
             } else if (attemptRef != null) {
               BackHandler(onBack = back)
               holder.SaveableStateProvider("attempt:$open:$attemptRef") {
-                Attempt(open.orEmpty(), attemptRef, back, target) {
-                  web = "/${open}/attempt/$attemptRef"
-                }
+                Attempt(open.orEmpty(), attemptRef, back, target)
               }
             } else if (thread != null) {
               BackHandler(onBack = back)
               holder.SaveableStateProvider("task:$open:$thread") {
-                Task(open.orEmpty(), thread, back, target) { web = "/${open}/task/$thread" }
+                Task(open.orEmpty(), thread, back, target)
               }
             } else if (history == open) {
               holder.SaveableStateProvider("history:$open") {
@@ -775,7 +744,7 @@ class HandActivity : ComponentActivity() {
                   },
                   fleet::toggle,
                   { threads = pushTask(threads, it) },
-                  { web = "/${open}/" },
+                  { refused = it },
                   { threads = pushTask(threads, it) },
                   fleet::showAll,
                   fleet::press,
@@ -809,9 +778,9 @@ class HandActivity : ComponentActivity() {
             }
           }
           val tabs =
-            fleet != null && web == null && decision == null && currentTask(docs) == null && currentTask(threads) == null && skills != open && history != open && alerts != open
+            fleet != null && decision == null && currentTask(docs) == null && currentTask(threads) == null && skills != open && history != open && alerts != open
           refused?.let {
-            Snack(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tabs) TABS_HEIGHT else 0.dp))
+            Refusal(it, tabs)
           }
         }
       }
