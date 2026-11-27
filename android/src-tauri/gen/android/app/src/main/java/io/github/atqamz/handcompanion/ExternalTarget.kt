@@ -22,11 +22,11 @@ private fun hostOf(rest: String): String? {
   val end = if (hostPort.startsWith("[")) hostPort.indexOf(']') + 1 else hostPort.substringBefore(':').length
   if (end == 0 && hostPort.startsWith("[")) return null
   val port = hostPort.substring(end).removePrefix(":")
-  return hostPort.substring(0, end).takeIf { port.all(Char::isDigit) && (hostPort.length == end || hostPort[end] == ':') }
+  return hostPort.substring(0, end).takeIf { port.all { it in '0'..'9' } && (hostPort.length == end || hostPort[end] == ':') }
 }
 
 private fun boardHost(host: String): Boolean {
-  if (host.isEmpty() || '%' in host || host.endsWith(".")) return true
+  if (host.isEmpty() || '%' in host || host.endsWith(".") || host.any { it.code > 127 }) return true
   val name = host.lowercase()
   if (name == "localhost" || name.endsWith(".localhost")) return true
   if (name.startsWith("[")) return boardV6(name.removeSurrounding("[", "]"))
