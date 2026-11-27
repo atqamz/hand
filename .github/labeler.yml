@@ -30,7 +30,7 @@
       - any-glob-to-all-files: ['{docs/**,skills/**,*.md}']
 'area: ci':
   - changed-files:
-      - any-glob-to-any-file: ['.github/**']
+      - any-glob-to-any-file: ['.github/**', 'internal/e2eapi/**']
 'platform: windows':
   - changed-files:
       - any-glob-to-any-file: ['**/*_windows*.go', '**/*.ps1']

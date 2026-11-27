@@ -59,6 +59,11 @@ On each OS it runs:
 - **The Board in Chromium** at 1440 and 390 px: the five regions, the project badges of two projects, the document dialog (Esc closes it and focus returns to the link, except on a page whose address holds a fragment, which is a warning), no console error and no CSP violation. The screenshots are in the artifact.
 - **Upgrade:** it installs v0.13.0 from its release (checksum checked) in a fresh home, builds a fleet with tasks, a plan and decisions (and, in two of the runs, an attempt started through a stand-in harness, and its report), and runs that release's own `hand update` to the new build: with nothing running, with the Board running, and with the Board and a watcher running. It checks the output, the two backups, the schema move, that every row is unchanged, `hand orient` and `hand doctor`, the Board on the new binary, a second `hand update` saying `up to date`, that the old binary refuses the migrated database with the newer-schema message, and the restore in [Update](../update.md#restore-a-backup). The same runs with the new build updating itself to a second build, which is what the next release's users will do. On Windows it also checks that the running executable became `hand.exe.old` and that the next `hand` run removed it. In the candidate-to-next run, `hand update` must fetch the stub sidecar of the next build and report `iroh: VERSION installed`.
 
+The same workflow also runs `[E2E (OS)] API and CLI` on the three systems: [`internal/e2eapi`](../../internal/e2eapi) is a Go test package that drives the same built `hand` in a temporary home with no browser, no Node and no new dependency. It skips unless `E2E_TMP` or `E2E_DIST` names the folder `.github/scripts/e2e-dist.sh` wrote, so `go test ./...` stays offline. The Node phases above keep running beside it.
+- **`TestInstall`:** the installer checks of the Install phase above, for each shell.
+- **`TestFirstRun`:** the CLI checks of the First run phase, then the Board through its HTTP API with a session cookie and the `X-Hand-CSRF` header: the session and the HMAC proof, the envelope, the cursor and `304`, the task, project and decision reads, an answered decision, the `/events` beat, the document routes and what they refuse, the Funnel and proxy refusals, the `hand board stop` and `hand watch stop` process checks, and the Companion round trip through the stub sidecar (code, pairing through the peer listener, a spent code, sign-out, revoke, and the sidecar stopping with the Board). The status response, a Companion's too, is held to the JSON content type, `Cache-Control: no-store`, the `default-src 'none'` policy, `X-Frame-Options` and `Referrer-Policy`.
+- **`TestUpgrade`:** the Upgrade phase above, with the Board read through `GET /<fleet id>/api/v1/tasks` and `/status`.
+
 What stays manual, and is checked by the guides in this folder:
 - a real harness: its login, its trust screens, a worker that reports, a supervisor that wakes;
 - a real phone and a real tunnel (`ssh -L`, Cloudflare): CI sends the proxy headers itself;
@@ -67,7 +72,9 @@ What stays manual, and is checked by the guides in this folder:
 - a systemd user session: CI runs the plain path, where Hand starts the board, the watcher and Luvus as detached processes;
 - a worker or supervisor session with a real model.
 
-To run a phase on your own machine you need Node 22 or newer. On Linux, macOS or Git Bash, build the artifacts and run it from the repository root:
+To run the Go suite on your own machine, build the artifacts as below, then run `E2E_TMP=/tmp/hand-e2e go test -count=1 -v ./internal/e2eapi/` (`-run TestInstall`, `TestFirstRun` or `TestUpgrade` for one of them). It needs `gh` for the upgrade, and the same `E2E_PATH` and `E2E_BOARD_ADDR` as the phases below. `hand update` of v0.13.0 restarts a Board on port 7777 whatever `E2E_BOARD_ADDR` says, so run `TestUpgrade` where 7777 is free.
+
+To run a Node phase on your own machine you need Node 22 or newer. On Linux, macOS or Git Bash, build the artifacts and run it from the repository root:
 
 ```sh
 sh .github/scripts/e2e-dist.sh /tmp/hand-e2e/dist "$(git rev-parse HEAD)"

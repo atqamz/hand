@@ -128,3 +128,52 @@ jobs:
           path: ${{ runner.temp }}/hand-e2e/logs
           retention-days: 3
           if-no-files-found: ignore
+
+  e2e-api:
+    needs: e2e-build
+    name: "[E2E (${{ matrix.label }})] API and CLI"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            label: Linux
+            os: ubuntu-latest
+          - name: macos
+            label: MacOS
+            os: macos-latest
+          - name: windows
+            label: Windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      E2E_FRESH_LUVUS: ${{ github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || inputs.ref != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.e2e-build.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Set the paths
+        shell: bash
+        run: echo "E2E_TMP=$RUNNER_TEMP/hand-e2e-api" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: e2e-dist
+          path: ${{ runner.temp }}/hand-e2e-api/dist
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/hand-e2e-api/luvus-cache
+          key: luvus-api-${{ runner.os }}-${{ hashFiles('internal/luvus/pin.go') }}
+      - name: Install the installers' way, first run, Board API and Companion pairing
+        timeout-minutes: 20
+        run: go test -count=1 -v -timeout 18m -run 'TestInstall|TestFirstRun' ./internal/e2eapi/
+      - name: Upgrade from the last release
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: go test -count=1 -v -timeout 22m -run 'TestUpgrade' ./internal/e2eapi/
