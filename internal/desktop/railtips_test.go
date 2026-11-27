@@ -120,39 +120,66 @@ func TestEveryKeyOfTheRailGroupDoesItsThing(t *testing.T) {
 		t.Fatalf("%d rows in the group, want %d", len(rows), len(railPages)+1)
 	}
 	for _, row := range rows {
-		for i, key := range row.Keys {
-			mods := row.Mods[i]
-			app := newApp(t, goldenFixture(t))
-			tt := sized(t, app, windowWidth, windowHeight, false)
-			if row.Does == "Show or hide the rail labels" {
+		for _, apple := range []bool{false, true} {
+			for _, ch := range desktop.BoundChords(row.Does, apple) {
+				mods, key := ch.Mods, ch.Key
+				app := newApp(t, goldenFixture(t))
+				app.Apple = apple
+				tt := sized(t, app, windowWidth, windowHeight, false)
+				if row.Does == "Show or hide the rail labels" {
+					tt.Key(mods, key)
+					tt.Frame()
+					if !app.RailOpen {
+						t.Errorf("%s (%v %v) did not open the labels", row.Does, mods, key)
+					}
+					tt.Key(mods, key)
+					tt.Frame()
+					if app.RailOpen {
+						t.Errorf("%s (%v %v) did not close the labels", row.Does, mods, key)
+					}
+					continue
+				}
+				want, ok := railPages[row.Does]
+				if !ok {
+					t.Fatalf("no expected page for %q", row.Does)
+				}
+				from := desktop.AlertsScreen
+				if want == from {
+					from = desktop.BoardScreen
+				}
+				app.Show(from)
+				tt.Frame()
 				tt.Key(mods, key)
 				tt.Frame()
-				if !app.RailOpen {
-					t.Errorf("%s (%v %v) did not open the labels", row.Does, mods, key)
+				if app.Screen != want {
+					t.Errorf("%s (%v %v) left %v, want %v", row.Does, mods, key, app.Screen, want)
 				}
-				tt.Key(mods, key)
-				tt.Frame()
-				if app.RailOpen {
-					t.Errorf("%s (%v %v) did not close the labels", row.Does, mods, key)
-				}
-				continue
-			}
-			want, ok := railPages[row.Does]
-			if !ok {
-				t.Fatalf("no expected page for %q", row.Does)
-			}
-			from := desktop.AlertsScreen
-			if want == from {
-				from = desktop.BoardScreen
-			}
-			app.Show(from)
-			tt.Frame()
-			tt.Key(mods, key)
-			tt.Frame()
-			if app.Screen != want {
-				t.Errorf("%s (%v %v) left %v, want %v", row.Does, mods, key, app.Screen, want)
 			}
 		}
+	}
+}
+
+func TestTheCmdTwinOfARailKeyIsBoundOnAppleOnly(t *testing.T) {
+	for _, row := range railRows() {
+		var ctrl, superOn, superOff bool
+		for _, ch := range desktop.BoundChords(row.Does, true) {
+			ctrl = ctrl || ch.Mods == ui.Ctrl
+			superOn = superOn || ch.Mods == ui.Super
+		}
+		for _, ch := range desktop.BoundChords(row.Does, false) {
+			superOff = superOff || ch.Mods&ui.Super != 0
+		}
+		if !superOn || !ctrl || superOff {
+			t.Errorf("%s: Cmd twin on Apple %v, Ctrl %v, Super off Apple %v", row.Does, superOn, ctrl, superOff)
+		}
+	}
+	app := newApp(t, goldenFixture(t))
+	app.Apple = false
+	tt := sized(t, app, windowWidth, windowHeight, false)
+	tt.Key(ui.Super, ui.Key2)
+	tt.Frame()
+	if app.Screen == desktop.TasksScreen {
+		t.Error("Super+2 opened Tasks off Apple")
 	}
 }
 
@@ -188,9 +215,10 @@ func TestTheNarrowNavSheetShowsNoKeyItCannotHonour(t *testing.T) {
 	}
 }
 
-func TestNoNavItemKeyIsALiteral(t *testing.T) {
+func TestEveryNavItemKeyReadsTheTable(t *testing.T) {
 	files, _ := filepath.Glob("*.go")
 	fset := token.NewFileSet()
+	items := 0
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
@@ -200,16 +228,45 @@ func TestNoNavItemKeyIsALiteral(t *testing.T) {
 			t.Fatal(err)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if kv, ok := n.(*ast.KeyValueExpr); ok {
-				if id, ok := kv.Key.(*ast.Ident); ok && id.Name == "Keys" {
-					if _, lit := kv.Value.(*ast.BasicLit); lit {
-						t.Errorf("%s: a literal in Keys", fset.Position(kv.Pos()))
-					}
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			if ty, ok := lit.Type.(*ast.SelectorExpr); !ok || ty.Sel.Name != "NavItem" {
+				return true
+			}
+			items++
+			for _, el := range lit.Elts {
+				kv, ok := el.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if id, ok := kv.Key.(*ast.Ident); !ok || id.Name != "Keys" {
+					continue
+				}
+				if !readsTable(kv.Value) {
+					t.Errorf("%s: Keys is not read from the table", fset.Position(kv.Pos()))
 				}
 			}
 			return true
 		})
 	}
+	if items == 0 {
+		t.Error("no NavItem literal found")
+	}
+}
+
+func readsTable(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "label" {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	return ok && strings.HasPrefix(x.Name, "key")
 }
 
 func TestScenesRailTooltip(t *testing.T) {
@@ -219,7 +276,7 @@ func TestScenesRailTooltip(t *testing.T) {
 		tt := sized(t, app, windowWidth, windowHeight, dark)
 		hoverTip(t, tt, "Tasks")
 		mustText(t, tt, "Tasks · Ctrl 2")
-		shotSized(t, tt, "139-rail-tooltip-1100x760-"+name, windowWidth, windowHeight)
+		shotSized(t, tt, "142-rail-tooltip-1100x760-"+name, windowWidth, windowHeight)
 	})
 }
 

@@ -252,19 +252,19 @@ func (a *App) pageKeys(c *ui.Context) {
 		return
 	}
 	switch {
-	case keyPageBoard.pressed(c):
+	case keyPageBoard.pressedOn(c, a.Apple):
 		a.goPage(BoardScreen)
-	case keyPageTasks.pressed(c):
+	case keyPageTasks.pressedOn(c, a.Apple):
 		a.goPage(TasksScreen)
-	case keyPageSkills.pressed(c):
+	case keyPageSkills.pressedOn(c, a.Apple):
 		a.goPage(SkillsScreen)
-	case keyPageAlerts.pressed(c):
+	case keyPageAlerts.pressedOn(c, a.Apple):
 		a.goPage(AlertsScreen)
-	case keyPageChat.pressed(c):
+	case keyPageChat.pressedOn(c, a.Apple):
 		a.goPage(HistoryScreen)
-	case keyPageCompanion.pressed(c) && !a.remoteFleet():
+	case keyPageCompanion.pressedOn(c, a.Apple) && !a.remoteFleet():
 		a.goPage(PhoneScreen)
-	case keyRailToggle.pressed(c):
+	case keyRailToggle.pressedOn(c, a.Apple):
 		a.toggleRail()
 	}
 }
