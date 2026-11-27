@@ -436,7 +436,7 @@ func TestASendInFlightKeepsTheTextBoxUntilTheAnswer(t *testing.T) {
 func TestTheDraftWaitsForItsQuietMoment(t *testing.T) {
 	dir := t.TempDir()
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Boot()
 	clock := newFakeClock()
@@ -496,7 +496,7 @@ func TestADraftIsRestoredOnlyIntoAnEmptyBox(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Boot()
 	if app.Draft != "from disk" {
@@ -527,7 +527,7 @@ func TestTheDraftNoteSaysSavedOrRestoredAndHides(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Now = func() time.Time { return time.Date(2026, 11, 1, 14, 32, 0, 0, time.UTC) }
 	app.Boot()

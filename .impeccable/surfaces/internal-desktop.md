@@ -69,7 +69,7 @@ FINISH: unreviewed and undocumented is unfinished; v1 ends with the tester scene
 
 ## Screens and scenes
 
-One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by the tests when `DESKTOP_SHOTS` names their folder:
+One screenshot per scene, 1100×760, under `docs/images/desktop/`, written by the tests; the regeneration command is in the Desktop bullet of `AGENTS.md`:
 
 | File | Scene |
 |---|---|

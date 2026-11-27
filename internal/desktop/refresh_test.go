@@ -247,7 +247,7 @@ func newBoardApp(t *testing.T, b *fakeBoard) (*desktop.App, *fakeClock) {
 		Token: func(string) (string, error) { return testToken, nil },
 		HTTP:  srv.Client(),
 	}
-	app := desktop.New(func() (desktop.ReadModel, error) { return c, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return c, nil })
 	app.DraftDir = t.TempDir()
 	clock := newFakeClock()
 	app.Clock = clock
@@ -688,7 +688,7 @@ func TestAManualRefreshClearsTheStaleNote(t *testing.T) {
 
 func TestRefreshPausesWithoutAFleet(t *testing.T) {
 	f := &fixture{}
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	clock := newFakeClock()
 	app.Clock = clock

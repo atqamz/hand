@@ -26,7 +26,7 @@ func reportAppAt(t *testing.T, body, home string) (*desktop.App, *ui.Tester) {
 	td.Reports = append([]desktop.Report(nil), td.Reports...)
 	td.Reports[0].Body = body
 	f.task[fleetID] = td
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	tt := newTester(app)

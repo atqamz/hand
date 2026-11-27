@@ -560,7 +560,7 @@ func TestAReadStartedBeforeAnActionIsDroppedWhenItLandsAfter(t *testing.T) {
 		t.Run(theme(dark), func(t *testing.T) {
 			m := phoneFixture(t)
 			inUTC(t)
-			app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+			app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 			app.DraftDir = t.TempDir()
 			app.Now = func() time.Time { return *m.clock }
 			posted := make(chan func(), 8)
@@ -617,7 +617,7 @@ func TestAnActionAnswerThatLandsAfterThePageWasLeftIsDropped(t *testing.T) {
 			m.revokeGate = make(chan struct{})
 			m.revokeEntered = make(chan struct{}, 2)
 			inUTC(t)
-			app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+			app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 			app.DraftDir = t.TempDir()
 			app.Now = func() time.Time { return *m.clock }
 			posted := make(chan func(), 8)
@@ -763,7 +763,7 @@ func TestAPlainHTTPAddressCarriesItsWarning(t *testing.T) {
 func TestTheCompanionRailItemOpensThePhonePage(t *testing.T) {
 	m := phoneFixture(t)
 	inUTC(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 	app.DraftDir = t.TempDir()
 	app.Now = func() time.Time { return *m.clock }
 	app.Boot()

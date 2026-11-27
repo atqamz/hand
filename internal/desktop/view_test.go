@@ -22,6 +22,14 @@ const (
 	windowHeight = 760
 )
 
+var sceneNow = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+
+func newDesktop(connect func() (desktop.ReadModel, error)) *desktop.App {
+	app := desktop.New(connect)
+	app.Now = func() time.Time { return sceneNow }
+	return app
+}
+
 func newTester(app *desktop.App) *ui.Tester {
 	return ui.NewTester(app.View, windowWidth, windowHeight)
 }
@@ -523,7 +531,7 @@ func TestTheComposerIsDisabledWhileSending(t *testing.T) {
 func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 	dir := t.TempDir()
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
@@ -543,7 +551,7 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 		t.Fatalf("the draft did not come back: %q", app.Draft)
 	}
 
-	again := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	again := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	again.DraftDir = dir
 	again.Boot()
 	if again.Draft != "half a message" {
@@ -559,7 +567,7 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 func TestSendingClearsTheStoredDraft(t *testing.T) {
 	dir := t.TempDir()
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
@@ -615,7 +623,7 @@ func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
@@ -640,7 +648,7 @@ func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
@@ -707,7 +715,7 @@ func TestASaveFailureIsRestoredBeforeItsReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = blocked
 	app.Boot()
 	posted := make(chan func(), 64)
@@ -731,7 +739,7 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = blocked
 	app.Boot()
 	tt := newTester(app)
@@ -758,7 +766,7 @@ func TestAFailureSupersededByASaveIsForgotten(t *testing.T) {
 func TestASendKeepsANewerDraft(t *testing.T) {
 	dir := t.TempDir()
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = dir
 	app.Boot()
 	tt := newTester(app)
@@ -1345,7 +1353,7 @@ func TestFrameIsNotBlank(t *testing.T) {
 }
 
 func TestBootWithoutABoard(t *testing.T) {
-	app := desktop.New(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
+	app := newDesktop(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
 	app.Boot()
 	tt := newTester(app)
 	mustText(t, tt, "The board could not be read", "no board is running; start it with `hand open` in a fleet")
@@ -1385,7 +1393,7 @@ func countNode(t *testing.T, tt *ui.Tester, want string) int {
 func TestEachFleetGetsItsOwnNameLookup(t *testing.T) {
 	f := goldenFixture(t)
 	f.stall = fleetID
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.NameTimeout = 40 * time.Millisecond
 	app.Boot()
 	app.OpenFleet("second")
@@ -1397,7 +1405,7 @@ func TestEachFleetGetsItsOwnNameLookup(t *testing.T) {
 func TestRetryDoesNotBlockTheWindow(t *testing.T) {
 	first := true
 	block := make(chan struct{})
-	app := desktop.New(func() (desktop.ReadModel, error) {
+	app := newDesktop(func() (desktop.ReadModel, error) {
 		if first {
 			first = false
 			return nil, desktop.ErrNoBoard
@@ -1447,7 +1455,7 @@ func TestRefreshDiscoversAgainAndKeepsTheScreen(t *testing.T) {
 	second := goldenFixture(t)
 	second.fleets = append(second.fleets, desktop.Fleet{ID: "f00000000e0ac", Name: "third"})
 	calls := 0
-	app := desktop.New(func() (desktop.ReadModel, error) {
+	app := newDesktop(func() (desktop.ReadModel, error) {
 		calls++
 		if calls == 1 {
 			return first, nil
@@ -1587,7 +1595,7 @@ func TestDecisionOptionsAreShownOnce(t *testing.T) {
 func TestARefreshErrorSurvivesAStaleLoad(t *testing.T) {
 	f := goldenFixture(t)
 	first := true
-	app := desktop.New(func() (desktop.ReadModel, error) {
+	app := newDesktop(func() (desktop.ReadModel, error) {
 		if first {
 			first = false
 			return f, nil
@@ -1626,7 +1634,7 @@ func TestARefreshErrorSurvivesAStaleLoad(t *testing.T) {
 
 func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.Boot()
 	f.stall, f.stallOnce = fleetID, true
 	f.nameIn = make(chan struct{}, 1)

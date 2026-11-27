@@ -725,6 +725,149 @@ class FleetsModelTest {
     assertEquals(2, model.state.value.hosts.size)
   }
 
+  private fun leavingStore(
+    signed: MutableList<String>,
+    answer: (String) -> SignOutResult = { SignOutResult.Done },
+    dropped: MutableList<Set<String>> = mutableListOf()
+  ): FleetsModel {
+    var held = twoHosts
+    return FleetsModel(
+      Host { fleet, _ -> answers(fleet) },
+      { held },
+      signer = {
+        signed += it
+        val result = answer(it)
+        if (result == SignOutResult.Done) {
+          held = phone(*held.hosts.filter { host -> host.endpoint != it }.toTypedArray())
+        }
+        result
+      },
+      dropped = { dropped += it }
+    )
+  }
+
+  @Test
+  fun signingOutOneHostSignsOutThatHostOnlyAndDropsThePhoneStateOfItsFleets() {
+    val signed = mutableListOf<String>()
+    val dropped = mutableListOf<Set<String>>()
+    val model = leavingStore(signed, dropped = dropped)
+    runBlocking { model.refresh() }
+    model.alerts(true)
+    model.ask(Forgetting(VPS, "vps-berlin", 1))
+    val done = runBlocking { model.signOut(Forgetting(VPS, "vps-berlin", 1)) }
+    assertTrue(done)
+    assertEquals(listOf(VPS), signed)
+    assertEquals(listOf(setOf(THREE)), dropped)
+    assertNull(model.state.value.asking)
+    assertNull(model.state.value.failure)
+    assertFalse(model.state.value.signing)
+    assertEquals(listOf("atqa-laptop"), model.state.value.hosts.map { it.name })
+    assertTrue(model.state.value.alertsOff)
+  }
+
+  @Test
+  fun signingOutEverythingGoesHostByHostAndEmptiesTheList() {
+    val signed = mutableListOf<String>()
+    val model = leavingStore(signed)
+    runBlocking { model.refresh() }
+    model.alerts(true)
+    assertTrue(runBlocking { model.signOut(Forgetting(null, null, 3)) })
+    assertEquals(listOf(LAPTOP, VPS), signed)
+    assertTrue(model.state.value.hosts.isEmpty())
+    assertFalse(model.state.value.alertsOff)
+  }
+
+  @Test
+  fun aHostThatDoesNotAnswerKeepsTheQuestionAndTheHostAndNamesTheFleet() {
+    val signed = mutableListOf<String>()
+    val dropped = mutableListOf<Set<String>>()
+    val model =
+      leavingStore(
+        signed,
+        { SignOutResult.Failed(listOf(SignOutMiss(THREE, "orchard", "unreachable"))) },
+        dropped
+      )
+    runBlocking { model.refresh() }
+    model.ask(Forgetting(VPS, "vps-berlin", 1))
+    assertFalse(runBlocking { model.signOut(Forgetting(VPS, "vps-berlin", 1)) })
+    assertEquals(Forgetting(VPS, "vps-berlin", 1), model.state.value.asking)
+    assertEquals(
+      SignOutFailure(
+        "vps-berlin did not answer for orchard. This Companion is still paired there. " +
+          "Try again, or Forget only and revoke it from the host's Companion page.",
+        true
+      ),
+      model.state.value.failure
+    )
+    assertEquals(2, model.state.value.hosts.size)
+    assertEquals(listOf(emptySet<String>()), dropped)
+    assertNull(model.state.value.notice)
+    assertFalse(model.state.value.signing)
+  }
+
+  @Test
+  fun aFailureInTheSecondHostStillDropsTheFleetsOfTheFirstWhichIsGone() {
+    val signed = mutableListOf<String>()
+    val dropped = mutableListOf<Set<String>>()
+    val model =
+      leavingStore(
+        signed,
+        { if (it == VPS) SignOutResult.Failed(listOf(SignOutMiss(THREE, "orchard", "unreachable"))) else SignOutResult.Done },
+        dropped
+      )
+    runBlocking { model.refresh() }
+    assertFalse(runBlocking { model.signOut(Forgetting(null, null, 3)) })
+    assertEquals(listOf(LAPTOP, VPS), signed)
+    assertEquals(Forgetting(VPS, "vps-berlin", 1), model.state.value.asking)
+    assertEquals(listOf(setOf(ONE, TWO)), dropped)
+    assertEquals(listOf("vps-berlin"), model.state.value.hosts.map { it.name })
+  }
+
+  @Test
+  fun anOldHostAndAReplacedKeyAndAStoreThatWillNotClearEachGetTheirOwnSentence() {
+    val old = SignOutResult.Failed(listOf(SignOutMiss(THREE, "orchard", "too_old")))
+    assertEquals(SignOutFailure(SIGN_OUT_TOO_OLD, false), signOutFailure("vps-berlin", old))
+    val replaced = SignOutResult.Failed(listOf(SignOutMiss(THREE, "orchard", "not_recognised")))
+    assertEquals(
+      SignOutFailure(
+        "vps-berlin no longer recognises this Companion. Forget only, then revoke it on the host.",
+        false
+      ),
+      signOutFailure("vps-berlin", replaced)
+    )
+    assertEquals(SignOutFailure(FORGET_FAILED, true), signOutFailure("vps-berlin", SignOutResult.NotCleared))
+    val mixed =
+      SignOutResult.Failed(
+        listOf(SignOutMiss(ONE, "atlas", "too_old"), SignOutMiss(TWO, "", "unreachable"))
+      )
+    assertTrue(signOutFailure("vps-berlin", mixed).sentence.startsWith("vps-berlin did not answer for $TWO."))
+  }
+
+  @Test
+  fun theCoresAnswerIsReadAndAnythingElseIsAStoreThatWillNotClear() {
+    assertEquals(SignOutResult.Done, signOutResult("""{"outcome":"done"}"""))
+    assertEquals(SignOutResult.NotCleared, signOutResult("""{"outcome":"not_cleared"}"""))
+    assertEquals(SignOutResult.NotCleared, signOutResult(null))
+    assertEquals(SignOutResult.NotCleared, signOutResult("not json"))
+    assertEquals(
+      SignOutResult.Failed(
+        listOf(SignOutMiss("f1", "atlas", "unreachable"), SignOutMiss("f2", "", "too_old"))
+      ),
+      signOutResult(
+        """{"outcome":"failed","fleets":[{"id":"f1","name":"atlas","reason":"unreachable"},{"id":"f2","reason":"too_old"},{"name":"x"}]}"""
+      )
+    )
+  }
+
+  @Test
+  fun aSignOutWithNoQuestionDoesNothing() {
+    val signed = mutableListOf<String>()
+    val model = leavingStore(signed)
+    runBlocking { model.refresh() }
+    model.signOut()
+    assertTrue(signed.isEmpty())
+  }
+
   @Test
   fun confirmingForgetsWhatTheQuestionNamedAndAnEmptyQuestionForgetsNothing() {
     val forgotten = mutableListOf<String>()

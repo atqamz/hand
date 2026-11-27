@@ -64,7 +64,7 @@ func (s *startSpy) waitStarts(t *testing.T, want int) {
 
 func startApp(t *testing.T, connect func() (desktop.ReadModel, error), start func(context.Context, string) (string, error)) *desktop.App {
 	t.Helper()
-	app := desktop.New(connect)
+	app := newDesktop(connect)
 	app.DraftDir = t.TempDir()
 	app.Start = start
 	app.Boot()
@@ -182,7 +182,7 @@ func TestStartingBoardDoesNotBlockTheWindow(t *testing.T) {
 func TestClosingTheWindowDoesNotCancelTheStart(t *testing.T) {
 	release := make(chan struct{})
 	started, done := make(chan struct{}), make(chan error, 1)
-	app := desktop.New(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
+	app := newDesktop(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
 	app.DraftDir = t.TempDir()
 	app.Start = func(ctx context.Context, _ string) (string, error) {
 		close(started)

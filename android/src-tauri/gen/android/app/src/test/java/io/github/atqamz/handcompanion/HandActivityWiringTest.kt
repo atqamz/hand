@@ -35,6 +35,28 @@ class HandActivityWiringTest {
   }
 
   @Test
+  fun theThisPhoneScreenHandsEachCallbackToTheDialogUnderItsOwnName() {
+    val screen = File("$sources/ThisPhoneScreen.kt").readText()
+    val call = screen.substringAfter("phone.asking?.let {").substringBefore("\n}\n")
+    for (line in listOf("onSignOut = onSignOut,", "onForget = onForget,", "onCancel = { onAsk(null) }")) {
+      assertTrue(line, call.lines().any { it.trim() == line })
+    }
+    val dialog = body(screen, "internal fun SignOutDialog(")
+    assertTrue(dialog.contains("signOutContent(asking, failure, signing, onSignOut = onSignOut, onForget = onForget, onCancel = onCancel)"))
+    assertTrue(dialog.contains("onDismissRequest = { if (!signing) onCancel() },"))
+    assertTrue(dialog.contains("confirmButton = content.confirm,"))
+    assertTrue(dialog.contains("dismissButton = content.dismiss"))
+  }
+
+  @Test
+  fun aStoreThatWillNotClearAfterASignOutChecksTheAlertsLikeAFailedForget() {
+    val effect = activity.substringAfter("LaunchedEffect(listed.notice, listed.failure)").substringBefore("var refused")
+    assertTrue(effect.contains("listed.notice == FORGET_FAILED"))
+    assertTrue(effect.contains("listed.failure?.sentence == FORGET_FAILED"))
+    assertTrue(effect.contains("checkAlerts()"))
+  }
+
+  @Test
   fun aNewIntentFromTheBackgroundIsTakenLikeTheFirstOne() {
     assertTrue(body(activity, "override fun onNewIntent").contains("take(intent)"))
   }

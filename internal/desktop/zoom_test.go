@@ -21,7 +21,7 @@ func drawnZoom(requested float32, width int) float32 {
 func booted(t *testing.T, drafts string) *desktop.App {
 	t.Helper()
 	f := goldenFixture(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = drafts
 	app.Boot()
 	if app.Err != "" {
@@ -242,7 +242,7 @@ func TestANarrowWindowLowersTheDrawnZoom(t *testing.T) {
 	}
 }
 
-func TestAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
+func TestScenesAZoomedWindowKeepsTheBoardsLayout(t *testing.T) {
 	for _, tc := range []struct {
 		zoom  float32
 		scene int

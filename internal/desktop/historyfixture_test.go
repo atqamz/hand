@@ -149,7 +149,7 @@ func newHistModel(f *fixture) *histModel {
 func historyApp(t *testing.T, m *histModel) *desktop.App {
 	t.Helper()
 	inUTC(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	app.Show(desktop.HistoryScreen)

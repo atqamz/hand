@@ -532,7 +532,7 @@ func drain(posted <-chan func()) {
 func slowDocApp(t *testing.T, gate string) (*desktop.App, *slowDoc, chan func()) {
 	t.Helper()
 	model := &slowDoc{ReadModel: docFixture(t), gate: gate, entered: make(chan struct{}, 1), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	posted := make(chan func(), 8)
@@ -795,7 +795,7 @@ func (s *slowReport) Report(ctx context.Context, fleet, ref string) (desktop.Rep
 
 func TestAReportReadStartedBeforeADocumentDoesNotReplaceIt(t *testing.T) {
 	model := &slowReport{ReadModel: docFixture(t), entered: make(chan struct{}, 1), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	posted := make(chan func(), 8)
@@ -905,7 +905,7 @@ func (s *slowWindow) DocWindow(ctx context.Context, fleet, path string, from int
 
 func TestARetryOvertakesASlowWindow(t *testing.T) {
 	model := &slowWindow{ReadModel: docFixture(t), entered: make(chan struct{}, 1), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	posted := make(chan func(), 16)

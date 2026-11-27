@@ -169,7 +169,7 @@ func TestOpenLinkRefusesATextThatIsNotALinkAndStaysPut(t *testing.T) {
 }
 
 func TestOpenLinkWithoutABoardLeavesTheBoardError(t *testing.T) {
-	app := desktop.New(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
+	app := newDesktop(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
 	app.Boot()
 	if err := app.OpenLink("handboard://open/" + fleetID + "/task/t1"); err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestViewLinkWithAnUnknownFleetStaysPut(t *testing.T) {
 }
 
 func TestViewLinkBeforeTheBoardIsReadWaitsForIt(t *testing.T) {
-	app := desktop.New(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
+	app := newDesktop(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
 	app.Boot()
 	if err := app.OpenLink("handboard://view/" + fleetID + "/log"); err != nil || strings.Contains(app.Err, "not a view link") {
 		t.Fatalf("err %v, shown %q", err, app.Err)
@@ -271,7 +271,7 @@ func TestViewLinkBeforeTheBoardIsReadWaitsForIt(t *testing.T) {
 func TestViewLinkQueuedBeforeTheBoardOpensItsPageOnceItIsRead(t *testing.T) {
 	f := goldenFixture(t)
 	up := false
-	app := desktop.New(func() (desktop.ReadModel, error) {
+	app := newDesktop(func() (desktop.ReadModel, error) {
 		if !up {
 			return nil, desktop.ErrNoBoard
 		}

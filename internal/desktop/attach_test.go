@@ -248,7 +248,7 @@ func TestSendPassesTheChipsInboxNamesAndClearsThemAfterwards(t *testing.T) {
 	}
 }
 
-func TestAMessageMayBeAttachmentsOnly(t *testing.T) {
+func TestScenesAMessageMayBeAttachmentsOnly(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		t.Run(theme(dark), func(t *testing.T) {
 			f := sentFixture(t)
@@ -474,7 +474,7 @@ func TestADraftKeepsItsChipsAndChecksThemOnRestore(t *testing.T) {
 		t.Fatal("the chips were not stored with the draft")
 	}
 	again := func() *desktop.App {
-		app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+		app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 		app.DraftDir = first.DraftDir
 		app.Boot()
 		return app
@@ -513,7 +513,7 @@ func TestScenesADraftRestoredWithOneFileMissing(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+			app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 			app.DraftDir = dir
 			app.Boot()
 			tt := sized(t, app, 1100, 760, dark)

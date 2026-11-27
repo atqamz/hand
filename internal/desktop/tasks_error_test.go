@@ -74,7 +74,7 @@ func (p *screenFailPoll) Poll(ctx context.Context, id string, s desktop.Screen, 
 func TestATasksOnlyPollFailureDrawsTheCardAndRecovers(t *testing.T) {
 	f := goldenFixture(t)
 	model := &screenFailPoll{ReadModel: f}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	clock := newFakeClock()

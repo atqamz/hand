@@ -73,7 +73,7 @@ func (w *fakeWeb) closes() int { w.mu.Lock(); defer w.mu.Unlock(); return w.clos
 
 func webApp(t *testing.T, m *framedModel, w *fakeWeb) *desktop.App {
 	t.Helper()
-	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	if app.Err != "" {
@@ -165,7 +165,7 @@ func TestAWindowWithNoWebHookShowsTheOldNotice(t *testing.T) {
 
 func TestAModelThatCannotFrameShowsTheOldNotice(t *testing.T) {
 	w := &fakeWeb{}
-	app := desktop.New(func() (desktop.ReadModel, error) { return kindsFixture(t), nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return kindsFixture(t), nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	app.OpenWeb = w.open
