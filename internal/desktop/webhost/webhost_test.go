@@ -158,6 +158,10 @@ func TestAViewLoadsOnlyTheFileAndDeniesEverythingElse(t *testing.T) {
 		"file:///etc/passwd",
 		"about:blank",
 		"",
+		f.URL + "&download=1",
+		f.URL + "x",
+		f.URL + "#page=2",
+		f.URL + "/../other",
 	} {
 		if v.navigate(to) {
 			t.Errorf("navigation to %q is allowed", to)
