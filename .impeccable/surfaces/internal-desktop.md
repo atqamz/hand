@@ -52,7 +52,7 @@ related_targets:
 
 THESIS: The same on-call board, in a native window. The fleet's state is read; the only changes the window makes are a message to the supervisor, an answer to an open decision, an acknowledgement of a report, and the supervisor controls the console already offers. What waits on the operator, the conversation and the tasks are the same rows as the Board's, and a ref opens its detail in place. It refuses a second owner of state, a second design language and any other write.
 
-OWN-WORLD: The Board's palette with both themes: white ground, `#f6f7f9` panel, `#f1f3f5` card, `#e3e6ea` hairlines and `#15171c` ink; the fail red, wait amber, pass green and review blue, and their pale fills. Five type sizes (22, 18, 15, 14, 12px), system sans, system mono for refs, times and figures. A 56px rail, a 48px masthead with a 3px rule in the fleet's tint and one scrolling content pane; resting surfaces carry a hairline, never a shadow.
+OWN-WORLD: The Pass, the window's own palette in both themes: a steel rail (`#d3d9de` light, `#242a2f` dark), white tickets and carbon ink `#14171a` in light, near-black paper in dark; the fail red, wait amber and pass green, one meaning each, and blue for the accent and focus, with their pale fills (`internal/desktop/kit`, DESIGN.md). Five type sizes (22, 18, 15, 14, 12px) in Noto Sans, JetBrains Mono for refs, times, ages and figures, both embedded. A 56px rail, a 48px masthead with a 3px rule in the fleet's tint and one scrolling content pane; resting surfaces carry a hairline, never a shadow.
 
 STORY: The operator opens the window and knows whether anything is paged: the masthead names the fleet and the supervisor's state, the rail's Board icon counts the Needs, in the tone of the worst. In the pane head they start, resume, stop (two presses) or interrupt the supervisor; when it is blocked, Force appears, the pane head shows only the state word and a link to Needs, and the blocked Needs item holds the question and its keys, each press carrying the screen's revision, digest and last pressed sequence. They read the toned rows, click the decision, choose an option, add a note and send the answer; a report a step away gets Ack. In the pane beside the work they type a message and press Ctrl+Enter (Cmd+Enter on macOS) to send it, or Enter for a new line; a half-typed draft waits there after a fleet switch or a closed window. Back returns. They close the window; nothing else about the fleet changes.
 
@@ -180,7 +180,7 @@ The window sends each press with the status's `revision`, `digest` and `pressed`
 
 **The Loopback Rule.** The window opens a board only on a loopback address; a network board is refused with the reason, because the API refuses it too.
 
-**The Same Palette Rule.** Every colour, size and tone comes from the board's own values through `paletteFor` and `boardTheme`; a new state takes the existing ramp, never a new colour.
+**The Kit Palette Rule.** Every colour, size and tone comes from `internal/desktop/kit` through `kit.ColorsFor`, `paletteFor` and `boardTheme`, and every face is `kit.Sans` or `kit.Mono`; a new state takes the existing ramp, never a new colour, and no view names a colour or font literal.
 
 **The Closing Changes Nothing Rule.** The window is a process of its own: its close and its crash leave the board, the watcher and every fleet as they were.
 

@@ -3,6 +3,7 @@ package webhost_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 	"github.com/atqamz/hand/internal/desktop/webhost"
 )
 
@@ -412,6 +414,10 @@ func TestAVideoPageAllowsOnlyMediaFromItsOwnOriginUnderACSP(t *testing.T) {
 	}
 	if strings.Index(page, "Content-Security-Policy") > strings.Index(page, "<video") || strings.Index(page, "Content-Security-Policy") > strings.Index(page, "<style") {
 		t.Fatal("the policy comes after content it must cover")
+	}
+	matte := kit.ColorsFor(true).Screen
+	if want := fmt.Sprintf("background:#%02x%02x%02x", matte.R, matte.G, matte.B); !strings.Contains(page, want) || strings.Count(page, "#") != 1 {
+		t.Fatalf("the page must use the kit's Screen colour (%s) and no other: %q", want, page)
 	}
 	if n := strings.Count(page, "<"); n != 6 {
 		t.Fatalf("tag openers = %d, want doctype, meta, style and video only: %q", n, page)

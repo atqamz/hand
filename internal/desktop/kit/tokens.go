@@ -3,41 +3,44 @@ package kit
 import "github.com/egoist/mygo/ui"
 
 type Colors struct {
-	BG         ui.Color `css:"bg"`
-	Panel      ui.Color `css:"panel"`
-	Card       ui.Color `css:"card"`
-	FG         ui.Color `css:"fg"`
-	Muted      ui.Color `css:"muted"`
-	Line       ui.Color `css:"line"`
-	LineStrong ui.Color `css:"line-strong"`
-	Hover      ui.Color `css:"hover"`
-	Fail       ui.Color `css:"fail"`
-	Wait       ui.Color `css:"wait"`
-	Pass       ui.Color `css:"pass"`
-	Neutral    ui.Color `css:"neutral"`
-	Accent     ui.Color `css:"accent"`
-	FailBG     ui.Color `css:"fail-bg"`
-	WaitBG     ui.Color `css:"wait-bg"`
-	PassBG     ui.Color `css:"pass-bg"`
-	NeutralBG  ui.Color `css:"neutral-bg"`
-	AccentBG   ui.Color `css:"accent-bg"`
-	Screen     ui.Color `css:"screen"`
-	ScreenFG   ui.Color `css:"screen-fg"`
-	Primary    ui.Color `css:"primary"`
-	OnPrimary  ui.Color `css:"on-primary"`
-	Shadow     ui.Color `css:"shadow"`
-	Backdrop   ui.Color `css:"backdrop"`
+	BG         ui.Color
+	Panel      ui.Color
+	Card       ui.Color
+	FG         ui.Color
+	Muted      ui.Color
+	Line       ui.Color
+	LineStrong ui.Color
+	Hover      ui.Color
+	Fail       ui.Color
+	Wait       ui.Color
+	Pass       ui.Color
+	Neutral    ui.Color
+	Accent     ui.Color
+	FailBG     ui.Color
+	WaitBG     ui.Color
+	PassBG     ui.Color
+	NeutralBG  ui.Color
+	AccentBG   ui.Color
+	Screen     ui.Color
+	ScreenFG   ui.Color
+	Primary    ui.Color
+	OnPrimary  ui.Color
+	Shadow     ui.Color
+	Backdrop   ui.Color
+	Shell      ui.Color
+	ShellLine  ui.Color
 	Tint       [12]ui.Color
 }
 
 func ColorsFor(dark bool) Colors {
 	if dark {
 		return Colors{
-			BG: ui.Hex("#111317"), Panel: ui.Hex("#15181d"), Card: ui.Hex("#1b1f25"), FG: ui.Hex("#e8eaee"), Muted: ui.Hex("#b0b6bf"),
-			Line: ui.Hex("#262b32"), LineStrong: ui.Hex("#6b7482"), Hover: ui.Hex("#1e232a"),
-			Fail: ui.Hex("#ff9999"), Wait: ui.Hex("#e6ac45"), Pass: ui.Hex("#56c77a"), Neutral: ui.Hex("#b0b6bf"), Accent: ui.Hex("#9bb6ff"),
-			FailBG: ui.Hex("#2c1719"), WaitBG: ui.Hex("#2a2212"), PassBG: ui.Hex("#13281b"), NeutralBG: ui.Hex("#1e232a"), AccentBG: ui.Hex("#172238"),
-			Screen: ui.Hex("#08090b"), ScreenFG: ui.Hex("#d8dde4"), Primary: ui.Hex("#e8eaee"), OnPrimary: ui.Hex("#111317"), Shadow: ui.RGBA(0, 0, 0, .55), Backdrop: ui.RGBA(0, 0, 0, .32),
+			BG: ui.Hex("#1a1e22"), Panel: ui.Hex("#131619"), Card: ui.Hex("#23292e"), FG: ui.Hex("#e8ebee"), Muted: ui.Hex("#b1b9c1"),
+			Line: ui.Hex("#2b3137"), LineStrong: ui.Hex("#7a848e"), Hover: ui.Hex("#21262b"),
+			Fail: ui.Hex("#ff9ca0"), Wait: ui.Hex("#f0b03a"), Pass: ui.Hex("#5fcd89"), Neutral: ui.Hex("#b1b9c1"), Accent: ui.Hex("#9dbbff"),
+			FailBG: ui.Hex("#3b1a1e"), WaitBG: ui.Hex("#33270e"), PassBG: ui.Hex("#123020"), NeutralBG: ui.Hex("#23292e"), AccentBG: ui.Hex("#1a2947"),
+			Screen: ui.Hex("#0b0d0f"), ScreenFG: ui.Hex("#d6dce2"), Primary: ui.Hex("#e8ebee"), OnPrimary: ui.Hex("#14171a"), Shadow: ui.RGBA(0, 0, 0, .55), Backdrop: ui.RGBA(0, 0, 0, .32),
+			Shell: ui.Hex("#242a2f"), ShellLine: ui.Hex("#323a41"),
 			Tint: [12]ui.Color{
 				ui.Hex("#5b8fe0"), ui.Hex("#8b82ea"), ui.Hex("#b06fe3"), ui.Hex("#d955cc"), ui.Hex("#e0628f"), ui.Hex("#e06a5e"),
 				ui.Hex("#c18a3c"), ui.Hex("#9aa13a"), ui.Hex("#6ea73d"), ui.Hex("#45ad50"), ui.Hex("#3fac7c"), ui.Hex("#3fa6b0"),
@@ -45,11 +48,12 @@ func ColorsFor(dark bool) Colors {
 		}
 	}
 	return Colors{
-		BG: ui.Hex("#ffffff"), Panel: ui.Hex("#f6f7f9"), Card: ui.Hex("#f1f3f5"), FG: ui.Hex("#15171c"), Muted: ui.Hex("#5b626e"),
-		Line: ui.Hex("#e3e6ea"), LineStrong: ui.Hex("#80889a"), Hover: ui.Hex("#eef0f3"),
-		Fail: ui.Hex("#c42b32"), Wait: ui.Hex("#8a5b00"), Pass: ui.Hex("#1a7a3e"), Neutral: ui.Hex("#5b626e"), Accent: ui.Hex("#2457c5"),
-		FailBG: ui.Hex("#fdeeee"), WaitBG: ui.Hex("#fcf3dc"), PassBG: ui.Hex("#e4f4e9"), NeutralBG: ui.Hex("#eef0f3"), AccentBG: ui.Hex("#ebf1fd"),
-		Screen: ui.Hex("#111418"), ScreenFG: ui.Hex("#d8dde4"), Primary: ui.Hex("#15171c"), OnPrimary: ui.Hex("#ffffff"), Shadow: ui.RGBA(21, 23, 28, .12), Backdrop: ui.RGBA(0, 0, 0, .32),
+		BG: ui.Hex("#ffffff"), Panel: ui.Hex("#eef1f3"), Card: ui.Hex("#e6eaed"), FG: ui.Hex("#14171a"), Muted: ui.Hex("#535b63"),
+		Line: ui.Hex("#dce0e4"), LineStrong: ui.Hex("#6c757e"), Hover: ui.Hex("#f1f3f5"),
+		Fail: ui.Hex("#c0182b"), Wait: ui.Hex("#8a5200"), Pass: ui.Hex("#16703a"), Neutral: ui.Hex("#535b63"), Accent: ui.Hex("#1d55c4"),
+		FailBG: ui.Hex("#fde9eb"), WaitBG: ui.Hex("#ffefcf"), PassBG: ui.Hex("#e2f2e7"), NeutralBG: ui.Hex("#eceff1"), AccentBG: ui.Hex("#e5edfc"),
+		Screen: ui.Hex("#111417"), ScreenFG: ui.Hex("#d6dce2"), Primary: ui.Hex("#14171a"), OnPrimary: ui.Hex("#ffffff"), Shadow: ui.RGBA(20, 23, 26, .12), Backdrop: ui.RGBA(0, 0, 0, .32),
+		Shell: ui.Hex("#d3d9de"), ShellLine: ui.Hex("#b3bbc2"),
 		Tint: [12]ui.Color{
 			ui.Hex("#407acc"), ui.Hex("#736ad7"), ui.Hex("#9f58d3"), ui.Hex("#ca38be"), ui.Hex("#ce4880"), ui.Hex("#cd4f44"),
 			ui.Hex("#a1702b"), ui.Hex("#777f22"), ui.Hex("#4d8724"), ui.Hex("#258b2d"), ui.Hex("#24895f"), ui.Hex("#25848d"),

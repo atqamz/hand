@@ -211,7 +211,7 @@ func (a *App) taskHead(c *ui.Context, p palette) {
 			if t.Waits != nil {
 				ui.Text(c, taskWaitsLine(*t.Waits)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 			}
-			ui.Text(c, stamp(t.Task.CreatedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral).
+			ui.Text(c, stamp(t.Task.CreatedAt)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).
 				FontFeatures("tnum")
 		})
 		ui.Box(c).Height(1).Background(p.line)
@@ -267,7 +267,7 @@ func (a *App) attemptHead(c *ui.Context, p palette) {
 		ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 			bg, fg := toneColors(at.State, p)
 			ui.Badge(c, shownText(at.Attempt.Status)).Background(bg).TextColor(fg)
-			ui.Text(c, shownText(at.Attempt.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+			ui.Text(c, shownText(at.Attempt.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 				TextColor(p.neutral)
 			if at.Attempt.Reason != "" {
 				ui.Text(c, shownText(at.Attempt.Reason)).FontSize(kit.Meta.Size).
@@ -390,7 +390,7 @@ func (a *App) attemptSections(c *ui.Context, p palette) {
 				ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, shownText(turn.Role)).FontSize(kit.Meta.Size).Bold().
 						TextColor(p.neutral)
-					ui.Text(c, stamp(turn.At)).Font("monospace").FontSize(kit.Meta.Size).
+					ui.Text(c, stamp(turn.At)).Font(kit.Mono).FontSize(kit.Meta.Size).
 						TextColor(p.neutral).FontFeatures("tnum")
 					if turn.Queued {
 						ui.Badge(c, "queued").Background(p.neutralBG).TextColor(p.neutral)
@@ -419,7 +419,7 @@ func (a *App) events(c *ui.Context, p palette, events []Event) {
 		for _, e := range events {
 			ui.Row(c).Gap(kit.Space12).AlignItems(ui.Start).Padding(kit.Space6, kit.Space4).
 				BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
-				ui.Text(c, stamp(e.At)).Font("monospace").FontSize(kit.Meta.Size).
+				ui.Text(c, stamp(e.At)).Font(kit.Mono).FontSize(kit.Meta.Size).
 					TextColor(p.neutral).Width(96).FontFeatures("tnum")
 				ui.Text(c, plainKind(e.Kind)).FontSize(kit.Meta.Size).Width(140)
 				ui.Text(c, shownText(e.Detail)).FontSize(kit.Meta.Size).
@@ -440,9 +440,9 @@ func (a *App) decisionPage(c *ui.Context, k kit.Colors, p palette) {
 			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 				bg, fg := toneColors(d.Decision.Pill, p)
 				ui.Badge(c, shownText(d.Decision.Status)).Background(bg).TextColor(fg)
-				ui.Text(c, shownText(d.Decision.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+				ui.Text(c, shownText(d.Decision.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 					TextColor(p.neutral)
-				ui.Text(c, stamp(d.Decision.CreatedAt)).FontSize(kit.Meta.Size).
+				ui.Text(c, stamp(d.Decision.CreatedAt)).Font(kit.Mono).FontSize(kit.Meta.Size).
 					TextColor(p.neutral).FontFeatures("tnum")
 			})
 			if body := decisionProse(d); body != "" {
@@ -524,7 +524,7 @@ func (a *App) answeredDecision(c *ui.Context, k kit.Colors, p palette, d Decisio
 					ui.Text(c, meta).FontSize(kit.Meta.Size).TextColor(p.neutral)
 					ui.Spacer(c)
 					if at := stamp(d.Decision.ClosedAt); at != "" {
-						ui.Text(c, at).FontSize(kit.Meta.Size).TextColor(p.neutral).
+						ui.Text(c, at).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).
 							FontFeatures("tnum")
 					}
 				})
@@ -556,7 +556,7 @@ func (a *App) waitingRow(c *ui.Context, p palette, word, tone, ref, title, open 
 	ui.Row(c).MinHeight(kit.Row).Padding(kit.Space4).Gap(kit.Space8).
 		AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
 		a.codeBadge(c, p, word, tone)
-		ui.Text(c, shownText(ref)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, shownText(ref)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 		ui.Text(c, shownText(title)).FontSize(kit.Body.Size).Bold().Grow(1).MinWidth(0).SingleLine()
 		if open == "" {
 			return
@@ -576,7 +576,7 @@ func (a *App) codeBadge(c *ui.Context, p palette, word, tone string) {
 	bg, fg := toneColors(tone, p)
 	ui.Row(c).Height(kit.Badge).Padding(0, kit.Space8).Radius(kit.RadiusPill).
 		Background(bg).AlignItems(ui.Center).Label(word).Children(func() {
-		ui.Text(c, strings.ToUpper(word)).Font("monospace").FontSize(kit.Meta.Size).
+		ui.Text(c, strings.ToUpper(word)).Font(kit.Mono).FontSize(kit.Meta.Size).
 			Bold().LetterSpacing(.36).TextColor(fg)
 	})
 }
@@ -601,7 +601,7 @@ func (a *App) taskSections(c *ui.Context, p palette) {
 				BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
 				ui.Text(c, "plan "+shownText(t.Plan.Ref)).FontSize(kit.Meta.Size).Bold()
 				ui.Spacer(c)
-				ui.Text(c, stamp(t.Plan.CreatedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral).
+				ui.Text(c, stamp(t.Plan.CreatedAt)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).
 					FontFeatures("tnum")
 			})
 			ui.Box(c).Padding(kit.Space10, kit.Space12).Children(func() {
@@ -665,7 +665,7 @@ func (a *App) preBox(c *ui.Context, p palette, text string) {
 	ui.Scroll(c).MaxHeight(briefMax).Padding(kit.Space10, kit.Space12).
 		Border(1, p.line).Radius(kit.RadiusLG).Background(p.card).
 		Focusable().Label("The brief").Children(func() {
-		ui.Text(c, shownText(text)).Font("monospace").FontSize(kit.Meta.Size).
+		ui.Text(c, shownText(text)).Font(kit.Mono).FontSize(kit.Meta.Size).
 			FixedLineHeight(kit.Meta.Line)
 	})
 }
@@ -681,7 +681,7 @@ func (a *App) reportCard(c *ui.Context, p palette, r Report, target bool) {
 				open := ui.ButtonBase(c.Key("open-report:" + r.Ref)).
 					Cursor(ui.CursorPointer).Label("open report " + r.Ref)
 				open.Children(func() {
-					ui.Text(c, shownText(r.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+					ui.Text(c, shownText(r.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 						Bold().TextColor(p.accent)
 				})
 				if open.Clicked() {
@@ -696,7 +696,7 @@ func (a *App) reportCard(c *ui.Context, p palette, r Report, target bool) {
 					from := ui.ButtonBase(c.Key("report-attempt:" + r.Ref)).Cursor(ui.CursorPointer).
 						Label("from " + r.Attempt)
 					from.Children(func() {
-						ui.Text(c, "from "+shownText(r.Attempt)).Font("monospace").
+						ui.Text(c, "from "+shownText(r.Attempt)).Font(kit.Mono).
 							FontSize(kit.Meta.Size).TextColor(p.accent)
 					})
 					if from.Clicked() {
@@ -704,7 +704,7 @@ func (a *App) reportCard(c *ui.Context, p palette, r Report, target bool) {
 					}
 				}
 				ui.Badge(c, shownText(r.Status)).Background(badgeBG).TextColor(badgeFG)
-				ui.Text(c, stamp(r.CreatedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral).
+				ui.Text(c, stamp(r.CreatedAt)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).
 					FontFeatures("tnum")
 			})
 		})
@@ -751,7 +751,7 @@ func (a *App) decisionLine(c *ui.Context, p palette, d Decision) {
 			ref := ui.ButtonBase(c.Key("decision:" + d.Ref)).Cursor(ui.CursorPointer).
 				Label("Open " + d.Ref)
 			ref.Children(func() {
-				ui.Text(c, shownText(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+				ui.Text(c, shownText(d.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 					TextColor(p.accent)
 			})
 			if ref.Clicked() {
@@ -828,14 +828,14 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 			el := ui.ButtonBase(c.Key("aside-file:" + strconv.Itoa(i))).Height(kit.RowSM).
 				AlignSelf(ui.Start).Cursor(ui.CursorPointer).Label("open " + dest)
 			el.Children(func() {
-				ui.Text(c, taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+				ui.Text(c, taskFileBase(d.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 					TextColor(p.accent)
 			})
 			if el.Clicked() {
 				open()
 			}
 		case d.Kind == "file":
-			ui.Text(c, taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+			ui.Text(c, taskFileBase(d.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 				TextColor(p.neutral)
 		case dest != "":
 			el := ui.ButtonBase(c.Key("aside-link:" + strconv.Itoa(i))).
@@ -851,7 +851,7 @@ func (a *App) deliveredAside(c *ui.Context, p palette, i int, d Deliverable) {
 				ui.Badge(c, shownText(d.Kind)).Background(p.accentBG).TextColor(p.accent)
 			})
 		}
-		ui.Text(c, shownText(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.neutral)
+		ui.Text(c, shownText(d.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral)
 	})
 }
 
@@ -879,14 +879,14 @@ func (a *App) asideAttempt(c *ui.Context, p palette, at AttemptRow) {
 			Label("state " + stateWord(at.State))
 		ui.Column(c).Grow(1).MinWidth(0).Gap(kit.Space2).Children(func() {
 			ui.Row(c).Gap(kit.Space6).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, shownText(at.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+				ui.Text(c, shownText(at.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 					TextColor(p.accent)
 				ui.Text(c, attemptLine(at)).FontSize(kit.Body.Size).SingleLine().MinWidth(0)
 			})
 			ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, attemptStatus(at)).FontSize(kit.Meta.Size).TextColor(p.neutral).SingleLine()
 				ui.Spacer(c)
-				ui.Text(c, stamp(at.CreatedAt)).FontSize(kit.Meta.Size).TextColor(p.neutral).
+				ui.Text(c, stamp(at.CreatedAt)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.neutral).
 					FontFeatures("tnum")
 			})
 		})

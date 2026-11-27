@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 type Session interface {
@@ -94,8 +95,9 @@ func (h *Host) Open(f desktop.DocFrame) (desktop.WebHandle, error) {
 }
 
 func VideoPage(src string) string {
+	m := kit.ColorsFor(true).Screen
 	return `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src 'self'; style-src 'unsafe-inline'">` +
-		`<style>html,body{margin:0;height:100%;background:#000}video{width:100%;height:100%}</style>` +
+		fmt.Sprintf(`<style>html,body{margin:0;height:100%%;background:#%02x%02x%02x}video{width:100%%;height:100%%}</style>`, m.R, m.G, m.B) +
 		`<video controls preload="metadata" src="` + html.EscapeString(src) + `"></video>`
 }
 

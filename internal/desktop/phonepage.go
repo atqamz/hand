@@ -508,7 +508,7 @@ func (a *App) phoneNetwork(c *ui.Context, k kit.Colors, p palette, d Phone) {
 			ui.Text(c, d.Iroh.Text).FontSize(kit.Meta.Size)
 			if d.Iroh.ID != "" {
 				ui.Text(c, "Endpoint ID").FontSize(kit.Meta.Size).TextColor(p.neutral)
-				ui.Text(c, shortEndpointID(d.Iroh.ID)).Font("monospace").FontSize(kit.Meta.Size).Tooltip(d.Iroh.ID)
+				ui.Text(c, shortEndpointID(d.Iroh.ID)).Font(kit.Mono).FontSize(kit.Meta.Size).Tooltip(d.Iroh.ID)
 				a.phoneCopyID(c, k, d.Iroh.ID)
 			}
 		})
@@ -636,10 +636,10 @@ func (a *App) phoneCodeBlock(c *ui.Context, k kit.Colors, p palette, code *Phone
 				lead = "Scan the code with the Companion's camera, or open this link on the Companion:"
 			}
 			ui.Text(c, lead).FontSize(kit.Body.Size)
-			ui.Text(c, code.Link.Reveal()).Font("monospace").FontSize(kit.Meta.Size).Selectable()
+			ui.Text(c, code.Link.Reveal()).Font(kit.Mono).FontSize(kit.Meta.Size).Selectable()
 			a.phoneCopy(c, k, "phone:copy", code.Link, code.ExpiresAt)
 			ui.Text(c, "Or open "+code.URL+" and type the code:").FontSize(kit.Body.Size)
-			ui.Text(c, code.Code.Reveal()).Font("monospace").FontSize(kit.Display.Size).Bold().Selectable()
+			ui.Text(c, code.Code.Reveal()).Font(kit.Mono).FontSize(kit.Display.Size).Bold().Selectable()
 			if len(code.Fleets) > 1 {
 				names := make([]string, len(code.Fleets))
 				for i, f := range code.Fleets {
@@ -682,7 +682,7 @@ func (a *App) phoneAppPair(c *ui.Context, k kit.Colors, p palette, d Phone) {
 			a.phoneQRView(c, p, a.ph.appQR, "QR code for the Hand app pairing link")
 			ui.Column(c).Gap(kit.Space8).Grow(1).MinWidth(0).Children(func() {
 				ui.Text(c, "Scan the code with the Hand app, or open this link on the Companion:").FontSize(kit.Body.Size)
-				ui.Text(c, app.Link.Reveal()).Font("monospace").FontSize(kit.Meta.Size).Selectable()
+				ui.Text(c, app.Link.Reveal()).Font(kit.Mono).FontSize(kit.Meta.Size).Selectable()
 				a.phoneCopy(c, k, "phone:app:copy", app.Link, app.ExpiresAt)
 				a.phoneUntil(c, p, app.ExpiresAt, "It pairs one Companion with this fleet, once,")
 				ui.Text(c, "A QR code that may have leaked is worth revoking after the Companion pairs.").

@@ -170,7 +170,7 @@ func (a *App) stateCard(c *ui.Context, k kit.Colors, p palette) {
 					ui.Text(c, body).FontSize(kit.Body.Size)
 				}
 				if command != "" {
-					ui.Text(c, command).Font("monospace").FontSize(kit.Body.Size)
+					ui.Text(c, command).Font(kit.Mono).FontSize(kit.Body.Size)
 				}
 				if form != nil {
 					form()

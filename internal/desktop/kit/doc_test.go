@@ -32,6 +32,9 @@ func wantDecls(t *testing.T, selector string, decls ...string) {
 
 func host(draw func(c *ui.Context)) *ui.Tester {
 	return ui.NewTester(func(c *ui.Context) {
+		th := ui.LightTheme()
+		th.Font = Sans
+		c.SetTheme(th)
 		ui.Column(c).Width(600).Label("host").Children(func() { draw(c) })
 	}, 700, 400)
 }

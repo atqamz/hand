@@ -129,12 +129,12 @@ func (a *App) docAudio(c *ui.Context, k kit.Colors, p palette) {
 		if kit.Button(c, k, "doc:audio:toggle", label, 96, false) {
 			a.audioToggle(playing, ended)
 		}
-		ui.Text(c, clock(time.Duration(au.pos*float64(time.Second)))).FontSize(kit.Body.Size).FontFeatures("tnum")
+		ui.Text(c, clock(time.Duration(au.pos*float64(time.Second)))).Font(kit.Mono).FontSize(kit.Body.Size).FontFeatures("tnum")
 		slider := ui.Slider(c, &au.pos, 0, max(dur.Seconds(), 1)).Grow(1).MinWidth(120).Label("Position").Disabled(dur <= 0)
 		if slider.Changed() {
 			pl.Seek(time.Duration(au.pos * float64(time.Second)))
 		}
-		ui.Text(c, clock(dur)).FontSize(kit.Body.Size).TextColor(p.neutral).FontFeatures("tnum")
+		ui.Text(c, clock(dur)).Font(kit.Mono).FontSize(kit.Body.Size).TextColor(p.neutral).FontFeatures("tnum")
 	})
 	if au.played {
 		if err := a.audioFault(); err != nil {

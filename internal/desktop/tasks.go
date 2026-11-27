@@ -147,7 +147,7 @@ func (a *App) taskDeliverable(c *ui.Context, p palette, d Deliverable) {
 		if d.Href != "" {
 			color = p.accent
 		}
-		ui.Text(c, "file: "+taskFileBase(d.Ref)).Font("monospace").FontSize(kit.Meta.Size).
+		ui.Text(c, "file: "+taskFileBase(d.Ref)).Font(kit.Mono).FontSize(kit.Meta.Size).
 			TextColor(color).SingleLine().MaxWidth(200).Shrink(0).Tooltip(d.Ref)
 		return
 	}

@@ -389,10 +389,10 @@ func (a *App) needRow(c *ui.Context, k kit.Colors, p palette, need Need, top str
 			}
 			closed := func() {
 				if task != "" {
-					ui.Text(c, task).Font("monospace").FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+					ui.Text(c, task).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 				if need.CreatedAt != "" {
-					ui.Text(c, stamp(need.CreatedAt)).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
+					ui.Text(c, stamp(need.CreatedAt)).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(k.Muted).SingleLine()
 				}
 			}
 			title := needLabel(need)
@@ -451,7 +451,7 @@ func (a *App) needSlug(c *ui.Context, k kit.Colors, p palette, need Need, bg, in
 		if text == "" {
 			return
 		}
-		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).TextColor(slug).SingleLine()
+		ui.Text(c, text).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(slug).SingleLine()
 	}
 	ui.Row(c).Gap(kit.Space8).AlignItems(ui.Center).Wrap().Children(func() {
 		if word := a.needWord(need); word != "" {
@@ -646,7 +646,7 @@ func (a *App) screenExcerpt(c *ui.Context, p palette, text string, cut bool) {
 		text += "\n…"
 	}
 	ui.Column(c).Background(p.screen).Radius(kit.RadiusMD).Padding(10, 12).Border(1, p.line).Children(func() {
-		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).TextColor(p.screenFG)
+		ui.Text(c, text).Font(kit.Mono).FontSize(kit.Meta.Size).TextColor(p.screenFG)
 	})
 }
 
@@ -761,7 +761,7 @@ func (a *App) needCountdown(c *ui.Context, p palette, need Need) {
 	}
 	ui.Row(c).Height(kit.Badge).Padding(0, kit.Space6).Radius(kit.RadiusSM).
 		Background(p.bg).Border(1, p.line).AlignItems(ui.Center).Label("Auto-deny countdown").Children(func() {
-		ui.Text(c, text).Font("monospace").FontSize(kit.Meta.Size).Bold().TextColor(p.fail).FontFeatures("tnum")
+		ui.Text(c, text).Font(kit.Mono).FontSize(kit.Meta.Size).Bold().TextColor(p.fail).FontFeatures("tnum")
 	})
 }
 
