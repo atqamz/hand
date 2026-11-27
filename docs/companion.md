@@ -162,7 +162,7 @@ The app may instead redeem the code itself with `POST /<fleet id>/api/v1/pair` a
 
 ## The open link
 
-An alert can open an item in the app. The link is `handboard://open/<fleet id>/<page>[#<report ref>]`, and Hand puts it in `HAND_NOTIFY_APP_URL` for the `notify` command ([Alerts that open the app](companion-app.md#alerts-that-open-the-app)) and prints it as `app` with `hand open --print`. `<page>` is the Board's own path for the item.
+An alert can open an item in the app. The link is `handboard://open/<fleet id>/<page>[#<report ref>]`, and Hand puts it in `HAND_NOTIFY_APP_URL` for the `notify` command ([Alerts that open the app](companion-app.md#alerts-that-open-the-app)) and `hand open --print` prints the [view link](#the-view-link) of the same item. `<page>` is the Board's own path for the item.
 
 | Item | Link |
 |---|---|
@@ -183,6 +183,23 @@ An alert can open an item in the app. The link is `handboard://open/<fleet id>/<
 **Vectors.** [`companion-vectors.json`](companion-vectors.json) holds 6 valid and 61 invalid open links under the key `open`. Valid entries carry the parsed `fleet`, `page`, `report` and the `path` to open, and every one is a link Hand emits (`canonical`); an emitter must reproduce its `link` from `fleet`, `page` and `report`. Invalid entries carry only the `link`; they are the app's main reject table, and the reference parser's anchored fleet check also rejects the app's extra right-length fleet cases, which only `internal/companion/companion_test.go` (the reference parser test) holds, not the vectors file. `go test ./internal/companion` runs the reference parser over both lists, and `go test ./internal/cli` checks that Hand's emitter reproduces every valid link. The app runs its parser over them as written.
 
 **Versions.** A new link with a new host needs no new version: an old app has no filter for the host `open`, so it never receives the link. The vectors are new entries, and no earlier vector changes.
+
+## The view link
+
+`handboard://view/<fleet id>/<page>` opens a page of the Hand window (`hand-desktop --open LINK`), and `hand open` builds it. It is for the window only: the Android app reads the open link above and its vectors in `docs/companion-vectors.json` stay as they are, and `hand-desktop` takes both. The fleet matches the same `^f[0-9a-f]{12}$`.
+
+| Page | Link |
+|---|---|
+| fleet page | `handboard://view/f0123456789ab/` |
+| task, decision, attempt | `handboard://view/f0123456789ab/task/t3`, `.../decision/d3`, `.../attempt/a7` |
+| report | `handboard://view/f0123456789ab/task/t3#r5` |
+| document | `handboard://view/f0123456789ab/doc/reports/t3/my%20notes.md` |
+| tasks | `handboard://view/f0123456789ab/tasks`, or `.../tasks?q=login+bug` |
+| conversation log | `handboard://view/f0123456789ab/log` |
+| Companion | `handboard://view/f0123456789ab/companion` |
+| alerts | `handboard://view/f0123456789ab/alerts` |
+
+**Grammar.** Refs follow the open link. A document path is the fleet-relative path with each segment percent-escaped, so a space, `#`, `?` and `%` in a name are escaped; an empty, `.` or `..` segment, a `\`, a control character, an unescaped `?` or `#` and an escaped `/` are refused. `tasks?q=` takes one percent-escaped query. Any other page, such as `screen`, and any extra path are refused. A refused link changes nothing in the window.
 
 ## What the Board does with a paired Companion
 

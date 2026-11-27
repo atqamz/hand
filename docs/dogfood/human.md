@@ -44,7 +44,7 @@ Run: human
 - [ ] M6 codex, agy, opencode: skip, no codex account
 ```
 
-A ticked box means `pass`. For a `needs human` check, write your answer on the line, for example `M8 hand open: pass, the browser opened the fleet page, logged in`.
+A ticked box means `pass`. For a `needs human` check, write your answer on the line, for example `M8 hand open: pass, the Hand window opened at the fleet page`.
 
 ## Filing it
 

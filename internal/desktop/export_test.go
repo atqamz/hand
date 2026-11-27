@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-func SetOpenTimeout(d time.Duration) func() {
-	old := openTimeout
-	openTimeout = d
-	return func() { openTimeout = old }
-}
-
 func SetBoardStartTimeout(d time.Duration) func() {
 	old := boardStartTimeout
 	boardStartTimeout = d
@@ -131,3 +125,4 @@ const (
 )
 
 func MenuRoom(window float32, anchor ui.Rect) float32 { return menuRoom(window, anchor) }
+func (a *App) OpenBoardLink(dest string)              { a.openBoardLink(dest) }

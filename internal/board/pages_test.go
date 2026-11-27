@@ -236,10 +236,10 @@ func TestWrongMethodUsesTheErrorPage(t *testing.T) {
 	}
 }
 
-func TestThe403PageNamesOpenPrint(t *testing.T) {
+func TestThe403PageNamesTheHandWindow(t *testing.T) {
 	rec := request(board.New(open(t), token, board.Options{}), "GET", "/", nil, false)
 	body := rec.Body.String()
-	if rec.Code != http.StatusForbidden || !strings.Contains(body, "<code>hand open --print</code>") || strings.Contains(body, "`") {
+	if rec.Code != http.StatusForbidden || !strings.Contains(body, "no command signs one in. Use the Hand window") || strings.Contains(body, "`") {
 		t.Fatalf("403 = %d:\n%s", rec.Code, body)
 	}
 }

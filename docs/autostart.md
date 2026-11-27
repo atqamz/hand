@@ -16,10 +16,10 @@ Stopping a watcher while the board runs does not keep it down: the board starts 
 
 ## Open the Board without a terminal
 
-After one `hand open` per fleet and browser, a bookmark opens the Board signed in, with no command run, even after the browser restarts. The login `hand open` makes lasts 400 days on a loopback Board, or until `board.token` changes, which signs every browser out: run `hand open` again in each. A login from a `hand open --print` link, through a header-less forwarder or `ssh -L` lasts until the browser quits.
+No command prints a Board login link any more, so a bookmark opens the Board signed in only in a browser that already holds the fleet's cookie, which lasts 400 days on a loopback Board, or until `board.token` changes. A browser with no cookie, or one signed out by a changed `board.token`, cannot log in again from a command: use the Hand window, which `hand open` opens, or a paired Companion.
 
 1. Run the Board at login: [Linux](#linux), [macOS](#macos) or [Windows](#windows) below.
-2. Run `hand open` once in each fleet, for each browser you use. It logs that browser in.
+2. Use a browser that is already signed in to the fleet.
 3. Bookmark `http://127.0.0.1:7777/`, or install it as an app, then click the fleet.
 
 Use `127.0.0.1`, not `localhost`: the browser treats `localhost` as a different site, and it does not hold the login.
@@ -28,7 +28,7 @@ Install as an app per browser:
 
 - Chrome: **Install page as app** from the menu.
 - Edge: **Install this site as an app** from the menu.
-- Safari: **Add to Dock**. Run `hand open` in Safari first, then add it. Not tried on a Mac.
+- Safari: **Add to Dock**. Sign in to the fleet in Safari first, then add it. Not tried on a Mac.
 - Firefox: a bookmark. It installs web apps only on Windows, in version 143 and later.
 
 ### As an app window
@@ -49,12 +49,12 @@ Chrome and Edge also install the page as an app from their menu (**Install page 
 
 Measured on Linux with Chrome 157: the `--app` window was usable 500–535 ms after the process started, and 659 ms on a new profile; a tab in a browser that is already running takes 100–120 ms. F5 and Ctrl+R reload the page, Ctrl+plus and Ctrl+minus zoom, and a link that opens a new tab, such as a PR link, opens another window. There is no address bar or tab strip.
 
-The login is per browser profile: run `hand open` once in each browser or profile you use. The 400-day cookie belongs to that profile, so the app window shares it, and another browser, profile or private window does not.
+The login is per browser profile. The 400-day cookie belongs to that profile, so the app window shares it, and another browser, profile or private window does not.
 
 Two pages mean something is missing:
 
-- Connection refused: the Board is not running. Run `hand open`, which starts it, or start the autostart in step 1.
-- "Open this fleet with `hand open`": this browser has no login for the fleet. Run `hand open` once inside it.
+- Connection refused: the Board is not running. Run `hand open` or `hand board start`, which start it, or start the autostart in step 1.
+- "Open this fleet with the Hand window": this browser has no login for the fleet. No command prints a Board login link any more: use the Hand window (`hand open`), or pair a Companion from the Companion page.
 
 ## Run the board at login
 

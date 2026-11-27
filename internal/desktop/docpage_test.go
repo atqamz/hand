@@ -28,7 +28,6 @@ func noBrowser(t *testing.T, hand fakeHand) {
 func TestADocumentIsAPageWithNoBackdropAndNoOpenAsAPage(t *testing.T) {
 	app, tt, hand := docPageApp(t)
 	click(t, tt, "Fix login")
-	mustText(t, tt, "Open as a page")
 	click(t, tt, "open /"+fleetID+"/doc/reports/t1/design.md")
 	if app.Screen != desktop.DocScreen {
 		t.Fatalf("screen %v", app.Screen)
@@ -51,7 +50,6 @@ func TestBackOnADocumentPageGoesBackThenCloses(t *testing.T) {
 	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
 		t.Fatalf("Back left %v %q, want the task", app.Screen, app.Ref)
 	}
-	mustText(t, tt, "Open as a page")
 	app.OpenDoc("reports/t1/design.md")
 	tt.Frame()
 	app.OpenDoc("reports/t1/notes.txt")

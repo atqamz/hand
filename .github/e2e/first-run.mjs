@@ -74,7 +74,7 @@ async function board(box, srv, made) {
   const id = toon(made.init.out).fields.id;
   const origin = link.origin;
   equal(link.pathname, `/${id}/`, 'the login link points at the fleet page');
-  equal(toon((await box.hand(['open', '--print'])).out).fields.app, `handboard://open/${id}/`, 'hand open --print prints the app link, which holds no token');
+  equal(toon((await box.hand(['open', '--print'])).out).fields.link, `handboard://view/${id}/`, 'hand open --print prints the Desktop link, which holds no token');
   matches(link.searchParams.get('token') ?? '', /^[0-9a-f]{48}$/, 'the login link carries the fleet token');
   const addr = box.read('board.addr').trim();
   equal(`http://${addr}`, origin, 'board.addr names the address the link uses');
@@ -151,8 +151,8 @@ async function board(box, srv, made) {
   check(encoded.status !== 200 && !encoded.text.includes('SQLite format'), `the viewer does not serve hand.db through an encoded .. segment (${encoded.status})`);
   equal((await new Client(origin).get(`/${id}/doc/docs/export-notes.md`)).status, 403, 'the viewer refuses a request without a session');
 
-  const docLink = new URL(toon((await box.hand(['open', '--print', '--doc', 'docs/export-notes.md'])).out).fields.url);
-  equal(docLink.pathname, `/${id}/doc/docs/export-notes.md`, 'hand open --print --doc links the document viewer');
+  equal(toon((await box.hand(['open', '--print', '--doc', 'docs/export-notes.md'])).out).fields.link, `handboard://view/${id}/doc/docs/export-notes.md`, 'hand open --print --doc links the Desktop document viewer');
+  const docLink = new URL(`/${id}/doc/docs/export-notes.md?token=${link.searchParams.get('token')}`, origin);
   const docLogin = await new Client(origin).get(`${docLink.pathname}${docLink.search}`);
   equal([docLogin.status, docLogin.location], [303, `/${id}/doc/docs/export-notes.md`], 'the --doc login link lands on the document');
   for (const refused of ['../hand.db', '/etc/hosts', 'hand.db', 'luvus/note.txt', 'locks/note.txt', 'projects/note.txt', 'backups/note.txt', 'cache/note.txt', '.claude']) {

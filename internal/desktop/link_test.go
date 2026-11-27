@@ -187,3 +187,139 @@ func TestAnOpenedRefRenders(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "second", "d1", "Options", "Yes, keep it", "No, rename it", "for Fix login")
 }
+
+func TestViewLinkRoutesEveryPage(t *testing.T) {
+	for name, tc := range map[string]struct {
+		page   string
+		screen desktop.Screen
+		ref    string
+	}{
+		"fleet":     {"", desktop.BoardScreen, ""},
+		"task":      {"task/t1", desktop.TaskScreen, "t1"},
+		"decision":  {"decision/d1", desktop.DecisionScreen, "d1"},
+		"attempt":   {"attempt/a1", desktop.AttemptScreen, "a1"},
+		"report":    {"task/t1#r1", desktop.TaskScreen, "t1"},
+		"doc":       {"doc/reports/t2/design.md", desktop.DocScreen, "reports/t2/design.md"},
+		"doc space": {"doc/my%20notes/a%23b.md", desktop.DocScreen, "my notes/a#b.md"},
+		"tasks":     {"tasks", desktop.TasksScreen, ""},
+		"log":       {"log", desktop.HistoryScreen, ""},
+		"companion": {"companion", desktop.PhoneScreen, ""},
+		"alerts":    {"alerts", desktop.AlertsScreen, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := newApp(t, goldenFixture(t))
+			app.Show(desktop.BoardScreen)
+			if err := app.OpenLink("handboard://view/" + secondID + "/" + tc.page); err != nil {
+				t.Fatal(err)
+			}
+			if app.Fleet.ID != secondID || app.Screen != tc.screen || app.Ref != tc.ref || app.Err != "" {
+				t.Fatalf("fleet %s, screen %d, ref %q, err %q", app.Fleet.ID, app.Screen, app.Ref, app.Err)
+			}
+		})
+	}
+}
+
+func TestViewLinkTasksCarriesTheQuery(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	app.Show(desktop.BoardScreen)
+	if err := app.OpenLink("handboard://view/" + secondID + "/tasks?q=login+%26+more"); err != nil {
+		t.Fatal(err)
+	}
+	if app.Screen != desktop.TasksScreen || app.SearchQ != "login & more" {
+		t.Fatalf("screen %d, query %q", app.Screen, app.SearchQ)
+	}
+}
+
+func TestViewLinkRefusesWhatIsNotAPageAndStaysPut(t *testing.T) {
+	for _, link := range []string{
+		"handboard://view/" + secondID + "/screen",
+		"handboard://view/" + secondID + "/doc/../x.md",
+		"handboard://view/" + secondID + "/doc/a%2F..%2Fb",
+		"handboard://view/" + secondID + "/doc//etc/passwd",
+		"handboard://view/" + secondID + "/log/x",
+		"handboard://view/f00000000dead/doc",
+		"handboard://view/",
+	} {
+		app := newApp(t, goldenFixture(t))
+		app.Show(desktop.BoardScreen)
+		if err := app.OpenLink(link); err == nil || app.Err != err.Error() {
+			t.Fatalf("%q: err %v, shown %q", link, err, app.Err)
+		}
+		if app.Fleet.ID != fleetID || app.Screen != desktop.BoardScreen {
+			t.Fatalf("%q moved to fleet %s, screen %d", link, app.Fleet.ID, app.Screen)
+		}
+	}
+}
+
+func TestViewLinkWithAnUnknownFleetStaysPut(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	app.Show(desktop.BoardScreen)
+	err := app.OpenLink("handboard://view/f00000000dead/log")
+	if err == nil || !strings.Contains(err.Error(), "f00000000dead") || app.Screen != desktop.BoardScreen {
+		t.Fatalf("err %v, screen %d", err, app.Screen)
+	}
+}
+
+func TestViewLinkBeforeTheBoardIsReadWaitsForIt(t *testing.T) {
+	app := desktop.New(func() (desktop.ReadModel, error) { return nil, desktop.ErrNoBoard })
+	app.Boot()
+	if err := app.OpenLink("handboard://view/" + fleetID + "/log"); err != nil || strings.Contains(app.Err, "not a view link") {
+		t.Fatalf("err %v, shown %q", err, app.Err)
+	}
+}
+
+func TestViewLinkQueuedBeforeTheBoardOpensItsPageOnceItIsRead(t *testing.T) {
+	f := goldenFixture(t)
+	up := false
+	app := desktop.New(func() (desktop.ReadModel, error) {
+		if !up {
+			return nil, desktop.ErrNoBoard
+		}
+		return f, nil
+	})
+	app.DraftDir = t.TempDir()
+	app.Boot()
+	if err := app.OpenLink("handboard://view/" + fleetID + "/log"); err != nil {
+		t.Fatal(err)
+	}
+	if app.Screen == desktop.HistoryScreen {
+		t.Fatal("opened the log before the Board was read")
+	}
+	up = true
+	app.Refresh()
+	if app.Screen != desktop.HistoryScreen {
+		t.Fatalf("screen %d after the Board was read, want the log", app.Screen)
+	}
+}
+
+func TestParseLinkTakesBothGrammarsOnly(t *testing.T) {
+	for link, ok := range map[string]bool{
+		"handboard://open/" + fleetID + "/task/t1": true,
+		"handboard://view/" + fleetID + "/log":     true,
+		"handboard://view/" + fleetID + "/doc/a?b": false,
+		"handboard://view/" + fleetID + "/screen":  false,
+		"handboard://c#v=1":                        false,
+		"http://example.com/":                      false,
+	} {
+		if err := desktop.ParseLink(link); (err == nil) != ok {
+			t.Errorf("ParseLink(%q) = %v, want ok=%v", link, err, ok)
+		}
+	}
+}
+
+func TestViewLinkRoutesAReportOfATask(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	app.Show(desktop.BoardScreen)
+	if err := app.OpenLink("handboard://view/" + secondID + "/task/t1#r1"); err != nil {
+		t.Fatal(err)
+	}
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" || desktop.PageReport(app) != "r1" {
+		t.Fatalf("screen %d, ref %q, report %q", app.Screen, app.Ref, desktop.PageReport(app))
+	}
+	if err := app.OpenLink("handboard://view/" + secondID + "/task/t1"); err != nil {
+		t.Fatal(err)
+	}
+	if desktop.PageReport(app) != "" {
+		t.Fatalf("a task link kept the report %q", desktop.PageReport(app))
+	}
+}
