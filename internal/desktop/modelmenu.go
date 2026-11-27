@@ -311,7 +311,7 @@ func (a *App) modelHead(c *ui.Context, k kit.Colors, p palette, sup *Supervisor)
 	ui.PopoverBase(c, pill, &a.modelOpen, func(panel ui.Element) {
 		kit.MenuPanel(c, k, panel, width, room)
 		panel.Children(func() {
-			ui.Scroll(c).FillWidth().MaxHeight(room - 2*kit.Space12 - 2).Children(func() {
+			ui.Scroll(c).FillWidth().MaxHeight(room).Children(func() {
 				ui.Column(c).FillWidth().Gap(kit.Space8).Children(func() {
 					switch {
 					case a.modelErr != "":
@@ -576,7 +576,10 @@ func (a *App) startRow(c *ui.Context, k kit.Colors, p palette, h Harness, width 
 		}
 		head.Children(func() {
 			ui.Text(c, harness.Name).FontSize(kit.Body.Size).Bold().Grow(1)
-			ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
+			chevron := ui.Icon(c, kit.Icon("chevron")).TextColor(k.Muted)
+			if open {
+				chevron.Rotate(180)
+			}
 		})
 		if head.Clicked() {
 			a.toggleStart(harness.Name, open)

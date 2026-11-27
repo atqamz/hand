@@ -1255,27 +1255,26 @@ func TestTheModelMenuFitsAShortWindowAndScrollsInside(t *testing.T) {
 					if bottom <= int(r.Y) {
 						t.Fatalf("no panel under %q", "Running now")
 					}
-					last := "Switch now"
-					if name != "claude" {
-						last = "Switch to " + name
+					tail := "omp: omp not found on the board's PATH; restart the board after installing it"
+					atEnd := func() bool {
+						lr, ok := tt.Find(tail)
+						return ok && lr.H > 0 && int(lr.Y+lr.H) <= bottom && bottom-int(lr.Y+lr.H) <= 24
 					}
-					lr, ok := tt.Find(last)
-					if height == 760 {
-						if !ok || lr.H == 0 || int(lr.Y+lr.H) > bottom {
-							t.Fatalf("%q is cut off at 760: %v in a panel ending at %d", last, lr, bottom)
+					if height == 760 && !atEnd() {
+						t.Fatalf("the end of the menu is cut off at 760 in a panel ending at %d", bottom)
+					}
+					if !atEnd() {
+						if bottom < height-14-4 {
+							t.Fatalf("the panel ends at %d of %d with content left to scroll to: the room beside the button is not used", bottom, height)
 						}
-						return
-					}
-					if ok && lr.H > 0 && int(lr.Y+lr.H) <= bottom {
-						return
-					}
-					for i := 0; i < 20; i++ {
-						tt.Scroll(r.X+20, r.Y+20, 0, 120)
-						tt.Frame()
-					}
-					lr, ok = tt.Find(last)
-					if !ok || lr.H == 0 || int(lr.Y+lr.H) > bottom {
-						t.Fatalf("%q is out of reach after scrolling: %v in a panel ending at %d", last, lr, bottom)
+						for i := 0; i < 20; i++ {
+							tt.Scroll(r.X+20, r.Y+20, 0, 120)
+							tt.Frame()
+						}
+						if !atEnd() {
+							lr, _ := tt.Find(tail)
+							t.Fatalf("the end of the menu is out of reach after scrolling: %v in a panel ending at %d", lr, bottom)
+						}
 					}
 					if after := menuBottom(t, tt, dark, height); after != bottom {
 						t.Errorf("the panel moved from %d to %d while scrolling", bottom, after)
@@ -1378,13 +1377,24 @@ func topRight(t *testing.T, tt *ui.Tester, dark bool, text string) int {
 		t.Fatalf("no %q in %q", text, tt.Texts())
 	}
 	img, tone := tt.Image(), kit.ColorsFor(dark).BG
-	y := int(r.Y+r.H/2) - int(kit.Control)/2
-	last := 0
-	for dy := -1; dy <= 1; dy++ {
-		for x := int(r.X + r.W/2); x < int(head.X)+276; x++ {
-			if !sameInk(img.RGBAAt(x, y+dy), tone) {
-				last = max(last, x)
+	mid := int(r.Y + r.H/2)
+	from, to := int(head.X), int(head.X)+276
+	best, row := 0, 0
+	for y := mid - 20; y <= mid-12; y++ {
+		ink := 0
+		for x := from; x < to; x++ {
+			if !sameInk(img.RGBAAt(x, y), tone) {
+				ink++
 			}
+		}
+		if ink > best {
+			best, row = ink, y
+		}
+	}
+	last := 0
+	for x := from; x < to; x++ {
+		if !sameInk(img.RGBAAt(x, row), tone) {
+			last = x
 		}
 	}
 	return last
@@ -1397,8 +1407,8 @@ func TestTheSwitchButtonSpansTheMenuAsTheFieldsDo(t *testing.T) {
 		openMenu(t, tt, f)
 		tt.Frame()
 		field, button := topRight(t, tt, dark, "claude (running)"), topRight(t, tt, dark, "Switch now")
-		if button > field {
-			t.Errorf("dark %t: the Switch button's top border ends at %d, past the field's at %d", dark, button, field)
+		if button != field {
+			t.Errorf("dark %t: the Switch button's top border ends at %d, the field's at %d", dark, button, field)
 		}
 	}
 }
@@ -1429,5 +1439,54 @@ func TestScenesTheModelMenuInAShortWindow(t *testing.T) {
 			shotSized(t, tt, "42-menu-short-1100x480-"+mode, 1100, desktop.MinWindowHeight)
 			mustText(t, tt, "Running now", "Change harness, model or effort")
 		})
+	}
+}
+
+func chevronPointsDown(t *testing.T, tt *ui.Tester, name string) bool {
+	t.Helper()
+	r, ok := tt.Find(name)
+	if !ok {
+		t.Fatalf("no %q in %q", name, tt.Texts())
+	}
+	img := tt.Image()
+	mid := int(r.Y + r.H/2)
+	bg := img.RGBAAt(1046, mid)
+	ink := func(from, to int) int {
+		n := 0
+		for y := from; y < to; y++ {
+			for x := 1050; x < 1080; x++ {
+				p := img.RGBAAt(x, y)
+				if p != bg {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	top, bottom := ink(mid-6, mid), ink(mid, mid+6)
+	if top == bottom {
+		t.Fatalf("the chevron of %q is symmetric: %d and %d", name, top, bottom)
+	}
+	return top > bottom
+}
+
+func TestTheStartStripOpenRowTurnsItsChevron(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		f, _ := firstRunStrip(t)
+		tt := darkTester(newApp(t, f), dark)
+		if !chevronPointsDown(t, tt, "codex") {
+			t.Errorf("dark %t: the closed row's chevron does not point down", dark)
+		}
+		if chevronPointsDown(t, tt, "claude") {
+			t.Errorf("dark %t: the open row's chevron points down", dark)
+		}
+		click(t, tt, "codex")
+		tt.Frame()
+		if chevronPointsDown(t, tt, "codex") {
+			t.Errorf("dark %t: the chevron of the row that was opened points down", dark)
+		}
+		if !chevronPointsDown(t, tt, "claude") {
+			t.Errorf("dark %t: the chevron of the row that was closed does not point down", dark)
+		}
 	}
 }
