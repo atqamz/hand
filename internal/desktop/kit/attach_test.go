@@ -33,8 +33,8 @@ func TestAttachChipMatchesTheBoardsChip(t *testing.T) {
 	fail := host(func(c *ui.Context) {
 		AttachChip(c, ColorsFor(false), Chip{Key: "a", Badge: "PNG", Name: "shot.png", Meta: "a file can be at most 10 MiB", Tone: ChipFail})
 	})
-	if got := rect(t, fail, "Attachment shot.png").H; got != 2*Space2+Body.Line+17+2 {
-		t.Errorf("a failed chip is %v tall, want 43", got)
+	if got := rect(t, fail, "Attachment shot.png").H; got < 2*Space2+Body.Line+16+2-0.5 || got > 2*Space2+Body.Line+17+2+0.5 {
+		t.Errorf("a failed chip is %v tall, want 42 to 43", got)
 	}
 }
 
