@@ -244,6 +244,22 @@ func login(t *testing.T, f fleetBox) resp {
 	return c.get(t, "/"+f.id+"/")
 }
 
+func backupInventory(t *testing.T, b *box) []string {
+	t.Helper()
+	out := []string{}
+	for _, d := range []struct{ label, dir string }{{"machine", filepath.Join(b.root, "backups")}, {"fleet", filepath.Join(b.fleet, "backups")}} {
+		entries, err := os.ReadDir(d.dir)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			out = append(out, d.label+"/"+e.Name())
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 func update(t *testing.T, s *scenario) {
 	t.Helper()
 	b, name, from, to, run := s.b, s.name, s.from, s.to, s.running
@@ -252,10 +268,12 @@ func update(t *testing.T, s *scenario) {
 	db := filepath.Join(b.fleet, "hand.db")
 	equal(t, userVersion(t, db), from.schema, fmt.Sprintf("%s: the fleet's database is at schema %d", name, from.schema))
 
+	inventory := backupInventory(t, b)
 	base := map[string]string{"HAND_INSTALL_BASE": to.srv.base()}
 	checked := toon(ok(t, b.handWith(t, handOpts{cwd: b.dir, extra: base}, "update", "--check"), name+": hand update --check").out)
 	equal(t, checked.fields["status"], "checked", name+": --check reports what would change")
 	check(t, !exists(backups), name+": --check backed nothing up")
+	equal(t, backupInventory(t, b), inventory, name+": --check added no backup under the machine or the fleet")
 	equal(t, sha(t, bin), from.sha, name+": --check changed no binary")
 	check(t, !exists(b.file("update.json")), name+": --check wrote no journal")
 
@@ -312,7 +330,11 @@ func update(t *testing.T, s *scenario) {
 	equal(t, fleets, [][]string{{"fleet", "ok"}}, name+": hand init ran in the fleet")
 	var units [][]string
 	for _, u := range doc.tables["units"] {
-		units = append(units, []string{strings.Fields(u["name"])[0], u["action"], u["result"]})
+		unit := strings.Fields(u["name"])
+		if len(unit) == 0 {
+			t.Fatalf("FAIL %s: a row of the update's units table has no name: %v", name, u)
+		}
+		units = append(units, []string{unit[0], u["action"], u["result"]})
 	}
 	var wanted [][]string
 	if run.watcher {
@@ -328,6 +350,8 @@ func update(t *testing.T, s *scenario) {
 		wanted = append(wanted, []string{"watch", "start", "ok"})
 	}
 	if s.known {
+		check(t, len(units) > 0, name+": the update lists its units")
+		equal(t, units[len(units)-1][:2], []string{"board", "start"}, name+": the step that failed is the Board's start")
 		matches(t, units[len(units)-1][2], fmt.Sprintf(`^failed: invalid: state schema %d is newer than this hand \(%d\)$`, state.SchemaVersion, from.schema), name+": the old updater cannot restart the Board once the watcher migrated the database")
 		equal(t, units[:len(units)-1], wanted[:len(wanted)-1], name+": every other step ran")
 		t.Logf("known - %s: the Board did not restart: %s's update opens hand.db after the new watcher migrated it; run hand board start after the update", name, from.version)
@@ -467,6 +491,7 @@ func afterwards(t *testing.T, s *scenario) {
 	}
 
 	to.srv.take()
+	inventory := backupInventory(t, b)
 	base := map[string]string{"HAND_INSTALL_BASE": to.srv.base()}
 	again := toon(ok(t, b.handWith(t, handOpts{cwd: b.dir, extra: base}, "update"), name+": a second hand update").out)
 	equal(t, again.fields["status"], "up to date", name+": the second update says up to date")
@@ -480,6 +505,7 @@ func afterwards(t *testing.T, s *scenario) {
 		}
 	}
 	equal(t, n, 1, name+": it made no new backup")
+	equal(t, backupInventory(t, b), inventory, name+": it added no backup under the machine or the fleet")
 	if s.repair {
 		equal(t, again.fields["iroh"], irohVersion+" installed", name+": the second update installs the sidecar 0.13.0's update left out")
 		check(t, slices.Contains(to.srv.take(), "/latest/download/"+irohAsset), name+": it fetched the sidecar from the same release")
@@ -507,6 +533,7 @@ func restore(t *testing.T, s *scenario) {
 		copyFile(t, s.binBackup, refusing)
 		refused := run(t, refusing, []string{"orient"}, opts{dir: b.fleet, env: b.env(nil, []string{b.dir}, "")})
 		fails(t, refused, name+": the old binary refuses the migrated database", 0)
+		check(t, refused.code > 0, name+": it exits with a code, not on a timeout")
 		matches(t, refused.out+refused.err, fmt.Sprintf(`newer than this hand \(%d\)`, from.schema), name+": it says the schema is newer than this hand")
 		equal(t, userVersion(t, db), state.SchemaVersion, fmt.Sprintf("%s: the refusal changed nothing, and the database is at schema %d", name, state.SchemaVersion))
 	} else {
@@ -523,6 +550,7 @@ func restore(t *testing.T, s *scenario) {
 	equal(t, userVersion(t, db), from.schema, fmt.Sprintf("%s: the restored database is at schema %d", name, from.schema))
 	restored := snapshot(t, b)
 	equal(t, restored.tasks, s.before.tasks, name+": the restored fleet has every task, plan and decision")
+	equal(t, restored.decisions, s.before.decisions, name+": the restored fleet has every decision with its answer")
 	equal(t, restored.attempts, s.before.attempts, name+": the restored fleet has every attempt")
 	equal(t, restored.reports, s.before.reports, name+": the restored fleet has every report")
 	equal(t, restored.counts, s.before.counts, name+": the restored task counts match")
