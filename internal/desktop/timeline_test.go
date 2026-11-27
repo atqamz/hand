@@ -373,7 +373,7 @@ func TestTheLatestButtonMovesTheFocusToTheMessageBoxOnAKeyboardClick(t *testing.
 func TestAGapEventReadsThePageOnce(t *testing.T) {
 	f := goldenFixture(t)
 	m := &timedReader{ReadModel: f}
-	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	reads := m.reads

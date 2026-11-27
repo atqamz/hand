@@ -575,7 +575,7 @@ func (p *statusOnlyPoll) Poll(context.Context, string, desktop.Screen, string, d
 func TestAPendingTabResolvesWhenStatusNamesTheNeed(t *testing.T) {
 	f := goldenFixture(t)
 	model := &statusOnlyPoll{ReadModel: f}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	clock := newFakeClock()

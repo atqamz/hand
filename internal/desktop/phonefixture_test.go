@@ -182,7 +182,7 @@ func phoneFixture(t *testing.T) *phoneModel { return newPhoneModel(goldenFixture
 func phoneApp(t *testing.T, m *phoneModel) *desktop.App {
 	t.Helper()
 	inUTC(t)
-	app := desktop.New(func() (desktop.ReadModel, error) { return m, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return m, nil })
 	app.DraftDir = t.TempDir()
 	app.Now = func() time.Time { return *m.clock }
 	app.Boot()

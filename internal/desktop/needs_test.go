@@ -943,7 +943,7 @@ func TestTheMisreadDisclosureTypesQueuedMessagesAnyway(t *testing.T) {
 func TestTheCountdownTicksLocallyAndThenRefreshes(t *testing.T) {
 	f := blockedScreen(t, true)
 	clock := newFakeClock()
-	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 	app.DraftDir = t.TempDir()
 	app.Clock = clock
 	app.Now = func() time.Time {
@@ -1055,7 +1055,7 @@ func TestScenesBlockedStates(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		mode := map[bool]string{false: "light", true: "dark"}[dark]
 		open := func(t *testing.T, f *fixture, now time.Time) (*desktop.App, *ui.Tester) {
-			app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+			app := newDesktop(func() (desktop.ReadModel, error) { return f, nil })
 			app.DraftDir = t.TempDir()
 			app.Now = func() time.Time { return now }
 			app.Boot()
@@ -1108,7 +1108,7 @@ func (pollUnchanged) Poll(context.Context, string, desktop.Screen, string, deskt
 func TestTheCountdownArmsWhenTheWindowInstallsPost(t *testing.T) {
 	f := blockedScreen(t, true)
 	clock := newFakeClock()
-	app := desktop.New(func() (desktop.ReadModel, error) { return pollUnchanged{f}, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return pollUnchanged{f}, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	reads := f.count("status:" + fleetID)

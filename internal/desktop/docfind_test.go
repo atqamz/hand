@@ -279,7 +279,7 @@ func (s *stallWindow) DocWindow(ctx context.Context, fleet, path string, from in
 
 func TestALateFindAnswerDoesNotOverwriteANewerOne(t *testing.T) {
 	model := &stallWindow{ReadModel: findFixture(t), entered: make(chan struct{}, 1), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	posted := make(chan func(), 16)
@@ -325,7 +325,7 @@ func (e errWindow) DocWindow(ctx context.Context, fleet, path string, from int) 
 
 func TestAFindThatFailsSaysSoInsteadOfNoMatch(t *testing.T) {
 	model := errWindow{findFixture(t)}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	app.OpenDoc(bigLog)
@@ -731,7 +731,7 @@ func (h *holdWindow) arm(hold func(path string, from int) bool) {
 func asyncHold(t *testing.T) (*holdWindow, chan func(), *ui.Tester) {
 	t.Helper()
 	model := &holdWindow{ReadModel: findFixture(t), entered: make(chan struct{}, 4), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	posted := make(chan func(), 32)
@@ -795,7 +795,7 @@ func TestEndWhileFollowingIgnoresAPullInFlight(t *testing.T) {
 func TestFollowStopsWhenTheFileComesBackEmpty(t *testing.T) {
 	f := findFixture(t)
 	model := &holdWindow{ReadModel: f, entered: make(chan struct{}, 1), release: make(chan struct{})}
-	app := desktop.New(func() (desktop.ReadModel, error) { return model, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return model, nil })
 	app.DraftDir = t.TempDir()
 	app.Boot()
 	app.OpenDoc(liveLog)

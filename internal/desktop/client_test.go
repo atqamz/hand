@@ -468,7 +468,7 @@ func TestATokenlessFleetIsNamedInTheError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := desktop.New(func() (desktop.ReadModel, error) { return c, nil })
+	app := newDesktop(func() (desktop.ReadModel, error) { return c, nil })
 	app.Boot()
 	tt := newTester(app)
 	mustText(t, tt, "fleet "+fleetID+": no board.token", "hand open")
