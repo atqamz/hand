@@ -68,6 +68,7 @@ type docState struct {
 type docEnv struct {
 	openAudio func([]byte) (AudioPlayer, error)
 	web       bool
+	source    bool
 	keep      bool
 }
 
@@ -127,8 +128,22 @@ func readDoc(ctx context.Context, m ReadModel, fleet string, req docState, env d
 	case "csv", "tsv":
 		r.table, r.err = readTable(ctx, m, fleet, req.path, d.Kind)
 	case "html":
-		r.row = docKindNouns[d.Kind] + docCannot
-		r.window, r.err = m.DocWindow(ctx, fleet, req.path, req.from)
+		if r.window, r.err = m.DocWindow(ctx, fleet, req.path, req.from); r.err != nil {
+			break
+		}
+		switch {
+		case !env.web:
+			r.row = docKindNouns[d.Kind] + docCannot
+		case env.source:
+		case env.keep:
+			r.keep = true
+		default:
+			var f DocFrame
+			if f, r.err = m.(DocFramer).DocFrame(ctx, fleet, req.path); r.err == nil {
+				f.URL += "&frame"
+				r.frame = &f
+			}
+		}
 	case "audio":
 		switch {
 		case env.keep:
@@ -229,7 +244,7 @@ func (a *App) settleMedia(r docRead) {
 		a.au = audioState{path: rel, player: r.player}
 	case r.frame != nil:
 		a.releaseMedia()
-		a.openWeb(rel, docKindNouns["pdf"], *r.frame)
+		a.openWeb(rel, docKindNouns[a.doc.doc.Kind], *r.frame)
 	default:
 		a.releaseMedia()
 	}
@@ -267,7 +282,8 @@ func (a *App) loadDoc() {
 	a.doc.err, a.doc.refused, a.doc.conflict = "", false, false
 	ctx, cancel := context.WithTimeout(a.Context, a.pollTimeout())
 	a.docCancel = cancel
-	env := docEnv{openAudio: a.audioOpener(), web: a.webReady(), keep: a.audioHeld(a.Ref) || a.web.path == a.Ref}
+	env := docEnv{openAudio: a.audioOpener(), web: a.webReady(), source: a.DocSource,
+		keep: a.audioHeld(a.Ref) || a.web.path == a.Ref && a.web.notice == ""}
 	apply := func(r docRead) {
 		if a.docGen != gen || a.Fleet.ID != fleet || a.closed {
 			if r.player != nil {

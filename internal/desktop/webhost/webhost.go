@@ -2,7 +2,9 @@ package webhost
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -21,6 +23,8 @@ type View interface {
 	WillDownload(allow func(url string) bool)
 	WillOpenWindow(allow func(url string) bool)
 	WillUsePermission(allow func(origin string) bool)
+	OnlyOrigin(origin string) error
+	OnGone(fn func())
 	Destroy()
 }
 
@@ -73,6 +77,21 @@ func (h *Host) Open(f desktop.DocFrame) (desktop.WebHandle, error) {
 	v.WillDownload(func(string) bool { return false })
 	v.WillOpenWindow(func(string) bool { return false })
 	v.WillUsePermission(func(string) bool { return false })
+	if err := v.OnlyOrigin(origin(u)); err != nil {
+		v.Destroy()
+		return desktop.WebHandle{}, fmt.Errorf("%w: %w", desktop.ErrWebUnconfined, err)
+	}
 	v.Load(f.URL)
-	return desktop.WebHandle{View: v.Native(), Close: v.Destroy}, nil
+	return desktop.WebHandle{View: v.Native(), Close: v.Destroy, OnGone: v.OnGone}, nil
+}
+
+func origin(u *url.URL) string {
+	host := u.Host
+	if u.Port() == "80" {
+		host = u.Hostname()
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+	}
+	return u.Scheme + "://" + host
 }

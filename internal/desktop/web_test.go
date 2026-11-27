@@ -50,6 +50,7 @@ type fakeWeb struct {
 	frames []desktop.DocFrame
 	closed int
 	err    error
+	gone   []func()
 }
 
 func (w *fakeWeb) open(f desktop.DocFrame) (desktop.WebHandle, error) {
@@ -59,8 +60,13 @@ func (w *fakeWeb) open(f desktop.DocFrame) (desktop.WebHandle, error) {
 	if w.err != nil {
 		return desktop.WebHandle{}, w.err
 	}
-	return desktop.WebHandle{Close: func() { w.mu.Lock(); w.closed++; w.mu.Unlock() }}, nil
+	return desktop.WebHandle{
+		Close:  func() { w.mu.Lock(); w.closed++; w.mu.Unlock() },
+		OnGone: func(fn func()) { w.mu.Lock(); w.gone = append(w.gone, fn); w.mu.Unlock() },
+	}, nil
 }
+
+func (w *fakeWeb) end(i int) { w.mu.Lock(); fn := w.gone[i]; w.mu.Unlock(); fn() }
 
 func (w *fakeWeb) opens() int  { w.mu.Lock(); defer w.mu.Unlock(); return len(w.frames) }
 func (w *fakeWeb) closes() int { w.mu.Lock(); defer w.mu.Unlock(); return w.closed }

@@ -147,6 +147,7 @@ type App struct {
 	al            alertsState
 	au            audioState
 	web           webState
+	webGen        int
 	notice        string
 	noticeTitle   string
 	noticeKey     string
