@@ -554,8 +554,8 @@ It needs the Companion's own `hand_phone_<fleet id>` cookie and its `X-Hand-CSRF
 - `401 unauthorized`: no cookie, or none this fleet knows. Over the peer listener a cookie of this fleet that no longer exists answers `403` with `X-Hand-Error: no longer paired` instead, and `401` only when another fleet's live cookie in the same request proves the peer. A client treats both as signed out here already.
 - `403 csrf_required`: no or a wrong `X-Hand-CSRF`.
 - `403 forbidden`: the host session; a network board or a proxied request; a request on the peer listener from a Companion that did not pair with its own key. A Companion past its 90 days, or one whose key was replaced, cannot authenticate and so cannot sign out: the first gets the `403` with `X-Hand-Error` above (its row waits for the host to revoke it), the second a plain `403`.
-- `404 not_found`: `GET`; the path has no read.
-- `405 method_not_allowed`: any other method but `POST`, with `Allow: POST`. A host that predates this path answers `405` or `404` to the call, which a client reads as "too old".
+- `404 not_found`: `GET` and `HEAD`; the path has no read.
+- `405 method_not_allowed`: any other method but `POST`, `GET` and `HEAD`, with `Allow: POST`. A host that predates this path answers `405` or `404` to the call, which a client reads as "too old".
 - `500 internal`: the record could not be deleted, and it is still there.
 
 The call is idempotent: a record that is already gone is success, so two racing calls leave one event, and the later one may answer `401`.

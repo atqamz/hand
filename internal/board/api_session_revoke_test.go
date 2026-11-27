@@ -120,6 +120,25 @@ func TestAPISessionRevokeNamesNoTarget(t *testing.T) {
 	}
 }
 
+func TestAPISessionRevokeIgnoresATargetInTheQuery(t *testing.T) {
+	p := newCompanionHost(t, true, "alpha")
+	a := p.fleets[0]
+	one := p.pair(a, nil)
+	two := p.pair(a, nil)
+	idOne := strings.SplitN(one.Value, ".", 2)[0]
+	req := httptest.NewRequest("POST", "/"+a.id+"/api/v1/session/revoke?id="+idOne+"&phone=0123456789abcdef&fleet="+a.id, http.NoBody)
+	req.Header.Set("X-Hand-CSRF", p.selfCSRF(a, two))
+	req.AddCookie(two)
+	rec := httptest.NewRecorder()
+	p.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("call = %d:\n%s", rec.Code, rec.Body)
+	}
+	if p.opens(a, nil, one) != http.StatusOK || p.opens(a, nil, two) == http.StatusOK || len(p.devicesOf(a)) != 1 {
+		t.Fatal("a target in the query changed which device was revoked")
+	}
+}
+
 func TestAPISessionRevokeRefusals(t *testing.T) {
 	p := newCompanionHost(t, true, "alpha")
 	a := p.fleets[0]
@@ -150,8 +169,12 @@ func TestAPISessionRevokeRefusals(t *testing.T) {
 		}
 		keep(m)
 	}
-	testAPIError(t, p.selfRevoke(a, "GET", csrf, nil, phone), http.StatusNotFound, "not_found")
-	keep("GET")
+	for _, m := range []string{"GET", "HEAD"} {
+		if rec := p.selfRevoke(a, m, csrf, nil, phone); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d, want 404", m, rec.Code)
+		}
+		keep(m)
+	}
 	testAPIError(t, p.selfRevoke(a, "POST", csrf, map[string]string{"X-Forwarded-For": "203.0.113.9"}, phone), http.StatusForbidden, "forbidden")
 	keep("a proxied request")
 }
