@@ -36,10 +36,18 @@ class SignOutDialogTest {
     paparazzi.snapshot {
       HandTheme(false) {
         view = LocalView.current
-        val choices = signOutChoices(failure, signing)
+        val content =
+          signOutContent(
+            Forgetting("host", "vps-berlin", 2),
+            failure,
+            signing,
+            onSignOut = { presses.signOut++ },
+            onForget = { presses.forget++ },
+            onCancel = { presses.cancel++ }
+          )
         Column {
-          SignOutConfirm(choices, onSignOut = { presses.signOut++ }, onForget = { presses.forget++ })
-          SignOutDismiss(choices, signing, onForget = { presses.forget++ }, onCancel = { presses.cancel++ })
+          content.confirm()
+          content.dismiss()
         }
       }
     }

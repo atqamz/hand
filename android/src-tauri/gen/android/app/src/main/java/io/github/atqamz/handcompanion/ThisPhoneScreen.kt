@@ -133,7 +133,16 @@ fun ThisPhoneScreen(
       }
     }
   }
-  phone.asking?.let { SignOutDialog(it, phone.failure, phone.signing, onSignOut, onForget) { onAsk(null) } }
+  phone.asking?.let {
+    SignOutDialog(
+      asking = it,
+      failure = phone.failure,
+      signing = phone.signing,
+      onSignOut = onSignOut,
+      onForget = onForget,
+      onCancel = { onAsk(null) }
+    )
+  }
 }
 
 internal data class SignOutChoices(
@@ -150,15 +159,21 @@ internal fun signOutChoices(failure: SignOutFailure?, signing: Boolean) =
     else -> SignOutChoices("Try again", false, true, !signing)
   }
 
-@Composable
-internal fun SignOutDialog(
+internal class SignOutContent(
+  val title: String,
+  val text: String,
+  val confirm: @Composable () -> Unit,
+  val dismiss: @Composable () -> Unit
+)
+
+internal fun signOutContent(
   asking: Forgetting,
   failure: SignOutFailure?,
   signing: Boolean,
   onSignOut: () -> Unit,
   onForget: () -> Unit,
   onCancel: () -> Unit
-) {
+): SignOutContent {
   val everything = asking.endpoint == null
   val who = if (everything) "every host" else asking.name ?: "your host"
   val fleets =
@@ -178,24 +193,42 @@ internal fun SignOutDialog(
           "To use it again, pair with a new code from the Board."
     }
   val choices = signOutChoices(failure, signing)
-  AlertDialog(
-    onDismissRequest = { if (!signing) onCancel() },
-    title = { Text(if (everything) "Sign out of everything?" else "Sign out of ${asking.name ?: "your host"}?") },
-    text = { Text(text) },
-    confirmButton = { SignOutConfirm(choices, onSignOut = onSignOut, onForget = onForget) },
-    dismissButton = { SignOutDismiss(choices, signing, onForget = onForget, onCancel = onCancel) }
+  return SignOutContent(
+    title = if (everything) "Sign out of everything?" else "Sign out of ${asking.name ?: "your host"}?",
+    text = text,
+    confirm = { SignOutConfirm(choices, onSignOut = onSignOut, onForget = onForget) },
+    dismiss = { SignOutDismiss(choices, signing, onForget = onForget, onCancel = onCancel) }
   )
 }
 
 @Composable
-internal fun SignOutConfirm(choices: SignOutChoices, onSignOut: () -> Unit, onForget: () -> Unit) {
+internal fun SignOutDialog(
+  asking: Forgetting,
+  failure: SignOutFailure?,
+  signing: Boolean,
+  onSignOut: () -> Unit,
+  onForget: () -> Unit,
+  onCancel: () -> Unit
+) {
+  val content = signOutContent(asking, failure, signing, onSignOut = onSignOut, onForget = onForget, onCancel = onCancel)
+  AlertDialog(
+    onDismissRequest = { if (!signing) onCancel() },
+    title = { Text(content.title) },
+    text = { Text(content.text) },
+    confirmButton = content.confirm,
+    dismissButton = content.dismiss
+  )
+}
+
+@Composable
+private fun SignOutConfirm(choices: SignOutChoices, onSignOut: () -> Unit, onForget: () -> Unit) {
   TextButton(if (choices.forgetsOnly) onForget else onSignOut, enabled = choices.enabled) {
     Text(choices.confirm, color = LocalHand.current.ink(Tone.Fail))
   }
 }
 
 @Composable
-internal fun SignOutDismiss(choices: SignOutChoices, signing: Boolean, onForget: () -> Unit, onCancel: () -> Unit) {
+private fun SignOutDismiss(choices: SignOutChoices, signing: Boolean, onForget: () -> Unit, onCancel: () -> Unit) {
   Row {
     if (choices.alsoForget) TextButton(onForget, enabled = !signing) { Text("Forget only") }
     TextButton(onCancel, enabled = !signing) { Text("Cancel") }
