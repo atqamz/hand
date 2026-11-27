@@ -390,7 +390,7 @@ func companionChecks(t *testing.T, b *box, m made) {
 	equal(t, status.status, 200, "the paired Companion reads the status")
 	assertHeaders(t, status, "a Companion's status")
 	alerts := dataOf(t, phoneA.get(t, fb.api("/alerts")), "the paired Companion reads the alerts")
-	check(t, at(alerts, "alerts") != nil || at(alerts, "receipts") != nil || alerts != nil, "the alerts answer has data")
+	check(t, at(alerts, "stats.total") != nil, "the alerts answer carries its stats")
 	equal(t, phoneA.get(t, fb.api("/tasks")).status, 200, "the paired Companion reads the tasks")
 	refused(t, phoneA.get(t, fb.api("/phone")), 403, "forbidden", "a paired Companion cannot read the Companion state")
 	refused(t, phoneA.post(t, fb.api("/phone/code"), `{"base":"`+fb.origin+`"}`, pcsrf), 403, "forbidden", "a paired Companion cannot mint a code")
