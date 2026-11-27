@@ -54,11 +54,7 @@ func ContextBar(c *ui.Context, k Colors, pct int, fill ui.Color) {
 	})
 }
 
-func Rail(c *ui.Context, k Colors, open bool, toggle func(), body func()) {
-	RailKeyed(c, k, open, "", toggle, body)
-}
-
-func RailKeyed(c *ui.Context, k Colors, open bool, keys string, toggle func(), body func()) {
+func Rail(c *ui.Context, k Colors, open bool, keys string, toggle func(), body func()) {
 	w, label := float32(RailWidth), "Show labels"
 	if open {
 		w, label = RailWidthOpen, "Hide labels"
@@ -108,7 +104,7 @@ type NavItem struct {
 	LinkFG           ui.Color
 }
 
-func (n NavItem) Tip() string {
+func (n NavItem) tip() string {
 	if n.Keys == "" {
 		return n.Name()
 	}
@@ -178,7 +174,7 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 			})
 		case n.Open:
 			ui.Text(c, n.Label).FontSize(Body.Size).Bold().TextColor(fg).SingleLine().Ellipsis("…").Grow(1)
-			if n.Keys != "" && n.Count == 0 && !n.Dot {
+			if n.Keys != "" {
 				ui.Text(c, n.Keys).Font(Mono).FontSize(Meta.Size).TextColor(k.Muted).SingleLine().Shrink(0)
 			}
 		case n.Link != "":
@@ -209,7 +205,7 @@ func Nav(c *ui.Context, k Colors, n NavItem) bool {
 		}
 	})
 	if !n.Open {
-		railTip(c, k, el, n.Tip())
+		railTip(c, k, el, n.tip())
 	}
 	return el.Clicked() && !n.Inert
 }

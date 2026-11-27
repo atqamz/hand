@@ -18,7 +18,7 @@ func fleetMark(t *testing.T, dark, open bool, n NavItem, want ui.Color) (shape, 
 	k := ColorsFor(dark)
 	n.Key, n.Fleet, n.Open = "fleet:f1", "f1", open
 	tt := ui.NewTester(func(c *ui.Context) {
-		Rail(c, k, open, func() {}, func() { Nav(c, k, n) })
+		Rail(c, k, open, "", func() {}, func() { Nav(c, k, n) })
 	}, 400, 300)
 	r, ok := tt.Find(n.Name())
 	if !ok {

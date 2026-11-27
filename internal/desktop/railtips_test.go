@@ -1,6 +1,10 @@
 package desktop_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -91,20 +95,120 @@ func TestARailIconWithNoShortcutShowsNoKey(t *testing.T) {
 	}
 }
 
-func TestTheRailKeysOpenTheirPages(t *testing.T) {
-	app := newApp(t, goldenFixture(t))
-	tt := sized(t, app, windowWidth, windowHeight, false)
-	for key, want := range map[ui.Key]desktop.Screen{ui.Key2: desktop.TasksScreen, ui.Key3: desktop.SkillsScreen, ui.Key4: desktop.AlertsScreen, ui.Key1: desktop.BoardScreen} {
-		tt.Key(ui.Alt, key)
-		tt.Frame()
-		if app.Screen != want {
-			t.Errorf("Alt+%v left %v, want %v", key, app.Screen, want)
+var railPages = map[string]desktop.Screen{
+	"Open the Board":          desktop.BoardScreen,
+	"Open Tasks":              desktop.TasksScreen,
+	"Open Skills":             desktop.SkillsScreen,
+	"Open Alerts":             desktop.AlertsScreen,
+	"Open the Conversation":   desktop.HistoryScreen,
+	"Open the Companion page": desktop.PhoneScreen,
+}
+
+func railRows() []desktop.ShortcutRow {
+	var out []desktop.ShortcutRow
+	for _, row := range desktop.ShortcutRows() {
+		if row.Group == "Pages and fleets" {
+			out = append(out, row)
 		}
 	}
-	tt.Key(ui.Alt, ui.KeyB)
+	return out
+}
+
+func TestEveryKeyOfTheRailGroupDoesItsThing(t *testing.T) {
+	rows := railRows()
+	if len(rows) != len(railPages)+1 {
+		t.Fatalf("%d rows in the group, want %d", len(rows), len(railPages)+1)
+	}
+	for _, row := range rows {
+		for i, key := range row.Keys {
+			mods := row.Mods[i]
+			app := newApp(t, goldenFixture(t))
+			tt := sized(t, app, windowWidth, windowHeight, false)
+			if row.Does == "Show or hide the rail labels" {
+				tt.Key(mods, key)
+				tt.Frame()
+				if !app.RailOpen {
+					t.Errorf("%s (%v %v) did not open the labels", row.Does, mods, key)
+				}
+				tt.Key(mods, key)
+				tt.Frame()
+				if app.RailOpen {
+					t.Errorf("%s (%v %v) did not close the labels", row.Does, mods, key)
+				}
+				continue
+			}
+			want, ok := railPages[row.Does]
+			if !ok {
+				t.Fatalf("no expected page for %q", row.Does)
+			}
+			from := desktop.AlertsScreen
+			if want == from {
+				from = desktop.BoardScreen
+			}
+			app.Show(from)
+			tt.Frame()
+			tt.Key(mods, key)
+			tt.Frame()
+			if app.Screen != want {
+				t.Errorf("%s (%v %v) left %v, want %v", row.Does, mods, key, app.Screen, want)
+			}
+		}
+	}
+}
+
+func TestTheCompanionKeyDoesNothingOnARemoteFleet(t *testing.T) {
+	r := newRemoteUI(t, true)
+	r.tt.Frame()
+	before := r.app.Screen
+	r.tt.Key(ui.Ctrl, ui.Key6)
+	r.tt.Frame()
+	if r.app.Screen != before || r.app.Screen == desktop.PhoneScreen {
+		t.Errorf("Ctrl+6 on a remote fleet left %v, was %v", r.app.Screen, before)
+	}
+	r.tt.Key(ui.Ctrl, ui.Key5)
+	r.tt.Frame()
+	if r.app.Screen != desktop.HistoryScreen {
+		t.Errorf("Ctrl+5 on a remote fleet left %v", r.app.Screen)
+	}
+}
+
+func TestTheNarrowNavSheetShowsNoKeyItCannotHonour(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := sized(t, app, 880, windowHeight, false)
+	tt.Key(0, ui.KeyTab)
+	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if !app.RailOpen {
-		t.Error("Alt+B did not open the rail labels")
+	if !desktop.SheetOpen(app) {
+		t.Fatal("sheet did not open")
+	}
+	for _, row := range railRows() {
+		if tt.HasText(tableKeys(t, row.Does)) {
+			t.Errorf("the sheet shows %q for %q", tableKeys(t, row.Does), row.Does)
+		}
+	}
+}
+
+func TestNoNavItemKeyIsALiteral(t *testing.T) {
+	files, _ := filepath.Glob("*.go")
+	fset := token.NewFileSet()
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if kv, ok := n.(*ast.KeyValueExpr); ok {
+				if id, ok := kv.Key.(*ast.Ident); ok && id.Name == "Keys" {
+					if _, lit := kv.Value.(*ast.BasicLit); lit {
+						t.Errorf("%s: a literal in Keys", fset.Position(kv.Pos()))
+					}
+				}
+			}
+			return true
+		})
 	}
 }
 
@@ -114,7 +218,7 @@ func TestScenesRailTooltip(t *testing.T) {
 		app.Apple = false
 		tt := sized(t, app, windowWidth, windowHeight, dark)
 		hoverTip(t, tt, "Tasks")
-		mustText(t, tt, "Tasks · Alt 2")
+		mustText(t, tt, "Tasks · Ctrl 2")
 		shotSized(t, tt, "139-rail-tooltip-1100x760-"+name, windowWidth, windowHeight)
 	})
 }

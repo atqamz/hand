@@ -50,13 +50,13 @@ var (
 
 	keySend = shortcut{Group: groupMessage, Does: "Send the message", Chords: []chord{{ui.Ctrl, ui.KeyEnter}, {ui.Super, ui.KeyEnter}}}
 
-	keyPageBoard     = shortcut{Group: groupRail, Does: "Open the Board", Chords: []chord{{ui.Alt, ui.Key1}}}
-	keyPageTasks     = shortcut{Group: groupRail, Does: "Open Tasks", Chords: []chord{{ui.Alt, ui.Key2}}}
-	keyPageSkills    = shortcut{Group: groupRail, Does: "Open Skills", Chords: []chord{{ui.Alt, ui.Key3}}}
-	keyPageAlerts    = shortcut{Group: groupRail, Does: "Open Alerts", Chords: []chord{{ui.Alt, ui.Key4}}}
-	keyPageChat      = shortcut{Group: groupRail, Does: "Open the Conversation", Chords: []chord{{ui.Alt, ui.Key5}}}
-	keyPageCompanion = shortcut{Group: groupRail, Does: "Open the Companion page", Chords: []chord{{ui.Alt, ui.Key6}}}
-	keyRailToggle    = shortcut{Group: groupRail, Does: "Show or hide the rail labels", Chords: []chord{{ui.Alt, ui.KeyB}}}
+	keyPageBoard     = shortcut{Group: groupRail, Does: "Open the Board", Chords: []chord{{ui.Ctrl, ui.Key1}, {ui.Super, ui.Key1}}}
+	keyPageTasks     = shortcut{Group: groupRail, Does: "Open Tasks", Chords: []chord{{ui.Ctrl, ui.Key2}, {ui.Super, ui.Key2}}}
+	keyPageSkills    = shortcut{Group: groupRail, Does: "Open Skills", Chords: []chord{{ui.Ctrl, ui.Key3}, {ui.Super, ui.Key3}}}
+	keyPageAlerts    = shortcut{Group: groupRail, Does: "Open Alerts", Chords: []chord{{ui.Ctrl, ui.Key4}, {ui.Super, ui.Key4}}}
+	keyPageChat      = shortcut{Group: groupRail, Does: "Open the Conversation", Chords: []chord{{ui.Ctrl, ui.Key5}, {ui.Super, ui.Key5}}}
+	keyPageCompanion = shortcut{Group: groupRail, Does: "Open the Companion page", Chords: []chord{{ui.Ctrl, ui.Key6}, {ui.Super, ui.Key6}}}
+	keyRailToggle    = shortcut{Group: groupRail, Does: "Show or hide the rail labels", Chords: []chord{{ui.Ctrl, ui.KeyB}, {ui.Super, ui.KeyB}}}
 
 	keyHelpClose = shortcut{Group: groupHelp, Does: "Close this list", Chords: []chord{{ui.Shift, ui.KeySlash}, {0, ui.KeyEscape}}}
 )

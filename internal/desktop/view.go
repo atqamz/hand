@@ -178,7 +178,7 @@ func (a *App) underScreen() Screen {
 }
 
 func (a *App) rail(c *ui.Context, k kit.Colors, p palette) {
-	kit.RailKeyed(c, k, a.RailOpen, keyRailToggle.label(a.Apple), a.toggleRail, func() {
+	kit.Rail(c, k, a.RailOpen, keyRailToggle.label(a.Apple), a.toggleRail, func() {
 		a.nav(c, k, p, a.RailOpen, func(n kit.NavItem) bool { return kit.Nav(c, k, n) })
 	})
 }
@@ -273,6 +273,7 @@ func (a *App) sheet(c *ui.Context, k kit.Colors, p palette) {
 	open, picked := true, false
 	dismissed := kit.NavSheet(c, k, &open, func() {
 		a.nav(c, k, p, true, func(n kit.NavItem) bool {
+			n.Keys = ""
 			if !kit.Nav(c, k, n) {
 				return false
 			}

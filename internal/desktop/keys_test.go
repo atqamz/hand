@@ -318,6 +318,17 @@ func TestScenesShortcutSheet(t *testing.T) {
 	})
 }
 
+func TestScenesShortcutSheetWholeList(t *testing.T) {
+	themes(t, func(t *testing.T, dark bool, name string) {
+		app := newApp(t, goldenFixture(t))
+		app.Apple = false
+		tt := sized(t, app, windowWidth, 1100, dark)
+		pressHelp(tt)
+		mustText(t, tt, sheetTitle, "Pages and fleets", "Show or hide the rail labels")
+		shotSized(t, tt, "129-shortcut-sheet-whole-1100x1100-"+name, windowWidth, 1100)
+	})
+}
+
 func TestEscapeOverADocumentPageClosesOnlyTheSheet(t *testing.T) {
 	themes(t, func(t *testing.T, dark bool, _ string) {
 		app, _ := toolsApp(t, designPath)
