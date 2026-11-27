@@ -8,7 +8,9 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -374,12 +376,20 @@ func TestSeeksInAnOggVorbisFileLandWhereAskedAndPlayOnToTheEnd(t *testing.T) {
 	}
 }
 
+const oggPlayerChild = "HAND_OGG_PLAYER_CHILD"
+
 func TestAPlayerOfAnOggVorbisFileSurvivesSeekingAndPlaysToTheEnd(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the null output is forced through Linux's sound environment")
 	}
-	t.Setenv("PULSE_SERVER", "/nonexistent")
-	t.Setenv("ALSA_CONFIG_PATH", "/dev/null")
+	if os.Getenv(oggPlayerChild) == "" {
+		cmd := exec.Command(os.Args[0], "-test.run", "^TestAPlayerOfAnOggVorbisFileSurvivesSeekingAndPlaysToTheEnd$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), oggPlayerChild+"=1", "PULSE_SERVER=/nonexistent", "ALSA_CONFIG_PATH=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "--- PASS: "+t.Name()) {
+			t.Fatalf("the player run in its own process failed: %v\n%s", err, out)
+		}
+		return
+	}
 	p, row := openedAudio(openAudio, multiOgg(t))
 	if p == nil {
 		t.Fatalf("no player: %q", row)
