@@ -2,9 +2,7 @@ package desktop
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/egoist/mygo/audio"
@@ -38,51 +36,19 @@ type audioState struct {
 	played bool
 }
 
-var errAudioDecoder = errors.New("the audio decoder failed")
-
 func openAudio(b []byte) (AudioPlayer, error) {
 	if bytes.HasPrefix(b, []byte("OggS")) {
-		if err := checkStream(b); err != nil {
+		p, err := openOgg(b)
+		if err != nil {
 			return nil, err
 		}
+		return p, nil
 	}
 	p, err := audio.OpenStream(bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
 	return p, nil
-}
-
-// The Ogg Vorbis decoder panics on malformed input, and MyGo runs it on a
-// goroutine of its own that no code here can recover, so a stream is decoded
-// once under recover and its samples dropped before a player may have it.
-func checkStream(b []byte) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = errAudioDecoder
-		}
-	}()
-	d, _, err := audio.NewDecoder(bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	ch := d.Channels()
-	if ch < 1 || ch > 255 {
-		return errAudioDecoder
-	}
-	buf := make([]float32, 2048*ch)
-	for {
-		n, err := d.Read(buf)
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return errAudioDecoder
-		}
-	}
 }
 
 func (a *App) audioOpener() func([]byte) (AudioPlayer, error) {
