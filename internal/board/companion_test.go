@@ -514,8 +514,8 @@ func TestAnIdentityHeaderAloneGrantsNothing(t *testing.T) {
 			t.Fatalf("POST with headers %v = %d", h, rec.Code)
 		}
 	}
-	if rec := p.do("GET", "/", nil, nil, nil); !strings.Contains(rec.Body.String(), "hand open") {
-		t.Fatal("a plain request lost its hand open hint")
+	if rec := p.do("GET", "/", nil, nil, nil); !strings.Contains(rec.Body.String(), "Hand window") {
+		t.Fatal("a plain request lost its Hand window hint")
 	}
 }
 

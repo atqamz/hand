@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,40 +9,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 )
 
-var openTimeout = 30 * time.Second
-
-func (a *App) OpenInBrowser() {
-	switch a.Screen {
-	case TaskScreen:
-		if a.pageReport != "" {
-			a.runOpen(a.pageReport)
-			return
-		}
-		a.runOpen(a.Ref)
-	case AttemptScreen, DecisionScreen:
-		a.runOpen(a.Ref)
-	default:
-		a.runOpen()
-	}
-}
-
-func (a *App) OpenBoardPath(dest string) {
-	if a.remoteFleet() {
-		a.openBoardPage(dest)
-		return
-	}
-	args, ok := boardOpenArgs(a.Fleet.ID, dest)
-	if !ok {
-		a.OpenErr = "this Board page is not one `hand open` takes; open it from the Board's fleet page"
-		return
-	}
-	a.runOpen(args...)
-}
-
 func (a *App) openBoardPage(dest string) bool {
+	if args, ok := boardOpenArgs(a.Fleet.ID, dest); ok && args == nil {
+		a.Show(BoardScreen)
+		return true
+	}
 	ref, ok := boardViewerRef(a.Fleet.ID, dest)
 	if !ok {
 		return false
@@ -52,60 +24,10 @@ func (a *App) openBoardPage(dest string) bool {
 	return true
 }
 
-func (a *App) OpenScreen() { a.runOpen("screen") }
-
-func (a *App) runOpen(args ...string) {
-	if a.OpenBusy || a.remoteFleet() {
-		return
+func (a *App) openBoardLink(dest string) {
+	if !a.openBoardPage(dest) {
+		a.OpenErr = "this Board page has no page in this window"
 	}
-	a.OpenErr = ""
-	fleet, home := a.Fleet.ID, a.Fleet.Home
-	if fleet == "" {
-		return
-	}
-	if home == "" {
-		a.OpenErr = "the fleet's folder is not known, so `hand open` cannot run for it"
-		return
-	}
-	bin, err := handBinary()
-	if err != nil {
-		a.OpenErr = "`hand` was not found next to hand-desktop or on PATH; install it or add it to PATH"
-		return
-	}
-	argv := append([]string{"--home", home, "open"}, args...)
-	timeout := openTimeout
-	run := func() string {
-		ctx, cancel := context.WithTimeout(a.Context, timeout)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, bin, argv...)
-		cmd.Dir = home
-		cmd.WaitDelay = time.Second
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			return ""
-		}
-		if ctx.Err() != nil {
-			return "`hand open` timed out"
-		}
-		return "`hand open` failed: " + failureLine(out, err)
-	}
-	if a.Post == nil {
-		a.OpenErr = run()
-		return
-	}
-	a.OpenBusy = true
-	go func() {
-		msg := run()
-		a.Post(func() {
-			if a.Fleet.ID != fleet {
-				return
-			}
-			a.OpenBusy = false
-			if msg != "" {
-				a.OpenErr = msg
-			}
-		})
-	}()
 }
 
 func handBinary() (string, error) {

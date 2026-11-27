@@ -155,7 +155,6 @@ type App struct {
 	ActionErr    string
 	ActionWarn   bool
 	OpenErr      string
-	OpenBusy     bool
 
 	Chips      []chip
 	chipSeq    int
@@ -564,7 +563,6 @@ func (a *App) SelectFleet(id string) {
 	a.Task, a.Attempt, a.Decision = TaskDetail{}, AttemptDetail{}, DecisionDetail{}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.ActionErr, a.ActionWarn, a.OpenErr = "", false, ""
-	a.OpenBusy = false
 	a.DraftErr, a.SendErr, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()
@@ -2243,7 +2241,7 @@ func friendly(err error) string {
 	if errors.As(err, &api) {
 		switch api.Status {
 		case 401:
-			return "the board did not accept this fleet's token; open the fleet once with `hand open`"
+			return "the board did not accept this fleet's token; stop the board with `hand board stop`, then start it again with `hand board start`"
 		case 403:
 			if api.Code == "csrf_required" || api.Remote {
 				return api.Message

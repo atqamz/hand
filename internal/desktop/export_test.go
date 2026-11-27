@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-func SetOpenTimeout(d time.Duration) func() {
-	old := openTimeout
-	openTimeout = d
-	return func() { openTimeout = old }
-}
-
 func SetBoardStartTimeout(d time.Duration) func() {
 	old := boardStartTimeout
 	boardStartTimeout = d
@@ -129,3 +123,5 @@ const (
 	OverflowIcon = overflowIcon
 	OverflowTip  = overflowTip
 )
+
+func (a *App) OpenBoardLink(dest string) { a.openBoardLink(dest) }

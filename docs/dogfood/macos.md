@@ -22,7 +22,7 @@ The order is by risk, riskiest first. `M0` comes first because every other check
 | M5 | The watcher starts a killed Luvus server again | The watcher starts a killed Luvus server again | agent | 0 |
 | M6 | codex, agy and opencode start | Start codex or agy; Start opencode | agent, per harness | 1 each |
 | M7 | `hand attach supervisor` | `hand attach` | needs human | 0 |
-| M8 | `hand open` starts the board and opens the browser | `hand open` starts the board and opens the browser | needs human | 0 |
+| M8 | `hand open` starts the board and opens the window | `hand open` starts the board and opens the window | needs human | 0 |
 | M9 | A notification appears | Desktop notifications | needs human | 0 |
 | M10 | `hand update` from the latest release | `hand update` | agent, then needs human | 0 |
 | M11 | The LaunchAgent starts the board at login | Start the board at login | agent, then needs human | 0 (a resume) |
@@ -218,12 +218,12 @@ Steps:
 . $D/env.sh; cd $D/fleet
 hand supervisor stop
 if lsof -nP -iTCP:7777 -sTCP:LISTEN >/dev/null; then ($D/bin/hand board --addr 127.0.0.1:7790 > $D/board.log 2>&1 &); sleep 3; fi
-hand open --print
+hand board start
 ```
 
-The last command prints a link that holds this fleet's token. Show it to the owner in the terminal only, and never put it in an issue. Starting a board is also part of `M8`; `M3` does not judge it.
+The last command prints only `board running`; it prints no link and no token. Starting a board is also part of `M8`; `M3` does not judge it.
 
-**2.** Ask the owner to open that link in a browser, and press **Start claude** on the fleet page, with the model `haiku` and the effort `low`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
+**2.** Run `hand open supervisor` to open the Hand window at the supervisor, and ask the owner to press **Start new, same as** the ref of the supervisor stopped in step 1 there, which starts it with the harness, model and effort of `M1`. Then ask: *Within one minute, did the page show the supervisor as running, with no error banner?* (yes or no).
 
 **3.** Check from the shell:
 
@@ -422,12 +422,12 @@ Evidence: the answer, and `hand supervisor show | ev M7`.
 
 If it fails: file what the owner saw, and what `hand attach supervisor` printed (for example `attach needs a terminal`).
 
-## M8: `hand open` starts the board and opens the browser
+## M8: `hand open` starts the board and opens the window
 
-- **Proves:** the `hand open` starts the board and opens the browser row.
+- **Proves:** the `hand open` starts the board and opens the window row.
 - **Run:** needs human.
 - **Real sessions:** 0.
-- **Preconditions:** `M0` passed. No board of this home runs: stop one that you started, with `kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid)`. Nothing listens on port 7777: `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing. Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
+- **Preconditions:** `M0` passed. No board of this home runs: stop one that you started, with `kill $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1)`. Nothing listens on port 7777: `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing. Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
 
 Steps:
 
@@ -440,9 +440,9 @@ sleep 3
 cat $SECONDHAND_HOME/board.addr
 ```
 
-**2.** Ask the owner: *Did your default browser open the Hand fleet page, already logged in (no question about a token)?* (yes or no, and which browser).
+**2.** Ask the owner: *Did the Hand window open at the fleet page, with no question about a token?* (yes or no).
 
-Expected: `hand open` prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes); `board.addr` holds `127.0.0.1:7777`; the answer is yes.
+Expected: `hand open` prints `opened: "handboard://view/<fleet id>/"` (the link is in quotes) after `hand-desktop` takes it, or exits 1 with one reason line and that link when the window cannot open; `board.addr` holds `127.0.0.1:7777`; the answer is yes.
 
 Evidence: `{ hand open; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; } 2>&1 | ev M8`, and the answer.
 
@@ -507,7 +507,7 @@ SECONDHAND_HOME=$H2 $D/old/hand version
 cat $D/fleet2/watch.pid $H2/board.pid
 sleep 5
 SECONDHAND_HOME=$H2 $D/old/hand orient | grep '^watch:'
-SECONDHAND_HOME=$H2 $D/old/hand open --print > /dev/null && echo board-answers
+lsof -t -nP -iTCP:$(cut -d: -f2 $H2/board.addr) -sTCP:LISTEN | grep -qx $(head -n1 $H2/board.pid | cut -d' ' -f1) && echo board-answers
 ```
 
 **3.** Ask the owner: *During the update, did macOS show any dialog or notification about `hand`, such as "cannot be opened" or "malware"?* (yes or no, and its text).
@@ -515,7 +515,7 @@ SECONDHAND_HOME=$H2 $D/old/hand open --print > /dev/null && echo board-answers
 Expected:
 - the check prints `status: checked`; the update prints `status: updated`, `from: 0.13.0 stable ...` and `to: 0.13.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - `hand version` now prints `channel: edge`;
-- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints because `hand open` starts the board on the new binary;
+- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints only when the board of `$H2` still runs after the update: the listener on the port in its `board.addr` is the process in its `board.pid`, and a failed update leaves nothing listening and prints nothing;
 - the answer is no.
 
 Evidence: `{ SECONDHAND_HOME=$H2 $D/old/hand version; cat $D/fleet2/watch.pid $H2/board.pid; tail -5 $D/watch2.log $D/board2.log; } 2>&1 | ev M10`, the update's output, and the answer.
@@ -542,7 +542,7 @@ test ! -e ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist && echo free
 ```zsh
 . $D/env.sh; cd $D/fleet
 PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
-kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) 2>/dev/null
+kill $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) 2>/dev/null
 TOOLS=$(dirname $(command -v claude)):$(dirname $(command -v git))
 cat > $PLIST <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -575,8 +575,8 @@ EOF
 launchctl load $PLIST
 sleep 10
 launchctl list | grep dev.secondhand.dogfood
-hand open --print > /dev/null && echo board-answers
-ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='
+lsof -t -nP -iTCP:$(cut -d: -f2 $SECONDHAND_HOME/board.addr) -sTCP:LISTEN | grep -qx $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) && echo board-answers
+ps eww -p $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) | tr ' ' '\n' | grep '^PATH='
 ```
 
 **3.** The board must keep the watcher alive. Kill the watcher, and wait up to 60 seconds:
@@ -601,7 +601,7 @@ EOF
 
 ```zsh
 . $D/env.sh
-echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; hand open --print > /dev/null && echo board-answers"
+echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; lsof -t -nP -iTCP:\$(cut -d: -f2 \$SECONDHAND_HOME/board.addr) -sTCP:LISTEN | grep -qx \$(head -n1 \$SECONDHAND_HOME/board.pid | cut -d' ' -f1) && echo board-answers"
 ```
 
 Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run that line. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
@@ -609,12 +609,12 @@ Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one min
 Logging out ends this session, and the supervisor. An agent cannot finish this step: it leaves the check `waiting for owner`, and the owner runs the Teardown after they answer.
 
 Expected:
-- the plist loads, `launchctl list` shows the label with a process ID, `board-answers` prints, and the board's `PATH=` holds the folders of `claude` and `git`;
+- the plist loads, `launchctl list` shows the label with a process ID, `board-answers` prints only when the listener on the port in `board.addr` is the process in `board.pid`, so the LaunchAgent started that board, and the board's `PATH=` holds the folders of `claude` and `git`;
 - the board starts a new watcher within 60 seconds of the kill;
 - after login, the board runs again, and the board's watcher resumed the supervisor (`supervisor: s... claude haiku low running`, perhaps `(resumes s...)`), which proves that the board's `PATH` finds `claude`;
 - the answer is yes.
 
-Evidence: `{ launchctl list | grep dev.secondhand.dogfood; hand orient | sed -n 1,5p; ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='; } 2>&1 | ev M11`, and the owner's answer.
+Evidence: `{ launchctl list | grep dev.secondhand.dogfood; hand orient | sed -n 1,5p; ps eww -p $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) | tr ' ' '\n' | grep '^PATH='; } 2>&1 | ev M11`, and the owner's answer.
 
 If it fails: file the output above and `tail -20 $SECONDHAND_HOME/board.log`.
 
@@ -654,7 +654,7 @@ PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
 if grep -q "$D/" $PLIST 2>/dev/null; then launchctl unload $PLIST; rm -f $PLIST; fi
 for f in $D/fleet*/watch.pid(N) $D/home*/board.pid(N); do
   [ -f $f ] || continue
-  p=$(cut -d' ' -f1 $f)
+  p=$(head -n1 $f | cut -d' ' -f1)
   ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
 [ -f $D/caffeinate.pid ] && ps -p $(cat $D/caffeinate.pid) -o command= | grep -q "^caffeinate" && kill $(cat $D/caffeinate.pid)

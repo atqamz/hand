@@ -324,21 +324,6 @@ func TestADeadClientIsStateNotAnErrorCard(t *testing.T) {
 	mustNotText(t, r.tt, "The Board refused this window.")
 }
 
-func TestOpenCallsOnARemoteFleetRunNothingAndSayNothing(t *testing.T) {
-	r := newRemoteUI(t, true)
-	for _, call := range []func(){r.app.OpenScreen, r.app.OpenInBrowser, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1") }, func() { r.app.OpenBoardPath("/" + rtA + "/doc/") }, func() { r.app.OpenBoardPath("/" + rtA + "/task/t1/x") }} {
-		call()
-		if r.app.OpenErr != "" || r.app.OpenBusy {
-			t.Fatalf("a remote fleet ran or reported hand open: err %q busy %v", r.app.OpenErr, r.app.OpenBusy)
-		}
-	}
-	r.app.SelectFleet(rtLocal)
-	r.app.OpenScreen()
-	if r.app.OpenErr == "" {
-		t.Fatal("a local fleet with no folder no longer says so")
-	}
-}
-
 func remoteGolden(t *testing.T) (*desktop.App, *ui.Tester) {
 	t.Helper()
 	f := goldenFixture(t)
@@ -361,24 +346,11 @@ func TestTheOverflowMenuOfARemoteFleetHasNoBrowserOrModelRefresh(t *testing.T) {
 	mustNotText(t, tt, "Refresh models")
 }
 
-func TestARemoteFleetsViewerHasNoOpenAsAPageAndALocalOneHas(t *testing.T) {
-	app, tt := remoteGolden(t)
-	app.OpenRef("t1")
-	tt.Frame()
-	mustText(t, tt, "Close the viewer")
-	mustNotText(t, tt, "Open as a page")
-	local := newApp(t, goldenFixture(t))
-	lt := newTester(local)
-	local.OpenRef("t1")
-	lt.Frame()
-	mustText(t, lt, "Open as a page")
-}
-
 func TestARemoteFleetOfTheRichFixtureShowsNoRailScreenCompanionNorHandOpenText(t *testing.T) {
 	app, tt := remoteGolden(t)
 	app.RailOpen = true
 	tt.Frame()
-	for _, name := range []string{"Screen", "Companion"} {
+	for _, name := range []string{"Companion"} {
 		if hasMark(tt, name) {
 			t.Fatalf("a remote fleet shows %q", name)
 		}
@@ -392,7 +364,7 @@ func TestARemoteFleetOfTheRichFixtureShowsNoRailScreenCompanionNorHandOpenText(t
 	local := newApp(t, goldenFixture(t))
 	lt := newTester(local)
 	lt.Frame()
-	mustMark(t, lt, "Screen", "Companion")
+	mustMark(t, lt, "Companion")
 }
 
 func TestAHostThatAnswers401IsNotRecognisedNeverTheLocalHandOpenCard(t *testing.T) {
@@ -655,12 +627,12 @@ func TestConnectRemoteDoesNothingWhileNewFleetRuns(t *testing.T) {
 
 func TestABoardLinkOnARemoteFleetOpensInTheWindowAndRunsNoHand(t *testing.T) {
 	r := newRemoteUI(t, true)
-	r.app.OpenBoardPath("/" + rtA + "/task/t1")
-	if r.app.Screen != desktop.TaskScreen || r.app.Ref != "t1" || r.app.OpenErr != "" || r.app.OpenBusy {
-		t.Fatalf("screen %v ref %q err %q busy %v", r.app.Screen, r.app.Ref, r.app.OpenErr, r.app.OpenBusy)
+	r.app.OpenBoardLink("/" + rtA + "/task/t1")
+	if r.app.Screen != desktop.TaskScreen || r.app.Ref != "t1" || r.app.OpenErr != "" {
+		t.Fatalf("screen %v ref %q err %q", r.app.Screen, r.app.Ref, r.app.OpenErr)
 	}
-	r.app.OpenBoardPath("/" + rtA + "/task/t1/x")
-	if r.app.OpenErr != "" {
-		t.Fatalf("err %q", r.app.OpenErr)
+	r.app.OpenBoardLink("/" + rtA + "/task/t1/x")
+	if r.app.OpenErr == "" {
+		t.Fatal("a link with no page in the window said nothing")
 	}
 }

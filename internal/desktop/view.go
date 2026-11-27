@@ -202,9 +202,6 @@ func (a *App) nav(c *ui.Context, k kit.Colors, p palette, open bool, item func(k
 	if draw(kit.NavItem{Key: "screen:conversation", Label: "Conversation", Icon: "chat", Current: !a.formShown() && a.underScreen() == HistoryScreen, Dot: a.Status.AgentState == "working"}) {
 		a.Show(HistoryScreen)
 	}
-	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:screen", Label: "Screen", Icon: "screen"}) {
-		a.OpenScreen()
-	}
 	if !a.remoteFleet() && draw(kit.NavItem{Key: "screen:phone", Label: "Companion", Icon: "phone", Current: !a.formShown() && a.underScreen() == PhoneScreen}) {
 		a.Show(PhoneScreen)
 	}
@@ -550,25 +547,16 @@ func (a *App) errorCardFor(c *ui.Context, p palette, msg string) {
 }
 
 func (a *App) openFeedback() bool {
-	return a.OpenBusy || a.OpenErr != ""
+	return a.OpenErr != ""
 }
 
 func (a *App) openCard(c *ui.Context, p palette) {
 	if !a.openFeedback() {
 		return
 	}
-	if a.OpenBusy {
-		ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.card).
-			Border(1, p.line).Children(func() {
-			ui.Text(c, "Opening in the browser…").FontSize(kit.Title.Size).Bold()
-			ui.Text(c, "`hand open` is starting this page.").FontSize(kit.Meta.Size).
-				TextColor(p.neutral)
-		})
-		return
-	}
 	ui.Column(c).Label("Open feedback").Gap(8).Padding(14).Radius(10).Background(p.failBG).
 		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The browser did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
+		ui.Text(c, "This page did not open").FontSize(kit.Title.Size).Bold().TextColor(p.fail)
 		ui.Text(c, a.OpenErr).FontSize(kit.Meta.Size)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-open"), "Dismiss").Clicked() {
@@ -844,7 +832,7 @@ func (a *App) markdownOf(c *ui.Context, linked string, theme *markdown.Theme) {
 		switch {
 		case board && a.openDocLink(target):
 		case board:
-			a.OpenBoardPath(target)
+			a.openBoardLink(target)
 		case target != "":
 			c.OpenURL(target)
 		}

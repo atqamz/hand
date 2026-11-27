@@ -27,12 +27,11 @@ The previews load the file from `?raw`, which sets the headers by type, always w
 
 It never shows dot files and dot folders, the files at the top of the fleet folder (`hand.db`, `board.token`, `AGENTS.md` and the rest of Hand's own), `backups/`, `cache/`, `luvus/`, `locks/`, `projects/`, a FIFO or device, a regular file with more than one hard link (a hard link to `hand.db` or `board.token` would otherwise pass the name check; it counts the links on Linux, macOS and Windows, so copy such a file to show it), or a path whose real path, after symlinks, leaves the fleet folder, and it says which rule refused the path. It works on a network address too, so the fleet's token also reads the fleet folder's files: keep the board on loopback and reach it through a tunnel.
 
-`hand open` opens a page in your browser, from inside a fleet:
+`hand open` opens the Hand window, not a browser page, from inside a fleet. The table lists the Board page each target used to open; the targets now open the same item in the window ([commands](commands.md)), and `hand open screen` is gone:
 
 | Command | Opens |
 |---|---|
 | `hand open`, `hand open supervisor` | the fleet page |
-| `hand open screen` | the Screen page (`/supervisor`) |
 | `hand open companion` (or `hand open phone`) | the Companion page (`/connect`) |
 | `hand open tasks [--] [QUERY]` | the Tasks page, searched for `QUERY` (`/tasks?q=`) when given |
 | `hand open tN` | the task |
@@ -41,13 +40,13 @@ It never shows dot files and dot folders, the files at the top of the fleet fold
 | `hand open tN --delivered` | the task's newest deliverable: a PR, a document, or a file or folder, in the document viewer when it is inside the fleet folder |
 | `hand open --doc PATH` | the file or folder `PATH` of the fleet folder, in the document viewer; it takes no ref and not `--delivered` |
 
-`--delivered` opens a file or folder inside the fleet folder in the document viewer when the viewer serves it, through the same login link as the other pages, and `--print` prints that link.
+`--delivered` opens a file or folder inside the fleet folder in the window's document viewer when the viewer serves it, and `--print` prints the `handboard://view/` link.
 
-`--doc` serves the same paths as `/<fleet id>/doc/<path>` and refuses the rest the way the viewer does: a path with `..`, an absolute or backslash path, a dot path, a link that leaves the fleet folder, a file at the folder's top level, and `luvus/`, `locks/`, `projects/`, `backups/` and `cache/` exit 2 with the viewer's reason, and a missing file exits 3, all before the board starts. `--print` prints the login link.
+`--doc` serves the same paths as `/<fleet id>/doc/<path>` and refuses the rest the way the viewer does: a path with `..`, an absolute or backslash path, a dot path, a link that leaves the fleet folder, a file at the folder's top level, and `luvus/`, `locks/`, `projects/`, `backups/` and `cache/` exit 2 with the viewer's reason, and a missing file exits 3, all before the board starts. `--print` prints the `handboard://view/` link.
 
 `--delivered` never opens any other file itself, because the path is text from a worker's report or `hand task done --deliverable` and the OS opener runs programs: for a path outside the fleet folder, gone or refused, it opens the folder that holds the file, or the folder itself, and it opens a URL only when its scheme is `http` or `https`; `--print` prints that path or URL as it is. It never opens a UNC path (`\\host\share\...`), because Windows would connect to the host it names and could leak credentials: it exits with an error that prints the path, and when the newest deliverable is a UNC path it does not fall back to an older one.
 
-`hand open` logs the browser in with the fleet's token through `xdg-open` (on macOS, `open`) and never prints the token; `hand open --print` prints the login link instead, for a Companion or another browser, so keep that output private. The login `hand open` opens lasts 400 days on a loopback board, or until `board.token` changes, which signs every browser out. Its link carries `keep=1`, and only a `keep=1` login with no proxy header on a loopback board lasts that long. The `--print` link has no `keep=1`, so a login from it, through a proxy, through a header-less forwarder or `ssh -L`, or on a network address, lasts until the browser quits. `hand open --print` also prints `app`, the `handboard://open/<fleet id>/<page>` link that opens the same item in the Hand app on a Companion ([The open link](companion.md#the-open-link)); it holds no token. The `url` is always the local address, as it is for plain `hand open`, and a Companion cannot open it. It finds the board through `~/.secondhand/board.addr`, which the running board writes, and starts a board first when none answers.
+`hand open` starts the Board when none answers, then runs `hand-desktop --open` with a `handboard://view/<fleet id>/<page>` link ([The open link](companion.md#the-open-link)). It logs no browser in and never prints the token, and `hand open --print` prints that link as `link` and starts nothing. No command prints a Board login link any more: the Hand window reads the token from `board.token` itself, a Companion pairs from the Companion page, and a browser on the frozen Board page needs the token, which the host's owner holds in `board.token`. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
 
 The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and marking reports read still work.
 
@@ -98,7 +97,7 @@ Through the Companion's address the board also:
 - answers a request that carries one of those headers for a fleet whose store cannot be opened exactly as it answers an unknown fleet id (404, "fleet not found"), so it shows neither the error nor whether the fleet exists but is broken. The board writes the full error to its stderr; a direct loopback request still shows it on the page;
 - sends `Referrer-Policy: no-referrer` on every page, so a link out of the board never tells the other site the board's address.
 
-`hand open --print` still prints a login link that holds the fleet's token, which a browser keeps as the host's session: pair a Companion from the Companion page instead.
+The fleet's token in `board.token` is the host's session: never paste it into a chat, and pair a Companion from the Companion page instead.
 
 ### Several fleets on one Companion
 

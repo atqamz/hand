@@ -1234,7 +1234,7 @@ func TestEmptyStates(t *testing.T) {
 func TestErrorState(t *testing.T) {
 	app := newApp(t, errorFixture())
 	tt := newTester(app)
-	mustText(t, tt, "The Board refused this window.", "hand open")
+	mustText(t, tt, "The Board refused this window.", "The Board answers, but it did not accept this fleet's token. In a terminal run hand board stop, then hand board start, then try again.")
 	mustNotText(t, tt, "Back")
 	click(t, tt, "Try again")
 	mustText(t, tt, "The Board refused this window.")
@@ -1262,6 +1262,8 @@ func TestScenes(t *testing.T) {
 		{Ref: "export.csv", Kind: "file"},
 	}
 	delivered.task[fleetID] = td
+	openErr := newApp(t, goldenFixture(t))
+	openErr.OpenBoardLink("/" + fleetID + "/task/d3")
 	opened := newApp(t, goldenFixture(t))
 	if err := opened.OpenLink("handboard://open/" + secondID + "/decision/d1"); err != nil {
 		t.Fatal(err)
@@ -1299,10 +1301,7 @@ func TestScenes(t *testing.T) {
 		}},
 		{"13-supervisor-controls", newApp(t, blocked), nil},
 		{"16-blocked-ask", newApp(t, askFixture(t)), nil},
-		{"14-open-error", homedApp(t, "/very/long/path/to/a-fleet"), func(t *testing.T, tt *ui.Tester) {
-			t.Setenv("PATH", t.TempDir())
-			menu(t, tt, "Open in browser")
-		}},
+		{"14-open-error", openErr, nil},
 		{"15-delivered", newApp(t, delivered), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "Fix login")
 		}},

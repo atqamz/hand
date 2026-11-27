@@ -138,8 +138,28 @@ func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, o
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if b, err := run(exec.Command(handBin, "open", "--print")).CombinedOutput(); err != nil {
-		t.Fatalf("hand open --print: %v\n%s", err, b)
+	addr, err := os.ReadFile(filepath.Join(sh, "board.addr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetDir := run(exec.Command(handBin)).Dir
+	entries, err := os.ReadDir(filepath.Join(sh, "index"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if resp, err := (&http.Client{Timeout: 10 * time.Second}).Get("http://" + strings.TrimSpace(string(addr)) + "/" + e.Name() + "/"); err == nil {
+			_ = resp.Body.Close()
+		}
+	}
+	for i := 0; ; i++ {
+		if _, err := os.Stat(filepath.Join(fleetDir, "board.token")); err == nil {
+			break
+		}
+		if i >= 200 {
+			t.Fatal("the board wrote no board.token in 20 s")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
