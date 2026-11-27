@@ -289,6 +289,9 @@ func boardChecks(t *testing.T, b *box, m made) {
 		"a climb from a folder past it":      "/doc/docs/" + upEncoded + "etc/hosts",
 	} {
 		r := host.get(t, fb.api(climb))
+		for hop := 0; hop < 3 && r.status >= 300 && r.status < 400 && r.header.Get("Location") != ""; hop++ {
+			r = host.get(t, strings.TrimPrefix(r.header.Get("Location"), fb.origin))
+		}
 		check(t, r.status != 200 && !strings.Contains(r.body, "SQLite format") && !strings.Contains(r.body, "localhost"), "the document endpoint serves nothing for "+name+" ("+strconv.Itoa(r.status)+")")
 	}
 	refused(t, anon.get(t, fb.api("/doc/docs/export-notes.md")), 401, "unauthorized", "the document endpoint refuses a request without a session")

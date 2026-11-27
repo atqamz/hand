@@ -368,6 +368,23 @@ func run0(t *testing.T, b *box, bin string) result {
 func afterwards(t *testing.T, s *scenario) {
 	t.Helper()
 	b, name, to, run := s.b, s.name, s.to, s.running
+	bin := filepath.Join(b.bin, "hand"+exe)
+	restarted := ""
+	if run.board && !s.known {
+		restarted, _ = b.read("board.pid")
+		matches(t, restarted, `(?m)^\d+ \S+ `+quote(bin)+`\s*$`, name+": the updater left a Board running on the updated binary")
+		check(t, pidOf(restarted) != run.boardPid, name+": the updater restarted the Board as a new process")
+		addr, _ := b.read("board.addr")
+		addr = strings.TrimSpace(addr)
+		waitFor(t, name+": the Board the updater restarted answers on "+addr, func() bool {
+			conn, err := net.DialTimeout("tcp", addr, time.Second)
+			if err != nil {
+				return false
+			}
+			conn.Close()
+			return true
+		})
+	}
 	if s.sidecar {
 		waitFor(t, name+": the sidecar is ready after the update", func() bool { text, _ := b.read("board.iroh"); return ready.MatchString(text) })
 	}
@@ -433,12 +450,11 @@ func afterwards(t *testing.T, s *scenario) {
 	orient := ok(t, b.hand(t, "orient"), name+": hand orient")
 	check(t, len(orient.out) < 6000, name+": hand orient stays under its byte budget")
 
-	bin := filepath.Join(b.bin, "hand"+exe)
 	f := startBoard(t, b)
 	marker, _ := b.read("board.pid")
 	matches(t, marker, `(?m)^\d+ \S+ `+quote(bin)+`\s*$`, name+": board.pid names the updated binary")
 	if run.board && !s.known {
-		check(t, pidOf(marker) != run.boardPid, name+": the Board is a new process")
+		check(t, pidOf(marker) == pidOf(restarted), name+": starting the Board again kept the updater's process")
 	}
 	body := apiTasks(t, f)
 	matches(t, body, `Add a CSV export`, name+": the Board shows the migrated tasks through the API")
