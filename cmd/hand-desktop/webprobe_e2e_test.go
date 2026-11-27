@@ -4,13 +4,13 @@ package main
 
 import (
 	"fmt"
-	"image/png"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -59,6 +59,7 @@ const hostilePage = `<!doctype html><html><head>
 </head><body>
 <h1>hostile</h1>
 <img src="%[1]s/img"><img src="relative-img"><img src="%[2]s/img-other-host">
+<img src="%[4]s"><img src="%[5]s">
 <iframe src="%[1]s/iframe"></iframe>
 <a id=l1 href="%[1]s/link">link</a>
 <a id=l2 href="relative-link">relative</a>
@@ -68,6 +69,8 @@ const hostilePage = `<!doctype html><html><head>
 <a id=l6 href="%[2]s/other-host-link">other host</a>
 <a id=l7 href="%[3]s/samelink">same origin</a>
 <a id=l8 target=_blank href="%[3]s/sameblank">same origin blank</a>
+<a id=l9 href="%[4]s">embedded origin</a>
+<a id=l10 href="%[5]s">embedded origin in the path</a>
 <form id=f method=post action="%[3]s/form"><input name=a value=1></form>
 <script>
 fetch('%[3]s/self/script-ran');
@@ -76,6 +79,7 @@ setTimeout(function(){
  try{document.getElementById('f').submit()}catch(e){}
  try{fetch('%[1]s/fetch',{mode:'no-cors',credentials:'include'})}catch(e){}
  try{var x=new XMLHttpRequest();x.open('GET','%[1]s/xhr');x.send()}catch(e){}
+ try{fetch('%[4]s',{mode:'no-cors',credentials:'include'});fetch('%[5]s',{mode:'no-cors',credentials:'include'})}catch(e){}
  try{navigator.sendBeacon('%[1]s/beacon','x')}catch(e){}
  try{new Image().src='%[1]s/scriptimg'}catch(e){}
  try{new WebSocket('ws://'+'%[1]s'.slice(7)+'/ws')}catch(e){}
@@ -86,7 +90,7 @@ setTimeout(function(){
  try{window.print()}catch(e){}
  try{location.href='%[3]s/locationhref'}catch(e){}
 },500);
-setTimeout(function(){for(var i=1;i<=8;i++){document.getElementById('l'+i).click()}},1500);
+setTimeout(function(){for(var i=1;i<=10;i++){document.getElementById('l'+i).click()}},1500);
 setTimeout(function(){fetch('%[3]s/self/done')},2500);
 </script></body></html>`
 
@@ -120,7 +124,7 @@ func probeServers(t *testing.T, policy string) (*probeLog, string, string, strin
 					h.Set("Content-Security-Policy", policy)
 				}
 				h.Set("X-Content-Type-Options", "nosniff")
-				fmt.Fprintf(w, hostilePage, portURL, hostURL, boardURL)
+				fmt.Fprintf(w, hostilePage, portURL, hostURL, boardURL, portURL+"/?u="+boardURL+"/", portURL+"/x/"+boardURL+"/")
 			case strings.HasPrefix(r.URL.Path, "/render"):
 				h.Set("Content-Type", "text/html; charset=utf-8")
 				h.Set("Content-Security-Policy", policy)
@@ -252,7 +256,8 @@ func TestRealWebViewKeepsAHostilePageOnTheBoardsOrigin(t *testing.T) {
 	}
 }
 
-func TestRealWebViewDrawsAnHTMLPageUnderTheBoardsPolicy(t *testing.T) {
+func drawnInTwoColours(t *testing.T) (best [2]int) {
+	t.Helper()
 	if _, err := exec.LookPath("import"); err != nil {
 		if os.Getenv("CI") != "" {
 			t.Fatal("ImageMagick import is not installed")
@@ -264,20 +269,8 @@ func TestRealWebViewDrawsAnHTMLPageUnderTheBoardsPolicy(t *testing.T) {
 	startProbe(t, bin, boardURL+"/render")
 	until(t, "the page request", 90*time.Second, func() bool { return log.saw("board", "/render") })
 	shot := filepath.Join(t.TempDir(), "screen.png")
-	best := [2]int{}
 	until(t, "the page drawn in its two colours", 60*time.Second, func() bool {
-		if b, err := exec.Command("import", "-window", "root", shot).CombinedOutput(); err != nil {
-			t.Fatalf("import: %v\n%s", err, b)
-		}
-		f, err := os.Open(shot)
-		if err != nil {
-			t.Fatal(err)
-		}
-		img, err := png.Decode(f)
-		_ = f.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
+		img := screenshot(t, shot)
 		var pink, green int
 		b := img.Bounds()
 		for y := b.Min.Y; y < b.Max.Y; y += 2 {
@@ -294,8 +287,36 @@ func TestRealWebViewDrawsAnHTMLPageUnderTheBoardsPolicy(t *testing.T) {
 		best = [2]int{max(best[0], pink), max(best[1], green)}
 		return pink >= renderMin && green >= renderMin
 	})
+	return best
+}
 
+func TestRealWebViewDrawsAnHTMLPageUnderTheBoardsPolicy(t *testing.T) {
+	best := drawnInTwoColours(t)
 	t.Logf("pixels sampled every second row and column: pink %d, green %d", best[0], best[1])
+}
+
+func TestRealWebViewShowsNoContextMenuOverAnHTMLPage(t *testing.T) {
+	drawnInTwoColours(t)
+	if _, err := exec.LookPath("xdotool"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("xdotool is not installed")
+		}
+		t.Skip("xdotool is not installed")
+	}
+	out, err := exec.Command("xdotool", "search", "--onlyvisible", "--name", "^probe$", "getwindowgeometry", "--shell").Output()
+	if err != nil {
+		t.Fatalf("xdotool: %v", err)
+	}
+	geo := map[string]int{}
+	for _, l := range strings.Fields(string(out)) {
+		if k, v, ok := strings.Cut(l, "="); ok {
+			geo[k], _ = strconv.Atoi(v)
+		}
+	}
+	if geo["WIDTH"] == 0 {
+		t.Fatalf("the probe window has no geometry: %s", out)
+	}
+	checkNoContextMenu(t, t.TempDir(), geo["X"]+geo["WIDTH"]/4, geo["Y"]+geo["HEIGHT"]/4)
 }
 
 const renderMin = 8000

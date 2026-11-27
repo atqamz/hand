@@ -249,6 +249,9 @@ func TestAViewThatCannotBeConfinedIsDestroyedAndNeverLoads(t *testing.T) {
 	if err == nil {
 		t.Fatal("opened a view that is not confined")
 	}
+	if !errors.Is(err, desktop.ErrWebUnconfined) || !errors.Is(err, e.originErr) {
+		t.Fatalf("err = %v, want ErrWebUnconfined wrapping the cause", err)
+	}
 	if handle.View != nil || handle.Close != nil || handle.OnGone != nil {
 		t.Fatal("a handle came with the error")
 	}
@@ -333,6 +336,11 @@ func TestTheRulesLetOnlyTheBoardsOriginLoad(t *testing.T) {
 		"wss://127.0.0.1:4100/x",
 		"http://203.0.113.9/x",
 		"https://example.com/x",
+		"http://127.0.0.1:4101/?u=http://127.0.0.1:4100/",
+		"http://127.0.0.1:4101/x/http://127.0.0.1:4100/y",
+		"http://127.0.0.2:4100/#http://127.0.0.1:4100/",
+		"https://example.com/?next=http%3A%2F%2F127.0.0.1%3A4100%2F&u=http://127.0.0.1:4100/",
+		"ws://127.0.0.1:4101/?u=http://127.0.0.1:4100/",
 	} {
 		if !blocked(t, rules, u) {
 			t.Errorf("%s is not blocked", u)

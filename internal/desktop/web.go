@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"errors"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop/kit"
@@ -8,10 +10,13 @@ import (
 
 const (
 	webEngineMissing = " cannot be shown in this window: the system web engine is not available (WebKitGTK on Linux, WebView2 on Windows). Download the file to open it elsewhere."
+	webUnconfined    = " cannot be shown in this window: the web view could not be limited to the Board's address, so nothing was loaded. Download the file to open it elsewhere."
 	webPlaceholder   = "The system web view draws the file here. A scene cannot show a real web view."
 	webGone          = " stopped drawing: the web view's process ended. The source is shown instead. Choose Rendered to try again."
 	webMinHeight     = 360
 )
+
+var ErrWebUnconfined = errors.New("the web view could not be limited to the Board's origin")
 
 type WebHandle struct {
 	View   ui.NativeWebView
@@ -40,7 +45,11 @@ func (a *App) webReady() bool {
 func (a *App) openWeb(rel, noun string, f DocFrame) {
 	h, err := a.OpenWeb(f)
 	if err != nil {
-		a.web = webState{path: rel, notice: noun + webEngineMissing}
+		notice := webEngineMissing
+		if errors.Is(err, ErrWebUnconfined) {
+			notice = webUnconfined
+		}
+		a.web = webState{path: rel, notice: noun + notice}
 		return
 	}
 	a.web = webState{path: rel, handle: h}

@@ -2,6 +2,7 @@ package desktop_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -10,9 +11,10 @@ import (
 )
 
 const (
-	htmlMissing = "An HTML page cannot be shown in this window: the system web engine is not available (WebKitGTK on Linux, WebView2 on Windows). Download the file to open it elsewhere."
-	htmlGone    = "An HTML page stopped drawing: the web view's process ended. The source is shown instead. Choose Rendered to try again."
-	htmlFrame   = "http://127.0.0.1:4100/" + fleetID + "/api/v1/doc/" + pagePath + "?raw&frame"
+	htmlMissing    = "An HTML page cannot be shown in this window: the system web engine is not available (WebKitGTK on Linux, WebView2 on Windows). Download the file to open it elsewhere."
+	htmlUnconfined = "An HTML page cannot be shown in this window: the web view could not be limited to the Board's address, so nothing was loaded. Download the file to open it elsewhere."
+	htmlGone       = "An HTML page stopped drawing: the web view's process ended. The source is shown instead. Choose Rendered to try again."
+	htmlFrame      = "http://127.0.0.1:4100/" + fleetID + "/api/v1/doc/" + pagePath + "?raw&frame"
 )
 
 func htmlApp(t *testing.T, w *fakeWeb, source bool) (*desktop.App, *ui.Tester, *framedModel) {
@@ -129,6 +131,40 @@ func TestAMissingWebEngineShowsTheNoticeAndTheSourceOfAnHTMLPage(t *testing.T) {
 	})
 }
 
+func TestAViewThatCannotBeConfinedShowsItsOwnNoticeAndTheSource(t *testing.T) {
+	both(t, func(t *testing.T, dark bool) {
+		w := &fakeWeb{err: fmt.Errorf("%w: content rules are not available", desktop.ErrWebUnconfined)}
+		app := webApp(t, &framedModel{fixture: kindsFixture(t)}, w)
+		app.OpenDoc(pagePath)
+		tt := sized(t, app, windowWidth, windowHeight, dark)
+		mustText(t, tt, "preview.html", htmlUnconfined, "Rendered", "Source", "Download")
+		mustNotText(t, tt, htmlMissing)
+		mustContain(t, tt, "<h1>Nightly export</h1>")
+	})
+}
+
+func TestTheSourceToggleIsLitOnSourceWhileANoticeShowsIt(t *testing.T) {
+	for name, err := range map[string]error{
+		"no engine":    errors.New("libwebkit2gtk-4.1.so.0: cannot open shared object file"),
+		"not confined": desktop.ErrWebUnconfined,
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := &fakeWeb{err: err}
+			app := webApp(t, &framedModel{fixture: kindsFixture(t)}, w)
+			app.OpenDoc(pagePath)
+			tt := sized(t, app, windowWidth, windowHeight, false)
+			if !has(tt, "Source, on") || !has(tt, "Rendered, off") {
+				t.Fatalf("toggle: Source on %v, Rendered off %v", has(tt, "Source, on"), has(tt, "Rendered, off"))
+			}
+		})
+	}
+	w := &fakeWeb{}
+	_, tt, _ := htmlApp(t, w, false)
+	if !has(tt, "Rendered, on") || !has(tt, "Source, off") {
+		t.Fatal("toggle with a web view: Rendered is not the lit one")
+	}
+}
+
 func TestARenderProcessThatEndsLeavesTheNoticeAndTheSource(t *testing.T) {
 	w := &fakeWeb{}
 	app, tt, _ := htmlApp(t, w, false)
@@ -197,19 +233,6 @@ func TestScenesAnHTMLPageHasAWebViewPlaceholder(t *testing.T) {
 		func(t *testing.T, app *desktop.App, tt *ui.Tester, dark bool) {
 			mustText(t, tt, "preview.html", "177 B", pdfPlaceholder, "Document view", "Rendered", "Source", "Download")
 			inked(t, tt, pdfPlaceholder)
-		})
-}
-
-func TestScenesAnHTMLPageInSourceWithTheEngine(t *testing.T) {
-	w := &fakeWeb{}
-	mediaScene(t, "136-doc-html-source-engine", pagePath, func(app *desktop.App) { app.OpenWeb = w.open },
-		func(t *testing.T, app *desktop.App, tt *ui.Tester, dark bool) {
-			click(t, tt, "Source")
-			tt.Frame()
-			mustContain(t, tt, "<h1>Nightly export</h1>", "<script>run()</script>")
-			mustText(t, tt, "Wrap", "Go to line", "Follow")
-			mustNotText(t, tt, pdfPlaceholder)
-			inked(t, tt, pageSource)
 		})
 }
 

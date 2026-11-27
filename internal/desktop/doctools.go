@@ -77,11 +77,12 @@ func (a *App) docTools(c *ui.Context, k kit.Colors, p palette, d Doc) {
 }
 
 func (a *App) docSwitch(c *ui.Context, k kit.Colors) {
+	source := a.DocSource || a.doc.doc.Kind == "html" && a.htmlNotice() != ""
 	ui.Row(c).Gap(0).AlignItems(ui.Center).Label("Rendered or Source").Children(func() {
-		if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !a.DocSource) && (a.DocSource || a.htmlAsSource()) {
+		if kit.DocToggle(c, k, "doc:tool:rendered", "Rendered", !source) && (a.DocSource || a.htmlAsSource()) {
 			a.setDocView(func() { a.DocSource = false })
 		}
-		if kit.DocToggle(c, k, "doc:tool:source", "Source", a.DocSource) && !a.DocSource {
+		if kit.DocToggle(c, k, "doc:tool:source", "Source", source) && !a.DocSource {
 			a.setDocView(func() { a.DocSource = true })
 		}
 	}).Tooltip("Rendered or Source. " + docStepTip())

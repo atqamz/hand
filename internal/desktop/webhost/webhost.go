@@ -2,6 +2,7 @@ package webhost
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -78,7 +79,7 @@ func (h *Host) Open(f desktop.DocFrame) (desktop.WebHandle, error) {
 	v.WillUsePermission(func(string) bool { return false })
 	if err := v.OnlyOrigin(origin(u)); err != nil {
 		v.Destroy()
-		return desktop.WebHandle{}, err
+		return desktop.WebHandle{}, fmt.Errorf("%w: %w", desktop.ErrWebUnconfined, err)
 	}
 	v.Load(f.URL)
 	return desktop.WebHandle{View: v.Native(), Close: v.Destroy, OnGone: v.OnGone}, nil
