@@ -389,3 +389,21 @@ func TestTheSheetScrollsAndStaysInsideAShortWindow(t *testing.T) {
 		t.Errorf("after scrolling the last row is at %v (found %v), want it inside the window and its margin", last, ok)
 	}
 }
+
+func TestTheSheetNamesTheBackChordForEachPlatform(t *testing.T) {
+	var row desktop.ShortcutRow
+	for _, r := range desktop.ShortcutRows() {
+		if r.Does == "Back one page; from the first page, close it" {
+			row = r
+		}
+	}
+	if row.Does == "" {
+		t.Fatal("no Back row in the table")
+	}
+	if got, want := fmt.Sprint(row.Caps), fmt.Sprint([][]string{{"Alt", "←"}}); got != want {
+		t.Errorf("the sheet shows %s for Back off Apple, want %s", got, want)
+	}
+	if got, want := fmt.Sprint(row.AppleCaps), fmt.Sprint([][]string{{"⌘", "["}}); got != want {
+		t.Errorf("the sheet shows %s for Back on Apple, want %s", got, want)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -245,7 +246,7 @@ func TestBackKeysDoNotFireOutsideThePage(t *testing.T) {
 	}
 }
 
-func TestTheStackIsCappedAtTwenty(t *testing.T) {
+func TestTheStackIsCappedAtTwentyAndDropsTheOldestPage(t *testing.T) {
 	app := newApp(t, viewFixture(t))
 	app.OpenRef("t1")
 	for i := 2; i <= 21; i++ {
@@ -254,15 +255,66 @@ func TestTheStackIsCappedAtTwenty(t *testing.T) {
 	if app.Screen != desktop.TaskScreen || app.Ref != "t21" {
 		t.Fatalf("the 21st link left %v %q, want t21", app.Screen, app.Ref)
 	}
-	for range 19 {
+	for i := 20; i >= 2; i-- {
 		app.Back()
-	}
-	if app.Ref != "t1" {
-		t.Fatalf("19 Backs left %q, want the first page t1", app.Ref)
+		if want := fmt.Sprintf("t%d", i); app.Ref != want {
+			t.Fatalf("Back left %q, want %s: the stack lost a page that is not the oldest", app.Ref, want)
+		}
 	}
 	app.Back()
 	if app.Screen != desktop.BoardScreen || app.Ref != "" {
-		t.Fatalf("Back from the first page left %v %q, want the Board", app.Screen, app.Ref)
+		t.Fatalf("Back from the oldest kept page left %v %q, want the Board", app.Screen, app.Ref)
+	}
+}
+
+func TestTheHistoryIsGoneAfterTheViewerCloses(t *testing.T) {
+	app := newApp(t, viewFixture(t))
+	app.OpenRef("t1")
+	app.OpenRef("a1")
+	app.CloseViewer()
+	if app.Screen != desktop.BoardScreen {
+		t.Fatalf("Close left %v, want the Board", app.Screen)
+	}
+	app.OpenRef("t1")
+	app.Back()
+	if app.Screen != desktop.BoardScreen || app.Ref != "" {
+		t.Fatalf("Back after a fresh open left %v %q, want the Board, not a page of the closed history", app.Screen, app.Ref)
+	}
+}
+
+func TestCollapsingTheSupervisorWritesNoPreferences(t *testing.T) {
+	dir := t.TempDir()
+	app := booted(t, dir)
+	clock := newFakeClock()
+	app.Clock = clock
+	posted := make(chan func(), 16)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	app.OpenRef("t1")
+	tt.Frame()
+	click(t, tt, "Collapse the supervisor")
+	mustText(t, tt, "Expand the supervisor")
+	click(t, tt, "Expand the supervisor")
+	click(t, tt, "Collapse the supervisor")
+	clock.Advance(5 * time.Second)
+	for len(posted) > 0 {
+		(<-posted)()
+	}
+	if _, err := os.Stat(desktop.PrefsPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("collapsing the supervisor wrote prefs.json: %v", err)
+	}
+	if err := os.WriteFile(desktop.PrefsPath(dir), []byte(`{"zoom":1.25}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	click(t, tt, "Expand the supervisor")
+	click(t, tt, "Collapse the supervisor")
+	clock.Advance(5 * time.Second)
+	for len(posted) > 0 {
+		(<-posted)()
+	}
+	raw, err := os.ReadFile(desktop.PrefsPath(dir))
+	if err != nil || string(raw) != `{"zoom":1.25}` {
+		t.Fatalf("collapsing changed prefs.json: %q, %v", raw, err)
 	}
 }
 

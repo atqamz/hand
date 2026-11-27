@@ -755,7 +755,7 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == BoardScreen {
 		a.openerRef = opener
 	}
-	if !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
+	if !isBase(a.Screen) {
 		a.pushBack()
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
@@ -777,6 +777,9 @@ func (a *App) pushBack() {
 	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
 		Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page,
 		Scroll: scroll, Aside: aside})
+	if len(a.back) > viewerStackMax-1 {
+		a.back = a.back[len(a.back)-(viewerStackMax-1):]
+	}
 }
 
 type scrollMemo struct {

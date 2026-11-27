@@ -217,7 +217,7 @@ func (a *App) showDoc(rel string, page int, push bool) {
 		a.tabFor = ""
 	}
 	a.viewerFocus = true
-	if push && !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
+	if push && !isBase(a.Screen) {
 		a.pushBack()
 	}
 	_, _, stop := a.nextLoad()
