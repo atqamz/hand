@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/atqamz/hand/internal/desktop"
+	"github.com/atqamz/hand/internal/desktop/kit"
 )
 
 const (
@@ -84,6 +85,14 @@ func TestAVideoWhoseProcessEndsOrLoadFailsShowsTheNoticeAndDownload(t *testing.T
 		mustNotText(t, tt, "Choose Rendered to try again")
 		if w.closes() != 1 {
 			t.Fatalf("closes = %d, want the ended view released once", w.closes())
+		}
+		text, ok := tt.Find(videoGone)
+		btn, ok2 := tt.Find("Download")
+		if !ok || !ok2 {
+			t.Fatalf("notice found %t, Download found %t", ok, ok2)
+		}
+		if gap := btn.Y - (text.Y + text.H); gap < 0 || gap > kit.Space10 {
+			t.Fatalf("Download is %.1f below the notice text, want it inside the notice box (at most %d)", gap, kit.Space10)
 		}
 	})
 }
