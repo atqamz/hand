@@ -575,7 +575,7 @@ EOF
 launchctl load $PLIST
 sleep 10
 launchctl list | grep dev.secondhand.dogfood
-hand board start > /dev/null && echo board-answers
+lsof -t -nP -iTCP:$(cut -d: -f2 $SECONDHAND_HOME/board.addr) -sTCP:LISTEN | grep -qx $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) && echo board-answers
 ps eww -p $(head -n1 $SECONDHAND_HOME/board.pid | cut -d' ' -f1) | tr ' ' '\n' | grep '^PATH='
 ```
 
@@ -609,7 +609,7 @@ Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one min
 Logging out ends this session, and the supervisor. An agent cannot finish this step: it leaves the check `waiting for owner`, and the owner runs the Teardown after they answer.
 
 Expected:
-- the plist loads, `launchctl list` shows the label with a process ID, `board-answers` prints, and the board's `PATH=` holds the folders of `claude` and `git`;
+- the plist loads, `launchctl list` shows the label with a process ID, `board-answers` prints only when the listener on the port in `board.addr` is the process in `board.pid`, so the LaunchAgent started that board, and the board's `PATH=` holds the folders of `claude` and `git`;
 - the board starts a new watcher within 60 seconds of the kill;
 - after login, the board runs again, and the board's watcher resumed the supervisor (`supervisor: s... claude haiku low running`, perhaps `(resumes s...)`), which proves that the board's `PATH` finds `claude`;
 - the answer is yes.
