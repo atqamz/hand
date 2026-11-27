@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -14,6 +16,12 @@ type recordedPage struct {
 	download   func(*mygo.DownloadEvent)
 	openWindow func(mygo.WindowOpenRequest) *mygo.WindowOptions
 	permission func(mygo.PermissionRequest) bool
+	menu       func(*mygo.ContextMenuEvent)
+}
+
+func (p *recordedPage) OnContextMenu(fn func(*mygo.ContextMenuEvent)) func() {
+	p.menu = fn
+	return func() {}
 }
 
 func (p *recordedPage) LoadURL(u string) error { p.loaded = append(p.loaded, u); return nil }
@@ -183,6 +191,25 @@ func TestTheWebViewDeniesPermissionsThePolicyDenies(t *testing.T) {
 	}
 }
 
+func TestTheWebViewShowsNoContextMenu(t *testing.T) {
+	t.Parallel()
+	r, _ := newRecordedView(t)
+	if r.page.menu == nil {
+		t.Fatal("no context menu listener is set")
+	}
+	for _, e := range []*mygo.ContextMenuEvent{
+		{},
+		{LinkURL: "http://127.0.0.1:1/secret"},
+		{ImageURL: "http://127.0.0.1:1/i.png"},
+		{SelectionText: "x", Editable: true},
+	} {
+		r.page.menu(e)
+		if !e.DefaultPrevented() {
+			t.Errorf("the context menu for %+v was not prevented", *e)
+		}
+	}
+}
+
 func TestTheWebViewLoadsTheAddressAndDestroysItself(t *testing.T) {
 	t.Parallel()
 	r, v := newRecordedView(t)
@@ -203,5 +230,50 @@ func TestAWebViewThatCannotBeMadeIsAnError(t *testing.T) {
 	s, _ := e.NewSession()
 	if v, err := e.NewView(s); err == nil || v != nil {
 		t.Errorf("NewView = %v, %v; want an error and no view", v, err)
+	}
+}
+
+const printProbe = `
+const calls = [];
+const window = { print: function () { calls.push("native"); } };
+%s
+const out = [];
+window.print();
+out.push(["call", calls.length === 0]);
+window.print = function () { calls.push("page"); };
+window.print();
+out.push(["assignment", calls.length === 0]);
+out.push(["returns", window.print() === undefined]);
+const d = Object.getOwnPropertyDescriptor(window, "print");
+out.push(["accessor", typeof d.get === "function" && typeof d.set === "function" && d.configurable === false]);
+let threw = false;
+try { Object.defineProperty(window, "print", { value: function () { calls.push("redefined"); } }); } catch (e) { threw = true; }
+window.print();
+out.push(["redefine", threw && calls.length === 0]);
+out.push(["getter", d.get() !== undefined && d.get()() === undefined && calls.length === 0]);
+d.set(function () { calls.push("setter"); });
+window.print();
+out.push(["setter", calls.length === 0]);
+console.log(JSON.stringify(out));
+`
+
+func TestThePreloadMakesPrintANoOpThatThePageCannotRestore(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("node is needed to run the preload script: %v", err)
+		}
+		t.Skip("node is not installed")
+	}
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(strings.Replace(printProbe, "%s", blockPDFPrint, 1))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	want := `[["call",true],["assignment",true],["returns",true],["accessor",true],["redefine",true],["getter",true],["setter",true]]`
+	if strings.TrimSpace(string(out)) != want {
+		t.Errorf("print probe = %s, want %s", strings.TrimSpace(string(out)), want)
 	}
 }

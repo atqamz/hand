@@ -19,6 +19,7 @@ type webPage interface {
 	OnWillDownload(func(*mygo.DownloadEvent)) func()
 	SetWindowOpenHandler(func(mygo.WindowOpenRequest) *mygo.WindowOptions)
 	SetPermissionHandler(func(mygo.PermissionRequest) bool)
+	OnContextMenu(func(*mygo.ContextMenuEvent)) func()
 }
 
 type webParts struct {
@@ -62,6 +63,7 @@ func (e mygoEngine) NewView(s webhost.Session) (webhost.View, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.page.OnContextMenu(func(e *mygo.ContextMenuEvent) { e.PreventDefault() })
 	return mygoView{p}, nil
 }
 
