@@ -27,12 +27,14 @@ const fleetName = "Window Check"
 var denied = regexp.MustCompile(`(?i)^(HAND_|SECONDHAND_|MYGO_|LUVUS_|CLAUDE|ANTHROPIC|OPENAI|CODEX|GH_|GITHUB_|ACTIONS_|RUNNER_|NODE_OPTIONS=|XDG_RUNTIME_DIR=|DBUS_SESSION_BUS_ADDRESS=)`)
 
 type node struct {
-	ID     string `json:"id"`
-	Role   string `json:"role"`
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Value  string `json:"value"`
-	Parent string `json:"parent"`
+	ID      string `json:"id"`
+	Role    string `json:"role"`
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Value   string `json:"value"`
+	Parent  string `json:"parent"`
+	WebView bool   `json:"webView"`
+	Bounds  struct{ X, Y, Width, Height float64 }
 }
 
 type rpc struct {
@@ -83,22 +85,24 @@ func goBuild(t *testing.T, dir, out, tags string, args ...string) {
 	}
 }
 
-func TestRealWindow(t *testing.T) { realWindow(t, false, false, false) }
+func TestRealWindow(t *testing.T) { realWindow(t, false, false, false, false) }
+
+func TestRealWindowPDF(t *testing.T) { realWindow(t, false, false, false, true) }
 
 func TestRealWindowAttention(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the attention check reads an X11 window and a D-Bus session")
 	}
-	realWindow(t, false, false, true)
+	realWindow(t, false, false, true, false)
 }
 
-func TestRealWindowNewFleet(t *testing.T) { realWindow(t, false, true, false) }
+func TestRealWindowNewFleet(t *testing.T) { realWindow(t, false, true, false, false) }
 
 func TestRealWindowFromBundle(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Hand.app is built on macOS only")
 	}
-	realWindow(t, true, false, false)
+	realWindow(t, true, false, false, false)
 }
 
 func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, outDir string) {
@@ -163,7 +167,7 @@ func startFleetBoard(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, o
 	}
 }
 
-func realWindow(t *testing.T, fromBundle, zeroFleet, attention bool) {
+func realWindow(t *testing.T, fromBundle, zeroFleet, attention, pdf bool) {
 	outDir := os.Getenv("HAND_WINDOW_OUT")
 	if outDir == "" {
 		t.Skip("set HAND_WINDOW_OUT to a folder to run a real window and keep its picture there")
@@ -173,6 +177,9 @@ func realWindow(t *testing.T, fromBundle, zeroFleet, attention bool) {
 	}
 	if attention {
 		outDir = filepath.Join(outDir, "attention")
+	}
+	if pdf {
+		outDir = filepath.Join(outDir, "pdf")
 	}
 	if zeroFleet {
 		outDir = filepath.Join(outDir, "newfleet")
@@ -421,6 +428,37 @@ func realWindow(t *testing.T, fromBundle, zeroFleet, attention bool) {
 	if attention {
 		checkAttention(t, run, handBin, fleet, win.Process.Pid, bus)
 	}
+	if pdf {
+		if err := os.MkdirAll(filepath.Join(fleet, "reports"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(fleet, "reports", "plan.pdf"), []byte(tinyPDF), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		marks, err := os.ReadDir(filepath.Join(sh, "index"))
+		if err != nil || len(marks) != 1 {
+			t.Fatalf("want one bookmark in index: %d, %v", len(marks), err)
+		}
+		link := "handboard://view/" + marks[0].Name() + "/doc/reports/plan.pdf"
+		if b, err := run(exec.Command(deskBin, "--open", link)).CombinedOutput(); err != nil {
+			t.Fatalf("hand-desktop --open: %v\n%s", err, b)
+		}
+		until("the PDF page with a web view", 60*time.Second, func() bool {
+			if !hasText("plan.pdf") {
+				return false
+			}
+			for _, n := range nodes {
+				if n.WebView {
+					return true
+				}
+			}
+			return false
+		})
+		if hasText("the system web engine is not available") {
+			t.Fatal("the window says the web engine is missing")
+		}
+		checkPDFDrawn(t, c, id, outDir, nodes)
+	}
 	if zeroFleet {
 		marks, err := os.ReadDir(filepath.Join(sh, "index"))
 		if err != nil || len(marks) != 1 {
@@ -545,5 +583,76 @@ func checkMadeFleet(t *testing.T, run func(*exec.Cmd) *exec.Cmd, handBin, sh, fo
 	}
 	if b, err := run(exec.Command(handBin, "board", "stop")).CombinedOutput(); err != nil || !strings.Contains(string(b), "board: not running") {
 		t.Errorf("a second hand board stop: %v\n%s", err, b)
+	}
+}
+
+const tinyPDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+	"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n" +
+	"4 0 obj<</Length 44>>stream\nBT /F1 36 Tf 30 90 Td (PDF CHECK) Tj ET\nendstream\nendobj\n" +
+	"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n"
+
+const pdfDarkMin = 8000
+
+func checkPDFDrawn(t *testing.T, c *rpc, id int, outDir string, nodes []node) {
+	t.Helper()
+	if _, err := exec.LookPath("import"); err != nil || os.Getenv("DISPLAY") == "" {
+		t.Log("no ImageMagick import or no X display: the PDF's pixels are not checked")
+		return
+	}
+	var view *node
+	for i := range nodes {
+		if nodes[i].WebView {
+			view = &nodes[i]
+		}
+	}
+	if view == nil {
+		t.Fatal("the window has no web view node")
+	}
+	var wins struct {
+		Windows []struct {
+			ID            int
+			ContentBounds struct{ X, Y, Width, Height float64 }
+		}
+	}
+	if err := c.call("windows", nil, &wins); err != nil {
+		t.Fatal(err)
+	}
+	var origin struct{ X, Y float64 }
+	for _, w := range wins.Windows {
+		if w.ID == id {
+			origin.X, origin.Y = w.ContentBounds.X, w.ContentBounds.Y
+		}
+	}
+	shot := filepath.Join(outDir, "screen.png")
+	best := 0
+	for i := 0; i < 30 && best < pdfDarkMin; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if b, err := exec.Command("import", "-window", "root", shot).CombinedOutput(); err != nil {
+			t.Fatalf("import: %v\n%s", err, b)
+		}
+		f, err := os.Open(shot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := png.Decode(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		dark := 0
+		x0, y0 := int(origin.X+view.Bounds.X), int(origin.Y+view.Bounds.Y)
+		for y := y0; y < y0+int(view.Bounds.Height); y++ {
+			for x := x0; x < x0+int(view.Bounds.Width); x++ {
+				r, g, b, _ := img.At(x, y).RGBA()
+				if r+g+b < 3*0x2000 {
+					dark++
+				}
+			}
+		}
+		best = max(best, dark)
+	}
+	t.Logf("dark pixels in the web view: %d", best)
+	if best < pdfDarkMin {
+		t.Fatalf("the PDF is not drawn across the web view: %d dark pixels, want at least %d", best, pdfDarkMin)
 	}
 }

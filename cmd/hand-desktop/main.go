@@ -16,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/brand"
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/atqamz/hand/internal/desktop/remote"
+	"github.com/atqamz/hand/internal/desktop/webhost"
 	"github.com/atqamz/hand/internal/desktopasset"
 	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/egoist/mygo"
@@ -189,6 +190,8 @@ func main() {
 			path, _ := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: win, Title: "Save the file", DefaultPath: name})
 			return path
 		}
+		web := &webhost.Host{Engine: mygoEngine{win}}
+		app.OpenWeb = web.Open
 		app.OnTitle = win.SetTitle
 		app.OnBadge = mygo.App.SetBadgeCount
 		app.OnFlash = win.FlashFrame

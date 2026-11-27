@@ -100,10 +100,10 @@ func TestScenesTheDocumentTableTruncated(t *testing.T) {
 		})
 }
 
-func TestScenesAnAudioFileHasNoPlayer(t *testing.T) {
+func TestScenesAnAudioFileOfAnUnplayableFormat(t *testing.T) {
 	kindScene(t, "125-doc-kind-audio", voicePath, kindsFixture, func(t *testing.T, app *desktop.App, tt *ui.Tester, dark bool) {
 		mustText(t, tt, "standup.mp3", "3.0 MiB")
-		notice(t, tt, dark, "An audio file cannot be shown in this window.")
+		notice(t, tt, dark, "This audio file cannot be played in this window. It plays WAV, MP3 and Ogg Vorbis; download it to play it elsewhere.")
 	})
 }
 

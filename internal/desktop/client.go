@@ -28,6 +28,20 @@ import (
 	"github.com/atqamz/hand/internal/sidecar"
 )
 
+const LocalHost = "local"
+
+type WebCookie struct{ Name, Value, Domain string }
+
+type DocFrame struct {
+	Host   string
+	URL    string
+	Cookie WebCookie
+}
+
+type DocFramer interface {
+	DocFrame(ctx context.Context, fleet, path string) (DocFrame, error)
+}
+
 type ReadModel interface {
 	Fleets() []Fleet
 	Name(ctx context.Context, fleet string) (string, error)
@@ -166,6 +180,7 @@ const (
 )
 
 type HTTPClient struct {
+	Host   string
 	Base   string
 	BaseOf func() string
 	Known  []Fleet
@@ -529,6 +544,27 @@ func (c *HTTPClient) DocBytes(ctx context.Context, fleet, path string) ([]byte, 
 		return nil, errors.New("the file is larger than this window reads")
 	}
 	return b, err
+}
+
+func (c *HTTPClient) DocFrame(ctx context.Context, fleet, path string) (DocFrame, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return DocFrame{}, err
+	}
+	base := c.base()
+	u, err := url.Parse(base)
+	if err != nil || u.Hostname() == "" {
+		return DocFrame{}, c.noBoard(fleet)
+	}
+	host := c.Host
+	if host == "" {
+		host = LocalHost
+	}
+	return DocFrame{
+		Host:   host,
+		URL:    base + "/" + fleet + "/api/v1" + docPath(path) + "?raw",
+		Cookie: WebCookie{Name: c.cookie(fleet), Value: token, Domain: u.Hostname()},
+	}, nil
 }
 
 func (c *HTTPClient) DocStream(ctx context.Context, fleet, path string, dst io.Writer) (int64, error) {
