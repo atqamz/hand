@@ -124,6 +124,8 @@ const (
 	OverflowTip  = overflowTip
 )
 
+func MenuRoom(window float32, anchor ui.Rect) float32 { return menuRoom(window, anchor) }
+
 type ShortcutRow struct {
 	Group, Does string
 	Caps        [][]string
