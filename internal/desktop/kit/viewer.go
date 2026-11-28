@@ -22,14 +22,6 @@ type ViewerOptions struct {
 	Keys    func(ui.Element) ui.Element
 }
 
-func viewerContent(c *ui.Context, k Colors, v ViewerOptions) {
-	viewerTop(c, k, v)
-	if v.Notice != nil {
-		v.Notice(c)
-	}
-	v.Body(c)
-}
-
 func ViewerPage(c *ui.Context, k Colors, v ViewerOptions) {
 	outer := ui.Column(c).Grow(1).MinHeight(0).MinWidth(0).Background(k.BG).Label(v.Name)
 	if v.Keys != nil {
