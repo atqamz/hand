@@ -468,15 +468,14 @@ func TestATasksSearchRowOpensTheTaskAndClosingReturnsToTheSearch(t *testing.T) {
 	}
 	mustText(t, tt, "Fix login")
 	click(t, tt, "Back")
-	if app.Screen != desktop.TaskScreen {
-		t.Error("the first page from the search went Back")
-	}
-	app.CloseViewer()
 	tt.Frame()
 	if app.Screen != desktop.TasksScreen {
-		t.Fatalf("closing the task left the screen on %v, want the tasks page", app.Screen)
+		t.Fatalf("Back from the first page left the screen on %v, want the tasks page", app.Screen)
 	}
 	mustText(t, tt, "Fleets / golden / tasks", "Move the rail to 1024 px")
+	if !tt.Focused("task t1") {
+		t.Error("the focus did not come back to the search row")
+	}
 }
 
 func TestTheTasksPageShowsTheBoardsRefusal(t *testing.T) {
@@ -752,16 +751,6 @@ func TestAnUnchangedStatusTickRetriesAFailedSearch(t *testing.T) {
 	tt.Frame()
 	mustNotText(t, tt, "Stale · retrying")
 	mustText(t, tt, "Sun 1 Nov UTC", "Move the rail to 1024 px")
-}
-
-func TestTheSearchStaysBeneathTheTaskViewer(t *testing.T) {
-	app, tt := searchApp(t, searchFixture(t))
-	click(t, tt, "task t1")
-	tt.Frame()
-	if app.Screen != desktop.TaskScreen {
-		t.Fatalf("screen = %v, want the task page", app.Screen)
-	}
-	mustText(t, tt, "Fleets / golden / tasks")
 }
 
 func TestRetryIsTheKitsFlatButton(t *testing.T) {

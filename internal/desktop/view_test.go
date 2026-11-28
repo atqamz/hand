@@ -1099,7 +1099,7 @@ func TestBackFromAReportReturnsToTheTask(t *testing.T) {
 
 func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	click(t, tt, "Fix login")
 	tt.Scroll(400, 400, 0, 160)
 	tt.Frame()
@@ -1137,6 +1137,8 @@ func TestBackToATaskAtAReportsCardKeepsTheCard(t *testing.T) {
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open r1")
+	tt.Frame()
+	atCard, _ := desktop.ViewerScroll(app)
 	click(t, tt, "from a1")
 	if app.Screen != desktop.AttemptScreen || app.Ref != "a1" {
 		t.Fatalf("from a1 left %v %q", app.Screen, app.Ref)
@@ -1146,10 +1148,14 @@ func TestBackToATaskAtAReportsCardKeepsTheCard(t *testing.T) {
 		t.Fatalf("Back left %v %q at %q, want the task at r1's card",
 			app.Screen, app.Ref, desktop.PageReport(app))
 	}
-	if target := desktop.ScrollTarget(app); target != "r1" {
-		t.Fatalf("Back restored the target %q, want r1", target)
+	if target := desktop.ScrollTarget(app); target != "" {
+		t.Fatalf("Back left the reveal target %q beside the restored scroll", target)
 	}
 	tt.Frame()
+	tt.Frame()
+	if y, _ := desktop.ViewerScroll(app); y != atCard {
+		t.Fatalf("Back put the page at %v, want %v where the card was", y, atCard)
+	}
 	mustText(t, tt, "report r1", "All tests pass.")
 	mustNotText(t, tt, "The board could not be read")
 }
@@ -1547,7 +1553,7 @@ func TestTaskShowsDecisionHistory(t *testing.T) {
 	td := f.task[fleetID]
 	f.extra = map[string]desktop.DecisionDetail{"d0": {Decision: td.Decisions[0], Task: td.Task, Body: td.Decisions[0].Question}}
 	app := newApp(t, f)
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	click(t, tt, "Fix login")
 	mustText(t, tt, "Rename the helper?", "Yes")
 	click(t, tt, "Answer d1")

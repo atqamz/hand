@@ -101,40 +101,23 @@ func (a *App) View(c *ui.Context) {
 			Type: kind, Timeout: timeout})
 		a.notice, a.noticeTitle, a.noticeKey, a.noticeError = "", "", "", false
 	}
-	docPage := a.docPageOpen()
-	shell := ui.Row(c).Fill()
-	if docPage {
-		if !a.keysOpen {
-			shell = keyClosePage.on(shell, a.CloseViewer)
-		}
-		if a.Screen == DocScreen {
-			shell = keyFind.on(shell, a.focusFindBox)
-			shell = keyPrevDoc.on(shell, func() { a.stepDoc(false) })
-			shell = keyNextDoc.on(shell, func() { a.stepDoc(true) })
-		}
-	}
-	a.pageKeys(c)
-	shell.Children(func() {
+	a.railKeys(c)
+	ui.Row(c).Fill().Children(func() {
 		if !a.narrow {
 			a.rail(c, k, p)
 		}
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			a.masthead(c, k, p)
-			if docPage {
-				a.viewer(c, k, p)
-			} else {
-				a.body(c, k, p)
-			}
+			a.body(c, k, p)
 		})
 	})
-	if docPage != a.docPageOpen() && a.viewerOpen() {
-		a.viewerFocus = true
+	if a.refocus != "" {
+		if a.refocusAge++; a.refocusAge > 1 {
+			a.refocus, a.refocusAge = "", 0
+		}
 	}
 	if a.narrow && a.sheetOpen {
 		a.sheet(c, k, p)
-	}
-	if a.viewerOpen() && !docPage {
-		a.viewer(c, k, p)
 	}
 	a.keysSheet(c, k)
 	a.toasts(c, k, p)
@@ -247,7 +230,7 @@ func (a *App) goPage(s Screen) {
 	a.Show(s)
 }
 
-func (a *App) pageKeys(c *ui.Context) {
+func (a *App) railKeys(c *ui.Context) {
 	if a.keysOpen {
 		return
 	}
@@ -461,6 +444,10 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		})
 		return
 	}
+	if a.viewerOpen() {
+		a.objectLayout(c, k, p)
+		return
+	}
 	a.actionCard(c, p)
 	switch a.underScreen() {
 	case TasksScreen:
@@ -483,7 +470,7 @@ func (a *App) body(c *ui.Context, k kit.Colors, p palette) {
 		a.narrowPanes(c, k, p)
 		return
 	}
-	a.panes(c, k, p)
+	a.panes(c, k, p, func() { a.workPane(c, k, p) })
 }
 
 func (a *App) narrowPanes(c *ui.Context, k kit.Colors, p palette) {

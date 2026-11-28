@@ -299,7 +299,13 @@ type App struct {
 	findBox       ui.Handle
 	lineBox       ui.Handle
 	viewerFocus   bool
+	restore       scrollMemo
+	workW         float32
+	supCollapsed  bool
 	openerRef     string
+	focusBack     string
+	refocus       string
+	refocusAge    int
 	boardFocus    bool
 	wakesOpen     map[string]bool
 	latestNew     int
@@ -363,6 +369,8 @@ type backStep struct {
 	Target    Report
 	HasTarget bool
 	Page      int
+	Scroll    float32
+	Aside     float32
 }
 
 type found struct {
@@ -736,8 +744,9 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 			a.resetPhone()
 		}
 		a.base = a.Screen
-		a.viewerFocus = true
+		a.focusBack = opener
 	}
+	a.viewerFocus = true
 	if a.base == BoardScreen {
 		a.tabFor = ref
 	} else {
@@ -746,9 +755,8 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 	if a.Screen == BoardScreen {
 		a.openerRef = opener
 	}
-	if !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
-		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
-			Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page})
+	if !isBase(a.Screen) {
+		a.pushBack()
 	}
 	a.Screen, a.Ref, a.pageReport, a.scrollTo = s, ref, report, report
 	a.pageTarget, a.pageTargetOK, a.pageTargetNeed = Report{}, false, pageTargetSettled
@@ -757,8 +765,48 @@ func (a *App) openPage(s Screen, ref, report string, target *Report, opener stri
 		a.pageTarget, a.pageTargetOK, a.pageTargetNeed = *target, true, pageTargetOwed
 	}
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
-	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.viewerScroll, a.asideScroll, a.restore = ui.ScrollState{}, ui.ScrollState{}, scrollMemo{}
 	a.Reload()
+}
+
+func (a *App) pushBack() {
+	scroll, aside := a.viewerScroll.Y, a.asideScroll.Y
+	if a.restore.on {
+		scroll, aside = a.restore.page, a.restore.aside
+	}
+	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
+		Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page,
+		Scroll: scroll, Aside: aside})
+	if len(a.back) > viewerStackMax-1 {
+		a.back = a.back[len(a.back)-(viewerStackMax-1):]
+	}
+}
+
+type scrollMemo struct {
+	on          bool
+	page, aside float32
+}
+
+func (a *App) restoreScroll() {
+	if !a.restore.on || !a.pageReady() {
+		return
+	}
+	a.viewerScroll.Y, a.asideScroll.Y = a.restore.page, a.restore.aside
+	a.restore = scrollMemo{}
+}
+
+func (a *App) pageReady() bool {
+	switch a.Screen {
+	case TaskScreen:
+		return a.Task.Task.Ref == a.Ref
+	case AttemptScreen:
+		return a.Attempt.Attempt.Ref == a.Ref
+	case DecisionScreen:
+		return a.Decision.Decision.Ref == a.Ref
+	case DocScreen:
+		return a.doc.ok || a.doc.err != ""
+	}
+	return false
 }
 
 func (a *App) reportTask(ref string) (string, *Report) {
@@ -915,22 +963,27 @@ func (a *App) loadReportTask(ref string) {
 	}()
 }
 
-// CloseViewer closes the whole stack in one step, as Escape, the close
-// button and a click on the backdrop do.
+// CloseViewer closes the whole stack in one step, as Escape and the close
+// button do.
 func (a *App) CloseViewer() {
 	if a.Screen == BoardScreen {
 		return
 	}
 	if a.openerRef != "" && !a.liveRef(a.openerRef) || a.Screen == DocScreen && a.base == BoardScreen {
 		a.boardFocus = true
+	} else if a.taskRowRef(a.focusBack) {
+		a.refocus, a.refocusAge = a.focusBack, 0
+	} else if a.base == BoardScreen {
+		a.boardFocus = true
 	}
+	a.focusBack = ""
 	a.openerRef = ""
 	a.tabFor = ""
 	a.Screen, a.Ref, a.back = a.base, "", nil
 	a.resetDoc()
 	a.pageReport, a.pageTarget, a.pageTargetOK, a.pageTargetNeed, a.scrollTo = "", Report{}, false, pageTargetSettled, ""
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
-	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.viewerScroll, a.asideScroll, a.restore = ui.ScrollState{}, ui.ScrollState{}, scrollMemo{}
 	a.viewerFocus = false
 	a.Reload()
 	if a.Screen == PhoneScreen {
@@ -939,6 +992,27 @@ func (a *App) CloseViewer() {
 	if a.Screen == TasksScreen {
 		a.refreshTaskSearch()
 	}
+}
+
+func (a *App) taskRowRef(ref string) bool {
+	if ref == "" {
+		return false
+	}
+	for _, g := range a.Tasks.Groups {
+		for _, r := range g.Tasks {
+			if r.Ref == ref {
+				return true
+			}
+		}
+	}
+	for _, g := range a.Search.Groups {
+		for _, r := range g.Tasks {
+			if r.Ref == ref {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a *App) liveRef(ref string) bool {
@@ -971,7 +1045,7 @@ func refScreen(ref string) (Screen, bool) {
 
 func (a *App) Back() {
 	if len(a.back) == 0 {
-		if a.docPageOpen() {
+		if a.viewerOpen() {
 			a.CloseViewer()
 		}
 		return
@@ -979,7 +1053,7 @@ func (a *App) Back() {
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.tabFor = ""
-	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, step.Report
+	a.Screen, a.Ref, a.pageReport, a.scrollTo = step.Screen, step.Ref, step.Report, ""
 	a.pageTarget, a.pageTargetOK = step.Target, step.HasTarget
 	a.pageTargetNeed = pageTargetSettled
 	if step.HasTarget {
@@ -988,6 +1062,7 @@ func (a *App) Back() {
 	a.pageTargetGen++
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
 	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.restore = scrollMemo{true, step.Scroll, step.Aside}
 	a.viewerFocus = true
 	a.resetDoc()
 	if step.Screen == DocScreen {

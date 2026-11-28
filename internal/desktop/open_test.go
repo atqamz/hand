@@ -279,6 +279,11 @@ func TestADeliveredItemOpensWhereItBelongs(t *testing.T) {
 			app := deliveredApp(t, hand.home, ds...)
 			tt := newTester(app)
 			screen.open(app)
+			for range 6 {
+				tt.Frame()
+				tt.Advance(100 * time.Millisecond)
+			}
+			tt.Scroll(400, 400, 0, -5000)
 			tt.Frame()
 			mustText(t, tt, "Delivered", "PR", "outside.pdf", "my design.md")
 

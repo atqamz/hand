@@ -82,9 +82,9 @@ func (a *App) docPage(c *ui.Context, k kit.Colors, p palette) {
 			a.docRow(c, k, a.doc.row, false)
 			return
 		}
-		w, h := c.Size()
-		bw, bh := kit.ViewerBox(w, h)
-		kit.DocPicture(c, k, a.doc.image, bw-2*kit.Space20, max(bh-300, 120), shownText(d.Name))
+		_, h := c.Size()
+		bw := min(a.workW, kit.ViewerMax)
+		kit.DocPicture(c, k, a.doc.image, bw-2*kit.Space20, max(h-48-300, 120), shownText(d.Name))
 	case "audio":
 		a.docAudio(c, k, p)
 	case "pdf":

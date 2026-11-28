@@ -88,6 +88,10 @@ func (a *App) taskRow(c *ui.Context, p palette, r TaskRow, depth int, under stri
 			}
 		})
 	})
+	if a.refocus == r.Ref {
+		a.refocus = ""
+		el.Focus()
+	}
 	if el.Clicked() {
 		a.OpenRef(r.Ref)
 	}

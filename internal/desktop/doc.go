@@ -216,12 +216,9 @@ func (a *App) showDoc(rel string, page int, push bool) {
 		a.base = a.Screen
 		a.tabFor = ""
 	}
-	if a.Screen != DocScreen {
-		a.viewerFocus = true
-	}
-	if push && !isBase(a.Screen) && len(a.back) < viewerStackMax-1 {
-		a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref, Report: a.pageReport,
-			Target: a.pageTarget, HasTarget: a.pageTargetOK, Page: a.doc.page})
+	a.viewerFocus = true
+	if push && !isBase(a.Screen) {
+		a.pushBack()
 	}
 	_, _, stop := a.nextLoad()
 	stop()
@@ -230,7 +227,7 @@ func (a *App) showDoc(rel string, page int, push bool) {
 	a.pageTarget, a.pageTargetOK, a.pageTargetNeed = Report{}, false, pageTargetSettled
 	a.pageTargetGen++
 	a.answerRef, a.AnswerChoice, a.AnswerNote = "", "", ""
-	a.viewerScroll, a.asideScroll = ui.ScrollState{}, ui.ScrollState{}
+	a.viewerScroll, a.asideScroll, a.restore = ui.ScrollState{}, ui.ScrollState{}, scrollMemo{}
 	a.docOp++
 	a.doc = docState{path: rel, page: page, from: 1}
 	a.loadDoc()

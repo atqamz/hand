@@ -436,6 +436,10 @@ func (a *App) searchRow(c *ui.Context, p palette, sr TaskSearchRow, finished str
 				TextColor(p.neutral).FontFeatures("tnum").SingleLine()
 		}
 	})
+	if a.refocus == r.Ref {
+		a.refocus = ""
+		el.Focus()
+	}
 	if el.Clicked() {
 		a.OpenRef(r.Ref)
 	}

@@ -86,12 +86,12 @@ func TestTheAttemptPageShowsItsFactsAndTranscript(t *testing.T) {
 func TestTheAttemptPageKeepsTheTasksTwoColumns(t *testing.T) {
 	f := attemptPageFixture(t)
 	app := newApp(t, f)
-	tt := newTesterAt(app, 999, 900)
+	tt := newTesterAt(app, 1100, 900)
 	app.OpenRef("a1")
 	tt.Frame()
 	reports, _ := tt.Find("Reports")
 	details, _ := tt.Find("Details")
-	if reports.X > 60 || details.X > 60 || details.Y >= reports.Y {
+	if details.X != reports.X || details.Y >= reports.Y {
 		t.Fatalf("reports at %v and details at %v, want one column with the aside after", reports, details)
 	}
 }
@@ -102,7 +102,7 @@ func TestTheAttemptBriefScrollsInsideItsFocusedBox(t *testing.T) {
 	short.Brief = "a short brief"
 	f.attempt[fleetID] = short
 	shortApp := newApp(t, f)
-	shortTT := newTesterAt(shortApp, 1100, 900)
+	shortTT := newTesterAt(shortApp, 1100, 1600)
 	shortApp.OpenRef("a1")
 	shortTT.Frame()
 	_, shortMax := desktop.ViewerScroll(shortApp)
@@ -112,7 +112,7 @@ func TestTheAttemptBriefScrollsInsideItsFocusedBox(t *testing.T) {
 	ad.Brief = strings.Repeat("0123456789abcdef0123456789abcde\n", 512)
 	long.attempt[fleetID] = ad
 	app := newApp(t, long)
-	tt := newTesterAt(app, 1100, 900)
+	tt := newTesterAt(app, 1100, 1600)
 	app.OpenRef("a1")
 	tt.Frame()
 	if _, max := desktop.ViewerScroll(app); max-shortMax > 400 {
@@ -280,7 +280,7 @@ func TestAnUnreadDecisionAnswerSaysSoAndThePageCatchesUp(t *testing.T) {
 func TestAReportOpensItsTaskAtItsCard(t *testing.T) {
 	f := viewFixture(t)
 	app := newApp(t, f)
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	app.OpenRef("t1")
 	tt.Frame()
 	if y, _ := desktop.ViewerScroll(app); y != 0 {
@@ -304,7 +304,7 @@ func TestAReportOpensItsTaskAtItsCard(t *testing.T) {
 	if !ok {
 		t.Fatal("no r3 card")
 	}
-	if card.Y < 70 || card.Y+card.H > windowHeight-24 {
+	if card.Y < 70 || card.Y+card.H > 900 {
 		t.Fatalf("the r3 card is at %v, outside the viewer's body", card)
 	}
 	if y, _ := desktop.ViewerScroll(app); y <= 0 {
@@ -318,7 +318,7 @@ func TestAReportInNeedsOpensItsTaskAtItsCard(t *testing.T) {
 	delete(f.report, fleetID)
 	app := newApp(t, f)
 	app.Task, app.Attempt = desktop.TaskDetail{}, desktop.AttemptDetail{}
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	click(t, tt, "Board")
 	click(t, tt, "Cookie fixed")
 	click(t, tt, "Open r1")
@@ -333,7 +333,7 @@ func TestAReportInNeedsOpensItsTaskAtItsCard(t *testing.T) {
 	if !ok {
 		t.Fatal("no r1 card")
 	}
-	if card.Y < 70 || card.Y+card.H > windowHeight-24 {
+	if card.Y < 70 || card.Y+card.H > 900 {
 		t.Fatalf("the r1 card is at %v, outside the viewer's body", card)
 	}
 }
@@ -385,7 +385,7 @@ func TestAReportInUnreadOutsideTheWindowLandsOnItsCard(t *testing.T) {
 	if !ok {
 		t.Fatal("no r99 card")
 	}
-	if card.Y < 70 || card.Y+card.H > 900-24 {
+	if card.Y < 70 || card.Y+card.H > 900 {
 		t.Fatalf("the r99 card is at %v, outside the viewer's body", card)
 	}
 	if y, _ := desktop.ViewerScroll(app); y <= 0 {
@@ -433,7 +433,7 @@ func TestAReportThatArrivesInAPollScrollsToItsCard(t *testing.T) {
 	if !ok {
 		t.Fatal("no r99 card after the poll")
 	}
-	if card.Y < 70 || card.Y+card.H > 900-24 {
+	if card.Y < 70 || card.Y+card.H > 900 {
 		t.Fatalf("the r99 card is at %v, outside the viewer's body", card)
 	}
 	if y, _ := desktop.ViewerScroll(app); y <= 0 {
@@ -959,7 +959,7 @@ func TestAnOpenAttemptPageFollowsItsTranscript(t *testing.T) {
 	clock := newFakeClock()
 	app.Clock = clock
 	app.StartRefresh()
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	app.OpenRef("a1")
 	tt.Frame()
 	mustText(t, tt, "Please fix the cookie.")
@@ -1040,7 +1040,7 @@ func TestAnOpenDecisionPageTurnsAnsweredOnAPoll(t *testing.T) {
 	clock := newFakeClock()
 	app.Clock = clock
 	app.StartRefresh()
-	tt := newTester(app)
+	tt := newTesterAt(app, 1800, 900)
 	app.OpenRef("d1")
 	tt.Frame()
 	mustText(t, tt, "Send answer")

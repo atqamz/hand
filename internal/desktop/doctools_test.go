@@ -213,7 +213,7 @@ func TestWideWidensTheViewerBoxAndWrapBreaksLongLines(t *testing.T) {
 	long := strings.Repeat("abcdefghij ", 60)
 	app, f := toolsApp(t, notesPath)
 	f.docLines[notesPath][0] = long
-	tt := sized(t, app, 1500, 800, false)
+	tt := sized(t, app, 2600, 800, false)
 	narrow, _ := tt.Find("Close the viewer")
 	click(t, tt, "Wide")
 	tt.Frame()

@@ -230,7 +230,7 @@ func TestEscapeAndCloseReturnFocusToTheBoardFromADocumentPage(t *testing.T) {
 	}
 }
 
-func TestEscapeClosesTheDocumentPageFromARailItem(t *testing.T) {
+func TestEscapeOnARailItemLeavesThePageOpen(t *testing.T) {
 	app, tt, _ := docPageApp(t)
 	app.OpenDoc("reports/t1/design.md")
 	tt.Frame()
@@ -242,7 +242,7 @@ func TestEscapeClosesTheDocumentPageFromARailItem(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if app.Screen != desktop.BoardScreen {
-		t.Fatalf("Escape on a rail item left %v", app.Screen)
+	if app.Screen != desktop.DocScreen {
+		t.Fatalf("Escape on a rail item left %v, want the page open", app.Screen)
 	}
 }

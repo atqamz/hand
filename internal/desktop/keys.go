@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -19,10 +20,13 @@ type shortcut struct {
 	Chords   []chord
 	Text     string
 	CmdApple bool
+
+	AppleOnly, OtherOnly, Unlisted []chord
 }
 
 const (
 	groupAnywhere = "Anywhere"
+	groupPage     = "On an open page"
 	groupDoc      = "On a document page"
 	groupFind     = "In the find box"
 	groupDecision = "On an open decision"
@@ -37,7 +41,11 @@ var (
 	keyZoomOut   = shortcut{Group: groupAnywhere, Does: "Zoom out", Chords: []chord{{ui.Ctrl, ui.KeyMinus}}}
 	keyZoomReset = shortcut{Group: groupAnywhere, Does: "Reset the zoom", Chords: []chord{{ui.Ctrl, ui.Key0}}}
 
-	keyClosePage = shortcut{Group: groupDoc, Does: "Close the page", Chords: []chord{{0, ui.KeyEscape}}}
+	keyBack = shortcut{Group: groupPage, Does: "Back one page; from the first page, close it",
+		Chords:    []chord{{ui.Alt, ui.KeyLeft}, {ui.Super, ui.KeyBracketLeft}, {0, ui.KeyBack}},
+		AppleOnly: []chord{{ui.Super, ui.KeyBracketLeft}}, OtherOnly: []chord{{ui.Alt, ui.KeyLeft}},
+		Unlisted: []chord{{0, ui.KeyBack}}}
+	keyClosePage = shortcut{Group: groupPage, Does: "Close all open pages", Chords: []chord{{0, ui.KeyEscape}}}
 	keyFind      = shortcut{Group: groupDoc, Does: "Find in the document", Chords: []chord{{ui.Cmd, ui.KeyF}, {0, ui.KeySlash}}}
 	keyPrevDoc   = shortcut{Group: groupDoc, Does: "Open the previous document in this folder", Chords: []chord{{0, ui.KeyBracketLeft}}}
 	keyNextDoc   = shortcut{Group: groupDoc, Does: "Open the next document in this folder", Chords: []chord{{0, ui.KeyBracketRight}}}
@@ -64,7 +72,7 @@ var (
 
 var shortcuts = []shortcut{
 	keyHelp, keyZoomIn, keyZoomOut, keyZoomReset,
-	keyClosePage, keyFind, keyPrevDoc, keyNextDoc,
+	keyBack, keyClosePage, keyFind, keyPrevDoc, keyNextDoc,
 	keyFindNext, keyFindPrev, keyFindClear,
 	keyChoose, keyAnswer,
 	keySend,
@@ -121,7 +129,7 @@ func (s shortcut) on(e ui.Element, fn func()) ui.Element {
 
 var keyNames = map[ui.Key]string{
 	ui.KeyEscape: "Esc", ui.KeyEnter: "Enter", ui.KeySlash: "/", ui.KeyEqual: "=", ui.KeyMinus: "-",
-	ui.Key0: "0", ui.Key1: "1", ui.Key2: "2", ui.Key3: "3", ui.Key4: "4", ui.Key5: "5", ui.Key6: "6", ui.KeyB: "B", ui.KeyF: "F", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]",
+	ui.Key0: "0", ui.Key1: "1", ui.Key2: "2", ui.Key3: "3", ui.Key4: "4", ui.Key5: "5", ui.Key6: "6", ui.KeyB: "B", ui.KeyF: "F", ui.KeyLeft: "←", ui.KeyBack: "Back", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]",
 }
 
 var shiftedNames = map[ui.Key]string{ui.KeySlash: "?", ui.KeyEqual: "+"}
@@ -160,6 +168,7 @@ func (s shortcut) shown(apple bool) []chord {
 	var out []chord
 	for _, ch := range s.Chords {
 		switch {
+		case slices.Contains(s.Unlisted, ch), !apple && slices.Contains(s.AppleOnly, ch), apple && slices.Contains(s.OtherOnly, ch):
 		case ch.Mods&ui.Super != 0 && s.has(chord{ch.Mods&^ui.Super | ui.Ctrl, ch.Key}):
 			if apple {
 				out = append(out, ch)

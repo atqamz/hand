@@ -40,6 +40,7 @@ type fixture struct {
 	projects       map[string]desktop.Projects
 	projectsErr    error
 	task           map[string]desktop.TaskDetail
+	taskExtra      map[string]desktop.TaskDetail
 	attempt        map[string]desktop.AttemptDetail
 	attemptRefs    map[string]desktop.AttemptDetail
 	attemptErr     error
@@ -291,6 +292,9 @@ func (f *fixture) Task(ctx context.Context, id, ref string) (desktop.TaskDetail,
 	}
 	if f.taskErr != nil {
 		return desktop.TaskDetail{}, f.taskErr
+	}
+	if d, ok := f.taskExtra[ref]; ok {
+		return d, nil
 	}
 	d, ok := f.task[id]
 	if !ok || (ref != "" && d.Task.Ref != ref) {
