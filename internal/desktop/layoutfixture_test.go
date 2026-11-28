@@ -311,6 +311,7 @@ type layoutScene struct {
 	modal  func(width int) bool
 	under  func(t *testing.T, width, height int, dark bool) *ui.Tester
 	errors []string
+	dialog int
 }
 
 func boardOpen(fx func(t *testing.T) *fixture, then func(t *testing.T, app *desktop.App, tt *ui.Tester)) func(t *testing.T, w, h int, dark bool) *ui.Tester {
@@ -359,9 +360,9 @@ func layoutScenes() []layoutScene {
 		{name: "reply-first", web: "e01a", fresh: true, open: boardOpen(layoutReplyFirst, nil)},
 		{name: "long-reply", web: "e010 chat", fresh: true, open: boardOpen(layoutLongReply, nil)},
 		{name: "tasks", web: "e010 tasks", open: boardOpen(subtaskSearchFixture, showScreen(desktop.TasksScreen))},
-		{name: "task", modal: always, web: "task, dialog", open: boardOpen(goldenFixture, openRef("t1"))},
-		{name: "attempt", modal: always, web: "attempt", open: boardOpen(goldenFixture, openRef("a1"))},
-		{name: "decision", modal: always, web: "decision", open: boardOpen(goldenFixture, openRef("d1"))},
+		{name: "task", modal: always, dialog: 95, web: "task, dialog", open: boardOpen(goldenFixture, openRef("t1"))},
+		{name: "attempt", modal: always, dialog: 55, web: "attempt", open: boardOpen(goldenFixture, openRef("a1"))},
+		{name: "decision", modal: always, dialog: 20, web: "decision", open: boardOpen(goldenFixture, openRef("d1"))},
 		{name: "document", web: "document, documents", open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
 			t.Helper()
 			app := newApp(t, docFixture(t))
@@ -385,7 +386,7 @@ func layoutScenes() []layoutScene {
 			app, _ := skillsApp(t, goldenFixture(t))
 			return sized(t, app, w, h, dark)
 		}},
-		{name: "overflow-menu", modal: narrow, web: "menu", under: boardOpen(goldenFixture, nil), open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
+		{name: "overflow-menu", modal: narrow, dialog: 25, web: "menu", under: boardOpen(goldenFixture, nil), open: func(t *testing.T, w, h int, dark bool) *ui.Tester {
 			t.Helper()
 			tt := sized(t, newApp(t, goldenFixture(t)), w, h, dark)
 			click(t, tt, menuButton(w))

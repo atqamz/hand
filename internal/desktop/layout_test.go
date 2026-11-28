@@ -38,13 +38,16 @@ type tolerance struct {
 }
 
 func tolerances() tolerance {
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		return tolerance{ink: linuxInk, linkW: 12, linkH: 16, textH: 12}
+	case "windows":
+		return otherTolerance(windowsInk)
 	}
-	ink := darwinInk
-	if runtime.GOOS == "windows" {
-		ink = windowsInk
-	}
+	return otherTolerance(darwinInk)
+}
+
+func otherTolerance(ink float64) tolerance {
 	return tolerance{ink: ink, linkW: 11, linkH: 15, textH: 14, viewer: true}
 }
 
@@ -112,7 +115,7 @@ func overlap(a, b ui.Rect) (w, h float32) {
 }
 
 func describe(r ui.Rect) string {
-	return fmt.Sprintf("(%.0f,%.0f %.0fx%.0f)", r.X, r.Y, r.W, r.H)
+	return fmt.Sprintf("(%.1f,%.1f %.1fx%.1f)", r.X, r.Y, r.W, r.H)
 }
 
 func shorten(s string) string {
@@ -134,6 +137,14 @@ func paneEdges(tt *ui.Tester, width int) [][2]float32 {
 		rail = r.X + r.W
 	}
 	return [][2]float32{{0, rail}, {rail, div.X + div.W/2}, {div.X + div.W/2, w}}
+}
+
+func describePanes(edges [][2]float32) string {
+	var parts []string
+	for _, e := range edges {
+		parts = append(parts, fmt.Sprintf("%.1f to %.1f", e[0], e[1]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func isDivider(r ui.Rect, div ui.Rect) bool {
@@ -189,12 +200,12 @@ func noOverflow(tt *ui.Tester, width, height int, vertical bool, known []hitBox)
 			out = append(out, fmt.Sprintf("%s %s leaves the %d px window", what, describe(r), height))
 			return
 		}
-		cx := r.X + r.W/2
 		for _, e := range edges {
-			if cx >= e[0] && cx < e[1] && !within(r, e[0], e[1]) {
-				out = append(out, fmt.Sprintf("%s %s crosses its pane %.0f to %.0f", what, describe(r), e[0], e[1]))
+			if within(r, e[0], e[1]) {
+				return
 			}
 		}
+		out = append(out, fmt.Sprintf("%s %s is not inside one pane of %s", what, describe(r), describePanes(edges)))
 	}
 	for _, h := range hits {
 		if h.R.W <= 0 || h.R.H <= 0 || hasDiv && isDivider(h.R, div) {
@@ -228,7 +239,7 @@ func smallTargets(hits []hitBox, tol tolerance) []string {
 			minW, minH, what = kit.Control, kit.Control, "control"
 		}
 		if h.R.W < minW || h.R.H < minH {
-			out = append(out, fmt.Sprintf("%s hit target %s under %.0fx%.0f px", what, describe(h.R), minW, minH))
+			out = append(out, fmt.Sprintf("%s hit target %s under %.1fx%.1f px", what, describe(h.R), minW, minH))
 		}
 	}
 	return out
@@ -388,12 +399,62 @@ func isControl(r ui.Rect, hits []hitBox) bool {
 	return false
 }
 
+func named(s string) bool {
+	return strings.HasPrefix(s, "group ") || strings.HasPrefix(s, "task ") || strings.HasPrefix(s, "skill ")
+}
+
+func exactWords(visible, name string) bool {
+	v, n := wordsOf(visible), wordsOf(name)
+	i := 0
+	for _, w := range n {
+		if i < len(v) && w == v[i] {
+			i++
+		}
+	}
+	return len(v) > 0 && i == len(v)
+}
+
+func strayed(v layer) []string {
+	var out []string
+	for _, l := range v.texts {
+		if !named(l.Text) || l.R.W <= 0 || l.R.H <= 0 {
+			continue
+		}
+		for _, x := range v.texts {
+			if x.R.W <= 0 || x.R.H <= 0 || x.Text == l.Text || named(x.Text) || !exactWords(x.Text, l.Text) {
+				continue
+			}
+			mid := x.R.Y + x.R.H/2
+			if mid < l.R.Y || mid > l.R.Y+l.R.H || inside(x.R, l.R) {
+				continue
+			}
+			held := false
+			for _, y := range v.texts {
+				if y.Text == x.Text && y.R.W > 0 && inside(y.R, l.R) {
+					held = true
+				}
+			}
+			if !held {
+				out = append(out, fmt.Sprintf("%q %s is part of the name of %q %s but is drawn outside it", shorten(x.Text), describe(x.R), shorten(l.Text), describe(l.R)))
+			}
+		}
+	}
+	return out
+}
+
+func landmark(s string) bool {
+	switch s {
+	case "Masthead", "Tabs", "Supervisor", "Pages and fleets", "iroh ready", "Document actions", "alert stats", "Rendered or Source":
+		return true
+	}
+	return named(s)
+}
+
 func overprinted(v layer) []string {
 	texts := v.texts
-	held := holders(texts)
 	exempt := func(inner, outer int) bool {
 		o := texts[outer]
-		return held[outer] >= 2 || o.R.H >= texts[inner].R.H+6 || inName(texts[inner].Text, o.Text) || isControl(o.R, v.hits) || atClipEdge(o.R, v.hits)
+		return landmark(o.Text) || inName(texts[inner].Text, o.Text) || isControl(o.R, v.hits) || atClipEdge(o.R, v.hits)
 	}
 	var out []string
 	for i, a := range texts {
